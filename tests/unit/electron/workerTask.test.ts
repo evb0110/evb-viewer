@@ -1,12 +1,5 @@
 import type * as TFsModule from 'fs';
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 
 const mocks = vi.hoisted<{
     existsSync: ReturnType<typeof vi.fn<() => boolean>>;
@@ -48,34 +41,39 @@ const mocks = vi.hoisted<{
     terminateResult: null,
 }));
 
-vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
-    debug: (message: string, data?: unknown) => mocks.logged.push({
-        level: 'debug',
-        message,
-        data,
+vi.mock('@electron/utils/createLogger', () => ({
+    createLogger: () => ({
+        debug: (message: string, data?: unknown) =>
+            mocks.logged.push({
+                level: 'debug',
+                message,
+                data,
+            }),
+        info: (message: string, data?: unknown) =>
+            mocks.logged.push({
+                level: 'info',
+                message,
+                data,
+            }),
+        warn: (message: string, data?: unknown) =>
+            mocks.logged.push({
+                level: 'warn',
+                message,
+                data,
+            }),
+        error: (message: string, _failure: unknown, data?: unknown) => {
+            mocks.logged.push({
+                level: 'error',
+                message,
+                data,
+            });
+            return mocks.failureReceipt;
+        },
     }),
-    info: (message: string, data?: unknown) => mocks.logged.push({
-        level: 'info',
-        message,
-        data,
-    }),
-    warn: (message: string, data?: unknown) => mocks.logged.push({
-        level: 'warn',
-        message,
-        data,
-    }),
-    error: (message: string, _failure: unknown, data?: unknown) => {
-        mocks.logged.push({
-            level: 'error',
-            message,
-            data,
-        });
-        return mocks.failureReceipt;
-    },
-})}));
+}));
 
-vi.mock('fs', async importOriginal => ({
-    ...await importOriginal<typeof TFsModule>(),
+vi.mock('fs', async (importOriginal) => ({
+    ...(await importOriginal<typeof TFsModule>()),
     existsSync: mocks.existsSync,
 }));
 vi.mock('worker_threads', () => ({
@@ -132,8 +130,14 @@ vi.mock('worker_threads', () => ({
         }
 
         removeListener(event: string, handler: (payload: unknown) => void) {
-            this.onceHandlers.set(event, (this.onceHandlers.get(event) ?? []).filter(item => item !== handler));
-            this.onHandlers.set(event, (this.onHandlers.get(event) ?? []).filter(item => item !== handler));
+            this.onceHandlers.set(
+                event,
+                (this.onceHandlers.get(event) ?? []).filter((item) => item !== handler),
+            );
+            this.onHandlers.set(
+                event,
+                (this.onHandlers.get(event) ?? []).filter((item) => item !== handler),
+            );
             return this;
         }
 
@@ -187,28 +191,32 @@ describe('workerTask', () => {
     });
 
     it('normalizes streaming worker constructor errors as startup errors', async () => {
-        const { startStreamingWorkerTask } = await import('@electron/utils/workerTask');
+        const {startStreamingWorkerTask} = await import('@electron/utils/workerTask');
 
-        expect(() => startStreamingWorkerTask({
-            workerPath: '/tmp/worker.js',
-            workerData: { ok: true },
-            invalidPayloadMessage: 'invalid payload',
-            createStartupError: message => new Error(`startup: ${message}`),
-            createWorkerExitError: code => new Error(`exit: ${code}`),
-        })).toThrow('startup: constructor failed');
+        expect(() =>
+            startStreamingWorkerTask({
+                workerPath: '/tmp/worker.js',
+                workerData: {ok: true},
+                invalidPayloadMessage: 'invalid payload',
+                createStartupError: (message) => new Error(`startup: ${message}`),
+                createWorkerExitError: (code) => new Error(`exit: ${code}`),
+            }),
+        ).toThrow('startup: constructor failed');
     });
 
     it('keeps missing streaming worker paths on the startup error path', async () => {
         mocks.existsSync.mockReturnValue(false);
-        const { startStreamingWorkerTask } = await import('@electron/utils/workerTask');
+        const {startStreamingWorkerTask} = await import('@electron/utils/workerTask');
 
-        expect(() => startStreamingWorkerTask({
-            workerPath: '/tmp/missing-worker.js',
-            workerData: null,
-            invalidPayloadMessage: 'invalid payload',
-            createStartupError: message => new Error(`startup: ${message}`),
-            createWorkerExitError: code => new Error(`exit: ${code}`),
-        })).toThrow('startup: Worker unavailable at path: /tmp/missing-worker.js');
+        expect(() =>
+            startStreamingWorkerTask({
+                workerPath: '/tmp/missing-worker.js',
+                workerData: null,
+                invalidPayloadMessage: 'invalid payload',
+                createStartupError: (message) => new Error(`startup: ${message}`),
+                createWorkerExitError: (code) => new Error(`exit: ${code}`),
+            }),
+        ).toThrow('startup: Worker unavailable at path: /tmp/missing-worker.js');
         expect(mocks.workerCtor).not.toHaveBeenCalled();
     });
 
@@ -216,16 +224,18 @@ describe('workerTask', () => {
         const abortController = new AbortController();
         const abortReason = new Error('stream canceled before start');
         abortController.abort(abortReason);
-        const { startStreamingWorkerTask } = await import('@electron/utils/workerTask');
+        const {startStreamingWorkerTask} = await import('@electron/utils/workerTask');
 
-        expect(() => startStreamingWorkerTask({
-            workerPath: '/tmp/worker.js',
-            workerData: { ok: true },
-            invalidPayloadMessage: 'invalid payload',
-            createStartupError: message => new Error(`startup: ${message}`),
-            createWorkerExitError: code => new Error(`exit: ${code}`),
-            signal: abortController.signal,
-        })).toThrow(abortReason);
+        expect(() =>
+            startStreamingWorkerTask({
+                workerPath: '/tmp/worker.js',
+                workerData: {ok: true},
+                invalidPayloadMessage: 'invalid payload',
+                createStartupError: (message) => new Error(`startup: ${message}`),
+                createWorkerExitError: (code) => new Error(`exit: ${code}`),
+                signal: abortController.signal,
+            }),
+        ).toThrow(abortReason);
         expect(mocks.workerCtor).not.toHaveBeenCalled();
     });
 
@@ -233,15 +243,17 @@ describe('workerTask', () => {
         const abortController = new AbortController();
         const abortReason = new Error('canceled before start');
         abortController.abort(abortReason);
-        const { runResultWorkerTask } = await import('@electron/utils/workerTask');
+        const {runResultWorkerTask} = await import('@electron/utils/workerTask');
 
-        await expect(runResultWorkerTask({
-            workerPath: '/tmp/worker.js',
-            workerData: { ok: true },
-            invalidPayloadMessage: 'invalid payload',
-            createWorkerExitError: code => new Error(`exit: ${code}`),
-            signal: abortController.signal,
-        })).rejects.toBe(abortReason);
+        await expect(
+            runResultWorkerTask({
+                workerPath: '/tmp/worker.js',
+                workerData: {ok: true},
+                invalidPayloadMessage: 'invalid payload',
+                createWorkerExitError: (code) => new Error(`exit: ${code}`),
+                signal: abortController.signal,
+            }),
+        ).rejects.toBe(abortReason);
         expect(mocks.workerCtor).not.toHaveBeenCalled();
     });
 
@@ -260,17 +272,14 @@ describe('workerTask', () => {
                 source: 'page-ops:crop-worker',
             },
         };
-        const {
-            runResultWorkerTask,
-            WorkerTaskError,
-        } = await import('@electron/utils/workerTask');
+        const {runResultWorkerTask, WorkerTaskError} = await import('@electron/utils/workerTask');
 
         try {
             await runResultWorkerTask({
                 workerPath: '/tmp/worker.js',
-                workerData: { ok: true },
+                workerData: {ok: true},
                 invalidPayloadMessage: 'invalid payload',
-                createWorkerExitError: code => new Error(`exit: ${code}`),
+                createWorkerExitError: (code) => new Error(`exit: ${code}`),
             });
             throw new Error('Expected worker task to reject');
         } catch (error) {
@@ -288,11 +297,7 @@ describe('workerTask', () => {
 
     it('preserves generic structured details across the worker result frame', async () => {
         mocks.throwConstructorError = false;
-        const {
-            createWorkerTaskErrorFrame,
-            runResultWorkerTask,
-            WorkerTaskError,
-        } = await import('@electron/utils/workerTask');
+        const {createWorkerTaskErrorFrame, runResultWorkerTask, WorkerTaskError} = await import('@electron/utils/workerTask');
         const workerError = Object.assign(new Error('not enough scratch'), {
             name: 'ScanCleanupInsufficientScratchError',
             code: 'insufficient-scratch',
@@ -321,7 +326,7 @@ describe('workerTask', () => {
             workerPath: '/tmp/worker.js',
             workerData: {ok: true},
             invalidPayloadMessage: 'invalid payload',
-            createWorkerExitError: code => new Error(`exit: ${code}`),
+            createWorkerExitError: (code) => new Error(`exit: ${code}`),
         }).catch((cause: unknown) => cause);
         expect(error).toBeInstanceOf(WorkerTaskError);
         expect(error).toMatchObject({
@@ -342,22 +347,24 @@ describe('workerTask', () => {
             ok: true,
             data: 'ok',
         };
-        const { runResultWorkerTask } = await import('@electron/utils/workerTask');
+        const {runResultWorkerTask} = await import('@electron/utils/workerTask');
 
-        await expect(runResultWorkerTask({
-            workerPath: '/tmp/worker.js',
-            workerData: { ok: true },
-            invalidPayloadMessage: 'invalid payload',
-            createWorkerExitError: code => new Error(`exit: ${code}`),
-            resourceLimits: {
-                maxOldGenerationSizeMb: 256,
-                maxYoungGenerationSizeMb: 32,
-                stackSizeMb: 8,
-            },
-        })).resolves.toBe('ok');
+        await expect(
+            runResultWorkerTask({
+                workerPath: '/tmp/worker.js',
+                workerData: {ok: true},
+                invalidPayloadMessage: 'invalid payload',
+                createWorkerExitError: (code) => new Error(`exit: ${code}`),
+                resourceLimits: {
+                    maxOldGenerationSizeMb: 256,
+                    maxYoungGenerationSizeMb: 32,
+                    stackSizeMb: 8,
+                },
+            }),
+        ).resolves.toBe('ok');
 
         expect(mocks.workerCtor).toHaveBeenCalledWith('/tmp/worker.js', {
-            workerData: { ok: true },
+            workerData: {ok: true},
             resourceLimits: {
                 maxOldGenerationSizeMb: 256,
                 maxYoungGenerationSizeMb: 32,
@@ -375,11 +382,11 @@ describe('workerTask', () => {
 
         const taskPromise = runResultWorkerTask({
             workerPath: '/tmp/worker.js',
-            workerData: { ok: true },
+            workerData: {ok: true},
             invalidPayloadMessage: 'invalid payload',
-            createWorkerExitError: code => new Error(`exit: ${code}`),
+            createWorkerExitError: (code) => new Error(`exit: ${code}`),
             signal: abortController.signal,
-            createCancelMessage: reason => ({
+            createCancelMessage: (reason) => ({
                 type: 'cancel',
                 reason,
             }),
@@ -395,15 +402,10 @@ describe('workerTask', () => {
         mocks.workerRecords[0]?.emit('error', new Error('generic worker failure'));
 
         await expect(taskPromise).rejects.toBe(abortReason);
-        expect(getUnprovenNativeTerminationDetail(abortReason)).toContain(
-            'ended before acknowledging cancellation',
-        );
+        expect(getUnprovenNativeTerminationDetail(abortReason)).toContain('ended before acknowledging cancellation');
     });
 
-    it.each([
-        0,
-        1,
-    ])('marks a canceled worker exit as unproven before acknowledgement (code %i)', async code => {
+    it.each([0, 1])('marks a canceled worker exit as unproven before acknowledgement (code %i)', async (code) => {
         mocks.throwConstructorError = false;
         const abortController = new AbortController();
         const abortReason = new Error('navigation canceled task');
@@ -412,11 +414,11 @@ describe('workerTask', () => {
 
         const taskPromise = runResultWorkerTask({
             workerPath: '/tmp/worker.js',
-            workerData: { ok: true },
+            workerData: {ok: true},
             invalidPayloadMessage: 'invalid payload',
-            createWorkerExitError: code => new Error(`exit: ${code}`),
+            createWorkerExitError: (code) => new Error(`exit: ${code}`),
             signal: abortController.signal,
-            createCancelMessage: reason => ({
+            createCancelMessage: (reason) => ({
                 type: 'cancel',
                 reason,
             }),
@@ -428,9 +430,7 @@ describe('workerTask', () => {
         mocks.workerRecords[0]?.emit('exit', code);
 
         await expect(taskPromise).rejects.toBe(abortReason);
-        expect(getUnprovenNativeTerminationDetail(abortReason)).toContain(
-            'ended before acknowledging cancellation',
-        );
+        expect(getUnprovenNativeTerminationDetail(abortReason)).toContain('ended before acknowledging cancellation');
     });
 
     it('classifies a cooperatively canceled worker below error level after acknowledgement', async () => {
@@ -442,11 +442,11 @@ describe('workerTask', () => {
 
         const taskPromise = runResultWorkerTask({
             workerPath: '/tmp/worker.js',
-            workerData: { ok: true },
+            workerData: {ok: true},
             invalidPayloadMessage: 'invalid payload',
-            createWorkerExitError: code => new Error(`exit: ${code}`),
+            createWorkerExitError: (code) => new Error(`exit: ${code}`),
             signal: abortController.signal,
-            createCancelMessage: reason => ({
+            createCancelMessage: (reason) => ({
                 type: 'cancel',
                 reason,
             }),
@@ -467,11 +467,13 @@ describe('workerTask', () => {
 
         await expect(taskPromise).rejects.toBe(abortReason);
         expect(getUnprovenNativeTerminationDetail(abortReason)).toBeUndefined();
-        expect(mocks.logged).toContainEqual(expect.objectContaining({
-            level: 'info',
-            message: 'Worker reported cancellation',
-        }));
-        expect(mocks.logged.some(entry => entry.level === 'error')).toBe(false);
+        expect(mocks.logged).toContainEqual(
+            expect.objectContaining({
+                level: 'info',
+                message: 'Worker reported cancellation',
+            }),
+        );
+        expect(mocks.logged.some((entry) => entry.level === 'error')).toBe(false);
     });
 
     it('waits for force termination of a non-cooperative worker before settling', async () => {
@@ -480,24 +482,26 @@ describe('workerTask', () => {
         mocks.terminateResult = () => terminated.promise;
         const abortController = new AbortController();
         const abortReason = new Error('working copy is closing');
-        const { runResultWorkerTask } = await import('@electron/utils/workerTask');
+        const {runResultWorkerTask} = await import('@electron/utils/workerTask');
 
         const taskPromise = runResultWorkerTask({
             workerPath: '/tmp/worker.js',
-            workerData: { ok: true },
+            workerData: {ok: true},
             invalidPayloadMessage: 'invalid payload',
-            createWorkerExitError: code => new Error(`exit: ${code}`),
+            createWorkerExitError: (code) => new Error(`exit: ${code}`),
             signal: abortController.signal,
-            createCancelMessage: reason => ({
+            createCancelMessage: (reason) => ({
                 type: 'cancel',
                 reason,
             }),
             cooperativeCancelDelayMs: 5,
         });
         let settled = false;
-        void taskPromise.catch(() => undefined).finally(() => {
-            settled = true;
-        });
+        void taskPromise
+            .catch(() => undefined)
+            .finally(() => {
+                settled = true;
+            });
 
         await Promise.resolve();
         abortController.abort(abortReason);
@@ -507,7 +511,7 @@ describe('workerTask', () => {
         await vi.waitFor(() => {
             expect(mocks.workerRecords[0]?.terminateCalls).toBe(1);
         });
-        await new Promise(resolve => setTimeout(resolve, 20));
+        await new Promise((resolve) => setTimeout(resolve, 20));
         expect(settled).toBe(false);
 
         terminated.resolve(1);
@@ -523,48 +527,49 @@ describe('workerTask', () => {
         mocks.terminateResult = () => new Promise<number>(() => {});
         const abortController = new AbortController();
         const abortReason = new Error('working copy is closing');
-        const {
-            runResultWorkerTask,
-            WORKER_TERMINATION_ESCALATION_INTERVAL_MS,
-            WORKER_TERMINATION_ESCALATION_LIMIT,
-        } = await import('@electron/utils/workerTask');
+        const {runResultWorkerTask, WORKER_TERMINATION_ESCALATION_INTERVAL_MS, WORKER_TERMINATION_ESCALATION_LIMIT} =
+            await import('@electron/utils/workerTask');
 
         const taskPromise = runResultWorkerTask({
             workerPath: '/tmp/worker.js',
-            workerData: { ok: true },
+            workerData: {ok: true},
             invalidPayloadMessage: 'invalid payload',
-            createWorkerExitError: code => new Error(`exit: ${code}`),
+            createWorkerExitError: (code) => new Error(`exit: ${code}`),
             signal: abortController.signal,
             createCancelMessage: () => ({type: 'cancel'}),
             cooperativeCancelDelayMs: 5,
         });
         let settled = false;
         const rejection = expect(taskPromise).rejects.toBe(abortReason);
-        void taskPromise.catch(() => undefined).finally(() => {
-            settled = true;
-        });
+        void taskPromise
+            .catch(() => undefined)
+            .finally(() => {
+                settled = true;
+            });
 
         await Promise.resolve();
         abortController.abort(abortReason);
         await vi.advanceTimersByTimeAsync(5);
         expect(mocks.workerRecords[0]?.terminateCalls).toBe(1);
 
-        await vi.advanceTimersByTimeAsync(
-            WORKER_TERMINATION_ESCALATION_INTERVAL_MS * (WORKER_TERMINATION_ESCALATION_LIMIT + 2),
-        );
+        await vi.advanceTimersByTimeAsync(WORKER_TERMINATION_ESCALATION_INTERVAL_MS * (WORKER_TERMINATION_ESCALATION_LIMIT + 2));
         // Settling here would tell the close path that the working copy is free
         // while the worker's Poppler children are still reading it.
         expect(settled).toBe(false);
         expect(mocks.workerRecords[0]?.terminateCalls).toBe(WORKER_TERMINATION_ESCALATION_LIMIT);
-        expect(mocks.logged.filter(entry => (
-            entry.level === 'warn' && entry.message === 'Worker remains unsettled after termination request'
-        ))).toHaveLength(WORKER_TERMINATION_ESCALATION_LIMIT - 1);
+        expect(
+            mocks.logged.filter(
+                (entry) => entry.level === 'warn' && entry.message === 'Worker remains unsettled after termination request',
+            ),
+        ).toHaveLength(WORKER_TERMINATION_ESCALATION_LIMIT - 1);
         // A wedged worker is a contained outcome the working-copy owner turns
         // into a quarantine, so it stays below the level the renderer reports.
-        expect(mocks.logged.some(entry => (
-            entry.level === 'warn' && entry.message === 'Worker remains unsettled after termination escalation'
-        ))).toBe(true);
-        expect(mocks.logged.some(entry => entry.level === 'error')).toBe(false);
+        expect(
+            mocks.logged.some(
+                (entry) => entry.level === 'warn' && entry.message === 'Worker remains unsettled after termination escalation',
+            ),
+        ).toBe(true);
+        expect(mocks.logged.some((entry) => entry.level === 'error')).toBe(false);
 
         // Only the thread actually going away releases the task.
         mocks.workerRecords[0]?.emit('exit', 1);
@@ -577,33 +582,36 @@ describe('workerTask', () => {
         mocks.terminateResult = () => Promise.reject(new Error('terminate failed'));
         const abortController = new AbortController();
         const abortReason = new Error('working copy is closing');
-        const { runResultWorkerTask } = await import('@electron/utils/workerTask');
+        const {runResultWorkerTask} = await import('@electron/utils/workerTask');
 
         const taskPromise = runResultWorkerTask({
             workerPath: '/tmp/worker.js',
-            workerData: { ok: true },
+            workerData: {ok: true},
             invalidPayloadMessage: 'invalid payload',
-            createWorkerExitError: code => new Error(`exit: ${code}`),
+            createWorkerExitError: (code) => new Error(`exit: ${code}`),
             signal: abortController.signal,
             createCancelMessage: () => ({type: 'cancel'}),
             cooperativeCancelDelayMs: 5,
         });
         let settled = false;
         const rejection = expect(taskPromise).rejects.toBe(abortReason);
-        void taskPromise.catch(() => undefined).finally(() => {
-            settled = true;
-        });
+        void taskPromise
+            .catch(() => undefined)
+            .finally(() => {
+                settled = true;
+            });
 
         await Promise.resolve();
         abortController.abort(abortReason);
         await vi.waitFor(() => {
-            expect(mocks.logged.some(entry => (
-                entry.level === 'warn'
-                && entry.message.includes('Worker termination request did not complete')
-            ))).toBe(true);
+            expect(
+                mocks.logged.some(
+                    (entry) => entry.level === 'warn' && entry.message.includes('Worker termination request did not complete'),
+                ),
+            ).toBe(true);
         });
         // A rejected request says nothing about the thread, so it is not proof.
-        await new Promise(resolve => setTimeout(resolve, 20));
+        await new Promise((resolve) => setTimeout(resolve, 20));
         expect(settled).toBe(false);
 
         mocks.workerRecords[0]?.emit('exit', 1);
@@ -621,33 +629,38 @@ describe('workerTask', () => {
         };
         const abortController = new AbortController();
         const abortReason = new Error('working copy is closing');
-        const { runResultWorkerTask } = await import('@electron/utils/workerTask');
+        const {runResultWorkerTask} = await import('@electron/utils/workerTask');
 
         const taskPromise = runResultWorkerTask({
             workerPath: '/tmp/worker.js',
-            workerData: { ok: true },
+            workerData: {ok: true},
             invalidPayloadMessage: 'invalid payload',
-            createWorkerExitError: code => new Error(`exit: ${code}`),
+            createWorkerExitError: (code) => new Error(`exit: ${code}`),
             signal: abortController.signal,
             createCancelMessage: () => ({type: 'cancel'}),
             cooperativeCancelDelayMs: 5,
         });
         let settled = false;
         const rejection = expect(taskPromise).rejects.toBe(abortReason);
-        void taskPromise.catch(() => undefined).finally(() => {
-            settled = true;
-        });
+        void taskPromise
+            .catch(() => undefined)
+            .finally(() => {
+                settled = true;
+            });
 
         await Promise.resolve();
         abortController.abort(abortReason);
         await vi.waitFor(() => {
-            expect(mocks.logged.some(entry => (
-                entry.level === 'warn'
-                && entry.message === 'Worker termination request did not complete'
-                && (entry.data as {error?: string} | undefined)?.error === 'terminate threw'
-            ))).toBe(true);
+            expect(
+                mocks.logged.some(
+                    (entry) =>
+                        entry.level === 'warn' &&
+                        entry.message === 'Worker termination request did not complete' &&
+                        (entry.data as {error?: string} | undefined)?.error === 'terminate threw',
+                ),
+            ).toBe(true);
         });
-        await new Promise(resolve => setTimeout(resolve, 20));
+        await new Promise((resolve) => setTimeout(resolve, 20));
         expect(settled).toBe(false);
 
         mocks.workerRecords[0]?.emit('exit', 1);
@@ -662,37 +675,37 @@ describe('workerTask', () => {
             ok: true,
             data: {done: true},
         };
-        const { runResultWorkerTask } = await import('@electron/utils/workerTask');
+        const {runResultWorkerTask} = await import('@electron/utils/workerTask');
 
-        await expect(runResultWorkerTask({
-            workerPath: '/tmp/worker.js',
-            workerData: { ok: true },
-            invalidPayloadMessage: 'invalid payload',
-            createWorkerExitError: code => new Error(`exit: ${code}`),
-        })).resolves.toEqual({done: true});
+        await expect(
+            runResultWorkerTask({
+                workerPath: '/tmp/worker.js',
+                workerData: {ok: true},
+                invalidPayloadMessage: 'invalid payload',
+                createWorkerExitError: (code) => new Error(`exit: ${code}`),
+            }),
+        ).resolves.toEqual({done: true});
 
         // The task stopped listening, but the worker is still unwinding. An
         // 'error' with no listener is rethrown by Node into the main process.
         expect(() => {
             mocks.workerRecords[0]?.emit('error', new Error('late worker error'));
         }).not.toThrow();
-        expect(mocks.logged.some(entry => (
-            entry.level === 'info' && entry.message.includes('after its task settled')
-        ))).toBe(true);
-        expect(mocks.logged.filter(entry => entry.level === 'error')).toEqual([]);
+        expect(mocks.logged.some((entry) => entry.level === 'info' && entry.message.includes('after its task settled'))).toBe(true);
+        expect(mocks.logged.filter((entry) => entry.level === 'error')).toEqual([]);
     });
 
     it('keeps an expected cancellation out of the application error stream', async () => {
         mocks.throwConstructorError = false;
         const abortController = new AbortController();
         const abortReason = new Error('working copy is closing');
-        const { runResultWorkerTask } = await import('@electron/utils/workerTask');
+        const {runResultWorkerTask} = await import('@electron/utils/workerTask');
 
         const taskPromise = runResultWorkerTask({
             workerPath: '/tmp/worker.js',
-            workerData: { ok: true },
+            workerData: {ok: true},
             invalidPayloadMessage: 'invalid payload',
-            createWorkerExitError: code => new Error(`exit: ${code}`),
+            createWorkerExitError: (code) => new Error(`exit: ${code}`),
             signal: abortController.signal,
             createCancelMessage: () => ({type: 'cancel'}),
             cooperativeCancelDelayMs: 5_000,
@@ -703,10 +716,10 @@ describe('workerTask', () => {
         mocks.workerRecords[0]?.emit('exit', 1);
 
         await expect(taskPromise).rejects.toBe(abortReason);
-        expect(mocks.logged.filter(entry => entry.level === 'error')).toEqual([]);
-        expect(mocks.logged.some(entry => (
-            entry.level === 'info' && entry.message.startsWith('Worker exited while cancelling')
-        ))).toBe(true);
+        expect(mocks.logged.filter((entry) => entry.level === 'error')).toEqual([]);
+        expect(mocks.logged.some((entry) => entry.level === 'info' && entry.message.startsWith('Worker exited while cancelling'))).toBe(
+            true,
+        );
     });
 
     it('reports a genuine worker failure once and marks it as already reported', async () => {
@@ -722,24 +735,23 @@ describe('workerTask', () => {
                 source: 'scan-cleanup',
             },
         };
-        const {
-            getWorkerTaskFailureReceipt,
-            runResultWorkerTask,
-        } = await import('@electron/utils/workerTask');
+        const {getWorkerTaskFailureReceipt, runResultWorkerTask} = await import('@electron/utils/workerTask');
 
         const error = await runResultWorkerTask({
             workerPath: '/tmp/worker.js',
-            workerData: { ok: true },
+            workerData: {ok: true},
             invalidPayloadMessage: 'invalid payload',
-            createWorkerExitError: code => new Error(`exit: ${code}`),
+            createWorkerExitError: (code) => new Error(`exit: ${code}`),
         }).catch((cause: unknown) => cause);
 
         expect(getWorkerTaskFailureReceipt(error)).toEqual(mocks.failureReceipt);
-        expect(mocks.logged.filter(entry => entry.level === 'error')).toEqual([{
-            level: 'error',
-            message: 'Worker reported failure',
-            data: expect.objectContaining({error: 'pdftoppm failed'}),
-        }]);
+        expect(mocks.logged.filter((entry) => entry.level === 'error')).toEqual([
+            {
+                level: 'error',
+                message: 'Worker reported failure',
+                data: expect.objectContaining({error: 'pdftoppm failed'}),
+            },
+        ]);
     });
 
     it('treats a worker-reported abort as a cancellation rather than a failure', async () => {
@@ -756,20 +768,17 @@ describe('workerTask', () => {
                 source: 'scan-cleanup',
             },
         };
-        const {
-            getWorkerTaskFailureReceipt,
-            runResultWorkerTask,
-        } = await import('@electron/utils/workerTask');
+        const {getWorkerTaskFailureReceipt, runResultWorkerTask} = await import('@electron/utils/workerTask');
 
         const error = await runResultWorkerTask({
             workerPath: '/tmp/worker.js',
-            workerData: { ok: true },
+            workerData: {ok: true},
             invalidPayloadMessage: 'invalid payload',
-            createWorkerExitError: code => new Error(`exit: ${code}`),
+            createWorkerExitError: (code) => new Error(`exit: ${code}`),
         }).catch((cause: unknown) => cause);
 
         expect(getWorkerTaskFailureReceipt(error)).toBeUndefined();
-        expect(mocks.logged.filter(entry => entry.level === 'error')).toEqual([]);
+        expect(mocks.logged.filter((entry) => entry.level === 'error')).toEqual([]);
     });
 
     // The quarantine decision is made in main but observed in the worker, and a
@@ -777,23 +786,14 @@ describe('workerTask', () => {
     // is the only link that carries it across, so it is asserted on both sides.
     it('carries an unproven native termination across the worker result frame', async () => {
         mocks.throwConstructorError = false;
-        const {
-            createWorkerTaskErrorFrame,
-            runResultWorkerTask,
-        } = await import('@electron/utils/workerTask');
-        const {
-            getUnprovenNativeTerminationDetail,
-            markUnprovenNativeTermination,
-        } = await import('@electron/utils/nativeTerminationProof');
+        const {createWorkerTaskErrorFrame, runResultWorkerTask} = await import('@electron/utils/workerTask');
+        const {getUnprovenNativeTerminationDetail, markUnprovenNativeTermination} = await import('@electron/utils/nativeTerminationProof');
 
         const detail = 'evb-scan-cleanup process tree (pid=4242) was not proven dead within 3500ms of termination';
         // What the worker thread posts after its sidecar could not confirm the
         // death of the Poppler tree it spawned.
         const workerFrame = createWorkerTaskErrorFrame(
-            markUnprovenNativeTermination(
-                new DOMException('Canceled scan cleanup detection', 'AbortError'),
-                detail,
-            ),
+            markUnprovenNativeTermination(new DOMException('Canceled scan cleanup detection', 'AbortError'), detail),
             {source: 'scan-cleanup'},
         );
         expect(workerFrame.terminationUnproven).toBe(detail);
@@ -808,9 +808,9 @@ describe('workerTask', () => {
 
         const error = await runResultWorkerTask({
             workerPath: '/tmp/worker.js',
-            workerData: { ok: true },
+            workerData: {ok: true},
             invalidPayloadMessage: 'invalid payload',
-            createWorkerExitError: code => new Error(`exit: ${code}`),
+            createWorkerExitError: (code) => new Error(`exit: ${code}`),
         }).catch((cause: unknown) => cause);
 
         // Main re-attaches the mark, which is what makes the close path retain
@@ -818,25 +818,19 @@ describe('workerTask', () => {
         expect(getUnprovenNativeTerminationDetail(error)).toBe(detail);
         // An unproven stop of a cancelled run is still a cancellation, so it
         // must not become an application error report.
-        expect(mocks.logged.filter(entry => entry.level === 'error')).toEqual([]);
+        expect(mocks.logged.filter((entry) => entry.level === 'error')).toEqual([]);
     });
 
     it('carries domain details supplied via frame options so domain code decodes them', async () => {
         mocks.throwConstructorError = false;
-        const {
-            createWorkerTaskErrorFrame,
-            runResultWorkerTask,
-        } = await import('@electron/utils/workerTask');
+        const {createWorkerTaskErrorFrame, runResultWorkerTask} = await import('@electron/utils/workerTask');
         const {ScanCleanupInsufficientScratchError} = await import('@evb/scan-cleanup/core/errors');
         const {scanCleanupScratchShortfall} = await import('@electron/features/scan-cleanup/scanCleanupPreviewPolicy');
         const scratchError = new ScanCleanupInsufficientScratchError(512, 1_024);
-        const workerFrame = createWorkerTaskErrorFrame(
-            scratchError,
-            {
-                source: 'scan-cleanup',
-                details: {scratchShortfall: scratchError.scratchShortfall},
-            },
-        );
+        const workerFrame = createWorkerTaskErrorFrame(scratchError, {
+            source: 'scan-cleanup',
+            details: {scratchShortfall: scratchError.scratchShortfall},
+        });
         expect(workerFrame).toMatchObject({
             code: 'insufficient-scratch',
             details: {
@@ -857,7 +851,7 @@ describe('workerTask', () => {
             workerPath: '/tmp/worker.js',
             workerData: {ok: true},
             invalidPayloadMessage: 'invalid payload',
-            createWorkerExitError: code => new Error(`exit: ${code}`),
+            createWorkerExitError: (code) => new Error(`exit: ${code}`),
         }).catch((cause: unknown) => cause);
 
         expect(scanCleanupScratchShortfall(error)).toEqual({
@@ -870,19 +864,19 @@ describe('workerTask', () => {
         });
     });
 
-    it('carries the cancelled worker\'s unproven termination onto the abort rejection', async () => {
+    it("carries the cancelled worker's unproven termination onto the abort rejection", async () => {
         mocks.throwConstructorError = false;
         const abortController = new AbortController();
         const abortReason = new Error('working copy is closing');
         const detail = 'evb-scan-cleanup process tree (pid=4242) was not proven dead within 3500ms of termination';
-        const { runResultWorkerTask } = await import('@electron/utils/workerTask');
-        const { getUnprovenNativeTerminationDetail } = await import('@electron/utils/nativeTerminationProof');
+        const {runResultWorkerTask} = await import('@electron/utils/workerTask');
+        const {getUnprovenNativeTerminationDetail} = await import('@electron/utils/nativeTerminationProof');
 
         const taskPromise = runResultWorkerTask({
             workerPath: '/tmp/worker.js',
-            workerData: { ok: true },
+            workerData: {ok: true},
             invalidPayloadMessage: 'invalid payload',
-            createWorkerExitError: code => new Error(`exit: ${code}`),
+            createWorkerExitError: (code) => new Error(`exit: ${code}`),
             signal: abortController.signal,
             createCancelMessage: () => ({type: 'cancel'}),
             cooperativeCancelDelayMs: 5_000,
@@ -910,21 +904,21 @@ describe('workerTask', () => {
 
         expect(error).toBe(abortReason);
         expect(getUnprovenNativeTerminationDetail(error)).toBe(detail);
-        expect(mocks.logged.filter(entry => entry.level === 'error')).toEqual([]);
+        expect(mocks.logged.filter((entry) => entry.level === 'error')).toEqual([]);
     });
 
     it('leaves a cancelled worker that proved its termination unmarked', async () => {
         mocks.throwConstructorError = false;
         const abortController = new AbortController();
         const abortReason = new Error('working copy is closing');
-        const { runResultWorkerTask } = await import('@electron/utils/workerTask');
-        const { getUnprovenNativeTerminationDetail } = await import('@electron/utils/nativeTerminationProof');
+        const {runResultWorkerTask} = await import('@electron/utils/workerTask');
+        const {getUnprovenNativeTerminationDetail} = await import('@electron/utils/nativeTerminationProof');
 
         const taskPromise = runResultWorkerTask({
             workerPath: '/tmp/worker.js',
-            workerData: { ok: true },
+            workerData: {ok: true},
             invalidPayloadMessage: 'invalid payload',
-            createWorkerExitError: code => new Error(`exit: ${code}`),
+            createWorkerExitError: (code) => new Error(`exit: ${code}`),
             signal: abortController.signal,
             createCancelMessage: () => ({type: 'cancel'}),
             cooperativeCancelDelayMs: 5_000,
@@ -956,14 +950,14 @@ describe('workerTask', () => {
         mocks.throwConstructorError = false;
         const abortController = new AbortController();
         const abortReason = new Error('working copy is closing');
-        const { runResultWorkerTask } = await import('@electron/utils/workerTask');
-        const { getUnprovenNativeTerminationDetail } = await import('@electron/utils/nativeTerminationProof');
+        const {runResultWorkerTask} = await import('@electron/utils/workerTask');
+        const {getUnprovenNativeTerminationDetail} = await import('@electron/utils/nativeTerminationProof');
 
         const taskPromise = runResultWorkerTask({
             workerPath: '/tmp/worker.js',
-            workerData: { ok: true },
+            workerData: {ok: true},
             invalidPayloadMessage: 'invalid payload',
-            createWorkerExitError: code => new Error(`exit: ${code}`),
+            createWorkerExitError: (code) => new Error(`exit: ${code}`),
             signal: abortController.signal,
             createCancelMessage: () => ({type: 'cancel'}),
             cooperativeCancelDelayMs: 5_000,
@@ -981,12 +975,13 @@ describe('workerTask', () => {
         const error = await settled;
 
         expect(error).toBe(abortReason);
-        expect(getUnprovenNativeTerminationDetail(error))
-            .toContain('native processes it spawned were never confirmed stopped');
-        expect(mocks.logged.some(entry => (
-            entry.level === 'warn' && entry.message === 'Worker did not acknowledge cancellation before force termination'
-        ))).toBe(true);
-        expect(mocks.logged.filter(entry => entry.level === 'error')).toEqual([]);
+        expect(getUnprovenNativeTerminationDetail(error)).toContain('native processes it spawned were never confirmed stopped');
+        expect(
+            mocks.logged.some(
+                (entry) => entry.level === 'warn' && entry.message === 'Worker did not acknowledge cancellation before force termination',
+            ),
+        ).toBe(true);
+        expect(mocks.logged.filter((entry) => entry.level === 'error')).toEqual([]);
     });
 
     describe('owner lease', () => {
@@ -997,17 +992,20 @@ describe('workerTask', () => {
             ioWeight: 1,
         };
 
-        async function runUnderLease(
-            task: (onTerminationProof: (proof: Promise<boolean>) => void) => Promise<unknown>,
-        ) {
+        async function runUnderLease(task: (onTerminationProof: (proof: Promise<boolean>) => void) => Promise<unknown>) {
             const {JobBroker} = await import('@electron/resources/jobBroker');
             const broker = new JobBroker(LEASE);
-            const outcome = broker.run({
-                ownerId: 'conformance',
-                kind: 'conformance',
-                priority: 'user',
-                resources: LEASE,
-            }, ({onTerminationProof}) => task(onTerminationProof)).catch((cause: unknown) => cause);
+            const outcome = broker
+                .run(
+                    {
+                        ownerId: 'conformance',
+                        kind: 'conformance',
+                        priority: 'user',
+                        resources: LEASE,
+                    },
+                    ({onTerminationProof}) => task(onTerminationProof),
+                )
+                .catch((cause: unknown) => cause);
             return {
                 broker,
                 outcome,
@@ -1018,27 +1016,24 @@ describe('workerTask', () => {
             vi.useFakeTimers();
             mocks.throwConstructorError = false;
             const {runResultWorkerTask} = await import('@electron/utils/workerTask');
-            const {
-                getUnprovenNativeTerminationDetail,
-                markUnprovenNativeTermination,
-            } = await import('@electron/utils/nativeTerminationProof');
+            const {getUnprovenNativeTerminationDetail, markUnprovenNativeTermination} =
+                await import('@electron/utils/nativeTerminationProof');
             const jobAbort = new AbortController();
             // A sibling's child outlived its kill and stopped the shared job.
             const siblingReason = markUnprovenNativeTermination(new Error('sibling not proven dead'), 'sibling alive');
 
-            const {
-                broker,
-                outcome,
-            } = await runUnderLease(onTerminationProof => runResultWorkerTask({
-                workerPath: '/tmp/worker.js',
-                workerData: {ok: true},
-                invalidPayloadMessage: 'invalid payload',
-                createWorkerExitError: code => new Error(`exit: ${code}`),
-                signal: jobAbort.signal,
-                createCancelMessage: () => ({type: 'cancel'}),
-                cooperativeCancelDelayMs: 5_000,
-                onTerminationProof,
-            }));
+            const {broker, outcome} = await runUnderLease((onTerminationProof) =>
+                runResultWorkerTask({
+                    workerPath: '/tmp/worker.js',
+                    workerData: {ok: true},
+                    invalidPayloadMessage: 'invalid payload',
+                    createWorkerExitError: (code) => new Error(`exit: ${code}`),
+                    signal: jobAbort.signal,
+                    createCancelMessage: () => ({type: 'cancel'}),
+                    cooperativeCancelDelayMs: 5_000,
+                    onTerminationProof,
+                }),
+            );
             await vi.advanceTimersByTimeAsync(0);
             jobAbort.abort(siblingReason);
             // This worker ignores the cancel and is force terminated; its own
@@ -1060,19 +1055,18 @@ describe('workerTask', () => {
             const jobAbort = new AbortController();
             const siblingReason = markUnprovenNativeTermination(new Error('sibling not proven dead'), 'sibling alive');
 
-            const {
-                broker,
-                outcome,
-            } = await runUnderLease(onTerminationProof => runResultWorkerTask({
-                workerPath: '/tmp/worker.js',
-                workerData: {ok: true},
-                invalidPayloadMessage: 'invalid payload',
-                createWorkerExitError: code => new Error(`exit: ${code}`),
-                signal: jobAbort.signal,
-                createCancelMessage: () => ({type: 'cancel'}),
-                cooperativeCancelDelayMs: 5_000,
-                onTerminationProof,
-            }));
+            const {broker, outcome} = await runUnderLease((onTerminationProof) =>
+                runResultWorkerTask({
+                    workerPath: '/tmp/worker.js',
+                    workerData: {ok: true},
+                    invalidPayloadMessage: 'invalid payload',
+                    createWorkerExitError: (code) => new Error(`exit: ${code}`),
+                    signal: jobAbort.signal,
+                    createCancelMessage: () => ({type: 'cancel'}),
+                    cooperativeCancelDelayMs: 5_000,
+                    onTerminationProof,
+                }),
+            );
             await vi.waitFor(() => expect(mocks.workerRecords).toHaveLength(1));
             jobAbort.abort(siblingReason);
             mocks.workerRecords[0]!.emit('message', {
@@ -1109,27 +1103,24 @@ describe('workerTask', () => {
         ])('keeps the lease of a worker that answers a cancel with $reply', async ({payload}) => {
             mocks.throwConstructorError = false;
             const {runResultWorkerTask} = await import('@electron/utils/workerTask');
-            const {
-                getUnprovenNativeTerminationDetail,
-                markUnprovenNativeTermination,
-            } = await import('@electron/utils/nativeTerminationProof');
+            const {getUnprovenNativeTerminationDetail, markUnprovenNativeTermination} =
+                await import('@electron/utils/nativeTerminationProof');
             const jobAbort = new AbortController();
             const siblingReason = markUnprovenNativeTermination(new Error('sibling not proven dead'), 'sibling alive');
 
-            const {
-                broker,
-                outcome,
-            } = await runUnderLease(onTerminationProof => runResultWorkerTask({
-                workerPath: '/tmp/worker.js',
-                workerData: {ok: true},
-                invalidPayloadMessage: 'invalid payload',
-                createWorkerExitError: code => new Error(`exit: ${code}`),
-                decodeResult: data => (typeof data === 'object' && data !== null && 'profile' in data ? data : null),
-                signal: jobAbort.signal,
-                createCancelMessage: () => ({type: 'cancel'}),
-                cooperativeCancelDelayMs: 5_000,
-                onTerminationProof,
-            }));
+            const {broker, outcome} = await runUnderLease((onTerminationProof) =>
+                runResultWorkerTask({
+                    workerPath: '/tmp/worker.js',
+                    workerData: {ok: true},
+                    invalidPayloadMessage: 'invalid payload',
+                    createWorkerExitError: (code) => new Error(`exit: ${code}`),
+                    decodeResult: (data) => (typeof data === 'object' && data !== null && 'profile' in data ? data : null),
+                    signal: jobAbort.signal,
+                    createCancelMessage: () => ({type: 'cancel'}),
+                    cooperativeCancelDelayMs: 5_000,
+                    onTerminationProof,
+                }),
+            );
             await vi.waitFor(() => expect(mocks.workerRecords).toHaveLength(1));
             jobAbort.abort(siblingReason);
             // Not a cancel acknowledgement: the worker's children may still run.
@@ -1145,29 +1136,26 @@ describe('workerTask', () => {
         it('keeps the lease of a worker whose cancel reply makes the decoder throw', async () => {
             mocks.throwConstructorError = false;
             const {runResultWorkerTask} = await import('@electron/utils/workerTask');
-            const {
-                getUnprovenNativeTerminationDetail,
-                markUnprovenNativeTermination,
-            } = await import('@electron/utils/nativeTerminationProof');
+            const {getUnprovenNativeTerminationDetail, markUnprovenNativeTermination} =
+                await import('@electron/utils/nativeTerminationProof');
             const jobAbort = new AbortController();
             const siblingReason = markUnprovenNativeTermination(new Error('sibling not proven dead'), 'sibling alive');
 
-            const {
-                broker,
-                outcome,
-            } = await runUnderLease(onTerminationProof => runResultWorkerTask({
-                workerPath: '/tmp/worker.js',
-                workerData: {ok: true},
-                invalidPayloadMessage: 'invalid payload',
-                createWorkerExitError: code => new Error(`exit: ${code}`),
-                // As the conformance decoder does on a cloned reply whose
-                // `saveRestrictions` is not an array.
-                decodeResult: data => ((data as {saveRestrictions: {every: () => boolean}}).saveRestrictions.every() ? data : null),
-                signal: jobAbort.signal,
-                createCancelMessage: () => ({type: 'cancel'}),
-                cooperativeCancelDelayMs: 5_000,
-                onTerminationProof,
-            }));
+            const {broker, outcome} = await runUnderLease((onTerminationProof) =>
+                runResultWorkerTask({
+                    workerPath: '/tmp/worker.js',
+                    workerData: {ok: true},
+                    invalidPayloadMessage: 'invalid payload',
+                    createWorkerExitError: (code) => new Error(`exit: ${code}`),
+                    // As the conformance decoder does on a cloned reply whose
+                    // `saveRestrictions` is not an array.
+                    decodeResult: (data) => ((data as {saveRestrictions: {every: () => boolean}}).saveRestrictions.every() ? data : null),
+                    signal: jobAbort.signal,
+                    createCancelMessage: () => ({type: 'cancel'}),
+                    cooperativeCancelDelayMs: 5_000,
+                    onTerminationProof,
+                }),
+            );
             await vi.waitFor(() => expect(mocks.workerRecords).toHaveLength(1));
             jobAbort.abort(siblingReason);
             mocks.workerRecords[0]!.emit('message', {
@@ -1193,22 +1181,21 @@ describe('workerTask', () => {
             frozenReason.name = 'AbortError';
             Object.freeze(frozenReason);
 
-            const {
-                broker,
-                outcome,
-            } = await runUnderLease(onTerminationProof => runResultWorkerTask({
-                workerPath: '/tmp/worker.js',
-                workerData: {ok: true},
-                invalidPayloadMessage: 'invalid payload',
-                createWorkerExitError: code => new Error(`exit: ${code}`),
-                decodeResult: () => {
-                    throw new TypeError('decoder failed');
-                },
-                signal: jobAbort.signal,
-                createCancelMessage: () => ({type: 'cancel'}),
-                cooperativeCancelDelayMs: 5_000,
-                onTerminationProof,
-            }));
+            const {broker, outcome} = await runUnderLease((onTerminationProof) =>
+                runResultWorkerTask({
+                    workerPath: '/tmp/worker.js',
+                    workerData: {ok: true},
+                    invalidPayloadMessage: 'invalid payload',
+                    createWorkerExitError: (code) => new Error(`exit: ${code}`),
+                    decodeResult: () => {
+                        throw new TypeError('decoder failed');
+                    },
+                    signal: jobAbort.signal,
+                    createCancelMessage: () => ({type: 'cancel'}),
+                    cooperativeCancelDelayMs: 5_000,
+                    onTerminationProof,
+                }),
+            );
             await vi.waitFor(() => expect(mocks.workerRecords).toHaveLength(1));
             jobAbort.abort(frozenReason);
             mocks.workerRecords[0]!.emit('message', {
@@ -1235,20 +1222,19 @@ describe('workerTask', () => {
             mocks.throwConstructorError = false;
             const {runResultWorkerTask} = await import('@electron/utils/workerTask');
 
-            const {
-                broker,
-                outcome,
-            } = await runUnderLease(onTerminationProof => runResultWorkerTask({
-                workerPath: '/tmp/worker.js',
-                workerData: {ok: true},
-                invalidPayloadMessage: 'invalid payload',
-                invalidResultMessage: 'invalid conformance result',
-                createWorkerExitError: code => new Error(`exit: ${code}`),
-                decodeResult: () => {
-                    throw new TypeError('saveRestrictions.every is not a function');
-                },
-                onTerminationProof,
-            }));
+            const {broker, outcome} = await runUnderLease((onTerminationProof) =>
+                runResultWorkerTask({
+                    workerPath: '/tmp/worker.js',
+                    workerData: {ok: true},
+                    invalidPayloadMessage: 'invalid payload',
+                    invalidResultMessage: 'invalid conformance result',
+                    createWorkerExitError: (code) => new Error(`exit: ${code}`),
+                    decodeResult: () => {
+                        throw new TypeError('saveRestrictions.every is not a function');
+                    },
+                    onTerminationProof,
+                }),
+            );
             await vi.waitFor(() => expect(mocks.workerRecords).toHaveLength(1));
             mocks.workerRecords[0]!.emit('message', {
                 type: 'result',
@@ -1267,19 +1253,18 @@ describe('workerTask', () => {
             const {getUnprovenNativeTerminationDetail} = await import('@electron/utils/nativeTerminationProof');
             const controller = new AbortController();
 
-            const {
-                broker,
-                outcome,
-            } = await runUnderLease(onTerminationProof => runResultWorkerTask({
-                workerPath: '/tmp/worker.js',
-                workerData: {ok: true},
-                invalidPayloadMessage: 'invalid payload',
-                createWorkerExitError: code => new Error(`exit: ${code}`),
-                signal: controller.signal,
-                createCancelMessage: () => ({type: 'cancel'}),
-                cooperativeCancelDelayMs: 5_000,
-                onTerminationProof,
-            }));
+            const {broker, outcome} = await runUnderLease((onTerminationProof) =>
+                runResultWorkerTask({
+                    workerPath: '/tmp/worker.js',
+                    workerData: {ok: true},
+                    invalidPayloadMessage: 'invalid payload',
+                    createWorkerExitError: (code) => new Error(`exit: ${code}`),
+                    signal: controller.signal,
+                    createCancelMessage: () => ({type: 'cancel'}),
+                    cooperativeCancelDelayMs: 5_000,
+                    onTerminationProof,
+                }),
+            );
             await vi.advanceTimersByTimeAsync(0);
             controller.abort('cancel');
             await vi.advanceTimersByTimeAsync(5_000);
@@ -1304,17 +1289,16 @@ describe('workerTask', () => {
             const {runResultWorkerTask} = await import('@electron/utils/workerTask');
             const {getUnprovenNativeTerminationDetail} = await import('@electron/utils/nativeTerminationProof');
 
-            const {
-                broker,
-                outcome,
-            } = await runUnderLease(onTerminationProof => runResultWorkerTask({
-                workerPath: '/tmp/worker.js',
-                workerData: {ok: true},
-                invalidPayloadMessage: 'invalid payload',
-                // A plain factory, as a generic owner writes it.
-                createWorkerExitError: code => new Error(`exit: ${code}`),
-                onTerminationProof,
-            }));
+            const {broker, outcome} = await runUnderLease((onTerminationProof) =>
+                runResultWorkerTask({
+                    workerPath: '/tmp/worker.js',
+                    workerData: {ok: true},
+                    invalidPayloadMessage: 'invalid payload',
+                    // A plain factory, as a generic owner writes it.
+                    createWorkerExitError: (code) => new Error(`exit: ${code}`),
+                    onTerminationProof,
+                }),
+            );
             await vi.waitFor(() => expect(mocks.workerRecords).toHaveLength(1));
             await Promise.resolve();
             mocks.workerRecords[0]!.emit('exit', 3);
@@ -1342,14 +1326,14 @@ describe('workerTask', () => {
                 source: 'scan-cleanup',
             },
         };
-        const { runResultWorkerTask } = await import('@electron/utils/workerTask');
-        const { getUnprovenNativeTerminationDetail } = await import('@electron/utils/nativeTerminationProof');
+        const {runResultWorkerTask} = await import('@electron/utils/workerTask');
+        const {getUnprovenNativeTerminationDetail} = await import('@electron/utils/nativeTerminationProof');
 
         const error = await runResultWorkerTask({
             workerPath: '/tmp/worker.js',
-            workerData: { ok: true },
+            workerData: {ok: true},
             invalidPayloadMessage: 'invalid payload',
-            createWorkerExitError: code => new Error(`exit: ${code}`),
+            createWorkerExitError: (code) => new Error(`exit: ${code}`),
         }).catch((cause: unknown) => cause);
 
         // Quarantining every ordinary failure would retain a temp directory for
@@ -1368,15 +1352,15 @@ describe('workerTask', () => {
                 terminationUnproven: {detail: 'not a string'},
             },
         };
-        const { runResultWorkerTask } = await import('@electron/utils/workerTask');
+        const {runResultWorkerTask} = await import('@electron/utils/workerTask');
 
         // A frame that fails validation invalidates the complete result rather
         // than letting the untyped fallback message hide a protocol error.
         const error = await runResultWorkerTask({
             workerPath: '/tmp/worker.js',
-            workerData: { ok: true },
+            workerData: {ok: true},
             invalidPayloadMessage: 'invalid payload',
-            createWorkerExitError: code => new Error(`exit: ${code}`),
+            createWorkerExitError: (code) => new Error(`exit: ${code}`),
         }).catch((cause: unknown) => cause);
 
         expect((error as Error).message).toBe('invalid payload');
@@ -1419,12 +1403,14 @@ describe('workerTask', () => {
         };
         const {runResultWorkerTask} = await import('@electron/utils/workerTask');
 
-        await expect(runResultWorkerTask({
-            workerPath: '/tmp/worker.js',
-            workerData: {ok: true},
-            invalidPayloadMessage: 'invalid payload',
-            createWorkerExitError: code => new Error(`exit: ${code}`),
-        })).rejects.toThrow('invalid payload');
+        await expect(
+            runResultWorkerTask({
+                workerPath: '/tmp/worker.js',
+                workerData: {ok: true},
+                invalidPayloadMessage: 'invalid payload',
+                createWorkerExitError: (code) => new Error(`exit: ${code}`),
+            }),
+        ).rejects.toThrow('invalid payload');
     });
 
     it('rejects an array error frame with expando properties instead of acknowledging cancellation', async () => {
@@ -1440,35 +1426,35 @@ describe('workerTask', () => {
         };
         const {runResultWorkerTask} = await import('@electron/utils/workerTask');
 
-        await expect(runResultWorkerTask({
-            workerPath: '/tmp/worker.js',
-            workerData: {ok: true},
-            invalidPayloadMessage: 'invalid payload',
-            createWorkerExitError: code => new Error(`exit: ${code}`),
-        })).rejects.toThrow('invalid payload');
+        await expect(
+            runResultWorkerTask({
+                workerPath: '/tmp/worker.js',
+                workerData: {ok: true},
+                invalidPayloadMessage: 'invalid payload',
+                createWorkerExitError: (code) => new Error(`exit: ${code}`),
+            }),
+        ).rejects.toThrow('invalid payload');
     });
 
     it('restarts inactivity timeouts when a streaming worker reports progress', async () => {
         vi.useFakeTimers();
         mocks.throwConstructorError = false;
-        const { startStreamingWorkerTask } = await import('@electron/utils/workerTask');
+        const {startStreamingWorkerTask} = await import('@electron/utils/workerTask');
 
         const task = startStreamingWorkerTask({
             workerPath: '/tmp/worker.js',
-            workerData: { ok: true },
+            workerData: {ok: true},
             invalidPayloadMessage: 'invalid payload',
-            createStartupError: message => new Error(`startup: ${message}`),
-            createWorkerExitError: code => new Error(`exit: ${code}`),
+            createStartupError: (message) => new Error(`startup: ${message}`),
+            createWorkerExitError: (code) => new Error(`exit: ${code}`),
             inactivityTimeoutMs: 1_000,
-            createCancelMessage: reason => ({
+            createCancelMessage: (reason) => ({
                 type: 'cancel',
                 reason,
             }),
-            onProgressMessage: payload => payload === 'progress',
+            onProgressMessage: (payload) => payload === 'progress',
         });
-        const rejection = expect(task.promise).rejects.toThrow(
-            'Worker task timed out after 1000ms without progress',
-        );
+        const rejection = expect(task.promise).rejects.toThrow('Worker task timed out after 1000ms without progress');
 
         await vi.advanceTimersByTimeAsync(900);
         mocks.workerRecords[0]?.emit('message', 'progress');
@@ -1500,15 +1486,15 @@ describe('workerTask', () => {
             workerPath: '/tmp/worker.js',
             workerData: {ok: true},
             invalidPayloadMessage: 'invalid payload',
-            createStartupError: message => new Error(`startup: ${message}`),
-            createWorkerExitError: code => new Error(`exit: ${code}`),
+            createStartupError: (message) => new Error(`startup: ${message}`),
+            createWorkerExitError: (code) => new Error(`exit: ${code}`),
             timeoutMs: 10_000,
             inactivityTimeoutMs: 20_000,
         });
 
-        const timers = setTimeoutSpy.mock.results.map(result => result.value as NodeJS.Timeout);
+        const timers = setTimeoutSpy.mock.results.map((result) => result.value as NodeJS.Timeout);
         expect(timers).toHaveLength(2);
-        expect(timers.every(timer => timer.hasRef() === false)).toBe(true);
+        expect(timers.every((timer) => timer.hasRef() === false)).toBe(true);
 
         mocks.workerRecords[0]?.emit('message', {
             type: 'result',
@@ -1518,38 +1504,38 @@ describe('workerTask', () => {
         await expect(task.promise).resolves.toBe('done');
     });
 
-    it.each([
-        'runtime-error',
-        'empty-clean-exit',
-        'invalid-payload',
-        'invalid-result',
-    ] as const)('surfaces the native owner runtime hook on %s', async mode => {
-        mocks.throwConstructorError = false;
-        const {
-            markUnprovenNativeTermination, getUnprovenNativeTerminationDetail,
-        } = await import('@electron/utils/nativeTerminationProof');
-        const {runResultWorkerTask} = await import('@electron/utils/workerTask');
-        const marked = markUnprovenNativeTermination(new Error('native owner crashed'), 'native descendants unknown');
-        const task = runResultWorkerTask({
-            workerPath: '/tmp/worker.js',
-            workerData: {},
-            invalidPayloadMessage: 'invalid result',
-            createWorkerExitError: code => new Error(`exit ${code}`),
-            createWorkerError: () => marked,
-            decodeResult: data => typeof data === 'string' ? data : null,
-        });
-        const observed = task.catch((error: unknown) => error);
-        await Promise.resolve();
-        const worker = mocks.workerRecords[0]!;
-        if (mode === 'invalid-payload') {worker.emit('message', {type: 'unexpected'});}
-        else if (mode === 'invalid-result') {worker.emit('message', {
-            type: 'result',
-            ok: true,
-            data: 42,
-        });}
-        else {worker.emit(mode === 'runtime-error' ? 'error' : 'exit', mode === 'runtime-error' ? new Error('runtime crash') : 0);}
-        expect(await observed).toBe(marked);
-        expect(getUnprovenNativeTerminationDetail(await observed)).toBe('native descendants unknown');
-    });
-
+    it.each(['runtime-error', 'empty-clean-exit', 'invalid-payload', 'invalid-result'] as const)(
+        'surfaces the native owner runtime hook on %s',
+        async (mode) => {
+            mocks.throwConstructorError = false;
+            const {markUnprovenNativeTermination, getUnprovenNativeTerminationDetail} =
+                await import('@electron/utils/nativeTerminationProof');
+            const {runResultWorkerTask} = await import('@electron/utils/workerTask');
+            const marked = markUnprovenNativeTermination(new Error('native owner crashed'), 'native descendants unknown');
+            const task = runResultWorkerTask({
+                workerPath: '/tmp/worker.js',
+                workerData: {},
+                invalidPayloadMessage: 'invalid result',
+                createWorkerExitError: (code) => new Error(`exit ${code}`),
+                createWorkerError: () => marked,
+                decodeResult: (data) => (typeof data === 'string' ? data : null),
+            });
+            const observed = task.catch((error: unknown) => error);
+            await Promise.resolve();
+            const worker = mocks.workerRecords[0]!;
+            if (mode === 'invalid-payload') {
+                worker.emit('message', {type: 'unexpected'});
+            } else if (mode === 'invalid-result') {
+                worker.emit('message', {
+                    type: 'result',
+                    ok: true,
+                    data: 42,
+                });
+            } else {
+                worker.emit(mode === 'runtime-error' ? 'error' : 'exit', mode === 'runtime-error' ? new Error('runtime crash') : 0);
+            }
+            expect(await observed).toBe(marked);
+            expect(getUnprovenNativeTerminationDetail(await observed)).toBe('native descendants unknown');
+        },
+    );
 });

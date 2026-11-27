@@ -74,11 +74,14 @@ const FOLD_BAND_UNMEASURED_REASONS = [
 
 const foldBandNumber = v.pipe(v.number(), v.finite(), v.minValue(0));
 const foldBandSchema = v.variant('status', [
-    v.pipe(v.strictObject({
-        status: v.literal('measured'),
-        leftXPx: foldBandNumber,
-        rightXPx: foldBandNumber,
-    }), v.check(value => value.rightXPx >= value.leftXPx)),
+    v.pipe(
+        v.strictObject({
+            status: v.literal('measured'),
+            leftXPx: foldBandNumber,
+            rightXPx: foldBandNumber,
+        }),
+        v.check((value) => value.rightXPx >= value.leftXPx),
+    ),
     v.strictObject({
         status: v.literal('unmeasured'),
         reason: v.picklist(FOLD_BAND_UNMEASURED_REASONS),
@@ -90,16 +93,8 @@ export type INativeScanCleanupSplitDiagnosticsV3 = SplitDiagnostics;
 export type INativeScanCleanupPageMetadataV3 = PageResultMetadata;
 
 const finiteNumber = v.pipe(v.number(), v.finite());
-const nonNegativeInteger = (message: string) => v.message(v.pipe(
-    finiteNumber,
-    v.integer(),
-    v.minValue(0),
-), message);
-const confidence = (message: string) => v.message(v.pipe(
-    finiteNumber,
-    v.minValue(0),
-    v.maxValue(1),
-), message);
+const nonNegativeInteger = (message: string) => v.message(v.pipe(finiteNumber, v.integer(), v.minValue(0)), message);
+const confidence = (message: string) => v.message(v.pipe(finiteNumber, v.minValue(0), v.maxValue(1)), message);
 export const NATIVE_SCAN_CLEANUP_SPLIT_DIAGNOSTICS_SCHEMA = v.strictObject({
     foldBand: foldBandSchema,
     analysisDpi: finiteNumber,
@@ -158,10 +153,7 @@ export const NATIVE_SCAN_CLEANUP_SPLIT_DIAGNOSTICS_SCHEMA = v.strictObject({
     aspectSupportGatePassed: v.boolean(),
     evidenceAgreementGatePassed: v.boolean(),
     outerMarginRecovery: v.boolean(),
-    outerMarginWeakEdge: v.nullable(v.picklist([
-        'left',
-        'right',
-    ])),
+    outerMarginWeakEdge: v.nullable(v.picklist(['left', 'right'])),
     sparseSpreadRecovered: v.boolean(),
     abstained: v.boolean(),
 });
@@ -170,172 +162,187 @@ const pageNumber = v.pipe(
     v.integer(),
     v.minValue(1),
     v.maxValue(Number.MAX_SAFE_INTEGER),
-    v.transform(value => requirePageNumber(value)),
+    v.transform((value) => requirePageNumber(value)),
 );
-const classification = v.message(
-    v.picklist(SCAN_CLEANUP_LAYOUT_CLASSIFICATIONS),
-    'Invalid evb-scan-cleanup progress classification',
-);
+const classification = v.message(v.picklist(SCAN_CLEANUP_LAYOUT_CLASSIFICATIONS), 'Invalid evb-scan-cleanup progress classification');
 const documentPrior = SCAN_CLEANUP_DOCUMENT_PRIOR_SCHEMA;
-const textAxis = v.message(v.strictObject({
-    sideways: v.boolean(),
-    confidence: confidence('Invalid evb-scan-cleanup text axis'),
-}), 'Invalid evb-scan-cleanup text axis');
+const textAxis = v.message(
+    v.strictObject({
+        sideways: v.boolean(),
+        confidence: confidence('Invalid evb-scan-cleanup text axis'),
+    }),
+    'Invalid evb-scan-cleanup text axis',
+);
 const stageTime = v.pipe(finiteNumber, v.minValue(0));
-const pageStageTimings = v.message(v.strictObject({
-    decodeMs: v.optional(stageTime),
-    analysisLevelMs: v.optional(stageTime),
-    normalizationMs: v.optional(stageTime),
-    illuminationPreparationMs: v.optional(stageTime),
-    layoutNormalizationMs: v.optional(stageTime),
-    calibrationMs: v.optional(stageTime),
-    pictureMaskMs: v.optional(stageTime),
-    modeRecommendationMs: v.optional(stageTime),
-    qualityNormalizationMs: v.optional(stageTime),
-    textAxisMs: v.optional(stageTime),
-    splitMs: v.optional(stageTime),
-    deskewMs: v.optional(stageTime),
-    contentMs: v.optional(stageTime),
-    rasterizationMs: v.optional(stageTime),
-    maskRasterizationMs: v.optional(stageTime),
-    binarizationMs: v.optional(stageTime),
-    thresholdPreparationMs: v.optional(stageTime),
-    thresholdingMs: v.optional(stageTime),
-    binaryPostprocessMs: v.optional(stageTime),
-    mixedCompositionMs: v.optional(stageTime),
-    outputProcessingMs: v.optional(stageTime),
-    renderMs: v.optional(stageTime),
-    writeMs: v.optional(stageTime),
-}), 'Invalid evb-scan-cleanup stage timings');
+const pageStageTimings = v.message(
+    v.strictObject({
+        decodeMs: v.optional(stageTime),
+        analysisLevelMs: v.optional(stageTime),
+        normalizationMs: v.optional(stageTime),
+        illuminationPreparationMs: v.optional(stageTime),
+        layoutNormalizationMs: v.optional(stageTime),
+        calibrationMs: v.optional(stageTime),
+        pictureMaskMs: v.optional(stageTime),
+        modeRecommendationMs: v.optional(stageTime),
+        qualityNormalizationMs: v.optional(stageTime),
+        textAxisMs: v.optional(stageTime),
+        splitMs: v.optional(stageTime),
+        deskewMs: v.optional(stageTime),
+        contentMs: v.optional(stageTime),
+        rasterizationMs: v.optional(stageTime),
+        maskRasterizationMs: v.optional(stageTime),
+        binarizationMs: v.optional(stageTime),
+        thresholdPreparationMs: v.optional(stageTime),
+        thresholdingMs: v.optional(stageTime),
+        binaryPostprocessMs: v.optional(stageTime),
+        mixedCompositionMs: v.optional(stageTime),
+        outputProcessingMs: v.optional(stageTime),
+        renderMs: v.optional(stageTime),
+        writeMs: v.optional(stageTime),
+    }),
+    'Invalid evb-scan-cleanup stage timings',
+);
 const outputModeDiagnosticNumber = finiteNumber;
-const outputModeDiagnostics = v.message(v.strictObject({
-    rule: v.picklist([
-        'blank',
-        'color-text-with-pictures',
-        'color',
-        'text-with-pictures',
-        'picture',
-        'sparse-text',
-        'continuous-tone',
-        'confident-text',
-        'dense-text',
-        'strong-single-line-text',
-        'spatial-tone',
-        'bilevel-fidelity',
-        'mixed-ownership-veto',
-        'uncertain-fallback',
-    ] as const),
-    fallbackUsed: v.boolean(),
-    analysisWidth: nonNegativeInteger('Invalid evb-scan-cleanup output mode diagnostics'),
-    analysisHeight: nonNegativeInteger('Invalid evb-scan-cleanup output mode diagnostics'),
-    otsuThreshold: nonNegativeInteger('Invalid evb-scan-cleanup output mode diagnostics'),
-    darkMean: outputModeDiagnosticNumber,
-    lightMean: outputModeDiagnosticNumber,
-    midtoneLower: outputModeDiagnosticNumber,
-    midtoneUpper: outputModeDiagnosticNumber,
-    p01: outputModeDiagnosticNumber,
-    p50: outputModeDiagnosticNumber,
-    p99: outputModeDiagnosticNumber,
-    bimodality: outputModeDiagnosticNumber,
-    midtoneFraction: outputModeDiagnosticNumber,
-    relativeMidtoneFraction: outputModeDiagnosticNumber,
-    modeDistance: outputModeDiagnosticNumber,
-    inkFraction: outputModeDiagnosticNumber,
-    edgeFraction: outputModeDiagnosticNumber,
-    robustLuminanceRange: outputModeDiagnosticNumber,
-    coloredFraction: outputModeDiagnosticNumber,
-    largestColorComponentPixels: nonNegativeInteger('Invalid evb-scan-cleanup output mode diagnostics'),
-    meanSaturation: outputModeDiagnosticNumber,
-    pictureFraction: outputModeDiagnosticNumber,
-    textLineCount: nonNegativeInteger('Invalid evb-scan-cleanup output mode diagnostics'),
-    significantColor: v.boolean(),
-    significantPicture: v.boolean(),
-    pictureGateMargin: outputModeDiagnosticNumber,
-    tonalMidtoneGateMargin: outputModeDiagnosticNumber,
-    strongBimodalityGateMargin: outputModeDiagnosticNumber,
-    confidentTextBimodalityMargin: outputModeDiagnosticNumber,
-    confidentTextModeDistanceMargin: outputModeDiagnosticNumber,
-    confidentTextMidtoneMargin: outputModeDiagnosticNumber,
-    denseTextLineMargin: outputModeDiagnosticNumber,
-    denseTextBimodalityMargin: outputModeDiagnosticNumber,
-    denseTextModeDistanceMargin: outputModeDiagnosticNumber,
-    denseTextMidtoneMargin: outputModeDiagnosticNumber,
-    outsideTonalFraction: outputModeDiagnosticNumber,
-    outsideTonalLargestComponentFraction: outputModeDiagnosticNumber,
-    outsideTonalLargestComponentWidthFraction: outputModeDiagnosticNumber,
-    outsideTonalLargestComponentHeightFraction: outputModeDiagnosticNumber,
-    coherentOutsideTonalRegion: v.boolean(),
-    destructiveModeTonalVeto: v.boolean(),
-    protectedTextBlockCount: nonNegativeInteger('Invalid evb-scan-cleanup output mode diagnostics'),
-    protectedTextBlockPictureOverlapPixels: nonNegativeInteger('Invalid evb-scan-cleanup output mode diagnostics'),
-    protectedTextBlockPictureOverlapFraction: outputModeDiagnosticNumber,
-    mixedOwnershipIndependentPictureEvidence: v.boolean(),
-    mixedOwnershipVeto: v.boolean(),
-    sourceDpi: v.pipe(finiteNumber, v.minValue(0)),
-    analysisDpi: v.pipe(finiteNumber, v.minValue(0)),
-    calibratedSourceStrokeWidthPx: v.pipe(finiteNumber, v.minValue(0)),
-    calibratedSourceXHeightPx: v.pipe(finiteNumber, v.minValue(0)),
-    softEdgeToInkRatio: v.pipe(finiteNumber, v.minValue(0)),
-    bilevelFidelityVeto: v.boolean(),
-}), 'Invalid evb-scan-cleanup output mode diagnostics');
+const outputModeDiagnostics = v.message(
+    v.strictObject({
+        rule: v.picklist([
+            'blank',
+            'color-text-with-pictures',
+            'color',
+            'text-with-pictures',
+            'picture',
+            'sparse-text',
+            'continuous-tone',
+            'confident-text',
+            'dense-text',
+            'strong-single-line-text',
+            'spatial-tone',
+            'bilevel-fidelity',
+            'mixed-ownership-veto',
+            'uncertain-fallback',
+        ] as const),
+        fallbackUsed: v.boolean(),
+        analysisWidth: nonNegativeInteger('Invalid evb-scan-cleanup output mode diagnostics'),
+        analysisHeight: nonNegativeInteger('Invalid evb-scan-cleanup output mode diagnostics'),
+        otsuThreshold: nonNegativeInteger('Invalid evb-scan-cleanup output mode diagnostics'),
+        darkMean: outputModeDiagnosticNumber,
+        lightMean: outputModeDiagnosticNumber,
+        midtoneLower: outputModeDiagnosticNumber,
+        midtoneUpper: outputModeDiagnosticNumber,
+        p01: outputModeDiagnosticNumber,
+        p50: outputModeDiagnosticNumber,
+        p99: outputModeDiagnosticNumber,
+        bimodality: outputModeDiagnosticNumber,
+        midtoneFraction: outputModeDiagnosticNumber,
+        relativeMidtoneFraction: outputModeDiagnosticNumber,
+        modeDistance: outputModeDiagnosticNumber,
+        inkFraction: outputModeDiagnosticNumber,
+        edgeFraction: outputModeDiagnosticNumber,
+        robustLuminanceRange: outputModeDiagnosticNumber,
+        coloredFraction: outputModeDiagnosticNumber,
+        largestColorComponentPixels: nonNegativeInteger('Invalid evb-scan-cleanup output mode diagnostics'),
+        meanSaturation: outputModeDiagnosticNumber,
+        pictureFraction: outputModeDiagnosticNumber,
+        textLineCount: nonNegativeInteger('Invalid evb-scan-cleanup output mode diagnostics'),
+        significantColor: v.boolean(),
+        significantPicture: v.boolean(),
+        pictureGateMargin: outputModeDiagnosticNumber,
+        tonalMidtoneGateMargin: outputModeDiagnosticNumber,
+        strongBimodalityGateMargin: outputModeDiagnosticNumber,
+        confidentTextBimodalityMargin: outputModeDiagnosticNumber,
+        confidentTextModeDistanceMargin: outputModeDiagnosticNumber,
+        confidentTextMidtoneMargin: outputModeDiagnosticNumber,
+        denseTextLineMargin: outputModeDiagnosticNumber,
+        denseTextBimodalityMargin: outputModeDiagnosticNumber,
+        denseTextModeDistanceMargin: outputModeDiagnosticNumber,
+        denseTextMidtoneMargin: outputModeDiagnosticNumber,
+        outsideTonalFraction: outputModeDiagnosticNumber,
+        outsideTonalLargestComponentFraction: outputModeDiagnosticNumber,
+        outsideTonalLargestComponentWidthFraction: outputModeDiagnosticNumber,
+        outsideTonalLargestComponentHeightFraction: outputModeDiagnosticNumber,
+        coherentOutsideTonalRegion: v.boolean(),
+        destructiveModeTonalVeto: v.boolean(),
+        protectedTextBlockCount: nonNegativeInteger('Invalid evb-scan-cleanup output mode diagnostics'),
+        protectedTextBlockPictureOverlapPixels: nonNegativeInteger('Invalid evb-scan-cleanup output mode diagnostics'),
+        protectedTextBlockPictureOverlapFraction: outputModeDiagnosticNumber,
+        mixedOwnershipIndependentPictureEvidence: v.boolean(),
+        mixedOwnershipVeto: v.boolean(),
+        sourceDpi: v.pipe(finiteNumber, v.minValue(0)),
+        analysisDpi: v.pipe(finiteNumber, v.minValue(0)),
+        calibratedSourceStrokeWidthPx: v.pipe(finiteNumber, v.minValue(0)),
+        calibratedSourceXHeightPx: v.pipe(finiteNumber, v.minValue(0)),
+        softEdgeToInkRatio: v.pipe(finiteNumber, v.minValue(0)),
+        bilevelFidelityVeto: v.boolean(),
+    }),
+    'Invalid evb-scan-cleanup output mode diagnostics',
+);
 export const NATIVE_SCAN_CLEANUP_OUTPUT_MODE_DIAGNOSTICS_SCHEMA = outputModeDiagnostics;
 /**
  * `page-analyzed` and render `page-complete` are published immediately as
  * workers finish out of order; `completedPages` stays a monotone distinct-page
  * count. `page-started` and `page-stage` report live per-page progress.
  */
-const progress = v.pipe(v.object({
-    stage: v.picklist([
-        'started',
-        'page-started',
-        'page-stage',
-        'page-analyzed',
-        // Staged-input lease frames, carrying page identity only: the producer
-        // answers `page-input-required` by publishing that page's raster and
-        // may drop it after `page-input-released`.
-        'page-input-required',
-        'page-input-released',
-        'page-complete',
-        'completed',
-    ] as const),
-    completedPages: nonNegativeInteger('Invalid evb-scan-cleanup progress envelope'),
-    totalPages: nonNegativeInteger('Invalid evb-scan-cleanup progress envelope'),
-    pageNumber: v.optional(v.message(pageNumber, 'Invalid evb-scan-cleanup progress page number')),
-    subPageStage: v.optional(v.message(v.picklist(SCAN_CLEANUP_SUB_PAGE_STAGES),
-        'Invalid evb-scan-cleanup progress sub-page stage')),
-    outputPaths: v.optional(v.array(v.string())),
-    classification: v.optional(classification),
-    confidence: v.optional(confidence('Invalid evb-scan-cleanup progress confidence')),
-    cutterXPx: v.optional(v.message(v.pipe(finiteNumber, v.minValue(0), v.maxValue(Number.MAX_SAFE_INTEGER)),
-        'Invalid evb-scan-cleanup progress cutter')),
-    tier1Verdict: v.optional(classification),
-    reconciled: v.optional(v.boolean()),
-    clusterAgreement: v.optional(v.pipe(finiteNumber, v.minValue(-1), v.maxValue(1))),
-    documentPrior: v.optional(documentPrior),
-    textAxis: v.optional(textAxis),
-    stageTimings: v.optional(pageStageTimings),
-    recommendedOutputMode: v.optional(v.message(v.picklist(SCAN_CLEANUP_OUTPUT_MODES),
-        'Invalid evb-scan-cleanup recommended output mode')),
-    recommendedOutputModeConfidence: v.optional(confidence('Invalid evb-scan-cleanup output mode confidence')),
-    recommendedOutputModeReason: v.optional(v.message(v.picklist(SCAN_CLEANUP_OUTPUT_MODE_RECOMMENDATION_REASONS),
-        'Invalid evb-scan-cleanup recommendation reason')),
-    softAlphaForegroundRecommendation: v.optional(v.boolean()),
-    outputModeDiagnostics: v.optional(outputModeDiagnostics),
-    /** A lease of the page's alternate (MediaBox) raster rather than its input. */
-    alternateView: v.optional(v.literal(true)),
-}), v.check(value => value.completedPages <= value.totalPages,
-    'Invalid evb-scan-cleanup progress page counts'), v.check(value =>
-    value.pageNumber === undefined
-        ? value.stage !== 'page-started'
-            && value.stage !== 'page-stage'
-            && value.stage !== 'page-analyzed'
-            && value.stage !== 'page-complete'
-            && value.stage !== 'page-input-required'
-            && value.stage !== 'page-input-released'
-        : value.pageNumber <= value.totalPages,
-'Invalid evb-scan-cleanup progress page number'), v.check(value =>
-    value.stage !== 'page-stage' || value.subPageStage !== undefined,
-'Invalid evb-scan-cleanup progress sub-page stage'));
+const progress = v.pipe(
+    v.object({
+        stage: v.picklist([
+            'started',
+            'page-started',
+            'page-stage',
+            'page-analyzed',
+            // Staged-input lease frames, carrying page identity only: the producer
+            // answers `page-input-required` by publishing that page's raster and
+            // may drop it after `page-input-released`.
+            'page-input-required',
+            'page-input-released',
+            'page-complete',
+            'completed',
+        ] as const),
+        completedPages: nonNegativeInteger('Invalid evb-scan-cleanup progress envelope'),
+        totalPages: nonNegativeInteger('Invalid evb-scan-cleanup progress envelope'),
+        pageNumber: v.optional(v.message(pageNumber, 'Invalid evb-scan-cleanup progress page number')),
+        subPageStage: v.optional(v.message(v.picklist(SCAN_CLEANUP_SUB_PAGE_STAGES), 'Invalid evb-scan-cleanup progress sub-page stage')),
+        outputPaths: v.optional(v.array(v.string())),
+        classification: v.optional(classification),
+        confidence: v.optional(confidence('Invalid evb-scan-cleanup progress confidence')),
+        cutterXPx: v.optional(
+            v.message(v.pipe(finiteNumber, v.minValue(0), v.maxValue(Number.MAX_SAFE_INTEGER)), 'Invalid evb-scan-cleanup progress cutter'),
+        ),
+        tier1Verdict: v.optional(classification),
+        reconciled: v.optional(v.boolean()),
+        clusterAgreement: v.optional(v.pipe(finiteNumber, v.minValue(-1), v.maxValue(1))),
+        documentPrior: v.optional(documentPrior),
+        textAxis: v.optional(textAxis),
+        stageTimings: v.optional(pageStageTimings),
+        recommendedOutputMode: v.optional(
+            v.message(v.picklist(SCAN_CLEANUP_OUTPUT_MODES), 'Invalid evb-scan-cleanup recommended output mode'),
+        ),
+        recommendedOutputModeConfidence: v.optional(confidence('Invalid evb-scan-cleanup output mode confidence')),
+        recommendedOutputModeReason: v.optional(
+            v.message(v.picklist(SCAN_CLEANUP_OUTPUT_MODE_RECOMMENDATION_REASONS), 'Invalid evb-scan-cleanup recommendation reason'),
+        ),
+        softAlphaForegroundRecommendation: v.optional(v.boolean()),
+        outputModeDiagnostics: v.optional(outputModeDiagnostics),
+        /** A lease of the page's alternate (MediaBox) raster rather than its input. */
+        alternateView: v.optional(v.literal(true)),
+    }),
+    v.check((value) => value.completedPages <= value.totalPages, 'Invalid evb-scan-cleanup progress page counts'),
+    v.check(
+        (value) =>
+            value.pageNumber === undefined
+                ? value.stage !== 'page-started' &&
+                  value.stage !== 'page-stage' &&
+                  value.stage !== 'page-analyzed' &&
+                  value.stage !== 'page-complete' &&
+                  value.stage !== 'page-input-required' &&
+                  value.stage !== 'page-input-released'
+                : value.pageNumber <= value.totalPages,
+        'Invalid evb-scan-cleanup progress page number',
+    ),
+    v.check(
+        (value) => value.stage !== 'page-stage' || value.subPageStage !== undefined,
+        'Invalid evb-scan-cleanup progress sub-page stage',
+    ),
+);
 export const NATIVE_SCAN_CLEANUP_DOCUMENT_INK_PRIOR_SCHEMA = v.variant('status', [
     v.strictObject({status: v.literal('none')}),
     v.pipe(
@@ -349,7 +356,7 @@ export const NATIVE_SCAN_CLEANUP_DOCUMENT_INK_PRIOR_SCHEMA = v.variant('status',
             referenceHeight: v.pipe(finiteNumber, v.integer(), v.minValue(1)),
         }),
         v.check(
-            value => value.survivalP10 <= value.survivalMedian && value.survivalMedian <= value.survivalP90,
+            (value) => value.survivalP10 <= value.survivalMedian && value.survivalMedian <= value.survivalP90,
             'Invalid evb-scan-cleanup document ink prior',
         ),
     ),
@@ -374,10 +381,7 @@ const progressEnvelope = v.object({
 const resultEnvelope = v.object({
     version: v.literal(SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION),
     type: v.literal('result'),
-    result: v.message(v.union([
-        successResult,
-        failureResult,
-    ]), 'Invalid evb-scan-cleanup result envelope'),
+    result: v.message(v.union([successResult, failureResult]), 'Invalid evb-scan-cleanup result envelope'),
 });
 
 /**
@@ -408,7 +412,7 @@ export const SCAN_CLEANUP_WARNING_EVENT_CODES = [
     'matched-canvas-page-dpi-capped',
 ] as const;
 
-export type TScanCleanupWarningEventCode = typeof SCAN_CLEANUP_WARNING_EVENT_CODES[number];
+export type TScanCleanupWarningEventCode = (typeof SCAN_CLEANUP_WARNING_EVENT_CODES)[number];
 
 /** One output's placement cannot report more conditions than the matrix holds. */
 export const MAX_SCAN_CLEANUP_WARNING_EVENTS = 32;
@@ -433,33 +437,25 @@ const MAX_SCAN_CLEANUP_WARNING_EVENT_DPI_THOUSANDTHS = MAX_SCAN_CLEANUP_WARNING_
 const MAX_SCAN_CLEANUP_WARNING_EVENT_SCALE_PERCENT_TENTHS = 10_000;
 
 const warningEventMessage = 'Invalid evb-scan-cleanup warning event';
-const warningEventCode = <const TCode extends TScanCleanupWarningEventCode>(code: TCode) =>
-    v.message(v.literal(code), warningEventMessage);
+const warningEventCode = <const TCode extends TScanCleanupWarningEventCode>(code: TCode) => v.message(v.literal(code), warningEventMessage);
 /**
  * Physical extents travel in the unit their producer measures in: a raster
  * placement in canvas pixels, a lossless placement in PDF points. The unit also
  * decides how the formatter prints them, so pixel extents must be whole.
  */
-const warningEventUnit = v.message(v.picklist([
-    'px',
-    'pt',
-] as const), warningEventMessage);
-const warningEventExtent = v.message(v.pipe(
-    finiteNumber,
-    v.minValue(0),
-    v.maxValue(MAX_SCAN_CLEANUP_WARNING_EVENT_EXTENT),
-), warningEventMessage);
-const warningEventCount = v.message(v.pipe(
-    finiteNumber,
-    v.integer(),
-    v.minValue(0),
-    v.maxValue(MAX_SCAN_CLEANUP_WARNING_EVENT_EXTENT),
-), warningEventMessage);
-const warningEventDpi = v.message(v.pipe(
-    finiteNumber,
-    v.minValue(Number.MIN_VALUE),
-    v.maxValue(MAX_SCAN_CLEANUP_WARNING_EVENT_DPI),
-), warningEventMessage);
+const warningEventUnit = v.message(v.picklist(['px', 'pt'] as const), warningEventMessage);
+const warningEventExtent = v.message(
+    v.pipe(finiteNumber, v.minValue(0), v.maxValue(MAX_SCAN_CLEANUP_WARNING_EVENT_EXTENT)),
+    warningEventMessage,
+);
+const warningEventCount = v.message(
+    v.pipe(finiteNumber, v.integer(), v.minValue(0), v.maxValue(MAX_SCAN_CLEANUP_WARNING_EVENT_EXTENT)),
+    warningEventMessage,
+);
+const warningEventDpi = v.message(
+    v.pipe(finiteNumber, v.minValue(Number.MIN_VALUE), v.maxValue(MAX_SCAN_CLEANUP_WARNING_EVENT_DPI)),
+    warningEventMessage,
+);
 /**
  * A DPI the formatter prints with three decimals, and a percentage it prints
  * with one, travel as the fixed-point integer their producer quantized to.
@@ -467,143 +463,184 @@ const warningEventDpi = v.message(v.pipe(
  * are decided once — by the code that measured the value — and the formatter
  * only places the decimal point.
  */
-const warningEventDpiThousandths = v.message(v.pipe(
-    finiteNumber,
-    v.integer(),
-    v.minValue(1),
-    v.maxValue(MAX_SCAN_CLEANUP_WARNING_EVENT_DPI_THOUSANDTHS),
-), warningEventMessage);
-const warningEventScalePercentTenths = v.message(v.pipe(
-    finiteNumber,
-    v.integer(),
-    v.minValue(0),
-    v.maxValue(MAX_SCAN_CLEANUP_WARNING_EVENT_SCALE_PERCENT_TENTHS),
-), warningEventMessage);
+const warningEventDpiThousandths = v.message(
+    v.pipe(finiteNumber, v.integer(), v.minValue(1), v.maxValue(MAX_SCAN_CLEANUP_WARNING_EVENT_DPI_THOUSANDTHS)),
+    warningEventMessage,
+);
+const warningEventScalePercentTenths = v.message(
+    v.pipe(finiteNumber, v.integer(), v.minValue(0), v.maxValue(MAX_SCAN_CLEANUP_WARNING_EVENT_SCALE_PERCENT_TENTHS)),
+    warningEventMessage,
+);
 const warningEventPageNumber = v.message(pageNumber, warningEventMessage);
 /**
  * A page list is a set the producer already deduplicated, kept in the order it
  * discovered the pages in — source order carries meaning, so the contract
  * checks for repeats rather than normalizing them away.
  */
-const warningEventPages = v.message(v.pipe(
-    v.array(warningEventPageNumber),
-    v.check(value => value.length > 0
-        && value.length <= SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES
-        && new Set(value).size === value.length),
-), warningEventMessage);
-const warningEventDetail = v.message(v.pipe(
-    v.string(),
-    v.maxLength(MAX_SCAN_CLEANUP_WARNING_EVENT_DETAIL_LENGTH),
-), warningEventMessage);
-const pixelExtentsAreWhole = (
-    unit: 'px' | 'pt',
-    extents: ReadonlyArray<number | undefined>,
-) => unit !== 'px'
-    || extents.every(extent => extent === undefined || Number.isSafeInteger(extent));
+const warningEventPages = v.message(
+    v.pipe(
+        v.array(warningEventPageNumber),
+        v.check((value) => value.length > 0 && value.length <= SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES && new Set(value).size === value.length),
+    ),
+    warningEventMessage,
+);
+const warningEventDetail = v.message(v.pipe(v.string(), v.maxLength(MAX_SCAN_CLEANUP_WARNING_EVENT_DETAIL_LENGTH)), warningEventMessage);
+const pixelExtentsAreWhole = (unit: 'px' | 'pt', extents: ReadonlyArray<number | undefined>) =>
+    unit !== 'px' || extents.every((extent) => extent === undefined || Number.isSafeInteger(extent));
 /**
  * An optional rectangle is one measurement, not two. A producer that measured
  * it reports both sides; one side alone is a payload the formatter would have
  * to guess at, so the contract refuses it.
  */
-const rectangleIsWholeOrAbsent = (width?: number, height?: number) =>
-    (width === undefined) === (height === undefined);
+const rectangleIsWholeOrAbsent = (width?: number, height?: number) => (width === undefined) === (height === undefined);
 
-const contentFitted = v.message(v.pipe(v.strictObject({
-    code: warningEventCode('matched-canvas-content-fitted'),
-    unit: warningEventUnit,
-    contentWidth: warningEventExtent,
-    contentHeight: warningEventExtent,
-    innerWidth: warningEventExtent,
-    innerHeight: warningEventExtent,
-    /** Present only where the producer reports the whole document rectangle. */
-    documentCanvasWidth: v.optional(warningEventExtent),
-    documentCanvasHeight: v.optional(warningEventExtent),
-}), v.check(value => pixelExtentsAreWhole(value.unit, [
-    value.contentWidth,
-    value.contentHeight,
-    value.innerWidth,
-    value.innerHeight,
-    value.documentCanvasWidth,
-    value.documentCanvasHeight,
-]) && rectangleIsWholeOrAbsent(
-    value.documentCanvasWidth,
-    value.documentCanvasHeight,
-))), warningEventMessage);
-const paperDownscaled = v.message(v.pipe(v.strictObject({
-    code: warningEventCode('matched-canvas-paper-downscaled'),
-    unit: warningEventUnit,
-    scalePercentTenths: warningEventScalePercentTenths,
-    documentCanvasWidth: warningEventExtent,
-    documentCanvasHeight: warningEventExtent,
-    /** Present only where the producer measured the paper it could not hold. */
-    paperWidth: v.optional(warningEventExtent),
-    paperHeight: v.optional(warningEventExtent),
-}), v.check(value => pixelExtentsAreWhole(value.unit, [
-    value.documentCanvasWidth,
-    value.documentCanvasHeight,
-    value.paperWidth,
-    value.paperHeight,
-]) && rectangleIsWholeOrAbsent(value.paperWidth, value.paperHeight))), warningEventMessage);
-const pageDpiCapped = v.message(v.strictObject({
-    code: warningEventCode('matched-canvas-page-dpi-capped'),
-    pageNumber: warningEventPageNumber,
-    appliedDpiThousandths: warningEventDpiThousandths,
-    requestedDpiThousandths: warningEventDpiThousandths,
-}), warningEventMessage);
-export const SCAN_CLEANUP_WARNING_EVENT_SCHEMA = v.message(v.union([
-    contentFitted,
-    v.message(v.strictObject({
-        code: warningEventCode('matched-canvas-content-fitted-pages'),
-        pages: warningEventPages,
-    }), warningEventMessage),
-    v.message(v.strictObject({code: warningEventCode('matched-canvas-margins-reduced')}), warningEventMessage),
-    v.message(v.strictObject({code: warningEventCode('matched-canvas-margins-unavailable')}), warningEventMessage),
-    paperDownscaled,
-    v.message(v.strictObject({code: warningEventCode('matched-canvas-optical-centering-fallback')}), warningEventMessage),
-    v.message(v.strictObject({
-        code: warningEventCode('matched-canvas-intrinsic-overflow'),
-        leftPx: warningEventCount,
-        rightPx: warningEventCount,
-    }), warningEventMessage),
-    v.message(v.strictObject({
-        code: warningEventCode('matched-canvas-spread-headroom-trimmed'),
-        topPx: warningEventCount,
-    }), warningEventMessage),
-    v.message(v.strictObject({
-        code: warningEventCode('matched-canvas-fold-columns-discarded'),
-        leftColumns: warningEventCount,
-        rightColumns: warningEventCount,
-    }), warningEventMessage),
-    v.message(v.strictObject({code: warningEventCode('matched-canvas-dropped')}), warningEventMessage),
-    v.message(v.strictObject({
-        code: warningEventCode('matched-canvas-geometry-unmeasured'),
-        detail: warningEventDetail,
-    }), warningEventMessage),
-    v.message(v.strictObject({
-        code: warningEventCode('matched-canvas-pages-resampled'),
-        pages: warningEventPages,
-    }), warningEventMessage),
-    v.message(v.strictObject({
-        code: warningEventCode('matched-canvas-pages-scaled-in-place'),
-        pages: warningEventPages,
-    }), warningEventMessage),
-    v.message(v.strictObject({
-        code: warningEventCode('matched-canvas-document-dpi-normalized'),
-        canvasDpi: warningEventDpi,
-        finestPageDpi: warningEventDpi,
-    }), warningEventMessage),
-    pageDpiCapped,
-    v.message(v.strictObject({
-        code: warningEventCode('render-dpi-limited'),
+const contentFitted = v.message(
+    v.pipe(
+        v.strictObject({
+            code: warningEventCode('matched-canvas-content-fitted'),
+            unit: warningEventUnit,
+            contentWidth: warningEventExtent,
+            contentHeight: warningEventExtent,
+            innerWidth: warningEventExtent,
+            innerHeight: warningEventExtent,
+            /** Present only where the producer reports the whole document rectangle. */
+            documentCanvasWidth: v.optional(warningEventExtent),
+            documentCanvasHeight: v.optional(warningEventExtent),
+        }),
+        v.check(
+            (value) =>
+                pixelExtentsAreWhole(value.unit, [
+                    value.contentWidth,
+                    value.contentHeight,
+                    value.innerWidth,
+                    value.innerHeight,
+                    value.documentCanvasWidth,
+                    value.documentCanvasHeight,
+                ]) && rectangleIsWholeOrAbsent(value.documentCanvasWidth, value.documentCanvasHeight),
+        ),
+    ),
+    warningEventMessage,
+);
+const paperDownscaled = v.message(
+    v.pipe(
+        v.strictObject({
+            code: warningEventCode('matched-canvas-paper-downscaled'),
+            unit: warningEventUnit,
+            scalePercentTenths: warningEventScalePercentTenths,
+            documentCanvasWidth: warningEventExtent,
+            documentCanvasHeight: warningEventExtent,
+            /** Present only where the producer measured the paper it could not hold. */
+            paperWidth: v.optional(warningEventExtent),
+            paperHeight: v.optional(warningEventExtent),
+        }),
+        v.check(
+            (value) =>
+                pixelExtentsAreWhole(value.unit, [
+                    value.documentCanvasWidth,
+                    value.documentCanvasHeight,
+                    value.paperWidth,
+                    value.paperHeight,
+                ]) && rectangleIsWholeOrAbsent(value.paperWidth, value.paperHeight),
+        ),
+    ),
+    warningEventMessage,
+);
+const pageDpiCapped = v.message(
+    v.strictObject({
+        code: warningEventCode('matched-canvas-page-dpi-capped'),
+        pageNumber: warningEventPageNumber,
         appliedDpiThousandths: warningEventDpiThousandths,
         requestedDpiThousandths: warningEventDpiThousandths,
-    }), warningEventMessage),
-]), warningEventMessage);
+    }),
+    warningEventMessage,
+);
+export const SCAN_CLEANUP_WARNING_EVENT_SCHEMA = v.message(
+    v.union([
+        contentFitted,
+        v.message(
+            v.strictObject({
+                code: warningEventCode('matched-canvas-content-fitted-pages'),
+                pages: warningEventPages,
+            }),
+            warningEventMessage,
+        ),
+        v.message(v.strictObject({code: warningEventCode('matched-canvas-margins-reduced')}), warningEventMessage),
+        v.message(v.strictObject({code: warningEventCode('matched-canvas-margins-unavailable')}), warningEventMessage),
+        paperDownscaled,
+        v.message(v.strictObject({code: warningEventCode('matched-canvas-optical-centering-fallback')}), warningEventMessage),
+        v.message(
+            v.strictObject({
+                code: warningEventCode('matched-canvas-intrinsic-overflow'),
+                leftPx: warningEventCount,
+                rightPx: warningEventCount,
+            }),
+            warningEventMessage,
+        ),
+        v.message(
+            v.strictObject({
+                code: warningEventCode('matched-canvas-spread-headroom-trimmed'),
+                topPx: warningEventCount,
+            }),
+            warningEventMessage,
+        ),
+        v.message(
+            v.strictObject({
+                code: warningEventCode('matched-canvas-fold-columns-discarded'),
+                leftColumns: warningEventCount,
+                rightColumns: warningEventCount,
+            }),
+            warningEventMessage,
+        ),
+        v.message(v.strictObject({code: warningEventCode('matched-canvas-dropped')}), warningEventMessage),
+        v.message(
+            v.strictObject({
+                code: warningEventCode('matched-canvas-geometry-unmeasured'),
+                detail: warningEventDetail,
+            }),
+            warningEventMessage,
+        ),
+        v.message(
+            v.strictObject({
+                code: warningEventCode('matched-canvas-pages-resampled'),
+                pages: warningEventPages,
+            }),
+            warningEventMessage,
+        ),
+        v.message(
+            v.strictObject({
+                code: warningEventCode('matched-canvas-pages-scaled-in-place'),
+                pages: warningEventPages,
+            }),
+            warningEventMessage,
+        ),
+        v.message(
+            v.strictObject({
+                code: warningEventCode('matched-canvas-document-dpi-normalized'),
+                canvasDpi: warningEventDpi,
+                finestPageDpi: warningEventDpi,
+            }),
+            warningEventMessage,
+        ),
+        pageDpiCapped,
+        v.message(
+            v.strictObject({
+                code: warningEventCode('render-dpi-limited'),
+                appliedDpiThousandths: warningEventDpiThousandths,
+                requestedDpiThousandths: warningEventDpiThousandths,
+            }),
+            warningEventMessage,
+        ),
+    ]),
+    warningEventMessage,
+);
 
-export const SCAN_CLEANUP_WARNING_EVENTS_SCHEMA = v.message(v.pipe(
-    v.array(SCAN_CLEANUP_WARNING_EVENT_SCHEMA),
-    v.check(value => value.length <= MAX_SCAN_CLEANUP_WARNING_EVENTS),
-), 'evb-scan-cleanup warning events exceed the protocol limit');
+export const SCAN_CLEANUP_WARNING_EVENTS_SCHEMA = v.message(
+    v.pipe(
+        v.array(SCAN_CLEANUP_WARNING_EVENT_SCHEMA),
+        v.check((value) => value.length <= MAX_SCAN_CLEANUP_WARNING_EVENTS),
+    ),
+    'evb-scan-cleanup warning events exceed the protocol limit',
+);
 
 export type TScanCleanupWarningEvent = v.InferOutput<typeof SCAN_CLEANUP_WARNING_EVENT_SCHEMA>;
 
@@ -614,67 +651,57 @@ export type TScanCleanupWarningEvent = v.InferOutput<typeof SCAN_CLEANUP_WARNING
  * type to `never`, so the assignment stops compiling before the two can drift.
  */
 type TSameCodes<TCatalog extends string, TCarried extends string> = [TCatalog] extends [TCarried]
-    ? [TCarried] extends [TCatalog] ? true : never
+    ? [TCarried] extends [TCatalog]
+        ? true
+        : never
     : never;
-const _warningEventCodesMatchCatalog: TSameCodes<
-    TScanCleanupWarningEventCode,
-    TScanCleanupWarningEvent['code']
-> = true;
+const _warningEventCodesMatchCatalog: TSameCodes<TScanCleanupWarningEventCode, TScanCleanupWarningEvent['code']> = true;
 // The stdout validators must accept exactly the shapes the sidecar declares.
-type TSameShape<TLeft, TRight> = [TLeft] extends [TRight] ? [TRight] extends [TLeft] ? true : never : never;
+type TSameShape<TLeft, TRight> = [TLeft] extends [TRight] ? ([TRight] extends [TLeft] ? true : never) : never;
 type TExpand<T> = T extends infer O ? {[K in keyof O]: O[K]} : never;
-type TStripOptionalUndefined<T> = T extends ReadonlyArray<infer U>
-    ? Array<TStripOptionalUndefined<U>>
-    : T extends Record<string, unknown>
-        ? TExpand<
-            {[K in keyof T as undefined extends T[K] ? never : K]: TStripOptionalUndefined<T[K]>}
-            & {[K in keyof T as undefined extends T[K] ? K : never]?: TStripOptionalUndefined<Exclude<T[K], undefined>>}
-        >
-        : T;
+type TStripOptionalUndefined<T> =
+    T extends ReadonlyArray<infer U>
+        ? Array<TStripOptionalUndefined<U>>
+        : T extends Record<string, unknown>
+          ? TExpand<
+                {[K in keyof T as undefined extends T[K] ? never : K]: TStripOptionalUndefined<T[K]>} & {
+                    [K in keyof T as undefined extends T[K] ? K : never]?: TStripOptionalUndefined<Exclude<T[K], undefined>>;
+                }
+            >
+          : T;
 const _outputModeDiagnosticsMatchNative: TSameShape<v.InferOutput<typeof outputModeDiagnostics>, OutputModeDiagnostics> = true;
 const _documentInkPriorMatchesNative: TSameShape<
     v.InferOutput<typeof NATIVE_SCAN_CLEANUP_DOCUMENT_INK_PRIOR_SCHEMA>,
     ResolvedDocumentInkPrior
 > = true;
-const _subPageStagesMatchNative: TSameCodes<
-    typeof SCAN_CLEANUP_SUB_PAGE_STAGES[number],
-    SubPageStage
-> = true;
-const _progressStagesMatchNative: TSameCodes<
-    v.InferOutput<typeof progress>['stage'],
-    ProgressStage
-> = true;
-const _progressKeysMatchNative: TSameCodes<
-    keyof v.InferOutput<typeof progress>,
-    keyof Progress
-> = true;
+const _subPageStagesMatchNative: TSameCodes<(typeof SCAN_CLEANUP_SUB_PAGE_STAGES)[number], SubPageStage> = true;
+const _progressStagesMatchNative: TSameCodes<v.InferOutput<typeof progress>['stage'], ProgressStage> = true;
+const _progressKeysMatchNative: TSameCodes<keyof v.InferOutput<typeof progress>, keyof Progress> = true;
 const _progressMatchesNative: TSameShape<
-    Omit<TStripOptionalUndefined<v.InferOutput<typeof progress>>, 'pageNumber' | 'alternateView' | 'documentPrior' | 'recommendedOutputMode'>,
+    Omit<
+        TStripOptionalUndefined<v.InferOutput<typeof progress>>,
+        'pageNumber' | 'alternateView' | 'documentPrior' | 'recommendedOutputMode'
+    >,
     Omit<Progress, 'pageNumber' | 'alternateView' | 'documentPrior' | 'recommendedOutputMode'>
 > = true;
-const _pageStageTimingsMatchNative: TSameShape<
-    TStripOptionalUndefined<v.InferOutput<typeof pageStageTimings>>,
-    PageStageTimings
-> = true;
+const _pageStageTimingsMatchNative: TSameShape<TStripOptionalUndefined<v.InferOutput<typeof pageStageTimings>>, PageStageTimings> = true;
 const _resultPayloadMatchesNative: TSameShape<
     TStripOptionalUndefined<v.InferOutput<typeof resultEnvelope>['result']>,
     ResultPayload
 > = true;
-const _splitDiagnosticsMatchNative: TSameShape<
-    v.InferOutput<typeof NATIVE_SCAN_CLEANUP_SPLIT_DIAGNOSTICS_SCHEMA>,
-    SplitDiagnostics
-> = true;
+const _splitDiagnosticsMatchNative: TSameShape<v.InferOutput<typeof NATIVE_SCAN_CLEANUP_SPLIT_DIAGNOSTICS_SCHEMA>, SplitDiagnostics> = true;
 
 export const NATIVE_SCAN_CLEANUP_ENVELOPE_SCHEMA = v.pipe(
     v.unknown(),
-    v.check(value => isRecord(value) && value.version === SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION,
-        'Unsupported evb-scan-cleanup NDJSON protocol version'),
-    v.check(value => isRecord(value) && (value.type === 'progress' || value.type === 'result'),
-        'Unknown evb-scan-cleanup NDJSON envelope type'),
-    v.variant('type', [
-        progressEnvelope,
-        resultEnvelope,
-    ]),
+    v.check(
+        (value) => isRecord(value) && value.version === SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION,
+        'Unsupported evb-scan-cleanup NDJSON protocol version',
+    ),
+    v.check(
+        (value) => isRecord(value) && (value.type === 'progress' || value.type === 'result'),
+        'Unknown evb-scan-cleanup NDJSON envelope type',
+    ),
+    v.variant('type', [progressEnvelope, resultEnvelope]),
 );
 
 export type TNativeScanCleanupPageStageTimingsV3 = v.InferOutput<typeof pageStageTimings>;

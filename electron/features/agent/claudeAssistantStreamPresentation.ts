@@ -1,10 +1,6 @@
-import type {
-    SDKAssistantMessage,
-    SDKResultMessage,
-    SDKUserMessage,
-} from '@anthropic-ai/claude-agent-sdk';
-import type { IAgentAssistantTokenUsage } from '@contracts/agent';
-import { isRecord } from '@contracts/runtimeGuards';
+import type {SDKAssistantMessage, SDKResultMessage, SDKUserMessage} from '@anthropic-ai/claude-agent-sdk';
+import type {IAgentAssistantTokenUsage} from '@contracts/agent';
+import {isRecord} from '@contracts/runtimeGuards';
 
 export interface IClaudeAssistantToolActivity {
     toolId: string;
@@ -19,7 +15,9 @@ export function extractClaudeMessageItems(message: SDKAssistantMessage | SDKUser
     if (!Array.isArray(content)) {
         return [];
     }
-    const text = content.flatMap(block => isRecord(block) && block.type === 'text' && typeof block.text === 'string' ? [block.text] : []).join('\n\n');
+    const text = content
+        .flatMap((block) => (isRecord(block) && block.type === 'text' && typeof block.text === 'string' ? [block.text] : []))
+        .join('\n\n');
     let emittedText = false;
     return content.flatMap((block): (IClaudeAssistantToolActivity | {messageId: string; text: string})[] => {
         if (!isRecord(block)) {
@@ -30,17 +28,23 @@ export function extractClaudeMessageItems(message: SDKAssistantMessage | SDKUser
             return [{messageId: message.uuid, text}];
         }
         if (message.type === 'assistant' && block.type === 'tool_use' && typeof block.id === 'string') {
-            return [{
-                toolId: block.id,
-                name: typeof block.name === 'string' && block.name.trim() ? block.name : 'tool',
-                phase: 'running',
-            }];
+            return [
+                {
+                    toolId: block.id,
+                    name: typeof block.name === 'string' && block.name.trim() ? block.name : 'tool',
+                    phase: 'running',
+                },
+            ];
         }
-        return block.type === 'tool_result' && typeof block.tool_use_id === 'string' ? [{
-            toolId: block.tool_use_id,
-            name: 'tool',
-            phase: block.is_error === true ? 'failed' : 'completed',
-        }] : [];
+        return block.type === 'tool_result' && typeof block.tool_use_id === 'string'
+            ? [
+                  {
+                      toolId: block.tool_use_id,
+                      name: 'tool',
+                      phase: block.is_error === true ? 'failed' : 'completed',
+                  },
+              ]
+            : [];
     });
 }
 

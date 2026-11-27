@@ -1,36 +1,22 @@
 import type * as TViMockOriginalModule from '@electron/preload/debugLogBuffer';
 
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requireEpochMs} from '@contracts/timestamps';
 import {requireRequestId} from '@contracts/shared';
-import { AGENT_PLATFORM_FEATURE } from '@contracts/agentPlatformFeature';
-import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
-import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
-import {
-    CORE_IPC_EVENT_CHANNELS,
-    CORE_IPC_SEND_CHANNELS,
-    DIAGNOSTICS_POLICY_ARGUMENT_PREFIX,
-} from '@electron/platform-ipc/coreContract';
-import {
-    HOST_RESOURCE_PROFILE_ARGUMENT_PREFIX,
-    type IHostResourceProfileSnapshot,
-} from '@contracts/hostResourceProfile';
-import { HOST_PLATFORM_FEATURE } from '@contracts/hostPlatformFeature';
-import { UPDATES_PLATFORM_FEATURE } from '@contracts/updatesPlatformFeature';
-import { WINDOW_TABS_PLATFORM_FEATURE } from '@contracts/windowTabsPlatformFeature';
+import {AGENT_PLATFORM_FEATURE} from '@contracts/agentPlatformFeature';
+import {DJVU_PLATFORM_FEATURE} from '@contracts/djvuPlatformFeature';
+import {DOCUMENTS_CHANNELS} from '@electron/features/documents/contract';
+import {CORE_IPC_EVENT_CHANNELS, CORE_IPC_SEND_CHANNELS, DIAGNOSTICS_POLICY_ARGUMENT_PREFIX} from '@electron/platform-ipc/coreContract';
+import {HOST_RESOURCE_PROFILE_ARGUMENT_PREFIX, type IHostResourceProfileSnapshot} from '@contracts/hostResourceProfile';
+import {HOST_PLATFORM_FEATURE} from '@contracts/hostPlatformFeature';
+import {UPDATES_PLATFORM_FEATURE} from '@contracts/updatesPlatformFeature';
+import {WINDOW_TABS_PLATFORM_FEATURE} from '@contracts/windowTabsPlatformFeature';
 import type * as TIpcClientModule from '@electron/preload/ipcClient';
 
 const agentEventChannels = AGENT_PLATFORM_FEATURE.eventChannels;
 const documentsClientMock = vi.hoisted(() => ({
-    openDocumentDirect: vi.fn(async (path: string) => ({ path })),
+    openDocumentDirect: vi.fn(async (path: string) => ({path})),
     openDocumentDirectBatch: vi.fn(async (paths: string[]) => paths),
 }));
 // The open client is the one these tests observe: preload must hold a direct
@@ -43,10 +29,10 @@ vi.mock('@electron/preload/ipcClient', async (importOriginal) => {
             const client = original.createPlatformFeaturePreloadClient(ipcRenderer, feature, directBindings);
             return feature.path.join('.') === 'documentOpen'
                 ? {
-                    ...client,
-                    openDocumentDirect: documentsClientMock.openDocumentDirect,
-                    openDocumentDirectBatch: documentsClientMock.openDocumentDirectBatch,
-                }
+                      ...client,
+                      openDocumentDirect: documentsClientMock.openDocumentDirect,
+                      openDocumentDirectBatch: documentsClientMock.openDocumentDirectBatch,
+                  }
                 : client;
         }) as typeof original.createPlatformFeaturePreloadClient,
     };
@@ -66,10 +52,12 @@ function silenceExpectedDecodedEventWarnings() {
 
 type TIpcEventListener = (_event: unknown, payload: unknown) => void;
 
-async function createApiHarness(options: {
-    getPathForFile?: () => string;
-    invoke?: (channel: string, ...args: unknown[]) => Promise<unknown>;
-} = {}) {
+async function createApiHarness(
+    options: {
+        getPathForFile?: () => string;
+        invoke?: (channel: string, ...args: unknown[]) => Promise<unknown>;
+    } = {},
+) {
     const listeners = new Map<string, TIpcEventListener>();
     const ipcRenderer = {
         invoke: vi.fn(options.invoke ?? (async () => undefined)),
@@ -79,11 +67,8 @@ async function createApiHarness(options: {
         removeListener: vi.fn(),
         send: vi.fn(),
     };
-    const { createElectronApi } = await import('@electron/preload/createElectronApi');
-    const api = createElectronApi(
-        ipcRenderer as never,
-        {getPathForFile: options.getPathForFile ?? (() => '')},
-    );
+    const {createElectronApi} = await import('@electron/preload/createElectronApi');
+    const api = createElectronApi(ipcRenderer as never, {getPathForFile: options.getPathForFile ?? (() => '')});
     return {
         api,
         ipcRenderer,
@@ -109,15 +94,14 @@ describe('createElectronApi', () => {
             send: vi.fn(),
         };
         let release!: () => void;
-        const waitForDocumentOpenDirect = vi.fn(() => new Promise<void>((resolve) => {
-            release = resolve;
-        }));
-        const { createElectronApi } = await import('@electron/preload/createElectronApi');
-        const api = createElectronApi(
-            ipcRenderer as never,
-            { getPathForFile: () => '' },
-            {waitForDocumentOpenDirect},
+        const waitForDocumentOpenDirect = vi.fn(
+            () =>
+                new Promise<void>((resolve) => {
+                    release = resolve;
+                }),
         );
+        const {createElectronApi} = await import('@electron/preload/createElectronApi');
+        const api = createElectronApi(ipcRenderer as never, {getPathForFile: () => ''}, {waitForDocumentOpenDirect});
 
         const openPromise = api.documentOpen.openDocumentDirect(requireDocumentRef('/tmp/deferred.pdf'));
         await vi.waitFor(() => expect(waitForDocumentOpenDirect).toHaveBeenCalledWith('/tmp/deferred.pdf'));
@@ -136,11 +120,7 @@ describe('createElectronApi', () => {
     });
 
     it('forwards one renderer close decision and reports when no handler remains', async () => {
-        const {
-            api,
-            ipcRenderer,
-            listeners,
-        } = await createApiHarness();
+        const {api, ipcRenderer, listeners} = await createApiHarness();
         if (!api.system.onWindowCloseRequest) {
             throw new Error('Expected the native window close hook to be available');
         }
@@ -177,14 +157,16 @@ describe('createElectronApi', () => {
         ipcRenderer.send.mockClear();
         listener({}, {requestId: 'close-2'});
         await vi.waitFor(() => {
-            expect(ipcRenderer.send.mock.calls).toEqual([[
-                CORE_IPC_SEND_CHANNELS.windowCloseResponse,
-                {
-                    requestId: 'close-2',
-                    status: 'unavailable',
-                    reason: 'no-handler',
-                },
-            ]]);
+            expect(ipcRenderer.send.mock.calls).toEqual([
+                [
+                    CORE_IPC_SEND_CHANNELS.windowCloseResponse,
+                    {
+                        requestId: 'close-2',
+                        status: 'unavailable',
+                        reason: 'no-handler',
+                    },
+                ],
+            ]);
         });
 
         const first = api.system.onWindowCloseRequest(callback);
@@ -192,25 +174,23 @@ describe('createElectronApi', () => {
         ipcRenderer.send.mockClear();
         listener({}, {requestId: 'close-3'});
         await vi.waitFor(() => {
-            expect(ipcRenderer.send.mock.calls).toEqual([[
-                CORE_IPC_SEND_CHANNELS.windowCloseResponse,
-                {
-                    requestId: 'close-3',
-                    status: 'unavailable',
-                    reason: 'multiple-handlers',
-                },
-            ]]);
+            expect(ipcRenderer.send.mock.calls).toEqual([
+                [
+                    CORE_IPC_SEND_CHANNELS.windowCloseResponse,
+                    {
+                        requestId: 'close-3',
+                        status: 'unavailable',
+                        reason: 'multiple-handlers',
+                    },
+                ],
+            ]);
         });
         first();
         second();
     });
 
     it('does not run the close handler when its acknowledgment cannot be sent', async () => {
-        const {
-            api,
-            ipcRenderer,
-            listeners,
-        } = await createApiHarness();
+        const {api, ipcRenderer, listeners} = await createApiHarness();
         if (!api.system.onWindowCloseRequest) {
             throw new Error('Expected the native window close hook to be available');
         }
@@ -229,11 +209,7 @@ describe('createElectronApi', () => {
     });
 
     it('reports a renderer close handler failure without converting it to cancel', async () => {
-        const {
-            api,
-            ipcRenderer,
-            listeners,
-        } = await createApiHarness();
+        const {api, ipcRenderer, listeners} = await createApiHarness();
         if (!api.system.onWindowCloseRequest) {
             throw new Error('Expected the native window close hook to be available');
         }
@@ -248,21 +224,15 @@ describe('createElectronApi', () => {
         listener({}, {requestId: 'close-error'});
 
         await vi.waitFor(() => {
-            expect(ipcRenderer.send).toHaveBeenCalledWith(
-                CORE_IPC_SEND_CHANNELS.windowCloseResponse,
-                {
-                    requestId: 'close-error',
-                    status: 'unavailable',
-                    reason: 'handler-error',
-                },
-            );
+            expect(ipcRenderer.send).toHaveBeenCalledWith(CORE_IPC_SEND_CHANNELS.windowCloseResponse, {
+                requestId: 'close-error',
+                status: 'unavailable',
+                reason: 'handler-error',
+            });
         });
     });
 
-    it.each([
-        true,
-        false,
-    ])('preserves committed checkpoint result %s through the actual preload codec', async committed => {
+    it.each([true, false])('preserves committed checkpoint result %s through the actual preload codec', async (committed) => {
         const {api} = await createApiHarness({invoke: async () => committed});
         const checkpoint = {
             version: 1 as const,
@@ -277,23 +247,15 @@ describe('createElectronApi', () => {
     });
 
     it('forwards token-bound workspace checkpoint discard and resume calls', async () => {
-        const {
-            api,
-            ipcRenderer,
-        } = await createApiHarness({invoke: async channel =>
-            channel === WINDOW_TABS_PLATFORM_FEATURE.invokeChannels.discardWorkspaceCheckpoint
-                ? '7'
-                : undefined});
+        const {api, ipcRenderer} = await createApiHarness({
+            invoke: async (channel) =>
+                channel === WINDOW_TABS_PLATFORM_FEATURE.invokeChannels.discardWorkspaceCheckpoint ? '7' : undefined,
+        });
 
         await expect(api.windowTabs.discardWorkspaceCheckpoint()).resolves.toBe('7');
-        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
-            WINDOW_TABS_PLATFORM_FEATURE.invokeChannels.discardWorkspaceCheckpoint,
-        );
+        expect(ipcRenderer.invoke).toHaveBeenCalledWith(WINDOW_TABS_PLATFORM_FEATURE.invokeChannels.discardWorkspaceCheckpoint);
         await expect(api.windowTabs.resumeWorkspaceCheckpoint('7')).resolves.toBeUndefined();
-        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
-            WINDOW_TABS_PLATFORM_FEATURE.invokeChannels.resumeWorkspaceCheckpoint,
-            '7',
-        );
+        expect(ipcRenderer.invoke).toHaveBeenCalledWith(WINDOW_TABS_PLATFORM_FEATURE.invokeChannels.resumeWorkspaceCheckpoint, '7');
     });
 
     it('exposes decoded native DjVu page text and nested outline methods', async () => {
@@ -303,15 +265,19 @@ describe('createElectronApi', () => {
                     return 'Native page text';
                 }
                 if (channel === DJVU_PLATFORM_FEATURE.invokeChannels.getOutline) {
-                    return [{
-                        title: 'Chapter',
-                        pageNumber: 1,
-                        children: [{
-                            title: 'Section',
-                            pageNumber: 3,
-                            children: [],
-                        }],
-                    }];
+                    return [
+                        {
+                            title: 'Chapter',
+                            pageNumber: 1,
+                            children: [
+                                {
+                                    title: 'Section',
+                                    pageNumber: 3,
+                                    children: [],
+                                },
+                            ],
+                        },
+                    ];
                 }
                 return undefined;
             }),
@@ -319,10 +285,7 @@ describe('createElectronApi', () => {
             send: vi.fn(),
         };
         const {createElectronApi} = await import('@electron/preload/createElectronApi');
-        const api = createElectronApi(
-            ipcRenderer as never,
-            {getPathForFile: () => ''},
-        );
+        const api = createElectronApi(ipcRenderer as never, {getPathForFile: () => ''});
         const getPageText = api.djvu.getPageText;
         const getOutline = api.djvu.getOutline;
         if (!getPageText || !getOutline) {
@@ -330,26 +293,32 @@ describe('createElectronApi', () => {
         }
 
         await expect(getPageText(requireDocumentRef('/tmp/book.djvu'), 3)).resolves.toBe('Native page text');
-        await expect(getOutline(requireDocumentRef('/tmp/book.djvu'))).resolves.toEqual([{
-            title: 'Chapter',
-            pageNumber: 1,
-            children: [{
-                title: 'Section',
-                pageNumber: 3,
-                children: [],
-            }],
-        }]);
+        await expect(getOutline(requireDocumentRef('/tmp/book.djvu'))).resolves.toEqual([
+            {
+                title: 'Chapter',
+                pageNumber: 1,
+                children: [
+                    {
+                        title: 'Section',
+                        pageNumber: 3,
+                        children: [],
+                    },
+                ],
+            },
+        ]);
     });
 
     it('includes reclaimable macOS memory in the available host headroom', async () => {
-        const { decodeSystemMemoryInfo } = await import('@electron/preload/createElectronApi');
+        const {decodeSystemMemoryInfo} = await import('@electron/preload/createElectronApi');
 
-        expect(decodeSystemMemoryInfo({
-            total: 37_748_736,
-            free: 143_312,
-            fileBacked: 12_784_048,
-            purgeable: 358_608,
-        })).toEqual({
+        expect(
+            decodeSystemMemoryInfo({
+                total: 37_748_736,
+                free: 143_312,
+                fileBacked: 12_784_048,
+                purgeable: 358_608,
+            }),
+        ).toEqual({
             availableBytes: 13_604_831_232,
             totalBytes: 38_654_705_664,
             freeBytes: 146_751_488,
@@ -357,13 +326,15 @@ describe('createElectronApi', () => {
     });
 
     it('uses the kernel MemAvailable as Linux headroom instead of MemFree plus page cache', async () => {
-        const { decodeSystemMemoryInfo } = await import('@electron/preload/createElectronApi');
+        const {decodeSystemMemoryInfo} = await import('@electron/preload/createElectronApi');
 
-        expect(decodeSystemMemoryInfo({
-            total: 29_360_128,
-            free: 3_145_728,
-            available: 15_728_640,
-        })).toEqual({
+        expect(
+            decodeSystemMemoryInfo({
+                total: 29_360_128,
+                free: 3_145_728,
+                available: 15_728_640,
+            }),
+        ).toEqual({
             availableBytes: 16_106_127_360,
             totalBytes: 30_064_771_072,
             freeBytes: 3_221_225_472,
@@ -371,11 +342,8 @@ describe('createElectronApi', () => {
     });
 
     it('falls back when a sandboxed preload cannot read system memory', async () => {
-        const runtimeProcess = process as typeof process & {getSystemMemoryInfo?: () => never;};
-        const originalDescriptor = Object.getOwnPropertyDescriptor(
-            runtimeProcess,
-            'getSystemMemoryInfo',
-        );
+        const runtimeProcess = process as typeof process & {getSystemMemoryInfo?: () => never};
+        const originalDescriptor = Object.getOwnPropertyDescriptor(runtimeProcess, 'getSystemMemoryInfo');
         Object.defineProperty(runtimeProcess, 'getSystemMemoryInfo', {
             configurable: true,
             value: vi.fn(() => {
@@ -396,69 +364,54 @@ describe('createElectronApi', () => {
     });
 
     it('reads one valid host resource profile argument and rejects absent or malformed inputs', async () => {
-        const { readHostResourceProfileArgument } = await import(
-            '@electron/preload/readHostResourceProfileArgument'
-        );
+        const {readHostResourceProfileArgument} = await import('@electron/preload/readHostResourceProfileArgument');
         const resourceProfile = {
             logicalCpus: 8,
-            totalRamBytes: 16 * (1024 ** 3),
+            totalRamBytes: 16 * 1024 ** 3,
             safeMode: false,
             gpuStatus: {webgl: 'enabled'},
             detectedTier: 'high',
             performanceMode: 'auto',
             tier: 'high',
         } satisfies IHostResourceProfileSnapshot;
-        const encodedProfile = Buffer
-            .from(JSON.stringify(resourceProfile), 'utf8')
-            .toString('base64url');
+        const encodedProfile = Buffer.from(JSON.stringify(resourceProfile), 'utf8').toString('base64url');
         const validArgument = `${HOST_RESOURCE_PROFILE_ARGUMENT_PREFIX}${encodedProfile}`;
 
-        expect(readHostResourceProfileArgument([
-            'electron',
-            validArgument,
-        ])).toEqual(resourceProfile);
+        expect(readHostResourceProfileArgument(['electron', validArgument])).toEqual(resourceProfile);
         expect(readHostResourceProfileArgument(['electron'])).toBeNull();
-        expect(readHostResourceProfileArgument([
-            validArgument,
-            validArgument,
-        ])).toBeNull();
+        expect(readHostResourceProfileArgument([validArgument, validArgument])).toBeNull();
         expect(readHostResourceProfileArgument([`${HOST_RESOURCE_PROFILE_ARGUMENT_PREFIX}%%%`])).toBeNull();
-        expect(readHostResourceProfileArgument([`${HOST_RESOURCE_PROFILE_ARGUMENT_PREFIX}${Buffer
-            .from(JSON.stringify({
-                ...resourceProfile,
-                tier: 'low',
-            }), 'utf8')
-            .toString('base64url')}`])).toBeNull();
+        expect(
+            readHostResourceProfileArgument([
+                `${HOST_RESOURCE_PROFILE_ARGUMENT_PREFIX}${Buffer.from(
+                    JSON.stringify({
+                        ...resourceProfile,
+                        tier: 'low',
+                    }),
+                    'utf8',
+                ).toString('base64url')}`,
+            ]),
+        ).toBeNull();
     });
 
     it('decodes diagnostics startup policy arguments fail-closed', async () => {
-        const { readDiagnosticsPolicyArgument } = await import('@electron/preload/readDiagnosticsPolicyArgument');
-        const validArgument = `${DIAGNOSTICS_POLICY_ARGUMENT_PREFIX}${Buffer
-            .from(JSON.stringify({mode: 'granted'}), 'utf8')
-            .toString('base64url')}`;
+        const {readDiagnosticsPolicyArgument} = await import('@electron/preload/readDiagnosticsPolicyArgument');
+        const validArgument = `${DIAGNOSTICS_POLICY_ARGUMENT_PREFIX}${Buffer.from(JSON.stringify({mode: 'granted'}), 'utf8').toString(
+            'base64url',
+        )}`;
 
         expect(readDiagnosticsPolicyArgument(['electron'])).toEqual({mode: 'unknown'});
-        expect(readDiagnosticsPolicyArgument([
-            validArgument,
-            validArgument,
-        ])).toEqual({mode: 'unknown'});
+        expect(readDiagnosticsPolicyArgument([validArgument, validArgument])).toEqual({mode: 'unknown'});
         expect(readDiagnosticsPolicyArgument([`${DIAGNOSTICS_POLICY_ARGUMENT_PREFIX}%%%`])).toEqual({mode: 'unknown'});
         expect(readDiagnosticsPolicyArgument([validArgument])).toEqual({mode: 'granted'});
         expect(Object.isFrozen(readDiagnosticsPolicyArgument([validArgument]))).toBe(true);
     });
 
     it('exposes only the closed diagnostics namespace members', async () => {
-        const {
-            ipcRenderer,
-            listeners,
-        } = await createApiHarness();
+        const {ipcRenderer, listeners} = await createApiHarness();
         const policy = Object.freeze({mode: 'granted' as const});
-        const { createElectronApi } = await import('@electron/preload/createElectronApi');
-        const diagnosticsApi = createElectronApi(
-            ipcRenderer as never,
-            {getPathForFile: () => ''},
-            {diagnosticsPolicy: policy},
-        );
+        const {createElectronApi} = await import('@electron/preload/createElectronApi');
+        const diagnosticsApi = createElectronApi(ipcRenderer as never, {getPathForFile: () => ''}, {diagnosticsPolicy: policy});
         const callback = vi.fn();
 
         expect(Object.keys(diagnosticsApi.diagnostics)).toEqual(['startupPolicy']);
@@ -466,22 +419,29 @@ describe('createElectronApi', () => {
         expect(Object.isFrozen(diagnosticsApi.diagnostics.startupPolicy)).toBe(true);
 
         diagnosticsApi.settings.onDebugLog(callback);
-        listeners.get(CORE_IPC_EVENT_CHANNELS.debugLog)?.({}, {
-            source: 'main',
-            message: 'closed',
-            timestamp: '2026-09-03T00:00:00.000Z',
-            level: 'ERROR',
-            failureRef: {
-                eventId: 'a'.repeat(32),
-                code: 'UNCLASSIFIED_MAIN_ERROR',
-                severity: 'error',
+        listeners.get(CORE_IPC_EVENT_CHANNELS.debugLog)?.(
+            {},
+            {
+                source: 'main',
+                message: 'closed',
+                timestamp: '2026-09-03T00:00:00.000Z',
+                level: 'ERROR',
+                failureRef: {
+                    eventId: 'a'.repeat(32),
+                    code: 'UNCLASSIFIED_MAIN_ERROR',
+                    severity: 'error',
+                },
             },
-        });
-        expect(callback).toHaveBeenCalledWith(expect.objectContaining({failureRef: {
-            eventId: 'a'.repeat(32),
-            code: 'UNCLASSIFIED_MAIN_ERROR',
-            severity: 'error',
-        }}));
+        );
+        expect(callback).toHaveBeenCalledWith(
+            expect.objectContaining({
+                failureRef: {
+                    eventId: 'a'.repeat(32),
+                    code: 'UNCLASSIFIED_MAIN_ERROR',
+                    severity: 'error',
+                },
+            }),
+        );
     });
 
     it('returns the preload resource profile synchronously with stable identity', async () => {
@@ -492,22 +452,15 @@ describe('createElectronApi', () => {
         };
         const resourceProfile = {
             logicalCpus: 4,
-            totalRamBytes: 12 * (1024 ** 3),
+            totalRamBytes: 12 * 1024 ** 3,
             safeMode: true,
             detectedTier: 'low',
             performanceMode: 'medium',
             tier: 'medium',
         } satisfies IHostResourceProfileSnapshot;
-        const { createElectronApi } = await import('@electron/preload/createElectronApi');
-        const api = createElectronApi(
-            ipcRenderer as never,
-            { getPathForFile: () => '' },
-            {resourceProfile},
-        );
-        const absentApi = createElectronApi(
-            ipcRenderer as never,
-            { getPathForFile: () => '' },
-        );
+        const {createElectronApi} = await import('@electron/preload/createElectronApi');
+        const api = createElectronApi(ipcRenderer as never, {getPathForFile: () => ''}, {resourceProfile});
+        const absentApi = createElectronApi(ipcRenderer as never, {getPathForFile: () => ''});
 
         expect(api.host.getResourceProfile()).toBe(resourceProfile);
         expect(api.host.getResourceProfile()).toBe(resourceProfile);
@@ -525,13 +478,17 @@ describe('createElectronApi', () => {
             platform: 'win32',
             osScaleFactor: 2,
         } as const;
-        const { createElectronApi } = await import('@electron/preload/createElectronApi');
+        const {createElectronApi} = await import('@electron/preload/createElectronApi');
 
-        const api = createElectronApi(ipcRenderer as never, { getPathForFile: () => '' }, {
-            hostEnvironment,
-            uiScalePreference: 'large',
-        });
-        const absentApi = createElectronApi(ipcRenderer as never, { getPathForFile: () => '' });
+        const api = createElectronApi(
+            ipcRenderer as never,
+            {getPathForFile: () => ''},
+            {
+                hostEnvironment,
+                uiScalePreference: 'large',
+            },
+        );
+        const absentApi = createElectronApi(ipcRenderer as never, {getPathForFile: () => ''});
 
         expect(api.startupHostEnvironment).toBe(hostEnvironment);
         expect(api.startupUiScalePreference).toBe('large');
@@ -542,11 +499,7 @@ describe('createElectronApi', () => {
 
     it('decodes settings debug-log events before invoking callbacks', async () => {
         const warningSpy = silenceExpectedDecodedEventWarnings();
-        const {
-            api,
-            ipcRenderer,
-            listeners,
-        } = await createApiHarness();
+        const {api, ipcRenderer, listeners} = await createApiHarness();
         const callback = vi.fn();
         api.settings.onDebugLog(callback);
         const listener = listeners.get(CORE_IPC_EVENT_CHANNELS.debugLog);
@@ -554,18 +507,24 @@ describe('createElectronApi', () => {
             throw new Error('Expected debug-log listener to be registered');
         }
 
-        listener({}, {
-            source: 'main',
-            message: 'hello',
-            timestamp: '2026-03-21T00:00:00.000Z',
-            level: 'INFO',
-        });
-        listener({}, {
-            source: 'main',
-            message: 'bad level',
-            timestamp: '2026-03-21T00:00:00.000Z',
-            level: 'TRACE',
-        });
+        listener(
+            {},
+            {
+                source: 'main',
+                message: 'hello',
+                timestamp: '2026-03-21T00:00:00.000Z',
+                level: 'INFO',
+            },
+        );
+        listener(
+            {},
+            {
+                source: 'main',
+                message: 'bad level',
+                timestamp: '2026-03-21T00:00:00.000Z',
+                level: 'TRACE',
+            },
+        );
 
         expect(callback).toHaveBeenCalledTimes(1);
         expect(callback).toHaveBeenCalledWith({
@@ -576,30 +535,32 @@ describe('createElectronApi', () => {
         });
         expect(warningSpy).toHaveBeenCalledWith(
             `Dropped invalid decoded IPC event payload for ${CORE_IPC_EVENT_CHANNELS.debugLog}`,
-            expect.objectContaining({ level: 'TRACE' }),
+            expect.objectContaining({level: 'TRACE'}),
         );
         expect(ipcRenderer.send).toHaveBeenCalledWith(
             CORE_IPC_SEND_CHANNELS.rendererLog,
-            expect.objectContaining({data: expect.objectContaining({
-                channel: CORE_IPC_EVENT_CHANNELS.debugLog,
-                decoderError: expect.any(String),
-            })}),
+            expect.objectContaining({
+                data: expect.objectContaining({
+                    channel: CORE_IPC_EVENT_CHANNELS.debugLog,
+                    decoderError: expect.any(String),
+                }),
+            }),
         );
 
-        listener({}, {
-            source: 'main',
-            message: 'bad level again',
-            timestamp: '2026-03-21T00:00:00.000Z',
-            level: 'TRACE',
-        });
+        listener(
+            {},
+            {
+                source: 'main',
+                message: 'bad level again',
+                timestamp: '2026-03-21T00:00:00.000Z',
+                level: 'TRACE',
+            },
+        );
         expect(ipcRenderer.send).toHaveBeenCalledTimes(1);
     });
 
     it('forwards main-originated agent request events unchanged', async () => {
-        const {
-            api,
-            listeners,
-        } = await createApiHarness();
+        const {api, listeners} = await createApiHarness();
         const snapshotCallback = vi.fn();
         const commandCallback = vi.fn();
 
@@ -646,21 +607,12 @@ describe('createElectronApi', () => {
         commandListener({}, invalidCommand);
         commandListener({}, rawCommand);
 
-        expect(snapshotCallback.mock.calls).toEqual([
-            [invalidSnapshot],
-            [rawSnapshot],
-        ]);
-        expect(commandCallback.mock.calls).toEqual([
-            [invalidCommand],
-            [rawCommand],
-        ]);
+        expect(snapshotCallback.mock.calls).toEqual([[invalidSnapshot], [rawSnapshot]]);
+        expect(commandCallback.mock.calls).toEqual([[invalidCommand], [rawCommand]]);
     });
 
     it('forwards main-originated assistant events unchanged', async () => {
-        const {
-            api,
-            listeners,
-        } = await createApiHarness();
+        const {api, listeners} = await createApiHarness();
         const callback = vi.fn();
 
         api.agent.onAssistantEvent(callback);
@@ -688,19 +640,11 @@ describe('createElectronApi', () => {
         listener({}, deltaEvent);
         listener({}, progressEvent);
 
-        expect(callback.mock.calls).toEqual([
-            [stateEvent],
-            [deltaEvent],
-            [progressEvent],
-        ]);
+        expect(callback.mock.calls).toEqual([[stateEvent], [deltaEvent], [progressEvent]]);
     });
 
     it('forwards main-originated tab transfers unchanged', async () => {
-        const {
-            api,
-            ipcRenderer,
-            listeners,
-        } = await createApiHarness();
+        const {api, ipcRenderer, listeners} = await createApiHarness();
         const callback = vi.fn();
 
         const unsubscribe = api.windowTabs.onIncomingTransfer(callback);
@@ -719,7 +663,7 @@ describe('createElectronApi', () => {
                 isDirty: false,
                 isDjvu: false,
             },
-            payload: { kind: 'unsupported' },
+            payload: {kind: 'unsupported'},
         };
         const rawTransfer = {
             transferId: ' transfer-1 ',
@@ -744,14 +688,8 @@ describe('createElectronApi', () => {
         listener({}, rawTransfer);
         unsubscribe();
 
-        expect(callback.mock.calls).toEqual([
-            [invalidTransfer],
-            [rawTransfer],
-        ]);
-        expect(ipcRenderer.removeListener).toHaveBeenCalledWith(
-            WINDOW_TABS_PLATFORM_FEATURE.eventChannels.onIncomingTransfer,
-            listener,
-        );
+        expect(callback.mock.calls).toEqual([[invalidTransfer], [rawTransfer]]);
+        expect(ipcRenderer.removeListener).toHaveBeenCalledWith(WINDOW_TABS_PLATFORM_FEATURE.eventChannels.onIncomingTransfer, listener);
     });
 
     it('decodes update, host, and window-action payloads while preserving unsubscribe handles', async () => {
@@ -796,8 +734,8 @@ describe('createElectronApi', () => {
             removeListener: vi.fn(),
             send: vi.fn(),
         };
-        const { createElectronApi } = await import('@electron/preload/createElectronApi');
-        const api = createElectronApi(ipcRenderer as never, { getPathForFile: () => '' });
+        const {createElectronApi} = await import('@electron/preload/createElectronApi');
+        const api = createElectronApi(ipcRenderer as never, {getPathForFile: () => ''});
         const updateCallback = vi.fn();
         const environmentCallback = vi.fn();
         const rasterBudgetCallback = vi.fn();
@@ -809,43 +747,64 @@ describe('createElectronApi', () => {
             api.windowTabs.onWindowAction(actionCallback),
         ];
 
-        listeners.get(UPDATES_PLATFORM_FEATURE.eventChannels.onStatus)?.({}, {
-            phase: 'future-phase',
-            origin: 'manual',
-            version: null,
-            percent: null,
-            message: null,
-        });
-        listeners.get(UPDATES_PLATFORM_FEATURE.eventChannels.onStatus)?.({}, {
-            phase: 'downloaded',
-            origin: 'auto',
-            version: '2.0.0',
-            percent: 100,
-            message: null,
-        });
-        listeners.get(HOST_PLATFORM_FEATURE.eventChannels.onEnvironmentChange)?.({}, {
-            platform: 'freebsd',
-            osScaleFactor: 1,
-        });
-        listeners.get(HOST_PLATFORM_FEATURE.eventChannels.onEnvironmentChange)?.({}, {
-            platform: 'darwin',
-            osScaleFactor: 2,
-        });
-        listeners.get(HOST_PLATFORM_FEATURE.eventChannels.onRasterBudgetChange)?.({}, {
-            maxRasterSurfaceBytes: 768 * 1024 ** 2,
-            hostPoolBytes: 1536 * 1024 ** 2,
-            windowCount: 2,
-        });
-        listeners.get(WINDOW_TABS_PLATFORM_FEATURE.eventChannels.onWindowAction)?.({}, {
-            kind: 'move-tab-to-window',
-            targetWindowId: -1,
-        });
-        listeners.get(WINDOW_TABS_PLATFORM_FEATURE.eventChannels.onWindowAction)?.({}, {
-            kind: 'move-tab-to-window',
-            targetWindowId: 3,
-            tabId: ' tab-1 ',
-        });
-        unsubscribers.forEach(unsubscribe => unsubscribe());
+        listeners.get(UPDATES_PLATFORM_FEATURE.eventChannels.onStatus)?.(
+            {},
+            {
+                phase: 'future-phase',
+                origin: 'manual',
+                version: null,
+                percent: null,
+                message: null,
+            },
+        );
+        listeners.get(UPDATES_PLATFORM_FEATURE.eventChannels.onStatus)?.(
+            {},
+            {
+                phase: 'downloaded',
+                origin: 'auto',
+                version: '2.0.0',
+                percent: 100,
+                message: null,
+            },
+        );
+        listeners.get(HOST_PLATFORM_FEATURE.eventChannels.onEnvironmentChange)?.(
+            {},
+            {
+                platform: 'freebsd',
+                osScaleFactor: 1,
+            },
+        );
+        listeners.get(HOST_PLATFORM_FEATURE.eventChannels.onEnvironmentChange)?.(
+            {},
+            {
+                platform: 'darwin',
+                osScaleFactor: 2,
+            },
+        );
+        listeners.get(HOST_PLATFORM_FEATURE.eventChannels.onRasterBudgetChange)?.(
+            {},
+            {
+                maxRasterSurfaceBytes: 768 * 1024 ** 2,
+                hostPoolBytes: 1536 * 1024 ** 2,
+                windowCount: 2,
+            },
+        );
+        listeners.get(WINDOW_TABS_PLATFORM_FEATURE.eventChannels.onWindowAction)?.(
+            {},
+            {
+                kind: 'move-tab-to-window',
+                targetWindowId: -1,
+            },
+        );
+        listeners.get(WINDOW_TABS_PLATFORM_FEATURE.eventChannels.onWindowAction)?.(
+            {},
+            {
+                kind: 'move-tab-to-window',
+                targetWindowId: 3,
+                tabId: ' tab-1 ',
+            },
+        );
+        unsubscribers.forEach((unsubscribe) => unsubscribe());
 
         expect(updateCallback).toHaveBeenNthCalledWith(1, {
             phase: 'future-phase',
@@ -908,9 +867,9 @@ describe('createElectronApi', () => {
     });
 
     it('awaits renderer file-open authorization before single-file direct open', async () => {
-        vi.stubGlobal('crypto', { randomUUID: () => '00000000-0000-4000-8000-000000000001' });
+        vi.stubGlobal('crypto', {randomUUID: () => '00000000-0000-4000-8000-000000000001'});
         const invocations: string[] = [];
-        const allowDeferred: { resolve?: (allowed: boolean) => void } = {};
+        const allowDeferred: {resolve?: (allowed: boolean) => void} = {};
         const ipcRenderer = {
             invoke: vi.fn((channel: string) => {
                 invocations.push(channel);
@@ -927,11 +886,8 @@ describe('createElectronApi', () => {
             on: vi.fn(),
             send: vi.fn(),
         };
-        const { createElectronApi } = await import('@electron/preload/createElectronApi');
-        const api = createElectronApi(
-            ipcRenderer as never,
-            { getPathForFile: () => '/tmp/from-picker.pdf' },
-        );
+        const {createElectronApi} = await import('@electron/preload/createElectronApi');
+        const api = createElectronApi(ipcRenderer as never, {getPathForFile: () => '/tmp/from-picker.pdf'});
 
         expect(api.documentPicker.getPathForFile({} as File)).toBe('/tmp/from-picker.pdf');
         const openPromise = api.documentOpen.openDocumentDirect(requireDocumentRef('/tmp/from-picker.pdf'));
@@ -944,13 +900,13 @@ describe('createElectronApi', () => {
             throw new Error('Expected renderer file-open authorization to be pending');
         }
         allowDeferred.resolve(true);
-        await expect(openPromise).resolves.toEqual({ path: '/tmp/from-picker.pdf' });
+        await expect(openPromise).resolves.toEqual({path: '/tmp/from-picker.pdf'});
         expect(invocations).toContain(DOCUMENTS_CHANNELS.allowRendererFileOpen);
         expect(documentsClientMock.openDocumentDirect).toHaveBeenCalledWith('/tmp/from-picker.pdf');
     });
 
     it('does not direct-open a picked file when renderer file-open authorization is denied', async () => {
-        vi.stubGlobal('crypto', { randomUUID: () => '00000000-0000-4000-8000-000000000002' });
+        vi.stubGlobal('crypto', {randomUUID: () => '00000000-0000-4000-8000-000000000002'});
         const ipcRenderer = {
             invoke: vi.fn((channel: string) => {
                 if (channel === DOCUMENTS_CHANNELS.registerRendererFileOpenToken) {
@@ -964,11 +920,8 @@ describe('createElectronApi', () => {
             on: vi.fn(),
             send: vi.fn(),
         };
-        const { createElectronApi } = await import('@electron/preload/createElectronApi');
-        const api = createElectronApi(
-            ipcRenderer as never,
-            { getPathForFile: () => '/tmp/denied-from-picker.pdf' },
-        );
+        const {createElectronApi} = await import('@electron/preload/createElectronApi');
+        const api = createElectronApi(ipcRenderer as never, {getPathForFile: () => '/tmp/denied-from-picker.pdf'});
 
         expect(api.documentPicker.getPathForFile({} as File)).toBe('/tmp/denied-from-picker.pdf');
 
@@ -977,13 +930,14 @@ describe('createElectronApi', () => {
     });
 
     it('keeps the newest renderer file-open authorization pending for repeated picks of the same path', async () => {
-        const randomUUID = vi.fn()
+        const randomUUID = vi
+            .fn()
             .mockReturnValueOnce('00000000-0000-4000-8000-000000000003')
             .mockReturnValueOnce('00000000-0000-4000-8000-000000000004');
         vi.stubGlobal('crypto', {randomUUID});
         const allowResolvers = new Map<string, (allowed: boolean) => void>();
         const ipcRenderer = {
-            invoke: vi.fn((channel: string, payload?: { token?: string }) => {
+            invoke: vi.fn((channel: string, payload?: {token?: string}) => {
                 if (channel === DOCUMENTS_CHANNELS.registerRendererFileOpenToken) {
                     return Promise.resolve(true);
                 }
@@ -997,11 +951,8 @@ describe('createElectronApi', () => {
             on: vi.fn(),
             send: vi.fn(),
         };
-        const { createElectronApi } = await import('@electron/preload/createElectronApi');
-        const api = createElectronApi(
-            ipcRenderer as never,
-            { getPathForFile: () => '/tmp/repeated-picker.pdf' },
-        );
+        const {createElectronApi} = await import('@electron/preload/createElectronApi');
+        const api = createElectronApi(ipcRenderer as never, {getPathForFile: () => '/tmp/repeated-picker.pdf'});
 
         expect(api.documentPicker.getPathForFile({} as File)).toBe('/tmp/repeated-picker.pdf');
         expect(api.documentPicker.getPathForFile({} as File)).toBe('/tmp/repeated-picker.pdf');
@@ -1013,16 +964,17 @@ describe('createElectronApi', () => {
         expect(documentsClientMock.openDocumentDirect).not.toHaveBeenCalled();
 
         allowResolvers.get('00000000-0000-4000-8000-000000000004')?.(true);
-        await expect(openPromise).resolves.toEqual({ path: '/tmp/repeated-picker.pdf' });
+        await expect(openPromise).resolves.toEqual({path: '/tmp/repeated-picker.pdf'});
         expect(documentsClientMock.openDocumentDirect).toHaveBeenCalledWith('/tmp/repeated-picker.pdf');
     });
 
     it('batches renderer file-open authorization for file arrays', async () => {
-        const randomUUID = vi.fn()
+        const randomUUID = vi
+            .fn()
             .mockReturnValueOnce('00000000-0000-4000-8000-000000000005')
             .mockReturnValueOnce('00000000-0000-4000-8000-000000000006');
         vi.stubGlobal('crypto', {randomUUID});
-        const allowDeferred: { resolve?: (allowed: boolean) => void } = {};
+        const allowDeferred: {resolve?: (allowed: boolean) => void} = {};
         const ipcRenderer = {
             invoke: vi.fn((channel: string) => {
                 if (channel === DOCUMENTS_CHANNELS.registerRendererFileOpenTokens) {
@@ -1038,21 +990,16 @@ describe('createElectronApi', () => {
             on: vi.fn(),
             send: vi.fn(),
         };
-        const getPathForFile = vi.fn((file: File) => (file as File & { path: string }).path);
-        const { createElectronApi } = await import('@electron/preload/createElectronApi');
-        const api = createElectronApi(
-            ipcRenderer as never,
-            { getPathForFile },
-        );
+        const getPathForFile = vi.fn((file: File) => (file as File & {path: string}).path);
+        const {createElectronApi} = await import('@electron/preload/createElectronApi');
+        const api = createElectronApi(ipcRenderer as never, {getPathForFile});
 
-        const paths = api.documentPicker.getPathsForFiles([
-            { path: '/tmp/batch-a.pdf' } as File & { path: string },
-            { path: '/tmp/batch-b.pdf' } as File & { path: string },
-        ]) ?? [];
-        expect(paths).toEqual([
-            '/tmp/batch-a.pdf',
-            '/tmp/batch-b.pdf',
-        ]);
+        const paths =
+            api.documentPicker.getPathsForFiles([
+                {path: '/tmp/batch-a.pdf'} as File & {path: string},
+                {path: '/tmp/batch-b.pdf'} as File & {path: string},
+            ]) ?? [];
+        expect(paths).toEqual(['/tmp/batch-a.pdf', '/tmp/batch-b.pdf']);
 
         const openPromise = api.documentOpen.openDocumentDirectBatch(paths, requireRequestId('batch-open-1'));
         await flushMicrotasks();
@@ -1064,42 +1011,38 @@ describe('createElectronApi', () => {
         allowDeferred.resolve(true);
 
         await expect(openPromise).resolves.toEqual(paths);
-        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
-            DOCUMENTS_CHANNELS.registerRendererFileOpenTokens,
-            [
-                '00000000-0000-4000-8000-000000000005',
-                '00000000-0000-4000-8000-000000000006',
-            ],
-        );
-        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
-            DOCUMENTS_CHANNELS.allowRendererFileOpenBatch,
-            [
-                {
-                    filePath: '/tmp/batch-a.pdf',
-                    token: '00000000-0000-4000-8000-000000000005',
-                },
-                {
-                    filePath: '/tmp/batch-b.pdf',
-                    token: '00000000-0000-4000-8000-000000000006',
-                },
-            ],
-        );
+        expect(ipcRenderer.invoke).toHaveBeenCalledWith(DOCUMENTS_CHANNELS.registerRendererFileOpenTokens, [
+            '00000000-0000-4000-8000-000000000005',
+            '00000000-0000-4000-8000-000000000006',
+        ]);
+        expect(ipcRenderer.invoke).toHaveBeenCalledWith(DOCUMENTS_CHANNELS.allowRendererFileOpenBatch, [
+            {
+                filePath: '/tmp/batch-a.pdf',
+                token: '00000000-0000-4000-8000-000000000005',
+            },
+            {
+                filePath: '/tmp/batch-b.pdf',
+                token: '00000000-0000-4000-8000-000000000006',
+            },
+        ]);
         expect(documentsClientMock.openDocumentDirectBatch).toHaveBeenCalledWith(paths, 'batch-open-1');
     });
 
     it('chunks large renderer file-open authorization without widening the IPC grant bound', async () => {
         const filePaths = Array.from({length: 129}, (_, index) => `/tmp/large-batch-${index}.pdf`);
-        const paths = filePaths.map(path => requireDocumentRef(path));
-        const randomUUID = vi.fn((() => {
-            let index = 0;
-            return () => `00000000-0000-4000-8000-${String(index++).padStart(12, '0')}`;
-        })());
+        const paths = filePaths.map((path) => requireDocumentRef(path));
+        const randomUUID = vi.fn(
+            (() => {
+                let index = 0;
+                return () => `00000000-0000-4000-8000-${String(index++).padStart(12, '0')}`;
+            })(),
+        );
         vi.stubGlobal('crypto', {randomUUID});
         const ipcRenderer = {
             invoke: vi.fn(async (channel: string, _payload?: unknown) => {
                 if (
-                    channel === DOCUMENTS_CHANNELS.registerRendererFileOpenTokens
-                    || channel === DOCUMENTS_CHANNELS.allowRendererFileOpenBatch
+                    channel === DOCUMENTS_CHANNELS.registerRendererFileOpenTokens ||
+                    channel === DOCUMENTS_CHANNELS.allowRendererFileOpenBatch
                 ) {
                     return true;
                 }
@@ -1111,37 +1054,25 @@ describe('createElectronApi', () => {
         const getPathForFile = vi.fn((file: File) => (file as File & {path: string}).path);
         const {createElectronApi} = await import('@electron/preload/createElectronApi');
         const api = createElectronApi(ipcRenderer as never, {getPathForFile});
-        const files = filePaths.map(path => ({path} as File & {path: string}));
+        const files = filePaths.map((path) => ({path}) as File & {path: string});
 
         expect(api.documentPicker.getPathsForFiles(files)).toEqual(paths);
-        await expect(api.documentOpen.openDocumentDirectBatch(paths, requireRequestId('large-batch-open')))
-            .resolves.toEqual(paths);
+        await expect(api.documentOpen.openDocumentDirectBatch(paths, requireRequestId('large-batch-open'))).resolves.toEqual(paths);
 
-        const registerCalls = ipcRenderer.invoke.mock.calls.filter(([channel]) => (
-            channel === DOCUMENTS_CHANNELS.registerRendererFileOpenTokens
-        ));
-        const allowCalls = ipcRenderer.invoke.mock.calls.filter(([channel]) => (
-            channel === DOCUMENTS_CHANNELS.allowRendererFileOpenBatch
-        ));
+        const registerCalls = ipcRenderer.invoke.mock.calls.filter(
+            ([channel]) => channel === DOCUMENTS_CHANNELS.registerRendererFileOpenTokens,
+        );
+        const allowCalls = ipcRenderer.invoke.mock.calls.filter(([channel]) => channel === DOCUMENTS_CHANNELS.allowRendererFileOpenBatch);
         expect(registerCalls).toHaveLength(2);
         expect(allowCalls).toHaveLength(2);
-        expect(registerCalls.map(call => (
-            (call[1] as string[]).length
-        ))).toEqual([
-            128,
-            1,
-        ]);
-        expect(allowCalls.map(call => (
-            (call[1] as unknown[]).length
-        ))).toEqual([
-            128,
-            1,
-        ]);
+        expect(registerCalls.map((call) => (call[1] as string[]).length)).toEqual([128, 1]);
+        expect(allowCalls.map((call) => (call[1] as unknown[]).length)).toEqual([128, 1]);
         expect(documentsClientMock.openDocumentDirectBatch).toHaveBeenCalledWith(paths, 'large-batch-open');
     });
 
     it('does not batch direct-open picked files when renderer file-open batch authorization is denied', async () => {
-        const randomUUID = vi.fn()
+        const randomUUID = vi
+            .fn()
             .mockReturnValueOnce('00000000-0000-4000-8000-000000000007')
             .mockReturnValueOnce('00000000-0000-4000-8000-000000000008');
         vi.stubGlobal('crypto', {randomUUID});
@@ -1158,28 +1089,22 @@ describe('createElectronApi', () => {
             on: vi.fn(),
             send: vi.fn(),
         };
-        const getPathForFile = vi.fn((file: File) => (file as File & { path: string }).path);
-        const { createElectronApi } = await import('@electron/preload/createElectronApi');
-        const api = createElectronApi(
-            ipcRenderer as never,
-            { getPathForFile },
-        );
+        const getPathForFile = vi.fn((file: File) => (file as File & {path: string}).path);
+        const {createElectronApi} = await import('@electron/preload/createElectronApi');
+        const api = createElectronApi(ipcRenderer as never, {getPathForFile});
 
-        const paths = api.documentPicker.getPathsForFiles([
-            { path: '/tmp/denied-batch-a.pdf' } as File & { path: string },
-            { path: '/tmp/denied-batch-b.pdf' } as File & { path: string },
-        ]) ?? [];
+        const paths =
+            api.documentPicker.getPathsForFiles([
+                {path: '/tmp/denied-batch-a.pdf'} as File & {path: string},
+                {path: '/tmp/denied-batch-b.pdf'} as File & {path: string},
+            ]) ?? [];
 
         await expect(api.documentOpen.openDocumentDirectBatch(paths, requireRequestId('batch-open-denied'))).resolves.toBeNull();
         expect(documentsClientMock.openDocumentDirectBatch).not.toHaveBeenCalled();
     });
 
     it('shares a single IPC event listener fan-out across platform features and core events', async () => {
-        const {
-            api,
-            ipcRenderer,
-            listeners,
-        } = await createApiHarness();
+        const {api, ipcRenderer, listeners} = await createApiHarness();
 
         const firstAgentListener = vi.fn();
         const secondAgentListener = vi.fn();

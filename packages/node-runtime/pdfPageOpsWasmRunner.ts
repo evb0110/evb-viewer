@@ -18,12 +18,7 @@ import {
 } from 'node:fs';
 import {readFile} from 'node:fs/promises';
 import {totalmem} from 'node:os';
-import {
-    basename,
-    dirname,
-    join,
-    resolve,
-} from 'node:path';
+import {basename, dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {
     BYTES_HEADER,
@@ -41,15 +36,8 @@ import {
     U32_BYTES,
     WRITTEN_HEADER,
 } from '@contracts/browserPageOpsWasm.generated';
-import {
-    getCheckedWasmMemoryView,
-    WASM_REQUEST_ALLOCATION_ABI_VERSION,
-} from '@contracts/getCheckedWasmMemoryView';
-import {
-    NATIVE_ERROR_ENVELOPE_SCHEMA,
-    type INativeErrorEnvelope,
-    type TNativeErrorCode,
-} from '@contracts/nativeErrors';
+import {getCheckedWasmMemoryView, WASM_REQUEST_ALLOCATION_ABI_VERSION} from '@contracts/getCheckedWasmMemoryView';
+import {NATIVE_ERROR_ENVELOPE_SCHEMA, type INativeErrorEnvelope, type TNativeErrorCode} from '@contracts/nativeErrors';
 import {decodeSerializableErrorEnvelope} from '@contracts/serializableError';
 
 export interface IPageOpsProcessResult {
@@ -152,21 +140,18 @@ function readExports(exports: WebAssembly.Exports): IPdfPageOpsWasmExports {
     const errorPtr = exports.evb_pdf_page_ops_error_ptr;
     const errorLen = exports.evb_pdf_page_ops_error_len;
     if (
-        !(memory instanceof WebAssembly.Memory)
-        || !isWasmFn(abiVersion)
-        || abiVersion() !== WASM_REQUEST_ALLOCATION_ABI_VERSION
-        || !isWasmFn(alloc)
-        || !isWasmFn(free)
-        || !isWasmFn(run)
-        || !isWasmFn(outputPtr)
-        || !isWasmFn(outputLen)
-        || !isWasmFn(errorPtr)
-        || !isWasmFn(errorLen)
+        !(memory instanceof WebAssembly.Memory) ||
+        !isWasmFn(abiVersion) ||
+        abiVersion() !== WASM_REQUEST_ALLOCATION_ABI_VERSION ||
+        !isWasmFn(alloc) ||
+        !isWasmFn(free) ||
+        !isWasmFn(run) ||
+        !isWasmFn(outputPtr) ||
+        !isWasmFn(outputLen) ||
+        !isWasmFn(errorPtr) ||
+        !isWasmFn(errorLen)
     ) {
-        throw new PdfPageOpsNativeError(
-            'native-failure',
-            'evb-pdf-page-ops.wasm does not match this version of the app',
-        );
+        throw new PdfPageOpsNativeError('native-failure', 'evb-pdf-page-ops.wasm does not match this version of the app');
     }
     return {
         memory,
@@ -182,15 +167,16 @@ function readExports(exports: WebAssembly.Exports): IPdfPageOpsWasmExports {
 
 function readErrorEnvelope(tool: IPdfPageOpsWasmExports, resultCode: number): INativeErrorEnvelope {
     const length = tool.errorLen();
-    const encoded = length === 0
-        ? null
-        : textDecoder.decode(
-            getCheckedWasmMemoryView(tool.memory, tool.errorPtr(), length, 'evb-pdf-page-ops').slice(),
-        );
-    return decodeSerializableErrorEnvelope(encoded, NATIVE_ERROR_ENVELOPE_SCHEMA, {allowBareJsonString: true}) ?? {
-        code: 'native-failure',
-        message: encoded ?? `evb-pdf-page-ops failed with result code ${resultCode}`,
-    };
+    const encoded =
+        length === 0
+            ? null
+            : textDecoder.decode(getCheckedWasmMemoryView(tool.memory, tool.errorPtr(), length, 'evb-pdf-page-ops').slice());
+    return (
+        decodeSerializableErrorEnvelope(encoded, NATIVE_ERROR_ENVELOPE_SCHEMA, {allowBareJsonString: true}) ?? {
+            code: 'native-failure',
+            message: encoded ?? `evb-pdf-page-ops failed with result code ${resultCode}`,
+        }
+    );
 }
 
 function readExactSync(fd: number, target: Uint8Array, offset: number): boolean {
@@ -285,13 +271,7 @@ function unlinkBestEffortSync(filePath: string) {
  * tries a copy-on-write reflink (`COPYFILE_FICLONE`) first, then falls back
  * to zero-skipping chunked copy so multi-GiB sparse PDFs never exhaust space.
  */
-function copyBasePreservingSparseSync(
-    srcPath: string,
-    srcFd: number,
-    srcLen: number,
-    dstPath: string,
-    scratch: Uint8Array,
-): number {
+function copyBasePreservingSparseSync(srcPath: string, srcFd: number, srcLen: number, dstPath: string, scratch: Uint8Array): number {
     try {
         copyFileSync(srcPath, dstPath, fsConstants.COPYFILE_FICLONE_FORCE);
         const fd = openSync(dstPath, 'r+');
@@ -350,9 +330,7 @@ function sameFileSync(pathA: string, pathB: string): boolean {
     }
     const canonA = canonicalPathForAliasCheck(pathA);
     const canonB = canonicalPathForAliasCheck(pathB);
-    return process.platform === 'win32'
-        ? canonA.toLowerCase() === canonB.toLowerCase()
-        : canonA === canonB;
+    return process.platform === 'win32' ? canonA.toLowerCase() === canonB.toLowerCase() : canonA === canonB;
 }
 
 function captureFileWitness(filePath: string): IFileWitness | null {
@@ -376,35 +354,29 @@ function captureFileWitness(filePath: string): IFileWitness | null {
 function assertFileWitnessUnchanged(filePath: string, expected: IFileWitness, label: string) {
     const current = captureFileWitness(filePath);
     if (
-        !current
-        || current.size !== expected.size
-        || current.mtimeMs !== expected.mtimeMs
-        || current.ctimeMs !== expected.ctimeMs
-        || (expected.ino !== 0 && (current.dev !== expected.dev || current.ino !== expected.ino))
+        !current ||
+        current.size !== expected.size ||
+        current.mtimeMs !== expected.mtimeMs ||
+        current.ctimeMs !== expected.ctimeMs ||
+        (expected.ino !== 0 && (current.dev !== expected.dev || current.ino !== expected.ino))
     ) {
-        throw new PdfPageOpsNativeError(
-            'io',
-            `${label} changed on disk while evb-pdf-page-ops was running: ${filePath}`,
-        );
+        throw new PdfPageOpsNativeError('io', `${label} changed on disk while evb-pdf-page-ops was running: ${filePath}`);
     }
 }
 
 export function createTempSiblingPath(targetPath: string) {
-    return join(
-        dirname(targetPath),
-        `.${basename(targetPath)}.evb-wasm-${process.pid}-${randomUUID()}.tmp`,
-    );
+    return join(dirname(targetPath), `.${basename(targetPath)}.evb-wasm-${process.pid}-${randomUUID()}.tmp`);
 }
 
 export type TDesktopPageOpsWriteTarget =
     | {
-        kind: 'in-place';
-        path: string;
-    }
+          kind: 'in-place';
+          path: string;
+      }
     | {
-        kind: 'staged';
-        outputPath: string;
-    };
+          kind: 'staged';
+          outputPath: string;
+      };
 
 /**
  * Inspects a CLI argument vector to identify the file-write target so the
@@ -541,10 +513,7 @@ function renameWithRetrySync(sourcePath: string, targetPath: string) {
         } catch (error) {
             lastError = error;
             const code = (error as NodeJS.ErrnoException | undefined)?.code;
-            if (
-                attempt + 1 >= maxAttempts
-                || (code !== 'EPERM' && code !== 'EACCES' && code !== 'EBUSY')
-            ) {
+            if (attempt + 1 >= maxAttempts || (code !== 'EPERM' && code !== 'EACCES' && code !== 'EBUSY')) {
                 throw error;
             }
             Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20 * (attempt + 1));
@@ -567,10 +536,7 @@ export interface IPdfPageOpsWasmRunner {
  * Reusable single-threaded runner over one compiled `evb-pdf-page-ops.wasm`
  * module with synchronous positional Node `fs` host imports (`evb_host`).
  */
-export function createPdfPageOpsWasmRunner(
-    wasmModule: WebAssembly.Module,
-    options: {highWaterBytes?: number} = {},
-): IPdfPageOpsWasmRunner {
+export function createPdfPageOpsWasmRunner(wasmModule: WebAssembly.Module, options: {highWaterBytes?: number} = {}): IPdfPageOpsWasmRunner {
     const highWaterBytes = options.highWaterBytes ?? defaultDesktopPageOpsWasmHighWaterBytes();
     const copyBuffer = new Uint8Array(COPY_CHUNK_BYTES);
     let tool: IPdfPageOpsWasmExports | null = null;
@@ -590,16 +556,26 @@ export function createPdfPageOpsWasmRunner(
     const hostImports: WebAssembly.Imports = {
         evb_host: {
             evb_host_source_len(index: number): number {
-                if (!activeIo) {return -1;}
+                if (!activeIo) {
+                    return -1;
+                }
                 return ensureSourceLenSync(activeIo, index);
             },
             evb_host_source_read(index: number, offset: number, pointer: number, len: number): number {
-                if (!activeIo || !activeIo.memory) {return -1;}
-                if (!Number.isFinite(offset) || offset < 0 || len < 0) {return -1;}
-                if (len === 0) {return 0;}
+                if (!activeIo || !activeIo.memory) {
+                    return -1;
+                }
+                if (!Number.isFinite(offset) || offset < 0 || len < 0) {
+                    return -1;
+                }
+                if (len === 0) {
+                    return 0;
+                }
                 try {
                     const fd = ensureSourceFdSync(activeIo, index);
-                    if (fd < 0) {return -1;}
+                    if (fd < 0) {
+                        return -1;
+                    }
                     const view = getCheckedWasmMemoryView(activeIo.memory, pointer, len, 'evb_host_source_read');
                     return readExactSync(fd, view, offset) ? 0 : -1;
                 } catch {
@@ -607,16 +583,24 @@ export function createPdfPageOpsWasmRunner(
                 }
             },
             evb_host_source_copy(index: number, offset: number, len: number, at: number): number {
-                if (!activeIo) {return -1;}
+                if (!activeIo) {
+                    return -1;
+                }
                 if (!Number.isFinite(offset) || !Number.isFinite(len) || !Number.isFinite(at)) {
                     return -1;
                 }
-                if (offset < 0 || len < 0 || at < 0) {return -1;}
+                if (offset < 0 || len < 0 || at < 0) {
+                    return -1;
+                }
                 try {
                     const srcFd = ensureSourceFdSync(activeIo, index);
-                    if (srcFd < 0) {return -1;}
+                    if (srcFd < 0) {
+                        return -1;
+                    }
                     const sink = ensureSinkOpen(activeIo);
-                    if (!sink || sink.fd === null) {return -1;}
+                    if (!sink || sink.fd === null) {
+                        return -1;
+                    }
                     if (len > 0 && !streamCopyFdRangeSync(srcFd, offset, len, sink.fd, at, copyBuffer)) {
                         return -1;
                     }
@@ -628,42 +612,40 @@ export function createPdfPageOpsWasmRunner(
                 }
             },
             evb_host_sink_write(at: number, pointer: number, len: number): number {
-                if (!activeIo || !activeIo.memory) {return -1;}
-                if (!Number.isFinite(at) || at < 0 || len < 0) {return -1;}
+                if (!activeIo || !activeIo.memory) {
+                    return -1;
+                }
+                if (!Number.isFinite(at) || at < 0 || len < 0) {
+                    return -1;
+                }
                 try {
                     const sink = activeIo.sink;
-                    if (!sink) {return -1;}
+                    if (!sink) {
+                        return -1;
+                    }
                     // Lazy copy-on-first-append: when an incremental op targets a separate output
                     // file and its VERY FIRST write begins at `source0Len`, clone or sparse-copy
                     // source 0's prefix first so no-op runs copy 0 bytes and full rewrites that
                     // start at offset 0 and grow past `source0Len` never clobber their own prefix.
-                    if (
-                        !sink.inPlace
-                        && !sink.baseCopied
-                        && !sink.writtenAny
-                        && sink.baseSourceLen > 0
-                        && at >= sink.baseSourceLen
-                    ) {
+                    if (!sink.inPlace && !sink.baseCopied && !sink.writtenAny && sink.baseSourceLen > 0 && at >= sink.baseSourceLen) {
                         const source0 = activeIo.sources[0];
                         const source0Fd = source0 ? ensureSourceFdSync(activeIo, 0) : -1;
-                        if (!source0 || source0Fd < 0) {return -1;}
+                        if (!source0 || source0Fd < 0) {
+                            return -1;
+                        }
                         if (sink.fd !== null) {
                             closeSync(sink.fd);
                             sink.fd = null;
                         }
-                        sink.fd = copyBasePreservingSparseSync(
-                            source0.path,
-                            source0Fd,
-                            sink.baseSourceLen,
-                            sink.path,
-                            copyBuffer,
-                        );
+                        sink.fd = copyBasePreservingSparseSync(source0.path, source0Fd, sink.baseSourceLen, sink.path, copyBuffer);
                         sink.baseCopied = true;
                         sink.maxLen = Math.max(sink.maxLen, sink.baseSourceLen);
                     } else if (sink.fd === null) {
                         ensureSinkOpen(activeIo);
                     }
-                    if (sink.fd === null) {return -1;}
+                    if (sink.fd === null) {
+                        return -1;
+                    }
                     if (len > 0) {
                         const view = getCheckedWasmMemoryView(activeIo.memory, pointer, len, 'evb_host_sink_write');
                         if (!writeExactSync(sink.fd, view, at)) {
@@ -678,12 +660,16 @@ export function createPdfPageOpsWasmRunner(
                 }
             },
             evb_host_sink_read(offset: number, pointer: number, len: number): number {
-                if (!activeIo || !activeIo.memory) {return -1;}
+                if (!activeIo || !activeIo.memory) {
+                    return -1;
+                }
                 const sink = activeIo.sink;
                 if (!sink || sink.fd === null || !Number.isFinite(offset) || offset < 0 || len < 0) {
                     return -1;
                 }
-                if (len === 0) {return 0;}
+                if (len === 0) {
+                    return 0;
+                }
                 try {
                     const view = getCheckedWasmMemoryView(activeIo.memory, pointer, len, 'evb_host_sink_read');
                     return readExactSync(sink.fd, view, offset) ? 0 : -1;
@@ -728,19 +714,13 @@ export function createPdfPageOpsWasmRunner(
     function runInternal(request: Uint8Array, io: IHostIoContext | null): Uint8Array<ArrayBuffer> {
         const byteLength = request.byteLength;
         if (byteLength === 0 || byteLength > MAX_BUFFER_BYTES) {
-            throw new PdfPageOpsNativeError(
-                'too-large',
-                'evb-pdf-page-ops request exceeds the admission ceiling',
-            );
+            throw new PdfPageOpsNativeError('too-large', 'evb-pdf-page-ops request exceeds the admission ceiling');
         }
         const active = getTool();
         const pointer = active.alloc(byteLength);
         if (pointer === 0) {
             dispose();
-            throw new PdfPageOpsNativeError(
-                'too-large',
-                'evb-pdf-page-ops could not allocate request memory',
-            );
+            throw new PdfPageOpsNativeError('too-large', 'evb-pdf-page-ops could not allocate request memory');
         }
         if (io) {
             io.memory = active.memory;
@@ -798,7 +778,7 @@ export function createPdfPageOpsWasmRunner(
 
     return {
         runFileRequest: (request, io) => runInternal(request, io),
-        runRawRequest: request => runInternal(request, null),
+        runRawRequest: (request) => runInternal(request, null),
         getVisibilitySessionIdentity,
         setVisibilitySessionIdentity,
         maybeRecycle,
@@ -836,10 +816,7 @@ function encodeFileRequest(options: {
     return buffer;
 }
 
-function encodeStandardRequest(options: {
-    operation: number;
-    insertionData?: Uint8Array;
-}): Uint8Array {
+function encodeStandardRequest(options: {operation: number; insertionData?: Uint8Array}): Uint8Array {
     const insertionData = options.insertionData ?? new Uint8Array(0);
     const buffer = new Uint8Array(REQUEST_HEADER.bytes + insertionData.byteLength);
     const view = new DataView(buffer.buffer);
@@ -897,10 +874,7 @@ function decodeTextBoxAppearanceResponse(bytes: Uint8Array): {
     const kind = view.getUint32(TEXT_BOX_APPEARANCE_HEADER.kind, true);
     const dataLength = view.getUint32(TEXT_BOX_APPEARANCE_HEADER.dataLength, true);
     const metadataLength = view.getUint32(TEXT_BOX_APPEARANCE_HEADER.metadataLength, true);
-    if (
-        kind !== RESPONSE_TEXT_BOX_APPEARANCE
-        || TEXT_BOX_APPEARANCE_HEADER.bytes + dataLength + metadataLength !== bytes.byteLength
-    ) {
+    if (kind !== RESPONSE_TEXT_BOX_APPEARANCE || TEXT_BOX_APPEARANCE_HEADER.bytes + dataLength + metadataLength !== bytes.byteLength) {
         throw new PdfPageOpsNativeError('invalid-request', 'evb-pdf-page-ops returned an invalid text-box appearance envelope');
     }
     const pdfStart = TEXT_BOX_APPEARANCE_HEADER.bytes;
@@ -946,10 +920,7 @@ function readBoundedSidecarBytes(filePath: string, label: string, maxBytes = MAX
             throw new PdfPageOpsNativeError('too-large', `${label} exceeds the byte admission ceiling`);
         }
         if (extra > 0) {
-            const chunks: Uint8Array[] = [
-                output,
-                probe,
-            ];
+            const chunks: Uint8Array[] = [output, probe];
             let total = offset + 1;
             const scratch = new Uint8Array(64 * 1024);
             while (true) {
@@ -1322,18 +1293,21 @@ function requireFlag(value: string | undefined, flag: string): string {
     return value;
 }
 
-function withHostFiles<T>(options: {
-    sourcePaths: readonly string[];
-    outputPath?: string;
-    stagedOutputPath?: string;
-    inPlace?: boolean;
-    lazyAppendBase?: boolean;
-    forbidOutputAliasingInput?: boolean;
-    verifyWitness?: boolean;
-}, work: (io: IHostIoContext) => {
-    result: T;
-    commitOutput: boolean;
-}): T {
+function withHostFiles<T>(
+    options: {
+        sourcePaths: readonly string[];
+        outputPath?: string;
+        stagedOutputPath?: string;
+        inPlace?: boolean;
+        lazyAppendBase?: boolean;
+        forbidOutputAliasingInput?: boolean;
+        verifyWitness?: boolean;
+    },
+    work: (io: IHostIoContext) => {
+        result: T;
+        commitOutput: boolean;
+    },
+): T {
     const sources: IHostSourceEntry[] = [];
     const extraOpenOrder: number[] = [];
     let sink: IHostSinkState | null = null;
@@ -1341,22 +1315,18 @@ function withHostFiles<T>(options: {
     try {
         if (options.forbidOutputAliasingInput && options.outputPath !== undefined && options.sourcePaths[0]) {
             if (sameFileSync(options.sourcePaths[0], options.outputPath)) {
-                throw new PdfPageOpsNativeError(
-                    'invalid-request',
-                    'Output path must not overwrite the input PDF',
-                );
+                throw new PdfPageOpsNativeError('invalid-request', 'Output path must not overwrite the input PDF');
             }
         }
         const source0Path = options.sourcePaths[0];
-        const source0Witness = options.verifyWitness && source0Path
-            ? captureFileWitness(source0Path)
-            : null;
-        const outputWitness = options.verifyWitness
-            && options.outputPath !== undefined
-            && !options.inPlace
-            && (!source0Path || !sameFileSync(source0Path, options.outputPath))
-            ? captureFileWitness(options.outputPath)
-            : null;
+        const source0Witness = options.verifyWitness && source0Path ? captureFileWitness(source0Path) : null;
+        const outputWitness =
+            options.verifyWitness &&
+            options.outputPath !== undefined &&
+            !options.inPlace &&
+            (!source0Path || !sameFileSync(source0Path, options.outputPath))
+                ? captureFileWitness(options.outputPath)
+                : null;
 
         for (let i = 0; i < options.sourcePaths.length; i += 1) {
             const sourcePath = options.sourcePaths[i]!;
@@ -1382,7 +1352,7 @@ function withHostFiles<T>(options: {
                         path: sourcePath,
                     });
                 } catch (error) {
-                    if (!sources.some(entry => entry.fd === fd)) {
+                    if (!sources.some((entry) => entry.fd === fd)) {
                         try {
                             closeSync(fd);
                         } catch {
@@ -1405,9 +1375,7 @@ function withHostFiles<T>(options: {
 
         if (options.outputPath !== undefined) {
             const inPlace = options.inPlace === true;
-            const targetPath = inPlace
-                ? options.outputPath
-                : (options.stagedOutputPath ?? createTempSiblingPath(options.outputPath));
+            const targetPath = inPlace ? options.outputPath : (options.stagedOutputPath ?? createTempSiblingPath(options.outputPath));
             const source0Len = sources[0]?.len ?? 0;
             sink = {
                 fd: inPlace ? openSync(targetPath, 'r+') : null,
@@ -1427,10 +1395,7 @@ function withHostFiles<T>(options: {
             sink,
             memory: null,
         };
-        const {
-            result,
-            commitOutput,
-        } = work(io);
+        const {result, commitOutput} = work(io);
 
         if (sink && sink.fd !== null) {
             if (commitOutput && sink.writtenAny) {
@@ -1637,47 +1602,51 @@ function dispatchDesktopPageOpsCommand(
         case 'insert-pages':
         case 'merge-pages': {
             const outputPath = requireOutputPath(parsed);
-            const pages = parsed.command === 'delete-pages'
-                || parsed.command === 'extract-pages'
-                || parsed.command === 'reorder-pages'
-                ? readPagesFile(requireFlag(parsed.pagesFile, '--pages-file'), MAX_PATH_INPUT_PDF_PAGES)
-                : [];
+            const pages =
+                parsed.command === 'delete-pages' || parsed.command === 'extract-pages' || parsed.command === 'reorder-pages'
+                    ? readPagesFile(requireFlag(parsed.pagesFile, '--pages-file'), MAX_PATH_INPUT_PDF_PAGES)
+                    : [];
             if (parsed.command === 'insert-pages' && parsed.afterPage === undefined) {
                 throw new PdfPageOpsNativeError('invalid-request', 'Missing --after-page value');
             }
             const afterPage = parsed.command === 'insert-pages' ? parsed.afterPage! : 0;
-            const operation = parsed.command === 'delete-pages' ? OPERATION_CODES.deletePages
-                : parsed.command === 'extract-pages' ? OPERATION_CODES.extractPages
-                    : parsed.command === 'reorder-pages' ? OPERATION_CODES.reorderPages
-                        : parsed.command === 'insert-pages' ? OPERATION_CODES.insertPages
-                            : OPERATION_CODES.mergePages;
-            const sourcePaths = [
-                parsed.inputPath,
-                ...parsed.sources,
-            ];
-            return withHostFiles({
-                sourcePaths,
-                outputPath,
-                ...(stagedOutputPath === undefined ? {} : {stagedOutputPath}),
-            }, io => {
-                const editRequest = encodeFileRequest({
-                    operation,
-                    sourceCount: sourcePaths.length,
-                    afterPage,
-                    pages,
-                });
-                decodeWrittenResponse(runner.runFileRequest(editRequest, io));
-                // Verify the staged output immediately on the same WASM instance.
-                const verifyRequest = encodeFileRequest({
-                    operation: OPERATION_CODES.verifyWritten,
-                    sourceCount: 0,
-                });
-                decodeWrittenResponse(runner.runFileRequest(verifyRequest, io));
-                return {
-                    result: okResult(),
-                    commitOutput: true,
-                };
-            });
+            const operation =
+                parsed.command === 'delete-pages'
+                    ? OPERATION_CODES.deletePages
+                    : parsed.command === 'extract-pages'
+                      ? OPERATION_CODES.extractPages
+                      : parsed.command === 'reorder-pages'
+                        ? OPERATION_CODES.reorderPages
+                        : parsed.command === 'insert-pages'
+                          ? OPERATION_CODES.insertPages
+                          : OPERATION_CODES.mergePages;
+            const sourcePaths = [parsed.inputPath, ...parsed.sources];
+            return withHostFiles(
+                {
+                    sourcePaths,
+                    outputPath,
+                    ...(stagedOutputPath === undefined ? {} : {stagedOutputPath}),
+                },
+                (io) => {
+                    const editRequest = encodeFileRequest({
+                        operation,
+                        sourceCount: sourcePaths.length,
+                        afterPage,
+                        pages,
+                    });
+                    decodeWrittenResponse(runner.runFileRequest(editRequest, io));
+                    // Verify the staged output immediately on the same WASM instance.
+                    const verifyRequest = encodeFileRequest({
+                        operation: OPERATION_CODES.verifyWritten,
+                        sourceCount: 0,
+                    });
+                    decodeWrittenResponse(runner.runFileRequest(verifyRequest, io));
+                    return {
+                        result: okResult(),
+                        commitOutput: true,
+                    };
+                },
+            );
         }
 
         case 'save-mutations': {
@@ -1692,36 +1661,36 @@ function dispatchDesktopPageOpsCommand(
             const modifiedAt = requireFlag(parsed.modifiedAt, '--modified-at');
             const hasAppearanceSource = parsed.sources.length > 0;
             const firstImageSourceIndex = hasAppearanceSource ? 2 : 1;
-            const {
-                payloadBytes: tail,
-                placedImageSources,
-            } = buildSaveMutationsPayloadBytes(mutationsFile, modifiedAt, firstImageSourceIndex);
-            const sourcePaths = [
-                parsed.inputPath,
-                ...parsed.sources,
-                ...placedImageSources,
-            ];
+            const {payloadBytes: tail, placedImageSources} = buildSaveMutationsPayloadBytes(
+                mutationsFile,
+                modifiedAt,
+                firstImageSourceIndex,
+            );
+            const sourcePaths = [parsed.inputPath, ...parsed.sources, ...placedImageSources];
             const inPlace = parsed.appendInPlace;
-            const reportText = withHostFiles({
-                sourcePaths,
-                outputPath,
-                ...(stagedOutputPath === undefined ? {} : {stagedOutputPath}),
-                inPlace,
-                lazyAppendBase: !inPlace,
-                verifyWitness: true,
-            }, io => {
-                const request = encodeFileRequest({
-                    operation: OPERATION_CODES.saveMutationsReported,
-                    sourceCount: sourcePaths.length,
-                    afterPage: hasAppearanceSource ? 1 : 0,
-                    tail,
-                });
-                const written = decodeWrittenResponse(runner.runFileRequest(request, io));
-                return {
-                    result: textDecoder.decode(written.trailing),
-                    commitOutput: true,
-                };
-            });
+            const reportText = withHostFiles(
+                {
+                    sourcePaths,
+                    outputPath,
+                    ...(stagedOutputPath === undefined ? {} : {stagedOutputPath}),
+                    inPlace,
+                    lazyAppendBase: !inPlace,
+                    verifyWitness: true,
+                },
+                (io) => {
+                    const request = encodeFileRequest({
+                        operation: OPERATION_CODES.saveMutationsReported,
+                        sourceCount: sourcePaths.length,
+                        afterPage: hasAppearanceSource ? 1 : 0,
+                        tail,
+                    });
+                    const written = decodeWrittenResponse(runner.runFileRequest(request, io));
+                    return {
+                        result: textDecoder.decode(written.trailing),
+                        commitOutput: true,
+                    };
+                },
+            );
             if (parsed.identityBindingsFile !== undefined) {
                 atomicWriteFileSync(parsed.identityBindingsFile, reportText);
             }
@@ -1731,152 +1700,165 @@ function dispatchDesktopPageOpsCommand(
         case 'parse-annotations': {
             const outputPath = requireOutputPath(parsed);
             const modifiedAt = requireFlag(parsed.modifiedAt, '--modified-at');
-            const pages = parsed.pagesFile === undefined
-                ? []
-                : readPagesFile(parsed.pagesFile, MAX_COLLECTION_ITEMS);
-            return withHostFiles({
-                sourcePaths: [parsed.inputPath],
-                outputPath,
-                ...(stagedOutputPath === undefined ? {} : {stagedOutputPath}),
-                forbidOutputAliasingInput: true,
-            }, io => {
-                const request = encodeFileRequest({
-                    operation: OPERATION_CODES.parseAnnotationsToSink,
-                    sourceCount: 1,
-                    pages,
-                    tail: textEncoder.encode(modifiedAt),
-                });
-                decodeWrittenResponse(runner.runFileRequest(request, io));
-                return {
-                    result: okResult(),
-                    commitOutput: true,
-                };
-            });
+            const pages = parsed.pagesFile === undefined ? [] : readPagesFile(parsed.pagesFile, MAX_COLLECTION_ITEMS);
+            return withHostFiles(
+                {
+                    sourcePaths: [parsed.inputPath],
+                    outputPath,
+                    ...(stagedOutputPath === undefined ? {} : {stagedOutputPath}),
+                    forbidOutputAliasingInput: true,
+                },
+                (io) => {
+                    const request = encodeFileRequest({
+                        operation: OPERATION_CODES.parseAnnotationsToSink,
+                        sourceCount: 1,
+                        pages,
+                        tail: textEncoder.encode(modifiedAt),
+                    });
+                    decodeWrittenResponse(runner.runFileRequest(request, io));
+                    return {
+                        result: okResult(),
+                        commitOutput: true,
+                    };
+                },
+            );
         }
 
         case 'annotation-index':
         case 'annotation-name-index': {
             const outputPath = requireOutputPath(parsed);
-            return withHostFiles({
-                sourcePaths: [parsed.inputPath],
-                outputPath,
-                ...(stagedOutputPath === undefined ? {} : {stagedOutputPath}),
-                forbidOutputAliasingInput: true,
-            }, io => {
-                const request = encodeFileRequest({
-                    operation: OPERATION_CODES.annotationNameIndex,
-                    sourceCount: 1,
-                });
-                decodeWrittenResponse(runner.runFileRequest(request, io));
-                return {
-                    result: okResult(),
-                    commitOutput: true,
-                };
-            });
+            return withHostFiles(
+                {
+                    sourcePaths: [parsed.inputPath],
+                    outputPath,
+                    ...(stagedOutputPath === undefined ? {} : {stagedOutputPath}),
+                    forbidOutputAliasingInput: true,
+                },
+                (io) => {
+                    const request = encodeFileRequest({
+                        operation: OPERATION_CODES.annotationNameIndex,
+                        sourceCount: 1,
+                    });
+                    decodeWrittenResponse(runner.runFileRequest(request, io));
+                    return {
+                        result: okResult(),
+                        commitOutput: true,
+                    };
+                },
+            );
         }
 
         case 'embedded-shape-index':
         case 'shape-index': {
             const outputPath = requireOutputPath(parsed);
-            return withHostFiles({
-                sourcePaths: [parsed.inputPath],
-                outputPath,
-                ...(stagedOutputPath === undefined ? {} : {stagedOutputPath}),
-                forbidOutputAliasingInput: true,
-            }, io => {
-                const request = encodeFileRequest({
-                    operation: OPERATION_CODES.embeddedShapeIndex,
-                    sourceCount: 1,
-                });
-                decodeWrittenResponse(runner.runFileRequest(request, io));
-                return {
-                    result: okResult(),
-                    commitOutput: true,
-                };
-            });
+            return withHostFiles(
+                {
+                    sourcePaths: [parsed.inputPath],
+                    outputPath,
+                    ...(stagedOutputPath === undefined ? {} : {stagedOutputPath}),
+                    forbidOutputAliasingInput: true,
+                },
+                (io) => {
+                    const request = encodeFileRequest({
+                        operation: OPERATION_CODES.embeddedShapeIndex,
+                        sourceCount: 1,
+                    });
+                    decodeWrittenResponse(runner.runFileRequest(request, io));
+                    return {
+                        result: okResult(),
+                        commitOutput: true,
+                    };
+                },
+            );
         }
 
         case 'page-sizes': {
             const outputPath = requireOutputPath(parsed);
-            return withHostFiles({
-                sourcePaths: [parsed.inputPath],
-                outputPath,
-                ...(stagedOutputPath === undefined ? {} : {stagedOutputPath}),
-                forbidOutputAliasingInput: true,
-            }, io => {
-                const request = encodeFileRequest({
-                    operation: OPERATION_CODES.readPageSizesSidecar,
-                    sourceCount: 1,
-                    afterPage: parsed.metadataOnly ? 1 : 0,
-                });
-                decodeWrittenResponse(runner.runFileRequest(request, io));
-                return {
-                    result: okResult(),
-                    commitOutput: true,
-                };
-            });
+            return withHostFiles(
+                {
+                    sourcePaths: [parsed.inputPath],
+                    outputPath,
+                    ...(stagedOutputPath === undefined ? {} : {stagedOutputPath}),
+                    forbidOutputAliasingInput: true,
+                },
+                (io) => {
+                    const request = encodeFileRequest({
+                        operation: OPERATION_CODES.readPageSizesSidecar,
+                        sourceCount: 1,
+                        afterPage: parsed.metadataOnly ? 1 : 0,
+                    });
+                    decodeWrittenResponse(runner.runFileRequest(request, io));
+                    return {
+                        result: okResult(),
+                        commitOutput: true,
+                    };
+                },
+            );
         }
 
         case 'crop': {
             const outputPath = requireOutputPath(parsed);
             const pages = readPagesFile(requireFlag(parsed.pagesFile, '--pages-file'), MAX_PATH_INPUT_PDF_PAGES);
-            if (
-                parsed.top === undefined
-                || parsed.bottom === undefined
-                || parsed.left === undefined
-                || parsed.right === undefined
-            ) {
+            if (parsed.top === undefined || parsed.bottom === undefined || parsed.left === undefined || parsed.right === undefined) {
                 throw new PdfPageOpsNativeError('invalid-request', 'crop requires --top, --bottom, --left, and --right');
             }
-            const tail = textEncoder.encode(JSON.stringify({
-                top: parsed.top,
-                bottom: parsed.bottom,
-                left: parsed.left,
-                right: parsed.right,
-            }));
-            return withHostFiles({
-                sourcePaths: [parsed.inputPath],
-                outputPath,
-                ...(stagedOutputPath === undefined ? {} : {stagedOutputPath}),
-                lazyAppendBase: true,
-                verifyWitness: true,
-            }, io => {
-                const request = encodeFileRequest({
-                    operation: OPERATION_CODES.cropFile,
-                    sourceCount: 1,
-                    afterPage: parsed.physical ? 1 : 0,
-                    pages,
-                    tail,
-                });
-                decodeWrittenResponse(runner.runFileRequest(request, io));
-                return {
-                    result: okResult(),
-                    commitOutput: true,
-                };
-            });
+            const tail = textEncoder.encode(
+                JSON.stringify({
+                    top: parsed.top,
+                    bottom: parsed.bottom,
+                    left: parsed.left,
+                    right: parsed.right,
+                }),
+            );
+            return withHostFiles(
+                {
+                    sourcePaths: [parsed.inputPath],
+                    outputPath,
+                    ...(stagedOutputPath === undefined ? {} : {stagedOutputPath}),
+                    lazyAppendBase: true,
+                    verifyWitness: true,
+                },
+                (io) => {
+                    const request = encodeFileRequest({
+                        operation: OPERATION_CODES.cropFile,
+                        sourceCount: 1,
+                        afterPage: parsed.physical ? 1 : 0,
+                        pages,
+                        tail,
+                    });
+                    decodeWrittenResponse(runner.runFileRequest(request, io));
+                    return {
+                        result: okResult(),
+                        commitOutput: true,
+                    };
+                },
+            );
         }
 
         case 'remove-crop': {
             const outputPath = requireOutputPath(parsed);
             const pages = readPagesFile(requireFlag(parsed.pagesFile, '--pages-file'), MAX_PATH_INPUT_PDF_PAGES);
-            return withHostFiles({
-                sourcePaths: [parsed.inputPath],
-                outputPath,
-                ...(stagedOutputPath === undefined ? {} : {stagedOutputPath}),
-                lazyAppendBase: true,
-                verifyWitness: true,
-            }, io => {
-                const request = encodeFileRequest({
-                    operation: OPERATION_CODES.removeCropFile,
-                    sourceCount: 1,
-                    pages,
-                });
-                decodeWrittenResponse(runner.runFileRequest(request, io));
-                return {
-                    result: okResult(),
-                    commitOutput: true,
-                };
-            });
+            return withHostFiles(
+                {
+                    sourcePaths: [parsed.inputPath],
+                    outputPath,
+                    ...(stagedOutputPath === undefined ? {} : {stagedOutputPath}),
+                    lazyAppendBase: true,
+                    verifyWitness: true,
+                },
+                (io) => {
+                    const request = encodeFileRequest({
+                        operation: OPERATION_CODES.removeCropFile,
+                        sourceCount: 1,
+                        pages,
+                    });
+                    decodeWrittenResponse(runner.runFileRequest(request, io));
+                    return {
+                        result: okResult(),
+                        commitOutput: true,
+                    };
+                },
+            );
         }
 
         case 'page-geometry':
@@ -1887,7 +1869,7 @@ function dispatchDesktopPageOpsCommand(
             if (parsed.pageNumber === undefined) {
                 throw new PdfPageOpsNativeError('invalid-request', 'Missing --page value');
             }
-            return withHostFiles({sourcePaths: [parsed.inputPath]}, io => {
+            return withHostFiles({sourcePaths: [parsed.inputPath]}, (io) => {
                 const request = encodeFileRequest({
                     operation: OPERATION_CODES.getPageGeometry,
                     sourceCount: 1,
@@ -1902,12 +1884,13 @@ function dispatchDesktopPageOpsCommand(
 
         case 'read-document-catalog': {
             if (parsed.outputPath !== undefined) {
-                throw new PdfPageOpsNativeError('invalid-request', 'read-document-catalog prints its result on stdout and takes no --output');
+                throw new PdfPageOpsNativeError(
+                    'invalid-request',
+                    'read-document-catalog prints its result on stdout and takes no --output',
+                );
             }
-            const tail = parsed.mutationsFile === undefined
-                ? undefined
-                : readBoundedSidecarBytes(parsed.mutationsFile, 'native mutations');
-            return withHostFiles({sourcePaths: [parsed.inputPath]}, io => {
+            const tail = parsed.mutationsFile === undefined ? undefined : readBoundedSidecarBytes(parsed.mutationsFile, 'native mutations');
+            return withHostFiles({sourcePaths: [parsed.inputPath]}, (io) => {
                 const request = encodeFileRequest({
                     operation: OPERATION_CODES.readCatalog,
                     sourceCount: 1,
@@ -1925,7 +1908,7 @@ function dispatchDesktopPageOpsCommand(
             if (parsed.outputPath !== undefined) {
                 throw new PdfPageOpsNativeError('invalid-request', `${parsed.command} prints its result on stdout and takes no --output`);
             }
-            return withHostFiles({sourcePaths: [parsed.inputPath]}, io => {
+            return withHostFiles({sourcePaths: [parsed.inputPath]}, (io) => {
                 const request = encodeFileRequest({
                     operation: OPERATION_CODES.conformance,
                     afterPage: parsed.strict ? 1 : 0,
@@ -1942,7 +1925,7 @@ function dispatchDesktopPageOpsCommand(
             if (parsed.outputPath !== undefined) {
                 throw new PdfPageOpsNativeError('invalid-request', 'append-admission prints its result on stdout and takes no --output');
             }
-            return withHostFiles({sourcePaths: [parsed.inputPath]}, io => {
+            return withHostFiles({sourcePaths: [parsed.inputPath]}, (io) => {
                 const request = encodeFileRequest({
                     operation: OPERATION_CODES.appendAdmission,
                     sourceCount: 1,
@@ -1958,33 +1941,31 @@ function dispatchDesktopPageOpsCommand(
 
         case 'decrypt': {
             const outputPath = requireOutputPath(parsed);
-            const tail = parsed.passwordFile === undefined
-                ? undefined
-                : readPasswordFileBytes(parsed.passwordFile);
-            const {
-                reportJson,
-                rewritten,
-            } = withHostFiles({
-                sourcePaths: [parsed.inputPath],
-                outputPath,
-                ...(stagedOutputPath === undefined ? {} : {stagedOutputPath}),
-            }, io => {
-                const request = encodeFileRequest({
-                    operation: OPERATION_CODES.decryptFile,
-                    sourceCount: 1,
-                    ...(tail === undefined ? {} : {tail}),
-                });
-                const json = decodeJsonResponse(runner.runFileRequest(request, io));
-                const parsedReport = JSON.parse(json) as {outcome?: unknown};
-                const isRewritten = parsedReport.outcome === 'rewritten';
-                return {
-                    result: {
-                        reportJson: json,
-                        rewritten: isRewritten,
-                    },
-                    commitOutput: isRewritten,
-                };
-            });
+            const tail = parsed.passwordFile === undefined ? undefined : readPasswordFileBytes(parsed.passwordFile);
+            const {reportJson, rewritten} = withHostFiles(
+                {
+                    sourcePaths: [parsed.inputPath],
+                    outputPath,
+                    ...(stagedOutputPath === undefined ? {} : {stagedOutputPath}),
+                },
+                (io) => {
+                    const request = encodeFileRequest({
+                        operation: OPERATION_CODES.decryptFile,
+                        sourceCount: 1,
+                        ...(tail === undefined ? {} : {tail}),
+                    });
+                    const json = decodeJsonResponse(runner.runFileRequest(request, io));
+                    const parsedReport = JSON.parse(json) as {outcome?: unknown};
+                    const isRewritten = parsedReport.outcome === 'rewritten';
+                    return {
+                        result: {
+                            reportJson: json,
+                            rewritten: isRewritten,
+                        },
+                        commitOutput: isRewritten,
+                    };
+                },
+            );
             writeDecryptReceiptSync(outputPath, reportJson, rewritten);
             return okResult();
         }
@@ -2016,7 +1997,7 @@ function dispatchDesktopPageOpsCommand(
                 }
             }
             const pages = readPagesFile(requireFlag(parsed.pagesFile, '--pages-file'), MAX_COLLECTION_ITEMS);
-            return withHostFiles({sourcePaths: [parsed.inputPath]}, io => {
+            return withHostFiles({sourcePaths: [parsed.inputPath]}, (io) => {
                 const fdIdentity = io.sources[0]?.fdIdentity ?? null;
                 const evictVisibilitySession = (id: number) => {
                     const evictRequest = encodeFileRequest({
@@ -2075,113 +2056,121 @@ function dispatchDesktopPageOpsCommand(
         case 'ocr-text-layer': {
             const outputPath = requireOutputPath(parsed);
             const instructionsFile = requireFlag(parsed.instructionsFile, '--instructions-file');
-            const {
-                extraSources,
-                payloadBytes,
-            } = rewriteIndexedSourceInstructions(instructionsFile, 'ocr-text-layer instructions', 'source');
-            const sourcePaths = [
-                parsed.inputPath,
-                ...extraSources,
-            ];
-            return withHostFiles({
-                sourcePaths,
-                outputPath,
-                ...(stagedOutputPath === undefined ? {} : {stagedOutputPath}),
-                lazyAppendBase: true,
-                verifyWitness: true,
-            }, io => {
-                const request = encodeFileRequest({
-                    operation: OPERATION_CODES.ocrTextLayer,
-                    sourceCount: sourcePaths.length,
-                    // `afterPage: 1` selects desktop 64-page batched streaming onto HostSink.
-                    afterPage: 1,
-                    tail: payloadBytes,
-                });
-                decodeWrittenResponse(runner.runFileRequest(request, io));
-                return {
-                    result: okResult(),
-                    commitOutput: true,
-                };
-            });
+            const {extraSources, payloadBytes} = rewriteIndexedSourceInstructions(
+                instructionsFile,
+                'ocr-text-layer instructions',
+                'source',
+            );
+            const sourcePaths = [parsed.inputPath, ...extraSources];
+            return withHostFiles(
+                {
+                    sourcePaths,
+                    outputPath,
+                    ...(stagedOutputPath === undefined ? {} : {stagedOutputPath}),
+                    lazyAppendBase: true,
+                    verifyWitness: true,
+                },
+                (io) => {
+                    const request = encodeFileRequest({
+                        operation: OPERATION_CODES.ocrTextLayer,
+                        sourceCount: sourcePaths.length,
+                        // `afterPage: 1` selects desktop 64-page batched streaming onto HostSink.
+                        afterPage: 1,
+                        tail: payloadBytes,
+                    });
+                    decodeWrittenResponse(runner.runFileRequest(request, io));
+                    return {
+                        result: okResult(),
+                        commitOutput: true,
+                    };
+                },
+            );
         }
 
         case 'recompress-images': {
             const outputPath = requireOutputPath(parsed);
             const instructionsFile = requireFlag(parsed.instructionsFile, '--instructions-file');
             const tail = readBoundedSidecarBytes(instructionsFile, 'recompress-images instructions');
-            return withHostFiles({
-                sourcePaths: [parsed.inputPath],
-                outputPath,
-                ...(stagedOutputPath === undefined ? {} : {stagedOutputPath}),
-                lazyAppendBase: true,
-                verifyWitness: true,
-            }, io => {
-                const request = encodeFileRequest({
-                    operation: OPERATION_CODES.recompressImagesFile,
-                    sourceCount: 1,
-                    tail,
-                });
-                const written = decodeWrittenResponse(runner.runFileRequest(request, io));
-                return {
-                    result: okResult(textDecoder.decode(written.trailing)),
-                    commitOutput: io.sink?.writtenAny === true,
-                };
-            });
+            return withHostFiles(
+                {
+                    sourcePaths: [parsed.inputPath],
+                    outputPath,
+                    ...(stagedOutputPath === undefined ? {} : {stagedOutputPath}),
+                    lazyAppendBase: true,
+                    verifyWitness: true,
+                },
+                (io) => {
+                    const request = encodeFileRequest({
+                        operation: OPERATION_CODES.recompressImagesFile,
+                        sourceCount: 1,
+                        tail,
+                    });
+                    const written = decodeWrittenResponse(runner.runFileRequest(request, io));
+                    return {
+                        result: okResult(textDecoder.decode(written.trailing)),
+                        commitOutput: io.sink?.writtenAny === true,
+                    };
+                },
+            );
         }
 
         case 'replace-page-images': {
             const outputPath = requireOutputPath(parsed);
             const instructionsFile = requireFlag(parsed.instructionsFile, '--instructions-file');
-            const {
-                extraSources,
-                payloadBytes,
-            } = rewriteIndexedSourceInstructions(instructionsFile, 'replace-page-images instructions', 'replacement');
-            const sourcePaths = [
-                parsed.inputPath,
-                ...extraSources,
-            ];
-            return withHostFiles({
-                sourcePaths,
-                outputPath,
-                ...(stagedOutputPath === undefined ? {} : {stagedOutputPath}),
-                lazyAppendBase: true,
-                verifyWitness: true,
-            }, io => {
-                const request = encodeFileRequest({
-                    operation: OPERATION_CODES.replacePageImagesFile,
-                    sourceCount: sourcePaths.length,
-                    tail: payloadBytes,
-                });
-                const written = decodeWrittenResponse(runner.runFileRequest(request, io));
-                return {
-                    result: okResult(textDecoder.decode(written.trailing)),
-                    commitOutput: io.sink?.writtenAny === true,
-                };
-            });
+            const {extraSources, payloadBytes} = rewriteIndexedSourceInstructions(
+                instructionsFile,
+                'replace-page-images instructions',
+                'replacement',
+            );
+            const sourcePaths = [parsed.inputPath, ...extraSources];
+            return withHostFiles(
+                {
+                    sourcePaths,
+                    outputPath,
+                    ...(stagedOutputPath === undefined ? {} : {stagedOutputPath}),
+                    lazyAppendBase: true,
+                    verifyWitness: true,
+                },
+                (io) => {
+                    const request = encodeFileRequest({
+                        operation: OPERATION_CODES.replacePageImagesFile,
+                        sourceCount: sourcePaths.length,
+                        tail: payloadBytes,
+                    });
+                    const written = decodeWrittenResponse(runner.runFileRequest(request, io));
+                    return {
+                        result: okResult(textDecoder.decode(written.trailing)),
+                        commitOutput: io.sink?.writtenAny === true,
+                    };
+                },
+            );
         }
 
         case 'split-pages': {
             const outputPath = requireOutputPath(parsed);
             const instructionsFile = requireFlag(parsed.instructionsFile, '--instructions-file');
             const tail = readBoundedSidecarBytes(instructionsFile, 'split-pages instructions');
-            return withHostFiles({
-                sourcePaths: [parsed.inputPath],
-                outputPath,
-                ...(stagedOutputPath === undefined ? {} : {stagedOutputPath}),
-                lazyAppendBase: true,
-                verifyWitness: true,
-            }, io => {
-                const request = encodeFileRequest({
-                    operation: OPERATION_CODES.splitPagesFile,
-                    sourceCount: 1,
-                    tail,
-                });
-                const written = decodeWrittenResponse(runner.runFileRequest(request, io));
-                return {
-                    result: okResult(textDecoder.decode(written.trailing)),
-                    commitOutput: true,
-                };
-            });
+            return withHostFiles(
+                {
+                    sourcePaths: [parsed.inputPath],
+                    outputPath,
+                    ...(stagedOutputPath === undefined ? {} : {stagedOutputPath}),
+                    lazyAppendBase: true,
+                    verifyWitness: true,
+                },
+                (io) => {
+                    const request = encodeFileRequest({
+                        operation: OPERATION_CODES.splitPagesFile,
+                        sourceCount: 1,
+                        tail,
+                    });
+                    const written = decodeWrittenResponse(runner.runFileRequest(request, io));
+                    return {
+                        result: okResult(textDecoder.decode(written.trailing)),
+                        commitOutput: true,
+                    };
+                },
+            );
         }
 
         case 'overlay-text': {
@@ -2192,27 +2181,27 @@ function dispatchDesktopPageOpsCommand(
                 throw new PdfPageOpsNativeError('invalid-request', 'Missing --source value');
             }
             const tail = readBoundedSidecarBytes(instructionsFile, 'overlay-text instructions');
-            return withHostFiles({
-                sourcePaths: [
-                    parsed.inputPath,
-                    sourcePath,
-                ],
-                outputPath,
-                ...(stagedOutputPath === undefined ? {} : {stagedOutputPath}),
-                lazyAppendBase: true,
-                verifyWitness: true,
-            }, io => {
-                const request = encodeFileRequest({
-                    operation: OPERATION_CODES.overlayTextFile,
-                    sourceCount: 2,
-                    tail,
-                });
-                const written = decodeWrittenResponse(runner.runFileRequest(request, io));
-                return {
-                    result: okResult(textDecoder.decode(written.trailing)),
-                    commitOutput: true,
-                };
-            });
+            return withHostFiles(
+                {
+                    sourcePaths: [parsed.inputPath, sourcePath],
+                    outputPath,
+                    ...(stagedOutputPath === undefined ? {} : {stagedOutputPath}),
+                    lazyAppendBase: true,
+                    verifyWitness: true,
+                },
+                (io) => {
+                    const request = encodeFileRequest({
+                        operation: OPERATION_CODES.overlayTextFile,
+                        sourceCount: 2,
+                        tail,
+                    });
+                    const written = decodeWrittenResponse(runner.runFileRequest(request, io));
+                    return {
+                        result: okResult(textDecoder.decode(written.trailing)),
+                        commitOutput: true,
+                    };
+                },
+            );
         }
 
         case 'print-layout': {
@@ -2222,23 +2211,26 @@ function dispatchDesktopPageOpsCommand(
             }
             const viewMode = requireFlag(parsed.viewMode, '--view-mode');
             const orientation = requireFlag(parsed.orientation, '--orientation');
-            return withHostFiles({
-                sourcePaths: [parsed.inputPath],
-                outputPath,
-                ...(stagedOutputPath === undefined ? {} : {stagedOutputPath}),
-                lazyAppendBase: true,
-            }, io => {
-                const request = encodeFileRequest({
-                    operation: OPERATION_CODES.printLayoutFile,
-                    sourceCount: 1,
-                    tail: textEncoder.encode(`${viewMode} ${orientation}`),
-                });
-                const written = decodeWrittenResponse(runner.runFileRequest(request, io));
-                return {
-                    result: okResult(),
-                    commitOutput: written.length > 0 && io.sink?.writtenAny === true,
-                };
-            });
+            return withHostFiles(
+                {
+                    sourcePaths: [parsed.inputPath],
+                    outputPath,
+                    ...(stagedOutputPath === undefined ? {} : {stagedOutputPath}),
+                    lazyAppendBase: true,
+                },
+                (io) => {
+                    const request = encodeFileRequest({
+                        operation: OPERATION_CODES.printLayoutFile,
+                        sourceCount: 1,
+                        tail: textEncoder.encode(`${viewMode} ${orientation}`),
+                    });
+                    const written = decodeWrittenResponse(runner.runFileRequest(request, io));
+                    return {
+                        result: okResult(),
+                        commitOutput: written.length > 0 && io.sink?.writtenAny === true,
+                    };
+                },
+            );
         }
 
         case 'text-box-appearance': {
@@ -2249,10 +2241,7 @@ function dispatchDesktopPageOpsCommand(
                 operation: OPERATION_CODES.textBoxAppearance,
                 insertionData: requestBytes,
             });
-            const {
-                pdfBytes,
-                metadataBytes,
-            } = decodeTextBoxAppearanceResponse(runner.runRawRequest(encoded));
+            const {pdfBytes, metadataBytes} = decodeTextBoxAppearanceResponse(runner.runRawRequest(encoded));
             atomicWriteFileSync(metadataFile, metadataBytes);
             atomicWriteFileSync(outputPath, pdfBytes);
             return okResult();
@@ -2281,12 +2270,14 @@ export function executeDesktopPageOpsCommand(
 
 const cachedModules = new Map<string, Promise<WebAssembly.Module>>();
 
-export function resolvePdfPageOpsWasmPath(options: {
-    currentDir?: string;
-    envOverridePath?: string;
-    isPackaged?: boolean;
-    resourcesPath?: string;
-} = {}): string | null {
+export function resolvePdfPageOpsWasmPath(
+    options: {
+        currentDir?: string;
+        envOverridePath?: string;
+        isPackaged?: boolean;
+        resourcesPath?: string;
+    } = {},
+): string | null {
     const override = options.envOverridePath?.trim();
     if (override) {
         const resolved = resolve(override);
@@ -2297,18 +2288,17 @@ export function resolvePdfPageOpsWasmPath(options: {
     const currentDir = options.currentDir ?? __dirname;
     const isPackaged = options.isPackaged ?? currentDir.includes('app.asar');
     if (isPackaged) {
-        const resourcesPath = options.resourcesPath
-            ?? (process as NodeJS.Process & {resourcesPath?: string}).resourcesPath;
+        const resourcesPath = options.resourcesPath ?? (process as NodeJS.Process & {resourcesPath?: string}).resourcesPath;
         const candidates = [
             ...(resourcesPath
                 ? [
-                    join(resourcesPath, 'app.asar.unpacked', 'nuxt-output', 'public', 'wasm', PDF_PAGE_OPS_WASM_FILE_NAME),
-                    join(resourcesPath, 'app.asar', 'nuxt-output', 'public', 'wasm', PDF_PAGE_OPS_WASM_FILE_NAME),
-                ]
+                      join(resourcesPath, 'app.asar.unpacked', 'nuxt-output', 'public', 'wasm', PDF_PAGE_OPS_WASM_FILE_NAME),
+                      join(resourcesPath, 'app.asar', 'nuxt-output', 'public', 'wasm', PDF_PAGE_OPS_WASM_FILE_NAME),
+                  ]
                 : []),
             join(currentDir, '..', 'nuxt-output', 'public', 'wasm', PDF_PAGE_OPS_WASM_FILE_NAME),
         ];
-        return candidates.find(candidate => existsSync(candidate)) ?? null;
+        return candidates.find((candidate) => existsSync(candidate)) ?? null;
     }
     const candidates = [
         join(currentDir, '..', 'public', 'wasm', PDF_PAGE_OPS_WASM_FILE_NAME),
@@ -2316,22 +2306,20 @@ export function resolvePdfPageOpsWasmPath(options: {
         join(currentDir, '..', '..', '..', 'public', 'wasm', PDF_PAGE_OPS_WASM_FILE_NAME),
         join(process.cwd(), 'public', 'wasm', PDF_PAGE_OPS_WASM_FILE_NAME),
     ];
-    return candidates.find(candidate => existsSync(candidate)) ?? null;
+    return candidates.find((candidate) => existsSync(candidate)) ?? null;
 }
 
 export function loadPdfPageOpsWasmModule(wasmPath?: string): Promise<WebAssembly.Module> {
     const resolvedPath = wasmPath ?? resolvePdfPageOpsWasmPath();
     if (!resolvedPath) {
-        return Promise.reject(
-            new PdfPageOpsNativeError('native-failure', `${PDF_PAGE_OPS_WASM_FILE_NAME} was not found`),
-        );
+        return Promise.reject(new PdfPageOpsNativeError('native-failure', `${PDF_PAGE_OPS_WASM_FILE_NAME} was not found`));
     }
     const existing = cachedModules.get(resolvedPath);
     if (existing) {
         return existing;
     }
     const pending = readFile(resolvedPath)
-        .then(bytes => WebAssembly.compile(bytes))
+        .then((bytes) => WebAssembly.compile(bytes))
         .catch((error: unknown) => {
             if (cachedModules.get(resolvedPath) === pending) {
                 cachedModules.delete(resolvedPath);

@@ -19,12 +19,27 @@
         @keydown.up.prevent="horizontal && emit('nudge', -1, $event.shiftKey)"
         @keydown.down.prevent="horizontal && emit('nudge', 1, $event.shiftKey)"
     >
-        <span class="cutter-line" :class="{'is-horizontal': horizontal}" aria-hidden="true" />
-        <span class="cutter-grab-handle" :class="{'is-horizontal': horizontal}" aria-hidden="true">
-            <UIcon name="i-ph-dots-six-vertical" class="size-4" />
+        <span
+            class="cutter-line"
+            :class="{'is-horizontal': horizontal}"
+            aria-hidden="true"
+        />
+        <span
+            class="cutter-grab-handle"
+            :class="{'is-horizontal': horizontal}"
+            aria-hidden="true"
+        >
+            <UIcon
+                name="i-ph-dots-six-vertical"
+                class="size-4"
+            />
         </span>
     </button>
-    <span id="scan-cleanup-cutter-hint" class="sr-only">{{ hint }}</span>
+    <span
+        id="scan-cleanup-cutter-hint"
+        class="sr-only"
+        >{{ hint }}</span
+    >
 </template>
 
 <script setup lang="ts">

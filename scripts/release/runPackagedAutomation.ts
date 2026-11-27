@@ -1,23 +1,7 @@
-import {
-    spawn,
-    type ChildProcess,
-    type StdioOptions,
-} from 'node:child_process';
-import {
-    access,
-    lstat,
-    mkdir,
-    open,
-    realpath,
-    readdir,
-    rm,
-} from 'node:fs/promises';
+import {spawn, type ChildProcess, type StdioOptions} from 'node:child_process';
+import {access, lstat, mkdir, open, realpath, readdir, rm} from 'node:fs/promises';
 import {once} from 'node:events';
-import path, {
-    dirname,
-    join,
-    resolve,
-} from 'node:path';
+import path, {dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {parseArgs} from 'node:util';
 import {setTimeout as delay} from 'node:timers/promises';
@@ -26,10 +10,7 @@ import {
     removeMacOSAutomationCopyRecords,
     unregisterMacOSAutomationCopy,
 } from '@scripts/release/preparePackagedAutomationLaunch';
-import {
-    isProcessAlive,
-    killProcessTree,
-} from '@scripts/electron-run/electronRunProcessTree';
+import {isProcessAlive, killProcessTree} from '@scripts/electron-run/electronRunProcessTree';
 
 function isProcessGroupAlive(pid: number) {
     try {
@@ -48,10 +29,7 @@ function isProcessGroupAlive(pid: number) {
 async function stopOwnedProcessGroup(pid: number) {
     // A separate group retains ownership after the main process exits. Polling
     // ancestry alone can miss helpers spawned just before their parent exits.
-    for (const signal of [
-        'SIGTERM',
-        'SIGKILL',
-    ] as const) {
+    for (const signal of ['SIGTERM', 'SIGKILL'] as const) {
         if (!isProcessGroupAlive(pid)) {
             return;
         }
@@ -61,10 +39,14 @@ async function stopOwnedProcessGroup(pid: number) {
             // The group can turn into unreaped zombies between the check and
             // the signal; macOS then reports EPERM, as isProcessGroupAlive allows.
             const code = (error as NodeJS.ErrnoException).code;
-            if (code !== 'ESRCH' && code !== 'EPERM') {throw error;}
+            if (code !== 'ESRCH' && code !== 'EPERM') {
+                throw error;
+            }
         }
         const deadline = Date.now() + 1_500;
-        while (Date.now() < deadline && isProcessGroupAlive(pid)) {await delay(50);}
+        while (Date.now() < deadline && isProcessGroupAlive(pid)) {
+            await delay(50);
+        }
     }
     if (isProcessGroupAlive(pid)) {
         throw new Error(`Owned packaged automation process group ${pid} remained alive; preserving its bundle.`);
@@ -88,17 +70,25 @@ async function stopOwnedProcesses(child: ChildProcess, force: boolean): Promise<
     let treeStopped = false;
     let treeStopError: Error | undefined;
     try {
-        if (pid && rootRunning()) {treeStopped = await killProcessTree(pid, 1_500, {force});}
+        if (pid && rootRunning()) {
+            treeStopped = await killProcessTree(pid, 1_500, {force});
+        }
     } catch (error) {
         treeStopError = error instanceof Error ? error : new Error(String(error));
         console.error('Process-tree shutdown failed; continuing owned-group cleanup.', error);
     }
-    if (pid && process.platform !== 'win32') {await stopOwnedProcessGroup(pid);}
-    if (treeStopError && process.platform === 'win32') {throw treeStopError;}
+    if (pid && process.platform !== 'win32') {
+        await stopOwnedProcessGroup(pid);
+    }
+    if (treeStopError && process.platform === 'win32') {
+        throw treeStopError;
+    }
     if (pid && rootRunning() && isProcessAlive(pid)) {
         throw new Error('Packaged automation remained alive after cleanup; preserving its bundle.');
     }
-    if (process.platform !== 'win32') {return 'process-group';}
+    if (process.platform !== 'win32') {
+        return 'process-group';
+    }
     return treeStopped ? 'live-root-tree' : 'root-exited-helpers-unverified';
 }
 
@@ -137,7 +127,9 @@ async function claimWorkDirectory(workDirectory: string, executablePath: string)
             break;
         } catch {
             const parent = dirname(existingAncestor);
-            if (parent === existingAncestor) {throw new Error(`Cannot resolve packaged automation work directory: ${workDirectory}`);}
+            if (parent === existingAncestor) {
+                throw new Error(`Cannot resolve packaged automation work directory: ${workDirectory}`);
+            }
             existingAncestor = parent;
         }
     }
@@ -156,7 +148,9 @@ async function claimWorkDirectory(workDirectory: string, executablePath: string)
             throw new Error(`Packaged automation work directory must be empty and unused: ${workDirectory}`);
         }
     } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {throw error;}
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+            throw error;
+        }
         await mkdir(workDirectory);
     }
     const ownerPath = join(workDirectory, '.packaged-automation-owner');
@@ -193,7 +187,7 @@ export async function startOwnedPackagedProcess(options: {
     env?: NodeJS.ProcessEnv;
     stdio?: StdioOptions;
 }): Promise<IOwnedPackagedProcess> {
-    if (options.args.some(arg => arg.startsWith('--user-data-dir'))) {
+    if (options.args.some((arg) => arg.startsWith('--user-data-dir'))) {
         throw new Error('The runner owns --user-data-dir under --work-directory.');
     }
     const workDirectory = resolve(options.workDirectory);
@@ -204,7 +198,7 @@ export async function startOwnedPackagedProcess(options: {
         executablePath: options.executablePath,
         workDirectory,
         env: {
-            ...options.env ?? process.env,
+            ...(options.env ?? process.env),
             EVB_AUTOMATION_SESSION_NAME: options.sessionName ?? `packaged-automation-${process.pid}`,
             EVB_ALLOW_MULTI_AUTOMATION_SESSIONS: '1',
             EVB_AUTOMATION_USER_DATA_DIR: userDataPath,
@@ -214,10 +208,7 @@ export async function startOwnedPackagedProcess(options: {
         },
     });
     console.info(`Packaged automation paths: userData=${userDataPath}; logs=${logDirectory}`);
-    const child = spawn(launch.executablePath, [
-        ...options.args,
-        `--user-data-dir=${userDataPath}`,
-    ], {
+    const child = spawn(launch.executablePath, [...options.args, `--user-data-dir=${userDataPath}`], {
         env: launch.env,
         stdio: options.stdio ?? 'inherit',
         detached: process.platform !== 'win32',
@@ -237,7 +228,7 @@ export async function startOwnedPackagedProcess(options: {
         throw error;
     }
     console.info(`Packaged automation runner PID ${process.pid}; child PID ${String(child.pid)}`);
-    const exited = once(child, 'exit').then(result => {
+    const exited = once(child, 'exit').then((result) => {
         console.info(`Packaged automation exited: code=${String(result[0])} signal=${String(result[1])}`);
         return Number(result[0] ?? (result[1] ? 1 : 0));
     });
@@ -271,10 +262,7 @@ export async function startOwnedPackagedProcess(options: {
 }
 
 async function run() {
-    const {
-        values,
-        positionals,
-    } = parseArgs({
+    const {values, positionals} = parseArgs({
         options: {
             executable: {type: 'string'},
             'work-directory': {type: 'string'},
@@ -292,7 +280,7 @@ async function run() {
     let stopRequested = false;
     const stop = () => {
         stopRequested = true;
-        void starting.then(owned => owned.stop()).catch(error => console.error(error));
+        void starting.then((owned) => owned.stop()).catch((error) => console.error(error));
     };
     process.on('SIGINT', stop);
     process.on('SIGTERM', stop);
@@ -304,7 +292,9 @@ async function run() {
                 console.warn('The packaged main process exited before cleanup; on Windows its reparented helpers cannot be verified.');
             }
         });
-        if (stopRequested) {process.exitCode = 0;}
+        if (stopRequested) {
+            process.exitCode = 0;
+        }
     } finally {
         process.off('SIGINT', stop);
         process.off('SIGTERM', stop);

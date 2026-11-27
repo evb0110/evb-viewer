@@ -1,7 +1,4 @@
-import {
-    readFileSync,
-    writeFileSync,
-} from 'node:fs';
+import {readFileSync, writeFileSync} from 'node:fs';
 
 export interface IDjvuFixtureTextZone {
     type: 'page' | 'column' | 'region' | 'paragraph' | 'line' | 'word' | 'char';
@@ -68,7 +65,7 @@ interface IPreparedZone {
 function buildZoneTextAndOffsets(
     zone: IDjvuFixtureTextZone,
     utf8Chunks: Buffer[],
-    cursor: { bytes: number },
+    cursor: {bytes: number},
     trailingSeparator = '',
 ): IPreparedZone {
     const start = cursor.bytes;
@@ -107,12 +104,7 @@ function buildZoneTextAndOffsets(
     };
 }
 
-function encodeZoneBinary(
-    zone: IPreparedZone,
-    parent: IPreparedZone | null,
-    prev: IPreparedZone | null,
-    out: number[],
-) {
+function encodeZoneBinary(zone: IPreparedZone, parent: IPreparedZone | null, prev: IPreparedZone | null, out: number[]) {
     out.push(ZONE_TYPE_CODE[zone.type]);
 
     let x = zone.xmin;
@@ -154,7 +146,7 @@ function encodeZoneBinary(
 /** Encode a DjVu `TXTa` chunk (8-byte IFF header + uncompressed DjVuText payload, even-padded). */
 export function encodeDjvuTxtaChunk(root: IDjvuFixtureTextZone): Buffer {
     const utf8Chunks: Buffer[] = [];
-    const cursor = { bytes: 0 };
+    const cursor = {bytes: 0};
     const prepared = buildZoneTextAndOffsets(root, utf8Chunks, cursor);
     const textBuf = Buffer.concat(utf8Chunks);
 
@@ -164,11 +156,7 @@ export function encodeDjvuTxtaChunk(root: IDjvuFixtureTextZone): Buffer {
     const zoneBytes: number[] = [1]; // DjVuText::version = 1
     encodeZoneBinary(prepared, null, null, zoneBytes);
 
-    const payload = Buffer.concat([
-        Buffer.from(payloadPrefix),
-        textBuf,
-        Buffer.from(zoneBytes),
-    ]);
+    const payload = Buffer.concat([Buffer.from(payloadPrefix), textBuf, Buffer.from(zoneBytes)]);
     const paddedLen = padEven(payload.byteLength);
     const chunk = Buffer.alloc(8 + paddedLen);
     chunk.write('TXTa', 0, 'ascii');
@@ -204,30 +192,15 @@ export function setDjvuNavmChunkInFile(filePath: string, navmChunk: Buffer) {
         afterNavmOffset = dirmEnd + 8 + padEven(oldNavmLen);
     }
 
-    const paddedNavm = navmChunk.byteLength % 2 === 0
-        ? navmChunk
-        : Buffer.concat([
-            navmChunk,
-            Buffer.alloc(1),
-        ]);
+    const paddedNavm = navmChunk.byteLength % 2 === 0 ? navmChunk : Buffer.concat([navmChunk, Buffer.alloc(1)]);
     const oldNavmSectionLen = afterNavmOffset - dirmEnd;
     const delta = paddedNavm.byteLength - oldNavmSectionLen;
 
-    const prefix = source.byteLength < dirmEnd
-        ? Buffer.concat([
-            source,
-            Buffer.alloc(dirmEnd - source.byteLength),
-        ])
-        : source.subarray(0, dirmEnd);
-    const tail = afterNavmOffset < source.byteLength
-        ? source.subarray(afterNavmOffset)
-        : Buffer.alloc(0);
+    const prefix =
+        source.byteLength < dirmEnd ? Buffer.concat([source, Buffer.alloc(dirmEnd - source.byteLength)]) : source.subarray(0, dirmEnd);
+    const tail = afterNavmOffset < source.byteLength ? source.subarray(afterNavmOffset) : Buffer.alloc(0);
 
-    const updated = Buffer.concat([
-        prefix,
-        paddedNavm,
-        tail,
-    ]);
+    const updated = Buffer.concat([prefix, paddedNavm, tail]);
     updated.writeUInt32BE(updated.byteLength - 12, 8);
 
     if (isBundled && delta !== 0) {
@@ -252,16 +225,8 @@ export function setDjvuPageTextInFile(filePath: string, pageNumber: number, root
         if (pageNumber !== 1) {
             throw new Error(`Single-page DjVu has no page ${pageNumber}`);
         }
-        const paddedSource = source.byteLength % 2 === 0
-            ? source
-            : Buffer.concat([
-                source,
-                Buffer.alloc(1),
-            ]);
-        const updated = Buffer.concat([
-            paddedSource,
-            txtaChunk,
-        ]);
+        const paddedSource = source.byteLength % 2 === 0 ? source : Buffer.concat([source, Buffer.alloc(1)]);
+        const updated = Buffer.concat([paddedSource, txtaChunk]);
         updated.writeUInt32BE(updated.byteLength - 12, 8);
         writeFileSync(filePath, updated);
         return;
@@ -283,9 +248,9 @@ export function setDjvuPageTextInFile(filePath: string, pageNumber: number, root
     for (let index = 0; index < nfiles; index += 1) {
         const compOffset = source.readUInt32BE(27 + index * 4);
         if (
-            compOffset + 12 <= source.byteLength
-            && source.toString('ascii', compOffset, compOffset + 4) === 'FORM'
-            && source.toString('ascii', compOffset + 8, compOffset + 12) === 'DJVU'
+            compOffset + 12 <= source.byteLength &&
+            source.toString('ascii', compOffset, compOffset + 4) === 'FORM' &&
+            source.toString('ascii', compOffset + 8, compOffset + 12) === 'DJVU'
         ) {
             currentPage += 1;
             if (currentPage === pageNumber) {
@@ -306,11 +271,7 @@ export function setDjvuPageTextInFile(filePath: string, pageNumber: number, root
     const newPageFormLen = targetFormLen + padInsidePage + txtaChunk.byteLength;
     const insertedBytes = txtaChunk.byteLength;
 
-    const updated = Buffer.concat([
-        source.subarray(0, paddedFormEnd),
-        txtaChunk,
-        source.subarray(paddedFormEnd),
-    ]);
+    const updated = Buffer.concat([source.subarray(0, paddedFormEnd), txtaChunk, source.subarray(paddedFormEnd)]);
     updated.writeUInt32BE(newPageFormLen, targetOffset + 4);
     updated.writeUInt32BE(updated.byteLength - 12, 8);
 

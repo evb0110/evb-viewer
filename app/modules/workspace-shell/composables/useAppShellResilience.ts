@@ -1,12 +1,12 @@
 import type {Ref} from 'vue';
-import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import type { useEditorPanesManager } from '@app/modules/workspace-shell/composables/useEditorPanesManager';
-import { tryOnScopeDispose } from '@vueuse/core';
-import { withTimeout } from 'es-toolkit/promise';
-import { getSystemCapability } from '@app/utils/getSystemCapability';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { useWorkspaceCrashCheckpoint } from '@app/modules/workspace-shell/checkpoint/useWorkspaceCrashCheckpoint';
-import { useBrowserWorkspaceRecovery } from '@app/modules/workspace-shell/checkpoint/useBrowserWorkspaceRecovery';
+import type {IWorkspaceDocumentController} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import type {useEditorPanesManager} from '@app/modules/workspace-shell/composables/useEditorPanesManager';
+import {tryOnScopeDispose} from '@vueuse/core';
+import {withTimeout} from 'es-toolkit/promise';
+import {getSystemCapability} from '@app/utils/getSystemCapability';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {useWorkspaceCrashCheckpoint} from '@app/modules/workspace-shell/checkpoint/useWorkspaceCrashCheckpoint';
+import {useBrowserWorkspaceRecovery} from '@app/modules/workspace-shell/checkpoint/useBrowserWorkspaceRecovery';
 
 interface IAppShellResilienceOptions {
     documentSessionsByTabId: Ref<Record<string, IWorkspaceDocumentController>>;
@@ -35,13 +35,20 @@ export const useAppShellResilience = (options: IAppShellResilienceOptions, isSta
     // flush reaches no renderer then. The write is capped below the renderer
     // flush budget, and a failed write is logged rather than reported as a
     // failed flush, so it never holds the shutdown.
-    tryOnScopeDispose(getSystemCapability().onShutdownSaveFlushRequest(async () => {
-        try {
-            await withTimeout(() => crashCheckpoint.flushNow(), SHUTDOWN_CHECKPOINT_WRITE_TIMEOUT_MS);
-        } catch (error) {
-            BrowserLogger.error('workspace', 'Failed to write the crash checkpoint during shutdown', {error}, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'});
-        }
-        return {};
-    }));
+    tryOnScopeDispose(
+        getSystemCapability().onShutdownSaveFlushRequest(async () => {
+            try {
+                await withTimeout(() => crashCheckpoint.flushNow(), SHUTDOWN_CHECKPOINT_WRITE_TIMEOUT_MS);
+            } catch (error) {
+                BrowserLogger.error(
+                    'workspace',
+                    'Failed to write the crash checkpoint during shutdown',
+                    {error},
+                    {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'},
+                );
+            }
+            return {};
+        }),
+    );
     return crashCheckpoint;
 };

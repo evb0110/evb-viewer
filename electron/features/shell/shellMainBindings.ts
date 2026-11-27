@@ -1,11 +1,7 @@
-import {
-    shell,
-    type IpcMainInvokeEvent,
-    type WebContents,
-} from 'electron';
-import type { SHELL_PLATFORM_FEATURE } from '@contracts/shellPlatformFeature';
-import type { TFeatureMainBindings } from '@contracts/platformFeature';
-import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
+import {shell, type IpcMainInvokeEvent, type WebContents} from 'electron';
+import type {SHELL_PLATFORM_FEATURE} from '@contracts/shellPlatformFeature';
+import type {TFeatureMainBindings} from '@contracts/platformFeature';
+import {onSenderLifetimeEnd} from '@electron/utils/onSenderLifetimeEnd';
 
 const SHELL_OPEN_EXTERNAL_MIN_INTERVAL_MS = 1_000;
 const shellOpenExternalLastOpenedAtBySender = new Map<number, number>();
@@ -36,8 +32,10 @@ function assertRateLimit(sender: WebContents) {
     shellOpenExternalLastOpenedAtBySender.set(senderId, now);
 }
 
-export const shellMainBindings = {async openExternal(context, url) {
-    assertRateLimit(context.sender);
-    await shell.openExternal(url);
-    return undefined;
-}} satisfies TFeatureMainBindings<typeof SHELL_PLATFORM_FEATURE, IpcMainInvokeEvent>;
+export const shellMainBindings = {
+    async openExternal(context, url) {
+        assertRateLimit(context.sender);
+        await shell.openExternal(url);
+        return undefined;
+    },
+} satisfies TFeatureMainBindings<typeof SHELL_PLATFORM_FEATURE, IpcMainInvokeEvent>;

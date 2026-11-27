@@ -1,9 +1,6 @@
-import type { Ref } from 'vue';
-import {
-    onClickOutside,
-    useEventListener,
-} from '@vueuse/core';
-import { clampElementToViewport } from '@app/composables/useContextMenuPosition';
+import type {Ref} from 'vue';
+import {onClickOutside, useEventListener} from '@vueuse/core';
+import {clampElementToViewport} from '@app/composables/useContextMenuPosition';
 
 interface IPositionedMenuState {
     visible: boolean;
@@ -16,10 +13,7 @@ interface IShowPositionedMenuOptions<TMenuState extends IPositionedMenuState> {
     y: number;
     fallbackWidth: number;
     fallbackHeight: number;
-    buildState: (position: {
-        x: number;
-        y: number;
-    }) => TMenuState;
+    buildState: (position: {x: number; y: number}) => TMenuState;
 }
 
 interface IPositionedMenuAutoDismissOptions {
@@ -28,7 +22,9 @@ interface IPositionedMenuAutoDismissOptions {
     onScroll?: boolean;
 }
 
-interface IUsePositionedMenuOptions {autoDismiss?: IPositionedMenuAutoDismissOptions;}
+interface IUsePositionedMenuOptions {
+    autoDismiss?: IPositionedMenuAutoDismissOptions;
+}
 
 export const usePositionedMenu = <TMenuState extends IPositionedMenuState>(
     selector: string,
@@ -56,19 +52,8 @@ export const usePositionedMenu = <TMenuState extends IPositionedMenuState>(
         menuElementQueryVersion.value += 1;
     }
 
-    function positionMenu(
-        x: number,
-        y: number,
-        fallbackWidth: number,
-        fallbackHeight: number,
-    ) {
-        const clamped = clampElementToViewport(
-            x,
-            y,
-            menuElement.value,
-            fallbackWidth,
-            fallbackHeight,
-        );
+    function positionMenu(x: number, y: number, fallbackWidth: number, fallbackHeight: number) {
+        const clamped = clampElementToViewport(x, y, menuElement.value, fallbackWidth, fallbackHeight);
         menu.value.x = clamped.x;
         menu.value.y = clamped.y;
     }
@@ -89,12 +74,7 @@ export const usePositionedMenu = <TMenuState extends IPositionedMenuState>(
                 return;
             }
             refreshMenuElement();
-            positionMenu(
-                options.x,
-                options.y,
-                options.fallbackWidth,
-                options.fallbackHeight,
-            );
+            positionMenu(options.x, options.y, options.fallbackWidth, options.fallbackHeight);
         });
     }
 
@@ -109,28 +89,42 @@ export const usePositionedMenu = <TMenuState extends IPositionedMenuState>(
         resetMenu();
     }
 
-    onClickOutside(menuElement, () => {
-        if (options.autoDismiss?.onOutsideClick) {
-            dismissMenu();
-        }
-    }, { capture: true });
+    onClickOutside(
+        menuElement,
+        () => {
+            if (options.autoDismiss?.onOutsideClick) {
+                dismissMenu();
+            }
+        },
+        {capture: true},
+    );
     // A right-click makes no click, so another menu opening elsewhere closes
     // this one first instead of both trapping focus.
-    useEventListener(windowTarget, 'contextmenu', (event) => {
-        if (options.autoDismiss?.onOutsideClick && !(event.target instanceof Node && menuElement.value?.contains(event.target))) {
-            dismissMenu();
-        }
-    }, { capture: true });
+    useEventListener(
+        windowTarget,
+        'contextmenu',
+        (event) => {
+            if (options.autoDismiss?.onOutsideClick && !(event.target instanceof Node && menuElement.value?.contains(event.target))) {
+                dismissMenu();
+            }
+        },
+        {capture: true},
+    );
     useEventListener(windowTarget, 'resize', () => {
         if (options.autoDismiss?.onResize) {
             dismissMenu();
         }
     });
-    useEventListener(windowTarget, 'scroll', () => {
-        if (options.autoDismiss?.onScroll) {
-            dismissMenu();
-        }
-    }, { capture: true });
+    useEventListener(
+        windowTarget,
+        'scroll',
+        () => {
+            if (options.autoDismiss?.onScroll) {
+                dismissMenu();
+            }
+        },
+        {capture: true},
+    );
     useEventListener(windowTarget, 'keydown', (event) => {
         if (!(event instanceof KeyboardEvent) || event.key !== 'Escape' || !menu.value.visible) {
             return;

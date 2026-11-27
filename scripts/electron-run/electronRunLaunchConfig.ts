@@ -1,6 +1,6 @@
-import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { pathToFileURL } from 'node:url';
+import {execFileSync} from 'node:child_process';
+import {createHash} from 'node:crypto';
+import {pathToFileURL} from 'node:url';
 import {
     existsSync,
     lstatSync,
@@ -16,24 +16,12 @@ import {
     symlinkSync,
     writeFileSync,
 } from 'node:fs';
-import {
-    basename,
-    dirname,
-    join,
-} from 'node:path';
-import { projectRoot } from '@scripts/electron-run/projectRoot';
-import {
-    getCurrentSessionName,
-    sessionDir,
-} from '@scripts/electron-run/electronRunSessionPaths';
-import type { PackageJson } from 'type-fest';
+import {basename, dirname, join} from 'node:path';
+import {projectRoot} from '@scripts/electron-run/projectRoot';
+import {getCurrentSessionName, sessionDir} from '@scripts/electron-run/electronRunSessionPaths';
+import type {PackageJson} from 'type-fest';
 
-const TRUTHY_ENV_VALUES = new Set([
-    '1',
-    'true',
-    'yes',
-    'on',
-]);
+const TRUTHY_ENV_VALUES = new Set(['1', 'true', 'yes', 'on']);
 
 export const NUXT_BUILD_DIR_ENV = 'EVB_NUXT_BUILD_DIR';
 export const NUXT_OUTPUT_DIR_ENV = 'EVB_NUXT_OUTPUT_DIR';
@@ -47,10 +35,7 @@ function normalizeOptionalPath(value: string | undefined) {
     return normalized;
 }
 
-export function resolveNuxtDevServerArtifactDirs(
-    env: NodeJS.ProcessEnv = process.env,
-    sessionName = getCurrentSessionName(),
-) {
+export function resolveNuxtDevServerArtifactDirs(env: NodeJS.ProcessEnv = process.env, sessionName = getCurrentSessionName()) {
     const explicitBuildDir = normalizeOptionalPath(env[NUXT_BUILD_DIR_ENV]);
     const explicitOutputDir = normalizeOptionalPath(env[NUXT_OUTPUT_DIR_ENV]);
     const explicitViteCacheDir = normalizeOptionalPath(env[NUXT_VITE_CACHE_DIR_ENV]);
@@ -66,10 +51,7 @@ export function resolveNuxtDevServerArtifactDirs(
     };
 }
 
-export function shouldDisableAutomationSandbox(
-    env: NodeJS.ProcessEnv = process.env,
-    platform = process.platform,
-) {
+export function shouldDisableAutomationSandbox(env: NodeJS.ProcessEnv = process.env, platform = process.platform) {
     const explicitSetting = env.EVB_AUTOMATION_DISABLE_SANDBOX?.trim().toLowerCase();
     if (explicitSetting) {
         return TRUTHY_ENV_VALUES.has(explicitSetting);
@@ -82,16 +64,8 @@ export function shouldDisableAutomationSandbox(
 // classic scroll bars as a mouse connects or sleeps, which changes every
 // viewport width by the scroll bar. Hidden sessions pin classic scroll bars,
 // as hosted runners use, through AppKit's argument domain.
-function resolveMacOSAutomationScrollBarArgs(
-    env: NodeJS.ProcessEnv = process.env,
-    platform = process.platform,
-) {
-    return platform === 'darwin' && env.EVB_AUTOMATION_HIDE_WINDOW === '1'
-        ? [
-            '-AppleShowScrollBars',
-            'Always',
-        ]
-        : [];
+function resolveMacOSAutomationScrollBarArgs(env: NodeJS.ProcessEnv = process.env, platform = process.platform) {
+    return platform === 'darwin' && env.EVB_AUTOMATION_HIDE_WINDOW === '1' ? ['-AppleShowScrollBars', 'Always'] : [];
 }
 
 export const AUTOMATION_DEVICE_SCALE_FACTOR_ENV = 'EVB_AUTOMATION_DEVICE_SCALE_FACTOR';
@@ -128,12 +102,10 @@ function parseExtraChromiumSwitches(rawValue: string | undefined) {
     if (!rawValue) {
         return [];
     }
-    const switches = rawValue.split(/\s+/).filter(token => token.length > 0);
-    const invalid = switches.filter(token => !token.startsWith('--'));
+    const switches = rawValue.split(/\s+/).filter((token) => token.length > 0);
+    const invalid = switches.filter((token) => !token.startsWith('--'));
     if (invalid.length > 0) {
-        throw new Error(
-            `${AUTOMATION_EXTRA_CHROMIUM_SWITCHES_ENV} accepts only \`--switch\` tokens; rejected: ${invalid.join(' ')}`,
-        );
+        throw new Error(`${AUTOMATION_EXTRA_CHROMIUM_SWITCHES_ENV} accepts only \`--switch\` tokens; rejected: ${invalid.join(' ')}`);
     }
     return switches;
 }
@@ -157,19 +129,11 @@ export function buildElectronAutomationArgs(options: {
         // After the entry script, which Electron takes from the first operand,
         // and before `--`, after which operands are files to open.
         ...resolveMacOSAutomationScrollBarArgs(options.env, options.platform),
-        ...(initialOpenPaths.length > 0
-            ? [
-                '--',
-                ...initialOpenPaths,
-            ]
-            : []),
+        ...(initialOpenPaths.length > 0 ? ['--', ...initialOpenPaths] : []),
     ];
 
     if (shouldDisableAutomationSandbox(options.env, options.platform)) {
-        args.unshift(
-            '--disable-setuid-sandbox',
-            '--no-sandbox',
-        );
+        args.unshift('--disable-setuid-sandbox', '--no-sandbox');
     }
     const deviceScaleFactor = resolveAutomationDeviceScaleFactor(options.env ?? {});
     if (deviceScaleFactor !== null) {
@@ -186,7 +150,7 @@ export function buildElectronAutomationArgs(options: {
 }
 
 export function sanitizeElectronLaunchEnv(env: NodeJS.ProcessEnv) {
-    const launchEnv = { ...env };
+    const launchEnv = {...env};
     delete launchEnv.ELECTRON_RUN_AS_NODE;
     // Main-process output is NDJSON for the launcher. An inherited FORCE_COLOR
     // next to NO_COLOR only makes Node warn on every start.
@@ -205,7 +169,10 @@ function aliasShortTempDir(tempDir: string) {
     mkdirSync(tempDir, {recursive: true});
     const target = realpathSync(tempDir);
     const uid = process.getuid?.();
-    const alias = join(SHORT_TEMP_ALIAS_ROOT, `evb-viewer-tmp-${String(uid)}-${createHash('sha256').update(target).digest('hex').slice(0, 12)}`);
+    const alias = join(
+        SHORT_TEMP_ALIAS_ROOT,
+        `evb-viewer-tmp-${String(uid)}-${createHash('sha256').update(target).digest('hex').slice(0, 12)}`,
+    );
     const reuseExisting = () => {
         const existing = lstatSync(alias, {throwIfNoEntry: false});
         if (!existing) {
@@ -241,10 +208,7 @@ export function buildNuxtDevServerEnv(
     platform: NodeJS.Platform = process.platform,
 ) {
     const launchEnv: NodeJS.ProcessEnv = {};
-    for (const [
-        key,
-        value,
-    ] of Object.entries(env)) {
+    for (const [key, value] of Object.entries(env)) {
         if (key === 'VITEST' || key.startsWith('VITEST_')) {
             continue;
         }
@@ -257,13 +221,13 @@ export function buildNuxtDevServerEnv(
     // sun_path limit and the server dies with listen EINVAL, so Nuxt gets a
     // short alias of the same directory. os.tmpdir() takes the first
     // non-empty of TMPDIR, TMP and TEMP.
-    const tempDir = [
-        launchEnv.TMPDIR,
-        launchEnv.TMP,
-        launchEnv.TEMP,
-    ].find(Boolean);
-    if (platform !== 'linux' && platform !== 'win32' && tempDir
-        && Buffer.byteLength(join(tempDir, NITRO_WORKER_SOCKET_NAME_MAX)) >= UNIX_SOCKET_PATH_MAX_BYTES) {
+    const tempDir = [launchEnv.TMPDIR, launchEnv.TMP, launchEnv.TEMP].find(Boolean);
+    if (
+        platform !== 'linux' &&
+        platform !== 'win32' &&
+        tempDir &&
+        Buffer.byteLength(join(tempDir, NITRO_WORKER_SOCKET_NAME_MAX)) >= UNIX_SOCKET_PATH_MAX_BYTES
+    ) {
         launchEnv.TMPDIR = aliasShortTempDir(tempDir);
     }
 
@@ -276,18 +240,15 @@ export function buildNuxtDevServerEnv(
         NUXT_IGNORE_LOCK: env.NUXT_IGNORE_LOCK ?? '1',
         ...(artifactDirs
             ? {
-                [NUXT_BUILD_DIR_ENV]: artifactDirs.buildDir,
-                [NUXT_OUTPUT_DIR_ENV]: artifactDirs.outputDir,
-                [NUXT_VITE_CACHE_DIR_ENV]: artifactDirs.viteCacheDir,
-            }
+                  [NUXT_BUILD_DIR_ENV]: artifactDirs.buildDir,
+                  [NUXT_OUTPUT_DIR_ENV]: artifactDirs.outputDir,
+                  [NUXT_VITE_CACHE_DIR_ENV]: artifactDirs.viteCacheDir,
+              }
             : {}),
     };
 }
 
-export function resolveAutomationWindowEnv(
-    env: NodeJS.ProcessEnv = process.env,
-    options?: { isTTY?: boolean },
-) {
+export function resolveAutomationWindowEnv(env: NodeJS.ProcessEnv = process.env, options?: {isTTY?: boolean}) {
     const isTTY = options?.isTTY ?? (process.stdin.isTTY === true && process.stdout.isTTY === true);
     const defaultFlag = isTTY ? '0' : '1';
     const noFocus = env.EVB_AUTOMATION_NO_FOCUS ?? defaultFlag;
@@ -306,10 +267,7 @@ export function resolveAutomationRendererReadyEnv(
     if (env.EVB_WAIT_RENDERER_READY !== undefined) {
         return env.EVB_WAIT_RENDERER_READY;
     }
-    return automationWindowEnv.EVB_AUTOMATION_HIDE_WINDOW === '1'
-        || automationWindowEnv.EVB_AUTOMATION_NO_FOCUS === '1'
-        ? '1'
-        : '0';
+    return automationWindowEnv.EVB_AUTOMATION_HIDE_WINDOW === '1' || automationWindowEnv.EVB_AUTOMATION_NO_FOCUS === '1' ? '1' : '0';
 }
 
 export function buildHeadlessAutomationEnv(env: NodeJS.ProcessEnv = process.env) {
@@ -321,21 +279,18 @@ export function buildHeadlessAutomationEnv(env: NodeJS.ProcessEnv = process.env)
     } satisfies NodeJS.ProcessEnv;
 }
 
-export function buildElectronE2EAutomationEnv(
-    env: NodeJS.ProcessEnv = process.env,
-    platform: NodeJS.Platform = process.platform,
-) {
+export function buildElectronE2EAutomationEnv(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform) {
     return {
         ...env,
         ...resolveElectronE2EHeadlessRunnerConfig(platform).environment,
         // A blank value means no request, as it does for the launcher.
-        [AUTOMATION_DEVICE_SCALE_FACTOR_ENV]: env[AUTOMATION_DEVICE_SCALE_FACTOR_ENV]?.trim() ? env[AUTOMATION_DEVICE_SCALE_FACTOR_ENV] : E2E_DEFAULT_DEVICE_SCALE_FACTOR,
+        [AUTOMATION_DEVICE_SCALE_FACTOR_ENV]: env[AUTOMATION_DEVICE_SCALE_FACTOR_ENV]?.trim()
+            ? env[AUTOMATION_DEVICE_SCALE_FACTOR_ENV]
+            : E2E_DEFAULT_DEVICE_SCALE_FACTOR,
     } satisfies NodeJS.ProcessEnv;
 }
 
-export function buildVisibleWindowElectronE2EAutomationEnv(
-    env: NodeJS.ProcessEnv = process.env,
-) {
+export function buildVisibleWindowElectronE2EAutomationEnv(env: NodeJS.ProcessEnv = process.env) {
     return {
         ...env,
         EVB_AUTOMATION_NO_FOCUS: '0',
@@ -354,15 +309,10 @@ interface IElectronE2EHeadlessRunnerConfig {
     hostDisplayIsolation: 'hidden-window' | 'xvfb';
 }
 
-export function resolveElectronE2EHeadlessRunnerConfig(
-    platform: NodeJS.Platform = process.platform,
-): IElectronE2EHeadlessRunnerConfig {
+export function resolveElectronE2EHeadlessRunnerConfig(platform: NodeJS.Platform = process.platform): IElectronE2EHeadlessRunnerConfig {
     if (platform === 'linux') {
         return {
-            commandPrefix: [
-                'xvfb-run',
-                '-a',
-            ],
+            commandPrefix: ['xvfb-run', '-a'],
             environment: {
                 EVB_AUTOMATION_HIDE_WINDOW: '0',
                 EVB_AUTOMATION_NO_FOCUS: '1',
@@ -383,14 +333,10 @@ export function resolveElectronE2EHeadlessRunnerConfig(
     };
 }
 
-export function shouldUseMacOSHiddenAppLauncher(
-    env: NodeJS.ProcessEnv,
-    platform = process.platform,
-) {
+export function shouldUseMacOSHiddenAppLauncher(env: NodeJS.ProcessEnv, platform = process.platform) {
     // JS-level dock hiding runs after launch, which can still flash a Dock icon.
     // Hidden automation cannot opt out of launch-time Dock suppression.
-    return platform === 'darwin'
-        && (env.EVB_AUTOMATION_HIDE_WINDOW === '1' || env.EVB_AUTOMATION_NO_FOCUS === '1');
+    return platform === 'darwin' && (env.EVB_AUTOMATION_HIDE_WINDOW === '1' || env.EVB_AUTOMATION_NO_FOCUS === '1');
 }
 
 export function shouldBootstrapInteractiveDevProfile(options: {
@@ -401,35 +347,27 @@ export function shouldBootstrapInteractiveDevProfile(options: {
 }) {
     const env = options.env ?? process.env;
     const sessionName = options.sessionName ?? getCurrentSessionName();
-    const automationWindowEnv = options.automationWindowEnv ?? resolveAutomationWindowEnv(env, {...(options.isTTY === undefined ? {} : { isTTY: options.isTTY })});
+    const automationWindowEnv =
+        options.automationWindowEnv ?? resolveAutomationWindowEnv(env, {...(options.isTTY === undefined ? {} : {isTTY: options.isTTY})});
 
-    return env.CI !== 'true'
-        && sessionName === 'default'
-        && automationWindowEnv.EVB_AUTOMATION_NO_FOCUS === '0'
-        && automationWindowEnv.EVB_AUTOMATION_HIDE_WINDOW === '0';
+    return (
+        env.CI !== 'true' &&
+        sessionName === 'default' &&
+        automationWindowEnv.EVB_AUTOMATION_NO_FOCUS === '0' &&
+        automationWindowEnv.EVB_AUTOMATION_HIDE_WINDOW === '0'
+    );
 }
 
-export function buildMacOSHiddenAppBundlePaths(options: {
-    sourceAppPath: string;
-    destinationRoot: string;
-}) {
+export function buildMacOSHiddenAppBundlePaths(options: {sourceAppPath: string; destinationRoot: string}) {
     const appPath = join(options.destinationRoot, basename(options.sourceAppPath));
     return {
         appPath,
-        executablePath: join(
-            appPath,
-            'Contents',
-            'MacOS',
-            basename(options.sourceAppPath, '.app'),
-        ),
+        executablePath: join(appPath, 'Contents', 'MacOS', basename(options.sourceAppPath, '.app')),
         infoPlistPath: join(appPath, 'Contents', 'Info.plist'),
     };
 }
 
-export function buildElectronExecutablePath(options?: {
-    platform?: NodeJS.Platform;
-    rootDir?: string;
-}) {
+export function buildElectronExecutablePath(options?: {platform?: NodeJS.Platform; rootDir?: string}) {
     const platform = options?.platform ?? process.platform;
     const rootDir = options?.rootDir ?? projectRoot;
     const distDir = join(rootDir, 'node_modules', 'electron', 'dist');
@@ -451,43 +389,21 @@ function setMacOSAutomationAgentMode(infoPlistPath: string) {
     if (!lstatSync(infoPlistPath).isFile()) {
         throw new Error(`Automation Info.plist must be a regular copied file: ${infoPlistPath}`);
     }
-    const replaceArgs = [
-        '-replace',
-        'LSUIElement',
-        '-bool',
-        'YES',
-        infoPlistPath,
-    ];
-    const insertArgs = [
-        '-insert',
-        'LSUIElement',
-        '-bool',
-        'YES',
-        infoPlistPath,
-    ];
+    const replaceArgs = ['-replace', 'LSUIElement', '-bool', 'YES', infoPlistPath];
+    const insertArgs = ['-insert', 'LSUIElement', '-bool', 'YES', infoPlistPath];
 
     try {
-        execFileSync('/usr/bin/plutil', replaceArgs, { stdio: 'ignore' });
+        execFileSync('/usr/bin/plutil', replaceArgs, {stdio: 'ignore'});
     } catch {
-        execFileSync('/usr/bin/plutil', insertArgs, { stdio: 'ignore' });
+        execFileSync('/usr/bin/plutil', insertArgs, {stdio: 'ignore'});
     }
 }
 
 function setMacOSBundleIdentifier(infoPlistPath: string, bundleIdentifier: string) {
-    execFileSync('/usr/bin/plutil', [
-        '-replace',
-        'CFBundleIdentifier',
-        '-string',
-        bundleIdentifier,
-        infoPlistPath,
-    ], { stdio: 'ignore' });
+    execFileSync('/usr/bin/plutil', ['-replace', 'CFBundleIdentifier', '-string', bundleIdentifier, infoPlistPath], {stdio: 'ignore'});
 }
 
-const HIDDEN_APP_BUNDLES_ROOT_SEGMENTS = [
-    '.devkit',
-    'tmp',
-    'electron-e2e-hidden-app',
-] as const;
+const HIDDEN_APP_BUNDLES_ROOT_SEGMENTS = ['.devkit', 'tmp', 'electron-e2e-hidden-app'] as const;
 const HIDDEN_APP_BUNDLE_STAGING_PREFIX = '.staging-';
 const HIDDEN_APP_BUNDLE_STAGING_MAX_AGE_MS = 60 * 60 * 1000;
 
@@ -497,9 +413,7 @@ export interface IHiddenAppBundleDirCandidate {
 }
 
 function readElectronDistVersion(rootDir = projectRoot) {
-    const packageJson = JSON.parse(
-        readFileSync(join(rootDir, 'node_modules', 'electron', 'package.json'), 'utf8'),
-    ) as PackageJson;
+    const packageJson = JSON.parse(readFileSync(join(rootDir, 'node_modules', 'electron', 'package.json'), 'utf8')) as PackageJson;
     const version = typeof packageJson.version === 'string' ? packageJson.version.trim() : '';
     if (!version) {
         throw new Error('node_modules/electron/package.json must define the installed Electron version.');
@@ -515,14 +429,8 @@ export function buildMacOSHiddenAppBundleDirName(electronVersion: string) {
     return `electron-${electronVersion.trim().replace(/[^a-zA-Z0-9._-]+/gu, '-')}`;
 }
 
-export function resolveMacOSHiddenAppBundleDestinationRoot(options: {
-    electronVersion: string;
-    rootDir?: string;
-}) {
-    return join(
-        resolveMacOSHiddenAppBundlesRoot(options.rootDir),
-        buildMacOSHiddenAppBundleDirName(options.electronVersion),
-    );
+export function resolveMacOSHiddenAppBundleDestinationRoot(options: {electronVersion: string; rootDir?: string}) {
+    return join(resolveMacOSHiddenAppBundlesRoot(options.rootDir), buildMacOSHiddenAppBundleDirName(options.electronVersion));
 }
 
 export function selectStaleMacOSHiddenAppBundleDirs(
@@ -543,19 +451,15 @@ export function selectStaleMacOSHiddenAppBundleDirs(
             }
             return true;
         })
-        .map(candidate => candidate.name);
+        .map((candidate) => candidate.name);
 }
 
-export function pruneStaleMacOSHiddenAppBundles(options: {
-    bundlesRootDir: string;
-    keepDirName: string;
-    nowMs?: number;
-}) {
+export function pruneStaleMacOSHiddenAppBundles(options: {bundlesRootDir: string; keepDirName: string; nowMs?: number}) {
     let entryNames: string[];
     try {
-        entryNames = readdirSync(options.bundlesRootDir, { withFileTypes: true })
-            .filter(entry => entry.isDirectory())
-            .map(entry => entry.name);
+        entryNames = readdirSync(options.bundlesRootDir, {withFileTypes: true})
+            .filter((entry) => entry.isDirectory())
+            .map((entry) => entry.name);
     } catch {
         return [];
     }
@@ -595,38 +499,16 @@ function resealMacOSAutomationAppBundle(appPath: string) {
     // hardened-runtime app whose Info.plist no longer matches its signature about
     // two seconds after launch. An ad-hoc seal without the hardened runtime keeps
     // the copy launchable and still loads the team-signed Electron frameworks.
-    execFileSync('/usr/bin/codesign', [
-        '--force',
-        '--sign',
-        '-',
-        appPath,
-    ], { stdio: 'ignore' });
-    execFileSync('/usr/bin/codesign', [
-        '--verify',
-        '--strict',
-        appPath,
-    ], { stdio: 'ignore' });
+    execFileSync('/usr/bin/codesign', ['--force', '--sign', '-', appPath], {stdio: 'ignore'});
+    execFileSync('/usr/bin/codesign', ['--verify', '--strict', appPath], {stdio: 'ignore'});
 }
 
 function assertMacOSAutomationAgentMode(infoPlistPath: string) {
     let agentMode: string | undefined;
     try {
-        agentMode = execFileSync('/usr/bin/plutil', [
-            '-extract',
-            'LSUIElement',
-            'raw',
-            '-expect',
-            'bool',
-            '-o',
-            '-',
-            infoPlistPath,
-        ], {
+        agentMode = execFileSync('/usr/bin/plutil', ['-extract', 'LSUIElement', 'raw', '-expect', 'bool', '-o', '-', infoPlistPath], {
             encoding: 'utf8',
-            stdio: [
-                'ignore',
-                'pipe',
-                'pipe',
-            ],
+            stdio: ['ignore', 'pipe', 'pipe'],
         }).trim();
     } catch {
         // Missing or malformed launch metadata must never fall back to a regular app.
@@ -642,30 +524,17 @@ export function listMacOSNestedHelperApps(appPath: string) {
     if (!existsSync(frameworksPath)) {
         return [];
     }
-    return readdirSync(frameworksPath, { withFileTypes: true })
-        .filter(entry => entry.isDirectory() && entry.name.endsWith('.app'))
-        .map(entry => join(frameworksPath, entry.name))
+    return readdirSync(frameworksPath, {withFileTypes: true})
+        .filter((entry) => entry.isDirectory() && entry.name.endsWith('.app'))
+        .map((entry) => join(frameworksPath, entry.name))
         .sort();
 }
 
 function readMacOSInfoString(infoPlistPath: string, key: string) {
     try {
-        return execFileSync('/usr/bin/plutil', [
-            '-extract',
-            key,
-            'raw',
-            '-expect',
-            'string',
-            '-o',
-            '-',
-            infoPlistPath,
-        ], {
+        return execFileSync('/usr/bin/plutil', ['-extract', key, 'raw', '-expect', 'string', '-o', '-', infoPlistPath], {
             encoding: 'utf8',
-            stdio: [
-                'ignore',
-                'pipe',
-                'pipe',
-            ],
+            stdio: ['ignore', 'pipe', 'pipe'],
         }).trim();
     } catch {
         // A missing or non-string key reads as undefined, and every caller refuses that.
@@ -691,20 +560,13 @@ function rewriteMacOSCopyIdentifiers(appPath: string, bundleIdentifier: string) 
         const helperPlistPath = join(helperPath, 'Contents', 'Info.plist');
         const helperIdentifier = readMacOSInfoString(helperPlistPath, 'CFBundleIdentifier');
         if (helperIdentifier === undefined || !helperIdentifier.startsWith(`${installedIdentifier}.`)) {
-            throw new Error(`Refusing macOS automation copy: helper ${basename(helperPath)} has identifier ${helperIdentifier ?? '(none)'}, not under ${installedIdentifier}`);
+            throw new Error(
+                `Refusing macOS automation copy: helper ${basename(helperPath)} has identifier ${helperIdentifier ?? '(none)'}, not under ${installedIdentifier}`,
+            );
         }
         setMacOSBundleIdentifier(helperPlistPath, `${bundleIdentifier}${helperIdentifier.slice(installedIdentifier.length)}`);
-        execFileSync('/usr/bin/codesign', [
-            '--force',
-            '--sign',
-            '-',
-            helperPath,
-        ], { stdio: 'ignore' });
-        execFileSync('/usr/bin/codesign', [
-            '--verify',
-            '--strict',
-            helperPath,
-        ], { stdio: 'ignore' });
+        execFileSync('/usr/bin/codesign', ['--force', '--sign', '-', helperPath], {stdio: 'ignore'});
+        execFileSync('/usr/bin/codesign', ['--verify', '--strict', helperPath], {stdio: 'ignore'});
     }
 }
 
@@ -722,7 +584,9 @@ function assertMacOSAutomationLaunchMetadata(appPath: string, bundleIdentifier: 
         const helperPlistPath = join(helperPath, 'Contents', 'Info.plist');
         const helperIdentifier = readMacOSInfoString(helperPlistPath, 'CFBundleIdentifier');
         if (helperIdentifier === undefined || !helperIdentifier.startsWith(`${bundleIdentifier}.`)) {
-            throw new Error(`Refusing macOS automation launch with helper identifier ${helperIdentifier ?? '(none)'}, not under ${bundleIdentifier}: ${helperPlistPath}`);
+            throw new Error(
+                `Refusing macOS automation launch with helper identifier ${helperIdentifier ?? '(none)'}, not under ${bundleIdentifier}: ${helperPlistPath}`,
+            );
         }
     }
 }
@@ -731,20 +595,13 @@ function cloneMacOSAppBundle(sourceAppPath: string, destinationAppPath: string) 
     // cp -c clones through APFS clonefile(2): the bundle shares its blocks with
     // node_modules until a file changes, so a 280 MiB app costs kilobytes.
     try {
-        execFileSync('/bin/cp', [
-            '-Rc',
-            sourceAppPath,
-            destinationAppPath,
-        ], { stdio: 'ignore' });
+        execFileSync('/bin/cp', ['-Rc', sourceAppPath, destinationAppPath], {stdio: 'ignore'});
     } catch {
         rmSync(destinationAppPath, {
             recursive: true,
             force: true,
         });
-        execFileSync('/usr/bin/ditto', [
-            sourceAppPath,
-            destinationAppPath,
-        ], { stdio: 'ignore' });
+        execFileSync('/usr/bin/ditto', [sourceAppPath, destinationAppPath], {stdio: 'ignore'});
     }
 }
 
@@ -788,7 +645,7 @@ export function prepareMacOSHiddenAppBundle(options: {
     }
 
     const bundlesRootDir = dirname(options.destinationRoot);
-    mkdirSync(bundlesRootDir, { recursive: true });
+    mkdirSync(bundlesRootDir, {recursive: true});
     const stagingRoot = mkdtempSync(join(bundlesRootDir, HIDDEN_APP_BUNDLE_STAGING_PREFIX));
     const stagingPaths = buildMacOSHiddenAppBundlePaths({
         sourceAppPath: options.sourceAppPath,
@@ -815,10 +672,7 @@ export function prepareMacOSHiddenAppBundle(options: {
     return bundlePaths;
 }
 
-export function prepareSharedMacOSHiddenAppBundle(options: {
-    sourceAppPath: string;
-    rootDir?: string;
-}) {
+export function prepareSharedMacOSHiddenAppBundle(options: {sourceAppPath: string; rootDir?: string}) {
     const rootDir = options.rootDir ?? projectRoot;
     const destinationRoot = resolveMacOSHiddenAppBundleDestinationRoot({
         electronVersion: readElectronDistVersion(rootDir),
@@ -868,26 +722,18 @@ function readCanonicalApplicationVersion() {
     return packageJson.version;
 }
 
-export function prepareAutomationAppEntry(options: {
-    destinationRoot: string;
-    mainJs: string;
-    appVersion?: string;
-}) {
+export function prepareAutomationAppEntry(options: {destinationRoot: string; mainJs: string; appVersion?: string}) {
     const entryPaths = buildAutomationAppEntryPaths(options.destinationRoot);
     rmSync(entryPaths.appPath, {
         recursive: true,
         force: true,
     });
-    mkdirSync(entryPaths.appPath, { recursive: true });
-    const packageJson = buildAutomationAppEntryPackage(
-        options.appVersion ?? readCanonicalApplicationVersion(),
-    );
+    mkdirSync(entryPaths.appPath, {recursive: true});
+    const packageJson = buildAutomationAppEntryPackage(options.appVersion ?? readCanonicalApplicationVersion());
     writeFileSync(entryPaths.packageJsonPath, JSON.stringify(packageJson, null, 2));
-    writeFileSync(entryPaths.mainJsPath, [
-        '(async () => {',
-        `  await import(${JSON.stringify(pathToFileURL(options.mainJs).href)});`,
-        '})();',
-        '',
-    ].join('\n'));
+    writeFileSync(
+        entryPaths.mainJsPath,
+        ['(async () => {', `  await import(${JSON.stringify(pathToFileURL(options.mainJs).href)});`, '})();', ''].join('\n'),
+    );
     return entryPaths;
 }

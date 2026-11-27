@@ -1,5 +1,5 @@
-import { shallowRef } from 'vue';
-import { until } from '@vueuse/core';
+import {shallowRef} from 'vue';
+import {until} from '@vueuse/core';
 
 const STARTUP_OPEN_VISUAL_READY_EVENT_NAME = 'evb:startup-open-visual-ready';
 const STARTUP_OPEN_VISUAL_READY_TIMEOUT_MS = 15_000;
@@ -9,10 +9,14 @@ export function dispatchStartupOpenVisualReady(reason: string, timedOut = false)
         return;
     }
 
-    window.dispatchEvent(new CustomEvent(STARTUP_OPEN_VISUAL_READY_EVENT_NAME, {detail: {
-        reason,
-        timedOut,
-    }}));
+    window.dispatchEvent(
+        new CustomEvent(STARTUP_OPEN_VISUAL_READY_EVENT_NAME, {
+            detail: {
+                reason,
+                timedOut,
+            },
+        }),
+    );
 }
 
 /**
@@ -22,9 +26,12 @@ export function dispatchStartupOpenVisualReady(reason: string, timedOut = false)
  */
 export async function reportStartupFirstView(presented: Promise<boolean>) {
     const shown = shallowRef(false);
-    void presented.then((value) => {
-        shown.value = value;
-    }, () => {});
+    void presented.then(
+        (value) => {
+            shown.value = value;
+        },
+        () => {},
+    );
     await until(shown).toBe(true, {timeout: STARTUP_OPEN_VISUAL_READY_TIMEOUT_MS});
     // An expired wait reports that, never that the document painted.
     dispatchStartupOpenVisualReady(shown.value ? 'first-view-presented' : 'timed-out', !shown.value);

@@ -1,19 +1,12 @@
-import { randomUUID } from 'node:crypto';
-import { existsSync } from 'fs';
+import {randomUUID} from 'node:crypto';
+import {existsSync} from 'fs';
 import {unlink} from 'fs/promises';
-import {
-    extname,
-    join,
-} from 'path';
-import {
-    type ICreatePdfFromInputPathsProgress,
-    createPdfFileFromInputPaths,
-    isPdfOrImagePath,
-} from '@electron/image/pdfConversion';
-import { createLogger } from '@electron/utils/createLogger';
-import { getErrorMessage } from '@electron/utils/error';
-import { runPageStructureCommand } from '@electron/features/page-ops/main/pageStructureCommand';
-import type { TOpenPath } from '@electron/file-access/openPathCapabilities';
+import {extname, join} from 'path';
+import {type ICreatePdfFromInputPathsProgress, createPdfFileFromInputPaths, isPdfOrImagePath} from '@electron/image/pdfConversion';
+import {createLogger} from '@electron/utils/createLogger';
+import {getErrorMessage} from '@electron/utils/error';
+import {runPageStructureCommand} from '@electron/features/page-ops/main/pageStructureCommand';
+import type {TOpenPath} from '@electron/file-access/openPathCapabilities';
 
 const log = createLogger('page-ops-insert-service');
 
@@ -52,11 +45,7 @@ async function prepareInsertionSourcePdf(
         ...(onProgress ? {onProgress} : {}),
         ...(options.signal ? {signal: options.signal} : {}),
     };
-    const tempSourcePdfPath = join(
-        targetPath,
-        '..',
-        `insert-source-${randomUUID()}.pdf`,
-    );
+    const tempSourcePdfPath = join(targetPath, '..', `insert-source-${randomUUID()}.pdf`);
 
     await createPdfFileFromInputPaths(sourcePaths, tempSourcePdfPath, combineOptions);
 
@@ -68,9 +57,7 @@ async function prepareInsertionSourcePdf(
                     await unlink(tempSourcePdfPath);
                 }
             } catch (cleanupError) {
-                log.debug(`Failed to cleanup insertion source PDF "${tempSourcePdfPath}": ${
-                    getErrorMessage(cleanupError)
-                }`);
+                log.debug(`Failed to cleanup insertion source PDF "${tempSourcePdfPath}": ${getErrorMessage(cleanupError)}`);
             }
         },
     };
@@ -89,16 +76,19 @@ export async function insertPagesFromSourcePaths(
     if (afterPage > totalPages) {
         throw new Error('Invalid afterPage');
     }
-    const {
-        sourcePdfPath,
-        cleanup,
-    } = await prepareInsertionSourcePdf(targetPath, sourcePaths, onProgress, options);
+    const {sourcePdfPath, cleanup} = await prepareInsertionSourcePdf(targetPath, sourcePaths, onProgress, options);
 
     try {
-        await runPageStructureCommand('insert-pages', sourcePath, targetPath, {
-            sources: [sourcePdfPath],
-            afterPage,
-        }, options);
+        await runPageStructureCommand(
+            'insert-pages',
+            sourcePath,
+            targetPath,
+            {
+                sources: [sourcePdfPath],
+                afterPage,
+            },
+            options,
+        );
     } finally {
         await cleanup();
     }

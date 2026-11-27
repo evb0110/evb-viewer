@@ -1,7 +1,16 @@
 <template>
     <div class="document-bookmarks-toolbar">
-        <div class="document-bookmarks-toolbar__display" role="group" :aria-label="t('bookmarks.controls')">
-            <AppTooltip v-for="option in displayModeOptions" :key="option.id" :text="option.title" :delay-duration="800">
+        <div
+            class="document-bookmarks-toolbar__display"
+            role="group"
+            :aria-label="t('bookmarks.controls')"
+        >
+            <AppTooltip
+                v-for="option in displayModeOptions"
+                :key="option.id"
+                :text="option.title"
+                :delay-duration="800"
+            >
                 <UButton
                     type="button"
                     class="document-bookmarks-toolbar__button"
@@ -18,7 +27,10 @@
             </AppTooltip>
         </div>
 
-        <div v-if="editable" class="document-bookmarks-toolbar__actions">
+        <div
+            v-if="editable"
+            class="document-bookmarks-toolbar__actions"
+        >
             <AppTooltip
                 v-if="isEditMode && selectedDeleteCount > 0"
                 :text="t('bookmarks.removeSelectedBookmarks', {count: selectedDeleteCount})"
@@ -36,7 +48,11 @@
                     @click="emit('remove-selected-bookmarks')"
                 />
             </AppTooltip>
-            <AppTooltip v-if="isEditMode" :text="t('bookmarks.addTopLevel')" :delay-duration="800">
+            <AppTooltip
+                v-if="isEditMode"
+                :text="t('bookmarks.addTopLevel')"
+                :delay-duration="800"
+            >
                 <UButton
                     type="button"
                     class="document-bookmarks-toolbar__button"
@@ -49,7 +65,10 @@
                     @click="emit('add-root-bookmark')"
                 />
             </AppTooltip>
-            <AppTooltip :text="isEditMode ? t('bookmarks.exitEditMode') : t('bookmarks.enterEditMode')" :delay-duration="800">
+            <AppTooltip
+                :text="isEditMode ? t('bookmarks.exitEditMode') : t('bookmarks.enterEditMode')"
+                :delay-duration="800"
+            >
                 <UButton
                     type="button"
                     class="document-bookmarks-toolbar__button"
@@ -69,7 +88,7 @@
 </template>
 
 <script setup lang="ts">
-import type { TDocumentBookmarkDisplayMode } from '@app/modules/document-viewer/public';
+import type {TDocumentBookmarkDisplayMode} from '@app/modules/document-viewer/public';
 
 const {
     displayMode,
@@ -89,11 +108,13 @@ const emit = defineEmits<{
     'remove-selected-bookmarks': [];
 }>();
 const {t} = useTypedI18n();
-const displayModeOptions = computed<Array<{
-    id: TDocumentBookmarkDisplayMode;
-    title: string;
-    icon: string
-}>>(() => [
+const displayModeOptions = computed<
+    Array<{
+        id: TDocumentBookmarkDisplayMode;
+        title: string;
+        icon: string;
+    }>
+>(() => [
     {
         id: 'top-level',
         title: t('bookmarks.topLevelOnly'),
@@ -110,7 +131,6 @@ const displayModeOptions = computed<Array<{
         icon: 'i-ph-crosshair-simple',
     },
 ]);
-
 </script>
 
 <style scoped>

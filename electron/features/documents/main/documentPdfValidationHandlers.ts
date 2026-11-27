@@ -1,31 +1,18 @@
-import type {
-    IPdfConformanceAnalysisOptions,
-    IPdfConformanceProfile,
-    IPdfValidationResult,
-} from '@contracts/pdfConformance';
-import type { IPdfPathValidationOptions } from '@contracts/electronApiDocuments';
+import type {IPdfConformanceAnalysisOptions, IPdfConformanceProfile, IPdfValidationResult} from '@contracts/pdfConformance';
+import type {IPdfPathValidationOptions} from '@contracts/electronApiDocuments';
 import {
     analyzePdfConformanceFile,
     validatePdfFile,
     validatePdfFileForOpening,
     validatePdfFileForSave,
 } from '@electron/features/documents/main/pdfConformance';
-import {
-    resolveDocumentReadTransport,
-    withContentReadLease,
-} from '@electron/features/documents/main/documentFileReadHandlers';
-import { resolveExistingReadablePdfPath } from '@electron/features/documents/main/documentFilePathResolution';
-import {
-    getWorkingCopyBackingEntry,
-} from '@electron/file-access/documentStore';
-import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
-import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsContexts';
+import {resolveDocumentReadTransport, withContentReadLease} from '@electron/features/documents/main/documentFileReadHandlers';
+import {resolveExistingReadablePdfPath} from '@electron/features/documents/main/documentFilePathResolution';
+import {getWorkingCopyBackingEntry} from '@electron/file-access/documentStore';
+import {registerMainOperation} from '@electron/operation-lifecycle/mainOperationLifecycle';
+import type {IDocumentsSenderIdContext} from '@electron/features/documents/documentsContexts';
 
-async function readResolvedPdf<T>(
-    context: IDocumentsSenderIdContext,
-    filePath: unknown,
-    read: (physicalPath: string) => Promise<T>,
-) {
+async function readResolvedPdf<T>(context: IDocumentsSenderIdContext, filePath: unknown, read: (physicalPath: string) => Promise<T>) {
     const resolvedPath = await resolveExistingReadablePdfPath(filePath, context.senderId);
     const originalBackedRead = resolveDocumentReadTransport(resolvedPath, context.senderId);
     return originalBackedRead?.read(read) ?? withContentReadLease(resolvedPath, () => read(resolvedPath));
@@ -36,28 +23,22 @@ export async function handleAnalyzePdfConformance(
     filePath: unknown,
     options?: IPdfConformanceAnalysisOptions,
 ): Promise<IPdfConformanceProfile> {
-    const workingCopyPath = typeof filePath === 'string'
-        && getWorkingCopyBackingEntry(filePath, context.senderId)
-        ? filePath
-        : undefined;
-    const operation = workingCopyPath === undefined
-        ? undefined
-        : registerMainOperation({
-            kind: 'abortable-work',
-            ownerWebContentsId: context.senderId,
-            workingCopyPath,
-            // Conformance analysis listens to operation.signal; the lifecycle hook marks
-            // this read as eligible for cancellation when the copy is released.
-            cancel: () => undefined,
-        });
+    const workingCopyPath = typeof filePath === 'string' && getWorkingCopyBackingEntry(filePath, context.senderId) ? filePath : undefined;
+    const operation =
+        workingCopyPath === undefined
+            ? undefined
+            : registerMainOperation({
+                  kind: 'abortable-work',
+                  ownerWebContentsId: context.senderId,
+                  workingCopyPath,
+                  // Conformance analysis listens to operation.signal; the lifecycle hook marks
+                  // this read as eligible for cancellation when the copy is released.
+                  cancel: () => undefined,
+              });
     try {
-        return await readResolvedPdf(
-            context,
-            filePath,
-            physicalPath => analyzePdfConformanceFile(physicalPath, {
-                markerEvidence: options?.purpose === 'save-restrictions'
-                    ? 'structural-only'
-                    : 'full',
+        return await readResolvedPdf(context, filePath, (physicalPath) =>
+            analyzePdfConformanceFile(physicalPath, {
+                markerEvidence: options?.purpose === 'save-restrictions' ? 'structural-only' : 'full',
                 ...(operation === undefined ? {} : {signal: operation.signal}),
             }),
         );
@@ -74,10 +55,6 @@ export async function handleValidatePdfPath(
     return readResolvedPdf(
         context,
         filePath,
-        options?.purpose === 'opening'
-            ? validatePdfFileForOpening
-            : options?.purpose === 'save'
-                ? validatePdfFileForSave
-                : validatePdfFile,
+        options?.purpose === 'opening' ? validatePdfFileForOpening : options?.purpose === 'save' ? validatePdfFileForSave : validatePdfFile,
     );
 }

@@ -1,17 +1,19 @@
-import { getErrorMessage } from '@app/utils/error';
-import { STORAGE_KEYS } from '@app/constants/storageKeys';
-import { getOptionalFunction } from '@app/services/pdfjs/runtime';
-import type { IRendererLogEntry } from '@contracts/electronApiCommon';
-import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
+import {getErrorMessage} from '@app/utils/error';
+import {STORAGE_KEYS} from '@app/constants/storageKeys';
+import {getOptionalFunction} from '@app/services/pdfjs/runtime';
+import type {IRendererLogEntry} from '@contracts/electronApiCommon';
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {decodeFailureReceipt} from '@contracts/diagnostics/failureReceipt';
-import { captureRendererFailure } from '@app/utils/failureReporter';
-import { createIsoTimestamp } from '@contracts/timestamps';
+import {captureRendererFailure} from '@app/utils/failureReporter';
+import {createIsoTimestamp} from '@contracts/timestamps';
 
 type TBrowserLogLevel = 'debug' | 'info' | 'warn' | 'error' | 'silent';
 type TEmitLogLevel = Exclude<TBrowserLogLevel, 'silent'>;
 type TLazyValue = unknown | (() => unknown);
 
-interface IBrowserLoggerErrorOptions {code: string;}
+interface IBrowserLoggerErrorOptions {
+    code: string;
+}
 
 const ORIGINAL_CONSOLE_SINKS = {
     debug: console.debug.bind(console),
@@ -34,13 +36,7 @@ function normalizeLogLevel(value: unknown): TBrowserLogLevel | null {
     }
 
     const normalized = value.trim().toLowerCase();
-    if (
-        normalized === 'debug'
-        || normalized === 'info'
-        || normalized === 'warn'
-        || normalized === 'error'
-        || normalized === 'silent'
-    ) {
+    if (normalized === 'debug' || normalized === 'info' || normalized === 'warn' || normalized === 'error' || normalized === 'silent') {
         return normalized;
     }
 
@@ -50,10 +46,13 @@ function normalizeLogLevel(value: unknown): TBrowserLogLevel | null {
 // Development keeps info records so the app log explains what happened before
 // a warning; packaged builds forward warnings and errors only.
 const DEFAULT_LOG_LEVEL: TBrowserLogLevel = import.meta.dev ? 'info' : 'warn';
-const THROTTLED_LOG_STATE = new Map<string, {
-    lastAtMs: number;
-    suppressedCount: number;
-}>();
+const THROTTLED_LOG_STATE = new Map<
+    string,
+    {
+        lastAtMs: number;
+        suppressedCount: number;
+    }
+>();
 const MAX_THROTTLED_LOG_STATE_ENTRIES = 512;
 
 const configuredLogLevel = (() => {
@@ -70,7 +69,7 @@ const configuredLogLevel = (() => {
         // Ignore localStorage errors (privacy mode / disabled storage)
     }
 
-    const maybeGlobal = normalizeLogLevel((window as Window & {__logLevel?: unknown;}).__logLevel);
+    const maybeGlobal = normalizeLogLevel((window as Window & {__logLevel?: unknown}).__logLevel);
     if (maybeGlobal) {
         return maybeGlobal;
     }
@@ -87,7 +86,7 @@ function isDiagnosticWarnForced() {
         return false;
     }
 
-    const forceWarningMode = (window as Window & {__diagnosticWarnAsWarn?: boolean;}).__diagnosticWarnAsWarn;
+    const forceWarningMode = (window as Window & {__diagnosticWarnAsWarn?: boolean}).__diagnosticWarnAsWarn;
     return forceWarningMode === true;
 }
 
@@ -96,7 +95,7 @@ function isPdfNavConsoleDiagnosticEnabled() {
         return false;
     }
 
-    return (window as Window & {__pdfNavLogConsole?: boolean;}).__pdfNavLogConsole === true;
+    return (window as Window & {__pdfNavLogConsole?: boolean}).__pdfNavLogConsole === true;
 }
 
 function serializeForRendererLog(value: unknown) {
@@ -128,9 +127,7 @@ function serializeForRendererLog(value: unknown) {
             return '[unserializable object]';
         }
         const serializedValue: unknown = JSON.stringify(value);
-        return typeof serializedValue === 'string'
-            ? serializedValue
-            : '<unserializable value>';
+        return typeof serializedValue === 'string' ? serializedValue : '<unserializable value>';
     }
 }
 
@@ -148,9 +145,7 @@ function forwardToMain(entry: IRendererLogEntry) {
 
     try {
         const electronAPI: unknown = Reflect.get(window, 'electronAPI');
-        const settings: unknown = typeof electronAPI === 'object' && electronAPI !== null
-            ? Reflect.get(electronAPI, 'settings')
-            : null;
+        const settings: unknown = typeof electronAPI === 'object' && electronAPI !== null ? Reflect.get(electronAPI, 'settings') : null;
         const rendererLog = getOptionalFunction<[IRendererLogEntry]>(settings, 'rendererLog');
         if (rendererLog) {
             rendererLog.call(settings, entry);
@@ -163,20 +158,14 @@ function forwardToMain(entry: IRendererLogEntry) {
 }
 
 function resolveLazyValue(value: TLazyValue | undefined) {
-    return typeof value === 'function'
-        ? (value as () => unknown)()
-        : value;
+    return typeof value === 'function' ? (value as () => unknown)() : value;
 }
 
 function isFailureReceipt(value: unknown): value is FailureReceipt {
     return decodeFailureReceipt(value) !== null;
 }
 
-function takeThrottledLogSuppressionCount(
-    section: string,
-    key: string,
-    intervalMs: number,
-) {
+function takeThrottledLogSuppressionCount(section: string, key: string, intervalMs: number) {
     const compositeKey = `${section}:${key}`;
     const nowMs = Date.now();
     const state = THROTTLED_LOG_STATE.get(compositeKey);
@@ -223,21 +212,12 @@ function takeThrottledLogSuppressionCount(
     };
 }
 
-function enrichThrottledPayload(
-    resolved: unknown,
-    suppressedCount: number,
-    intervalMs: number,
-    key: string,
-) {
+function enrichThrottledPayload(resolved: unknown, suppressedCount: number, intervalMs: number, key: string) {
     if (suppressedCount <= 0) {
         return resolved;
     }
 
-    if (
-        typeof resolved === 'object'
-        && resolved !== null
-        && !Array.isArray(resolved)
-    ) {
+    if (typeof resolved === 'object' && resolved !== null && !Array.isArray(resolved)) {
         return {
             ...resolved,
             throttledSuppressedCount: suppressedCount,
@@ -257,13 +237,13 @@ function enrichThrottledPayload(
 function withErrorId(resolved: unknown, errorId: string) {
     return typeof resolved === 'object' && resolved !== null && !Array.isArray(resolved)
         ? {
-            ...resolved,
-            errorId,
-        }
+              ...resolved,
+              errorId,
+          }
         : {
-            ...(resolved === undefined ? {} : {value: resolved}),
-            errorId,
-        };
+              ...(resolved === undefined ? {} : {value: resolved}),
+              errorId,
+          };
 }
 
 function writeToConsole(level: TEmitLogLevel, line: string, resolved: unknown) {
@@ -316,7 +296,7 @@ function emitThrottled(
     intervalMs: number,
     message: string,
     data?: TLazyValue,
-    options: {writeConsole?: boolean;} = {},
+    options: {writeConsole?: boolean} = {},
 ) {
     // Filtered levels must not resolve lazy payloads, so the level check happens
     // here rather than only inside emitLog after resolveLazyValue.
@@ -330,12 +310,7 @@ function emitThrottled(
     }
 
     const resolved = resolveLazyValue(data);
-    const enriched = enrichThrottledPayload(
-        resolved,
-        throttle.suppressedCount,
-        intervalMs,
-        key,
-    );
+    const enriched = enrichThrottledPayload(resolved, throttle.suppressedCount, intervalMs, key);
     emitLog(level, section, message, enriched, options);
 }
 
@@ -352,38 +327,22 @@ export const BrowserLogger = {
         emitLog('warn', section, message, data);
     },
 
-    warnThrottled: (
-        section: string,
-        key: string,
-        intervalMs: number,
-        message: string,
-        data?: TLazyValue,
-    ) => {
+    warnThrottled: (section: string, key: string, intervalMs: number, message: string, data?: TLazyValue) => {
         emitThrottled('warn', section, key, intervalMs, message, data);
     },
 
     diagnostic: (section: string, message: string, data?: TLazyValue) => {
         const warnForced = isDiagnosticWarnForced();
-        emitLog(warnForced ? 'warn' : 'debug', section, message, data, {writeConsole: warnForced || section !== 'pdf-nav' || isPdfNavConsoleDiagnosticEnabled()});
+        emitLog(warnForced ? 'warn' : 'debug', section, message, data, {
+            writeConsole: warnForced || section !== 'pdf-nav' || isPdfNavConsoleDiagnosticEnabled(),
+        });
     },
 
-    diagnosticThrottled: (
-        section: string,
-        key: string,
-        intervalMs: number,
-        message: string,
-        data?: TLazyValue,
-    ) => {
+    diagnosticThrottled: (section: string, key: string, intervalMs: number, message: string, data?: TLazyValue) => {
         const warnForced = isDiagnosticWarnForced();
-        emitThrottled(
-            warnForced ? 'warn' : 'debug',
-            section,
-            key,
-            intervalMs,
-            message,
-            data,
-            {writeConsole: warnForced || section !== 'pdf-nav' || isPdfNavConsoleDiagnosticEnabled()},
-        );
+        emitThrottled(warnForced ? 'warn' : 'debug', section, key, intervalMs, message, data, {
+            writeConsole: warnForced || section !== 'pdf-nav' || isPdfNavConsoleDiagnosticEnabled(),
+        });
     },
 
     error: (
@@ -396,14 +355,14 @@ export const BrowserLogger = {
         const receipt = isFailureReceipt(existingReceiptOrOptions)
             ? existingReceiptOrOptions
             : captureRendererFailure({
-                code: existingReceiptOrOptions.code,
-                local: {
-                    source: section,
-                    message,
-                    cause: resolved,
-                    data: resolved,
-                },
-            });
+                  code: existingReceiptOrOptions.code,
+                  local: {
+                      source: section,
+                      message,
+                      cause: resolved,
+                      data: resolved,
+                  },
+              });
 
         emitLog('error', section, message, resolved, {failureRef: receipt});
         return receipt;

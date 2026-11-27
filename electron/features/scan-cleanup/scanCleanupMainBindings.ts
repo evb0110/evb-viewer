@@ -1,22 +1,10 @@
-import {
-    app,
-    BrowserWindow,
-} from 'electron';
+import {app, BrowserWindow} from 'electron';
 import {join} from 'node:path';
 import type {IpcMainInvokeEvent} from 'electron';
-import {
-    SCAN_CLEANUP_PLATFORM_FEATURE,
-    type IScanCleanupEventMap,
-} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
+import {SCAN_CLEANUP_PLATFORM_FEATURE, type IScanCleanupEventMap} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import type {TFeatureMainBindings} from '@contracts/platformFeature';
-import {
-    SCAN_CLEANUP_SETTINGS_FILE_NAME,
-    type IScanCleanupSettingsChange,
-} from '@contracts/scan-cleanup/scanCleanupSettings';
-import {
-    defaultDependencies,
-    scanCleanupPreviewLifecycle,
-} from '@electron/features/scan-cleanup/scanCleanupPreviewLifecycle';
+import {SCAN_CLEANUP_SETTINGS_FILE_NAME, type IScanCleanupSettingsChange} from '@contracts/scan-cleanup/scanCleanupSettings';
+import {defaultDependencies, scanCleanupPreviewLifecycle} from '@electron/features/scan-cleanup/scanCleanupPreviewLifecycle';
 import {createScanCleanupService} from '@electron/features/scan-cleanup/createScanCleanupService';
 import {createScanCleanupSettingsStore} from '@electron/features/scan-cleanup/createScanCleanupSettingsStore';
 import {getAppTempDir} from '@electron/utils/appTempDir';
@@ -41,14 +29,14 @@ function broadcastGlobalPreferences(change: IScanCleanupSettingsChange) {
             window,
             SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onSettingsChanged,
             change,
-            error => settingsLogger.debug(`Failed to send scan-cleanup settings change: ${String(error)}`),
+            (error) => settingsLogger.debug(`Failed to send scan-cleanup settings change: ${String(error)}`),
         );
     }
 }
 
 void Promise.resolve()
     .then(() => sweepStaleScanCleanupScratchDirs(getAppTempDir(), {log: (level, message) => logger[level](message)}))
-    .catch(error => logger.warn(`Could not sweep scan-cleanup scratch directories at startup: ${String(error)}`));
+    .catch((error) => logger.warn(`Could not sweep scan-cleanup scratch directories at startup: ${String(error)}`));
 
 let disposePreviewServicePromise: Promise<void> | null = null;
 
@@ -59,16 +47,12 @@ export function disposeScanCleanupMainBindings(): Promise<void> {
 
 const featureBindings = {
     preview: (context, request) => previewService.preview(context.sender, request),
-    resolvePlacementAnchorCalibration: (context, request) =>
-        previewService.resolvePlacementAnchorCalibration(context.sender, request),
+    resolvePlacementAnchorCalibration: (context, request) => previewService.resolvePlacementAnchorCalibration(context.sender, request),
     cancelPreview: (context, request) => previewService.cancel(context.sender, request),
     detectAll: (context, request) => previewService.detectAll(context.sender, request),
-    cancelDetection: (context, jobId, owner) =>
-        previewService.cancelDetection(context.sender, jobId, owner),
-    getDetectionJobState: (context, jobId, owner) =>
-        previewService.getDetectionJobState(context.sender, jobId, owner),
-    subscribeDetectionJob: (context, jobId, owner) =>
-        previewService.subscribeDetectionJob(context.sender, jobId, owner),
+    cancelDetection: (context, jobId, owner) => previewService.cancelDetection(context.sender, jobId, owner),
+    getDetectionJobState: (context, jobId, owner) => previewService.getDetectionJobState(context.sender, jobId, owner),
+    subscribeDetectionJob: (context, jobId, owner) => previewService.subscribeDetectionJob(context.sender, jobId, owner),
     start: (context, request) => service.start(context.sender, request),
     cancel: (context, jobId, owner) => service.cancel(context.sender, jobId, owner),
     getJobState: (context, jobId, owner) => service.getState(context.sender, jobId, owner),
@@ -81,8 +65,8 @@ const featureBindings = {
     // boundary behind it.
     getSettings: (_context, request) => settingsStore.get(request),
     updateSettings: (_context, request) => settingsStore.update(request),
-    getPendingCompletedOutputs: async context => [...await service.getPendingCompletedOutputs(context.sender)],
-    acknowledgeCompletedOutputs: outputPaths => service.acknowledgeCompletedOutputs(outputPaths),
+    getPendingCompletedOutputs: async (context) => [...(await service.getPendingCompletedOutputs(context.sender))],
+    acknowledgeCompletedOutputs: (outputPaths) => service.acknowledgeCompletedOutputs(outputPaths),
 } satisfies TFeatureMainBindings<typeof SCAN_CLEANUP_PLATFORM_FEATURE, IpcMainInvokeEvent>;
 
 export const scanCleanupMainBindings = Object.assign(featureBindings, {disposeScanCleanupMainBindings});

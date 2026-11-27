@@ -1,27 +1,15 @@
-import { realpathSync } from 'node:fs';
-import { resolve } from 'node:path';
-import type { WebContents } from 'electron';
-import { prepareLanguageModelsForJob } from '@electron/features/ocr/main/prepareLanguageModelsForJob.modelPrep';
-import { ensureTessdataModels } from '@electron/features/ocr/languageModels';
-import { EARLY_PRINT_MODEL_CODES } from '@contracts/ocrLanguages';
-import {
-    createOcrQueueFailure,
-    type IOcrQueueStartResult,
-} from '@electron/features/ocr/main/createOcrQueueFailure';
-import type {
-    TOcrPdfPageSelection,
-    TWorkerLog,
-} from '@electron/features/ocr/pipeline/types';
-import { runOcrJob } from '@electron/features/ocr/pipeline/runOcrJob';
-import { resolveOcrPipelinePaths } from '@electron/features/ocr/main/paths';
-import {
-    runOcrEngine,
-    shutdownOcrEnginePool,
-} from '@electron/features/ocr/main/ocrEnginePool';
-import {
-    getJobWindow,
-    safeSendToWindow,
-} from '@electron/features/ocr/main/ocrProgressDispatch';
+import {realpathSync} from 'node:fs';
+import {resolve} from 'node:path';
+import type {WebContents} from 'electron';
+import {prepareLanguageModelsForJob} from '@electron/features/ocr/main/prepareLanguageModelsForJob.modelPrep';
+import {ensureTessdataModels} from '@electron/features/ocr/languageModels';
+import {EARLY_PRINT_MODEL_CODES} from '@contracts/ocrLanguages';
+import {createOcrQueueFailure, type IOcrQueueStartResult} from '@electron/features/ocr/main/createOcrQueueFailure';
+import type {TOcrPdfPageSelection, TWorkerLog} from '@electron/features/ocr/pipeline/types';
+import {runOcrJob} from '@electron/features/ocr/pipeline/runOcrJob';
+import {resolveOcrPipelinePaths} from '@electron/features/ocr/main/paths';
+import {runOcrEngine, shutdownOcrEnginePool} from '@electron/features/ocr/main/ocrEnginePool';
+import {getJobWindow, safeSendToWindow} from '@electron/features/ocr/main/ocrProgressDispatch';
 import type {
     IOcrCancelResult,
     IOcrCompleteResult,
@@ -31,35 +19,17 @@ import type {
     IOcrSearchablePdfOptions,
     TOcrTextSupersessionPolicy,
 } from '@contracts/electronApiOcr';
-import {
-    OCR_COMPLETE_EVENT_CHANNEL,
-    OCR_ERROR_ENVELOPE_SCHEMA,
-    OCR_PROGRESS_EVENT_CHANNEL,
-} from '@contracts/electronApiOcr';
-import {
-    parseRequestId,
-    requireJobId,
-    requireRequestId,
-    type TRequestId,
-} from '@contracts/shared';
-import {
-    parseDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
-import {
-    parseDocumentRevisionToken,
-    type TDocumentRevisionToken,
-} from '@contracts/documentRevision';
-import { createLogger } from '@electron/utils/createLogger';
-import { getErrorMessage } from '@electron/utils/error';
+import {OCR_COMPLETE_EVENT_CHANNEL, OCR_ERROR_ENVELOPE_SCHEMA, OCR_PROGRESS_EVENT_CHANNEL} from '@contracts/electronApiOcr';
+import {parseRequestId, requireJobId, requireRequestId, type TRequestId} from '@contracts/shared';
+import {parseDocumentRef, type TDocumentRef} from '@contracts/documentRef';
+import {parseDocumentRevisionToken, type TDocumentRevisionToken} from '@contracts/documentRevision';
+import {createLogger} from '@electron/utils/createLogger';
+import {getErrorMessage} from '@electron/utils/error';
 import * as v from 'valibot';
-import { runDetached } from '@electron/utils/runDetached';
-import {
-    getWorkingCopyBackingEntry,
-    getWorkingCopyRevision,
-} from '@electron/file-access/documentStore';
+import {runDetached} from '@electron/utils/runDetached';
+import {getWorkingCopyBackingEntry, getWorkingCopyRevision} from '@electron/file-access/documentStore';
 import {normalizePathForLookup} from '@electron/file-access/normalizePathForLookup';
-import { removeOcrResultArtifacts } from '@electron/features/ocr/main/removeOcrResultArtifacts';
+import {removeOcrResultArtifacts} from '@electron/features/ocr/main/removeOcrResultArtifacts';
 import {
     createMainJobRegistry,
     type TMainJobErrorKind,
@@ -81,10 +51,12 @@ const OCR_TERMINAL_EVENT_RETENTION_MS = 30_000;
 /** A finished result waits this long to be applied; then its files go. */
 const OCR_TERMINAL_RECORD_RETENTION_MS = 60 * 60 * 1_000;
 
-interface IOcrRegistryProgress extends IOcrProgress {projection: {
-    supersessionPolicy: TOcrTextSupersessionPolicy;
-    replaceAllAcknowledged: boolean;
-};}
+interface IOcrRegistryProgress extends IOcrProgress {
+    projection: {
+        supersessionPolicy: TOcrTextSupersessionPolicy;
+        replaceAllAcknowledged: boolean;
+    };
+}
 
 /** Everything the renderer needs to hear about a job that ended without a PDF. */
 interface IOcrJobError extends IOcrErrorEnvelope {
@@ -141,11 +113,7 @@ function isOcrErrorEnvelope(cause: unknown): cause is IOcrErrorEnvelope {
     return v.safeParse(OCR_ERROR_ENVELOPE_SCHEMA, cause, {abortEarly: true}).success;
 }
 
-function createOcrJobError(
-    envelope: IOcrErrorEnvelope,
-    errors: string[],
-    diagnostics?: IOcrCompleteResult['diagnostics'],
-): IOcrJobError {
+function createOcrJobError(envelope: IOcrErrorEnvelope, errors: string[], diagnostics?: IOcrCompleteResult['diagnostics']): IOcrJobError {
     return {
         ...envelope,
         errors,
@@ -159,26 +127,20 @@ function toOcrJobError(cause: unknown, kind: TMainJobErrorKind): IOcrJobError {
     }
     if (kind === 'canceled') {
         const message = 'OCR job was cancelled';
-        return createOcrJobError(
-            buildOcrErrorEnvelope('OCR_INTERNAL_ERROR', message, {details: getErrorMessage(cause)}),
-            [message],
-        );
+        return createOcrJobError(buildOcrErrorEnvelope('OCR_INTERNAL_ERROR', message, {details: getErrorMessage(cause)}), [message]);
     }
     const envelope = isOcrErrorEnvelope(cause)
         ? cause
         : buildOcrErrorEnvelope(
-            kind === 'duplicate-job-id' ? 'OCR_QUEUE_BACKPRESSURE' : 'OCR_INTERNAL_ERROR',
-            getErrorMessage(cause) || 'OCR job failed',
-            {retryable: kind === 'duplicate-job-id'},
-        );
+              kind === 'duplicate-job-id' ? 'OCR_QUEUE_BACKPRESSURE' : 'OCR_INTERNAL_ERROR',
+              getErrorMessage(cause) || 'OCR job failed',
+              {retryable: kind === 'duplicate-job-id'},
+          );
     return createOcrJobError(envelope, [envelope.message]);
 }
 
 function toPublicOcrProgress(progress: IOcrRegistryProgress): IOcrProgress {
-    const {
-        projection: _projection,
-        ...publicProgress
-    } = progress;
+    const {projection: _projection, ...publicProgress} = progress;
     return publicProgress;
 }
 
@@ -186,11 +148,7 @@ function toCompleteResult(snapshot: TOcrTerminalSnapshot): IOcrCompleteResult {
     if (snapshot.status === 'completed') {
         return snapshot.result.result;
     }
-    const {
-        errors,
-        diagnostics,
-        ...errorEnvelope
-    } = snapshot.error;
+    const {errors, diagnostics, ...errorEnvelope} = snapshot.error;
     return {
         requestId: requireRequestId(snapshot.jobId),
         success: false,
@@ -214,18 +172,14 @@ const ocrJobs = createMainJobRegistry<IOcrRegistryProgress, IOcrJobOutcome, IOcr
     },
     progress: {
         channel: OCR_PROGRESS_EVENT_CHANNEL,
-        getEventKey: progress => progress.requestId,
+        getEventKey: (progress) => progress.requestId,
         send: (sender, _channel, progress) => {
-            safeSendToWindow(
-                getJobWindow(sender.id),
-                OCR_PROGRESS_EVENT_CHANNEL,
-                toPublicOcrProgress(progress),
-            );
+            safeSendToWindow(getJobWindow(sender.id), OCR_PROGRESS_EVENT_CHANNEL, toPublicOcrProgress(progress));
         },
     },
     toError: toOcrJobError,
     terminalProgress: {
-        completed: latest => ({
+        completed: (latest) => ({
             ...latest,
             processedCount: latest.totalPages,
             phaseProgress: 100,
@@ -242,10 +196,11 @@ const ocrJobs = createMainJobRegistry<IOcrRegistryProgress, IOcrJobOutcome, IOcr
             error: error.message,
         }),
     },
-    onEvict: snapshot => runDetached(() => removeResultFiles(snapshot), {
-        label: `remove unapplied OCR result ${snapshot.jobId}`,
-        logger: log,
-    }),
+    onEvict: (snapshot) =>
+        runDetached(() => removeResultFiles(snapshot), {
+            label: `remove unapplied OCR result ${snapshot.jobId}`,
+            logger: log,
+        }),
 });
 
 function getFirstRequestedPage(pages: TOcrPdfPageSelection) {
@@ -272,7 +227,9 @@ export async function handleOcrCreateSearchablePdfAsync(
     options: IOcrSearchablePdfOptions = {},
     cancellation?: AbortSignal,
 ): Promise<IOcrQueueStartResult> {
-    log.debug(`OCR requested: sourcePdfPath=${sourcePdfPath}, pages=${getOcrPageSelectionCount(pages)}, reqId=${requestId}, dpi=${options.renderDpi ?? 'default'}, profile=${options.qualityProfile ?? 'balanced'}, preprocessing=${options.preprocessingMode ?? 'off'}`);
+    log.debug(
+        `OCR requested: sourcePdfPath=${sourcePdfPath}, pages=${getOcrPageSelectionCount(pages)}, reqId=${requestId}, dpi=${options.renderDpi ?? 'default'}, profile=${options.qualityProfile ?? 'balanced'}, preprocessing=${options.preprocessingMode ?? 'off'}`,
+    );
     if (context.sender.isDestroyed()) {
         return createOcrQueueFailure(requestId, 'Renderer disconnected before OCR request could be queued');
     }
@@ -314,20 +271,24 @@ export async function handleOcrCreateSearchablePdfAsync(
             run: async (registry) => {
                 const onModelDownloadProgress = (modelDownload: IOcrModelDownloadProgress) => {
                     const latest = ocrJobs.get(requestId, toOcrActor(context))?.progress;
-                    if (latest) {registry.publish({
-                        ...latest,
-                        phase: 'model-prep',
-                        phaseProgress: undefined,
-                        modelDownload,
-                    });}
+                    if (latest) {
+                        registry.publish({
+                            ...latest,
+                            phase: 'model-prep',
+                            phaseProgress: undefined,
+                            modelDownload,
+                        });
+                    }
                 };
                 try {
                     await prepareLanguageModelsForJob(pages, registry.signal, onModelDownloadProgress);
                 } catch (error) {
-                    started.resolve(createOcrQueueFailure(
-                        requestId,
-                        registry.signal.aborted ? 'OCR job was cancelled before it started' : getErrorMessage(error),
-                    ));
+                    started.resolve(
+                        createOcrQueueFailure(
+                            requestId,
+                            registry.signal.aborted ? 'OCR job was cancelled before it started' : getErrorMessage(error),
+                        ),
+                    );
                     throw error;
                 }
                 started.resolve({
@@ -343,47 +304,49 @@ export async function handleOcrCreateSearchablePdfAsync(
                     paths: resolveOcrPipelinePaths(),
                     runEngine: (request, engineSignal) => runOcrEngine(request, engineSignal, `ocr:${requestId}`),
                     engineChargesBroker: true,
-                    prepareEarlyPrintModels: signal => ensureTessdataModels(EARLY_PRINT_MODEL_CODES, {
-                        signal,
-                        onProgress: onModelDownloadProgress,
-                    }),
+                    prepareEarlyPrintModels: (signal) =>
+                        ensureTessdataModels(EARLY_PRINT_MODEL_CODES, {
+                            signal,
+                            onProgress: onModelDownloadProgress,
+                        }),
                     signal: registry.signal,
                     log: pipelineLog,
-                    publish: progress => registry.publish({
-                        requestId,
-                        ...progress,
-                        projection,
-                    }),
+                    publish: (progress) =>
+                        registry.publish({
+                            requestId,
+                            ...progress,
+                            projection,
+                        }),
                 });
                 if (!result.success && result.outcome === undefined) {
-                    throw new OcrJobFailure(createOcrJobError(
-                        result.errorEnvelope ?? buildOcrErrorEnvelope(
-                            'OCR_INTERNAL_ERROR',
-                            result.errors[0] ?? 'OCR failed without an error message',
+                    throw new OcrJobFailure(
+                        createOcrJobError(
+                            result.errorEnvelope ??
+                                buildOcrErrorEnvelope('OCR_INTERNAL_ERROR', result.errors[0] ?? 'OCR failed without an error message'),
+                            result.errors,
+                            result.diagnostics,
                         ),
-                        result.errors,
-                        result.diagnostics,
-                    ));
+                    );
                 }
                 const outcome = {
                     result: result.success
                         ? {
-                            ...result,
-                            requestId,
-                            pdfPath: result.pdfPath as TDocumentRef,
-                        }
+                              ...result,
+                              requestId,
+                              pdfPath: result.pdfPath as TDocumentRef,
+                          }
                         : {
-                            ...result,
-                            requestId,
-                        },
+                              ...result,
+                              requestId,
+                          },
                     documentKey: canonicalPathKey(documentRevision.documentRef),
                     staged: result.success
                         ? {
-                            pdfPath: result.pdfPath,
-                            pathKey: canonicalPathKey(result.pdfPath),
-                            resultSha256: result.resultSha256,
-                            sourceDocumentRevisionToken: result.sourceDocumentRevisionToken,
-                        }
+                              pdfPath: result.pdfPath,
+                              pathKey: canonicalPathKey(result.pdfPath),
+                              resultSha256: result.resultSha256,
+                              sourceDocumentRevisionToken: result.sourceDocumentRevisionToken,
+                          }
                         : null,
                 };
                 if (result.success && registry.signal.aborted) {
@@ -408,22 +371,19 @@ export async function handleOcrCreateSearchablePdfAsync(
             code: 'MAIN_OCR_OPERATION_FAILED',
             cause: error,
         });
-        return createOcrQueueFailure(
-            requestId,
-            message,
-            isOcrErrorEnvelope(error) ? error.code : 'OCR_INTERNAL_ERROR',
-        );
+        return createOcrQueueFailure(requestId, message, isOcrErrorEnvelope(error) ? error.code : 'OCR_INTERNAL_ERROR');
     }
 }
 
 type TStagedOcrResult = NonNullable<IOcrJobOutcome['staged']>;
 
 function findStagedResults(predicate: (staged: TStagedOcrResult, snapshot: TOcrCompletedSnapshot) => boolean) {
-    return ocrJobs.list().filter((snapshot): snapshot is TOcrCompletedSnapshot => (
-        snapshot.status === 'completed'
-        && snapshot.result.staged !== null
-        && predicate(snapshot.result.staged, snapshot)
-    ));
+    return ocrJobs
+        .list()
+        .filter(
+            (snapshot): snapshot is TOcrCompletedSnapshot =>
+                snapshot.status === 'completed' && snapshot.result.staged !== null && predicate(snapshot.result.staged, snapshot),
+        );
 }
 
 /**
@@ -431,23 +391,20 @@ function findStagedResults(predicate: (staged: TStagedOcrResult, snapshot: TOcrC
  * this revision. Any owner of the document may apply it: its tab can have
  * moved to another window since the job started.
  */
-export function findOcrResultForDocument(
-    pdfPath: string,
-    documentRef: TDocumentRef,
-    sourceDocumentRevisionToken: TDocumentRevisionToken,
-) {
+export function findOcrResultForDocument(pdfPath: string, documentRef: TDocumentRef, sourceDocumentRevisionToken: TDocumentRevisionToken) {
     const pathKey = canonicalPathKey(pdfPath);
     const documentKey = canonicalPathKey(documentRef);
-    const [snapshot] = findStagedResults((staged, candidate) => (
-        staged.pathKey === pathKey
-        && candidate.result.documentKey === documentKey
-        && staged.sourceDocumentRevisionToken === sourceDocumentRevisionToken
-    ));
+    const [snapshot] = findStagedResults(
+        (staged, candidate) =>
+            staged.pathKey === pathKey &&
+            candidate.result.documentKey === documentKey &&
+            staged.sourceDocumentRevisionToken === sourceDocumentRevisionToken,
+    );
     return snapshot?.result.staged
         ? {
-            requestId: requireRequestId(snapshot.jobId),
-            resultSha256: snapshot.result.staged.resultSha256,
-        }
+              requestId: requireRequestId(snapshot.jobId),
+              resultSha256: snapshot.result.staged.resultSha256,
+          }
         : null;
 }
 
@@ -464,11 +421,9 @@ export async function handleOcrAcknowledgeResultFile(
     sourceDocumentRevisionTokenPayload?: unknown,
 ): Promise<{
     cleaned: boolean;
-    error?: string
+    error?: string;
 }> {
-    const requestId = typeof requestIdPayload === 'string'
-        ? parseRequestId(requestIdPayload)
-        : null;
+    const requestId = typeof requestIdPayload === 'string' ? parseRequestId(requestIdPayload) : null;
     if (requestId === null) {
         return {
             cleaned: false,
@@ -476,9 +431,8 @@ export async function handleOcrAcknowledgeResultFile(
         };
     }
     const documentRef = documentRefPayload === undefined ? undefined : parseDocumentRef(documentRefPayload);
-    const sourceDocumentRevisionToken = sourceDocumentRevisionTokenPayload === undefined
-        ? undefined
-        : parseDocumentRevisionToken(sourceDocumentRevisionTokenPayload);
+    const sourceDocumentRevisionToken =
+        sourceDocumentRevisionTokenPayload === undefined ? undefined : parseDocumentRevisionToken(sourceDocumentRevisionTokenPayload);
     if (documentRefPayload !== undefined && documentRef === null) {
         return {
             cleaned: false,
@@ -499,15 +453,17 @@ export async function handleOcrAcknowledgeResultFile(
     }
     // The job's own renderer, or the current owner of its document.
     const owned = ocrJobs.get(requestId, toOcrActor(context));
-    const snapshot = owned?.status === 'completed' && owned.result.staged
-        ? owned
-        : documentRef && sourceDocumentRevisionToken
-            ? findStagedResults((staged, candidate) => (
-                candidate.jobId === requestId
-                && candidate.result.documentKey === canonicalPathKey(documentRef)
-                && staged.sourceDocumentRevisionToken === sourceDocumentRevisionToken
-            ))[0]
-            : undefined;
+    const snapshot =
+        owned?.status === 'completed' && owned.result.staged
+            ? owned
+            : documentRef && sourceDocumentRevisionToken
+              ? findStagedResults(
+                    (staged, candidate) =>
+                        candidate.jobId === requestId &&
+                        candidate.result.documentKey === canonicalPathKey(documentRef) &&
+                        staged.sourceDocumentRevisionToken === sourceDocumentRevisionToken,
+                )[0]
+              : undefined;
     if (!snapshot?.result.staged) {
         return {
             cleaned: false,
@@ -515,16 +471,16 @@ export async function handleOcrAcknowledgeResultFile(
         };
     }
     if (
-        typeof pdfPathPayload === 'string'
-        && pdfPathPayload.trim().length > 0
-        && canonicalPathKey(pdfPathPayload) !== snapshot.result.staged.pathKey
+        typeof pdfPathPayload === 'string' &&
+        pdfPathPayload.trim().length > 0 &&
+        canonicalPathKey(pdfPathPayload) !== snapshot.result.staged.pathKey
     ) {
         return {
             cleaned: false,
             error: 'Acknowledged OCR result path does not match pending result path',
         };
     }
-    if (!await removeResultFiles(snapshot)) {
+    if (!(await removeResultFiles(snapshot))) {
         return {
             cleaned: false,
             error: 'Failed to delete pending OCR result file',
@@ -533,10 +489,7 @@ export async function handleOcrAcknowledgeResultFile(
     return {cleaned: true};
 }
 
-export function handleOcrCancel(
-    context: IOcrManagerContext,
-    requestId: TRequestId,
-): IOcrCancelResult {
+export function handleOcrCancel(context: IOcrManagerContext, requestId: TRequestId): IOcrCancelResult {
     log.info(`[${requestId}] Cancel requested`);
     if (ocrJobs.cancel(requestId, toOcrActor(context), 'explicit cancel request')) {
         return {canceled: true};
@@ -549,10 +502,12 @@ export function handleOcrCancel(
 
 export function cancelOcrJobsForWorkingCopy(workingCopyPath: string, reason: string) {
     const pathKey = normalizePathForLookup(workingCopyPath) || workingCopyPath;
-    return ocrJobs.cancelWhere(snapshot => (
-        snapshot.workingCopyPath !== undefined
-        && (normalizePathForLookup(snapshot.workingCopyPath) || snapshot.workingCopyPath) === pathKey
-    ), reason);
+    return ocrJobs.cancelWhere(
+        (snapshot) =>
+            snapshot.workingCopyPath !== undefined &&
+            (normalizePathForLookup(snapshot.workingCopyPath) || snapshot.workingCopyPath) === pathKey,
+        reason,
+    );
 }
 
 /** Stops running jobs after repeated failures; finished results stay applicable. */

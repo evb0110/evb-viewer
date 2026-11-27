@@ -1,20 +1,12 @@
-import type { IpcMainInvokeEvent } from 'electron';
-import {
-    sanitizeSettings,
-    type TSettingsSavePatch,
-} from '@contracts/settings';
-import type { SETTINGS_PLATFORM_FEATURE } from '@contracts/settingsPlatformFeature';
-import type { TFeatureMainBindings } from '@contracts/platformFeature';
-import type { ISettingsData } from '@contracts/shared';
-import { updateRecentFilesMenu } from '@electron/menu';
-import {
-    consumeSettingsRecoveryNotice,
-    loadSettings,
-    recordMainDiagnosticsConsentIntent,
-    updateSettings,
-} from '@electron/settings';
-import { setElectronLocale } from '@electron/te';
-import { createLogger } from '@electron/utils/createLogger';
+import type {IpcMainInvokeEvent} from 'electron';
+import {sanitizeSettings, type TSettingsSavePatch} from '@contracts/settings';
+import type {SETTINGS_PLATFORM_FEATURE} from '@contracts/settingsPlatformFeature';
+import type {TFeatureMainBindings} from '@contracts/platformFeature';
+import type {ISettingsData} from '@contracts/shared';
+import {updateRecentFilesMenu} from '@electron/menu';
+import {consumeSettingsRecoveryNotice, loadSettings, recordMainDiagnosticsConsentIntent, updateSettings} from '@electron/settings';
+import {setElectronLocale} from '@electron/te';
+import {createLogger} from '@electron/utils/createLogger';
 import {runtimeConfig} from '@electron/runtimeConfig';
 
 const logger = createLogger('ipc');
@@ -41,16 +33,17 @@ async function applySettingsSavePatch(
     diagnosticsConsentRevision: number | undefined,
 ) {
     let shouldShutdownAssistant = false as boolean;
-    await updateSettings((currentSettings: ISettingsData) => {
-        const incoming = sanitizeSettings({
-            ...currentSettings,
-            ...settingsPayload,
-        });
-        shouldShutdownAssistant = currentSettings.assistantPanelEnabled && !incoming.assistantPanelEnabled;
-        return settingsPayload;
-    }, diagnosticsConsentRevision === undefined
-        ? {}
-        : {diagnosticsConsentRevision});
+    await updateSettings(
+        (currentSettings: ISettingsData) => {
+            const incoming = sanitizeSettings({
+                ...currentSettings,
+                ...settingsPayload,
+            });
+            shouldShutdownAssistant = currentSettings.assistantPanelEnabled && !incoming.assistantPanelEnabled;
+            return settingsPayload;
+        },
+        diagnosticsConsentRevision === undefined ? {} : {diagnosticsConsentRevision},
+    );
     if (shouldShutdownAssistant) {
         await shutdownAssistant();
     }
@@ -96,11 +89,7 @@ async function flushSettingsSaveQueue(senderId: number, queue: IQueuedSettingsSa
     queue.waiters = [];
 
     try {
-        await applySettingsSavePatch(
-            settingsPayload,
-            queue.shutdownAssistant,
-            diagnosticsConsentRevision,
-        );
+        await applySettingsSavePatch(settingsPayload, queue.shutdownAssistant, diagnosticsConsentRevision);
         for (const waiter of waiters) {
             waiter.resolve();
         }
@@ -118,11 +107,7 @@ async function flushSettingsSaveQueue(senderId: number, queue: IQueuedSettingsSa
     }
 }
 
-function queueSettingsSave(
-    senderId: number,
-    settingsPayload: TSettingsSavePatch,
-    shutdownAssistant: () => Promise<void>,
-) {
+function queueSettingsSave(senderId: number, settingsPayload: TSettingsSavePatch, shutdownAssistant: () => Promise<void>) {
     let queue = settingsSaveQueuesBySender.get(senderId);
     if (!queue) {
         queue = {
@@ -141,9 +126,7 @@ function queueSettingsSave(
         ...settingsPayload,
     };
     if (Object.hasOwn(settingsPayload, 'clientDiagnosticsPreference')) {
-        queue.diagnosticsConsentRevision = recordMainDiagnosticsConsentIntent(
-            settingsPayload.clientDiagnosticsPreference,
-        );
+        queue.diagnosticsConsentRevision = recordMainDiagnosticsConsentIntent(settingsPayload.clientDiagnosticsPreference);
     }
 
     const savePromise = new Promise<void>((resolve, reject) => {

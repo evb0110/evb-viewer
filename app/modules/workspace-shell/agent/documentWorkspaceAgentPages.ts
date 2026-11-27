@@ -1,4 +1,4 @@
-import { getAgentNumberInput } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentInputs';
+import {getAgentNumberInput} from '@app/modules/workspace-shell/agent/documentWorkspaceAgentInputs';
 
 export function requireAgentPdfPageCount(totalPages: number, actionId: string) {
     if (totalPages <= 0) {
@@ -7,11 +7,7 @@ export function requireAgentPdfPageCount(totalPages: number, actionId: string) {
     return totalPages;
 }
 
-export function normalizeAgentPageNumber(
-    value: number | null | undefined,
-    totalPages: number,
-    actionId: string,
-) {
+export function normalizeAgentPageNumber(value: number | null | undefined, totalPages: number, actionId: string) {
     const pageCount = requireAgentPdfPageCount(totalPages, actionId);
     if (typeof value !== 'number' || !Number.isFinite(value)) {
         throw new Error(`${actionId} requires a valid one-based page number.`);
@@ -23,24 +19,11 @@ export function normalizeAgentPageNumber(
     return page;
 }
 
-export function getAgentPageNumberInput(
-    input: Record<string, unknown>,
-    totalPages: number,
-    actionId: string,
-) {
-    return normalizeAgentPageNumber(
-        getAgentNumberInput(input, 'page') ?? getAgentNumberInput(input, 'pageNumber'),
-        totalPages,
-        actionId,
-    );
+export function getAgentPageNumberInput(input: Record<string, unknown>, totalPages: number, actionId: string) {
+    return normalizeAgentPageNumber(getAgentNumberInput(input, 'page') ?? getAgentNumberInput(input, 'pageNumber'), totalPages, actionId);
 }
 
-export function getAgentOptionalPageNumberInput(
-    input: Record<string, unknown>,
-    totalPages: number,
-    currentPage: number,
-    actionId: string,
-) {
+export function getAgentOptionalPageNumberInput(input: Record<string, unknown>, totalPages: number, currentPage: number, actionId: string) {
     return normalizeAgentPageNumber(
         getAgentNumberInput(input, 'page') ?? getAgentNumberInput(input, 'pageNumber') ?? currentPage,
         totalPages,

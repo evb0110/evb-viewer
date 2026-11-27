@@ -1,9 +1,6 @@
-import { statfs } from 'fs/promises';
+import {statfs} from 'fs/promises';
 import type {IResolvedStreamingRasterHandoffBudget} from '@evb/scan-cleanup/core/streamingRasterHandoff';
-import type {
-    IScanCleanupStreamingHandoffLimits,
-    TScanCleanupLog,
-} from '@evb/scan-cleanup/core/types';
+import type {IScanCleanupStreamingHandoffLimits, TScanCleanupLog} from '@evb/scan-cleanup/core/types';
 import {createFileBackedPdfCombineEnv} from '@contracts/pdfCombineOutputPolicy';
 
 // PPM removes the costly PNG encode/decode step on both sides of the native
@@ -31,11 +28,13 @@ export interface IScanCleanupRasterHandoffPlan {
     renderCopies?: number;
     /** Scratch retained by bounded native outputs for this page. */
     additionalScratchBytes?: number;
-    raster: {
-        dpi: number;
-        width: number;
-        height: number
-    } | undefined;
+    raster:
+        | {
+              dpi: number;
+              width: number;
+              height: number;
+          }
+        | undefined;
 }
 
 export async function readAvailableScratchBytes(directory: string) {
@@ -48,24 +47,21 @@ export async function readAvailableScratchBytes(directory: string) {
     }
 }
 
-export function estimateRawRasterBytes(
-    plans: readonly IScanCleanupRasterHandoffPlan[],
-    residentScratchRasterCount: number,
-) {
+export function estimateRawRasterBytes(plans: readonly IScanCleanupRasterHandoffPlan[], residentScratchRasterCount: number) {
     const inputPageEstimates: number[] = [];
     let totalAdditionalScratchBytes = 0;
     for (const plan of plans) {
         const raster = plan.raster;
         if (
-            raster === undefined
-            || !Number.isFinite(plan.renderDpi)
-            || plan.renderDpi <= 0
-            || !Number.isFinite(raster.dpi)
-            || raster.dpi <= 0
-            || !Number.isFinite(raster.width)
-            || raster.width <= 0
-            || !Number.isFinite(raster.height)
-            || raster.height <= 0
+            raster === undefined ||
+            !Number.isFinite(plan.renderDpi) ||
+            plan.renderDpi <= 0 ||
+            !Number.isFinite(raster.dpi) ||
+            raster.dpi <= 0 ||
+            !Number.isFinite(raster.width) ||
+            raster.width <= 0 ||
+            !Number.isFinite(raster.height) ||
+            raster.height <= 0
         ) {
             return null;
         }
@@ -73,8 +69,8 @@ export function estimateRawRasterBytes(
             if (!Number.isFinite(dpi) || dpi <= 0) {
                 return null;
             }
-            const width = Math.max(1, Math.ceil(raster.width * dpi / raster.dpi));
-            const height = Math.max(1, Math.ceil(raster.height * dpi / raster.dpi));
+            const width = Math.max(1, Math.ceil((raster.width * dpi) / raster.dpi));
+            const height = Math.max(1, Math.ceil((raster.height * dpi) / raster.dpi));
             const pixelBytes = width * height * 3;
             if (!Number.isSafeInteger(pixelBytes)) {
                 return null;
@@ -88,11 +84,7 @@ export function estimateRawRasterBytes(
         };
         const primaryBytes = rasterBytesAtDpi(plan.renderDpi);
         const renderCopies = plan.renderCopies ?? 1;
-        if (
-            primaryBytes === null
-            || !Number.isSafeInteger(renderCopies)
-            || renderCopies < 1
-        ) {
+        if (primaryBytes === null || !Number.isSafeInteger(renderCopies) || renderCopies < 1) {
             return null;
         }
         let inputPageBytes = primaryBytes * renderCopies;
@@ -104,11 +96,7 @@ export function estimateRawRasterBytes(
             inputPageBytes += additionalBytes;
         }
         const additionalScratchBytes = plan.additionalScratchBytes ?? 0;
-        if (
-            !Number.isSafeInteger(additionalScratchBytes)
-            || additionalScratchBytes < 0
-            || !Number.isSafeInteger(inputPageBytes)
-        ) {
+        if (!Number.isSafeInteger(additionalScratchBytes) || additionalScratchBytes < 0 || !Number.isSafeInteger(inputPageBytes)) {
             return null;
         }
         totalAdditionalScratchBytes += additionalScratchBytes;
@@ -132,12 +120,9 @@ export function resolveRasterBudgetBytes(availableBytes: number | null) {
     return availableBytes === null
         ? RAW_RASTER_BUDGET_FLOOR_BYTES
         : Math.min(
-            Math.max(
-                RAW_RASTER_BUDGET_FLOOR_BYTES,
-                Math.floor(availableBytes * RAW_RASTER_FREE_SPACE_SHARE),
-            ),
-            Math.max(0, availableBytes - RAW_RASTER_FREE_SPACE_RESERVE_BYTES),
-        );
+              Math.max(RAW_RASTER_BUDGET_FLOOR_BYTES, Math.floor(availableBytes * RAW_RASTER_FREE_SPACE_SHARE)),
+              Math.max(0, availableBytes - RAW_RASTER_FREE_SPACE_RESERVE_BYTES),
+          );
 }
 
 /**
@@ -184,14 +169,15 @@ export async function resolveScanCleanupScratchAdmission(
 ): Promise<IScanCleanupScratchAdmission> {
     const availableBytes = await getAvailableScratchBytes(scratch);
     const budgetBytes = resolveRasterBudgetBytes(availableBytes);
-    const estimatedBytes = batchBytes === null
-        || !Number.isSafeInteger(mergeWorkingSetBytes)
-        || mergeWorkingSetBytes < 0
-        || !Number.isSafeInteger(batchBytes)
-        || batchBytes < 0
-        || batchBytes > Number.MAX_SAFE_INTEGER - mergeWorkingSetBytes
-        ? null
-        : batchBytes + mergeWorkingSetBytes;
+    const estimatedBytes =
+        batchBytes === null ||
+        !Number.isSafeInteger(mergeWorkingSetBytes) ||
+        mergeWorkingSetBytes < 0 ||
+        !Number.isSafeInteger(batchBytes) ||
+        batchBytes < 0 ||
+        batchBytes > Number.MAX_SAFE_INTEGER - mergeWorkingSetBytes
+            ? null
+            : batchBytes + mergeWorkingSetBytes;
     // An unreadable filesystem is an unknown, not a measured shortfall. Keep
     // the existing fail-open behavior used by raster handoff and detection.
     if (availableBytes === null || estimatedBytes === null || estimatedBytes <= budgetBytes) {
@@ -323,7 +309,7 @@ export async function resolveRasterHandoff(
     const availableBytes = await getAvailableScratchBytes(scratch);
     const budgetBytes = resolveRasterBudgetBytes(availableBytes);
     return {
-        format: estimatedBytes > budgetBytes ? 'png' as const : 'ppm' as const,
+        format: estimatedBytes > budgetBytes ? ('png' as const) : ('ppm' as const),
         estimatedBytes,
         budgetBytes,
     };
@@ -360,19 +346,16 @@ export async function mapScanCleanupRasterPages<T, R>(
     });
     const settled = await Promise.allSettled(workers);
     const rejected = settled.find((result): result is PromiseRejectedResult => result.status === 'rejected');
-    if (rejected) {throw rejected.reason;}
+    if (rejected) {
+        throw rejected.reason;
+    }
     return results;
 }
 
-export function logRasterHandoff(
-    log: TScanCleanupLog,
-    scope: string,
-    handoff: Awaited<ReturnType<typeof resolveRasterHandoff>>,
-) {
+export function logRasterHandoff(log: TScanCleanupLog, scope: string, handoff: Awaited<ReturnType<typeof resolveRasterHandoff>>) {
     const mib = (bytes: number) => `${Math.ceil(bytes / (1024 * 1024))} MiB`;
-    const footprint = handoff.estimatedBytes === null
-        ? 'unknown footprint'
-        : `${mib(handoff.estimatedBytes)} estimated simultaneous scratch footprint`;
+    const footprint =
+        handoff.estimatedBytes === null ? 'unknown footprint' : `${mib(handoff.estimatedBytes)} estimated simultaneous scratch footprint`;
     const budget = handoff.budgetBytes === null ? '' : ` against a ${mib(handoff.budgetBytes)} scratch budget`;
     log('debug', `Scan cleanup ${scope} raster handoff uses ${handoff.format.toUpperCase()} (${footprint}${budget})`);
 }
@@ -402,31 +385,17 @@ export function resolveStreamingRasterHandoffBudget(input: {
 }): IResolvedStreamingRasterHandoffBudget {
     const totalPages = Math.max(1, Math.floor(input.totalPages));
     const producerConcurrency = normalizePositiveInteger(input.rasterConcurrency, 1);
-    const defaultChunkPages = Math.max(
-        DEFAULT_MIN_CHUNK_PAGES,
-        Math.min(DEFAULT_MAX_CHUNK_PAGES, producerConcurrency * 4),
-    );
-    const requestedChunkPages = normalizePositiveInteger(
-        input.overrides?.maxChunkPages,
-        defaultChunkPages,
-    );
-    const defaultInFlightPages = Math.min(
-        DEFAULT_MAX_IN_FLIGHT_PAGES,
-        Math.max(requestedChunkPages, requestedChunkPages * 2),
-    );
-    const maxInFlightPages = Math.min(
-        totalPages,
-        normalizePositiveInteger(input.overrides?.maxInFlightPages, defaultInFlightPages),
-    );
+    const defaultChunkPages = Math.max(DEFAULT_MIN_CHUNK_PAGES, Math.min(DEFAULT_MAX_CHUNK_PAGES, producerConcurrency * 4));
+    const requestedChunkPages = normalizePositiveInteger(input.overrides?.maxChunkPages, defaultChunkPages);
+    const defaultInFlightPages = Math.min(DEFAULT_MAX_IN_FLIGHT_PAGES, Math.max(requestedChunkPages, requestedChunkPages * 2));
+    const maxInFlightPages = Math.min(totalPages, normalizePositiveInteger(input.overrides?.maxInFlightPages, defaultInFlightPages));
     const maxChunkPages = Math.min(maxInFlightPages, requestedChunkPages);
     const scratchBudgetBytes = resolveRasterBudgetBytes(input.availableScratchBytes);
-    const derivedInFlightBytes = input.availableScratchBytes === null
-        ? DEFAULT_STREAMING_MAX_IN_FLIGHT_BYTES
-        : Math.max(1, Math.min(MAX_DISK_DERIVED_IN_FLIGHT_BYTES, scratchBudgetBytes));
-    const maxInFlightBytes = normalizePositiveInteger(
-        input.overrides?.maxInFlightBytes,
-        derivedInFlightBytes,
-    );
+    const derivedInFlightBytes =
+        input.availableScratchBytes === null
+            ? DEFAULT_STREAMING_MAX_IN_FLIGHT_BYTES
+            : Math.max(1, Math.min(MAX_DISK_DERIVED_IN_FLIGHT_BYTES, scratchBudgetBytes));
+    const maxInFlightBytes = normalizePositiveInteger(input.overrides?.maxInFlightBytes, derivedInFlightBytes);
     return {
         producerConcurrency: Math.min(producerConcurrency, maxInFlightPages),
         maxChunkPages,

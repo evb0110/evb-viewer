@@ -19,16 +19,11 @@ function canShareLine(left: ITextLineBox, right: ITextLineBox) {
     const rightInlineStart = Math.min(rightRun.inlineStart, rightRun.inlineEnd);
     const rightInlineEnd = Math.max(rightRun.inlineStart, rightRun.inlineEnd);
     const gap = Math.max(0, Math.max(leftInlineStart, rightInlineStart) - Math.min(leftInlineEnd, rightInlineEnd));
-    return Math.abs(left.baseline - right.baseline) <= BASELINE_TOLERANCE
-        && crossOverlap >= -BASELINE_TOLERANCE
-        && gap <= ADJACENT_RUN_GAP;
+    return Math.abs(left.baseline - right.baseline) <= BASELINE_TOLERANCE && crossOverlap >= -BASELINE_TOLERANCE && gap <= ADJACENT_RUN_GAP;
 }
 
 function mergePair(left: ITextLineBox, right: ITextLineBox): ITextLineBox {
-    const runs = [
-        ...left.runs,
-        ...right.runs,
-    ].sort((a, b) => a.itemIndex - b.itemIndex);
+    const runs = [...left.runs, ...right.runs].sort((a, b) => a.itemIndex - b.itemIndex);
     return {
         runs,
         left: Math.min(left.left, right.left),
@@ -41,12 +36,12 @@ function mergePair(left: ITextLineBox, right: ITextLineBox): ITextLineBox {
 
 /** Merges adjacent renderer runs that share a baseline into one line box. */
 export function mergeLineBoxesOnBaseline(boxes: readonly ITextLineBox[]): ITextLineBox[] {
-    const ordered = [...boxes].sort((left, right) => (
-        left.baseline - right.baseline
-        || Math.min(left.runs[0]!.inlineStart, left.runs[0]!.inlineEnd)
-            - Math.min(right.runs[0]!.inlineStart, right.runs[0]!.inlineEnd)
-        || left.runs[0]!.itemIndex - right.runs[0]!.itemIndex
-    ));
+    const ordered = [...boxes].sort(
+        (left, right) =>
+            left.baseline - right.baseline ||
+            Math.min(left.runs[0]!.inlineStart, left.runs[0]!.inlineEnd) - Math.min(right.runs[0]!.inlineStart, right.runs[0]!.inlineEnd) ||
+            left.runs[0]!.itemIndex - right.runs[0]!.itemIndex,
+    );
     const merged: ITextLineBox[] = [];
     ordered.forEach((box) => {
         const previous = merged.at(-1);
@@ -56,9 +51,7 @@ export function mergeLineBoxesOnBaseline(boxes: readonly ITextLineBox[]): ITextL
         }
         merged.push(box);
     });
-    return merged.sort((left, right) => (
-        left.top - right.top
-        || left.left - right.left
-        || left.runs[0]!.itemIndex - right.runs[0]!.itemIndex
-    ));
+    return merged.sort(
+        (left, right) => left.top - right.top || left.left - right.left || left.runs[0]!.itemIndex - right.runs[0]!.itemIndex,
+    );
 }

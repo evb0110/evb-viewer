@@ -1,10 +1,4 @@
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, describe, expect, it, vi} from 'vitest';
 import {
     PDF_BUFFER_MAX_CANVAS_PIXELS_DEFAULT,
     PDF_BUFFER_MAX_CANVAS_PIXELS_LOW_MEMORY,
@@ -24,8 +18,8 @@ import {
     PDF_THUMBNAIL_CONCURRENCY_WORKSTATION,
     resolvePerformanceProfile,
 } from '@app/utils/performanceProfile';
-import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/resolveOpenPathSecondaryPerformancePolicy';
-import { resolvePdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
+import {resolveOpenPathSecondaryPerformancePolicy} from '@app/utils/resolveOpenPathSecondaryPerformancePolicy';
+import {resolvePdfRenderPerformancePolicy} from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
 
 const MEBIBYTE = 1024 * 1024;
 
@@ -38,17 +32,21 @@ afterEach(() => {
 
 describe('resolvePerformanceProfile', () => {
     it('retains the startup choice independently of the detected or host tier', () => {
-        expect(resolvePerformanceProfile({
-            performanceMode: 'auto',
-            tier: 'low',
-        })).toMatchObject({
+        expect(
+            resolvePerformanceProfile({
+                performanceMode: 'auto',
+                tier: 'low',
+            }),
+        ).toMatchObject({
             performanceMode: 'auto',
             tier: 'low',
         });
-        expect(resolvePerformanceProfile({
-            performanceMode: 'low',
-            tier: 'low',
-        })).toMatchObject({
+        expect(
+            resolvePerformanceProfile({
+                performanceMode: 'low',
+                tier: 'low',
+            }),
+        ).toMatchObject({
             performanceMode: 'low',
             tier: 'low',
         });
@@ -74,15 +72,19 @@ describe('resolvePerformanceProfile', () => {
 
     it('classifies small browsers as low on evidence of few cores, little memory or a mobile device', () => {
         expect(resolvePerformanceProfile({hardwareConcurrency: 2}).tier).toBe('low');
-        expect(resolvePerformanceProfile({
-            deviceMemory: 4,
-            hardwareConcurrency: 8,
-        }).tier).toBe('low');
-        expect(resolvePerformanceProfile({
-            deviceMemory: 8,
-            hardwareConcurrency: 8,
-            mobile: true,
-        })).toMatchObject({
+        expect(
+            resolvePerformanceProfile({
+                deviceMemory: 4,
+                hardwareConcurrency: 8,
+            }).tier,
+        ).toBe('low');
+        expect(
+            resolvePerformanceProfile({
+                deviceMemory: 8,
+                hardwareConcurrency: 8,
+                mobile: true,
+            }),
+        ).toMatchObject({
             tier: 'low',
             mobile: true,
         });
@@ -91,27 +93,26 @@ describe('resolvePerformanceProfile', () => {
     it.each([
         {
             name: 'iPhone Safari',
-            userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
+            userAgent:
+                'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
             maxTouchPoints: 5,
             mobile: true,
         },
         {
             name: 'iPadOS Safari',
-            userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15',
+            userAgent:
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15',
             maxTouchPoints: 5,
             mobile: true,
         },
         {
             name: 'macOS Safari',
-            userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15',
+            userAgent:
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15',
             maxTouchPoints: 0,
             mobile: false,
         },
-    ])('reads $name from the browser navigator', ({
-        userAgent,
-        maxTouchPoints,
-        mobile,
-    }) => {
+    ])('reads $name from the browser navigator', ({userAgent, maxTouchPoints, mobile}) => {
         vi.stubGlobal('window', {});
         vi.stubGlobal('document', {});
         vi.stubGlobal('navigator', {
@@ -139,10 +140,12 @@ describe('resolvePerformanceProfile', () => {
     });
 
     it('keeps full counts on capable hardware and raises the settled canvas budget', () => {
-        expect(resolvePerformanceProfile({
-            deviceMemory: 8,
-            hardwareConcurrency: 8,
-        })).toMatchObject({
+        expect(
+            resolvePerformanceProfile({
+                deviceMemory: 8,
+                hardwareConcurrency: 8,
+            }),
+        ).toMatchObject({
             tier: 'high',
             lowMemory: false,
             lowCpu: false,
@@ -156,11 +159,13 @@ describe('resolvePerformanceProfile', () => {
     });
 
     it('does not trust clamped 8 GB deviceMemory as real high memory when total RAM is available', () => {
-        expect(resolvePerformanceProfile({
-            deviceMemory: 8,
-            hardwareConcurrency: 8,
-            totalMemoryBytes: 8 * 1024 ** 3,
-        })).toMatchObject({
+        expect(
+            resolvePerformanceProfile({
+                deviceMemory: 8,
+                hardwareConcurrency: 8,
+                totalMemoryBytes: 8 * 1024 ** 3,
+            }),
+        ).toMatchObject({
             tier: 'low',
             lowMemory: true,
             lowCpu: true,
@@ -173,11 +178,13 @@ describe('resolvePerformanceProfile', () => {
     });
 
     it('scales render, prefetch, proxy, thumbnail, and raster budgets upward on workstations', () => {
-        expect(resolvePerformanceProfile({
-            deviceMemory: 8,
-            hardwareConcurrency: 24,
-            totalMemoryBytes: 32 * 1024 ** 3,
-        })).toMatchObject({
+        expect(
+            resolvePerformanceProfile({
+                deviceMemory: 8,
+                hardwareConcurrency: 24,
+                totalMemoryBytes: 32 * 1024 ** 3,
+            }),
+        ).toMatchObject({
             tier: 'high',
             lowMemory: false,
             lowCpu: false,
@@ -196,8 +203,8 @@ describe('resolvePerformanceProfile', () => {
             totalMemoryBytes: 32 * 1024 ** 3,
             gpuStatus: {
                 '2d_canvas': 'disabled_software',
-                'gpu_compositing': 'disabled_software',
-                'rasterization': 'disabled_software',
+                gpu_compositing: 'disabled_software',
+                rasterization: 'disabled_software',
             },
         });
 
@@ -221,8 +228,8 @@ describe('resolvePerformanceProfile', () => {
             totalMemoryBytes: 32 * 1024 ** 3,
             gpuStatus: {
                 '2d_canvas': 'enabled',
-                'gpu_compositing': 'enabled',
-                'rasterization': 'enabled',
+                gpu_compositing: 'enabled',
+                rasterization: 'enabled',
             },
         });
 
@@ -237,10 +244,12 @@ describe('resolvePerformanceProfile', () => {
     });
 
     it('requires both workstation memory and CPU before widening concurrent work', () => {
-        expect(resolvePerformanceProfile({
-            hardwareConcurrency: 8,
-            totalMemoryBytes: 64 * 1024 ** 3,
-        })).toMatchObject({
+        expect(
+            resolvePerformanceProfile({
+                hardwareConcurrency: 8,
+                totalMemoryBytes: 64 * 1024 ** 3,
+            }),
+        ).toMatchObject({
             tier: 'high',
             pdfBufferPages: 2,
             concurrentPdfRenders: PDF_RENDER_CONCURRENCY_DEFAULT,
@@ -251,18 +260,22 @@ describe('resolvePerformanceProfile', () => {
         });
     });
 
-    it('keeps a browser in Chrome\'s top memory bucket at medium when it has few cores', () => {
-        expect(resolvePerformanceProfile({
-            deviceMemory: 8,
-            hardwareConcurrency: 4,
-        }).tier).toBe('medium');
+    it("keeps a browser in Chrome's top memory bucket at medium when it has few cores", () => {
+        expect(
+            resolvePerformanceProfile({
+                deviceMemory: 8,
+                hardwareConcurrency: 4,
+            }).tier,
+        ).toBe('medium');
     });
 
     it('gives a low-memory browser with enough CPU cores the canonical low table', () => {
-        expect(resolvePerformanceProfile({
-            deviceMemory: 4,
-            hardwareConcurrency: 8,
-        })).toMatchObject({
+        expect(
+            resolvePerformanceProfile({
+                deviceMemory: 4,
+                hardwareConcurrency: 8,
+            }),
+        ).toMatchObject({
             tier: 'low',
             lowMemory: true,
             lowCpu: true,
@@ -317,15 +330,14 @@ describe('resolvePerformanceProfile', () => {
                 maxBufferCanvasPixels: 16_777_216,
             },
         },
-    ])('uses the exact canonical $tier table', ({
-        tier,
-        expected,
-    }) => {
-        expect(resolvePerformanceProfile({
-            tier,
-            hardwareConcurrency: 8,
-            totalMemoryBytes: 16 * 1024 ** 3,
-        })).toEqual({
+    ])('uses the exact canonical $tier table', ({tier, expected}) => {
+        expect(
+            resolvePerformanceProfile({
+                tier,
+                hardwareConcurrency: 8,
+                totalMemoryBytes: 16 * 1024 ** 3,
+            }),
+        ).toEqual({
             performanceMode: 'auto',
             mobile: false,
             ...expected,
@@ -338,10 +350,12 @@ describe('resolvePerformanceProfile', () => {
             totalMemoryBytes: 32 * 1024 ** 3,
         };
 
-        expect(resolvePerformanceProfile({
-            ...environment,
-            tier: 'high',
-        })).toEqual({
+        expect(
+            resolvePerformanceProfile({
+                ...environment,
+                tier: 'high',
+            }),
+        ).toEqual({
             performanceMode: 'auto',
             mobile: false,
             tier: 'high',
@@ -354,10 +368,12 @@ describe('resolvePerformanceProfile', () => {
             settledMaxCanvasPixels: 2 ** 27,
             maxBufferCanvasPixels: 33_554_432,
         });
-        expect(resolvePerformanceProfile({
-            ...environment,
-            tier: 'medium',
-        })).toEqual({
+        expect(
+            resolvePerformanceProfile({
+                ...environment,
+                tier: 'medium',
+            }),
+        ).toEqual({
             performanceMode: 'auto',
             mobile: false,
             tier: 'medium',
@@ -373,37 +389,26 @@ describe('resolvePerformanceProfile', () => {
     });
 
     it.each([
-        [
-            'low',
-            1,
-            2 ** 24,
-        ],
-        [
-            'medium',
-            3,
-            2 ** 25,
-        ],
-        [
-            'high',
-            3,
-            2 ** 26,
-        ],
-    ] as const)('maps the manual browser %s override directly to its tier', (
-        performanceMode,
-        concurrentPdfRenders,
-        settledMaxCanvasPixels,
-    ) => {
-        expect(resolvePerformanceProfile({
-            performanceMode,
-            deviceMemory: 4,
-            hardwareConcurrency: 8,
-        })).toMatchObject({
-            performanceMode,
-            tier: performanceMode,
-            concurrentPdfRenders,
-            settledMaxCanvasPixels,
-        });
-    });
+        ['low', 1, 2 ** 24],
+        ['medium', 3, 2 ** 25],
+        ['high', 3, 2 ** 26],
+    ] as const)(
+        'maps the manual browser %s override directly to its tier',
+        (performanceMode, concurrentPdfRenders, settledMaxCanvasPixels) => {
+            expect(
+                resolvePerformanceProfile({
+                    performanceMode,
+                    deviceMemory: 4,
+                    hardwareConcurrency: 8,
+                }),
+            ).toMatchObject({
+                performanceMode,
+                tier: performanceMode,
+                concurrentPdfRenders,
+                settledMaxCanvasPixels,
+            });
+        },
+    );
 });
 
 describe('resolveOpenPathSecondaryPerformancePolicy', () => {
@@ -444,10 +449,7 @@ describe('resolveOpenPathSecondaryPerformancePolicy', () => {
                 inactiveDjvuLeasePolicy: 'warm-grace',
             },
         },
-    ])('resolves the complete $profile.tier profile policy', ({
-        profile,
-        expected,
-    }) => {
+    ])('resolves the complete $profile.tier profile policy', ({profile, expected}) => {
         expect(resolveOpenPathSecondaryPerformancePolicy(profile)).toEqual(expected);
     });
 });

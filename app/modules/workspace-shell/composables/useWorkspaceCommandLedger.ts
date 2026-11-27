@@ -1,4 +1,4 @@
-import type { TWorkspaceUndoSource } from '@app/types/workspaceUndoSource';
+import type {TWorkspaceUndoSource} from '@app/types/workspaceUndoSource';
 import type {IWorkspaceCommandRegistration} from '@app/types/workspaceCommand';
 
 interface IWorkspaceCommand {
@@ -51,16 +51,18 @@ export const useWorkspaceCommandLedger = () => {
         nextCommands.push(command);
         let retainedBytes = nextCommands.reduce((total, entry) => total + entry.estimatedBytes, 0);
         while (
-            nextCommands.length > 1
-            && (nextCommands.length > MAX_WORKSPACE_COMMAND_DEPTH || retainedBytes > MAX_WORKSPACE_COMMAND_BYTES)
+            nextCommands.length > 1 &&
+            (nextCommands.length > MAX_WORKSPACE_COMMAND_DEPTH || retainedBytes > MAX_WORKSPACE_COMMAND_BYTES)
         ) {
             const removed = nextCommands.shift();
             retainedBytes -= removed?.estimatedBytes ?? 0;
-            if (removed) {discarded.push(removed);}
+            if (removed) {
+                discarded.push(removed);
+            }
         }
         commands.value = nextCommands;
         commandIndex.value = commands.value.length - 1;
-        discarded.forEach(entry => entry.onDiscard?.());
+        discarded.forEach((entry) => entry.onDiscard?.());
     }
 
     function registerCommand(input: IWorkspaceCommandRegistration) {
@@ -76,7 +78,9 @@ export const useWorkspaceCommandLedger = () => {
         const discarded: IWorkspaceCommand[] = [];
         const nextCommands = commands.value.filter((command, index) => {
             const removed = shouldRemove(command);
-            if (removed) {discarded.push(command);}
+            if (removed) {
+                discarded.push(command);
+            }
             if (removed && index <= commandIndex.value) {
                 removedAppliedCommands += 1;
             }
@@ -84,23 +88,20 @@ export const useWorkspaceCommandLedger = () => {
         });
 
         commands.value = nextCommands;
-        discarded.forEach(command => command.onDiscard?.());
+        discarded.forEach((command) => command.onDiscard?.());
         if (nextCommands.length === 0) {
             commandIndex.value = -1;
             return;
         }
 
-        commandIndex.value = Math.min(
-            nextCommands.length - 1,
-            Math.max(-1, commandIndex.value - removedAppliedCommands),
-        );
+        commandIndex.value = Math.min(nextCommands.length - 1, Math.max(-1, commandIndex.value - removedAppliedCommands));
     }
 
     function resetTimeline() {
         const discarded = commands.value;
         commands.value = [];
         commandIndex.value = -1;
-        discarded.forEach(command => command.onDiscard?.());
+        discarded.forEach((command) => command.onDiscard?.());
     }
 
     function resetSource(source?: TWorkspaceUndoSource) {
@@ -108,7 +109,7 @@ export const useWorkspaceCommandLedger = () => {
             resetTimeline();
             return;
         }
-        pruneEntries(command => command.source === source);
+        pruneEntries((command) => command.source === source);
     }
 
     function ownsAnyEntity(command: IWorkspaceCommand, entityIds: ReadonlySet<string>) {
@@ -130,21 +131,13 @@ export const useWorkspaceCommandLedger = () => {
         if (entityIds.size === 0) {
             return;
         }
-        pruneEntries(command => command.source === source && ownsAnyEntity(command, entityIds));
+        pruneEntries((command) => command.source === source && ownsAnyEntity(command, entityIds));
     }
 
-    const canUndoTimeline = computed(() => (
-        commands.value[commandIndex.value]?.canUndo() === true
-    ));
-    const canRedoTimeline = computed(
-        () => commands.value[commandIndex.value + 1]?.canRedo() === true,
-    );
-    const nextUndoSource = computed<TWorkspaceUndoSource | null>(
-        () => commands.value[commandIndex.value]?.source ?? null,
-    );
-    const nextRedoSource = computed<TWorkspaceUndoSource | null>(
-        () => commands.value[commandIndex.value + 1]?.source ?? null,
-    );
+    const canUndoTimeline = computed(() => commands.value[commandIndex.value]?.canUndo() === true);
+    const canRedoTimeline = computed(() => commands.value[commandIndex.value + 1]?.canRedo() === true);
+    const nextUndoSource = computed<TWorkspaceUndoSource | null>(() => commands.value[commandIndex.value]?.source ?? null);
+    const nextRedoSource = computed<TWorkspaceUndoSource | null>(() => commands.value[commandIndex.value + 1]?.source ?? null);
 
     // Inverses may be asynchronous, and pruning is not gated on them: the reset
     // and forget calls come from lifecycle callbacks (document reopen, viewer

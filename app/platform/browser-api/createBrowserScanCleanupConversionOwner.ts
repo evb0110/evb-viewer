@@ -15,10 +15,7 @@ import {createJobId} from '@contracts/shared';
 import {createEpochMs} from '@contracts/timestamps';
 import {formatScanCleanupOutputName} from '@evb/scan-cleanup/core/formatScanCleanupOutputName';
 import {getErrorMessage} from '@app/utils/error';
-import {
-    browserDocumentStore,
-    getBrowserDocumentFileName,
-} from '@app/platform/browserDocumentStore';
+import {browserDocumentStore, getBrowserDocumentFileName} from '@app/platform/browserDocumentStore';
 import {createBrowserDocumentRef} from '@app/platform/browser/browserDocumentRefs';
 import {createBrowserScanCleanupJobRegistry} from '@app/platform/browser-api/createBrowserScanCleanupJobRegistry';
 import type {createBrowserScanCleanupDetectionOwner} from '@app/platform/browser-api/createBrowserScanCleanupDetectionOwner';
@@ -37,14 +34,10 @@ interface IConversionResult {
     partial: boolean;
 }
 
-const isPartial = (request: IScanCleanupStartRequest) => request.sourcePageNumbers !== undefined
-    || request.sourcePageRange !== undefined;
+const isPartial = (request: IScanCleanupStartRequest) => request.sourcePageNumbers !== undefined || request.sourcePageRange !== undefined;
 
-const isLiveStatus = (status: TScanCleanupJobState['status']) => status === 'queued'
-    || status === 'running'
-    || status === 'canceling'
-    || status === 'handoff'
-    || status === 'committing';
+const isLiveStatus = (status: TScanCleanupJobState['status']) =>
+    status === 'queued' || status === 'running' || status === 'canceling' || status === 'handoff' || status === 'committing';
 
 function withoutPageMetadata(progress: TScanCleanupJobState['progress']) {
     const {
@@ -64,17 +57,20 @@ function withoutPageMetadata(progress: TScanCleanupJobState['progress']) {
  * commits its output, and completed with a new browser document the
  * workspace opens in a tab.
  */
-export function createBrowserScanCleanupConversionOwner(
-    detection: ReturnType<typeof createBrowserScanCleanupDetectionOwner>,
-) {
+export function createBrowserScanCleanupConversionOwner(detection: ReturnType<typeof createBrowserScanCleanupDetectionOwner>) {
     const listeners = new Set<TJobListener>();
-    const announce: TJobListener = event => {
-        for (const listener of [...listeners]) {listener(event);}
+    const announce: TJobListener = (event) => {
+        for (const listener of [...listeners]) {
+            listener(event);
+        }
     };
-    const sourceByJob = new Map<string, {
-        ref: string;
-        owner: IScanCleanupOwnerContext
-    }>();
+    const sourceByJob = new Map<
+        string,
+        {
+            ref: string;
+            owner: IScanCleanupOwnerContext;
+        }
+    >();
     const jobs = createBrowserScanCleanupJobRegistry<TScanCleanupJobState, IConversionResult>({
         terminal: {
             completed: (latest, result) => ({
@@ -92,7 +88,7 @@ export function createBrowserScanCleanupConversionOwner(
                 },
                 updatedAtMs: createEpochMs(),
             }),
-            canceled: latest => ({
+            canceled: (latest) => ({
                 jobId: latest.jobId,
                 status: 'canceled',
                 progress: latest.progress,
@@ -107,13 +103,13 @@ export function createBrowserScanCleanupConversionOwner(
                 updatedAtMs: createEpochMs(),
             }),
         },
-        canceling: latest => ({
+        canceling: (latest) => ({
             jobId: latest.jobId,
             status: 'canceling',
             progress: latest.progress,
             updatedAtMs: createEpochMs(),
         }),
-        cancelable: latest => latest.status !== 'committing',
+        cancelable: (latest) => latest.status !== 'committing',
         onState: announce,
         onRetired: announce,
     });
@@ -122,7 +118,7 @@ export function createBrowserScanCleanupConversionOwner(
         request: IScanCleanupStartRequest,
         output: {
             ref: TDocumentRef;
-            name: string
+            name: string;
         },
         lease: ReturnType<typeof detection.leaseResultStore>,
         context: Parameters<Parameters<typeof jobs.start>[0]['run']>[0],
@@ -140,10 +136,8 @@ export function createBrowserScanCleanupConversionOwner(
         try {
             const source = await awaitScanCleanupSource(borrow.opened, signal);
             const token = requireDocumentRevisionToken(request.documentRevision);
-            const {
-                runBrowserScanCleanupConversion,
-                BrowserScanCleanupEngineChangedError,
-            } = await import('@app/platform/browser-api/runBrowserScanCleanupConversion');
+            const {runBrowserScanCleanupConversion, BrowserScanCleanupEngineChangedError} =
+                await import('@app/platform/browser-api/runBrowserScanCleanupConversion');
             const {
                 detectionResultStoreId: _detectionResultStoreId,
                 ownerId: _ownerId,
@@ -159,11 +153,7 @@ export function createBrowserScanCleanupConversionOwner(
                 source,
                 readSource: async () => {
                     await source.assertCurrent?.();
-                    const {
-                        blob,
-                        instance,
-                        byteRevision,
-                    } = await browserDocumentStore.readableRevision(request.sourcePdfPath, {token});
+                    const {blob, instance, byteRevision} = await browserDocumentStore.readableRevision(request.sourcePdfPath, {token});
                     const bytes = await readBoundedRevisionBlobBytes(
                         blob,
                         BROWSER_PAGE_OPS_MAX_REQUEST_BYTES - REQUEST_HEADER.bytes,
@@ -178,10 +168,12 @@ export function createBrowserScanCleanupConversionOwner(
                     return bytes;
                 },
                 signal,
-                onProgress: progress => publish('running', progress),
+                onProgress: (progress) => publish('running', progress),
             }).catch((error: unknown) => {
                 // A retry inspects the source again under the engine now loaded.
-                if (error instanceof BrowserScanCleanupEngineChangedError) {borrow.retire();}
+                if (error instanceof BrowserScanCleanupEngineChangedError) {
+                    borrow.retire();
+                }
                 throw error;
             });
             signal.throwIfAborted();
@@ -223,9 +215,8 @@ export function createBrowserScanCleanupConversionOwner(
             const jobId = createJobId('scan-cleanup');
             // Admission holds the detection results the run reads, so later
             // maintenance cannot evict them between start and the first page.
-            const lease = request.detectionResultStoreId === undefined
-                ? null
-                : detection.leaseResultStore(request.detectionResultStoreId, request);
+            const lease =
+                request.detectionResultStoreId === undefined ? null : detection.leaseResultStore(request.detectionResultStoreId, request);
             if (request.detectionResultStoreId !== undefined && lease === null) {
                 return Promise.resolve({
                     started: false,
@@ -262,7 +253,7 @@ export function createBrowserScanCleanupConversionOwner(
                     },
                     updatedAtMs: createEpochMs(),
                 },
-                run: context => run(request, output, lease, context),
+                run: (context) => run(request, output, lease, context),
             });
             void settled.finally(() => {
                 sourceByJob.delete(jobId);
@@ -276,7 +267,9 @@ export function createBrowserScanCleanupConversionOwner(
         },
         cancel(jobId: string, owner: IScanCleanupOwnerContext) {
             const state = owned(jobId, owner);
-            if (state === null || !isLiveStatus(state.status)) {return Promise.resolve(false);}
+            if (state === null || !isLiveStatus(state.status)) {
+                return Promise.resolve(false);
+            }
             return Promise.resolve(jobs.cancel(jobId, owner, 'Scan cleanup canceled') === 'canceled');
         },
         getJobState(jobId: string, owner: IScanCleanupOwnerContext) {
@@ -284,11 +277,10 @@ export function createBrowserScanCleanupConversionOwner(
         },
         /** A closed source ends its conversions that have not begun publishing. */
         closeSource(ref: TDocumentRef) {
-            for (const [
-                jobId,
-                job,
-            ] of sourceByJob) {
-                if (job.ref === ref) {jobs.cancel(jobId, job.owner, 'Scan cleanup source closed');}
+            for (const [jobId, job] of sourceByJob) {
+                if (job.ref === ref) {
+                    jobs.cancel(jobId, job.owner, 'Scan cleanup source closed');
+                }
             }
         },
     };

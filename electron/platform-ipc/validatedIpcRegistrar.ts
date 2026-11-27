@@ -1,27 +1,11 @@
-import type {
-    IpcMainEvent,
-    IpcMainInvokeEvent,
-} from 'electron';
-import type {
-    IIpcCodec,
-    IIpcInvokeSpec,
-    IIpcMainRegistrar,
-} from '@contracts/ipcMain';
-import type {
-    TAnyDefinedPlatformFeature,
-    TFeatureMainBindings,
-} from '@contracts/platformFeature';
-import {
-    isTrustedIpcInvokeSender,
-    isTrustedWebContentsSender,
-} from '@electron/platform-ipc/trustedIpcSender';
-import { getErrorMessage } from '@electron/utils/error';
-import { isAbortError } from '@contracts/isAbortError';
-import { createLogger } from '@electron/utils/createLogger';
-import {
-    decodeIpcInvokeRequestId,
-    IPC_INVOKE_REQUEST_ID_FIELD,
-} from '@electron/platform-ipc/coreContract';
+import type {IpcMainEvent, IpcMainInvokeEvent} from 'electron';
+import type {IIpcCodec, IIpcInvokeSpec, IIpcMainRegistrar} from '@contracts/ipcMain';
+import type {TAnyDefinedPlatformFeature, TFeatureMainBindings} from '@contracts/platformFeature';
+import {isTrustedIpcInvokeSender, isTrustedWebContentsSender} from '@electron/platform-ipc/trustedIpcSender';
+import {getErrorMessage} from '@electron/utils/error';
+import {isAbortError} from '@contracts/isAbortError';
+import {createLogger} from '@electron/utils/createLogger';
+import {decodeIpcInvokeRequestId, IPC_INVOKE_REQUEST_ID_FIELD} from '@electron/platform-ipc/coreContract';
 import {beginIpcInvokeCancellation} from '@electron/platform-ipc/ipcInvokeCancellation';
 import {runWithMainOperationCancellationSignal} from '@electron/operation-lifecycle/mainOperationLifecycle';
 
@@ -59,7 +43,9 @@ class IpcArgumentValidationError extends Error {
     }
 }
 
-interface IIpcInvokeArgumentValidationPolicy {noArgumentChannels?: ReadonlySet<string>;}
+interface IIpcInvokeArgumentValidationPolicy {
+    noArgumentChannels?: ReadonlySet<string>;
+}
 
 export interface IValidatedIpcMainRegistrarOptions {
     allowedChannels?: ReadonlySet<string>;
@@ -70,24 +56,17 @@ export interface IValidatedIpcMainRegistrarOptions {
     lazyCodecs?: () => Promise<Readonly<Record<string, Pick<IIpcCodec<IIpcInvokeSpec>, 'decodeArgs'>>>>;
 }
 
-export interface IValidatedIpcMainRegistrar<
-    TMap extends {[TChannel in keyof TMap]: IIpcInvokeSpec} = never,
-    TEvent = unknown,
-> {handle: [TMap] extends [never]
-    ? <TArgs extends unknown[], TResult>(
-        channel: string,
-        handler: (
-            event: TEvent,
-            ...args: TArgs
-        ) => TResult | Promise<TResult>,
-    ) => void
-    : <TChannel extends Extract<keyof TMap, string>>(
-        channel: TChannel,
-        handler: (
-            event: TEvent,
-            ...args: TMap[TChannel]['args']
-        ) => TMap[TChannel]['result'] | Promise<TMap[TChannel]['result']>,
-    ) => void;}
+export interface IValidatedIpcMainRegistrar<TMap extends {[TChannel in keyof TMap]: IIpcInvokeSpec} = never, TEvent = unknown> {
+    handle: [TMap] extends [never]
+        ? <TArgs extends unknown[], TResult>(
+              channel: string,
+              handler: (event: TEvent, ...args: TArgs) => TResult | Promise<TResult>,
+          ) => void
+        : <TChannel extends Extract<keyof TMap, string>>(
+              channel: TChannel,
+              handler: (event: TEvent, ...args: TMap[TChannel]['args']) => TMap[TChannel]['result'] | Promise<TMap[TChannel]['result']>,
+          ) => void;
+}
 
 export interface IValidatedIpcChannelClaimRegistrar {
     claim: (channel: string) => () => void;
@@ -98,21 +77,13 @@ export function createChannelSet<T extends Record<string, string>>(channels: T) 
     return new Set<string>(Object.values(channels));
 }
 
-function assertAllowedChannelRegistration(
-    kind: 'invoke' | 'event',
-    channel: string,
-    allowedChannels?: ReadonlySet<string>,
-) {
+function assertAllowedChannelRegistration(kind: 'invoke' | 'event', channel: string, allowedChannels?: ReadonlySet<string>) {
     if (allowedChannels && !allowedChannels.has(channel)) {
         throw new Error(`Unknown ${kind} IPC channel registered: ${channel}`);
     }
 }
 
-function assertUniqueChannelRegistration(
-    kind: 'invoke' | 'event',
-    registeredChannels: Map<string, symbol>,
-    channel: string,
-) {
+function assertUniqueChannelRegistration(kind: 'invoke' | 'event', registeredChannels: Map<string, symbol>, channel: string) {
     if (registeredChannels.has(channel)) {
         throw new Error(`Duplicate ${kind} IPC channel registration: ${channel}`);
     }
@@ -205,9 +176,7 @@ export function createValidatedIpcMainRegistrar(
     registrar: IIpcMainRegistrar<never, IpcMainInvokeEvent>,
     options?: IValidatedIpcMainRegistrarOptions,
 ): IValidatedIpcMainRegistrar<never, IpcMainInvokeEvent> & IValidatedIpcChannelClaimRegistrar;
-export function createValidatedIpcMainRegistrar<
-    TMap extends {[TChannel in keyof TMap]: IIpcInvokeSpec},
->(
+export function createValidatedIpcMainRegistrar<TMap extends {[TChannel in keyof TMap]: IIpcInvokeSpec}>(
     registrar: IIpcMainRegistrar<never, IpcMainInvokeEvent>,
     options?: IValidatedIpcMainRegistrarOptions,
 ): IValidatedIpcMainRegistrar<TMap, IpcMainInvokeEvent> & IValidatedIpcChannelClaimRegistrar;
@@ -222,17 +191,13 @@ export function createValidatedIpcMainRegistrar(
         claimExisting: channelClaimer.claimExisting,
         handle: <TArgs extends unknown[], TResult>(
             channel: string,
-            handler: (
-                event: IpcMainInvokeEvent,
-                ...args: TArgs
-            ) => TResult | Promise<TResult>,
+            handler: (event: IpcMainInvokeEvent, ...args: TArgs) => TResult | Promise<TResult>,
         ) => {
             assertAllowedChannelRegistration('invoke', channel, options.allowedChannels);
             const staticDecode = options.codecs?.[channel]?.decodeArgs as ((args: readonly unknown[]) => TArgs) | undefined;
             const hasStaticDecoder = typeof staticDecode === 'function';
             const hasLazyCodecs = typeof options.lazyCodecs === 'function';
-            const isExactNoArgumentChannel = !hasStaticDecoder
-            && options.argumentValidation?.noArgumentChannels?.has(channel) === true;
+            const isExactNoArgumentChannel = !hasStaticDecoder && options.argumentValidation?.noArgumentChannels?.has(channel) === true;
             if (!hasStaticDecoder && !hasLazyCodecs && !isExactNoArgumentChannel) {
                 throw new Error(`IPC invoke channel registered without an argument decoder or explicit no-arg allowlist: ${channel}`);
             }
@@ -243,9 +208,7 @@ export function createValidatedIpcMainRegistrar(
                         throw new Error('IPC sender is not trusted');
                     }
                     const requestId = extractIpcInvokeRequestId(args);
-                    const cancellation = requestId === null
-                        ? null
-                        : beginIpcInvokeCancellation(event.sender, requestId);
+                    const cancellation = requestId === null ? null : beginIpcInvokeCancellation(event.sender, requestId);
                     try {
                         let decode = staticDecode;
                         if (!isExactNoArgumentChannel && !decode && options.lazyCodecs) {
@@ -263,7 +226,7 @@ export function createValidatedIpcMainRegistrar(
                             } else if (decode) {
                                 decodedArgs = decode(args);
                                 const unexpectedArgs = args.slice(decodedArgs.length);
-                                if (unexpectedArgs.some(argument => argument !== undefined)) {
+                                if (unexpectedArgs.some((argument) => argument !== undefined)) {
                                     throw new Error(`unexpected trailing arguments after position ${decodedArgs.length}`);
                                 }
                             } else {
@@ -300,9 +263,7 @@ export function createValidatedIpcMainRegistrar(
     };
 }
 
-export function registerPlatformFeatureHandlers<
-    TFeature extends TAnyDefinedPlatformFeature,
->(
+export function registerPlatformFeatureHandlers<TFeature extends TAnyDefinedPlatformFeature>(
     registrar: IValidatedIpcMainRegistrar<never, IpcMainInvokeEvent>,
     feature: TFeature,
     bindings: TFeatureMainBindings<TFeature, IpcMainInvokeEvent>,
@@ -322,12 +283,7 @@ export function registerPlatformFeatureHandlers<
                 throw new Error(`Missing platform feature main binding: ${spec.main.method}`);
             }
             const invokeBinding = binding as (...bindingArgs: unknown[]) => unknown;
-            return spec.main.context === 'sender'
-                ? invokeBinding(
-                    senderContext(event),
-                    ...args,
-                )
-                : invokeBinding(...args);
+            return spec.main.context === 'sender' ? invokeBinding(senderContext(event), ...args) : invokeBinding(...args);
         });
     }
     for (const spec of Object.values(feature.events)) {
@@ -346,19 +302,17 @@ export function registerPlatformFeatureHandlers<
     }
 }
 
-export interface IValidatedIpcMainEventRegistrar {on: (
-    channel: string,
-    handler: (event: IpcMainEvent, ...args: unknown[]) => void,
-) => void;}
+export interface IValidatedIpcMainEventRegistrar {
+    on: (channel: string, handler: (event: IpcMainEvent, ...args: unknown[]) => void) => void;
+}
 
-interface IValidatedIpcMainEventSource {on: (
-    channel: string,
-    handler: (event: IpcMainEvent, ...args: unknown[]) => void,
-) => void;}
+interface IValidatedIpcMainEventSource {
+    on: (channel: string, handler: (event: IpcMainEvent, ...args: unknown[]) => void) => void;
+}
 
 export function createValidatedIpcMainEventRegistrar(
     registrar: IValidatedIpcMainEventSource,
-    options: {allowedChannels?: ReadonlySet<string>;} = {},
+    options: {allowedChannels?: ReadonlySet<string>} = {},
 ): IValidatedIpcMainEventRegistrar & IValidatedIpcChannelClaimRegistrar {
     const channelClaimer = createChannelClaimer('event', registeredEventChannels, options.allowedChannels);
     return {

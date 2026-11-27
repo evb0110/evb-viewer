@@ -1,17 +1,7 @@
-import {
-    parentPort,
-    workerData,
-} from 'node:worker_threads';
+import {parentPort, workerData} from 'node:worker_threads';
 import {hasNativeErrorCode} from '@contracts/nativeErrors';
-import {
-    createPdfPageOpsWasmRunner,
-    executeDesktopPageOpsCommand,
-} from '@node-runtime/pdfPageOpsWasmRunner';
-import {
-    executeDesktopQpdfCommand,
-    loadQpdfModuleFactory,
-    type IExecuteDesktopQpdfOptions,
-} from '@node-runtime/qpdfWasmRunner';
+import {createPdfPageOpsWasmRunner, executeDesktopPageOpsCommand} from '@node-runtime/pdfPageOpsWasmRunner';
+import {executeDesktopQpdfCommand, loadQpdfModuleFactory, type IExecuteDesktopQpdfOptions} from '@node-runtime/qpdfWasmRunner';
 import {getErrorMessage} from '@electron/utils/error';
 
 interface IPdfPageOpsWorkerData {
@@ -42,28 +32,18 @@ const startupData = workerData as TWorkerData;
 
 if (startupData.kind === 'qpdf') {
     const factoryPromise = loadQpdfModuleFactory(startupData.mjsPath);
-    port.on('message', async ({
-        id,
-        args,
-        options,
-    }: IQpdfWorkerRequest) => {
+    port.on('message', async ({id, args, options}: IQpdfWorkerRequest) => {
         try {
             const factory = await factoryPromise;
-            const data = await executeDesktopQpdfCommand(
-                startupData.wasmModule,
-                factory,
-                args,
-                options,
-            );
+            const data = await executeDesktopQpdfCommand(startupData.wasmModule, factory, args, options);
             port.postMessage({
                 id,
                 ok: true,
                 data,
             });
         } catch (error) {
-            const exitCode = typeof (error as {exitCode?: unknown})?.exitCode === 'number'
-                ? (error as {exitCode: number}).exitCode
-                : undefined;
+            const exitCode =
+                typeof (error as {exitCode?: unknown})?.exitCode === 'number' ? (error as {exitCode: number}).exitCode : undefined;
             port.postMessage({
                 id,
                 ok: false,
@@ -76,21 +56,9 @@ if (startupData.kind === 'qpdf') {
 } else {
     const runner = createPdfPageOpsWasmRunner(startupData.wasmModule);
 
-    port.on('message', ({
-        id,
-        args,
-        stagedOutputPath,
-    }: {
-        id: number;
-        args: string[];
-        stagedOutputPath?: string;
-    }) => {
+    port.on('message', ({id, args, stagedOutputPath}: {id: number; args: string[]; stagedOutputPath?: string}) => {
         try {
-            const data = executeDesktopPageOpsCommand(
-                runner,
-                args,
-                stagedOutputPath === undefined ? undefined : {stagedOutputPath},
-            );
+            const data = executeDesktopPageOpsCommand(runner, args, stagedOutputPath === undefined ? undefined : {stagedOutputPath});
             port.postMessage({
                 id,
                 ok: true,

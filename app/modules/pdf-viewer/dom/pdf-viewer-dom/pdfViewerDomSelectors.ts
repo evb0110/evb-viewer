@@ -1,4 +1,4 @@
-import { pdfViewerDomClasses } from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/pdfViewerDomClasses';
+import {pdfViewerDomClasses} from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/pdfViewerDomClasses';
 
 export const pdfViewerDomSelectors = {
     pageContainer: `.${pdfViewerDomClasses.pageContainer}`,

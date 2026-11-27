@@ -3,10 +3,7 @@ import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {PDFDocument} from 'pdf-lib';
 import {encode as encodePng} from 'fast-png';
-import {
-    createCanvas, GlobalFonts,
-    loadImage,
-} from '@napi-rs/canvas';
+import {createCanvas, GlobalFonts, loadImage} from '@napi-rs/canvas';
 
 /** @typedef {Record<string, string[]>} TPassageSeeds */
 /** @typedef {{file: string, family: string, source: string}} IFontDefinition */
@@ -20,10 +17,10 @@ const PAGE_WIDTH_MM = 210;
 const PAGE_HEIGHT_MM = 297;
 const PAGE_DPI = 200;
 const DEGRADATION_BASE_DPI = 300;
-const PAGE_WIDTH_PX = Math.round(PAGE_WIDTH_MM / 25.4 * PAGE_DPI);
-const PAGE_HEIGHT_PX = Math.round(PAGE_HEIGHT_MM / 25.4 * PAGE_DPI);
-const PAGE_WIDTH_POINTS = PAGE_WIDTH_MM / 25.4 * 72;
-const PAGE_HEIGHT_POINTS = PAGE_HEIGHT_MM / 25.4 * 72;
+const PAGE_WIDTH_PX = Math.round((PAGE_WIDTH_MM / 25.4) * PAGE_DPI);
+const PAGE_HEIGHT_PX = Math.round((PAGE_HEIGHT_MM / 25.4) * PAGE_DPI);
+const PAGE_WIDTH_POINTS = (PAGE_WIDTH_MM / 25.4) * 72;
+const PAGE_HEIGHT_POINTS = (PAGE_HEIGHT_MM / 25.4) * 72;
 const FONT_DIRECTORY = 'ocr-language-fonts';
 const MANIFEST_FROZEN_AT = '2026-09-13T00:00:00Z';
 
@@ -42,10 +39,12 @@ const DEGRADATION_PROFILES = [
         label: '200 DPI resampling',
         severity: 'mild',
         purpose: 'diagnostic',
-        operations: [{
-            type: 'resample',
-            targetDpi: 200,
-        }],
+        operations: [
+            {
+                type: 'resample',
+                targetDpi: 200,
+            },
+        ],
         acceptanceEligible: true,
     },
     {
@@ -53,10 +52,12 @@ const DEGRADATION_PROFILES = [
         label: '150 DPI resampling',
         severity: 'moderate',
         purpose: 'diagnostic',
-        operations: [{
-            type: 'resample',
-            targetDpi: 150,
-        }],
+        operations: [
+            {
+                type: 'resample',
+                targetDpi: 150,
+            },
+        ],
         acceptanceEligible: true,
     },
     {
@@ -64,10 +65,12 @@ const DEGRADATION_PROFILES = [
         label: '0.5 pixel Gaussian blur at 300 DPI',
         severity: 'mild',
         purpose: 'diagnostic',
-        operations: [{
-            type: 'gaussianBlur',
-            sigmaPx: 0.5,
-        }],
+        operations: [
+            {
+                type: 'gaussianBlur',
+                sigmaPx: 0.5,
+            },
+        ],
         acceptanceEligible: true,
     },
     {
@@ -75,10 +78,12 @@ const DEGRADATION_PROFILES = [
         label: '1.0 pixel Gaussian blur at 300 DPI',
         severity: 'moderate',
         purpose: 'diagnostic',
-        operations: [{
-            type: 'gaussianBlur',
-            sigmaPx: 1,
-        }],
+        operations: [
+            {
+                type: 'gaussianBlur',
+                sigmaPx: 1,
+            },
+        ],
         acceptanceEligible: true,
     },
     {
@@ -86,10 +91,12 @@ const DEGRADATION_PROFILES = [
         label: 'JPEG quality 75',
         severity: 'mild',
         purpose: 'diagnostic',
-        operations: [{
-            type: 'jpeg',
-            quality: 75,
-        }],
+        operations: [
+            {
+                type: 'jpeg',
+                quality: 75,
+            },
+        ],
         acceptanceEligible: true,
     },
     {
@@ -97,10 +104,12 @@ const DEGRADATION_PROFILES = [
         label: 'JPEG quality 50',
         severity: 'severe',
         purpose: 'stress',
-        operations: [{
-            type: 'jpeg',
-            quality: 50,
-        }],
+        operations: [
+            {
+                type: 'jpeg',
+                quality: 50,
+            },
+        ],
         acceptanceEligible: false,
     },
     {
@@ -108,10 +117,12 @@ const DEGRADATION_PROFILES = [
         label: '-0.5 degree skew on a preserved canvas',
         severity: 'mild',
         purpose: 'diagnostic',
-        operations: [{
-            type: 'skew',
-            degrees: -0.5,
-        }],
+        operations: [
+            {
+                type: 'skew',
+                degrees: -0.5,
+            },
+        ],
         acceptanceEligible: true,
     },
     {
@@ -119,10 +130,12 @@ const DEGRADATION_PROFILES = [
         label: '+0.5 degree skew on a preserved canvas',
         severity: 'mild',
         purpose: 'diagnostic',
-        operations: [{
-            type: 'skew',
-            degrees: 0.5,
-        }],
+        operations: [
+            {
+                type: 'skew',
+                degrees: 0.5,
+            },
+        ],
         acceptanceEligible: true,
     },
     {
@@ -130,10 +143,12 @@ const DEGRADATION_PROFILES = [
         label: '-1.5 degree skew on a preserved canvas',
         severity: 'severe',
         purpose: 'stress',
-        operations: [{
-            type: 'skew',
-            degrees: -1.5,
-        }],
+        operations: [
+            {
+                type: 'skew',
+                degrees: -1.5,
+            },
+        ],
         acceptanceEligible: false,
     },
     {
@@ -141,10 +156,12 @@ const DEGRADATION_PROFILES = [
         label: '+1.5 degree skew on a preserved canvas',
         severity: 'severe',
         purpose: 'stress',
-        operations: [{
-            type: 'skew',
-            degrees: 1.5,
-        }],
+        operations: [
+            {
+                type: 'skew',
+                degrees: 1.5,
+            },
+        ],
         acceptanceEligible: false,
     },
     {
@@ -152,12 +169,14 @@ const DEGRADATION_PROFILES = [
         label: 'Smooth illumination gradient',
         severity: 'mild',
         purpose: 'diagnostic',
-        operations: [{
-            type: 'illumination',
-            start: 0.84,
-            end: 1.0,
-            axis: 'x',
-        }],
+        operations: [
+            {
+                type: 'illumination',
+                start: 0.84,
+                end: 1.0,
+                axis: 'x',
+            },
+        ],
         acceptanceEligible: true,
     },
     {
@@ -165,11 +184,13 @@ const DEGRADATION_PROFILES = [
         label: 'Smooth faded ink',
         severity: 'moderate',
         purpose: 'diagnostic',
-        operations: [{
-            type: 'fadedInk',
-            inkRetention: 0.58,
-            axis: 'y',
-        }],
+        operations: [
+            {
+                type: 'fadedInk',
+                inkRetention: 0.58,
+                axis: 'y',
+            },
+        ],
         acceptanceEligible: true,
     },
     {
@@ -265,22 +286,12 @@ const CORPUS_SPLIT = {
     frozenAt: MANIFEST_FROZEN_AT,
     development: {
         passageRule: 'passage-1',
-        fontIds: [
-            'latinSans',
-            'arabicSans',
-            'hebrewSans',
-            'syriacRegular',
-        ],
+        fontIds: ['latinSans', 'arabicSans', 'hebrewSans', 'syriacRegular'],
         templates: ['single-language'],
     },
     evaluation: {
         passageRule: 'passage-2',
-        fontIds: [
-            'latinSerif',
-            'arabicNaskh',
-            'hebrewSerif',
-            'syriacBlack',
-        ],
+        fontIds: ['latinSerif', 'arabicNaskh', 'hebrewSerif', 'syriacBlack'],
         templates: [
             'single-language',
             'same-script-competition',
@@ -298,10 +309,7 @@ const MIXED_DOCUMENT_DEFINITIONS = [
         id: 'mixed-same-script-latin',
         template: 'same-script-competition',
         split: 'evaluation',
-        selectedLanguages: [
-            'eng',
-            'fra',
-        ],
+        selectedLanguages: ['eng', 'fra'],
         readingOrderAmbiguous: false,
         blocks: [
             {
@@ -360,11 +368,7 @@ const MIXED_DOCUMENT_DEFINITIONS = [
         id: 'mixed-latin-cyrillic-greek',
         template: 'latin-cyrillic-greek',
         split: 'evaluation',
-        selectedLanguages: [
-            'eng',
-            'rus',
-            'ell',
-        ],
+        selectedLanguages: ['eng', 'rus', 'ell'],
         readingOrderAmbiguous: false,
         blocks: [
             {
@@ -423,10 +427,7 @@ const MIXED_DOCUMENT_DEFINITIONS = [
         id: 'mixed-rtl-ltr',
         template: 'rtl-ltr',
         split: 'evaluation',
-        selectedLanguages: [
-            'ara',
-            'eng',
-        ],
+        selectedLanguages: ['ara', 'eng'],
         readingOrderAmbiguous: false,
         blocks: [
             {
@@ -485,11 +486,7 @@ const MIXED_DOCUMENT_DEFINITIONS = [
         id: 'mixed-rtl-scripts',
         template: 'mixed-rtl',
         split: 'evaluation',
-        selectedLanguages: [
-            'ara',
-            'heb',
-            'syr',
-        ],
+        selectedLanguages: ['ara', 'heb', 'syr'],
         readingOrderAmbiguous: false,
         blocks: [
             {
@@ -547,11 +544,7 @@ const MIXED_DOCUMENT_DEFINITIONS = [
         id: 'mixed-columns-and-notes',
         template: 'columns-headings-footnotes-marginal-numbers',
         split: 'evaluation',
-        selectedLanguages: [
-            'eng',
-            'rus',
-            'ell',
-        ],
+        selectedLanguages: ['eng', 'rus', 'ell'],
         readingOrderAmbiguous: false,
         blocks: [
             {
@@ -623,10 +616,7 @@ const MIXED_DOCUMENT_DEFINITIONS = [
         id: 'mixed-ambiguous-columns',
         template: 'columns-headings-footnotes-marginal-numbers',
         split: 'development',
-        selectedLanguages: [
-            'eng',
-            'fra',
-        ],
+        selectedLanguages: ['eng', 'fra'],
         readingOrderAmbiguous: true,
         orderPolicy: 'ambiguous-excluded-from-acceptance',
         blocks: [
@@ -852,30 +842,12 @@ const FONT_DEFINITIONS = {
 
 /** @type {Record<string, string[]>} */
 const FONT_VARIANTS_BY_SCRIPT = {
-    latin: [
-        'latinSans',
-        'latinSerif',
-    ],
-    greek: [
-        'latinSans',
-        'latinSerif',
-    ],
-    cyrillic: [
-        'latinSans',
-        'latinSerif',
-    ],
-    arabic: [
-        'arabicSans',
-        'arabicNaskh',
-    ],
-    hebrew: [
-        'hebrewSans',
-        'hebrewSerif',
-    ],
-    syriac: [
-        'syriacRegular',
-        'syriacBlack',
-    ],
+    latin: ['latinSans', 'latinSerif'],
+    greek: ['latinSans', 'latinSerif'],
+    cyrillic: ['latinSans', 'latinSerif'],
+    arabic: ['arabicSans', 'arabicNaskh'],
+    hebrew: ['hebrewSans', 'hebrewSerif'],
+    syriac: ['syriacRegular', 'syriacBlack'],
 };
 
 /** @type {TStringMap} */
@@ -964,7 +936,8 @@ function makeManifest(fontHashes) {
             type: 'original-benchmark-text',
             author: 'EVB Viewer contributors',
             license: 'CC0-1.0',
-            attribution: 'Original benchmark text except Latin: Julius Caesar, De bello Gallico 1.1.1-3 (public domain), https://www.thelatinlibrary.com/caesar/gall1.shtml; modern s, no ligatures. Passage repetition follows the benchmark generator.',
+            attribution:
+                'Original benchmark text except Latin: Julius Caesar, De bello Gallico 1.1.1-3 (public domain), https://www.thelatinlibrary.com/caesar/gall1.shtml; modern s, no ligatures. Passage repetition follows the benchmark generator.',
         },
         physicalPage: {
             widthMm: PAGE_WIDTH_MM,
@@ -977,8 +950,8 @@ function makeManifest(fontHashes) {
             widthMm: PAGE_WIDTH_MM,
             heightMm: PAGE_HEIGHT_MM,
             dpi: DEGRADATION_BASE_DPI,
-            pixelWidth: Math.round(PAGE_WIDTH_PX * DEGRADATION_BASE_DPI / PAGE_DPI),
-            pixelHeight: Math.round(PAGE_HEIGHT_PX * DEGRADATION_BASE_DPI / PAGE_DPI),
+            pixelWidth: Math.round((PAGE_WIDTH_PX * DEGRADATION_BASE_DPI) / PAGE_DPI),
+            pixelHeight: Math.round((PAGE_HEIGHT_PX * DEGRADATION_BASE_DPI) / PAGE_DPI),
         },
         profiles: DEGRADATION_PROFILES,
         corpusSplit: CORPUS_SPLIT,
@@ -1003,27 +976,23 @@ function makeManifest(fontHashes) {
             beforeResults: true,
             definitionSha256: sha256(JSON.stringify(frozenDefinition)),
         },
-        fonts: Object.fromEntries(Object.entries(FONT_DEFINITIONS).map(([
-            id,
-            definition,
-        ]) => [
-            id,
-            {
-                ...definition,
-                license: 'OFL-1.1',
-                sha256: fontHashes[id],
-            },
-        ])),
-        languages: LANGUAGE_CODES.map(code => {
+        fonts: Object.fromEntries(
+            Object.entries(FONT_DEFINITIONS).map(([id, definition]) => [
+                id,
+                {
+                    ...definition,
+                    license: 'OFL-1.1',
+                    sha256: fontHashes[id],
+                },
+            ]),
+        ),
+        languages: LANGUAGE_CODES.map((code) => {
             const script = SCRIPT_BY_LANGUAGE[code] ?? 'latin';
             const fontVariants = FONT_VARIANTS_BY_SCRIPT[script];
             if (!fontVariants) {
                 throw new Error(`Missing font variants for script ${script}`);
             }
-            const passages = [
-                0,
-                1,
-            ].map(index => {
+            const passages = [0, 1].map((index) => {
                 const text = makePassage(code, index);
                 return {
                     id: `${code}-passage-${index + 1}`,
@@ -1065,11 +1034,11 @@ function readSfntTables(buffer) {
 
 /** @param {Buffer} buffer @returns {(codePoint: number) => boolean} */
 function makeFontCoverage(buffer) {
-    const {
-        view, tables,
-    } = readSfntTables(buffer);
+    const {view, tables} = readSfntTables(buffer);
     const cmap = tables.get('cmap');
-    if (!cmap) {throw new Error('font has no cmap table');}
+    if (!cmap) {
+        throw new Error('font has no cmap table');
+    }
     const tableStart = cmap.offset;
     const records = view.getUint16(tableStart + 2);
     /** @type {Array<{platform: number, encoding: number, offset: number, format: number}>} */
@@ -1090,7 +1059,7 @@ function makeFontCoverage(buffer) {
         }
     }
     subtables.sort((left, right) => Number(right.platform === 3) - Number(left.platform === 3));
-    return codePoint => {
+    return (codePoint) => {
         for (const subtable of subtables) {
             if (subtable.format === 12) {
                 const groups = view.getUint32(subtable.offset + 12);
@@ -1101,9 +1070,13 @@ function makeFontCoverage(buffer) {
                     const group = subtable.offset + 16 + middle * 12;
                     const start = view.getUint32(group);
                     const end = view.getUint32(group + 4);
-                    if (codePoint < start) {high = middle - 1;}
-                    else if (codePoint > end) {low = middle + 1;}
-                    else {return view.getUint32(group + 8) + codePoint - start > 0;}
+                    if (codePoint < start) {
+                        high = middle - 1;
+                    } else if (codePoint > end) {
+                        low = middle + 1;
+                    } else {
+                        return view.getUint32(group + 8) + codePoint - start > 0;
+                    }
                 }
             } else if (codePoint <= 0xffff) {
                 const segmentCount = view.getUint16(subtable.offset + 6) / 2;
@@ -1114,7 +1087,9 @@ function makeFontCoverage(buffer) {
                 for (let segment = 0; segment < segmentCount; segment += 1) {
                     const end = view.getUint16(endCodes + segment * 2);
                     const start = view.getUint16(startCodes + segment * 2);
-                    if (codePoint < start || codePoint > end) {continue;}
+                    if (codePoint < start || codePoint > end) {
+                        continue;
+                    }
                     const rangeOffset = view.getUint16(idRangeOffsets + segment * 2);
                     if (rangeOffset === 0) {
                         return ((codePoint + view.getInt16(idDeltas + segment * 2)) & 0xffff) !== 0;
@@ -1134,10 +1109,7 @@ async function loadFonts(fontDirectory) {
     const loaded = {};
     /** @type {TStringMap} */
     const fontHashes = {};
-    for (const [
-        fontId,
-        definition,
-    ] of Object.entries(FONT_DEFINITIONS)) {
+    for (const [fontId, definition] of Object.entries(FONT_DEFINITIONS)) {
         const path = join(fontDirectory, definition.file);
         const buffer = await readFile(path);
         const hash = sha256(buffer);
@@ -1159,10 +1131,14 @@ async function loadFonts(fontDirectory) {
 
 /** @param {string} text @param {(codePoint: number) => boolean} hasGlyph */
 function missingGlyphs(text, hasGlyph) {
-    return [...new Set([...text]
-        .map(character => character.codePointAt(0) ?? 0)
-        .filter(codePoint => codePoint > 0x1f && !hasGlyph(codePoint))
-        .map(codePoint => `U+${codePoint.toString(16).toUpperCase().padStart(4, '0')}`))];
+    return [
+        ...new Set(
+            [...text]
+                .map((character) => character.codePointAt(0) ?? 0)
+                .filter((codePoint) => codePoint > 0x1f && !hasGlyph(codePoint))
+                .map((codePoint) => `U+${codePoint.toString(16).toUpperCase().padStart(4, '0')}`),
+        ),
+    ];
 }
 
 /** @param {any} context @param {string} text @param {number} maxWidth */
@@ -1179,7 +1155,9 @@ function wrapText(context, text, maxWidth) {
             current = candidate;
         }
     }
-    if (current) {lines.push(current);}
+    if (current) {
+        lines.push(current);
+    }
     return lines;
 }
 
@@ -1206,38 +1184,34 @@ function renderTextBlock(context, page, blockDefinition, blockIndex) {
     }
     const fontSize = blockDefinition.fontSize ?? 32;
     const lineHeight = blockDefinition.lineHeight ?? 56;
-    const text = Array.isArray(blockDefinition.text)
-        ? blockDefinition.text.join(' ')
-        : blockDefinition.text;
+    const text = Array.isArray(blockDefinition.text) ? blockDefinition.text.join(' ') : blockDefinition.text;
     context.font = `${fontSize}px "${font.family}"`;
     context.fillStyle = '#101010';
     context.textBaseline = 'top';
     const rtl = isRtlScript(blockDefinition.script);
     context.direction = rtl ? 'rtl' : 'ltr';
     context.textAlign = rtl ? 'right' : 'left';
-    const lines = Array.isArray(blockDefinition.text)
-        ? blockDefinition.text
-        : wrapText(context, text, blockDefinition.width);
-    const anchorX = rtl
-        ? blockDefinition.x + blockDefinition.width
-        : blockDefinition.x;
-    const lineRecords = lines.map(/** @param {string} lineText @param {number} lineIndex */ (lineText, lineIndex) => {
-        const width = context.measureText(lineText).width;
-        const x = rtl ? anchorX - width : anchorX;
-        const y = blockDefinition.y + lineIndex * lineHeight;
-        context.fillText(lineText, anchorX, y);
-        return {
-            id: `${page.id}-${blockDefinition.id}-line-${String(lineIndex + 1).padStart(3, '0')}`,
-            text: lineText,
-            readingOrder: blockIndex + lineIndex,
-            polygon: {
-                x,
-                y,
-                width,
-                height: lineHeight,
-            },
-        };
-    });
+    const lines = Array.isArray(blockDefinition.text) ? blockDefinition.text : wrapText(context, text, blockDefinition.width);
+    const anchorX = rtl ? blockDefinition.x + blockDefinition.width : blockDefinition.x;
+    const lineRecords = lines.map(
+        /** @param {string} lineText @param {number} lineIndex */ (lineText, lineIndex) => {
+            const width = context.measureText(lineText).width;
+            const x = rtl ? anchorX - width : anchorX;
+            const y = blockDefinition.y + lineIndex * lineHeight;
+            context.fillText(lineText, anchorX, y);
+            return {
+                id: `${page.id}-${blockDefinition.id}-line-${String(lineIndex + 1).padStart(3, '0')}`,
+                text: lineText,
+                readingOrder: blockIndex + lineIndex,
+                polygon: {
+                    x,
+                    y,
+                    width,
+                    height: lineHeight,
+                },
+            };
+        },
+    );
     return {
         id: `${page.id}-${blockDefinition.id}`,
         language: blockDefinition.language,
@@ -1261,24 +1235,30 @@ function renderPage(page, loadedFonts) {
     context.fillRect(0, 0, PAGE_WIDTH_PX, PAGE_HEIGHT_PX);
     page.loadedFonts = loadedFonts;
     const renderScale = page.renderBlocks ? PAGE_DPI / DEGRADATION_BASE_DPI : 1;
-    const blockDefinitions = (page.renderBlocks ?? [{
-        id: 'block-001',
-        language: page.language,
-        script: page.script,
-        fontId: page.fontId,
-        role: 'body',
-        x: 126,
-        y: 132,
-        width: PAGE_WIDTH_PX - 252,
-        text: page.text,
-    }]).map(/** @param {any} block */ block => ({
-        ...block,
-        x: block.x * renderScale,
-        y: block.y * renderScale,
-        width: block.width * renderScale,
-        fontSize: block.fontSize === undefined ? undefined : block.fontSize * renderScale,
-        lineHeight: block.lineHeight === undefined ? undefined : block.lineHeight * renderScale,
-    }));
+    const blockDefinitions = (
+        page.renderBlocks ?? [
+            {
+                id: 'block-001',
+                language: page.language,
+                script: page.script,
+                fontId: page.fontId,
+                role: 'body',
+                x: 126,
+                y: 132,
+                width: PAGE_WIDTH_PX - 252,
+                text: page.text,
+            },
+        ]
+    ).map(
+        /** @param {any} block */ (block) => ({
+            ...block,
+            x: block.x * renderScale,
+            y: block.y * renderScale,
+            width: block.width * renderScale,
+            fontSize: block.fontSize === undefined ? undefined : block.fontSize * renderScale,
+            lineHeight: block.lineHeight === undefined ? undefined : block.lineHeight * renderScale,
+        }),
+    );
     if (page.control === 'image-only') {
         const controlScale = renderScale;
         context.fillStyle = '#dedede';
@@ -1289,16 +1269,15 @@ function renderPage(page, loadedFonts) {
         context.lineWidth = 12 * controlScale;
         context.strokeRect(300 * controlScale, 520 * controlScale, 1640 * controlScale, 420 * controlScale);
     }
-    const blocks = blockDefinitions.map(/** @param {any} blockDefinition @param {number} index */ (blockDefinition, index) => (
-        renderTextBlock(context, page, blockDefinition, index)
-    ));
-    const lines = blocks.flatMap(/** @param {any} block */ block => block.lines);
-    const orderedLines = page.readingOrderAmbiguous
-        ? []
-        : lines.map(/** @param {any} line */ line => line.id);
+    const blocks = blockDefinitions.map(
+        /** @param {any} blockDefinition @param {number} index */ (blockDefinition, index) =>
+            renderTextBlock(context, page, blockDefinition, index),
+    );
+    const lines = blocks.flatMap(/** @param {any} block */ (block) => block.lines);
+    const orderedLines = page.readingOrderAmbiguous ? [] : lines.map(/** @param {any} line */ (line) => line.id);
     page.blocks = blocks;
     page.readingOrder = orderedLines;
-    page.text = lines.map(/** @param {any} line */ line => line.text).join('\n');
+    page.text = lines.map(/** @param {any} line */ (line) => line.text).join('\n');
     page.criticalTokens = criticalTokensForText(page.text);
     delete page.loadedFonts;
     const raster = canvas.toBuffer('image/jpeg', 95);
@@ -1308,80 +1287,45 @@ function renderPage(page, loadedFonts) {
 }
 
 const IDENTITY_AFFINE = [
-    [
-        1,
-        0,
-        0,
-    ],
-    [
-        0,
-        1,
-        0,
-    ],
-    [
-        0,
-        0,
-        1,
-    ],
+    [1, 0, 0],
+    [0, 1, 0],
+    [0, 0, 1],
 ];
 
 /** @param {any[][]} left @param {any[][]} right */
 function multiplyAffine(left, right) {
-    return Array.from({length: 3}, (_, row) => Array.from({length: 3}, (_, column) => {
-        const leftRow = left[row] ?? [];
-        const rightColumn = [
-            0,
-            1,
-            2,
-        ].map(index => right[index]?.[column] ?? 0);
-        return (leftRow[0] ?? 0) * rightColumn[0]
-            + (leftRow[1] ?? 0) * rightColumn[1]
-            + (leftRow[2] ?? 0) * rightColumn[2];
-    }));
+    return Array.from({length: 3}, (_, row) =>
+        Array.from({length: 3}, (_, column) => {
+            const leftRow = left[row] ?? [];
+            const rightColumn = [0, 1, 2].map((index) => right[index]?.[column] ?? 0);
+            return (leftRow[0] ?? 0) * rightColumn[0] + (leftRow[1] ?? 0) * rightColumn[1] + (leftRow[2] ?? 0) * rightColumn[2];
+        }),
+    );
 }
 
 /** @param {any[][]} matrix */
 function stableAffine(matrix) {
-    return matrix.map(row => row.map(value => Number(value.toFixed(12))));
+    return matrix.map((row) => row.map((value) => Number(value.toFixed(12))));
 }
 
 /** @param {any[][]} matrix @param {{x: number, y: number, width: number, height: number}} polygon */
 function transformPolygon(matrix, polygon) {
     const corners = [
-        [
-            polygon.x,
-            polygon.y,
-        ],
-        [
-            polygon.x + polygon.width,
-            polygon.y,
-        ],
-        [
-            polygon.x,
-            polygon.y + polygon.height,
-        ],
-        [
-            polygon.x + polygon.width,
-            polygon.y + polygon.height,
-        ],
-    ].map(([
-        x,
-        y,
-    ]) => {
+        [polygon.x, polygon.y],
+        [polygon.x + polygon.width, polygon.y],
+        [polygon.x, polygon.y + polygon.height],
+        [polygon.x + polygon.width, polygon.y + polygon.height],
+    ].map(([x, y]) => {
         const pointX = x ?? 0;
         const pointY = y ?? 0;
-        const denominator = (matrix[2]?.[0] ?? 0) * pointX
-            + (matrix[2]?.[1] ?? 0) * pointY
-            + (matrix[2]?.[2] ?? 1);
+        const denominator = (matrix[2]?.[0] ?? 0) * pointX + (matrix[2]?.[1] ?? 0) * pointY + (matrix[2]?.[2] ?? 1);
         return [
             ((matrix[0]?.[0] ?? 0) * pointX + (matrix[0]?.[1] ?? 0) * pointY + (matrix[0]?.[2] ?? 0)) / denominator,
             ((matrix[1]?.[0] ?? 0) * pointX + (matrix[1]?.[1] ?? 0) * pointY + (matrix[1]?.[2] ?? 0)) / denominator,
         ];
     });
     const xs = corners.map(([x]) => x ?? 0);
-    const ys = corners.map(([
-        , y,
-    ]) => y ?? 0);
+    const ys = corners.map(([, y]) => y ?? 0);
     const x = Math.min(...xs);
     const y = Math.min(...ys);
     return {
@@ -1396,14 +1340,18 @@ function transformPolygon(matrix, polygon) {
 export function transformPageGeometry(page, matrix) {
     return {
         ...page,
-        blocks: page.blocks.map(/** @param {any} block */ block => ({
-            ...block,
-            polygon: transformPolygon(matrix, block.polygon),
-            lines: block.lines.map(/** @param {any} line */ line => ({
-                ...line,
-                polygon: transformPolygon(matrix, line.polygon),
-            })),
-        })),
+        blocks: page.blocks.map(
+            /** @param {any} block */ (block) => ({
+                ...block,
+                polygon: transformPolygon(matrix, block.polygon),
+                lines: block.lines.map(
+                    /** @param {any} line */ (line) => ({
+                        ...line,
+                        polygon: transformPolygon(matrix, line.polygon),
+                    }),
+                ),
+            }),
+        ),
     };
 }
 
@@ -1413,7 +1361,9 @@ function drawImageToCanvas(image, width, height, filter) {
     const context = canvas.getContext('2d');
     context.fillStyle = '#ffffff';
     context.fillRect(0, 0, width, height);
-    if (filter) {context.filter = filter;}
+    if (filter) {
+        context.filter = filter;
+    }
     context.drawImage(image, 0, 0, width, height);
     return canvas;
 }
@@ -1435,9 +1385,8 @@ export function encodeOcrQualityPng(canvas) {
 /** @param {any} canvas @param {number} start @param {number} end @param {'x' | 'y'} axis */
 function applyIllumination(canvas, start, end, axis) {
     const context = canvas.getContext('2d');
-    const gradient = axis === 'x'
-        ? context.createLinearGradient(0, 0, canvas.width, 0)
-        : context.createLinearGradient(0, 0, 0, canvas.height);
+    const gradient =
+        axis === 'x' ? context.createLinearGradient(0, 0, canvas.width, 0) : context.createLinearGradient(0, 0, 0, canvas.height);
     gradient.addColorStop(0, `rgb(${Math.round(start * 255)}, ${Math.round(start * 255)}, ${Math.round(start * 255)})`);
     gradient.addColorStop(1, `rgb(${Math.round(end * 255)}, ${Math.round(end * 255)}, ${Math.round(end * 255)})`);
     context.save();
@@ -1450,9 +1399,8 @@ function applyIllumination(canvas, start, end, axis) {
 /** @param {any} canvas @param {number} inkRetention @param {'x' | 'y'} axis */
 function applyFadedInk(canvas, inkRetention, axis) {
     const context = canvas.getContext('2d');
-    const gradient = axis === 'x'
-        ? context.createLinearGradient(0, 0, canvas.width, 0)
-        : context.createLinearGradient(0, 0, 0, canvas.height);
+    const gradient =
+        axis === 'x' ? context.createLinearGradient(0, 0, canvas.width, 0) : context.createLinearGradient(0, 0, 0, canvas.height);
     const start = Math.round((1 - inkRetention) * 255);
     gradient.addColorStop(0, `rgb(${start}, ${start}, ${start})`);
     gradient.addColorStop(1, 'rgb(255, 255, 255)');
@@ -1464,15 +1412,13 @@ function applyFadedInk(canvas, inkRetention, axis) {
 }
 
 /** @param {{cleanRaster: Buffer, profile: any, sourceDpi?: number}} options */
-export async function realizeOcrQualityProfile({
-    cleanRaster, profile, sourceDpi = PAGE_DPI,
-}) {
+export async function realizeOcrQualityProfile({cleanRaster, profile, sourceDpi = PAGE_DPI}) {
     /** @type {any} */
     let image = await loadImage(cleanRaster);
     let width = image.width;
     let height = image.height;
     let dpi = sourceDpi;
-    let affine = IDENTITY_AFFINE.map(row => [...row]);
+    let affine = IDENTITY_AFFINE.map((row) => [...row]);
     const realizedOperations = [];
     if (dpi !== DEGRADATION_BASE_DPI) {
         const scale = DEGRADATION_BASE_DPI / dpi;
@@ -1480,23 +1426,14 @@ export async function realizeOcrQualityProfile({
         height = Math.max(1, Math.round(height * scale));
         image = drawImageToCanvas(image, width, height).toBuffer('image/png');
         image = await loadImage(image);
-        affine = multiplyAffine([
+        affine = multiplyAffine(
             [
-                scale,
-                0,
-                0,
+                [scale, 0, 0],
+                [0, scale, 0],
+                [0, 0, 1],
             ],
-            [
-                0,
-                scale,
-                0,
-            ],
-            [
-                0,
-                0,
-                1,
-            ],
-        ], affine);
+            affine,
+        );
         realizedOperations.push({
             type: 'baseResample',
             sourceDpi: dpi,
@@ -1514,23 +1451,14 @@ export async function realizeOcrQualityProfile({
             height = Math.max(1, Math.round(height * scale));
             image = drawImageToCanvas(image, width, height).toBuffer('image/png');
             image = await loadImage(image);
-            affine = multiplyAffine([
+            affine = multiplyAffine(
                 [
-                    scale,
-                    0,
-                    0,
+                    [scale, 0, 0],
+                    [0, scale, 0],
+                    [0, 0, 1],
                 ],
-                [
-                    0,
-                    scale,
-                    0,
-                ],
-                [
-                    0,
-                    0,
-                    1,
-                ],
-            ], affine);
+                affine,
+            );
             dpi = operation.targetDpi;
             realizedOperations.push({
                 ...operation,
@@ -1542,12 +1470,7 @@ export async function realizeOcrQualityProfile({
             continue;
         }
         if (operation.type === 'gaussianBlur') {
-            image = await loadImage(drawImageToCanvas(
-                image,
-                width,
-                height,
-                `blur(${operation.sigmaPx}px)`,
-            ).toBuffer('image/png'));
+            image = await loadImage(drawImageToCanvas(image, width, height, `blur(${operation.sigmaPx}px)`).toBuffer('image/png'));
             realizedOperations.push({
                 ...operation,
                 width,
@@ -1556,8 +1479,7 @@ export async function realizeOcrQualityProfile({
             continue;
         }
         if (operation.type === 'jpeg') {
-            image = await loadImage(drawImageToCanvas(image, width, height)
-                .toBuffer('image/jpeg', operation.quality));
+            image = await loadImage(drawImageToCanvas(image, width, height).toBuffer('image/jpeg', operation.quality));
             realizedOperations.push({
                 ...operation,
                 width,
@@ -1566,27 +1488,15 @@ export async function realizeOcrQualityProfile({
             continue;
         }
         if (operation.type === 'skew') {
-            const radians = operation.degrees * Math.PI / 180;
+            const radians = (operation.degrees * Math.PI) / 180;
             const cosine = Math.cos(radians);
             const sine = Math.sin(radians);
             const centerX = width / 2;
             const centerY = height / 2;
             const skewMatrix = [
-                [
-                    cosine,
-                    -sine,
-                    centerX - cosine * centerX + sine * centerY,
-                ],
-                [
-                    sine,
-                    cosine,
-                    centerY - sine * centerX - cosine * centerY,
-                ],
-                [
-                    0,
-                    0,
-                    1,
-                ],
+                [cosine, -sine, centerX - cosine * centerX + sine * centerY],
+                [sine, cosine, centerY - sine * centerX - cosine * centerY],
+                [0, 0, 1],
             ];
             const canvas = createCanvas(width, height);
             const context = canvas.getContext('2d');
@@ -1652,19 +1562,14 @@ export async function realizeOcrQualityProfile({
 /**
  * @param {{repositoryRoot: string, outputDirectory: string}} options
  */
-export async function generateOcrLanguageQualityFixture({
-    repositoryRoot,
-    outputDirectory,
-}) {
+export async function generateOcrLanguageQualityFixture({repositoryRoot, outputDirectory}) {
     const registrySource = await readFile(join(repositoryRoot, 'packages', 'contracts', 'ocrLanguages.ts'), 'utf8');
-    const registryCodes = [...registrySource.matchAll(/\bcode:\s*'([^']+)'/gu)].map(match => match[1]);
+    const registryCodes = [...registrySource.matchAll(/\bcode:\s*'([^']+)'/gu)].map((match) => match[1]);
     if (JSON.stringify(registryCodes) !== JSON.stringify(LANGUAGE_CODES)) {
         throw new Error(`OCR fixture language list is out of sync with packages/contracts/ocrLanguages.ts: ${registryCodes.join(',')}`);
     }
     const fontDirectory = join(repositoryRoot, 'scripts', 'fixtures', FONT_DIRECTORY);
-    const {
-        loaded, fontHashes,
-    } = await loadFonts(fontDirectory);
+    const {loaded, fontHashes} = await loadFonts(fontDirectory);
     const manifest = makeManifest(fontHashes);
     const pageImages = [];
     let pageNumber = 0;
@@ -1735,9 +1640,9 @@ export async function generateOcrLanguageQualityFixture({
             control: mixedDocument.control,
             renderBlocks: mixedDocument.blocks,
         };
-        const missing = [...new Set(mixedDocument.blocks.flatMap(block => (
-            missingGlyphs(block.text, loaded[block.fontId]?.hasGlyph ?? (() => false))
-        )))];
+        const missing = [
+            ...new Set(mixedDocument.blocks.flatMap((block) => missingGlyphs(block.text, loaded[block.fontId]?.hasGlyph ?? (() => false)))),
+        ];
         page.coverage = {
             valid: missing.length === 0,
             missingGlyphs: missing,
@@ -1754,12 +1659,9 @@ export async function generateOcrLanguageQualityFixture({
     pdf.setAuthor('EVB Viewer contributors');
     pdf.setCreationDate(new Date(0));
     pdf.setModificationDate(new Date(0));
-    const cleanPageImages = pageImages.filter(entry => entry.page.kind === 'language');
+    const cleanPageImages = pageImages.filter((entry) => entry.page.kind === 'language');
     for (const entry of cleanPageImages) {
-        const pdfPage = pdf.addPage([
-            PAGE_WIDTH_POINTS,
-            PAGE_HEIGHT_POINTS,
-        ]);
+        const pdfPage = pdf.addPage([PAGE_WIDTH_POINTS, PAGE_HEIGHT_POINTS]);
         const image = await pdf.embedJpg(entry.raster);
         pdfPage.drawImage(image, {
             x: 0,
@@ -1783,7 +1685,7 @@ export async function generateOcrLanguageQualityFixture({
     await writeFile(pdfPath, pdfBytes);
     const committedManifest = {
         ...manifest,
-        pages: pageImages.map(entry => entry.page),
+        pages: pageImages.map((entry) => entry.page),
     };
     const renderedManifest = {
         ...committedManifest,
@@ -1800,15 +1702,9 @@ export async function generateOcrLanguageQualityFixture({
         manifest: renderedManifest,
         pdfPath,
         pageImages,
-        languagePages: pageImages
-            .filter(entry => entry.page.kind === 'language')
-            .map(entry => entry.page),
-        mixedPages: pageImages
-            .filter(entry => entry.page.kind !== 'language')
-            .map(entry => entry.page),
+        languagePages: pageImages.filter((entry) => entry.page.kind === 'language').map((entry) => entry.page),
+        mixedPages: pageImages.filter((entry) => entry.page.kind !== 'language').map((entry) => entry.page),
     };
 }
 
-export {
-    DEGRADATION_PROFILES, LANGUAGE_CODES, PAGE_DPI,
-};
+export {DEGRADATION_PROFILES, LANGUAGE_CODES, PAGE_DPI};

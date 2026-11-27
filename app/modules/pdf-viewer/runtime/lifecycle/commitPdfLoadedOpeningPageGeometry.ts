@@ -1,11 +1,8 @@
-import type { TPageNumber } from '@contracts/pageNumbers';
+import type {TPageNumber} from '@contracts/pageNumbers';
 
-import type {
-    IPdfPageMetric,
-    TPdfSource,
-} from '@app/types/pdfUi';
-import type { IDocumentViewerRuntime } from '@app/modules/document-viewer/public';
-import { pdfSourcesMatch } from '@app/modules/pdf-viewer/runtime/pdfSourcesMatch';
+import type {IPdfPageMetric, TPdfSource} from '@app/types/pdfUi';
+import type {IDocumentViewerRuntime} from '@app/modules/document-viewer/public';
+import {pdfSourcesMatch} from '@app/modules/pdf-viewer/runtime/pdfSourcesMatch';
 
 function diagnosePdfLoadedOpeningPageGeometry(
     chassisAuthority: IDocumentViewerRuntime,

@@ -1,16 +1,10 @@
-import type { MaybeRefOrGetter } from 'vue';
-import { requirePageNumber } from '@contracts/pageNumbers';
-import type { TPageNumber } from '@contracts/pageNumbers';
-import type {
-    TFitMode,
-    TZoomMode,
-} from '@app/types/pdfContracts';
-import type { IPdfPageMetric } from '@app/types/pdfUi';
-import type {
-    TPdfViewMode,
-    TPdfViewRotation,
-} from '@contracts/shared';
-import { BrowserLogger } from '@app/utils/browserLogger';
+import type {MaybeRefOrGetter} from 'vue';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import type {TPageNumber} from '@contracts/pageNumbers';
+import type {TFitMode, TZoomMode} from '@app/types/pdfContracts';
+import type {IPdfPageMetric} from '@app/types/pdfUi';
+import type {TPdfViewMode, TPdfViewRotation} from '@contracts/shared';
+import {BrowserLogger} from '@app/utils/browserLogger';
 import {
     getPageRowBoundsForViewMode,
     normalizePageMetrics,
@@ -19,13 +13,12 @@ import {
     resolvePdfFitWidthRowWidths,
     DOCUMENT_PAGE_GUTTER_PX,
 } from '@app/modules/document-viewer/public';
-import { resolveDocumentBaseMetric } from '@app/modules/pdf-viewer/engine/pdf-page-layout/resolveDocumentBaseMetric';
-import {
-    clampPdfFitScale,
-    resolvePdfZoomScale,
-} from '@app/modules/pdf-viewer/runtime/zoom/resolvePdfZoomScale';
+import {resolveDocumentBaseMetric} from '@app/modules/pdf-viewer/engine/pdf-page-layout/resolveDocumentBaseMetric';
+import {clampPdfFitScale, resolvePdfZoomScale} from '@app/modules/pdf-viewer/runtime/zoom/resolvePdfZoomScale';
 
-interface IFitScalePageOptions {page?: number | null | undefined;}
+interface IFitScalePageOptions {
+    page?: number | null | undefined;
+}
 
 export const usePdfScale = (
     zoom: MaybeRefOrGetter<number>,
@@ -44,12 +37,15 @@ export const usePdfScale = (
     const fitWidthScale = ref(1);
     const lastFitScaleSignature = ref<string | null>(null);
 
-    const effectiveScale = computed(() => resolvePdfZoomScale({
-        zoomMode: toValue(zoomMode),
-        fitMode: toValue(fitMode),
-        manualZoom: toValue(zoom),
-        fitScale: fitWidthScale.value,
-    }).effectiveScale);
+    const effectiveScale = computed(
+        () =>
+            resolvePdfZoomScale({
+                zoomMode: toValue(zoomMode),
+                fitMode: toValue(fitMode),
+                manualZoom: toValue(zoom),
+                fitScale: fitWidthScale.value,
+            }).effectiveScale,
+    );
 
     const containerStyle = computed(() => {
         return {
@@ -99,11 +95,7 @@ export const usePdfScale = (
         return requirePageNumber(Math.max(1, Math.trunc(page)));
     }
 
-    function resolveFitHeightBaseDimension(
-        normalizedPageMetrics: IPdfPageMetric[],
-        documentBaseHeight: number,
-        page: TPageNumber,
-    ) {
+    function resolveFitHeightBaseDimension(normalizedPageMetrics: IPdfPageMetric[], documentBaseHeight: number, page: TPageNumber) {
         // Fit-height is anchored to the visible page row. In facing modes the
         // row is the unit the user is paging through, so the taller page in
         // the active spread must define the scale.
@@ -148,31 +140,23 @@ export const usePdfScale = (
     function doesFitHeightSpreadFitWidth(container: HTMLElement, page: TPageNumber) {
         const metrics = getNormalizedPageMetrics();
         const height = resolveDocumentBaseMetric(metrics, 'height');
-        const width = resolveCurrentSpreadBaseWidth(
-            metrics, toValue(viewMode), toValue(numPages), page,
-        );
-        if (!height || !width) {return false;}
+        const width = resolveCurrentSpreadBaseWidth(metrics, toValue(viewMode), toValue(numPages), page);
+        if (!height || !width) {
+            return false;
+        }
 
         // Decide scrollbar admission from the unobstructed viewport, never
         // from the scale already reduced by that scrollbar. Otherwise hiding
         // the bar enlarges the spread and immediately admits the bar again.
-        const availableHeight = getFitAvailableSize(
-            Math.floor(container.getBoundingClientRect().height), 'height', page,
-        );
-        const scale = clampFitScale(availableHeight
-            / resolveFitHeightBaseDimension(metrics, height, page));
+        const availableHeight = getFitAvailableSize(Math.floor(container.getBoundingClientRect().height), 'height', page);
+        const scale = clampFitScale(availableHeight / resolveFitHeightBaseDimension(metrics, height, page));
         return width * scale <= getFitAvailableSize(container.clientWidth, 'width', page);
     }
 
     let widthRowsCacheKey = '';
     let widthRows = new Map<number, number>();
 
-    function resolveFitWidthDimensions(
-        metrics: IPdfPageMetric[],
-        rawSize: number,
-        page: TPageNumber,
-        currentWidth: number,
-    ) {
+    function resolveFitWidthDimensions(metrics: IPdfPageMetric[], rawSize: number, page: TPageNumber, currentWidth: number) {
         if (!toValue(continuousScroll)) {
             return {
                 availableSize: getFitAvailableSize(rawSize, 'width', page),
@@ -245,12 +229,7 @@ export const usePdfScale = (
         const normalizedPageMetrics = getNormalizedPageMetrics();
         const scalePage = resolveFitScalePage(options);
         const height = resolveDocumentBaseMetric(normalizedPageMetrics, 'height');
-        const width = resolveCurrentSpreadBaseWidth(
-            normalizedPageMetrics,
-            toValue(viewMode),
-            totalPages,
-            scalePage,
-        );
+        const width = resolveCurrentSpreadBaseWidth(normalizedPageMetrics, toValue(viewMode), totalPages, scalePage);
 
         if (!container || !width || !height) {
             logMissingFitDimensions(container, normalizedPageMetrics, width, height);
@@ -269,16 +248,14 @@ export const usePdfScale = (
             return false;
         }
 
-        const dimensions = mode === 'height'
-            ? {
-                availableSize: getFitAvailableSize(rawSize, mode, scalePage),
-                baseDimension: resolveFitHeightBaseDimension(normalizedPageMetrics, height, scalePage),
-            }
-            : resolveFitWidthDimensions(normalizedPageMetrics, rawSize, scalePage, width);
-        const {
-            availableSize,
-            baseDimension,
-        } = dimensions;
+        const dimensions =
+            mode === 'height'
+                ? {
+                      availableSize: getFitAvailableSize(rawSize, mode, scalePage),
+                      baseDimension: resolveFitHeightBaseDimension(normalizedPageMetrics, height, scalePage),
+                  }
+                : resolveFitWidthDimensions(normalizedPageMetrics, rawSize, scalePage, width);
+        const {availableSize, baseDimension} = dimensions;
         if (availableSize <= 0) {
             BrowserLogger.diagnostic('pdf-nav', `[scale] skipped computeFitWidthScale: availableSize<=0 mode=${mode}`, {
                 rawSize,
@@ -322,23 +299,27 @@ export const usePdfScale = (
             return false;
         }
 
-        BrowserLogger.diagnostic('pdf-nav', `[scale] computeFitWidthScale mode=${mode} ${fitWidthScale.value.toFixed(4)}->${newScale.toFixed(4)}`, {
-            rawSize,
-            availableSize,
-            baseDimension,
-            basePageWidth: toValue(basePageWidth),
-            basePageHeight: toValue(basePageHeight),
-            currentSpreadBaseWidth: width,
-            documentBaseHeight: height,
-            zoom: toValue(zoom),
-            viewMode: toValue(viewMode),
-            numPages: totalPages,
-            currentPage: toValue(currentPage),
-            scalePage,
-            fitScaleSignature,
-            previousScale: fitWidthScale.value,
-            nextScale: newScale,
-        });
+        BrowserLogger.diagnostic(
+            'pdf-nav',
+            `[scale] computeFitWidthScale mode=${mode} ${fitWidthScale.value.toFixed(4)}->${newScale.toFixed(4)}`,
+            {
+                rawSize,
+                availableSize,
+                baseDimension,
+                basePageWidth: toValue(basePageWidth),
+                basePageHeight: toValue(basePageHeight),
+                currentSpreadBaseWidth: width,
+                documentBaseHeight: height,
+                zoom: toValue(zoom),
+                viewMode: toValue(viewMode),
+                numPages: totalPages,
+                currentPage: toValue(currentPage),
+                scalePage,
+                fitScaleSignature,
+                previousScale: fitWidthScale.value,
+                nextScale: newScale,
+            },
+        );
         fitWidthScale.value = newScale;
         return true;
     }
@@ -348,12 +329,7 @@ export const usePdfScale = (
         const normalizedPageMetrics = getNormalizedPageMetrics();
         const scalePage = resolveFitScalePage(options);
         const height = resolveDocumentBaseMetric(normalizedPageMetrics, 'height');
-        const width = resolveCurrentSpreadBaseWidth(
-            normalizedPageMetrics,
-            toValue(viewMode),
-            totalPages,
-            scalePage,
-        );
+        const width = resolveCurrentSpreadBaseWidth(normalizedPageMetrics, toValue(viewMode), totalPages, scalePage);
 
         if (!container || !width || !height) {
             return true;
@@ -365,16 +341,14 @@ export const usePdfScale = (
             return true;
         }
 
-        const dimensions = mode === 'height'
-            ? {
-                availableSize: getFitAvailableSize(rawSize, mode, scalePage),
-                baseDimension: resolveFitHeightBaseDimension(normalizedPageMetrics, height, scalePage),
-            }
-            : resolveFitWidthDimensions(normalizedPageMetrics, rawSize, scalePage, width);
-        const {
-            availableSize,
-            baseDimension,
-        } = dimensions;
+        const dimensions =
+            mode === 'height'
+                ? {
+                      availableSize: getFitAvailableSize(rawSize, mode, scalePage),
+                      baseDimension: resolveFitHeightBaseDimension(normalizedPageMetrics, height, scalePage),
+                  }
+                : resolveFitWidthDimensions(normalizedPageMetrics, rawSize, scalePage, width);
+        const {availableSize, baseDimension} = dimensions;
         if (availableSize <= 0) {
             return true;
         }

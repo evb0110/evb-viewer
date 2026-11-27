@@ -2,7 +2,7 @@
     <UModal
         v-model:open="open"
         :title="t('crop.dialogTitle')"
-        :ui="{ content: 'sm:max-w-lg', footer: 'justify-between' }"
+        :ui="{content: 'sm:max-w-lg', footer: 'justify-between'}"
     >
         <template #description>
             <span class="sr-only">
@@ -22,13 +22,19 @@
                 <template v-else>
                     <div class="flex gap-4">
                         <div class="crop-preview-container">
-                            <div class="crop-preview-page" :style="previewPageStyle">
+                            <div
+                                class="crop-preview-page"
+                                :style="previewPageStyle"
+                            >
                                 <div
                                     v-if="previewCurrentStyle"
                                     class="crop-preview-current"
                                     :style="previewCurrentStyle"
                                 />
-                                <div class="crop-preview-area" :style="previewAreaStyle" />
+                                <div
+                                    class="crop-preview-area"
+                                    :style="previewAreaStyle"
+                                />
                             </div>
                         </div>
 
@@ -105,13 +111,7 @@
 </template>
 
 <script setup lang="ts">
-import type {
-    ICropApplyPayload,
-    ICropMargins,
-    ICropRemovePayload,
-    IPageGeometry,
-    TCropUnit,
-} from '@app/types/crop';
+import type {ICropApplyPayload, ICropMargins, ICropRemovePayload, IPageGeometry, TCropUnit} from '@app/types/crop';
 import {
     boxToDisplayNormalizedRect,
     marginsToDisplayNormalizedRect,
@@ -120,18 +120,11 @@ import {
     unitStep,
     unitToPoints,
 } from '@app/utils/pdfCropCoordinates';
-import { parsePageRangeInput } from '@app/modules/document-viewer/public';
-import {
-    createRangePageSelection,
-    materializePageSelection,
-    pageSelectionCount,
-} from '@app/utils/pdfPageSelection';
-import type { TPageSelection } from '@app/utils/pdfPageSelection';
+import {parsePageRangeInput} from '@app/modules/document-viewer/public';
+import {createRangePageSelection, materializePageSelection, pageSelectionCount} from '@app/utils/pdfPageSelection';
+import type {TPageSelection} from '@app/utils/pdfPageSelection';
 import PdfPageScopeRadioGroup from '@app/modules/pdf-viewer/components/PdfPageScopeRadioGroup.vue';
-import {
-    usePdfPageScopeSelection,
-    type TPdfPageScope,
-} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfPageScopeSelection';
+import {usePdfPageScopeSelection, type TPdfPageScope} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfPageScopeSelection';
 
 interface ICropMarginField {
     side: Exclude<keyof ICropMargins, 'physical'>;
@@ -139,7 +132,7 @@ interface ICropMarginField {
     modelValue: number;
 }
 
-const open = defineModel<boolean>('open', { required: true });
+const open = defineModel<boolean>('open', {required: true});
 
 const {
     currentPage,
@@ -164,7 +157,7 @@ const emit = defineEmits<{
     remove: [payload: ICropRemovePayload];
 }>();
 
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 
 const marginFieldUi = {
     root: 'flex items-center justify-start gap-2',
@@ -196,7 +189,7 @@ const displayBottom = computed(() => formatDisplay(margins.bottom));
 const displayLeft = computed(() => formatDisplay(margins.left));
 const displayRight = computed(() => formatDisplay(margins.right));
 
-const displayNumberFormatOptions = computed(() => ({ maximumFractionDigits: unit.value === 'in' ? 2 : 1 }));
+const displayNumberFormatOptions = computed(() => ({maximumFractionDigits: unit.value === 'in' ? 2 : 1}));
 
 const marginFields = computed<ICropMarginField[]>(() => [
     {
@@ -238,25 +231,15 @@ const unitOptions = computed(() => [
 
 function resolveRangePages() {
     const range = parsePageRangeInput(rangeInput.value, totalPages);
-    return range
-        ? materializePageSelection(createRangePageSelection(totalPages, range.startPage, range.endPage))
-        : null;
+    return range ? materializePageSelection(createRangePageSelection(totalPages, range.startPage, range.endPage)) : null;
 }
 
 function resolveRangeSelection() {
     const range = parsePageRangeInput(rangeInput.value, totalPages);
-    return range
-        ? createRangePageSelection(totalPages, range.startPage, range.endPage)
-        : null;
+    return range ? createRangePageSelection(totalPages, range.startPage, range.endPage) : null;
 }
 
-const {
-    scope,
-    rangeInput,
-    normalizedSelectedPageSelection,
-    resetScopeForOpen,
-    resolveScopedPageSelection,
-} = usePdfPageScopeSelection({
+const {scope, rangeInput, normalizedSelectedPageSelection, resetScopeForOpen, resolveScopedPageSelection} = usePdfPageScopeSelection({
     totalPages: () => totalPages,
     currentPage: () => currentPage,
     selectedPages: () => selectedPages,
@@ -272,11 +255,11 @@ const scopeOptions = computed(() => {
     }> = [
         {
             value: 'all',
-            label: t('crop.scopeAll', { count: totalPages }),
+            label: t('crop.scopeAll', {count: totalPages}),
         },
         {
             value: 'current',
-            label: t('crop.scopeCurrent', { page: currentPage }),
+            label: t('crop.scopeCurrent', {page: currentPage}),
         },
         {
             value: 'even',
@@ -292,7 +275,7 @@ const scopeOptions = computed(() => {
     if (selectedCount > 0) {
         options.push({
             value: 'selected',
-            label: t('crop.scopeSelected', { count: selectedCount }),
+            label: t('crop.scopeSelected', {count: selectedCount}),
         });
     }
 
@@ -320,11 +303,7 @@ function updateMargin(side: ICropMarginField['side'], displayValue: number | nul
 }
 
 const previewAreaStyle = computed(() => {
-    const rect = marginsToDisplayNormalizedRect(
-        margins,
-        geometry.mediaBox,
-        geometry.rotation,
-    );
+    const rect = marginsToDisplayNormalizedRect(margins, geometry.mediaBox, geometry.rotation);
     return {
         left: `${rect.x * 100}%`,
         top: `${rect.y * 100}%`,
@@ -338,11 +317,7 @@ const previewCurrentStyle = computed(() => {
         return null;
     }
 
-    const rect = boxToDisplayNormalizedRect(
-        geometry.cropBox,
-        geometry.mediaBox,
-        geometry.rotation,
-    );
+    const rect = boxToDisplayNormalizedRect(geometry.cropBox, geometry.mediaBox, geometry.rotation);
     return {
         left: `${rect.x * 100}%`,
         top: `${rect.y * 100}%`,
@@ -356,7 +331,7 @@ const previewPageStyle = computed(() => {
     const isQuarterTurn = normalizedRotation === 90 || normalizedRotation === 270;
     const width = Math.max(isQuarterTurn ? geometry.mediaBox.height : geometry.mediaBox.width, 1);
     const height = Math.max(isQuarterTurn ? geometry.mediaBox.width : geometry.mediaBox.height, 1);
-    return { aspectRatio: `${width} / ${height}` };
+    return {aspectRatio: `${width} / ${height}`};
 });
 
 const isValid = computed(() => {
@@ -366,18 +341,18 @@ const isValid = computed(() => {
 });
 
 const cropSelection = computed<TPageSelection>(() => {
-    return resolveScopedPageSelection() ?? {
-        kind: 'none',
-        pageCount: totalPages,
-    };
+    return (
+        resolveScopedPageSelection() ?? {
+            kind: 'none',
+            pageCount: totalPages,
+        }
+    );
 });
 
 /** Keep the legacy payload small. Native-aware callers use pageSelection. */
 const cropPages = computed((): number[] => {
     const selection = cropSelection.value;
-    return pageSelectionCount(selection) <= 100_000
-        ? materializePageSelection(selection)
-        : [];
+    return pageSelectionCount(selection) <= 100_000 ? materializePageSelection(selection) : [];
 });
 
 function syncMarginsFromProps() {
@@ -421,22 +396,8 @@ function handleRemoveCrop() {
 }
 
 watch(
-    () => [
-        open.value,
-        loading,
-        initialMargins.top,
-        initialMargins.bottom,
-        initialMargins.left,
-        initialMargins.right,
-    ] as const,
-    ([
-        isOpen,
-        isLoading,
-        top,
-        bottom,
-        left,
-        right,
-    ], previous) => {
+    () => [open.value, loading, initialMargins.top, initialMargins.bottom, initialMargins.left, initialMargins.right] as const,
+    ([isOpen, isLoading, top, bottom, left, right], previous) => {
         if (!previous || isOpen !== previous[0]) {
             if (!isOpen) {
                 marginsDirty.value = false;
@@ -450,17 +411,13 @@ watch(
             return;
         }
         const loadingCompleted = previous[1];
-        const marginsChanged = top !== previous[2]
-            || bottom !== previous[3]
-            || left !== previous[4]
-            || right !== previous[5];
+        const marginsChanged = top !== previous[2] || bottom !== previous[3] || left !== previous[4] || right !== previous[5];
         if (loadingCompleted || (marginsChanged && !marginsDirty.value)) {
             syncMarginsFromProps();
         }
     },
-    { immediate: true },
+    {immediate: true},
 );
-
 </script>
 
 <style scoped>

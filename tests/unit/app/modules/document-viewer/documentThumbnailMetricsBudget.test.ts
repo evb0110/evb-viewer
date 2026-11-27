@@ -2,14 +2,7 @@
 
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {
     countDocumentThumbnailCalls,
     createDocumentThumbnailSourceHarness,
@@ -29,12 +22,9 @@ vi.mock('@app/composables/useTypedI18n', async (importOriginal_1) => ({
 
 /** Walks far enough away that any page-metrics budget smaller than the trip is exceeded. */
 async function scrollAwayAndBack(host: HTMLElement, target: number) {
-    for (const offset of [
-        20_000,
-        40_000,
-        60_000,
-        80_000,
-    ]) {await scrollDocumentThumbnailRail(host, offset);}
+    for (const offset of [20_000, 40_000, 60_000, 80_000]) {
+        await scrollDocumentThumbnailRail(host, offset);
+    }
     await scrollDocumentThumbnailRail(host, target);
 }
 
@@ -60,7 +50,7 @@ describe('document thumbnail retained surfaces', () => {
         expect(harness.renderCalls.length).toBeGreaterThan(callsBeforeDeactivation);
     });
 
-    it('keeps completed pixels on a return journey, measuring only the document\'s slot shape', async () => {
+    it("keeps completed pixels on a return journey, measuring only the document's slot shape", async () => {
         const harness = createDocumentThumbnailSourceHarness(5000, '/budget.pdf');
         const {host} = mountDocumentThumbnailList(harness.source);
         await settleDocumentThumbnailList();
@@ -69,27 +59,17 @@ describe('document thumbnail retained surfaces', () => {
         expect(countDocumentThumbnailCalls(harness.renderCalls, target)).toBe(1);
         // The first two, middle and last two pages give the slot shape, once;
         // the journey itself asks for no page's geometry.
-        expect([...harness.metricsCalls].sort((left, right) => left - right)).toEqual([
-            1,
-            2,
-            2500,
-            4999,
-            5000,
-        ]);
+        expect([...harness.metricsCalls].sort((left, right) => left - right)).toEqual([1, 2, 2500, 4999, 5000]);
     });
 
-    it('shapes the slots like the source\'s pages and again when a reload turns them', async () => {
-        const frameAspect = (host: HTMLElement) => host
-            .querySelector<HTMLElement>('[data-thumbnail-page="1"] [data-document-thumbnail-frame]')
-            ?.style.aspectRatio ?? '';
+    it("shapes the slots like the source's pages and again when a reload turns them", async () => {
+        const frameAspect = (host: HTMLElement) =>
+            host.querySelector<HTMLElement>('[data-thumbnail-page="1"] [data-document-thumbnail-frame]')?.style.aspectRatio ?? '';
         const spreads = createDocumentThumbnailSourceHarness(12, '/book.pdf', {
             widthPoints: 793,
             heightPoints: 566,
         });
-        const {
-            host,
-            setSource,
-        } = mountDocumentThumbnailList(spreads.source, true, () => 'revision');
+        const {host, setSource} = mountDocumentThumbnailList(spreads.source, true, () => 'revision');
         await settleDocumentThumbnailList();
         expect(parseFloat(frameAspect(host))).toBeCloseTo(793 / 566, 3);
 
@@ -108,11 +88,7 @@ describe('document thumbnail retained surfaces', () => {
             widthPoints: 793,
             heightPoints: 566,
         });
-        const {
-            host,
-            setCurrentPage,
-            setSource,
-        } = mountDocumentThumbnailList(spreads.source);
+        const {host, setCurrentPage, setSource} = mountDocumentThumbnailList(spreads.source);
         await settleDocumentThumbnailList();
 
         // A portrait book opened at page 4 whose page sizes arrive late: it is
@@ -138,10 +114,12 @@ describe('document thumbnail retained surfaces', () => {
         const row = documentThumbnailRow(host, 4)!;
         const top = Number(/translateY\((-?[\d.]+)px\)/.exec(row.style.transform)?.[1]);
         const bottom = top + parseFloat(row.style.height);
-        expect(parseFloat(host.querySelector<HTMLElement>('[data-thumbnail-page="4"] [data-document-thumbnail-frame]')!
-            .style.aspectRatio)).toBeCloseTo(500 / 700, 3);
-        expect(top, `page 4 spans ${String(top)}..${String(bottom)}, the rail shows ${String(rail.scrollTop)}+600`)
-            .toBeGreaterThanOrEqual(rail.scrollTop);
+        expect(
+            parseFloat(host.querySelector<HTMLElement>('[data-thumbnail-page="4"] [data-document-thumbnail-frame]')!.style.aspectRatio),
+        ).toBeCloseTo(500 / 700, 3);
+        expect(top, `page 4 spans ${String(top)}..${String(bottom)}, the rail shows ${String(rail.scrollTop)}+600`).toBeGreaterThanOrEqual(
+            rail.scrollTop,
+        );
         expect(bottom).toBeLessThanOrEqual(rail.scrollTop + 600);
     });
 
@@ -150,36 +128,36 @@ describe('document thumbnail retained surfaces', () => {
             widthPoints: 1000,
             heightPoints: 500,
         });
-        const {
-            host,
-            setCurrentPage,
-            setSource,
-        } = mountDocumentThumbnailList(wide.source, true, () => 'revision');
+        const {host, setCurrentPage, setSource} = mountDocumentThumbnailList(wide.source, true, () => 'revision');
         await settleDocumentThumbnailList();
         setCurrentPage(3);
         await settleDocumentThumbnailList();
         await vi.advanceTimersByTimeAsync(1_000);
 
-        setSource(createDocumentThumbnailSourceHarness(8, '/turned.pdf', {
-            widthPoints: 500,
-            heightPoints: 700,
-        }).source);
+        setSource(
+            createDocumentThumbnailSourceHarness(8, '/turned.pdf', {
+                widthPoints: 500,
+                heightPoints: 700,
+            }).source,
+        );
         await settleDocumentThumbnailList();
 
         const rail = host.querySelector<HTMLElement>('[data-document-thumbnail-rail]')!;
         const row = documentThumbnailRow(host, 3)!;
         const top = Number(/translateY\((-?[\d.]+)px\)/.exec(row.style.transform)?.[1]);
         const bottom = top + parseFloat(row.style.height);
-        expect(top, `page 3 spans ${String(top)}..${String(bottom)}, the rail shows ${String(rail.scrollTop)}+600`)
-            .toBeGreaterThanOrEqual(rail.scrollTop);
+        expect(top, `page 3 spans ${String(top)}..${String(bottom)}, the rail shows ${String(rail.scrollTop)}+600`).toBeGreaterThanOrEqual(
+            rail.scrollTop,
+        );
         expect(bottom).toBeLessThanOrEqual(rail.scrollTop + 600);
     });
 
-    it('keeps the rail where the user left it when a reload keeps the pages\' shape', async () => {
-        const {
-            host,
-            setSource,
-        } = mountDocumentThumbnailList(createDocumentThumbnailSourceHarness(40, '/same.pdf').source, true, () => 'revision');
+    it("keeps the rail where the user left it when a reload keeps the pages' shape", async () => {
+        const {host, setSource} = mountDocumentThumbnailList(
+            createDocumentThumbnailSourceHarness(40, '/same.pdf').source,
+            true,
+            () => 'revision',
+        );
         await settleDocumentThumbnailList();
         await scrollDocumentThumbnailRail(host, 4_000);
         await vi.advanceTimersByTimeAsync(1_000);

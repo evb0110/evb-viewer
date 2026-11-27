@@ -1,50 +1,41 @@
-import type {
-    ComputedRef,
-    Ref,
-} from 'vue';
-import type { IAnnotationNoteWindowViewModel } from '@app/types/annotationNoteWindow';
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { TOpenFileResult } from '@contracts/electronApiDocuments';
-import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
-import type { TPdfSource } from '@app/types/pdfUi';
-import type { IRecentFile } from '@contracts/shared';
-import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
-import { until } from '@vueuse/core';
-import type {
-    IDocumentOperationOwnership, TRunWithDocumentOperationLease,
-} from '@app/types/documentOperationKind';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { useFailureToast } from '@app/composables/useFailureToast';
-import { dirtyTabCloseConfirmationKey } from '@app/modules/workspace-shell/composables/useDirtyTabCloseDialog';
-import type { TDirtyTabCloseConfirmation } from '@app/modules/workspace-shell/composables/useDirtyTabCloseDialog';
-import { getErrorMessage } from '@app/utils/error';
-import { getDocumentPickerCapability } from '@app/utils/platformDocuments';
-import { didOpenDocument } from '@app/types/documentOpenOutcome';
-import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
-import type { IWorkspaceOpenRequest } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import type { IPdfPageShapeRead } from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
-import {
-    describeDocumentTarget,
-    describeOpenResult,
-} from '@app/modules/workspace-shell/document-sessions/describeDocumentTarget';
-import { describeRefusedDocumentOpen } from '@app/modules/workspace-shell/composables/document-session/classifyDocumentOpenError';
+import type {ComputedRef, Ref} from 'vue';
+import type {IAnnotationNoteWindowViewModel} from '@app/types/annotationNoteWindow';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {TOpenFileResult} from '@contracts/electronApiDocuments';
+import type {IWorkspaceExpose} from '@app/types/workspaceExpose';
+import type {TPdfSource} from '@app/types/pdfUi';
+import type {IRecentFile} from '@contracts/shared';
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import {until} from '@vueuse/core';
+import type {IDocumentOperationOwnership, TRunWithDocumentOperationLease} from '@app/types/documentOperationKind';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {useFailureToast} from '@app/composables/useFailureToast';
+import {dirtyTabCloseConfirmationKey} from '@app/modules/workspace-shell/composables/useDirtyTabCloseDialog';
+import type {TDirtyTabCloseConfirmation} from '@app/modules/workspace-shell/composables/useDirtyTabCloseDialog';
+import {getErrorMessage} from '@app/utils/error';
+import {getDocumentPickerCapability} from '@app/utils/platformDocuments';
+import {didOpenDocument} from '@app/types/documentOpenOutcome';
+import type {TDocumentOpenOutcome} from '@app/types/documentOpenOutcome';
+import type {IWorkspaceOpenRequest} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import type {IPdfPageShapeRead} from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
+import {describeDocumentTarget, describeOpenResult} from '@app/modules/workspace-shell/document-sessions/describeDocumentTarget';
+import {describeRefusedDocumentOpen} from '@app/modules/workspace-shell/composables/document-session/classifyDocumentOpenError';
 
 const RECENT_OPEN_LOG_SECTION = 'recent-open';
 
 type TPageFileOpenOutcome =
     | TDocumentOpenOutcome
     | {
-        status: 'blocked';
-        reason: 'persistence-gate';
-    }
+          status: 'blocked';
+          reason: 'persistence-gate';
+      }
     | {
-        status: 'opened-in-new-tab';
-        result: TOpenFileResult;
-    };
+          status: 'opened-in-new-tab';
+          result: TOpenFileResult;
+      };
 
 function didCompletePageFileOpen(outcome: TPageFileOpenOutcome) {
-    return outcome.status === 'opened'
-        || outcome.status === 'opened-in-new-tab';
+    return outcome.status === 'opened' || outcome.status === 'opened-in-new-tab';
 }
 
 export interface IPageFileOperationsDeps {
@@ -111,12 +102,10 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         runWithDocumentOperationLease,
     } = deps;
     const toast = useToast();
-    const { t } = useTypedI18n();
-    const { presentFailureToast } = useFailureToast();
-    const requestDirtyTabCloseConfirmation = requestDirtyTabCloseConfirmationFromDeps
-        ?? (getCurrentInstance()
-            ? inject(dirtyTabCloseConfirmationKey, null)
-            : null);
+    const {t} = useTypedI18n();
+    const {presentFailureToast} = useFailureToast();
+    const requestDirtyTabCloseConfirmation =
+        requestDirtyTabCloseConfirmationFromDeps ?? (getCurrentInstance() ? inject(dirtyTabCloseConfirmationKey, null) : null);
     const lastOpenOutcome = ref<TPageFileOpenOutcome | null>(null);
     const pendingDirectOpenRequests = new Map<TDocumentRef, Promise<TPageFileOpenOutcome>>();
 
@@ -127,28 +116,23 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
 
     // The transaction starts in the command's own call so page commands that
     // follow it queue behind the open instead of reaching an empty viewer.
-    async function trackOpen(
-        request: IWorkspaceOpenRequest,
-        open: () => Promise<TPageFileOpenOutcome>,
-    ): Promise<TPageFileOpenOutcome> {
+    async function trackOpen(request: IWorkspaceOpenRequest, open: () => Promise<TPageFileOpenOutcome>): Promise<TPageFileOpenOutcome> {
         const result: {outcome: TPageFileOpenOutcome} = {outcome: {status: 'cancelled'}};
         const presented = await runDocumentOpen(request, async () => {
             result.outcome = await open();
             return result.outcome.status === 'opened' ? result.outcome : {status: 'cancelled'};
         });
-        return presented || result.outcome.status !== 'opened'
-            ? result.outcome
-            : recordOpenOutcome({status: 'cancelled'});
+        return presented || result.outcome.status !== 'opened' ? result.outcome : recordOpenOutcome({status: 'cancelled'});
     }
 
     // Tells the user why a switch waits; the lease turn it waits for removes it.
     function notifySwitchWaits() {
         const busyToast = hasBusyOperation()
             ? toast.add({
-                color: 'info',
-                title: t('notifications.documentBusyTitle'),
-                description: t('notifications.switchingAfterPageProcessing'),
-            })
+                  color: 'info',
+                  title: t('notifications.documentBusyTitle'),
+                  description: t('notifications.switchingAfterPageProcessing'),
+              })
             : null;
         return () => busyToast && toast.remove(busyToast.id);
     }
@@ -196,12 +180,14 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
             return;
         }
 
-        const failure = receipt ?? BrowserLogger.error(
-            RECENT_OPEN_LOG_SECTION,
-            'Persistence gate could not complete the save',
-            {},
-            {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'},
-        );
+        const failure =
+            receipt ??
+            BrowserLogger.error(
+                RECENT_OPEN_LOG_SECTION,
+                'Persistence gate could not complete the save',
+                {},
+                {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'},
+            );
         presentFailureToast({
             failure,
             title: t('errors.file.save'),
@@ -238,7 +224,12 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
             }
             return canProceed;
         } catch (saveError) {
-            const failure = BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'Switch blocked: save before switch threw', {error: getErrorMessage(saveError)}, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'});
+            const failure = BrowserLogger.error(
+                RECENT_OPEN_LOG_SECTION,
+                'Switch blocked: save before switch threw',
+                {error: getErrorMessage(saveError)},
+                {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'},
+            );
             notifySaveFailure(failure);
             return false;
         }
@@ -292,11 +283,16 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
                 clearSwitchWait();
                 const decision = await resolveDirtySwitchDecision();
                 return decision === 'save'
-                    ? await persistOpenAnnotationNotes() && await savePendingChangesBeforeSwitch(ownership)
+                    ? (await persistOpenAnnotationNotes()) && (await savePendingChangesBeforeSwitch(ownership))
                     : decision !== 'cancel';
             });
         } catch (persistError) {
-            const failure = BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'Switch blocked: persistence gate threw unexpectedly', {error: getErrorMessage(persistError)}, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'});
+            const failure = BrowserLogger.error(
+                RECENT_OPEN_LOG_SECTION,
+                'Switch blocked: persistence gate threw unexpectedly',
+                {error: getErrorMessage(persistError)},
+                {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'},
+            );
             notifySaveFailure(failure);
             return false;
         } finally {
@@ -306,7 +302,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
 
     async function runPickerWithPersistenceDetailed(
         pick: () => Promise<TOpenFileResult | null>,
-        options: { openGeneratedInNewTab: boolean },
+        options: {openGeneratedInNewTab: boolean},
     ) {
         const canProceed = await ensureCurrentDocumentPersistedBeforeSwitch();
         if (!canProceed) {
@@ -334,15 +330,10 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
             });
         }
         if (!result) {
-            return recordOpenOutcome({ status: 'cancelled' });
+            return recordOpenOutcome({status: 'cancelled'});
         }
 
-        if (
-            options.openGeneratedInNewTab
-            && result.kind === 'pdf'
-            && result.isGenerated
-            && hasDocument.value
-        ) {
+        if (options.openGeneratedInNewTab && result.kind === 'pdf' && result.isGenerated && hasDocument.value) {
             emitOpenInNewTab(result);
             closeAllDropdowns();
             return recordOpenOutcome({
@@ -354,15 +345,12 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         return trackOpen(describeOpenResult(result), () => runOpenOutcomeDetailed(() => openFile(result)));
     }
 
-    async function runPickerWithPersistence(
-        pick: () => Promise<TOpenFileResult | null>,
-        options: { openGeneratedInNewTab: boolean },
-    ) {
+    async function runPickerWithPersistence(pick: () => Promise<TOpenFileResult | null>, options: {openGeneratedInNewTab: boolean}) {
         return didCompletePageFileOpen(await runPickerWithPersistenceDetailed(pick, options));
     }
 
     async function handleOpenFileFromUiDetailed() {
-        return runPickerWithPersistenceDetailed(pickFileToOpen, { openGeneratedInNewTab: true });
+        return runPickerWithPersistenceDetailed(pickFileToOpen, {openGeneratedInNewTab: true});
     }
 
     async function handleOpenFileFromUi() {
@@ -374,11 +362,11 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
     }
 
     async function handleCombineImages() {
-        return runPickerWithPersistence(pickCombineFiles, { openGeneratedInNewTab: true });
+        return runPickerWithPersistence(pickCombineFiles, {openGeneratedInNewTab: true});
     }
 
     async function handleCombineImagesDetailed() {
-        return runPickerWithPersistenceDetailed(pickCombineFiles, { openGeneratedInNewTab: true });
+        return runPickerWithPersistenceDetailed(pickCombineFiles, {openGeneratedInNewTab: true});
     }
 
     async function runOpenFileDirectWithPersistDetailed(path: TDocumentRef) {
@@ -390,7 +378,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
 
         const canProceed = await ensureCurrentDocumentPersistedBeforeSwitch();
         if (!canProceed) {
-            BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Open path aborted by persistence gate', { path });
+            BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Open path aborted by persistence gate', {path});
             return recordOpenOutcome({
                 status: 'blocked',
                 reason: 'persistence-gate',
@@ -426,11 +414,14 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
             return pending;
         }
 
-        const request = trackOpen({
-            kind: 'open',
-            target: describeDocumentTarget(path),
-            ...(pageShape === undefined ? {} : {pageShape}),
-        }, () => runOpenFileDirectWithPersistDetailed(path));
+        const request = trackOpen(
+            {
+                kind: 'open',
+                target: describeDocumentTarget(path),
+                ...(pageShape === undefined ? {} : {pageShape}),
+            },
+            () => runOpenFileDirectWithPersistDetailed(path),
+        );
         pendingDirectOpenRequests.set(path, request);
         void request.then(
             () => {
@@ -449,11 +440,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
 
     async function runOpenOutcomeDetailed(open: () => Promise<TDocumentOpenOutcome>) {
         const outcome = await open();
-        if (
-            outcome.status === 'opened'
-            && outcome.result.kind === 'pdf'
-            && outcome.result.recoveryDirtyBaseline === true
-        ) {
+        if (outcome.status === 'opened' && outcome.result.kind === 'pdf' && outcome.result.recoveryDirtyBaseline === true) {
             if (recoveryDirtyBaseline) {
                 recoveryDirtyBaseline.value = true;
             }
@@ -484,19 +471,22 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
     }
 
     function handleOpenFileDirectBatchWithPersistDetailed(paths: TDocumentRef[]) {
-        return trackOpen({
-            kind: 'open',
-            target: null,
-        }, async () => {
-            const canProceed = await ensureCurrentDocumentPersistedBeforeSwitch();
-            if (!canProceed) {
-                return recordOpenOutcome({
-                    status: 'blocked',
-                    reason: 'persistence-gate',
-                });
-            }
-            return runOpenOutcomeDetailed(() => openFileDirectBatch(paths));
-        });
+        return trackOpen(
+            {
+                kind: 'open',
+                target: null,
+            },
+            async () => {
+                const canProceed = await ensureCurrentDocumentPersistedBeforeSwitch();
+                if (!canProceed) {
+                    return recordOpenOutcome({
+                        status: 'blocked',
+                        reason: 'persistence-gate',
+                    });
+                }
+                return runOpenOutcomeDetailed(() => openFileDirectBatch(paths));
+            },
+        );
     }
 
     async function handleOpenFileDirectBatchWithPersist(paths: TDocumentRef[]) {
@@ -504,19 +494,23 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
     }
 
     // Closes in the caller's lease turn, or in a turn of its own.
-    async function handleCloseFileFromUi(options: NonNullable<Parameters<IWorkspaceExpose['handleCloseFileFromUi']>[0]> = {}): Promise<boolean> {
+    async function handleCloseFileFromUi(
+        options: NonNullable<Parameters<IWorkspaceExpose['handleCloseFileFromUi']>[0]> = {},
+    ): Promise<boolean> {
         const {ownership} = options;
         if (!ownership) {
-            return runWithDocumentOperationLease('close', held => handleCloseFileFromUi({
-                ...options,
-                ownership: held,
-            }));
+            return runWithDocumentOperationLease('close', (held) =>
+                handleCloseFileFromUi({
+                    ...options,
+                    ownership: held,
+                }),
+            );
         }
         // A note window's save writes outside the lease.
         await until(isAnyAnnotationNoteSaving).toBe(false);
         if (options.persist) {
             try {
-                if (!await persistOpenAnnotationNotes() || !await savePendingChangesBeforeSwitch(ownership)) {
+                if (!(await persistOpenAnnotationNotes()) || !(await savePendingChangesBeforeSwitch(ownership))) {
                     return false;
                 }
             } catch (persistError) {

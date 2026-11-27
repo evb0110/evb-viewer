@@ -12,7 +12,7 @@
             size="xs"
             square
             icon="i-ph-info"
-            :ui="{ leadingIcon: 'size-3.5' }"
+            :ui="{leadingIcon: 'size-3.5'}"
             :aria-label="triggerLabel"
             @click.stop.prevent
         />
@@ -43,10 +43,7 @@ interface IProps {
     options: IOcrSettingHelpOption[];
 }
 
-const {
-    triggerLabel,
-    options,
-} = defineProps<IProps>();
+const {triggerLabel, options} = defineProps<IProps>();
 </script>
 
 <style scoped>

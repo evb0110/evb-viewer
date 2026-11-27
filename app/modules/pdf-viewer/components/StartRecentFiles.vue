@@ -1,7 +1,13 @@
 <template>
-    <section class="start-recent" :aria-labelledby="recentFilesHeadingId">
+    <section
+        class="start-recent"
+        :aria-labelledby="recentFilesHeadingId"
+    >
         <header class="recent-header">
-            <h3 :id="recentFilesHeadingId" class="recent-title">
+            <h3
+                :id="recentFilesHeadingId"
+                class="recent-title"
+            >
                 {{ t('emptyState.recentFiles') }}
             </h3>
             <div class="recent-controls">
@@ -24,7 +30,7 @@
                     :disabled="recentFiles.length === 0"
                     :aria-label="t('emptyState.clearRecentFiles')"
                     :label="t('emptyState.clearHistory')"
-                    :ui="{ label: 'recent-clear-label' }"
+                    :ui="{label: 'recent-clear-label'}"
                     @click="requestClearRecent"
                 />
             </div>
@@ -33,12 +39,19 @@
         <div
             v-if="shouldShowRecentTable"
             class="recent-table app-scrollbar app-scroll-region--balanced"
-            :class="{ 'recent-table--compact': !shouldShowRecentLocationColumn }"
+            :class="{'recent-table--compact': !shouldShowRecentLocationColumn}"
             role="table"
             :aria-busy="!recentFilesResolved"
         >
-            <div class="recent-row recent-row--head" role="row">
-                <span role="columnheader" class="recent-col recent-col--name">{{ t('emptyState.columnName') }}</span>
+            <div
+                class="recent-row recent-row--head"
+                role="row"
+            >
+                <span
+                    role="columnheader"
+                    class="recent-col recent-col--name"
+                    >{{ t('emptyState.columnName') }}</span
+                >
                 <span
                     v-if="shouldShowRecentLocationColumn"
                     role="columnheader"
@@ -46,8 +59,15 @@
                 >
                     {{ t('emptyState.columnLocation') }}
                 </span>
-                <span role="columnheader" class="recent-col recent-col--time">{{ t('emptyState.columnOpened') }}</span>
-                <span class="recent-col recent-col--actions" aria-hidden="true" />
+                <span
+                    role="columnheader"
+                    class="recent-col recent-col--time"
+                    >{{ t('emptyState.columnOpened') }}</span
+                >
+                <span
+                    class="recent-col recent-col--actions"
+                    aria-hidden="true"
+                />
             </div>
             <template v-if="!recentFilesResolved">
                 <div
@@ -56,8 +76,14 @@
                     class="recent-row recent-row--data recent-row--skeleton"
                     role="row"
                 >
-                    <span class="recent-col recent-col--name" role="cell">
-                        <span class="recent-skeleton-icon" aria-hidden="true" />
+                    <span
+                        class="recent-col recent-col--name"
+                        role="cell"
+                    >
+                        <span
+                            class="recent-skeleton-icon"
+                            aria-hidden="true"
+                        />
                         <span
                             class="recent-skeleton-line recent-skeleton-line--name"
                             aria-hidden="true"
@@ -73,13 +99,19 @@
                             aria-hidden="true"
                         />
                     </span>
-                    <span class="recent-col recent-col--time" role="cell">
+                    <span
+                        class="recent-col recent-col--time"
+                        role="cell"
+                    >
                         <span
                             class="recent-skeleton-line recent-skeleton-line--time"
                             aria-hidden="true"
                         />
                     </span>
-                    <span class="recent-col recent-col--actions" role="cell" />
+                    <span
+                        class="recent-col recent-col--actions"
+                        role="cell"
+                    />
                 </div>
             </template>
             <div
@@ -88,14 +120,17 @@
                 :key="row.key"
                 class="recent-row recent-row--data"
                 role="row"
-                :class="{ 'is-disabled': row.disabled }"
+                :class="{'is-disabled': row.disabled}"
                 :data-recent-open-actionable="row.readyAttr"
                 :data-recent-open-ready="row.readyAttr"
                 :data-recent-source="row.source"
                 @pointerdown="pressRecent(row.file, $event)"
                 @click="openRecentFromRow(row.file, $event)"
             >
-                <span class="recent-col recent-col--name" role="cell">
+                <span
+                    class="recent-col recent-col--name"
+                    role="cell"
+                >
                     <button
                         type="button"
                         class="recent-open"
@@ -103,7 +138,10 @@
                         :disabled="row.disabled"
                         @click.stop="openRecent(row.file, $event)"
                     >
-                        <span class="recent-file-icon" aria-hidden="true">
+                        <span
+                            class="recent-file-icon"
+                            aria-hidden="true"
+                        >
                             <FileTypeIcon :kind="row.fileKind" />
                         </span>
                         <span class="recent-file-name">
@@ -125,18 +163,35 @@
                         :title="t('status.showInFolder')"
                         @click.stop="revealRecent(row.file)"
                     >
-                        <UIcon name="i-ph-folder" class="recent-location-icon" aria-hidden="true" />
+                        <UIcon
+                            name="i-ph-folder"
+                            class="recent-location-icon"
+                            aria-hidden="true"
+                        />
                         <span class="recent-location-path">{{ row.parentFolder }}</span>
                     </button>
-                    <span v-else class="recent-location recent-location--static">
-                        <UIcon name="i-ph-globe" class="recent-location-icon" aria-hidden="true" />
+                    <span
+                        v-else
+                        class="recent-location recent-location--static"
+                    >
+                        <UIcon
+                            name="i-ph-globe"
+                            class="recent-location-icon"
+                            aria-hidden="true"
+                        />
                         <span class="recent-location-path">{{ t('emptyState.locationBrowser') }}</span>
                     </span>
                 </span>
-                <span class="recent-col recent-col--time" role="cell">
+                <span
+                    class="recent-col recent-col--time"
+                    role="cell"
+                >
                     {{ row.relativeTime }}
                 </span>
-                <span class="recent-col recent-col--actions" role="cell">
+                <span
+                    class="recent-col recent-col--actions"
+                    role="cell"
+                >
                     <button
                         type="button"
                         class="recent-action recent-action--remove"
@@ -156,7 +211,10 @@
             class="recent-empty"
             data-testid="recent-load-error"
         >
-            <UIcon name="i-ph-warning-circle" class="recent-empty-icon" />
+            <UIcon
+                name="i-ph-warning-circle"
+                class="recent-empty-icon"
+            />
             <p>{{ t('errors.recent.load') }}</p>
             <UButton
                 color="neutral"
@@ -166,7 +224,10 @@
                 @click="emit('retry-recent')"
             />
         </div>
-        <div v-else class="recent-empty">
+        <div
+            v-else
+            class="recent-empty"
+        >
             <UIcon
                 :name="recentFiles.length === 0 ? 'i-ph-folder-open' : 'i-ph-magnifying-glass'"
                 class="recent-empty-icon"
@@ -174,7 +235,10 @@
             <p>{{ recentFiles.length === 0 ? t('emptyState.noRecentFiles') : t('emptyState.noSearchResults') }}</p>
         </div>
 
-        <footer v-if="shouldShowRecentTable" class="recent-footer">
+        <footer
+            v-if="shouldShowRecentTable"
+            class="recent-footer"
+        >
             <span class="recent-count">{{ recentItemsLabel }}</span>
             <!-- A refresh that failed while older rows still show says so here, in the list's own footer. -->
             <span
@@ -182,7 +246,10 @@
                 class="recent-refresh-failed"
                 data-testid="recent-refresh-error"
             >
-                <UIcon name="i-ph-warning-circle" class="recent-refresh-failed-icon" />
+                <UIcon
+                    name="i-ph-warning-circle"
+                    class="recent-refresh-failed-icon"
+                />
                 <span>{{ t('errors.recent.load') }}</span>
                 <UButton
                     color="neutral"
@@ -198,7 +265,7 @@
     <UModal
         :open="clearHistoryDialogOpen"
         :title="t('emptyState.clearHistoryConfirmTitle')"
-        :ui="{ footer: 'justify-end gap-2' }"
+        :ui="{footer: 'justify-end gap-2'}"
         @update:open="clearHistoryDialogOpen = $event"
     >
         <template #description>
@@ -209,7 +276,10 @@
 
         <template #body>
             <div class="clear-history-confirm">
-                <span class="clear-history-confirm-icon" aria-hidden="true">
+                <span
+                    class="clear-history-confirm-icon"
+                    aria-hidden="true"
+                >
                     <UIcon name="i-ph-warning" />
                 </span>
                 <p class="text-sm text-muted">
@@ -218,7 +288,7 @@
             </div>
         </template>
 
-        <template #footer="{ close }">
+        <template #footer="{close}">
             <UButton
                 :label="t('common.cancel')"
                 color="neutral"
@@ -235,18 +305,13 @@
 </template>
 
 <script setup lang="ts">
-import {
-    useDocumentVisibility,
-    useEventListener,
-    useIntervalFn,
-    useMounted,
-} from '@vueuse/core';
-import type { IRecentFile } from '@contracts/shared';
-import { formatRelativeTime } from '@app/utils/formatters';
-import { isBrowserDocumentRef } from '@app/utils/documentRef';
-import { isBrowserPlatformActive } from '@app/utils/platform';
+import {useDocumentVisibility, useEventListener, useIntervalFn, useMounted} from '@vueuse/core';
+import type {IRecentFile} from '@contracts/shared';
+import {formatRelativeTime} from '@app/utils/formatters';
+import {isBrowserDocumentRef} from '@app/utils/documentRef';
+import {isBrowserPlatformActive} from '@app/utils/platform';
 import FileTypeIcon from '@app/components/icons/FileTypeIcon.vue';
-import { getDocumentKindFromPath } from '@app/utils/supportedDocumentPaths';
+import {getDocumentKindFromPath} from '@app/utils/supportedDocumentPaths';
 import AppSearchInput from '@app/components/AppSearchInput.vue';
 
 // Start's Recent Files list: search, rows and the clear-history confirmation.
@@ -274,7 +339,7 @@ const emit = defineEmits<{
     'clear-recent': [];
     'retry-recent': [];
 }>();
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 // As many as the list can hold; the count the head script found shows that many.
 const recentSkeletonRows = 30;
 const RECENT_FILE_TAIL_LENGTH = 24;
@@ -313,11 +378,9 @@ const filteredRecentFiles = computed(() => {
 });
 const shouldShowRecentTable = computed(() => !recentFilesResolved || filteredRecentFiles.value.length > 0);
 const shouldShowRecentLocationColumn = computed(() => !isBrowserPlatformActive());
-const recentItemsLabel = computed(() => (
-    recentFilesResolved
-        ? t('emptyState.itemsCount', { count: filteredRecentFiles.value.length })
-        : t('common.loading')
-));
+const recentItemsLabel = computed(() =>
+    recentFilesResolved ? t('emptyState.itemsCount', {count: filteredRecentFiles.value.length}) : t('common.loading'),
+);
 
 // The Opened column is measured against this clock, not the time of the last
 // render. It ticks only while the list is on screen, catches up as soon as the
@@ -334,24 +397,37 @@ const relativeTimeClock = useIntervalFn(refreshNow, RELATIVE_TIME_REFRESH_MS, {
     immediate: false,
     immediateCallback: true,
 });
-watch(isClockRunning, (running) => {
-    if (running) {relativeTimeClock.resume();}
-    else {relativeTimeClock.pause();}
-}, {immediate: true});
+watch(
+    isClockRunning,
+    (running) => {
+        if (running) {
+            relativeTimeClock.resume();
+        } else {
+            relativeTimeClock.pause();
+        }
+    },
+    {immediate: true},
+);
 useEventListener('focus', () => {
-    if (isClockRunning.value) {refreshNow();}
+    if (isClockRunning.value) {
+        refreshNow();
+    }
 });
 
 function formatRelativeTimeLocalized(timestamp: number, at: number) {
-    return formatRelativeTime(timestamp, {
-        yesterday: t('relativeTime.yesterday'),
-        daysAgo: (count: number) => t('relativeTime.daysAgo', { count }),
-        oneHourAgo: t('relativeTime.oneHourAgo'),
-        hoursAgo: (count: number) => t('relativeTime.hoursAgo', { count }),
-        oneMinuteAgo: t('relativeTime.oneMinuteAgo'),
-        minutesAgo: (count: number) => t('relativeTime.minutesAgo', { count }),
-        justNow: t('relativeTime.justNow'),
-    }, at);
+    return formatRelativeTime(
+        timestamp,
+        {
+            yesterday: t('relativeTime.yesterday'),
+            daysAgo: (count: number) => t('relativeTime.daysAgo', {count}),
+            oneHourAgo: t('relativeTime.oneHourAgo'),
+            hoursAgo: (count: number) => t('relativeTime.hoursAgo', {count}),
+            oneMinuteAgo: t('relativeTime.oneMinuteAgo'),
+            minutesAgo: (count: number) => t('relativeTime.minutesAgo', {count}),
+            justNow: t('relativeTime.justNow'),
+        },
+        at,
+    );
 }
 
 function getParentFolder(filePath: string) {
@@ -383,25 +459,26 @@ interface IRenderedRecentFile {
     relativeTime: string;
 }
 
-const renderedRecentFiles = computed<IRenderedRecentFile[]>(() => filteredRecentFiles.value.map((file): IRenderedRecentFile => {
-    const ready = isRecentOpenReady(file);
-    const nameParts = displayRecentFileName(file.fileName);
-    const canReveal = canRevealInFolder(file);
-    return {
-        file,
-        key: file.originalPath,
-        source: String(file.originalPath),
-        disabled: !ready,
-        readyAttr: ready ? 'true' : 'false',
-        fileKind: getFileKind(file),
-        namePrefix: nameParts.prefix,
-        nameSuffix: nameParts.suffix,
-        canReveal,
-        parentFolder: canReveal ? getParentFolder(file.originalPath) : '',
-        relativeTime: formatRelativeTimeLocalized(file.timestamp, now.value),
-    };
-}));
-
+const renderedRecentFiles = computed<IRenderedRecentFile[]>(() =>
+    filteredRecentFiles.value.map((file): IRenderedRecentFile => {
+        const ready = isRecentOpenReady(file);
+        const nameParts = displayRecentFileName(file.fileName);
+        const canReveal = canRevealInFolder(file);
+        return {
+            file,
+            key: file.originalPath,
+            source: String(file.originalPath),
+            disabled: !ready,
+            readyAttr: ready ? 'true' : 'false',
+            fileKind: getFileKind(file),
+            namePrefix: nameParts.prefix,
+            nameSuffix: nameParts.suffix,
+            canReveal,
+            parentFolder: canReveal ? getParentFolder(file.originalPath) : '',
+            relativeTime: formatRelativeTimeLocalized(file.timestamp, now.value),
+        };
+    }),
+);
 
 const pendingRecentOpenPath = ref<string | null>(null);
 
@@ -430,7 +507,7 @@ function openRecent(file: IRecentFile, event: MouseEvent) {
             pendingRecentOpenPath.value = null;
         }
     };
-    emit('open-recent', file, event.detail > 0, opening => void opening.then(release, release));
+    emit('open-recent', file, event.detail > 0, (opening) => void opening.then(release, release));
 }
 
 function openRecentFromRow(file: IRecentFile, event: MouseEvent) {
@@ -464,7 +541,6 @@ function confirmClearRecent() {
     clearHistoryDialogOpen.value = false;
     emit('clear-recent');
 }
-
 </script>
 
 <style lang="scss" scoped>
@@ -799,12 +875,7 @@ html[data-recent-count='0'] .recent-table[aria-busy='true'] ~ .recent-footer {
     position: absolute;
     inset: 0;
     content: '';
-    background: linear-gradient(
-        90deg,
-        transparent,
-        color-mix(in oklab, var(--ui-bg) 54%, transparent),
-        transparent
-    );
+    background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--ui-bg) 54%, transparent), transparent);
     animation: recent-skeleton-shimmer 1.2s ease-in-out infinite;
     transform: translateX(-100%);
 }

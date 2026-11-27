@@ -1,12 +1,7 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { ref } from 'vue';
-import { useAppShellToolPages } from '@app/modules/workspace-shell/composables/useAppShellToolPages';
-import { requireDocumentRef } from '@contracts/documentRef';
+import {describe, expect, it, vi} from 'vitest';
+import {ref} from 'vue';
+import {useAppShellToolPages} from '@app/modules/workspace-shell/composables/useAppShellToolPages';
+import {requireDocumentRef} from '@contracts/documentRef';
 
 describe('useAppShellToolPages', () => {
     it('reuses an empty tab for settings and activates it', () => {
@@ -72,11 +67,13 @@ describe('useAppShellToolPages', () => {
             setTabStartSection: vi.fn(),
         });
 
-        await expect(actions.handleCombineOpenResult({
-            kind: 'pdf',
-            originalPath: requireDocumentRef('/tmp/combined.pdf'),
-            workingPath: requireDocumentRef('/tmp/combined-working.pdf'),
-        })).resolves.toBe(false);
+        await expect(
+            actions.handleCombineOpenResult({
+                kind: 'pdf',
+                originalPath: requireDocumentRef('/tmp/combined.pdf'),
+                workingPath: requireDocumentRef('/tmp/combined-working.pdf'),
+            }),
+        ).resolves.toBe(false);
         expect(activeToolPage.value).toBe('combine');
     });
 });

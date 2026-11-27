@@ -1,10 +1,5 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { createRafCoalescedCallback } from '@app/utils/createRafCoalescedCallback';
+import {describe, expect, it, vi} from 'vitest';
+import {createRafCoalescedCallback} from '@app/utils/createRafCoalescedCallback';
 
 function createHarness() {
     const frames = new Map<number, FrameRequestCallback>();

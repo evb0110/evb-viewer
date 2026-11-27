@@ -12,7 +12,7 @@ export const MAIN_OPERATION_ERROR_ENVELOPE_SCHEMA = v.object({
 
 const mainOperationErrorEnvelopeNormalizedSchema = v.pipe(
     MAIN_OPERATION_ERROR_ENVELOPE_SCHEMA,
-    v.transform(envelope => ({
+    v.transform((envelope) => ({
         ...envelope,
         message: envelope.message.length > 0 ? envelope.message : 'Main process is shutting down',
     })),

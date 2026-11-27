@@ -1,24 +1,12 @@
-import type { IPdfValidationResult } from '@contracts/pdfConformance';
+import type {IPdfValidationResult} from '@contracts/pdfConformance';
 import {PDF_VALIDATION_RESULT_SCHEMA} from '@contracts/pdfConformance';
-import {
-    TYPED_STAGED_ARTIFACT_SCHEMA,
-    type ITypedStagedArtifact,
-} from '@contracts/stagedArtifacts';
-import { getErrorMessage } from '@contracts/getErrorMessage';
-import {
-    getDocumentMutationErrorPayload,
-    isStaleRevisionError,
-} from '@contracts/documentMutationErrors';
-import {
-    parseDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
-import { isRecord } from '@contracts/runtimeGuards';
+import {TYPED_STAGED_ARTIFACT_SCHEMA, type ITypedStagedArtifact} from '@contracts/stagedArtifacts';
+import {getErrorMessage} from '@contracts/getErrorMessage';
+import {getDocumentMutationErrorPayload, isStaleRevisionError} from '@contracts/documentMutationErrors';
+import {parseDocumentRef, type TDocumentRef} from '@contracts/documentRef';
+import {isRecord} from '@contracts/runtimeGuards';
 import * as v from 'valibot';
-import {
-    parseSessionId,
-    type TSessionId,
-} from '@contracts/shared';
+import {parseSessionId, type TSessionId} from '@contracts/shared';
 
 export const SERIALIZED_PDF_PERSISTENCE_PROTOCOL_VERSION = 1;
 export const PDF_PERSISTENCE_DEFAULT_CHUNK_BYTES = 8 * 1024 * 1024;
@@ -38,17 +26,11 @@ export const PDF_PERSISTENCE_ERROR_CODES = [
     'UNKNOWN',
 ] as const;
 
-export type TPdfPersistenceErrorCode = typeof PDF_PERSISTENCE_ERROR_CODES[number];
+export type TPdfPersistenceErrorCode = (typeof PDF_PERSISTENCE_ERROR_CODES)[number];
 
-export const PDF_PERSISTENCE_ERROR_PHASES = [
-    'streaming',
-    'ack',
-    'complete',
-    'commit',
-    'cancel',
-] as const;
+export const PDF_PERSISTENCE_ERROR_PHASES = ['streaming', 'ack', 'complete', 'commit', 'cancel'] as const;
 
-export type TPdfPersistenceErrorPhase = typeof PDF_PERSISTENCE_ERROR_PHASES[number];
+export type TPdfPersistenceErrorPhase = (typeof PDF_PERSISTENCE_ERROR_PHASES)[number];
 
 export interface ISerializedPdfPersistenceLimits {
     readonly protocolVersion: typeof SERIALIZED_PDF_PERSISTENCE_PROTOCOL_VERSION;
@@ -60,7 +42,9 @@ export interface ISerializedPdfPersistenceLimits {
     readonly resultTimeoutMs: number;
 }
 
-export interface IBeginSerializedPdfPersistenceResult extends ISerializedPdfPersistenceLimits {sessionId: string;}
+export interface IBeginSerializedPdfPersistenceResult extends ISerializedPdfPersistenceLimits {
+    sessionId: string;
+}
 
 export interface IPdfPersistenceErrorFrame {
     readonly type: 'error';
@@ -85,7 +69,9 @@ export interface IPdfPersistenceStagedFrame {
     readonly validation: IPdfValidationResult;
 }
 
-export interface IPdfPersistenceReadyFrame { readonly type: 'ready'; }
+export interface IPdfPersistenceReadyFrame {
+    readonly type: 'ready';
+}
 
 export interface IPdfPersistenceAckFrame {
     readonly type: 'ack';
@@ -106,14 +92,15 @@ export interface IPdfPersistenceChunkFrame {
     readonly bytes: Uint8Array;
 }
 
-export interface IPdfPersistenceCompleteFrame { readonly type: 'complete'; }
+export interface IPdfPersistenceCompleteFrame {
+    readonly type: 'complete';
+}
 
-export interface IPdfPersistenceCancelFrame { readonly type: 'cancel'; }
+export interface IPdfPersistenceCancelFrame {
+    readonly type: 'cancel';
+}
 
-export type TPdfPersistencePreloadToMainFrame =
-    | IPdfPersistenceChunkFrame
-    | IPdfPersistenceCompleteFrame
-    | IPdfPersistenceCancelFrame;
+export type TPdfPersistencePreloadToMainFrame = IPdfPersistenceChunkFrame | IPdfPersistenceCompleteFrame | IPdfPersistenceCancelFrame;
 
 export interface IPdfPersistencePreloadToMainPayload {
     readonly type: TPdfPersistencePreloadToMainFrame['type'];
@@ -144,10 +131,7 @@ export function createPdfPersistenceAckFrame(seq: number, receivedBytes: number)
     };
 }
 
-export function createPdfPersistenceResultFrame(
-    path: TDocumentRef | null,
-    validation: IPdfValidationResult,
-): IPdfPersistenceResultFrame {
+export function createPdfPersistenceResultFrame(path: TDocumentRef | null, validation: IPdfValidationResult): IPdfPersistenceResultFrame {
     return {
         type: 'result',
         path,
@@ -193,11 +177,12 @@ export function createPdfPersistenceErrorFrame(
     },
 ): IPdfPersistenceErrorFrame {
     const message = getErrorMessage(error);
-    const code = options.phase === 'cancel'
-        ? 'CANCELED'
-        : isStaleRevisionError(error)
-            ? 'STALE_REVISION'
-            : options.phase === 'commit' || options.phase === 'complete'
+    const code =
+        options.phase === 'cancel'
+            ? 'CANCELED'
+            : isStaleRevisionError(error)
+              ? 'STALE_REVISION'
+              : options.phase === 'commit' || options.phase === 'complete'
                 ? 'COMMIT_FAILED'
                 : 'PROTOCOL_ERROR';
     return {
@@ -211,33 +196,34 @@ export function createPdfPersistenceErrorFrame(
     };
 }
 
-export function getPdfPersistenceErrorMessage(payload: Pick<IPdfPersistenceErrorFrame, 'error'> | { error?: string }) {
+export function getPdfPersistenceErrorMessage(payload: Pick<IPdfPersistenceErrorFrame, 'error'> | {error?: string}) {
     const error = typeof payload.error === 'string' ? payload.error : 'PDF persistence failed';
     return getDocumentMutationErrorPayload(error)?.message ?? error;
 }
 
-
 export function isSerializedPdfPersistenceLimits(value: unknown): value is ISerializedPdfPersistenceLimits {
-    return isRecord(value)
-        && value.protocolVersion === SERIALIZED_PDF_PERSISTENCE_PROTOCOL_VERSION
-        && typeof value.maxChunkBytes === 'number'
-        && Number.isSafeInteger(value.maxChunkBytes)
-        && value.maxChunkBytes > 0
-        && typeof value.maxInFlightChunks === 'number'
-        && Number.isSafeInteger(value.maxInFlightChunks)
-        && value.maxInFlightChunks > 0
-        && typeof value.maxTotalBytes === 'number'
-        && Number.isSafeInteger(value.maxTotalBytes)
-        && value.maxTotalBytes > 0
-        && typeof value.ackTimeoutMs === 'number'
-        && Number.isSafeInteger(value.ackTimeoutMs)
-        && value.ackTimeoutMs > 0
-        && typeof value.progressTimeoutMs === 'number'
-        && Number.isSafeInteger(value.progressTimeoutMs)
-        && value.progressTimeoutMs > 0
-        && typeof value.resultTimeoutMs === 'number'
-        && Number.isSafeInteger(value.resultTimeoutMs)
-        && value.resultTimeoutMs > 0;
+    return (
+        isRecord(value) &&
+        value.protocolVersion === SERIALIZED_PDF_PERSISTENCE_PROTOCOL_VERSION &&
+        typeof value.maxChunkBytes === 'number' &&
+        Number.isSafeInteger(value.maxChunkBytes) &&
+        value.maxChunkBytes > 0 &&
+        typeof value.maxInFlightChunks === 'number' &&
+        Number.isSafeInteger(value.maxInFlightChunks) &&
+        value.maxInFlightChunks > 0 &&
+        typeof value.maxTotalBytes === 'number' &&
+        Number.isSafeInteger(value.maxTotalBytes) &&
+        value.maxTotalBytes > 0 &&
+        typeof value.ackTimeoutMs === 'number' &&
+        Number.isSafeInteger(value.ackTimeoutMs) &&
+        value.ackTimeoutMs > 0 &&
+        typeof value.progressTimeoutMs === 'number' &&
+        Number.isSafeInteger(value.progressTimeoutMs) &&
+        value.progressTimeoutMs > 0 &&
+        typeof value.resultTimeoutMs === 'number' &&
+        Number.isSafeInteger(value.resultTimeoutMs) &&
+        value.resultTimeoutMs > 0
+    );
 }
 
 export function parsePdfPersistenceMainToPreloadFrame(value: unknown): TPdfPersistenceMainToPreloadFrame | null {
@@ -250,40 +236,24 @@ export function parsePdfPersistenceMainToPreloadFrame(value: unknown): TPdfPersi
         if (value.path !== null && path === null) {
             return null;
         }
-        return createPdfPersistenceResultFrame(
-            path,
-            validation.output,
-        );
+        return createPdfPersistenceResultFrame(path, validation.output);
     }
-    if (
-        value.type === 'staged'
-        && validation.success
-    ) {
+    if (value.type === 'staged' && validation.success) {
         const sessionId = parseSessionId(value.sessionId);
         if (sessionId === null) {
             return null;
         }
         const stagedOutput = v.safeParse(TYPED_STAGED_ARTIFACT_SCHEMA, value.stagedOutput, {abortEarly: true});
         if (stagedOutput.success) {
-            return createPdfPersistenceStagedFrame(
-                sessionId,
-                stagedOutput.output,
-                validation.output,
-            );
+            return createPdfPersistenceStagedFrame(sessionId, stagedOutput.output, validation.output);
         }
     }
     if (value.type === 'error') {
-        const error = typeof value.error === 'string'
-            ? value.error
-            : getPdfPersistenceErrorMessage({});
+        const error = typeof value.error === 'string' ? value.error : getPdfPersistenceErrorMessage({});
         return {
             type: 'error',
-            code: isPdfPersistenceErrorCode(value.code)
-                ? value.code
-                : 'UNKNOWN',
-            phase: isPdfPersistenceErrorPhase(value.phase)
-                ? value.phase
-                : 'streaming',
+            code: isPdfPersistenceErrorCode(value.code) ? value.code : 'UNKNOWN',
+            phase: isPdfPersistenceErrorPhase(value.phase) ? value.phase : 'streaming',
             retryable: typeof value.retryable === 'boolean' ? value.retryable : false,
             expected: typeof value.expected === 'boolean' ? value.expected : false,
             error,
@@ -330,18 +300,17 @@ export function isPdfPersistencePreloadToMainPayload(message: unknown): message 
     }
 
     if (message.type === 'chunk') {
-        return typeof message.seq === 'number'
-            && Number.isSafeInteger(message.seq)
-            && (message.bytes instanceof Uint8Array || message.bytes instanceof ArrayBuffer);
+        return (
+            typeof message.seq === 'number' &&
+            Number.isSafeInteger(message.seq) &&
+            (message.bytes instanceof Uint8Array || message.bytes instanceof ArrayBuffer)
+        );
     }
 
     return message.type === 'complete' || message.type === 'cancel';
 }
 
-export function normalizePdfPersistencePreloadToMainPayload(
-    message: unknown,
-    maxDepth = PDF_PERSISTENCE_MESSAGE_UNWRAP_DEPTH,
-) {
+export function normalizePdfPersistencePreloadToMainPayload(message: unknown, maxDepth = PDF_PERSISTENCE_MESSAGE_UNWRAP_DEPTH) {
     let currentMessage = message;
     const seenMessages = new WeakSet<object>();
     for (let depth = 0; depth < maxDepth; depth += 1) {

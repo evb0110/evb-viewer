@@ -1,17 +1,11 @@
 import * as v from 'valibot';
-import { getErrorMessage } from '@app/utils/error';
-import { stripIpcInvocationPrefix } from '@app/utils/stripIpcInvocationPrefix';
-import { useTypedI18n } from '@app/composables/useTypedI18n';
-import {
-    ocrErrorCodeMessageKeys,
-    ocrErrorMessageKeys,
-} from '@app/utils/ocr/ocrErrorMessageKeys';
-import {
-    OCR_ERROR_ENVELOPE_SCHEMA,
-    type IOcrErrorEnvelope,
-} from '@contracts/electronApiOcr';
-import { isRecord } from '@contracts/runtimeGuards';
-import type { TOcrErrorFallbackKey } from '@app/utils/ocr/ocrErrorMessageKeys';
+import {getErrorMessage} from '@app/utils/error';
+import {stripIpcInvocationPrefix} from '@app/utils/stripIpcInvocationPrefix';
+import {useTypedI18n} from '@app/composables/useTypedI18n';
+import {ocrErrorCodeMessageKeys, ocrErrorMessageKeys} from '@app/utils/ocr/ocrErrorMessageKeys';
+import {OCR_ERROR_ENVELOPE_SCHEMA, type IOcrErrorEnvelope} from '@contracts/electronApiOcr';
+import {isRecord} from '@contracts/runtimeGuards';
+import type {TOcrErrorFallbackKey} from '@app/utils/ocr/ocrErrorMessageKeys';
 
 function normalizeOcrErrorMessage(message: string) {
     return stripIpcInvocationPrefix(message);
@@ -40,21 +34,22 @@ function getOcrErrorEnvelope(value: unknown): IOcrErrorEnvelope | null {
 }
 
 export const useOcrErrorLocalizer = () => {
-    const { t } = useTypedI18n();
+    const {t} = useTypedI18n();
 
     function isKnownLocalizedOcrError(message: string) {
-        return ocrErrorMessageKeys
-            .map(key => t(key))
-            .includes(message);
+        return ocrErrorMessageKeys.map((key) => t(key)).includes(message);
     }
 
     function localizeOcrError(errorValue: unknown, fallbackKey: TOcrErrorFallbackKey) {
         const envelope = getOcrErrorEnvelope(errorValue);
-        const rawMessage = envelope !== null
-            ? envelope.message
-            : typeof errorValue === 'string'
-                ? errorValue
-                : (errorValue instanceof Error ? getErrorMessage(errorValue) : '');
+        const rawMessage =
+            envelope !== null
+                ? envelope.message
+                : typeof errorValue === 'string'
+                  ? errorValue
+                  : errorValue instanceof Error
+                    ? getErrorMessage(errorValue)
+                    : '';
         if (!rawMessage) {
             return t(fallbackKey);
         }
@@ -67,16 +62,13 @@ export const useOcrErrorLocalizer = () => {
             return normalized;
         }
 
-        if (
-            normalized === 'Invalid file path'
-            || normalized === 'Invalid file path: path must be a non-empty string'
-        ) {
+        if (normalized === 'Invalid file path' || normalized === 'Invalid file path: path must be a non-empty string') {
             return t('errors.file.invalid');
         }
 
         if (
-            normalized === 'Invalid file path: reads only allowed within temp directory'
-            || normalized === 'Invalid file path: writes only allowed within temp directory'
+            normalized === 'Invalid file path: reads only allowed within temp directory' ||
+            normalized === 'Invalid file path: writes only allowed within temp directory'
         ) {
             return t(fallbackKey);
         }
@@ -84,11 +76,7 @@ export const useOcrErrorLocalizer = () => {
         if (envelope !== null) {
             const codeMessageKey = ocrErrorCodeMessageKeys[envelope.code];
             const codeMessage = t(codeMessageKey);
-            if (
-                !normalized
-                || normalized === envelope.code
-                || normalized === codeMessage
-            ) {
+            if (!normalized || normalized === envelope.code || normalized === codeMessage) {
                 return codeMessage;
             }
             return `${codeMessage}: ${truncateOcrErrorDetails(normalized)}`;
@@ -97,5 +85,5 @@ export const useOcrErrorLocalizer = () => {
         return `${t(fallbackKey)}: ${truncateOcrErrorDetails(normalized)}`;
     }
 
-    return { localizeOcrError };
+    return {localizeOcrError};
 };

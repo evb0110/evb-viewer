@@ -1,6 +1,6 @@
-import type { BrowserWindow } from 'electron';
-import { config } from '@electron/config';
-import { isTrustedRendererUrl } from '@electron/security/isTrustedRendererUrl';
+import type {BrowserWindow} from 'electron';
+import {config} from '@electron/config';
+import {isTrustedRendererUrl} from '@electron/security/isTrustedRendererUrl';
 
 function hasTrustedRendererUrl(window: BrowserWindow) {
     const trustedUrl = config.renderer.trustedUrl;
@@ -12,12 +12,7 @@ function hasTrustedRendererUrl(window: BrowserWindow) {
 export function sendPlatformEvent<
     TEventMap extends {[TChannel in keyof TEventMap]: unknown},
     TChannel extends Extract<keyof TEventMap, string>,
->(
-    window: BrowserWindow | null | undefined,
-    channel: TChannel,
-    payload: TEventMap[TChannel],
-    onError: (error: unknown) => void,
-) {
+>(window: BrowserWindow | null | undefined, channel: TChannel, payload: TEventMap[TChannel], onError: (error: unknown) => void) {
     if (!window) {
         return;
     }

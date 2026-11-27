@@ -25,10 +25,7 @@ function displayedSize(page: IPdfPageSize) {
     const quarterTurn = Math.abs(Math.round(page.rotation / 90)) % 2 === 1;
     const width = (quarterTurn ? page.heightPoints : page.widthPoints) * unit;
     const height = (quarterTurn ? page.widthPoints : page.heightPoints) * unit;
-    return [
-        width,
-        height,
-    ] as const;
+    return [width, height] as const;
 }
 
 function sizeKey(width: number, height: number) {
@@ -39,27 +36,19 @@ export function createScanCleanupFacingPairGeometry(): IScanCleanupFacingPairGeo
     const sizes = new Set<string>();
     return {
         add(page) {
-            const [
-                width,
-                height,
-            ] = displayedSize(page);
-            if (sizes.size < MAX_DISTINCT_SIZES && width > 0 && height > 0) {sizes.add(sizeKey(width, height));}
+            const [width, height] = displayedSize(page);
+            if (sizes.size < MAX_DISTINCT_SIZES && width > 0 && height > 0) {
+                sizes.add(sizeKey(width, height));
+            }
         },
         isFacingPair(page) {
-            const [
-                width,
-                height,
-            ] = displayedSize(page);
-            if (!(width > height)) {return false;}
+            const [width, height] = displayedSize(page);
+            if (!(width > height)) {
+                return false;
+            }
             // A neighbouring point absorbs rounding on either side of a whole point.
-            const steps = [
-                -1,
-                0,
-                1,
-            ];
-            return steps.some(widthStep => steps.some(heightStep => (
-                sizes.has(sizeKey(width / 2 + widthStep, height + heightStep))
-            )));
+            const steps = [-1, 0, 1];
+            return steps.some((widthStep) => steps.some((heightStep) => sizes.has(sizeKey(width / 2 + widthStep, height + heightStep))));
         },
     };
 }

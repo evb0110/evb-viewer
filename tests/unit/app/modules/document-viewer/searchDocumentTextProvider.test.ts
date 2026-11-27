@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {
     DEFAULT_DOCUMENT_SEARCH_OPTIONS,
     getDocumentSearchQueryError,
@@ -11,26 +7,11 @@ import {
 
 describe('document search query validation', () => {
     it.each([
-        [
-            '  hello  ',
-            'hello',
-        ],
-        [
-            '  " hello "  ',
-            ' hello ',
-        ],
-        [
-            '"  "',
-            '  ',
-        ],
-        [
-            '""',
-            '',
-        ],
-        [
-            '^"hello"$',
-            '^"hello"$',
-        ],
+        ['  hello  ', 'hello'],
+        ['  " hello "  ', ' hello '],
+        ['"  "', '  '],
+        ['""', ''],
+        ['^"hello"$', '^"hello"$'],
     ])('normalizes UI query %j to literal %j', (input, expected) => {
         expect(resolveDocumentSearchQuery(input)).toBe(expected);
     });
@@ -50,12 +31,9 @@ describe('document search query validation', () => {
             key: 'searchResults.queryTooLong',
             count: 2048,
         });
-        for (const query of [
-            '[',
-            'Жёлтый',
-            '日本語',
-        ]) {expect(getDocumentSearchQueryError(query, DEFAULT_DOCUMENT_SEARCH_OPTIONS)).toBeNull();}
+        for (const query of ['[', 'Жёлтый', '日本語']) {
+            expect(getDocumentSearchQueryError(query, DEFAULT_DOCUMENT_SEARCH_OPTIONS)).toBeNull();
+        }
         expect(getDocumentSearchQueryError('^"hello"$', regex)).toBeNull();
     });
-
 });

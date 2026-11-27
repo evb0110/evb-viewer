@@ -25,7 +25,10 @@ type TBoundedOperation<T> = Promise<T> | ((deadline: AbortSignal) => Promise<T>)
  * cleared either way. IPC invokes, stream watchdogs, worker inactivity and
  * kill escalation keep their own owners.
  */
-export function waitForBoundedOperation<T, TTimeout>(operation: TBoundedOperation<T>, options: IBoundedWaitWithResult<TTimeout>): Promise<T | TTimeout>;
+export function waitForBoundedOperation<T, TTimeout>(
+    operation: TBoundedOperation<T>,
+    options: IBoundedWaitWithResult<TTimeout>,
+): Promise<T | TTimeout>;
 export function waitForBoundedOperation<T>(operation: TBoundedOperation<T>, options: IBoundedWaitWithError): Promise<T>;
 export async function waitForBoundedOperation<T, TTimeout>(
     operation: TBoundedOperation<T>,
@@ -43,13 +46,12 @@ export async function waitForBoundedOperation<T, TTimeout>(
                 reject(options.timeoutError());
             }
         }, options.timeoutMs);
-        if (options.unref) {timer.unref();}
+        if (options.unref) {
+            timer.unref();
+        }
     });
     try {
-        return await Promise.race([
-            typeof operation === 'function' ? operation(deadline.signal) : operation,
-            timeout,
-        ]);
+        return await Promise.race([typeof operation === 'function' ? operation(deadline.signal) : operation, timeout]);
     } finally {
         clearTimeout(timer);
     }

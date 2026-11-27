@@ -1,14 +1,8 @@
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import { deleteAnnotationById } from '@app/modules/workspace-shell/annotations/deleteAnnotationById';
-import { annotationIdForSummary } from '@app/modules/pdf-viewer/public';
-import { BrowserLogger } from '@app/utils/browserLogger';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import type {IAnnotationCommentSummary} from '@app/types/annotations';
+import {deleteAnnotationById} from '@app/modules/workspace-shell/annotations/deleteAnnotationById';
+import {annotationIdForSummary} from '@app/modules/pdf-viewer/public';
+import {BrowserLogger} from '@app/utils/browserLogger';
 
 vi.mock('@app/utils/browserLogger', () => ({
     BrowserLogger: {
@@ -55,15 +49,7 @@ describe('deleteAnnotationById', () => {
         const remove = vi.fn();
         const discardHostedNote = vi.fn();
 
-        const deleted = deleteAnnotationById(
-            [
-                other,
-                target,
-            ],
-            annotationIdForSummary(target),
-            remove,
-            discardHostedNote,
-        );
+        const deleted = deleteAnnotationById([other, target], annotationIdForSummary(target), remove, discardHostedNote);
 
         expect(deleted).toBe(true);
         expect(remove).toHaveBeenCalledTimes(1);
@@ -87,12 +73,7 @@ describe('deleteAnnotationById', () => {
         const remove = vi.fn();
         const discardHostedNote = vi.fn();
 
-        const deleted = deleteAnnotationById(
-            [target],
-            annotationIdForSummary(target),
-            remove,
-            discardHostedNote,
-        );
+        const deleted = deleteAnnotationById([target], annotationIdForSummary(target), remove, discardHostedNote);
 
         expect(deleted).toBe(true);
         expect(remove).not.toHaveBeenCalled();
@@ -116,12 +97,7 @@ describe('deleteAnnotationById', () => {
     it('reports a stale note-window delete instead of removing an unrelated comment', () => {
         const remove = vi.fn();
 
-        const deleted = deleteAnnotationById(
-            [createComment()],
-            'annotation-that-left-the-projection',
-            remove,
-            vi.fn(),
-        );
+        const deleted = deleteAnnotationById([createComment()], 'annotation-that-left-the-projection', remove, vi.fn());
 
         expect(deleted).toBe(false);
         expect(remove).not.toHaveBeenCalled();

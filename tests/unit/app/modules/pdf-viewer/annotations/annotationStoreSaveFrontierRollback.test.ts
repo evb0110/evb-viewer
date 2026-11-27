@@ -1,13 +1,5 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    asAnnotationId,
-    type INoteEntity,
-    type IShapeEntity,
-} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {describe, expect, it} from 'vitest';
+import {asAnnotationId, type INoteEntity, type IShapeEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {AnnotationStore} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 import {AnnotationApplication} from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
@@ -15,30 +7,37 @@ import {requirePageIndex} from '@contracts/pageNumbers';
 
 function importPersistedHighlight(store: AnnotationStore) {
     const annotationId = asAnnotationId('persisted-highlight');
-    store.replaceFromDocument([{
-        kind: 'text-markup',
-        identity: {
-            id: annotationId,
-            pdfRef: '12R0',
-        },
-        pageIndex: requirePageIndex(0),
-        revision: 0,
-        persistedRevision: 0,
-        deleted: false,
-        createdAt: null,
-        modifiedAt: null,
-        author: null,
-        subtype: 'Highlight',
-        contents: '',
-        quadPoints: [{
-            left: 0.1,
-            top: 0.2,
-            width: 0.3,
-            height: 0.04,
-        }],
-        color: '#ffff00',
-        opacity: 1,
-    }], []);
+    store.replaceFromDocument(
+        [
+            {
+                kind: 'text-markup',
+                identity: {
+                    id: annotationId,
+                    pdfRef: '12R0',
+                },
+                pageIndex: requirePageIndex(0),
+                revision: 0,
+                persistedRevision: 0,
+                deleted: false,
+                createdAt: null,
+                modifiedAt: null,
+                author: null,
+                subtype: 'Highlight',
+                contents: '',
+                quadPoints: [
+                    {
+                        left: 0.1,
+                        top: 0.2,
+                        width: 0.3,
+                        height: 0.04,
+                    },
+                ],
+                color: '#ffff00',
+                opacity: 1,
+            },
+        ],
+        [],
+    );
     return annotationId;
 }
 
@@ -72,10 +71,8 @@ describe('AnnotationStore save frontier rollback', () => {
         const replacementRevision = requireDocumentRevisionToken('revision-2');
         const frontier = store.beginSave(firstRevision);
 
-        expect(() => store.assertSaveFrontierCurrent(frontier, replacementRevision))
-            .toThrow('document revision changed');
-        expect(() => store.markPersisted(frontier, [], replacementRevision))
-            .toThrow('document revision changed');
+        expect(() => store.assertSaveFrontierCurrent(frontier, replacementRevision)).toThrow('document revision changed');
+        expect(() => store.markPersisted(frontier, [], replacementRevision)).toThrow('document revision changed');
     });
 
     it('keeps markup subtype edits in canonical history for an immediate save', () => {
@@ -93,12 +90,14 @@ describe('AnnotationStore save frontier rollback', () => {
             author: null,
             subtype: 'Highlight',
             contents: '',
-            quadPoints: [{
-                left: 0.1,
-                top: 0.1,
-                width: 0.1,
-                height: 0.01,
-            }],
+            quadPoints: [
+                {
+                    left: 0.1,
+                    top: 0.1,
+                    width: 0.1,
+                    height: 0.01,
+                },
+            ],
             color: '#ffff00',
             opacity: 1,
         });
@@ -136,20 +135,25 @@ describe('AnnotationStore save frontier rollback', () => {
         store.createShape(shape);
         const frontier = store.beginSave();
 
-        store.replaceFromDocument([{
-            ...shape,
-            identity: {
-                id: shape.identity.id,
-                pdfRef: '44R0',
-            },
-            rect: {
-                left: 0.8,
-                top: 0.2,
-                width: 0.3,
-                height: 0.4,
-            },
-            persistedRevision: 0,
-        }], []);
+        store.replaceFromDocument(
+            [
+                {
+                    ...shape,
+                    identity: {
+                        id: shape.identity.id,
+                        pdfRef: '44R0',
+                    },
+                    rect: {
+                        left: 0.8,
+                        top: 0.2,
+                        width: 0.3,
+                        height: 0.4,
+                    },
+                    persistedRevision: 0,
+                },
+            ],
+            [],
+        );
 
         expect(store.get(shape.identity.id)).toMatchObject({
             identity: {pdfRef: '44R0'},
@@ -219,33 +223,38 @@ describe('AnnotationStore save frontier rollback', () => {
         // The initial scan discovers an already-persisted source annotation
         // after the frontier is captured; the frontier tolerates it.
         const lateId = asAnnotationId('late-persisted');
-        store.replaceFromDocument([
-            store.get(annotationId)!,
-            {
-                kind: 'text-markup',
-                identity: {
-                    id: lateId,
-                    pdfRef: '34R0',
+        store.replaceFromDocument(
+            [
+                store.get(annotationId)!,
+                {
+                    kind: 'text-markup',
+                    identity: {
+                        id: lateId,
+                        pdfRef: '34R0',
+                    },
+                    pageIndex: requirePageIndex(1),
+                    revision: 0,
+                    persistedRevision: 0,
+                    deleted: false,
+                    createdAt: null,
+                    modifiedAt: null,
+                    author: null,
+                    subtype: 'Highlight',
+                    contents: '',
+                    quadPoints: [
+                        {
+                            left: 0.2,
+                            top: 0.3,
+                            width: 0.2,
+                            height: 0.04,
+                        },
+                    ],
+                    color: '#00ffff',
+                    opacity: 1,
                 },
-                pageIndex: requirePageIndex(1),
-                revision: 0,
-                persistedRevision: 0,
-                deleted: false,
-                createdAt: null,
-                modifiedAt: null,
-                author: null,
-                subtype: 'Highlight',
-                contents: '',
-                quadPoints: [{
-                    left: 0.2,
-                    top: 0.3,
-                    width: 0.2,
-                    height: 0.04,
-                }],
-                color: '#00ffff',
-                opacity: 1,
-            },
-        ], []);
+            ],
+            [],
+        );
         expect(() => store.assertSaveFrontierCurrent(frontier)).not.toThrow();
 
         store.rollbackToSaveFrontier(frontier);
@@ -279,14 +288,19 @@ describe('AnnotationStore save frontier rollback', () => {
         const frontier = store.beginSave();
 
         // The materializing save binds the external identity it just wrote.
-        store.replaceFromDocument([{
-            ...store.get(annotationId)!,
-            identity: {
-                id: annotationId,
-                pdfRef: '13R0',
-            },
-            persistedRevision: 0,
-        }], []);
+        store.replaceFromDocument(
+            [
+                {
+                    ...store.get(annotationId)!,
+                    identity: {
+                        id: annotationId,
+                        pdfRef: '13R0',
+                    },
+                    persistedRevision: 0,
+                },
+            ],
+            [],
+        );
         expect(() => store.assertSaveFrontierCurrent(frontier)).not.toThrow();
         expect(store.get(annotationId)?.identity.pdfRef).toBe('13R0');
 

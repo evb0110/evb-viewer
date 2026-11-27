@@ -1,5 +1,5 @@
-import { injectAnalytics } from '@vercel/analytics/nuxt/runtime';
-import { hasElectronAPI } from '@app/utils/platform';
+import {injectAnalytics} from '@vercel/analytics/nuxt/runtime';
+import {hasElectronAPI} from '@app/utils/platform';
 
 // Vercel Web Analytics for the hosted browser build only. The desktop app sends
 // no analytics. Query strings and fragments never leave the page. Nuxt applies
@@ -10,8 +10,10 @@ export default defineNuxtPlugin(() => {
         return;
     }
 
-    injectAnalytics({beforeSend: event => ({
-        ...event,
-        url: event.url.split(/[?#]/u, 1)[0] ?? event.url,
-    })});
+    injectAnalytics({
+        beforeSend: (event) => ({
+            ...event,
+            url: event.url.split(/[?#]/u, 1)[0] ?? event.url,
+        }),
+    });
 });

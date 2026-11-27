@@ -1,14 +1,7 @@
 import {createOriginalFileContentFingerprintHash} from '@electron/file-access/createOriginalFileContentFingerprintHash';
-import {
-    abortErrorFromSignal,
-    raceWithAbortSignal,
-} from '@electron/utils/abort';
+import {abortErrorFromSignal, raceWithAbortSignal} from '@electron/utils/abort';
 import {createHash} from 'node:crypto';
-import {
-    open,
-    stat,
-    type FileHandle,
-} from 'node:fs/promises';
+import {open, stat, type FileHandle} from 'node:fs/promises';
 
 const FINGERPRINT_CHUNK_BYTES = 1024 * 1024;
 
@@ -34,7 +27,10 @@ export async function fingerprintFileBounded(path: string, expectedBytes: number
     try {
         handle = await raceWithAbortSignal(openPromise, signal);
     } catch (error) {
-        void openPromise.then(opened => opened.close().catch(() => undefined), () => undefined);
+        void openPromise.then(
+            (opened) => opened.close().catch(() => undefined),
+            () => undefined,
+        );
         throw error;
     }
 
@@ -53,12 +49,7 @@ export async function fingerprintFileBounded(path: string, expectedBytes: number
             }
             throw error;
         }
-        if (
-            !opened.isFile()
-            || opened.size !== before.size
-            || opened.dev !== before.dev
-            || opened.ino !== before.ino
-        ) {
+        if (!opened.isFile() || opened.size !== before.size || opened.dev !== before.dev || opened.ino !== before.ino) {
             throw new Error('Document file changed during inspection');
         }
 
@@ -87,9 +78,7 @@ export async function fingerprintFileBounded(path: string, expectedBytes: number
             if (offset > expectedBytes) {
                 throw new Error('Document file size changed during inspection');
             }
-            const chunk = bytesRead === chunkBuffer.byteLength
-                ? chunkBuffer
-                : chunkBuffer.subarray(0, bytesRead);
+            const chunk = bytesRead === chunkBuffer.byteLength ? chunkBuffer : chunkBuffer.subarray(0, bytesRead);
             hash.update(chunk);
             contentHash.update(chunk);
         }
@@ -113,7 +102,10 @@ export async function fingerprintFileBounded(path: string, expectedBytes: number
             if (inFlightOp !== null) {
                 const pendingOp = inFlightOp;
                 void pendingOp
-                    .then(() => handle.close(), () => handle.close())
+                    .then(
+                        () => handle.close(),
+                        () => handle.close(),
+                    )
                     .catch(() => undefined);
             } else if (signal?.aborted) {
                 void handle.close().catch(() => undefined);
@@ -131,12 +123,14 @@ export async function fingerprintFileBounded(path: string, expectedBytes: number
     if (signal?.aborted) {
         throw abortErrorFromSignal(signal);
     }
-    if (!after.isFile()
-        || after.size !== before.size
-        || after.dev !== before.dev
-        || after.ino !== before.ino
-        || after.mtimeNs !== before.mtimeNs
-        || after.ctimeNs !== before.ctimeNs) {
+    if (
+        !after.isFile() ||
+        after.size !== before.size ||
+        after.dev !== before.dev ||
+        after.ino !== before.ino ||
+        after.mtimeNs !== before.mtimeNs ||
+        after.ctimeNs !== before.ctimeNs
+    ) {
         throw new Error('Document file changed during inspection');
     }
     return {

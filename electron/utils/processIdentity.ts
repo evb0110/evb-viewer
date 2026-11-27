@@ -1,15 +1,7 @@
 import type {ChildProcess} from 'node:child_process';
-import {
-    access,
-    readFile,
-    readlink,
-} from 'node:fs/promises';
+import {access, readFile, readlink} from 'node:fs/promises';
 import type {Socket} from 'node:net';
-import {
-    isAbsolute,
-    join,
-    resolve,
-} from 'node:path';
+import {isAbsolute, join, resolve} from 'node:path';
 import {createInterface} from 'node:readline';
 import {promisify} from 'node:util';
 import {resolveNativeProcessSupervisorPath} from '@electron/native-tools/resolveNativeToolsBase';
@@ -38,7 +30,10 @@ function parseProcStartTime(stat: string, bootId: string) {
     if (commandEnd < 0) {
         return null;
     }
-    const fields = stat.slice(commandEnd + 2).trim().split(/\s+/u);
+    const fields = stat
+        .slice(commandEnd + 2)
+        .trim()
+        .split(/\s+/u);
     // The slice starts at field 3 (state), while starttime is field 22.
     return fields[19] === undefined ? null : `${bootId.trim()}:${fields[19]}`;
 }
@@ -50,7 +45,7 @@ async function execFileForIdentity(
         env?: NodeJS.ProcessEnv;
         timeout: number;
         maxBuffer: number;
-        windowsHide?: boolean
+        windowsHide?: boolean;
     },
 ) {
     // Keep the child-process inspection lazy. The normal Linux path uses
@@ -72,10 +67,7 @@ function readLinuxStartTime(pid: number) {
 async function readLinuxProcessIdentity(pid: number): Promise<IProcessIdentity | null> {
     try {
         const startTime = readLinuxStartTime(pid);
-        const [
-            commandLine,
-            executablePath,
-        ] = await Promise.all([
+        const [commandLine, executablePath] = await Promise.all([
             readFile(`/proc/${String(pid)}/cmdline`),
             readlink(`/proc/${String(pid)}/exe`),
         ]);
@@ -109,7 +101,7 @@ interface INativeIdentityHost {
 let nativeIdentityHost: INativeIdentityHost | null = null;
 
 function queryNativeIdentityHost(command: string) {
-    return new Promise<string | null>(resolveAnswer => {
+    return new Promise<string | null>((resolveAnswer) => {
         if (nativeIdentityHost === null) {
             const {existsSync} = process.getBuiltinModule('node:fs');
             const supervisorPath = resolveNativeProcessSupervisorPath(import.meta.dirname, {exists: existsSync});
@@ -118,11 +110,7 @@ function queryNativeIdentityHost(command: string) {
                 return;
             }
             const child = process.getBuiltinModule('node:child_process').spawn(supervisorPath, ['--process-start-time-host'], {
-                stdio: [
-                    'pipe',
-                    'pipe',
-                    'ignore',
-                ],
+                stdio: ['pipe', 'pipe', 'ignore'],
                 windowsHide: true,
             });
             const lines = createInterface({input: child.stdout});
@@ -130,15 +118,19 @@ function queryNativeIdentityHost(command: string) {
                 child,
                 answers: [],
                 end: () => {
-                    if (nativeIdentityHost === started) {nativeIdentityHost = null;}
+                    if (nativeIdentityHost === started) {
+                        nativeIdentityHost = null;
+                    }
                     lines.close();
-                    started.answers.splice(0).forEach(answer => answer(null));
+                    started.answers.splice(0).forEach((answer) => answer(null));
                     child.kill();
                 },
             };
-            lines.on('line', line => {
+            lines.on('line', (line) => {
                 started.answers.shift()?.(line.trim());
-                if (started.answers.length === 0) {(child.stdout as Socket).unref();}
+                if (started.answers.length === 0) {
+                    (child.stdout as Socket).unref();
+                }
             });
             child.once('error', started.end).once('close', started.end);
             child.stdin.once('error', started.end);
@@ -178,12 +170,12 @@ function parseNativeProcessIdentity(line: string | null): IProcessIdentity | nul
         const rawArguments = record.arguments;
         const startTime = record.startTime;
         if (
-            typeof executablePath !== 'string'
-            || !isAbsolute(executablePath)
-            || !Array.isArray(rawArguments)
-            || !rawArguments.every((arg): arg is string => typeof arg === 'string')
-            || typeof startTime !== 'string'
-            || startTime.length === 0
+            typeof executablePath !== 'string' ||
+            !isAbsolute(executablePath) ||
+            !Array.isArray(rawArguments) ||
+            !rawArguments.every((arg): arg is string => typeof arg === 'string') ||
+            typeof startTime !== 'string' ||
+            startTime.length === 0
         ) {
             return null;
         }
@@ -244,7 +236,7 @@ let ownStartTime: Promise<string | null> | null = null;
 
 /** This process's creation time, read from the OS once. Null when it cannot be read. */
 export function getOwnStartTime() {
-    ownStartTime ??= readProcessStartTime(process.pid).then(startTime => (startTime === '' || startTime === 'denied' ? null : startTime));
+    ownStartTime ??= readProcessStartTime(process.pid).then((startTime) => (startTime === '' || startTime === 'denied' ? null : startTime));
     return ownStartTime;
 }
 
@@ -285,24 +277,30 @@ export function startTimesMatch(recorded: string, observed: string, platform = p
 // open. A failure keeps it held.
 async function isProfileHeld(userDataPath: string) {
     if (process.platform === 'win32') {
-        return access(join(userDataPath, 'lockfile')).then(() => true, (error: NodeJS.ErrnoException) => error.code !== 'ENOENT');
+        return access(join(userDataPath, 'lockfile')).then(
+            () => true,
+            (error: NodeJS.ErrnoException) => error.code !== 'ENOENT',
+        );
     }
-    const socketPath = await readlink(join(userDataPath, 'SingletonSocket')).catch((error: NodeJS.ErrnoException) => error.code === 'ENOENT' ? '' : null);
+    const socketPath = await readlink(join(userDataPath, 'SingletonSocket')).catch((error: NodeJS.ErrnoException) =>
+        error.code === 'ENOENT' ? '' : null,
+    );
     if (socketPath === '' || socketPath === null) {
         return socketPath === null;
     }
     try {
-        const boundSockets = process.platform === 'linux'
-            ? process.getBuiltinModule('node:fs').readFileSync('/proc/net/unix', 'utf8')
-            : String((await execFileForIdentity('/usr/sbin/netstat', [
-                '-f',
-                'unix',
-                '-an',
-            ], {
-                timeout: 2_000,
-                maxBuffer: 8 * 1024 * 1024,
-            })).stdout);
-        return boundSockets.split('\n').some(line => line.trimEnd().endsWith(` ${socketPath}`));
+        const boundSockets =
+            process.platform === 'linux'
+                ? process.getBuiltinModule('node:fs').readFileSync('/proc/net/unix', 'utf8')
+                : String(
+                      (
+                          await execFileForIdentity('/usr/sbin/netstat', ['-f', 'unix', '-an'], {
+                              timeout: 2_000,
+                              maxBuffer: 8 * 1024 * 1024,
+                          })
+                      ).stdout,
+                  );
+        return boundSockets.split('\n').some((line) => line.trimEnd().endsWith(` ${socketPath}`));
     } catch {
         return true;
     }
@@ -318,7 +316,7 @@ export const OWN_PROFILE = 'own';
 // run of this process's own could still be on; another profile's lock decides
 // for it; an unknown one is kept.
 export async function isRecordedProcessRunning(pid: number, startTime: string | null | undefined, profile?: string) {
-    const observed = typeof startTime === 'string' ? await readProcessStartTime(pid) : (isProcessAlive(pid) ? null : '');
+    const observed = typeof startTime === 'string' ? await readProcessStartTime(pid) : isProcessAlive(pid) ? null : '';
     if (observed === '') {
         return false;
     }

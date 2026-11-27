@@ -1,21 +1,7 @@
-import {
-    rm,
-    stat,
-} from 'node:fs/promises';
-import type {
-    IScanCleanupRasterRenderLimits,
-    TScanCleanupRenderPage,
-    TScanCleanupRunCommand,
-} from '@evb/scan-cleanup/core/types';
-import {
-    readPngDimensions,
-    readPpmDimensions,
-    writePngFromPpm,
-} from '@evb/scan-cleanup/core/rasterLayerDimensions';
-import {
-    SCAN_CLEANUP_MAX_BILEVEL_PIXELS,
-    SCAN_CLEANUP_MAX_DIMENSION_PX,
-} from '@evb/scan-cleanup/core/policy/effectiveOptions';
+import {rm, stat} from 'node:fs/promises';
+import type {IScanCleanupRasterRenderLimits, TScanCleanupRenderPage, TScanCleanupRunCommand} from '@evb/scan-cleanup/core/types';
+import {readPngDimensions, readPpmDimensions, writePngFromPpm} from '@evb/scan-cleanup/core/rasterLayerDimensions';
+import {SCAN_CLEANUP_MAX_BILEVEL_PIXELS, SCAN_CLEANUP_MAX_DIMENSION_PX} from '@evb/scan-cleanup/core/policy/effectiveOptions';
 
 const PDFTOPPM_TIMEOUT_MS = 3 * 60 * 1000;
 const DEFAULT_RASTER_LIMITS = {
@@ -27,22 +13,17 @@ function validateRenderLimits(limits: IScanCleanupRasterRenderLimits | undefined
     if (limits === undefined) {
         return;
     }
-    for (const [
-        label,
-        value,
-    ] of Object.entries(limits)) {
+    for (const [label, value] of Object.entries(limits)) {
         if (!Number.isSafeInteger(value) || value < 1) {
             throw new TypeError(`Poppler raster ${label} must be a positive safe integer`);
         }
     }
     if (
-        limits.expectedWidthPx > limits.maxDimensionPx
-        || limits.expectedHeightPx > limits.maxDimensionPx
-        || limits.expectedWidthPx * limits.expectedHeightPx > limits.maxPixels
+        limits.expectedWidthPx > limits.maxDimensionPx ||
+        limits.expectedHeightPx > limits.maxDimensionPx ||
+        limits.expectedWidthPx * limits.expectedHeightPx > limits.maxPixels
     ) {
-        throw new RangeError(
-            `Poppler raster ${String(limits.expectedWidthPx)}x${String(limits.expectedHeightPx)} exceeds limits`,
-        );
+        throw new RangeError(`Poppler raster ${String(limits.expectedWidthPx)}x${String(limits.expectedHeightPx)} exceeds limits`);
     }
 }
 
@@ -55,18 +36,11 @@ function validateCrop(crop: Parameters<TScanCleanupRenderPage>[8]) {
     if (crop === undefined) {
         return;
     }
-    for (const field of [
-        'x',
-        'y',
-        'width',
-        'height',
-    ] as const) {
+    for (const field of ['x', 'y', 'width', 'height'] as const) {
         const value = crop[field];
         const minimum = field === 'x' || field === 'y' ? 0 : 1;
         if (!Number.isSafeInteger(value) || value < minimum) {
-            throw new TypeError(
-                `Poppler pixel crop ${field} must be a ${minimum === 0 ? 'non-negative' : 'positive'} safe integer`,
-            );
+            throw new TypeError(`Poppler pixel crop ${field} must be a ${minimum === 0 ? 'non-negative' : 'positive'} safe integer`);
         }
     }
 }
@@ -87,8 +61,7 @@ async function renderPage(
         limits,
         renderBox,
         annotations,
-    ]: Parameters<TScanCleanupRenderPage
-    >,
+    ]: Parameters<TScanCleanupRenderPage>,
     onTerminationProof?: (proof: Promise<boolean>) => void,
 ) {
     validateCrop(crop);
@@ -99,10 +72,7 @@ async function renderPage(
     const commandArgs = [
         ...(annotations === 'exclude' ? ['-hide-annotations'] : []),
         ...(renderBox === 'mediabox' ? [] : ['-cropbox']),
-        ...(limits?.scaleToFitPx === undefined ? [] : [
-            '-scale-to',
-            String(limits.scaleToFitPx),
-        ]),
+        ...(limits?.scaleToFitPx === undefined ? [] : ['-scale-to', String(limits.scaleToFitPx)]),
         '-r',
         String(dpi),
         '-f',
@@ -112,21 +82,9 @@ async function renderPage(
         '-singlefile',
     ];
     if (crop !== undefined) {
-        commandArgs.push(
-            '-x',
-            String(crop.x),
-            '-y',
-            String(crop.y),
-            '-W',
-            String(crop.width),
-            '-H',
-            String(crop.height),
-        );
+        commandArgs.push('-x', String(crop.x), '-y', String(crop.y), '-W', String(crop.width), '-H', String(crop.height));
     }
-    commandArgs.push(
-        sourcePdfPath,
-        outputPath.replace(format === 'png' ? /\.png$/u : /\.ppm$/u, ''),
-    );
+    commandArgs.push(sourcePdfPath, outputPath.replace(format === 'png' ? /\.png$/u : /\.ppm$/u, ''));
     await runCommand(paths.pdftoppmBinary, commandArgs, {
         commandLabel: `pdftoppm(page=${String(pageNumber)},dpi=${String(dpi)})`,
         timeoutMs: PDFTOPPM_TIMEOUT_MS,
@@ -156,7 +114,7 @@ export function createScanCleanupRenderers(
     chainProof: (
         outer: ((proof: Promise<boolean>) => void) | undefined,
         own: (proof: Promise<boolean>) => void,
-    ) => (proof: Promise<boolean>) => void = (outer, own) => proof => {
+    ) => (proof: Promise<boolean>) => void = (outer, own) => (proof) => {
         own(proof);
         outer?.(proof);
     },
@@ -169,49 +127,50 @@ export function createScanCleanupRenderers(
         if (format === 'ppm' && !(await stat(outputPath)).isFile()) {
             return;
         }
-        const dimensions = format === 'png'
-            ? await readPngDimensions(outputPath)
-            : await readPpmDimensions(outputPath);
+        const dimensions = format === 'png' ? await readPngDimensions(outputPath) : await readPpmDimensions(outputPath);
         const maxDimensionPx = limits?.maxDimensionPx ?? fallbackLimits.maxDimensionPx;
         const maxPixels = limits?.maxPixels ?? fallbackLimits.maxPixels;
-        if (
-            dimensions.width > maxDimensionPx
-            || dimensions.height > maxDimensionPx
-            || dimensions.width * dimensions.height > maxPixels
-        ) {
-            throw new RangeError(
-                `${format.toUpperCase()} raster ${String(dimensions.width)}x${String(dimensions.height)} exceeds limits`,
-            );
+        if (dimensions.width > maxDimensionPx || dimensions.height > maxDimensionPx || dimensions.width * dimensions.height > maxPixels) {
+            throw new RangeError(`${format.toUpperCase()} raster ${String(dimensions.width)}x${String(dimensions.height)} exceeds limits`);
         }
     };
-    const createRenderer = (format: 'png' | 'ppm'): TScanCleanupRenderPage => async (...args) => {
-        const outputPath = args[4];
-        const signal = args[7];
-        let terminationProof: Promise<boolean> | undefined;
-        const cleanup = () => Promise.all([
-            outputPath,
-            ...(format === 'png' ? [popplerPpmPath(outputPath)] : []),
-        ].map(path => rm(path, {force: true}).catch(() => undefined)));
-        try {
-            await renderPage(runCommand, format, args, chainProof(args[12], proof => {
-                terminationProof = proof;
-            }));
-            signal?.throwIfAborted();
-            await validateRenderedDimensions(format, outputPath, args[9]);
-            signal?.throwIfAborted();
-        } catch (error) {
-            if (retainOutputOnFailure(error)) {
-                // A bounded rejection does not prove the producer stopped. Use
-                // the runner's proof, never a second timer or close-event guess.
-                void terminationProof?.then(proven => (proven ? cleanup() : undefined)).catch(() => undefined);
-            } else {
-                // Best-effort removal must preserve the useful renderer error.
-                await cleanup();
-            }
+    const createRenderer =
+        (format: 'png' | 'ppm'): TScanCleanupRenderPage =>
+        async (...args) => {
+            const outputPath = args[4];
+            const signal = args[7];
+            let terminationProof: Promise<boolean> | undefined;
+            const cleanup = () =>
+                Promise.all(
+                    [outputPath, ...(format === 'png' ? [popplerPpmPath(outputPath)] : [])].map((path) =>
+                        rm(path, {force: true}).catch(() => undefined),
+                    ),
+                );
+            try {
+                await renderPage(
+                    runCommand,
+                    format,
+                    args,
+                    chainProof(args[12], (proof) => {
+                        terminationProof = proof;
+                    }),
+                );
+                signal?.throwIfAborted();
+                await validateRenderedDimensions(format, outputPath, args[9]);
+                signal?.throwIfAborted();
+            } catch (error) {
+                if (retainOutputOnFailure(error)) {
+                    // A bounded rejection does not prove the producer stopped. Use
+                    // the runner's proof, never a second timer or close-event guess.
+                    void terminationProof?.then((proven) => (proven ? cleanup() : undefined)).catch(() => undefined);
+                } else {
+                    // Best-effort removal must preserve the useful renderer error.
+                    await cleanup();
+                }
 
-            throw error;
-        }
-    };
+                throw error;
+            }
+        };
     return {
         renderPage: createRenderer('png'),
         renderPagePpm: createRenderer('ppm'),

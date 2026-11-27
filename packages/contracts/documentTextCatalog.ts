@@ -1,29 +1,26 @@
-import type { TPageNumber } from '@contracts/pageNumbers';
-import { parsePageNumber } from '@contracts/pageNumbers';
+import type {TPageNumber} from '@contracts/pageNumbers';
+import {parsePageNumber} from '@contracts/pageNumbers';
 
-import type { IOcrWord } from '@contracts/shared';
-import { isOcrWord } from '@contracts/shared';
-import {
-    parseDocumentRevisionToken,
-    type TDocumentRevisionToken,
-} from '@contracts/documentRevision';
-import {
-    isOneOf,
-    isRecord,
-    isStringArray,
-} from '@contracts/runtimeGuards';
+import type {IOcrWord} from '@contracts/shared';
+import {isOcrWord} from '@contracts/shared';
+import {parseDocumentRevisionToken, type TDocumentRevisionToken} from '@contracts/documentRevision';
+import {isOneOf, isRecord, isStringArray} from '@contracts/runtimeGuards';
 
 export type TDocumentTextSource = 'pdf-native' | 'foreign-ocr' | 'evb-ocr';
 
 /** A run of a page's text: across the page, or set in columns, each a list of paragraphs. */
-export interface IDocumentTextRegion {readonly columns: ReadonlyArray<readonly string[]>;}
+export interface IDocumentTextRegion {
+    readonly columns: ReadonlyArray<readonly string[]>;
+}
 
 /**
  * How a page sets its text, read from where an EVB OCR layer places its
  * lines: its regions from top to bottom, each column's paragraphs joined
  * from its lines.
  */
-export interface IDocumentTextPageLayout {readonly regions: readonly IDocumentTextRegion[];}
+export interface IDocumentTextPageLayout {
+    readonly regions: readonly IDocumentTextRegion[];
+}
 
 export interface IDocumentTextCatalogPage {
     readonly pageNumber: TPageNumber;
@@ -35,7 +32,7 @@ export interface IDocumentTextCatalogPage {
         readonly dpi: number;
         readonly imagePx: {
             readonly w: number;
-            readonly h: number
+            readonly h: number;
         };
     };
     readonly languages?: readonly string[];
@@ -94,30 +91,32 @@ const MAX_DOCUMENT_TEXT_PAGE_LAYOUT_REGIONS = 4_096;
 const MAX_DOCUMENT_TEXT_REGION_COLUMNS = 8;
 
 function decodeDocumentTextPageLayout(candidate: unknown): IDocumentTextPageLayout | null {
-    if (!isRecord(candidate) || !Array.isArray(candidate.regions)
-        || candidate.regions.length > MAX_DOCUMENT_TEXT_PAGE_LAYOUT_REGIONS) {
+    if (!isRecord(candidate) || !Array.isArray(candidate.regions) || candidate.regions.length > MAX_DOCUMENT_TEXT_PAGE_LAYOUT_REGIONS) {
         return null;
     }
     const regions: IDocumentTextRegion[] = [];
     let textLength = 0;
     for (const region of candidate.regions) {
-        if (!isRecord(region) || !Array.isArray(region.columns) || region.columns.length === 0
-            || region.columns.length > MAX_DOCUMENT_TEXT_REGION_COLUMNS || !region.columns.every(isStringArray)) {
+        if (
+            !isRecord(region) ||
+            !Array.isArray(region.columns) ||
+            region.columns.length === 0 ||
+            region.columns.length > MAX_DOCUMENT_TEXT_REGION_COLUMNS ||
+            !region.columns.every(isStringArray)
+        ) {
             return null;
         }
-        const columns = region.columns.map(column => [...column]);
+        const columns = region.columns.map((column) => [...column]);
         textLength += columns.flat().reduce((length, paragraph) => length + paragraph.length, 0);
-        if (textLength > MAX_DOCUMENT_TEXT_CATALOG_PAGE_TEXT_LENGTH) {return null;}
+        if (textLength > MAX_DOCUMENT_TEXT_CATALOG_PAGE_TEXT_LENGTH) {
+            return null;
+        }
         regions.push({columns});
     }
     return {regions};
 }
 
-const DOCUMENT_TEXT_SOURCES = [
-    'pdf-native',
-    'foreign-ocr',
-    'evb-ocr',
-] as const satisfies readonly TDocumentTextSource[];
+const DOCUMENT_TEXT_SOURCES = ['pdf-native', 'foreign-ocr', 'evb-ocr'] as const satisfies readonly TDocumentTextSource[];
 
 function isPositiveFinite(value: unknown): value is number {
     return typeof value === 'number' && Number.isFinite(value) && value > 0;
@@ -131,26 +130,21 @@ function decodeDocumentTextCatalogPage(
     if (!isRecord(candidate)) {
         return null;
     }
-    const pageNumber = typeof candidate.pageNumber === 'number'
-        ? parsePageNumber(candidate.pageNumber, pageCount)
-        : null;
+    const pageNumber = typeof candidate.pageNumber === 'number' ? parsePageNumber(candidate.pageNumber, pageCount) : null;
     if (
-        pageNumber === null
-        || pageNumbers?.has(pageNumber) === true
-        || typeof candidate.text !== 'string'
-        || candidate.text.length > MAX_DOCUMENT_TEXT_CATALOG_PAGE_TEXT_LENGTH
-        || !isOneOf(DOCUMENT_TEXT_SOURCES, candidate.source)
-        || typeof candidate.contentDigest !== 'string'
-        || (candidate.generation !== undefined && typeof candidate.generation !== 'string')
-        || (candidate.words !== undefined && (
-            !Array.isArray(candidate.words)
-            || candidate.words.length > MAX_DOCUMENT_TEXT_CATALOG_PAGE_WORDS
-            || !candidate.words.every(isOcrWord)
-        ))
-        || (candidate.languages !== undefined && (
-            !isStringArray(candidate.languages)
-            || candidate.languages.some(language => language.length === 0)
-        ))
+        pageNumber === null ||
+        pageNumbers?.has(pageNumber) === true ||
+        typeof candidate.text !== 'string' ||
+        candidate.text.length > MAX_DOCUMENT_TEXT_CATALOG_PAGE_TEXT_LENGTH ||
+        !isOneOf(DOCUMENT_TEXT_SOURCES, candidate.source) ||
+        typeof candidate.contentDigest !== 'string' ||
+        (candidate.generation !== undefined && typeof candidate.generation !== 'string') ||
+        (candidate.words !== undefined &&
+            (!Array.isArray(candidate.words) ||
+                candidate.words.length > MAX_DOCUMENT_TEXT_CATALOG_PAGE_WORDS ||
+                !candidate.words.every(isOcrWord))) ||
+        (candidate.languages !== undefined &&
+            (!isStringArray(candidate.languages) || candidate.languages.some((language) => language.length === 0)))
     ) {
         return null;
     }
@@ -161,11 +155,11 @@ function decodeDocumentTextCatalogPage(
     let render: IDocumentTextCatalogPage['render'];
     if (candidate.render !== undefined) {
         if (
-            !isRecord(candidate.render)
-            || !isPositiveFinite(candidate.render.dpi)
-            || !isRecord(candidate.render.imagePx)
-            || !isPositiveFinite(candidate.render.imagePx.w)
-            || !isPositiveFinite(candidate.render.imagePx.h)
+            !isRecord(candidate.render) ||
+            !isPositiveFinite(candidate.render.dpi) ||
+            !isRecord(candidate.render.imagePx) ||
+            !isPositiveFinite(candidate.render.imagePx.w) ||
+            !isPositiveFinite(candidate.render.imagePx.h)
         ) {
             return null;
         }
@@ -197,12 +191,12 @@ export function decodeDocumentTextSnapshot(value: unknown): IDocumentTextSnapsho
     }
     const documentRevision = parseDocumentRevisionToken(value.documentRevision);
     if (
-        documentRevision === null
-        || !Number.isSafeInteger(value.pageCount)
-        || typeof value.pageCount !== 'number'
-        || value.pageCount < 0
-        || !Array.isArray(value.pages)
-        || typeof value.contentDigest !== 'string'
+        documentRevision === null ||
+        !Number.isSafeInteger(value.pageCount) ||
+        typeof value.pageCount !== 'number' ||
+        value.pageCount < 0 ||
+        !Array.isArray(value.pages) ||
+        typeof value.contentDigest !== 'string'
     ) {
         return null;
     }
@@ -236,20 +230,20 @@ export function decodeDocumentTextCatalogWindow(value: unknown): IDocumentTextCa
     }
     const documentRevision = parseDocumentRevisionToken(value.documentRevision);
     if (
-        documentRevision === null
-        || typeof value.pageCount !== 'number'
-        || !Number.isSafeInteger(value.pageCount)
-        || value.pageCount < 0
-        || typeof value.firstPage !== 'number'
-        || !Number.isSafeInteger(value.firstPage)
-        || value.firstPage < 1
-        || typeof value.lastPage !== 'number'
-        || !Number.isSafeInteger(value.lastPage)
-        || value.lastPage < value.firstPage
-        || value.lastPage > value.pageCount
-        || value.lastPage - value.firstPage + 1 > MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES
-        || !Array.isArray(value.pages)
-        || typeof value.contentDigest !== 'string'
+        documentRevision === null ||
+        typeof value.pageCount !== 'number' ||
+        !Number.isSafeInteger(value.pageCount) ||
+        value.pageCount < 0 ||
+        typeof value.firstPage !== 'number' ||
+        !Number.isSafeInteger(value.firstPage) ||
+        value.firstPage < 1 ||
+        typeof value.lastPage !== 'number' ||
+        !Number.isSafeInteger(value.lastPage) ||
+        value.lastPage < value.firstPage ||
+        value.lastPage > value.pageCount ||
+        value.lastPage - value.firstPage + 1 > MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES ||
+        !Array.isArray(value.pages) ||
+        typeof value.contentDigest !== 'string'
     ) {
         return null;
     }
@@ -284,12 +278,7 @@ export function decodeDocumentOcrAvailability(value: unknown): IDocumentOcrAvail
         return null;
     }
     const documentRevision = parseDocumentRevisionToken(value.documentRevision);
-    if (
-        documentRevision === null
-        || typeof value.pageCount !== 'number'
-        || !Number.isSafeInteger(value.pageCount)
-        || value.pageCount < 0
-    ) {
+    if (documentRevision === null || typeof value.pageCount !== 'number' || !Number.isSafeInteger(value.pageCount) || value.pageCount < 0) {
         return null;
     }
 
@@ -300,9 +289,7 @@ export function decodeDocumentOcrAvailability(value: unknown): IDocumentOcrAvail
         }
         const pageNumbers = new Set<TPageNumber>();
         for (const pageNumber of value.pageNumbers) {
-            const parsedPageNumber = typeof pageNumber === 'number'
-                ? parsePageNumber(pageNumber, value.pageCount)
-                : null;
+            const parsedPageNumber = typeof pageNumber === 'number' ? parsePageNumber(pageNumber, value.pageCount) : null;
             if (parsedPageNumber === null || pageNumbers.has(parsedPageNumber)) {
                 return null;
             }
@@ -316,13 +303,13 @@ export function decodeDocumentOcrAvailability(value: unknown): IDocumentOcrAvail
     }
 
     if (
-        typeof value.mappedPageCount !== 'number'
-        || !Number.isSafeInteger(value.mappedPageCount)
-        || value.mappedPageCount < 0
-        || value.mappedPageCount > value.pageCount
-        || !Array.isArray(value.pageRanges)
-        || value.pageRanges.length > MAX_DOCUMENT_OCR_AVAILABILITY_RANGES
-        || (value.rangesComplete !== undefined && typeof value.rangesComplete !== 'boolean')
+        typeof value.mappedPageCount !== 'number' ||
+        !Number.isSafeInteger(value.mappedPageCount) ||
+        value.mappedPageCount < 0 ||
+        value.mappedPageCount > value.pageCount ||
+        !Array.isArray(value.pageRanges) ||
+        value.pageRanges.length > MAX_DOCUMENT_OCR_AVAILABILITY_RANGES ||
+        (value.rangesComplete !== undefined && typeof value.rangesComplete !== 'boolean')
     ) {
         return null;
     }
@@ -332,16 +319,16 @@ export function decodeDocumentOcrAvailability(value: unknown): IDocumentOcrAvail
     let previousLastPage = 0;
     for (const candidate of value.pageRanges) {
         if (
-            !isRecord(candidate)
-            || typeof candidate.firstPage !== 'number'
-            || !Number.isSafeInteger(candidate.firstPage)
-            || candidate.firstPage < 1
-            || candidate.firstPage > value.pageCount
-            || typeof candidate.lastPage !== 'number'
-            || !Number.isSafeInteger(candidate.lastPage)
-            || candidate.lastPage < candidate.firstPage
-            || candidate.lastPage > value.pageCount
-            || candidate.firstPage <= previousLastPage
+            !isRecord(candidate) ||
+            typeof candidate.firstPage !== 'number' ||
+            !Number.isSafeInteger(candidate.firstPage) ||
+            candidate.firstPage < 1 ||
+            candidate.firstPage > value.pageCount ||
+            typeof candidate.lastPage !== 'number' ||
+            !Number.isSafeInteger(candidate.lastPage) ||
+            candidate.lastPage < candidate.firstPage ||
+            candidate.lastPage > value.pageCount ||
+            candidate.firstPage <= previousLastPage
         ) {
             return null;
         }
@@ -373,17 +360,15 @@ export function decodeDocumentOcrPageSnapshot(value: unknown): IDocumentOcrPageS
     }
     const documentRevision = parseDocumentRevisionToken(value.documentRevision);
     if (
-        documentRevision === null
-        || typeof value.pageCount !== 'number'
-        || !Number.isSafeInteger(value.pageCount)
-        || value.pageCount < 0
-        || (value.page !== null && value.page === undefined)
+        documentRevision === null ||
+        typeof value.pageCount !== 'number' ||
+        !Number.isSafeInteger(value.pageCount) ||
+        value.pageCount < 0 ||
+        (value.page !== null && value.page === undefined)
     ) {
         return null;
     }
-    const page = value.page === null
-        ? null
-        : decodeDocumentTextCatalogPage(value.page, value.pageCount);
+    const page = value.page === null ? null : decodeDocumentTextCatalogPage(value.page, value.pageCount);
     if (value.page !== null && (page === null || page.source !== 'evb-ocr')) {
         return null;
     }

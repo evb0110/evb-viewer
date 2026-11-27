@@ -1,8 +1,8 @@
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { generateElectronBuilderResources } from '@scripts/generateElectronBuilderResources';
-import { generateFirstUnsupportedAnnotationCharacter } from '@scripts/generateFirstUnsupportedAnnotationCharacter';
-import { generateReleaseTargetManifest } from '@scripts/generateReleaseTargetManifest';
+import {fileURLToPath} from 'node:url';
+import {generateElectronBuilderResources} from '@scripts/generateElectronBuilderResources';
+import {generateFirstUnsupportedAnnotationCharacter} from '@scripts/generateFirstUnsupportedAnnotationCharacter';
+import {generateReleaseTargetManifest} from '@scripts/generateReleaseTargetManifest';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -17,19 +17,20 @@ export async function generateBuildArtifacts({
         return false;
     }
     const isVercelBuild = env.VERCEL === '1' || env.NOW_BUILDER === '1';
-    const changed = await Promise.all([...isVercelBuild
-        ? []
-        : [
-            generateElectronBuilderResources({projectRoot: targetRoot}),
-            generateFirstUnsupportedAnnotationCharacter({projectRoot: targetRoot}),
-            generateReleaseTargetManifest({projectRoot: targetRoot}),
-        ]]);
+    const changed = await Promise.all([
+        ...(isVercelBuild
+            ? []
+            : [
+                  generateElectronBuilderResources({projectRoot: targetRoot}),
+                  generateFirstUnsupportedAnnotationCharacter({projectRoot: targetRoot}),
+                  generateReleaseTargetManifest({projectRoot: targetRoot}),
+              ]),
+    ]);
     return changed.some(Boolean);
 }
 
-const isDirectCliRun = process.argv[1] !== undefined
-    && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
+const isDirectCliRun = process.argv[1] !== undefined && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
 
-if (isDirectCliRun && await generateBuildArtifacts()) {
+if (isDirectCliRun && (await generateBuildArtifacts())) {
     console.info('Generated build artifacts.');
 }

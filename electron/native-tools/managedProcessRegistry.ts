@@ -1,15 +1,6 @@
 import {randomUUID} from 'node:crypto';
-import {
-    mkdir,
-    readFile,
-    readdir,
-    unlink,
-    writeFile,
-} from 'node:fs/promises';
-import {
-    isAbsolute,
-    join, resolve,
-} from 'node:path';
+import {mkdir, readFile, readdir, unlink, writeFile} from 'node:fs/promises';
+import {isAbsolute, join, resolve} from 'node:path';
 import {removeManagedScratchTempDir} from '@electron/utils/managedScratchTemp';
 import {
     getOwnStartTime,
@@ -21,10 +12,7 @@ import {
     startTimesMatch,
     type IProcessIdentity,
 } from '@electron/utils/processIdentity';
-import {
-    isProcessTreeAlive,
-    terminateProcessTree,
-} from '@electron/utils/processTree';
+import {isProcessTreeAlive, terminateProcessTree} from '@electron/utils/processTree';
 import * as v from 'valibot';
 
 // Keep the marker path stable so newer builds can reap children recorded by older builds.
@@ -65,16 +53,19 @@ const positivePidSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(1));
 const nonEmptyStringSchema = v.pipe(v.string(), v.minLength(1));
 
 // An entry proves its child by the child's start time, or by the manifest its command names.
-const managedProcessRegistryEntrySchema = v.pipe(v.object({
-    version: v.literal(MANAGED_PROCESS_REGISTRY_VERSION),
-    pid: positivePidSchema,
-    ownerPid: positivePidSchema,
-    binaryPath: nonEmptyStringSchema,
-    manifestPath: v.exactOptional(nonEmptyStringSchema),
-    scratchPath: v.exactOptional(v.pipe(nonEmptyStringSchema, v.check(isAbsolute))),
-    processStartTime: v.exactOptional(v.string()),
-    ownerStartTime: v.exactOptional(v.string()),
-}), v.check(entry => entry.manifestPath !== undefined || entry.processStartTime !== undefined));
+const managedProcessRegistryEntrySchema = v.pipe(
+    v.object({
+        version: v.literal(MANAGED_PROCESS_REGISTRY_VERSION),
+        pid: positivePidSchema,
+        ownerPid: positivePidSchema,
+        binaryPath: nonEmptyStringSchema,
+        manifestPath: v.exactOptional(nonEmptyStringSchema),
+        scratchPath: v.exactOptional(v.pipe(nonEmptyStringSchema, v.check(isAbsolute))),
+        processStartTime: v.exactOptional(v.string()),
+        ownerStartTime: v.exactOptional(v.string()),
+    }),
+    v.check((entry) => entry.manifestPath !== undefined || entry.processStartTime !== undefined),
+);
 
 function parseEntry(value: unknown): IManagedProcessRegistryEntry | null {
     const result = v.safeParse(managedProcessRegistryEntrySchema, value);
@@ -88,23 +79,22 @@ function normalizeIdentityPath(path: string, platform: NodeJS.Platform) {
 
 // An older build's child must also carry its recorded manifest, exact TMPDIR
 // environment entry, or creator pid: its older start-time format is not proof.
-function processIdentityMatches(
-    entry: IManagedProcessRegistryEntry,
-    identity: IProcessIdentity,
-    platform: NodeJS.Platform,
-) {
+function processIdentityMatches(entry: IManagedProcessRegistryEntry, identity: IProcessIdentity, platform: NodeJS.Platform) {
     const manifestIndex = identity.arguments.indexOf('--manifest');
-    return normalizeIdentityPath(identity.executablePath, platform) === normalizeIdentityPath(entry.binaryPath, platform)
-        && (entry.processStartTime === undefined
-            || startTimesMatch(entry.processStartTime, identity.startTime, platform)
-            || (!isExactStartTime(entry.processStartTime, platform) && (entry.manifestPath !== undefined
-                || (identity.environment ?? '').split('\0').includes(`TMPDIR=${entry.scratchPath ?? '\0'}`)
-                || identity.parentPid === entry.ownerPid)))
-        && (entry.manifestPath === undefined
-            || (manifestIndex >= 0
-                && identity.arguments[manifestIndex + 1] !== undefined
-                && normalizeIdentityPath(identity.arguments[manifestIndex + 1]!, platform)
-                    === normalizeIdentityPath(entry.manifestPath, platform)));
+    return (
+        normalizeIdentityPath(identity.executablePath, platform) === normalizeIdentityPath(entry.binaryPath, platform) &&
+        (entry.processStartTime === undefined ||
+            startTimesMatch(entry.processStartTime, identity.startTime, platform) ||
+            (!isExactStartTime(entry.processStartTime, platform) &&
+                (entry.manifestPath !== undefined ||
+                    (identity.environment ?? '').split('\0').includes(`TMPDIR=${entry.scratchPath ?? '\0'}`) ||
+                    identity.parentPid === entry.ownerPid))) &&
+        (entry.manifestPath === undefined ||
+            (manifestIndex >= 0 &&
+                identity.arguments[manifestIndex + 1] !== undefined &&
+                normalizeIdentityPath(identity.arguments[manifestIndex + 1]!, platform) ===
+                    normalizeIdentityPath(entry.manifestPath, platform)))
+    );
 }
 
 export function getManagedProcessRegistryDirectory(namespacePath: string) {
@@ -127,17 +117,16 @@ export async function registerManagedProcess(
     const processStartTime = await readProcessStartTime(input.pid);
     // Checked after the read: if the child had been reaped before it, the read
     // may name a process that reused the pid. A child that is gone needs no entry.
-    if (input.hasExited()) {return null;}
+    if (input.hasExited()) {
+        return null;
+    }
     if (!processStartTime || processStartTime === 'denied') {
         throw new Error(`Could not prove identity for managed process pid ${String(input.pid)}`);
     }
     const ownerStartTime = await getOwnStartTime();
     const registryDirectory = getManagedProcessRegistryDirectory(namespacePath);
     await mkdir(registryDirectory, {recursive: true});
-    const entryPath = join(
-        registryDirectory,
-        `${MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX}${randomUUID()}.json`,
-    );
+    const entryPath = join(registryDirectory, `${MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX}${randomUUID()}.json`);
     const entry: IManagedProcessRegistryEntry = {
         version: 1,
         pid: input.pid,
@@ -155,7 +144,7 @@ export async function registerManagedProcess(
     return {
         entryPath,
         unregister: async () => {
-            await unlink(entryPath).catch(error => {
+            await unlink(entryPath).catch((error) => {
                 if (!isNotFound(error)) {
                     throw error;
                 }
@@ -172,19 +161,21 @@ async function readRegistryEntries(registryDirectory: string) {
         if (isNotFound(error)) {
             return [] as Array<{
                 entryPath: string;
-                entry: IManagedProcessRegistryEntry
+                entry: IManagedProcessRegistryEntry;
             }>;
         }
         throw error;
     }
     const entries: Array<{
         entryPath: string;
-        entry: IManagedProcessRegistryEntry
+        entry: IManagedProcessRegistryEntry;
     }> = [];
     for (const directoryEntry of directoryEntries) {
-        if (!directoryEntry.isFile()
-            || !directoryEntry.name.startsWith(MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX)
-            || !directoryEntry.name.endsWith('.json')) {
+        if (
+            !directoryEntry.isFile() ||
+            !directoryEntry.name.startsWith(MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX) ||
+            !directoryEntry.name.endsWith('.json')
+        ) {
             continue;
         }
         const entryPath = join(registryDirectory, directoryEntry.name);
@@ -214,10 +205,7 @@ async function readRegistryEntries(registryDirectory: string) {
     return entries;
 }
 
-export async function reapOrphanedManagedProcesses(
-    namespacePath: string,
-    options: IManagedProcessRecoveryOptions = {},
-) {
+export async function reapOrphanedManagedProcesses(namespacePath: string, options: IManagedProcessRecoveryOptions = {}) {
     const registryDirectory = getManagedProcessRegistryDirectory(namespacePath);
     const log = options.log ?? (() => undefined);
     const isProcessAlive = options.isProcessAlive ?? isLiveProcess;
@@ -226,12 +214,10 @@ export async function reapOrphanedManagedProcesses(
     const terminate = options.terminateProcessTree ?? terminateProcessTree;
     const entries = await readRegistryEntries(registryDirectory);
     let reapedCount = 0;
-    for (const {
-        entryPath, entry,
-    } of entries) {
+    for (const {entryPath, entry} of entries) {
         // A child whose process tree is gone gives back its scratch, then its entry.
         const release = async () => {
-            if (entry.scratchPath && !await removeManagedScratchTempDir(entry.scratchPath, 'native-command-', namespacePath)) {
+            if (entry.scratchPath && !(await removeManagedScratchTempDir(entry.scratchPath, 'native-command-', namespacePath))) {
                 log('warn', `Preserved managed process pid ${String(entry.pid)} because its scratch path is outside the namespace`);
                 return false;
             }

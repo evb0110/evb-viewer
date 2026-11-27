@@ -1,32 +1,19 @@
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { IDebugLogEntry } from '@contracts/electronApiCommon';
-import type { TOcrProgressPhase } from '@contracts/electronApiOcr';
-import {
-    isAvailableOcrLanguageCode,
-    type TOcrLanguageCode,
-    type TOcrModelCode,
-} from '@contracts/ocrLanguages';
-import type { IOcrLanguage } from '@contracts/shared';
-import type {
-    TLocale,
-    TTranslationKey,
-} from '@i18n-app';
-import {
-    useClipboard,
-    useTimeoutFn,
-} from '@vueuse/core';
-import type { MaybeRefOrGetter } from 'vue';
-import { useOcr } from '@app/composables/useOcr';
-import { useTypedI18n } from '@app/composables/useTypedI18n';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {IDebugLogEntry} from '@contracts/electronApiCommon';
+import type {TOcrProgressPhase} from '@contracts/electronApiOcr';
+import {isAvailableOcrLanguageCode, type TOcrLanguageCode, type TOcrModelCode} from '@contracts/ocrLanguages';
+import type {IOcrLanguage} from '@contracts/shared';
+import type {TLocale, TTranslationKey} from '@i18n-app';
+import {useClipboard, useTimeoutFn} from '@vueuse/core';
+import type {MaybeRefOrGetter} from 'vue';
+import {useOcr} from '@app/composables/useOcr';
+import {useTypedI18n} from '@app/composables/useTypedI18n';
 import type {IAgentOcrRunOptions} from '@contracts/agentOcr';
 import type {IAgentOcrRunAdmission} from '@app/types/ocrPopupAgentExpose';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { getSettingsCapability } from '@app/utils/getSettingsCapability';
-import type {
-    IOcrSearchablePdfResult,
-    IOcrSettings,
-} from '@app/utils/ocr/ocrTypes';
-import { resolveOcrExportLanguages } from '@app/utils/ocr/resolveOcrExportLanguages';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {getSettingsCapability} from '@app/utils/getSettingsCapability';
+import type {IOcrSearchablePdfResult, IOcrSettings} from '@app/utils/ocr/ocrTypes';
+import {resolveOcrExportLanguages} from '@app/utils/ocr/resolveOcrExportLanguages';
 import {
     applyAgentOcrOptionsToSettings,
     cloneOcrSettingsSnapshot,
@@ -132,18 +119,14 @@ export function resolveOcrLanguageDisplayName(
     locale: TLocale,
     displayNames: Intl.DisplayNames | null = createLanguageDisplayNames(locale),
 ) {
-    const fallbackName = code in OCR_LANGUAGE_ENGLISH_FALLBACK_NAMES
-        ? OCR_LANGUAGE_ENGLISH_FALLBACK_NAMES[code as TOcrLanguageCode]
-        : code;
-    const languageTag = isAvailableOcrLanguageCode(code)
-        ? OCR_LANGUAGE_BCP47_OVERRIDES[code] ?? code
-        : code;
+    const fallbackName = code in OCR_LANGUAGE_ENGLISH_FALLBACK_NAMES ? OCR_LANGUAGE_ENGLISH_FALLBACK_NAMES[code as TOcrLanguageCode] : code;
+    const languageTag = isAvailableOcrLanguageCode(code) ? (OCR_LANGUAGE_BCP47_OVERRIDES[code] ?? code) : code;
     try {
         const localizedName = displayNames?.of(languageTag)?.trim();
         if (
-            localizedName
-            && localizedName.toLocaleLowerCase(locale) !== languageTag.toLocaleLowerCase(locale)
-            && localizedName.toLocaleLowerCase(locale) !== code.toLocaleLowerCase(locale)
+            localizedName &&
+            localizedName.toLocaleLowerCase(locale) !== languageTag.toLocaleLowerCase(locale) &&
+            localizedName.toLocaleLowerCase(locale) !== code.toLocaleLowerCase(locale)
         ) {
             return localizedName;
         }
@@ -168,24 +151,19 @@ function matchesOcrLanguageQuery(
     canonicalQuery: string | null,
     locale: TLocale,
 ) {
-    return haystack.some(candidate => candidate !== null
-        && (
-            candidate.toLocaleLowerCase(locale).includes(normalizedQuery)
-            || (canonicalQuery !== null && candidate === canonicalQuery)
-        ));
+    return haystack.some(
+        (candidate) =>
+            candidate !== null &&
+            (candidate.toLocaleLowerCase(locale).includes(normalizedQuery) || (canonicalQuery !== null && candidate === canonicalQuery)),
+    );
 }
 
-export function findFailedOcrLanguageCodes(
-    languages: readonly IOcrLanguage[],
-    error: string | null,
-) {
+export function findFailedOcrLanguageCodes(languages: readonly IOcrLanguage[], error: string | null) {
     if (!error) {
         return new Set<string>();
     }
     const normalizedError = error.toLocaleLowerCase();
-    return new Set(languages
-        .map(language => language.code)
-        .filter(code => normalizedError.includes(`"${code}"`)));
+    return new Set(languages.map((language) => language.code).filter((code) => normalizedError.includes(`"${code}"`)));
 }
 
 export function buildOcrLanguagePickerItems(
@@ -199,9 +177,7 @@ export function buildOcrLanguagePickerItems(
     const selectedCodes = new Set(groupingSelection);
     const displayNames = createLanguageDisplayNames(locale);
     const normalizedQuery = searchQuery.trim().toLocaleLowerCase(locale);
-    const canonicalQuery = normalizedQuery.length === 0
-        ? null
-        : resolveOcrLanguageShortCode(normalizedQuery) ?? normalizedQuery;
+    const canonicalQuery = normalizedQuery.length === 0 ? null : (resolveOcrLanguageShortCode(normalizedQuery) ?? normalizedQuery);
     const groupOrder: Record<TOcrLanguagePickerGroup, number> = {
         selected: 0,
         installed: 1,
@@ -210,46 +186,47 @@ export function buildOcrLanguagePickerItems(
     };
     return languages
         .map((language) => {
-            const label = displayNameResolver?.(language.code)
-                ?? resolveOcrLanguageDisplayName(language.code, locale, displayNames);
+            const label = displayNameResolver?.(language.code) ?? resolveOcrLanguageDisplayName(language.code, locale, displayNames);
             const group: TOcrLanguagePickerGroup = selectedCodes.has(language.code)
                 ? 'selected'
                 : language.modelState === 'installed'
-                    ? 'installed'
-                    : language.modelState === undefined
-                        ? 'unavailable'
-                        : 'missing';
+                  ? 'installed'
+                  : language.modelState === undefined
+                    ? 'unavailable'
+                    : 'missing';
             return {
                 value: language.code,
                 label,
                 shortCode: resolveOcrLanguageShortCode(language.code),
                 group,
                 modelState: failedLanguageCodes.has(language.code)
-                    ? 'error' as const
+                    ? ('error' as const)
                     : language.modelState === 'installed'
-                        ? 'ready' as const
-                        : language.modelState ?? 'unavailable',
+                      ? ('ready' as const)
+                      : (language.modelState ?? 'unavailable'),
             };
         })
-        .filter(item => normalizedQuery.length === 0
-            || matchesOcrLanguageQuery(
-                [
-                    item.value,
-                    item.shortCode,
-                    item.label,
-                    item.value in OCR_LANGUAGE_ENGLISH_FALLBACK_NAMES
-                        ? OCR_LANGUAGE_ENGLISH_FALLBACK_NAMES[item.value]
-                        : null,
-                ],
-                normalizedQuery,
-                canonicalQuery,
-                locale,
-            ))
-        .sort((left, right) => (
-            groupOrder[left.group] - groupOrder[right.group]
-            || left.label.localeCompare(right.label, locale)
-            || left.value.localeCompare(right.value)
-        ));
+        .filter(
+            (item) =>
+                normalizedQuery.length === 0 ||
+                matchesOcrLanguageQuery(
+                    [
+                        item.value,
+                        item.shortCode,
+                        item.label,
+                        item.value in OCR_LANGUAGE_ENGLISH_FALLBACK_NAMES ? OCR_LANGUAGE_ENGLISH_FALLBACK_NAMES[item.value] : null,
+                    ],
+                    normalizedQuery,
+                    canonicalQuery,
+                    locale,
+                ),
+        )
+        .sort(
+            (left, right) =>
+                groupOrder[left.group] - groupOrder[right.group] ||
+                left.label.localeCompare(right.label, locale) ||
+                left.value.localeCompare(right.value),
+        );
 }
 
 export function shouldShowOcrLanguageSearch(languageCount: number) {
@@ -289,9 +266,7 @@ const ocrProgressStageKeys = {
 } as const satisfies Record<Exclude<TOcrProgressPhase, 'processing'>, TTranslationKey>;
 
 function formatLanguagesForDiagnostics(languages: readonly string[]) {
-    return languages.length > 0
-        ? languages.join(',')
-        : '-';
+    return languages.length > 0 ? languages.join(',') : '-';
 }
 
 function formatDebugLogEntry(entry: IDebugLogEntry) {
@@ -303,15 +278,9 @@ function formatDebugLogEntry(entry: IDebugLogEntry) {
  * to the document, so they outlive the popup that shows them and the view that
  * started them. A popup only shows this state.
  */
-export const useOcrPopupPresenter = ({
-    context,
-    applyResult,
-}: IOcrPopupPresenterOptions) => {
-    const {
-        locale,
-        t,
-    } = useTypedI18n();
-    const { copy: copyClipboardText } = useClipboard();
+export const useOcrPopupPresenter = ({context, applyResult}: IOcrPopupPresenterOptions) => {
+    const {locale, t} = useTypedI18n();
+    const {copy: copyClipboardText} = useClipboard();
     const {
         settings,
         activeRunSettings,
@@ -339,64 +308,55 @@ export const useOcrPopupPresenter = ({
     const pendingAppliedOcrRequestId = ref<string | null>(null);
     const languageSearchQuery = ref('');
 
-    const {
-        start: startCopyLogsStateReset,
-        stop: stopCopyLogsStateReset,
-    } = useTimeoutFn(() => {
-        copyLogsState.value = 'idle';
-    }, OCR_COPY_LOGS_FEEDBACK_MS, { immediate: false });
-    const {
-        start: startSuccessStateReset,
-        stop: stopSuccessStateReset,
-    } = useTimeoutFn(() => {
-        showSuccessState.value = false;
-    }, OCR_SUCCESS_FEEDBACK_MS, { immediate: false });
+    const {start: startCopyLogsStateReset, stop: stopCopyLogsStateReset} = useTimeoutFn(
+        () => {
+            copyLogsState.value = 'idle';
+        },
+        OCR_COPY_LOGS_FEEDBACK_MS,
+        {immediate: false},
+    );
+    const {start: startSuccessStateReset, stop: stopSuccessStateReset} = useTimeoutFn(
+        () => {
+            showSuccessState.value = false;
+        },
+        OCR_SUCCESS_FEEDBACK_MS,
+        {immediate: false},
+    );
 
     const currentPage = computed(() => toValue(context.currentPage));
     const totalPages = computed(() => toValue(context.totalPages));
     const workingCopyPath = computed(() => toValue(context.workingCopyPath));
     const isRunSettingsLocked = computed(() => progress.value.isRunning);
-    const availableLanguageCodes = computed(() => new Set<string>(
-        availableLanguages.value.map(language => language.code),
-    ));
-    const failedLanguageCodes = computed(() => findFailedOcrLanguageCodes(
-        availableLanguages.value,
-        error.value,
-    ));
-    const languagePickerItems = computed(() => buildOcrLanguagePickerItems(
-        availableLanguages.value,
-        settings.value.selectedLanguages,
-        locale.value,
-        languageSearchQuery.value,
-        failedLanguageCodes.value,
-        code => t(OCR_LANGUAGE_NAME_KEYS[code], undefined),
-    ));
-    const languagePickerGroups = computed(() => (
-        [
-            'selected',
-            'installed',
-            'missing',
-            'unavailable',
-        ] as const
-    ).map(group => ({
-        key: group,
-        items: languagePickerItems.value.filter(item => item.group === group),
-    })));
+    const availableLanguageCodes = computed(() => new Set<string>(availableLanguages.value.map((language) => language.code)));
+    const failedLanguageCodes = computed(() => findFailedOcrLanguageCodes(availableLanguages.value, error.value));
+    const languagePickerItems = computed(() =>
+        buildOcrLanguagePickerItems(
+            availableLanguages.value,
+            settings.value.selectedLanguages,
+            locale.value,
+            languageSearchQuery.value,
+            failedLanguageCodes.value,
+            (code) => t(OCR_LANGUAGE_NAME_KEYS[code], undefined),
+        ),
+    );
+    const languagePickerGroups = computed(() =>
+        (['selected', 'installed', 'missing', 'unavailable'] as const).map((group) => ({
+            key: group,
+            items: languagePickerItems.value.filter((item) => item.group === group),
+        })),
+    );
     const languageInventoryState = computed(() => {
         // A refresh keeps the already-loaded inventory on screen so reopening
         // the popup does not collapse the picker to a loading placeholder.
         if (availableLanguages.value.length > 0 && languageLoadState.value !== 'error') {
             return 'ready' as const;
         }
-        if (languageLoadState.value === 'error'
-            || (languageLoadState.value === 'ready' && availableLanguages.value.length === 0)) {
+        if (languageLoadState.value === 'error' || (languageLoadState.value === 'ready' && availableLanguages.value.length === 0)) {
             return 'unavailable' as const;
         }
         return 'loading' as const;
     });
-    const showLanguageSearch = computed(() => shouldShowOcrLanguageSearch(
-        availableLanguages.value.length,
-    ));
+    const showLanguageSearch = computed(() => shouldShowOcrLanguageSearch(availableLanguages.value.length));
     const hasLanguageDownloadFailure = computed(() => failedLanguageCodes.value.size > 0);
     const languageSearchQueryModel = computed({
         get: () => languageSearchQuery.value,
@@ -432,10 +392,8 @@ export const useOcrPopupPresenter = ({
         },
     });
     const supersessionChoiceModel = computed<TOcrSupersessionChoice>({
-        get: () => settings.value.supersessionPolicy === 'missing-only'
-            ? 'missing-only'
-            : 'repeat',
-        set: choice => {
+        get: () => (settings.value.supersessionPolicy === 'missing-only' ? 'missing-only' : 'repeat'),
+        set: (choice) => {
             settings.value = {
                 ...settings.value,
                 supersessionPolicy: choice === 'missing-only' ? 'missing-only' : 'replace-all',
@@ -444,7 +402,7 @@ export const useOcrPopupPresenter = ({
     });
     const replaceOnlyEvbModel = computed({
         get: () => settings.value.supersessionPolicy === 'replace-evb',
-        set: onlyEvb => {
+        set: (onlyEvb) => {
             settings.value = {
                 ...settings.value,
                 supersessionPolicy: onlyEvb ? 'replace-evb' : 'replace-all',
@@ -452,23 +410,22 @@ export const useOcrPopupPresenter = ({
         },
     });
     const hasSavedMultipleLanguages = computed(() => settings.value.selectedLanguages.length > 1);
-    const hasSelectedAvailableLanguage = computed(() => settings.value.selectedLanguages.length === 1
-        && settings.value.selectedLanguages.every(code => availableLanguageCodes.value.has(code)));
+    const hasSelectedAvailableLanguage = computed(
+        () =>
+            settings.value.selectedLanguages.length === 1 &&
+            settings.value.selectedLanguages.every((code) => availableLanguageCodes.value.has(code)),
+    );
     const hasSelectedLanguageDownload = computed(() => {
-        const stateByCode = new Map<string, IOcrLanguage['modelState']>(availableLanguages.value.map(language => [
-            language.code,
-            language.modelState,
-        ]));
+        const stateByCode = new Map<string, IOcrLanguage['modelState']>(
+            availableLanguages.value.map((language) => [language.code, language.modelState]),
+        );
         return settings.value.selectedLanguages.some((code) => {
             const state = stateByCode.get(code);
             return state === 'missing' || failedLanguageCodes.value.has(code);
         });
     });
-    const canRunOcr = computed(() =>
-        !toValue(context.busy)
-        && !progress.value.isRunning
-        && hasSelectedAvailableLanguage.value
-        && Boolean(workingCopyPath.value),
+    const canRunOcr = computed(
+        () => !toValue(context.busy) && !progress.value.isRunning && hasSelectedAvailableLanguage.value && Boolean(workingCopyPath.value),
     );
 
     const showCustomRange = computed(() => settings.value.pageRange === 'custom');
@@ -482,23 +439,28 @@ export const useOcrPopupPresenter = ({
 
         if (progress.value.phase === 'model-prep') {
             const download = progress.value.modelDownload;
-            if (!download) {return t('ocr.preparing');}
+            if (!download) {
+                return t('ocr.preparing');
+            }
             const language = t(OCR_LANGUAGE_NAME_KEYS[download.languageCode], undefined);
             const retry = t('ocr.modelDownload.retrying', {
                 language,
                 attempt: download.attempt,
                 attempts: download.maxAttempts,
             });
-            if (download.retrying) {return retry;}
-            const formatMegabytes = (bytes: number) => (bytes / 1_000_000).toLocaleString(locale.value, {
-                minimumFractionDigits: 1,
-                maximumFractionDigits: 1,
-            });
+            if (download.retrying) {
+                return retry;
+            }
+            const formatMegabytes = (bytes: number) =>
+                (bytes / 1_000_000).toLocaleString(locale.value, {
+                    minimumFractionDigits: 1,
+                    maximumFractionDigits: 1,
+                });
             const text = t('ocr.modelDownload.progress', {
                 language,
                 received: formatMegabytes(download.receivedBytes),
                 total: formatMegabytes(download.totalBytes),
-                percent: Math.min(100, Math.floor(100 * download.receivedBytes / download.totalBytes)),
+                percent: Math.min(100, Math.floor((100 * download.receivedBytes) / download.totalBytes)),
             });
             return download.attempt > 1 ? `${text} · ${retry}` : text;
         }
@@ -527,10 +489,10 @@ export const useOcrPopupPresenter = ({
         return t('ocr.copyLogs');
     });
     const selectedLanguageModel = computed<TOcrLanguageCode | undefined>({
-        get: () => settings.value.selectedLanguages.length === 1
-            && isAvailableOcrLanguageCode(settings.value.selectedLanguages[0])
-            ? settings.value.selectedLanguages[0]
-            : undefined,
+        get: () =>
+            settings.value.selectedLanguages.length === 1 && isAvailableOcrLanguageCode(settings.value.selectedLanguages[0])
+                ? settings.value.selectedLanguages[0]
+                : undefined,
         set: (selectedLanguage) => {
             settings.value = {
                 ...settings.value,
@@ -551,16 +513,18 @@ export const useOcrPopupPresenter = ({
     // A changed profile carries its preprocessing default along; a locked run keeps its settings.
     function replaceSettings(nextSettings: IOcrSettings) {
         const previousProfile = settings.value.qualityProfile;
-        settings.value = isRunSettingsLocked.value || nextSettings.qualityProfile === previousProfile
-            ? nextSettings
-            : resolveQualityProfileSettings(nextSettings, nextSettings.qualityProfile, previousProfile);
+        settings.value =
+            isRunSettingsLocked.value || nextSettings.qualityProfile === previousProfile
+                ? nextSettings
+                : resolveQualityProfileSettings(nextSettings, nextSettings.qualityProfile, previousProfile);
     }
     const qualityProfileModel = computed({
         get: () => settings.value.qualityProfile,
-        set: (qualityProfile: IOcrSettings['qualityProfile']) => replaceSettings({
-            ...settings.value,
-            qualityProfile,
-        }),
+        set: (qualityProfile: IOcrSettings['qualityProfile']) =>
+            replaceSettings({
+                ...settings.value,
+                qualityProfile,
+            }),
     });
 
     function applyAgentOcrOptions(options: IAgentOcrRunOptions) {
@@ -568,11 +532,7 @@ export const useOcrPopupPresenter = ({
             return;
         }
 
-        settings.value = applyAgentOcrOptionsToSettings(
-            settings.value,
-            options,
-            availableLanguageCodes.value,
-        );
+        settings.value = applyAgentOcrOptionsToSettings(settings.value, options, availableLanguageCodes.value);
     }
 
     function createAgentOcrSnapshot() {
@@ -612,11 +572,7 @@ export const useOcrPopupPresenter = ({
     }
 
     function getExportLanguages() {
-        return resolveOcrExportLanguages(
-            lastCompletedRunSettings.value,
-            activeRunSettings.value,
-            settings.value,
-        );
+        return resolveOcrExportLanguages(lastCompletedRunSettings.value, activeRunSettings.value, settings.value);
     }
 
     function buildOcrDiagnosticsLog(debugLogs: IDebugLogEntry[]) {
@@ -649,9 +605,7 @@ export const useOcrPopupPresenter = ({
             `uiError=${error.value ?? ''}`,
             '',
             '--- debug:log stream ---',
-            ...(debugLogs.length > 0
-                ? debugLogs.map(formatDebugLogEntry)
-                : ['(no buffered logs available)']),
+            ...(debugLogs.length > 0 ? debugLogs.map(formatDebugLogEntry) : ['(no buffered logs available)']),
         ];
     }
 
@@ -742,7 +696,7 @@ export const useOcrPopupPresenter = ({
         if (hasResults.value) {
             return {
                 ok: true,
-                ...(error.value ? { warning: error.value } : {}),
+                ...(error.value ? {warning: error.value} : {}),
                 ocr: agentSnapshot,
             };
         }
@@ -778,7 +732,6 @@ export const useOcrPopupPresenter = ({
             ocr: createAgentOcrSnapshot(),
         };
     }
-
 
     function resetCompletedOcrState() {
         activeOcrSourcePath.value = null;
@@ -861,9 +814,7 @@ export const useOcrPopupPresenter = ({
             isOpen,
             effectiveError,
             hasResultWarning,
-            resultStatusText: computed(() => (
-                hasResultWarning.value ? t('ocr.partialComplete') : t('ocr.complete')
-            )),
+            resultStatusText: computed(() => (hasResultWarning.value ? t('ocr.partialComplete') : t('ocr.complete'))),
             canRunOcr: computed(() => !toValue(view.disabled) && canRunOcr.value),
             viewState: computed<TOcrViewState>(() => {
                 if (progress.value.isRunning) {
@@ -896,38 +847,52 @@ export const useOcrPopupPresenter = ({
         }
     });
 
-    watch(() => results.value.searchablePdfResult, async (searchablePdfResult) => {
-        const sourceWorkingCopyPath = activeOcrSourcePath.value;
-        const sourcePageToRestore = activeOcrSourcePage.value ?? currentPage.value;
-        if (searchablePdfResult && sourceWorkingCopyPath) {
-            pendingAppliedOcrRequestId.value = searchablePdfResult.requestId;
-            const applying = applyResult({
-                ...searchablePdfResult,
-                sourceWorkingCopyPath,
-                sourcePageToRestore,
-            });
-            activeOcrSourcePath.value = null;
-            activeOcrSourcePage.value = null;
-            try {
-                const applied = await applying;
-                if (pendingAppliedOcrRequestId.value !== searchablePdfResult.requestId) {return;}
-                if (applied) {
-                    showSuccessState.value = true;
-                    stopSuccessStateReset();
-                    startSuccessStateReset();
-                } else {
+    watch(
+        () => results.value.searchablePdfResult,
+        async (searchablePdfResult) => {
+            const sourceWorkingCopyPath = activeOcrSourcePath.value;
+            const sourcePageToRestore = activeOcrSourcePage.value ?? currentPage.value;
+            if (searchablePdfResult && sourceWorkingCopyPath) {
+                pendingAppliedOcrRequestId.value = searchablePdfResult.requestId;
+                const applying = applyResult({
+                    ...searchablePdfResult,
+                    sourceWorkingCopyPath,
+                    sourcePageToRestore,
+                });
+                activeOcrSourcePath.value = null;
+                activeOcrSourcePage.value = null;
+                try {
+                    const applied = await applying;
+                    if (pendingAppliedOcrRequestId.value !== searchablePdfResult.requestId) {
+                        return;
+                    }
+                    if (applied) {
+                        showSuccessState.value = true;
+                        stopSuccessStateReset();
+                        startSuccessStateReset();
+                    } else {
+                        clearResults();
+                    }
+                } catch (applyError) {
+                    if (pendingAppliedOcrRequestId.value !== searchablePdfResult.requestId) {
+                        return;
+                    }
+                    error.value = t('errors.ocr.createSearchablePdf');
                     clearResults();
+                    BrowserLogger.error(
+                        'ocr',
+                        'Failed to apply the recognized PDF',
+                        {error: applyError},
+                        {code: 'RENDERER_OCR_RUN_FAILED'},
+                    );
+                } finally {
+                    if (pendingAppliedOcrRequestId.value === searchablePdfResult.requestId) {
+                        pendingAppliedOcrRequestId.value = null;
+                    }
                 }
-            } catch (applyError) {
-                if (pendingAppliedOcrRequestId.value !== searchablePdfResult.requestId) {return;}
-                error.value = t('errors.ocr.createSearchablePdf');
-                clearResults();
-                BrowserLogger.error('ocr', 'Failed to apply the recognized PDF', {error: applyError}, {code: 'RENDERER_OCR_RUN_FAILED'});
-            } finally {
-                if (pendingAppliedOcrRequestId.value === searchablePdfResult.requestId) {pendingAppliedOcrRequestId.value = null;}
             }
-        }
-    });
+        },
+    );
 
     onScopeDispose(() => {
         stopCopyLogsStateReset();

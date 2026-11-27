@@ -16,17 +16,24 @@ export interface IBrowserPdfRasterTiles {
 
 /** Painted tiles of a raster within the receiving engine's pixel limits. */
 export function createBrowserPdfRasterTilesSchema(maxPixels: number, maxDimensionPx: number) {
-    return v.pipe(v.object({
-        width: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(maxDimensionPx)),
-        height: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(maxDimensionPx)),
-        tiles: v.array(v.custom<ImageBitmap>(value => typeof ImageBitmap !== 'undefined' && value instanceof ImageBitmap)),
-    }), v.check(({
-        width, height, tiles,
-    }) => {
-        const columns = Math.ceil(width / BROWSER_PDF_RENDER_TILE_PX);
-        return width * height <= maxPixels
-            && tiles.length === columns * Math.ceil(height / BROWSER_PDF_RENDER_TILE_PX)
-            && tiles.every((tile, index) => tile.width === Math.min(BROWSER_PDF_RENDER_TILE_PX, width - index % columns * BROWSER_PDF_RENDER_TILE_PX)
-                && tile.height === Math.min(BROWSER_PDF_RENDER_TILE_PX, height - Math.floor(index / columns) * BROWSER_PDF_RENDER_TILE_PX));
-    })) satisfies v.GenericSchema<unknown, IBrowserPdfRasterTiles>;
+    return v.pipe(
+        v.object({
+            width: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(maxDimensionPx)),
+            height: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(maxDimensionPx)),
+            tiles: v.array(v.custom<ImageBitmap>((value) => typeof ImageBitmap !== 'undefined' && value instanceof ImageBitmap)),
+        }),
+        v.check(({width, height, tiles}) => {
+            const columns = Math.ceil(width / BROWSER_PDF_RENDER_TILE_PX);
+            return (
+                width * height <= maxPixels &&
+                tiles.length === columns * Math.ceil(height / BROWSER_PDF_RENDER_TILE_PX) &&
+                tiles.every(
+                    (tile, index) =>
+                        tile.width === Math.min(BROWSER_PDF_RENDER_TILE_PX, width - (index % columns) * BROWSER_PDF_RENDER_TILE_PX) &&
+                        tile.height ===
+                            Math.min(BROWSER_PDF_RENDER_TILE_PX, height - Math.floor(index / columns) * BROWSER_PDF_RENDER_TILE_PX),
+                )
+            );
+        }),
+    ) satisfies v.GenericSchema<unknown, IBrowserPdfRasterTiles>;
 }

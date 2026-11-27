@@ -1,12 +1,6 @@
-import type { IClientRect } from '@app/modules/document-viewer/public';
-import {
-    intersectClientRects, unionClientRects,
-} from '@app/modules/document-viewer/public';
-import type {
-    ICanvasSource,
-    ICaptureFragment,
-    ICapturePlan,
-} from '@app/modules/pdf-viewer/engine/pdf-region-capture/pdfRegionCaptureTypes';
+import type {IClientRect} from '@app/modules/document-viewer/public';
+import {intersectClientRects, unionClientRects} from '@app/modules/document-viewer/public';
+import type {ICanvasSource, ICaptureFragment, ICapturePlan} from '@app/modules/pdf-viewer/engine/pdf-region-capture/pdfRegionCaptureTypes';
 
 /** An intersection has a positive CSS size, so a fragment needs only a canvas with pixels. */
 export function buildCanvasCapturePlan(selectionRect: IClientRect, sources: readonly ICanvasSource[]): ICapturePlan {
@@ -23,9 +17,7 @@ export function buildCanvasCapturePlan(selectionRect: IClientRect, sources: read
             canvas: source.canvas,
             intersection,
         });
-        outputRect = outputRect
-            ? unionClientRects(outputRect, intersection)
-            : intersection;
+        outputRect = outputRect ? unionClientRects(outputRect, intersection) : intersection;
     }
 
     return {

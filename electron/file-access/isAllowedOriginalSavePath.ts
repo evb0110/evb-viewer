@@ -1,14 +1,7 @@
-import {
-    extname,
-    isAbsolute,
-} from 'path';
-import { isReservedTempPath } from '@electron/utils/pathValidator';
+import {extname, isAbsolute} from 'path';
+import {isReservedTempPath} from '@electron/utils/pathValidator';
 
-const ALLOWED_SAVE_EXTENSIONS = new Set([
-    '.pdf',
-    '.djvu',
-    '.djv',
-]);
+const ALLOWED_SAVE_EXTENSIONS = new Set(['.pdf', '.djvu', '.djv']);
 
 export function isAllowedOriginalSavePath(path: string) {
     if (!isAbsolute(path) || isReservedTempPath(path)) {

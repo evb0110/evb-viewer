@@ -5,35 +5,19 @@ import type {
     IPdfAnnotationParseResult,
     IPdfAnnotationParseSession,
 } from '@contracts/pdfAnnotationParseTypes';
-import {
-    parseDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
+import {parseDocumentRef, type TDocumentRef} from '@contracts/documentRef';
 import {createAbortError} from '@contracts/isAbortError';
 import {createSessionId} from '@contracts/shared';
-import {
-    PDF_ANNOTATION_PARSE_MAX_ENTRIES,
-    PDF_ANNOTATION_PARSE_MAX_LINE_BYTES,
-} from '@contracts/pdfAnnotationParseTypes';
+import {PDF_ANNOTATION_PARSE_MAX_ENTRIES, PDF_ANNOTATION_PARSE_MAX_LINE_BYTES} from '@contracts/pdfAnnotationParseTypes';
 import {createStaleRevisionError} from '@contracts/documentMutationErrors';
-import {
-    parseDocumentRevisionToken,
-    type TDocumentRevisionToken,
-} from '@contracts/documentRevision';
-import {
-    PDF_ANNOTATION_PARSE_ENTRY_SCHEMA,
-    PDF_ANNOTATION_PARSE_SIDECAR_HEADER_SCHEMA,
-} from '@contracts/pdfAnnotationParseSchemas';
+import {parseDocumentRevisionToken, type TDocumentRevisionToken} from '@contracts/documentRevision';
+import {PDF_ANNOTATION_PARSE_ENTRY_SCHEMA, PDF_ANNOTATION_PARSE_SIDECAR_HEADER_SCHEMA} from '@contracts/pdfAnnotationParseSchemas';
 import * as v from 'valibot';
 import {writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import type {IDocumentsSenderIdContext} from '@electron/features/documents/documentsContexts';
 import {resolveExistingReadablePdfPath} from '@electron/features/documents/main/documentFilePathResolution';
-import {
-    assertWorkingCopyRevisionCurrent,
-    getWorkingCopyRevision,
-    runWithWorkingCopyReadBacking,
-} from '@electron/file-access/documentStore';
+import {assertWorkingCopyRevisionCurrent, getWorkingCopyRevision, runWithWorkingCopyReadBacking} from '@electron/file-access/documentStore';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import {registerNativePdfSenderCleanup} from '@electron/features/documents/main/nativePdfMetadata';
@@ -102,7 +86,7 @@ function getOwnerId(context: IDocumentsSenderIdContext) {
 }
 
 function rejectUnknownFields(value: Record<string, unknown>, label: string, allowed: readonly string[]) {
-    const unknown = Object.keys(value).find(key => !allowed.includes(key));
+    const unknown = Object.keys(value).find((key) => !allowed.includes(key));
     if (unknown !== undefined) {
         throw new Error(`${label} contains unsupported field ${unknown}`);
     }
@@ -124,30 +108,17 @@ function decodeDataLine(value: unknown): IPdfAnnotationParseEntry[] {
     if (!isRecord(value) || !Array.isArray(value.entries)) {
         throw new Error('PDF annotation parse sidecar line must contain entries');
     }
-    rejectUnknownFields(value, 'PDF annotation parse sidecar chunk', [
-        'chunkIndex',
-        'entries',
-    ]);
-    if (
-        typeof value.chunkIndex !== 'number'
-        || !Number.isSafeInteger(value.chunkIndex)
-        || value.chunkIndex < 0
-    ) {
+    rejectUnknownFields(value, 'PDF annotation parse sidecar chunk', ['chunkIndex', 'entries']);
+    if (typeof value.chunkIndex !== 'number' || !Number.isSafeInteger(value.chunkIndex) || value.chunkIndex < 0) {
         throw new Error('PDF annotation parse sidecar line has an invalid chunk index');
     }
-    return value.entries.map(entry => v.parse(PDF_ANNOTATION_PARSE_ENTRY_SCHEMA, entry, {abortEarly: true}));
+    return value.entries.map((entry) => v.parse(PDF_ANNOTATION_PARSE_ENTRY_SCHEMA, entry, {abortEarly: true}));
 }
 
 function parseChunkOptions(options: {chunkBytes?: number} | undefined) {
     const chunkBytes = options?.chunkBytes ?? PDF_ANNOTATION_PARSE_MAX_LINE_BYTES;
-    if (
-        !Number.isSafeInteger(chunkBytes)
-        || chunkBytes < 1
-        || chunkBytes > PDF_ANNOTATION_PARSE_MAX_LINE_BYTES
-    ) {
-        throw new RangeError(
-            `PDF annotation parse chunkBytes must be between 1 and ${PDF_ANNOTATION_PARSE_MAX_LINE_BYTES}`,
-        );
+    if (!Number.isSafeInteger(chunkBytes) || chunkBytes < 1 || chunkBytes > PDF_ANNOTATION_PARSE_MAX_LINE_BYTES) {
+        throw new RangeError(`PDF annotation parse chunkBytes must be between 1 and ${PDF_ANNOTATION_PARSE_MAX_LINE_BYTES}`);
     }
     return chunkBytes;
 }
@@ -184,37 +155,24 @@ function buildParseCommandArgs(inputPath: string, outputPath: string, pagesPath?
         outputPath,
         '--modified-at',
         PARSE_MODIFIED_AT,
-        ...(pagesPath === undefined ? [] : [
-            '--pages-file',
-            pagesPath,
-        ]),
+        ...(pagesPath === undefined ? [] : ['--pages-file', pagesPath]),
     ];
 }
 
-async function runParseNative(
-    inputPath: string,
-    outputPath: string,
-    signal: AbortSignal,
-    cancelGroup: string,
-    pagesPath?: string,
-) {
+async function runParseNative(inputPath: string, outputPath: string, signal: AbortSignal, cancelGroup: string, pagesPath?: string) {
     const nativePath = resolveNativePageOpsPath();
     if (!nativePath) {
         throw new Error('Cannot parse PDF annotations because the native page tool is unavailable');
     }
-    await runNativeToolCommand(
-        nativePath,
-        buildParseCommandArgs(inputPath, outputPath, pagesPath),
-        {
-            timeoutMs: PARSE_NATIVE_TIMEOUT_MS,
-            maxStdoutBytes: PARSE_NATIVE_STDOUT_BYTES,
-            maxStderrBytes: PARSE_NATIVE_STDERR_BYTES,
-            rejectOnStdoutTruncation: true,
-            commandLabel: 'evb-pdf-page-ops(parse-annotations)',
-            signal,
-            cancelGroup,
-        },
-    );
+    await runNativeToolCommand(nativePath, buildParseCommandArgs(inputPath, outputPath, pagesPath), {
+        timeoutMs: PARSE_NATIVE_TIMEOUT_MS,
+        maxStdoutBytes: PARSE_NATIVE_STDOUT_BYTES,
+        maxStderrBytes: PARSE_NATIVE_STDERR_BYTES,
+        rejectOnStdoutTruncation: true,
+        commandLabel: 'evb-pdf-page-ops(parse-annotations)',
+        signal,
+        cancelGroup,
+    });
 }
 
 export async function beginPdfAnnotationParse(
@@ -222,9 +180,7 @@ export async function beginPdfAnnotationParse(
     filePath: string,
     options: IPdfAnnotationParseOptions,
 ): Promise<IPdfAnnotationParseSession> {
-    const expectedRevisionToken = parseDocumentRevisionToken(
-        options?.expectedDocumentRevisionToken,
-    );
+    const expectedRevisionToken = parseDocumentRevisionToken(options?.expectedDocumentRevisionToken);
     if (expectedRevisionToken === null) {
         throw new Error('Document revision token is required to parse PDF annotations');
     }
@@ -240,10 +196,7 @@ export async function beginPdfAnnotationParse(
     await assertWorkingCopyRevisionCurrent(resolvedPath, expectedRevisionToken);
 
     const sessionId = createSessionId('pdf-annotation-parse');
-    const {
-        session,
-        mainOperation,
-    } = await createPdfSidecarMainOperation({
+    const {session, mainOperation} = await createPdfSidecarMainOperation({
         sessionId,
         ownerId: getOwnerId(context),
         documentRef: filePath,
@@ -257,12 +210,9 @@ export async function beginPdfAnnotationParse(
         ownerWebContentsId: context.senderId,
         workingCopyPath: resolvedPath,
         cleanup: cleanupSession,
-        cancelGroupForOperation: operationId => `pdf-annotation-parse:${operationId}`,
-        registerSenderCleanup: operationCancel => registerNativePdfSenderCleanup(
-            context.sender,
-            operationCancel,
-            'Renderer navigation canceled PDF annotation parsing',
-        ),
+        cancelGroupForOperation: (operationId) => `pdf-annotation-parse:${operationId}`,
+        registerSenderCleanup: (operationCancel) =>
+            registerNativePdfSenderCleanup(context.sender, operationCancel, 'Renderer navigation canceled PDF annotation parsing'),
     });
     ensureParseTtlTimer();
     const {abortController} = session;
@@ -270,69 +220,58 @@ export async function beginPdfAnnotationParse(
     // The page tool reads one-based page numbers.
     const {pageIndices} = options;
     const pagesPath = pageIndices === undefined ? undefined : join(session.sidecarDirectory, PARSE_PAGES_FILE_NAME);
-    const handleMainAbort = () => cancelPdfSidecarSession(
-        session,
-        'PDF annotation parsing canceled',
-        mainOperation.signal.reason instanceof Error
-            ? mainOperation.signal.reason
-            : createAbortError('PDF annotation parsing canceled'),
-    );
+    const handleMainAbort = () =>
+        cancelPdfSidecarSession(
+            session,
+            'PDF annotation parsing canceled',
+            mainOperation.signal.reason instanceof Error
+                ? mainOperation.signal.reason
+                : createAbortError('PDF annotation parsing canceled'),
+        );
     if (mainOperation.signal.aborted) {
         handleMainAbort();
     } else {
         mainOperation.signal.addEventListener('abort', handleMainAbort, {once: true});
     }
 
-    await runPdfSidecarOperation(
-        session,
-        mainOperation,
-        handleMainAbort,
-        cleanupSession,
-        async () => {
-            if (pagesPath !== undefined) {
-                await writeFile(pagesPath, pageIndices!.map(index => `${index + 1}\n`).join(''), {mode: 0o600});
-            }
-            await runWithWorkingCopyReadBacking(
-                resolvedPath,
-                physicalPath => runParseNative(
-                    physicalPath,
-                    sidecarPath,
-                    abortController.signal,
-                    session.cancelGroup,
-                    pagesPath,
-                ),
-                context.senderId === undefined ? {} : {ownerWebContentsId: context.senderId},
-            );
-            if (abortController.signal.aborted) {
-                throw abortErrorFromSignal(abortController.signal);
-            }
-            await scanPdfSidecarIntoSession(
-                session,
-                sidecarPath,
-                abortController.signal,
-                'PDF annotation parse',
-                () => assertWorkingCopyRevisionCurrent(resolvedPath, expectedRevisionToken),
-                signal => {
-                    let expectedChunkIndex = 0;
-                    return scanPdfSidecarLines(sidecarPath, {
-                        maxLineBytes: PDF_ANNOTATION_PARSE_MAX_LINE_BYTES,
-                        label: 'PDF annotation parse',
-                        signal,
-                        decodeHeader: value => decodeHeader(value, pageIndices),
-                        decodeDataLine: (value) => {
-                            const entries = decodeDataLine(value);
-                            const chunkIndex = (value as Record<string, unknown>).chunkIndex;
-                            if (chunkIndex !== expectedChunkIndex) {
-                                throw new Error('PDF annotation parse sidecar chunks are out of order');
-                            }
-                            expectedChunkIndex += 1;
-                            return entries;
-                        },
-                    });
-                },
-            );
-        },
-    );
+    await runPdfSidecarOperation(session, mainOperation, handleMainAbort, cleanupSession, async () => {
+        if (pagesPath !== undefined) {
+            await writeFile(pagesPath, pageIndices!.map((index) => `${index + 1}\n`).join(''), {mode: 0o600});
+        }
+        await runWithWorkingCopyReadBacking(
+            resolvedPath,
+            (physicalPath) => runParseNative(physicalPath, sidecarPath, abortController.signal, session.cancelGroup, pagesPath),
+            context.senderId === undefined ? {} : {ownerWebContentsId: context.senderId},
+        );
+        if (abortController.signal.aborted) {
+            throw abortErrorFromSignal(abortController.signal);
+        }
+        await scanPdfSidecarIntoSession(
+            session,
+            sidecarPath,
+            abortController.signal,
+            'PDF annotation parse',
+            () => assertWorkingCopyRevisionCurrent(resolvedPath, expectedRevisionToken),
+            (signal) => {
+                let expectedChunkIndex = 0;
+                return scanPdfSidecarLines(sidecarPath, {
+                    maxLineBytes: PDF_ANNOTATION_PARSE_MAX_LINE_BYTES,
+                    label: 'PDF annotation parse',
+                    signal,
+                    decodeHeader: (value) => decodeHeader(value, pageIndices),
+                    decodeDataLine: (value) => {
+                        const entries = decodeDataLine(value);
+                        const chunkIndex = (value as Record<string, unknown>).chunkIndex;
+                        if (chunkIndex !== expectedChunkIndex) {
+                            throw new Error('PDF annotation parse sidecar chunks are out of order');
+                        }
+                        expectedChunkIndex += 1;
+                        return entries;
+                    },
+                });
+            },
+        );
+    });
     return {
         sessionId,
         documentRef: requireDocumentRef(filePath),
@@ -370,23 +309,14 @@ export async function readPdfAnnotationParseChunk(
         chunkBytes,
         label: 'PDF annotation parse',
         decodeDataLine,
-        beforeRead: () => assertWorkingCopyRevisionCurrent(
-            session.resolvedPath,
-            session.expectedRevisionToken,
-        ),
-        afterRead: () => assertWorkingCopyRevisionCurrent(
-            session.resolvedPath,
-            session.expectedRevisionToken,
-        ),
+        beforeRead: () => assertWorkingCopyRevisionCurrent(session.resolvedPath, session.expectedRevisionToken),
+        afterRead: () => assertWorkingCopyRevisionCurrent(session.resolvedPath, session.expectedRevisionToken),
     });
     session.lastTouchedAt = Date.now();
     return result;
 }
 
-export async function releasePdfAnnotationParse(
-    context: IDocumentsSenderIdContext,
-    sessionId: string,
-) {
+export async function releasePdfAnnotationParse(context: IDocumentsSenderIdContext, sessionId: string) {
     const session = sessions.get(sessionId);
     if (!session) {
         return false;
@@ -400,7 +330,6 @@ export async function releasePdfAnnotationParse(
     await cleanupSession(session);
     return true;
 }
-
 
 export async function parsePdfAnnotations(
     context: IDocumentsSenderIdContext,
@@ -457,14 +386,11 @@ export async function parsePdfAnnotations(
     }
 }
 
-export async function sweepStalePdfAnnotationParseArtifacts(
-    maxAgeMs = PARSE_DEFAULT_TTL_MS,
-    maxEntries = PARSE_SWEEP_MAX_ENTRIES,
-) {
+export async function sweepStalePdfAnnotationParseArtifacts(maxAgeMs = PARSE_DEFAULT_TTL_MS, maxEntries = PARSE_SWEEP_MAX_ENTRIES) {
     return sweepStalePdfSidecarArtifacts({
         tempDir: getAppTempDir(),
         directoryPrefix: PARSE_DIRECTORY_PREFIX,
-        activeDirectories: new Set([...sessions.values()].map(session => session.sidecarDirectory)),
+        activeDirectories: new Set([...sessions.values()].map((session) => session.sidecarDirectory)),
         maxAgeMs,
         maxEntries,
         onError: (directoryPath, error) => {
@@ -476,13 +402,9 @@ export async function sweepStalePdfAnnotationParseArtifacts(
 function ensureParseTtlTimer() {
     parseTtlTimer ??= setInterval(() => {
         const cutoff = Date.now() - PARSE_DEFAULT_TTL_MS;
-        expireStalePdfSidecarSessions(sessions.values(), cutoff, session => {
+        expireStalePdfSidecarSessions(sessions.values(), cutoff, (session) => {
             session.released = true;
-            cancelPdfSidecarSession(
-                session,
-                'PDF annotation parse session expired',
-                new Error('PDF annotation parse session expired'),
-            );
+            cancelPdfSidecarSession(session, 'PDF annotation parse session expired', new Error('PDF annotation parse session expired'));
             cleanupWhenOperationSettles(session);
         });
         void sweepStalePdfAnnotationParseArtifacts().catch((error: unknown) => {

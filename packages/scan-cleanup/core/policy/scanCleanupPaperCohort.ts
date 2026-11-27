@@ -49,10 +49,7 @@ export function createScanCleanupPaperCohortTally(): IScanCleanupPaperCohortTall
 }
 
 function cohortCoordinates(rect: IScanCleanupPaperRect) {
-    return [
-        Math.round(Math.log(rect.widthPoints) / COHORT_STEP),
-        Math.round(Math.log(rect.heightPoints) / COHORT_STEP),
-    ] as const;
+    return [Math.round(Math.log(rect.widthPoints) / COHORT_STEP), Math.round(Math.log(rect.heightPoints) / COHORT_STEP)] as const;
 }
 
 function cohortKey(widthStep: number, heightStep: number) {
@@ -60,32 +57,26 @@ function cohortKey(widthStep: number, heightStep: number) {
 }
 
 /** Larger by area, then width, then height: one answer for any arrival order. */
-export function isLargerScanCleanupPaperRect(
-    candidate: IScanCleanupPaperRect,
-    current: IScanCleanupPaperRect | null,
-) {
+export function isLargerScanCleanupPaperRect(candidate: IScanCleanupPaperRect, current: IScanCleanupPaperRect | null) {
     if (current === null) {
         return true;
     }
     const area = candidate.widthPoints * candidate.heightPoints;
     const currentArea = current.widthPoints * current.heightPoints;
-    return area > currentArea
-        || (area === currentArea && candidate.widthPoints > current.widthPoints)
-        || (area === currentArea
-            && candidate.widthPoints === current.widthPoints
-            && candidate.heightPoints > current.heightPoints);
+    return (
+        area > currentArea ||
+        (area === currentArea && candidate.widthPoints > current.widthPoints) ||
+        (area === currentArea && candidate.widthPoints === current.widthPoints && candidate.heightPoints > current.heightPoints)
+    );
 }
 
 function trimScanCleanupPaperCohorts(tally: IScanCleanupPaperCohortTally) {
     if (tally.cohorts.size <= MAX_COHORTS) {
         return;
     }
-    const counts = [...tally.cohorts.values()].map(cohort => cohort.count).sort((left, right) => right - left);
+    const counts = [...tally.cohorts.values()].map((cohort) => cohort.count).sort((left, right) => right - left);
     const cut = counts[MAX_COHORTS]!;
-    for (const [
-        key,
-        cohort,
-    ] of tally.cohorts) {
+    for (const [key, cohort] of tally.cohorts) {
         cohort.count -= cut;
         if (cohort.count <= 0) {
             tally.cohorts.delete(key);
@@ -97,15 +88,9 @@ function trimScanCleanupPaperCohorts(tally: IScanCleanupPaperCohortTally) {
  * Tally one sheet. `weight` is the number of output pages it produces, so a
  * spread that splits votes for both of its leaves.
  */
-export function addScanCleanupPaperCohortRect(
-    tally: IScanCleanupPaperCohortTally,
-    rect: IScanCleanupPaperRect,
-    weight = 1,
-) {
+export function addScanCleanupPaperCohortRect(tally: IScanCleanupPaperCohortTally, rect: IScanCleanupPaperRect, weight = 1) {
     tally.total += weight;
-    if (!(rect.widthPoints > 0 && rect.heightPoints > 0)
-        || !Number.isFinite(rect.widthPoints)
-        || !Number.isFinite(rect.heightPoints)) {
+    if (!(rect.widthPoints > 0 && rect.heightPoints > 0) || !Number.isFinite(rect.widthPoints) || !Number.isFinite(rect.heightPoints)) {
         return;
     }
     tally.tallestHeightPoints = Math.max(tally.tallestHeightPoints, rect.heightPoints);
@@ -125,17 +110,12 @@ export function addScanCleanupPaperCohortRect(
     trimScanCleanupPaperCohorts(tally);
 }
 
-export function mergeScanCleanupPaperCohortTallies(
-    tallies: readonly IScanCleanupPaperCohortTally[],
-): IScanCleanupPaperCohortTally {
+export function mergeScanCleanupPaperCohortTallies(tallies: readonly IScanCleanupPaperCohortTally[]): IScanCleanupPaperCohortTally {
     const merged = createScanCleanupPaperCohortTally();
     for (const tally of tallies) {
         merged.total += tally.total;
         merged.tallestHeightPoints = Math.max(merged.tallestHeightPoints, tally.tallestHeightPoints);
-        for (const [
-            key,
-            cohort,
-        ] of tally.cohorts) {
+        for (const [key, cohort] of tally.cohorts) {
             const existing = merged.cohorts.get(key);
             if (existing === undefined) {
                 merged.cohorts.set(key, {
@@ -160,43 +140,38 @@ export function mergeScanCleanupPaperCohortTallies(
  * size and its immediate grid neighbours count as one cohort, so a size that
  * straddles a grid line is not split in two.
  */
-export function resolveScanCleanupDominantPaperRect(
-    tally: IScanCleanupPaperCohortTally,
-): IScanCleanupPaperRect | null {
+export function resolveScanCleanupDominantPaperRect(tally: IScanCleanupPaperCohortTally): IScanCleanupPaperRect | null {
     let best: {
         count: number;
-        rect: IScanCleanupPaperRect
+        rect: IScanCleanupPaperRect;
     } | null = null;
     for (const key of tally.cohorts.keys()) {
-        const [
-            widthStep,
-            heightStep,
-        ] = key.split(':').map(Number) as [number, number];
+        const [widthStep, heightStep] = key.split(':').map(Number) as [number, number];
         let count = 0;
         let rect: IScanCleanupPaperRect | null = null;
         for (let dx = -1; dx <= 1; dx += 1) {
             for (let dy = -1; dy <= 1; dy += 1) {
                 const neighbour = tally.cohorts.get(cohortKey(widthStep + dx, heightStep + dy));
-                if (neighbour === undefined) {continue;}
+                if (neighbour === undefined) {
+                    continue;
+                }
                 count += neighbour.count;
                 if (isLargerScanCleanupPaperRect(neighbour.rect, rect)) {
                     rect = neighbour.rect;
                 }
             }
         }
-        if (rect === null) {continue;}
-        if (best === null
-            || count > best.count
-            || (count === best.count && isLargerScanCleanupPaperRect(rect, best.rect))) {
+        if (rect === null) {
+            continue;
+        }
+        if (best === null || count > best.count || (count === best.count && isLargerScanCleanupPaperRect(rect, best.rect))) {
             best = {
                 count,
                 rect,
             };
         }
     }
-    return best !== null && best.count * 4 >= tally.total * 3
-        ? {...best.rect}
-        : null;
+    return best !== null && best.count * 4 >= tally.total * 3 ? {...best.rect} : null;
 }
 
 /**
@@ -215,14 +190,14 @@ export function resolveScanCleanupSheetRect(
     if (metadata === undefined) {
         return null;
     }
-    const swapsAxes = (((Math.round(metadata.rotation / 90) % 2) + 2) % 2) === 1;
+    const swapsAxes = ((Math.round(metadata.rotation / 90) % 2) + 2) % 2 === 1;
     return swapsAxes
         ? {
-            widthPoints: metadata.heightPoints,
-            heightPoints: metadata.widthPoints,
-        }
+              widthPoints: metadata.heightPoints,
+              heightPoints: metadata.widthPoints,
+          }
         : {
-            widthPoints: metadata.widthPoints,
-            heightPoints: metadata.heightPoints,
-        };
+              widthPoints: metadata.widthPoints,
+              heightPoints: metadata.heightPoints,
+          };
 }

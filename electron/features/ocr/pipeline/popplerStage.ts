@@ -1,24 +1,15 @@
 import {stat} from 'node:fs/promises';
 import {join} from 'node:path';
 import type {IOcrPageSizeInches} from '@electron/features/ocr/pipeline/pdfPageSizeProbe';
-import type {
-    IOcrPipelinePaths,
-    TWorkerLog,
-} from '@electron/features/ocr/pipeline/types';
+import type {IOcrPipelinePaths, TWorkerLog} from '@electron/features/ocr/pipeline/types';
 import {runDesktopQpdfWasm} from '@electron/native-tools/qpdfWasmWorkerClient';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import {isAbortError} from '@electron/utils/abort';
 import {getErrorMessage} from '@electron/utils/error';
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
-import {
-    chainJobBrokerRunContext,
-    type IJobBrokerRunContext,
-} from '@electron/resources/jobBroker';
+import {chainJobBrokerRunContext, type IJobBrokerRunContext} from '@electron/resources/jobBroker';
 import {createScanCleanupRenderers} from '@evb/scan-cleanup/adapters/createScanCleanupRenderers';
-import type {
-    IScanCleanupRasterRenderLimits,
-    TScanCleanupRenderPage,
-} from '@evb/scan-cleanup/core/types';
+import type {IScanCleanupRasterRenderLimits, TScanCleanupRenderPage} from '@evb/scan-cleanup/core/types';
 export {buildPopplerEnv} from '@electron/native-tools/buildPopplerEnv';
 
 const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
@@ -31,32 +22,29 @@ export interface IPreparedPopplerPdf {
 }
 
 function createPopplerRenderers(brokerRun?: IJobBrokerRunContext) {
-    const runCommand: typeof runNativeToolCommand = brokerRun === undefined
-        ? runNativeToolCommand
-        : (command, args, options) => {
-            const {
-                onTerminationProof: innerProof,
-                ...restOptions
-            } = options ?? {};
-            return runNativeToolCommand(command, args, {
-                ...restOptions,
-                brokerRun: chainJobBrokerRunContext(brokerRun, innerProof),
-            });
-        };
-    return createScanCleanupRenderers(runCommand, {
-        maxDimensionPx: OCR_MAX_RASTER_DIMENSION_PX,
-        maxPixels: OCR_MAX_RASTER_PIXELS,
-    }, error => getUnprovenNativeTerminationDetail(error) !== undefined);
+    const runCommand: typeof runNativeToolCommand =
+        brokerRun === undefined
+            ? runNativeToolCommand
+            : (command, args, options) => {
+                  const {onTerminationProof: innerProof, ...restOptions} = options ?? {};
+                  return runNativeToolCommand(command, args, {
+                      ...restOptions,
+                      brokerRun: chainJobBrokerRunContext(brokerRun, innerProof),
+                  });
+              };
+    return createScanCleanupRenderers(
+        runCommand,
+        {
+            maxDimensionPx: OCR_MAX_RASTER_DIMENSION_PX,
+            maxPixels: OCR_MAX_RASTER_PIXELS,
+        },
+        (error) => getUnprovenNativeTerminationDetail(error) !== undefined,
+    );
 }
 
 const defaultRenderers = createPopplerRenderers();
 
-export type TElectronRenderPdfPage = (
-    ...args: [
-        ...Parameters<TScanCleanupRenderPage>,
-        brokerRun?: IJobBrokerRunContext,
-    ]
-) => Promise<void>;
+export type TElectronRenderPdfPage = (...args: [...Parameters<TScanCleanupRenderPage>, brokerRun?: IJobBrokerRunContext]) => Promise<void>;
 
 export const renderPdfPageToPng: TElectronRenderPdfPage = (...args) => {
     const brokerRun = args[13];
@@ -73,31 +61,32 @@ export const renderPdfPageToPpm: TElectronRenderPdfPage = (...args) => {
 // Most PDFs are directly readable by Poppler. Keep normalization as repair,
 // not a full-document copy paid by every single-page OCR request. The engine
 // reads Poppler's own PPM; a PNG would only re-encode the same pixels.
-export async function renderOcrPageToPpm(
-    args: Parameters<typeof renderPdfPageToPpm>,
-    prepareFallback: () => Promise<IPreparedPopplerPdf>,
-) {
+export async function renderOcrPageToPpm(args: Parameters<typeof renderPdfPageToPpm>, prepareFallback: () => Promise<IPreparedPopplerPdf>) {
     try {
         await renderPdfPageToPpm(...args);
     } catch (error) {
         const signal = args[7];
-        if (signal?.aborted || isAbortError(error) || error instanceof RangeError
-            || error instanceof TypeError || getUnprovenNativeTerminationDetail(error) !== undefined) {
+        if (
+            signal?.aborted ||
+            isAbortError(error) ||
+            error instanceof RangeError ||
+            error instanceof TypeError ||
+            getUnprovenNativeTerminationDetail(error) !== undefined
+        ) {
             throw error;
         }
         const prepared = await prepareFallback();
         signal?.throwIfAborted();
-        if (prepared.pdfPath === args[3]) {throw error;}
+        if (prepared.pdfPath === args[3]) {
+            throw error;
+        }
         const fallbackArgs: typeof args = [...args];
         fallbackArgs[3] = prepared.pdfPath;
         await renderPdfPageToPpm(...fallbackArgs);
     }
 }
 
-export function createOcrRasterRenderLimits(
-    pageSize: IOcrPageSizeInches,
-    dpi: number,
-): IScanCleanupRasterRenderLimits {
+export function createOcrRasterRenderLimits(pageSize: IOcrPageSizeInches, dpi: number): IScanCleanupRasterRenderLimits {
     return {
         expectedWidthPx: Math.max(1, Math.ceil(pageSize.width * dpi)),
         expectedHeightPx: Math.max(1, Math.ceil(pageSize.height * dpi)),
@@ -117,15 +106,9 @@ export async function preparePdfForPoppler(
     const normalizedPdfPath = trackTempFile(join(paths.tempDir, `${sessionId}-poppler-input.pdf`));
 
     try {
-        await runDesktopQpdfWasm([
-            sourcePdfPath,
-            normalizedPdfPath,
-        ], {
+        await runDesktopQpdfWasm([sourcePdfPath, normalizedPdfPath], {
             commandLabel: 'qpdf(poppler-preflight)',
-            allowedExitCodes: [
-                0,
-                3,
-            ],
+            allowedExitCodes: [0, 3],
             timeoutMs: QPDF_TIMEOUT_MS,
             ...(signal === undefined ? {} : {signal}),
         });
@@ -141,7 +124,9 @@ export async function preparePdfForPoppler(
             warnings: [],
         };
     } catch (err) {
-        if (getUnprovenNativeTerminationDetail(err) !== undefined) {throw err;}
+        if (getUnprovenNativeTerminationDetail(err) !== undefined) {
+            throw err;
+        }
         if (signal?.aborted) {
             throw signal.reason instanceof Error ? signal.reason : err;
         }

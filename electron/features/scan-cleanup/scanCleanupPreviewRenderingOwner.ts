@@ -11,25 +11,14 @@ import {
     classifyScanCleanupPreviewError as classifyScanCleanupError,
     scanCleanupScratchShortfall,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
-import {
-    createStableJobBrokerOwnerId,
-    type IJobBrokerRunContext,
-} from '@electron/resources/jobBroker';
-import { getErrorMessage } from '@electron/utils/error';
+import {createStableJobBrokerOwnerId, type IJobBrokerRunContext} from '@electron/resources/jobBroker';
+import {getErrorMessage} from '@electron/utils/error';
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
-import {
-    isWorkingCopyQuarantined, quarantineWorkingCopy,
-} from '@electron/file-access/workingCopyQuarantine';
-import {
-    decodeSerializableErrorEnvelope,
-    encodeSerializableErrorEnvelope,
-} from '@contracts/serializableError';
+import {isWorkingCopyQuarantined, quarantineWorkingCopy} from '@electron/file-access/workingCopyQuarantine';
+import {decodeSerializableErrorEnvelope, encodeSerializableErrorEnvelope} from '@contracts/serializableError';
 import {SCAN_CLEANUP_ERROR_ENVELOPE_SCHEMA} from '@contracts/scan-cleanup/ipc';
 import {createJobId} from '@contracts/shared';
-import {
-    createMainJobRegistry,
-    RENDERER_DESTROYED_CANCELLATION_REASON,
-} from '@electron/operation-lifecycle/createMainJobRegistry';
+import {createMainJobRegistry, RENDERER_DESTROYED_CANCELLATION_REASON} from '@electron/operation-lifecycle/createMainJobRegistry';
 import {waitForBoundedOperation} from '@node-runtime/waitForBoundedOperation';
 
 import type {
@@ -55,14 +44,8 @@ const PREVIEW_PREFETCH_LEASE_TIMEOUT_MS = 10_000;
 const PREVIEW_ADMISSION_REISSUED = new Error('Scan cleanup preview readmitted at visible priority');
 
 export interface IScanCleanupPreviewRenderingOwner {
-    preview: (
-        sender: IScanCleanupDetectionSubscriber,
-        request: IScanCleanupPreviewRequest,
-    ) => Promise<TScanCleanupPreviewWireResult>;
-    cancel: (
-        sender: IScanCleanupDetectionSubscriber,
-        request: IScanCleanupPreviewCancelRequest,
-    ) => boolean;
+    preview: (sender: IScanCleanupDetectionSubscriber, request: IScanCleanupPreviewRequest) => Promise<TScanCleanupPreviewWireResult>;
+    cancel: (sender: IScanCleanupDetectionSubscriber, request: IScanCleanupPreviewCancelRequest) => boolean;
     invalidateSender?: (senderId: number) => void;
     dispose: () => Promise<void>;
 }
@@ -77,7 +60,10 @@ interface IScanCleanupPreviewProgress {
 export function scanCleanupPreviewRenderingOwner(
     dependencies: IScanCleanupRenderingDependencies,
     rawRasterRetention: IScanCleanupPreviewOwnerRetention,
-    resolvePreviewRequest?: (sender: IScanCleanupDetectionSubscriber, request: IScanCleanupPreviewRequest) => Promise<IScanCleanupPreviewRequest>,
+    resolvePreviewRequest?: (
+        sender: IScanCleanupDetectionSubscriber,
+        request: IScanCleanupPreviewRequest,
+    ) => Promise<IScanCleanupPreviewRequest>,
 ): IScanCleanupPreviewRenderingOwner {
     const active = new Map<string, IPreviewEntry>();
     const baseAnalysisCache = new Map<string, IBasePreviewAnalysis>();
@@ -86,7 +72,9 @@ export function scanCleanupPreviewRenderingOwner(
     const deferredBaseAnalysisInvalidations = new Set<string>();
     const baseAnalysisCleanupPromises = new Set<Promise<void>>();
     const scheduleBaseAnalysisRemoval = (analysis: IBasePreviewAnalysis, analysisKey?: string) => {
-        if (isWorkingCopyQuarantined(analysis.sourcePdfPath)) {return Promise.resolve();}
+        if (isWorkingCopyQuarantined(analysis.sourcePdfPath)) {
+            return Promise.resolve();
+        }
         if (analysisKey !== undefined && (baseAnalysisPins.get(analysisKey) ?? 0) > 0) {
             const pending = pendingBaseAnalysisRemovals.get(analysisKey) ?? [];
             pending.push(analysis);
@@ -105,7 +93,7 @@ export function scanCleanupPreviewRenderingOwner(
             const pending = pendingBaseAnalysisRemovals.get(analysisKey);
             if (pending) {
                 pendingBaseAnalysisRemovals.delete(analysisKey);
-                pending.forEach(analysis => {
+                pending.forEach((analysis) => {
                     void scheduleBaseAnalysisRemoval(analysis);
                 });
             }
@@ -129,44 +117,38 @@ export function scanCleanupPreviewRenderingOwner(
             ...(kind === 'canceled' ? {name: 'AbortError'} : {}),
         }),
         terminalProgress: {
-            completed: latest => ({
+            completed: (latest) => ({
                 ...latest,
                 completedUnits: 1,
                 totalUnits: 1,
                 percent: 100,
             }),
-            canceled: latest => latest,
-            failed: latest => latest,
+            canceled: (latest) => latest,
+            failed: (latest) => latest,
         },
     });
     const disposeBaseAnalysisCache = async () => {
         const analyses = [...baseAnalysisCache.values()];
         baseAnalysisCache.clear();
-        analyses.forEach(analysis => scheduleBaseAnalysisRemoval(analysis));
-        pendingBaseAnalysisRemovals.forEach(analyses => {
-            analyses.forEach(analysis => scheduleBaseAnalysisRemoval(analysis));
+        analyses.forEach((analysis) => scheduleBaseAnalysisRemoval(analysis));
+        pendingBaseAnalysisRemovals.forEach((analyses) => {
+            analyses.forEach((analysis) => scheduleBaseAnalysisRemoval(analysis));
         });
         pendingBaseAnalysisRemovals.clear();
         await Promise.all([...baseAnalysisCleanupPromises]);
     };
-    const baseAnalysisDocumentKey = (sourcePdfPath: string, documentRevision: string) =>
-        `${documentRevision}\u0000${sourcePdfPath}`;
+    const baseAnalysisDocumentKey = (sourcePdfPath: string, documentRevision: string) => `${documentRevision}\u0000${sourcePdfPath}`;
     const removeBaseAnalysisForDocument = (sourcePdfPath: string, documentRevision: string) => {
-        for (const [
-            key,
-            analysis,
-        ] of baseAnalysisCache) {
-            if (
-                analysis.sourcePdfPath === sourcePdfPath
-                && analysis.documentRevision === documentRevision
-            ) {
+        for (const [key, analysis] of baseAnalysisCache) {
+            if (analysis.sourcePdfPath === sourcePdfPath && analysis.documentRevision === documentRevision) {
                 baseAnalysisCache.delete(key);
                 if ((baseAnalysisPins.get(key) ?? 0) > 0) {
                     const pending = pendingBaseAnalysisRemovals.get(key) ?? [];
                     pending.push(analysis);
                     pendingBaseAnalysisRemovals.set(key, pending);
+                } else {
+                    void scheduleBaseAnalysisRemoval(analysis);
                 }
-                else {void scheduleBaseAnalysisRemoval(analysis);}
             }
         }
     };
@@ -178,28 +160,19 @@ export function scanCleanupPreviewRenderingOwner(
         rawRasterRetention.invalidate(sourcePdfPath, request.documentRevision, claimId);
         const documentKey = baseAnalysisDocumentKey(sourcePdfPath, request.documentRevision);
         const documentToken = `\u0000${request.documentRevision}\u0000${sourcePdfPath}\u0000`;
-        const documentStillActive = [...active.entries()].some(([
-            key,
-            entry,
-        ]) => entry.claimId !== claimId && key.includes(documentToken));
+        const documentStillActive = [...active.entries()].some(([key, entry]) => entry.claimId !== claimId && key.includes(documentToken));
         if (documentStillActive) {
             deferredBaseAnalysisInvalidations.add(documentKey);
         } else {
             removeBaseAnalysisForDocument(sourcePdfPath, request.documentRevision);
         }
     };
-    const previewOwnerPrefix = (
-        sender: IScanCleanupDetectionSubscriber,
-        owner: IScanCleanupOwnerContext,
-    ) => `${sender.id}\u0000${owner.ownerId}\u0000`;
-    const brokerOwnerId = (
-        sender: IScanCleanupDetectionSubscriber,
-        owner: IScanCleanupOwnerContext,
-    ) => createStableJobBrokerOwnerId('scan-cleanup', sender.id, owner.ownerId);
-    const previewDocumentPrefix = (
-        sender: IScanCleanupDetectionSubscriber,
-        request: IScanCleanupOwnerContext & {sourcePdfPath: string},
-    ) => `${previewOwnerPrefix(sender, request)}${request.documentRevision}\u0000${request.sourcePdfPath}\u0000`;
+    const previewOwnerPrefix = (sender: IScanCleanupDetectionSubscriber, owner: IScanCleanupOwnerContext) =>
+        `${sender.id}\u0000${owner.ownerId}\u0000`;
+    const brokerOwnerId = (sender: IScanCleanupDetectionSubscriber, owner: IScanCleanupOwnerContext) =>
+        createStableJobBrokerOwnerId('scan-cleanup', sender.id, owner.ownerId);
+    const previewDocumentPrefix = (sender: IScanCleanupDetectionSubscriber, request: IScanCleanupOwnerContext & {sourcePdfPath: string}) =>
+        `${previewOwnerPrefix(sender, request)}${request.documentRevision}\u0000${request.sourcePdfPath}\u0000`;
     // The page the user navigated onto, named by the request that streams its
     // raw raster back, so the adjacent prefetches that do not are admitted
     // behind it. One entry per document an owner is working on, dropped when
@@ -211,10 +184,7 @@ export function scanCleanupPreviewRenderingOwner(
     ) => {
         const ownerPrefix = previewOwnerPrefix(sender, request);
         const documentPrefix = previewDocumentPrefix(sender, request);
-        for (const [
-            key,
-            entry,
-        ] of active) {
+        for (const [key, entry] of active) {
             if (key.startsWith(ownerPrefix) && !key.startsWith(documentPrefix)) {
                 entry.canceledAsResult = true;
                 entry.cancel('Stale scan cleanup preview document');
@@ -224,14 +194,14 @@ export function scanCleanupPreviewRenderingOwner(
         // looking at in the old one is not a visible page any more. Without
         // this the map keeps one entry per document a session ever opened.
         for (const key of visiblePages.keys()) {
-            if (key.startsWith(ownerPrefix) && key !== documentPrefix) {visiblePages.delete(key);}
+            if (key.startsWith(ownerPrefix) && key !== documentPrefix) {
+                visiblePages.delete(key);
+            }
         }
         return documentPrefix;
     };
-    const previewLanePrefix = (
-        documentPrefix: string,
-        request: IScanCleanupPreviewRequest,
-    ) => `${documentPrefix}${request.detail === undefined ? 'base' : 'detail'}\u0000`;
+    const previewLanePrefix = (documentPrefix: string, request: IScanCleanupPreviewRequest) =>
+        `${documentPrefix}${request.detail === undefined ? 'base' : 'detail'}\u0000`;
     const withPreviewLease = async <T>(
         documentPrefix: string,
         admission: IPreviewAdmission,
@@ -242,31 +212,28 @@ export function scanCleanupPreviewRenderingOwner(
     ) => {
         signal.throwIfAborted();
         const runWithLease = dependencies.runWithPreviewLease;
-        if (!runWithLease) {throw new Error('Scan cleanup preview requires injected admission capability');}
+        if (!runWithLease) {
+            throw new Error('Scan cleanup preview requires injected admission capability');
+        }
         for (;;) {
             const attempt = new AbortController();
             const abortAttempt = () => attempt.abort(signal.reason);
             signal.addEventListener('abort', abortAttempt, {once: true});
             admission.reissue = () => attempt.abort(PREVIEW_ADMISSION_REISSUED);
             try {
-                return await runWithLease(
-                    documentPrefix,
-                    admission.visibility,
-                    attempt.signal,
-                    options,
-                    rasterMaxPixels,
-                    brokerRun => {
-                        admission.granted = true;
-                        signal.removeEventListener('abort', abortAttempt);
-                        admission.reissue = null;
-                        return run(brokerRun);
-                    },
-                );
+                return await runWithLease(documentPrefix, admission.visibility, attempt.signal, options, rasterMaxPixels, (brokerRun) => {
+                    admission.granted = true;
+                    signal.removeEventListener('abort', abortAttempt);
+                    admission.reissue = null;
+                    return run(brokerRun);
+                });
             } catch (error) {
                 if (!admission.granted) {
                     signal.throwIfAborted();
                     // Anything but a readmission is the request's own failure.
-                    if (attempt.signal.reason === PREVIEW_ADMISSION_REISSUED) {continue;}
+                    if (attempt.signal.reason === PREVIEW_ADMISSION_REISSUED) {
+                        continue;
+                    }
                 }
                 throw error;
             } finally {
@@ -279,19 +246,12 @@ export function scanCleanupPreviewRenderingOwner(
     // just the document and the lane. Two requests that would produce the same
     // result now share one run instead of the second aborting the first.
     const previewRequestKey = (documentPrefix: string, request: IScanCleanupPreviewRequest) => {
-        const {
-            detail,
-            ...base
-        } = request;
+        const {detail, ...base} = request;
         return `${previewLanePrefix(documentPrefix, request)}${previewIdentityKey(base)}\u0000${
             detail === undefined ? '' : JSON.stringify(detail)
         }`;
     };
-    const cancelPreviewRequest = (
-        sender: IScanCleanupDetectionSubscriber,
-        request: IScanCleanupPreviewCancelRequest,
-        reason: string,
-    ) => {
+    const cancelPreviewRequest = (sender: IScanCleanupDetectionSubscriber, request: IScanCleanupPreviewCancelRequest, reason: string) => {
         const documentPrefix = previewDocumentPrefix(sender, request);
         // A navigation names the pages it is moving into; only work for
         // pages outside that window is discarded. Without a window the
@@ -300,18 +260,12 @@ export function scanCleanupPreviewRenderingOwner(
         const documentToken = `\u0000${request.documentRevision}\u0000${request.sourcePdfPath}\u0000`;
         const retained = new Set(request.retainPages ?? []);
         const canceledEntries: IPreviewEntry[] = [];
-        const otherOwnerHasWork = [...active.entries()].some(([
-            key,
-            entry,
-        ]) => (
-            key.includes(documentToken)
-            && (!key.startsWith(previewOwnerPrefix(sender, request)) || retained.has(entry.pageNumber))
-        ));
+        const otherOwnerHasWork = [...active.entries()].some(
+            ([key, entry]) =>
+                key.includes(documentToken) && (!key.startsWith(previewOwnerPrefix(sender, request)) || retained.has(entry.pageNumber)),
+        );
         let canceled = false;
-        for (const [
-            key,
-            entry,
-        ] of active) {
+        for (const [key, entry] of active) {
             if (key.startsWith(documentPrefix) && !retained.has(entry.pageNumber)) {
                 entry.canceledAsResult = request.invalidateRawCache === false;
                 canceledEntries.push(entry);
@@ -322,7 +276,9 @@ export function scanCleanupPreviewRenderingOwner(
         // A windowed cancellation is always issued for a navigation that
         // still wants the visible page, so only a whole-document
         // cancellation forgets which page that is.
-        if (request.retainPages === undefined) {visiblePages.delete(documentPrefix);}
+        if (request.retainPages === undefined) {
+            visiblePages.delete(documentPrefix);
+        }
         if (request.invalidateRawCache !== false) {
             if (canceledEntries.length === 0 && !otherOwnerHasWork) {
                 rawRasterRetention.invalidate(request.sourcePdfPath, request.documentRevision);
@@ -339,26 +295,24 @@ export function scanCleanupPreviewRenderingOwner(
     return {
         invalidateSender(senderId: number) {
             const senderPrefix = `${String(senderId)}\u0000`;
-            for (const [
-                key,
-                entry,
-            ] of active) {
-                if (key.startsWith(senderPrefix)) {entry.cancel(RENDERER_DESTROYED_CANCELLATION_REASON);}
+            for (const [key, entry] of active) {
+                if (key.startsWith(senderPrefix)) {
+                    entry.cancel(RENDERER_DESTROYED_CANCELLATION_REASON);
+                }
             }
             for (const key of visiblePages.keys()) {
-                if (key.startsWith(senderPrefix)) {visiblePages.delete(key);}
+                if (key.startsWith(senderPrefix)) {
+                    visiblePages.delete(key);
+                }
             }
         },
         async dispose() {
             for (const entry of active.values()) {
                 entry.cancel('Scan cleanup preview service disposed');
             }
-            const activeTails = Promise.allSettled([...active.values()].map(entry => entry.tail)).then(() => undefined);
+            const activeTails = Promise.allSettled([...active.values()].map((entry) => entry.tail)).then(() => undefined);
             const registryReset = previewJobs.dispose().catch(() => undefined);
-            await waitForBoundedOperation(Promise.all([
-                activeTails,
-                registryReset,
-            ]), {
+            await waitForBoundedOperation(Promise.all([activeTails, registryReset]), {
                 timeoutMs: PREVIEW_DISPOSAL_TIMEOUT_MS,
                 timeoutResult: undefined,
                 unref: true,
@@ -376,7 +330,9 @@ export function scanCleanupPreviewRenderingOwner(
             const documentPrefix = abortStalePreviewRequests(sender, request);
             // The renderer names the page the user is looking at on the request
             // that will display it; everything else is an adjacent prefetch.
-            if (request.visible === true) {visiblePages.set(documentPrefix, request.pageNumber);}
+            if (request.visible === true) {
+                visiblePages.set(documentPrefix, request.pageNumber);
+            }
             const activeKey = previewRequestKey(documentPrefix, request);
             // Navigating onto a page whose prefetch is still running adopts that
             // run: no second raster, no second sidecar, and the caller inherits
@@ -400,18 +356,21 @@ export function scanCleanupPreviewRenderingOwner(
             // A detail tile is the one visible viewport, so it supersedes the
             // whole detail lane and still never touches the base lane.
             const lanePrefix = previewLanePrefix(documentPrefix, request);
-            const superseded = [...active].filter(([key, entry]) => key.startsWith(lanePrefix)
-                && (request.detail !== undefined || entry.pageNumber === request.pageNumber))
+            const superseded = [...active]
+                .filter(
+                    ([key, entry]) =>
+                        key.startsWith(lanePrefix) && (request.detail !== undefined || entry.pageNumber === request.pageNumber),
+                )
                 .map(([, entry]) => entry);
             // The page the user is waiting on keeps its run. A prefetch for it
             // with other inputs never retires that demand; the owner answers
             // the prefetch as canceled instead, so the visible page is
             // rendered once and nothing has to ask for it again.
             if (
-                request.visible !== true
-                && request.detail === undefined
-                && visiblePages.get(documentPrefix) === request.pageNumber
-                && superseded.some(entry => !entry.signal.aborted)
+                request.visible !== true &&
+                request.detail === undefined &&
+                visiblePages.get(documentPrefix) === request.pageNumber &&
+                superseded.some((entry) => !entry.signal.aborted)
             ) {
                 return Promise.resolve({canceled: true} as const);
             }
@@ -419,7 +378,7 @@ export function scanCleanupPreviewRenderingOwner(
                 entry.canceledAsResult = true;
                 entry.cancel('Superseded scan cleanup preview');
             }
-            const priorTail = Promise.all(superseded.map(entry => entry.tail.catch(() => undefined)));
+            const priorTail = Promise.all(superseded.map((entry) => entry.tail.catch(() => undefined)));
             // A detail tile is the viewport the user is looking at. The renderer
             // names normal visible pages explicitly; page one is the safe
             // startup fallback for older callers that have not done so yet.
@@ -428,13 +387,14 @@ export function scanCleanupPreviewRenderingOwner(
             const admission: IPreviewAdmission = {
                 granted: false,
                 reissue: null,
-                visibility: request.detail !== undefined
-                    ? 'detail'
-                    : request.visible === true
-                    || (visiblePage === undefined && request.pageNumber === 1)
-                    || visiblePage === request.pageNumber
-                        ? 'visible'
-                        : 'prefetch',
+                visibility:
+                    request.detail !== undefined
+                        ? 'detail'
+                        : request.visible === true ||
+                            (visiblePage === undefined && request.pageNumber === 1) ||
+                            visiblePage === request.pageNumber
+                          ? 'visible'
+                          : 'prefetch',
             };
             const entryStateRef: {current?: IPreviewEntry} = {};
             // Native readers retain their inputs until termination is proven.
@@ -465,100 +425,107 @@ export function scanCleanupPreviewRenderingOwner(
                     renderProcessGone: 'cancel',
                     mainFrameNavigation: 'cancel',
                 },
-                onCancel: () => void (jobSettledRef.current ?? Promise.resolve()).then(() => {
-                    if (unprovenTermination || entryStateRef.current?.canceledAsResult) {return;}
-                    releaseCanceledPreviewResources(
-                        request,
-                        claimId,
-                        entryStateRef.current?.sourcePdfPath,
-                    );
-                    visiblePages.delete(documentPrefix);
-                }),
-                run: async context => priorTail.then(async () => context.scratch.using<TScanCleanupPreviewWireResult>('scan-cleanup-preview-', async scratchPath => {
-                    let materialized;
-                    try {
-                        materialized = await dependencies.materializeRequest(
-                            await resolvePreviewRequest?.(sender, request) ?? request,
-                            sender.id,
-                            context.signal,
-                            dependencies,
-                        );
-                        if (entryStateRef.current) {
-                            entryStateRef.current.sourcePdfPath = materialized.sourcePdfPath;
+                onCancel: () =>
+                    void (jobSettledRef.current ?? Promise.resolve()).then(() => {
+                        if (unprovenTermination || entryStateRef.current?.canceledAsResult) {
+                            return;
                         }
-                    } catch (error) {
-                        if (getErrorMessage(error) === 'Scan cleanup source is no longer available') {
-                            return {canceled: true} as const;
-                        }
-                        throw error;
-                    }
-                    const rasterPolicy = dependencies.resolveRasterAdmissionPolicy(
-                        request.options,
-                    );
-                    return withPreviewLease(
-                        brokerOwnerId(sender, request),
-                        admission,
-                        context.signal,
-                        request.options,
-                        rasterPolicy.rasterMaxPixels,
-                        async brokerRun => {
-                            const scopedRetention = brokerRun === undefined
-                                ? rawRasterRetention
-                                : {
-                                    ...rawRasterRetention,
-                                    rasterPageSource: (
-                                        doc: Parameters<typeof rawRasterRetention.rasterPageSource>[0],
-                                        sig: AbortSignal,
-                                    ) => rawRasterRetention.rasterPageSource(doc, sig, brokerRun),
-                                    sourceDpi: (
-                                        doc: Parameters<typeof rawRasterRetention.sourceDpi>[0],
-                                        pageNumber: number,
-                                        sig: AbortSignal,
-                                    ) => rawRasterRetention.sourceDpi(doc, pageNumber, sig, brokerRun),
-                                };
-                            const result = await scanCleanupPreviewRenderer(
-                                materialized,
-                                context.signal,
-                                scopedRetention,
-                                baseAnalysisCache,
-                                bindScanCleanupTerminationProof(dependencies, brokerRun),
-                                raw => sender.send(SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onPreviewRaw, raw),
-                                scratchPath,
-                                baseAnalysisPins,
-                                scheduleBaseAnalysisRemoval,
-                                claimId,
-                                releaseBaseAnalysisPin,
-                                rasterPolicy.rasterMaxPixels,
+                        releaseCanceledPreviewResources(request, claimId, entryStateRef.current?.sourcePdfPath);
+                        visiblePages.delete(documentPrefix);
+                    }),
+                run: async (context) =>
+                    priorTail
+                        .then(async () =>
+                            context.scratch.using<TScanCleanupPreviewWireResult>('scan-cleanup-preview-', async (scratchPath) => {
+                                let materialized;
+                                try {
+                                    materialized = await dependencies.materializeRequest(
+                                        (await resolvePreviewRequest?.(sender, request)) ?? request,
+                                        sender.id,
+                                        context.signal,
+                                        dependencies,
+                                    );
+                                    if (entryStateRef.current) {
+                                        entryStateRef.current.sourcePdfPath = materialized.sourcePdfPath;
+                                    }
+                                } catch (error) {
+                                    if (getErrorMessage(error) === 'Scan cleanup source is no longer available') {
+                                        return {canceled: true} as const;
+                                    }
+                                    throw error;
+                                }
+                                const rasterPolicy = dependencies.resolveRasterAdmissionPolicy(request.options);
+                                return withPreviewLease(
+                                    brokerOwnerId(sender, request),
+                                    admission,
+                                    context.signal,
+                                    request.options,
+                                    rasterPolicy.rasterMaxPixels,
+                                    async (brokerRun) => {
+                                        const scopedRetention =
+                                            brokerRun === undefined
+                                                ? rawRasterRetention
+                                                : {
+                                                      ...rawRasterRetention,
+                                                      rasterPageSource: (
+                                                          doc: Parameters<typeof rawRasterRetention.rasterPageSource>[0],
+                                                          sig: AbortSignal,
+                                                      ) => rawRasterRetention.rasterPageSource(doc, sig, brokerRun),
+                                                      sourceDpi: (
+                                                          doc: Parameters<typeof rawRasterRetention.sourceDpi>[0],
+                                                          pageNumber: number,
+                                                          sig: AbortSignal,
+                                                      ) => rawRasterRetention.sourceDpi(doc, pageNumber, sig, brokerRun),
+                                                  };
+                                        const result = await scanCleanupPreviewRenderer(
+                                            materialized,
+                                            context.signal,
+                                            scopedRetention,
+                                            baseAnalysisCache,
+                                            bindScanCleanupTerminationProof(dependencies, brokerRun),
+                                            (raw) => sender.send(SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onPreviewRaw, raw),
+                                            scratchPath,
+                                            baseAnalysisPins,
+                                            scheduleBaseAnalysisRemoval,
+                                            claimId,
+                                            releaseBaseAnalysisPin,
+                                            rasterPolicy.rasterMaxPixels,
+                                        );
+                                        if (context.signal.aborted) {
+                                            throw context.signal.reason;
+                                        }
+                                        return result.canceled === true
+                                            ? result
+                                            : {
+                                                  ...result,
+                                                  requestId: materialized.requestId,
+                                              };
+                                    },
+                                );
+                            }),
+                        )
+                        .catch((error) => {
+                            // As a full run does: the source a surviving native child
+                            // may still read is recorded against its path, not dropped.
+                            const unproven = getUnprovenNativeTerminationDetail(error);
+                            if (unproven !== undefined) {
+                                unprovenTermination = true;
+                                quarantineWorkingCopy(entryStateRef.current?.sourcePdfPath ?? request.sourcePdfPath, unproven);
+                            }
+                            if (isPreviewCancellation(error)) {
+                                throw error;
+                            }
+                            throw new Error(
+                                encodeSerializableErrorEnvelope({
+                                    code: classifyScanCleanupError(error, false),
+                                    message: getErrorMessage(error) || 'Scan cleanup preview failed',
+                                    ...scanCleanupScratchShortfall(error),
+                                }),
                             );
-                            if (context.signal.aborted) {throw context.signal.reason;}
-                            return result.canceled === true
-                                ? result
-                                : {
-                                    ...result,
-                                    requestId: materialized.requestId,
-                                };
-                        },
-                    );
-                })).catch(error => {
-                    // As a full run does: the source a surviving native child
-                    // may still read is recorded against its path, not dropped.
-                    const unproven = getUnprovenNativeTerminationDetail(error);
-                    if (unproven !== undefined) {
-                        unprovenTermination = true;
-                        quarantineWorkingCopy(entryStateRef.current?.sourcePdfPath ?? request.sourcePdfPath, unproven);
-                    }
-                    if (isPreviewCancellation(error)) {
-                        throw error;
-                    }
-                    throw new Error(encodeSerializableErrorEnvelope({
-                        code: classifyScanCleanupError(error, false),
-                        message: getErrorMessage(error) || 'Scan cleanup preview failed',
-                        ...scanCleanupScratchShortfall(error),
-                    }));
-                }),
+                        }),
             });
             jobSettledRef.current = handle.settled;
-            const tail: Promise<TScanCleanupPreviewWireResult> = handle.terminal.then(snapshot => {
+            const tail: Promise<TScanCleanupPreviewWireResult> = handle.terminal.then((snapshot) => {
                 if (snapshot.status === 'completed') {
                     return snapshot.result;
                 }
@@ -568,24 +535,23 @@ export function scanCleanupPreviewRenderingOwner(
                     }
                     throw Object.assign(new Error(snapshot.error.message), snapshot.error);
                 }
-                const envelope = decodeSerializableErrorEnvelope(
-                    snapshot.error.message,
-                    SCAN_CLEANUP_ERROR_ENVELOPE_SCHEMA,
-                );
+                const envelope = decodeSerializableErrorEnvelope(snapshot.error.message, SCAN_CLEANUP_ERROR_ENVELOPE_SCHEMA);
                 throw new Error(encodeSerializableErrorEnvelope(envelope ?? snapshot.error));
             });
             const settledTail = tail.then(
-                async result => {
+                async (result) => {
                     await handle.settled;
                     return result;
                 },
-                async error => {
+                async (error) => {
                     await handle.settled;
                     throw error;
                 },
             );
             const cancel = (reason?: string) => {
-                if (!admission.granted) {entryStateRef.current!.canceledAsResult = true;}
+                if (!admission.granted) {
+                    entryStateRef.current!.canceledAsResult = true;
+                }
                 return handle.cancel(reason);
             };
             const entryState: IPreviewEntry = {
@@ -608,18 +574,22 @@ export function scanCleanupPreviewRenderingOwner(
                 }, dependencies.prefetchLeaseTimeoutMs ?? PREVIEW_PREFETCH_LEASE_TIMEOUT_MS);
                 void tail.catch(() => undefined).finally(() => clearTimeout(drop));
             }
-            void settledTail.finally(() => {
-                // Only this entry leaves the index: a replacement under the
-                // same key outlives the late tail of the run it superseded.
-                if (active.get(activeKey) === entryState) {active.delete(activeKey);}
-                const documentKey = baseAnalysisDocumentKey(request.sourcePdfPath, request.documentRevision);
-                const documentStillActive = [...active.keys()].some(key => key.includes(
-                    `\u0000${request.documentRevision}\u0000${request.sourcePdfPath}\u0000`,
-                ));
-                if (!documentStillActive && deferredBaseAnalysisInvalidations.delete(documentKey)) {
-                    removeBaseAnalysisForDocument(request.sourcePdfPath, request.documentRevision);
-                }
-            }).catch(() => undefined);
+            void settledTail
+                .finally(() => {
+                    // Only this entry leaves the index: a replacement under the
+                    // same key outlives the late tail of the run it superseded.
+                    if (active.get(activeKey) === entryState) {
+                        active.delete(activeKey);
+                    }
+                    const documentKey = baseAnalysisDocumentKey(request.sourcePdfPath, request.documentRevision);
+                    const documentStillActive = [...active.keys()].some((key) =>
+                        key.includes(`\u0000${request.documentRevision}\u0000${request.sourcePdfPath}\u0000`),
+                    );
+                    if (!documentStillActive && deferredBaseAnalysisInvalidations.delete(documentKey)) {
+                        removeBaseAnalysisForDocument(request.sourcePdfPath, request.documentRevision);
+                    }
+                })
+                .catch(() => undefined);
             return settledTail;
         },
         cancel(sender, request) {

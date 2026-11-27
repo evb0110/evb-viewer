@@ -9,10 +9,7 @@ export function withNodeHeap(env = process.env, heapMb = DEFAULT_NODE_HEAP_MB) {
 
     return {
         ...env,
-        NODE_OPTIONS: [
-            nodeOptions,
-            `--max-old-space-size=${heapMb}`,
-        ].filter(Boolean).join(' '),
+        NODE_OPTIONS: [nodeOptions, `--max-old-space-size=${heapMb}`].filter(Boolean).join(' '),
     };
 }
 

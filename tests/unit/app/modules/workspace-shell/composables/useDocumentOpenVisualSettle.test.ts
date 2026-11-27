@@ -1,15 +1,6 @@
-import {
-    computed,
-    effectScope,
-    nextTick,
-    ref,
-} from 'vue';
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { useDocumentOpenVisualSettle } from '@app/modules/workspace-shell/composables/useDocumentOpenVisualSettle';
+import {computed, effectScope, nextTick, ref} from 'vue';
+import {describe, expect, it} from 'vitest';
+import {useDocumentOpenVisualSettle} from '@app/modules/workspace-shell/composables/useDocumentOpenVisualSettle';
 import {
     createDocumentOpenSurfaceSession,
     type IDocumentOpenSurfaceSnapshot,
@@ -37,10 +28,10 @@ function createHarness(overrides: IHarnessOverrides = {}) {
     const surfaceSession = createDocumentOpenSurfaceSession();
     const openSurface = overrides.openSurfaceSnapshot
         ? {
-            snapshot: ref(overrides.openSurfaceSnapshot),
-            viewportSession: surfaceSession.viewportSession,
-            getDiagnosticHistory: () => [],
-        }
+              snapshot: ref(overrides.openSurfaceSnapshot),
+              viewportSession: surfaceSession.viewportSession,
+              getDiagnosticHistory: () => [],
+          }
         : surfaceSession;
 
     const settle = useDocumentOpenVisualSettle({
@@ -96,22 +87,22 @@ function commitHarnessSurfaceReady(harness: ReturnType<typeof createHarness>) {
 }
 
 describe('useDocumentOpenVisualSettle', () => {
-    it.each([
-        true,
-        false,
-    ])('settles a PDF when its first page is on screen, with its document projection ready: %s', (documentPublished) => {
-        const harness = createHarness({
-            pdfSrc: { path: 'fixture.pdf' },
-            pdfDocument: documentPublished ? {} : null,
-            totalPages: 1,
-            isLoading: false,
-        });
-        expect(harness.settle.documentOpenSettled.value).toBe(false);
+    it.each([true, false])(
+        'settles a PDF when its first page is on screen, with its document projection ready: %s',
+        (documentPublished) => {
+            const harness = createHarness({
+                pdfSrc: {path: 'fixture.pdf'},
+                pdfDocument: documentPublished ? {} : null,
+                totalPages: 1,
+                isLoading: false,
+            });
+            expect(harness.settle.documentOpenSettled.value).toBe(false);
 
-        commitHarnessSurfaceReady(harness);
+            commitHarnessSurfaceReady(harness);
 
-        expect(harness.settle.documentOpenSettled.value).toBe(true);
-    });
+            expect(harness.settle.documentOpenSettled.value).toBe(true);
+        },
+    );
 
     it('keeps document readiness latched while page navigation transitions within the same generation', async () => {
         const harness = createHarness({

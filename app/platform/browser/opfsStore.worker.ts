@@ -4,27 +4,22 @@
 // enforces across windows too. Handle modes are not used; Firefox and WebKit ignore them. A PDF edit that
 // appends a revision runs here too, on the handle the document already holds, and so does content hashing:
 // a witness reads its bytes here, so the window neither receives nor hashes them.
-import { contentWitness } from '@document-store/contentWitness';
-import type {
-    IStoreFile,
-    IStorePort,
-} from '@document-store/storePort';
-import { handlePrecompiledWasmModuleMessage } from '@app/platform/browser/loadWasmWithDeadline';
-import type {
-    IOcrTextLayerAppendRequest,
-    IPdfAppendRequest,
-} from '@app/platform/browser/pdfPageEngine';
+import {contentWitness} from '@document-store/contentWitness';
+import type {IStoreFile, IStorePort} from '@document-store/storePort';
+import {handlePrecompiledWasmModuleMessage} from '@app/platform/browser/loadWasmWithDeadline';
+import type {IOcrTextLayerAppendRequest, IPdfAppendRequest} from '@app/platform/browser/pdfPageEngine';
 
 type TSyncOrAsync<T> = T | Promise<T>;
 type TOpfsFileOperations = {
     [K in keyof IStoreFile]: (id: number, ...args: Parameters<IStoreFile[K]>) => TSyncOrAsync<Awaited<ReturnType<IStoreFile[K]>>>;
 };
-type TOpfsOperationsContract = Omit<IStorePort, 'open' | 'move'> & TOpfsFileOperations & {
-    probe(): Promise<boolean>;
-    open(path: string): Promise<number>;
-    witnessBlob(blob: Blob): Promise<string>;
-    appendPdfMutations(id: number, base: number, request: IPdfAppendRequest | IOcrTextLayerAppendRequest): Promise<unknown>;
-};
+type TOpfsOperationsContract = Omit<IStorePort, 'open' | 'move'> &
+    TOpfsFileOperations & {
+        probe(): Promise<boolean>;
+        open(path: string): Promise<number>;
+        witnessBlob(blob: Blob): Promise<string>;
+        appendPdfMutations(id: number, base: number, request: IPdfAppendRequest | IOcrTextLayerAppendRequest): Promise<unknown>;
+    };
 
 const COPY_BYTES = 4 * 1024 * 1024;
 const root = navigator.storage.getDirectory();
@@ -34,7 +29,7 @@ let nextFileId = 1;
 
 function split(path: string) {
     const segments = path.split('/');
-    if (segments.some(segment => segment === '' || segment === '.' || segment === '..')) {
+    if (segments.some((segment) => segment === '' || segment === '.' || segment === '..')) {
         throw new Error(`Invalid store path: ${path}`);
     }
     return {dirs: segments.slice(0, -1), name: segments.at(-1)!};
@@ -42,7 +37,9 @@ function split(path: string) {
 
 async function directory(dirs: string[], create: boolean) {
     let dir = await root;
-    for (const name of dirs) {dir = await dir.getDirectoryHandle(name, {create});}
+    for (const name of dirs) {
+        dir = await dir.getDirectoryHandle(name, {create});
+    }
     return dir;
 }
 
@@ -60,7 +57,9 @@ function writeAll(handle: FileSystemSyncAccessHandle, bytes: Uint8Array, at: num
 
 function file(id: number) {
     const handle = handles.get(id);
-    if (!handle) {throw new Error(`Store file ${id} is not open`);}
+    if (!handle) {
+        throw new Error(`Store file ${id} is not open`);
+    }
     return handle;
 }
 
@@ -72,10 +71,14 @@ async function openHandle(path: string) {
 
 /** Copies into the new file `to`, reading `read` until it returns nothing, then flushes. */
 async function writeNew(to: string, chunks: AsyncIterable<Uint8Array>) {
-    if (openPaths.has(to)) {throw new Error(`Store file is open: ${to}`);}
+    if (openPaths.has(to)) {
+        throw new Error(`Store file is open: ${to}`);
+    }
     const target = await openHandle(to);
     try {
-        if (target.getSize() !== 0) {throw new Error(`Store file exists: ${to}`);}
+        if (target.getSize() !== 0) {
+            throw new Error(`Store file exists: ${to}`);
+        }
         let offset = 0;
         for await (const chunk of chunks) {
             writeAll(target, chunk, offset);
@@ -99,7 +102,9 @@ async function* storeChunks(from: string) {
             yield chunk;
         }
     } finally {
-        if (openId === undefined) {source.close();}
+        if (openId === undefined) {
+            source.close();
+        }
     }
 }
 
@@ -107,7 +112,9 @@ async function* blobChunks(blob: Blob) {
     const reader = blob.stream().getReader();
     for (;;) {
         const {done, value} = await reader.read();
-        if (done) {return;}
+        if (done) {
+            return;
+        }
         yield value;
     }
 }
@@ -139,7 +146,9 @@ async function remove(path: string) {
     try {
         await (await directory(dirs, false)).removeEntry(name, {recursive: true});
     } catch (error) {
-        if (!isMissing(error)) {throw error;}
+        if (!isMissing(error)) {
+            throw error;
+        }
     }
 }
 
@@ -152,10 +161,14 @@ const operations = {
     async list(dir: string) {
         try {
             const names: string[] = [];
-            for await (const name of (await directory(dir === '' ? [] : dir.split('/'), false)).keys()) {names.push(name);}
+            for await (const name of (await directory(dir === '' ? [] : dir.split('/'), false)).keys()) {
+                names.push(name);
+            }
             return names;
         } catch (error) {
-            if (isMissing(error)) {return [];}
+            if (isMissing(error)) {
+                return [];
+            }
             throw error;
         }
     },
@@ -166,7 +179,9 @@ const operations = {
     },
     writeAtomic,
     async open(path: string) {
-        if (openPaths.has(path)) {throw new Error(`Store file is already open: ${path}`);}
+        if (openPaths.has(path)) {
+            throw new Error(`Store file is already open: ${path}`);
+        }
         const handle = await openHandle(path);
         const id = nextFileId++;
         handles.set(id, handle);
@@ -185,36 +200,53 @@ const operations = {
         const handle = file(id);
         let buffer = new Uint8Array();
         return contentWitness(length, async (offset, size) => {
-            if (buffer.byteLength < size) {buffer = new Uint8Array(size);}
+            if (buffer.byteLength < size) {
+                buffer = new Uint8Array(size);
+            }
             const view = buffer.subarray(0, size);
             return view.subarray(0, handle.read(view, {at: offset}));
         });
     },
     /** The content witness of a Blob, such as the file a Save just wrote, read by range in this worker. */
-    witnessBlob: (blob: Blob) => contentWitness(blob.size, async (offset, length) => new Uint8Array(await blob.slice(offset, offset + length).arrayBuffer())),
+    witnessBlob: (blob: Blob) =>
+        contentWitness(blob.size, async (offset, length) => new Uint8Array(await blob.slice(offset, offset + length).arrayBuffer())),
     writeAt: (id: number, offset: number, bytes: Uint8Array) => writeAll(file(id), bytes, offset),
     truncate: (id: number, length: number) => file(id).truncate(length),
     /** Appends the revisions `request` makes past the first `base` bytes, the PDF they edit. */
     async appendPdfMutations(id: number, base: number, request: IPdfAppendRequest | IOcrTextLayerAppendRequest) {
         const handle = file(id);
         const {appendPdfMutations} = await import('@app/platform/browser/pdfPageEngine');
-        return appendPdfMutations({
-            read(into, at) {
-                if (handle.read(into, {at}) !== into.byteLength) {throw new Error('The document ended before its cross-reference said');}
+        return appendPdfMutations(
+            {
+                read(into, at) {
+                    if (handle.read(into, {at}) !== into.byteLength) {
+                        throw new Error('The document ended before its cross-reference said');
+                    }
+                },
+                write(bytes, at) {
+                    if (at < base) {
+                        throw new Error('An append cannot write over its document');
+                    }
+                    writeAll(handle, bytes, at);
+                },
             },
-            write(bytes, at) {
-                if (at < base) {throw new Error('An append cannot write over its document');}
-                writeAll(handle, bytes, at);
-            },
-        }, base, request);
+            base,
+            request,
+        );
     },
     flush: (id: number) => file(id).flush(),
     close(id: number) {
         const handle = handles.get(id);
-        if (!handle) {return;}
+        if (!handle) {
+            return;
+        }
         handle.close();
         handles.delete(id);
-        for (const [path, openId] of openPaths) {if (openId === id) {openPaths.delete(path);}}
+        for (const [path, openId] of openPaths) {
+            if (openId === id) {
+                openPaths.delete(path);
+            }
+        }
     },
     copyIn: (source: Blob | string, path: string) => writeNew(path, typeof source === 'string' ? storeChunks(source) : blobChunks(source)),
     copy: (from: string, to: string) => writeNew(to, storeChunks(from)),
@@ -238,29 +270,49 @@ function unknownOperation(request: never): never {
 
 function invokeOperation(request: TOpfsRequest): unknown {
     switch (request.op) {
-        case 'probe': return operations.probe(...request.args);
-        case 'list': return operations.list(...request.args);
-        case 'read': return operations.read(...request.args);
-        case 'writeAtomic': return operations.writeAtomic(...request.args);
-        case 'open': return operations.open(...request.args);
-        case 'size': return operations.size(...request.args);
-        case 'readAt': return operations.readAt(...request.args);
-        case 'witness': return operations.witness(...request.args);
-        case 'witnessBlob': return operations.witnessBlob(...request.args);
-        case 'writeAt': return operations.writeAt(...request.args);
-        case 'truncate': return operations.truncate(...request.args);
-        case 'appendPdfMutations': return operations.appendPdfMutations(...request.args);
-        case 'flush': return operations.flush(...request.args);
-        case 'close': return operations.close(...request.args);
-        case 'copyIn': return operations.copyIn(...request.args);
-        case 'copy': return operations.copy(...request.args);
-        case 'remove': return operations.remove(...request.args);
-        default: return unknownOperation(request);
+        case 'probe':
+            return operations.probe(...request.args);
+        case 'list':
+            return operations.list(...request.args);
+        case 'read':
+            return operations.read(...request.args);
+        case 'writeAtomic':
+            return operations.writeAtomic(...request.args);
+        case 'open':
+            return operations.open(...request.args);
+        case 'size':
+            return operations.size(...request.args);
+        case 'readAt':
+            return operations.readAt(...request.args);
+        case 'witness':
+            return operations.witness(...request.args);
+        case 'witnessBlob':
+            return operations.witnessBlob(...request.args);
+        case 'writeAt':
+            return operations.writeAt(...request.args);
+        case 'truncate':
+            return operations.truncate(...request.args);
+        case 'appendPdfMutations':
+            return operations.appendPdfMutations(...request.args);
+        case 'flush':
+            return operations.flush(...request.args);
+        case 'close':
+            return operations.close(...request.args);
+        case 'copyIn':
+            return operations.copyIn(...request.args);
+        case 'copy':
+            return operations.copy(...request.args);
+        case 'remove':
+            return operations.remove(...request.args);
+        default:
+            return unknownOperation(request);
     }
 }
 
 self.addEventListener('message', (event: MessageEvent<TOpfsRequest>) => {
-    if (handlePrecompiledWasmModuleMessage(event.data)) {return;}
+    if (handlePrecompiledWasmModuleMessage(event.data)) {
+        return;
+    }
     const request = event.data;
     const {id} = request;
     void (async () => {

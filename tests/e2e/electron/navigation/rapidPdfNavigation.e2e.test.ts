@@ -1,38 +1,18 @@
 import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import {
-    beforeAll,
-    beforeEach,
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    mkdirSync,
-    readFileSync,
-    writeFileSync,
-} from 'node:fs';
-import {
-    PDFDocument,
-    PDFName,
-    PDFString,
-} from 'pdf-lib';
-import {
-    dirname,
-    resolve,
-} from 'node:path';
-import { delay } from 'es-toolkit/promise';
-import {
-    createCanvas,
-    loadImage,
-} from '@napi-rs/canvas';
-import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
+import {beforeAll, beforeEach, describe, expect, it} from 'vitest';
+import {mkdirSync, readFileSync, writeFileSync} from 'node:fs';
+import {PDFDocument, PDFName, PDFString} from 'pdf-lib';
+import {dirname, resolve} from 'node:path';
+import {delay} from 'es-toolkit/promise';
+import {createCanvas, loadImage} from '@napi-rs/canvas';
+import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
     createLargeScannedFixturePdf,
     createMultiPageTextFixturePdf,
     resolvePathFixtureAvailability,
 } from '@tests/e2e/electron/helpers/fixtures';
-import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
-import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
+import type {IElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
 import {
     clickVisibleToolbarButton,
     openDocumentSidebarTab,
@@ -45,13 +25,10 @@ import {
     requireWorkspaceCommand,
     waitForWorkspaceToolbarSnapshot,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
-import type { IPdfRenderTraceEntry } from '@contracts/pdfDiagnostics';
-import type { IEvbTestApi } from '@app/types/evbTestApi';
-import { enablePdfDiagnosticSession } from '@tests/e2e/electron/helpers/pdfDiagnosticSession';
-import {
-    installCommittedSurfaceSampler,
-    stopCommittedSurfaceSampler,
-} from '@tests/e2e/electron/helpers/viewerCommittedSurfaceContract';
+import type {IPdfRenderTraceEntry} from '@contracts/pdfDiagnostics';
+import type {IEvbTestApi} from '@app/types/evbTestApi';
+import {enablePdfDiagnosticSession} from '@tests/e2e/electron/helpers/pdfDiagnosticSession';
+import {installCommittedSurfaceSampler, stopCommittedSurfaceSampler} from '@tests/e2e/electron/helpers/viewerCommittedSurfaceContract';
 import {
     collectPdfVirtualizationSnapshot,
     findMissingVisualFrames,
@@ -61,84 +38,32 @@ import {
     waitForVisibleMountedPdfCanvases,
     wheelPdfViewportAndWaitForSettlement,
 } from '@tests/e2e/electron/helpers/viewerVirtualizationContract';
-import { getErrorMessage } from '@contracts/getErrorMessage';
-import { waitForViewportQuiet } from '@tests/e2e/electron/helpers/viewportPageObservation';
-import {
-    clickAsUser,
-    clickFoundAsUser,
-    revealForPointer,
-} from '@tests/e2e/electron/helpers/userInput';
-import { startTrustedWheelFling } from '@tests/e2e/electron/helpers/startTrustedWheelFling';
+import {getErrorMessage} from '@contracts/getErrorMessage';
+import {waitForViewportQuiet} from '@tests/e2e/electron/helpers/viewportPageObservation';
+import {clickAsUser, clickFoundAsUser, revealForPointer} from '@tests/e2e/electron/helpers/userInput';
+import {startTrustedWheelFling} from '@tests/e2e/electron/helpers/startTrustedWheelFling';
 
 const PAGE_JUMP_PDF_ENV_VAR = 'EVB_E2E_PAGE_JUMP_PDF_PATH';
 const PAGE_JUMP_PDF_OVERRIDE = process.env[PAGE_JUMP_PDF_ENV_VAR]?.trim() ?? null;
 const GENERATED_PAGE_JUMP_PAGE_COUNT = 431;
 const TARGET_PAGE = 100;
-const TRACE_OUTPUT_PATH = resolve(
-    process.cwd(),
-    '.devkit',
-    'pdf-page-100-jump-trace.json',
-);
-const NEXT_PREV_TRACE_OUTPUT_PATH = resolve(
-    process.cwd(),
-    '.devkit',
-    'pdf-next-prev-10-to-7-trace.json',
-);
-const RAPID_NEXT_TRACE_OUTPUT_PATH = resolve(
-    process.cwd(),
-    '.devkit',
-    'pdf-rapid-next-to-21-trace.json',
-);
-const CONTINUOUS_SCROLL_TRACE_OUTPUT_PATH = resolve(
-    process.cwd(),
-    '.devkit',
-    'pdf-continuous-scroll-virtualization-trace.json',
-);
-const TRUSTED_FAST_SCROLL_TRACE_OUTPUT_PATH = resolve(
-    process.cwd(),
-    '.devkit',
-    'pdf-trusted-fast-scroll-trace.json',
-);
-const TRUSTED_FAST_SCROLL_FIRST_PAGE_TRACE_OUTPUT_PATH = resolve(
-    process.cwd(),
-    '.devkit',
-    'pdf-trusted-fast-scroll-first-page-trace.json',
-);
-const IN_FLIGHT_SCROLL_TRACE_OUTPUT_PATH = resolve(
-    process.cwd(),
-    '.devkit',
-    'pdf-in-flight-scroll-trace.json',
-);
-const NEXT_FIT_WIDTH_TRACE_OUTPUT_PATH = resolve(
-    process.cwd(),
-    '.devkit',
-    'pdf-next-fit-width-visual-trace.json',
-);
-const LAST_PAGE_TRACE_OUTPUT_PATH = resolve(
-    process.cwd(),
-    '.devkit',
-    'pdf-last-page-navigation-trace.json',
-);
-const PAGED_FIT_HEIGHT_WHEEL_TRACE_OUTPUT_PATH = resolve(
-    process.cwd(),
-    '.devkit',
-    'pdf-paged-fit-height-wheel-trace.json',
-);
+const TRACE_OUTPUT_PATH = resolve(process.cwd(), '.devkit', 'pdf-page-100-jump-trace.json');
+const NEXT_PREV_TRACE_OUTPUT_PATH = resolve(process.cwd(), '.devkit', 'pdf-next-prev-10-to-7-trace.json');
+const RAPID_NEXT_TRACE_OUTPUT_PATH = resolve(process.cwd(), '.devkit', 'pdf-rapid-next-to-21-trace.json');
+const CONTINUOUS_SCROLL_TRACE_OUTPUT_PATH = resolve(process.cwd(), '.devkit', 'pdf-continuous-scroll-virtualization-trace.json');
+const TRUSTED_FAST_SCROLL_TRACE_OUTPUT_PATH = resolve(process.cwd(), '.devkit', 'pdf-trusted-fast-scroll-trace.json');
+const TRUSTED_FAST_SCROLL_FIRST_PAGE_TRACE_OUTPUT_PATH = resolve(process.cwd(), '.devkit', 'pdf-trusted-fast-scroll-first-page-trace.json');
+const IN_FLIGHT_SCROLL_TRACE_OUTPUT_PATH = resolve(process.cwd(), '.devkit', 'pdf-in-flight-scroll-trace.json');
+const NEXT_FIT_WIDTH_TRACE_OUTPUT_PATH = resolve(process.cwd(), '.devkit', 'pdf-next-fit-width-visual-trace.json');
+const LAST_PAGE_TRACE_OUTPUT_PATH = resolve(process.cwd(), '.devkit', 'pdf-last-page-navigation-trace.json');
+const PAGED_FIT_HEIGHT_WHEEL_TRACE_OUTPUT_PATH = resolve(process.cwd(), '.devkit', 'pdf-paged-fit-height-wheel-trace.json');
 const PAGED_FIT_HEIGHT_BACKWARD_WHEEL_TRACE_OUTPUT_PATH = resolve(
     process.cwd(),
     '.devkit',
     'pdf-paged-fit-height-backward-wheel-trace.json',
 );
-const FLING_BACKDROP_TRACE_OUTPUT_PATH = resolve(
-    process.cwd(),
-    '.devkit',
-    'pdf-fling-backdrop-trace.json',
-);
-const RAPID_NEXT_SKELETON_TRACE_OUTPUT_PATH = resolve(
-    process.cwd(),
-    '.devkit',
-    'pdf-rapid-next-skeleton-trace.json',
-);
+const FLING_BACKDROP_TRACE_OUTPUT_PATH = resolve(process.cwd(), '.devkit', 'pdf-fling-backdrop-trace.json');
+const RAPID_NEXT_SKELETON_TRACE_OUTPUT_PATH = resolve(process.cwd(), '.devkit', 'pdf-rapid-next-skeleton-trace.json');
 const CTRL_WHEEL_FIRST_PAGE_TRACE_OUTPUT_PATH = resolve(
     process.cwd(),
     '.devkit',
@@ -181,7 +106,9 @@ interface IPageButtonState {
     visible: boolean;
 }
 
-interface IRapidNavigationProbeWindow { __evbTestApi?: IEvbTestApi }
+interface IRapidNavigationProbeWindow {
+    __evbTestApi?: IEvbTestApi;
+}
 
 interface IBarePageFrame {
     bare: boolean;
@@ -194,7 +121,9 @@ interface IBarePageProbe {
     stopped: boolean;
 }
 
-interface IBarePageProbeWindow extends Window { __evbBarePageProbe?: IBarePageProbe }
+interface IBarePageProbeWindow extends Window {
+    __evbBarePageProbe?: IBarePageProbe;
+}
 
 interface IFlingBackdropFrame {
     misalignment: number | null;
@@ -207,9 +136,13 @@ interface IFlingBackdropProbe {
     stopped: boolean;
 }
 
-interface IFlingBackdropProbeWindow extends Window { __evbFlingBackdropProbe?: IFlingBackdropProbe }
+interface IFlingBackdropProbeWindow extends Window {
+    __evbFlingBackdropProbe?: IFlingBackdropProbe;
+}
 
-interface IMainThreadThrottleWindow extends Window { __evbMainThreadThrottle?: { stopped: boolean } }
+interface IMainThreadThrottleWindow extends Window {
+    __evbMainThreadThrottle?: {stopped: boolean};
+}
 
 interface IBookmarkViewportFrame {
     elapsedMs: number;
@@ -226,14 +159,16 @@ interface IBookmarkViewportFrame {
     }>;
 }
 
-interface IBookmarkViewportProbeWindow extends Window {__evbBookmarkViewportProbe?: {
-    frames: IBookmarkViewportFrame[];
-    inputAtMs: number | null;
-    stopped: boolean;
-};}
+interface IBookmarkViewportProbeWindow extends Window {
+    __evbBookmarkViewportProbe?: {
+        frames: IBookmarkViewportFrame[];
+        inputAtMs: number | null;
+        stopped: boolean;
+    };
+}
 
 function writeTraceArtifact(payload: unknown, outputPath = TRACE_OUTPUT_PATH) {
-    mkdirSync(dirname(outputPath), { recursive: true });
+    mkdirSync(dirname(outputPath), {recursive: true});
     writeFileSync(outputPath, `${JSON.stringify(payload, null, 2)}\n`);
 }
 
@@ -250,11 +185,7 @@ async function resolvePageJumpPdfPath() {
         return override.path;
     }
 
-    return createLargeScannedFixturePdf(
-        `page-jump-source-${Date.now()}.pdf`,
-        GENERATED_PAGE_JUMP_PAGE_COUNT,
-        0,
-    );
+    return createLargeScannedFixturePdf(`page-jump-source-${Date.now()}.pdf`, GENERATED_PAGE_JUMP_PAGE_COUNT, 0);
 }
 
 async function enableBufferedPdfTrace(session: IElectronE2ESession) {
@@ -264,32 +195,26 @@ async function enableBufferedPdfTrace(session: IElectronE2ESession) {
 async function collectNavigationControlState(session: IElectronE2ESession) {
     return session.page.evaluate(() => ({
         pageControlsText: document.querySelector<HTMLElement>('.page-controls')?.innerText ?? '',
-        pageButtons: Array.from(document.querySelectorAll<HTMLButtonElement>('.page-controls button[aria-label]'))
-            .map((button): IPageButtonState => {
+        pageButtons: Array.from(document.querySelectorAll<HTMLButtonElement>('.page-controls button[aria-label]')).map(
+            (button): IPageButtonState => {
                 const rect = button.getBoundingClientRect();
                 const style = window.getComputedStyle(button);
                 return {
                     label: button.getAttribute('aria-label') ?? '',
                     disabled: button.disabled,
-                    visible: (
-                        rect.width > 0
-                        && rect.height > 0
-                        && style.display !== 'none'
-                        && style.visibility !== 'hidden'
-                    ),
+                    visible: rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden',
                 };
-            }),
+            },
+        ),
     }));
 }
 
 async function collectVisiblePageState(session: IElectronE2ESession) {
     return session.page.evaluate(() => {
-        const activeHost = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
-        ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const viewport = activeHost?.querySelector<HTMLElement>(
-            '.pdf-viewer-viewport, .pdfViewer, #pdf-viewer',
-        ) ?? null;
+        const activeHost =
+            document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]') ??
+            document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const viewport = activeHost?.querySelector<HTMLElement>('.pdf-viewer-viewport, .pdfViewer, #pdf-viewer') ?? null;
         if (!activeHost || !viewport) {
             return [];
         }
@@ -302,10 +227,12 @@ async function collectVisiblePageState(session: IElectronE2ESession) {
         return Array.from(activeHost.querySelectorAll<HTMLElement>('.page_container'))
             .filter((container) => {
                 const rect = container.getBoundingClientRect();
-                return rect.bottom > viewportRect.top
-                    && rect.top < viewportRect.bottom
-                    && rect.right > viewportRect.left
-                    && rect.left < viewportRect.right;
+                return (
+                    rect.bottom > viewportRect.top &&
+                    rect.top < viewportRect.bottom &&
+                    rect.right > viewportRect.left &&
+                    rect.left < viewportRect.right
+                );
             })
             .map((container): IVisiblePageState => {
                 const rect = container.getBoundingClientRect();
@@ -315,12 +242,13 @@ async function collectVisiblePageState(session: IElectronE2ESession) {
                 const intersectionRight = Math.min(viewportRect.right, rect.right);
                 const intersectionTop = Math.max(viewportRect.top, rect.top);
                 const intersectionBottom = Math.min(viewportRect.bottom, rect.bottom);
-                const topmost = intersectionRight > intersectionLeft && intersectionBottom > intersectionTop
-                    ? document.elementFromPoint(
-                        intersectionLeft + ((intersectionRight - intersectionLeft) / 2),
-                        intersectionTop + ((intersectionBottom - intersectionTop) / 2),
-                    )
-                    : null;
+                const topmost =
+                    intersectionRight > intersectionLeft && intersectionBottom > intersectionTop
+                        ? document.elementFromPoint(
+                              intersectionLeft + (intersectionRight - intersectionLeft) / 2,
+                              intersectionTop + (intersectionBottom - intersectionTop) / 2,
+                          )
+                        : null;
                 return {
                     page: Number(container.dataset.page) || null,
                     renderedClass: container.classList.contains('page_container--rendered'),
@@ -335,13 +263,11 @@ async function collectVisiblePageState(session: IElectronE2ESession) {
                     skeletonDisplay: skeleton?.style.display ?? null,
                     rectTop: rect.top,
                     rectHeight: rect.height,
-                    computedVisible: style.display !== 'none'
-                        && style.visibility !== 'hidden'
-                        && Number(style.opacity || '1') > 0,
+                    computedVisible: style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity || '1') > 0,
                     topmost: topmost?.closest('.page_container') === container,
                 };
             })
-            .filter(page => page.computedVisible);
+            .filter((page) => page.computedVisible);
     });
 }
 
@@ -351,16 +277,20 @@ async function collectVirtualScrollGeometry(session: IElectronE2ESession, target
         const target = document.querySelector<HTMLElement>(`.page_container[data-page="${pageNumber}"]`);
         const targetRect = target?.getBoundingClientRect() ?? null;
         return {
-            viewport: viewport ? {
-                clientHeight: viewport.clientHeight,
-                scrollHeight: viewport.scrollHeight,
-                scrollTop: viewport.scrollTop,
-            } : null,
-            target: targetRect ? {
-                offsetTop: target?.offsetTop ?? null,
-                rectHeight: targetRect.height,
-                rectTop: targetRect.top,
-            } : null,
+            viewport: viewport
+                ? {
+                      clientHeight: viewport.clientHeight,
+                      scrollHeight: viewport.scrollHeight,
+                      scrollTop: viewport.scrollTop,
+                  }
+                : null,
+            target: targetRect
+                ? {
+                      offsetTop: target?.offsetTop ?? null,
+                      rectHeight: targetRect.height,
+                      rectTop: targetRect.top,
+                  }
+                : null,
             spacers: Array.from(document.querySelectorAll<HTMLElement>('.pdf-viewer-virtual-spacer')).map((spacer) => {
                 const rect = spacer.getBoundingClientRect();
                 return {
@@ -376,85 +306,84 @@ async function collectVirtualScrollGeometry(session: IElectronE2ESession, target
 
 async function collectConsecutivePageGaps(session: IElectronE2ESession) {
     return session.page.evaluate(() => {
-        const pages = Array.from(document.querySelectorAll<HTMLElement>(
-            '#pdf-viewer .page_container:not(.page_container--buffered)',
-        )).map((element) => {
-            const rect = element.getBoundingClientRect();
-            return {
-                bottom: rect.bottom,
-                page: Number(element.dataset.page),
-                top: rect.top,
-            };
-        }).filter(page => Number.isSafeInteger(page.page))
+        const pages = Array.from(document.querySelectorAll<HTMLElement>('#pdf-viewer .page_container:not(.page_container--buffered)'))
+            .map((element) => {
+                const rect = element.getBoundingClientRect();
+                return {
+                    bottom: rect.bottom,
+                    page: Number(element.dataset.page),
+                    top: rect.top,
+                };
+            })
+            .filter((page) => Number.isSafeInteger(page.page))
             .sort((left, right) => left.page - right.page);
         return pages.slice(1).flatMap((page, index) => {
             const previous = pages[index]!;
             return page.page === previous.page + 1
-                ? [{
-                    fromPage: previous.page,
-                    gap: page.top - previous.bottom,
-                    toPage: page.page,
-                }]
+                ? [
+                      {
+                          fromPage: previous.page,
+                          gap: page.top - previous.bottom,
+                          toPage: page.page,
+                      },
+                  ]
                 : [];
         });
     });
 }
 
-async function collectCommittedCanvasQuality(
-    session: IElectronE2ESession,
-    pageNumber: number,
-    marker?: string,
-) {
-    return session.page.evaluate((input) => {
-        const page = document.querySelector<HTMLElement>(
-            `#pdf-viewer .page_container[data-page="${String(input.pageNumber)}"]`,
-        );
-        const canvas = page?.querySelector<HTMLCanvasElement>('.page_canvas canvas') ?? null;
-        if (!page || !canvas) {
-            return null;
-        }
-        if (input.marker) {
-            canvas.dataset.e2eCommittedCanvasMarker = input.marker;
-        }
-        const rect = canvas.getBoundingClientRect();
-        const context = canvas.getContext('2d');
-        let luminanceVariance = 0;
-        if (context && canvas.width > 0 && canvas.height > 0) {
-            const samples: number[] = [];
-            for (let row = 1; row <= 8; row += 1) {
-                for (let column = 1; column <= 8; column += 1) {
-                    const x = Math.min(canvas.width - 1, Math.round((canvas.width * column) / 9));
-                    const y = Math.min(canvas.height - 1, Math.round((canvas.height * row) / 9));
-                    const pixel = context.getImageData(x, y, 1, 1).data;
-                    samples.push((pixel[0]! * 0.2126) + (pixel[1]! * 0.7152) + (pixel[2]! * 0.0722));
-                }
+async function collectCommittedCanvasQuality(session: IElectronE2ESession, pageNumber: number, marker?: string) {
+    return session.page.evaluate(
+        (input) => {
+            const page = document.querySelector<HTMLElement>(`#pdf-viewer .page_container[data-page="${String(input.pageNumber)}"]`);
+            const canvas = page?.querySelector<HTMLCanvasElement>('.page_canvas canvas') ?? null;
+            if (!page || !canvas) {
+                return null;
             }
-            const mean = samples.reduce((sum, value) => sum + value, 0) / samples.length;
-            luminanceVariance = samples.reduce((sum, value) => sum + ((value - mean) ** 2), 0)
-                / samples.length;
-        }
-        return {
-            backingHeight: canvas.height,
-            backingScaleX: rect.width > 0 ? canvas.width / rect.width : 0,
-            backingScaleY: rect.height > 0 ? canvas.height / rect.height : 0,
-            backingWidth: canvas.width,
-            cssHeight: rect.height,
-            cssWidth: rect.width,
-            luminanceVariance,
-            marker: canvas.dataset.e2eCommittedCanvasMarker ?? '',
-            rendered: page.classList.contains('page_container--rendered'),
-            skeletonVisible: Array.from(page.querySelectorAll<HTMLElement>('.document-page-skeleton'))
-                .some(skeleton => window.getComputedStyle(skeleton).display !== 'none'),
-        };
-    }, {
-        marker,
-        pageNumber,
-    });
+            if (input.marker) {
+                canvas.dataset.e2eCommittedCanvasMarker = input.marker;
+            }
+            const rect = canvas.getBoundingClientRect();
+            const context = canvas.getContext('2d');
+            let luminanceVariance = 0;
+            if (context && canvas.width > 0 && canvas.height > 0) {
+                const samples: number[] = [];
+                for (let row = 1; row <= 8; row += 1) {
+                    for (let column = 1; column <= 8; column += 1) {
+                        const x = Math.min(canvas.width - 1, Math.round((canvas.width * column) / 9));
+                        const y = Math.min(canvas.height - 1, Math.round((canvas.height * row) / 9));
+                        const pixel = context.getImageData(x, y, 1, 1).data;
+                        samples.push(pixel[0]! * 0.2126 + pixel[1]! * 0.7152 + pixel[2]! * 0.0722);
+                    }
+                }
+                const mean = samples.reduce((sum, value) => sum + value, 0) / samples.length;
+                luminanceVariance = samples.reduce((sum, value) => sum + (value - mean) ** 2, 0) / samples.length;
+            }
+            return {
+                backingHeight: canvas.height,
+                backingScaleX: rect.width > 0 ? canvas.width / rect.width : 0,
+                backingScaleY: rect.height > 0 ? canvas.height / rect.height : 0,
+                backingWidth: canvas.width,
+                cssHeight: rect.height,
+                cssWidth: rect.width,
+                luminanceVariance,
+                marker: canvas.dataset.e2eCommittedCanvasMarker ?? '',
+                rendered: page.classList.contains('page_container--rendered'),
+                skeletonVisible: Array.from(page.querySelectorAll<HTMLElement>('.document-page-skeleton')).some(
+                    (skeleton) => window.getComputedStyle(skeleton).display !== 'none',
+                ),
+            };
+        },
+        {
+            marker,
+            pageNumber,
+        },
+    );
 }
 
 async function collectTrace(session: IElectronE2ESession) {
     return session.page.evaluate(() => {
-        const traceWindow = window as IE2EWindow & { __getPdfRenderTrace?: () => IPdfRenderTraceEntry[]; };
+        const traceWindow = window as IE2EWindow & {__getPdfRenderTrace?: () => IPdfRenderTraceEntry[]};
         return traceWindow.__getPdfRenderTrace?.() ?? [];
     });
 }
@@ -464,8 +393,9 @@ async function collectRapidNavigationDebug(session: IElectronE2ESession) {
         const probeWindow = window as Window & IRapidNavigationProbeWindow;
         return {
             activeToolbarSnapshot: probeWindow.__evbTestApi?.getActiveToolbarSnapshot?.() ?? null,
-            toolbarPrimaryTexts: Array.from(document.querySelectorAll<HTMLElement>('.page-controls-current-primary'))
-                .map(element => element.textContent?.trim() ?? ''),
+            toolbarPrimaryTexts: Array.from(document.querySelectorAll<HTMLElement>('.page-controls-current-primary')).map(
+                (element) => element.textContent?.trim() ?? '',
+            ),
             workspaceDebugState: probeWindow.__evbTestApi?.collectWorkspaceDebugState?.() ?? null,
         };
     });
@@ -476,9 +406,7 @@ async function collectRapidNavigationFrameSamples(session: IElectronE2ESession, 
         const samples: unknown[] = [];
         const startedAt = performance.now();
         const collectPage = (activeHost: HTMLElement, pageNumber: number) => {
-            const page = activeHost.querySelector<HTMLElement>(
-                `.page_container[data-page="${String(pageNumber)}"]`,
-            );
+            const page = activeHost.querySelector<HTMLElement>(`.page_container[data-page="${String(pageNumber)}"]`);
             const rect = page?.getBoundingClientRect() ?? null;
             const canvas = page?.querySelector<HTMLCanvasElement>('.page_canvas canvas') ?? null;
             return {
@@ -486,45 +414,50 @@ async function collectRapidNavigationFrameSamples(session: IElectronE2ESession, 
                 canvasHeight: canvas?.height ?? 0,
                 canvasMounted: Boolean(canvas?.isConnected),
                 canvasWidth: canvas?.width ?? 0,
-                rect: rect ? {
-                    bottom: rect.bottom,
-                    height: rect.height,
-                    top: rect.top,
-                } : null,
+                rect: rect
+                    ? {
+                          bottom: rect.bottom,
+                          height: rect.height,
+                          top: rect.top,
+                      }
+                    : null,
                 rendered: page?.classList.contains('page_container--rendered') ?? false,
             };
         };
         while (performance.now() - startedAt < duration) {
-            await new Promise<void>(resolve => window.requestAnimationFrame(() => resolve()));
-            const activeHost = document.querySelector<HTMLElement>(
-                '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
-            ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+            await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+            const activeHost =
+                document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]') ??
+                document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
             const viewport = activeHost?.querySelector<HTMLElement>('#pdf-viewer') ?? null;
             const chassis = viewport?.closest<HTMLElement>('.document-viewer-chassis') ?? null;
             samples.push({
-                chassis: chassis ? {
-                    committedPage: Number(chassis.dataset.viewportCommittedPage) || null,
-                    lifecycle: chassis.dataset.viewportLifecycle ?? null,
-                    requestedPage: Number(chassis.dataset.viewportRequestedPage) || null,
-                    stagedRenderPage: Number(chassis.dataset.viewportStagedRenderPage) || null,
-                    stagedViewportPage: Number(chassis.dataset.viewportStagedViewportPage) || null,
-                    visualPage: Number(chassis.dataset.viewportVisualPage) || null,
-                    visualPresentation: chassis.dataset.viewportVisualPresentation ?? null,
-                } : null,
+                chassis: chassis
+                    ? {
+                          committedPage: Number(chassis.dataset.viewportCommittedPage) || null,
+                          lifecycle: chassis.dataset.viewportLifecycle ?? null,
+                          requestedPage: Number(chassis.dataset.viewportRequestedPage) || null,
+                          stagedRenderPage: Number(chassis.dataset.viewportStagedRenderPage) || null,
+                          stagedViewportPage: Number(chassis.dataset.viewportStagedViewportPage) || null,
+                          visualPage: Number(chassis.dataset.viewportVisualPage) || null,
+                          visualPresentation: chassis.dataset.viewportVisualPresentation ?? null,
+                      }
+                    : null,
                 elapsedMs: Math.round(performance.now() - startedAt),
                 page20: activeHost ? collectPage(activeHost, 20) : null,
                 page21: activeHost ? collectPage(activeHost, 21) : null,
-                toolbarPage: (window as IRapidNavigationProbeWindow)
-                    .__evbTestApi?.getActiveToolbarSnapshot?.()?.currentPage ?? null,
-                viewport: viewport ? {
-                    clientHeight: viewport.clientHeight,
-                    rect: {
-                        bottom: viewport.getBoundingClientRect().bottom,
-                        top: viewport.getBoundingClientRect().top,
-                    },
-                    scrollHeight: viewport.scrollHeight,
-                    scrollTop: viewport.scrollTop,
-                } : null,
+                toolbarPage: (window as IRapidNavigationProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.currentPage ?? null,
+                viewport: viewport
+                    ? {
+                          clientHeight: viewport.clientHeight,
+                          rect: {
+                              bottom: viewport.getBoundingClientRect().bottom,
+                              top: viewport.getBoundingClientRect().top,
+                          },
+                          scrollHeight: viewport.scrollHeight,
+                          scrollTop: viewport.scrollTop,
+                      }
+                    : null,
             });
         }
         return samples;
@@ -532,72 +465,79 @@ async function collectRapidNavigationFrameSamples(session: IElectronE2ESession, 
 }
 
 async function clickPageNavigationButton(session: IElectronE2ESession, label: string) {
-    await clickFoundAsUser(session.page, (targetLabel: string) => Array.from(
-        document.querySelectorAll<HTMLButtonElement>('.page-controls button[aria-label]'),
-    ).find((candidate) => {
-        const ariaLabel = candidate.getAttribute('aria-label')?.trim() ?? '';
-        const rect = candidate.getBoundingClientRect();
-        const style = window.getComputedStyle(candidate);
-        return (ariaLabel === targetLabel || ariaLabel.startsWith(`${targetLabel} (`))
-            && !candidate.disabled
-            && candidate.getAttribute('aria-disabled') !== 'true'
-            && rect.width > 8
-            && rect.height > 8
-            && style.display !== 'none'
-            && style.visibility !== 'hidden'
-            && Number(style.opacity || '1') > 0;
-    }), label, {
-        description: `page navigation button ${label}`,
-        timeoutMs: 12_000,
-    });
+    await clickFoundAsUser(
+        session.page,
+        (targetLabel: string) =>
+            Array.from(document.querySelectorAll<HTMLButtonElement>('.page-controls button[aria-label]')).find((candidate) => {
+                const ariaLabel = candidate.getAttribute('aria-label')?.trim() ?? '';
+                const rect = candidate.getBoundingClientRect();
+                const style = window.getComputedStyle(candidate);
+                return (
+                    (ariaLabel === targetLabel || ariaLabel.startsWith(`${targetLabel} (`)) &&
+                    !candidate.disabled &&
+                    candidate.getAttribute('aria-disabled') !== 'true' &&
+                    rect.width > 8 &&
+                    rect.height > 8 &&
+                    style.display !== 'none' &&
+                    style.visibility !== 'hidden' &&
+                    Number(style.opacity || '1') > 0
+                );
+            }),
+        label,
+        {
+            description: `page navigation button ${label}`,
+            timeoutMs: 12_000,
+        },
+    );
 }
 
-async function clickVisibleButtonByAriaLabel(
-    session: IElectronE2ESession,
-    selector: string,
-    label: string,
-) {
-    await clickFoundAsUser(session.page, (query: {
-        selector: string;
-        label: string;
-    }) => Array.from(document.querySelectorAll<HTMLButtonElement>(query.selector))
-        .find((candidate) => {
-            const rect = candidate.getBoundingClientRect();
-            const style = window.getComputedStyle(candidate);
-            return candidate.getAttribute('aria-label') === query.label
-                && !candidate.disabled
-                && rect.width > 8
-                && rect.height > 8
-                && style.display !== 'none'
-                && style.visibility !== 'hidden';
-        }), {
-        selector,
-        label,
-    }, {
-        description: `visible ${label} button`,
-        timeoutMs: 15_000,
-    });
+async function clickVisibleButtonByAriaLabel(session: IElectronE2ESession, selector: string, label: string) {
+    await clickFoundAsUser(
+        session.page,
+        (query: {selector: string; label: string}) =>
+            Array.from(document.querySelectorAll<HTMLButtonElement>(query.selector)).find((candidate) => {
+                const rect = candidate.getBoundingClientRect();
+                const style = window.getComputedStyle(candidate);
+                return (
+                    candidate.getAttribute('aria-label') === query.label &&
+                    !candidate.disabled &&
+                    rect.width > 8 &&
+                    rect.height > 8 &&
+                    style.display !== 'none' &&
+                    style.visibility !== 'hidden'
+                );
+            }),
+        {
+            selector,
+            label,
+        },
+        {
+            description: `visible ${label} button`,
+            timeoutMs: 15_000,
+        },
+    );
 }
 
 async function waitForToolbarCurrentPage(session: IElectronE2ESession, pageNumber: number) {
-    await session.page.waitForFunction((targetPageNumber: number) => {
-        const toolbarPage = (window as IRapidNavigationProbeWindow)
-            .__evbTestApi?.getActiveToolbarSnapshot?.()?.currentPage;
-        if (toolbarPage === targetPageNumber) {
-            return true;
-        }
-        const isVisibleElement = (element: HTMLElement) => {
-            const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 8 && rect.height > 8;
-        };
-        return Array.from(document.querySelectorAll<HTMLElement>('.page-controls-current-primary'))
-            .some((element) => {
+    await session.page.waitForFunction(
+        (targetPageNumber: number) => {
+            const toolbarPage = (window as IRapidNavigationProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.currentPage;
+            if (toolbarPage === targetPageNumber) {
+                return true;
+            }
+            const isVisibleElement = (element: HTMLElement) => {
+                const rect = element.getBoundingClientRect();
+                const style = window.getComputedStyle(element);
+                return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 8 && rect.height > 8;
+            };
+            return Array.from(document.querySelectorAll<HTMLElement>('.page-controls-current-primary')).some((element) => {
                 const controls = element.closest<HTMLElement>('.page-controls');
-                return element.textContent?.trim() === String(targetPageNumber)
-                    && isVisibleElement(controls ?? element);
+                return element.textContent?.trim() === String(targetPageNumber) && isVisibleElement(controls ?? element);
             });
-    }, { timeout: 10_000 }, pageNumber);
+        },
+        {timeout: 10_000},
+        pageNumber,
+    );
 }
 
 /**
@@ -613,96 +553,109 @@ async function waitForVisiblePageOutcome(
     orFeedback: boolean,
 ): Promise<{
     feedback: string;
-    text?: string
+    text?: string;
 } | null> {
-    return session.page.waitForFunction((targetPageNumber: number, acceptFeedback: boolean): {
-        feedback: string;
-        text?: string
-    } | false => {
-        const viewer = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer',
-        );
-        const container = viewer?.querySelector<HTMLElement>(
-            `.page_container[data-page="${targetPageNumber}"]`,
-        ) ?? null;
-        const viewerRect = viewer?.getBoundingClientRect();
-        const rect = container?.getBoundingClientRect();
-        if (!viewer || !viewerRect || !container || !rect) {
-            return false;
-        }
-        const left = Math.max(viewerRect.left, rect.left);
-        const right = Math.min(viewerRect.right, rect.right);
-        const top = Math.max(viewerRect.top, rect.top);
-        const bottom = Math.min(viewerRect.bottom, rect.bottom);
-        if (right <= left || bottom <= top) {
-            return false;
-        }
-        const topmost = document.elementFromPoint(
-            left + ((right - left) / 2),
-            top + ((bottom - top) / 2),
-        );
-        if (window.getComputedStyle(container).visibility === 'hidden' || topmost?.closest('.page_container') !== container) {
-            return false;
-        }
-        const isShown = (element: Element | null | undefined) => {
-            if (!element) {
+    return session.page
+        .waitForFunction(
+            (
+                targetPageNumber: number,
+                acceptFeedback: boolean,
+            ):
+                | {
+                      feedback: string;
+                      text?: string;
+                  }
+                | false => {
+                const viewer = document.querySelector<HTMLElement>(
+                    '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer',
+                );
+                const container = viewer?.querySelector<HTMLElement>(`.page_container[data-page="${targetPageNumber}"]`) ?? null;
+                const viewerRect = viewer?.getBoundingClientRect();
+                const rect = container?.getBoundingClientRect();
+                if (!viewer || !viewerRect || !container || !rect) {
+                    return false;
+                }
+                const left = Math.max(viewerRect.left, rect.left);
+                const right = Math.min(viewerRect.right, rect.right);
+                const top = Math.max(viewerRect.top, rect.top);
+                const bottom = Math.min(viewerRect.bottom, rect.bottom);
+                if (right <= left || bottom <= top) {
+                    return false;
+                }
+                const topmost = document.elementFromPoint(left + (right - left) / 2, top + (bottom - top) / 2);
+                if (window.getComputedStyle(container).visibility === 'hidden' || topmost?.closest('.page_container') !== container) {
+                    return false;
+                }
+                const isShown = (element: Element | null | undefined) => {
+                    if (!element) {
+                        return false;
+                    }
+                    const elementRect = element.getBoundingClientRect();
+                    const style = window.getComputedStyle(element);
+                    return (
+                        elementRect.width > 0 &&
+                        elementRect.height > 0 &&
+                        style.display !== 'none' &&
+                        style.visibility !== 'hidden' &&
+                        Math.min(viewerRect.right, elementRect.right) > Math.max(viewerRect.left, elementRect.left) &&
+                        Math.min(viewerRect.bottom, elementRect.bottom) > Math.max(viewerRect.top, elementRect.top)
+                    );
+                };
+                const canvas = container.querySelector<HTMLCanvasElement>('.page_canvas canvas');
+                if (
+                    canvas &&
+                    container.classList.contains('page_container--rendered') &&
+                    canvas.width > 0 &&
+                    canvas.height > 0 &&
+                    !container.classList.contains('page_container--buffered')
+                ) {
+                    return {feedback: 'rendered'};
+                }
+                if (!acceptFeedback) {
+                    return false;
+                }
+                const alert = container.querySelector<HTMLElement>('[role="alert"]');
+                if (isShown(alert) && alert?.textContent?.trim()) {
+                    return {
+                        feedback: 'error',
+                        text: alert.textContent.trim(),
+                    };
+                }
                 return false;
-            }
-            const elementRect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return elementRect.width > 0
-                && elementRect.height > 0
-                && style.display !== 'none'
-                && style.visibility !== 'hidden'
-                && Math.min(viewerRect.right, elementRect.right) > Math.max(viewerRect.left, elementRect.left)
-                && Math.min(viewerRect.bottom, elementRect.bottom) > Math.max(viewerRect.top, elementRect.top);
-        };
-        const canvas = container.querySelector<HTMLCanvasElement>('.page_canvas canvas');
-        if (
-            canvas
-            && container.classList.contains('page_container--rendered')
-            && canvas.width > 0
-            && canvas.height > 0
-            && !container.classList.contains('page_container--buffered')
-        ) {
-            return {feedback: 'rendered'};
-        }
-        if (!acceptFeedback) {
-            return false;
-        }
-        const alert = container.querySelector<HTMLElement>('[role="alert"]');
-        if (isShown(alert) && alert?.textContent?.trim()) {
-            return {
-                feedback: 'error',
-                text: alert.textContent.trim(),
-            };
-        }
-        return false;
-    }, {timeout}, pageNumber, orFeedback)
-        .then(async (handle): Promise<{
-            feedback: string;
-            text?: string
-        } | null> => (await handle.jsonValue()) || null, () => null);
+            },
+            {timeout},
+            pageNumber,
+            orFeedback,
+        )
+        .then(
+            async (
+                handle,
+            ): Promise<{
+                feedback: string;
+                text?: string;
+            } | null> => (await handle.jsonValue()) || null,
+            () => null,
+        );
 }
 
 async function waitForVisiblePageCanvas(session: IElectronE2ESession, pageNumber: number, timeout = 10_000) {
-    return await waitForVisiblePageOutcome(session, pageNumber, timeout, false) !== null;
+    return (await waitForVisiblePageOutcome(session, pageNumber, timeout, false)) !== null;
 }
 
 // Tests in a suite share one viewer. A test that changes the layout puts it back,
 // so the next one does not inherit a facing spread, a fit mode or the sidebar.
-async function restoreViewerLayout(
-    session: IElectronE2ESession,
-    toolbar: Awaited<ReturnType<typeof getWorkspaceToolbarSnapshot>>,
-) {
+async function restoreViewerLayout(session: IElectronE2ESession, toolbar: Awaited<ReturnType<typeof getWorkspaceToolbarSnapshot>>) {
     if (!toolbar) {
         return;
     }
-    await requireWorkspaceCommand(session.page, toolbar.viewMode === 'facing'
-        ? 'handleViewModeFacing'
-        : toolbar.viewMode === 'facing-first-single'
-            ? 'handleViewModeFacingFirstSingle'
-            : 'handleViewModeSingle');
+    await requireWorkspaceCommand(
+        session.page,
+        toolbar.viewMode === 'facing'
+            ? 'handleViewModeFacing'
+            : toolbar.viewMode === 'facing-first-single'
+              ? 'handleViewModeFacingFirstSingle'
+              : 'handleViewModeSingle',
+    );
     if (toolbar.zoomMode === 'fit-width') {
         await requireWorkspaceCommand(session.page, 'handleFitWidth');
     } else if (toolbar.zoomMode === 'fit-height') {
@@ -719,23 +672,29 @@ async function restoreViewerLayout(
 // Waits until a fit change has re-anchored the viewport. The toolbar reports the
 // new fit mode at once, while the chassis still moves the viewport to the anchor.
 async function waitForSettledViewport(session: IElectronE2ESession, pageNumber: number) {
-    await session.page.waitForFunction((targetPageNumber: number) => {
-        const chassis = document.querySelector<HTMLElement>('.document-viewer-chassis');
-        const toolbarPage = (window as IRapidNavigationProbeWindow)
-            .__evbTestApi?.getActiveToolbarSnapshot?.()?.currentPage;
-        return chassis?.dataset.chassisResizing === 'false'
-            && chassis.dataset.viewportLifecycle === 'ready'
-            && toolbarPage === targetPageNumber;
-    }, {timeout: 15_000}, pageNumber);
+    await session.page.waitForFunction(
+        (targetPageNumber: number) => {
+            const chassis = document.querySelector<HTMLElement>('.document-viewer-chassis');
+            const toolbarPage = (window as IRapidNavigationProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.currentPage;
+            return (
+                chassis?.dataset.chassisResizing === 'false' &&
+                chassis.dataset.viewportLifecycle === 'ready' &&
+                toolbarPage === targetPageNumber
+            );
+        },
+        {timeout: 15_000},
+        pageNumber,
+    );
 }
 
 async function setFitWidthAndWaitForPage(session: IElectronE2ESession, pageNumber: number) {
     await requireWorkspaceCommand(session.page, 'handleViewModeSingle');
     await jumpToPageAndWaitForCanvas(session, pageNumber);
     await requireWorkspaceCommand(session.page, 'handleFitWidth');
-    await session.page.waitForFunction(() => (
-        (window as IRapidNavigationProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.zoomMode === 'fit-width'
-    ), {timeout: 15_000});
+    await session.page.waitForFunction(
+        () => (window as IRapidNavigationProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.zoomMode === 'fit-width',
+        {timeout: 15_000},
+    );
     await waitForVisiblePageCanvas(session, pageNumber, 15_000);
     await waitForAnimationFrames(session.page, 10);
 }
@@ -783,7 +742,7 @@ async function throttleRendererMainThread(session: IElectronE2ESession, rate: nu
 }
 
 async function jumpToPageAndWaitForCanvas(session: IElectronE2ESession, pageNumber: number) {
-    await session.page.waitForFunction(() => Boolean(document.querySelector('#pdf-viewer')), { timeout: 15_000 });
+    await session.page.waitForFunction(() => Boolean(document.querySelector('#pdf-viewer')), {timeout: 15_000});
 
     const workspaceJump = await callWorkspaceCommand(session.page, 'handleGoToPage', [pageNumber]);
 
@@ -821,38 +780,32 @@ describe('Electron E2E - bookmark destination viewport presentation', () => {
     // flashing a loading skeleton for a render that completes immediately.
     it('does not flash the following page skeleton during fast trusted bookmark jumps', async () => {
         const session = sessions.getSession();
-        const destinations = [
-            8,
-            16,
-            24,
-        ];
-        const pdfPath = await createLargeScannedFixturePdf(
-            `bookmark-destination-viewport-${Date.now()}.pdf`, 32, 0,
-        );
+        const destinations = [8, 16, 24];
+        const pdfPath = await createLargeScannedFixturePdf(`bookmark-destination-viewport-${Date.now()}.pdf`, 32, 0);
         const pdf = await PDFDocument.load(readFileSync(pdfPath));
         const outlines = pdf.context.nextRef();
         const refs = destinations.map(() => pdf.context.nextRef());
         destinations.forEach((pageNumber, index) => {
-            pdf.context.assign(refs[index]!, pdf.context.obj({
-                Title: PDFString.of(`Destination ${pageNumber}`),
-                Parent: outlines,
-                Dest: [
-                    pdf.getPage(pageNumber - 1).ref,
-                    PDFName.of('XYZ'),
-                    null,
-                    null,
-                    null,
-                ],
-                ...(index > 0 ? {Prev: refs[index - 1]} : {}),
-                ...(index + 1 < refs.length ? {Next: refs[index + 1]} : {}),
-            }));
+            pdf.context.assign(
+                refs[index]!,
+                pdf.context.obj({
+                    Title: PDFString.of(`Destination ${pageNumber}`),
+                    Parent: outlines,
+                    Dest: [pdf.getPage(pageNumber - 1).ref, PDFName.of('XYZ'), null, null, null],
+                    ...(index > 0 ? {Prev: refs[index - 1]} : {}),
+                    ...(index + 1 < refs.length ? {Next: refs[index + 1]} : {}),
+                }),
+            );
         });
-        pdf.context.assign(outlines, pdf.context.obj({
-            Type: PDFName.of('Outlines'),
-            First: refs[0],
-            Last: refs.at(-1),
-            Count: refs.length,
-        }));
+        pdf.context.assign(
+            outlines,
+            pdf.context.obj({
+                Type: PDFName.of('Outlines'),
+                First: refs[0],
+                Last: refs.at(-1),
+                Count: refs.length,
+            }),
+        );
         pdf.catalog.set(PDFName.of('Outlines'), outlines);
         writeFileSync(pdfPath, await pdf.save());
 
@@ -875,13 +828,10 @@ describe('Electron E2E - bookmark destination viewport presentation', () => {
         expect(revealPolicy.durationMs).toBeGreaterThan(0);
         const jumps: Array<{
             target: number;
-            frames: IBookmarkViewportFrame[]
+            frames: IBookmarkViewportFrame[];
         }> = [];
         try {
-            await session.command('windowResize', [
-                1100,
-                850,
-            ]);
+            await session.command('windowResize', [1100, 850]);
             await openPdfInApp(session.page, pdfPath);
             await requireWorkspaceCommand(session.page, 'handleViewModeSingle');
             if ((await getWorkspaceToolbarSnapshot(session.page))?.continuousScroll === false) {
@@ -902,16 +852,24 @@ describe('Electron E2E - bookmark destination viewport presentation', () => {
                         stopped: false,
                     };
                     (window as IBookmarkViewportProbeWindow).__evbBookmarkViewportProbe = probe;
-                    document.addEventListener('pointerdown', (event) => {
-                        if (event.isTrusted) {probe.inputAtMs = event.timeStamp;}
-                    }, {
-                        once: true,
-                        capture: true,
-                    });
+                    document.addEventListener(
+                        'pointerdown',
+                        (event) => {
+                            if (event.isTrusted) {
+                                probe.inputAtMs = event.timeStamp;
+                            }
+                        },
+                        {
+                            once: true,
+                            capture: true,
+                        },
+                    );
                     const startedAt = performance.now();
                     const firstVisibleAt = new Map<number, number>();
                     const sample = () => {
-                        if (probe.stopped) {return;}
+                        if (probe.stopped) {
+                            return;
+                        }
                         const viewport = document.querySelector<HTMLElement>(
                             '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer',
                         );
@@ -919,69 +877,89 @@ describe('Electron E2E - bookmark destination viewport presentation', () => {
                         if (viewport && bounds) {
                             const intersectsViewport = (element: Element) => {
                                 const rect = element.getBoundingClientRect();
-                                return rect.width > 0 && rect.height > 0
-                                    && rect.bottom > bounds.top && rect.top < bounds.bottom
-                                    && rect.right > bounds.left && rect.left < bounds.right;
+                                return (
+                                    rect.width > 0 &&
+                                    rect.height > 0 &&
+                                    rect.bottom > bounds.top &&
+                                    rect.top < bounds.bottom &&
+                                    rect.right > bounds.left &&
+                                    rect.left < bounds.right
+                                );
                             };
-                            const isPainted = (element: Element) => element.checkVisibility({
-                                opacityProperty: true,
-                                visibilityProperty: true,
-                            }) && intersectsViewport(element);
+                            const isPainted = (element: Element) =>
+                                element.checkVisibility({
+                                    opacityProperty: true,
+                                    visibilityProperty: true,
+                                }) && intersectsViewport(element);
                             probe.frames.push({
                                 elapsedMs: performance.now() - startedAt,
                                 inputElapsedMs: probe.inputAtMs === null ? null : performance.now() - probe.inputAtMs,
-                                pages: Array.from(viewport.querySelectorAll<HTMLElement>(
-                                    '.page_container:not(.page_container--buffered)',
-                                )).filter(isPainted).map((page) => {
-                                    const rect = page.getBoundingClientRect();
-                                    const pageNumber = Number(page.dataset.page);
-                                    if (!firstVisibleAt.has(pageNumber)) {firstVisibleAt.set(pageNumber, performance.now());}
-                                    const skeletons = Array.from(page.querySelectorAll<HTMLElement>('.document-page-skeleton'));
-                                    // A white padding sliver is page paper, not
-                                    // perceived loading ink. Count actual bars,
-                                    // clipped by their skeleton's overflow box.
-                                    const skeletonBars = skeletons.flatMap((skeleton) => {
-                                        const clip = skeleton.getBoundingClientRect();
-                                        return Array.from(skeleton.querySelectorAll<HTMLElement>(
-                                            '.title-line, .subtitle-line, .line, .formula, .formula-inline',
-                                        )).filter((bar) => {
-                                            const rect = bar.getBoundingClientRect();
-                                            return Math.min(rect.bottom, clip.bottom, bounds.bottom)
-                                                > Math.max(rect.top, clip.top, bounds.top)
-                                                && Math.min(rect.right, clip.right, bounds.right)
-                                                > Math.max(rect.left, clip.left, bounds.left);
+                                pages: Array.from(viewport.querySelectorAll<HTMLElement>('.page_container:not(.page_container--buffered)'))
+                                    .filter(isPainted)
+                                    .map((page) => {
+                                        const rect = page.getBoundingClientRect();
+                                        const pageNumber = Number(page.dataset.page);
+                                        if (!firstVisibleAt.has(pageNumber)) {
+                                            firstVisibleAt.set(pageNumber, performance.now());
+                                        }
+                                        const skeletons = Array.from(page.querySelectorAll<HTMLElement>('.document-page-skeleton'));
+                                        // A white padding sliver is page paper, not
+                                        // perceived loading ink. Count actual bars,
+                                        // clipped by their skeleton's overflow box.
+                                        const skeletonBars = skeletons.flatMap((skeleton) => {
+                                            const clip = skeleton.getBoundingClientRect();
+                                            return Array.from(
+                                                skeleton.querySelectorAll<HTMLElement>(
+                                                    '.title-line, .subtitle-line, .line, .formula, .formula-inline',
+                                                ),
+                                            ).filter((bar) => {
+                                                const rect = bar.getBoundingClientRect();
+                                                return (
+                                                    Math.min(rect.bottom, clip.bottom, bounds.bottom) >
+                                                        Math.max(rect.top, clip.top, bounds.top) &&
+                                                    Math.min(rect.right, clip.right, bounds.right) >
+                                                        Math.max(rect.left, clip.left, bounds.left)
+                                                );
+                                            });
                                         });
-                                    });
-                                    const skeletonStyle = skeletons[0] ? getComputedStyle(skeletons[0]) : null;
-                                    return {
-                                        page: pageNumber,
-                                        canvasVisible: Array.from(page.querySelectorAll<HTMLCanvasElement>(
-                                            '.page_canvas canvas',
-                                        )).some(canvas => canvas.width > 0 && canvas.height > 0 && isPainted(canvas)),
-                                        skeletonVisible: skeletonBars.some(isPainted),
-                                        skeletonContentInViewport: skeletonBars.length > 0,
-                                        skeletonAnimationDelay: skeletonStyle?.animationDelay ?? null,
-                                        skeletonAnimationDuration: skeletonStyle?.animationDuration ?? null,
-                                        visibleElapsedMs: performance.now() - firstVisibleAt.get(pageNumber)!,
-                                        visibleHeight: Math.min(rect.bottom, bounds.bottom) - Math.max(rect.top, bounds.top),
-                                    };
-                                }),
+                                        const skeletonStyle = skeletons[0] ? getComputedStyle(skeletons[0]) : null;
+                                        return {
+                                            page: pageNumber,
+                                            canvasVisible: Array.from(page.querySelectorAll<HTMLCanvasElement>('.page_canvas canvas')).some(
+                                                (canvas) => canvas.width > 0 && canvas.height > 0 && isPainted(canvas),
+                                            ),
+                                            skeletonVisible: skeletonBars.some(isPainted),
+                                            skeletonContentInViewport: skeletonBars.length > 0,
+                                            skeletonAnimationDelay: skeletonStyle?.animationDelay ?? null,
+                                            skeletonAnimationDuration: skeletonStyle?.animationDuration ?? null,
+                                            visibleElapsedMs: performance.now() - firstVisibleAt.get(pageNumber)!,
+                                            visibleHeight: Math.min(rect.bottom, bounds.bottom) - Math.max(rect.top, bounds.top),
+                                        };
+                                    }),
                             });
                         }
                         requestAnimationFrame(sample);
                     };
                     requestAnimationFrame(sample);
                 });
-                await clickFoundAsUser(session.page, (title: string) => Array.from(
-                    document.querySelectorAll<HTMLElement>('.document-bookmark-item__row'),
-                ).find(row => row.textContent?.trim() === title), `Destination ${target}`, {description: `Navigate to bookmark on page ${target}`});
+                await clickFoundAsUser(
+                    session.page,
+                    (title: string) =>
+                        Array.from(document.querySelectorAll<HTMLElement>('.document-bookmark-item__row')).find(
+                            (row) => row.textContent?.trim() === title,
+                        ),
+                    `Destination ${target}`,
+                    {description: `Navigate to bookmark on page ${target}`},
+                );
                 await waitForToolbarCurrentPage(session, target);
                 await waitForScannedFixturePageIdentity(session.page, target);
                 await waitForScannedFixturePageIdentity(session.page, target + 1);
                 await waitForAnimationFrames(session.page, 5);
                 const frames = await session.page.evaluate(() => {
                     const probe = (window as IBookmarkViewportProbeWindow).__evbBookmarkViewportProbe;
-                    if (!probe) {throw new Error('Bookmark destination frame sampler is missing');}
+                    if (!probe) {
+                        throw new Error('Bookmark destination frame sampler is missing');
+                    }
                     probe.stopped = true;
                     return probe.frames;
                 });
@@ -991,29 +969,34 @@ describe('Electron E2E - bookmark destination viewport presentation', () => {
                 });
             }
 
-            writeTraceArtifact({
-                pdfPath,
-                revealPolicy,
-                jumps,
-            }, resolve('.devkit/adjacent-skeleton/fast-bookmark-frames.json'));
-            for (const {
-                target, frames,
-            } of jumps) {
-                const destinationFrames = frames.filter(frame => frame.pages.some(page => page.page === target));
-                const visibleNeighbors = destinationFrames.flatMap(frame => frame.pages.filter(page => page.page === target + 1));
+            writeTraceArtifact(
+                {
+                    pdfPath,
+                    revealPolicy,
+                    jumps,
+                },
+                resolve('.devkit/adjacent-skeleton/fast-bookmark-frames.json'),
+            );
+            for (const {target, frames} of jumps) {
+                const destinationFrames = frames.filter((frame) => frame.pages.some((page) => page.page === target));
+                const visibleNeighbors = destinationFrames.flatMap((frame) => frame.pages.filter((page) => page.page === target + 1));
                 expect(destinationFrames.length, `No destination frames captured for page ${target}`).toBeGreaterThan(3);
-                expect(visibleNeighbors.some(page => page.visibleHeight >= 100), `Following page ${target + 1} must be on screen`).toBe(true);
-                expect(visibleNeighbors.some(page => page.canvasVisible), `Following page ${target + 1} must actually paint`).toBe(true);
-                const skeletonFrames = destinationFrames.filter(frame => frame.pages.some(page => page.skeletonVisible));
-                const prematureSkeletonFrames = skeletonFrames.filter(frame => frame.inputElapsedMs !== null
-                    && frame.inputElapsedMs < revealPolicy.delayMs);
+                expect(
+                    visibleNeighbors.some((page) => page.visibleHeight >= 100),
+                    `Following page ${target + 1} must be on screen`,
+                ).toBe(true);
+                expect(
+                    visibleNeighbors.some((page) => page.canvasVisible),
+                    `Following page ${target + 1} must actually paint`,
+                ).toBe(true);
+                const skeletonFrames = destinationFrames.filter((frame) => frame.pages.some((page) => page.skeletonVisible));
+                const prematureSkeletonFrames = skeletonFrames.filter(
+                    (frame) => frame.inputElapsedMs !== null && frame.inputElapsedMs < revealPolicy.delayMs,
+                );
                 expect(prematureSkeletonFrames, `Skeleton revealed before the CSS grace interval on jump to ${target}`).toEqual([]);
-                const paintedCohort = destinationFrames.find(frame => [
-                    target,
-                    target + 1,
-                ].every(
-                    pageNumber => frame.pages.some(page => page.page === pageNumber && page.canvasVisible),
-                ));
+                const paintedCohort = destinationFrames.find((frame) =>
+                    [target, target + 1].every((pageNumber) => frame.pages.some((page) => page.page === pageNumber && page.canvasVisible)),
+                );
                 expect(paintedCohort, `Destination viewport ${target}/${target + 1} must actually paint`).toBeDefined();
                 expect(paintedCohort!.inputElapsedMs, 'Destination paint must follow trusted input').not.toBeNull();
                 if (paintedCohort!.inputElapsedMs! < revealPolicy.delayMs) {
@@ -1023,21 +1006,28 @@ describe('Electron E2E - bookmark destination viewport presentation', () => {
                 // unresolved page has exhausted both delay and fade, it gives
                 // loading feedback. First observed visibility is a conservative
                 // mount bound, so scheduler delays cannot make this early.
-                const missingSlowFeedback = destinationFrames.flatMap(frame => frame.pages.filter(page =>
-                    !page.canvasVisible && page.skeletonContentInViewport && !page.skeletonVisible
-                    && page.visibleElapsedMs >= revealPolicy.delayMs + revealPolicy.durationMs));
+                const missingSlowFeedback = destinationFrames.flatMap((frame) =>
+                    frame.pages.filter(
+                        (page) =>
+                            !page.canvasVisible &&
+                            page.skeletonContentInViewport &&
+                            !page.skeletonVisible &&
+                            page.visibleElapsedMs >= revealPolicy.delayMs + revealPolicy.durationMs,
+                    ),
+                );
                 expect(missingSlowFeedback, `Unresolved viewport pages must show loading feedback on jump to ${target}`).toEqual([]);
             }
         } finally {
-            await session.page.evaluate(() => {
-                const probe = (window as IBookmarkViewportProbeWindow).__evbBookmarkViewportProbe;
-                if (probe) {probe.stopped = true;}
-                delete (window as IBookmarkViewportProbeWindow).__evbBookmarkViewportProbe;
-            }).catch(() => undefined);
-            await session.command('windowResize', [
-                originalViewport.width,
-                originalViewport.height,
-            ]);
+            await session.page
+                .evaluate(() => {
+                    const probe = (window as IBookmarkViewportProbeWindow).__evbBookmarkViewportProbe;
+                    if (probe) {
+                        probe.stopped = true;
+                    }
+                    delete (window as IBookmarkViewportProbeWindow).__evbBookmarkViewportProbe;
+                })
+                .catch(() => undefined);
+            await session.command('windowResize', [originalViewport.width, originalViewport.height]);
         }
     }, 90_000);
 });
@@ -1063,29 +1053,30 @@ describe('Electron E2E - paged fit-height backward wheel regression', () => {
         if ((await getWorkspaceToolbarSnapshot(session.page))?.continuousScroll !== false) {
             await requireWorkspaceCommand(session.page, 'handleToggleContinuousScroll');
         }
-        await session.page.waitForFunction(() => (
-            (window as IRapidNavigationProbeWindow).__evbTestApi
-                ?.getActiveToolbarSnapshot?.()?.continuousScroll === false
-        ), {timeout: 15_000});
+        await session.page.waitForFunction(
+            () => (window as IRapidNavigationProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.continuousScroll === false,
+            {timeout: 15_000},
+        );
         await waitForSettledViewport(session, 4);
-        const readPage = (pageNumber: number) => session.page.evaluate((target: number) => {
-            const viewer = document.querySelector<HTMLElement>(
-                '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer',
-            );
-            const page = viewer?.querySelector<HTMLElement>(`.page_container[data-page="${String(target)}"]`);
-            if (!viewer || !page) {
-                return null;
-            }
-            const viewerRect = viewer.getBoundingClientRect();
-            const pageRect = page.getBoundingClientRect();
-            return {
-                pageTop: pageRect.top - viewerRect.top,
-                pageBottom: pageRect.bottom - viewerRect.top,
-                viewportHeight: viewer.clientHeight,
-                x: Math.round(viewerRect.left + viewerRect.width / 2),
-                y: Math.round(viewerRect.top + viewerRect.height / 2),
-            };
-        }, pageNumber);
+        const readPage = (pageNumber: number) =>
+            session.page.evaluate((target: number) => {
+                const viewer = document.querySelector<HTMLElement>(
+                    '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer',
+                );
+                const page = viewer?.querySelector<HTMLElement>(`.page_container[data-page="${String(target)}"]`);
+                if (!viewer || !page) {
+                    return null;
+                }
+                const viewerRect = viewer.getBoundingClientRect();
+                const pageRect = page.getBoundingClientRect();
+                return {
+                    pageTop: pageRect.top - viewerRect.top,
+                    pageBottom: pageRect.bottom - viewerRect.top,
+                    viewportHeight: viewer.clientHeight,
+                    x: Math.round(viewerRect.left + viewerRect.width / 2),
+                    y: Math.round(viewerRect.top + viewerRect.height / 2),
+                };
+            }, pageNumber);
         const start = await readPage(4);
         if (!start) {
             throw new Error('Page 4 is not mounted');
@@ -1101,18 +1092,27 @@ describe('Electron E2E - paged fit-height backward wheel regression', () => {
         await waitForAnimationFrames(session.page, 10);
         const landed = await readPage(3);
         // Turning back continues from the end of page 3, not from its top.
-        expect(landed, JSON.stringify({
-            start,
+        expect(
             landed,
-        })).not.toBeNull();
-        expect(landed!.pageTop, JSON.stringify({
-            start,
-            landed,
-        })).toBeLessThan(0);
-        expect(Math.abs(landed!.pageBottom - landed!.viewportHeight), JSON.stringify({
-            start,
-            landed,
-        })).toBeLessThanOrEqual(40);
+            JSON.stringify({
+                start,
+                landed,
+            }),
+        ).not.toBeNull();
+        expect(
+            landed!.pageTop,
+            JSON.stringify({
+                start,
+                landed,
+            }),
+        ).toBeLessThan(0);
+        expect(
+            Math.abs(landed!.pageBottom - landed!.viewportHeight),
+            JSON.stringify({
+                start,
+                landed,
+            }),
+        ).toBeLessThanOrEqual(40);
         // The next test in this suite starts from page 1.
         await jumpToPageAndWaitForCanvas(session, 1);
     }, 90_000);
@@ -1122,33 +1122,33 @@ describe('Electron E2E - paged fit-height backward wheel regression', () => {
         if (!pdfPath) {
             throw new Error('Page-jump suite setup did not complete');
         }
-        const readRenderedPage = () => session.page.evaluate(() => {
-            const viewport = document.querySelector<HTMLElement>(
-                '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer',
-            );
-            const toolbarInput = document.querySelector<HTMLInputElement>(
-                '.editor-pane.is-active .workspace-host[data-workspace-active="true"] input[aria-label="Page number"], .toolbar-page-input input, input[data-testid="page-number-input"]',
-            );
-            const toolbar = (window as IRapidNavigationProbeWindow).__evbTestApi
-                ?.getActiveToolbarSnapshot?.() ?? null;
-            const viewportRect = viewport?.getBoundingClientRect() ?? null;
-            const visiblePages = Array.from(
-                viewport?.querySelectorAll<HTMLElement>('.page_container:not(.page_container--buffered)') ?? [],
-            )
-                .filter((page) => {
-                    if (!viewportRect) {
-                        return false;
-                    }
-                    const rect = page.getBoundingClientRect();
-                    return rect.bottom > viewportRect.top && rect.top < viewportRect.bottom;
-                })
-                .map(page => Number(page.dataset.page));
-            return {
-                toolbarPage: toolbar?.currentPage ?? null,
-                toolbarInputValue: toolbarInput?.value ?? null,
-                visiblePages,
-            };
-        });
+        const readRenderedPage = () =>
+            session.page.evaluate(() => {
+                const viewport = document.querySelector<HTMLElement>(
+                    '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer',
+                );
+                const toolbarInput = document.querySelector<HTMLInputElement>(
+                    '.editor-pane.is-active .workspace-host[data-workspace-active="true"] input[aria-label="Page number"], .toolbar-page-input input, input[data-testid="page-number-input"]',
+                );
+                const toolbar = (window as IRapidNavigationProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.() ?? null;
+                const viewportRect = viewport?.getBoundingClientRect() ?? null;
+                const visiblePages = Array.from(
+                    viewport?.querySelectorAll<HTMLElement>('.page_container:not(.page_container--buffered)') ?? [],
+                )
+                    .filter((page) => {
+                        if (!viewportRect) {
+                            return false;
+                        }
+                        const rect = page.getBoundingClientRect();
+                        return rect.bottom > viewportRect.top && rect.top < viewportRect.bottom;
+                    })
+                    .map((page) => Number(page.dataset.page));
+                return {
+                    toolbarPage: toolbar?.currentPage ?? null,
+                    toolbarInputValue: toolbarInput?.value ?? null,
+                    visiblePages,
+                };
+            });
 
         await jumpToPageAndWaitForCanvas(session, 1);
         const initialToolbar = await getWorkspaceToolbarSnapshot(session.page);
@@ -1250,50 +1250,51 @@ describe('Electron E2E - paged fit-height backward wheel regression', () => {
             throw new Error('Page-jump suite setup did not complete');
         }
         const states: unknown[] = [];
-        const collectState = () => session.page.evaluate(() => {
-            const viewport = document.querySelector<HTMLElement>(
-                '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer',
-            );
-            const chassis = viewport?.closest<HTMLElement>('.document-viewer-chassis') ?? null;
-            const currentPage = (window as IRapidNavigationProbeWindow).__evbTestApi
-                ?.getActiveToolbarSnapshot?.()?.currentPage ?? null;
-            const page = currentPage === null
-                ? null
-                : viewport?.querySelector<HTMLElement>(`.page_container[data-page="${String(currentPage)}"]`) ?? null;
-            const canvas = page?.querySelector<HTMLCanvasElement>('.page_canvas canvas') ?? null;
-            return {
-                canvasReady: Boolean(
-                    page?.classList.contains('page_container--rendered')
-                    && canvas
-                    && canvas.width > 0
-                    && canvas.height > 0
-                    && !page.querySelector('.document-page-skeleton'),
-                ),
-                currentPage,
-                lifecycle: chassis?.dataset.viewportLifecycle ?? null,
-                requestedPage: Number(chassis?.dataset.viewportRequestedPage) || null,
-                skeletonVisible: Boolean(page?.querySelector('.document-page-skeleton')),
-                visualPage: Number(chassis?.dataset.viewportVisualPage) || null,
-                visualPresentation: chassis?.dataset.viewportVisualPresentation ?? null,
-            };
-        });
+        const collectState = () =>
+            session.page.evaluate(() => {
+                const viewport = document.querySelector<HTMLElement>(
+                    '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer',
+                );
+                const chassis = viewport?.closest<HTMLElement>('.document-viewer-chassis') ?? null;
+                const currentPage = (window as IRapidNavigationProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.currentPage ?? null;
+                const page =
+                    currentPage === null
+                        ? null
+                        : (viewport?.querySelector<HTMLElement>(`.page_container[data-page="${String(currentPage)}"]`) ?? null);
+                const canvas = page?.querySelector<HTMLCanvasElement>('.page_canvas canvas') ?? null;
+                return {
+                    canvasReady: Boolean(
+                        page?.classList.contains('page_container--rendered') &&
+                        canvas &&
+                        canvas.width > 0 &&
+                        canvas.height > 0 &&
+                        !page.querySelector('.document-page-skeleton'),
+                    ),
+                    currentPage,
+                    lifecycle: chassis?.dataset.viewportLifecycle ?? null,
+                    requestedPage: Number(chassis?.dataset.viewportRequestedPage) || null,
+                    skeletonVisible: Boolean(page?.querySelector('.document-page-skeleton')),
+                    visualPage: Number(chassis?.dataset.viewportVisualPage) || null,
+                    visualPresentation: chassis?.dataset.viewportVisualPresentation ?? null,
+                };
+            });
 
         const initialToolbar = await getWorkspaceToolbarSnapshot(session.page);
         if (initialToolbar?.zoomMode !== 'fit-height') {
             await requireWorkspaceCommand(session.page, 'handleFitHeight');
         }
-        await session.page.waitForFunction(() => (
-            (window as IRapidNavigationProbeWindow).__evbTestApi
-                ?.getActiveToolbarSnapshot?.()?.zoomMode === 'fit-height'
-        ), {timeout: 15_000});
+        await session.page.waitForFunction(
+            () => (window as IRapidNavigationProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.zoomMode === 'fit-height',
+            {timeout: 15_000},
+        );
         const fitHeightToolbar = await getWorkspaceToolbarSnapshot(session.page);
         if (fitHeightToolbar?.continuousScroll !== false) {
             await requireWorkspaceCommand(session.page, 'handleToggleContinuousScroll');
         }
-        await session.page.waitForFunction(() => (
-            (window as IRapidNavigationProbeWindow).__evbTestApi
-                ?.getActiveToolbarSnapshot?.()?.continuousScroll === false
-        ), {timeout: 15_000});
+        await session.page.waitForFunction(
+            () => (window as IRapidNavigationProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.continuousScroll === false,
+            {timeout: 15_000},
+        );
         await waitForToolbarCurrentPage(session, 1);
         expect(await waitForVisiblePageCanvas(session, 1, 20_000)).toBe(true);
 
@@ -1351,14 +1352,17 @@ describe('Electron E2E - paged fit-height backward wheel regression', () => {
             bodyText: document.body.innerText,
             title: document.title,
         }));
-        writeTraceArtifact({
-            closeState,
-            pdfPath,
-            scenario: 'paged-fit-height-backward-wheel-and-close',
-            settledState,
-            states,
-            trace,
-        }, PAGED_FIT_HEIGHT_BACKWARD_WHEEL_TRACE_OUTPUT_PATH);
+        writeTraceArtifact(
+            {
+                closeState,
+                pdfPath,
+                scenario: 'paged-fit-height-backward-wheel-and-close',
+                settledState,
+                states,
+                trace,
+            },
+            PAGED_FIT_HEIGHT_BACKWARD_WHEEL_TRACE_OUTPUT_PATH,
+        );
         expect(closeState.title).not.toContain('500');
         expect(closeState.bodyText).not.toContain('Invalid document viewport session');
         expect(closeState.bodyText).not.toContain('Internal Server Error');
@@ -1392,10 +1396,10 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         const toolbar = await getWorkspaceToolbarSnapshot(session.page);
         if (toolbar?.continuousScroll === false) {
             await requireWorkspaceCommand(session.page, 'handleToggleContinuousScroll');
-            await session.page.waitForFunction(() => (
-                (window as IRapidNavigationProbeWindow).__evbTestApi
-                    ?.getActiveToolbarSnapshot?.()?.continuousScroll === true
-            ), {timeout: 15_000});
+            await session.page.waitForFunction(
+                () => (window as IRapidNavigationProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.continuousScroll === true,
+                {timeout: 15_000},
+            );
         }
     }, 20_000);
 
@@ -1417,17 +1421,20 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             const dimensions = await session.page.evaluate(() => {
                 const viewer = document.querySelector<HTMLElement>('#pdf-viewer');
                 const cover = viewer?.querySelector<HTMLElement>('.page_container[data-page="1"]');
-                if (!viewer || !cover) {throw new Error('Missing cover or viewport');}
+                if (!viewer || !cover) {
+                    throw new Error('Missing cover or viewport');
+                }
                 const rect = cover.getBoundingClientRect();
                 const track = viewer.querySelector<HTMLElement>('[data-pdf-page-track]');
-                if (!track) {throw new Error('Missing page track');}
+                if (!track) {
+                    throw new Error('Missing page track');
+                }
                 const gap = Number.parseFloat(getComputedStyle(track).columnGap);
                 const scrollbar = viewer.offsetWidth - viewer.clientWidth;
                 // The old policy hides the bar once the shrunken spread fits,
                 // then enlarges it again. Choose the middle of that interval.
                 return {
-                    width: Math.round(innerWidth - viewer.clientWidth
-                        + rect.width * 2 + gap - rect.width / rect.height * scrollbar),
+                    width: Math.round(innerWidth - viewer.clientWidth + rect.width * 2 + gap - (rect.width / rect.height) * scrollbar),
                     scrollbar,
                 };
             });
@@ -1448,13 +1455,15 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             try {
                 const pending: Array<Promise<unknown>> = [];
                 for (let packet = 0; packet < 60; packet += 1) {
-                    pending.push(client.send('Input.dispatchMouseEvent', {
-                        type: 'mouseWheel',
-                        ...point,
-                        deltaX: 0,
-                        deltaY: 4000 * Math.exp(-packet / 25),
-                        pointerType: 'mouse',
-                    }));
+                    pending.push(
+                        client.send('Input.dispatchMouseEvent', {
+                            type: 'mouseWheel',
+                            ...point,
+                            deltaX: 0,
+                            deltaY: 4000 * Math.exp(-packet / 25),
+                            pointerType: 'mouse',
+                        }),
+                    );
                     await delay(8);
                 }
                 await Promise.all(pending);
@@ -1464,21 +1473,34 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             await delay(1000);
             // L2: painted visible pages must recover within the settled deadline.
             // A transient canvas between two resize invalidations is not recovery.
-            await session.page.waitForFunction(() => {
-                const viewer = document.querySelector<HTMLElement>('#pdf-viewer');
-                if (!viewer) {return false;}
-                const bounds = viewer.getBoundingClientRect();
-                const visible = Array.from(viewer.querySelectorAll<HTMLElement>('.page_container'))
-                    .filter((page) => {
+            await session.page.waitForFunction(
+                () => {
+                    const viewer = document.querySelector<HTMLElement>('#pdf-viewer');
+                    if (!viewer) {
+                        return false;
+                    }
+                    const bounds = viewer.getBoundingClientRect();
+                    const visible = Array.from(viewer.querySelectorAll<HTMLElement>('.page_container')).filter((page) => {
                         const rect = page.getBoundingClientRect();
                         return rect.bottom > bounds.top && rect.top < bounds.bottom;
                     });
-                return visible.length > 0 && visible.every(page => page.dataset.pageVisual === 'ready'
-                    && page.dataset.pageRaster === 'current' && page.querySelector('canvas'));
-            }, { timeout: 10_000 });
+                    return (
+                        visible.length > 0 &&
+                        visible.every(
+                            (page) =>
+                                page.dataset.pageVisual === 'ready' &&
+                                page.dataset.pageRaster === 'current' &&
+                                page.querySelector('canvas'),
+                        )
+                    );
+                },
+                {timeout: 10_000},
+            );
             const observation = await session.page.evaluate(() => {
                 const viewer = document.querySelector<HTMLElement>('#pdf-viewer');
-                if (!viewer) {throw new Error('Missing viewer');}
+                if (!viewer) {
+                    throw new Error('Missing viewer');
+                }
                 return {
                     scrollTop: viewer.scrollTop,
                     clientHeight: viewer.clientHeight,
@@ -1486,15 +1508,15 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             });
             expect(observation.scrollTop).toBeGreaterThan(1000);
             await delay(600);
-            expect(await session.page.$eval('#pdf-viewer', viewer => viewer.clientHeight))
-                .toBe(observation.clientHeight);
+            expect(await session.page.$eval('#pdf-viewer', (viewer) => viewer.clientHeight)).toBe(observation.clientHeight);
         } finally {
             await session.page.setViewport(originalViewport);
-            const restoreViewMode = originalToolbar?.viewMode === 'facing'
-                ? 'handleViewModeFacing'
-                : originalToolbar?.viewMode === 'facing-first-single'
-                    ? 'handleViewModeFacingFirstSingle'
-                    : 'handleViewModeSingle';
+            const restoreViewMode =
+                originalToolbar?.viewMode === 'facing'
+                    ? 'handleViewModeFacing'
+                    : originalToolbar?.viewMode === 'facing-first-single'
+                      ? 'handleViewModeFacingFirstSingle'
+                      : 'handleViewModeSingle';
             await requireWorkspaceCommand(session.page, restoreViewMode);
         }
     }, 60_000);
@@ -1507,15 +1529,20 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
 
         await jumpToPageAndWaitForCanvas(session, 1);
         await waitForToolbarCurrentPage(session, 1);
-        await session.page.waitForFunction(() => (
-            Array.from(document.querySelectorAll<HTMLElement>('.page-controls-current-primary'))
-                .some(element => element.textContent?.trim() === 'ii')
-        ), {timeout: 15_000}).catch(() => undefined);
+        await session.page
+            .waitForFunction(
+                () =>
+                    Array.from(document.querySelectorAll<HTMLElement>('.page-controls-current-primary')).some(
+                        (element) => element.textContent?.trim() === 'ii',
+                    ),
+                {timeout: 15_000},
+            )
+            .catch(() => undefined);
         await requireWorkspaceCommand(session.page, 'handleFitHeight');
-        await session.page.waitForFunction(() => (
-            (window as IRapidNavigationProbeWindow).__evbTestApi
-                ?.getActiveToolbarSnapshot?.()?.zoomMode === 'fit-height'
-        ), {timeout: 15_000});
+        await session.page.waitForFunction(
+            () => (window as IRapidNavigationProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.zoomMode === 'fit-height',
+            {timeout: 15_000},
+        );
         const finalPage = (await getWorkspaceToolbarSnapshot(session.page))?.totalPages ?? 0;
         expect(finalPage).toBeGreaterThan(1);
         await clickPageNavigationButton(session, 'Last Page');
@@ -1527,13 +1554,16 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         await delay(2_000);
 
         const toolbarSnapshot = await getWorkspaceToolbarSnapshot(session.page);
-        writeTraceArtifact({
-            navigationControls: await collectNavigationControlState(session),
-            rapidNavigationDebug: await collectRapidNavigationDebug(session),
-            scenario: 'toolbar-last-page',
-            toolbarSnapshot,
-            trace: await collectTrace(session),
-        }, LAST_PAGE_TRACE_OUTPUT_PATH);
+        writeTraceArtifact(
+            {
+                navigationControls: await collectNavigationControlState(session),
+                rapidNavigationDebug: await collectRapidNavigationDebug(session),
+                scenario: 'toolbar-last-page',
+                toolbarSnapshot,
+                trace: await collectTrace(session),
+            },
+            LAST_PAGE_TRACE_OUTPUT_PATH,
+        );
         expect(toolbarSnapshot?.currentPage).toBe(finalPage);
     }, 60_000);
 
@@ -1546,18 +1576,18 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         await jumpToPageAndWaitForCanvas(session, 1);
         await waitForToolbarCurrentPage(session, 1);
         await requireWorkspaceCommand(session.page, 'handleFitHeight');
-        await session.page.waitForFunction(() => (
-            (window as IRapidNavigationProbeWindow).__evbTestApi
-                ?.getActiveToolbarSnapshot?.()?.zoomMode === 'fit-height'
-        ), {timeout: 15_000});
+        await session.page.waitForFunction(
+            () => (window as IRapidNavigationProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.zoomMode === 'fit-height',
+            {timeout: 15_000},
+        );
         const beforePaged = await getWorkspaceToolbarSnapshot(session.page);
         if (beforePaged?.continuousScroll !== false) {
             await requireWorkspaceCommand(session.page, 'handleToggleContinuousScroll');
         }
-        await session.page.waitForFunction(() => (
-            (window as IRapidNavigationProbeWindow).__evbTestApi
-                ?.getActiveToolbarSnapshot?.()?.continuousScroll === false
-        ), {timeout: 15_000});
+        await session.page.waitForFunction(
+            () => (window as IRapidNavigationProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.continuousScroll === false,
+            {timeout: 15_000},
+        );
         expect(await waitForVisiblePageCanvas(session, 1, 15_000)).toBe(true);
 
         const viewportPoint = await session.page.evaluate(() => {
@@ -1576,39 +1606,40 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             return;
         }
 
-        const collectPagedState = () => session.page.evaluate(() => {
-            const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
-            const chassis = viewport?.closest<HTMLElement>('.document-viewer-chassis') ?? null;
-            const toolbar = (window as IRapidNavigationProbeWindow).__evbTestApi
-                ?.getActiveToolbarSnapshot?.() ?? null;
-            const visible = Array.from(
-                viewport?.querySelectorAll<HTMLElement>('.page_container:not(.page_container--buffered)') ?? [],
-            ).find((page) => {
-                const rect = page.getBoundingClientRect();
-                const viewportRect = viewport?.getBoundingClientRect();
-                return Boolean(viewportRect && rect.bottom > viewportRect.top && rect.top < viewportRect.bottom);
-            }) ?? null;
-            const canvas = visible?.querySelector<HTMLCanvasElement>('.page_canvas canvas') ?? null;
-            return {
-                canvasReady: Boolean(
-                    visible?.classList.contains('page_container--rendered')
-                    && canvas
-                    && canvas.width > 0
-                    && canvas.height > 0
-                    && !visible.querySelector('.document-page-skeleton'),
-                ),
-                committedPage: Number(chassis?.dataset.viewportCommittedPage) || null,
-                currentPage: toolbar?.currentPage ?? 0,
-                lifecycle: chassis?.dataset.viewportLifecycle ?? null,
-                requestedPage: Number(chassis?.dataset.viewportRequestedPage) || null,
-                stagedRenderPage: Number(chassis?.dataset.viewportStagedRenderPage) || null,
-                stagedViewportPage: Number(chassis?.dataset.viewportStagedViewportPage) || null,
-                scrollTop: viewport?.scrollTop ?? -1,
-                visiblePage: Number(visible?.dataset.page) || null,
-                visualPage: Number(chassis?.dataset.viewportVisualPage) || null,
-                visualPresentation: chassis?.dataset.viewportVisualPresentation ?? null,
-            };
-        });
+        const collectPagedState = () =>
+            session.page.evaluate(() => {
+                const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
+                const chassis = viewport?.closest<HTMLElement>('.document-viewer-chassis') ?? null;
+                const toolbar = (window as IRapidNavigationProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.() ?? null;
+                const visible =
+                    Array.from(viewport?.querySelectorAll<HTMLElement>('.page_container:not(.page_container--buffered)') ?? []).find(
+                        (page) => {
+                            const rect = page.getBoundingClientRect();
+                            const viewportRect = viewport?.getBoundingClientRect();
+                            return Boolean(viewportRect && rect.bottom > viewportRect.top && rect.top < viewportRect.bottom);
+                        },
+                    ) ?? null;
+                const canvas = visible?.querySelector<HTMLCanvasElement>('.page_canvas canvas') ?? null;
+                return {
+                    canvasReady: Boolean(
+                        visible?.classList.contains('page_container--rendered') &&
+                        canvas &&
+                        canvas.width > 0 &&
+                        canvas.height > 0 &&
+                        !visible.querySelector('.document-page-skeleton'),
+                    ),
+                    committedPage: Number(chassis?.dataset.viewportCommittedPage) || null,
+                    currentPage: toolbar?.currentPage ?? 0,
+                    lifecycle: chassis?.dataset.viewportLifecycle ?? null,
+                    requestedPage: Number(chassis?.dataset.viewportRequestedPage) || null,
+                    stagedRenderPage: Number(chassis?.dataset.viewportStagedRenderPage) || null,
+                    stagedViewportPage: Number(chassis?.dataset.viewportStagedViewportPage) || null,
+                    scrollTop: viewport?.scrollTop ?? -1,
+                    visiblePage: Number(visible?.dataset.page) || null,
+                    visualPage: Number(chassis?.dataset.viewportVisualPage) || null,
+                    visualPresentation: chassis?.dataset.viewportVisualPresentation ?? null,
+                };
+            });
         const expectPagedStateConverged = (sample: Awaited<ReturnType<typeof collectPagedState>>) => {
             expect(sample.canvasReady, JSON.stringify(sample)).toBe(true);
             expect(sample.visiblePage, JSON.stringify(sample)).toBe(sample.currentPage);
@@ -1622,15 +1653,16 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         };
         const expectPagedStateOwned = (sample: Awaited<ReturnType<typeof collectPagedState>>) => {
             const diagnostics = JSON.stringify(sample);
-            const isTargetOwnedSkeleton = !sample.canvasReady
-                && sample.visiblePage === sample.currentPage
-                && sample.requestedPage === sample.currentPage
-                && sample.committedPage !== sample.currentPage
-                && sample.lifecycle === 'transitioning'
-                && sample.visualPage === sample.currentPage
-                && sample.visualPresentation === 'skeleton'
-                && sample.stagedRenderPage === null
-                && sample.stagedViewportPage === null;
+            const isTargetOwnedSkeleton =
+                !sample.canvasReady &&
+                sample.visiblePage === sample.currentPage &&
+                sample.requestedPage === sample.currentPage &&
+                sample.committedPage !== sample.currentPage &&
+                sample.lifecycle === 'transitioning' &&
+                sample.visualPage === sample.currentPage &&
+                sample.visualPresentation === 'skeleton' &&
+                sample.stagedRenderPage === null &&
+                sample.stagedViewportPage === null;
             if (isTargetOwnedSkeleton) {
                 return;
             }
@@ -1641,17 +1673,17 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             const deadline = Date.now() + 20_000;
             let sample = await collectPagedState();
             while (
-                Date.now() < deadline
-                && !(
-                    sample.canvasReady
-                    && sample.visiblePage === sample.currentPage
-                    && sample.requestedPage === sample.currentPage
-                    && sample.committedPage === sample.currentPage
-                    && sample.lifecycle === 'ready'
-                    && sample.visualPage === sample.currentPage
-                    && sample.visualPresentation === 'canvas'
-                    && sample.stagedRenderPage === null
-                    && sample.stagedViewportPage === null
+                Date.now() < deadline &&
+                !(
+                    sample.canvasReady &&
+                    sample.visiblePage === sample.currentPage &&
+                    sample.requestedPage === sample.currentPage &&
+                    sample.committedPage === sample.currentPage &&
+                    sample.lifecycle === 'ready' &&
+                    sample.visualPage === sample.currentPage &&
+                    sample.visualPresentation === 'canvas' &&
+                    sample.stagedRenderPage === null &&
+                    sample.stagedViewportPage === null
                 )
             ) {
                 await delay(50);
@@ -1670,8 +1702,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         await delay(1_000);
         const forwardToolbar = await getWorkspaceToolbarSnapshot(session.page);
         const forwardPage = forwardToolbar?.currentPage ?? 0;
-        const forwardCanvasReady = forwardPage > 1
-            && await waitForVisiblePageCanvas(session, forwardPage, 20_000);
+        const forwardCanvasReady = forwardPage > 1 && (await waitForVisiblePageCanvas(session, forwardPage, 20_000));
         const forwardFinalState = await collectPagedState();
 
         const reverseSamples: Array<Awaited<ReturnType<typeof collectPagedState>>> = [];
@@ -1682,8 +1713,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         }
         const reverseToolbar = await getWorkspaceToolbarSnapshot(session.page);
         const reversePage = reverseToolbar?.currentPage ?? 0;
-        const reverseCanvasReady = reversePage > 0
-            && await waitForVisiblePageCanvas(session, reversePage, 20_000);
+        const reverseCanvasReady = reversePage > 0 && (await waitForVisiblePageCanvas(session, reversePage, 20_000));
         const reverseFinalState = await collectPagedState();
 
         await clickPageNavigationButton(session, 'First Page');
@@ -1701,8 +1731,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         await delay(1_000);
         const fastToolbar = await getWorkspaceToolbarSnapshot(session.page);
         const fastPage = fastToolbar?.currentPage ?? 0;
-        const fastCanvasReady = fastPage > 1
-            && await waitForVisiblePageCanvas(session, fastPage, 20_000);
+        const fastCanvasReady = fastPage > 1 && (await waitForVisiblePageCanvas(session, fastPage, 20_000));
         const fastState = await collectPagedState();
 
         await clickPageNavigationButton(session, 'First Page');
@@ -1713,50 +1742,44 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         expect(postFastFirstCanvasReady).toBe(true);
         expectPagedStateConverged(postFastFirstState);
         const removedCurrentCanvas = await session.page.evaluate(() => {
-            const canvas = document.querySelector<HTMLCanvasElement>(
-                '#pdf-viewer .page_container[data-page="1"] .page_canvas canvas',
-            );
+            const canvas = document.querySelector<HTMLCanvasElement>('#pdf-viewer .page_container[data-page="1"] .page_canvas canvas');
             canvas?.remove();
             return Boolean(canvas);
         });
         expect(removedCurrentCanvas).toBe(true);
-        await requireWorkspaceCommand(
-            session.page,
-            'handleGoToPage',
-            [1],
-        );
+        await requireWorkspaceCommand(session.page, 'handleGoToPage', [1]);
         const samePageRecoveryCanvasReady = await waitForVisiblePageCanvas(session, 1, 20_000);
         const samePageRecoveryState = await collectPagedState();
         const trace = await collectTrace(session);
-        writeTraceArtifact({
-            fastCanvasReady,
-            fastState,
-            fastToolbar,
-            firstRecoveryCanvasReady,
-            firstRecoveryState,
-            forwardCanvasReady,
-            forwardFinalState,
-            forwardToolbar,
-            pageJumpPdfPath,
-            postFastFirstCanvasReady,
-            postFastFirstState,
-            samePageRecoveryCanvasReady,
-            samePageRecoveryState,
-            reverseCanvasReady,
-            reverseFinalState,
-            reverseSamples,
-            reverseToolbar,
-            samples,
-            scenario: 'paged-fit-height-wheel-and-first-page-recovery',
-            trace,
-        }, PAGED_FIT_HEIGHT_WHEEL_TRACE_OUTPUT_PATH);
+        writeTraceArtifact(
+            {
+                fastCanvasReady,
+                fastState,
+                fastToolbar,
+                firstRecoveryCanvasReady,
+                firstRecoveryState,
+                forwardCanvasReady,
+                forwardFinalState,
+                forwardToolbar,
+                pageJumpPdfPath,
+                postFastFirstCanvasReady,
+                postFastFirstState,
+                samePageRecoveryCanvasReady,
+                samePageRecoveryState,
+                reverseCanvasReady,
+                reverseFinalState,
+                reverseSamples,
+                reverseToolbar,
+                samples,
+                scenario: 'paged-fit-height-wheel-and-first-page-recovery',
+                trace,
+            },
+            PAGED_FIT_HEIGHT_WHEEL_TRACE_OUTPUT_PATH,
+        );
 
         expect(forwardPage).toBeGreaterThanOrEqual(12);
         expect(forwardCanvasReady).toBe(true);
-        for (const [
-            index,
-            sample,
-        ] of samples.entries()) {
+        for (const [index, sample] of samples.entries()) {
             const previousPage = index === 0 ? 1 : samples[index - 1]!.currentPage;
             expectPagedStateOwned(sample);
             expect(sample.currentPage, JSON.stringify(sample)).toBeGreaterThanOrEqual(previousPage);
@@ -1766,10 +1789,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         expectPagedStateConverged(forwardFinalState);
         expect(reversePage).toBeLessThanOrEqual(forwardPage - 4);
         expect(reverseCanvasReady).toBe(true);
-        for (const [
-            index,
-            sample,
-        ] of reverseSamples.entries()) {
+        for (const [index, sample] of reverseSamples.entries()) {
             const previousPage = index === 0 ? forwardPage : reverseSamples[index - 1]!.currentPage;
             expectPagedStateOwned(sample);
             expect(sample.currentPage, JSON.stringify(sample)).toBeLessThanOrEqual(previousPage);
@@ -1825,22 +1845,25 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             if (trace.length === 0) {
                 trace = await collectTrace(session).catch(() => []);
             }
-            const blankVisiblePages = visiblePages.filter(page => !page.hasCanvas || !page.renderedClass);
-            const targetPageState = visiblePages.find(page => page.page === 7) ?? null;
-            writeTraceArtifact({
-                pdfPath: pageJumpPdfPath,
-                scenario: 'toolbar-next-to-10-prev-to-7',
-                navigationControls,
-                visiblePages,
-                targetPageState,
-                targetCanvasMounted,
-                blankVisiblePages,
-                trace,
-            }, NEXT_PREV_TRACE_OUTPUT_PATH);
+            const blankVisiblePages = visiblePages.filter((page) => !page.hasCanvas || !page.renderedClass);
+            const targetPageState = visiblePages.find((page) => page.page === 7) ?? null;
+            writeTraceArtifact(
+                {
+                    pdfPath: pageJumpPdfPath,
+                    scenario: 'toolbar-next-to-10-prev-to-7',
+                    navigationControls,
+                    visiblePages,
+                    targetPageState,
+                    targetCanvasMounted,
+                    blankVisiblePages,
+                    trace,
+                },
+                NEXT_PREV_TRACE_OUTPUT_PATH,
+            );
         }
 
-        const blankVisiblePages = visiblePages.filter(page => !page.hasCanvas || !page.renderedClass);
-        const targetPageState = visiblePages.find(page => page.page === 7) ?? null;
+        const blankVisiblePages = visiblePages.filter((page) => !page.hasCanvas || !page.renderedClass);
+        const targetPageState = visiblePages.find((page) => page.page === 7) ?? null;
 
         expect(targetCanvasMounted).toBe(true);
         expect(targetPageState).not.toBeNull();
@@ -1869,9 +1892,9 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         await waitForToolbarCurrentPage(session, 2);
 
         const chassisCurrentPage = await session.page.evaluate(() => {
-            const host = document.querySelector<HTMLElement>(
-                '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
-            ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+            const host =
+                document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]') ??
+                document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
             const chassis = host?.querySelector<HTMLElement>('.document-viewer-chassis') ?? null;
             return chassis?.dataset.chassisCurrentPage ?? null;
         });
@@ -1890,41 +1913,33 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         }
         const layoutBefore = await getWorkspaceToolbarSnapshot(session.page);
         const client = await session.page.createCDPSession();
-        const readPointUnder = (fraction: {
-            x: number;
-            y: number;
-        }) => session.page.evaluate((point: {
-            x: number;
-            y: number;
-        }) => {
-            const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
-            if (!viewport) {
-                return null;
-            }
-            const viewportRect = viewport.getBoundingClientRect();
-            const x = viewportRect.left + viewport.clientWidth * point.x;
-            const y = viewportRect.top + viewport.clientHeight * point.y;
-            const contains = (element: HTMLElement) => {
-                const rect = element.getBoundingClientRect();
-                return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
-            };
-            const shown = viewport.querySelector<HTMLElement>('.page_container[data-page]:not(.page_container--buffered)');
-            const shownRect = shown?.getBoundingClientRect();
-            return {
-                clientX: x,
-                clientY: y,
-                hiddenPageUnderPoint: Array.from(viewport.querySelectorAll<HTMLElement>('.page_container--buffered')).some(contains),
-                page: Number(shown?.dataset.page) || null,
-                pageXFraction: shownRect ? (x - shownRect.left) / shownRect.width : null,
-                pageYFraction: shownRect ? (y - shownRect.top) / shownRect.height : null,
-                pageWiderThanTwoWindows: (shownRect?.width ?? 0) > window.innerWidth * 2,
-                toolbarPage: (window as IRapidNavigationProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.currentPage ?? null,
-            };
-        }, fraction);
-        const expectSamePoint = (
-            before: Awaited<ReturnType<typeof readPointUnder>>,
-            after: Awaited<ReturnType<typeof readPointUnder>>,
-        ) => {
+        const readPointUnder = (fraction: {x: number; y: number}) =>
+            session.page.evaluate((point: {x: number; y: number}) => {
+                const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
+                if (!viewport) {
+                    return null;
+                }
+                const viewportRect = viewport.getBoundingClientRect();
+                const x = viewportRect.left + viewport.clientWidth * point.x;
+                const y = viewportRect.top + viewport.clientHeight * point.y;
+                const contains = (element: HTMLElement) => {
+                    const rect = element.getBoundingClientRect();
+                    return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+                };
+                const shown = viewport.querySelector<HTMLElement>('.page_container[data-page]:not(.page_container--buffered)');
+                const shownRect = shown?.getBoundingClientRect();
+                return {
+                    clientX: x,
+                    clientY: y,
+                    hiddenPageUnderPoint: Array.from(viewport.querySelectorAll<HTMLElement>('.page_container--buffered')).some(contains),
+                    page: Number(shown?.dataset.page) || null,
+                    pageXFraction: shownRect ? (x - shownRect.left) / shownRect.width : null,
+                    pageYFraction: shownRect ? (y - shownRect.top) / shownRect.height : null,
+                    pageWiderThanTwoWindows: (shownRect?.width ?? 0) > window.innerWidth * 2,
+                    toolbarPage: (window as IRapidNavigationProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.currentPage ?? null,
+                };
+            }, fraction);
+        const expectSamePoint = (before: Awaited<ReturnType<typeof readPointUnder>>, after: Awaited<ReturnType<typeof readPointUnder>>) => {
             const diagnostics = JSON.stringify({
                 after,
                 before,
@@ -1974,10 +1989,13 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             await clickVisibleToolbarButton(session.page, 'Zoom In');
             await waitForWorkspaceToolbarSnapshot(session.page, {minEffectiveZoom: 4.05});
             await waitForAnimationFrames(session.page, 3);
-            expectSamePoint(beforeButton, await readPointUnder({
-                x: 0.5,
-                y: 0.5,
-            }));
+            expectSamePoint(
+                beforeButton,
+                await readPointUnder({
+                    x: 0.5,
+                    y: 0.5,
+                }),
+            );
 
             const pointer = {
                 x: 0.3,
@@ -2053,26 +2071,29 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             if (trace.length === 0) {
                 trace = await collectTrace(session).catch(() => []);
             }
-            const blankVisiblePages = visiblePages.filter(page => !page.hasCanvas || !page.renderedClass);
-            const targetPageState = visiblePages.find(page => page.page === 21) ?? null;
-            writeTraceArtifact({
-                pdfPath: pageJumpPdfPath,
-                scenario: 'toolbar-rapid-next-to-21',
-                failureMessage,
-                frameSamples,
-                navigationControls,
-                rapidNavigationDebug,
-                toolbarReachedTarget,
-                visiblePages,
-                targetPageState,
-                targetCanvasMounted,
-                blankVisiblePages,
-                trace,
-            }, RAPID_NEXT_TRACE_OUTPUT_PATH);
+            const blankVisiblePages = visiblePages.filter((page) => !page.hasCanvas || !page.renderedClass);
+            const targetPageState = visiblePages.find((page) => page.page === 21) ?? null;
+            writeTraceArtifact(
+                {
+                    pdfPath: pageJumpPdfPath,
+                    scenario: 'toolbar-rapid-next-to-21',
+                    failureMessage,
+                    frameSamples,
+                    navigationControls,
+                    rapidNavigationDebug,
+                    toolbarReachedTarget,
+                    visiblePages,
+                    targetPageState,
+                    targetCanvasMounted,
+                    blankVisiblePages,
+                    trace,
+                },
+                RAPID_NEXT_TRACE_OUTPUT_PATH,
+            );
         }
 
-        const blankVisiblePages = visiblePages.filter(page => !page.hasCanvas || !page.renderedClass);
-        const targetPageState = visiblePages.find(page => page.page === 21) ?? null;
+        const blankVisiblePages = visiblePages.filter((page) => !page.hasCanvas || !page.renderedClass);
+        const targetPageState = visiblePages.find((page) => page.page === 21) ?? null;
 
         expect(targetCanvasMounted).toBe(true);
         expect(targetPageState).not.toBeNull();
@@ -2136,24 +2157,21 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
 
         const samples = [await collectPdfVirtualizationSnapshot(session.page)];
         const initialPageGaps = await collectConsecutivePageGaps(session);
-        let maxMountedPage = Math.max(...samples[0]!.mountedPages.map(page => page.pageNumber));
+        let maxMountedPage = Math.max(...samples[0]!.mountedPages.map((page) => page.pageNumber));
         const wheelScrollViolations: string[] = [];
         for (let step = 0; step < 60 && maxMountedPage < 30; step += 1) {
             const previous = samples.at(-1)!;
             const deltaY = Math.max(300, Math.round(previous.viewportHeight * 0.8));
             const settlement = await wheelPdfViewportAndWaitForSettlement(session.page, deltaY);
             const sample = await collectPdfVirtualizationSnapshot(session.page);
-            const expectedScrollTop = Math.min(
-                settlement.initialScrollTop + deltaY,
-                settlement.maxScrollTop,
-            );
+            const expectedScrollTop = Math.min(settlement.initialScrollTop + deltaY, settlement.maxScrollTop);
             if (Math.abs(settlement.finalScrollTop - expectedScrollTop) > 1) {
                 wheelScrollViolations.push(
                     `step ${step}: scrollTop ${settlement.finalScrollTop}px, expected ${expectedScrollTop}px after ${deltaY}px wheel`,
                 );
             }
             samples.push(sample);
-            maxMountedPage = Math.max(maxMountedPage, ...sample.mountedPages.map(page => page.pageNumber));
+            maxMountedPage = Math.max(maxMountedPage, ...sample.mountedPages.map((page) => page.pageNumber));
         }
 
         await waitForVisibleMountedPdfCanvases(session.page, 15_000);
@@ -2162,43 +2180,33 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
 
         const finalSample = samples.at(-1)!;
         const finalPageGaps = await collectConsecutivePageGaps(session);
-        const geometryViolations = findPdfVirtualizationContractViolations(
-            samples,
+        const geometryViolations = findPdfVirtualizationContractViolations(samples);
+        const uncommittedVisiblePages = finalSample.visiblePages.filter(
+            (page) => !page.canvasConnected || page.canvasWidth <= 0 || page.canvasHeight <= 0 || !page.rendered || page.skeletonVisible,
         );
-        const uncommittedVisiblePages = finalSample.visiblePages.filter(page => (
-            !page.canvasConnected
-            || page.canvasWidth <= 0
-            || page.canvasHeight <= 0
-            || !page.rendered
-            || page.skeletonVisible
-        ));
-        writeTraceArtifact({
-            geometryViolations,
-            maxMountedPage,
-            initialPageGaps,
-            finalPageGaps,
-            samples,
-            scenario: 'continuous-wheel-beyond-initial-buffer',
-            uncommittedVisiblePages,
-            wheelScrollViolations,
-        }, CONTINUOUS_SCROLL_TRACE_OUTPUT_PATH);
+        writeTraceArtifact(
+            {
+                geometryViolations,
+                maxMountedPage,
+                initialPageGaps,
+                finalPageGaps,
+                samples,
+                scenario: 'continuous-wheel-beyond-initial-buffer',
+                uncommittedVisiblePages,
+                wheelScrollViolations,
+            },
+            CONTINUOUS_SCROLL_TRACE_OUTPUT_PATH,
+        );
 
         expect(maxMountedPage).toBeGreaterThanOrEqual(30);
         expect(finalSample.totalPages).toBe(GENERATED_PAGE_JUMP_PAGE_COUNT);
-        await waitForScannedFixturePageIdentity(
-            session.page,
-            finalSample.visiblePages[0]?.pageNumber ?? maxMountedPage,
-            15_000,
-        );
+        await waitForScannedFixturePageIdentity(session.page, finalSample.visiblePages[0]?.pageNumber ?? maxMountedPage, 15_000);
         expect(uncommittedVisiblePages).toEqual([]);
         expect(geometryViolations).toEqual([]);
         expect(wheelScrollViolations).toEqual([]);
         expect(initialPageGaps.length).toBeGreaterThan(0);
         expect(finalPageGaps.length).toBeGreaterThan(0);
-        for (const pageGap of [
-            ...initialPageGaps,
-            ...finalPageGaps,
-        ]) {
+        for (const pageGap of [...initialPageGaps, ...finalPageGaps]) {
             expect(pageGap.gap, JSON.stringify(pageGap)).toBeCloseTo(20, 0);
         }
     }, 90_000);
@@ -2212,10 +2220,10 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         await jumpToPageAndWaitForCanvas(session, 1);
         await waitForToolbarCurrentPage(session, 1);
         await requireWorkspaceCommand(session.page, 'setCustomZoomFromDisplay', [5.33]);
-        await session.page.waitForFunction(() => (
-            (window as IRapidNavigationProbeWindow).__evbTestApi
-                ?.getActiveToolbarSnapshot?.()?.zoomMode === 'custom'
-        ), {timeout: 15_000});
+        await session.page.waitForFunction(
+            () => (window as IRapidNavigationProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.zoomMode === 'custom',
+            {timeout: 15_000},
+        );
         expect(await waitForVisiblePageCanvas(session, 1, 15_000)).toBe(true);
 
         const viewport = await session.page.evaluate(() => {
@@ -2231,27 +2239,33 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             };
             testWindow.__trustedFastScrollSamples = [];
             testWindow.__trustedFastScrollCount = 0;
-            element.addEventListener('scroll', event => {
-                if (event.isTrusted) {testWindow.__trustedFastScrollCount = (testWindow.__trustedFastScrollCount ?? 0) + 1;}
-            }, {passive: true});
+            element.addEventListener(
+                'scroll',
+                (event) => {
+                    if (event.isTrusted) {
+                        testWindow.__trustedFastScrollCount = (testWindow.__trustedFastScrollCount ?? 0) + 1;
+                    }
+                },
+                {passive: true},
+            );
             const sample = () => {
                 const viewerRect = element.getBoundingClientRect();
-                const visiblePages = Array.from(element.querySelectorAll<HTMLElement>('.page_container[data-page]'))
-                    .filter(page => {
-                        const pageRect = page.getBoundingClientRect();
-                        return pageRect.bottom > viewerRect.top && pageRect.top < viewerRect.bottom;
-                    });
-                const occupied = visiblePages.some(page => {
+                const visiblePages = Array.from(element.querySelectorAll<HTMLElement>('.page_container[data-page]')).filter((page) => {
+                    const pageRect = page.getBoundingClientRect();
+                    return pageRect.bottom > viewerRect.top && pageRect.top < viewerRect.bottom;
+                });
+                const occupied = visiblePages.some((page) => {
                     const canvas = page.querySelector<HTMLCanvasElement>('.page_canvas canvas');
                     const skeleton = page.querySelector<HTMLElement>('.document-page-skeleton');
                     const skeletonRect = skeleton?.getBoundingClientRect() ?? null;
                     const skeletonStyle = skeleton ? getComputedStyle(skeleton) : null;
                     return Boolean(
-                        canvas && canvas.width > 0 && canvas.height > 0
-                        || skeleton && skeletonStyle?.display !== 'none'
-                            && skeletonStyle?.visibility !== 'hidden'
-                            && (skeletonRect?.width ?? 0) > 0
-                            && (skeletonRect?.height ?? 0) > 0,
+                        (canvas && canvas.width > 0 && canvas.height > 0) ||
+                        (skeleton &&
+                            skeletonStyle?.display !== 'none' &&
+                            skeletonStyle?.visibility !== 'hidden' &&
+                            (skeletonRect?.width ?? 0) > 0 &&
+                            (skeletonRect?.height ?? 0) > 0),
                     );
                 });
                 const chassis = element.closest<HTMLElement>('.document-viewer-chassis');
@@ -2260,9 +2274,10 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
                     observedPage: Number(chassis?.dataset.viewportObservedPage ?? 0),
                     requestedPage: Number(chassis?.dataset.viewportRequestedPage ?? 0),
                     scrollTop: Math.round(element.scrollTop),
-                    toolbarPage: (testWindow as Window & IRapidNavigationProbeWindow)
-                        .__evbTestApi?.getActiveToolbarSnapshot?.()?.currentPage ?? null,
-                    visiblePages: visiblePages.map(page => Number(page.dataset.page)),
+                    toolbarPage:
+                        (testWindow as Window & IRapidNavigationProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.currentPage ??
+                        null,
+                    visiblePages: visiblePages.map((page) => Number(page.dataset.page)),
                 });
                 testWindow.__trustedFastScrollRaf = requestAnimationFrame(sample);
             };
@@ -2295,29 +2310,26 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         // hosted-runner load. Drive several ordinary trusted wheel events so
         // the scroll observer sees the same sequence a user produces.
         for (let attempt = 0; attempt < 12; attempt += 1) {
-            await session.page.mouse.wheel({deltaY: Math.max(
-                1_600,
-                Math.round(viewport.maxScrollTop * 0.08),
-            )});
+            await session.page.mouse.wheel({deltaY: Math.max(1_600, Math.round(viewport.maxScrollTop * 0.08))});
             await delay(120);
             const synchronized = await session.page.evaluate(() => {
-                const toolbarPage = (window as IRapidNavigationProbeWindow)
-                    .__evbTestApi?.getActiveToolbarSnapshot?.()?.currentPage ?? 0;
+                const toolbarPage = (window as IRapidNavigationProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.currentPage ?? 0;
                 const chassis = document.querySelector<HTMLElement>('.document-viewer-chassis');
-                return toolbarPage > 20
-                    && Number(chassis?.dataset.viewportObservedPage ?? 0) === toolbarPage;
+                return toolbarPage > 20 && Number(chassis?.dataset.viewportObservedPage ?? 0) === toolbarPage;
             });
             if (synchronized) {
                 break;
             }
         }
-        await session.page.waitForFunction(() => {
-            const toolbarPage = (window as IRapidNavigationProbeWindow)
-                .__evbTestApi?.getActiveToolbarSnapshot?.()?.currentPage ?? 0;
-            const chassis = document.querySelector<HTMLElement>('.document-viewer-chassis');
-            const observedPage = Number(chassis?.dataset.viewportObservedPage ?? 0);
-            return toolbarPage > 20 && observedPage === toolbarPage;
-        }, {timeout: 20_000});
+        await session.page.waitForFunction(
+            () => {
+                const toolbarPage = (window as IRapidNavigationProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.currentPage ?? 0;
+                const chassis = document.querySelector<HTMLElement>('.document-viewer-chassis');
+                const observedPage = Number(chassis?.dataset.viewportObservedPage ?? 0);
+                return toolbarPage > 20 && observedPage === toolbarPage;
+            },
+            {timeout: 20_000},
+        );
         await waitForVisibleMountedPdfCanvases(session.page, 20_000);
         await waitForAnimationFrames(session.page, 8);
 
@@ -2347,24 +2359,25 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
                 trustedScrollCount: testWindow.__trustedFastScrollCount ?? 0,
             };
         });
-        const movingSamples = result.samples.filter(sample => sample.scrollTop > 0);
-        const blankSamples = movingSamples.filter(sample => !sample.occupied || sample.visiblePages.length === 0);
-        const synchronizedSamples = movingSamples.filter(sample => (
-            sample.observedPage > 0 && sample.toolbarPage === sample.observedPage
-        ));
-        writeTraceArtifact({
-            beforeNext,
-            blankSamples,
-            result,
-            scenario: 'trusted-fast-scroll-at-533-percent',
-            synchronizedSamples,
-        }, TRUSTED_FAST_SCROLL_TRACE_OUTPUT_PATH);
+        const movingSamples = result.samples.filter((sample) => sample.scrollTop > 0);
+        const blankSamples = movingSamples.filter((sample) => !sample.occupied || sample.visiblePages.length === 0);
+        const synchronizedSamples = movingSamples.filter((sample) => sample.observedPage > 0 && sample.toolbarPage === sample.observedPage);
+        writeTraceArtifact(
+            {
+                beforeNext,
+                blankSamples,
+                result,
+                scenario: 'trusted-fast-scroll-at-533-percent',
+                synchronizedSamples,
+            },
+            TRUSTED_FAST_SCROLL_TRACE_OUTPUT_PATH,
+        );
 
         expect(result.trustedScrollCount).toBeGreaterThan(0);
         expect(movingSamples.length).toBeGreaterThan(0);
         expect(blankSamples).toEqual([]);
         expect(synchronizedSamples.length).toBeGreaterThan(0);
-        expect(synchronizedSamples.every(sample => sample.requestedPage === 1)).toBe(true);
+        expect(synchronizedSamples.every((sample) => sample.requestedPage === 1)).toBe(true);
 
         // The sampler covers the trusted-scroll contract. Stop it before the
         // separate toolbar-navigation transition, whose commit may briefly
@@ -2383,10 +2396,10 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         await jumpToPageAndWaitForCanvas(session, 1);
         await waitForToolbarCurrentPage(session, 1);
         await requireWorkspaceCommand(session.page, 'setCustomZoomFromDisplay', [1.44]);
-        await session.page.waitForFunction(() => (
-            (window as IRapidNavigationProbeWindow).__evbTestApi
-                ?.getActiveToolbarSnapshot?.()?.zoomMode === 'custom'
-        ), {timeout: 15_000});
+        await session.page.waitForFunction(
+            () => (window as IRapidNavigationProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.zoomMode === 'custom',
+            {timeout: 15_000},
+        );
 
         const viewport = await session.page.evaluate(() => {
             const element = document.querySelector<HTMLElement>('#pdf-viewer');
@@ -2420,54 +2433,56 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
                 };
             });
             if (
-                scrollState.totalPages > 1
-                && scrollState.currentPage === scrollState.totalPages
-                && scrollState.observedPage === scrollState.totalPages
-                && scrollState.scrollTop >= scrollState.maxScrollTop - 1
+                scrollState.totalPages > 1 &&
+                scrollState.currentPage === scrollState.totalPages &&
+                scrollState.observedPage === scrollState.totalPages &&
+                scrollState.scrollTop >= scrollState.maxScrollTop - 1
             ) {
                 break;
             }
-            await session.page.mouse.wheel({deltaY: Math.max(
-                1_600,
-                Math.round(scrollState.maxScrollTop || viewport.maxScrollTop),
-            )});
+            await session.page.mouse.wheel({deltaY: Math.max(1_600, Math.round(scrollState.maxScrollTop || viewport.maxScrollTop))});
             await delay(120);
         }
-        await session.page.waitForFunction(() => {
-            const toolbar = (window as IRapidNavigationProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.();
-            const chassis = document.querySelector<HTMLElement>('.document-viewer-chassis');
-            return Boolean(
-                toolbar
-                && toolbar.totalPages > 1
-                && toolbar.currentPage === toolbar.totalPages
-                && Number(chassis?.dataset.viewportObservedPage ?? 0) === toolbar.totalPages,
-            );
-        }, {timeout: 20_000});
+        await session.page.waitForFunction(
+            () => {
+                const toolbar = (window as IRapidNavigationProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.();
+                const chassis = document.querySelector<HTMLElement>('.document-viewer-chassis');
+                return Boolean(
+                    toolbar &&
+                    toolbar.totalPages > 1 &&
+                    toolbar.currentPage === toolbar.totalPages &&
+                    Number(chassis?.dataset.viewportObservedPage ?? 0) === toolbar.totalPages,
+                );
+            },
+            {timeout: 20_000},
+        );
         await waitForVisibleMountedPdfCanvases(session.page, 20_000);
 
-        const collectState = () => session.page.evaluate(() => {
-            const element = document.querySelector<HTMLElement>('#pdf-viewer');
-            const chassis = document.querySelector<HTMLElement>('.document-viewer-chassis');
-            const toolbar = (window as IRapidNavigationProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.();
-            const viewportRect = element?.getBoundingClientRect() ?? null;
-            const visiblePages = element && viewportRect
-                ? Array.from(element.querySelectorAll<HTMLElement>('.page_container[data-page]'))
-                    .filter(page => {
-                        const rect = page.getBoundingClientRect();
-                        return rect.bottom > viewportRect.top && rect.top < viewportRect.bottom;
-                    })
-                    .map(page => Number(page.dataset.page))
-                : [];
-            return {
-                chassis: {...chassis?.dataset},
-                clientHeight: element?.clientHeight ?? -1,
-                scrollHeight: element?.scrollHeight ?? -1,
-                scrollTop: element?.scrollTop ?? -1,
-                toolbarPage: toolbar?.currentPage ?? 0,
-                totalPages: toolbar?.totalPages ?? 0,
-                visiblePages,
-            };
-        });
+        const collectState = () =>
+            session.page.evaluate(() => {
+                const element = document.querySelector<HTMLElement>('#pdf-viewer');
+                const chassis = document.querySelector<HTMLElement>('.document-viewer-chassis');
+                const toolbar = (window as IRapidNavigationProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.();
+                const viewportRect = element?.getBoundingClientRect() ?? null;
+                const visiblePages =
+                    element && viewportRect
+                        ? Array.from(element.querySelectorAll<HTMLElement>('.page_container[data-page]'))
+                              .filter((page) => {
+                                  const rect = page.getBoundingClientRect();
+                                  return rect.bottom > viewportRect.top && rect.top < viewportRect.bottom;
+                              })
+                              .map((page) => Number(page.dataset.page))
+                        : [];
+                return {
+                    chassis: {...chassis?.dataset},
+                    clientHeight: element?.clientHeight ?? -1,
+                    scrollHeight: element?.scrollHeight ?? -1,
+                    scrollTop: element?.scrollTop ?? -1,
+                    toolbarPage: toolbar?.currentPage ?? 0,
+                    totalPages: toolbar?.totalPages ?? 0,
+                    visiblePages,
+                };
+            });
 
         const beforeFirst = await collectState();
         await session.page.evaluate(() => {
@@ -2478,12 +2493,15 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         await delay(2_000);
         const afterFirst = await collectState();
         const trace = await collectTrace(session);
-        writeTraceArtifact({
-            afterFirst,
-            beforeFirst,
-            scenario: 'trusted-fast-scroll-last-to-first-page',
-            trace,
-        }, TRUSTED_FAST_SCROLL_FIRST_PAGE_TRACE_OUTPUT_PATH);
+        writeTraceArtifact(
+            {
+                afterFirst,
+                beforeFirst,
+                scenario: 'trusted-fast-scroll-last-to-first-page',
+                trace,
+            },
+            TRUSTED_FAST_SCROLL_FIRST_PAGE_TRACE_OUTPUT_PATH,
+        );
 
         expect(Number(beforeFirst.chassis.viewportRequestedPage), JSON.stringify(beforeFirst)).toBe(1);
         expect(Number(beforeFirst.chassis.viewportObservedPage), JSON.stringify(beforeFirst)).toBe(beforeFirst.totalPages);
@@ -2521,10 +2539,12 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             const point = await session.page.evaluate(() => {
                 const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
                 const rect = viewport?.getBoundingClientRect();
-                return rect ? {
-                    x: Math.round(rect.left + (rect.width / 2)),
-                    y: Math.round(rect.top + (rect.height / 2)),
-                } : null;
+                return rect
+                    ? {
+                          x: Math.round(rect.left + rect.width / 2),
+                          y: Math.round(rect.top + rect.height / 2),
+                      }
+                    : null;
             });
             expect(point).not.toBeNull();
             if (!point) {
@@ -2540,27 +2560,22 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             const dispatchControlWheel = async (count: number) => {
                 const packets: Array<Promise<unknown>> = [];
                 for (let index = 0; index < count; index += 1) {
-                    packets.push(client!.send('Input.dispatchMouseEvent', {
-                        type: 'mouseWheel',
-                        x: point.x,
-                        y: point.y,
-                        deltaX: 0,
-                        deltaY: Math.round(100_000 * Math.exp(-index / 40)),
-                        modifiers: platformScrollModifiers,
-                        pointerType: 'mouse',
-                    }));
+                    packets.push(
+                        client!.send('Input.dispatchMouseEvent', {
+                            type: 'mouseWheel',
+                            x: point.x,
+                            y: point.y,
+                            deltaX: 0,
+                            deltaY: Math.round(100_000 * Math.exp(-index / 40)),
+                            modifiers: platformScrollModifiers,
+                            pointerType: 'mouse',
+                        }),
+                    );
                 }
                 return Promise.allSettled(packets);
             };
-            const dispatchTrustedClick = async (clickPoint: {
-                x: number;
-                y: number
-            }) => {
-                for (const type of [
-                    'mouseMoved',
-                    'mousePressed',
-                    'mouseReleased',
-                ] as const) {
+            const dispatchTrustedClick = async (clickPoint: {x: number; y: number}) => {
+                for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased'] as const) {
                     await client!.send('Input.dispatchMouseEvent', {
                         type,
                         x: clickPoint.x,
@@ -2573,17 +2588,19 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             };
 
             await dispatchControlWheel(12);
-            await session.page.waitForFunction(() => {
-                const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
-                const toolbarPage = (window as IRapidNavigationProbeWindow)
-                    .__evbTestApi?.getActiveToolbarSnapshot?.()?.currentPage ?? 0;
-                return Boolean(viewport && toolbarPage > 20 && viewport.scrollTop > viewport.clientHeight * 4);
-            }, {timeout: 15_000});
+            await session.page.waitForFunction(
+                () => {
+                    const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
+                    const toolbarPage =
+                        (window as IRapidNavigationProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.currentPage ?? 0;
+                    return Boolean(viewport && toolbarPage > 20 && viewport.scrollTop > viewport.clientHeight * 4);
+                },
+                {timeout: 15_000},
+            );
             const before = await session.page.evaluate(() => {
                 const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
                 const chassis = viewport?.closest<HTMLElement>('.document-viewer-chassis');
-                const toolbar = (window as IRapidNavigationProbeWindow)
-                    .__evbTestApi?.getActiveToolbarSnapshot?.();
+                const toolbar = (window as IRapidNavigationProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.();
                 return {
                     chassis: {...chassis?.dataset},
                     scrollTop: viewport?.scrollTop ?? -1,
@@ -2597,26 +2614,30 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
                 traceWindow.__clearPdfRenderTrace?.();
             });
             const firstControl = await session.page.evaluate(() => {
-                const button = Array.from(document.querySelectorAll<HTMLButtonElement>(
-                    '.page-controls button[aria-label="First Page"]',
-                )).find(candidate => {
+                const button = Array.from(
+                    document.querySelectorAll<HTMLButtonElement>('.page-controls button[aria-label="First Page"]'),
+                ).find((candidate) => {
                     const rect = candidate.getBoundingClientRect();
                     const style = window.getComputedStyle(candidate);
-                    return !candidate.disabled
-                        && candidate.getAttribute('aria-disabled') !== 'true'
-                        && rect.width > 8
-                        && rect.height > 8
-                        && style.display !== 'none'
-                        && style.visibility !== 'hidden';
+                    return (
+                        !candidate.disabled &&
+                        candidate.getAttribute('aria-disabled') !== 'true' &&
+                        rect.width > 8 &&
+                        rect.height > 8 &&
+                        style.display !== 'none' &&
+                        style.visibility !== 'hidden'
+                    );
                 });
-                if (!button) {return null;}
+                if (!button) {
+                    return null;
+                }
                 const rect = button.getBoundingClientRect();
                 return {
                     ariaDisabled: button.getAttribute('aria-disabled'),
                     disabled: button.disabled,
                     label: button.getAttribute('aria-label'),
-                    x: Math.round(rect.left + (rect.width / 2)),
-                    y: Math.round(rect.top + (rect.height / 2)),
+                    x: Math.round(rect.left + rect.width / 2),
+                    y: Math.round(rect.top + rect.height / 2),
                 };
             });
             expect(firstControl).toMatchObject({
@@ -2635,114 +2656,127 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             await dispatchTrustedClick(firstControl);
             await tail;
             try {
-                await session.page.waitForFunction(() => (
-                    (() => {
-                        const toolbar = (window as IRapidNavigationProbeWindow)
-                            .__evbTestApi?.getActiveToolbarSnapshot?.();
-                        const chassis = document.querySelector<HTMLElement>('.document-viewer-chassis');
-                        return toolbar?.currentPage === 1
-                            && chassis?.dataset.viewportRequestedPage === '1';
-                    })()
-                ), {timeout: 5_000});
+                await session.page.waitForFunction(
+                    () =>
+                        (() => {
+                            const toolbar = (window as IRapidNavigationProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.();
+                            const chassis = document.querySelector<HTMLElement>('.document-viewer-chassis');
+                            return toolbar?.currentPage === 1 && chassis?.dataset.viewportRequestedPage === '1';
+                        })(),
+                    {timeout: 5_000},
+                );
             } catch (error) {
                 const failure = await session.page.evaluate((clickPoint) => {
                     const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
                     const chassis = viewport?.closest<HTMLElement>('.document-viewer-chassis');
-                    const toolbar = (window as IRapidNavigationProbeWindow)
-                        .__evbTestApi?.getActiveToolbarSnapshot?.();
-                    const button = Array.from(document.querySelectorAll<HTMLButtonElement>(
-                        '.page-controls button[aria-label="First Page"]',
-                    )).find(candidate => {
+                    const toolbar = (window as IRapidNavigationProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.();
+                    const button = Array.from(
+                        document.querySelectorAll<HTMLButtonElement>('.page-controls button[aria-label="First Page"]'),
+                    ).find((candidate) => {
                         const rect = candidate.getBoundingClientRect();
                         return rect.width > 8 && rect.height > 8;
                     });
-                    const pointTarget = clickPoint
-                        ? document.elementFromPoint(clickPoint.x, clickPoint.y)
-                        : null;
+                    const pointTarget = clickPoint ? document.elementFromPoint(clickPoint.x, clickPoint.y) : null;
                     return {
                         activeElement: document.activeElement?.outerHTML?.slice(0, 500) ?? null,
-                        button: button ? {
-                            ariaDisabled: button.getAttribute('aria-disabled'),
-                            disabled: button.disabled,
-                            label: button.getAttribute('aria-label'),
-                            rect: (() => {
-                                const rect = button.getBoundingClientRect();
-                                return {
-                                    bottom: rect.bottom,
-                                    height: rect.height,
-                                    left: rect.left,
-                                    right: rect.right,
-                                    top: rect.top,
-                                    width: rect.width,
-                                };
-                            })(),
-                        } : null,
+                        button: button
+                            ? {
+                                  ariaDisabled: button.getAttribute('aria-disabled'),
+                                  disabled: button.disabled,
+                                  label: button.getAttribute('aria-label'),
+                                  rect: (() => {
+                                      const rect = button.getBoundingClientRect();
+                                      return {
+                                          bottom: rect.bottom,
+                                          height: rect.height,
+                                          left: rect.left,
+                                          right: rect.right,
+                                          top: rect.top,
+                                          width: rect.width,
+                                      };
+                                  })(),
+                              }
+                            : null,
                         chassis: {...chassis?.dataset},
                         clickPoint,
                         elementAtClickPoint: pointTarget?.outerHTML?.slice(0, 500) ?? null,
                         scrollTop: viewport?.scrollTop ?? -1,
                         toolbar: toolbar ?? null,
-                        viewport: viewport ? {
-                            clientHeight: viewport.clientHeight,
-                            scrollHeight: viewport.scrollHeight,
-                        } : null,
+                        viewport: viewport
+                            ? {
+                                  clientHeight: viewport.clientHeight,
+                                  scrollHeight: viewport.scrollHeight,
+                              }
+                            : null,
                     };
                 }, firstControl);
                 const failureTrace = await collectTrace(session);
-                writeTraceArtifact({
-                    before,
-                    error: getErrorMessage(error),
-                    failure,
-                    scenario: 'ctrl-wheel-tail-first-page-owner-geometry-wait-failure',
-                    trace: failureTrace,
-                }, CTRL_WHEEL_FIRST_PAGE_FAILURE_OUTPUT_PATH);
+                writeTraceArtifact(
+                    {
+                        before,
+                        error: getErrorMessage(error),
+                        failure,
+                        scenario: 'ctrl-wheel-tail-first-page-owner-geometry-wait-failure',
+                        trace: failureTrace,
+                    },
+                    CTRL_WHEEL_FIRST_PAGE_FAILURE_OUTPUT_PATH,
+                );
                 await session.page.screenshot({path: CTRL_WHEEL_FIRST_PAGE_FAILURE_SCREENSHOT_PATH});
                 throw error;
             }
-            await session.page.waitForFunction(() => {
-                const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
-                const chassis = viewport?.closest<HTMLElement>('.document-viewer-chassis');
-                const toolbar = (window as IRapidNavigationProbeWindow)
-                    .__evbTestApi?.getActiveToolbarSnapshot?.();
-                const page = viewport?.querySelector<HTMLElement>('.page_container[data-page="1"]');
-                if (!viewport || !chassis || !toolbar || !page) {
-                    return false;
-                }
-                return toolbar.currentPage === 1
-                    && chassis.dataset.viewportRequestedPage === '1'
-                    && chassis.dataset.viewportLifecycle === 'ready'
-                    && chassis.dataset.viewportVisualPage === '1'
-                    && chassis.dataset.viewportVisualPresentation === 'canvas'
-                    && viewport.scrollTop < viewport.clientHeight
-                    && page.classList.contains('page_container--rendered')
-                    && page.querySelector<HTMLCanvasElement>('.page_canvas canvas') !== null;
-            }, {timeout: 10_000});
+            await session.page.waitForFunction(
+                () => {
+                    const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
+                    const chassis = viewport?.closest<HTMLElement>('.document-viewer-chassis');
+                    const toolbar = (window as IRapidNavigationProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.();
+                    const page = viewport?.querySelector<HTMLElement>('.page_container[data-page="1"]');
+                    if (!viewport || !chassis || !toolbar || !page) {
+                        return false;
+                    }
+                    return (
+                        toolbar.currentPage === 1 &&
+                        chassis.dataset.viewportRequestedPage === '1' &&
+                        chassis.dataset.viewportLifecycle === 'ready' &&
+                        chassis.dataset.viewportVisualPage === '1' &&
+                        chassis.dataset.viewportVisualPresentation === 'canvas' &&
+                        viewport.scrollTop < viewport.clientHeight &&
+                        page.classList.contains('page_container--rendered') &&
+                        page.querySelector<HTMLCanvasElement>('.page_canvas canvas') !== null
+                    );
+                },
+                {timeout: 10_000},
+            );
             const after = await session.page.evaluate(() => {
                 const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
                 const viewportRect = viewport?.getBoundingClientRect() ?? null;
                 const chassis = viewport?.closest<HTMLElement>('.document-viewer-chassis');
-                const toolbar = (window as IRapidNavigationProbeWindow)
-                    .__evbTestApi?.getActiveToolbarSnapshot?.();
-                const visiblePages = viewport && viewportRect
-                    ? Array.from(viewport.querySelectorAll<HTMLElement>('.page_container[data-page]'))
-                        .filter(page => {
-                            const rect = page.getBoundingClientRect();
-                            return rect.bottom > viewportRect.top && rect.top < viewportRect.bottom;
-                        })
-                        .map(page => ({
-                            canvas: Boolean(page.querySelector<HTMLCanvasElement>('.page_canvas canvas')),
-                            page: Number(page.dataset.page) || null,
-                            rendered: page.classList.contains('page_container--rendered'),
-                            topmost: document.elementFromPoint(
-                                Math.max(viewportRect.left, page.getBoundingClientRect().left)
-                                    + (Math.min(viewportRect.right, page.getBoundingClientRect().right)
-                                        - Math.max(viewportRect.left, page.getBoundingClientRect().left)) / 2,
-                                Math.max(viewportRect.top, page.getBoundingClientRect().top)
-                                    + (Math.min(viewportRect.bottom, page.getBoundingClientRect().bottom)
-                                        - Math.max(viewportRect.top, page.getBoundingClientRect().top)) / 2,
-                            )?.closest('.page_container') === page,
-                        }))
-                    : [];
+                const toolbar = (window as IRapidNavigationProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.();
+                const visiblePages =
+                    viewport && viewportRect
+                        ? Array.from(viewport.querySelectorAll<HTMLElement>('.page_container[data-page]'))
+                              .filter((page) => {
+                                  const rect = page.getBoundingClientRect();
+                                  return rect.bottom > viewportRect.top && rect.top < viewportRect.bottom;
+                              })
+                              .map((page) => ({
+                                  canvas: Boolean(page.querySelector<HTMLCanvasElement>('.page_canvas canvas')),
+                                  page: Number(page.dataset.page) || null,
+                                  rendered: page.classList.contains('page_container--rendered'),
+                                  topmost:
+                                      document
+                                          .elementFromPoint(
+                                              Math.max(viewportRect.left, page.getBoundingClientRect().left) +
+                                                  (Math.min(viewportRect.right, page.getBoundingClientRect().right) -
+                                                      Math.max(viewportRect.left, page.getBoundingClientRect().left)) /
+                                                      2,
+                                              Math.max(viewportRect.top, page.getBoundingClientRect().top) +
+                                                  (Math.min(viewportRect.bottom, page.getBoundingClientRect().bottom) -
+                                                      Math.max(viewportRect.top, page.getBoundingClientRect().top)) /
+                                                      2,
+                                          )
+                                          ?.closest('.page_container') === page,
+                              }))
+                        : [];
                 return {
                     chassis: {...chassis?.dataset},
                     clientHeight: viewport?.clientHeight ?? -1,
@@ -2752,46 +2786,74 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
                 };
             });
             const trace = await collectTrace(session);
-            writeTraceArtifact({
-                after,
-                before,
-                scenario: 'ctrl-wheel-tail-first-page-owner-geometry',
-                trace,
-            }, CTRL_WHEEL_FIRST_PAGE_TRACE_OUTPUT_PATH);
+            writeTraceArtifact(
+                {
+                    after,
+                    before,
+                    scenario: 'ctrl-wheel-tail-first-page-owner-geometry',
+                    trace,
+                },
+                CTRL_WHEEL_FIRST_PAGE_TRACE_OUTPUT_PATH,
+            );
 
-            expect(after.toolbarPage, JSON.stringify({
-                before,
-                after,
-            })).toBe(1);
-            expect(after.chassis.openSurfaceDocumentId, JSON.stringify({
-                before,
-                after,
-            })).toBe(before.chassis.openSurfaceDocumentId);
-            expect(after.chassis.openSurfaceDocumentRevision, JSON.stringify({
-                before,
-                after,
-            })).toBe(before.chassis.openSurfaceDocumentRevision);
-            expect(after.chassis.openSurfaceGeneration, JSON.stringify({
-                before,
-                after,
-            })).toBe(before.chassis.openSurfaceGeneration);
-            expect(after.chassis.viewportRequestedPage, JSON.stringify({
-                before,
-                after,
-            })).toBe('1');
-            expect(after.scrollTop, JSON.stringify({
-                before,
-                after,
-            })).toBeLessThan(after.clientHeight);
-            expect(after.visiblePages, JSON.stringify({
-                before,
-                after,
-            })).toEqual(expect.arrayContaining([expect.objectContaining({
-                canvas: true,
-                page: 1,
-                rendered: true,
-                topmost: true,
-            })]));
+            expect(
+                after.toolbarPage,
+                JSON.stringify({
+                    before,
+                    after,
+                }),
+            ).toBe(1);
+            expect(
+                after.chassis.openSurfaceDocumentId,
+                JSON.stringify({
+                    before,
+                    after,
+                }),
+            ).toBe(before.chassis.openSurfaceDocumentId);
+            expect(
+                after.chassis.openSurfaceDocumentRevision,
+                JSON.stringify({
+                    before,
+                    after,
+                }),
+            ).toBe(before.chassis.openSurfaceDocumentRevision);
+            expect(
+                after.chassis.openSurfaceGeneration,
+                JSON.stringify({
+                    before,
+                    after,
+                }),
+            ).toBe(before.chassis.openSurfaceGeneration);
+            expect(
+                after.chassis.viewportRequestedPage,
+                JSON.stringify({
+                    before,
+                    after,
+                }),
+            ).toBe('1');
+            expect(
+                after.scrollTop,
+                JSON.stringify({
+                    before,
+                    after,
+                }),
+            ).toBeLessThan(after.clientHeight);
+            expect(
+                after.visiblePages,
+                JSON.stringify({
+                    before,
+                    after,
+                }),
+            ).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        canvas: true,
+                        page: 1,
+                        rendered: true,
+                        topmost: true,
+                    }),
+                ]),
+            );
         } finally {
             if (client) {
                 await client.send('Emulation.setCPUThrottlingRate', {rate: 1}).catch(() => undefined);
@@ -2863,27 +2925,35 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             // navigation this scenario is meant to exercise.
             await session.page.mouse.wheel({deltaY: -1_000_000});
 
-            await session.page.waitForFunction(() => {
-                const chassis = document.querySelector<HTMLElement>('.document-viewer-chassis');
-                const toolbarPage = (window as IRapidNavigationProbeWindow)
-                    .__evbTestApi?.getActiveToolbarSnapshot?.()?.currentPage ?? 0;
-                const observedPage = Number(chassis?.dataset.viewportObservedPage ?? 0);
-                return chassis?.dataset.viewportLifecycle === 'ready'
-                    && observedPage > 0
-                    && toolbarPage === observedPage
-                    && !chassis.dataset.viewportStagedViewportPage
-                    && !chassis.dataset.viewportStagedRenderPage;
-            }, {timeout: 10_000}).catch(() => undefined);
+            await session.page
+                .waitForFunction(
+                    () => {
+                        const chassis = document.querySelector<HTMLElement>('.document-viewer-chassis');
+                        const toolbarPage =
+                            (window as IRapidNavigationProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.currentPage ?? 0;
+                        const observedPage = Number(chassis?.dataset.viewportObservedPage ?? 0);
+                        return (
+                            chassis?.dataset.viewportLifecycle === 'ready' &&
+                            observedPage > 0 &&
+                            toolbarPage === observedPage &&
+                            !chassis.dataset.viewportStagedViewportPage &&
+                            !chassis.dataset.viewportStagedRenderPage
+                        );
+                    },
+                    {timeout: 10_000},
+                )
+                .catch(() => undefined);
             const evidence = await session.page.evaluate(() => {
                 const chassis = document.querySelector<HTMLElement>('.document-viewer-chassis');
                 const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
-                const toolbar = (window as IRapidNavigationProbeWindow)
-                    .__evbTestApi?.getActiveToolbarSnapshot?.();
-                return {recovered: {
-                    ...chassis?.dataset,
-                    scrollTop: String(viewport?.scrollTop ?? -1),
-                    toolbarPage: String(toolbar?.currentPage ?? 0),
-                }};
+                const toolbar = (window as IRapidNavigationProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.();
+                return {
+                    recovered: {
+                        ...chassis?.dataset,
+                        scrollTop: String(viewport?.scrollTop ?? -1),
+                        toolbarPage: String(toolbar?.currentPage ?? 0),
+                    },
+                };
             });
             recovered = evidence.recovered;
         } finally {
@@ -2907,13 +2977,16 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         await clickPageNavigationButton(session, 'Next Page');
         await waitForToolbarCurrentPage(session, observedPage + 1);
         expect(await waitForVisiblePageCanvas(session, observedPage + 1, 20_000)).toBe(true);
-        writeTraceArtifact({
-            inFlight,
-            observedPage,
-            recovered,
-            scenario: 'trusted-scroll-supersedes-in-flight-navigation',
-            targetPage,
-        }, IN_FLIGHT_SCROLL_TRACE_OUTPUT_PATH);
+        writeTraceArtifact(
+            {
+                inFlight,
+                observedPage,
+                recovered,
+                scenario: 'trusted-scroll-supersedes-in-flight-navigation',
+                targetPage,
+            },
+            IN_FLIGHT_SCROLL_TRACE_OUTPUT_PATH,
+        );
     }, 120_000);
 
     it('never exposes a frame without a page skeleton or committed canvas during rapid Next then Fit Width', async () => {
@@ -2925,9 +2998,10 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         await jumpToPageAndWaitForCanvas(session, 1);
         await waitForVisibleMountedPdfCanvases(session.page, 15_000);
         await requireWorkspaceCommand(session.page, 'handleActualSize');
-        await session.page.waitForFunction(() => (
-            (window as IRapidNavigationProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.zoomMode === 'custom'
-        ), {timeout: 15_000});
+        await session.page.waitForFunction(
+            () => (window as IRapidNavigationProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.zoomMode === 'custom',
+            {timeout: 15_000},
+        );
         await waitForVisiblePageCanvas(session, 1, 15_000);
         expect((await getWorkspaceToolbarSnapshot(session.page))?.zoomMode).toBe('custom');
         await installCommittedSurfaceSampler(session.page);
@@ -2937,9 +3011,10 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             await clickPageNavigationButton(session, 'Next Page');
             await requireWorkspaceCommand(session.page, 'handleFitWidth');
             await waitForToolbarCurrentPage(session, 2);
-            await session.page.waitForFunction(() => (
-                (window as IRapidNavigationProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.zoomMode === 'fit-width'
-            ), {timeout: 15_000});
+            await session.page.waitForFunction(
+                () => (window as IRapidNavigationProbeWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.zoomMode === 'fit-width',
+                {timeout: 15_000},
+            );
             expect(await waitForVisiblePageCanvas(session, 2, 15_000)).toBe(true);
             await waitForAnimationFrames(session.page, 10);
         } finally {
@@ -2947,11 +3022,14 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         }
 
         const missingVisualFrames = findMissingVisualFrames(surfaceTrace.frames);
-        writeTraceArtifact({
-            missingVisualFrames,
-            scenario: 'rapid-next-then-fit-width',
-            surfaceTrace,
-        }, NEXT_FIT_WIDTH_TRACE_OUTPUT_PATH);
+        writeTraceArtifact(
+            {
+                missingVisualFrames,
+                scenario: 'rapid-next-then-fit-width',
+                surfaceTrace,
+            },
+            NEXT_FIT_WIDTH_TRACE_OUTPUT_PATH,
+        );
 
         // A cached target can complete within two browser-presentable RAFs;
         // both frames are still inspected for an owned shell or committed
@@ -2976,10 +3054,12 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             await setFitWidthAndWaitForPage(session, 60);
             const point = await session.page.evaluate(() => {
                 const rect = document.querySelector<HTMLElement>('#pdf-viewer')?.getBoundingClientRect();
-                return rect ? {
-                    x: Math.round(rect.left + (rect.width / 2)),
-                    y: Math.round(rect.top + (rect.height / 2)),
-                } : null;
+                return rect
+                    ? {
+                          x: Math.round(rect.left + rect.width / 2),
+                          y: Math.round(rect.top + rect.height / 2),
+                      }
+                    : null;
             });
             expect(point).not.toBeNull();
             if (!point) {
@@ -3006,15 +3086,20 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
                     if (viewport && viewportRect) {
                         const inView = (rect: DOMRect) => rect.bottom > viewportRect.top && rect.top < viewportRect.bottom;
                         const shellTops = Array.from(document.querySelectorAll<HTMLElement>('.document-viewer-fling-backdrop__page'))
-                            .map(shell => shell.getBoundingClientRect())
-                            .map(rect => rect.top);
-                        const pageTops = Array.from(viewport.querySelectorAll<HTMLElement>('.page_container:not(.page_container--buffered)'))
-                            .map(page => page.getBoundingClientRect())
+                            .map((shell) => shell.getBoundingClientRect())
+                            .map((rect) => rect.top);
+                        const pageTops = Array.from(
+                            viewport.querySelectorAll<HTMLElement>('.page_container:not(.page_container--buffered)'),
+                        )
+                            .map((page) => page.getBoundingClientRect())
                             .filter(inView)
-                            .map(rect => rect.top);
-                        const misalignment = pageTops.length === 0 || shellTops.length === 0
-                            ? null
-                            : Math.max(...pageTops.map(pageTop => Math.min(...shellTops.map(shellTop => Math.abs(shellTop - pageTop)))));
+                            .map((rect) => rect.top);
+                        const misalignment =
+                            pageTops.length === 0 || shellTops.length === 0
+                                ? null
+                                : Math.max(
+                                      ...pageTops.map((pageTop) => Math.min(...shellTops.map((shellTop) => Math.abs(shellTop - pageTop)))),
+                                  );
                         probe.frames.push({
                             misalignment,
                             scrollTop: viewport.scrollTop,
@@ -3041,64 +3126,77 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
                 probe.stopped = true;
                 return probe.frames;
             });
-            const visibleFrames = flingFrames.filter(frame => frame.visible);
+            const visibleFrames = flingFrames.filter((frame) => frame.visible);
             // A scroll timeline is sampled once per frame, while a wheel packet
             // can move the main-thread offset later in the same frame. Only a
             // frame whose offset did not move since the last one compares the
             // strip with the pages at the same offset.
-            const misalignments = flingFrames.flatMap((frame, index) => (
+            const misalignments = flingFrames.flatMap((frame, index) =>
                 frame.visible && frame.misalignment !== null && frame.scrollTop === flingFrames[index - 1]?.scrollTop
                     ? [frame.misalignment]
-                    : []
-            ));
-            writeTraceArtifact({
-                flingFrames,
-                scenario: 'fling-backdrop-phase',
-            }, FLING_BACKDROP_TRACE_OUTPUT_PATH);
+                    : [],
+            );
+            writeTraceArtifact(
+                {
+                    flingFrames,
+                    scenario: 'fling-backdrop-phase',
+                },
+                FLING_BACKDROP_TRACE_OUTPUT_PATH,
+            );
             expect(visibleFrames.length).toBeGreaterThanOrEqual(10);
             expect(misalignments.length).toBeGreaterThanOrEqual(10);
             expect(Math.max(...misalignments)).toBeLessThanOrEqual(2);
 
             // The strip hides once its hold after the fling has run out.
-            await session.page.waitForFunction(() => {
-                const strip = document.querySelector<HTMLElement>('.document-viewer-fling-backdrop__strip');
-                return strip !== null && Number(window.getComputedStyle(strip).opacity) === 0;
-            }, {timeout: 5_000});
+            await session.page.waitForFunction(
+                () => {
+                    const strip = document.querySelector<HTMLElement>('.document-viewer-fling-backdrop__strip');
+                    return strip !== null && Number(window.getComputedStyle(strip).opacity) === 0;
+                },
+                {timeout: 5_000},
+            );
             // Rest is judged by the pixels the user sees, once the pages are
             // painted and the fling no longer moves the viewport.
-            await session.page.waitForFunction(() => {
-                const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
-                if (!viewport) {
-                    return false;
-                }
-                const bounds = viewport.getBoundingClientRect();
-                const visible = Array.from(viewport.querySelectorAll<HTMLElement>('.page_container'))
-                    .filter(page => {
+            await session.page.waitForFunction(
+                () => {
+                    const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
+                    if (!viewport) {
+                        return false;
+                    }
+                    const bounds = viewport.getBoundingClientRect();
+                    const visible = Array.from(viewport.querySelectorAll<HTMLElement>('.page_container')).filter((page) => {
                         const rect = page.getBoundingClientRect();
                         return rect.bottom > bounds.top && rect.top < bounds.bottom;
                     });
-                return visible.length > 0
-                    && visible.every(page => page.dataset.pageVisual === 'ready' && page.querySelector('canvas'));
-            }, {timeout: 10_000});
+                    return (
+                        visible.length > 0 && visible.every((page) => page.dataset.pageVisual === 'ready' && page.querySelector('canvas'))
+                    );
+                },
+                {timeout: 10_000},
+            );
             // The fling has stopped moving the viewport.
-            await session.page.waitForFunction(() => new Promise<boolean>((resolve) => {
-                const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
-                const start = viewport?.scrollTop ?? -1;
-                let frames = 0;
-                const check = () => {
-                    if ((viewport?.scrollTop ?? -1) !== start) {
-                        resolve(false);
-                        return;
-                    }
-                    frames += 1;
-                    if (frames >= 10) {
-                        resolve(true);
-                        return;
-                    }
-                    requestAnimationFrame(check);
-                };
-                requestAnimationFrame(check);
-            }), {timeout: 10_000});
+            await session.page.waitForFunction(
+                () =>
+                    new Promise<boolean>((resolve) => {
+                        const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
+                        const start = viewport?.scrollTop ?? -1;
+                        let frames = 0;
+                        const check = () => {
+                            if ((viewport?.scrollTop ?? -1) !== start) {
+                                resolve(false);
+                                return;
+                            }
+                            frames += 1;
+                            if (frames >= 10) {
+                                resolve(true);
+                                return;
+                            }
+                            requestAnimationFrame(check);
+                        };
+                        requestAnimationFrame(check);
+                    }),
+                {timeout: 10_000},
+            );
 
             const rest = await session.page.evaluate(() => {
                 const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
@@ -3115,7 +3213,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
                 return {
                     background: Array.from(swatch.getImageData(0, 0, 1, 1).data.slice(0, 3)),
                     marginX: (viewportRect.left + pageRect.left) / 2,
-                    marginY: viewportRect.top + (viewportRect.height / 2),
+                    marginY: viewportRect.top + viewportRect.height / 2,
                     windowWidth: window.innerWidth,
                 };
             });
@@ -3129,18 +3227,18 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             const canvas = createCanvas(image.width, image.height);
             const context = canvas.getContext('2d');
             context.drawImage(image, 0, 0);
-            const marginPixel = Array.from(context.getImageData(
-                Math.round(rest.marginX * ratio),
-                Math.round(rest.marginY * ratio),
-                1,
-                1,
-            ).data.slice(0, 3));
-            writeTraceArtifact({
-                flingFrames,
-                marginPixel,
-                rest,
-                scenario: 'fling-backdrop-phase',
-            }, FLING_BACKDROP_TRACE_OUTPUT_PATH);
+            const marginPixel = Array.from(
+                context.getImageData(Math.round(rest.marginX * ratio), Math.round(rest.marginY * ratio), 1, 1).data.slice(0, 3),
+            );
+            writeTraceArtifact(
+                {
+                    flingFrames,
+                    marginPixel,
+                    rest,
+                    scenario: 'fling-backdrop-phase',
+                },
+                FLING_BACKDROP_TRACE_OUTPUT_PATH,
+            );
 
             // At rest the viewer looks as before: its margin is the viewer background.
             marginPixel.forEach((channel, index) => {
@@ -3158,7 +3256,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
                     height: rect.height,
                 };
             });
-            const restScrollTop = await session.page.$eval('#pdf-viewer', viewer => viewer.scrollTop);
+            const restScrollTop = await session.page.$eval('#pdf-viewer', (viewer) => viewer.scrollTop);
             const withStrip = await session.page.screenshot({
                 type: 'png',
                 clip: viewportClip,
@@ -3166,22 +3264,18 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
                 // and the viewer re-anchors its scroll on a resize.
                 captureBeyondViewport: false,
             });
-            const hideStrip = await session.page.addStyleTag({content: '.document-viewer-fling-backdrop__strip { visibility: hidden !important; }'});
+            const hideStrip = await session.page.addStyleTag({
+                content: '.document-viewer-fling-backdrop__strip { visibility: hidden !important; }',
+            });
             await waitForAnimationFrames(session.page, 5);
             const withoutStrip = await session.page.screenshot({
                 type: 'png',
                 clip: viewportClip,
                 captureBeyondViewport: false,
             });
-            await hideStrip.evaluate(style => style.remove());
-            expect(await session.page.$eval('#pdf-viewer', viewer => viewer.scrollTop)).toBe(restScrollTop);
-            const [
-                shown,
-                hidden,
-            ] = await Promise.all([
-                loadImage(Buffer.from(withStrip)),
-                loadImage(Buffer.from(withoutStrip)),
-            ]);
+            await hideStrip.evaluate((style) => style.remove());
+            expect(await session.page.$eval('#pdf-viewer', (viewer) => viewer.scrollTop)).toBe(restScrollTop);
+            const [shown, hidden] = await Promise.all([loadImage(Buffer.from(withStrip)), loadImage(Buffer.from(withoutStrip))]);
             const pixelsOf = (source: typeof shown) => {
                 const target = createCanvas(source.width, source.height).getContext('2d');
                 target.drawImage(source, 0, 0);
@@ -3191,23 +3285,21 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             const hiddenPixels = pixelsOf(hidden);
             let strayPixels = 0;
             for (let index = 0; index < shownPixels.length; index += 4) {
-                if ([
-                    0,
-                    1,
-                    2,
-                ].some(channel => Math.abs((shownPixels[index + channel] ?? 0) - (hiddenPixels[index + channel] ?? 0)) > 3)) {
+                if ([0, 1, 2].some((channel) => Math.abs((shownPixels[index + channel] ?? 0) - (hiddenPixels[index + channel] ?? 0)) > 3)) {
                     strayPixels += 1;
                 }
             }
             expect(strayPixels).toBe(0);
         } finally {
-            await session.page.evaluate(() => {
-                const probeWindow = window as IFlingBackdropProbeWindow;
-                if (probeWindow.__evbFlingBackdropProbe) {
-                    probeWindow.__evbFlingBackdropProbe.stopped = true;
-                }
-                delete probeWindow.__evbFlingBackdropProbe;
-            }).catch(() => undefined);
+            await session.page
+                .evaluate(() => {
+                    const probeWindow = window as IFlingBackdropProbeWindow;
+                    if (probeWindow.__evbFlingBackdropProbe) {
+                        probeWindow.__evbFlingBackdropProbe.stopped = true;
+                    }
+                    delete probeWindow.__evbFlingBackdropProbe;
+                })
+                .catch(() => undefined);
             if (originalViewport) {
                 await session.page.setViewport(originalViewport);
             }
@@ -3243,21 +3335,20 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
                     }
                     const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
                     const viewportRect = viewport?.getBoundingClientRect();
-                    const centerY = viewportRect ? viewportRect.top + (viewportRect.height / 2) : 0;
+                    const centerY = viewportRect ? viewportRect.top + viewportRect.height / 2 : 0;
                     const page = viewport
-                        ? Array.from(viewport.querySelectorAll<HTMLElement>('.page_container:not(.page_container--buffered)'))
-                            .find((candidate) => {
-                                const rect = candidate.getBoundingClientRect();
-                                return rect.top <= centerY && rect.bottom >= centerY;
-                            })
+                        ? Array.from(viewport.querySelectorAll<HTMLElement>('.page_container:not(.page_container--buffered)')).find(
+                              (candidate) => {
+                                  const rect = candidate.getBoundingClientRect();
+                                  return rect.top <= centerY && rect.bottom >= centerY;
+                              },
+                          )
                         : undefined;
                     const skeleton = page?.querySelector<HTMLElement>('.document-page-skeleton');
                     const skeletonStyle = skeleton ? window.getComputedStyle(skeleton) : null;
                     // A skeleton still holding back its reveal is a bare page to the reader.
                     const showsSkeleton = Boolean(
-                        skeletonStyle
-                        && skeletonStyle.display !== 'none'
-                        && Number.parseFloat(skeletonStyle.opacity) > 0.01,
+                        skeletonStyle && skeletonStyle.display !== 'none' && Number.parseFloat(skeletonStyle.opacity) > 0.01,
                     );
                     // The page's committed pixels, which show before its text layer is ready.
                     const painted = page?.dataset.pageVisual === 'ready';
@@ -3291,14 +3382,17 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
                 probe.stopped = true;
                 return probe.frames;
             });
-            const barePages = [...new Set(frames.filter(frame => frame.bare).map(frame => frame.page))];
-            writeTraceArtifact({
-                barePages,
-                frames,
-                nextButton,
-                scenario: 'rapid-trusted-next-skeleton-continuity',
-                toolbarPage,
-            }, RAPID_NEXT_SKELETON_TRACE_OUTPUT_PATH);
+            const barePages = [...new Set(frames.filter((frame) => frame.bare).map((frame) => frame.page))];
+            writeTraceArtifact(
+                {
+                    barePages,
+                    frames,
+                    nextButton,
+                    scenario: 'rapid-trusted-next-skeleton-continuity',
+                    toolbarPage,
+                },
+                RAPID_NEXT_SKELETON_TRACE_OUTPUT_PATH,
+            );
 
             expect(toolbarPage).toBe(210);
             expect(frames.length).toBeGreaterThan(20);
@@ -3307,13 +3401,15 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             // skeleton shows and must keep it, not flash each page bare.
             expect(barePages.length).toBeLessThanOrEqual(2);
         } finally {
-            await session.page.evaluate(() => {
-                const probeWindow = window as IBarePageProbeWindow;
-                if (probeWindow.__evbBarePageProbe) {
-                    probeWindow.__evbBarePageProbe.stopped = true;
-                }
-                delete probeWindow.__evbBarePageProbe;
-            }).catch(() => undefined);
+            await session.page
+                .evaluate(() => {
+                    const probeWindow = window as IBarePageProbeWindow;
+                    if (probeWindow.__evbBarePageProbe) {
+                        probeWindow.__evbBarePageProbe.stopped = true;
+                    }
+                    delete probeWindow.__evbBarePageProbe;
+                })
+                .catch(() => undefined);
             await stopThrottle?.().catch(() => undefined);
             if (originalViewport) {
                 await session.page.setViewport(originalViewport);
@@ -3342,22 +3438,22 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
 
             const coveredFrames: Array<{
                 page: number;
-                elapsedMs: number
+                elapsedMs: number;
             }> = [];
-            for (const target of [
-                41,
-                42,
-                43,
-            ]) {
+            for (const target of [41, 42, 43]) {
                 // Paged view draws the following page off screen; Next must
                 // show that drawing, not a placeholder over it.
-                await session.page.waitForFunction((pageNumber: number) => {
-                    const container = document.querySelector<HTMLElement>(
-                        `#pdf-viewer .page_container--buffered[data-page="${pageNumber}"]`,
-                    );
-                    const canvas = container?.querySelector('canvas');
-                    return Boolean(container?.dataset.pageRaster && canvas && canvas.width > 0);
-                }, {timeout: 15_000}, target);
+                await session.page.waitForFunction(
+                    (pageNumber: number) => {
+                        const container = document.querySelector<HTMLElement>(
+                            `#pdf-viewer .page_container--buffered[data-page="${pageNumber}"]`,
+                        );
+                        const canvas = container?.querySelector('canvas');
+                        return Boolean(container?.dataset.pageRaster && canvas && canvas.width > 0);
+                    },
+                    {timeout: 15_000},
+                    target,
+                );
                 await session.page.evaluate((pageNumber: number) => {
                     const probe: IBarePageProbe = {
                         frames: [],
@@ -3369,9 +3465,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
                         if (probe.stopped) {
                             return;
                         }
-                        const container = document.querySelector<HTMLElement>(
-                            `#pdf-viewer .page_container[data-page="${pageNumber}"]`,
-                        );
+                        const container = document.querySelector<HTMLElement>(`#pdf-viewer .page_container[data-page="${pageNumber}"]`);
                         // Off screen in the buffer, the page is not yet the reader's.
                         if (!container || container.classList.contains('page_container--buffered')) {
                             requestAnimationFrame(sample);
@@ -3381,10 +3475,12 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
                         const skeletonStyle = skeleton ? window.getComputedStyle(skeleton) : null;
                         const layer = container.querySelector<HTMLElement>('.page_canvas__render-layer');
                         const canvas = layer?.querySelector('canvas');
-                        const covered = Boolean(skeletonStyle && skeletonStyle.display !== 'none'
-                            && Number.parseFloat(skeletonStyle.opacity) > 0.01);
-                        const drawn = Boolean(layer && canvas && canvas.width > 0
-                            && window.getComputedStyle(layer).visibility === 'visible');
+                        const covered = Boolean(
+                            skeletonStyle && skeletonStyle.display !== 'none' && Number.parseFloat(skeletonStyle.opacity) > 0.01,
+                        );
+                        const drawn = Boolean(
+                            layer && canvas && canvas.width > 0 && window.getComputedStyle(layer).visibility === 'visible',
+                        );
                         // The page was drawn before the click: every frame shows that drawing.
                         probe.frames.push({
                             bare: covered || !drawn,
@@ -3400,9 +3496,16 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
                 stopThrottle = await throttleRendererMainThread(session, 4);
                 await session.page.mouse.click(nextButton.x, nextButton.y);
                 await waitForToolbarCurrentPage(session, target);
-                await session.page.waitForFunction((pageNumber: number) => Boolean(document.querySelector(
-                    `#pdf-viewer .page_container--rendered[data-page="${pageNumber}"]:not(.page_container--buffered)`,
-                )), {timeout: 15_000}, target);
+                await session.page.waitForFunction(
+                    (pageNumber: number) =>
+                        Boolean(
+                            document.querySelector(
+                                `#pdf-viewer .page_container--rendered[data-page="${pageNumber}"]:not(.page_container--buffered)`,
+                            ),
+                        ),
+                    {timeout: 15_000},
+                    target,
+                );
                 await waitForAnimationFrames(session.page, 5);
                 await stopThrottle();
                 stopThrottle = null;
@@ -3415,23 +3518,27 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
                     return probe.frames;
                 });
                 expect(frames.length).toBeGreaterThanOrEqual(5);
-                coveredFrames.push(...frames
-                    .filter(frame => frame.bare)
-                    .map(frame => ({
-                        page: target,
-                        elapsedMs: Math.round(frame.elapsedMs),
-                    })));
+                coveredFrames.push(
+                    ...frames
+                        .filter((frame) => frame.bare)
+                        .map((frame) => ({
+                            page: target,
+                            elapsedMs: Math.round(frame.elapsedMs),
+                        })),
+                );
             }
 
             expect(coveredFrames).toEqual([]);
         } finally {
-            await session.page.evaluate(() => {
-                const probeWindow = window as IBarePageProbeWindow;
-                if (probeWindow.__evbBarePageProbe) {
-                    probeWindow.__evbBarePageProbe.stopped = true;
-                }
-                delete probeWindow.__evbBarePageProbe;
-            }).catch(() => undefined);
+            await session.page
+                .evaluate(() => {
+                    const probeWindow = window as IBarePageProbeWindow;
+                    if (probeWindow.__evbBarePageProbe) {
+                        probeWindow.__evbBarePageProbe.stopped = true;
+                    }
+                    delete probeWindow.__evbBarePageProbe;
+                })
+                .catch(() => undefined);
             await stopThrottle?.().catch(() => undefined);
             if (originalViewport) {
                 await session.page.setViewport(originalViewport);
@@ -3453,8 +3560,8 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         const navigationControls = await collectNavigationControlState(session);
         const virtualScrollGeometry = await collectVirtualScrollGeometry(session, TARGET_PAGE);
         const trace = await collectTrace(session);
-        const blankVisiblePages = visiblePages.filter(page => !page.hasCanvas || !page.renderedClass);
-        const targetPageState = visiblePages.find(page => page.page === TARGET_PAGE) ?? null;
+        const blankVisiblePages = visiblePages.filter((page) => !page.hasCanvas || !page.renderedClass);
+        const targetPageState = visiblePages.find((page) => page.page === TARGET_PAGE) ?? null;
         writeTraceArtifact({
             pdfPath: pageJumpPdfPath,
             targetPage: TARGET_PAGE,
@@ -3508,30 +3615,42 @@ describe('Electron E2E - thumbnail navigation while the sidebar opens', () => {
         // The scenario clicks a thumbnail while the sliding sidebar narrows
         // the pane. A host that prefers reduced motion opens the sidebar in
         // one frame, so there is no narrowing to click into.
-        await page.emulateMediaFeatures([{
-            name: 'prefers-reduced-motion',
-            value: 'no-preference',
-        }]);
+        await page.emulateMediaFeatures([
+            {
+                name: 'prefers-reduced-motion',
+                value: 'no-preference',
+            },
+        ]);
         // A heavy scan makes each page raster slow, so the outgoing page is
         // still showing its pre-sidebar raster when the thumbnail is clicked.
-        const pdfPath = await createLargeScannedFixturePdf(
-            `sidebar-thumbnail-navigation-${Date.now()}.pdf`,
-            200,
-            0,
-            3,
-        );
+        const pdfPath = await createLargeScannedFixturePdf(`sidebar-thumbnail-navigation-${Date.now()}.pdf`, 200, 0, 3);
         await openPdfInApp(page, pdfPath, 60_000);
         await waitForVisibleMountedPdfCanvases(page, 30_000);
 
-        const readSidebarOpen = () => page.evaluate(() => [...document.querySelectorAll<HTMLElement>('[data-testid="document-sidebar"]')]
-            .some(element => element.getBoundingClientRect().width > 10));
+        const readSidebarOpen = () =>
+            page.evaluate(() =>
+                [...document.querySelectorAll<HTMLElement>('[data-testid="document-sidebar"]')].some(
+                    (element) => element.getBoundingClientRect().width > 10,
+                ),
+            );
         if (await readSidebarOpen()) {
             await clickVisibleToolbarButton(page, 'Toggle Sidebar');
-            await page.waitForFunction(() => ![...document.querySelectorAll<HTMLElement>('[data-testid="document-sidebar"]')]
-                .some(element => element.getBoundingClientRect().width > 10), {timeout: 10_000});
+            await page.waitForFunction(
+                () =>
+                    ![...document.querySelectorAll<HTMLElement>('[data-testid="document-sidebar"]')].some(
+                        (element) => element.getBoundingClientRect().width > 10,
+                    ),
+                {timeout: 10_000},
+            );
             // The slide is the wrapper's width transition: wait for it to end.
-            await page.waitForFunction(() => !document.querySelector<HTMLElement>('.sidebar-wrapper')
-                ?.getAnimations().some(animation => animation.playState === 'running'), {timeout: 15_000});
+            await page.waitForFunction(
+                () =>
+                    !document
+                        .querySelector<HTMLElement>('.sidebar-wrapper')
+                        ?.getAnimations()
+                        .some((animation) => animation.playState === 'running'),
+                {timeout: 15_000},
+            );
             await waitForVisibleMountedPdfCanvases(page, 30_000);
         }
 
@@ -3544,17 +3663,18 @@ describe('Electron E2E - thumbnail navigation while the sidebar opens', () => {
                 const viewer = document.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport], #pdf-viewer');
                 if (viewer) {
                     const viewerRect = viewer.getBoundingClientRect();
-                    const pages = [...viewer.querySelectorAll<HTMLElement>('.page_container[data-page]:not(.page_container--buffered)')]
-                        .filter((container) => {
-                            const rect = container.getBoundingClientRect();
-                            return rect.height > 0 && rect.bottom > viewerRect.top && rect.top < viewerRect.bottom;
-                        });
+                    const pages = [
+                        ...viewer.querySelectorAll<HTMLElement>('.page_container[data-page]:not(.page_container--buffered)'),
+                    ].filter((container) => {
+                        const rect = container.getBoundingClientRect();
+                        return rect.height > 0 && rect.bottom > viewerRect.top && rect.top < viewerRect.bottom;
+                    });
                     probe.__sidebarNavigationFrames?.push({
                         ms: performance.now() - startedAt,
                         paneWidth: viewer.clientWidth,
                         pageWidth: pages[0]?.getBoundingClientRect().width ?? null,
                         overflowPx: viewer.scrollWidth - viewer.clientWidth,
-                        visiblePages: pages.map(container => Number(container.dataset.page)),
+                        visiblePages: pages.map((container) => Number(container.dataset.page)),
                         toolbarText: document.querySelector('.page-controls-display')?.textContent?.replace(/\s+/gu, '') ?? '',
                     });
                 }
@@ -3583,9 +3703,11 @@ describe('Electron E2E - thumbnail navigation while the sidebar opens', () => {
                 // transition is the slide's own clock. A per-frame width step
                 // would tie the check to the frame rate: at 60 fps the slide
                 // moves the pane less than a step threshold in each frame.
-                const paneMoving = document.querySelector<HTMLElement>('.sidebar-wrapper')
-                    ?.getAnimations()
-                    .some(animation => animation.playState === 'running') === true;
+                const paneMoving =
+                    document
+                        .querySelector<HTMLElement>('.sidebar-wrapper')
+                        ?.getAnimations()
+                        .some((animation) => animation.playState === 'running') === true;
                 const item = document.querySelector<HTMLElement>(`[data-thumbnail-page="${target}"]`);
                 // The rail reveals the current page while its rows are still
                 // being measured, which resets an earlier scroll. Keep
@@ -3605,7 +3727,7 @@ describe('Electron E2E - thumbnail navigation while the sidebar opens', () => {
                     if (rail) {
                         const railRect = rail.getBoundingClientRect();
                         const rowRect = item.getBoundingClientRect();
-                        rail.scrollTop += (rowRect.top + rowRect.height / 2) - (railRect.top + railRect.height / 2);
+                        rail.scrollTop += rowRect.top + rowRect.height / 2 - (railRect.top + railRect.height / 2);
                     }
                     const rect = item.getBoundingClientRect();
                     // The row's full centre may still be under the curtain
@@ -3642,15 +3764,15 @@ describe('Electron E2E - thumbnail navigation while the sidebar opens', () => {
         });
 
         await clickVisibleToolbarButton(page, 'Toggle Sidebar');
-        const thumbnailHandle = await page.waitForFunction(() => (
-            (window as ISidebarNavigationProbeWindow).__sidebarThumbnailPoint ?? null
-        ), {
-            timeout: 10_000,
-            polling: 'raf',
-        }).catch(async (error: unknown) => {
-            const hunt = await page.evaluate(() => (window as ISidebarNavigationProbeWindow).__sidebarThumbnailHunt ?? null);
-            throw new Error(`No hittable thumbnail while the pane narrowed: ${JSON.stringify(hunt)}`, {cause: error});
-        });
+        const thumbnailHandle = await page
+            .waitForFunction(() => (window as ISidebarNavigationProbeWindow).__sidebarThumbnailPoint ?? null, {
+                timeout: 10_000,
+                polling: 'raf',
+            })
+            .catch(async (error: unknown) => {
+                const hunt = await page.evaluate(() => (window as ISidebarNavigationProbeWindow).__sidebarThumbnailHunt ?? null);
+                throw new Error(`No hittable thumbnail while the pane narrowed: ${JSON.stringify(hunt)}`, {cause: error});
+            });
         const thumbnail = await thumbnailHandle.jsonValue();
         expect(thumbnail).not.toBeNull();
         const clickAtMs = await page.evaluate(() => {
@@ -3660,21 +3782,31 @@ describe('Electron E2E - thumbnail navigation while the sidebar opens', () => {
         // The point was hit-tested while the pane was still narrowing; clicking
         // the moving thumbnail there is the input under test.
         await page.mouse.click(thumbnail!.x, thumbnail!.y);
-        await page.waitForFunction((target) => {
-            const viewer = document.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport], #pdf-viewer');
-            const container = viewer?.querySelector<HTMLElement>(`.page_container[data-page="${target}"]`);
-            if (!viewer || !container) {
-                return false;
-            }
-            const viewerRect = viewer.getBoundingClientRect();
-            const rect = container.getBoundingClientRect();
-            // The slide itself, not a class: the viewer no longer marks a resize.
-            return rect.bottom > viewerRect.top && rect.top < viewerRect.bottom
-                && !document.querySelector('.sidebar-wrapper')?.getAnimations().some(animation => animation.playState === 'running');
-        }, {
-            timeout: 10_000,
-            polling: 'raf',
-        }, SIDEBAR_TARGET_PAGE);
+        await page.waitForFunction(
+            (target) => {
+                const viewer = document.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport], #pdf-viewer');
+                const container = viewer?.querySelector<HTMLElement>(`.page_container[data-page="${target}"]`);
+                if (!viewer || !container) {
+                    return false;
+                }
+                const viewerRect = viewer.getBoundingClientRect();
+                const rect = container.getBoundingClientRect();
+                // The slide itself, not a class: the viewer no longer marks a resize.
+                return (
+                    rect.bottom > viewerRect.top &&
+                    rect.top < viewerRect.bottom &&
+                    !document
+                        .querySelector('.sidebar-wrapper')
+                        ?.getAnimations()
+                        .some((animation) => animation.playState === 'running')
+                );
+            },
+            {
+                timeout: 10_000,
+                polling: 'raf',
+            },
+            SIDEBAR_TARGET_PAGE,
+        );
         await waitForAnimationFrames(page, 30);
         const frames = await page.evaluate(() => {
             const probe = window as ISidebarNavigationProbeWindow;
@@ -3682,21 +3814,19 @@ describe('Electron E2E - thumbnail navigation while the sidebar opens', () => {
             return probe.__sidebarNavigationFrames ?? [];
         });
 
-        const afterClick = frames.filter(frame => frame.ms >= clickAtMs);
+        const afterClick = frames.filter((frame) => frame.ms >= clickAtMs);
         const widthAtClick = afterClick[0]?.pageWidth ?? null;
         expect(widthAtClick).not.toBeNull();
         // The sidebar only ever narrows the pane, so no page may grow back
         // toward the width it had before the sidebar opened.
-        const regrownFrames = afterClick.filter(frame => (
-            frame.pageWidth !== null && frame.pageWidth > (widthAtClick ?? 0) + 1
-        ));
-        const firstTargetFrame = afterClick.find(frame => frame.visiblePages.includes(SIDEBAR_TARGET_PAGE));
+        const regrownFrames = afterClick.filter((frame) => frame.pageWidth !== null && frame.pageWidth > (widthAtClick ?? 0) + 1);
+        const firstTargetFrame = afterClick.find((frame) => frame.visiblePages.includes(SIDEBAR_TARGET_PAGE));
         // Behavior contract R2: work that started before the navigation, here
         // the sidebar still sliding in, cannot move the destination away.
         const driftedFrames = afterClick
-            .filter(frame => firstTargetFrame !== undefined && frame.ms > firstTargetFrame.ms)
-            .filter(frame => !frame.visiblePages.includes(SIDEBAR_TARGET_PAGE))
-            .map(frame => ({
+            .filter((frame) => firstTargetFrame !== undefined && frame.ms > firstTargetFrame.ms)
+            .filter((frame) => !frame.visiblePages.includes(SIDEBAR_TARGET_PAGE))
+            .map((frame) => ({
                 ms: Math.round(frame.ms - clickAtMs),
                 visiblePages: frame.visiblePages.slice(0, 3),
             }));
@@ -3729,45 +3859,52 @@ describe('Electron E2E - reading point across a sidebar open and a window resize
     it('keeps the reading point at the viewport centre when the sidebar opens or the window shortens after a navigation', async () => {
         const session = sessionFixture.getSession();
         const page = session.page;
-        const pdfPath = await createLargeScannedFixturePdf(
-            `sidebar-centre-anchor-${Date.now()}.pdf`,
-            200,
-            0,
-            3,
-        );
+        const pdfPath = await createLargeScannedFixturePdf(`sidebar-centre-anchor-${Date.now()}.pdf`, 200, 0, 3);
         await openPdfInApp(page, pdfPath, 60_000);
         await waitForVisibleMountedPdfCanvases(page, 30_000);
-        const readSidebarOpen = () => page.evaluate(() => [...document.querySelectorAll<HTMLElement>('[data-testid="document-sidebar"]')]
-            .some(element => element.getBoundingClientRect().width > 10));
+        const readSidebarOpen = () =>
+            page.evaluate(() =>
+                [...document.querySelectorAll<HTMLElement>('[data-testid="document-sidebar"]')].some(
+                    (element) => element.getBoundingClientRect().width > 10,
+                ),
+            );
         const clickSidebarToggle = () => clickVisibleToolbarButton(page, 'Toggle Sidebar');
         const waitForLayoutAtRest = async () => {
-            await page.waitForFunction(() => !document.querySelector('.sidebar-wrapper')
-                ?.getAnimations().some(animation => animation.playState === 'running'), {timeout: 15_000});
+            await page.waitForFunction(
+                () =>
+                    !document
+                        .querySelector('.sidebar-wrapper')
+                        ?.getAnimations()
+                        .some((animation) => animation.playState === 'running'),
+                {timeout: 15_000},
+            );
             await waitForAnimationFrames(page, 20);
         };
         // The document point under the viewport centre, in pixels from its page top.
-        const readCentrePoint = () => page.evaluate(() => {
-            const viewer = document.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport], #pdf-viewer');
-            if (!viewer) {
-                return null;
-            }
-            const viewerRect = viewer.getBoundingClientRect();
-            const centreY = viewerRect.top + viewer.clientHeight / 2;
-            const container = [...viewer.querySelectorAll<HTMLElement>('.page_container[data-page]:not(.page_container--buffered)')]
-                .find((candidate) => {
+        const readCentrePoint = () =>
+            page.evaluate(() => {
+                const viewer = document.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport], #pdf-viewer');
+                if (!viewer) {
+                    return null;
+                }
+                const viewerRect = viewer.getBoundingClientRect();
+                const centreY = viewerRect.top + viewer.clientHeight / 2;
+                const container = [
+                    ...viewer.querySelectorAll<HTMLElement>('.page_container[data-page]:not(.page_container--buffered)'),
+                ].find((candidate) => {
                     const rect = candidate.getBoundingClientRect();
                     return rect.top <= centreY && rect.bottom >= centreY;
                 });
-            if (!container) {
-                return null;
-            }
-            const rect = container.getBoundingClientRect();
-            return {
-                page: Number(container.dataset.page),
-                pageYFraction: (centreY - rect.top) / rect.height,
-                pageHeight: rect.height,
-            };
-        });
+                if (!container) {
+                    return null;
+                }
+                const rect = container.getBoundingClientRect();
+                return {
+                    page: Number(container.dataset.page),
+                    pageYFraction: (centreY - rect.top) / rect.height,
+                    pageHeight: rect.height,
+                };
+            });
         if (await readSidebarOpen()) {
             await clickSidebarToggle();
             await waitForLayoutAtRest();
@@ -3775,27 +3912,38 @@ describe('Electron E2E - reading point across a sidebar open and a window resize
 
         // A deliberate toolbar navigation, with the sidebar opened while the
         // viewer is still guarding that navigation's arrival.
-        await clickFoundAsUser(page, () => [...document.querySelectorAll<HTMLButtonElement>('button')]
-            .find(candidate => /^\d+\/200$/u.test(candidate.textContent?.trim() ?? '') && candidate.getBoundingClientRect().width > 0), null, {description: 'page number field'});
+        await clickFoundAsUser(
+            page,
+            () =>
+                [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+                    (candidate) => /^\d+\/200$/u.test(candidate.textContent?.trim() ?? '') && candidate.getBoundingClientRect().width > 0,
+                ),
+            null,
+            {description: 'page number field'},
+        );
         const selectAllModifier = process.platform === 'darwin' ? 'Meta' : 'Control';
         await page.keyboard.down(selectAllModifier);
         await page.keyboard.press('a');
         await page.keyboard.up(selectAllModifier);
         await page.keyboard.type(String(SIDEBAR_TARGET_PAGE));
         await page.keyboard.press('Enter');
-        await page.waitForFunction((target) => {
-            const viewer = document.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport], #pdf-viewer');
-            const container = viewer?.querySelector<HTMLElement>(`.page_container[data-page="${target}"]`);
-            if (!viewer || !container) {
-                return false;
-            }
-            const viewerRect = viewer.getBoundingClientRect();
-            const rect = container.getBoundingClientRect();
-            return rect.top <= viewerRect.top + viewer.clientHeight / 2 && rect.bottom > viewerRect.top;
-        }, {
-            timeout: 10_000,
-            polling: 'raf',
-        }, SIDEBAR_TARGET_PAGE);
+        await page.waitForFunction(
+            (target) => {
+                const viewer = document.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport], #pdf-viewer');
+                const container = viewer?.querySelector<HTMLElement>(`.page_container[data-page="${target}"]`);
+                if (!viewer || !container) {
+                    return false;
+                }
+                const viewerRect = viewer.getBoundingClientRect();
+                const rect = container.getBoundingClientRect();
+                return rect.top <= viewerRect.top + viewer.clientHeight / 2 && rect.bottom > viewerRect.top;
+            },
+            {
+                timeout: 10_000,
+                polling: 'raf',
+            },
+            SIDEBAR_TARGET_PAGE,
+        );
         await waitForAnimationFrames(page, 30);
 
         const beforeSidebar = await readCentrePoint();
@@ -3808,11 +3956,8 @@ describe('Electron E2E - reading point across a sidebar open and a window resize
 
         // Behavior contract R3: a sidebar open keeps the page and the point at
         // the unobscured viewport centre, and the place does not change again.
-        const driftPx = (from: typeof beforeSidebar, to: typeof beforeSidebar) => (
-            from && to && from.page === to.page
-                ? Math.round(Math.abs(to.pageYFraction - from.pageYFraction) * to.pageHeight)
-                : Infinity
-        );
+        const driftPx = (from: typeof beforeSidebar, to: typeof beforeSidebar) =>
+            from && to && from.page === to.page ? Math.round(Math.abs(to.pageYFraction - from.pageYFraction) * to.pageHeight) : Infinity;
         expect({
             sidebarDriftPx: driftPx(beforeSidebar, afterSidebar),
             laterDriftPx: driftPx(afterSidebar, afterSidebarLater),
@@ -3826,13 +3971,12 @@ describe('Electron E2E - reading point across a sidebar open and a window resize
             width: window.innerWidth,
             height: window.innerHeight,
         }));
-        await session.command('windowResize', [
-            windowSize.width,
+        await session.command('windowResize', [windowSize.width, windowSize.height - 160]);
+        await page.waitForFunction(
+            (expectedHeight: number) => Math.abs(window.innerHeight - expectedHeight) < 2,
+            {timeout: 20_000},
             windowSize.height - 160,
-        ]);
-        await page.waitForFunction((expectedHeight: number) => (
-            Math.abs(window.innerHeight - expectedHeight) < 2
-        ), {timeout: 20_000}, windowSize.height - 160);
+        );
         await waitForLayoutAtRest();
         const afterShorterWindow = await readCentrePoint();
         // R3 again: a shorter window keeps the centre point, not the top edge.
@@ -3875,9 +4019,7 @@ interface IPageRenderGateWindow extends Window {
 // continuation, so it stalls exactly like a stuck render until the viewer's
 // own stage watchdog cancels it. Renders started after the gate opens run.
 async function closePdfPageRenderGate(session: IElectronE2ESession, pageNumber: number) {
-    await session.page.waitForFunction(() => (
-        typeof (window as IPageRenderGateWindow).pdfjsLib?.getDocument === 'function'
-    ));
+    await session.page.waitForFunction(() => typeof (window as IPageRenderGateWindow).pdfjsLib?.getDocument === 'function');
     await session.page.evaluate(async (targetPage: number) => {
         const gateWindow = window as IPageRenderGateWindow;
         const pdfjs = gateWindow.pdfjsLib;
@@ -3890,14 +4032,18 @@ async function closePdfPageRenderGate(session: IElectronE2ESession, pageNumber: 
         if (!pdfjs.GlobalWorkerOptions.workerSrc) {
             pdfjs.GlobalWorkerOptions.workerSrc = new URL('/pdf/pdf.worker.min.mjs', document.baseURI).href;
         }
-        const probe = pdfjs.getDocument({data: new TextEncoder().encode([
-            '%PDF-1.4',
-            '1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj',
-            '2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj',
-            '3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 10 10]>>endobj',
-            'trailer<</Root 1 0 R>>',
-            '%%EOF',
-        ].join('\n'))});
+        const probe = pdfjs.getDocument({
+            data: new TextEncoder().encode(
+                [
+                    '%PDF-1.4',
+                    '1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj',
+                    '2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj',
+                    '3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 10 10]>>endobj',
+                    'trailer<</Root 1 0 R>>',
+                    '%%EOF',
+                ].join('\n'),
+            ),
+        });
         const probePage = await (await probe.promise).getPage(1);
         const proxyPrototype = Object.getPrototypeOf(probePage) as IGatedPdfPageProxy;
         await probe.destroy();
@@ -3924,12 +4070,15 @@ async function closePdfPageRenderGate(session: IElectronE2ESession, pageNumber: 
                 get: () => withheldContinuation,
                 set: () => {},
             });
-            task.promise.then(() => {
-                gate.pending -= 1;
-            }, () => {
-                gate.pending -= 1;
-                gate.cancelled += 1;
-            });
+            task.promise.then(
+                () => {
+                    gate.pending -= 1;
+                },
+                () => {
+                    gate.pending -= 1;
+                    gate.cancelled += 1;
+                },
+            );
             return task;
         };
         gateWindow.__evbHeldPageRenderGate = gate;
@@ -3939,11 +4088,13 @@ async function closePdfPageRenderGate(session: IElectronE2ESession, pageNumber: 
 async function readPdfPageRenderGate(session: IElectronE2ESession) {
     return session.page.evaluate(() => {
         const gate = (window as IPageRenderGateWindow).__evbHeldPageRenderGate;
-        return gate ? {
-            cancelled: gate.cancelled,
-            pending: gate.pending,
-            started: gate.started,
-        } : null;
+        return gate
+            ? {
+                  cancelled: gate.cancelled,
+                  pending: gate.pending,
+                  started: gate.started,
+              }
+            : null;
     });
 }
 
@@ -3953,10 +4104,13 @@ async function readPdfPageRenderGate(session: IElectronE2ESession) {
 async function waitForHeldPageRenderAbandoned(session: IElectronE2ESession) {
     const deadline = Date.now() + 120_000;
     while (Date.now() < deadline) {
-        await session.page.waitForFunction(() => {
-            const gate = (window as IPageRenderGateWindow).__evbHeldPageRenderGate;
-            return Boolean(gate && gate.cancelled > 0 && gate.pending === 0);
-        }, {timeout: 40_000});
+        await session.page.waitForFunction(
+            () => {
+                const gate = (window as IPageRenderGateWindow).__evbHeldPageRenderGate;
+                return Boolean(gate && gate.cancelled > 0 && gate.pending === 0);
+            },
+            {timeout: 40_000},
+        );
         const settled = await readPdfPageRenderGate(session);
         await waitForAnimationFrames(session.page, 30);
         const after = await readPdfPageRenderGate(session);
@@ -3980,13 +4134,11 @@ async function openPdfPageRenderGate(session: IElectronE2ESession) {
 
 async function readViewerPageOutcome(session: IElectronE2ESession, pageNumber: number) {
     return session.page.evaluate((targetPage: number) => {
-        const host = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
-        );
+        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
         const chassis = host?.querySelector<HTMLElement>('.document-viewer-chassis') ?? null;
-        const canvas = host?.querySelector<HTMLCanvasElement>(
-            `#pdf-viewer .page_container[data-page="${String(targetPage)}"] .page_canvas canvas`,
-        ) ?? null;
+        const canvas =
+            host?.querySelector<HTMLCanvasElement>(`#pdf-viewer .page_container[data-page="${String(targetPage)}"] .page_canvas canvas`) ??
+            null;
         return {
             canvasHeight: canvas?.height ?? 0,
             canvasWidth: canvas?.width ?? 0,
@@ -4007,7 +4159,9 @@ describe('Electron E2E - deliberate navigation to a page whose buffer raster fai
         const session = sessionFixture.getSession();
         const warnings: string[] = [];
         const collectWarning = (message: {text(): string}) => {
-            if (/Skipping page 2 render due to invalid/.test(message.text())) {warnings.push(message.text());}
+            if (/Skipping page 2 render due to invalid/.test(message.text())) {
+                warnings.push(message.text());
+            }
         };
         session.page.on('console', collectWarning);
         try {
@@ -4017,7 +4171,7 @@ describe('Electron E2E - deliberate navigation to a page whose buffer raster fai
             const outcome = {
                 shown,
                 warnings: warnings.length,
-                ...await readViewerPageOutcome(session, 2),
+                ...(await readViewerPageOutcome(session, 2)),
             };
             mkdirSync(resolve('.devkit/rasterstall-r2'), {recursive: true});
             writeFileSync(resolve('.devkit/rasterstall-r2/malformed-outcome.json'), JSON.stringify(outcome, null, 2));
@@ -4026,17 +4180,27 @@ describe('Electron E2E - deliberate navigation to a page whose buffer raster fai
                 feedback: 'error',
                 text: 'Unable to render this page',
             });
-            const retry = () => session.page.evaluate(() => Array.from(
-                document.querySelectorAll<HTMLButtonElement>('.app-toast-failure button'),
-            ).filter(button => button.textContent?.trim() === 'Retry').length);
+            const retry = () =>
+                session.page.evaluate(
+                    () =>
+                        Array.from(document.querySelectorAll<HTMLButtonElement>('.app-toast-failure button')).filter(
+                            (button) => button.textContent?.trim() === 'Retry',
+                        ).length,
+                );
             await expect.poll(retry, {timeout: 10_000}).toBe(1);
             const settledWarnings = warnings.length;
             await delay(2_000);
             expect(warnings).toHaveLength(settledWarnings);
             expect(warnings).toHaveLength(0);
-            await clickFoundAsUser(session.page, () => Array.from(
-                document.querySelectorAll<HTMLButtonElement>('.app-toast-failure button'),
-            ).find(button => button.textContent?.trim() === 'Retry'), undefined, {description: 'invalid page 2 Retry'});
+            await clickFoundAsUser(
+                session.page,
+                () =>
+                    Array.from(document.querySelectorAll<HTMLButtonElement>('.app-toast-failure button')).find(
+                        (button) => button.textContent?.trim() === 'Retry',
+                    ),
+                undefined,
+                {description: 'invalid page 2 Retry'},
+            );
             expect(await waitForVisiblePageOutcome(session, 2, 10_000, true)).toMatchObject({
                 feedback: 'error',
                 text: 'Unable to render this page',
@@ -4050,13 +4214,20 @@ describe('Electron E2E - deliberate navigation to a page whose buffer raster fai
                 text: 'Unable to render this page',
             });
             await session.page.screenshot({path: resolve('.devkit/rasterstall-r2/malformed-outcome.png')});
-            writeFileSync(resolve('.devkit/rasterstall-r2/malformed-outcome.json'), JSON.stringify({
-                ...outcome,
-                retryButtons: await retry(),
-                settledWarnings,
-                retriedWarnings,
-                finalWarnings: warnings.length,
-            }, null, 2));
+            writeFileSync(
+                resolve('.devkit/rasterstall-r2/malformed-outcome.json'),
+                JSON.stringify(
+                    {
+                        ...outcome,
+                        retryButtons: await retry(),
+                        settledWarnings,
+                        retriedWarnings,
+                        finalWarnings: warnings.length,
+                    },
+                    null,
+                    2,
+                ),
+            );
         } finally {
             session.page.off('console', collectWarning);
         }
@@ -4073,21 +4244,21 @@ describe('Electron E2E - deliberate navigation to a page whose buffer raster fai
             // Page 2 is the buffer page below the first one. Its held raster
             // runs into the unchanged 15 s canvas-render watchdog.
             const gate = await waitForHeldPageRenderAbandoned(session);
-            const timeouts = (await collectTrace(session)).filter(entry => (
-                entry.event === 'pdf-render-supervisor-watchdog'
-                && entry.payload.cause === 'page-stage-timeout'
-                && (entry.payload.metadata as Record<string, unknown> | undefined)?.pageNumber === 2
-            )).map(entry => entry.payload.metadata as Record<string, unknown>);
-            expect(timeouts.map(metadata => [
-                metadata.stage,
-                metadata.lane,
-            ]), JSON.stringify({
-                gate,
-                timeouts,
-            })).toContainEqual([
-                'canvas-render',
-                'viewport-nearby',
-            ]);
+            const timeouts = (await collectTrace(session))
+                .filter(
+                    (entry) =>
+                        entry.event === 'pdf-render-supervisor-watchdog' &&
+                        entry.payload.cause === 'page-stage-timeout' &&
+                        (entry.payload.metadata as Record<string, unknown> | undefined)?.pageNumber === 2,
+                )
+                .map((entry) => entry.payload.metadata as Record<string, unknown>);
+            expect(
+                timeouts.map((metadata) => [metadata.stage, metadata.lane]),
+                JSON.stringify({
+                    gate,
+                    timeouts,
+                }),
+            ).toContainEqual(['canvas-render', 'viewport-nearby']);
             expect(await readViewerPageOutcome(session, 2)).toMatchObject({
                 canvasWidth: 0,
                 canvasHeight: 0,
@@ -4099,10 +4270,10 @@ describe('Electron E2E - deliberate navigation to a page whose buffer raster fai
         await clickVisibleButtonByAriaLabel(session, '.page-controls button[aria-label]', 'Next Page');
         const pageRendered = await waitForVisiblePageCanvas(session, 2, 15_000);
         const outcome = {
-            ...await readViewerPageOutcome(session, 2),
+            ...(await readViewerPageOutcome(session, 2)),
             navigationExits: (await collectTrace(session))
-                .filter(entry => entry.event === 'navigation-await-visual-exit')
-                .map(entry => entry.payload.outcome),
+                .filter((entry) => entry.event === 'navigation-await-visual-exit')
+                .map((entry) => entry.payload.outcome),
             toolbarPage: (await getWorkspaceToolbarSnapshot(session.page))?.currentPage ?? null,
         };
         // R2: the destination of a deliberate navigation becomes visible.
@@ -4129,9 +4300,11 @@ describe('Electron E2E - deliberate navigation to a page whose buffer raster fai
             // until the viewer gives up on it.
             const buffered = await readPdfPageRenderGate(session);
             await clickVisibleButtonByAriaLabel(session, '.page-controls button[aria-label]', 'Next Page');
-            await session.page.waitForFunction((started: number) => (
-                ((window as IPageRenderGateWindow).__evbHeldPageRenderGate?.started ?? 0) > started
-            ), {timeout: 20_000}, buffered?.started ?? 0);
+            await session.page.waitForFunction(
+                (started: number) => ((window as IPageRenderGateWindow).__evbHeldPageRenderGate?.started ?? 0) > started,
+                {timeout: 20_000},
+                buffered?.started ?? 0,
+            );
             await waitForHeldPageRenderAbandoned(session);
 
             // L2: by the settled deadline page 2 is painted, or the page itself
@@ -4140,7 +4313,7 @@ describe('Electron E2E - deliberate navigation to a page whose buffer raster fai
             const outcome = {
                 shown,
                 gate: await readPdfPageRenderGate(session),
-                ...await readViewerPageOutcome(session, 2),
+                ...(await readViewerPageOutcome(session, 2)),
             };
             expect(shown, JSON.stringify(outcome)).not.toBeNull();
             // The file opened; only this page could not be drawn.
@@ -4159,93 +4332,107 @@ describe('Electron E2E - deliberate navigation to a page whose buffer raster fai
             name: 'Retry after relayout',
             relayout: true,
         },
-    ])('redraws a failed first page on $name', async ({relayout}) => {
-        const session = sessionFixture.getSession();
-        const pdfPath = await createLargeScannedFixturePdf(`failed-first-page-${Date.now()}.pdf`, 4, 0);
-        await enableBufferedPdfTrace(session);
-        await closePdfPageRenderGate(session, 1);
-        try {
-            await triggerOpenPathInApp(session.page, pdfPath, 45_000);
-            // Every attempt at page 1 runs into the 15 s canvas-render watchdog.
-            await waitForHeldPageRenderAbandoned(session);
+    ])(
+        'redraws a failed first page on $name',
+        async ({relayout}) => {
+            const session = sessionFixture.getSession();
+            const pdfPath = await createLargeScannedFixturePdf(`failed-first-page-${Date.now()}.pdf`, 4, 0);
+            await enableBufferedPdfTrace(session);
+            await closePdfPageRenderGate(session, 1);
+            try {
+                await triggerOpenPathInApp(session.page, pdfPath, 45_000);
+                // Every attempt at page 1 runs into the 15 s canvas-render watchdog.
+                await waitForHeldPageRenderAbandoned(session);
 
-            // L2, C4: the page says why it is blank, the failure is told once
-            // with a Retry, and the open is over: the document's controls work.
-            const shown = await waitForVisiblePageOutcome(session, 1, 10_000, true);
-            const toasts = await session.page.evaluate(() => Array.from(
-                document.querySelectorAll<HTMLElement>('.app-toast-failure'),
-                toast => ({
-                    text: toast.innerText,
-                    buttons: Array.from(toast.querySelectorAll('button'), button => button.textContent?.trim() ?? ''),
-                }),
-            ));
-            const trace = await collectTrace(session);
-            const outcome = {
-                shown,
-                toasts,
-                gate: await readPdfPageRenderGate(session),
-                timeouts: trace.filter(entry => (
-                    entry.event === 'pdf-render-supervisor-watchdog'
-                    && entry.payload.cause === 'page-stage-timeout'
-                )).map(entry => (entry.payload.metadata as Record<string, unknown> | undefined)?.lane),
-                navigationExits: trace
-                    .filter(entry => entry.event === 'navigation-await-visual-exit')
-                    .map(entry => entry.payload.outcome),
-                ...await readViewerPageOutcome(session, 1),
-            };
-            await clickVisibleToolbarButton(session.page, 'Toggle Sidebar');
-            expect((await getWorkspaceToolbarSnapshot(session.page))?.showSidebar, JSON.stringify(outcome)).toBe(true);
-            await clickVisibleToolbarButton(session.page, 'Toggle Sidebar');
-            expect(shown, JSON.stringify(outcome)).toMatchObject({
-                feedback: 'error',
-                text: 'Unable to render this page',
-            });
-            expect(toasts.filter(toast => toast.buttons.includes('Retry')), JSON.stringify(outcome)).toHaveLength(1);
-            if (relayout) {
-                await session.command('windowResize', [
-                    960,
-                    672,
-                ]);
-                await waitForViewportQuiet(session.page);
-                await session.page.waitForFunction(() => (
-                    ((window as IPageRenderGateWindow).__evbHeldPageRenderGate?.pending ?? 0) > 0
-                ), {timeout: 10_000});
+                // L2, C4: the page says why it is blank, the failure is told once
+                // with a Retry, and the open is over: the document's controls work.
+                const shown = await waitForVisiblePageOutcome(session, 1, 10_000, true);
+                const toasts = await session.page.evaluate(() =>
+                    Array.from(document.querySelectorAll<HTMLElement>('.app-toast-failure'), (toast) => ({
+                        text: toast.innerText,
+                        buttons: Array.from(toast.querySelectorAll('button'), (button) => button.textContent?.trim() ?? ''),
+                    })),
+                );
+                const trace = await collectTrace(session);
+                const outcome = {
+                    shown,
+                    toasts,
+                    gate: await readPdfPageRenderGate(session),
+                    timeouts: trace
+                        .filter((entry) => entry.event === 'pdf-render-supervisor-watchdog' && entry.payload.cause === 'page-stage-timeout')
+                        .map((entry) => (entry.payload.metadata as Record<string, unknown> | undefined)?.lane),
+                    navigationExits: trace
+                        .filter((entry) => entry.event === 'navigation-await-visual-exit')
+                        .map((entry) => entry.payload.outcome),
+                    ...(await readViewerPageOutcome(session, 1)),
+                };
+                await clickVisibleToolbarButton(session.page, 'Toggle Sidebar');
+                expect((await getWorkspaceToolbarSnapshot(session.page))?.showSidebar, JSON.stringify(outcome)).toBe(true);
+                await clickVisibleToolbarButton(session.page, 'Toggle Sidebar');
+                expect(shown, JSON.stringify(outcome)).toMatchObject({
+                    feedback: 'error',
+                    text: 'Unable to render this page',
+                });
+                expect(
+                    toasts.filter((toast) => toast.buttons.includes('Retry')),
+                    JSON.stringify(outcome),
+                ).toHaveLength(1);
+                if (relayout) {
+                    await session.command('windowResize', [960, 672]);
+                    await waitForViewportQuiet(session.page);
+                    await session.page.waitForFunction(
+                        () => ((window as IPageRenderGateWindow).__evbHeldPageRenderGate?.pending ?? 0) > 0,
+                        {timeout: 10_000},
+                    );
+                }
+            } finally {
+                await openPdfPageRenderGate(session);
             }
-        } finally {
-            await openPdfPageRenderGate(session);
-        }
 
-        await clickFoundAsUser(session.page, () => Array.from(
-            document.querySelectorAll<HTMLButtonElement>('.app-toast-failure button'),
-        ).find(button => button.textContent?.trim() === 'Retry'), undefined, {description: 'page 1 Retry'});
-        const retryAt = Date.now();
-        const painted = await waitForVisiblePageCanvas(session, 1, relayout ? 10_000 : 15_000);
-        const retryOutcome = {
-            relayout,
-            elapsedMs: Date.now() - retryAt,
-            painted,
-            gate: await readPdfPageRenderGate(session),
-            ...await readViewerPageOutcome(session, 1),
-        };
-        const evidence = resolve(process.cwd(), '.devkit/rasterstall-r3');
-        mkdirSync(evidence, {recursive: true});
-        writeFileSync(resolve(evidence, `retry-${relayout}-${process.pid}.json`), JSON.stringify(retryOutcome, null, 2));
-        await session.page.screenshot({path: resolve(evidence, `retry-${relayout}-${process.pid}.png`)});
-        expect(painted, JSON.stringify(retryOutcome)).toBe(true);
-        await waitForScannedFixturePageIdentity(session.page, 1, 5_000);
-        // The open itself recovers: its viewport reaches ready on the page.
-        await session.page.waitForFunction(() => document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-viewer-chassis',
-        )?.dataset.viewportLifecycle === 'ready', {timeout: 10_000}).catch(() => undefined);
-        const recovered = await readViewerPageOutcome(session, 1);
-        expect(recovered, JSON.stringify(recovered)).toMatchObject({
-            viewportLifecycle: 'ready',
-            visualPage: '1',
-        });
-        expect(recovered.visualPresentation, JSON.stringify(recovered)).not.toBe('error');
-    }, 180_000);
+            await clickFoundAsUser(
+                session.page,
+                () =>
+                    Array.from(document.querySelectorAll<HTMLButtonElement>('.app-toast-failure button')).find(
+                        (button) => button.textContent?.trim() === 'Retry',
+                    ),
+                undefined,
+                {description: 'page 1 Retry'},
+            );
+            const retryAt = Date.now();
+            const painted = await waitForVisiblePageCanvas(session, 1, relayout ? 10_000 : 15_000);
+            const retryOutcome = {
+                relayout,
+                elapsedMs: Date.now() - retryAt,
+                painted,
+                gate: await readPdfPageRenderGate(session),
+                ...(await readViewerPageOutcome(session, 1)),
+            };
+            const evidence = resolve(process.cwd(), '.devkit/rasterstall-r3');
+            mkdirSync(evidence, {recursive: true});
+            writeFileSync(resolve(evidence, `retry-${relayout}-${process.pid}.json`), JSON.stringify(retryOutcome, null, 2));
+            await session.page.screenshot({path: resolve(evidence, `retry-${relayout}-${process.pid}.png`)});
+            expect(painted, JSON.stringify(retryOutcome)).toBe(true);
+            await waitForScannedFixturePageIdentity(session.page, 1, 5_000);
+            // The open itself recovers: its viewport reaches ready on the page.
+            await session.page
+                .waitForFunction(
+                    () =>
+                        document.querySelector<HTMLElement>(
+                            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-viewer-chassis',
+                        )?.dataset.viewportLifecycle === 'ready',
+                    {timeout: 10_000},
+                )
+                .catch(() => undefined);
+            const recovered = await readViewerPageOutcome(session, 1);
+            expect(recovered, JSON.stringify(recovered)).toMatchObject({
+                viewportLifecycle: 'ready',
+                visualPage: '1',
+            });
+            expect(recovered.visualPresentation, JSON.stringify(recovered)).not.toBe('error');
+        },
+        180_000,
+    );
 });
-
 
 describe('Electron E2E - failed prefetch feedback', () => {
     const fixture = createElectronE2ESessionFixture({
@@ -4258,16 +4445,20 @@ describe('Electron E2E - failed prefetch feedback', () => {
     it('offers Retry when ordinary scrolling reveals a failed buffered page', async () => {
         const session = fixture.getSession();
         const pdfPath = await createMultiPageTextFixturePdf(`failed-prefetch-${Date.now()}.pdf`, 40);
-        await session.page.waitForFunction(() => (
-            typeof (window as IPageRenderGateWindow).pdfjsLib?.getDocument === 'function'
-        ));
+        await session.page.waitForFunction(() => typeof (window as IPageRenderGateWindow).pdfjsLib?.getDocument === 'function');
         await session.page.evaluate(async () => {
             const pdfjs = (window as IPageRenderGateWindow).pdfjsLib;
-            if (!pdfjs) {throw new Error('PDF.js is not loaded');}
+            if (!pdfjs) {
+                throw new Error('PDF.js is not loaded');
+            }
             if (!pdfjs.GlobalWorkerOptions.workerSrc) {
                 pdfjs.GlobalWorkerOptions.workerSrc = new URL('/pdf/pdf.worker.min.mjs', document.baseURI).href;
             }
-            const task = pdfjs.getDocument({data: new TextEncoder().encode('%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 10 10]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF')});
+            const task = pdfjs.getDocument({
+                data: new TextEncoder().encode(
+                    '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 10 10]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF',
+                ),
+            });
             const probe = await (await task.promise).getPage(1);
             const prototype: Pick<IPdfPage, 'getViewport'> = Object.getPrototypeOf(probe);
             await task.destroy();
@@ -4276,47 +4467,84 @@ describe('Electron E2E - failed prefetch feedback', () => {
                 const viewport = original.call(this, options);
                 return this.pageNumber === 2 && options.scale !== 1
                     ? Object.assign(viewport, {
-                        width: Infinity,
-                        height: Infinity,
-                    })
+                          width: Infinity,
+                          height: Infinity,
+                      })
                     : viewport;
             };
-            Reflect.set(window, '__restorePrefetchViewport', () => {prototype.getViewport = original;});
+            Reflect.set(window, '__restorePrefetchViewport', () => {
+                prototype.getViewport = original;
+            });
         });
         try {
             await openPdfInApp(session.page, pdfPath, 45_000);
             expect(await waitForVisiblePageCanvas(session, 1, 10_000)).toBe(true);
-            await session.page.waitForFunction(() => document.querySelector('.page_container[data-page="2"] .pdf-page-render-error')?.textContent?.includes('Unable to render this page'), {timeout: 10_000});
-            expect(await session.page.evaluate(() => Array.from(document.querySelectorAll('.app-toast-failure button')).filter(button => button.textContent?.trim() === 'Retry').length)).toBe(0);
+            await session.page.waitForFunction(
+                () =>
+                    document
+                        .querySelector('.page_container[data-page="2"] .pdf-page-render-error')
+                        ?.textContent?.includes('Unable to render this page'),
+                {timeout: 10_000},
+            );
+            expect(
+                await session.page.evaluate(
+                    () =>
+                        Array.from(document.querySelectorAll('.app-toast-failure button')).filter(
+                            (button) => button.textContent?.trim() === 'Retry',
+                        ).length,
+                ),
+            ).toBe(0);
         } finally {
             await session.page.evaluate(() => {
                 const restore = Reflect.get(window, '__restorePrefetchViewport');
-                if (typeof restore === 'function') {restore();}
+                if (typeof restore === 'function') {
+                    restore();
+                }
             });
         }
         const delta = await session.page.evaluate(() => {
             const viewport = document.querySelector<HTMLElement>('.editor-pane.is-active #pdf-viewer');
             const page = document.querySelector<HTMLElement>('.editor-pane.is-active .page_container[data-page="2"]');
-            if (!viewport || !page) {throw new Error('Expected the buffered page near the viewport');}
+            if (!viewport || !page) {
+                throw new Error('Expected the buffered page near the viewport');
+            }
             return page.getBoundingClientRect().top - viewport.getBoundingClientRect().top - 10;
         });
         await wheelPdfViewportAndWaitForSettlement(session.page, delta);
-        await session.page.waitForFunction(() => (
-            Array.from(document.querySelectorAll('.app-toast-failure button')).filter(button => button.textContent?.trim() === 'Retry').length === 1
-        ), {timeout: 10_000});
-        await clickFoundAsUser(session.page, () => Array.from(
-            document.querySelectorAll<HTMLButtonElement>('.app-toast-failure button'),
-        ).find(button => button.textContent?.trim() === 'Retry'), undefined, {description: 'revealed page Retry'});
+        await session.page.waitForFunction(
+            () =>
+                Array.from(document.querySelectorAll('.app-toast-failure button')).filter(
+                    (button) => button.textContent?.trim() === 'Retry',
+                ).length === 1,
+            {timeout: 10_000},
+        );
+        await clickFoundAsUser(
+            session.page,
+            () =>
+                Array.from(document.querySelectorAll<HTMLButtonElement>('.app-toast-failure button')).find(
+                    (button) => button.textContent?.trim() === 'Retry',
+                ),
+            undefined,
+            {description: 'revealed page Retry'},
+        );
         expect(await waitForVisiblePageCanvas(session, 2, 10_000)).toBe(true);
-        await session.page.waitForFunction(() => document.querySelector('.page_container[data-page="2"] .text-layer')?.textContent?.includes('E2E Multi Page Fixture 2/40'), {timeout: 10_000});
+        await session.page.waitForFunction(
+            () =>
+                document.querySelector('.page_container[data-page="2"] .text-layer')?.textContent?.includes('E2E Multi Page Fixture 2/40'),
+            {timeout: 10_000},
+        );
         const pixels = await session.page.evaluate(() => {
             const canvas = document.querySelector<HTMLCanvasElement>('.page_container[data-page="2"] .page_canvas canvas');
             const context = canvas?.getContext('2d');
-            if (!canvas || !context) {throw new Error('Expected the recovered page canvas');}
+            if (!canvas || !context) {
+                throw new Error('Expected the recovered page canvas');
+            }
             const data = context.getImageData(0, 0, canvas.width, canvas.height).data;
             let ink = 0;
             for (let index = 0; index < data.length; index += 128) {
-                if (data[index + 3]! > 0 && Math.min(data[index]!, data[index + 1]!, data[index + 2]!) < 220) {ink += 1;}
+                if (data[index + 3]! > 0 && Math.min(data[index]!, data[index + 1]!, data[index + 2]!) < 220) {
+                    ink += 1;
+                }
             }
             return {
                 width: canvas.width,

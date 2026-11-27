@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {
     createBrowserStoreFileIdentity,
     isBrowserStoreFileIdentity,
@@ -57,8 +53,7 @@ describe('typed staged artifact contracts', () => {
         expect(isTypedStagedArtifact(artifact)).toBe(true);
         const parsed = v.parse(TYPED_STAGED_ARTIFACT_SCHEMA, artifact, {abortEarly: true});
         expect(parsed).toEqual(artifact);
-        expect(parsed.validations.qpdfResult?.warnings)
-            .toEqual(['object stream warning']);
+        expect(parsed.validations.qpdfResult?.warnings).toEqual(['object stream warning']);
     });
 
     it('accepts Windows identity with conservative validations', () => {
@@ -81,10 +76,7 @@ describe('typed staged artifact contracts', () => {
     });
 
     it('accepts an opaque POSIX native receipt without a reusable content hash', () => {
-        const {
-            sha256: _sha256,
-            ...artifact
-        } = createArtifact();
+        const {sha256: _sha256, ...artifact} = createArtifact();
         const opaqueArtifact = {
             ...artifact,
             receiptVersion: 2,
@@ -94,10 +86,7 @@ describe('typed staged artifact contracts', () => {
     });
 
     it('accepts an opaque Windows native receipt with NTFS identity', () => {
-        const {
-            sha256: _sha256,
-            ...artifact
-        } = {
+        const {sha256: _sha256, ...artifact} = {
             ...createArtifact(),
             fileIdentity: {
                 platform: 'win32' as const,
@@ -117,10 +106,7 @@ describe('typed staged artifact contracts', () => {
         const artifact = {
             ...createArtifact(),
             path: BROWSER_DOCUMENT_REF,
-            fileIdentity: createBrowserStoreFileIdentity(
-                BROWSER_DOCUMENT_REF,
-                BROWSER_REVISION,
-            ),
+            fileIdentity: createBrowserStoreFileIdentity(BROWSER_DOCUMENT_REF, BROWSER_REVISION),
             revision: BROWSER_REVISION,
         };
 
@@ -201,10 +187,7 @@ describe('typed staged artifact contracts', () => {
         const artifact = {
             ...createArtifact(),
             path: BROWSER_DOCUMENT_REF,
-            fileIdentity: createBrowserStoreFileIdentity(
-                BROWSER_DOCUMENT_REF,
-                BROWSER_REVISION,
-            ),
+            fileIdentity: createBrowserStoreFileIdentity(BROWSER_DOCUMENT_REF, BROWSER_REVISION),
             revision: null,
         };
 
@@ -213,30 +196,28 @@ describe('typed staged artifact contracts', () => {
     });
 
     it('does not permit a browser-store identity on an opaque native receipt', () => {
-        const {
-            sha256: _sha256,
-            ...artifact
-        } = {
+        const {sha256: _sha256, ...artifact} = {
             ...createArtifact(),
             path: BROWSER_DOCUMENT_REF,
-            fileIdentity: createBrowserStoreFileIdentity(
-                BROWSER_DOCUMENT_REF,
-                BROWSER_REVISION,
-            ),
+            fileIdentity: createBrowserStoreFileIdentity(BROWSER_DOCUMENT_REF, BROWSER_REVISION),
             revision: BROWSER_REVISION,
         };
 
-        expect(v.safeParse(TYPED_STAGED_ARTIFACT_SCHEMA, {
-            ...artifact,
-            receiptVersion: 2,
-        }, {abortEarly: true}).success).toBe(false);
+        expect(
+            v.safeParse(
+                TYPED_STAGED_ARTIFACT_SCHEMA,
+                {
+                    ...artifact,
+                    receiptVersion: 2,
+                },
+                {abortEarly: true},
+            ).success,
+        ).toBe(false);
     });
 
     it('rejects browser identity construction for non-browser refs', () => {
-        expect(() => createBrowserStoreFileIdentity(requireDocumentRef('/tmp/staged.pdf'), BROWSER_REVISION))
-            .toThrow(TypeError);
-        expect(() => createBrowserStoreFileIdentity(BROWSER_DOCUMENT_REF, ' ' as typeof BROWSER_REVISION))
-            .toThrow(TypeError);
+        expect(() => createBrowserStoreFileIdentity(requireDocumentRef('/tmp/staged.pdf'), BROWSER_REVISION)).toThrow(TypeError);
+        expect(() => createBrowserStoreFileIdentity(BROWSER_DOCUMENT_REF, ' ' as typeof BROWSER_REVISION)).toThrow(TypeError);
     });
 
     it.each([
@@ -246,67 +227,89 @@ describe('typed staged artifact contracts', () => {
         {sha256: 'not-a-digest'},
         {leaseId: ''},
         {revision: ' '},
-        {fileIdentity: {
-            platform: 'posix',
-            deviceId: '-1',
-            inode: '2',
-        }},
-        {fileIdentity: {
-            platform: 'win32',
-            volumeId: '',
-            fileId: '2',
-        }},
-        {validations: {
-            qpdfCheck: true,
-            tailCheck: false,
-            semanticCheck: false,
-            fsynced: false,
-        }},
-        {validations: {
-            qpdfCheck: false,
-            tailCheck: false,
-            semanticCheck: true,
-            fsynced: false,
-        }},
-        {validations: {
-            qpdfCheck: false,
-            tailCheck: false,
-            semanticCheck: false,
-            fsynced: false,
-            changedObjectRefsSha256: 'invalid',
-        }},
-        {validations: {
-            qpdfCheck: true,
-            tailCheck: false,
-            semanticCheck: false,
-            fsynced: false,
-            qpdfResult: {
-                isValid: true,
-                tool: 'native',
-                errors: [],
-                warnings: [],
+        {
+            fileIdentity: {
+                platform: 'posix',
+                deviceId: '-1',
+                inode: '2',
             },
-        }},
-        {validations: {
-            qpdfCheck: true,
-            tailCheck: false,
-            semanticCheck: false,
-            fsynced: false,
-            qpdfResult: {
-                isValid: false,
-                tool: 'qpdf',
-                errors: ['damaged'],
-                warnings: [],
+        },
+        {
+            fileIdentity: {
+                platform: 'win32',
+                volumeId: '',
+                fileId: '2',
             },
-        }},
+        },
+        {
+            validations: {
+                qpdfCheck: true,
+                tailCheck: false,
+                semanticCheck: false,
+                fsynced: false,
+            },
+        },
+        {
+            validations: {
+                qpdfCheck: false,
+                tailCheck: false,
+                semanticCheck: true,
+                fsynced: false,
+            },
+        },
+        {
+            validations: {
+                qpdfCheck: false,
+                tailCheck: false,
+                semanticCheck: false,
+                fsynced: false,
+                changedObjectRefsSha256: 'invalid',
+            },
+        },
+        {
+            validations: {
+                qpdfCheck: true,
+                tailCheck: false,
+                semanticCheck: false,
+                fsynced: false,
+                qpdfResult: {
+                    isValid: true,
+                    tool: 'native',
+                    errors: [],
+                    warnings: [],
+                },
+            },
+        },
+        {
+            validations: {
+                qpdfCheck: true,
+                tailCheck: false,
+                semanticCheck: false,
+                fsynced: false,
+                qpdfResult: {
+                    isValid: false,
+                    tool: 'qpdf',
+                    errors: ['damaged'],
+                    warnings: [],
+                },
+            },
+        },
     ])('rejects malformed receipt input %#', (override) => {
-        expect(v.safeParse(TYPED_STAGED_ARTIFACT_SCHEMA, {
-            ...createArtifact(),
-            ...override,
-        }, {abortEarly: true}).success).toBe(false);
-        expect(isTypedStagedArtifact({
-            ...createArtifact(),
-            ...override,
-        })).toBe(false);
+        expect(
+            v.safeParse(
+                TYPED_STAGED_ARTIFACT_SCHEMA,
+                {
+                    ...createArtifact(),
+                    ...override,
+                },
+                {abortEarly: true},
+            ).success,
+        ).toBe(false);
+        expect(
+            isTypedStagedArtifact({
+                ...createArtifact(),
+                ...override,
+            }),
+        ).toBe(false);
     });
 });

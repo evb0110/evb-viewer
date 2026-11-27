@@ -4,10 +4,7 @@ import {
     PDF_ANNOTATION_SHAPE_PDF_SUBTYPES,
     PDF_ANNOTATION_SHAPE_TYPES,
 } from '@contracts/annotations';
-import {
-    PDF_ANNOTATION_PARSE_MAX_ENTRIES,
-    PDF_ANNOTATION_PARSE_MAX_LINE_BYTES,
-} from '@contracts/pdfAnnotationParseTypes';
+import {PDF_ANNOTATION_PARSE_MAX_ENTRIES, PDF_ANNOTATION_PARSE_MAX_LINE_BYTES} from '@contracts/pdfAnnotationParseTypes';
 import type {TPageIndex} from '@contracts/pageNumbers';
 import {parseDocumentRevisionToken} from '@contracts/documentRevision';
 import {parseDocumentRef} from '@contracts/documentRef';
@@ -23,21 +20,20 @@ function finiteNumber(fieldName: string, min?: number, max?: number) {
     return v.pipe(
         v.number(message),
         v.finite(message),
-        v.check(value => (min === undefined || value >= min) && (max === undefined || value <= max), message),
+        v.check((value) => (min === undefined || value >= min) && (max === undefined || value <= max), message),
     );
 }
 
 function nonNegativeInteger(fieldName: string, message = `${fieldName} must be a non-negative safe integer`) {
-    return v.pipe(
-        v.number(message),
-        v.safeInteger(message),
-        v.minValue(0, message),
-    );
+    return v.pipe(v.number(message), v.safeInteger(message), v.minValue(0, message));
 }
 
 function nonEmptyString(fieldName: string, allowEmpty = false) {
     const message = `${fieldName} must be ${allowEmpty ? '' : 'a non-empty '}string`;
-    return v.pipe(v.string(message), v.check(value => allowEmpty || value.length > 0, message));
+    return v.pipe(
+        v.string(message),
+        v.check((value) => allowEmpty || value.length > 0, message),
+    );
 }
 
 function nullableString(fieldName: string, allowEmpty = true) {
@@ -51,38 +47,48 @@ function nullableString(fieldName: string, allowEmpty = true) {
  */
 function nullableTimestamp(fieldName: string) {
     const message = `${fieldName} must be a safe integer timestamp or null`;
-    return v.optional(v.nullable(v.pipe(
-        v.number(message),
-        v.safeInteger(message),
-        v.transform(value => (value < 0 ? null : value)),
-    )), null);
+    return v.optional(
+        v.nullable(
+            v.pipe(
+                v.number(message),
+                v.safeInteger(message),
+                v.transform((value) => (value < 0 ? null : value)),
+            ),
+        ),
+        null,
+    );
 }
 
-const pageIndexSchema = v.pipe(nonNegativeInteger('pageIndex'), v.transform(value => value as TPageIndex));
+const pageIndexSchema = v.pipe(
+    nonNegativeInteger('pageIndex'),
+    v.transform((value) => value as TPageIndex),
+);
 const documentRefSchema = v.pipe(
     v.string(),
-    v.check(value => parseDocumentRef(value) !== null, 'must be an absolute document reference'),
-    v.transform(value => parseDocumentRef(value)!),
+    v.check((value) => parseDocumentRef(value) !== null, 'must be an absolute document reference'),
+    v.transform((value) => parseDocumentRef(value)!),
 );
 const revisionTokenSchema = v.pipe(
     v.string(),
-    v.check(value => parseDocumentRevisionToken(value) !== null, 'must be a valid document revision token'),
-    v.transform(value => parseDocumentRevisionToken(value)!),
+    v.check((value) => parseDocumentRevisionToken(value) !== null, 'must be a valid document revision token'),
+    v.transform((value) => parseDocumentRevisionToken(value)!),
 );
-const noteReplySchema = v.strictObject({
-    objectNumber: nonNegativeInteger('annotation parse replies.objectNumber'),
-    generationNumber: nonNegativeInteger('annotation parse replies.generationNumber'),
-    contents: nonEmptyString('annotation parse replies.contents', true),
-    state: v.optional(v.nullable(nonEmptyString('annotation parse replies.state', true))),
-    stateModel: v.optional(v.nullable(nonEmptyString('annotation parse replies.stateModel', true))),
-    author: nullableString('annotation parse replies.author'),
-    createdAt: nullableTimestamp('annotation parse replies.createdAt'),
-    modifiedAt: nullableTimestamp('annotation parse replies.modifiedAt'),
-}, 'contains unsupported field');
+const noteReplySchema = v.strictObject(
+    {
+        objectNumber: nonNegativeInteger('annotation parse replies.objectNumber'),
+        generationNumber: nonNegativeInteger('annotation parse replies.generationNumber'),
+        contents: nonEmptyString('annotation parse replies.contents', true),
+        state: v.optional(v.nullable(nonEmptyString('annotation parse replies.state', true))),
+        stateModel: v.optional(v.nullable(nonEmptyString('annotation parse replies.stateModel', true))),
+        author: nullableString('annotation parse replies.author'),
+        createdAt: nullableTimestamp('annotation parse replies.createdAt'),
+        modifiedAt: nullableTimestamp('annotation parse replies.modifiedAt'),
+    },
+    'contains unsupported field',
+);
 const repliesSchema = v.pipe(
     v.unknown(),
-    v.check(value => Array.isArray(value) && value.length <= 4_096,
-        'annotation parse replies must contain at most 4096 replies'),
+    v.check((value) => Array.isArray(value) && value.length <= 4_096, 'annotation parse replies must contain at most 4096 replies'),
     v.array(noteReplySchema),
 );
 const parseIdentity = {
@@ -95,176 +101,218 @@ const parseIdentity = {
     modifiedAt: nullableTimestamp('modifiedAt'),
     replies: v.optional(repliesSchema),
 };
-const baseRectSchema = v.strictObject({
-    left: finiteNumber('rect.left'),
-    top: finiteNumber('rect.top'),
-    width: finiteNumber('rect.width', 0),
-    height: finiteNumber('rect.height', 0),
-}, 'contains unsupported field');
+const baseRectSchema = v.strictObject(
+    {
+        left: finiteNumber('rect.left'),
+        top: finiteNumber('rect.top'),
+        width: finiteNumber('rect.width', 0),
+        height: finiteNumber('rect.height', 0),
+    },
+    'contains unsupported field',
+);
 const markerRectSchema = v.pipe(
     baseRectSchema,
     v.check(isPdfNativeNormalizedRectInsidePageBounds, 'must be inside the normalized page bounds'),
 );
 const positiveRectSchema = v.pipe(
     baseRectSchema,
-    v.check(rect => rect.width > 0 && rect.height > 0, 'must have positive dimensions'),
+    v.check((rect) => rect.width > 0 && rect.height > 0, 'must have positive dimensions'),
 );
-const rgbColorSchema = (fieldName: string) => v.pipe(
-    nonEmptyString(fieldName),
-    v.check(value => /^#[0-9a-f]{6}$/iu.test(value), `${fieldName} must be an 8-bit RGB color`),
-    v.transform(value => value.toLowerCase()),
-);
+const rgbColorSchema = (fieldName: string) =>
+    v.pipe(
+        nonEmptyString(fieldName),
+        v.check((value) => /^#[0-9a-f]{6}$/iu.test(value), `${fieldName} must be an 8-bit RGB color`),
+        v.transform((value) => value.toLowerCase()),
+    );
 const sha256Schema = v.pipe(
     nonEmptyString('annotation parse stamp.image.sha256'),
-    v.check(value => SHA256_PATTERN.test(value), 'annotation parse stamp.image.sha256 must be a 64-character hexadecimal SHA-256 digest'),
-    v.transform(value => value.toLowerCase()),
+    v.check((value) => SHA256_PATTERN.test(value), 'annotation parse stamp.image.sha256 must be a 64-character hexadecimal SHA-256 digest'),
+    v.transform((value) => value.toLowerCase()),
 );
-const TEXT_BOX_ROTATIONS = [
-    0,
-    90,
-    180,
-    270,
-] as const;
-const rotationSchema = v.picklist(TEXT_BOX_ROTATIONS,
-    'annotation parse text-box.rotation must be 0, 90, 180, or 270');
-const pointSchema = v.strictObject({
-    x: finiteNumber('point.x'),
-    y: finiteNumber('point.y'),
-}, 'contains unsupported field');
+const TEXT_BOX_ROTATIONS = [0, 90, 180, 270] as const;
+const rotationSchema = v.picklist(TEXT_BOX_ROTATIONS, 'annotation parse text-box.rotation must be 0, 90, 180, or 270');
+const pointSchema = v.strictObject(
+    {
+        x: finiteNumber('point.x'),
+        y: finiteNumber('point.y'),
+    },
+    'contains unsupported field',
+);
 type TPoint = v.InferOutput<typeof pointSchema>;
 const boundedPointsSchema = v.pipe(
     v.unknown(),
-    v.check(value => Array.isArray(value) && value.length <= 40_000, 'annotation parse points is too large'),
+    v.check((value) => Array.isArray(value) && value.length <= 40_000, 'annotation parse points is too large'),
     v.array(pointSchema),
 );
 const pointsSchema = v.optional(v.nullable(boundedPointsSchema), null);
 const strokeSchema = v.pipe(
-    v.optional(v.nullable(v.pipe(
-        v.unknown(),
-        v.check(value => Array.isArray(value) && value.length <= 40_000,
-            'annotation parse shape.strokes is too large'),
-        v.array(pointSchema),
-    )), null),
+    v.optional(
+        v.nullable(
+            v.pipe(
+                v.unknown(),
+                v.check((value) => Array.isArray(value) && value.length <= 40_000, 'annotation parse shape.strokes is too large'),
+                v.array(pointSchema),
+            ),
+        ),
+        null,
+    ),
     v.transform((value): TPoint[] => value ?? []),
 );
 
 const frameInset = finiteNumber('annotation parse text-box.frame.insets', 0);
 const textBoxSchema = v.pipe(
-    v.strictObject({
-        kind: v.literal('text-box'),
-        source: v.optional(PDF_NATIVE_TEXT_BOX_SOURCE_DESCRIPTOR_SCHEMA),
-        recoveryData: v.optional(v.pipe(v.string(), v.check(value => value.length <= 2 * 1024 * 1024 && value.length % 2 === 0 && /^[0-9a-f]+$/u.test(value), 'must be a bounded native recovery graph'))),
-        ...parseIdentity,
-        text: nonEmptyString('annotation parse text-box.text', true),
-        rect: baseRectSchema,
-        rotation: rotationSchema,
-        fontSize: finiteNumber('annotation parse text-box.fontSize', Number.MIN_VALUE, 512),
-        color: rgbColorSchema('annotation parse text-box.color'),
-        // Insets are /RD's top, right, bottom and left, in PDF points.
-        frame: v.optional(v.strictObject({
-            insets: v.strictTuple([
-                frameInset,
-                frameInset,
-                frameInset,
-                frameInset,
-            ]),
-            borderWidth: finiteNumber('annotation parse text-box.frame.borderWidth', 0),
-            borderColor: v.nullable(rgbColorSchema('annotation parse text-box.frame.borderColor')),
-            background: v.nullable(rgbColorSchema('annotation parse text-box.frame.background')),
-        }, 'contains unsupported field')),
-        // A label whose border style the editor cannot draw: selectable, never edited.
-        readOnly: v.optional(v.literal(true)),
-    }, 'contains unsupported field'),
-    v.check(({
-        rect, rotation,
-    }) => {
-        if (rotation % 180 === 0) {return isPdfNativeNormalizedRectInsidePageBounds(rect);}
+    v.strictObject(
+        {
+            kind: v.literal('text-box'),
+            source: v.optional(PDF_NATIVE_TEXT_BOX_SOURCE_DESCRIPTOR_SCHEMA),
+            recoveryData: v.optional(
+                v.pipe(
+                    v.string(),
+                    v.check(
+                        (value) => value.length <= 2 * 1024 * 1024 && value.length % 2 === 0 && /^[0-9a-f]+$/u.test(value),
+                        'must be a bounded native recovery graph',
+                    ),
+                ),
+            ),
+            ...parseIdentity,
+            text: nonEmptyString('annotation parse text-box.text', true),
+            rect: baseRectSchema,
+            rotation: rotationSchema,
+            fontSize: finiteNumber('annotation parse text-box.fontSize', Number.MIN_VALUE, 512),
+            color: rgbColorSchema('annotation parse text-box.color'),
+            // Insets are /RD's top, right, bottom and left, in PDF points.
+            frame: v.optional(
+                v.strictObject(
+                    {
+                        insets: v.strictTuple([frameInset, frameInset, frameInset, frameInset]),
+                        borderWidth: finiteNumber('annotation parse text-box.frame.borderWidth', 0),
+                        borderColor: v.nullable(rgbColorSchema('annotation parse text-box.frame.borderColor')),
+                        background: v.nullable(rgbColorSchema('annotation parse text-box.frame.background')),
+                    },
+                    'contains unsupported field',
+                ),
+            ),
+            // A label whose border style the editor cannot draw: selectable, never edited.
+            readOnly: v.optional(v.literal(true)),
+        },
+        'contains unsupported field',
+    ),
+    v.check(({rect, rotation}) => {
+        if (rotation % 180 === 0) {
+            return isPdfNativeNormalizedRectInsidePageBounds(rect);
+        }
         const centerX = rect.left + rect.width / 2;
         const centerY = rect.top + rect.height / 2;
         const availableArea = 4 * Math.min(centerX, 1 - centerX) * Math.min(centerY, 1 - centerY);
-        return centerX >= 0 && centerX <= 1 && centerY >= 0 && centerY <= 1
-            && rect.width * rect.height <= availableArea + 1e-7;
+        return centerX >= 0 && centerX <= 1 && centerY >= 0 && centerY <= 1 && rect.width * rect.height <= availableArea + 1e-7;
     }, 'annotation parse text-box.rect cannot fit inside the normalized page bounds after rotation'),
 );
-const noteSchema = v.strictObject({
-    kind: v.literal('note'),
-    ...parseIdentity,
-    recoveryData: v.optional(v.pipe(
-        v.string(),
-        v.check(value => value.length <= 2 * 1024 * 1024 && value.length % 2 === 0 && /^[0-9a-f]+$/u.test(value),
-            'annotation parse note.recoveryData must be a bounded native recovery graph'),
-    )),
-    position: markerRectSchema,
-    contents: nonEmptyString('annotation parse note.contents', true),
-    color: v.optional(v.nullable(rgbColorSchema('annotation parse note.color')), null),
-    open: v.boolean('annotation parse note.open must be a boolean'),
-    replies: repliesSchema,
-}, 'contains unsupported field');
-const highlightSchema = v.strictObject({
-    kind: v.literal('highlight'),
-    ...parseIdentity,
-    subtype: v.picklist(PDF_ANNOTATION_MARKUP_SUBTYPES, 'annotation parse highlight.subtype is unsupported'),
-    quadPoints: v.pipe(
-        v.unknown(),
-        v.check(value => Array.isArray(value) && value.length <= 512,
-            'annotation parse highlight.quadPoints must contain at most 512 rectangles'),
-        v.array(markerRectSchema),
-    ),
-    color: rgbColorSchema('annotation parse highlight.color'),
-    opacity: finiteNumber('annotation parse highlight.opacity', 0, 1),
-    contents: nonEmptyString('annotation parse highlight.contents', true),
-}, 'contains unsupported field');
-const stampImageSchema = v.strictObject({
-    objectNumber: nonNegativeInteger('annotation parse stamp.image.objectNumber'),
-    generationNumber: nonNegativeInteger('annotation parse stamp.image.generationNumber'),
-    byteLength: nonNegativeInteger('annotation parse stamp.image.byteLength'),
-    sha256: sha256Schema,
-}, 'contains unsupported field');
-const stampSchema = v.strictObject({
-    kind: v.literal('stamp'),
-    ...parseIdentity,
-    rect: positiveRectSchema,
-    rotation: finiteNumber('annotation parse stamp.rotation'),
-    image: stampImageSchema,
-}, 'contains unsupported field');
-const optionalShapeEnum = <T extends readonly string[]>(values: T, fieldName: string) => v.pipe(
-    v.optional(v.nullable(v.picklist(values, `annotation parse shape.${fieldName} is unsupported`)), null),
+const noteSchema = v.strictObject(
+    {
+        kind: v.literal('note'),
+        ...parseIdentity,
+        recoveryData: v.optional(
+            v.pipe(
+                v.string(),
+                v.check(
+                    (value) => value.length <= 2 * 1024 * 1024 && value.length % 2 === 0 && /^[0-9a-f]+$/u.test(value),
+                    'annotation parse note.recoveryData must be a bounded native recovery graph',
+                ),
+            ),
+        ),
+        position: markerRectSchema,
+        contents: nonEmptyString('annotation parse note.contents', true),
+        color: v.optional(v.nullable(rgbColorSchema('annotation parse note.color')), null),
+        open: v.boolean('annotation parse note.open must be a boolean'),
+        replies: repliesSchema,
+    },
+    'contains unsupported field',
 );
-const shapeSchema = v.strictObject({
-    kind: v.literal('shape'),
-    ...parseIdentity,
-    stableKey: nullableString('annotation parse shape.stableKey'),
-    pdfSubtype: v.picklist(PDF_ANNOTATION_SHAPE_PDF_SUBTYPES, 'annotation parse shape.pdfSubtype is unsupported'),
-    type: v.picklist(PDF_ANNOTATION_SHAPE_TYPES, 'annotation parse shape.type is unsupported'),
-    x: finiteNumber('annotation parse shape.x'),
-    y: finiteNumber('annotation parse shape.y'),
-    width: finiteNumber('annotation parse shape.width', 0),
-    height: finiteNumber('annotation parse shape.height', 0),
-    x2: v.optional(v.nullable(finiteNumber('annotation parse shape.x2')), null),
-    y2: v.optional(v.nullable(finiteNumber('annotation parse shape.y2')), null),
-    color: rgbColorSchema('annotation parse shape.color'),
-    fillColor: v.optional(v.nullable(rgbColorSchema('annotation parse shape.fillColor')), null),
-    opacity: finiteNumber('annotation parse shape.opacity', 0, 1),
-    strokeWidth: finiteNumber('annotation parse shape.strokeWidth', 0),
-    points: pointsSchema,
-    strokes: v.optional(v.nullable(v.pipe(
-        v.unknown(),
-        v.check(value => Array.isArray(value) && value.length <= 4_096,
-            'annotation parse shape.strokes is too large'),
-        v.array(strokeSchema),
-    )), null),
-    lineStartStyle: optionalShapeEnum(PDF_ANNOTATION_LINE_END_STYLES, 'lineStartStyle'),
-    lineEndStyle: optionalShapeEnum(PDF_ANNOTATION_LINE_END_STYLES, 'lineEndStyle'),
-}, 'contains unsupported field');
-const foreignSchema = v.strictObject({
-    kind: v.literal('foreign'),
-    pageIndex: pageIndexSchema,
-    objectNumber: nonNegativeInteger('annotation parse foreign.objectNumber'),
-    generationNumber: nonNegativeInteger('annotation parse foreign.generationNumber'),
-    name: nonEmptyString('annotation parse foreign.name'),
-    subtype: nonEmptyString('annotation parse foreign.subtype'),
-    reason: nonEmptyString('annotation parse foreign.reason'),
-}, 'contains unsupported field');
+const highlightSchema = v.strictObject(
+    {
+        kind: v.literal('highlight'),
+        ...parseIdentity,
+        subtype: v.picklist(PDF_ANNOTATION_MARKUP_SUBTYPES, 'annotation parse highlight.subtype is unsupported'),
+        quadPoints: v.pipe(
+            v.unknown(),
+            v.check(
+                (value) => Array.isArray(value) && value.length <= 512,
+                'annotation parse highlight.quadPoints must contain at most 512 rectangles',
+            ),
+            v.array(markerRectSchema),
+        ),
+        color: rgbColorSchema('annotation parse highlight.color'),
+        opacity: finiteNumber('annotation parse highlight.opacity', 0, 1),
+        contents: nonEmptyString('annotation parse highlight.contents', true),
+    },
+    'contains unsupported field',
+);
+const stampImageSchema = v.strictObject(
+    {
+        objectNumber: nonNegativeInteger('annotation parse stamp.image.objectNumber'),
+        generationNumber: nonNegativeInteger('annotation parse stamp.image.generationNumber'),
+        byteLength: nonNegativeInteger('annotation parse stamp.image.byteLength'),
+        sha256: sha256Schema,
+    },
+    'contains unsupported field',
+);
+const stampSchema = v.strictObject(
+    {
+        kind: v.literal('stamp'),
+        ...parseIdentity,
+        rect: positiveRectSchema,
+        rotation: finiteNumber('annotation parse stamp.rotation'),
+        image: stampImageSchema,
+    },
+    'contains unsupported field',
+);
+const optionalShapeEnum = <T extends readonly string[]>(values: T, fieldName: string) =>
+    v.pipe(v.optional(v.nullable(v.picklist(values, `annotation parse shape.${fieldName} is unsupported`)), null));
+const shapeSchema = v.strictObject(
+    {
+        kind: v.literal('shape'),
+        ...parseIdentity,
+        stableKey: nullableString('annotation parse shape.stableKey'),
+        pdfSubtype: v.picklist(PDF_ANNOTATION_SHAPE_PDF_SUBTYPES, 'annotation parse shape.pdfSubtype is unsupported'),
+        type: v.picklist(PDF_ANNOTATION_SHAPE_TYPES, 'annotation parse shape.type is unsupported'),
+        x: finiteNumber('annotation parse shape.x'),
+        y: finiteNumber('annotation parse shape.y'),
+        width: finiteNumber('annotation parse shape.width', 0),
+        height: finiteNumber('annotation parse shape.height', 0),
+        x2: v.optional(v.nullable(finiteNumber('annotation parse shape.x2')), null),
+        y2: v.optional(v.nullable(finiteNumber('annotation parse shape.y2')), null),
+        color: rgbColorSchema('annotation parse shape.color'),
+        fillColor: v.optional(v.nullable(rgbColorSchema('annotation parse shape.fillColor')), null),
+        opacity: finiteNumber('annotation parse shape.opacity', 0, 1),
+        strokeWidth: finiteNumber('annotation parse shape.strokeWidth', 0),
+        points: pointsSchema,
+        strokes: v.optional(
+            v.nullable(
+                v.pipe(
+                    v.unknown(),
+                    v.check((value) => Array.isArray(value) && value.length <= 4_096, 'annotation parse shape.strokes is too large'),
+                    v.array(strokeSchema),
+                ),
+            ),
+            null,
+        ),
+        lineStartStyle: optionalShapeEnum(PDF_ANNOTATION_LINE_END_STYLES, 'lineStartStyle'),
+        lineEndStyle: optionalShapeEnum(PDF_ANNOTATION_LINE_END_STYLES, 'lineEndStyle'),
+    },
+    'contains unsupported field',
+);
+const foreignSchema = v.strictObject(
+    {
+        kind: v.literal('foreign'),
+        pageIndex: pageIndexSchema,
+        objectNumber: nonNegativeInteger('annotation parse foreign.objectNumber'),
+        generationNumber: nonNegativeInteger('annotation parse foreign.generationNumber'),
+        name: nonEmptyString('annotation parse foreign.name'),
+        subtype: nonEmptyString('annotation parse foreign.subtype'),
+        reason: nonEmptyString('annotation parse foreign.reason'),
+    },
+    'contains unsupported field',
+);
 
 export const PDF_ANNOTATION_PARSE_ENTRY_SCHEMA = v.variant('kind', [
     textBoxSchema,
@@ -274,13 +322,7 @@ export const PDF_ANNOTATION_PARSE_ENTRY_SCHEMA = v.variant('kind', [
     shapeSchema,
     foreignSchema,
 ]);
-export const PDF_ANNOTATION_PARSE_ENTITY_SCHEMA = v.variant('kind', [
-    textBoxSchema,
-    noteSchema,
-    highlightSchema,
-    stampSchema,
-    shapeSchema,
-]);
+export const PDF_ANNOTATION_PARSE_ENTITY_SCHEMA = v.variant('kind', [textBoxSchema, noteSchema, highlightSchema, stampSchema, shapeSchema]);
 export const PDF_ANNOTATION_PARSE_FOREIGN_SCHEMA = foreignSchema;
 export const PDF_ANNOTATION_PARSE_MAX_PAGE_INDICES = 4_096;
 const pageIndicesSchema = v.pipe(
@@ -288,52 +330,53 @@ const pageIndicesSchema = v.pipe(
     v.minLength(1, 'annotation parse pageIndices must not be empty'),
     v.maxLength(PDF_ANNOTATION_PARSE_MAX_PAGE_INDICES, 'annotation parse pageIndices exceeds its ceiling'),
     v.check(
-        indices => indices.every((index, position) => position === 0 || index > indices[position - 1]!),
+        (indices) => indices.every((index, position) => position === 0 || index > indices[position - 1]!),
         'annotation parse pageIndices must ascend without repeats',
     ),
 );
 export {pageIndicesSchema as PDF_ANNOTATION_PARSE_PAGE_INDICES_SCHEMA};
 export const PDF_ANNOTATION_PARSE_OPTIONS_SCHEMA = v.pipe(
     v.unknown(),
-    v.check(value => isRecord(value) && typeof value.expectedDocumentRevisionToken === 'string',
-        'invalid document revision options'),
+    v.check((value) => isRecord(value) && typeof value.expectedDocumentRevisionToken === 'string', 'invalid document revision options'),
     v.object({
         expectedDocumentRevisionToken: revisionTokenSchema,
-        changedObjectRefs: v.optional(v.pipe(
-            v.unknown(),
-            v.check(value => Array.isArray(value) && value.length <= 128,
-                'invalid changed PDF object references'),
-            v.array(v.pipe(
-                v.string(),
-                v.regex(/^\d+\s+\d+\s+R$/u, 'invalid changed PDF object references'),
-            )),
-        )),
+        changedObjectRefs: v.optional(
+            v.pipe(
+                v.unknown(),
+                v.check((value) => Array.isArray(value) && value.length <= 128, 'invalid changed PDF object references'),
+                v.array(v.pipe(v.string(), v.regex(/^\d+\s+\d+\s+R$/u, 'invalid changed PDF object references'))),
+            ),
+        ),
         workingCopyOnly: v.optional(v.literal(true)),
         pageIndices: v.optional(pageIndicesSchema),
     }),
-    v.transform(({
-        expectedDocumentRevisionToken, pageIndices,
-    }) => ({
+    v.transform(({expectedDocumentRevisionToken, pageIndices}) => ({
         expectedDocumentRevisionToken,
         ...(pageIndices === undefined ? {} : {pageIndices}),
     })),
 );
 
-const parseResultShapeSchema = v.strictObject({
-    documentRevisionToken: revisionTokenSchema,
-    pageCount: nonNegativeInteger('annotation parse result pageCount'),
-    /** Present when the parse read only these pages. */
-    pageIndices: v.optional(pageIndicesSchema),
-    entities: v.pipe(v.array(PDF_ANNOTATION_PARSE_ENTITY_SCHEMA), v.maxLength(PDF_ANNOTATION_PARSE_MAX_ENTRIES)),
-    foreign: v.pipe(v.array(foreignSchema), v.maxLength(PDF_ANNOTATION_PARSE_MAX_ENTRIES)),
-}, 'contains unsupported field');
+const parseResultShapeSchema = v.strictObject(
+    {
+        documentRevisionToken: revisionTokenSchema,
+        pageCount: nonNegativeInteger('annotation parse result pageCount'),
+        /** Present when the parse read only these pages. */
+        pageIndices: v.optional(pageIndicesSchema),
+        entities: v.pipe(v.array(PDF_ANNOTATION_PARSE_ENTITY_SCHEMA), v.maxLength(PDF_ANNOTATION_PARSE_MAX_ENTRIES)),
+        foreign: v.pipe(v.array(foreignSchema), v.maxLength(PDF_ANNOTATION_PARSE_MAX_ENTRIES)),
+    },
+    'contains unsupported field',
+);
 export const PDF_ANNOTATION_PARSE_RESULT_SCHEMA = v.pipe(
     v.unknown(),
-    v.check(value => isRecord(value)
-        && Array.isArray(value.entities)
-        && Array.isArray(value.foreign)
-        && value.entities.length + value.foreign.length <= PDF_ANNOTATION_PARSE_MAX_ENTRIES,
-    `annotation parse result contains more than ${PDF_ANNOTATION_PARSE_MAX_ENTRIES} entries`),
+    v.check(
+        (value) =>
+            isRecord(value) &&
+            Array.isArray(value.entities) &&
+            Array.isArray(value.foreign) &&
+            value.entities.length + value.foreign.length <= PDF_ANNOTATION_PARSE_MAX_ENTRIES,
+        `annotation parse result contains more than ${PDF_ANNOTATION_PARSE_MAX_ENTRIES} entries`,
+    ),
     parseResultShapeSchema,
 );
 
@@ -352,15 +395,9 @@ export type IPdfAnnotationParsePoint = v.InferOutput<typeof pointSchema>;
 export type IPdfAnnotationShapeEntry = v.InferOutput<typeof shapeSchema>;
 
 const pdfAnnotationParseResult = PDF_ANNOTATION_PARSE_RESULT_SCHEMA;
-const parsePdfAnnotationsArgs = v.strictTuple([
-    documentRefSchema,
-    PDF_ANNOTATION_PARSE_OPTIONS_SCHEMA,
-]);
+const parsePdfAnnotationsArgs = v.strictTuple([documentRefSchema, PDF_ANNOTATION_PARSE_OPTIONS_SCHEMA]);
 
-export {
-    pdfAnnotationParseResult,
-    parsePdfAnnotationsArgs,
-};
+export {pdfAnnotationParseResult, parsePdfAnnotationsArgs};
 
 /** The first line of `evb-pdf-page-ops parse-annotations` JSONL output. */
 export const PDF_ANNOTATION_PARSE_SIDECAR_HEADER_SCHEMA = v.strictObject({

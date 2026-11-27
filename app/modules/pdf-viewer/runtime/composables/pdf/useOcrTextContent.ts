@@ -1,16 +1,13 @@
-import type { TPageNumber } from '@contracts/pageNumbers';
-import type { IPdfViewport } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import type { IPdfRawDims } from '@app/types/pdfUi';
-import type { IOcrWord } from '@contracts/shared';
-import { isRtlOcrLanguage } from '@contracts/ocrLanguages';
-import { resolveDocxParagraphDirection } from '@app/utils/docxStreaming';
-import type { IDocumentTextCatalogPage } from '@contracts/documentTextCatalog';
-import {
-    buildOcrTextLayerItemText,
-    isLastOcrWordInLine,
-} from '@contracts/ocrText';
+import type {TPageNumber} from '@contracts/pageNumbers';
+import type {IPdfViewport} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {TDocumentRevisionToken} from '@contracts/documentRevision';
+import type {IPdfRawDims} from '@app/types/pdfUi';
+import type {IOcrWord} from '@contracts/shared';
+import {isRtlOcrLanguage} from '@contracts/ocrLanguages';
+import {resolveDocxParagraphDirection} from '@app/utils/docxStreaming';
+import type {IDocumentTextCatalogPage} from '@contracts/documentTextCatalog';
+import {buildOcrTextLayerItemText, isLastOcrWordInLine} from '@contracts/ocrText';
 import {
     clearSharedDocumentTextCatalog,
     hasSharedDocumentOcrPage,
@@ -23,7 +20,7 @@ type TOcrTextDirection = 'ltr' | 'rtl';
 const SERVER_ASCENT_RATIO_FALLBACK = 0.8;
 
 function normalizeWordsToLineHeights(words: readonly IOcrWord[]): IOcrWord[] {
-    const normalizedWords = words.map(word => ({ ...word }));
+    const normalizedWords = words.map((word) => ({...word}));
     if (normalizedWords.length <= 1) {
         return normalizedWords;
     }
@@ -44,8 +41,8 @@ function normalizeWordsToLineHeights(words: readonly IOcrWord[]): IOcrWord[] {
         }
 
         const lineWords = normalizedWords.slice(lineStartIndex, lineEndIndex + 1);
-        const lineTop = Math.min(...lineWords.map(word => word.y));
-        const lineBottom = Math.max(...lineWords.map(word => word.y + word.height));
+        const lineTop = Math.min(...lineWords.map((word) => word.y));
+        const lineBottom = Math.max(...lineWords.map((word) => word.y + word.height));
         const lineHeight = lineBottom - lineTop;
 
         if (!Number.isFinite(lineTop) || !Number.isFinite(lineHeight) || lineHeight <= 0) {
@@ -137,7 +134,7 @@ export const useOcrTextContent = () => {
         textDir: TOcrTextDirection,
         ascentRatio: number,
     ) {
-        const { render } = ocrPage;
+        const {render} = ocrPage;
         if (!render) {
             throw new Error(`EVB OCR catalog page ${ocrPage.pageNumber} is missing render geometry`);
         }
@@ -178,14 +175,7 @@ export const useOcrTextContent = () => {
         return {
             str: buildOcrTextLayerItemText(word),
             dir: textDir,
-            transform: [
-                pdfH,
-                0,
-                0,
-                pdfH,
-                pdfX,
-                baselineY,
-            ],
+            transform: [pdfH, 0, 0, pdfH, pdfX, baselineY],
             width: pdfW,
             height: pdfH,
             fontName: 'ocr-sans',
@@ -210,11 +200,7 @@ export const useOcrTextContent = () => {
         if (peekSharedDocumentOcrPageAvailability(workingCopyPath, documentRevisionToken, pageNumber) === false) {
             return null;
         }
-        const pageData = await loadSharedDocumentOcrPage(
-            workingCopyPath,
-            documentRevisionToken,
-            pageNumber,
-        );
+        const pageData = await loadSharedDocumentOcrPage(workingCopyPath, documentRevisionToken, pageNumber);
         if (!pageData?.render || !pageData.words?.length) {
             return null;
         }
@@ -239,12 +225,14 @@ export const useOcrTextContent = () => {
 
         return {
             items,
-            styles: {'ocr-sans': {
-                fontFamily: 'sans-serif',
-                ascent: ascentRatio,
-                descent: 1 - ascentRatio,
-                vertical: false,
-            }},
+            styles: {
+                'ocr-sans': {
+                    fontFamily: 'sans-serif',
+                    ascent: ascentRatio,
+                    descent: 1 - ascentRatio,
+                    vertical: false,
+                },
+            },
             lang: pageData.languages?.[0] ?? null,
         };
     }
@@ -255,10 +243,7 @@ export const useOcrTextContent = () => {
      * @param workingCopyPath - Path to the PDF working copy
      * @returns True if OCR manifest exists
      */
-    async function hasOcrData(
-        workingCopyPath: TDocumentRef,
-        documentRevisionToken: TDocumentRevisionToken,
-    ) {
+    async function hasOcrData(workingCopyPath: TDocumentRef, documentRevisionToken: TDocumentRevisionToken) {
         const availability = await loadSharedDocumentOcrAvailability(workingCopyPath, documentRevisionToken);
         if (!availability) {
             return false;
@@ -266,19 +251,14 @@ export const useOcrTextContent = () => {
         if (availability.mappedPageCount !== undefined) {
             return availability.mappedPageCount > 0;
         }
-        return (availability.pageNumbers?.length ?? 0) > 0
-            || (availability.pageRanges?.length ?? 0) > 0;
+        return (availability.pageNumbers?.length ?? 0) > 0 || (availability.pageRanges?.length ?? 0) > 0;
     }
 
     /**
      * Synchronous check against cached OCR availability for a specific page.
      * Returns `null` when availability has not been resolved yet or requires probing.
      */
-    function peekPageOcrData(
-        workingCopyPath: TDocumentRef,
-        documentRevisionToken: TDocumentRevisionToken,
-        pageNumber: TPageNumber,
-    ) {
+    function peekPageOcrData(workingCopyPath: TDocumentRef, documentRevisionToken: TDocumentRevisionToken, pageNumber: TPageNumber) {
         return peekSharedDocumentOcrPageAvailability(workingCopyPath, documentRevisionToken, pageNumber);
     }
 
@@ -289,11 +269,7 @@ export const useOcrTextContent = () => {
      * @param pageNumber - 1-based page number
      * @returns True if the page is in the OCR manifest
      */
-    async function hasPageOcrData(
-        workingCopyPath: TDocumentRef,
-        documentRevisionToken: TDocumentRevisionToken,
-        pageNumber: TPageNumber,
-    ) {
+    async function hasPageOcrData(workingCopyPath: TDocumentRef, documentRevisionToken: TDocumentRevisionToken, pageNumber: TPageNumber) {
         return hasSharedDocumentOcrPage(workingCopyPath, documentRevisionToken, pageNumber);
     }
 

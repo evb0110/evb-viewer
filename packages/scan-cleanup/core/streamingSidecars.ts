@@ -1,24 +1,13 @@
 import {createReadStream} from 'fs';
-import {
-    copyFile,
-    open,
-    writeFile,
-} from 'fs/promises';
+import {copyFile, open, writeFile} from 'fs/promises';
 import {join} from 'path';
 import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
 import {getErrorMessage} from '@contracts/getErrorMessage';
 import {SCAN_CLEANUP_ASSEMBLY_STEP_TIMEOUT_MS} from '@evb/scan-cleanup/core/assembleCompactScanCleanupPages';
 import type {IScanCleanupTextLayerInstruction} from '@evb/scan-cleanup/core/compactManifest';
 import {ScanCleanupStreamingEvidenceError} from '@evb/scan-cleanup/core/errors';
-import {
-    inspectScanCleanupSourceTextOmission,
-    type IScanCleanupTextLayerPlan,
-} from '@evb/scan-cleanup/core/sourceTextLayer';
-import type {
-    IRunScanCleanupPipelineDependencies,
-    TScanCleanupLog,
-    TScanCleanupRunCommand,
-} from '@evb/scan-cleanup/core/types';
+import {inspectScanCleanupSourceTextOmission, type IScanCleanupTextLayerPlan} from '@evb/scan-cleanup/core/sourceTextLayer';
+import type {IRunScanCleanupPipelineDependencies, TScanCleanupLog, TScanCleanupRunCommand} from '@evb/scan-cleanup/core/types';
 import type {TScanCleanupSummary} from '@contracts/scan-cleanup/electronApiScanCleanup';
 
 type TJsonlFileHandle = Awaited<ReturnType<typeof open>>;
@@ -43,12 +32,7 @@ export async function* readJsonLines<T>(path: string, signal?: AbortSignal): Asy
     try {
         for await (const chunk of stream) {
             signal?.throwIfAborted();
-            pending = pending.length === 0
-                ? Buffer.from(chunk as Uint8Array)
-                : Buffer.concat([
-                    pending,
-                    Buffer.from(chunk as Uint8Array),
-                ]);
+            pending = pending.length === 0 ? Buffer.from(chunk as Uint8Array) : Buffer.concat([pending, Buffer.from(chunk as Uint8Array)]);
             if (pending.length > STREAMING_JSONL_MAX_LINE_BYTES) {
                 throw new Error(`Scan cleanup JSONL record exceeds ${String(STREAMING_JSONL_MAX_LINE_BYTES)} bytes`);
             }
@@ -66,7 +50,9 @@ export async function* readJsonLines<T>(path: string, signal?: AbortSignal): Asy
         signal?.throwIfAborted();
         if (pending.length > 0) {
             const line = pending.toString('utf8').trim();
-            if (line.length > 0) {yield JSON.parse(line) as T;}
+            if (line.length > 0) {
+                yield JSON.parse(line) as T;
+            }
         }
     } finally {
         stream.destroy();
@@ -108,17 +94,8 @@ async function mergeScanCleanupPdfPathSidecarUnchecked({
                 return;
             }
             signal.throwIfAborted();
-            const mergedPath = join(
-                scratch,
-                `scan-cleanup-merge-${String(level)}-${String(groupIndex)}.pdf`,
-            );
-            const qpdfArgs = [
-                '--empty',
-                '--pages',
-                ...group,
-                '--',
-                mergedPath,
-            ];
+            const mergedPath = join(scratch, `scan-cleanup-merge-${String(level)}-${String(groupIndex)}.pdf`);
+            const qpdfArgs = ['--empty', '--pages', ...group, '--', mergedPath];
             await runCommand(qpdfBinary, qpdfArgs, {
                 signal,
                 commandLabel: 'qpdf(scan-cleanup:merge-bounded-batches)',
@@ -146,9 +123,7 @@ async function mergeScanCleanupPdfPathSidecarUnchecked({
             await nextHandle.close();
         }
         if (seenCount !== currentCount) {
-            throw new Error(
-                `Scan cleanup batch output sidecar declared ${String(currentCount)} paths but contained ${String(seenCount)}`,
-            );
+            throw new Error(`Scan cleanup batch output sidecar declared ${String(currentCount)} paths but contained ${String(seenCount)}`);
         }
         if (nextCount === 0) {
             throw new Error('Scan cleanup batch output sidecar contained no PDF paths');
@@ -173,9 +148,7 @@ async function mergeScanCleanupPdfPathSidecarUnchecked({
     await copyFile(finalPath, stagedPdfPath);
 }
 
-export async function mergeScanCleanupPdfPathSidecar(
-    args: Parameters<typeof mergeScanCleanupPdfPathSidecarUnchecked>[0],
-) {
+export async function mergeScanCleanupPdfPathSidecar(args: Parameters<typeof mergeScanCleanupPdfPathSidecarUnchecked>[0]) {
     try {
         return await mergeScanCleanupPdfPathSidecarUnchecked(args);
     } catch (error) {
@@ -183,10 +156,7 @@ export async function mergeScanCleanupPdfPathSidecar(
         if (error instanceof ScanCleanupStreamingEvidenceError) {
             throw error;
         }
-        throw new ScanCleanupStreamingEvidenceError(
-            args.inputPath,
-            getErrorMessage(error),
-        );
+        throw new ScanCleanupStreamingEvidenceError(args.inputPath, getErrorMessage(error));
     }
 }
 
@@ -204,10 +174,12 @@ export interface IScanCleanupSourceTextSink {
 }
 
 export function collectSourceText(sink: IScanCleanupSourceTextSink, plan: IScanCleanupTextLayerPlan) {
-    sink.pages.push(...plan.pages.map(page => ({
-        ...page,
-        outputPageIndex: page.outputPageIndex + sink.outputPageOffset,
-    })));
+    sink.pages.push(
+        ...plan.pages.map((page) => ({
+            ...page,
+            outputPageIndex: page.outputPageIndex + sink.outputPageOffset,
+        })),
+    );
     sink.skippedNonAffine.push(...plan.skippedNonAffine);
 }
 
@@ -226,7 +198,9 @@ export async function inspectSkippedScanCleanupSourceText(input: {
     runCommand: TScanCleanupRunCommand;
     log: TScanCleanupLog;
 }): Promise<TScanCleanupSummary['sourceTextOmission']> {
-    if (input.pages.length === 0 || input.pdfPageOpsBinary === undefined) {return undefined;}
+    if (input.pages.length === 0 || input.pdfPageOpsBinary === undefined) {
+        return undefined;
+    }
     const pagesPath = join(input.scratch, 'source-text-omission-pages.txt');
     await writeFile(pagesPath, `${input.pages.join('\n')}\n`);
     return inspectScanCleanupSourceTextOmission({

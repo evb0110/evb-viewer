@@ -1,15 +1,8 @@
-import type { Ref } from 'vue';
-import { clamp } from 'es-toolkit/math';
-import type { TDocumentRef } from '@contracts/documentRef';
-import type {
-    IPageMoveRangeSegment,
-    TPageSelection,
-    TPageMoveOperation,
-} from '@pdf-core/pdfPageSelection';
-import {
-    getFailureReceipt,
-    type ExpectedOutcome,
-} from '@contracts/diagnostics/failureReceipt';
+import type {Ref} from 'vue';
+import {clamp} from 'es-toolkit/math';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {IPageMoveRangeSegment, TPageSelection, TPageMoveOperation} from '@pdf-core/pdfPageSelection';
+import {getFailureReceipt, type ExpectedOutcome} from '@contracts/diagnostics/failureReceipt';
 import {
     buildPageMoveOrder,
     buildPageMoveRangesOrder,
@@ -20,19 +13,13 @@ import {
     mapPageNumberAfterPageMove,
     pageMoveRangesRestInsertIndex,
 } from '@pdf-core/pdfPageSelection';
-import { getErrorMessage } from '@contracts/getErrorMessage';
-import {
-    useEventListener,
-    useIntervalFn,
-} from '@vueuse/core';
-import {
-    getDocumentPickerCapability,
-    getDocumentWorkingCopyCapability,
-} from '@app/utils/platformDocuments';
-import { isSupportedPdfInsertFilePath } from '@app/utils/supportedDocumentPaths';
-import { createRafCoalescedCallback } from '@app/utils/createRafCoalescedCallback';
-import { useFailureToast } from '@app/composables/useFailureToast';
-import { BrowserLogger } from '@app/utils/browserLogger';
+import {getErrorMessage} from '@contracts/getErrorMessage';
+import {useEventListener, useIntervalFn} from '@vueuse/core';
+import {getDocumentPickerCapability, getDocumentWorkingCopyCapability} from '@app/utils/platformDocuments';
+import {isSupportedPdfInsertFilePath} from '@app/utils/supportedDocumentPaths';
+import {createRafCoalescedCallback} from '@app/utils/createRafCoalescedCallback';
+import {useFailureToast} from '@app/composables/useFailureToast';
+import {BrowserLogger} from '@app/utils/browserLogger';
 
 interface IPageDragDropDeps {
     containerRef: Ref<HTMLElement | null>;
@@ -55,7 +42,7 @@ interface IDragReorderContext {
     nonDraggedPrefixBySlot: number[];
     originalRestInsertIndex: number;
     canBeNoOp: boolean;
-    compactMove?: {ranges: IPageMoveRangeSegment[];};
+    compactMove?: {ranges: IPageMoveRangeSegment[]};
 }
 
 // Keep the full-permutation fallback reorder path bounded when a caller does
@@ -88,10 +75,8 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
     const isWindowDragListenerActive = ref(false);
     let dragReorderContext: IDragReorderContext | null = null;
     const autoScrollStep = ref(0);
-    const { t } = useTypedI18n();
-    const {
-        presentFailureToast, presentNoticeToast,
-    } = useFailureToast();
+    const {t} = useTypedI18n();
+    const {presentFailureToast, presentNoticeToast} = useFailureToast();
 
     const THRESHOLD = 5;
     const SCROLL_ZONE = 40;
@@ -120,20 +105,21 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
             return null;
         }
         if (selection.kind === 'range') {
-            return [{
-                startPage: selection.startPage,
-                endPage: selection.endPage,
-            }];
+            return [
+                {
+                    startPage: selection.startPage,
+                    endPage: selection.endPage,
+                },
+            ];
         }
         if (selection.kind === 'explicit') {
             return pageNumbersToRanges(selection.pages);
         }
         if (selection.kind === 'mapped' && selection.source.kind === 'explicit') {
             const mappedPages = selection.source.pages
-                .map(sourcePage => selection.moves.reduce(
-                    (currentPage, move) => mapPageNumberAfterPageMove(currentPage, move),
-                    sourcePage,
-                ))
+                .map((sourcePage) =>
+                    selection.moves.reduce((currentPage, move) => mapPageNumberAfterPageMove(currentPage, move), sourcePage),
+                )
                 .sort((left, right) => left - right);
             return pageNumbersToRanges(mappedPages);
         }
@@ -144,13 +130,17 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         isActive: isAutoScrollActive,
         pause: pauseAutoScroll,
         resume: resumeAutoScroll,
-    } = useIntervalFn(() => {
-        const container = containerRef.value;
-        if (!container || autoScrollStep.value === 0) {
-            return;
-        }
-        scrollRailTo?.(container.scrollTop + autoScrollStep.value);
-    }, AUTO_SCROLL_INTERVAL_MS, { immediate: false });
+    } = useIntervalFn(
+        () => {
+            const container = containerRef.value;
+            if (!container || autoScrollStep.value === 0) {
+                return;
+            }
+            scrollRailTo?.(container.scrollTop + autoScrollStep.value);
+        },
+        AUTO_SCROLL_INTERVAL_MS,
+        {immediate: false},
+    );
 
     function getDragPages(page: number) {
         const selection = selectedPageSelection?.value;
@@ -206,10 +196,7 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         return clamp(lastPage, 0, totalPages.value);
     }
 
-    function prepareDragReorderContext(
-        pages: number[],
-        compactMoveRanges?: IPageMoveRangeSegment[],
-    ): IDragReorderContext | null {
+    function prepareDragReorderContext(pages: number[], compactMoveRanges?: IPageMoveRangeSegment[]): IDragReorderContext | null {
         const total = totalPages.value;
         if (pages.length === 0 || total === 0) {
             return null;
@@ -224,10 +211,12 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
             return null;
         }
         if (onMove && (compactMoveRanges || sortedPages.length === 1)) {
-            const ranges = compactMoveRanges ?? [{
-                startPage: firstSortedPage,
-                endPage: firstSortedPage,
-            }];
+            const ranges = compactMoveRanges ?? [
+                {
+                    startPage: firstSortedPage,
+                    endPage: firstSortedPage,
+                },
+            ];
             const firstRange = ranges[0];
             if (!firstRange) {
                 return null;
@@ -259,9 +248,7 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         }
 
         const originalRestInsertIndex = nonDraggedPrefixBySlot[firstSortedPage - 1] ?? 0;
-        const canBeNoOp = sortedPages.every(
-            (page, index) => page === firstSortedPage + index,
-        );
+        const canBeNoOp = sortedPages.every((page, index) => page === firstSortedPage + index);
 
         return {
             total,
@@ -273,10 +260,7 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         };
     }
 
-    function resolveRestInsertIndex(
-        insertAt: number,
-        context: IDragReorderContext,
-    ) {
+    function resolveRestInsertIndex(insertAt: number, context: IDragReorderContext) {
         if (context.compactMove) {
             return pageMoveRangesRestInsertIndexForContext(insertAt, context.total, context.compactMove);
         }
@@ -289,28 +273,19 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         total: number,
         compactMove: NonNullable<IDragReorderContext['compactMove']>,
     ) {
-        const move = createPageMoveRanges(
-            total,
-            compactMove.ranges,
-            clamp(Math.floor(insertAt), 0, total),
-        );
+        const move = createPageMoveRanges(total, compactMove.ranges, clamp(Math.floor(insertAt), 0, total));
         return pageMoveRangesRestInsertIndex(move);
     }
 
-    function canApplyReorder(
-        insertAt: number,
-        context: IDragReorderContext | null,
-    ) {
+    function canApplyReorder(insertAt: number, context: IDragReorderContext | null) {
         if (!context) {
             return false;
         }
 
         if (context.compactMove) {
-            return !isPageMoveRangesNoOp(createPageMoveRanges(
-                context.total,
-                context.compactMove.ranges,
-                clamp(Math.floor(insertAt), 0, context.total),
-            ));
+            return !isPageMoveRangesNoOp(
+                createPageMoveRanges(context.total, context.compactMove.ranges, clamp(Math.floor(insertAt), 0, context.total)),
+            );
         }
 
         const restInsertIndex = resolveRestInsertIndex(insertAt, context);
@@ -321,20 +296,13 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         return restInsertIndex !== context.originalRestInsertIndex;
     }
 
-    function buildNewOrder(
-        insertAt: number,
-        context: IDragReorderContext | null,
-    ) {
+    function buildNewOrder(insertAt: number, context: IDragReorderContext | null) {
         if (!context) {
             return null;
         }
 
         if (context.compactMove) {
-            const move = createPageMoveRanges(
-                context.total,
-                context.compactMove.ranges,
-                clamp(Math.floor(insertAt), 0, context.total),
-            );
+            const move = createPageMoveRanges(context.total, context.compactMove.ranges, clamp(Math.floor(insertAt), 0, context.total));
             return isPageMoveRangesNoOp(move) ? null : buildPageMoveRangesOrder(move);
         }
 
@@ -427,9 +395,7 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
             // A compact range is already the complete drag payload. Keep the
             // visual marker bounded as well. The native move receives the
             // ranges below and never needs a page-sized selected-page array.
-            const pages = compactMoveRanges
-                ? compactMoveRanges.map(range => range.startPage)
-                : getDragPages(startPage);
+            const pages = compactMoveRanges ? compactMoveRanges.map((range) => range.startPage) : getDragPages(startPage);
             draggedPages.value = pages;
             dragReorderContext = prepareDragReorderContext(pages, compactMoveRanges ?? undefined);
             document.body.style.cursor = 'grabbing';
@@ -461,32 +427,29 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         resetInternalDragState();
         clickSkip = true;
 
-        if (insertAt === null) {return;}
-        if (!reorderContext?.compactMove) {
-            const order = buildNewOrder(insertAt, reorderContext);
-            if (order) {onReorder(order);}
+        if (insertAt === null) {
             return;
         }
-        const move = createPageMoveRanges(
-            reorderContext.total,
-            reorderContext.compactMove.ranges,
-            insertAt,
-        );
-        if (isPageMoveRangesNoOp(move)) {return;}
+        if (!reorderContext?.compactMove) {
+            const order = buildNewOrder(insertAt, reorderContext);
+            if (order) {
+                onReorder(order);
+            }
+            return;
+        }
+        const move = createPageMoveRanges(reorderContext.total, reorderContext.compactMove.ranges, insertAt);
+        if (isPageMoveRangesNoOp(move)) {
+            return;
+        }
 
-        const [
-            onlyRange,
-            secondRange,
-        ] = move.ranges;
-        const operation: TPageMoveOperation = onlyRange && !secondRange
-            ? createPageMoveRange(move.pageCount, onlyRange.startPage, onlyRange.endPage, move.insertAt)
-            : move;
-        if (onMove) {onMove(operation);}
-        else {onReorder(
-            'ranges' in operation
-                ? buildPageMoveRangesOrder(operation)
-                : buildPageMoveOrder(operation),
-        );}
+        const [onlyRange, secondRange] = move.ranges;
+        const operation: TPageMoveOperation =
+            onlyRange && !secondRange ? createPageMoveRange(move.pageCount, onlyRange.startPage, onlyRange.endPage, move.insertAt) : move;
+        if (onMove) {
+            onMove(operation);
+        } else {
+            onReorder('ranges' in operation ? buildPageMoveRangesOrder(operation) : buildPageMoveOrder(operation));
+        }
     }
 
     function handleMouseDown(e: MouseEvent, page: number) {
@@ -508,11 +471,7 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         isWindowDragListenerActive.value = true;
     }
 
-    const windowDragTarget = computed(() => (
-        isWindowDragListenerActive.value && typeof window !== 'undefined'
-            ? window
-            : null
-    ));
+    const windowDragTarget = computed(() => (isWindowDragListenerActive.value && typeof window !== 'undefined' ? window : null));
     useEventListener(windowDragTarget, 'mousemove', internalDragMove.schedule);
     useEventListener(windowDragTarget, 'mouseup', onUp);
     useEventListener(windowDragTarget, 'blur', cancelInternalDrag);
@@ -624,7 +583,8 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
                         kind: 'expected',
                         code: 'unsupported-input',
                     } satisfies ExpectedOutcome);
-                    void getDocumentWorkingCopyCapability().cleanupFile(filePath)
+                    void getDocumentWorkingCopyCapability()
+                        .cleanupFile(filePath)
                         .catch(() => undefined);
                     continue;
                 }
@@ -653,7 +613,7 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         const documentSource = getDocumentSource();
         const droppedPaths = await registerExternalDropFiles(Array.from(e.dataTransfer.files));
         if (getDocumentSource() !== documentSource) {
-            await Promise.allSettled(droppedPaths.map(path => getDocumentWorkingCopyCapability().cleanupFile(path)));
+            await Promise.allSettled(droppedPaths.map((path) => getDocumentWorkingCopyCapability().cleanupFile(path)));
             presentNoticeToast({
                 tone: 'warning',
                 title: t('errors.pageOps.insertFile'),

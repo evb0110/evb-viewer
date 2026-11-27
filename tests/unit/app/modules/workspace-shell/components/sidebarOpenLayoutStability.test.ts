@@ -1,20 +1,8 @@
 // @vitest-environment happy-dom
 
-import {
-    createApp,
-    defineComponent,
-    h,
-    nextTick,
-    ref,
-} from 'vue';
-import {
-    describe,
-    expect,
-    it,
-    onTestFinished,
-    vi,
-} from 'vitest';
-import { SIDEBAR } from '@app/constants/pdfLayout';
+import {createApp, defineComponent, h, nextTick, ref} from 'vue';
+import {describe, expect, it, onTestFinished, vi} from 'vitest';
+import {SIDEBAR} from '@app/constants/pdfLayout';
 import WorkspaceSidebarHost from '@app/modules/workspace-shell/components/layout/WorkspaceSidebarHost.vue';
 
 function mountHost() {
@@ -23,17 +11,26 @@ function mountHost() {
     const showSidebar = ref(false);
     const slideEvents: string[] = [];
     const resizeSteps: number[] = [];
-    const app = createApp(defineComponent({setup: () => () => h(WorkspaceSidebarHost, {
-        isResizingSidebar: false,
-        resizeAriaLabel: 'Resize sidebar',
-        showSidebar: showSidebar.value,
-        sidebarContentWidth: SIDEBAR.DEFAULT_WIDTH,
-        sidebarMaxWidth: SIDEBAR.MAX_WIDTH,
-        sidebarWrapperStyle: {width: `${String(SIDEBAR.DEFAULT_WIDTH + SIDEBAR.RESIZER_WIDTH)}px`},
-        onSlideStart: () => slideEvents.push('start'),
-        onSlideEnd: () => slideEvents.push('end'),
-        onResizeBy: (delta: number) => resizeSteps.push(delta),
-    }, {sidebar: () => h('div', {class: 'panel'})})}));
+    const app = createApp(
+        defineComponent({
+            setup: () => () =>
+                h(
+                    WorkspaceSidebarHost,
+                    {
+                        isResizingSidebar: false,
+                        resizeAriaLabel: 'Resize sidebar',
+                        showSidebar: showSidebar.value,
+                        sidebarContentWidth: SIDEBAR.DEFAULT_WIDTH,
+                        sidebarMaxWidth: SIDEBAR.MAX_WIDTH,
+                        sidebarWrapperStyle: {width: `${String(SIDEBAR.DEFAULT_WIDTH + SIDEBAR.RESIZER_WIDTH)}px`},
+                        onSlideStart: () => slideEvents.push('start'),
+                        onSlideEnd: () => slideEvents.push('end'),
+                        onResizeBy: (delta: number) => resizeSteps.push(delta),
+                    },
+                    {sidebar: () => h('div', {class: 'panel'})},
+                ),
+        }),
+    );
     app.mount(host);
     return {
         dispose() {
@@ -83,25 +80,19 @@ describe('sidebar open layout stability', () => {
         await nextTick();
         const sash = view.sash()!;
         expect(sash.tabIndex).toBe(0);
-        expect([
-            sash.getAttribute('aria-valuemin'),
-            sash.getAttribute('aria-valuenow'),
-            sash.getAttribute('aria-valuemax'),
-        ]).toEqual([
+        expect([sash.getAttribute('aria-valuemin'), sash.getAttribute('aria-valuenow'), sash.getAttribute('aria-valuemax')]).toEqual([
             String(SIDEBAR.MIN_WIDTH),
             String(SIDEBAR.DEFAULT_WIDTH),
             String(SIDEBAR.MAX_WIDTH),
         ]);
-        for (const key of [
-            'ArrowRight',
-            'ArrowLeft',
-            'Home',
-            'End',
-            'a',
-        ]) {sash.dispatchEvent(new KeyboardEvent('keydown', {
-            key,
-            bubbles: true,
-        }));}
+        for (const key of ['ArrowRight', 'ArrowLeft', 'Home', 'End', 'a']) {
+            sash.dispatchEvent(
+                new KeyboardEvent('keydown', {
+                    key,
+                    bubbles: true,
+                }),
+            );
+        }
 
         expect(view.resizeSteps).toEqual([
             SIDEBAR.KEYBOARD_STEP,
@@ -128,10 +119,8 @@ describe('sidebar open layout stability', () => {
         // final width so the thumbnail rail measures one width instead of
         // relaying out and re-rasterizing on every frame of the animation.
         expect(view.wrapper()?.classList.contains('is-closed')).toBe(false);
-        expect(view.wrapper()?.style.width)
-            .toBe(`${String(SIDEBAR.DEFAULT_WIDTH + SIDEBAR.RESIZER_WIDTH)}px`);
-        expect(view.content()?.style.width)
-            .toBe(`${String(SIDEBAR.DEFAULT_WIDTH)}px`);
+        expect(view.wrapper()?.style.width).toBe(`${String(SIDEBAR.DEFAULT_WIDTH + SIDEBAR.RESIZER_WIDTH)}px`);
+        expect(view.content()?.style.width).toBe(`${String(SIDEBAR.DEFAULT_WIDTH)}px`);
     });
 
     it('collapses the panel back to zero so a closed sidebar cannot measure as visible', async () => {
@@ -163,10 +152,7 @@ describe('sidebar open layout stability', () => {
         expect(view.slideEvents).toEqual(['start']);
 
         dispatchTransitionEnd(view.wrapper() as HTMLElement, 'width');
-        expect(view.slideEvents).toEqual([
-            'start',
-            'end',
-        ]);
+        expect(view.slideEvents).toEqual(['start', 'end']);
     });
 
     it('keeps the sash shown until the closing slide has covered the panel', async () => {
@@ -207,10 +193,7 @@ describe('sidebar open layout stability', () => {
         expect(view.slideEvents).toEqual(['start']);
 
         await vi.advanceTimersByTimeAsync(1_000);
-        expect(view.slideEvents).toEqual([
-            'start',
-            'end',
-        ]);
+        expect(view.slideEvents).toEqual(['start', 'end']);
     });
 
     it('does not report a slide when the wrapper has no width transition', async () => {

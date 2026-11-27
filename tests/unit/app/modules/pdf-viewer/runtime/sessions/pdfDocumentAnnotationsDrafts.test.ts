@@ -3,48 +3,32 @@ import {deriveSelectedTextForParsedHighlights} from '@app/modules/pdf-viewer/run
 import {setBrowserLogSink} from '@app/utils/browserLogger';
 import {cast} from '@tests/helpers/cast';
 import {existsSync} from 'node:fs';
-import {
-    mkdtemp, readFile, rm, writeFile,
-} from 'node:fs/promises';
+import {mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import type {
-    IPdfDocumentLoadPlan, TPdfDocumentView,
-} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
+import type {IPdfDocumentLoadPlan, TPdfDocumentView} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import {usePdfAnnotationEditorSurface} from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
 import {DEFAULT_ANNOTATION_SETTINGS} from '@app/constants/annotationDefaults';
 import type {IPdfAnnotationParseResult} from '@contracts/pdfAnnotationParseTypes';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {isStaleRevisionError} from '@contracts/documentMutationErrors';
 import {requirePageIndex} from '@contracts/pageNumbers';
+import {describe, beforeEach, expect, it, vi} from 'vitest';
+import {computed, effectScope, ref, shallowRef, nextTick} from 'vue';
+import type {IAnnotationMarkerRect} from '@app/types/annotations';
+import type {TPdfSource} from '@app/types/pdfUi';
+import type {IPdfDocumentAnnotationsView} from '@app/modules/pdf-viewer/runtime/sessions/createPdfDocumentAnnotations';
+import {createPdfDocumentAnnotations} from '@app/modules/pdf-viewer/runtime/sessions/createPdfDocumentAnnotations';
+import {requireDocumentRef} from '@contracts/documentRef';
 import {
-    describe,
-    beforeEach,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    computed,
-    effectScope,
-    ref,
-    shallowRef,
-    nextTick,
-} from 'vue';
-import type { IAnnotationMarkerRect } from '@app/types/annotations';
-import type { TPdfSource } from '@app/types/pdfUi';
-import type { IPdfDocumentAnnotationsView } from '@app/modules/pdf-viewer/runtime/sessions/createPdfDocumentAnnotations';
-import { createPdfDocumentAnnotations } from '@app/modules/pdf-viewer/runtime/sessions/createPdfDocumentAnnotations';
-import { requireDocumentRef } from '@contracts/documentRef';
-import {
-    recordPdfDocumentLoadedRevision, readPdfDocumentOriginalAnnotationSource, releasePdfDocumentOriginalAnnotations,
+    recordPdfDocumentLoadedRevision,
+    readPdfDocumentOriginalAnnotationSource,
+    releasePdfDocumentOriginalAnnotations,
 } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentLoadedRevision';
 
 vi.mock('@app/composables/useFailureToast', () => ({useFailureToast: () => ({presentNoticeToast: vi.fn()})}));
 
-const {
-    parsePdfAnnotations, createWorkingCopyFromPath, cleanupFile, getDocumentRevision, revisionPins,
-} = vi.hoisted(() => ({
+const {parsePdfAnnotations, createWorkingCopyFromPath, cleanupFile, getDocumentRevision, revisionPins} = vi.hoisted(() => ({
     parsePdfAnnotations: vi.fn(),
     createWorkingCopyFromPath: vi.fn(),
     cleanupFile: vi.fn(),
@@ -63,9 +47,9 @@ vi.mock('@app/utils/platformDocuments', () => ({
         cleanupFile,
         ...(revisionPins.offered
             ? {
-                pinDocumentRevision: revisionPins.pin,
-                releasePinnedDocumentRevision: revisionPins.release,
-            }
+                  pinDocumentRevision: revisionPins.pin,
+                  releasePinnedDocumentRevision: revisionPins.release,
+              }
             : {}),
     }),
     getDocumentFilesCapability: () => ({getDocumentRevision}),
@@ -85,8 +69,8 @@ function createEditorView() {
         commitPendingDraftsForSave: () => {
             open.value = null;
         },
-        isEditing: annotationId => open.value?.annotationId === annotationId,
-        getTextBoxDraftRect: annotationId => (open.value?.annotationId === annotationId ? open.value.rect : null),
+        isEditing: (annotationId) => open.value?.annotationId === annotationId,
+        getTextBoxDraftRect: (annotationId) => (open.value?.annotationId === annotationId ? open.value.rect : null),
     };
     return {
         view,
@@ -193,20 +177,33 @@ describe('text-box drafts of a document shown in two views', () => {
             rect: rightRect,
         };
         document.setTextBoxDraft('retiring-box', 'Accepted while moving');
-        left.view.commitPendingDraftsForSave = () => fit.promise.then(() => {
-            document.setTextBoxDraft('retiring-box', null);
-            left.open.value = null;
-        });
+        left.view.commitPendingDraftsForSave = () =>
+            fit.promise.then(() => {
+                document.setTextBoxDraft('retiring-box', null);
+                left.open.value = null;
+            });
         const detach = document.attachView(left.view);
         document.attachView(right.view);
         const retiring = detach();
         let readyForStyle = false;
-        const acceptedCompletion = Promise.resolve(document.getPendingTextCompletion()).then(() => {readyForStyle = true;});
+        const acceptedCompletion = Promise.resolve(document.getPendingTextCompletion()).then(() => {
+            readyForStyle = true;
+        });
         let saved = false;
         let handedOff = false;
         let saveFailure: unknown;
-        const saving = document.commitPendingDraftsForSave().then(() => {saved = true;}, (error: unknown) => {saved = true; saveFailure = error;});
-        const handoff = Promise.resolve(document.commitDraftIfOpen('retiring-box', right.view)).then(() => {handedOff = true;});
+        const saving = document.commitPendingDraftsForSave().then(
+            () => {
+                saved = true;
+            },
+            (error: unknown) => {
+                saved = true;
+                saveFailure = error;
+            },
+        );
+        const handoff = Promise.resolve(document.commitDraftIfOpen('retiring-box', right.view)).then(() => {
+            handedOff = true;
+        });
         try {
             await Promise.resolve();
             await Promise.resolve();
@@ -215,19 +212,16 @@ describe('text-box drafts of a document shown in two views', () => {
             expect(readyForStyle).toBe(false);
             expect(document.textBoxDrafts.get('retiring-box')).toBe('Accepted while moving');
             fit.resolve(undefined);
-            await Promise.all([
-                retiring,
-                saving,
-                handoff,
-                acceptedCompletion,
-            ]);
+            await Promise.all([retiring, saving, handoff, acceptedCompletion]);
             expect(saved).toBe(true);
             expect(saveFailure).toBeUndefined();
             expect(handedOff).toBe(true);
             expect(readyForStyle).toBe(true);
             expect(document.textBoxDrafts.size).toBe(0);
             expect(document.getTextBoxDraftRect('retiring-box')).toBeNull();
-        } finally {fit.resolve(undefined);}
+        } finally {
+            fit.resolve(undefined);
+        }
     });
 
     it('keeps a rejected shared draft editable and refuses both Save and a linked editor handoff', async () => {
@@ -240,10 +234,11 @@ describe('text-box drafts of a document shown in two views', () => {
             rect: rightRect,
         };
         document.setTextBoxDraft('box-1', 'Unprotected text');
-        left.view.commitPendingDraftsForSave = () => protection.promise.then(() => {
-            left.open.value = null;
-            document.setTextBoxDraft('box-1', null);
-        });
+        left.view.commitPendingDraftsForSave = () =>
+            protection.promise.then(() => {
+                left.open.value = null;
+                document.setTextBoxDraft('box-1', null);
+            });
         document.attachView(left.view);
         document.attachView(right.view);
         const saving = document.commitPendingDraftsForSave();
@@ -253,10 +248,7 @@ describe('text-box drafts of a document shown in two views', () => {
         expect(document.getTextBoxDraftRect('box-1')).toEqual(rightRect);
         expect(document.textBoxDrafts.get('box-1')).toBe('Unprotected text');
         protection.reject(new Error('ENOSPC'));
-        await Promise.all([
-            saveRejected,
-            handoffRejected,
-        ]);
+        await Promise.all([saveRejected, handoffRejected]);
         expect(document.getTextBoxDraftRect('box-1')).toEqual(rightRect);
         expect(document.textBoxDrafts.get('box-1')).toBe('Unprotected text');
     });
@@ -279,26 +271,28 @@ describe('writer annotations shared by linked views', () => {
             documentRevisionToken: revision,
             pageCount: 1,
             foreign: [],
-            entities: [{
-                kind: 'text-box',
-                pageIndex: requirePageIndex(0),
-                objectNumber: 11,
-                generationNumber: 0,
-                name: 'imported-box',
-                author: null,
-                createdAt: null,
-                modifiedAt: null,
-                text,
-                rect: {
-                    left: 0.1,
-                    top: 0.2,
-                    width: 0.3,
-                    height: 0.1,
+            entities: [
+                {
+                    kind: 'text-box',
+                    pageIndex: requirePageIndex(0),
+                    objectNumber: 11,
+                    generationNumber: 0,
+                    name: 'imported-box',
+                    author: null,
+                    createdAt: null,
+                    modifiedAt: null,
+                    text,
+                    rect: {
+                        left: 0.1,
+                        top: 0.2,
+                        width: 0.3,
+                        height: 0.1,
+                    },
+                    rotation: 0,
+                    fontSize: 12,
+                    color: '#336699',
                 },
-                rotation: 0,
-                fontSize: 12,
-                color: '#336699',
-            }],
+            ],
         };
     }
     function setup() {
@@ -327,8 +321,12 @@ describe('writer annotations shared by linked views', () => {
             revision,
             resource,
             document,
-            replaceVersion: () => {version += 1;},
-            detach: () => {loadToken += 1;},
+            replaceVersion: () => {
+                version += 1;
+            },
+            detach: () => {
+                loadToken += 1;
+            },
         };
     }
 
@@ -372,7 +370,7 @@ describe('writer annotations shared by linked views', () => {
         createWorkingCopyFromPath.mockRejectedValueOnce(new Error('simulated failure'));
         await expect(annotations.feedStoreFromWriterParse(resource, shallowRef(null))).resolves.toBe(false);
 
-        expect(annotations.application.value.listCommentSummaries().map(row => row.text)).toEqual(['Old frame']);
+        expect(annotations.application.value.listCommentSummaries().map((row) => row.text)).toEqual(['Old frame']);
         expect(annotations.application.value.store.readRevision).toBe(initialRevision);
     });
 
@@ -385,7 +383,7 @@ describe('writer annotations shared by linked views', () => {
         parsePdfAnnotations.mockResolvedValueOnce(parsed('Read on join'));
 
         await expect(annotations.joinRead()).resolves.toBe(true);
-        expect(annotations.application.value.listCommentSummaries().map(row => row.text)).toEqual(['Read on join']);
+        expect(annotations.application.value.listCommentSummaries().map((row) => row.text)).toEqual(['Read on join']);
         expect(annotations.application.value.store.readRevision).toBe(initialRevision);
     });
 
@@ -403,7 +401,12 @@ describe('writer annotations shared by linked views', () => {
         let version = 1;
         const resource = cast<TPdfDocumentView>({
             pdfDocument: document,
-            captureFence: () => ({loadToken: version, documentVersion: version, documentRevision: revision.value, openSurfaceGeneration: version}),
+            captureFence: () => ({
+                loadToken: version,
+                documentVersion: version,
+                documentRevision: revision.value,
+                openSurfaceGeneration: version,
+            }),
         });
         const started = Promise.withResolvers<void>();
         const capture = Promise.withResolvers<ReturnType<typeof requireDocumentRef>>();
@@ -423,11 +426,11 @@ describe('writer annotations shared by linked views', () => {
             version += 1;
             session.value += 1;
             await annotations.feedStoreFromWriterParse(resource, shallowRef(null));
-            expect(annotations.comments.value.map(row => row.text)).toEqual(['Current B']);
+            expect(annotations.comments.value.map((row) => row.text)).toEqual(['Current B']);
             expect(annotations.commentsStatus.value).toBe('ready');
             capture.resolve(requireDocumentRef('/managed/snapshot-A.pdf'));
             await readingA;
-            expect(annotations.comments.value.map(row => row.text)).toEqual(['Current B']);
+            expect(annotations.comments.value.map((row) => row.text)).toEqual(['Current B']);
             expect(annotations.commentsStatus.value).toBe('ready');
         } finally {
             capture.resolve(requireDocumentRef('/managed/snapshot-A.pdf'));
@@ -450,7 +453,12 @@ describe('writer annotations shared by linked views', () => {
         let version = 1;
         const resource = cast<TPdfDocumentView>({
             pdfDocument: document,
-            captureFence: () => ({loadToken: version, documentVersion: version, documentRevision: revision.value, openSurfaceGeneration: version}),
+            captureFence: () => ({
+                loadToken: version,
+                documentVersion: version,
+                documentRevision: revision.value,
+                openSurfaceGeneration: version,
+            }),
         });
         const old = Promise.withResolvers<IPdfAnnotationParseResult>();
         parsePdfAnnotations.mockReturnValueOnce(old.promise).mockResolvedValueOnce(parsed('Current B', nextRevision));
@@ -461,20 +469,25 @@ describe('writer annotations shared by linked views', () => {
         version += 1;
         session.value += 1;
         await annotations.feedStoreFromWriterParse(resource, shallowRef(null));
-        expect(annotations.comments.value.map(row => row.text)).toEqual(['Current B']);
+        expect(annotations.comments.value.map((row) => row.text)).toEqual(['Current B']);
         expect(annotations.commentsStatus.value).toBe('ready');
         old.resolve(parsed('Retired A'));
         await readingA;
-        expect(annotations.comments.value.map(row => row.text)).toEqual(['Current B']);
+        expect(annotations.comments.value.map((row) => row.text)).toEqual(['Current B']);
         expect(annotations.commentsStatus.value).toBe('ready');
     });
 
     it('#1608 retains a failed annotation revision lookup cause', async () => {
         const retained: string[] = [];
-        setBrowserLogSink(entry => {if (entry.level === 'warn' || entry.level === 'error') {retained.push(JSON.stringify(entry));}});
+        setBrowserLogSink((entry) => {
+            if (entry.level === 'warn' || entry.level === 'error') {
+                retained.push(JSON.stringify(entry));
+            }
+        });
         const annotations = createPdfDocumentAnnotations({
             workingCopyPath: computed(() => requireDocumentRef('/managed/working.pdf')),
-            source: computed(() => null), documentRevisionToken: computed(() => null),
+            source: computed(() => null),
+            documentRevisionToken: computed(() => null),
         });
         const resource = cast<TPdfDocumentView>({
             pdfDocument: shallowRef({}),
@@ -484,7 +497,9 @@ describe('writer annotations shared by linked views', () => {
         try {
             expect(await annotations.feedStoreFromWriterParse(resource, shallowRef(null))).toBe(false);
             expect(retained.join(' ')).toContain('Annotation revision read EIO');
-        } finally {setBrowserLogSink(() => {});}
+        } finally {
+            setBrowserLogSink(() => {});
+        }
     });
 
     async function captureOriginalSource() {
@@ -529,7 +544,7 @@ describe('writer annotations shared by linked views', () => {
             expect(await readFile(capture.snapshot, 'utf8')).toBe('Immutable original appearance');
             capture.finish();
             await capture.loading;
-            expect(capture.annotations.application.value.listCommentSummaries().map(comment => comment.text)).toEqual(['Original text']);
+            expect(capture.annotations.application.value.listCommentSummaries().map((comment) => comment.text)).toEqual(['Original text']);
             expect(await readPdfDocumentOriginalAnnotationSource(capture.proxy)).toBe(capture.snapshot);
         } finally {
             await capture.dispose();
@@ -545,10 +560,7 @@ describe('writer annotations shared by linked views', () => {
             const retirement = releasePdfDocumentOriginalAnnotations(capture.proxy);
             expect(await readFile(capture.snapshot, 'utf8')).toBe('Immutable original appearance');
             capture.finish();
-            await Promise.all([
-                capture.loading,
-                retirement,
-            ]);
+            await Promise.all([capture.loading, retirement]);
             expect(existsSync(capture.snapshot)).toBe(false);
             expect(capture.annotations.application.value.listCommentSummaries()).toEqual([]);
             expect(await readPdfDocumentOriginalAnnotationSource(capture.proxy)).toBeNull();
@@ -625,36 +637,32 @@ describe('writer annotations shared by linked views', () => {
             await capture.dispose();
         }
     });
-    it.each([
-        false,
-        true,
-    ])('keeps accepted drafts across a Save As identity change and resets a real loaded replacement (save: %s)', async duringSave => {
-        const {
-            annotations, workingCopyPath, revision,
-        } = setup();
-        const view = createEditorView();
-        annotations.attachView(view.view);
-        annotations.setTextBoxDraft('accepted-draft', 'Accepted while Save As finishes');
-        const previous = annotations.application.value;
-        workingCopyPath.value = requireDocumentRef('/managed/replacement.pdf');
-        await nextTick();
-        if (duringSave) {
-            expect(annotations.textBoxDrafts.get('accepted-draft')).toBe('Accepted while Save As finishes');
-        }
-        annotations.replaceLoadedDocument(revision.value, duringSave);
-        if (duringSave) {
-            expect(annotations.application.value).toBe(previous);
-            expect(annotations.textBoxDrafts.get('accepted-draft')).toBe('Accepted while Save As finishes');
-        } else {
-            expect(annotations.application.value).not.toBe(previous);
-            expect(annotations.textBoxDrafts.size).toBe(0);
-            expect(annotations.application.value.listCommentSummaries()).toEqual([]);
-        }
-    });
+    it.each([false, true])(
+        'keeps accepted drafts across a Save As identity change and resets a real loaded replacement (save: %s)',
+        async (duringSave) => {
+            const {annotations, workingCopyPath, revision} = setup();
+            const view = createEditorView();
+            annotations.attachView(view.view);
+            annotations.setTextBoxDraft('accepted-draft', 'Accepted while Save As finishes');
+            const previous = annotations.application.value;
+            workingCopyPath.value = requireDocumentRef('/managed/replacement.pdf');
+            await nextTick();
+            if (duringSave) {
+                expect(annotations.textBoxDrafts.get('accepted-draft')).toBe('Accepted while Save As finishes');
+            }
+            annotations.replaceLoadedDocument(revision.value, duringSave);
+            if (duringSave) {
+                expect(annotations.application.value).toBe(previous);
+                expect(annotations.textBoxDrafts.get('accepted-draft')).toBe('Accepted while Save As finishes');
+            } else {
+                expect(annotations.application.value).not.toBe(previous);
+                expect(annotations.textBoxDrafts.size).toBe(0);
+                expect(annotations.application.value.listCommentSummaries()).toEqual([]);
+            }
+        },
+    );
     it('does not publish to the retired store when the source changes before a queued completion', async () => {
-        const {
-            annotations, resource, workingCopyPath,
-        } = setup();
+        const {annotations, resource, workingCopyPath} = setup();
         const retired = annotations.application.value;
         const pending = Promise.withResolvers<IPdfAnnotationParseResult>();
         parsePdfAnnotations.mockReturnValueOnce(pending.promise);
@@ -667,9 +675,7 @@ describe('writer annotations shared by linked views', () => {
         expect(annotations.application.value.listCommentSummaries()).toEqual([]);
     });
     it('ignores a retired original path before a deferred view refresh replaces the producer', async () => {
-        const {
-            annotations, resource, workingCopyPath,
-        } = setup();
+        const {annotations, resource, workingCopyPath} = setup();
         workingCopyPath.value = null;
         await nextTick();
         const originalPath = shallowRef('/source/original.pdf');
@@ -681,12 +687,10 @@ describe('writer annotations shared by linked views', () => {
         await loading;
         expect(annotations.application.value.listCommentSummaries()).toEqual([]);
         await annotations.feedStoreFromWriterParse(resource, originalPath);
-        expect(annotations.application.value.listCommentSummaries().map(comment => comment.text)).toEqual(['Current original path']);
+        expect(annotations.application.value.listCommentSummaries().map((comment) => comment.text)).toEqual(['Current original path']);
     });
     it('keeps an accepted local edit when a parse finishes after that edit', async () => {
-        const {
-            annotations, resource, replaceVersion,
-        } = setup();
+        const {annotations, resource, replaceVersion} = setup();
         parsePdfAnnotations.mockResolvedValueOnce(parsed('Saved text'));
         await annotations.feedStoreFromWriterParse(resource, shallowRef(null));
         const initialSignal: AbortSignal = parsePdfAnnotations.mock.calls.at(-1)![1].signal;
@@ -702,12 +706,10 @@ describe('writer annotations shared by linked views', () => {
         expect(signal.aborted).toBe(false);
         pending.resolve(parsed('Late saved baseline'));
         expect(await loading).toBe(true);
-        expect(annotations.application.value.listCommentSummaries().map(comment => comment.text)).toEqual(['Accepted local edit']);
+        expect(annotations.application.value.listCommentSummaries().map((comment) => comment.text)).toEqual(['Accepted local edit']);
     });
     it('reads the saved revision a partial store needs after a save the loaded document predates', async () => {
-        const {
-            annotations, revision, resource,
-        } = setup();
+        const {annotations, revision, resource} = setup();
         const loadedBeforeSave = cast<TPdfDocumentView>({
             ...resource,
             captureFence: () => ({
@@ -720,7 +722,7 @@ describe('writer annotations shared by linked views', () => {
         expect(await annotations.feedStoreFromWriterParse(loadedBeforeSave, shallowRef(null))).toBe(false);
         expect(parsePdfAnnotations).not.toHaveBeenCalled();
         expect(await annotations.feedStoreFromWriterParse(loadedBeforeSave, shallowRef(null), true)).toBe(true);
-        expect(annotations.application.value.listCommentSummaries().map(comment => comment.text)).toEqual(['Saved revision']);
+        expect(annotations.application.value.listCommentSummaries().map((comment) => comment.text)).toEqual(['Saved revision']);
         expect(await annotations.feedStoreFromWriterParse(loadedBeforeSave, shallowRef(null), true)).toBe(false);
         expect(parsePdfAnnotations).toHaveBeenCalledTimes(1);
     });
@@ -759,22 +761,20 @@ describe('writer annotations shared by linked views', () => {
         // A later reader joins the read the finished save started.
         await annotations.feedStoreFromWriterParse(loaded, shallowRef(null), true);
         expect(parsePdfAnnotations).toHaveBeenCalledOnce();
-        expect(annotations.application.value.listCommentSummaries().map(comment => comment.text)).toEqual(['Saved revision']);
+        expect(annotations.application.value.listCommentSummaries().map((comment) => comment.text)).toEqual(['Saved revision']);
     });
     it('allows a later caller to import after a rejected producer without automatically retrying', async () => {
-        const {
-            annotations, resource,
-        } = setup();
-        parsePdfAnnotations.mockRejectedValueOnce(new Error('Injected parser failure')).mockResolvedValueOnce(parsed('Later caller imported text'));
+        const {annotations, resource} = setup();
+        parsePdfAnnotations
+            .mockRejectedValueOnce(new Error('Injected parser failure'))
+            .mockResolvedValueOnce(parsed('Later caller imported text'));
         await annotations.feedStoreFromWriterParse(resource, shallowRef(null));
         expect(annotations.application.value.listCommentSummaries()).toEqual([]);
         await annotations.feedStoreFromWriterParse(resource, shallowRef(null));
-        expect(annotations.application.value.listCommentSummaries().map(comment => comment.text)).toEqual(['Later caller imported text']);
+        expect(annotations.application.value.listCommentSummaries().map((comment) => comment.text)).toEqual(['Later caller imported text']);
     });
     it('refuses a Save that joined a re-read that failed and keeps the edit made during it', async () => {
-        const {
-            annotations, resource, replaceVersion,
-        } = setup();
+        const {annotations, resource, replaceVersion} = setup();
         parsePdfAnnotations.mockResolvedValueOnce(parsed('Saved text'));
         await annotations.feedStoreFromWriterParse(resource, shallowRef(null));
         replaceVersion();
@@ -787,7 +787,7 @@ describe('writer annotations shared by linked views', () => {
         failing.reject(new Error('Injected parser failure'));
         await expect(saving).rejects.toSatisfy(isStaleRevisionError);
         expect(await reading).toBe(false);
-        expect(annotations.application.value.listCommentSummaries().map(comment => comment.text)).toEqual(['Typed during the read']);
+        expect(annotations.application.value.listCommentSummaries().map((comment) => comment.text)).toEqual(['Typed during the read']);
 
         replaceVersion();
         parsePdfAnnotations.mockResolvedValueOnce(parsed('Saved text'));
@@ -795,9 +795,7 @@ describe('writer annotations shared by linked views', () => {
         await expect(annotations.commitPendingDraftsForSave({joinRead: true})).resolves.toBeUndefined();
     });
     it('admits the ready document after an earlier view has no current revision fence', async () => {
-        const {
-            annotations, resource,
-        } = setup();
+        const {annotations, resource} = setup();
         parsePdfAnnotations.mockResolvedValueOnce(parsed('Ready document'));
         const pendingView = cast<TPdfDocumentView>({
             ...resource,
@@ -808,28 +806,23 @@ describe('writer annotations shared by linked views', () => {
         });
         await annotations.feedStoreFromWriterParse(pendingView, shallowRef(null));
         await annotations.feedStoreFromWriterParse(resource, shallowRef(null));
-        expect(annotations.application.value.listCommentSummaries().map(comment => comment.text)).toEqual(['Ready document']);
+        expect(annotations.application.value.listCommentSummaries().map((comment) => comment.text)).toEqual(['Ready document']);
     });
     it('publishes imported text after the first view detaches while another view is waiting', async () => {
-        const {
-            annotations, resource, detach,
-        } = setup();
+        const {annotations, resource, detach} = setup();
         const pending = Promise.withResolvers<IPdfAnnotationParseResult>();
         parsePdfAnnotations.mockReturnValueOnce(pending.promise);
         const first = annotations.feedStoreFromWriterParse(resource, shallowRef(null));
         detach();
         const second = annotations.feedStoreFromWriterParse(resource, shallowRef(null));
         pending.resolve(parsed('Imported text for both views'));
-        await Promise.all([
-            first,
-            second,
+        await Promise.all([first, second]);
+        expect(annotations.application.value.listCommentSummaries().map((comment) => comment.text)).toEqual([
+            'Imported text for both views',
         ]);
-        expect(annotations.application.value.listCommentSummaries().map(comment => comment.text)).toEqual(['Imported text for both views']);
     });
     it('keeps replacement revision text when the superseded producer ignores cancellation', async () => {
-        const {
-            annotations, revision, resource,
-        } = setup();
+        const {annotations, revision, resource} = setup();
         const old = Promise.withResolvers<IPdfAnnotationParseResult>();
         parsePdfAnnotations.mockReturnValueOnce(old.promise).mockResolvedValueOnce(parsed('Current revision', nextRevision));
         const previous = annotations.feedStoreFromWriterParse(resource, shallowRef(null));
@@ -837,7 +830,7 @@ describe('writer annotations shared by linked views', () => {
         await annotations.feedStoreFromWriterParse(resource, shallowRef(null));
         old.resolve(parsed('Superseded revision'));
         await previous;
-        expect(annotations.application.value.listCommentSummaries().map(comment => comment.text)).toEqual(['Current revision']);
+        expect(annotations.application.value.listCommentSummaries().map((comment) => comment.text)).toEqual(['Current revision']);
     });
     it('lists a store no read settled for as loading, an empty read as ready, and keeps the list through a re-read', async () => {
         const source = shallowRef<TPdfSource | null>({
@@ -860,7 +853,7 @@ describe('writer annotations shared by linked views', () => {
                 openSurfaceGeneration: 1,
             }),
         });
-        const listed = () => annotations.comments.value.map(comment => comment.text);
+        const listed = () => annotations.comments.value.map((comment) => comment.text);
         expect(annotations.commentsStatus.value).toBe('loading');
         expect(listed()).toEqual([]);
 
@@ -893,9 +886,7 @@ describe('writer annotations shared by linked views', () => {
         expect(annotations.commentsStatus.value).toBe('loading');
     });
     it('paints no rotated page from the previous rotation until the store is read for the rotated document', async () => {
-        const {
-            annotations, resource, document, revision, replaceVersion,
-        } = setup();
+        const {annotations, resource, document, revision, replaceVersion} = setup();
         let plan: IPdfDocumentLoadPlan = {
             isReload: false,
             isSelectiveReload: false,
@@ -905,13 +896,15 @@ describe('writer annotations shared by linked views', () => {
         };
         Object.defineProperty(resource, 'activeLoadPlan', {get: () => plan});
         const scope = effectScope();
-        const surface = scope.run(() => usePdfAnnotationEditorSurface({
-            annotationApplication: annotations.application,
-            entitiesByPage: annotations.entitiesByPage,
-            paintsPage: pageIndex => annotations.paintsPage(resource, pageIndex),
-            activeTool: computed(() => 'select'),
-            settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
-        }))!;
+        const surface = scope.run(() =>
+            usePdfAnnotationEditorSurface({
+                annotationApplication: annotations.application,
+                entitiesByPage: annotations.entitiesByPage,
+                paintsPage: (pageIndex) => annotations.paintsPage(resource, pageIndex),
+                activeTool: computed(() => 'select'),
+                settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
+            }),
+        )!;
         // The native parser projects geometry for each page's rotation.
         const read = (left: number, at = initialRevision): IPdfAnnotationParseResult => {
             const [box] = parsed('Rotated page', at).entities;
@@ -925,8 +918,9 @@ describe('writer annotations shared by linked views', () => {
             } as IPdfAnnotationParseResult;
         };
         // Each page reads its entities through a cached computed, as the editor layer does.
-        const pages = [0, 1].map(pageIndex => computed(() => surface.getEntitiesForPage(pageIndex)
-            .map(entity => (entity as {rect: IAnnotationMarkerRect}).rect.left)));
+        const pages = [0, 1].map((pageIndex) =>
+            computed(() => surface.getEntitiesForPage(pageIndex).map((entity) => (entity as {rect: IAnnotationMarkerRect}).rect.left)),
+        );
         const painted = (pageIndex: number) => pages[pageIndex]!.value;
         parsePdfAnnotations.mockResolvedValueOnce(read(0.1));
         await annotations.feedStoreFromWriterParse(resource, shallowRef(null));
@@ -960,33 +954,47 @@ describe('writer annotations shared by linked views', () => {
         scope.stop();
     });
     it('refreshes a replacement document version without retaining its old imported projection', async () => {
-        const {
-            annotations, resource, replaceVersion,
-        } = setup();
+        const {annotations, resource, replaceVersion} = setup();
         parsePdfAnnotations.mockResolvedValueOnce(parsed('Before replacement')).mockResolvedValueOnce(parsed('After replacement'));
         await annotations.feedStoreFromWriterParse(resource, shallowRef(null));
-        expect(annotations.application.value.listCommentSummaries().map(comment => comment.text)).toEqual(['Before replacement']);
+        expect(annotations.application.value.listCommentSummaries().map((comment) => comment.text)).toEqual(['Before replacement']);
         replaceVersion();
         await annotations.feedStoreFromWriterParse(resource, shallowRef(null));
-        expect(annotations.application.value.listCommentSummaries().map(comment => comment.text)).toEqual(['After replacement']);
+        expect(annotations.application.value.listCommentSummaries().map((comment) => comment.text)).toEqual(['After replacement']);
     });
 });
 
 it('#1608 retains the cause of failed imported highlight preview text', async () => {
     const retained: string[] = [];
-    setBrowserLogSink(entry => {if (entry.level === 'warn' || entry.level === 'error') {retained.push(JSON.stringify(entry));}});
+    setBrowserLogSink((entry) => {
+        if (entry.level === 'warn' || entry.level === 'error') {
+            retained.push(JSON.stringify(entry));
+        }
+    });
     try {
         const text = await deriveSelectedTextForParsedHighlights({
             documentSession: cast<Parameters<typeof deriveSelectedTextForParsedHighlights>[0]['documentSession']>({
-                leasePage: async () => {throw new Error('Imported highlight text stream corrupt');},
+                leasePage: async () => {
+                    throw new Error('Imported highlight text stream corrupt');
+                },
             }),
-            result: cast<Parameters<typeof deriveSelectedTextForParsedHighlights>[0]['result']>({entities: [{
-                kind: 'highlight', pageIndex: 0, objectNumber: 11, generationNumber: 0,
-                subtype: 'Highlight', quadPoints: [],
-            }]}),
+            result: cast<Parameters<typeof deriveSelectedTextForParsedHighlights>[0]['result']>({
+                entities: [
+                    {
+                        kind: 'highlight',
+                        pageIndex: 0,
+                        objectNumber: 11,
+                        generationNumber: 0,
+                        subtype: 'Highlight',
+                        quadPoints: [],
+                    },
+                ],
+            }),
             transition: {isCurrent: () => true},
         });
         expect(text?.get('11 0 R')).toBeNull();
         expect(retained.join(' ')).toContain('Imported highlight text stream corrupt');
-    } finally {setBrowserLogSink(() => {});}
+    } finally {
+        setBrowserLogSink(() => {});
+    }
 });

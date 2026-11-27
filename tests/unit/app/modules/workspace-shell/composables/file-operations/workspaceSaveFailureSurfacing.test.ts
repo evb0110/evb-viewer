@@ -1,24 +1,15 @@
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    computed, ref,
-} from 'vue';
-import { requireDocumentRevisionToken } from '@contracts/documentRevision';
-import { createAbortError } from '@contracts/isAbortError';
-import { createStaleRevisionError } from '@contracts/documentMutationErrors';
-import { createDocumentPersistence } from '@app/modules/workspace-shell/composables/document-session/createDocumentPersistence';
-import { encodeSerializableErrorEnvelope } from '@contracts/serializableError';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {computed, ref} from 'vue';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
+import {createAbortError} from '@contracts/isAbortError';
+import {createStaleRevisionError} from '@contracts/documentMutationErrors';
+import {createDocumentPersistence} from '@app/modules/workspace-shell/composables/document-session/createDocumentPersistence';
+import {encodeSerializableErrorEnvelope} from '@contracts/serializableError';
 import {requireEpochMs} from '@contracts/timestamps';
-import { requireDocumentRef } from '@contracts/documentRef';
-import { requirePageIndex } from '@contracts/pageNumbers';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { BrowserFileWriteOutcomeError } from '@app/platform/browser-api/browserFilePickerAdapter';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requirePageIndex} from '@contracts/pageNumbers';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {BrowserFileWriteOutcomeError} from '@app/platform/browser-api/browserFilePickerAdapter';
 import type {IPdfNativePlacedImageGeometryUpdate} from '@contracts/electronApiDocuments';
 import {
     createDeferred,
@@ -30,7 +21,7 @@ import {
     useWorkspaceSaveServiceForTest,
 } from '@tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveServiceFixture';
 import {cast} from '@tests/helpers/cast';
-import { toastDescriptionContaining } from '@tests/helpers/toastDescription';
+import {toastDescriptionContaining} from '@tests/helpers/toastDescription';
 
 type TSaveFixtureDeps = ReturnType<typeof createDeps>['deps'];
 type TSaveTransactionResult = Awaited<ReturnType<NonNullable<TSaveFixtureDeps['runSaveTransaction']>>>;
@@ -98,7 +89,7 @@ describe('workspace save failure surfacing', () => {
         });
         const service = useWorkspaceSaveServiceForTest(deps);
 
-        await expect(service.handleSave(token => receipts.push(token))).resolves.toBe(true);
+        await expect(service.handleSave((token) => receipts.push(token))).resolves.toBe(true);
         expect(receipts).toEqual([committed]);
         expect(revision.value).toBe(committed);
     });
@@ -134,7 +125,7 @@ describe('workspace save failure surfacing', () => {
             },
         });
         const service = useWorkspaceSaveServiceForTest(deps);
-        const saving = service.handleSave(token => receipts.push(token));
+        const saving = service.handleSave((token) => receipts.push(token));
 
         try {
             await entered.promise;
@@ -157,7 +148,7 @@ describe('workspace save failure surfacing', () => {
         const receipts: Array<ReturnType<typeof requireDocumentRevisionToken>> = [];
         const service = useWorkspaceSaveServiceForTest(deps);
 
-        await expect(service.handleSave(token => receipts.push(token))).resolves.toBe(true);
+        await expect(service.handleSave((token) => receipts.push(token))).resolves.toBe(true);
         expect(receipts).toEqual([]);
     });
 
@@ -167,7 +158,7 @@ describe('workspace save failure surfacing', () => {
         const service = useWorkspaceSaveServiceForTest(deps);
         const before = deps.documentRevisionToken.value;
 
-        await expect(service.handleSave(token => receipts.push(token))).resolves.toBe(true);
+        await expect(service.handleSave((token) => receipts.push(token))).resolves.toBe(true);
         expect(receipts).toEqual([]);
         expect(deps.documentRevisionToken.value).toBe(before);
         expect(deps.saveWorkingCopy).not.toHaveBeenCalled();
@@ -187,7 +178,7 @@ describe('workspace save failure surfacing', () => {
         });
         const service = useWorkspaceSaveServiceForTest(deps);
 
-        await expect(service.handleSave(token => receipts.push(token))).resolves.toBe(false);
+        await expect(service.handleSave((token) => receipts.push(token))).resolves.toBe(false);
         expect(receipts).toEqual([]);
         expect(service.hasSaveFailure.value).toBe(true);
     });
@@ -222,56 +213,56 @@ describe('workspace save failure surfacing', () => {
 
         await expect(service.handleOptimizePdfForInteraction()).resolves.toBe(true);
 
-        expect(saveCalls).toEqual([
-            'save',
-            'optimize',
-        ]);
+        expect(saveCalls).toEqual(['save', 'optimize']);
     });
 
     it('passes projected placed-image geometry to the native persistence owner', async () => {
-        const placedImageGeometryUpdates: IPdfNativePlacedImageGeometryUpdate[] = [{
-            stableKey: 'placed-image:one',
-            annotationId: 'image-one',
-            pageIndex: cast<IPdfNativePlacedImageGeometryUpdate['pageIndex']>(0),
-            x: 0.1,
-            y: 0.2,
-            width: 0.3,
-            height: 0.4,
-            rotationDegrees: 0,
-        }];
-        const trySavePdfNativeMutations: TPdfNativeMutationSave = vi.fn(async (
-            _mutations: Parameters<TPdfNativeMutationSave>[0],
-            _options: Parameters<TPdfNativeMutationSave>[1],
-        ) => ({
-            success: true,
-            outPath: requireDocumentRef('/tmp/work.pdf'),
-            saveMode: 'rewrite' as const,
-            didSaveAs: false,
-        }));
-        const { deps } = createDeps({
+        const placedImageGeometryUpdates: IPdfNativePlacedImageGeometryUpdate[] = [
+            {
+                stableKey: 'placed-image:one',
+                annotationId: 'image-one',
+                pageIndex: cast<IPdfNativePlacedImageGeometryUpdate['pageIndex']>(0),
+                x: 0.1,
+                y: 0.2,
+                width: 0.3,
+                height: 0.4,
+                rotationDegrees: 0,
+            },
+        ];
+        const trySavePdfNativeMutations: TPdfNativeMutationSave = vi.fn(
+            async (_mutations: Parameters<TPdfNativeMutationSave>[0], _options: Parameters<TPdfNativeMutationSave>[1]) => ({
+                success: true,
+                outPath: requireDocumentRef('/tmp/work.pdf'),
+                saveMode: 'rewrite' as const,
+                didSaveAs: false,
+            }),
+        );
+        const {deps} = createDeps({
             originalPath: ref(requireDocumentRef('/tmp/source.pdf')),
             workingCopyPath: ref(requireDocumentRef('/tmp/work.pdf')),
             annotationDirty: ref(true),
             hasAnnotationChanges: vi.fn(() => true),
             trySavePdfNativeMutations,
-            runSaveTransaction: vi.fn(async () => cast<TSaveTransactionResult>({
-                source: 'native' as const,
-                nativeMutationProjection: {
-                    mutations: {},
-                    placedImageGeometryUpdates,
-                    noteTextUpdates: [],
-                    noteGeometryUpdates: [],
-                    freeTextNotes: [],
-                    textBoxes: [],
-                    annotationDeletes: [],
-                    hasMetadataMutations: false,
-                    hasShapeMutations: false,
-                    hasMarkupMutations: false,
-                    phase: 'persist-native-pdf-mutations',
-                },
-                fallbackDecision: null,
-                annotationSavePlan: null,
-            })),
+            runSaveTransaction: vi.fn(async () =>
+                cast<TSaveTransactionResult>({
+                    source: 'native' as const,
+                    nativeMutationProjection: {
+                        mutations: {},
+                        placedImageGeometryUpdates,
+                        noteTextUpdates: [],
+                        noteGeometryUpdates: [],
+                        freeTextNotes: [],
+                        textBoxes: [],
+                        annotationDeletes: [],
+                        hasMetadataMutations: false,
+                        hasShapeMutations: false,
+                        hasMarkupMutations: false,
+                        phase: 'persist-native-pdf-mutations',
+                    },
+                    fallbackDecision: null,
+                    annotationSavePlan: null,
+                }),
+            ),
         });
         const service = useWorkspaceSaveServiceForTest(deps);
 
@@ -285,10 +276,12 @@ describe('workspace save failure surfacing', () => {
     });
 
     it('passes native identity bindings to the annotation save commit', async () => {
-        const identityBindings = [{
-            annotationId: 'note-1',
-            pdfRef: '11 0 R',
-        }];
+        const identityBindings = [
+            {
+                annotationId: 'note-1',
+                pdfRef: '11 0 R',
+            },
+        ];
         const commitAnnotationSave = vi.fn();
         const trySavePdfNativeMutations: TPdfNativeMutationSave = vi.fn(async () => ({
             success: true,
@@ -297,30 +290,32 @@ describe('workspace save failure surfacing', () => {
             didSaveAs: false,
             materializedIdentityBindings: identityBindings,
         }));
-        const { deps } = createDeps({
+        const {deps} = createDeps({
             originalPath: ref(requireDocumentRef('/tmp/source.pdf')),
             workingCopyPath: ref(requireDocumentRef('/tmp/work.pdf')),
             annotationDirty: ref(true),
             hasAnnotationChanges: vi.fn(() => true),
             trySavePdfNativeMutations,
-            runSaveTransaction: vi.fn(async () => cast<TSaveTransactionResult>({
-                source: 'native' as const,
-                nativeMutationProjection: {
-                    mutations: {updates: []},
-                    noteTextUpdates: [],
-                    noteGeometryUpdates: [],
-                    freeTextNotes: [],
-                    textBoxes: [],
-                    annotationDeletes: [],
-                    hasMetadataMutations: false,
-                    hasShapeMutations: false,
-                    hasMarkupMutations: false,
-                    phase: 'persist-native-pdf-mutations',
-                },
-                fallbackDecision: null,
-                annotationSavePlan: null,
-                commitAnnotationSave,
-            })),
+            runSaveTransaction: vi.fn(async () =>
+                cast<TSaveTransactionResult>({
+                    source: 'native' as const,
+                    nativeMutationProjection: {
+                        mutations: {updates: []},
+                        noteTextUpdates: [],
+                        noteGeometryUpdates: [],
+                        freeTextNotes: [],
+                        textBoxes: [],
+                        annotationDeletes: [],
+                        hasMetadataMutations: false,
+                        hasShapeMutations: false,
+                        hasMarkupMutations: false,
+                        phase: 'persist-native-pdf-mutations',
+                    },
+                    fallbackDecision: null,
+                    annotationSavePlan: null,
+                    commitAnnotationSave,
+                }),
+            ),
         });
         const service = useWorkspaceSaveServiceForTest(deps);
 
@@ -330,27 +325,31 @@ describe('workspace save failure surfacing', () => {
     });
 
     it('reports a validation rejection instead of returning a silent false', async () => {
-        const { deps } = createDeps({validatePdfPath: vi.fn(async () => ({
-            isValid: false,
-            tool: 'qpdf' as const,
-            errors: ['xref table is damaged'],
-            warnings: [],
-        }))});
+        const {deps} = createDeps({
+            validatePdfPath: vi.fn(async () => ({
+                isValid: false,
+                tool: 'qpdf' as const,
+                errors: ['xref table is damaged'],
+                warnings: [],
+            })),
+        });
         const service = useWorkspaceSaveServiceForTest(deps);
 
         await expect(service.handleSave()).resolves.toBe(false);
 
-        expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-            color: 'error',
-            title: 'errors.file.save',
-            description: toastDescriptionContaining('errors.save.validation'),
-        }));
+        expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({
+                color: 'error',
+                title: 'errors.file.save',
+                description: toastDescriptionContaining('errors.save.validation'),
+            }),
+        );
         expect(service.hasSaveFailure.value).toBe(true);
         expectWorkspaceSaveNotMarked(deps);
     });
 
     it('reports a failed open-note persistence', async () => {
-        const { deps } = createDeps({
+        const {deps} = createDeps({
             annotationDirty: ref(true),
             annotationNoteWindowsCount: ref(1),
             persistAllAnnotationNotes: vi.fn(async () => false),
@@ -359,68 +358,65 @@ describe('workspace save failure surfacing', () => {
 
         await expect(service.handleSave()).resolves.toBe(false);
 
-        expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-            color: 'error',
-            title: 'errors.file.save',
-            description: toastDescriptionContaining('errors.save.openNotes'),
-        }));
+        expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({
+                color: 'error',
+                title: 'errors.file.save',
+                description: toastDescriptionContaining('errors.save.openNotes'),
+            }),
+        );
         expect(service.hasSaveFailure.value).toBe(true);
         expect(deps.trySavePdfNativeMutations).not.toHaveBeenCalled();
     });
 
+    it.each(['ENOSPC: recovery volume is full', 'Recovery capture rejected the accepted text'])(
+        'retains dirty work and the original after preparation fails: %s',
+        async (cause) => {
+            vi.spyOn(console, 'error').mockImplementation(() => undefined);
+            const annotationDirty = ref(true);
+            let published = 'original bytes';
+            const preparation = vi.fn(async (): Promise<void> => {
+                throw new Error(cause);
+            });
+            const {deps} = createDeps({
+                annotationDirty,
+                commitPdfEditorsForSave: preparation,
+                markAnnotationSaved: vi.fn(() => {
+                    annotationDirty.value = false;
+                }),
+                hasShapeChanges: () => true,
+                getAllShapes: () => [createShapeAnnotation()],
+                trySavePdfNativeMutations: vi.fn(async () => {
+                    published = 'accepted text';
+                    return {
+                        success: true,
+                        outPath: requireDocumentRef('/tmp/source.pdf'),
+                        saveMode: 'rewrite' as const,
+                        didSaveAs: false,
+                    };
+                }),
+            });
+            const service = useWorkspaceSaveServiceForTest(deps);
+
+            await expect(service.handleSave()).resolves.toBe(false);
+            expect(published).toBe('original bytes');
+            expect(annotationDirty.value).toBe(true);
+            expect(service.hasSaveFailure.value).toBe(true);
+            expect(service.isAnySaving.value).toBe(false);
+
+            preparation.mockResolvedValue(undefined);
+            await expect(service.handleSave()).resolves.toBe(true);
+            expect(published).toBe('accepted text');
+            expect(annotationDirty.value).toBe(false);
+            expect(service.hasSaveFailure.value).toBe(false);
+        },
+    );
+
     it.each([
-        'ENOSPC: recovery volume is full',
-        'Recovery capture rejected the accepted text',
-    ])('retains dirty work and the original after preparation fails: %s', async cause => {
-        vi.spyOn(console, 'error').mockImplementation(() => undefined);
-        const annotationDirty = ref(true);
-        let published = 'original bytes';
-        const preparation = vi.fn(async (): Promise<void> => {throw new Error(cause);});
+        ['replaced', replaceOpenDocument],
+        ['reopened', reopenSameDocument],
+    ])('says nothing about a %s document when the notes of the old one failed', async (_label, changeDocument) => {
         const {deps} = createDeps({
-            annotationDirty,
-            commitPdfEditorsForSave: preparation,
-            markAnnotationSaved: vi.fn(() => {annotationDirty.value = false;}),
-            hasShapeChanges: () => true,
-            getAllShapes: () => [createShapeAnnotation()],
-            trySavePdfNativeMutations: vi.fn(async () => {
-                published = 'accepted text';
-                return {
-                    success: true,
-                    outPath: requireDocumentRef('/tmp/source.pdf'),
-                    saveMode: 'rewrite' as const,
-                    didSaveAs: false,
-                };
-            }),
-        });
-        const service = useWorkspaceSaveServiceForTest(deps);
-
-        await expect(service.handleSave()).resolves.toBe(false);
-        expect(published).toBe('original bytes');
-        expect(annotationDirty.value).toBe(true);
-        expect(service.hasSaveFailure.value).toBe(true);
-        expect(service.isAnySaving.value).toBe(false);
-
-        preparation.mockResolvedValue(undefined);
-        await expect(service.handleSave()).resolves.toBe(true);
-        expect(published).toBe('accepted text');
-        expect(annotationDirty.value).toBe(false);
-        expect(service.hasSaveFailure.value).toBe(false);
-    });
-
-    it.each([
-        [
-            'replaced',
-            replaceOpenDocument,
-        ],
-        [
-            'reopened',
-            reopenSameDocument,
-        ],
-    ])('says nothing about a %s document when the notes of the old one failed', async (
-        _label,
-        changeDocument,
-    ) => {
-        const { deps } = createDeps({
             annotationDirty: ref(true),
             annotationNoteWindowsCount: ref(1),
         });
@@ -440,7 +436,7 @@ describe('workspace save failure surfacing', () => {
     });
 
     it('says nothing about a replaced document when the persist of the old one was refused', async () => {
-        const { deps } = createDeps(unsavedShapeEdit());
+        const {deps} = createDeps(unsavedShapeEdit());
         deps.trySavePdfNativeMutations = vi.fn(async () => {
             replaceOpenDocument(deps);
             return {
@@ -460,7 +456,7 @@ describe('workspace save failure surfacing', () => {
 
     it('says nothing about a replaced document when the save of the old one threw', async () => {
         vi.spyOn(console, 'error').mockImplementation(() => undefined);
-        const { deps } = createDeps(unsavedShapeEdit());
+        const {deps} = createDeps(unsavedShapeEdit());
         deps.trySavePdfNativeMutations = vi.fn(async () => {
             replaceOpenDocument(deps);
             throw new Error('disk exploded');
@@ -475,7 +471,7 @@ describe('workspace save failure surfacing', () => {
 
     it('treats an unavailable optimization-copy capability as an expected refusal', async () => {
         const capture = vi.spyOn(BrowserLogger, 'error');
-        const { deps } = createDeps();
+        const {deps} = createDeps();
         const service = useWorkspaceSaveServiceForTest(deps);
 
         await expect(service.handleOptimizePdfAsCopy({preset: 'blackAndWhite'})).resolves.toBe(false);
@@ -486,29 +482,30 @@ describe('workspace save failure surfacing', () => {
     });
 
     it('reports an optional capability that refuses to persist', async () => {
-        const { deps } = createDeps({repairWorkingCopy: vi.fn(async () => ({
-            success: false,
-            outPath: null,
-            saveMode: 'rewrite' as const,
-            didSaveAs: false,
-        }))});
+        const {deps} = createDeps({
+            repairWorkingCopy: vi.fn(async () => ({
+                success: false,
+                outPath: null,
+                saveMode: 'rewrite' as const,
+                didSaveAs: false,
+            })),
+        });
         const service = useWorkspaceSaveServiceForTest(deps);
 
         await expect(service.handleRepairSave()).resolves.toBe(false);
 
-        expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-            color: 'error',
-            title: 'errors.file.save',
-            description: toastDescriptionContaining('errors.save.notCompleted'),
-        }));
+        expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({
+                color: 'error',
+                title: 'errors.file.save',
+                description: toastDescriptionContaining('errors.save.notCompleted'),
+            }),
+        );
         expect(service.hasSaveFailure.value).toBe(true);
     });
 
     it('stages dirty Repair edits into the working copy before invoking the repair writer', async () => {
-        const trySavePdfNativeMutations = vi.fn(async (
-            _mutations: unknown,
-            options: Parameters<TPdfNativeMutationSave>[1],
-        ) => {
+        const trySavePdfNativeMutations = vi.fn(async (_mutations: unknown, options: Parameters<TPdfNativeMutationSave>[1]) => {
             expect(options.workingCopyOnly).toBe(true);
             return {
                 success: true,
@@ -517,9 +514,7 @@ describe('workspace save failure surfacing', () => {
                 didSaveAs: false,
             };
         });
-        const repairWorkingCopy = vi.fn(async (
-            options: Parameters<NonNullable<TSaveFixtureDeps['repairWorkingCopy']>>[0],
-        ) => {
+        const repairWorkingCopy = vi.fn(async (options: Parameters<NonNullable<TSaveFixtureDeps['repairWorkingCopy']>>[0]) => {
             expect(options.expectedDocumentRevisionToken).toBe(requireDocumentRevisionToken('rev-1'));
             return {
                 success: true,
@@ -531,22 +526,26 @@ describe('workspace save failure surfacing', () => {
         const {deps} = createDeps({
             annotationDirty: ref(true),
             pageLabelsDirty: ref(true),
-            pageLabelRanges: ref([{
-                startPage: 1,
-                style: 'D',
-                prefix: 'pending-',
-                startNumber: 1,
-            }]),
+            pageLabelRanges: ref([
+                {
+                    startPage: 1,
+                    style: 'D',
+                    prefix: 'pending-',
+                    startNumber: 1,
+                },
+            ]),
             bookmarksDirty: ref(true),
-            bookmarkItems: ref([{
-                title: 'Pending bookmark',
-                pageIndex: requirePageIndex(0),
-                namedDest: null,
-                bold: false,
-                italic: false,
-                color: null,
-                items: [],
-            }]),
+            bookmarkItems: ref([
+                {
+                    title: 'Pending bookmark',
+                    pageIndex: requirePageIndex(0),
+                    namedDest: null,
+                    bold: false,
+                    italic: false,
+                    color: null,
+                    items: [],
+                },
+            ]),
             trySavePdfNativeMutations,
             repairWorkingCopy,
         });
@@ -562,10 +561,7 @@ describe('workspace save failure surfacing', () => {
     });
 
     it('publishes dirty Repair edits staged into the working copy where the platform has no repair writer', async () => {
-        const trySavePdfNativeMutations = vi.fn(async (
-            _mutations: unknown,
-            options: Parameters<TPdfNativeMutationSave>[1],
-        ) => {
+        const trySavePdfNativeMutations = vi.fn(async (_mutations: unknown, options: Parameters<TPdfNativeMutationSave>[1]) => {
             expect(options.workingCopyOnly).toBe(true);
             return {
                 success: true,
@@ -584,8 +580,9 @@ describe('workspace save failure surfacing', () => {
 
         expect(trySavePdfNativeMutations).toHaveBeenCalledOnce();
         expect(deps.saveWorkingCopy).toHaveBeenCalledOnce();
-        expect(trySavePdfNativeMutations.mock.invocationCallOrder[0])
-            .toBeLessThan(vi.mocked(deps.saveWorkingCopy).mock.invocationCallOrder[0]!);
+        expect(trySavePdfNativeMutations.mock.invocationCallOrder[0]).toBeLessThan(
+            vi.mocked(deps.saveWorkingCopy).mock.invocationCallOrder[0]!,
+        );
     });
 
     it('keeps dirty Repair edits after the repair writer refuses the staged working copy', async () => {
@@ -604,15 +601,17 @@ describe('workspace save failure surfacing', () => {
         const {deps} = createDeps({
             annotationDirty: ref(true),
             bookmarksDirty: ref(true),
-            bookmarkItems: ref([{
-                title: 'Pending bookmark',
-                pageIndex: requirePageIndex(0),
-                namedDest: null,
-                bold: false,
-                italic: false,
-                color: null,
-                items: [],
-            }]),
+            bookmarkItems: ref([
+                {
+                    title: 'Pending bookmark',
+                    pageIndex: requirePageIndex(0),
+                    namedDest: null,
+                    bold: false,
+                    italic: false,
+                    color: null,
+                    items: [],
+                },
+            ]),
             trySavePdfNativeMutations,
             repairWorkingCopy,
         });
@@ -649,15 +648,17 @@ describe('workspace save failure surfacing', () => {
             annotationDirty: ref(true),
             bookmarksDirty: ref(true),
             pageLabelsDirty: ref(true),
-            bookmarkItems: ref([{
-                title: 'Pending bookmark',
-                pageIndex: requirePageIndex(0),
-                namedDest: null,
-                bold: false,
-                italic: false,
-                color: null,
-                items: [],
-            }]),
+            bookmarkItems: ref([
+                {
+                    title: 'Pending bookmark',
+                    pageIndex: requirePageIndex(0),
+                    namedDest: null,
+                    bold: false,
+                    italic: false,
+                    color: null,
+                    items: [],
+                },
+            ]),
             trySavePdfNativeMutations,
             repairWorkingCopy,
             getAnnotationSaveStateToken: () => annotationSaveState.value,
@@ -676,7 +677,7 @@ describe('workspace save failure surfacing', () => {
     });
 
     it('reports a rejected persist result', async () => {
-        const { deps } = createDeps({
+        const {deps} = createDeps({
             annotationDirty: ref(true),
             saveWorkingCopy: vi.fn(async () => ({
                 success: false,
@@ -694,7 +695,7 @@ describe('workspace save failure surfacing', () => {
     });
 
     it('tells the user the temporary copy was removed when the working copy is missing', async () => {
-        const { deps } = createDeps({
+        const {deps} = createDeps({
             ...unsavedShapeEdit(),
             trySavePdfNativeMutations: vi.fn(async () => ({
                 success: false,
@@ -714,36 +715,38 @@ describe('workspace save failure surfacing', () => {
 
         await expect(service.handleSave()).resolves.toBe(false);
 
-        expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-            color: 'error',
-            description: toastDescriptionContaining('errors.save.workingCopyMissing'),
-        }));
+        expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({
+                color: 'error',
+                description: toastDescriptionContaining('errors.save.workingCopyMissing'),
+            }),
+        );
     });
 
-    it.each([
-        false,
-        true,
-    ])('the changed-original Save As action belongs to its document (replaced: %s)', async replaced => {
+    it.each([false, true])('the changed-original Save As action belongs to its document (replaced: %s)', async (replaced) => {
         let publishedPath = '';
         const {deps} = createDeps({
             ...unsavedShapeEdit(),
-            trySavePdfNativeMutations: vi.fn<TPdfNativeMutationSave>().mockResolvedValueOnce({
-                success: false,
-                outPath: null,
-                saveMode: 'rewrite' as const,
-                didSaveAs: false,
-                failure: {
-                    channel: 'file:saveStructured',
-                    operation: 'saveFileStructured',
-                    phase: 'publish-original',
-                    reason: 'original-changed' as const,
-                },
-            }).mockResolvedValue({
-                success: true,
-                outPath: null,
-                saveMode: 'save_as_rewrite' as const,
-                didSaveAs: false,
-            }),
+            trySavePdfNativeMutations: vi
+                .fn<TPdfNativeMutationSave>()
+                .mockResolvedValueOnce({
+                    success: false,
+                    outPath: null,
+                    saveMode: 'rewrite' as const,
+                    didSaveAs: false,
+                    failure: {
+                        channel: 'file:saveStructured',
+                        operation: 'saveFileStructured',
+                        phase: 'publish-original',
+                        reason: 'original-changed' as const,
+                    },
+                })
+                .mockResolvedValue({
+                    success: true,
+                    outPath: null,
+                    saveMode: 'save_as_rewrite' as const,
+                    didSaveAs: false,
+                }),
             saveWorkingCopyAs: vi.fn(async () => {
                 publishedPath = '/tmp/recovered.pdf';
                 return {
@@ -758,7 +761,9 @@ describe('workspace save failure surfacing', () => {
         await expect(service.handleSave()).resolves.toBe(false);
         const action = toastAddMock.mock.calls[0]?.[0].actions[0];
         expect(action.label).toBe('toolbar.saveAs');
-        if (replaced) {reopenSameDocument(deps);}
+        if (replaced) {
+            reopenSameDocument(deps);
+        }
         action.onClick();
         if (replaced) {
             // Let any incorrectly queued save finish before checking its output.
@@ -776,7 +781,7 @@ describe('workspace save failure surfacing', () => {
             errors: ['xref table is damaged'],
             warnings: [],
         }));
-        const { deps } = createDeps({validatePdfPath});
+        const {deps} = createDeps({validatePdfPath});
         const service = useWorkspaceSaveServiceForTest(deps);
 
         await service.handleSave();
@@ -794,13 +799,15 @@ describe('workspace save failure surfacing', () => {
     });
 
     it('says nothing when the user dismisses the Save As dialog', async () => {
-        const { deps } = createDeps({saveWorkingCopyAs: vi.fn(async () => ({
-            success: false,
-            outPath: null,
-            saveMode: 'save_as_rewrite' as const,
-            didSaveAs: true,
-            abortReason: 'cancelled' as const,
-        }))});
+        const {deps} = createDeps({
+            saveWorkingCopyAs: vi.fn(async () => ({
+                success: false,
+                outPath: null,
+                saveMode: 'save_as_rewrite' as const,
+                didSaveAs: true,
+                abortReason: 'cancelled' as const,
+            })),
+        });
         const service = useWorkspaceSaveServiceForTest(deps);
 
         await expect(service.handleSaveAs()).resolves.toBe(false);
@@ -813,43 +820,50 @@ describe('workspace save failure surfacing', () => {
         ['keeps', '/tmp/work.pdf', 'rev-1', false],
         ['replaces', '/tmp/work.pdf', 'rev-repaired', true],
         ['keeps in the browser', 'browser://documents/work.pdf', 'rev-adopted', false],
-    ])('returns a clean Save As that %s the loaded source at its durable result, saving until the view shows it', async (_outcome, workingPath, savedRevision, publishes) => {
-        const reload = createDeferred<void>();
-        const {deps} = createDeps({
-            originalPath: ref(requireDocumentRef('/tmp/source.pdf')),
-            workingCopyPath: ref(requireDocumentRef(workingPath)),
-            ...(workingPath.startsWith('browser:') ? {
-                annotationDirty: ref(true),
-                runSaveTransaction: vi.fn(async () => cast<TSaveTransactionResult>({
-                    verifiedUnchangedWorkingCopy: true,
-                })),
-            } : {}),
-            acceptAdoption: adoption => adoption,
-            // Adoption moves the document to the revision Save As committed, as a repaired output does.
-            saveWorkingCopyAs: vi.fn(async () => {
-                deps.documentRevisionToken.value = requireDocumentRevisionToken(savedRevision);
-                return {
-                    success: true,
-                    outPath: requireDocumentRef('/tmp/new.pdf'),
-                    saveMode: 'save_as_rewrite' as const,
-                    didSaveAs: true,
-                    ...(publishes ? {adoption: reload.promise.then(() => ({status: 'presented' as const}))} : {}),
-                };
-            }),
-        });
-        const service = useWorkspaceSaveServiceForTest(deps);
+    ])(
+        'returns a clean Save As that %s the loaded source at its durable result, saving until the view shows it',
+        async (_outcome, workingPath, savedRevision, publishes) => {
+            const reload = createDeferred<void>();
+            const {deps} = createDeps({
+                originalPath: ref(requireDocumentRef('/tmp/source.pdf')),
+                workingCopyPath: ref(requireDocumentRef(workingPath)),
+                ...(workingPath.startsWith('browser:')
+                    ? {
+                          annotationDirty: ref(true),
+                          runSaveTransaction: vi.fn(async () =>
+                              cast<TSaveTransactionResult>({
+                                  verifiedUnchangedWorkingCopy: true,
+                              }),
+                          ),
+                      }
+                    : {}),
+                acceptAdoption: (adoption) => adoption,
+                // Adoption moves the document to the revision Save As committed, as a repaired output does.
+                saveWorkingCopyAs: vi.fn(async () => {
+                    deps.documentRevisionToken.value = requireDocumentRevisionToken(savedRevision);
+                    return {
+                        success: true,
+                        outPath: requireDocumentRef('/tmp/new.pdf'),
+                        saveMode: 'save_as_rewrite' as const,
+                        didSaveAs: true,
+                        ...(publishes ? {adoption: reload.promise.then(() => ({status: 'presented' as const}))} : {}),
+                    };
+                }),
+            });
+            const service = useWorkspaceSaveServiceForTest(deps);
 
-        await expect(service.handleSaveAs()).resolves.toBe(true);
-        if (publishes) {
-            await Promise.resolve();
-            expect(deps.isSavingAs.value).toBe(true);
-            reload.resolve();
-        }
-        await vi.waitFor(() => expect(deps.isSavingAs.value).toBe(false));
-    });
+            await expect(service.handleSaveAs()).resolves.toBe(true);
+            if (publishes) {
+                await Promise.resolve();
+                expect(deps.isSavingAs.value).toBe(true);
+                reload.resolve();
+            }
+            await vi.waitFor(() => expect(deps.isSavingAs.value).toBe(false));
+        },
+    );
 
     it('tells the user about a superseded save without marking the new document', async () => {
-        const { deps } = createDeps({
+        const {deps} = createDeps({
             ...unsavedShapeEdit(),
             trySavePdfNativeMutations: vi.fn(async () => ({
                 success: false,
@@ -863,22 +877,26 @@ describe('workspace save failure surfacing', () => {
 
         await expect(service.handleSave()).resolves.toBe(false);
 
-        expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-            color: 'error',
-            title: 'errors.file.save',
-            description: toastDescriptionContaining('errors.save.documentChanged'),
-        }));
+        expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({
+                color: 'error',
+                title: 'errors.file.save',
+                description: toastDescriptionContaining('errors.save.documentChanged'),
+            }),
+        );
         // The document on screen is no longer the one that failed.
         expect(service.hasSaveFailure.value).toBe(false);
     });
 
     it('drops the failure once the document it belongs to is replaced', async () => {
-        const { deps } = createDeps({validatePdfPath: vi.fn(async () => ({
-            isValid: false,
-            tool: 'qpdf' as const,
-            errors: ['xref table is damaged'],
-            warnings: [],
-        }))});
+        const {deps} = createDeps({
+            validatePdfPath: vi.fn(async () => ({
+                isValid: false,
+                tool: 'qpdf' as const,
+                errors: ['xref table is damaged'],
+                warnings: [],
+            })),
+        });
         const service = useWorkspaceSaveServiceForTest(deps);
 
         await service.handleSave();
@@ -891,21 +909,12 @@ describe('workspace save failure surfacing', () => {
     });
 
     it.each([
-        [
-            'replaced',
-            replaceOpenDocument,
-        ],
-        [
-            'reopened',
-            reopenSameDocument,
-        ],
-    ])('has nothing armed to lose when the notes fail on a %s document', async (
-        _label,
-        changeDocument,
-    ) => {
+        ['replaced', replaceOpenDocument],
+        ['reopened', reopenSameDocument],
+    ])('has nothing armed to lose when the notes fail on a %s document', async (_label, changeDocument) => {
         // A note persistence failure happens before save execution and must
         // leave the document state untouched.
-        const { deps } = createDeps({
+        const {deps} = createDeps({
             annotationDirty: ref(true),
             annotationNoteWindowsCount: ref(1),
         });
@@ -916,16 +925,17 @@ describe('workspace save failure surfacing', () => {
         const service = useWorkspaceSaveServiceForTest(deps);
 
         await expect(service.handleSave()).resolves.toBe(false);
-
     });
 
     it('keeps the failure when only the document revision moves', async () => {
-        const { deps } = createDeps({validatePdfPath: vi.fn(async () => ({
-            isValid: false,
-            tool: 'qpdf' as const,
-            errors: ['xref table is damaged'],
-            warnings: [],
-        }))});
+        const {deps} = createDeps({
+            validatePdfPath: vi.fn(async () => ({
+                isValid: false,
+                tool: 'qpdf' as const,
+                errors: ['xref table is damaged'],
+                warnings: [],
+            })),
+        });
         const service = useWorkspaceSaveServiceForTest(deps);
 
         await service.handleSave();
@@ -937,12 +947,14 @@ describe('workspace save failure surfacing', () => {
     });
 
     it('drops the failure once the same file is reopened as a new document session', async () => {
-        const { deps } = createDeps({validatePdfPath: vi.fn(async () => ({
-            isValid: false,
-            tool: 'qpdf' as const,
-            errors: ['xref table is damaged'],
-            warnings: [],
-        }))});
+        const {deps} = createDeps({
+            validatePdfPath: vi.fn(async () => ({
+                isValid: false,
+                tool: 'qpdf' as const,
+                errors: ['xref table is damaged'],
+                warnings: [],
+            })),
+        });
         const service = useWorkspaceSaveServiceForTest(deps);
 
         await service.handleSave();
@@ -954,12 +966,14 @@ describe('workspace save failure surfacing', () => {
     });
 
     it('keeps the failure for as long as the revision that failed is the open one', async () => {
-        const { deps } = createDeps({validatePdfPath: vi.fn(async () => ({
-            isValid: false,
-            tool: 'qpdf' as const,
-            errors: ['xref table is damaged'],
-            warnings: [],
-        }))});
+        const {deps} = createDeps({
+            validatePdfPath: vi.fn(async () => ({
+                isValid: false,
+                tool: 'qpdf' as const,
+                errors: ['xref table is damaged'],
+                warnings: [],
+            })),
+        });
         const service = useWorkspaceSaveServiceForTest(deps);
 
         await service.handleSave();
@@ -975,29 +989,22 @@ describe('workspace save failure surfacing', () => {
     });
 
     it.each([
-        [
-            'replaced',
-            replaceOpenDocument,
-        ],
-        [
-            'reopened',
-            reopenSameDocument,
-        ],
-    ])('says nothing about a %s document when validation rejected the old one', async (
-        _label,
-        changeDocument,
-    ) => {
+        ['replaced', replaceOpenDocument],
+        ['reopened', reopenSameDocument],
+    ])('says nothing about a %s document when validation rejected the old one', async (_label, changeDocument) => {
         // Validation is the longest pre-write await in a save: nothing has been
         // written when it returns, so the document underneath it can be anything.
-        const { deps } = createDeps({validatePdfPath: vi.fn(async () => {
-            changeDocument(deps);
-            return {
-                isValid: false,
-                tool: 'qpdf' as const,
-                errors: ['xref table is damaged'],
-                warnings: [],
-            };
-        })});
+        const {deps} = createDeps({
+            validatePdfPath: vi.fn(async () => {
+                changeDocument(deps);
+                return {
+                    isValid: false,
+                    tool: 'qpdf' as const,
+                    errors: ['xref table is damaged'],
+                    warnings: [],
+                };
+            }),
+        });
         const service = useWorkspaceSaveServiceForTest(deps);
 
         await expect(service.handleSave()).resolves.toBe(false);
@@ -1009,21 +1016,25 @@ describe('workspace save failure surfacing', () => {
     it('still reports a validation rejection when the same revision is still open', async () => {
         // The pre-write revision match must not reject a save whose document
         // never moved, or every ordinary validation failure would go silent.
-        const { deps } = createDeps({validatePdfPath: vi.fn(async () => ({
-            isValid: false,
-            tool: 'qpdf' as const,
-            errors: ['xref table is damaged'],
-            warnings: [],
-        }))});
+        const {deps} = createDeps({
+            validatePdfPath: vi.fn(async () => ({
+                isValid: false,
+                tool: 'qpdf' as const,
+                errors: ['xref table is damaged'],
+                warnings: [],
+            })),
+        });
         const service = useWorkspaceSaveServiceForTest(deps);
 
         await expect(service.handleSave()).resolves.toBe(false);
 
-        expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-            color: 'error',
-            title: 'errors.file.save',
-            description: toastDescriptionContaining('errors.save.validation'),
-        }));
+        expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({
+                color: 'error',
+                title: 'errors.file.save',
+                description: toastDescriptionContaining('errors.save.validation'),
+            }),
+        );
         expect(service.hasSaveFailure.value).toBe(true);
         expect(deps.documentRevisionToken.value).toBe('rev-1');
     });
@@ -1031,7 +1042,7 @@ describe('workspace save failure surfacing', () => {
     it('still reports a refused persist whose own write moved the revision', async () => {
         // A write moves the revision by design. Matching it after the fact
         // would drop the refusal of the very save that caused the move.
-        const { deps } = createDeps({annotationDirty: ref(true)});
+        const {deps} = createDeps({annotationDirty: ref(true)});
         deps.saveWorkingCopy = vi.fn(async () => {
             deps.documentRevisionToken.value = requireDocumentRevisionToken('rev-2');
             return {
@@ -1045,40 +1056,22 @@ describe('workspace save failure surfacing', () => {
 
         await expect(service.handleSave()).resolves.toBe(false);
 
-        expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-            color: 'error',
-            title: 'errors.file.save',
-            description: toastDescriptionContaining('errors.save.notCompleted'),
-        }));
+        expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({
+                color: 'error',
+                title: 'errors.file.save',
+                description: toastDescriptionContaining('errors.save.notCompleted'),
+            }),
+        );
         expect(service.hasSaveFailure.value).toBe(true);
     });
 
     it.each([
-        [
-            'io',
-            'EACCES: permission denied',
-            'errors.save.permissionDenied',
-        ],
-        [
-            'io',
-            'ENOSPC: no space left on device',
-            'errors.save.diskFull',
-        ],
-        [
-            'io',
-            'I/O error while writing the PDF',
-            'errors.save.writeFailed',
-        ],
-        [
-            'corrupt-xref',
-            'The PDF cross-reference table is damaged',
-            'errors.save.validation',
-        ],
-        [
-            'native-failure',
-            'Native appearance writer rejected the font',
-            'errors.save.nativeFailure',
-        ],
+        ['io', 'EACCES: permission denied', 'errors.save.permissionDenied'],
+        ['io', 'ENOSPC: no space left on device', 'errors.save.diskFull'],
+        ['io', 'I/O error while writing the PDF', 'errors.save.writeFailed'],
+        ['corrupt-xref', 'The PDF cross-reference table is damaged', 'errors.save.validation'],
+        ['native-failure', 'Native appearance writer rejected the font', 'errors.save.nativeFailure'],
     ] as const)('retains the %s native cause and dirty edits (%s)', async (code, message, expectedDescription) => {
         const annotationDirty = ref(true);
         const previousNavigator = globalThis.navigator;
@@ -1088,7 +1081,9 @@ describe('workspace save failure surfacing', () => {
             const {deps} = createDeps({
                 totalPages: ref(2),
                 annotationDirty,
-                markAnnotationSaved: vi.fn(() => {annotationDirty.value = false;}),
+                markAnnotationSaved: vi.fn(() => {
+                    annotationDirty.value = false;
+                }),
                 hasShapeChanges: vi.fn(() => true),
                 getAllShapes: vi.fn(() => [createShapeAnnotation()]),
                 trySavePdfNativeMutations: vi.fn(async () => ({
@@ -1113,7 +1108,9 @@ describe('workspace save failure surfacing', () => {
             await expect(service.handleSave()).resolves.toBe(false);
             expect(annotationDirty.value).toBe(true);
             expect(service.hasSaveFailure.value).toBe(true);
-            expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({description: toastDescriptionContaining(expectedDescription)}));
+            expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(
+                expect.objectContaining({description: toastDescriptionContaining(expectedDescription)}),
+            );
             const toast = toastAddMock.mock.calls[0]?.[0];
             await toast.actions.find((action: {label: string}) => action.label === 'errors.runtime.copy').onClick();
             expect(clipboard).toHaveBeenCalledWith(expect.stringContaining(message));
@@ -1123,7 +1120,7 @@ describe('workspace save failure surfacing', () => {
     });
 
     it('reports a native mutation persistence that refuses to write', async () => {
-        const { deps } = createDeps({
+        const {deps} = createDeps({
             totalPages: ref(2),
             hasShapeChanges: vi.fn(() => true),
             getAllShapes: vi.fn(() => [createShapeAnnotation()]),
@@ -1138,60 +1135,64 @@ describe('workspace save failure surfacing', () => {
 
         await expect(service.handleSave()).resolves.toBe(false);
 
-        expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-            color: 'error',
-            title: 'errors.file.save',
-            description: toastDescriptionContaining('errors.save.notCompleted'),
-        }));
+        expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({
+                color: 'error',
+                title: 'errors.file.save',
+                description: toastDescriptionContaining('errors.save.notCompleted'),
+            }),
+        );
         expect(service.hasSaveFailure.value).toBe(true);
         expectWorkspaceSaveNotMarked(deps);
     });
 
-    it.each([
-        'handleSave',
-        'handleRepairSave',
-    ] as const)('says a file too large for the native writer cannot take the edit (%s)', async (command) => {
-        const trySavePdfNativeMutations = vi.fn(async () => ({
-            success: false,
-            outPath: null,
-            saveMode: 'rewrite' as const,
-            didSaveAs: false,
-            nativeRefusalCode: 'too-large' as const,
-        }));
-        const repairWorkingCopy = vi.fn(async () => ({
-            success: true,
-            outPath: requireDocumentRef('/tmp/source.pdf'),
-            saveMode: 'rewrite' as const,
-            didSaveAs: false,
-        }));
-        const { deps } = createDeps({
-            totalPages: ref(2),
-            hasShapeChanges: vi.fn(() => true),
-            getAllShapes: vi.fn(() => [createShapeAnnotation()]),
-            trySavePdfNativeMutations,
-            repairWorkingCopy,
-        });
-        const service = useWorkspaceSaveServiceForTest(deps);
+    it.each(['handleSave', 'handleRepairSave'] as const)(
+        'says a file too large for the native writer cannot take the edit (%s)',
+        async (command) => {
+            const trySavePdfNativeMutations = vi.fn(async () => ({
+                success: false,
+                outPath: null,
+                saveMode: 'rewrite' as const,
+                didSaveAs: false,
+                nativeRefusalCode: 'too-large' as const,
+            }));
+            const repairWorkingCopy = vi.fn(async () => ({
+                success: true,
+                outPath: requireDocumentRef('/tmp/source.pdf'),
+                saveMode: 'rewrite' as const,
+                didSaveAs: false,
+            }));
+            const {deps} = createDeps({
+                totalPages: ref(2),
+                hasShapeChanges: vi.fn(() => true),
+                getAllShapes: vi.fn(() => [createShapeAnnotation()]),
+                trySavePdfNativeMutations,
+                repairWorkingCopy,
+            });
+            const service = useWorkspaceSaveServiceForTest(deps);
 
-        await expect(service[command]()).resolves.toBe(false);
+            await expect(service[command]()).resolves.toBe(false);
 
-        expect(trySavePdfNativeMutations).toHaveBeenCalledOnce();
-        expect(repairWorkingCopy).not.toHaveBeenCalled();
-        expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-            color: 'error',
-            title: 'errors.file.save',
-            description: toastDescriptionContaining('errors.save.tooLargeForEdit'),
-        }));
-        expect(service.hasSaveFailure.value).toBe(true);
-        expect(deps.documentRevisionToken.value).toBe('rev-1');
-        expectWorkspaceSaveNotMarked(deps);
-    });
+            expect(trySavePdfNativeMutations).toHaveBeenCalledOnce();
+            expect(repairWorkingCopy).not.toHaveBeenCalled();
+            expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(
+                expect.objectContaining({
+                    color: 'error',
+                    title: 'errors.file.save',
+                    description: toastDescriptionContaining('errors.save.tooLargeForEdit'),
+                }),
+            );
+            expect(service.hasSaveFailure.value).toBe(true);
+            expect(deps.documentRevisionToken.value).toBe('rev-1');
+            expectWorkspaceSaveNotMarked(deps);
+        },
+    );
 
     it('tells a revision conflict once, without retrying, and keeps the edit unsaved', async () => {
         const trySavePdfNativeMutations = vi.fn(async () => {
             throw createStaleRevisionError({message: 'The working copy changed'});
         });
-        const { deps } = createDeps({
+        const {deps} = createDeps({
             ...unsavedShapeEdit(),
             trySavePdfNativeMutations,
         });
@@ -1200,16 +1201,18 @@ describe('workspace save failure surfacing', () => {
         await expect(service.handleSave()).resolves.toBe(false);
 
         expect(trySavePdfNativeMutations).toHaveBeenCalledOnce();
-        expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-            color: 'error',
-            description: toastDescriptionContaining('errors.save.documentChanged'),
-        }));
+        expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({
+                color: 'error',
+                description: toastDescriptionContaining('errors.save.documentChanged'),
+            }),
+        );
         expectWorkspaceSaveNotMarked(deps);
     });
 
     it('keeps the thrown-save toast unchanged', async () => {
         vi.spyOn(console, 'error').mockImplementation(() => undefined);
-        const { deps } = createDeps({
+        const {deps} = createDeps({
             ...unsavedShapeEdit(),
             trySavePdfNativeMutations: vi.fn(() => {
                 throw new Error('disk exploded');
@@ -1219,27 +1222,20 @@ describe('workspace save failure surfacing', () => {
 
         await expect(service.handleSave()).resolves.toBe(false);
 
-        expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-            color: 'error',
-            title: 'errors.file.save',
-            description: toastDescriptionContaining('disk exploded'),
-        }));
+        expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({
+                color: 'error',
+                title: 'errors.file.save',
+                description: toastDescriptionContaining('disk exploded'),
+            }),
+        );
         expect(service.hasSaveFailure.value).toBe(true);
     });
 
     it.each([
-        [
-            'canonical Error-based AbortError',
-            () => createAbortError('IPC invoke canceled'),
-        ],
-        [
-            'DOMException AbortError',
-            () => new DOMException('Save canceled', 'AbortError'),
-        ],
-        [
-            'SuppressedError wrapping AbortError',
-            () => new SuppressedError(new Error('cleanup failed'), createAbortError('save canceled')),
-        ],
+        ['canonical Error-based AbortError', () => createAbortError('IPC invoke canceled')],
+        ['DOMException AbortError', () => new DOMException('Save canceled', 'AbortError')],
+        ['SuppressedError wrapping AbortError', () => new SuppressedError(new Error('cleanup failed'), createAbortError('save canceled'))],
     ])('agrees on %s across createDocumentPersistence and useWorkspaceSaveService without error toasts', async (_label, makeAbortError) => {
         const workingPath = requireDocumentRef('/tmp/work.pdf');
         const originalPath = requireDocumentRef('/tmp/source.pdf');
@@ -1263,7 +1259,7 @@ describe('workspace save failure surfacing', () => {
 
         await expect(persistence.saveWorkingCopy()).rejects.toBe(abortError);
 
-        const { deps } = createDeps({
+        const {deps} = createDeps({
             ...unsavedShapeEdit(),
             trySavePdfNativeMutations: vi.fn(async () => {
                 throw abortError;
@@ -1302,11 +1298,13 @@ describe('workspace save failure surfacing', () => {
 
         await expect(service.handleSaveAs()).resolves.toBe(false);
 
-        expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-            color: 'error',
-            title: 'errors.file.save',
-            description: toastDescriptionContaining(adoptionMessage),
-        }));
+        expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({
+                color: 'error',
+                title: 'errors.file.save',
+                description: toastDescriptionContaining(adoptionMessage),
+            }),
+        );
         expect(errorSpy).toHaveBeenCalledWith(
             'workspace',
             'Workspace save failed',
@@ -1351,11 +1349,13 @@ describe('workspace save failure surfacing', () => {
 
         await expect(service.handleSaveAs()).resolves.toBe(false);
 
-        expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-            color: 'error',
-            title: 'errors.file.save',
-            description: toastDescriptionContaining(cleanMessage),
-        }));
+        expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({
+                color: 'error',
+                title: 'errors.file.save',
+                description: toastDescriptionContaining(cleanMessage),
+            }),
+        );
         expect(toastAddMock.mock.calls[0]?.[0].description).not.toContain('EVB_SERIALIZABLE_ERROR:');
         expect(errorSpy).toHaveBeenCalledWith(
             'workspace',
@@ -1402,11 +1402,13 @@ describe('workspace save failure surfacing', () => {
 
         await expect(service.handleSaveAs()).resolves.toBe(false);
 
-        expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-            color: 'error',
-            title: 'errors.file.save',
-            description: toastDescriptionContaining(unconfirmedMessage),
-        }));
+        expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({
+                color: 'error',
+                title: 'errors.file.save',
+                description: toastDescriptionContaining(unconfirmedMessage),
+            }),
+        );
         expect(toastAddMock.mock.calls[0]?.[0].description).not.toContain('errors.save.notCompleted');
         expect(errorSpy).toHaveBeenCalledWith(
             'workspace',

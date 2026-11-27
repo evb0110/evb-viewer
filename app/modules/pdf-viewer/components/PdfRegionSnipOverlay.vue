@@ -11,7 +11,7 @@
         v-if="shouldRender"
         ref="overlayRef"
         class="snip-overlay"
-        :class="{ 'is-active': active, 'is-clean': keyboardController?.state.value === 'capturing' }"
+        :class="{'is-active': active, 'is-clean': keyboardController?.state.value === 'capturing'}"
         :role="active ? 'dialog' : undefined"
         :aria-modal="active ? 'true' : undefined"
         :aria-label="active ? hintLabel : undefined"
@@ -42,35 +42,51 @@
         >
             {{ copiedLabel }}
         </div>
-        <div v-if="active && keyboardController?.state.value !== 'selecting'" class="snip-controls" @pointerdown.stop @pointerup.stop @keydown.stop>
+        <div
+            v-if="active && keyboardController?.state.value !== 'selecting'"
+            class="snip-controls"
+            @pointerdown.stop
+            @pointerup.stop
+            @keydown.stop
+        >
             <span role="status">{{ stageLabel }} {{ elapsed }}</span>
             <template v-if="keyboardController?.state.value === 'confirming'">
                 <span v-if="!hasElectronAPI()">{{ t('toolbar.captureConsent') }}</span>
-                <UButton data-capture-confirm @click="keyboardController.confirmCapture()">{{ t('toolbar.captureConfirm') }}</UButton>
+                <UButton
+                    data-capture-confirm
+                    @click="keyboardController.confirmCapture()"
+                    >{{ t('toolbar.captureConfirm') }}</UButton
+                >
             </template>
-            <UButton :disabled="keyboardController?.state.value === 'copying'" variant="outline" @click="cancelSelection">{{ t('common.cancel') }}</UButton>
+            <UButton
+                :disabled="keyboardController?.state.value === 'copying'"
+                variant="outline"
+                @click="cancelSelection"
+                >{{ t('common.cancel') }}</UButton
+            >
         </div>
-        <div v-if="active && !selectionRect" class="snip-hint">
+        <div
+            v-if="active && !selectionRect"
+            class="snip-hint"
+        >
             {{ hintLabel }}
         </div>
     </div>
 </template>
 
 <script setup lang="ts">
-import type {
-    CSSProperties, ComponentPublicInstance,
-} from 'vue';
-import { useStageElapsedClock } from '@app/composables/useStageElapsedClock';
-import { hasElectronAPI } from '@app/utils/platform';
-import type { ILocalRect } from '@app/modules/document-viewer/public';
+import type {CSSProperties, ComponentPublicInstance} from 'vue';
+import {useStageElapsedClock} from '@app/composables/useStageElapsedClock';
+import {hasElectronAPI} from '@app/utils/platform';
+import type {ILocalRect} from '@app/modules/document-viewer/public';
 import type {
     IRegionSelectionOverlayBaseProps,
     IRegionSelectionOverlayEmits,
 } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfRegionSelectionOverlay';
-import { pdfRegionSnipKeyboardKey } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfRegionSnip';
-import { useEmittedPdfRegionSelectionOverlay } from '@app/modules/pdf-viewer/runtime/composables/pdf/useEmittedPdfRegionSelectionOverlay';
-import { usePdfSelectionOverlayFocus } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfSelectionOverlayFocus';
-import { regionRectStyle } from '@app/modules/pdf-viewer/engine/region-selection/regionRectStyle';
+import {pdfRegionSnipKeyboardKey} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfRegionSnip';
+import {useEmittedPdfRegionSelectionOverlay} from '@app/modules/pdf-viewer/runtime/composables/pdf/useEmittedPdfRegionSelectionOverlay';
+import {usePdfSelectionOverlayFocus} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfSelectionOverlayFocus';
+import {regionRectStyle} from '@app/modules/pdf-viewer/engine/region-selection/regionRectStyle';
 
 interface IProps {
     active: IRegionSelectionOverlayBaseProps['active'];
@@ -79,64 +95,54 @@ interface IProps {
     flashRect: ILocalRect | null;
     badgePosition: {
         x: number;
-        y: number 
+        y: number;
     } | null;
     copiedLabel: string;
 }
 
-const {
-    active,
-    selectionRect,
-    hintLabel,
-    flashRect,
-    badgePosition,
-    copiedLabel,
-} = defineProps<IProps>();
+const {active, selectionRect, hintLabel, flashRect, badgePosition, copiedLabel} = defineProps<IProps>();
 const emit = defineEmits<IRegionSelectionOverlayEmits>();
 const overlayRef = ref<HTMLElement | null>(null);
 const keyboardController = inject(pdfRegionSnipKeyboardKey, null);
 const {t} = useTypedI18n();
 const stage = computed(() => keyboardController?.state.value ?? null);
-const elapsed = useStageElapsedClock(stage, new Set([
-    'preparing',
-    'permission',
-    'capturing',
-    'copying',
-]));
+const elapsed = useStageElapsedClock(stage, new Set(['preparing', 'permission', 'capturing', 'copying']));
 const stageLabel = computed(() => {
     switch (stage.value) {
-        case 'preparing': return t('toolbar.capturePreparing');
-        case 'permission': return t('toolbar.capturePermission');
-        case 'capturing': return t('toolbar.captureReading');
-        case 'copying': return t('toolbar.captureCopying');
+        case 'preparing':
+            return t('toolbar.capturePreparing');
+        case 'permission':
+            return t('toolbar.capturePermission');
+        case 'capturing':
+            return t('toolbar.captureReading');
+        case 'copying':
+            return t('toolbar.captureCopying');
         case null:
         case 'idle':
         case 'selecting':
         case 'confirming':
-        case 'success': return '';
+        case 'success':
+            return '';
     }
 });
 function setCropTarget(element: Element | ComponentPublicInstance | null) {
     keyboardController?.setCropTarget(element instanceof Element ? element : null);
 }
 
-const {
-    handlePointerDown,
-    handlePointerMove,
-    handlePointerUp,
-    handleContextMenu,
-    handleWheel,
-} = useEmittedPdfRegionSelectionOverlay({
-    get active() {
-        return active;
+const {handlePointerDown, handlePointerMove, handlePointerUp, handleContextMenu, handleWheel} = useEmittedPdfRegionSelectionOverlay(
+    {
+        get active() {
+            return active;
+        },
+        get selectionRect() {
+            return selectionRect;
+        },
+        get hintLabel() {
+            return hintLabel;
+        },
     },
-    get selectionRect() {
-        return selectionRect;
-    },
-    get hintLabel() {
-        return hintLabel;
-    },
-}, emit);
+    emit,
+);
 
 const shouldRender = computed(() => active || Boolean(flashRect) || Boolean(badgePosition));
 const selectionStyle = computed(() => regionRectStyle(selectionRect));
@@ -170,7 +176,9 @@ const {handleKeyboardKey} = usePdfSelectionOverlayFocus({
 }
 
 .snip-overlay.is-clean .snip-hint,
-.snip-overlay.is-clean .snip-controls { visibility: hidden; }
+.snip-overlay.is-clean .snip-controls {
+    visibility: hidden;
+}
 
 .snip-controls,
 .snip-hint {

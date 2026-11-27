@@ -1,14 +1,6 @@
 import {performance} from 'node:perf_hooks';
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    asAnnotationId,
-    type INoteEntity,
-    type ITextBoxEntity,
-} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {describe, expect, it} from 'vitest';
+import {asAnnotationId, type INoteEntity, type ITextBoxEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {
     AnnotationRecoveryAdmissionError,
     CANONICAL_ANNOTATION_RECOVERY_VERSION,
@@ -22,11 +14,7 @@ import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {requireEpochMs} from '@contracts/timestamps';
 
-function makeNote(
-    id: string,
-    pageIndex: number,
-    overrides: Partial<INoteEntity> = {},
-): INoteEntity {
+function makeNote(id: string, pageIndex: number, overrides: Partial<INoteEntity> = {}): INoteEntity {
     return {
         kind: 'note',
         identity: {id: asAnnotationId(id)},
@@ -50,11 +38,7 @@ function makeNote(
     };
 }
 
-function makeTextBox(
-    id: string,
-    pageIndex: number,
-    overrides: Partial<ITextBoxEntity> = {},
-): ITextBoxEntity {
+function makeTextBox(id: string, pageIndex: number, overrides: Partial<ITextBoxEntity> = {}): ITextBoxEntity {
     return {
         kind: 'text-box',
         identity: {id: asAnnotationId(id)},
@@ -105,10 +89,7 @@ describe('canonical annotation recovery indexing and uniqueness', () => {
             annotationReadRevision: requireDocumentRevisionToken('rev-1'),
             changedFields: {},
             annotationMutationGeneration: 3,
-            entities: [
-                active,
-                deleted,
-            ],
+            entities: [active, deleted],
             drafts: [
                 {
                     annotationId: active.identity.id,
@@ -139,13 +120,12 @@ describe('canonical annotation recovery indexing and uniqueness', () => {
         expect(validated.drafts[0]?.annotationId).toBe(active.identity.id);
         expect(validated.draftErrors).toHaveLength(2);
 
-        expect(() => validateCanonicalAnnotationRecovery({
-            ...payload,
-            entities: [
-                active,
-                active,
-            ],
-        })).toThrow(AnnotationRecoveryAdmissionError);
+        expect(() =>
+            validateCanonicalAnnotationRecovery({
+                ...payload,
+                entities: [active, active],
+            }),
+        ).toThrow(AnnotationRecoveryAdmissionError);
     });
 
     it('preserves global vs per-page uniqueness and leaves ambiguous reread candidates detached', () => {
@@ -186,43 +166,46 @@ describe('canonical annotation recovery indexing and uniqueness', () => {
 
         // Capture a real v3 plan (with heldFields digests) from a pre-renumber store.
         const sourceStore = new AnnotationStore();
-        sourceStore.replaceFromDocument([
-            makeNote('old-p0', 0, {
-                identity: {
-                    id: asAnnotationId('old-p0'),
-                    pdfRef: '90 0 R',
-                },
-                author: 'Shared',
-                contents: 'Original',
-            }),
-            makeNote('old-p1', 1, {
-                identity: {
-                    id: asAnnotationId('old-p1'),
-                    pdfRef: '91 0 R',
-                },
-                author: 'Shared',
-                contents: 'Original',
-            }),
-            makeNote('old-ambig', 2, {
-                identity: {
-                    id: asAnnotationId('old-ambig'),
-                    pdfRef: '92 0 R',
-                },
-                author: 'Ambiguous',
-                contents: 'Original',
-            }),
-        ], [], undefined, [], [], false, requireDocumentRevisionToken('rev-before'));
+        sourceStore.replaceFromDocument(
+            [
+                makeNote('old-p0', 0, {
+                    identity: {
+                        id: asAnnotationId('old-p0'),
+                        pdfRef: '90 0 R',
+                    },
+                    author: 'Shared',
+                    contents: 'Original',
+                }),
+                makeNote('old-p1', 1, {
+                    identity: {
+                        id: asAnnotationId('old-p1'),
+                        pdfRef: '91 0 R',
+                    },
+                    author: 'Shared',
+                    contents: 'Original',
+                }),
+                makeNote('old-ambig', 2, {
+                    identity: {
+                        id: asAnnotationId('old-ambig'),
+                        pdfRef: '92 0 R',
+                    },
+                    author: 'Ambiguous',
+                    contents: 'Original',
+                }),
+            ],
+            [],
+            undefined,
+            [],
+            [],
+            false,
+            requireDocumentRevisionToken('rev-before'),
+        );
         sourceStore.updateNote(asAnnotationId('old-p0'), {contents: 'Edited P0'});
         sourceStore.updateNote(asAnnotationId('old-p1'), {contents: 'Edited P1'});
         sourceStore.updateNote(asAnnotationId('old-ambig'), {contents: 'Edited Ambig'});
         const captured = captureCanonicalAnnotationRecovery(sourceStore);
 
-        const rereadStore = createStoreWithReadRevision([
-            page0Note,
-            page1Note,
-            ambigA,
-            ambigB,
-        ], 'rev-after');
+        const rereadStore = createStoreWithReadRevision([page0Note, page1Note, ambigA, ambigB], 'rev-after');
         restoreCanonicalAnnotationRecovery(rereadStore, captured);
 
         expect((rereadStore.get(asAnnotationId('reread-p0')) as INoteEntity | null)?.contents).toBe('Edited P0');
@@ -250,14 +233,16 @@ describe('canonical annotation recovery indexing and uniqueness', () => {
             annotationReadRevision: requireDocumentRevisionToken('rev-same'),
             changedFields: {'captured-tb': ['text']},
             annotationMutationGeneration: 1,
-            entities: [makeTextBox('captured-tb', 0, {
-                identity: {
-                    id: asAnnotationId('captured-tb'),
-                    pdfRef: '77 0 R',
-                },
-                revision: 1,
-                text: 'After',
-            })],
+            entities: [
+                makeTextBox('captured-tb', 0, {
+                    identity: {
+                        id: asAnnotationId('captured-tb'),
+                        pdfRef: '77 0 R',
+                    },
+                    revision: 1,
+                    text: 'After',
+                }),
+            ],
             drafts: [],
         };
         restoreCanonicalAnnotationRecovery(sameBytesStore, sameBytesPlan);
@@ -265,14 +250,16 @@ describe('canonical annotation recovery indexing and uniqueness', () => {
 
         // Scaling: 1,000 reread entities + 1,000 drafts.
         const count = 1_000;
-        const readNotes = Array.from({length: count}, (_, index) => makeNote(`read-${index}`, index % 100, {
-            identity: {
-                id: asAnnotationId(`read-${index}`),
-                pdfRef: `${index + 10} 0 R`,
-            },
-            author: `Author-${index}`,
-            contents: `Original-${index}`,
-        }));
+        const readNotes = Array.from({length: count}, (_, index) =>
+            makeNote(`read-${index}`, index % 100, {
+                identity: {
+                    id: asAnnotationId(`read-${index}`),
+                    pdfRef: `${index + 10} 0 R`,
+                },
+                author: `Author-${index}`,
+                contents: `Original-${index}`,
+            }),
+        );
         const largeStore = createStoreWithReadRevision(readNotes, 'rev-after');
         const capturedNotes = readNotes.map((entity, index) => ({
             ...entity,
@@ -286,13 +273,10 @@ describe('canonical annotation recovery indexing and uniqueness', () => {
         const largeRecovery: ICanonicalAnnotationRecovery = {
             version: CANONICAL_ANNOTATION_RECOVERY_VERSION,
             annotationReadRevision: requireDocumentRevisionToken('rev-before'),
-            changedFields: Object.fromEntries(capturedNotes.map(entity => [
-                entity.identity.id,
-                ['contents'],
-            ])),
+            changedFields: Object.fromEntries(capturedNotes.map((entity) => [entity.identity.id, ['contents']])),
             annotationMutationGeneration: 1,
             entities: capturedNotes,
-            drafts: capturedNotes.map(entity => ({
+            drafts: capturedNotes.map((entity) => ({
                 annotationId: entity.identity.id,
                 kind: 'note' as const,
                 canonicalRevision: 1,

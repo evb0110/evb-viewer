@@ -1,7 +1,4 @@
-import type {
-    IMarkerRect,
-    IPoint2D,
-} from '@contracts/geometry';
+import type {IMarkerRect, IPoint2D} from '@contracts/geometry';
 import type {
     TPdfAnnotationLineEndStyle,
     TPdfAnnotationMarkupSubtype,
@@ -10,17 +7,12 @@ import type {
     TAnnotationTool as TContractAnnotationTool,
     TDrawableShapeTool,
 } from '@contracts/annotations';
-import type { IPdfNativeShapeAnnotation } from '@contracts/electronApiDocuments';
-import type { TEpochMs } from '@contracts/timestamps';
-import type { IPdfAnnotationNoteReply } from '@contracts/pdfAnnotationParseTypes';
-import type { AnnotationEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import type {
-    TaggedUnion,
-} from 'type-fest';
-export {
-    ANNOTATION_TOOLS,
-    DRAWABLE_SHAPE_TOOLS,
-} from '@contracts/annotations';
+import type {IPdfNativeShapeAnnotation} from '@contracts/electronApiDocuments';
+import type {TEpochMs} from '@contracts/timestamps';
+import type {IPdfAnnotationNoteReply} from '@contracts/pdfAnnotationParseTypes';
+import type {AnnotationEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import type {TaggedUnion} from 'type-fest';
+export {ANNOTATION_TOOLS, DRAWABLE_SHAPE_TOOLS} from '@contracts/annotations';
 
 export type TAnnotationTool = TContractAnnotationTool;
 
@@ -33,11 +25,7 @@ export type TAnnotationCommentsStatus = 'loading' | 'ready';
  * truncates at the same place. `page-parse-failure` is transient, so a snapshot
  * carrying it is retried once per document revision.
  */
-export type TAnnotationInventoryOmission =
-    | 'page-cap'
-    | 'record-cap'
-    | 'page-parse-failure'
-    | 'annotation-name-unavailable';
+export type TAnnotationInventoryOmission = 'page-cap' | 'record-cap' | 'page-parse-failure' | 'annotation-name-unavailable';
 
 export interface IAnnotationInventoryCompleteness {
     complete: boolean;
@@ -95,9 +83,7 @@ export interface IShapeAnnotation extends Omit<IPdfNativeShapeAnnotation, TEdito
     modifiedAt?: TEpochMs | null;
 }
 
-export type TAnnotationStableKey =
-    | `nm:${string}`
-    | `ann:${number}:${string}`;
+export type TAnnotationStableKey = `nm:${string}` | `ann:${number}:${string}`;
 
 export type TImmutableShapeKey = 'id' | 'pageIndex';
 
@@ -157,7 +143,9 @@ export interface IAnnotationEditorState {
     hasAppAnnotationRedoHistory?: boolean;
 }
 
-export interface IAnnotationModifiedPayload { forceDirty?: boolean }
+export interface IAnnotationModifiedPayload {
+    forceDirty?: boolean;
+}
 
 export type IAnnotationMarkerRect = IMarkerRect;
 
@@ -209,8 +197,11 @@ interface IAnnotationCommentSummaryFields {
     markupGeometry?: readonly IAnnotationMarkerRect[] | null | undefined;
 }
 
-export type IAnnotationCommentSummary = TaggedUnion<'source', {
-    editor: { [Key in keyof IAnnotationCommentSummaryFields]: IAnnotationCommentSummaryFields[Key] };
-    pdf: { [Key in keyof IAnnotationCommentSummaryFields]: IAnnotationCommentSummaryFields[Key] };
-    shape: { [Key in keyof IAnnotationCommentSummaryFields]: IAnnotationCommentSummaryFields[Key] };
-}>;
+export type IAnnotationCommentSummary = TaggedUnion<
+    'source',
+    {
+        editor: {[Key in keyof IAnnotationCommentSummaryFields]: IAnnotationCommentSummaryFields[Key]};
+        pdf: {[Key in keyof IAnnotationCommentSummaryFields]: IAnnotationCommentSummaryFields[Key]};
+        shape: {[Key in keyof IAnnotationCommentSummaryFields]: IAnnotationCommentSummaryFields[Key]};
+    }
+>;

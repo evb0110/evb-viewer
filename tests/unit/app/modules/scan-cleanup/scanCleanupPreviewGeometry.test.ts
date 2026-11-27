@@ -1,19 +1,7 @@
 // @vitest-environment happy-dom
 
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    createApp,
-    effectScope,
-    h,
-    nextTick,
-    ref,
-    shallowRef,
-} from 'vue';
+import {describe, expect, it, vi} from 'vitest';
+import {createApp, effectScope, h, nextTick, ref, shallowRef} from 'vue';
 import type {
     IScanCleanupRawPreviewResult,
     IScanCleanupPreviewMetadata,
@@ -46,11 +34,7 @@ import {
     resolvePreviewViewportFrame,
     type IScanCleanupPreviewFitPlacement,
 } from '@app/modules/scan-cleanup/geometry/viewport';
-import {
-    resolvePreviewMetadataPlacement,
-    toPreviewSourceCropStyle,
-    toPreviewStyleRect,
-} from '@app/modules/scan-cleanup/geometry/placement';
+import {resolvePreviewMetadataPlacement, toPreviewSourceCropStyle, toPreviewStyleRect} from '@app/modules/scan-cleanup/geometry/placement';
 import {useScanCleanupViewportFrame} from '@app/modules/scan-cleanup/composables/useScanCleanupViewportFrame';
 import {createScanCleanupPreviewPrefetcher} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewSession';
 
@@ -106,23 +90,13 @@ function metadata(overrides: Partial<IScanCleanupPreviewMetadata> = {}): IScanCl
         rotationDegrees: 0,
         resamplePasses: 1,
         rasterScaleLimited: false,
-        forwardTransform: {matrix: [
-            [
-                1,
-                0,
-                -100,
+        forwardTransform: {
+            matrix: [
+                [1, 0, -100],
+                [0, 1, -20],
+                [0, 0, 1],
             ],
-            [
-                0,
-                1,
-                -20,
-            ],
-            [
-                0,
-                0,
-                1,
-            ],
-        ]},
+        },
         warnings: [],
         ...overrides,
     };
@@ -147,10 +121,12 @@ function previewResult(outputMetadata: IScanCleanupPreviewMetadata, pixel = 1): 
             reconciled: false,
             clusterAgreement: 0,
         },
-        outputs: [{
-            imageData: new Uint8Array([pixel]),
-            metadata: outputMetadata,
-        }],
+        outputs: [
+            {
+                imageData: new Uint8Array([pixel]),
+                metadata: outputMetadata,
+            },
+        ],
     };
 }
 
@@ -170,10 +146,7 @@ describe('scan cleanup preview geometry', () => {
             canvasWidthPx: 220,
             canvasHeightPx: 340,
         });
-        const frame = resolvePreviewViewportFrame([
-            first,
-            second,
-        ]);
+        const frame = resolvePreviewViewportFrame([first, second]);
 
         expect(frame).toEqual([
             {
@@ -190,11 +163,13 @@ describe('scan cleanup preview geometry', () => {
     });
 
     it('uses the source-page aspect and a single placeholder until classification is known', () => {
-        expect(resolvePreviewPlaceholderViewportFrame(600, 900, undefined, 0)).toEqual([{
-            half: 'full',
-            width: 600,
-            height: 900,
-        }]);
+        expect(resolvePreviewPlaceholderViewportFrame(600, 900, undefined, 0)).toEqual([
+            {
+                half: 'full',
+                width: 600,
+                height: 900,
+            },
+        ]);
         expect(resolvePreviewPlaceholderViewportFrame(600, 900, 'two-page-spread', 90)).toEqual([
             {
                 half: 'left',
@@ -248,14 +223,12 @@ describe('scan cleanup preview geometry', () => {
             rawHeightPx: 640,
         });
         let images: ReturnType<typeof useScanCleanupPreviewImages> | undefined;
-        const app = createApp({setup() {
-            images = useScanCleanupPreviewImages(
-                shallowRef<IScanCleanupPreviewResult | null>(null),
-                undefined,
-                rawResult,
-            );
-            return () => h('div');
-        }});
+        const app = createApp({
+            setup() {
+                images = useScanCleanupPreviewImages(shallowRef<IScanCleanupPreviewResult | null>(null), undefined, rawResult);
+                return () => h('div');
+            },
+        });
         const host = document.createElement('div');
         document.body.appendChild(host);
         app.mount(host);
@@ -300,14 +273,12 @@ describe('scan cleanup preview geometry', () => {
             rawHeightPx: 640,
         });
         let images: ReturnType<typeof useScanCleanupPreviewImages> | undefined;
-        const app = createApp({setup() {
-            images = useScanCleanupPreviewImages(
-                shallowRef<IScanCleanupPreviewResult | null>(null),
-                undefined,
-                rawResult,
-            );
-            return () => h('div');
-        }});
+        const app = createApp({
+            setup() {
+                images = useScanCleanupPreviewImages(shallowRef<IScanCleanupPreviewResult | null>(null), undefined, rawResult);
+                return () => h('div');
+            },
+        });
         const host = document.createElement('div');
         document.body.appendChild(host);
         app.mount(host);
@@ -353,38 +324,32 @@ describe('scan cleanup preview geometry', () => {
     });
 
     it('keeps a negative half-local content origin when the crop begins outside the half', () => {
-        expect(transformPreviewContentBox(metadata({
-            half: 'right',
-            sourceRegion: {
-                xPx: 500,
-                yPx: 0,
-                widthPx: 400,
-                heightPx: 600,
-            },
-            contentBox: {
-                xPx: -20,
-                yPx: 30,
-                widthPx: 200,
-                heightPx: 300,
-            },
-            forwardTransform: {matrix: [
-                [
-                    1,
-                    0,
-                    -470,
-                ],
-                [
-                    0,
-                    1,
-                    -20,
-                ],
-                [
-                    0,
-                    0,
-                    1,
-                ],
-            ]},
-        }))).toEqual({
+        expect(
+            transformPreviewContentBox(
+                metadata({
+                    half: 'right',
+                    sourceRegion: {
+                        xPx: 500,
+                        yPx: 0,
+                        widthPx: 400,
+                        heightPx: 600,
+                    },
+                    contentBox: {
+                        xPx: -20,
+                        yPx: 30,
+                        widthPx: 200,
+                        heightPx: 300,
+                    },
+                    forwardTransform: {
+                        matrix: [
+                            [1, 0, -470],
+                            [0, 1, -20],
+                            [0, 0, 1],
+                        ],
+                    },
+                }),
+            ),
+        ).toEqual({
             xPx: 10,
             yPx: 10,
             widthPx: 200,
@@ -408,23 +373,13 @@ describe('scan cleanup preview geometry', () => {
             },
             outputWidthPx: 200,
             outputHeightPx: 300,
-            forwardTransform: {matrix: [
-                [
-                    1,
-                    0,
-                    0,
+            forwardTransform: {
+                matrix: [
+                    [1, 0, 0],
+                    [0, 1, 0],
+                    [0, 0, 1],
                 ],
-                [
-                    0,
-                    1,
-                    0,
-                ],
-                [
-                    0,
-                    0,
-                    1,
-                ],
-            ]},
+            },
         });
 
         expect(transformPreviewSourceHalfRectUnclamped(fractional, fractional.contentBox)).toEqual({
@@ -460,23 +415,13 @@ describe('scan cleanup preview geometry', () => {
             },
             outputWidthPx: 100,
             outputHeightPx: 100,
-            forwardTransform: {matrix: [
-                [
-                    0,
-                    -1,
-                    100,
+            forwardTransform: {
+                matrix: [
+                    [0, -1, 100],
+                    [1, 0, 0],
+                    [0, 0, 1],
                 ],
-                [
-                    1,
-                    0,
-                    0,
-                ],
-                [
-                    0,
-                    0,
-                    1,
-                ],
-            ]},
+            },
         });
 
         expect(measurePreviewContentBoxContainment(rotated)).toEqual({
@@ -544,31 +489,43 @@ describe('scan cleanup preview geometry', () => {
             scaleX: 1,
             scaleY: 1,
         });
-        expect(toPreviewStyleRect({
-            xPx: 0,
-            yPx: 0,
-            widthPx: 210,
-            heightPx: 300,
-        }, placement)).toEqual({
-            left: `${20 / 230 * 100}%`,
-            top: `${30 / 330 * 100}%`,
-            width: `${210 / 230 * 100}%`,
-            height: `${300 / 330 * 100}%`,
+        expect(
+            toPreviewStyleRect(
+                {
+                    xPx: 0,
+                    yPx: 0,
+                    widthPx: 210,
+                    heightPx: 300,
+                },
+                placement,
+            ),
+        ).toEqual({
+            left: `${(20 / 230) * 100}%`,
+            top: `${(30 / 330) * 100}%`,
+            width: `${(210 / 230) * 100}%`,
+            height: `${(300 / 330) * 100}%`,
         });
     });
 
     it('keeps zero-sized canvas overlays finite', () => {
-        const placement = resolvePreviewMetadataPlacement(metadata({
-            canvasWidthPx: 0,
-            canvasHeightPx: 0,
-        }));
+        const placement = resolvePreviewMetadataPlacement(
+            metadata({
+                canvasWidthPx: 0,
+                canvasHeightPx: 0,
+            }),
+        );
 
-        expect(toPreviewStyleRect({
-            xPx: 0,
-            yPx: 0,
-            widthPx: 0,
-            heightPx: 0,
-        }, placement)).toEqual({
+        expect(
+            toPreviewStyleRect(
+                {
+                    xPx: 0,
+                    yPx: 0,
+                    widthPx: 0,
+                    heightPx: 0,
+                },
+                placement,
+            ),
+        ).toEqual({
             left: '0%',
             top: '0%',
             width: '0%',
@@ -659,28 +616,38 @@ describe('scan cleanup preview geometry', () => {
             scaleY: 2,
         });
         // The raster fills the box the document normalized it into...
-        expect(toPreviewStyleRect({
-            xPx: 0,
-            yPx: 0,
-            widthPx: 105,
-            heightPx: 150,
-        }, placement)).toEqual({
-            left: `${10 / 230 * 100}%`,
-            top: `${15 / 330 * 100}%`,
-            width: `${210 / 230 * 100}%`,
-            height: `${300 / 330 * 100}%`,
+        expect(
+            toPreviewStyleRect(
+                {
+                    xPx: 0,
+                    yPx: 0,
+                    widthPx: 105,
+                    heightPx: 150,
+                },
+                placement,
+            ),
+        ).toEqual({
+            left: `${(10 / 230) * 100}%`,
+            top: `${(15 / 330) * 100}%`,
+            width: `${(210 / 230) * 100}%`,
+            height: `${(300 / 330) * 100}%`,
         });
         // ...and so does every overlay measured in that raster's own pixels.
-        expect(toPreviewStyleRect({
-            xPx: 5,
-            yPx: 10,
-            widthPx: 50,
-            heightPx: 60,
-        }, placement)).toEqual({
-            left: `${(10 + 10) / 230 * 100}%`,
-            top: `${(20 + 15) / 330 * 100}%`,
-            width: `${100 / 230 * 100}%`,
-            height: `${120 / 330 * 100}%`,
+        expect(
+            toPreviewStyleRect(
+                {
+                    xPx: 5,
+                    yPx: 10,
+                    widthPx: 50,
+                    heightPx: 60,
+                },
+                placement,
+            ),
+        ).toEqual({
+            left: `${((10 + 10) / 230) * 100}%`,
+            top: `${((20 + 15) / 330) * 100}%`,
+            width: `${(100 / 230) * 100}%`,
+            height: `${(120 / 330) * 100}%`,
         });
     });
 
@@ -705,27 +672,34 @@ describe('scan cleanup preview geometry', () => {
         expect(placement.scaleY).toBe(285 / 143);
         // The raster's own rect fills exactly the box the metadata reports,
         // on both axes.
-        expect(toPreviewStyleRect({
-            xPx: 0,
-            yPx: 0,
-            widthPx: 101,
-            heightPx: 143,
-        }, placement)).toEqual({
+        expect(
+            toPreviewStyleRect(
+                {
+                    xPx: 0,
+                    yPx: 0,
+                    widthPx: 101,
+                    heightPx: 143,
+                },
+                placement,
+            ),
+        ).toEqual({
             left: '0%',
-            top: `${1 / 286 * 100}%`,
+            top: `${(1 / 286) * 100}%`,
             width: '100%',
-            height: `${285 / 286 * 100}%`,
+            height: `${(285 / 286) * 100}%`,
         });
         // And the bottom edge of a rect that reaches the raster's last row
         // still lands on the bottom of that box rather than past it.
-        const bottom = toPreviewStyleRect({
-            xPx: 0,
-            yPx: 142,
-            widthPx: 101,
-            heightPx: 1,
-        }, placement);
-        expect(Number.parseFloat(String(bottom.top)) + Number.parseFloat(String(bottom.height)))
-            .toBeCloseTo((1 + 285) / 286 * 100, 10);
+        const bottom = toPreviewStyleRect(
+            {
+                xPx: 0,
+                yPx: 142,
+                widthPx: 101,
+                heightPx: 1,
+            },
+            placement,
+        );
+        expect(Number.parseFloat(String(bottom.top)) + Number.parseFloat(String(bottom.height))).toBeCloseTo(((1 + 285) / 286) * 100, 10);
     });
 
     it('updates paper geometry while keeping it stable across pixel-only refreshes', async () => {
@@ -740,11 +714,13 @@ describe('scan cleanup preview geometry', () => {
         const result = shallowRef<IScanCleanupPreviewResult | null>(previewResult(initialMetadata));
         const activeDrag = ref(false);
         const scope = effectScope();
-        const viewport = scope.run(() => useScanCleanupViewportFrame({
-            activeDrag,
-            requestedPage: () => 1,
-            result: () => result.value,
-        }))!;
+        const viewport = scope.run(() =>
+            useScanCleanupViewportFrame({
+                activeDrag,
+                requestedPage: () => 1,
+                result: () => result.value,
+            }),
+        )!;
         expect(viewport.frame.value.outputs.full).toEqual({
             width: 460,
             height: 660,
@@ -757,24 +733,30 @@ describe('scan cleanup preview geometry', () => {
             height: 660,
         });
 
-        result.value = previewResult({
-            ...initialMetadata,
-            outputWidthPx: 530,
-            outputHeightPx: 730,
-        }, 3);
+        result.value = previewResult(
+            {
+                ...initialMetadata,
+                outputWidthPx: 530,
+                outputHeightPx: 730,
+            },
+            3,
+        );
         await nextTick();
         expect(viewport.frame.value.outputs.full).toEqual({
             width: 460,
             height: 660,
         });
 
-        result.value = previewResult({
-            ...initialMetadata,
-            outputWidthPx: 530,
-            outputHeightPx: 730,
-            canvasWidthPx: 560,
-            canvasHeightPx: 760,
-        }, 4);
+        result.value = previewResult(
+            {
+                ...initialMetadata,
+                outputWidthPx: 530,
+                outputHeightPx: 730,
+                canvasWidthPx: 560,
+                canvasHeightPx: 760,
+            },
+            4,
+        );
         await nextTick();
         expect(viewport.frame.value.outputs.full).toEqual({
             width: 560,
@@ -893,16 +875,18 @@ describe('scan cleanup preview geometry', () => {
                 height: 600,
             },
         ]);
-        expect(resolvePreviewSpreadCutterCenter(renderedBoxes.filter(
-            (box): box is IScanCleanupPreviewFitPlacement => 'left' in box && 'top' in box,
-        ))).toBe(400);
+        expect(
+            resolvePreviewSpreadCutterCenter(
+                renderedBoxes.filter((box): box is IScanCleanupPreviewFitPlacement => 'left' in box && 'top' in box),
+            ),
+        ).toBe(400);
     });
 
     it('keeps a prefetch that finishes after navigation superseded it, and starts no more', async () => {
         const prefetchResult = Promise.withResolvers<{pageNumber: number}>();
-        const preview = vi.fn((request: {pageNumber: number}) => request.pageNumber === 2
-            ? prefetchResult.promise
-            : Promise.resolve({pageNumber: request.pageNumber}));
+        const preview = vi.fn((request: {pageNumber: number}) =>
+            request.pageNumber === 2 ? prefetchResult.promise : Promise.resolve({pageNumber: request.pageNumber}),
+        );
         const store = vi.fn();
         const prefetcher = createScanCleanupPreviewPrefetcher({
             isCached: () => false,
@@ -923,7 +907,9 @@ describe('scan cleanup preview geometry', () => {
 
         prefetcher.supersede();
         prefetchResult.resolve({pageNumber: 2});
-        for (let turn = 0; turn < 8; turn += 1) {await Promise.resolve();}
+        for (let turn = 0; turn < 8; turn += 1) {
+            await Promise.resolve();
+        }
 
         // The page is already rendered and the cache key names its content, so
         // keeping it costs nothing and re-rendering it costs a whole preview.
@@ -932,5 +918,4 @@ describe('scan cleanup preview geometry', () => {
         // The rest of the superseded queue still never starts.
         expect(preview).toHaveBeenCalledTimes(1);
     });
-
 });

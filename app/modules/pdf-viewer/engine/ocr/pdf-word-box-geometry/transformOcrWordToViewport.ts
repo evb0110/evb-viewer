@@ -1,10 +1,14 @@
 import type {IPdfViewport} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import type { IOcrWord } from '@contracts/shared';
+import type {IOcrWord} from '@contracts/shared';
 
-interface IOcrPageRenderGeometry {render?: {imagePx: {
-    w: number;
-    h: number
-}};}
+interface IOcrPageRenderGeometry {
+    render?: {
+        imagePx: {
+            w: number;
+            h: number;
+        };
+    };
+}
 
 export function transformOcrWordToViewport(
     word: IOcrWord,
@@ -34,23 +38,17 @@ export function transformOcrWordToViewport(
     const pdfX2 = pageX + (word.x + word.width) * sx;
     const pdfY2 = pageY + pageHeight - word.y * sy;
 
-    const [
-        x1,
-        y1,
-    ] = viewport.convertToViewportPoint(pdfX, pdfY);
-    const [
-        x2,
-        y2,
-    ] = viewport.convertToViewportPoint(pdfX2, pdfY2);
+    const [x1, y1] = viewport.convertToViewportPoint(pdfX, pdfY);
+    const [x2, y2] = viewport.convertToViewportPoint(pdfX2, pdfY2);
     if (
-        typeof x1 !== 'number'
-        || !Number.isFinite(x1)
-        || typeof y1 !== 'number'
-        || !Number.isFinite(y1)
-        || typeof x2 !== 'number'
-        || !Number.isFinite(x2)
-        || typeof y2 !== 'number'
-        || !Number.isFinite(y2)
+        typeof x1 !== 'number' ||
+        !Number.isFinite(x1) ||
+        typeof y1 !== 'number' ||
+        !Number.isFinite(y1) ||
+        typeof x2 !== 'number' ||
+        !Number.isFinite(x2) ||
+        typeof y2 !== 'number' ||
+        !Number.isFinite(y2)
     ) {
         return null;
     }

@@ -1,18 +1,7 @@
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    onTestFinished,
-    vi,
-} from 'vitest';
-import {
-    effectScope,
-    ref,
-    type Ref,
-} from 'vue';
-import { installNuxtStateTestStubs } from '@tests/unit/app/composables/installNuxtStateTestStubs';
-import { usePlatformHydratedState } from '@app/composables/usePlatformHydratedState';
+import {beforeEach, describe, expect, it, onTestFinished, vi} from 'vitest';
+import {effectScope, ref, type Ref} from 'vue';
+import {installNuxtStateTestStubs} from '@tests/unit/app/composables/installNuxtStateTestStubs';
+import {usePlatformHydratedState} from '@app/composables/usePlatformHydratedState';
 
 const cookieStore = new Map<string, Ref<unknown>>();
 const stateStore = new Map<string, Ref<unknown>>();
@@ -174,8 +163,8 @@ describe('usePlatformHydratedState', () => {
     });
 
     it('isolates in-flight hydration promises and retry counters across separate Nuxt apps', async () => {
-        const appA = { id: 'nuxt-app-a' };
-        const appB = { id: 'nuxt-app-b' };
+        const appA = {id: 'nuxt-app-a'};
+        const appB = {id: 'nuxt-app-b'};
         const stateStoresByApp = new Map<object, Map<string, Ref<unknown>>>([
             [appA, new Map()],
             [appB, new Map()],

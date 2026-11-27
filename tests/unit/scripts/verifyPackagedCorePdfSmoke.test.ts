@@ -1,16 +1,8 @@
 import {spawnSync} from 'node:child_process';
-import {
-    existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync,
-} from 'node:fs';
+import {existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
-import {
-    join, resolve,
-} from 'node:path';
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {join, resolve} from 'node:path';
+import {describe, expect, it} from 'vitest';
 import {assertNoPackagedRendererFailures} from '@scripts/release/assertNoPackagedRendererFailures';
 
 describe('packaged core PDF smoke renderer failure policy', () => {
@@ -19,10 +11,12 @@ describe('packaged core PDF smoke renderer failure policy', () => {
     });
 
     it('fails the packaged smoke for console and page errors', () => {
-        expect(() => assertNoPackagedRendererFailures([
-            '[packaged-renderer:error] failed to load workspace',
-            '[packaged-renderer:pageerror] Error: render crashed',
-        ])).toThrow(/reported 2 error\(s\).*failed to load workspace.*render crashed/su);
+        expect(() =>
+            assertNoPackagedRendererFailures([
+                '[packaged-renderer:error] failed to load workspace',
+                '[packaged-renderer:pageerror] Error: render crashed',
+            ]),
+        ).toThrow(/reported 2 error\(s\).*failed to load workspace.*render crashed/su);
     });
 });
 
@@ -56,24 +50,28 @@ describe.skipIf(process.platform === 'darwin')('packaged smoke fixture cleanup',
                 };
                 syncBuiltinESMExports();
             `;
-            const result = spawnSync(process.execPath, [
-                '--import',
-                'tsx',
-                '--import',
-                `data:text/javascript,${encodeURIComponent(preload)}`,
-                resolve('scripts/release/verifyPackagedCorePdfSmoke.ts'),
-                '--executable',
-                join(root, 'payload', 'missing-payload'),
-            ], {
-                encoding: 'utf8',
-                env: {
-                    ...process.env,
-                    TMPDIR: root,
-                    TEMP: root,
-                    TMP: root,
-                    EVB_PACKAGED_SMOKE_ARTIFACT_DIR: join(root, 'failure'),
+            const result = spawnSync(
+                process.execPath,
+                [
+                    '--import',
+                    'tsx',
+                    '--import',
+                    `data:text/javascript,${encodeURIComponent(preload)}`,
+                    resolve('scripts/release/verifyPackagedCorePdfSmoke.ts'),
+                    '--executable',
+                    join(root, 'payload', 'missing-payload'),
+                ],
+                {
+                    encoding: 'utf8',
+                    env: {
+                        ...process.env,
+                        TMPDIR: root,
+                        TEMP: root,
+                        TMP: root,
+                        EVB_PACKAGED_SMOKE_ARTIFACT_DIR: join(root, 'failure'),
+                    },
                 },
-            });
+            );
             expect(result.status).toBe(1);
             expect(result.stderr).toContain('ENOENT');
             const fixtureDirectory = readFileSync(marker, 'utf8');

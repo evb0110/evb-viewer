@@ -1,24 +1,9 @@
 import {execFile} from 'node:child_process';
-import {
-    existsSync,
-    mkdirSync,
-    readFileSync,
-    rmSync,
-} from 'node:fs';
-import {
-    dirname,
-    join,
-    resolve,
-} from 'node:path';
+import {existsSync, mkdirSync, readFileSync, rmSync} from 'node:fs';
+import {dirname, join, resolve} from 'node:path';
 import {promisify} from 'node:util';
 import {decode} from 'fast-png';
-import {
-    afterAll,
-    describe,
-    expect,
-    it,
-    onTestFinished,
-} from 'vitest';
+import {afterAll, describe, expect, it, onTestFinished} from 'vitest';
 import {getActiveWorkspaceWorkingCopyPath} from '@tests/e2e/electron/helpers/electronApiHelpers';
 import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
 import type {TDocumentRef} from '@contracts/documentRef';
@@ -26,10 +11,7 @@ import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 import {runDesktopQpdfWasm} from '@electron/native-tools/qpdfWasmWorkerClient';
 import {createMultiPageTextFixturePdf} from '@tests/e2e/electron/helpers/fixtures';
 import {createVisibleWindowElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
-import {
-    requirePageNumber,
-    type TPageNumber,
-} from '@contracts/pageNumbers';
+import {requirePageNumber, type TPageNumber} from '@contracts/pageNumbers';
 import {openPdfInApp} from '@tests/e2e/electron/helpers/viewerCore';
 
 const execFileAsync = promisify(execFile);
@@ -53,21 +35,25 @@ afterAll(() => {
 
 async function renderPdfPage(pdfPath: string, pageNumber: number, outputPrefix: string) {
     mkdirSync(dirname(outputPrefix), {recursive: true});
-    await execFileAsync(getPdfNativeToolPaths().pdftoppm, [
-        '-png',
-        '-singlefile',
-        '-r',
-        String(PRINT_VALIDATION_DPI),
-        '-f',
-        String(pageNumber),
-        '-l',
-        String(pageNumber),
-        pdfPath,
-        outputPrefix,
-    ], {
-        maxBuffer: 128 * 1024,
-        timeout: 30_000,
-    });
+    await execFileAsync(
+        getPdfNativeToolPaths().pdftoppm,
+        [
+            '-png',
+            '-singlefile',
+            '-r',
+            String(PRINT_VALIDATION_DPI),
+            '-f',
+            String(pageNumber),
+            '-l',
+            String(pageNumber),
+            pdfPath,
+            outputPrefix,
+        ],
+        {
+            maxBuffer: 128 * 1024,
+            timeout: 30_000,
+        },
+    );
 }
 
 interface IPrintRasterMetrics {
@@ -112,18 +98,11 @@ function inspectPrintedPageRaster(
     for (let y = 0; y < image.height; y += 1) {
         for (let x = startX; x < endX; x += 1) {
             const offset = (y * image.width + x) * channelCount;
-            const alpha = channelCount >= 4 ? image.data[offset + 3] ?? 255 : 255;
+            const alpha = channelCount >= 4 ? (image.data[offset + 3] ?? 255) : 255;
             const red = image.data[offset] ?? 255;
             const green = image.data[offset + 1] ?? 255;
             const blue = image.data[offset + 2] ?? 255;
-            if (
-                alpha > 8
-                && (
-                    red < 245
-                    || green < 245
-                    || blue < 245
-                )
-            ) {
+            if (alpha > 8 && (red < 245 || green < 245 || blue < 245)) {
                 nonWhitePixels += 1;
             }
 
@@ -131,7 +110,7 @@ function inspectPrintedPageRaster(
                 continue;
             }
 
-            const luminance = (red * 0.2126) + (green * 0.7152) + (blue * 0.0722);
+            const luminance = red * 0.2126 + green * 0.7152 + blue * 0.0722;
             if (luminance >= 220) {
                 substantialLightPixels += 1;
             }
@@ -141,7 +120,7 @@ function inspectPrintedPageRaster(
             const delta = luminance - luminanceMean;
             luminanceMean += delta / sampleCount;
             luminanceM2 += delta * (luminance - luminanceMean);
-            distinctColorBuckets.add((red >> 4) << 8 | (green >> 4) << 4 | (blue >> 4));
+            distinctColorBuckets.add(((red >> 4) << 8) | ((green >> 4) << 4) | (blue >> 4));
         }
     }
 
@@ -162,104 +141,103 @@ printLayoutSmokeDescribe('Electron E2E - macOS PDF print composition smoke', () 
         timeoutMs: PRINT_ACCEPTANCE_TIMEOUT_MS,
     });
 
-    it('composes first-page-single output as uniform landscape spreads before native handoff', async () => {
-        const session = sessionFixture.getSession();
+    it(
+        'composes first-page-single output as uniform landscape spreads before native handoff',
+        async () => {
+            const session = sessionFixture.getSession();
 
-        rmSync(printLayoutSmokeOutputPath, {force: true});
-        mkdirSync(printLayoutSmokeDir, {recursive: true});
-        onTestFinished(() => rmSync(printLayoutSmokeOutputPath, {force: true}));
+            rmSync(printLayoutSmokeOutputPath, {force: true});
+            mkdirSync(printLayoutSmokeDir, {recursive: true});
+            onTestFinished(() => rmSync(printLayoutSmokeOutputPath, {force: true}));
 
-        const sourcePath = await createMultiPageTextFixturePdf(
-            'macos-print-layout-four-pages.pdf',
-            4,
-        );
-        await openPdfInApp(session.page, sourcePath, PRINT_ACCEPTANCE_TIMEOUT_MS);
-        const workingCopyPath = await getActiveWorkspaceWorkingCopyPath(session.page);
-        const pageNumbers: TPageNumber[] = [
-            requirePageNumber(1),
-            requirePageNumber(2),
-            requirePageNumber(3),
-            requirePageNumber(4),
-        ];
-        const printResult = await session.page.evaluate(async ({
-            path,
-            pageNumbers,
-        }: {
-            path: TDocumentRef;
-            pageNumbers: TPageNumber[];
-        }) => {
-            const printPdfPath = (window as IE2EWindow).electronAPI?.documentPdf?.printPdfPath;
-            if (!printPdfPath) {
-                throw new Error('electronAPI.documentPdf.printPdfPath is unavailable');
-            }
+            const sourcePath = await createMultiPageTextFixturePdf('macos-print-layout-four-pages.pdf', 4);
+            await openPdfInApp(session.page, sourcePath, PRINT_ACCEPTANCE_TIMEOUT_MS);
+            const workingCopyPath = await getActiveWorkspaceWorkingCopyPath(session.page);
+            const pageNumbers: TPageNumber[] = [requirePageNumber(1), requirePageNumber(2), requirePageNumber(3), requirePageNumber(4)];
+            const printResult = await session.page.evaluate(
+                async ({path, pageNumbers}: {path: TDocumentRef; pageNumbers: TPageNumber[]}) => {
+                    const printPdfPath = (window as IE2EWindow).electronAPI?.documentPdf?.printPdfPath;
+                    if (!printPdfPath) {
+                        throw new Error('electronAPI.documentPdf.printPdfPath is unavailable');
+                    }
 
-            return printPdfPath(path, 'facing-first-single-print-smoke.pdf', {
-                pageNumbers,
-                viewMode: 'facing-first-single',
-                orientation: 'auto',
+                    return printPdfPath(path, 'facing-first-single-print-smoke.pdf', {
+                        pageNumbers,
+                        viewMode: 'facing-first-single',
+                        orientation: 'auto',
+                    });
+                },
+                {
+                    path: workingCopyPath,
+                    pageNumbers,
+                },
+            );
+
+            expect(printResult).toEqual(expect.objectContaining({success: true}));
+            expect(existsSync(printLayoutSmokeOutputPath)).toBe(true);
+
+            await runDesktopQpdfWasm(['--check', printLayoutSmokeOutputPath], {
+                timeoutMs: 60_000,
+                commandLabel: 'qpdf(e2e-visible-print-check)',
             });
-        }, {
-            path: workingCopyPath,
-            pageNumbers,
-        });
+            const {stdout: pageCountOutput} = await runDesktopQpdfWasm(['--show-npages', printLayoutSmokeOutputPath], {
+                timeoutMs: 60_000,
+                commandLabel: 'qpdf(e2e-visible-print-page-count)',
+            });
+            expect(Number.parseInt(pageCountOutput.trim(), 10)).toBe(3);
 
-        expect(printResult).toEqual(expect.objectContaining({success: true}));
-        expect(existsSync(printLayoutSmokeOutputPath)).toBe(true);
+            const sheetPaths: string[] = [];
+            for (let pageNumber = 1; pageNumber <= 3; pageNumber += 1) {
+                const outputPrefix = join(printLayoutSmokeDir, `facing-first-single-page-${pageNumber}`);
+                const sheetPath = `${outputPrefix}.png`;
+                await renderPdfPage(printLayoutSmokeOutputPath, pageNumber, outputPrefix);
+                sheetPaths.push(sheetPath);
+                const rasterMetrics = inspectPrintedPageRaster(sheetPath);
+                expect(rasterMetrics.totalPixels).toBeGreaterThan(0);
+                expect(rasterMetrics.nonWhitePixels).toBeGreaterThan(MIN_PRINT_INK_PIXELS);
+            }
+            const firstPageSheetPath = sheetPaths[0]!;
+            expect(
+                inspectPrintedPageRaster(firstPageSheetPath, {
+                    startXRatio: 0,
+                    endXRatio: 0.5,
+                }).nonWhitePixels,
+            ).toBeLessThan(MIN_PRINT_INK_PIXELS);
+            expect(
+                inspectPrintedPageRaster(firstPageSheetPath, {
+                    startXRatio: 0.5,
+                    endXRatio: 1,
+                }).nonWhitePixels,
+            ).toBeGreaterThan(MIN_PRINT_INK_PIXELS);
 
-        await runDesktopQpdfWasm([
-            '--check',
-            printLayoutSmokeOutputPath,
-        ], {
-            timeoutMs: 60_000,
-            commandLabel: 'qpdf(e2e-visible-print-check)',
-        });
-        const {stdout: pageCountOutput} = await runDesktopQpdfWasm([
-            '--show-npages',
-            printLayoutSmokeOutputPath,
-        ], {
-            timeoutMs: 60_000,
-            commandLabel: 'qpdf(e2e-visible-print-page-count)',
-        });
-        expect(Number.parseInt(pageCountOutput.trim(), 10)).toBe(3);
+            const facingSheetPath = sheetPaths[1]!;
+            expect(
+                inspectPrintedPageRaster(facingSheetPath, {
+                    startXRatio: 0,
+                    endXRatio: 0.5,
+                }).nonWhitePixels,
+            ).toBeGreaterThan(MIN_PRINT_INK_PIXELS);
+            expect(
+                inspectPrintedPageRaster(facingSheetPath, {
+                    startXRatio: 0.5,
+                    endXRatio: 1,
+                }).nonWhitePixels,
+            ).toBeGreaterThan(MIN_PRINT_INK_PIXELS);
 
-        const sheetPaths: string[] = [];
-        for (let pageNumber = 1; pageNumber <= 3; pageNumber += 1) {
-            const outputPrefix = join(printLayoutSmokeDir, `facing-first-single-page-${pageNumber}`);
-            const sheetPath = `${outputPrefix}.png`;
-            await renderPdfPage(printLayoutSmokeOutputPath, pageNumber, outputPrefix);
-            sheetPaths.push(sheetPath);
-            const rasterMetrics = inspectPrintedPageRaster(sheetPath);
-            expect(rasterMetrics.totalPixels).toBeGreaterThan(0);
-            expect(rasterMetrics.nonWhitePixels).toBeGreaterThan(MIN_PRINT_INK_PIXELS);
-        }
-        const firstPageSheetPath = sheetPaths[0]!;
-        expect(inspectPrintedPageRaster(firstPageSheetPath, {
-            startXRatio: 0,
-            endXRatio: 0.5,
-        }).nonWhitePixels).toBeLessThan(MIN_PRINT_INK_PIXELS);
-        expect(inspectPrintedPageRaster(firstPageSheetPath, {
-            startXRatio: 0.5,
-            endXRatio: 1,
-        }).nonWhitePixels).toBeGreaterThan(MIN_PRINT_INK_PIXELS);
-
-        const facingSheetPath = sheetPaths[1]!;
-        expect(inspectPrintedPageRaster(facingSheetPath, {
-            startXRatio: 0,
-            endXRatio: 0.5,
-        }).nonWhitePixels).toBeGreaterThan(MIN_PRINT_INK_PIXELS);
-        expect(inspectPrintedPageRaster(facingSheetPath, {
-            startXRatio: 0.5,
-            endXRatio: 1,
-        }).nonWhitePixels).toBeGreaterThan(MIN_PRINT_INK_PIXELS);
-
-        const trailingPageSheetPath = sheetPaths[2]!;
-        expect(inspectPrintedPageRaster(trailingPageSheetPath, {
-            startXRatio: 0,
-            endXRatio: 0.5,
-        }).nonWhitePixels).toBeGreaterThan(MIN_PRINT_INK_PIXELS);
-        expect(inspectPrintedPageRaster(trailingPageSheetPath, {
-            startXRatio: 0.5,
-            endXRatio: 1,
-        }).nonWhitePixels).toBeLessThan(MIN_PRINT_INK_PIXELS);
-    }, PRINT_ACCEPTANCE_TIMEOUT_MS);
+            const trailingPageSheetPath = sheetPaths[2]!;
+            expect(
+                inspectPrintedPageRaster(trailingPageSheetPath, {
+                    startXRatio: 0,
+                    endXRatio: 0.5,
+                }).nonWhitePixels,
+            ).toBeGreaterThan(MIN_PRINT_INK_PIXELS);
+            expect(
+                inspectPrintedPageRaster(trailingPageSheetPath, {
+                    startXRatio: 0.5,
+                    endXRatio: 1,
+                }).nonWhitePixels,
+            ).toBeLessThan(MIN_PRINT_INK_PIXELS);
+        },
+        PRINT_ACCEPTANCE_TIMEOUT_MS,
+    );
 });

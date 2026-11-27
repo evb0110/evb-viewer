@@ -1,24 +1,11 @@
 // @vitest-environment happy-dom
 
-import {
-    createApp,
-    defineComponent,
-    h,
-    nextTick,
-    ref,
-} from 'vue';
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import type { Ref } from 'vue';
-import type { IAgentAssistantImageAttachment } from '@contracts/agent';
-import type { TTranslateFn } from '@i18n-app';
-import { useAssistantImageComposer } from '@app/modules/agent-panel/composables/useAssistantImageComposer';
+import {createApp, defineComponent, h, nextTick, ref} from 'vue';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import type {Ref} from 'vue';
+import type {IAgentAssistantImageAttachment} from '@contracts/agent';
+import type {TTranslateFn} from '@i18n-app';
+import {useAssistantImageComposer} from '@app/modules/agent-panel/composables/useAssistantImageComposer';
 
 const mocks = vi.hoisted(() => ({buildComposerImageAttachments: vi.fn()}));
 
@@ -59,7 +46,7 @@ function createPasteEvent(files: readonly File[], preventDefault = vi.fn()): Cli
 
 function createDeferred<T>() {
     let resolve!: (value: T) => void;
-    const promise = new Promise<T>(nextResolve => {
+    const promise = new Promise<T>((nextResolve) => {
         resolve = nextResolve;
     });
     return {
@@ -86,18 +73,20 @@ describe('assistant image composer', () => {
         let composerError: Ref<string> | null = null;
         const host = document.createElement('div');
         document.body.append(host);
-        const Harness = defineComponent({setup() {
-            const images = ref<IAgentAssistantImageAttachment[]>([]);
-            const error = ref('');
-            composerImages = images;
-            composerError = error;
-            composer = useAssistantImageComposer({
-                composerError: error,
-                composerImages: images,
-                t: translate,
-            });
-            return () => h('textarea', {onPaste: composer?.handleComposerPaste});
-        }});
+        const Harness = defineComponent({
+            setup() {
+                const images = ref<IAgentAssistantImageAttachment[]>([]);
+                const error = ref('');
+                composerImages = images;
+                composerError = error;
+                composer = useAssistantImageComposer({
+                    composerError: error,
+                    composerImages: images,
+                    t: translate,
+                });
+                return () => h('textarea', {onPaste: composer?.handleComposerPaste});
+            },
+        });
         const app = createApp(Harness);
         app.mount(host);
         unmount = () => {
@@ -127,10 +116,7 @@ describe('assistant image composer', () => {
             .mockImplementationOnce(async ({existingImages}: {existingImages: readonly IAgentAssistantImageAttachment[]}) => {
                 expect(existingImages).toEqual([firstImage]);
                 return {
-                    images: [
-                        ...existingImages,
-                        secondImage,
-                    ],
+                    images: [...existingImages, secondImage],
                     error: null,
                 };
             });
@@ -151,10 +137,7 @@ describe('assistant image composer', () => {
         });
 
         expect(mocks.buildComposerImageAttachments).toHaveBeenCalledTimes(2);
-        expect(harness.composerImages().value).toEqual([
-            firstImage,
-            secondImage,
-        ]);
+        expect(harness.composerImages().value).toEqual([firstImage, secondImage]);
     });
 
     it('drops stale image results and errors after the composer is invalidated', async () => {
@@ -163,7 +146,7 @@ describe('assistant image composer', () => {
             images: IAgentAssistantImageAttachment[];
             error: {
                 type: 'read-failed';
-                name: string
+                name: string;
             };
         }>();
         mocks.buildComposerImageAttachments.mockReturnValueOnce(pending.promise);
@@ -205,10 +188,7 @@ describe('assistant image composer', () => {
 
         harness.composer().removeComposerImage(existingImage.id);
         pending.resolve({
-            images: [
-                existingImage,
-                pastedImage,
-            ],
+            images: [existingImage, pastedImage],
             error: null,
         });
         await vi.waitFor(() => {

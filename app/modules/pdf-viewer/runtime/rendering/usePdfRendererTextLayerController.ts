@@ -1,14 +1,11 @@
-import {
-    readPdfPageDocumentTeardownSignal,
-    type IPdfPage,
-} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import { isAbortError } from '@contracts/isAbortError';
-import type { TPageNumber } from '@contracts/pageNumbers';
-import type { usePdfTextLayerRenderer } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer';
-import type { IPdfLayerRenderResult } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
-import { PDF_PAGE_TEXT_LAYER_TIMEOUT_MS } from '@app/constants/timeouts';
-import { isPageRenderTimeoutError } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/isPageRenderTimeoutError';
-import { withPageStageTimeout } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/withPageStageTimeout';
+import {readPdfPageDocumentTeardownSignal, type IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import {isAbortError} from '@contracts/isAbortError';
+import type {TPageNumber} from '@contracts/pageNumbers';
+import type {usePdfTextLayerRenderer} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer';
+import type {IPdfLayerRenderResult} from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
+import {PDF_PAGE_TEXT_LAYER_TIMEOUT_MS} from '@app/constants/timeouts';
+import {isPageRenderTimeoutError} from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/isPageRenderTimeoutError';
+import {withPageStageTimeout} from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/withPageStageTimeout';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 
 export function isRenderCancellation(error: unknown) {
@@ -49,12 +46,7 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
         shouldContinue: () => boolean,
         publish: () => boolean = () => true,
     ): Promise<boolean | IPdfLayerStageFailure> {
-        const {
-            pdfPage,
-            renderResult,
-            textLayerDiv,
-            eagerTextLayer,
-        } = context;
+        const {pdfPage, renderResult, textLayerDiv, eagerTextLayer} = context;
         if (!textLayerDiv) {
             return publish();
         }
@@ -63,9 +55,9 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
         }
         const controller = new AbortController();
         const documentTeardown = readPdfPageDocumentTeardownSignal(pdfPage);
-        const signal = AbortSignal.any(documentTeardown
-            ? [controller.signal, ownerSignal, documentTeardown]
-            : [controller.signal, ownerSignal]);
+        const signal = AbortSignal.any(
+            documentTeardown ? [controller.signal, ownerSignal, documentTeardown] : [controller.signal, ownerSignal],
+        );
         let failure: IPdfLayerStageFailure | null = null;
         try {
             await withPageStageTimeout(
@@ -74,7 +66,7 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
                     textLayerDiv,
                     renderResult.viewport,
                     signal,
-                    eagerTextLayer ? { eagerTextLayer: true } : undefined,
+                    eagerTextLayer ? {eagerTextLayer: true} : undefined,
                 ),
                 {
                     pageNumber,
@@ -98,7 +90,9 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
                 error,
             };
         }
-        if (!shouldContinue() || !publish()) {return false;}
+        if (!shouldContinue() || !publish()) {
+            return false;
+        }
         return failure ?? true;
     };
 };

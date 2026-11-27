@@ -1,52 +1,38 @@
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    effectScope,
-    computed,
-    ref,
-    nextTick,
-} from 'vue';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {effectScope, computed, ref, nextTick} from 'vue';
 import {useWorkspaceAnnotationSession} from '@app/modules/workspace-shell/composables/useWorkspaceAnnotationSession';
-import { ANNOTATION_NOTE_SAVE_DEBOUNCE_MS } from '@app/constants/timeouts';
-import { requireEpochMs } from '@contracts/timestamps';
-import { asAnnotationId } from '@app/modules/pdf-viewer/public';
-import { createPdfDocumentAnnotations } from '@app/modules/pdf-viewer/runtime/sessions/createPdfDocumentAnnotations';
-import { requireDocumentRef } from '@contracts/documentRef';
-import { requirePageIndex } from '@contracts/pageNumbers';
-import {
-    createComment,
-    createHarness,
-} from '@tests/unit/app/modules/workspace-shell/composables/useAnnotationNoteWindowsTestFixtures';
+import {ANNOTATION_NOTE_SAVE_DEBOUNCE_MS} from '@app/constants/timeouts';
+import {requireEpochMs} from '@contracts/timestamps';
+import {asAnnotationId} from '@app/modules/pdf-viewer/public';
+import {createPdfDocumentAnnotations} from '@app/modules/pdf-viewer/runtime/sessions/createPdfDocumentAnnotations';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requirePageIndex} from '@contracts/pageNumbers';
+import {createComment, createHarness} from '@tests/unit/app/modules/workspace-shell/composables/useAnnotationNoteWindowsTestFixtures';
 
 vi.mock('@app/composables/useFailureToast', () => ({useFailureToast: () => ({presentNoticeToast: vi.fn()})}));
 
 describe('useAnnotationNoteWindows', () => {
     it('exposes projected note window fields as read-only without property setters', () => {
-        const { windows } = createHarness();
+        const {windows} = createHarness();
         windows.handleOpenAnnotationNote(createComment());
         const projected = windows.annotationNoteWindows.value[0];
         expect(projected).toBeDefined();
         if (!projected) {
             return;
         }
-        for (const prop of [
-            'draftText',
-            'minimized',
-            'position',
-            'dirty',
-        ] as const) {
+        for (const prop of ['draftText', 'minimized', 'position', 'dirty'] as const) {
             expect(Object.getOwnPropertyDescriptor(projected, prop)?.set).toBeUndefined();
             expect(() => {
-                Reflect.set(projected, prop, prop === 'position' ? {
-                    x: 1,
-                    y: 2,
-                } : true);
+                Reflect.set(
+                    projected,
+                    prop,
+                    prop === 'position'
+                        ? {
+                              x: 1,
+                              y: 2,
+                          }
+                        : true,
+                );
             }).not.toThrow();
         }
         expect(projected.draftText).toBe('Initial note');
@@ -55,10 +41,7 @@ describe('useAnnotationNoteWindows', () => {
     });
 
     it('keeps a recovered note draft until its canonical comment projection arrives', async () => {
-        const {
-            deps,
-            windows,
-        } = createHarness();
+        const {deps, windows} = createHarness();
         const comment = deps.annotationComments.value[0]!;
         deps.annotationComments.value = [];
 
@@ -81,10 +64,7 @@ describe('useAnnotationNoteWindows', () => {
     });
 
     it('moves an open note to the view that opens it again, committing its draft first', async () => {
-        const {
-            deps,
-            windows,
-        } = createHarness();
+        const {deps, windows} = createHarness();
         const noteId = 'ann:0:note-1:0';
         windows.handleOpenAnnotationNote(createComment(), 'tab-left');
         windows.updateAnnotationNotePosition(noteId, {
@@ -96,10 +76,9 @@ describe('useAnnotationNoteWindows', () => {
 
         windows.handleOpenAnnotationNote(createComment(), 'tab-right');
 
-        await vi.waitFor(() => expect(deps.updateAnnotationCommentInViewer).toHaveBeenCalledWith(
-            expect.anything(),
-            'Draft typed in the left view',
-        ));
+        await vi.waitFor(() =>
+            expect(deps.updateAnnotationCommentInViewer).toHaveBeenCalledWith(expect.anything(), 'Draft typed in the left view'),
+        );
         const moved = windows.findAnnotationNoteWindow(noteId);
         expect(moved?.ownerViewId).toBe('tab-right');
         expect(moved?.position).not.toEqual({
@@ -114,23 +93,22 @@ describe('useAnnotationNoteWindows', () => {
         windows.handleOpenAnnotationNote(createComment());
         windows.updateAnnotationNoteText('ann:0:note-1:0', 'Typed note');
 
-        expect(windows.captureAnnotationNoteDrafts(() => 7)).toEqual([{
-            annotationId: 'ann:0:note-1:0',
-            kind: 'note',
-            canonicalRevision: 7,
-            text: 'Typed note',
-            generation: 1,
-        }]);
+        expect(windows.captureAnnotationNoteDrafts(() => 7)).toEqual([
+            {
+                annotationId: 'ann:0:note-1:0',
+                kind: 'note',
+                canonicalRevision: 7,
+                text: 'Typed note',
+                generation: 1,
+            },
+        ]);
 
         windows.updateAnnotationNoteText('ann:0:note-1:0', 'Typed note again');
         expect(windows.captureAnnotationNoteDrafts(() => 7)[0]?.generation).toBe(2);
     });
 
     it('skips forced no-op persistence when note text is unchanged', async () => {
-        const {
-            deps,
-            windows,
-        } = createHarness();
+        const {deps, windows} = createHarness();
 
         windows.handleOpenAnnotationNote(createComment());
 
@@ -141,10 +119,7 @@ describe('useAnnotationNoteWindows', () => {
     });
 
     it('does not materialize a full PDF reload when force-saving viewer-backed note edits', async () => {
-        const {
-            deps,
-            windows,
-        } = createHarness();
+        const {deps, windows} = createHarness();
 
         windows.handleOpenAnnotationNote(createComment());
         const note = windows.findAnnotationNoteWindow('ann:0:note-1:0');
@@ -160,21 +135,23 @@ describe('useAnnotationNoteWindows', () => {
         expect(note.draftText).toBe('Updated text');
         expect(note.dirty).toBe(false);
         expect(note.draftText).toBe('Updated text');
-        expect(deps.annotationComments.value.find(comment => comment.stableKey === 'ann:0:note-1:0')?.text).toBe('Initial note');
+        expect(deps.annotationComments.value.find((comment) => comment.stableKey === 'ann:0:note-1:0')?.text).toBe('Initial note');
     });
 
     it('keeps an imported note dirty until asynchronous viewer reconciliation finishes', async () => {
-        const {
-            deps,
-            windows,
-        } = createHarness(createComment({
-            source: 'pdf',
-            annotationName: null,
-        }));
+        const {deps, windows} = createHarness(
+            createComment({
+                source: 'pdf',
+                annotationName: null,
+            }),
+        );
         let resolveUpdate!: (updated: boolean) => void;
-        deps.updateAnnotationCommentInViewer.mockImplementation(() => new Promise<boolean>((resolve) => {
-            resolveUpdate = resolve;
-        }) as never);
+        deps.updateAnnotationCommentInViewer.mockImplementation(
+            () =>
+                new Promise<boolean>((resolve) => {
+                    resolveUpdate = resolve;
+                }) as never,
+        );
         windows.handleOpenAnnotationNote(deps.annotationComments.value[0]!);
         const note = windows.findAnnotationNoteWindow('ann:0:note-1:0');
         expect(note).not.toBeNull();
@@ -195,17 +172,19 @@ describe('useAnnotationNoteWindows', () => {
     });
 
     it('keeps a note dirty when the draft changes during an asynchronous save', async () => {
-        const {
-            deps,
-            windows,
-        } = createHarness(createComment({
-            source: 'pdf',
-            annotationName: null,
-        }));
+        const {deps, windows} = createHarness(
+            createComment({
+                source: 'pdf',
+                annotationName: null,
+            }),
+        );
         let resolveUpdate!: (updated: boolean) => void;
-        deps.updateAnnotationCommentInViewer.mockImplementation(() => new Promise<boolean>((resolve) => {
-            resolveUpdate = resolve;
-        }) as never);
+        deps.updateAnnotationCommentInViewer.mockImplementation(
+            () =>
+                new Promise<boolean>((resolve) => {
+                    resolveUpdate = resolve;
+                }) as never,
+        );
         windows.handleOpenAnnotationNote(deps.annotationComments.value[0]!);
         const note = windows.findAnnotationNoteWindow('ann:0:note-1:0');
         expect(note).not.toBeNull();
@@ -227,7 +206,7 @@ describe('useAnnotationNoteWindows', () => {
         expect(metadata?.saving).toBe(false);
     });
 
-    it('shows the metadata of the note\'s current canonical revision', async () => {
+    it("shows the metadata of the note's current canonical revision", async () => {
         const opened = createComment({
             createdAt: requireEpochMs(111),
             modifiedAt: null,
@@ -246,10 +225,7 @@ describe('useAnnotationNoteWindows', () => {
             author: 'Reviewer',
             markerRect: revisedMarker,
         });
-        const {
-            deps,
-            windows,
-        } = createHarness(opened);
+        const {deps, windows} = createHarness(opened);
 
         windows.handleOpenAnnotationNote(opened);
         deps.annotationComments.value = [revised];
@@ -275,10 +251,7 @@ describe('useAnnotationNoteWindows', () => {
             source: 'pdf',
             text: 'Initial note',
         });
-        const {
-            deps,
-            windows,
-        } = createHarness(comment);
+        const {deps, windows} = createHarness(comment);
 
         windows.handleOpenAnnotationNote(comment);
         const note = windows.findAnnotationNoteWindow('ann:0:3856R');
@@ -293,10 +266,7 @@ describe('useAnnotationNoteWindows', () => {
         expect(saved).toBe(true);
         expect(note.draftText).toBe('Updated PDF note');
         expect(note.dirty).toBe(false);
-        expect(deps.updateAnnotationCommentInViewer).toHaveBeenCalledWith(
-            expect.any(String),
-            'Updated PDF note',
-        );
+        expect(deps.updateAnnotationCommentInViewer).toHaveBeenCalledWith(expect.any(String), 'Updated PDF note');
     });
 
     it('mirrors reopened editor-sourced notes with durable annotation ids into embedded serialization', () => {
@@ -308,10 +278,7 @@ describe('useAnnotationNoteWindows', () => {
             source: 'editor',
             text: 'Initial note',
         });
-        const {
-            deps,
-            windows,
-        } = createHarness(comment);
+        const {deps, windows} = createHarness(comment);
 
         windows.handleOpenAnnotationNote(comment);
         const note = windows.findAnnotationNoteWindow('ann:0:pdfjs_internal_editor_0');
@@ -326,10 +293,7 @@ describe('useAnnotationNoteWindows', () => {
         expect(saved).toBe(true);
         expect(note.draftText).toBe('Updated reopened note');
         expect(note.dirty).toBe(false);
-        expect(deps.updateAnnotationCommentInViewer).toHaveBeenCalledWith(
-            expect.any(String),
-            'Updated reopened note',
-        );
+        expect(deps.updateAnnotationCommentInViewer).toHaveBeenCalledWith(expect.any(String), 'Updated reopened note');
     });
 
     it('does not migrate pending text from a legacy binding without an explicit app annotation id', async () => {
@@ -341,10 +305,7 @@ describe('useAnnotationNoteWindows', () => {
             source: 'pdf',
             text: 'Initial note',
         });
-        const {
-            deps,
-            windows,
-        } = createHarness(initialComment);
+        const {deps, windows} = createHarness(initialComment);
 
         windows.handleOpenAnnotationNote(initialComment);
         const note = windows.findAnnotationNoteWindow('ann:0:pdfjs_internal_editor_0');
@@ -356,13 +317,15 @@ describe('useAnnotationNoteWindows', () => {
         windows.updateAnnotationNoteText('ann:0:pdfjs_internal_editor_0', 'Updated PDF note');
         expect(windows.persistAnnotationNote('ann:0:pdfjs_internal_editor_0')).toBe(true);
 
-        deps.annotationComments.value = [createComment({
-            ...initialComment,
-            id: '3856R',
-            stableKey: 'ann:0:3856R',
-            uid: null,
-            text: 'Updated PDF note',
-        })];
+        deps.annotationComments.value = [
+            createComment({
+                ...initialComment,
+                id: '3856R',
+                stableKey: 'ann:0:3856R',
+                uid: null,
+                text: 'Updated PDF note',
+            }),
+        ];
         await nextTick();
 
         expect(deps.updateAnnotationCommentInViewer).toHaveBeenCalledTimes(1);
@@ -376,10 +339,7 @@ describe('useAnnotationNoteWindows', () => {
             uid: 'pdfjs_internal_editor_0',
             source: 'editor',
         });
-        const {
-            deps,
-            windows,
-        } = createHarness(comment);
+        const {deps, windows} = createHarness(comment);
 
         deps.updateAnnotationCommentInViewer.mockReturnValue(false);
 
@@ -402,10 +362,7 @@ describe('useAnnotationNoteWindows', () => {
 
     it('marks an embedded save pending when the auto path fails without force', () => {
         const comment = createComment();
-        const {
-            deps,
-            windows,
-        } = createHarness(comment);
+        const {deps, windows} = createHarness(comment);
 
         deps.updateAnnotationCommentInViewer.mockReturnValue(false);
 
@@ -423,13 +380,8 @@ describe('useAnnotationNoteWindows', () => {
     });
 
     it('keeps the exact draft dirty when asynchronous viewer persistence rejects', async () => {
-        const {
-            deps,
-            windows,
-        } = createHarness();
-        deps.updateAnnotationCommentInViewer.mockImplementation(() => (
-            Promise.reject(new Error('viewer unavailable')) as never
-        ));
+        const {deps, windows} = createHarness();
+        deps.updateAnnotationCommentInViewer.mockImplementation(() => Promise.reject(new Error('viewer unavailable')) as never);
 
         windows.handleOpenAnnotationNote(deps.annotationComments.value[0]!);
         const note = windows.findAnnotationNoteWindow('ann:0:note-1:0');
@@ -445,87 +397,85 @@ describe('useAnnotationNoteWindows', () => {
         expect(note.error).not.toBeNull();
     });
 
-    it.each([
-        'refusal',
-        'rejection',
-    ] as const)('retries the current draft after a note %s and retires the action with its window', async failureKind => {
-        let retry: (() => void) | undefined;
-        const committed: string[] = [];
-        const {
-            deps, windows,
-        } = createHarness(createComment(), {reportNoteFailure: input => {
-            retry = input.retry;
-            return {
-                failure: {
-                    code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
-                    eventId: 'note-failure',
-                    occurredAt: requireEpochMs(1),
-                    severity: 'error',
+    it.each(['refusal', 'rejection'] as const)(
+        'retries the current draft after a note %s and retires the action with its window',
+        async (failureKind) => {
+            let retry: (() => void) | undefined;
+            const committed: string[] = [];
+            const {deps, windows} = createHarness(createComment(), {
+                reportNoteFailure: (input) => {
+                    retry = input.retry;
+                    return {
+                        failure: {
+                            code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
+                            eventId: 'note-failure',
+                            occurredAt: requireEpochMs(1),
+                            severity: 'error',
+                        },
+                        title: 'Note update failed',
+                        description: 'Draft retained',
+                    };
                 },
-                title: 'Note update failed',
-                description: 'Draft retained',
-            };
-        }});
-        const noteId = 'ann:0:note-1:0';
-        windows.handleOpenAnnotationNote(deps.annotationComments.value[0]!);
-        windows.updateAnnotationNoteText(noteId, 'Rejected draft');
-        deps.updateAnnotationCommentInViewer.mockImplementation(() => {
-            if (failureKind === 'rejection') {throw new Error('Document refused note');}
-            return false;
-        });
-        expect(await windows.persistAnnotationNote(noteId)).toBe(false);
-        expect(windows.findAnnotationNoteWindow(noteId)).toMatchObject({
-            draftText: 'Rejected draft',
-            dirty: true,
-            error: 'Draft retained',
-        });
-        expect(windows.getAnnotationNoteFailurePresentation()?.failure.eventId).toBe('note-failure');
+            });
+            const noteId = 'ann:0:note-1:0';
+            windows.handleOpenAnnotationNote(deps.annotationComments.value[0]!);
+            windows.updateAnnotationNoteText(noteId, 'Rejected draft');
+            deps.updateAnnotationCommentInViewer.mockImplementation(() => {
+                if (failureKind === 'rejection') {
+                    throw new Error('Document refused note');
+                }
+                return false;
+            });
+            expect(await windows.persistAnnotationNote(noteId)).toBe(false);
+            expect(windows.findAnnotationNoteWindow(noteId)).toMatchObject({
+                draftText: 'Rejected draft',
+                dirty: true,
+                error: 'Draft retained',
+            });
+            expect(windows.getAnnotationNoteFailurePresentation()?.failure.eventId).toBe('note-failure');
 
-        windows.updateAnnotationNoteText(noteId, 'Newer draft');
-        deps.updateAnnotationCommentInViewer.mockImplementation((_id, text) => {
-            committed.push(text);
-            return true;
-        });
-        retry?.();
-        expect(committed).toEqual(['Newer draft']);
-        expect(windows.findAnnotationNoteWindow(noteId)).toMatchObject({
-            draftText: 'Newer draft',
-            dirty: false,
-            error: null,
-        });
-        expect(windows.getAnnotationNoteFailurePresentation()).toBeUndefined();
+            windows.updateAnnotationNoteText(noteId, 'Newer draft');
+            deps.updateAnnotationCommentInViewer.mockImplementation((_id, text) => {
+                committed.push(text);
+                return true;
+            });
+            retry?.();
+            expect(committed).toEqual(['Newer draft']);
+            expect(windows.findAnnotationNoteWindow(noteId)).toMatchObject({
+                draftText: 'Newer draft',
+                dirty: false,
+                error: null,
+            });
+            expect(windows.getAnnotationNoteFailurePresentation()).toBeUndefined();
 
-        await windows.closeAnnotationNote(noteId);
-        windows.handleOpenAnnotationNote(deps.annotationComments.value[0]!);
-        windows.updateAnnotationNoteText(noteId, 'Reopened draft');
-        retry?.();
-        expect(committed).toEqual(['Newer draft']);
-        expect(windows.findAnnotationNoteWindow(noteId)).toMatchObject({
-            draftText: 'Reopened draft',
-            dirty: true,
-        });
-        await windows.closeAllAnnotationNotes({saveIfDirty: false});
-    });
+            await windows.closeAnnotationNote(noteId);
+            windows.handleOpenAnnotationNote(deps.annotationComments.value[0]!);
+            windows.updateAnnotationNoteText(noteId, 'Reopened draft');
+            retry?.();
+            expect(committed).toEqual(['Newer draft']);
+            expect(windows.findAnnotationNoteWindow(noteId)).toMatchObject({
+                draftText: 'Reopened draft',
+                dirty: true,
+            });
+            await windows.closeAllAnnotationNotes({saveIfDirty: false});
+        },
+    );
 
-    it.each([
-        'clean',
-        'dirty',
-    ] as const)('keeps a %s window and its draft while the store does not know its note', async (draft) => {
+    it.each(['clean', 'dirty'] as const)('keeps a %s window and its draft while the store does not know its note', async (draft) => {
         vi.useFakeTimers();
         const comment = createComment();
         const noteId = 'ann:0:note-1:0';
-        const {
-            deps,
-            windows,
-        } = createHarness(comment);
+        const {deps, windows} = createHarness(comment);
         // The viewer can only write a note its store holds.
-        deps.updateAnnotationCommentInViewer.mockImplementation(id => (
-            deps.annotationComments.value.some(candidate => candidate.appAnnotationId === id)
-        ));
+        deps.updateAnnotationCommentInViewer.mockImplementation((id) =>
+            deps.annotationComments.value.some((candidate) => candidate.appAnnotationId === id),
+        );
 
         try {
             windows.handleOpenAnnotationNote(comment);
-            if (draft === 'dirty') {windows.updateAnnotationNoteText(noteId, 'Typed during the reload');}
+            if (draft === 'dirty') {
+                windows.updateAnnotationNoteText(noteId, 'Typed during the reload');
+            }
             const draftText = draft === 'dirty' ? 'Typed during the reload' : 'Initial note';
 
             deps.annotationComments.value = [];
@@ -543,12 +493,14 @@ describe('useAnnotationNoteWindows', () => {
             deps.annotationComments.value = [comment];
             await nextTick();
 
-            expect(windows.sortedAnnotationNoteWindows.value).toEqual([expect.objectContaining({
-                annotationId: noteId,
-                pageNumber: 1,
-                draftText,
-                dirty: draft === 'dirty',
-            })]);
+            expect(windows.sortedAnnotationNoteWindows.value).toEqual([
+                expect.objectContaining({
+                    annotationId: noteId,
+                    pageNumber: 1,
+                    draftText,
+                    dirty: draft === 'dirty',
+                }),
+            ]);
         } finally {
             vi.useRealTimers();
         }
@@ -557,10 +509,7 @@ describe('useAnnotationNoteWindows', () => {
     it('closes a dirty window when its note is explicitly deleted, and does not reopen it', async () => {
         const comment = createComment();
         const noteId = 'ann:0:note-1:0';
-        const {
-            deps,
-            windows,
-        } = createHarness(comment);
+        const {deps, windows} = createHarness(comment);
 
         windows.handleOpenAnnotationNote(comment);
         windows.updateAnnotationNoteText(noteId, 'Typed before the deletion');
@@ -589,10 +538,7 @@ describe('useAnnotationNoteWindows', () => {
                 height: 0.01,
             },
         });
-        const {
-            deps,
-            windows,
-        } = createHarness(comment);
+        const {deps, windows} = createHarness(comment);
 
         windows.handleOpenAnnotationNote(comment);
         const note = windows.findAnnotationNoteWindow('ann:0:pdfjs_internal_editor_0');
@@ -605,12 +551,14 @@ describe('useAnnotationNoteWindows', () => {
         const saved = windows.persistAnnotationNote('ann:0:pdfjs_internal_editor_0');
 
         expect(saved).toBe(true);
-        expect(note).toEqual(expect.objectContaining({
-            annotationId: expect.any(String),
-            draftText: 'Replayable new note text',
-            hasNote: true,
-            markerRect: comment.markerRect,
-        }));
+        expect(note).toEqual(
+            expect.objectContaining({
+                annotationId: expect.any(String),
+                draftText: 'Replayable new note text',
+                hasNote: true,
+                markerRect: comment.markerRect,
+            }),
+        );
         expect(Object.isFrozen(note.markerRect)).toBe(true);
         expect(deps.annotationComments.value).toEqual([comment]);
     });
@@ -646,21 +594,17 @@ describe('useAnnotationNoteWindows', () => {
                 height: 0.0016,
             },
         });
-        const {
-            deps,
-            windows,
-        } = createHarness(existingPdfNote);
-        deps.annotationComments.value = [
-            existingPdfNote,
-            newEditorNote,
-        ];
+        const {deps, windows} = createHarness(existingPdfNote);
+        deps.annotationComments.value = [existingPdfNote, newEditorNote];
         deps.updateAnnotationCommentInViewer.mockImplementation((annotationId, text) => {
-            deps.annotationComments.value = deps.annotationComments.value.map(comment => (
-                comment.appAnnotationId === annotationId ? {
-                    ...comment,
-                    text,
-                } : comment
-            ));
+            deps.annotationComments.value = deps.annotationComments.value.map((comment) =>
+                comment.appAnnotationId === annotationId
+                    ? {
+                          ...comment,
+                          text,
+                      }
+                    : comment,
+            );
             return true;
         });
 
@@ -676,18 +620,20 @@ describe('useAnnotationNoteWindows', () => {
 
         expect(saved).toBe(true);
         expect(deps.updateAnnotationCommentInViewer).toHaveBeenCalled();
-        expect(deps.annotationComments.value).toEqual(expect.arrayContaining([
-            expect.objectContaining({
-                stableKey: 'ann:0:13275R',
-                text: 'existing embedded note',
-                source: 'pdf',
-            }),
-            expect.objectContaining({
-                stableKey: 'ann:0:pdfjs_internal_editor_0',
-                text: 'saved new editor note',
-                source: 'editor',
-            }),
-        ]));
+        expect(deps.annotationComments.value).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    stableKey: 'ann:0:13275R',
+                    text: 'existing embedded note',
+                    source: 'pdf',
+                }),
+                expect.objectContaining({
+                    stableKey: 'ann:0:pdfjs_internal_editor_0',
+                    text: 'saved new editor note',
+                    source: 'editor',
+                }),
+            ]),
+        );
         expect(note.draftText).toBe('saved new editor note');
     });
 
@@ -714,10 +660,7 @@ describe('useAnnotationNoteWindows', () => {
             markerRect: movedRect,
             modifiedAt: requireEpochMs(200),
         });
-        const {
-            deps,
-            windows,
-        } = createHarness(original);
+        const {deps, windows} = createHarness(original);
 
         windows.handleOpenAnnotationNote(original);
         deps.annotationComments.value = [moved];
@@ -760,10 +703,7 @@ describe('useAnnotationNoteWindows', () => {
                 height: 0.001,
             },
         });
-        const {
-            deps,
-            windows,
-        } = createHarness(transient);
+        const {deps, windows} = createHarness(transient);
 
         windows.handleOpenAnnotationNote(transient);
         deps.annotationComments.value = [unrelated];
@@ -804,7 +744,7 @@ describe('useAnnotationNoteWindows', () => {
                 height: 0.001,
             },
         });
-        const { windows } = createHarness(first);
+        const {windows} = createHarness(first);
 
         windows.handleOpenAnnotationNote(first);
         windows.handleOpenAnnotationNote(second);
@@ -844,10 +784,7 @@ describe('useAnnotationNoteWindows', () => {
             subtype: 'FreeText',
             markerRect,
         });
-        const {
-            deps,
-            windows,
-        } = createHarness(openEditorNote);
+        const {deps, windows} = createHarness(openEditorNote);
 
         windows.handleOpenAnnotationNote(openEditorNote);
         windows.updateAnnotationNoteText('ann:0:pdfjs_internal_editor_0', 'Dirty draft of the open note');
@@ -855,11 +792,13 @@ describe('useAnnotationNoteWindows', () => {
         await nextTick();
 
         expect(windows.findAnnotationNoteWindow('ann:0:3856R')).toBeNull();
-        expect(windows.annotationNoteWindows.value).toEqual([expect.objectContaining({
-            annotationId: 'ann:0:pdfjs_internal_editor_0',
-            draftText: 'Dirty draft of the open note',
-            dirty: true,
-        })]);
+        expect(windows.annotationNoteWindows.value).toEqual([
+            expect.objectContaining({
+                annotationId: 'ann:0:pdfjs_internal_editor_0',
+                draftText: 'Dirty draft of the open note',
+                dirty: true,
+            }),
+        ]);
     });
 
     it('keeps a transient note window bound by its explicit app annotation id after persistence', async () => {
@@ -895,10 +834,7 @@ describe('useAnnotationNoteWindows', () => {
                 height: 0.001,
             },
         });
-        const {
-            deps,
-            windows,
-        } = createHarness(transient);
+        const {deps, windows} = createHarness(transient);
 
         windows.handleOpenAnnotationNote(transient);
         deps.annotationComments.value = [persisted];
@@ -912,18 +848,21 @@ describe('useAnnotationNoteWindows', () => {
         const noteId = 'ann:0:note-1:0';
 
         function createAsyncSaveHarness() {
-            const harness = createHarness(createComment({
-                source: 'pdf',
-                annotationName: null,
-            }));
+            const harness = createHarness(
+                createComment({
+                    source: 'pdf',
+                    annotationName: null,
+                }),
+            );
             const pending: Array<(updated: boolean) => void> = [];
             const rejections: Array<(reason: unknown) => void> = [];
-            harness.deps.updateAnnotationCommentInViewer.mockImplementation(() => (
-                new Promise<boolean>((resolve, reject) => {
-                    pending.push(resolve);
-                    rejections.push(reject);
-                }) as never
-            ));
+            harness.deps.updateAnnotationCommentInViewer.mockImplementation(
+                () =>
+                    new Promise<boolean>((resolve, reject) => {
+                        pending.push(resolve);
+                        rejections.push(reject);
+                    }) as never,
+            );
             harness.windows.handleOpenAnnotationNote(harness.deps.annotationComments.value[0]!);
             return {
                 ...harness,
@@ -952,12 +891,7 @@ describe('useAnnotationNoteWindows', () => {
         });
 
         it('submits the latest draft as soon as a save that blocked the debounce settles', async () => {
-            const {
-                deps,
-                windows,
-                settle,
-                typeText,
-            } = createAsyncSaveHarness();
+            const {deps, windows, settle, typeText} = createAsyncSaveHarness();
 
             await typeText('First draft');
             await vi.advanceTimersByTimeAsync(ANNOTATION_NOTE_SAVE_DEBOUNCE_MS);
@@ -987,18 +921,15 @@ describe('useAnnotationNoteWindows', () => {
         });
 
         it('answers a Save made mid-flight once the draft typed since is stored', async () => {
-            const {
-                deps,
-                windows,
-                settle,
-                typeText,
-            } = createAsyncSaveHarness();
+            const {deps, windows, settle, typeText} = createAsyncSaveHarness();
 
             await typeText('First draft');
             await vi.advanceTimersByTimeAsync(ANNOTATION_NOTE_SAVE_DEBOUNCE_MS);
             await typeText('Second draft');
             let answer: boolean | null = null;
-            void windows.persistAllAnnotationNotes().then((saved) => { answer = saved; });
+            void windows.persistAllAnnotationNotes().then((saved) => {
+                answer = saved;
+            });
 
             await settle(true);
 
@@ -1012,12 +943,7 @@ describe('useAnnotationNoteWindows', () => {
         });
 
         it('coalesces repeated edits made during a save into one follow-up submission', async () => {
-            const {
-                deps,
-                windows,
-                settle,
-                typeText,
-            } = createAsyncSaveHarness();
+            const {deps, windows, settle, typeText} = createAsyncSaveHarness();
 
             await typeText('First draft');
             await vi.advanceTimersByTimeAsync(ANNOTATION_NOTE_SAVE_DEBOUNCE_MS);
@@ -1042,11 +968,7 @@ describe('useAnnotationNoteWindows', () => {
         });
 
         it('leaves a debounce that is already waiting for a newer draft alone', async () => {
-            const {
-                deps,
-                settle,
-                typeText,
-            } = createAsyncSaveHarness();
+            const {deps, settle, typeText} = createAsyncSaveHarness();
 
             await typeText('First draft');
             await vi.advanceTimersByTimeAsync(ANNOTATION_NOTE_SAVE_DEBOUNCE_MS);
@@ -1063,12 +985,7 @@ describe('useAnnotationNoteWindows', () => {
         });
 
         it('stops after a rescheduled submission fails without a newer draft', async () => {
-            const {
-                deps,
-                windows,
-                settle,
-                typeText,
-            } = createAsyncSaveHarness();
+            const {deps, windows, settle, typeText} = createAsyncSaveHarness();
 
             await typeText('First draft');
             await vi.advanceTimersByTimeAsync(ANNOTATION_NOTE_SAVE_DEBOUNCE_MS);
@@ -1091,12 +1008,7 @@ describe('useAnnotationNoteWindows', () => {
         });
 
         it('surfaces a rejected save to a joined request without retrying the same draft', async () => {
-            const {
-                deps,
-                rejections,
-                windows,
-                typeText,
-            } = createAsyncSaveHarness();
+            const {deps, rejections, windows, typeText} = createAsyncSaveHarness();
 
             await typeText('First draft');
             await vi.advanceTimersByTimeAsync(ANNOTATION_NOTE_SAVE_DEBOUNCE_MS);
@@ -1113,12 +1025,7 @@ describe('useAnnotationNoteWindows', () => {
         });
 
         it('does not reschedule persistence for a note deleted while its save is in flight', async () => {
-            const {
-                deps,
-                windows,
-                settle,
-                typeText,
-            } = createAsyncSaveHarness();
+            const {deps, windows, settle, typeText} = createAsyncSaveHarness();
 
             await typeText('First draft');
             await vi.advanceTimersByTimeAsync(ANNOTATION_NOTE_SAVE_DEBOUNCE_MS);
@@ -1138,12 +1045,7 @@ describe('useAnnotationNoteWindows', () => {
         });
 
         it('does not reschedule persistence for notes closed while a save is in flight', async () => {
-            const {
-                deps,
-                windows,
-                settle,
-                typeText,
-            } = createAsyncSaveHarness();
+            const {deps, windows, settle, typeText} = createAsyncSaveHarness();
 
             await typeText('First draft');
             await vi.advanceTimersByTimeAsync(ANNOTATION_NOTE_SAVE_DEBOUNCE_MS);
@@ -1159,12 +1061,7 @@ describe('useAnnotationNoteWindows', () => {
         });
 
         it('keeps a replaced save from stealing the retry owed to a reopened window', async () => {
-            const {
-                deps,
-                windows,
-                settleRequest,
-                typeText,
-            } = createAsyncSaveHarness();
+            const {deps, windows, settleRequest, typeText} = createAsyncSaveHarness();
 
             await typeText('Draft A');
             await vi.advanceTimersByTimeAsync(ANNOTATION_NOTE_SAVE_DEBOUNCE_MS);
@@ -1208,8 +1105,7 @@ describe('useAnnotationNoteWindows', () => {
             await vi.advanceTimersByTimeAsync(10_000);
 
             const settled = windows.findAnnotationNoteWindow(noteId);
-            const draftCSubmissions = deps.updateAnnotationCommentInViewer.mock.calls
-                .filter(call => call[1] === 'Draft C');
+            const draftCSubmissions = deps.updateAnnotationCommentInViewer.mock.calls.filter((call) => call[1] === 'Draft C');
             expect(draftCSubmissions).toHaveLength(1);
             expect(deps.updateAnnotationCommentInViewer).toHaveBeenCalledTimes(3);
             expect(settled?.dirty).toBe(false);
@@ -1222,16 +1118,19 @@ describe('useAnnotationNoteWindows', () => {
         const noteId = 'ann:0:note-1:0';
 
         function createClosingHarness() {
-            const harness = createHarness(createComment({
-                source: 'pdf',
-                annotationName: null,
-            }));
+            const harness = createHarness(
+                createComment({
+                    source: 'pdf',
+                    annotationName: null,
+                }),
+            );
             const pending: Array<(updated: boolean) => void> = [];
-            harness.deps.updateAnnotationCommentInViewer.mockImplementation(() => (
-                new Promise<boolean>((resolve) => {
-                    pending.push(resolve);
-                }) as never
-            ));
+            harness.deps.updateAnnotationCommentInViewer.mockImplementation(
+                () =>
+                    new Promise<boolean>((resolve) => {
+                        pending.push(resolve);
+                    }) as never,
+            );
             harness.windows.handleOpenAnnotationNote(harness.deps.annotationComments.value[0]!);
             return {
                 ...harness,
@@ -1260,11 +1159,7 @@ describe('useAnnotationNoteWindows', () => {
         });
 
         it('discards a hosted note by saving empty text and then closing its window', async () => {
-            const {
-                deps,
-                settleRequest,
-                windows,
-            } = createClosingHarness();
+            const {deps, settleRequest, windows} = createClosingHarness();
 
             const discarding = windows.discardAnnotationNote(noteId);
             await nextTick();
@@ -1280,10 +1175,7 @@ describe('useAnnotationNoteWindows', () => {
         });
 
         it('keeps the window and its error when discarding a hosted note fails to save', async () => {
-            const {
-                settleRequest,
-                windows,
-            } = createClosingHarness();
+            const {settleRequest, windows} = createClosingHarness();
 
             const discarding = windows.discardAnnotationNote(noteId);
             await nextTick();
@@ -1294,13 +1186,7 @@ describe('useAnnotationNoteWindows', () => {
         });
 
         it('keeps a note reopened under the same id while a single close drains the old save', async () => {
-            const {
-                deps,
-                reopenUnderSameId,
-                settleRequest,
-                typeText,
-                windows,
-            } = createClosingHarness();
+            const {deps, reopenUnderSameId, settleRequest, typeText, windows} = createClosingHarness();
 
             await typeText('Draft A');
             const closing = windows.closeAnnotationNote(noteId);
@@ -1323,13 +1209,7 @@ describe('useAnnotationNoteWindows', () => {
         });
 
         it('keeps a note reopened under the same id while a close-all drains the old saves', async () => {
-            const {
-                deps,
-                reopenUnderSameId,
-                settleRequest,
-                typeText,
-                windows,
-            } = createClosingHarness();
+            const {deps, reopenUnderSameId, settleRequest, typeText, windows} = createClosingHarness();
 
             await typeText('Draft A');
             const closing = windows.closeAllAnnotationNotes();
@@ -1351,12 +1231,7 @@ describe('useAnnotationNoteWindows', () => {
 
         it('keeps a note opened while a close-all was still draining its saves', async () => {
             const otherId = 'ann:1:note-2:0';
-            const {
-                deps,
-                settleRequest,
-                typeText,
-                windows,
-            } = createClosingHarness();
+            const {deps, settleRequest, typeText, windows} = createClosingHarness();
 
             await typeText('Draft A');
             const closing = windows.closeAllAnnotationNotes();
@@ -1378,10 +1253,7 @@ describe('useAnnotationNoteWindows', () => {
                 annotationName: null,
                 text: 'Other note',
             });
-            deps.annotationComments.value = [
-                deps.annotationComments.value[0]!,
-                otherComment,
-            ];
+            deps.annotationComments.value = [deps.annotationComments.value[0]!, otherComment];
             windows.handleOpenAnnotationNote(otherComment);
             await nextTick();
             windows.updateAnnotationNoteText(otherId, 'Typed during the drain');
@@ -1410,13 +1282,7 @@ describe('useAnnotationNoteWindows', () => {
 
         it('still closes the windows a close-all owned when one of them is reopened mid-flight', async () => {
             const otherId = 'ann:1:note-2:0';
-            const {
-                deps,
-                reopenUnderSameId,
-                settleRequest,
-                typeText,
-                windows,
-            } = createClosingHarness();
+            const {deps, reopenUnderSameId, settleRequest, typeText, windows} = createClosingHarness();
             const otherComment = createComment({
                 id: 'note-2',
                 stableKey: otherId,
@@ -1427,10 +1293,7 @@ describe('useAnnotationNoteWindows', () => {
                 annotationName: null,
                 text: 'Other note',
             });
-            deps.annotationComments.value = [
-                deps.annotationComments.value[0]!,
-                otherComment,
-            ];
+            deps.annotationComments.value = [deps.annotationComments.value[0]!, otherComment];
             windows.handleOpenAnnotationNote(otherComment);
             await nextTick();
 
@@ -1454,24 +1317,28 @@ describe('useAnnotationNoteWindows', () => {
 
         function createScopedAsyncSaveHarness() {
             const scope = effectScope();
-            const harness = scope.run(() => createHarness(createComment({
-                source: 'pdf',
-                annotationName: null,
-            })))!;
+            const harness = scope.run(() =>
+                createHarness(
+                    createComment({
+                        source: 'pdf',
+                        annotationName: null,
+                    }),
+                ),
+            )!;
             const pending: Array<(updated: boolean) => void> = [];
             const rejections: Array<(reason: unknown) => void> = [];
-            harness.deps.updateAnnotationCommentInViewer.mockImplementation(() => (
-                new Promise<boolean>((resolve, reject) => {
-                    pending.push(resolve);
-                    rejections.push(reject);
-                }) as never
-            ));
+            harness.deps.updateAnnotationCommentInViewer.mockImplementation(
+                () =>
+                    new Promise<boolean>((resolve, reject) => {
+                        pending.push(resolve);
+                        rejections.push(reject);
+                    }) as never,
+            );
             harness.windows.handleOpenAnnotationNote(harness.deps.annotationComments.value[0]!);
             return {
                 ...harness,
                 scope,
-                submittedTexts: () => harness.deps.updateAnnotationCommentInViewer.mock.calls
-                    .map(call => call[1]),
+                submittedTexts: () => harness.deps.updateAnnotationCommentInViewer.mock.calls.map((call) => call[1]),
                 settleRequest: async (index: number, updated: boolean) => {
                     pending[index]!(updated);
                     await vi.advanceTimersByTimeAsync(0);
@@ -1496,13 +1363,7 @@ describe('useAnnotationNoteWindows', () => {
         });
 
         it('drops a deferred draft when the scope stops before the in-flight save settles', async () => {
-            const {
-                scope,
-                settleRequest,
-                submittedTexts,
-                typeText,
-                windows,
-            } = createScopedAsyncSaveHarness();
+            const {scope, settleRequest, submittedTexts, typeText, windows} = createScopedAsyncSaveHarness();
 
             await typeText('Draft A');
             await vi.advanceTimersByTimeAsync(ANNOTATION_NOTE_SAVE_DEBOUNCE_MS);
@@ -1529,12 +1390,7 @@ describe('useAnnotationNoteWindows', () => {
         });
 
         it('cancels a debounce that has not fired yet when the scope stops', async () => {
-            const {
-                deps,
-                scope,
-                typeText,
-                windows,
-            } = createScopedAsyncSaveHarness();
+            const {deps, scope, typeText, windows} = createScopedAsyncSaveHarness();
 
             await typeText('Draft A');
             await vi.advanceTimersByTimeAsync(ANNOTATION_NOTE_SAVE_DEBOUNCE_MS - 1);
@@ -1553,13 +1409,7 @@ describe('useAnnotationNoteWindows', () => {
         });
 
         it('lets a save rejected after the scope stops fail without retrying', async () => {
-            const {
-                rejectRequest,
-                scope,
-                submittedTexts,
-                typeText,
-                windows,
-            } = createScopedAsyncSaveHarness();
+            const {rejectRequest, scope, submittedTexts, typeText, windows} = createScopedAsyncSaveHarness();
 
             await typeText('Draft A');
             await vi.advanceTimersByTimeAsync(ANNOTATION_NOTE_SAVE_DEBOUNCE_MS);
@@ -1579,12 +1429,7 @@ describe('useAnnotationNoteWindows', () => {
         });
 
         it('refuses to arm new work through the public surface after the scope stops', async () => {
-            const {
-                deps,
-                scope,
-                typeText,
-                windows,
-            } = createScopedAsyncSaveHarness();
+            const {deps, scope, typeText, windows} = createScopedAsyncSaveHarness();
 
             scope.stop();
 
@@ -1604,19 +1449,17 @@ describe('useAnnotationNoteWindows', () => {
         });
 
         it('ignores a comment projection update delivered after the scope stops', async () => {
-            const {
-                deps,
-                scope,
-                windows,
-            } = createScopedAsyncSaveHarness();
+            const {deps, scope, windows} = createScopedAsyncSaveHarness();
 
             scope.stop();
 
-            deps.annotationComments.value = [createComment({
-                source: 'pdf',
-                annotationName: null,
-                text: 'Rewritten by a late projection',
-            })];
+            deps.annotationComments.value = [
+                createComment({
+                    source: 'pdf',
+                    annotationName: null,
+                    text: 'Rewritten by a late projection',
+                }),
+            ];
             await nextTick();
             await vi.advanceTimersByTimeAsync(10_000);
 
@@ -1626,12 +1469,7 @@ describe('useAnnotationNoteWindows', () => {
         });
 
         it('leaves a note retained past teardown untouched when its save fulfils', async () => {
-            const {
-                scope,
-                settleRequest,
-                typeText,
-                windows,
-            } = createScopedAsyncSaveHarness();
+            const {scope, settleRequest, typeText, windows} = createScopedAsyncSaveHarness();
 
             await typeText('Draft A');
             const retained = windows.findAnnotationNoteWindow(noteId);
@@ -1664,12 +1502,7 @@ describe('useAnnotationNoteWindows', () => {
         });
 
         it('leaves a note retained past teardown untouched when its save refuses the update', async () => {
-            const {
-                scope,
-                settleRequest,
-                typeText,
-                windows,
-            } = createScopedAsyncSaveHarness();
+            const {scope, settleRequest, typeText, windows} = createScopedAsyncSaveHarness();
 
             await typeText('Draft A');
             const retained = windows.findAnnotationNoteWindow(noteId);
@@ -1699,12 +1532,7 @@ describe('useAnnotationNoteWindows', () => {
         });
 
         it('leaves a note retained past teardown untouched when its save rejects', async () => {
-            const {
-                rejectRequest,
-                scope,
-                typeText,
-                windows,
-            } = createScopedAsyncSaveHarness();
+            const {rejectRequest, scope, typeText, windows} = createScopedAsyncSaveHarness();
 
             await typeText('Draft A');
             const retained = windows.findAnnotationNoteWindow(noteId);
@@ -1730,12 +1558,7 @@ describe('useAnnotationNoteWindows', () => {
         });
 
         it('tolerates a scope stop after every note was already closed', async () => {
-            const {
-                deps,
-                scope,
-                typeText,
-                windows,
-            } = createScopedAsyncSaveHarness();
+            const {deps, scope, typeText, windows} = createScopedAsyncSaveHarness();
 
             await typeText('Draft A');
             await expect(windows.closeAllAnnotationNotes({saveIfDirty: false})).resolves.toBe(true);
@@ -1759,21 +1582,25 @@ describe('document unsaved annotation state', () => {
     afterEach(() => vi.useRealTimers());
     it('derives draft dirtiness without retaining reverted keystrokes or clearing accepted edits', async () => {
         const scope = effectScope();
-        const documentAnnotations = scope.run(() => createPdfDocumentAnnotations({
-            workingCopyPath: computed(() => null),
-            source: computed(() => ({
-                kind: 'path' as const,
-                path: requireDocumentRef('/managed/notes.pdf'),
-                size: 1,
-            })),
-            documentRevisionToken: computed(() => null),
-        }))!;
-        const session = scope.run(() => useWorkspaceAnnotationSession({
-            views: {pdfViewer: computed(() => null)},
-            pdfDocument: ref(null),
-            documentAnnotations,
-            reportNoteFailure: vi.fn(),
-        }))!;
+        const documentAnnotations = scope.run(() =>
+            createPdfDocumentAnnotations({
+                workingCopyPath: computed(() => null),
+                source: computed(() => ({
+                    kind: 'path' as const,
+                    path: requireDocumentRef('/managed/notes.pdf'),
+                    size: 1,
+                })),
+                documentRevisionToken: computed(() => null),
+            }),
+        )!;
+        const session = scope.run(() =>
+            useWorkspaceAnnotationSession({
+                views: {pdfViewer: computed(() => null)},
+                pdfDocument: ref(null),
+                documentAnnotations,
+                reportNoteFailure: vi.fn(),
+            }),
+        )!;
         // The session lists the document's notes as its store holds them.
         const createStoredNote = (id: string) => {
             documentAnnotations.application.value.store.createNote({
@@ -1796,7 +1623,7 @@ describe('document unsaved annotation state', () => {
                 color: null,
                 open: false,
             });
-            return session.annotationComments.value.find(candidate => candidate.appAnnotationId === id)!;
+            return session.annotationComments.value.find((candidate) => candidate.appAnnotationId === id)!;
         };
         try {
             const comment = createStoredNote('ann:0:note-1:0');
@@ -1844,6 +1671,8 @@ describe('document unsaved annotation state', () => {
             session.updateAnnotationNoteText(id, 'Initial noteX');
             session.updateAnnotationNoteText(id, 'Initial note');
             expect(session.hasUnsavedAnnotationChanges.value).toBe(true);
-        } finally { scope.stop(); }
+        } finally {
+            scope.stop();
+        }
     });
 });

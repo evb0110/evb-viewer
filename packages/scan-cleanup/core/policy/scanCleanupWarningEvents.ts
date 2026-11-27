@@ -12,9 +12,7 @@ export function describePageNumbers(pageNumbers: readonly number[]) {
 // Canvas pixels are whole by construction; PDF points are the physical decimals
 // the lossless path measures in, and both paths have always reported them this
 // way.
-const extent = (value: number, unit: 'px' | 'pt') => unit === 'px'
-    ? String(value)
-    : value.toFixed(1);
+const extent = (value: number, unit: 'px' | 'pt') => (unit === 'px' ? String(value) : value.toFixed(1));
 
 /**
  * Places the decimal point in a value its producer already quantized. Rounding
@@ -58,10 +56,7 @@ export function toScanCleanupDpiThousandths(dpi: number) {
  * `pageNumber` reproduces the per-page prefix the raster and lossless summaries
  * have always carried; a document-wide condition passes none.
  */
-export function formatScanCleanupWarningEvent(
-    event: TScanCleanupWarningEvent,
-    pageNumber?: number,
-) {
+export function formatScanCleanupWarningEvent(event: TScanCleanupWarningEvent, pageNumber?: number) {
     const prefix = pageNumber === undefined ? '' : `Page ${String(pageNumber)}: `;
     return prefix + describeScanCleanupWarningEvent(event);
 }
@@ -71,66 +66,87 @@ function describeScanCleanupWarningEvent(event: TScanCleanupWarningEvent) {
         case 'matched-canvas-content-fitted': {
             const size = `${extent(event.contentWidth, event.unit)}x${extent(event.contentHeight, event.unit)} ${event.unit}`;
             const inner = `${extent(event.innerWidth, event.unit)}x${extent(event.innerHeight, event.unit)} ${event.unit}`;
-            const canvas = event.documentCanvasWidth === undefined
-                || event.documentCanvasHeight === undefined
-                ? 'margin box'
-                : `requested margin box on the ${extent(event.documentCanvasWidth, event.unit)}`
-                    + `x${extent(event.documentCanvasHeight, event.unit)} ${event.unit} document canvas`;
-            return `Matched page size fitted this page to ${size} inside the ${inner} ${canvas}, `
-                + 'below the document\'s scale';
+            const canvas =
+                event.documentCanvasWidth === undefined || event.documentCanvasHeight === undefined
+                    ? 'margin box'
+                    : `requested margin box on the ${extent(event.documentCanvasWidth, event.unit)}` +
+                      `x${extent(event.documentCanvasHeight, event.unit)} ${event.unit} document canvas`;
+            return `Matched page size fitted this page to ${size} inside the ${inner} ${canvas}, ` + "below the document's scale";
         }
         case 'matched-canvas-content-fitted-pages':
-            return `Matched page size fitted ${String(event.pages.length)} page(s) inside their `
-                + `requested margin boxes, below the document's scale: ${describePageNumbers(event.pages)}`;
+            return (
+                `Matched page size fitted ${String(event.pages.length)} page(s) inside their ` +
+                `requested margin boxes, below the document's scale: ${describePageNumbers(event.pages)}`
+            );
         case 'matched-canvas-margins-reduced':
             return 'Matched page size reduced requested margins because they leave no drawable canvas';
         case 'matched-canvas-margins-unavailable':
             return 'Requested margins were not applied because content detection or cropping is unavailable';
         case 'matched-canvas-paper-downscaled': {
-            const paper = event.paperWidth === undefined || event.paperHeight === undefined
-                ? 'paper'
-                : `${extent(event.paperWidth, event.unit)}x${extent(event.paperHeight, event.unit)} ${event.unit} paper`;
-            return `Matched page size placed this page at ${fixedPoint(event.scalePercentTenths, 1)}% of the `
-                + `document's scale because its ${paper} is larger than the `
-                + `${extent(event.documentCanvasWidth, event.unit)}x${extent(event.documentCanvasHeight, event.unit)} `
-                + `${event.unit} document canvas, which was measured from a different layout for this page`;
+            const paper =
+                event.paperWidth === undefined || event.paperHeight === undefined
+                    ? 'paper'
+                    : `${extent(event.paperWidth, event.unit)}x${extent(event.paperHeight, event.unit)} ${event.unit} paper`;
+            return (
+                `Matched page size placed this page at ${fixedPoint(event.scalePercentTenths, 1)}% of the ` +
+                `document's scale because its ${paper} is larger than the ` +
+                `${extent(event.documentCanvasWidth, event.unit)}x${extent(event.documentCanvasHeight, event.unit)} ` +
+                `${event.unit} document canvas, which was measured from a different layout for this page`
+            );
         }
         case 'matched-canvas-optical-centering-fallback':
-            return 'Optical centering was requested but the optical bounds could not fit inside '
-                + 'the canvas margins; raster alignment was retained';
+            return (
+                'Optical centering was requested but the optical bounds could not fit inside ' +
+                'the canvas margins; raster alignment was retained'
+            );
         case 'matched-canvas-intrinsic-overflow':
-            return `Matched page raster extends beyond the canvas by ${String(event.leftPx)} px on the left `
-                + `and ${String(event.rightPx)} px on the right; optical content remains bounded`;
+            return (
+                `Matched page raster extends beyond the canvas by ${String(event.leftPx)} px on the left ` +
+                `and ${String(event.rightPx)} px on the right; optical content remains bounded`
+            );
         case 'matched-canvas-spread-headroom-trimmed':
-            return `Matched spread placement trimmed ${String(event.topPx)} px of source headroom `
-                + 'above the shared content anchor';
+            return `Matched spread placement trimmed ${String(event.topPx)} px of source headroom ` + 'above the shared content anchor';
         case 'matched-canvas-fold-columns-discarded':
-            return `Matched spread discarded ${String(event.leftColumns)} provably-paper fold-side columns `
-                + `on the left and ${String(event.rightColumns)} on the right (all samples met the `
-                + 'leaf-specific paper bound) before overflow fitting';
+            return (
+                `Matched spread discarded ${String(event.leftColumns)} provably-paper fold-side columns ` +
+                `on the left and ${String(event.rightColumns)} on the right (all samples met the ` +
+                'leaf-specific paper bound) before overflow fitting'
+            );
         case 'matched-canvas-dropped':
             return 'Matched page size was dropped: this document carries no readable page geometry';
         case 'matched-canvas-geometry-unmeasured':
-            return 'Matched page size is off for this document: its page geometry could not be measured '
-                + `(${event.detail}). Pages are previewed and cleaned at their own size.`;
+            return (
+                'Matched page size is off for this document: its page geometry could not be measured ' +
+                `(${event.detail}). Pages are previewed and cleaned at their own size.`
+            );
         case 'matched-canvas-pages-resampled':
-            return `Matched page size re-rendered ${String(event.pages.length)} page(s) that do not share `
-                + `the document's pixel grid: ${describePageNumbers(event.pages)}`;
+            return (
+                `Matched page size re-rendered ${String(event.pages.length)} page(s) that do not share ` +
+                `the document's pixel grid: ${describePageNumbers(event.pages)}`
+            );
         case 'matched-canvas-pages-scaled-in-place':
-            return `Matched page size scaled ${String(event.pages.length)} page(s) that carry their own raster `
-                + `without re-rendering them: ${describePageNumbers(event.pages)}`;
+            return (
+                `Matched page size scaled ${String(event.pages.length)} page(s) that carry their own raster ` +
+                `without re-rendering them: ${describePageNumbers(event.pages)}`
+            );
         case 'matched-canvas-document-dpi-normalized':
-            return `Matched page size normalized this document at ${String(Math.round(event.canvasDpi))} DPI `
-                + `instead of the ${String(Math.round(event.finestPageDpi))} DPI its finest page was rendered at, `
-                + 'to keep one shared page inside the output pixel budget';
+            return (
+                `Matched page size normalized this document at ${String(Math.round(event.canvasDpi))} DPI ` +
+                `instead of the ${String(Math.round(event.finestPageDpi))} DPI its finest page was rendered at, ` +
+                'to keep one shared page inside the output pixel budget'
+            );
         case 'matched-canvas-page-dpi-capped':
-            return `Matched page size capped page ${String(event.pageNumber)} at `
-                + `${fixedPoint(event.appliedDpiThousandths, 3)} DPI from `
-                + `${fixedPoint(event.requestedDpiThousandths, 3)} DPI to keep its uniform canvas `
-                + 'inside cleanup guardrails';
+            return (
+                `Matched page size capped page ${String(event.pageNumber)} at ` +
+                `${fixedPoint(event.appliedDpiThousandths, 3)} DPI from ` +
+                `${fixedPoint(event.requestedDpiThousandths, 3)} DPI to keep its uniform canvas ` +
+                'inside cleanup guardrails'
+            );
         case 'render-dpi-limited':
-            return `Requested render DPI ${fixedPoint(event.requestedDpiThousandths, 3)} was limited to `
-                + `${fixedPoint(event.appliedDpiThousandths, 3)} by native raster safety limits`;
+            return (
+                `Requested render DPI ${fixedPoint(event.requestedDpiThousandths, 3)} was limited to ` +
+                `${fixedPoint(event.appliedDpiThousandths, 3)} by native raster safety limits`
+            );
     }
     // A new event variant reaches the user as a sentence or not at all, so it
     // has to fail here at compile time rather than silently decode into a
@@ -147,13 +163,13 @@ function describeScanCleanupWarningEvent(event: TScanCleanupWarningEvent) {
 export function describeScanCleanupNativeWarnings(
     metadata: {
         warnings?: readonly string[];
-        warningEvents?: readonly TScanCleanupWarningEvent[]
+        warningEvents?: readonly TScanCleanupWarningEvent[];
     },
     pageNumber?: number,
 ) {
     const prefix = pageNumber === undefined ? '' : `Page ${String(pageNumber)}: `;
     return [
-        ...(metadata.warningEvents ?? []).map(event => formatScanCleanupWarningEvent(event, pageNumber)),
-        ...(metadata.warnings ?? []).map(warning => prefix + warning),
+        ...(metadata.warningEvents ?? []).map((event) => formatScanCleanupWarningEvent(event, pageNumber)),
+        ...(metadata.warnings ?? []).map((warning) => prefix + warning),
     ];
 }

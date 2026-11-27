@@ -1,33 +1,12 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    readFile,
-    writeFile,
-} from 'node:fs/promises';
-import {
-    PDFDocument,
-    PDFName,
-    PDFString,
-} from 'pdf-lib';
-import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
-import { createMultiPageTextFixturePdf } from '@tests/e2e/electron/helpers/fixtures';
-import {
-    clickVisibleToolbarButton,
-    openPdfInApp,
-    waitForViewerInteractive,
-} from '@tests/e2e/electron/helpers/viewerCore';
-import {
-    createStickyNoteWithPointer,
-    createTextMarkupWithPointer,
-} from '@tests/e2e/electron/helpers/viewerAnnotations';
-import {
-    evaluateInPage,
-    waitForFunctionInPage,
-} from '@tests/e2e/electron/helpers/pageRuntime';
-import { wheelPdfViewportAndWaitForSettlement } from '@tests/e2e/electron/helpers/viewerVirtualizationContract';
+import {describe, expect, it} from 'vitest';
+import {readFile, writeFile} from 'node:fs/promises';
+import {PDFDocument, PDFName, PDFString} from 'pdf-lib';
+import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
+import {createMultiPageTextFixturePdf} from '@tests/e2e/electron/helpers/fixtures';
+import {clickVisibleToolbarButton, openPdfInApp, waitForViewerInteractive} from '@tests/e2e/electron/helpers/viewerCore';
+import {createStickyNoteWithPointer, createTextMarkupWithPointer} from '@tests/e2e/electron/helpers/viewerAnnotations';
+import {evaluateInPage, waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
+import {wheelPdfViewportAndWaitForSettlement} from '@tests/e2e/electron/helpers/viewerVirtualizationContract';
 import {assertViewerInvariants} from '@tests/e2e/electron/helpers/viewerInvariants';
 
 /**
@@ -61,17 +40,19 @@ async function readToolbarPageFromScreen(page: Parameters<typeof evaluateInPage>
 }
 
 async function readZoomTextFromScreen(page: Parameters<typeof evaluateInPage>[0]) {
-    return evaluateInPage(page, () => (
-        document.querySelector('#editor-global-toolbar-host .zoom-controls-display-value')
-            ?.textContent?.trim() ?? null
-    ));
+    return evaluateInPage(
+        page,
+        () => document.querySelector('#editor-global-toolbar-host .zoom-controls-display-value')?.textContent?.trim() ?? null,
+    );
 }
 
 /** Overlay ids the editor layer currently draws, in the order it draws them. */
 async function readDrawnAnnotationIds(page: Parameters<typeof evaluateInPage>[0]) {
-    return evaluateInPage(page, () => [...document.querySelectorAll(
-        '.pdf-annotation-editor-layer [data-annotation-id][data-annotation-kind]',
-    )].map(entity => entity.getAttribute('data-annotation-id') ?? ''));
+    return evaluateInPage(page, () =>
+        [...document.querySelectorAll('.pdf-annotation-editor-layer [data-annotation-id][data-annotation-kind]')].map(
+            (entity) => entity.getAttribute('data-annotation-id') ?? '',
+        ),
+    );
 }
 
 async function clickFirstTabOnScreen(page: Parameters<typeof evaluateInPage>[0]) {
@@ -96,7 +77,7 @@ async function clickFirstTabOnScreen(page: Parameters<typeof evaluateInPage>[0])
 
 describe('viewer invariant journey', () => {
     it('keeps zoom responsive and note drafts anchored with 200 open notes', async () => {
-        const { page } = sessionFixture.getSession();
+        const {page} = sessionFixture.getSession();
         const pdfPath = await createMultiPageTextFixturePdf('many-open-notes.pdf', JOURNEY_PAGE_COUNT);
         const pdf = await PDFDocument.load(await readFile(pdfPath));
         const firstPage = pdf.getPages()[0]!;
@@ -105,34 +86,35 @@ describe('viewer invariant journey', () => {
         for (let index = 0; index < 200; index += 1) {
             const x = 50 + (index % 10) * 48;
             const y = 700 - Math.floor(index / 10) * 27;
-            const note = pdf.context.register(pdf.context.obj({
-                Type: 'Annot',
-                Subtype: 'Text',
-                Rect: [
-                    x,
-                    y,
-                    x + 20,
-                    y + 20,
-                ],
-                Contents: PDFString.of(`Review note ${index}: retain this draft.`),
-                NM: PDFString.of(`review-note-${index}`),
-                Name: 'Comment',
-                F: 4,
-                P: firstPage.ref,
-            }));
+            const note = pdf.context.register(
+                pdf.context.obj({
+                    Type: 'Annot',
+                    Subtype: 'Text',
+                    Rect: [x, y, x + 20, y + 20],
+                    Contents: PDFString.of(`Review note ${index}: retain this draft.`),
+                    NM: PDFString.of(`review-note-${index}`),
+                    Name: 'Comment',
+                    F: 4,
+                    P: firstPage.ref,
+                }),
+            );
             annotations.push(note);
         }
         await writeFile(pdfPath, await pdf.save());
         await openPdfInApp(page, pdfPath, OPEN_TIMEOUT_MS);
         await waitForViewerInteractive(page, OPEN_TIMEOUT_MS);
-        await waitForFunctionInPage(page, () => (
-            window.__evbTestApi?.getActiveWorkspaceHandle()?.getAutomationStateSnapshot().annotationComments.length === 200
-        ), { timeout: OPEN_TIMEOUT_MS });
+        await waitForFunctionInPage(
+            page,
+            () => window.__evbTestApi?.getActiveWorkspaceHandle()?.getAutomationStateSnapshot().annotationComments.length === 200,
+            {timeout: OPEN_TIMEOUT_MS},
+        );
         // Open accepted notes as setup; the measured wheel and toolbar actions
         // below use trusted input and read rendered drafts and real layout.
         await evaluateInPage(page, async () => {
             const workspace = window.__evbTestApi?.getActiveWorkspaceHandle();
-            if (!workspace) {throw new Error('The document workspace is unavailable');}
+            if (!workspace) {
+                throw new Error('The document workspace is unavailable');
+            }
             for (const comment of workspace.getAutomationStateSnapshot().annotationComments) {
                 await workspace.runAgentAction('annotation.update_note', {
                     stableKey: comment.stableKey,
@@ -140,14 +122,17 @@ describe('viewer invariant journey', () => {
                 });
             }
         });
-        await waitForFunctionInPage(page, () => document.querySelectorAll('.note-window').length === 200, { timeout: OPEN_TIMEOUT_MS });
-        const readDrafts = () => evaluateInPage(page, () => [...document.querySelectorAll<HTMLTextAreaElement>(
-            '.note-window textarea',
-        )].map(input => input.value));
+        await waitForFunctionInPage(page, () => document.querySelectorAll('.note-window').length === 200, {timeout: OPEN_TIMEOUT_MS});
+        const readDrafts = () =>
+            evaluateInPage(page, () =>
+                [...document.querySelectorAll<HTMLTextAreaElement>('.note-window textarea')].map((input) => input.value),
+            );
         const drafts = await readDrafts();
         const wheelPoint = await evaluateInPage(page, () => {
             const viewport = document.querySelector('#pdf-viewer');
-            if (!viewport) {throw new Error('The PDF viewport is unavailable');}
+            if (!viewport) {
+                throw new Error('The PDF viewport is unavailable');
+            }
             const rect = viewport.getBoundingClientRect();
             const x = rect.right - 30;
             const y = rect.top + rect.height / 2;
@@ -161,64 +146,74 @@ describe('viewer invariant journey', () => {
         });
         for (let index = 0; index < 12; index += 1) {
             await page.mouse.move(wheelPoint.x, wheelPoint.y);
-            await page.mouse.wheel({ deltaY: index % 2 === 0 ? 120 : -120 });
-            await evaluateInPage(page, () => new Promise<void>(resolve => (
-                requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
-            )));
+            await page.mouse.wheel({deltaY: index % 2 === 0 ? 120 : -120});
+            await evaluateInPage(
+                page,
+                () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
+            );
         }
-        for (const label of [
-            'Zoom In',
-            'Zoom Out',
-        ]) {
+        for (const label of ['Zoom In', 'Zoom Out']) {
             const previous = await readZoomTextFromScreen(page);
             // Acknowledge listener installation before input. The helper's
             // pointer/hover preparation precedes the reader's actual click.
-            const observation = await page.evaluateHandle((expectedLabel, oldZoom) => {
-                let frame = 0;
-                let onClick: (event: MouseEvent) => void;
-                const response = new Promise<number>(resolve => {
-                    onClick = event => {
-                        const button = event.target instanceof Element ? event.target.closest('button') : null;
-                        const name = button?.getAttribute('aria-label')?.trim();
-                        if (!event.isTrusted || (name !== expectedLabel && !name?.startsWith(`${expectedLabel} (`))) {return;}
-                        document.removeEventListener('click', onClick, true);
-                        const observeChangedZoom = () => {
-                            const zoom = document.querySelector('.zoom-controls-display-value')?.textContent?.trim();
-                            if (!zoom || zoom === oldZoom) {
-                                frame = requestAnimationFrame(observeChangedZoom);
+            const observation = await page.evaluateHandle(
+                (expectedLabel, oldZoom) => {
+                    let frame = 0;
+                    let onClick: (event: MouseEvent) => void;
+                    const response = new Promise<number>((resolve) => {
+                        onClick = (event) => {
+                            const button = event.target instanceof Element ? event.target.closest('button') : null;
+                            const name = button?.getAttribute('aria-label')?.trim();
+                            if (!event.isTrusted || (name !== expectedLabel && !name?.startsWith(`${expectedLabel} (`))) {
                                 return;
                             }
-                            frame = requestAnimationFrame(() => {
-                                frame = requestAnimationFrame(() => resolve(performance.now() - event.timeStamp));
-                            });
+                            document.removeEventListener('click', onClick, true);
+                            const observeChangedZoom = () => {
+                                const zoom = document.querySelector('.zoom-controls-display-value')?.textContent?.trim();
+                                if (!zoom || zoom === oldZoom) {
+                                    frame = requestAnimationFrame(observeChangedZoom);
+                                    return;
+                                }
+                                frame = requestAnimationFrame(() => {
+                                    frame = requestAnimationFrame(() => resolve(performance.now() - event.timeStamp));
+                                });
+                            };
+                            frame = requestAnimationFrame(observeChangedZoom);
                         };
-                        frame = requestAnimationFrame(observeChangedZoom);
+                        document.addEventListener('click', onClick, true);
+                    });
+                    return {
+                        response,
+                        dispose: () => {
+                            document.removeEventListener('click', onClick, true);
+                            cancelAnimationFrame(frame);
+                        },
                     };
-                    document.addEventListener('click', onClick, true);
-                });
-                return {
-                    response,
-                    dispose: () => {
-                        document.removeEventListener('click', onClick, true);
-                        cancelAnimationFrame(frame);
-                    },
-                };
-            }, label, previous);
+                },
+                label,
+                previous,
+            );
             try {
                 await clickVisibleToolbarButton(page, label);
-                await waitForFunctionInPage(page, old => {
-                    const zoom = document.querySelector('.zoom-controls-display-value')?.textContent?.trim();
-                    return Boolean(zoom && zoom !== old);
-                }, { timeout: 1_000 }, previous);
-                expect(await page.evaluate(value => value.response, observation)).toBeLessThan(1_000);
+                await waitForFunctionInPage(
+                    page,
+                    (old) => {
+                        const zoom = document.querySelector('.zoom-controls-display-value')?.textContent?.trim();
+                        return Boolean(zoom && zoom !== old);
+                    },
+                    {timeout: 1_000},
+                    previous,
+                );
+                expect(await page.evaluate((value) => value.response, observation)).toBeLessThan(1_000);
             } finally {
-                await page.evaluate(value => value.dispose(), observation);
+                await page.evaluate((value) => value.dispose(), observation);
                 await observation.dispose();
             }
         }
         expect(await readDrafts()).toEqual(drafts);
-        const noteIds = await evaluateInPage(page, () => [...document.querySelectorAll<HTMLElement>('.note-window')]
-            .map(note => note.dataset.annotationId!));
+        const noteIds = await evaluateInPage(page, () =>
+            [...document.querySelectorAll<HTMLElement>('.note-window')].map((note) => note.dataset.annotationId!),
+        );
         await assertViewerInvariants(page, {
             checkpoint: '200 open notes after trusted wheel and zoom',
             documentWellFormed: true,
@@ -232,7 +227,7 @@ describe('viewer invariant journey', () => {
 
     it('holds the user-level viewer invariants through a composed reading session', async () => {
         const session = sessionFixture.getSession();
-        const { page } = session;
+        const {page} = session;
 
         const firstPdf = await createMultiPageTextFixturePdf('invariant-journey.pdf', JOURNEY_PAGE_COUNT);
         await openPdfInApp(page, firstPdf, OPEN_TIMEOUT_MS);
@@ -241,31 +236,27 @@ describe('viewer invariant journey', () => {
             checkpoint: 'document open and laid out',
             documentWellFormed: true,
             requirePresent: {pageIndicator: true},
-            requireRan: [
-                'R1-toolbar-page-visible',
-                'C2-renderer-diagnostics-clean',
-            ],
+            requireRan: ['R1-toolbar-page-visible', 'C2-renderer-diagnostics-clean'],
         });
 
         // A real pane resize: the controls stay reachable and the reading
         // anchor survives the relayout.
         const pageBeforeResize = await readToolbarPageFromScreen(page);
         const resizeStartedAt = Date.now();
-        await session.command('windowResize', [
+        await session.command('windowResize', [RESIZED_WIDTH_PX, RESIZED_HEIGHT_PX]);
+        await waitForFunctionInPage(
+            page,
+            (expectedWidth: number) => Math.abs(window.innerWidth - expectedWidth) < 2,
+            {timeout: 20_000},
             RESIZED_WIDTH_PX,
-            RESIZED_HEIGHT_PX,
-        ]);
-        await waitForFunctionInPage(page, (expectedWidth: number) => (
-            Math.abs(window.innerWidth - expectedWidth) < 2
-        ), {timeout: 20_000}, RESIZED_WIDTH_PX);
+        );
         await assertViewerInvariants(page, {
             checkpoint: 'after a real window resize',
             documentWellFormed: true,
             requirePresent: {pageIndicator: true},
             requireRan: ['R1-toolbar-page-visible'],
         });
-        expect(Date.now() - resizeStartedAt, 'a real window resize keeps the viewer unquiet for 500 ms')
-            .toBeGreaterThanOrEqual(500);
+        expect(Date.now() - resizeStartedAt, 'a real window resize keeps the viewer unquiet for 500 ms').toBeGreaterThanOrEqual(500);
         expect(await readToolbarPageFromScreen(page)).toBe(pageBeforeResize);
 
         // Pointer-drawn markup, then a sticky note whose window opens over the
@@ -287,24 +278,27 @@ describe('viewer invariant journey', () => {
             requireRan: ['A1-annotation-page-containment'],
         });
 
-        await createStickyNoteWithPointer(page, 'journey note', {
-            x: 0.4,
-            y: 0.3,
-        }, 1);
+        await createStickyNoteWithPointer(
+            page,
+            'journey note',
+            {
+                x: 0.4,
+                y: 0.3,
+            },
+            1,
+        );
         await waitForFunctionInPage(page, () => document.querySelector('.note-window') !== null, {timeout: 30_000});
-        const noteAnnotationId = await evaluateInPage(page, () => (
-            document.querySelector('.note-window')?.getAttribute('data-annotation-id') ?? null
-        ));
+        const noteAnnotationId = await evaluateInPage(
+            page,
+            () => document.querySelector('.note-window')?.getAttribute('data-annotation-id') ?? null,
+        );
         if (noteAnnotationId === null) {
             throw new Error('The open note window carries no annotation id to name in an exception');
         }
         // Everything the reader made, required at every later checkpoint where
         // the page that holds it is on screen.
         const createdWork = {
-            annotationIds: [
-                highlightAnnotationId,
-                noteAnnotationId,
-            ],
+            annotationIds: [highlightAnnotationId, noteAnnotationId],
             noteWindowFor: [noteAnnotationId],
             pageIndicator: true,
         } as const;
@@ -312,10 +306,7 @@ describe('viewer invariant journey', () => {
             checkpoint: 'with an open note window',
             documentWellFormed: true,
             requirePresent: createdWork,
-            requireRan: [
-                'A1-annotation-page-containment',
-                'A2-note-window-over-chrome',
-            ],
+            requireRan: ['A1-annotation-page-containment', 'A2-note-window-over-chrome'],
         });
 
         // A real wheel scroll several pages down: the rendered counter has to
@@ -331,10 +322,7 @@ describe('viewer invariant journey', () => {
             documentWellFormed: true,
             requireNavigationIdle: true,
             requirePresent: {pageIndicator: true},
-            requireRan: [
-                'R1-toolbar-page-visible',
-                'A2-note-window-over-chrome',
-            ],
+            requireRan: ['R1-toolbar-page-visible', 'A2-note-window-over-chrome'],
         });
         expect(scrolled.unresolved).toEqual([]);
         expect(await readToolbarPageFromScreen(page)).toBeGreaterThan(1);
@@ -345,11 +333,7 @@ describe('viewer invariant journey', () => {
             documentWellFormed: true,
             requireNavigationIdle: true,
             requirePresent: createdWork,
-            requireRan: [
-                'R1-toolbar-page-visible',
-                'A1-annotation-page-containment',
-                'A1-annotation-normalized-drift',
-            ],
+            requireRan: ['R1-toolbar-page-visible', 'A1-annotation-page-containment', 'A1-annotation-normalized-drift'],
         });
 
         // Zoom through the real toolbar and back with the anchor page on
@@ -364,10 +348,7 @@ describe('viewer invariant journey', () => {
             checkpoint: 'after zooming in through the toolbar',
             documentWellFormed: true,
             requirePresent: createdWork,
-            requireRan: [
-                'A1-annotation-normalized-drift',
-                'A2-note-window-over-chrome',
-            ],
+            requireRan: ['A1-annotation-normalized-drift', 'A2-note-window-over-chrome'],
         });
         await clickVisibleToolbarButton(page, 'Zoom Out');
         await assertViewerInvariants(page, {
@@ -382,10 +363,7 @@ describe('viewer invariant journey', () => {
             checkpoint: 'in fit width',
             documentWellFormed: true,
             requirePresent: createdWork,
-            requireRan: [
-                'L1-fit-mode-scroll-range',
-                'A1-annotation-normalized-drift',
-            ],
+            requireRan: ['L1-fit-mode-scroll-range', 'A1-annotation-normalized-drift'],
         });
         await clickVisibleToolbarButton(page, 'Fit Height');
         await assertViewerInvariants(page, {
@@ -400,10 +378,7 @@ describe('viewer invariant journey', () => {
             checkpoint: 'after toggling the sidebar',
             documentWellFormed: true,
             requirePresent: createdWork,
-            requireRan: [
-                'A1-annotation-normalized-drift',
-                'A2-note-window-follows-anchor',
-            ],
+            requireRan: ['A1-annotation-normalized-drift', 'A2-note-window-follows-anchor'],
         });
 
         // T1: what the first tab shows before the journey works elsewhere.
@@ -427,10 +402,7 @@ describe('viewer invariant journey', () => {
             checkpoint: 'back on the first tab',
             documentWellFormed: true,
             requirePresent: createdWork,
-            requireRan: [
-                'R1-toolbar-page-visible',
-                'A1-annotation-page-containment',
-            ],
+            requireRan: ['R1-toolbar-page-visible', 'A1-annotation-page-containment'],
         });
         // T1: the other tab's work did not move this one.
         expect(await readToolbarPageFromScreen(page)).toBe(firstTabPage);

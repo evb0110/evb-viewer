@@ -1,16 +1,9 @@
-import { getErrorMessage } from '@contracts/getErrorMessage';
-import {
-    existsSync,
-    readFileSync,
-    watchFile,
-} from 'node:fs';
-import { pathToFileURL } from 'node:url';
-import { join } from 'node:path';
-import { projectRoot } from '@scripts/electron-run/projectRoot';
-import {
-    electronFileLogDir,
-    validateSessionName,
-} from '@scripts/electron-run/electronRunSessionPaths';
+import {getErrorMessage} from '@contracts/getErrorMessage';
+import {existsSync, readFileSync, watchFile} from 'node:fs';
+import {pathToFileURL} from 'node:url';
+import {join} from 'node:path';
+import {projectRoot} from '@scripts/electron-run/projectRoot';
+import {electronFileLogDir, validateSessionName} from '@scripts/electron-run/electronRunSessionPaths';
 import {
     APP_LOG_FILE_NAME,
     decodeLogRecord,
@@ -20,7 +13,7 @@ import {
     type ILogRecord,
     type TLogLevel,
 } from '@contracts/logRecord';
-import { formatTerminalLogRecord } from '@scripts/electron-run/terminalLog';
+import {formatTerminalLogRecord} from '@scripts/electron-run/terminalLog';
 
 interface IDevLogsOptions {
     follow: boolean;
@@ -71,9 +64,8 @@ export function parseDevLogsArgs(args: readonly string[], nowMs = Date.now()): I
     let level: TLogLevel = 'debug';
     let scope: string | null = null;
     let grep: RegExp | null = null;
-    const readValue = (arg: string, name: string, index: number) => (
-        arg.startsWith(`${name}=`) ? arg.slice(name.length + 1) : args[index + 1] ?? ''
-    );
+    const readValue = (arg: string, name: string, index: number) =>
+        arg.startsWith(`${name}=`) ? arg.slice(name.length + 1) : (args[index + 1] ?? '');
 
     for (let index = 0; index < args.length; index += 1) {
         const arg = args[index];
@@ -98,7 +90,9 @@ export function parseDevLogsArgs(args: readonly string[], nowMs = Date.now()): I
             json = true;
         } else if (arg === '--level' || arg?.startsWith('--level=')) {
             const value = readValue(arg, '--level', index);
-            if (!arg.includes('=')) {index += 1;}
+            if (!arg.includes('=')) {
+                index += 1;
+            }
             const parsed = parseLogLevel(value);
             if (!parsed) {
                 throw new Error(`Invalid --level value: ${value}. Use debug, info, warn, or error.`);
@@ -107,11 +101,15 @@ export function parseDevLogsArgs(args: readonly string[], nowMs = Date.now()): I
             level = parsed;
         } else if (arg === '--scope' || arg?.startsWith('--scope=')) {
             scope = readValue(arg, '--scope', index);
-            if (!arg.includes('=')) {index += 1;}
+            if (!arg.includes('=')) {
+                index += 1;
+            }
             app = true;
         } else if (arg === '--grep' || arg?.startsWith('--grep=')) {
             const value = readValue(arg, '--grep', index);
-            if (!arg.includes('=')) {index += 1;}
+            if (!arg.includes('=')) {
+                index += 1;
+            }
             grep = new RegExp(value, 'iu');
             app = true;
         } else {
@@ -157,10 +155,11 @@ function matchesAppLogFilter(record: ILogRecord, filter: TAppLogFilter) {
  */
 export function formatAppLogText(
     text: string,
-    options: TAppLogFilter & Pick<IDevLogsOptions, 'json'> & {
-        tailLines?: number;
-        color?: boolean;
-    },
+    options: TAppLogFilter &
+        Pick<IDevLogsOptions, 'json'> & {
+            tailLines?: number;
+            color?: boolean;
+        },
 ) {
     const lines: string[] = [];
     for (const line of text.split('\n')) {
@@ -187,7 +186,9 @@ function runAppLogs(options: IDevLogsOptions) {
         ...options,
         color,
     });
-    if (initial) {process.stdout.write(`${initial}\n`);}
+    if (initial) {
+        process.stdout.write(`${initial}\n`);
+    }
     let offset = Buffer.byteLength(content);
     let pending = '';
     if (!options.follow) {
@@ -212,7 +213,9 @@ function runAppLogs(options: IDevLogsOptions) {
             tailLines: 0,
             color,
         });
-        if (formatted) {process.stdout.write(`${formatted}\n`);}
+        if (formatted) {
+            process.stdout.write(`${formatted}\n`);
+        }
     });
 }
 
@@ -232,7 +235,9 @@ export function filterDevLogText(text: string, options: Pick<IDevLogsOptions, 's
             const match = /^\[([^\s\]]+)/u.exec(line);
             if (match) {
                 const parsed = Date.parse(match[1] ?? '');
-                if (Number.isFinite(parsed)) {currentTimestamp = parsed;}
+                if (Number.isFinite(parsed)) {
+                    currentTimestamp = parsed;
+                }
             }
             return currentTimestamp === null || currentTimestamp >= options.sinceMs!;
         });
@@ -259,11 +264,15 @@ export function runDevLogs(args = process.argv.slice(2)) {
 
     process.stderr.write(`[dev:logs] session=${options.sessionName}\n`);
     process.stderr.write(`[dev:logs] log=${sessionLogFile}\n`);
-    if (manifest?.runDir) {process.stderr.write(`[dev:logs] run=${manifest.runDir}\n`);}
+    if (manifest?.runDir) {
+        process.stderr.write(`[dev:logs] run=${manifest.runDir}\n`);
+    }
 
     let content = readFileSync(sessionLogFile, 'utf8');
     const initial = filterDevLogText(content, options);
-    if (initial) {process.stdout.write(initial.endsWith('\n') ? initial : `${initial}\n`);}
+    if (initial) {
+        process.stdout.write(initial.endsWith('\n') ? initial : `${initial}\n`);
+    }
     let offset = Buffer.byteLength(content);
 
     if (!options.follow) {
@@ -271,20 +280,22 @@ export function runDevLogs(args = process.argv.slice(2)) {
     }
 
     watchFile(sessionLogFile, {interval: 250}, (current) => {
-        if (current.size < offset) {offset = 0;}
+        if (current.size < offset) {
+            offset = 0;
+        }
         if (current.size === offset) {
             return;
         }
         content = readFileSync(sessionLogFile, 'utf8');
         const appended = Buffer.from(content).subarray(offset).toString('utf8');
         offset = Buffer.byteLength(content);
-        if (appended) {process.stdout.write(appended);}
+        if (appended) {
+            process.stdout.write(appended);
+        }
     });
 }
 
-const isDirectRun = process.argv[1]
-    ? import.meta.url === pathToFileURL(process.argv[1]).href
-    : false;
+const isDirectRun = process.argv[1] ? import.meta.url === pathToFileURL(process.argv[1]).href : false;
 if (isDirectRun) {
     try {
         runDevLogs();

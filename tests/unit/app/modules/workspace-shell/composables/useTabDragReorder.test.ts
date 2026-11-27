@@ -1,16 +1,7 @@
 // @vitest-environment happy-dom
 
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    createApp,
-    ref,
-} from 'vue';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
+import {createApp, ref} from 'vue';
 
 const mocks = vi.hoisted(() => ({useEventListener: vi.fn()}));
 
@@ -30,7 +21,7 @@ function rect(left: number, top: number, width: number, height: number): DOMRect
     };
 }
 
-function pointerEvent(init: Partial<PointerEvent> & { currentTarget?: EventTarget | null }): PointerEvent {
+function pointerEvent(init: Partial<PointerEvent> & {currentTarget?: EventTarget | null}): PointerEvent {
     return init as PointerEvent;
 }
 
@@ -38,12 +29,14 @@ function pointerEvent(init: Partial<PointerEvent> & { currentTarget?: EventTarge
 // cannot be installed on it. Observe writes through a forwarding proxy instead.
 function spyOnTransformWrites(element: HTMLElement) {
     const writes = vi.fn();
-    const style = new Proxy(element.style, {set(target, property, value) {
-        if (property === 'transform') {
-            writes(value);
-        }
-        return Reflect.set(target, property, value);
-    }});
+    const style = new Proxy(element.style, {
+        set(target, property, value) {
+            if (property === 'transform') {
+                writes(value);
+            }
+            return Reflect.set(target, property, value);
+        },
+    });
     Object.defineProperty(element, 'style', {value: style});
     return writes;
 }
@@ -93,33 +86,35 @@ describe('useTabDragReorder', () => {
         const onReorder = vi.fn();
         const onDragStart = vi.fn();
         const onMoveToDirection = vi.fn();
-        const { useTabDragReorder } = await import('@app/modules/workspace-shell/composables/useTabDragReorder');
+        const {useTabDragReorder} = await import('@app/modules/workspace-shell/composables/useTabDragReorder');
         let drag!: ReturnType<typeof useTabDragReorder>;
         const appHost = document.createElement('div');
         document.body.append(appHost);
-        const app = createApp({setup() {
-            drag = useTabDragReorder(
-                ref(container),
-                onReorder,
-                onDragStart,
-                onMoveToDirection,
-            );
-            return () => null;
-        }});
+        const app = createApp({
+            setup() {
+                drag = useTabDragReorder(ref(container), onReorder, onDragStart, onMoveToDirection);
+                return () => null;
+            },
+        });
         app.mount(appHost);
 
-        drag.onPointerDown(pointerEvent({
-            button: 0,
-            clientX: 120,
-            clientY: 20,
-            currentTarget: firstTab,
-            pointerId: 1,
-        }), 0);
+        drag.onPointerDown(
+            pointerEvent({
+                button: 0,
+                clientX: 120,
+                clientY: 20,
+                currentTarget: firstTab,
+                pointerId: 1,
+            }),
+            0,
+        );
 
-        handlers.get('pointermove')?.(pointerEvent({
-            clientX: 340,
-            clientY: 80,
-        }));
+        handlers.get('pointermove')?.(
+            pointerEvent({
+                clientX: 340,
+                clientY: 80,
+            }),
+        );
 
         const preview = document.body.querySelector<HTMLElement>('[data-tab-drag-preview="true"]');
         expect(preview).not.toBeNull();
@@ -182,27 +177,27 @@ describe('useTabDragReorder', () => {
 
         const onReorder = vi.fn();
         const onMoveToDirection = vi.fn();
-        const { useTabDragReorder } = await import('@app/modules/workspace-shell/composables/useTabDragReorder');
+        const {useTabDragReorder} = await import('@app/modules/workspace-shell/composables/useTabDragReorder');
         let drag!: ReturnType<typeof useTabDragReorder>;
         const appHost = document.createElement('div');
         document.body.append(appHost);
-        const app = createApp({setup() {
-            drag = useTabDragReorder(
-                ref(container),
-                onReorder,
-                undefined,
-                onMoveToDirection,
-            );
-            return () => null;
-        }});
+        const app = createApp({
+            setup() {
+                drag = useTabDragReorder(ref(container), onReorder, undefined, onMoveToDirection);
+                return () => null;
+            },
+        });
         app.mount(appHost);
 
-        drag.onPointerDown(pointerEvent({
-            button: 0,
-            clientX: 120,
-            currentTarget: firstTab,
-            pointerId: 1,
-        }), 0);
+        drag.onPointerDown(
+            pointerEvent({
+                button: 0,
+                clientX: 120,
+                currentTarget: firstTab,
+                pointerId: 1,
+            }),
+            0,
+        );
 
         handlers.get('pointermove')?.(pointerEvent({clientX: 340}));
         handlers.get('pointermove')?.(pointerEvent({clientX: 342}));
@@ -245,27 +240,27 @@ describe('useTabDragReorder', () => {
 
         const onReorder = vi.fn();
         const onMoveToDirection = vi.fn();
-        const { useTabDragReorder } = await import('@app/modules/workspace-shell/composables/useTabDragReorder');
+        const {useTabDragReorder} = await import('@app/modules/workspace-shell/composables/useTabDragReorder');
         let drag!: ReturnType<typeof useTabDragReorder>;
         const appHost = document.createElement('div');
         document.body.append(appHost);
-        const app = createApp({setup() {
-            drag = useTabDragReorder(
-                ref(container),
-                onReorder,
-                undefined,
-                onMoveToDirection,
-            );
-            return () => null;
-        }});
+        const app = createApp({
+            setup() {
+                drag = useTabDragReorder(ref(container), onReorder, undefined, onMoveToDirection);
+                return () => null;
+            },
+        });
         app.mount(appHost);
 
-        drag.onPointerDown(pointerEvent({
-            button: 0,
-            clientX: 120,
-            currentTarget: firstTab,
-            pointerId: 1,
-        }), 0);
+        drag.onPointerDown(
+            pointerEvent({
+                button: 0,
+                clientX: 120,
+                currentTarget: firstTab,
+                pointerId: 1,
+            }),
+            0,
+        );
 
         handlers.get('pointermove')?.(pointerEvent({clientX: 230}));
 

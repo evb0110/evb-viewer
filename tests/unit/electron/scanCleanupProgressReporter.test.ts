@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import type {
     TScanCleanupProgress,
     TScanCleanupSummary,
@@ -22,7 +18,7 @@ describe('scan cleanup progress reporter', () => {
     it('keeps completed-page progress bounded for a long document', () => {
         const reports: TScanCleanupProgress[] = [];
         const emit = createScanCleanupProgressReporter(
-            progress => reports.push(progress),
+            (progress) => reports.push(progress),
             () => false,
             {now: () => 0},
         );
@@ -32,12 +28,7 @@ describe('scan cleanup progress reporter', () => {
             }
         }
 
-        emit(
-            'rendering',
-            SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES + 1,
-            SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES + 1,
-            completedPages(),
-        );
+        emit('rendering', SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES + 1, SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES + 1, completedPages());
 
         expect(reports[0]!.completedPageNumbers).toHaveLength(SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES);
         expect(reports[0]!.completedPageNumbers?.[0]).toBe(1);
@@ -48,7 +39,7 @@ describe('scan cleanup progress reporter', () => {
     it('keeps materialized raster progress monotonic across separate stages', () => {
         const reports: TScanCleanupProgress[] = [];
         const emit = createScanCleanupProgressReporter(
-            progress => reports.push(progress),
+            (progress) => reports.push(progress),
             () => false,
             {now: () => 0},
         );
@@ -61,22 +52,22 @@ describe('scan cleanup progress reporter', () => {
         emit('rendering', 392, 392);
         emit('assembling', 1, 2);
 
-        expect(reports.map(report => report.stage)).toContain('rasterizing');
-        expect(reports.map(report => report.stage)).toContain('rendering');
-        expect(reports.map(report => report.percent)).toEqual(
-            [...reports.map(report => report.percent)].sort((left, right) => left - right),
+        expect(reports.map((report) => report.stage)).toContain('rasterizing');
+        expect(reports.map((report) => report.stage)).toContain('rendering');
+        expect(reports.map((report) => report.percent)).toEqual(
+            [...reports.map((report) => report.percent)].sort((left, right) => left - right),
         );
-        const rasterizing = reports.findLast(report => report.stage === 'rasterizing')!;
-        const rendering = reports.find(report => report.stage === 'rendering')!;
+        const rasterizing = reports.findLast((report) => report.stage === 'rasterizing')!;
+        const rendering = reports.find((report) => report.stage === 'rendering')!;
         expect(rendering.stageIndex).toBeGreaterThan(rasterizing.stageIndex!);
-        expect(new Set(reports.map(report => report.stageCount))).toEqual(new Set([8]));
+        expect(new Set(reports.map((report) => report.stageCount))).toEqual(new Set([8]));
     });
 
     it('withholds ETA until sampled and then estimates only the reporting stage', () => {
         const reports: TScanCleanupProgress[] = [];
         let now = 0;
         const emit = createScanCleanupProgressReporter(
-            progress => reports.push(progress),
+            (progress) => reports.push(progress),
             () => false,
             {now: () => now},
         );
@@ -98,7 +89,7 @@ describe('scan cleanup progress reporter', () => {
         const reports: TScanCleanupProgress[] = [];
         let now = 0;
         const emit = createScanCleanupProgressReporter(
-            progress => reports.push(progress),
+            (progress) => reports.push(progress),
             () => false,
             {now: () => now},
         );
@@ -122,7 +113,7 @@ describe('scan cleanup progress reporter', () => {
         const reports: TScanCleanupProgress[] = [];
         let now = 0;
         const emit = createScanCleanupProgressReporter(
-            progress => reports.push(progress),
+            (progress) => reports.push(progress),
             () => false,
             {now: () => now},
         );
@@ -142,7 +133,7 @@ describe('scan cleanup progress reporter', () => {
         const reports: TScanCleanupProgress[] = [];
         let lossless = true;
         const emit = createScanCleanupProgressReporter(
-            progress => reports.push(progress),
+            (progress) => reports.push(progress),
             () => lossless,
             {now: () => 0},
         );
@@ -173,15 +164,23 @@ describe('scan cleanup summary warning events', () => {
         const reported: string[] = [];
         const report = (message: string) => reported.push(message);
 
-        reportScanCleanupSummaryWarningEvent(summary, {
-            event: {code: 'matched-canvas-margins-reduced'},
-            pageNumber: requirePageNumber(1),
-            half: 'left',
-        }, report);
-        reportScanCleanupSummaryWarningEvent(summary, {
-            event: {code: 'matched-canvas-margins-unavailable'},
-            pageNumber: requirePageNumber(2),
-        }, report);
+        reportScanCleanupSummaryWarningEvent(
+            summary,
+            {
+                event: {code: 'matched-canvas-margins-reduced'},
+                pageNumber: requirePageNumber(1),
+                half: 'left',
+            },
+            report,
+        );
+        reportScanCleanupSummaryWarningEvent(
+            summary,
+            {
+                event: {code: 'matched-canvas-margins-unavailable'},
+                pageNumber: requirePageNumber(2),
+            },
+            report,
+        );
 
         expect(summary.warningEvents).toEqual([
             {event: {code: 'matched-canvas-dropped'}},
@@ -207,10 +206,14 @@ describe('scan cleanup summary warning events', () => {
         delete summary.warningEvents;
 
         reportScanCleanupSummaryWarningEvent(summary, {event: {code: 'matched-canvas-dropped'}}, () => undefined);
-        reportScanCleanupSummaryWarningEvent(summary, {
-            event: {code: 'matched-canvas-margins-reduced'},
-            pageNumber: requirePageNumber(3),
-        }, () => undefined);
+        reportScanCleanupSummaryWarningEvent(
+            summary,
+            {
+                event: {code: 'matched-canvas-margins-reduced'},
+                pageNumber: requirePageNumber(3),
+            },
+            () => undefined,
+        );
 
         expect(summary.warningEvents).toEqual([
             {event: {code: 'matched-canvas-dropped'}},

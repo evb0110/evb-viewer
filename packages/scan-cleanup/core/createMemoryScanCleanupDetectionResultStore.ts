@@ -1,8 +1,5 @@
 import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
-import type {
-    IScanCleanupDetectionResult,
-    TScanCleanupLayoutByPage,
-} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import type {IScanCleanupDetectionResult, TScanCleanupLayoutByPage} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 import {
     assertMaxReadPages,
@@ -20,17 +17,16 @@ import {
  * store writes, so a read returns a fresh copy and a document-scale store
  * holds strings rather than live object graphs.
  */
-export function createMemoryScanCleanupDetectionResultStore(
-    pageCount: number,
-    maxReadPages = SCAN_CLEANUP_STREAMING_BATCH_PAGES,
-) {
+export function createMemoryScanCleanupDetectionResultStore(pageCount: number, maxReadPages = SCAN_CLEANUP_STREAMING_BATCH_PAGES) {
     assertPageCount(pageCount);
     assertMaxReadPages(maxReadPages);
     const records = new Map<number, string>();
     let layoutByPage: TScanCleanupLayoutByPage = {};
     let closed = false;
     const assertOpen = () => {
-        if (closed) {throw new Error('Scan cleanup result store is closed');}
+        if (closed) {
+            throw new Error('Scan cleanup result store is closed');
+        }
     };
     const write = (pageNumber: number, result: IScanCleanupDetectionResult, requireExisting: boolean) => {
         assertOpen();
@@ -47,14 +43,16 @@ export function createMemoryScanCleanupDetectionResultStore(
     };
     const read = (pageNumber: number) => {
         const record = records.get(pageNumber);
-        return record === undefined ? undefined : JSON.parse(record) as IScanCleanupDetectionResult;
+        return record === undefined ? undefined : (JSON.parse(record) as IScanCleanupDetectionResult);
     };
     const readRange = (firstPageNumber: number, lastPageNumberExclusive: number) => {
         assertReadWindow(firstPageNumber, lastPageNumberExclusive, pageCount, maxReadPages);
         const results: IScanCleanupDetectionResult[] = [];
         for (let pageNumber = firstPageNumber; pageNumber < lastPageNumberExclusive; pageNumber += 1) {
             const result = read(pageNumber);
-            if (result !== undefined) {results.push(result);}
+            if (result !== undefined) {
+                results.push(result);
+            }
         }
         return results;
     };
@@ -73,9 +71,9 @@ export function createMemoryScanCleanupDetectionResultStore(
         get resultCount() {
             return records.size;
         },
-        append: async result => write(result.pageNumber, result, false),
+        append: async (result) => write(result.pageNumber, result, false),
         replace: async (pageNumber, result) => write(pageNumber, result, true),
-        getPage: async pageNumber => {
+        getPage: async (pageNumber) => {
             assertOpen();
             assertPageNumber(pageNumber, pageCount);
             return read(pageNumber);
@@ -84,15 +82,14 @@ export function createMemoryScanCleanupDetectionResultStore(
             assertOpen();
             return readRange(firstPageNumber, lastPageNumberExclusive);
         },
-        forEachChunk: async onChunk => {
+        forEachChunk: async (onChunk) => {
             // A callback may close the store; the next chunk must not read as empty.
             for (let firstPageNumber = 1; ; firstPageNumber += maxReadPages) {
                 assertOpen();
-                if (firstPageNumber > pageCount) {return;}
-                await onChunk(
-                    readRange(firstPageNumber, Math.min(pageCount + 1, firstPageNumber + maxReadPages)),
-                    firstPageNumber,
-                );
+                if (firstPageNumber > pageCount) {
+                    return;
+                }
+                await onChunk(readRange(firstPageNumber, Math.min(pageCount + 1, firstPageNumber + maxReadPages)), firstPageNumber);
             }
         },
         close: async () => {

@@ -1,28 +1,12 @@
-import {
-    existsSync,
-    readdirSync,
-    readFileSync,
-    statSync,
-} from 'node:fs';
+import {existsSync, readdirSync, readFileSync, statSync} from 'node:fs';
 import path from 'node:path';
 
 const WORKSPACE_FILE_NAME = 'pnpm-workspace.yaml';
 const FALLBACK_PACKAGE_PATTERN = 'packages/*';
 
-const FOCUSED_ARCHITECTURE_STATIC_ROOTS = [
-    'app',
-    'electron',
-    'scripts',
-    'server',
-];
+const FOCUSED_ARCHITECTURE_STATIC_ROOTS = ['app', 'electron', 'scripts', 'server'];
 
-const ALL_ARCHITECTURE_STATIC_ROOTS = [
-    'app',
-    'electron',
-    'landing',
-    'scripts',
-    'server',
-];
+const ALL_ARCHITECTURE_STATIC_ROOTS = ['app', 'electron', 'landing', 'scripts', 'server'];
 
 /** @param {string} relativePath @returns {string} */
 function normalizeRelativePath(relativePath) {
@@ -33,10 +17,7 @@ function normalizeRelativePath(relativePath) {
 /** @param {string} value @returns {string} */
 function stripYamlQuotes(value) {
     const trimmed = value.trim();
-    if (
-        (trimmed.startsWith('\'') && trimmed.endsWith('\''))
-        || (trimmed.startsWith('"') && trimmed.endsWith('"'))
-    ) {
+    if ((trimmed.startsWith("'") && trimmed.endsWith("'")) || (trimmed.startsWith('"') && trimmed.endsWith('"'))) {
         return trimmed.slice(1, -1);
     }
     return trimmed;
@@ -66,7 +47,7 @@ function isDirectory(filePath) {
 /** @param {string} sourceText @returns {string[]} */
 export function parseWorkspacePackagePatterns(sourceText) {
     const lines = sourceText.split(/\r?\n/u);
-    const packagesLineIndex = lines.findIndex(line => line.trim() === 'packages:');
+    const packagesLineIndex = lines.findIndex((line) => line.trim() === 'packages:');
 
     if (packagesLineIndex === -1) {
         throw new Error(`${WORKSPACE_FILE_NAME} is missing the packages: section.`);
@@ -98,9 +79,7 @@ export function parseWorkspacePackagePatterns(sourceText) {
 export function getWorkspacePackagePatterns({projectRoot = process.cwd()} = {}) {
     const workspaceFilePath = path.join(projectRoot, WORKSPACE_FILE_NAME);
     if (!existsSync(workspaceFilePath)) {
-        return isDirectory(path.join(projectRoot, 'packages'))
-            ? [FALLBACK_PACKAGE_PATTERN]
-            : [];
+        return isDirectory(path.join(projectRoot, 'packages')) ? [FALLBACK_PACKAGE_PATTERN] : [];
     }
 
     return parseWorkspacePackagePatterns(readFileSync(workspaceFilePath, 'utf8'));
@@ -118,9 +97,7 @@ function expandWorkspacePattern(pattern, {projectRoot}) {
     }
 
     if (!normalizedPattern.includes('*')) {
-        return isDirectory(path.join(projectRoot, normalizedPattern))
-            ? [normalizedPattern]
-            : [];
+        return isDirectory(path.join(projectRoot, normalizedPattern)) ? [normalizedPattern] : [];
     }
 
     const segments = normalizedPattern.split('/');
@@ -129,9 +106,7 @@ function expandWorkspacePattern(pattern, {projectRoot}) {
     for (const segment of segments) {
         if (segment === '*') {
             candidates = candidates.flatMap((candidate) => {
-                const parentDir = candidate.length === 0
-                    ? projectRoot
-                    : path.join(projectRoot, candidate);
+                const parentDir = candidate.length === 0 ? projectRoot : path.join(projectRoot, candidate);
                 if (!isDirectory(parentDir)) {
                     return [];
                 }
@@ -156,29 +131,21 @@ function expandWorkspacePattern(pattern, {projectRoot}) {
 }
 
 /** @param {{includeWorkspaceRoot?: boolean, projectRoot?: string}} options @returns {string[]} */
-export function getWorkspacePackageRoots({
-    includeWorkspaceRoot = false,
-    projectRoot = process.cwd(),
-} = {}) {
-    const patterns = getWorkspacePackagePatterns({ projectRoot });
-    const roots = patterns.flatMap(pattern => expandWorkspacePattern(pattern, { projectRoot }))
-        .filter(root => includeWorkspaceRoot || root !== '.');
+export function getWorkspacePackageRoots({includeWorkspaceRoot = false, projectRoot = process.cwd()} = {}) {
+    const patterns = getWorkspacePackagePatterns({projectRoot});
+    const roots = patterns
+        .flatMap((pattern) => expandWorkspacePattern(pattern, {projectRoot}))
+        .filter((root) => includeWorkspaceRoot || root !== '.');
 
     return uniqueOrdered(roots.sort((left, right) => left.localeCompare(right)));
 }
 
 /** @param {{projectRoot?: string}} options @returns {string[]} */
 export function getFocusedArchitectureRoots({projectRoot = process.cwd()} = {}) {
-    return uniqueOrdered([
-        ...FOCUSED_ARCHITECTURE_STATIC_ROOTS,
-        ...getWorkspacePackageRoots({ projectRoot }),
-    ]);
+    return uniqueOrdered([...FOCUSED_ARCHITECTURE_STATIC_ROOTS, ...getWorkspacePackageRoots({projectRoot})]);
 }
 
 /** @param {{projectRoot?: string}} options @returns {string[]} */
 export function getAllArchitectureRoots({projectRoot = process.cwd()} = {}) {
-    return uniqueOrdered([
-        ...ALL_ARCHITECTURE_STATIC_ROOTS,
-        ...getWorkspacePackageRoots({ projectRoot }),
-    ]);
+    return uniqueOrdered([...ALL_ARCHITECTURE_STATIC_ROOTS, ...getWorkspacePackageRoots({projectRoot})]);
 }

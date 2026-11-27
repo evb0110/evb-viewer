@@ -4,10 +4,7 @@ import {isScanCleanupSourceSha256} from '@contracts/scan-cleanup/scanCleanupSett
 import {BrowserLogger} from '@app/utils/browserLogger';
 import {getDocumentFilesCapability} from '@app/utils/platformDocuments';
 import {isDesktopPlatformActive} from '@app/utils/platform';
-import type {
-    InjectionKey,
-    Ref,
-} from 'vue';
+import type {InjectionKey, Ref} from 'vue';
 
 /**
  * Where the authoritative hash stands. Desktop document settings are keyed by
@@ -57,7 +54,9 @@ export const useScanCleanupSourceSha256 = (options: IUseScanCleanupSourceSha256O
             state.value = 'ready';
             return;
         }
-        if (state.value === 'ready') {state.value = 'unavailable';}
+        if (state.value === 'ready') {
+            state.value = 'unavailable';
+        }
         if (!options.enabled.value) {
             return;
         }
@@ -74,7 +73,9 @@ export const useScanCleanupSourceSha256 = (options: IUseScanCleanupSourceSha256O
         const releaseHandle = documentFiles.releaseManagedTempFileHandle;
         if (!createHandle || !releaseHandle) {
             state.value = 'failed';
-            BrowserLogger.warn('scan-cleanup', 'Authoritative source SHA-256 capability is unavailable', () => ({reason: 'missing-managed-file-hash-capability'}));
+            BrowserLogger.warn('scan-cleanup', 'Authoritative source SHA-256 capability is unavailable', () => ({
+                reason: 'missing-managed-file-hash-capability',
+            }));
             return;
         }
         state.value = 'pending';
@@ -84,17 +85,19 @@ export const useScanCleanupSourceSha256 = (options: IUseScanCleanupSourceSha256O
             const handle = await createHandle(sourcePath);
             leaseId = requireLeaseId(handle.leaseId);
             if (
-                currentGeneration === generation
-                && Boolean(options.enabled.value)
-                && options.sourcePath.value === sourcePath
-                && options.documentRevision.value === documentRevision
+                currentGeneration === generation &&
+                Boolean(options.enabled.value) &&
+                options.sourcePath.value === sourcePath &&
+                options.documentRevision.value === documentRevision
             ) {
                 if (isScanCleanupSourceSha256(handle.sha256)) {
                     options.sha256.value = handle.sha256.toLowerCase();
                     state.value = 'ready';
                 } else {
                     state.value = 'failed';
-                    BrowserLogger.warn('scan-cleanup', 'Authoritative source SHA-256 was unavailable for document preferences', () => ({reason: 'invalid-managed-file-hash'}));
+                    BrowserLogger.warn('scan-cleanup', 'Authoritative source SHA-256 was unavailable for document preferences', () => ({
+                        reason: 'invalid-managed-file-hash',
+                    }));
                 }
             }
         } catch (error) {
@@ -104,7 +107,7 @@ export const useScanCleanupSourceSha256 = (options: IUseScanCleanupSourceSha256O
             }
         } finally {
             if (leaseId !== null) {
-                await releaseHandle(leaseId).catch(error => {
+                await releaseHandle(leaseId).catch((error) => {
                     BrowserLogger.warn('scan-cleanup', 'Failed to release the source-hash file handle', error);
                 });
             }
@@ -112,21 +115,23 @@ export const useScanCleanupSourceSha256 = (options: IUseScanCleanupSourceSha256O
     }
 
     watch(
-        [
-            options.enabled,
-            options.sourcePath,
-            options.documentRevision,
-        ],
-        () => { void refresh(); },
+        [options.enabled, options.sourcePath, options.documentRevision],
+        () => {
+            void refresh();
+        },
         {immediate: true},
     );
-    onScopeDispose(() => { generation += 1; });
+    onScopeDispose(() => {
+        generation += 1;
+    });
 
     return {
         sha256: computed(() => options.sha256.value),
         identity: {
             state,
-            retry: () => { void refresh(); },
+            retry: () => {
+                void refresh();
+            },
         } satisfies IScanCleanupSourceIdentity,
     };
 };

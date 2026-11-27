@@ -1,7 +1,7 @@
-import { clamp } from 'es-toolkit/math';
-import type { IShapeEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import type { IAnnotationMarkerRect } from '@app/types/annotations';
-import type { TPageRotation } from '@app/modules/pdf-viewer/engine/annotation-geometry/pageRotation';
+import {clamp} from 'es-toolkit/math';
+import type {IShapeEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import type {IAnnotationMarkerRect} from '@app/types/annotations';
+import type {TPageRotation} from '@app/modules/pdf-viewer/engine/annotation-geometry/pageRotation';
 
 export type TAnnotationResizeHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
 
@@ -57,10 +57,7 @@ const DEFAULT_TEXT_BOX_HEIGHT_EM = 1.65;
 const FALLBACK_PAGE_WIDTH = 612;
 const FALLBACK_PAGE_HEIGHT = 792;
 
-export function annotationPageDimensions(
-    pageView: readonly number[] | null | undefined,
-    pageRotation: TPageRotation,
-) {
+export function annotationPageDimensions(pageView: readonly number[] | null | undefined, pageRotation: TPageRotation) {
     const xMin = pageView?.[0] ?? 0;
     const yMin = pageView?.[1] ?? 0;
     const xMax = pageView?.[2] ?? FALLBACK_PAGE_WIDTH;
@@ -75,13 +72,13 @@ export function annotationPageDimensions(
     }
     return pageRotation === 90 || pageRotation === 270
         ? {
-            width: height,
-            height: width,
-        }
+              width: height,
+              height: width,
+          }
         : {
-            width,
-            height,
-        };
+              width,
+              height,
+          };
 }
 
 export function applyAnnotationHandleResize(
@@ -150,14 +147,11 @@ export function createAnnotationRectFromPoints(
     return rectFromEdges(x.low, y.low, x.high, y.high);
 }
 
-export function createDefaultTextBoxRect(
-    point: IAnnotationEditorPoint,
-    options: IDefaultTextBoxRectOptions = {},
-): IAnnotationMarkerRect {
+export function createDefaultTextBoxRect(point: IAnnotationEditorPoint, options: IDefaultTextBoxRectOptions = {}): IAnnotationMarkerRect {
     const fontSize = Math.max(1, finiteOr(options.fontSize ?? DEFAULT_TEXT_BOX_FONT_SIZE, DEFAULT_TEXT_BOX_FONT_SIZE));
     const page = annotationPageDimensions(options.pageView, options.pageRotation ?? 0);
-    const safeWidth = clamp(fontSize * DEFAULT_TEXT_BOX_WIDTH_EM / page.width, 0, 1);
-    const safeHeight = clamp(fontSize * DEFAULT_TEXT_BOX_HEIGHT_EM / page.height, 0, 1);
+    const safeWidth = clamp((fontSize * DEFAULT_TEXT_BOX_WIDTH_EM) / page.width, 0, 1);
+    const safeHeight = clamp((fontSize * DEFAULT_TEXT_BOX_HEIGHT_EM) / page.height, 0, 1);
     const nextPoint = clampPoint(point);
     return {
         left: clamp(nextPoint.x, 0, 1 - safeWidth),
@@ -173,11 +167,7 @@ export function expandTextBoxRectToContentSize(
     contentHeight: number,
 ): IAnnotationMarkerRect {
     const normalized = normalizeRect(rect);
-    const width = clamp(
-        Math.max(normalized.width, finiteOr(contentWidth, normalized.width)),
-        0,
-        Math.max(0, 1 - normalized.left),
-    );
+    const width = clamp(Math.max(normalized.width, finiteOr(contentWidth, normalized.width)), 0, Math.max(0, 1 - normalized.left));
     const height = clamp(Math.max(normalized.height, finiteOr(contentHeight, normalized.height)), 0, 1);
     return {
         ...normalized,
@@ -188,57 +178,60 @@ export function expandTextBoxRectToContentSize(
     };
 }
 
-export function annotationRectsEqual(
-    left: IAnnotationMarkerRect,
-    right: IAnnotationMarkerRect,
-) {
-    return left.left === right.left
-        && left.top === right.top
-        && left.width === right.width
-        && left.height === right.height;
+export function annotationRectsEqual(left: IAnnotationMarkerRect, right: IAnnotationMarkerRect) {
+    return left.left === right.left && left.top === right.top && left.width === right.width && left.height === right.height;
 }
 
-export function annotationRectContainsPoint(
-    rect: IAnnotationMarkerRect,
-    point: IAnnotationEditorPoint,
-) {
+export function annotationRectContainsPoint(rect: IAnnotationMarkerRect, point: IAnnotationEditorPoint) {
     const normalized = normalizeRect(rect);
-    return Number.isFinite(point.x)
-        && Number.isFinite(point.y)
-        && point.x >= normalized.left
-        && point.x <= normalized.left + normalized.width
-        && point.y >= normalized.top
-        && point.y <= normalized.top + normalized.height;
+    return (
+        Number.isFinite(point.x) &&
+        Number.isFinite(point.y) &&
+        point.x >= normalized.left &&
+        point.x <= normalized.left + normalized.width &&
+        point.y >= normalized.top &&
+        point.y <= normalized.top + normalized.height
+    );
 }
 
 /** Display rotation is transient. Store geometry remains in the page's own rotation. */
 export function rotateAnnotationPoint(point: IAnnotationEditorPoint, rotation: number): IAnnotationEditorPoint {
     switch (((rotation % 360) + 360) % 360) {
-        case 90: return {
-            x: 1 - point.y,
-            y: point.x,
-        };
-        case 180: return {
-            x: 1 - point.x,
-            y: 1 - point.y,
-        };
-        case 270: return {
-            x: point.y,
-            y: 1 - point.x,
-        };
-        default: return {...point};
+        case 90:
+            return {
+                x: 1 - point.y,
+                y: point.x,
+            };
+        case 180:
+            return {
+                x: 1 - point.x,
+                y: 1 - point.y,
+            };
+        case 270:
+            return {
+                x: point.y,
+                y: 1 - point.x,
+            };
+        default:
+            return {...point};
     }
 }
 
 export function rotateAnnotationRect(rect: IAnnotationMarkerRect, rotation: number): IAnnotationMarkerRect {
-    const first = rotateAnnotationPoint({
-        x: rect.left,
-        y: rect.top,
-    }, rotation);
-    const last = rotateAnnotationPoint({
-        x: rect.left + rect.width,
-        y: rect.top + rect.height,
-    }, rotation);
+    const first = rotateAnnotationPoint(
+        {
+            x: rect.left,
+            y: rect.top,
+        },
+        rotation,
+    );
+    const last = rotateAnnotationPoint(
+        {
+            x: rect.left + rect.width,
+            y: rect.top + rect.height,
+        },
+        rotation,
+    );
     return {
         left: Math.min(first.x, last.x),
         top: Math.min(first.y, last.y),
@@ -259,7 +252,7 @@ export function rotateAnnotationPointAround(
     rotation: number,
     page: IAnnotationPageDimensions,
 ): IAnnotationEditorPoint {
-    const angle = rotation * Math.PI / 180;
+    const angle = (rotation * Math.PI) / 180;
     const cosine = Math.abs(Math.cos(angle)) < 1e-12 ? 0 : Math.cos(angle);
     const sine = Math.abs(Math.sin(angle)) < 1e-12 ? 0 : Math.sin(angle);
     const x = (point.x - center.x) * page.width;
@@ -270,7 +263,11 @@ export function rotateAnnotationPointAround(
     };
 }
 
-export function rotatedAnnotationBounds(rect: IAnnotationMarkerRect, rotation: number, page: IAnnotationPageDimensions): IAnnotationMarkerRect {
+export function rotatedAnnotationBounds(
+    rect: IAnnotationMarkerRect,
+    rotation: number,
+    page: IAnnotationPageDimensions,
+): IAnnotationMarkerRect {
     const center = {
         x: rect.left + rect.width / 2,
         y: rect.top + rect.height / 2,
@@ -292,14 +289,14 @@ export function rotatedAnnotationBounds(rect: IAnnotationMarkerRect, rotation: n
             x: rect.left + rect.width,
             y: rect.top + rect.height,
         },
-    ].map(point => rotateAnnotationPointAround(point, center, rotation, page));
-    const left = Math.min(...corners.map(point => point.x));
-    const top = Math.min(...corners.map(point => point.y));
+    ].map((point) => rotateAnnotationPointAround(point, center, rotation, page));
+    const left = Math.min(...corners.map((point) => point.x));
+    const top = Math.min(...corners.map((point) => point.y));
     return {
         left,
         top,
-        width: Math.max(...corners.map(point => point.x)) - left,
-        height: Math.max(...corners.map(point => point.y)) - top,
+        width: Math.max(...corners.map((point) => point.x)) - left,
+        height: Math.max(...corners.map((point) => point.y)) - top,
     };
 }
 
@@ -307,10 +304,10 @@ export function clampAnnotationMoveDelta(rects: readonly IAnnotationMarkerRect[]
     if (!rects.length) {
         return delta;
     }
-    const left = Math.min(...rects.map(rect => rect.left));
-    const top = Math.min(...rects.map(rect => rect.top));
-    const right = Math.max(...rects.map(rect => rect.left + rect.width));
-    const bottom = Math.max(...rects.map(rect => rect.top + rect.height));
+    const left = Math.min(...rects.map((rect) => rect.left));
+    const top = Math.min(...rects.map((rect) => rect.top));
+    const right = Math.max(...rects.map((rect) => rect.left + rect.width));
+    const bottom = Math.max(...rects.map((rect) => rect.top + rect.height));
     return {
         x: fitMoveDeltaInsidePage(rects, clamp(delta.x, Math.min(0, -left), Math.max(0, 1 - right)), 'left', 'width'),
         y: fitMoveDeltaInsidePage(rects, clamp(delta.y, Math.min(0, -top), Math.max(0, 1 - bottom)), 'top', 'height'),
@@ -319,14 +316,9 @@ export function clampAnnotationMoveDelta(rects: readonly IAnnotationMarkerRect[]
 
 // A delta of 1 - right can still end a moved rect past the page in float64, where the native save
 // refuses a marker whose start plus span exceeds 1. Step it back until every moved rect ends inside.
-function fitMoveDeltaInsidePage(
-    rects: readonly IAnnotationMarkerRect[],
-    delta: number,
-    start: 'left' | 'top',
-    span: 'width' | 'height',
-) {
+function fitMoveDeltaInsidePage(rects: readonly IAnnotationMarkerRect[], delta: number, start: 'left' | 'top', span: 'width' | 'height') {
     let fitted = delta;
-    while (fitted > 0 && rects.some(rect => rect[start] + fitted + rect[span] > 1)) {
+    while (fitted > 0 && rects.some((rect) => rect[start] + fitted + rect[span] > 1)) {
         fitted = Math.max(0, fitted - Number.EPSILON);
     }
     return fitted;
@@ -366,10 +358,15 @@ export function resizeRotatedAnnotationRect(
             width: right - left,
             height: bottom - top,
         };
-        const nextCenter = rotateAnnotationPointAround({
-            x: local.left + local.width / 2,
-            y: local.top + local.height / 2,
-        }, center, rotation, page);
+        const nextCenter = rotateAnnotationPointAround(
+            {
+                x: local.left + local.width / 2,
+                y: local.top + local.height / 2,
+            },
+            center,
+            rotation,
+            page,
+        );
         return {
             ...local,
             left: nextCenter.x - local.width / 2,
@@ -378,7 +375,9 @@ export function resizeRotatedAnnotationRect(
     }
     function inside(value: IAnnotationMarkerRect) {
         const bounds = rotatedAnnotationBounds(value, rotation, page);
-        return bounds.left >= -1e-8 && bounds.top >= -1e-8 && bounds.left + bounds.width <= 1 + 1e-8 && bounds.top + bounds.height <= 1 + 1e-8;
+        return (
+            bounds.left >= -1e-8 && bounds.top >= -1e-8 && bounds.left + bounds.width <= 1 + 1e-8 && bounds.top + bounds.height <= 1 + 1e-8
+        );
     }
     const requested = candidate(1);
     if (inside(requested)) {
@@ -391,7 +390,11 @@ export function resizeRotatedAnnotationRect(
     let upper = 1;
     for (let iteration = 0; iteration < 32; iteration += 1) {
         const middle = (lower + upper) / 2;
-        if (inside(candidate(middle))) { lower = middle; } else { upper = middle; }
+        if (inside(candidate(middle))) {
+            lower = middle;
+        } else {
+            upper = middle;
+        }
     }
     return candidate(lower);
 }
@@ -402,10 +405,13 @@ export function unrotateAnnotationPlacementRect(
     viewRotation: number,
     page: IAnnotationPageDimensions,
 ): IAnnotationMarkerRect {
-    const center = rotateAnnotationPoint({
-        x: rect.left + rect.width / 2,
-        y: rect.top + rect.height / 2,
-    }, -viewRotation);
+    const center = rotateAnnotationPoint(
+        {
+            x: rect.left + rect.width / 2,
+            y: rect.top + rect.height / 2,
+        },
+        -viewRotation,
+    );
     const swapped = Math.abs(viewRotation % 180) === 90;
     const width = rect.width * (swapped ? page.height / page.width : 1);
     const height = rect.height * (swapped ? page.width / page.height : 1);
@@ -417,11 +423,7 @@ export function unrotateAnnotationPlacementRect(
     };
 }
 
-export function transformShapeToRect(
-    entity: IShapeEntity,
-    rect: IAnnotationMarkerRect,
-    mode: 'move' | 'resize',
-) {
+export function transformShapeToRect(entity: IShapeEntity, rect: IAnnotationMarkerRect, mode: 'move' | 'resize') {
     const line = entity.tool === 'line' || entity.tool === 'arrow';
     function points(values: readonly IAnnotationEditorPoint[]) {
         return values.map((point, index) => {
@@ -453,20 +455,28 @@ export function annotationInlineCapacity(rect: IAnnotationMarkerRect, rotation: 
         x: rect.left + rect.width / 2,
         y: rect.top + rect.height / 2,
     };
-    const angle = rotation * Math.PI / 180;
+    const angle = (rotation * Math.PI) / 180;
     const dx = Math.cos(angle);
     const dy = Math.sin(angle);
-    const origins = [
-        rect.top,
-        rect.top + rect.height,
-    ].map(y => rotateAnnotationPointAround({
-        x: rect.left,
-        y,
-    }, center, rotation, page));
-    const capacity = Math.min(...origins.map(point => Math.min(
-        Math.abs(dx) < 1e-8 ? Infinity : (dx > 0 ? 1 - point.x : point.x) * page.width / Math.abs(dx),
-        Math.abs(dy) < 1e-8 ? Infinity : (dy > 0 ? 1 - point.y : point.y) * page.height / Math.abs(dy),
-    )));
+    const origins = [rect.top, rect.top + rect.height].map((y) =>
+        rotateAnnotationPointAround(
+            {
+                x: rect.left,
+                y,
+            },
+            center,
+            rotation,
+            page,
+        ),
+    );
+    const capacity = Math.min(
+        ...origins.map((point) =>
+            Math.min(
+                Math.abs(dx) < 1e-8 ? Infinity : ((dx > 0 ? 1 - point.x : point.x) * page.width) / Math.abs(dx),
+                Math.abs(dy) < 1e-8 ? Infinity : ((dy > 0 ? 1 - point.y : point.y) * page.height) / Math.abs(dy),
+            ),
+        ),
+    );
     return Math.max(rect.width, capacity / page.width);
 }
 
@@ -475,10 +485,13 @@ export function rotateAnnotationPlacementRect(
     viewRotation: number,
     page: IAnnotationPageDimensions,
 ): IAnnotationMarkerRect {
-    const center = rotateAnnotationPoint({
-        x: rect.left + rect.width / 2,
-        y: rect.top + rect.height / 2,
-    }, viewRotation);
+    const center = rotateAnnotationPoint(
+        {
+            x: rect.left + rect.width / 2,
+            y: rect.top + rect.height / 2,
+        },
+        viewRotation,
+    );
     const swapped = Math.abs(viewRotation % 180) === 90;
     const width = rect.width * (swapped ? page.width / page.height : 1);
     const height = rect.height * (swapped ? page.height / page.width : 1);

@@ -1,38 +1,21 @@
-import {
-    copyFile,
-    mkdir,
-    mkdtemp,
-    open,
-    readFile,
-    readdir,
-    rename,
-    rm,
-    stat,
-    writeFile,
-} from 'fs/promises';
+import {copyFile, mkdir, mkdtemp, open, readFile, readdir, rename, rm, stat, writeFile} from 'fs/promises';
 import {EventEmitter} from 'node:events';
 import {tmpdir} from 'os';
 import {join} from 'path';
 import {vi} from 'vitest';
-import type {
-    IScanCleanupDetectionRequest, IScanCleanupPreviewRequest,
-} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import type {IScanCleanupDetectionRequest, IScanCleanupPreviewRequest} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {requireRequestId} from '@contracts/shared';
 import {atomicReplace} from '@electron/utils/atomicReplace';
-import {
-    createArrayBackedPdfPageSizeStore,
-    type IPdfPageSize,
-} from '@evb/scan-cleanup/core/pdfPageSizes';
+import {createArrayBackedPdfPageSizeStore, type IPdfPageSize} from '@evb/scan-cleanup/core/pdfPageSizes';
 import type {IScanCleanupPreviewService} from '@electron/features/scan-cleanup/scanCleanupPreviewLifecycle';
 import {materializeScanCleanupPreviewRequest} from '@electron/features/scan-cleanup/scanCleanupPreviewLifecycle';
 import {resolveScanCleanupPreviewRasterAdmissionPolicy as resolveScanCleanupRasterAdmissionPolicy} from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
 import type {
-    IScanCleanupDetectionSubscriber, IScanCleanupPreviewDependencies,
+    IScanCleanupDetectionSubscriber,
+    IScanCleanupPreviewDependencies,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
-import {
-    configureMainJobBroker, mainJobBroker,
-} from '@electron/resources/jobBroker';
+import {configureMainJobBroker, mainJobBroker} from '@electron/resources/jobBroker';
 import {readScanCleanupFixtureFile} from '@tests/unit/electron/readScanCleanupFixtureFile';
 
 configureMainJobBroker({
@@ -44,7 +27,9 @@ configureMainJobBroker({
     tier: 'high',
 });
 
-export const PNG = Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64'));
+export const PNG = Uint8Array.from(
+    Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64'),
+);
 
 export function pngWithDimensions(width: number, height: number) {
     const png = PNG.slice();
@@ -61,16 +46,13 @@ export function rasterPixels(width: number, height: number) {
     for (let index = 0; index < width * height; index += 1) {
         pixels[index * 3] = index % 251;
         pixels[index * 3 + 1] = (index * 7) % 253;
-        pixels[index * 3 + 2] = (index * 13) % 257 % 256;
+        pixels[index * 3 + 2] = ((index * 13) % 257) % 256;
     }
     return pixels;
 }
 
 export function ppmWithDimensions(width: number, height: number) {
-    return Buffer.concat([
-        Buffer.from(`P6\n${width} ${height}\n255\n`, 'ascii'),
-        rasterPixels(width, height),
-    ]);
+    return Buffer.concat([Buffer.from(`P6\n${width} ${height}\n255\n`, 'ascii'), rasterPixels(width, height)]);
 }
 
 export const request: IScanCleanupPreviewRequest = {
@@ -131,12 +113,14 @@ export class LifecycleSender extends EventEmitter {
 }
 
 function isScanCleanupDetectionSubscriber(sender: LifecycleSender): sender is LifecycleSender & IScanCleanupDetectionSubscriber {
-    return typeof sender.id === 'number'
-        && typeof sender.isDestroyed === 'function'
-        && typeof sender.send === 'function'
-        && typeof sender.on === 'function'
-        && typeof sender.once === 'function'
-        && typeof sender.removeListener === 'function';
+    return (
+        typeof sender.id === 'number' &&
+        typeof sender.isDestroyed === 'function' &&
+        typeof sender.send === 'function' &&
+        typeof sender.on === 'function' &&
+        typeof sender.once === 'function' &&
+        typeof sender.removeListener === 'function'
+    );
 }
 
 export function lifecycleSender(id = 100): LifecycleSender & IScanCleanupDetectionSubscriber {
@@ -156,7 +140,9 @@ export function previewOf(
         const result = await service.preview(subscriber, previewRequest);
         // Cancellation is reported to the renderer as a result; a test that
         // asked for a rendered preview still wants to see it as the abort it is.
-        if (result.canceled === true) {throw new DOMException('Canceled scan cleanup preview', 'AbortError');}
+        if (result.canceled === true) {
+            throw new DOMException('Canceled scan cleanup preview', 'AbortError');
+        }
         return result;
     })();
     // The service holds its own handler on the underlying run, so this derived
@@ -184,11 +170,7 @@ export async function waitForRelease(release: Promise<unknown>, signal: AbortSig
     });
 }
 
-export const DOCUMENT_PAGE_SIZES = [
-    1,
-    2,
-    3,
-].map(pageNumber => ({
+export const DOCUMENT_PAGE_SIZES = [1, 2, 3].map((pageNumber) => ({
     pageNumber,
     xPoints: 0,
     yPoints: 0,
@@ -201,8 +183,8 @@ const PREVIEW_DPI = 150;
 export const DOCUMENT_CANVAS = {
     widthPoints: 612,
     heightPoints: 792,
-    widthPx: Math.floor(612 / 72 * PREVIEW_DPI),
-    heightPx: Math.floor(792 / 72 * PREVIEW_DPI),
+    widthPx: Math.floor((612 / 72) * PREVIEW_DPI),
+    heightPx: Math.floor((792 / 72) * PREVIEW_DPI),
 };
 
 export const SETTLED_SINGLE_LAYOUT_BY_PAGE = {
@@ -227,26 +209,25 @@ export function createScanCleanupPageRasterSource(input: {
     ]);
     const bilevelLayerPages = new Set(input.bilevelLayerPages ?? []);
     const dominantBilevelLayerPages = new Set(input.dominantBilevelLayerPages ?? []);
-    const rasters = new Map<number, {
-        dpi: number;
-        width: number;
-        height: number;
-        hasBilevelLayer?: boolean;
-        hasDominantBilevelLayer?: boolean;
-        backgroundDpi?: number;
-    }>();
+    const rasters = new Map<
+        number,
+        {
+            dpi: number;
+            width: number;
+            height: number;
+            hasBilevelLayer?: boolean;
+            hasDominantBilevelLayer?: boolean;
+            backgroundDpi?: number;
+        }
+    >();
     for (const pageNumber of pageNumbers) {
         const backgroundDpi = input.backgroundDpiByPage?.get(pageNumber);
         rasters.set(pageNumber, {
             dpi: input.sourceDpiByPage?.get(pageNumber) ?? input.documentDpi ?? 150,
             width: 1_000,
             height: 1_400,
-            ...(bilevelLayerPages.has(pageNumber)
-                ? {hasBilevelLayer: true}
-                : {}),
-            ...(dominantBilevelLayerPages.has(pageNumber)
-                ? {hasDominantBilevelLayer: true}
-                : {}),
+            ...(bilevelLayerPages.has(pageNumber) ? {hasBilevelLayer: true} : {}),
+            ...(dominantBilevelLayerPages.has(pageNumber) ? {hasDominantBilevelLayer: true} : {}),
             ...(backgroundDpi === undefined ? {} : {backgroundDpi}),
         });
     }
@@ -269,7 +250,9 @@ export const documentPrior = {
 
 export function decodePpm(bytes: Buffer) {
     const match = /^P6\s+(\d+)\s+(\d+)\s+(\d+)\s/.exec(bytes.subarray(0, 64).toString('ascii'));
-    if (!match) {throw new Error('not a P6 raster');}
+    if (!match) {
+        throw new Error('not a P6 raster');
+    }
     const width = Number(match[1]);
     const height = Number(match[2]);
     return {
@@ -280,17 +263,18 @@ export function decodePpm(bytes: Buffer) {
 }
 
 /** A fixture page array that the default bounded page-size store serves. */
-export type TScanCleanupPreviewFixtureDependencies = IScanCleanupPreviewDependencies & {getPageSizes?: (
-    pdfPath: string,
-    options: Parameters<IScanCleanupPreviewDependencies['getPageSizeStore']>[1],
-) => Promise<IPdfPageSize[]>;};
+export type TScanCleanupPreviewFixtureDependencies = IScanCleanupPreviewDependencies & {
+    getPageSizes?: (
+        pdfPath: string,
+        options: Parameters<IScanCleanupPreviewDependencies['getPageSizeStore']>[1],
+    ) => Promise<IPdfPageSize[]>;
+};
 
-export type TScanCleanupPreviewDependenciesOverride = Partial<TScanCleanupPreviewFixtureDependencies> & {fileSystem?: Partial<NonNullable<IScanCleanupPreviewDependencies['fileSystem']>>;};
+export type TScanCleanupPreviewDependenciesOverride = Partial<TScanCleanupPreviewFixtureDependencies> & {
+    fileSystem?: Partial<NonNullable<IScanCleanupPreviewDependencies['fileSystem']>>;
+};
 
-export async function createScanCleanupPreviewTestContext(
-    directories: string[],
-    overrides: TScanCleanupPreviewDependenciesOverride = {},
-) {
+export async function createScanCleanupPreviewTestContext(directories: string[], overrides: TScanCleanupPreviewDependenciesOverride = {}) {
     const dir = await createScanCleanupPreviewTestDirectory();
     directories.push(dir);
     return {
@@ -318,10 +302,7 @@ export function createScanCleanupPreviewDependencies(
     const base: TScanCleanupPreviewFixtureDependencies = {
         fileSystem,
         getAvailableScratchBytes: async () => Number.MAX_SAFE_INTEGER,
-        resolveRasterAdmissionPolicy: options => resolveScanCleanupRasterAdmissionPolicy(
-            mainJobBroker.getSnapshot().capacity,
-            options,
-        ),
+        resolveRasterAdmissionPolicy: (options) => resolveScanCleanupRasterAdmissionPolicy(mainJobBroker.getSnapshot().capacity, options),
         runWithPreviewLease: (_ownerId, _visibility, _signal, _options, _rasterMaxPixels, work) => work(),
         runWithDetectionLease: (_ownerId, _signal, _policy, _options, work) => work(),
         getSourceStatIdentity: async () => 'fixture-source',
@@ -335,229 +316,230 @@ export function createScanCleanupPreviewDependencies(
             await writeFile(`${outputPath.replace(/\.png$/u, '')}.png`, PNG);
         }),
         renderPagePpm: vi.fn(async (_paths, _log, _page, _source, outputPath, _dpi, _env, _signal, crop) => {
-            await writeFile(
-                `${outputPath.replace(/\.ppm$/u, '')}.ppm`,
-                ppmWithDimensions(crop?.width ?? 1, crop?.height ?? 1),
-            );
+            await writeFile(`${outputPath.replace(/\.ppm$/u, '')}.ppm`, ppmWithDimensions(crop?.width ?? 1, crop?.height ?? 1));
         }),
         runSidecar: vi.fn(async (_binary, manifestPath) => {
-            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
-                pageMetadataPath: string;
-                options: {outputMode: 'auto' | 'bw' | 'mixed' | 'grayscale' | 'color'};
-                outputs: Array<{
-                    outputPath: string;
-                    metadataPath: string
-                }>
-            }>};
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+                pages: Array<{
+                    pageMetadataPath: string;
+                    options: {outputMode: 'auto' | 'bw' | 'mixed' | 'grayscale' | 'color'};
+                    outputs: Array<{
+                        outputPath: string;
+                        metadataPath: string;
+                    }>;
+                }>;
+            };
             const page = manifest.pages[0]!;
             const output = page.outputs[0]!;
-            await writeFile(page.pageMetadataPath, JSON.stringify({
-                canvasScope: 'page',
-                layoutClassification: 'single-uncut-page',
-                detectedSkewDegrees: 0.4,
-                skewConfidence: 2.4,
-                cutterXPx: null,
-                rotationDegrees: 0,
-                excluded: false,
-                blankOutputsSkipped: 0,
-                outputCount: 1,
-                recommendedOutputMode: 'mixed',
-                recommendedOutputModeConfidence: 0.92,
-                recommendedOutputModeReason: 'text-with-pictures',
-            }));
+            await writeFile(
+                page.pageMetadataPath,
+                JSON.stringify({
+                    canvasScope: 'page',
+                    layoutClassification: 'single-uncut-page',
+                    detectedSkewDegrees: 0.4,
+                    skewConfidence: 2.4,
+                    cutterXPx: null,
+                    rotationDegrees: 0,
+                    excluded: false,
+                    blankOutputsSkipped: 0,
+                    outputCount: 1,
+                    recommendedOutputMode: 'mixed',
+                    recommendedOutputModeConfidence: 0.92,
+                    recommendedOutputModeReason: 'text-with-pictures',
+                }),
+            );
             await writeFile(output.outputPath, PNG);
-            await writeFile(output.metadataPath, JSON.stringify({
-                canvasScope: 'page',
-                half: 'full',
-                layoutClassification: 'single-uncut-page',
-                layoutConfidence: 0.9,
-                detectedSkewDegrees: 0.4,
-                skewConfidence: 2.4,
-                skewApplied: true,
-                sourceRegion: {
-                    xPx: 0,
-                    yPx: 0,
-                    widthPx: 1,
-                    heightPx: 1,
-                },
-                contentBox: {
-                    xPx: 0,
-                    yPx: 0,
-                    widthPx: 1,
-                    heightPx: 1,
-                },
-                contentDiagnostics: {
-                    sideConfidence: {
-                        left: 0.7,
-                        top: 0.6,
-                        right: 0.8,
-                        bottom: 0.5,
+            await writeFile(
+                output.metadataPath,
+                JSON.stringify({
+                    canvasScope: 'page',
+                    half: 'full',
+                    layoutClassification: 'single-uncut-page',
+                    layoutConfidence: 0.9,
+                    detectedSkewDegrees: 0.4,
+                    skewConfidence: 2.4,
+                    skewApplied: true,
+                    sourceRegion: {
+                        xPx: 0,
+                        yPx: 0,
+                        widthPx: 1,
+                        heightPx: 1,
                     },
-                    textMask: {
-                        analysisWidthPx: 1,
-                        analysisHeightPx: 1,
-                        inkPixels: 1,
-                        lineCount: 1,
-                        bounds: {
-                            xPx: 0,
-                            yPx: 0,
-                            widthPx: 1,
-                            heightPx: 1,
+                    contentBox: {
+                        xPx: 0,
+                        yPx: 0,
+                        widthPx: 1,
+                        heightPx: 1,
+                    },
+                    contentDiagnostics: {
+                        sideConfidence: {
+                            left: 0.7,
+                            top: 0.6,
+                            right: 0.8,
+                            bottom: 0.5,
                         },
-                    },
-                    acceptedTrims: [{
-                        side: 'top',
-                        iteration: 1,
-                        score: 0.9,
-                        threshold: 0.4,
-                        contentDistanceSum: 90,
-                        garbageDistanceSum: 10,
-                        removedBlocks: [{
+                        textMask: {
+                            analysisWidthPx: 1,
+                            analysisHeightPx: 1,
+                            inkPixels: 1,
+                            lineCount: 1,
                             bounds: {
                                 xPx: 0,
                                 yPx: 0,
                                 widthPx: 1,
                                 heightPx: 1,
                             },
-                            pictureMaskOverlapPixels: 0,
-                            headingEvidence: false,
-                            grayscaleEvidence: false,
-                        }],
-                    }],
-                    protectedBlocks: [{
-                        bounds: {
-                            xPx: 0,
-                            yPx: 0,
-                            widthPx: 1,
-                            heightPx: 1,
                         },
-                        pictureMaskOverlapPixels: 1,
-                        headingEvidence: true,
-                        grayscaleEvidence: false,
-                    }],
-                },
-                textToneDiagnostics: {
-                    applied: true,
-                    rule: 'applied',
-                    textLineCount: 24,
-                    textInkPixels: 12_400,
-                    pictureFraction: 0,
-                    outsideMidtoneFraction: 0.04,
-                    outsideMidtoneLargestComponentFraction: 0.002,
-                    outsideMidtoneLargestComponentWidthFraction: 0.9,
-                    outsideMidtoneLargestComponentHeightFraction: 0.01,
-                    inkAnchor: 133,
-                    blackPoint: 96.05263157894737,
-                    slope: 1.623931623931624,
-                },
-                appliedMargins: {
-                    leftPx: 0,
-                    topPx: 0,
-                    rightPx: 0,
-                    bottomPx: 0,
-                },
-                outputWidthPx: 1,
-                outputHeightPx: 1,
-                canvasWidthPx: 1,
-                canvasHeightPx: 1,
-                placementOffsetXPx: 0,
-                placementOffsetYPx: 0,
-                cutterXPx: null,
-                inputWidthPx: 1,
-                inputHeightPx: 1,
-                rotationDegrees: 0,
-                resamplePasses: 1,
-                outputMode: page.options.outputMode === 'auto' ? 'mixed' : page.options.outputMode,
-                illuminationNormalized: true,
-                despeckleFallback: true,
-                warningEvents: [],
-                forwardTransform: {matrix: [
-                    [
-                        1,
-                        0,
-                        0,
-                    ],
-                    [
-                        0,
-                        1,
-                        0,
-                    ],
-                    [
-                        0,
-                        0,
-                        1,
-                    ],
-                ]},
-                inverseTransform: {matrix: [
-                    [
-                        1,
-                        0,
-                        0,
-                    ],
-                    [
-                        0,
-                        1,
-                        0,
-                    ],
-                    [
-                        0,
-                        0,
-                        1,
-                    ],
-                ]},
-                warnings: [],
-            }));
+                        acceptedTrims: [
+                            {
+                                side: 'top',
+                                iteration: 1,
+                                score: 0.9,
+                                threshold: 0.4,
+                                contentDistanceSum: 90,
+                                garbageDistanceSum: 10,
+                                removedBlocks: [
+                                    {
+                                        bounds: {
+                                            xPx: 0,
+                                            yPx: 0,
+                                            widthPx: 1,
+                                            heightPx: 1,
+                                        },
+                                        pictureMaskOverlapPixels: 0,
+                                        headingEvidence: false,
+                                        grayscaleEvidence: false,
+                                    },
+                                ],
+                            },
+                        ],
+                        protectedBlocks: [
+                            {
+                                bounds: {
+                                    xPx: 0,
+                                    yPx: 0,
+                                    widthPx: 1,
+                                    heightPx: 1,
+                                },
+                                pictureMaskOverlapPixels: 1,
+                                headingEvidence: true,
+                                grayscaleEvidence: false,
+                            },
+                        ],
+                    },
+                    textToneDiagnostics: {
+                        applied: true,
+                        rule: 'applied',
+                        textLineCount: 24,
+                        textInkPixels: 12_400,
+                        pictureFraction: 0,
+                        outsideMidtoneFraction: 0.04,
+                        outsideMidtoneLargestComponentFraction: 0.002,
+                        outsideMidtoneLargestComponentWidthFraction: 0.9,
+                        outsideMidtoneLargestComponentHeightFraction: 0.01,
+                        inkAnchor: 133,
+                        blackPoint: 96.05263157894737,
+                        slope: 1.623931623931624,
+                    },
+                    appliedMargins: {
+                        leftPx: 0,
+                        topPx: 0,
+                        rightPx: 0,
+                        bottomPx: 0,
+                    },
+                    outputWidthPx: 1,
+                    outputHeightPx: 1,
+                    canvasWidthPx: 1,
+                    canvasHeightPx: 1,
+                    placementOffsetXPx: 0,
+                    placementOffsetYPx: 0,
+                    cutterXPx: null,
+                    inputWidthPx: 1,
+                    inputHeightPx: 1,
+                    rotationDegrees: 0,
+                    resamplePasses: 1,
+                    outputMode: page.options.outputMode === 'auto' ? 'mixed' : page.options.outputMode,
+                    illuminationNormalized: true,
+                    despeckleFallback: true,
+                    warningEvents: [],
+                    forwardTransform: {
+                        matrix: [
+                            [1, 0, 0],
+                            [0, 1, 0],
+                            [0, 0, 1],
+                        ],
+                    },
+                    inverseTransform: {
+                        matrix: [
+                            [1, 0, 0],
+                            [0, 1, 0],
+                            [0, 0, 1],
+                        ],
+                    },
+                    warnings: [],
+                }),
+            );
         }),
         resolveBinary: () => '/cleanup',
         resolvePageOpsBinary: () => '/page-ops',
         getTempDir: () => dir,
-        mainJobScratch: {using: async (_prefix, run) => {
-            const scratch = await mkdtemp(join(dir, 'scan-cleanup-preview-'));
-            try {
-                return await run(scratch);
-            } finally {
-                await rm(scratch, {
-                    force: true,
-                    recursive: true,
-                });
-            }
-        }},
+        mainJobScratch: {
+            using: async (_prefix, run) => {
+                const scratch = await mkdtemp(join(dir, 'scan-cleanup-preview-'));
+                try {
+                    return await run(scratch);
+                } finally {
+                    await rm(scratch, {
+                        force: true,
+                        recursive: true,
+                    });
+                }
+            },
+        },
         nativeAllowedPathRoot: dir,
         open,
         stat,
         readFile: readScanCleanupFixtureFile,
         getPdftoppmBinary: () => '/pdftoppm',
-        materializeWorkingCopy: vi.fn(async sourcePdfPath => ({
+        materializeWorkingCopy: vi.fn(async (sourcePdfPath) => ({
             logicalRef: sourcePdfPath,
             physicalWorkingCopyPath: sourcePdfPath,
             sourceFingerprint: '',
         })),
         materializeRequest: materializeScanCleanupPreviewRequest,
     };
-    const {
-        fileSystem: fileSystemOverride,
-        ...dependencyOverrides
-    } = overrides;
+    const {fileSystem: fileSystemOverride, ...dependencyOverrides} = overrides;
     const dependencies: TScanCleanupPreviewFixtureDependencies = {
         ...base,
         ...dependencyOverrides,
-        ...(fileSystemOverride === undefined ? {} : {fileSystem: {
-            ...fileSystem,
-            ...fileSystemOverride,
-        }}),
+        ...(fileSystemOverride === undefined
+            ? {}
+            : {
+                  fileSystem: {
+                      ...fileSystem,
+                      ...fileSystemOverride,
+                  },
+              }),
     };
     const defaultGetPageSizes = base.getPageSizes;
     const defaultGetPageCount = base.getPageCount;
     if (overrides.getPageSizeStore === undefined) {
         dependencies.getPageSizeStore = vi.fn(async (pdfPath, options) => {
-            const pageSizes = dependencies.getPageSizes !== defaultGetPageSizes
-                ? await dependencies.getPageSizes!(pdfPath, options)
-                : Array.from({length: dependencies.getPageCount === defaultGetPageCount
-                    ? DOCUMENT_PAGE_SIZES.length
-                    : await dependencies.getPageCount(pdfPath, {signal: options.signal})}, (_, index) => ({
-                    ...DOCUMENT_PAGE_SIZES[Math.min(index, DOCUMENT_PAGE_SIZES.length - 1)]!,
-                    pageNumber: index + 1,
-                }));
+            const pageSizes =
+                dependencies.getPageSizes !== defaultGetPageSizes
+                    ? await dependencies.getPageSizes!(pdfPath, options)
+                    : Array.from(
+                          {
+                              length:
+                                  dependencies.getPageCount === defaultGetPageCount
+                                      ? DOCUMENT_PAGE_SIZES.length
+                                      : await dependencies.getPageCount(pdfPath, {signal: options.signal}),
+                          },
+                          (_, index) => ({
+                              ...DOCUMENT_PAGE_SIZES[Math.min(index, DOCUMENT_PAGE_SIZES.length - 1)]!,
+                              pageNumber: index + 1,
+                          }),
+                      );
             return createArrayBackedPdfPageSizeStore(pageSizes);
         });
     }

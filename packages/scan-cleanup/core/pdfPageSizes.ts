@@ -1,12 +1,11 @@
 import {getUnprovenNativeTerminationDetail} from '@contracts/nativeErrors';
- 
 
-import { createReadStream } from 'fs';
-import { randomUUID } from 'crypto';
-import { rm } from 'fs/promises';
-import { join } from 'path';
-import { isRecord } from '@contracts/runtimeGuards';
-import { getErrorMessage } from '@contracts/getErrorMessage';
+import {createReadStream} from 'fs';
+import {randomUUID} from 'crypto';
+import {rm} from 'fs/promises';
+import {join} from 'path';
+import {isRecord} from '@contracts/runtimeGuards';
+import {getErrorMessage} from '@contracts/getErrorMessage';
 import type {
     IPdfPageSize,
     IPdfPageSizeChunk,
@@ -77,7 +76,6 @@ export interface IPdfPageSizeStore {
     close(): Promise<void>;
 }
 
-
 function checkedU64Add(left: bigint, right: number, label: string) {
     const next = left + BigInt(right);
     if (next > MAX_U64) {
@@ -97,22 +95,13 @@ function decodeDominantImageAnalysis(value: unknown): TPdfPageSizeDominantImageA
     if (value === undefined) {
         return 'unknown';
     }
-    if (
-        value === 'performed'
-        || value === 'unavailable'
-        || value === 'skipped'
-        || value === 'unknown'
-    ) {
+    if (value === 'performed' || value === 'unavailable' || value === 'skipped' || value === 'unknown') {
         return value;
     }
     throw new Error('evb-pdf-page-ops returned an invalid dominant-image analysis status');
 }
 
-function decodeOptionalSidecarPageCount(
-    value: unknown,
-    fallback: number,
-    fieldName: 'declaredPageCount' | 'reachablePageCount',
-) {
+function decodeOptionalSidecarPageCount(value: unknown, fallback: number, fieldName: 'declaredPageCount' | 'reachablePageCount') {
     if (value === undefined) {
         return fallback;
     }
@@ -124,35 +113,29 @@ function decodeOptionalSidecarPageCount(
 }
 
 export function parsePdfPageSizeSidecarHeader(payload: unknown): IPdfPageSizeSidecarHeader {
-    if (!isRecord(payload)
-        || payload.format !== PDF_PAGE_SIZE_SIDECAR_FORMAT
-        || payload.schemaVersion !== PDF_PAGE_SIZE_SIDECAR_SCHEMA_VERSION) {
+    if (
+        !isRecord(payload) ||
+        payload.format !== PDF_PAGE_SIZE_SIDECAR_FORMAT ||
+        payload.schemaVersion !== PDF_PAGE_SIZE_SIDECAR_SCHEMA_VERSION
+    ) {
         throw new Error('evb-pdf-page-ops returned an unsupported page-size sidecar header');
     }
     const pageCount = decodeFinite(payload.pageCount);
     const chunkBytes = decodeFinite(payload.chunkBytes);
     const dominantImageAnalysis = decodeDominantImageAnalysis(payload.dominantImageAnalysis);
     if (
-        pageCount === null
-        || !Number.isSafeInteger(pageCount)
-        || pageCount < 1
-        || chunkBytes === null
-        || !Number.isSafeInteger(chunkBytes)
-        || chunkBytes < PDF_PAGE_SIZE_SIDECAR_MIN_CHUNK_BYTES
-        || chunkBytes > PDF_PAGE_SIZE_SIDECAR_MAX_LINE_BYTES
+        pageCount === null ||
+        !Number.isSafeInteger(pageCount) ||
+        pageCount < 1 ||
+        chunkBytes === null ||
+        !Number.isSafeInteger(chunkBytes) ||
+        chunkBytes < PDF_PAGE_SIZE_SIDECAR_MIN_CHUNK_BYTES ||
+        chunkBytes > PDF_PAGE_SIZE_SIDECAR_MAX_LINE_BYTES
     ) {
         throw new Error('evb-pdf-page-ops returned invalid page-size sidecar bounds');
     }
-    const declaredPageCount = decodeOptionalSidecarPageCount(
-        payload.declaredPageCount,
-        pageCount,
-        'declaredPageCount',
-    );
-    const reachablePageCount = decodeOptionalSidecarPageCount(
-        payload.reachablePageCount,
-        pageCount,
-        'reachablePageCount',
-    );
+    const declaredPageCount = decodeOptionalSidecarPageCount(payload.declaredPageCount, pageCount, 'declaredPageCount');
+    const reachablePageCount = decodeOptionalSidecarPageCount(payload.reachablePageCount, pageCount, 'reachablePageCount');
     if (declaredPageCount !== pageCount || reachablePageCount !== pageCount) {
         throw invalidPageNumbering(
             `page-size sidecar declared ${String(declaredPageCount)} pages and reached ${String(reachablePageCount)} pages, but its pageCount is ${String(pageCount)}`,
@@ -170,12 +153,9 @@ export function parsePdfPageSizeSidecarHeader(payload: unknown): IPdfPageSizeSid
 }
 
 function parseJsonLine(line: Buffer, label: string) {
-    const withoutNewline = line[line.length - 1] === 0x0a
-        ? line.subarray(0, line.length - 1)
-        : line;
-    const withoutCarriageReturn = withoutNewline[withoutNewline.length - 1] === 0x0d
-        ? withoutNewline.subarray(0, withoutNewline.length - 1)
-        : withoutNewline;
+    const withoutNewline = line[line.length - 1] === 0x0a ? line.subarray(0, line.length - 1) : line;
+    const withoutCarriageReturn =
+        withoutNewline[withoutNewline.length - 1] === 0x0d ? withoutNewline.subarray(0, withoutNewline.length - 1) : withoutNewline;
     try {
         return JSON.parse(withoutCarriageReturn.toString('utf8')) as unknown;
     } catch (error) {
@@ -197,28 +177,21 @@ function parsePdfPageSizeSidecarChunk(
     const chunkIndex = decodeFinite(payload.chunkIndex);
     const firstPageNumber = decodeFinite(payload.firstPageNumber);
     if (
-        chunkIndex === null
-        || !Number.isSafeInteger(chunkIndex)
-        || chunkIndex !== expectedChunkIndex
-        || firstPageNumber === null
-        || !Number.isSafeInteger(firstPageNumber)
-        || firstPageNumber !== expectedPageNumber
-        || payload.pages.length === 0
-        || byteLength > header.chunkBytes
+        chunkIndex === null ||
+        !Number.isSafeInteger(chunkIndex) ||
+        chunkIndex !== expectedChunkIndex ||
+        firstPageNumber === null ||
+        !Number.isSafeInteger(firstPageNumber) ||
+        firstPageNumber !== expectedPageNumber ||
+        payload.pages.length === 0 ||
+        byteLength > header.chunkBytes
     ) {
         throw invalidPageNumbering(`invalid page-size sidecar chunk ${String(expectedChunkIndex)}`);
     }
 
     const pages: IPdfPageSize[] = [];
-    for (const [
-        index,
-        page,
-    ] of payload.pages.entries()) {
-        const pageSize = decodePageSizeRecord(
-            page,
-            header.pageCount,
-            `sidecar chunk ${String(chunkIndex)} record ${String(index + 1)}`,
-        );
+    for (const [index, page] of payload.pages.entries()) {
+        const pageSize = decodePageSizeRecord(page, header.pageCount, `sidecar chunk ${String(chunkIndex)} record ${String(index + 1)}`);
         const expectedPage = expectedPageNumber + index;
         if (pageSize.pageNumber !== expectedPage) {
             throw invalidPageNumbering(
@@ -246,10 +219,7 @@ function parsePdfPageSizeSidecarChunk(
  * the stream, and closing it on `return()` makes a cancelled OCR or scan job
  * stop reading the sidecar without waiting for the whole document.
  */
-export async function* readPdfPageSizeSidecarChunks(
-    sidecarPath: string,
-    signal?: AbortSignal,
-): AsyncGenerator<IPdfPageSizeChunk> {
+export async function* readPdfPageSizeSidecarChunks(sidecarPath: string, signal?: AbortSignal): AsyncGenerator<IPdfPageSizeChunk> {
     const stream = createReadStream(sidecarPath, {highWaterMark: PDF_PAGE_SIZE_SIDECAR_READ_WINDOW_BYTES});
     let pending: Buffer = Buffer.alloc(0);
     let offset = 0n;
@@ -266,18 +236,11 @@ export async function* readPdfPageSizeSidecarChunks(
             if (chunk.length > PDF_PAGE_SIZE_SIDECAR_READ_WINDOW_BYTES) {
                 throw new RangeError('Page-size sidecar read window exceeded its bound');
             }
-            pending = pending.length === 0
-                ? chunk
-                : Buffer.concat([
-                    pending,
-                    chunk,
-                ]);
+            pending = pending.length === 0 ? chunk : Buffer.concat([pending, chunk]);
             let newlineIndex = pending.indexOf(0x0a);
             while (newlineIndex >= 0) {
                 if (signal?.aborted) {
-                    throw signal.reason instanceof Error
-                        ? signal.reason
-                        : new Error('Page-size read aborted');
+                    throw signal.reason instanceof Error ? signal.reason : new Error('Page-size read aborted');
                 }
                 const line = pending.subarray(0, newlineIndex + 1);
                 pending = pending.subarray(newlineIndex + 1);
@@ -334,23 +297,11 @@ export async function* readPdfPageSizeSidecarChunks(
  * bounded chunk is held in memory, so callers that need selected pages can
  * discard the rest without building a document-sized array.
  */
-export async function* readPdfPageSizeChunks(
-    pdfPath: string,
-    options: IReadPdfPageSizesOptions,
-): AsyncGenerator<IPdfPageSizeChunk> {
-    const outputPath = join(
-        options.tempDir,
-        `page-sizes-${String(process.pid)}-${randomUUID()}.jsonl`,
-    );
+export async function* readPdfPageSizeChunks(pdfPath: string, options: IReadPdfPageSizesOptions): AsyncGenerator<IPdfPageSizeChunk> {
+    const outputPath = join(options.tempDir, `page-sizes-${String(process.pid)}-${randomUUID()}.jsonl`);
     let failure: unknown;
     try {
-        const args = [
-            'page-sizes',
-            '--input',
-            pdfPath,
-            '--output',
-            outputPath,
-        ];
+        const args = ['page-sizes', '--input', pdfPath, '--output', outputPath];
         if (options.nativeMetadataOnly) {
             args.push('--metadata-only');
         }
@@ -364,16 +315,16 @@ export async function* readPdfPageSizeChunks(
             log: options.log,
         });
         if (options.signal?.aborted) {
-            throw options.signal.reason instanceof Error
-                ? options.signal.reason
-                : new Error('Page-size read aborted');
+            throw options.signal.reason instanceof Error ? options.signal.reason : new Error('Page-size read aborted');
         }
         yield* readPdfPageSizeSidecarChunks(outputPath, options.signal);
     } catch (error) {
         failure = error;
         throw error;
     } finally {
-        if (getUnprovenNativeTerminationDetail(failure) === undefined) {await rm(outputPath, {force: true}).catch(() => undefined);}
+        if (getUnprovenNativeTerminationDetail(failure) === undefined) {
+            await rm(outputPath, {force: true}).catch(() => undefined);
+        }
     }
 }
 
@@ -462,9 +413,7 @@ export class PdfPageSizeStore implements IPdfPageSizeStore {
 
     private validateChunk(chunk: IPdfPageSizeChunk, expectedChunkIndex: number) {
         if (chunk.chunkIndex !== expectedChunkIndex) {
-            throw new Error(
-                `Page-size source returned chunk ${String(chunk.chunkIndex)} after ${String(expectedChunkIndex)}`,
-            );
+            throw new Error(`Page-size source returned chunk ${String(chunk.chunkIndex)} after ${String(expectedChunkIndex)}`);
         }
         if (this._pageCount === null) {
             this._pageCount = chunk.pageCount;
@@ -482,9 +431,9 @@ export class PdfPageSizeStore implements IPdfPageSizeStore {
         if (this._dominantImageAnalysis === undefined) {
             this._dominantImageAnalysis = chunkAnalysis;
         } else if (
-            this._dominantImageAnalysis !== chunkAnalysis
-            && this._dominantImageAnalysis !== 'unknown'
-            && chunkAnalysis !== 'unknown'
+            this._dominantImageAnalysis !== chunkAnalysis &&
+            this._dominantImageAnalysis !== 'unknown' &&
+            chunkAnalysis !== 'unknown'
         ) {
             throw new Error('Page-size source changed its dominant-image analysis status between chunks');
         } else if (this._dominantImageAnalysis === 'unknown') {
@@ -503,8 +452,7 @@ export class PdfPageSizeStore implements IPdfPageSizeStore {
             nextChunkIndex: 0,
         },
     ) {
-        while (cursor.currentChunk === null
-            || pageNumber >= cursor.currentChunk.firstPageNumber + cursor.currentChunk.pages.length) {
+        while (cursor.currentChunk === null || pageNumber >= cursor.currentChunk.firstPageNumber + cursor.currentChunk.pages.length) {
             const result = await reader.next();
             if (result.done) {
                 if (this._pageCount === null) {
@@ -552,10 +500,7 @@ export class PdfPageSizeStore implements IPdfPageSizeStore {
             if (this.closed) {
                 throw new Error('Page-size store is closed');
             }
-            if (
-                this.pageCursor.currentChunk !== null
-                && pageNumber < this.pageCursor.currentChunk.firstPageNumber
-            ) {
+            if (this.pageCursor.currentChunk !== null && pageNumber < this.pageCursor.currentChunk.firstPageNumber) {
                 await this.resetPageReader();
             }
             const activeReader = this.ensurePageReader();
@@ -566,22 +511,23 @@ export class PdfPageSizeStore implements IPdfPageSizeStore {
                 throw error;
             }
         });
-        this.pageReadTail = read.then(() => undefined, () => undefined);
+        this.pageReadTail = read.then(
+            () => undefined,
+            () => undefined,
+        );
         return read;
     }
 
     /** Read [firstPageNumber, lastPageNumberExclusive) into a bounded caller-owned range. */
     public async readRange(firstPageNumber: number, lastPageNumberExclusive: number) {
         if (
-            !Number.isSafeInteger(firstPageNumber)
-            || !Number.isSafeInteger(lastPageNumberExclusive)
-            || firstPageNumber < 1
-            || lastPageNumberExclusive < firstPageNumber
-            || lastPageNumberExclusive - firstPageNumber > PDF_PAGE_SIZE_STORE_MAX_READ_PAGES
+            !Number.isSafeInteger(firstPageNumber) ||
+            !Number.isSafeInteger(lastPageNumberExclusive) ||
+            firstPageNumber < 1 ||
+            lastPageNumberExclusive < firstPageNumber ||
+            lastPageNumberExclusive - firstPageNumber > PDF_PAGE_SIZE_STORE_MAX_READ_PAGES
         ) {
-            throw new RangeError(
-                `Page-size range read is invalid or exceeds the ${String(PDF_PAGE_SIZE_STORE_MAX_READ_PAGES)}-page bound`,
-            );
+            throw new RangeError(`Page-size range read is invalid or exceeds the ${String(PDF_PAGE_SIZE_STORE_MAX_READ_PAGES)}-page bound`);
         }
         if (firstPageNumber === lastPageNumberExclusive) {
             return [] as IPdfPageSize[];
@@ -619,7 +565,7 @@ export class PdfPageSizeStore implements IPdfPageSizeStore {
         this.closed = true;
         const readers = [...this.activeReaders];
         this.activeReaders.clear();
-        await Promise.all(readers.map(reader => reader.return(undefined)));
+        await Promise.all(readers.map((reader) => reader.return(undefined)));
         await this.pageReadTail;
         this.pageReader = null;
         this.pageCursor = {
@@ -629,9 +575,6 @@ export class PdfPageSizeStore implements IPdfPageSizeStore {
     }
 }
 
-export function createPdfPageSizeStore(
-    pdfPath: string,
-    options: IReadPdfPageSizesOptions,
-) {
+export function createPdfPageSizeStore(pdfPath: string, options: IReadPdfPageSizesOptions) {
     return new PdfPageSizeStore(() => readPdfPageSizeChunks(pdfPath, options));
 }

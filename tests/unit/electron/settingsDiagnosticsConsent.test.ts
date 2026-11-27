@@ -1,20 +1,10 @@
 import type * as TViMockOriginalModule from '@electron/features/diagnostics/public';
 
-import {
-    mkdtempSync,
-    readFileSync,
-    rmSync,
-} from 'node:fs';
+import {mkdtempSync, readFileSync, rmSync} from 'node:fs';
 import {rename} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, describe, expect, it, vi} from 'vitest';
 
 const mocks = vi.hoisted(() => ({
     atomicReplace: vi.fn(),
@@ -33,7 +23,7 @@ const mocks = vi.hoisted(() => ({
 
 function deferred<T>() {
     let resolve!: (value: T | PromiseLike<T>) => void;
-    const promise = new Promise<T>(resolvePromise => {
+    const promise = new Promise<T>((resolvePromise) => {
         resolve = resolvePromise;
     });
     return {
@@ -76,10 +66,7 @@ describe('Electron diagnostics consent persistence ordering', () => {
 
         await updateSettings(() => ({clientDiagnosticsPreference: 'granted'}));
 
-        expect(mocks.events).toEqual([
-            'persist',
-            'preference:granted',
-        ]);
+        expect(mocks.events).toEqual(['persist', 'preference:granted']);
     });
 
     it('drops the main reporter before a failed revoke write and does not restore it', async () => {
@@ -96,21 +83,14 @@ describe('Electron diagnostics consent persistence ordering', () => {
             throw new Error('settings disk full');
         });
 
-        await expect(updateSettings(() => ({clientDiagnosticsPreference: 'denied'})))
-            .rejects.toThrow('settings disk full');
+        await expect(updateSettings(() => ({clientDiagnosticsPreference: 'denied'}))).rejects.toThrow('settings disk full');
 
-        expect(mocks.events).toEqual([
-            'preference:denied',
-            'persist',
-        ]);
+        expect(mocks.events).toEqual(['preference:denied', 'persist']);
 
         mocks.events.length = 0;
         const laterSettings = await updateSettings(() => ({authorName: 'Still private'}));
         expect(laterSettings.clientDiagnosticsPreference).toBe('denied');
-        expect(mocks.events).toEqual([
-            'persist',
-            'preference:denied',
-        ]);
+        expect(mocks.events).toEqual(['persist', 'preference:denied']);
     });
 
     it('does not persist a failed grant through a later unrelated settings save', async () => {
@@ -125,11 +105,9 @@ describe('Electron diagnostics consent persistence ordering', () => {
         mocks.events.length = 0;
         mocks.atomicReplace.mockRejectedValueOnce(new Error('settings disk full'));
 
-        await expect(bindings.save(
-            {senderId: 21} as never,
-            {clientDiagnosticsPreference: 'granted'},
-        ))
-            .rejects.toThrow('settings disk full');
+        await expect(bindings.save({senderId: 21} as never, {clientDiagnosticsPreference: 'granted'})).rejects.toThrow(
+            'settings disk full',
+        );
         mocks.atomicReplace.mockImplementation(async (source: string, target: string) => {
             await rename(source, target);
         });
@@ -177,10 +155,7 @@ describe('Electron diagnostics consent persistence ordering', () => {
             expect(mocks.events).toContain('preference:denied');
 
             atomicWrite.resolve(undefined);
-            await Promise.all([
-                olderSave,
-                denialSave,
-            ]);
+            await Promise.all([olderSave, denialSave]);
 
             const persisted = JSON.parse(readFileSync(join(mocks.userDataPath, 'settings.json'), 'utf-8')) as Record<string, unknown>;
             expect(persisted).toMatchObject({
@@ -215,25 +190,16 @@ describe('Electron diagnostics consent persistence ordering', () => {
                 atomicWriteCount += 1;
                 mocks.events.push(`persist:${atomicWriteCount}`);
                 if (atomicWriteCount === 1) {
-                    denialSave = denialBindings.save(
-                        {senderId: 22} as never,
-                        {clientDiagnosticsPreference: 'denied'},
-                    );
+                    denialSave = denialBindings.save({senderId: 22} as never, {clientDiagnosticsPreference: 'denied'});
                     await finalGrantWrite.promise;
                 }
                 await rename(source, target);
             });
 
-            const grantSave = grantBindings.save(
-                {senderId: 21} as never,
-                {clientDiagnosticsPreference: 'granted'},
-            );
+            const grantSave = grantBindings.save({senderId: 21} as never, {clientDiagnosticsPreference: 'granted'});
             await vi.waitFor(() => expect(atomicWriteCount).toBe(1));
             finalGrantWrite.resolve(undefined);
-            await Promise.all([
-                grantSave,
-                denialSave,
-            ]);
+            await Promise.all([grantSave, denialSave]);
 
             expect(mocks.events).not.toContain('preference:granted');
             expect(mocks.events.at(-1)).toBe('preference:denied');

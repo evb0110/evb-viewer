@@ -1,12 +1,5 @@
-import {
-    clampDocumentFitScale,
-    clampDocumentManualZoom,
-    type IDocumentZoomLimits,
-} from '@app/modules/document-viewer/public';
-import type {
-    TFitMode,
-    TZoomMode,
-} from '@app/types/pdfContracts';
+import {clampDocumentFitScale, clampDocumentManualZoom, type IDocumentZoomLimits} from '@app/modules/document-viewer/public';
+import type {TFitMode, TZoomMode} from '@app/types/pdfContracts';
 
 type IZoomLimits = IDocumentZoomLimits;
 

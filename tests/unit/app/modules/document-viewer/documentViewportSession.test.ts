@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {
     assertDocumentViewportSessionInvariants,
     collectDocumentViewportSessionInvariantViolations,
@@ -57,7 +53,9 @@ class SessionHarness {
 
     dispatch(event: TDocumentViewportSessionEvent) {
         const result = reduceDocumentViewportSession(this.state, event);
-        if (result.accepted) {this.state = result.state;}
+        if (result.accepted) {
+            this.state = result.state;
+        }
         return result;
     }
 
@@ -78,22 +76,30 @@ class SessionHarness {
 
     settleCurrentPage() {
         const render = renderFence(this.state);
-        expect(this.dispatch({
-            type: 'render-started',
-            fence: render,
-        }).accepted).toBe(true);
-        expect(this.dispatch({
-            type: 'canvas-committed',
-            fence: render,
-        }).accepted).toBe(true);
-        expect(this.dispatch({
-            type: 'viewport-committed',
-            fence: viewportFence(this.state),
-        }).accepted).toBe(true);
-        expect(this.dispatch({
-            type: 'visual-ready',
-            fence: render,
-        }).accepted).toBe(true);
+        expect(
+            this.dispatch({
+                type: 'render-started',
+                fence: render,
+            }).accepted,
+        ).toBe(true);
+        expect(
+            this.dispatch({
+                type: 'canvas-committed',
+                fence: render,
+            }).accepted,
+        ).toBe(true);
+        expect(
+            this.dispatch({
+                type: 'viewport-committed',
+                fence: viewportFence(this.state),
+            }).accepted,
+        ).toBe(true);
+        expect(
+            this.dispatch({
+                type: 'visual-ready',
+                fence: render,
+            }).accepted,
+        ).toBe(true);
     }
 }
 
@@ -272,118 +278,121 @@ describe('DocumentViewportSession', () => {
     });
 
     it.each([
-        [
-            'before',
-            'viewport',
-        ],
-        [
-            'before',
-            'render',
-        ],
-        [
-            'after',
-            'viewport',
-        ],
-        [
-            'after',
-            'render',
-        ],
-    ] as const)('commits same-page refinements %s visual readiness with %s first without leaving an unmatched staged fence', (timing, first) => {
-        const harness = new SessionHarness();
-        harness.openWithMetadata();
-        harness.settleCurrentPage();
-        harness.dispatch({
-            type: 'navigation-requested',
-            pageNumber: 2,
-            viewportIntentId: 'nav-refinement',
-        });
-        const initialRender = renderFence(harness.state);
-        harness.dispatch({
-            type: 'render-started',
-            fence: initialRender,
-        });
-        harness.dispatch({
-            type: 'canvas-committed',
-            fence: initialRender,
-        });
-        harness.dispatch({
-            type: 'viewport-committed',
-            fence: viewportFence(harness.state),
-        });
-        if (timing === 'after') {
+        ['before', 'viewport'],
+        ['before', 'render'],
+        ['after', 'viewport'],
+        ['after', 'render'],
+    ] as const)(
+        'commits same-page refinements %s visual readiness with %s first without leaving an unmatched staged fence',
+        (timing, first) => {
+            const harness = new SessionHarness();
+            harness.openWithMetadata();
+            harness.settleCurrentPage();
             harness.dispatch({
-                type: 'visual-ready',
+                type: 'navigation-requested',
+                pageNumber: 2,
+                viewportIntentId: 'nav-refinement',
+            });
+            const initialRender = renderFence(harness.state);
+            harness.dispatch({
+                type: 'render-started',
                 fence: initialRender,
             });
-        }
-        const previousRender = harness.state.committedRenderFence;
-        const previousViewport = harness.state.committedViewportFence;
-        const refinementRender = renderFence(harness.state, {
-            renderVersion: 2,
-            requestId: 2,
-        });
-        const refinementViewport = viewportFence(harness.state, {geometryRevision: 2});
-
-        expect(harness.dispatch({
-            type: 'page-observed',
-            generation: harness.state.generation,
-            pageNumber: 6,
-        }).accepted).toBe(true);
-        expect(resolveDocumentViewportCurrentPage(harness.state)).toBe(6);
-        harness.dispatch({
-            type: 'render-started',
-            fence: refinementRender,
-        });
-        if (first === 'viewport') {
-            expect(harness.dispatch({
+            harness.dispatch({
+                type: 'canvas-committed',
+                fence: initialRender,
+            });
+            harness.dispatch({
                 type: 'viewport-committed',
-                fence: refinementViewport,
-            }).accepted).toBe(true);
-            expect(harness.state.lifecycle).toBe(timing === 'after' ? 'ready' : 'transitioning');
-            expect(harness.state.stagedViewportFence).toBeNull();
-            expect(harness.state.committedRenderFence).toEqual(previousRender);
-            expect(harness.state.committedViewportFence).toEqual(refinementViewport);
-            expect(resolveDocumentViewportCurrentPage(harness.state)).toBe(2);
-        }
+                fence: viewportFence(harness.state),
+            });
+            if (timing === 'after') {
+                harness.dispatch({
+                    type: 'visual-ready',
+                    fence: initialRender,
+                });
+            }
+            const previousRender = harness.state.committedRenderFence;
+            const previousViewport = harness.state.committedViewportFence;
+            const refinementRender = renderFence(harness.state, {
+                renderVersion: 2,
+                requestId: 2,
+            });
+            const refinementViewport = viewportFence(harness.state, {geometryRevision: 2});
 
-        expect(harness.dispatch({
-            type: 'canvas-committed',
-            fence: refinementRender,
-        }).accepted).toBe(true);
-        expect(harness.state.stagedRenderFence).toBeNull();
-        expect(harness.state.stagedViewportFence).toBeNull();
-        expect(harness.state.committedRenderFence).toEqual(refinementRender);
-        expect(harness.state.committedViewportFence).toEqual(first === 'viewport' ? refinementViewport : previousViewport);
-        expect(resolveDocumentViewportCurrentPage(harness.state)).toBe(first === 'render' ? 6 : 2);
-        if (first === 'render') {
-            expect(harness.dispatch({
-                type: 'viewport-committed',
-                fence: refinementViewport,
-            }).accepted).toBe(true);
-            expect(resolveDocumentViewportCurrentPage(harness.state)).toBe(2);
-        }
-        expect(harness.state.committedViewportFence).toEqual(refinementViewport);
-        if (timing === 'before') {
-            expect(harness.dispatch({
-                type: 'visual-ready',
+            expect(
+                harness.dispatch({
+                    type: 'page-observed',
+                    generation: harness.state.generation,
+                    pageNumber: 6,
+                }).accepted,
+            ).toBe(true);
+            expect(resolveDocumentViewportCurrentPage(harness.state)).toBe(6);
+            harness.dispatch({
+                type: 'render-started',
                 fence: refinementRender,
-            }).accepted).toBe(true);
-        }
-        expect(harness.state.lifecycle).toBe('ready');
-        expect(harness.state.stagedRenderFence).toBeNull();
-        expect(harness.state.stagedViewportFence).toBeNull();
-    });
+            });
+            if (first === 'viewport') {
+                expect(
+                    harness.dispatch({
+                        type: 'viewport-committed',
+                        fence: refinementViewport,
+                    }).accepted,
+                ).toBe(true);
+                expect(harness.state.lifecycle).toBe(timing === 'after' ? 'ready' : 'transitioning');
+                expect(harness.state.stagedViewportFence).toBeNull();
+                expect(harness.state.committedRenderFence).toEqual(previousRender);
+                expect(harness.state.committedViewportFence).toEqual(refinementViewport);
+                expect(resolveDocumentViewportCurrentPage(harness.state)).toBe(2);
+            }
+
+            expect(
+                harness.dispatch({
+                    type: 'canvas-committed',
+                    fence: refinementRender,
+                }).accepted,
+            ).toBe(true);
+            expect(harness.state.stagedRenderFence).toBeNull();
+            expect(harness.state.stagedViewportFence).toBeNull();
+            expect(harness.state.committedRenderFence).toEqual(refinementRender);
+            expect(harness.state.committedViewportFence).toEqual(first === 'viewport' ? refinementViewport : previousViewport);
+            expect(resolveDocumentViewportCurrentPage(harness.state)).toBe(first === 'render' ? 6 : 2);
+            if (first === 'render') {
+                expect(
+                    harness.dispatch({
+                        type: 'viewport-committed',
+                        fence: refinementViewport,
+                    }).accepted,
+                ).toBe(true);
+                expect(resolveDocumentViewportCurrentPage(harness.state)).toBe(2);
+            }
+            expect(harness.state.committedViewportFence).toEqual(refinementViewport);
+            if (timing === 'before') {
+                expect(
+                    harness.dispatch({
+                        type: 'visual-ready',
+                        fence: refinementRender,
+                    }).accepted,
+                ).toBe(true);
+            }
+            expect(harness.state.lifecycle).toBe('ready');
+            expect(harness.state.stagedRenderFence).toBeNull();
+            expect(harness.state.stagedViewportFence).toBeNull();
+        },
+    );
 
     it('separates settled page observation from commands and lets user scroll supersede navigation', () => {
         const harness = new SessionHarness();
         harness.openWithMetadata(1, 20);
         harness.settleCurrentPage();
 
-        expect(harness.dispatch({
-            type: 'page-observed',
-            generation: harness.state.generation,
-            pageNumber: 6,
-        }).accepted).toBe(true);
+        expect(
+            harness.dispatch({
+                type: 'page-observed',
+                generation: harness.state.generation,
+                pageNumber: 6,
+            }).accepted,
+        ).toBe(true);
         expect(harness.state).toMatchObject({
             lifecycle: 'ready',
             requestedPage: 1,
@@ -405,10 +414,12 @@ describe('DocumentViewportSession', () => {
         expect(harness.state.committedRenderFence?.pageNumber).toBe(1);
         expect(harness.state.committedViewportFence?.pageNumber).toBe(1);
 
-        expect(harness.dispatch({
-            type: 'viewport-committed',
-            fence: viewportFence(harness.state),
-        }).accepted).toBe(true);
+        expect(
+            harness.dispatch({
+                type: 'viewport-committed',
+                fence: viewportFence(harness.state),
+            }).accepted,
+        ).toBe(true);
         expect(harness.state.stagedViewportFence?.pageNumber).toBe(12);
         expect(harness.state.committedViewportFence?.pageNumber).toBe(1);
 
@@ -489,15 +500,19 @@ describe('DocumentViewportSession', () => {
             },
         ];
         for (const fence of staleFences) {
-            expect(harness.dispatch({
-                type: 'canvas-committed',
-                fence,
-            }).accepted).toBe(false);
+            expect(
+                harness.dispatch({
+                    type: 'canvas-committed',
+                    fence,
+                }).accepted,
+            ).toBe(false);
         }
-        expect(harness.dispatch({
-            type: 'viewport-committed',
-            fence: viewportFence(harness.state, {viewportIntentId: 'old-intent'}),
-        }).accepted).toBe(false);
+        expect(
+            harness.dispatch({
+                type: 'viewport-committed',
+                fence: viewportFence(harness.state, {viewportIntentId: 'old-intent'}),
+            }).accepted,
+        ).toBe(false);
         expect(harness.state.committedRenderFence).toBeNull();
         expect(harness.state.committedViewportFence).toBeNull();
         expect(harness.state.stagedRenderFence).toBeNull();
@@ -522,10 +537,12 @@ describe('DocumentViewportSession', () => {
         });
 
         expect(harness.state.generation).toBe(2);
-        expect(harness.dispatch({
-            type: 'canvas-committed',
-            fence: staleRender,
-        }).accepted).toBe(false);
+        expect(
+            harness.dispatch({
+                type: 'canvas-committed',
+                fence: staleRender,
+            }).accepted,
+        ).toBe(false);
         expect(harness.state.identity?.documentId).toBe('document-b');
     });
 });

@@ -10,15 +10,9 @@ import type {
     TScanCleanupCanvasScope,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION} from '@contracts/scan-cleanup/electronApiScanCleanup';
-import {
-    SCAN_CLEANUP_MAX_STAGED_INPUT_PEAK_PIXELS,
-    SCAN_CLEANUP_MAX_STAGED_INPUT_WINDOW,
-} from '@contracts/scan-cleanup/stagedInputWindow';
+import {SCAN_CLEANUP_MAX_STAGED_INPUT_PEAK_PIXELS, SCAN_CLEANUP_MAX_STAGED_INPUT_WINDOW} from '@contracts/scan-cleanup/stagedInputWindow';
 import {SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES} from '@contracts/scan-cleanup/inputLimits';
-import type {
-    IScanCleanupExperimentalOptions,
-    TScanCleanupQualityPath,
-} from '@evb/scan-cleanup/core/policy/effectiveOptions';
+import type {IScanCleanupExperimentalOptions, TScanCleanupQualityPath} from '@evb/scan-cleanup/core/policy/effectiveOptions';
 import {
     clampNativeLimit,
     resolveScanCleanupManifestPageOptions,
@@ -87,7 +81,9 @@ export interface IBuildNativeScanCleanupManifestInput {
  * must resolve inside. A runnable manifest is launched against a native binary,
  * so the root is required rather than optional.
  */
-export interface IBuildRunnableNativeScanCleanupManifestInput extends IBuildNativeScanCleanupManifestInput {allowedPathRoot: string;}
+export interface IBuildRunnableNativeScanCleanupManifestInput extends IBuildNativeScanCleanupManifestInput {
+    allowedPathRoot: string;
+}
 
 type TManifestPage = INativeScanCleanupManifestV3['pages'][number];
 
@@ -109,8 +105,8 @@ interface IManifestPathField<T> {
  */
 function defineManifestPathFields<T>() {
     return <TFields extends ReadonlyArray<IManifestPathField<T>>>(
-        fields: TFields
-            & (Exclude<TPathFieldKey<T>, TFields[number]['field']> extends never
+        fields: TFields &
+            (Exclude<TPathFieldKey<T>, TFields[number]['field']> extends never
                 ? unknown
                 : {unlabelledManifestPathField: Exclude<TPathFieldKey<T>, TFields[number]['field']>}),
     ): TFields => fields;
@@ -209,19 +205,14 @@ export const MANIFEST_INK_CALIBRATION_PAGE_PATH_FIELDS = defineManifestPathField
     },
 ]);
 
-function assertManifestOutputContract(
-    page: IScanCleanupManifestPageInput,
-    pageIndex: number,
-) {
-    for (const [
-        outputIndex,
-        output,
-    ] of (page.outputs ?? []).entries()) {
-        const foregroundPlane = output.foregroundAlphaOutputPath !== undefined
-            ? 'soft-alpha'
-            : output.foregroundMaskOutputPath !== undefined
-                ? 'soft-mask'
-                : undefined;
+function assertManifestOutputContract(page: IScanCleanupManifestPageInput, pageIndex: number) {
+    for (const [outputIndex, output] of (page.outputs ?? []).entries()) {
+        const foregroundPlane =
+            output.foregroundAlphaOutputPath !== undefined
+                ? 'soft-alpha'
+                : output.foregroundMaskOutputPath !== undefined
+                  ? 'soft-mask'
+                  : undefined;
         if (foregroundPlane !== undefined && output.backgroundOutputPath === undefined) {
             throw new ScanCleanupContractError(
                 `page ${String(pageIndex + 1)} output ${String(outputIndex)} declares a ${foregroundPlane} plane without a base background image`,
@@ -241,38 +232,36 @@ export interface IScanCleanupManifestPathCheck {
     manifest: (manifest: INativeScanCleanupManifestV3) => void;
 }
 
-export function assembleNativeScanCleanupManifest({
-    operation,
-    analysisPurpose,
-    renderMode,
-    canvasScope,
-    qualityPath,
-    options,
-    pages,
-    documentCanvas,
-    experimental,
-    hostMemoryBytes,
-    stagedInputWindow,
-    stagedInputPeakPixels,
-    rasterMaxPixels,
-    inkCalibrationPages,
-    documentInkPrior,
-}: IBuildNativeScanCleanupManifestInput, pathCheck: IScanCleanupManifestPathCheck | null): INativeScanCleanupManifestV3 {
+export function assembleNativeScanCleanupManifest(
+    {
+        operation,
+        analysisPurpose,
+        renderMode,
+        canvasScope,
+        qualityPath,
+        options,
+        pages,
+        documentCanvas,
+        experimental,
+        hostMemoryBytes,
+        stagedInputWindow,
+        stagedInputPeakPixels,
+        rasterMaxPixels,
+        inkCalibrationPages,
+        documentInkPrior,
+    }: IBuildNativeScanCleanupManifestInput,
+    pathCheck: IScanCleanupManifestPathCheck | null,
+): INativeScanCleanupManifestV3 {
     if (pages.length > SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES) {
         throw new ScanCleanupContractError(
             `One native scan-cleanup manifest may contain at most ${String(SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES)} page records; replay bounded batches for longer documents`,
         );
     }
     if (inkCalibrationPages !== undefined && documentInkPrior !== undefined) {
-        throw new ScanCleanupContractError(
-            'A native scan-cleanup manifest cannot declare both inkCalibrationPages and documentInkPrior',
-        );
+        throw new ScanCleanupContractError('A native scan-cleanup manifest cannot declare both inkCalibrationPages and documentInkPrior');
     }
     if (inkCalibrationPages !== undefined) {
-        for (const [
-            index,
-            calibrationPage,
-        ] of inkCalibrationPages.entries()) {
+        for (const [index, calibrationPage] of inkCalibrationPages.entries()) {
             pathCheck?.inkCalibrationPage?.(calibrationPage, index);
         }
     }
@@ -286,45 +275,39 @@ export function assembleNativeScanCleanupManifest({
         ...(hostMemoryBytes !== undefined && hostMemoryBytes > 0 ? {hostMemoryBytes} : {}),
         ...(stagedInputWindow === undefined
             ? {}
-            : {stagedInputWindow: clampNativeLimit(
-                stagedInputWindow,
-                SCAN_CLEANUP_MAX_STAGED_INPUT_WINDOW,
-                'stagedInputWindow',
-            )}),
+            : {stagedInputWindow: clampNativeLimit(stagedInputWindow, SCAN_CLEANUP_MAX_STAGED_INPUT_WINDOW, 'stagedInputWindow')}),
         ...(stagedInputWindow === undefined || stagedInputPeakPixels === undefined
             ? {}
-            : {stagedInputPeakPixels: clampNativeLimit(
-                stagedInputPeakPixels,
-                SCAN_CLEANUP_MAX_STAGED_INPUT_PEAK_PIXELS,
-                'stagedInputPeakPixels',
-            )}),
+            : {
+                  stagedInputPeakPixels: clampNativeLimit(
+                      stagedInputPeakPixels,
+                      SCAN_CLEANUP_MAX_STAGED_INPUT_PEAK_PIXELS,
+                      'stagedInputPeakPixels',
+                  ),
+              }),
         ...(inkCalibrationPages === undefined ? {} : {inkCalibrationPages}),
         ...(documentInkPrior === undefined ? {} : {documentInkPrior}),
         pages: pages.map((page, pageIndex) => {
             assertManifestOutputContract(page, pageIndex);
             if (
-                (page.analysisInputPath === undefined) !== (page.analysisDpi === undefined)
-                || (page.analysisDpi !== undefined
-                    && (!Number.isFinite(page.analysisDpi) || page.analysisDpi <= 0))
+                (page.analysisInputPath === undefined) !== (page.analysisDpi === undefined) ||
+                (page.analysisDpi !== undefined && (!Number.isFinite(page.analysisDpi) || page.analysisDpi <= 0))
             ) {
-                throw new ScanCleanupContractError(
-                    `page ${String(pageIndex + 1)} fixed analysis input requires a positive analysisDpi`,
-                );
+                throw new ScanCleanupContractError(`page ${String(pageIndex + 1)} fixed analysis input requires a positive analysisDpi`);
             }
             if ((page.alternateInputPath === undefined) !== (page.alternateView === undefined)) {
-                throw new ScanCleanupContractError(
-                    `page ${String(pageIndex + 1)} alternate view requires its alternate input path`,
-                );
+                throw new ScanCleanupContractError(`page ${String(pageIndex + 1)} alternate view requires its alternate input path`);
             }
             pathCheck?.page(page, pageIndex);
-            const resolvePageOptions = (facts: IScanCleanupManifestPageFacts) => resolveScanCleanupManifestPageOptions({
-                options,
-                ...(analysisPurpose === undefined ? {} : {analysisPurpose}),
-                qualityPath,
-                ...(experimental === undefined ? {} : {experimental}),
-                ...(rasterMaxPixels === undefined ? {} : {rasterMaxPixels}),
-                page: facts,
-            });
+            const resolvePageOptions = (facts: IScanCleanupManifestPageFacts) =>
+                resolveScanCleanupManifestPageOptions({
+                    options,
+                    ...(analysisPurpose === undefined ? {} : {analysisPurpose}),
+                    qualityPath,
+                    ...(experimental === undefined ? {} : {experimental}),
+                    ...(rasterMaxPixels === undefined ? {} : {rasterMaxPixels}),
+                    page: facts,
+                });
             const pageOptions = resolvePageOptions(page);
             const alternate = page.alternateView;
             return {
@@ -332,36 +315,30 @@ export function assembleNativeScanCleanupManifest({
                 ...(page.analysisInputPath === undefined
                     ? {}
                     : {
-                        analysisInputPath: page.analysisInputPath,
-                        analysisDpi: page.analysisDpi,
-                    }),
-                ...(page.trustedForegroundMaskPath === undefined
-                    ? {}
-                    : {trustedForegroundMaskPath: page.trustedForegroundMaskPath}),
-                ...(page.trustedMrcBackgroundPath === undefined
-                    ? {}
-                    : {trustedMrcBackgroundPath: page.trustedMrcBackgroundPath}),
+                          analysisInputPath: page.analysisInputPath,
+                          analysisDpi: page.analysisDpi,
+                      }),
+                ...(page.trustedForegroundMaskPath === undefined ? {} : {trustedForegroundMaskPath: page.trustedForegroundMaskPath}),
+                ...(page.trustedMrcBackgroundPath === undefined ? {} : {trustedMrcBackgroundPath: page.trustedMrcBackgroundPath}),
                 sourcePageIndex: page.pageNumber - 1,
                 pageMetadataPath: page.pageMetadataPath,
                 options: pageOptions,
                 outputs: page.outputs ?? [],
-                ...(page.documentPrior == null
-                    ? {}
-                    : {documentPrior: serializeScanCleanupManifestDocumentPrior(page.documentPrior)}),
+                ...(page.documentPrior == null ? {} : {documentPrior: serializeScanCleanupManifestDocumentPrior(page.documentPrior)}),
                 ...(page.detailRenderPlan === undefined ? {} : {detailRenderPlan: page.detailRenderPlan}),
                 ...(page.pdfPage === undefined ? {} : {pdfPage: page.pdfPage}),
                 ...(alternate === undefined
                     ? {}
                     : {
-                        alternateInputPath: page.alternateInputPath,
-                        alternateView: {
-                            primaryWidthPoints: alternate.primaryWidthPoints,
-                            primaryHeightPoints: alternate.primaryHeightPoints,
-                            widthPoints: alternate.widthPoints,
-                            heightPoints: alternate.heightPoints,
-                            options: resolvePageOptions(alternate.page),
-                        },
-                    }),
+                          alternateInputPath: page.alternateInputPath,
+                          alternateView: {
+                              primaryWidthPoints: alternate.primaryWidthPoints,
+                              primaryHeightPoints: alternate.primaryHeightPoints,
+                              widthPoints: alternate.widthPoints,
+                              heightPoints: alternate.heightPoints,
+                              options: resolvePageOptions(alternate.page),
+                          },
+                      }),
             };
         }),
     };
@@ -378,8 +355,6 @@ export function assembleNativeScanCleanupManifest({
  * {@link buildRunnableNativeScanCleanupManifest}, which requires its allowed
  * path root and validates every emitted path.
  */
-export function buildShapeOnlyNativeScanCleanupManifest(
-    input: IBuildNativeScanCleanupManifestInput,
-): INativeScanCleanupManifestV3 {
+export function buildShapeOnlyNativeScanCleanupManifest(input: IBuildNativeScanCleanupManifestInput): INativeScanCleanupManifestV3 {
     return assembleNativeScanCleanupManifest(input, null);
 }

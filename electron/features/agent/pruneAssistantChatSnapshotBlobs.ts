@@ -1,9 +1,5 @@
 import type {Dirent} from 'fs';
-import {
-    readFile,
-    readdir,
-    rm,
-} from 'fs/promises';
+import {readFile, readdir, rm} from 'fs/promises';
 import {join} from 'path';
 import {isErrnoException} from '@contracts/runtimeGuards';
 
@@ -13,10 +9,12 @@ interface IAssistantChatSnapshotReference {
 }
 
 function isSnapshotReference(value: unknown): value is IAssistantChatSnapshotReference {
-    return typeof value === 'object'
-        && value !== null
-        && (value as {type?: unknown}).type === 'session-snapshot-ref'
-        && typeof (value as {blobFile?: unknown}).blobFile === 'string';
+    return (
+        typeof value === 'object' &&
+        value !== null &&
+        (value as {type?: unknown}).type === 'session-snapshot-ref' &&
+        typeof (value as {blobFile?: unknown}).blobFile === 'string'
+    );
 }
 
 function isMissingPathError(error: unknown) {
@@ -31,11 +29,7 @@ function isUnreferencedSnapshotBlob(entry: Dirent, references: ReadonlySet<strin
     return entry.isFile() && entry.name.endsWith('.json') && !references.has(entry.name);
 }
 
-function reportSnapshotBlobPruneError(
-    filePath: string,
-    error: unknown,
-    onError?: (message: string, error: unknown) => void,
-) {
+function reportSnapshotBlobPruneError(filePath: string, error: unknown, onError?: (message: string, error: unknown) => void) {
     try {
         onError?.(`Failed to prune assistant chat snapshot blob "${filePath}"`, error);
     } catch {
@@ -43,11 +37,7 @@ function reportSnapshotBlobPruneError(
     }
 }
 
-function addSnapshotBlobReferences(
-    contents: string,
-    parseRecord: (line: string) => unknown,
-    references: Set<string>,
-) {
+function addSnapshotBlobReferences(contents: string, parseRecord: (line: string) => unknown, references: Set<string>) {
     for (const rawLine of contents.split(/\r?\n/u)) {
         const record = parseRecord(rawLine.trim());
         if (isSnapshotReference(record)) {
@@ -56,10 +46,7 @@ function addSnapshotBlobReferences(
     }
 }
 
-async function collectAssistantChatSnapshotBlobReferences(
-    directories: readonly string[],
-    parseRecord: (line: string) => unknown,
-) {
+async function collectAssistantChatSnapshotBlobReferences(directories: readonly string[], parseRecord: (line: string) => unknown) {
     const references = new Set<string>();
     for (const directory of directories) {
         let entries;

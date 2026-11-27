@@ -1,22 +1,9 @@
-import type {
-    IPdfPageMatches,
-    IPdfSearchMatch,
-} from '@app/types/pdfUi';
-import {
-    assembleSearchablePageText,
-    mapAssembledSearchablePageTextRange,
-} from '@pdf-core';
-import {
-    SEARCH_REGEX_MAX_EXECUTION_MS,
-    SEARCH_RESULT_LIMIT,
-    type IAssembledSearchablePageText,
-} from '@contracts/search';
-import { matchPdfSearchPageWindow } from '@pdf-core/pdfSearchCore';
-import { matchBrowserSearchPageWindowInWorker } from '@app/platform/browser-api/public';
-import {
-    withoutGeneratedSeparators,
-    type IHighlightMatchRange,
-} from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightDom';
+import type {IPdfPageMatches, IPdfSearchMatch} from '@app/types/pdfUi';
+import {assembleSearchablePageText, mapAssembledSearchablePageTextRange} from '@pdf-core';
+import {SEARCH_REGEX_MAX_EXECUTION_MS, SEARCH_RESULT_LIMIT, type IAssembledSearchablePageText} from '@contracts/search';
+import {matchPdfSearchPageWindow} from '@pdf-core/pdfSearchCore';
+import {matchBrowserSearchPageWindowInWorker} from '@app/platform/browser-api/public';
+import {withoutGeneratedSeparators, type IHighlightMatchRange} from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightDom';
 
 export interface IVisualSearchMatch {
     start: number;
@@ -31,35 +18,35 @@ function buildBackendVisualMatches(
     assembledLayerText: IAssembledSearchablePageText,
     compatible?: ReadonlySet<number>,
 ): IVisualSearchMatch[] {
-    return pageMatches.matches
-        .flatMap((match, index): IVisualSearchMatch[] => {
-            if (compatible && !compatible.has(index)) {return [];}
-            const mapped = mapAssembledSearchablePageTextRange(assembledLayerText, {
-                startOffset: match.start,
-                endOffset: match.end,
-            });
-            return mapped ? [{
-                start: mapped.startOffset,
-                end: mapped.endOffset,
-                matchIndex: match.matchIndex,
-                pageMatchIndex: match.pageMatchIndex ?? index,
-                canUseBackendIdentity: true,
-            }] : [];
+    return pageMatches.matches.flatMap((match, index): IVisualSearchMatch[] => {
+        if (compatible && !compatible.has(index)) {
+            return [];
+        }
+        const mapped = mapAssembledSearchablePageTextRange(assembledLayerText, {
+            startOffset: match.start,
+            endOffset: match.end,
         });
+        return mapped
+            ? [
+                  {
+                      start: mapped.startOffset,
+                      end: mapped.endOffset,
+                      matchIndex: match.matchIndex,
+                      pageMatchIndex: match.pageMatchIndex ?? index,
+                      canUseBackendIdentity: true,
+                  },
+              ]
+            : [];
+    });
 }
 
-function isCurrentVisualMatch(
-    match: IVisualSearchMatch,
-    pageMatches: IPdfPageMatches,
-    currentMatch: IPdfSearchMatch | null,
-) {
-    return currentMatch !== null
-        && currentMatch.pageIndex === pageMatches.pageIndex
-        && match.canUseBackendIdentity
-        && (
-            currentMatch.pageMatchIndex === match.pageMatchIndex
-            || currentMatch.matchIndex === match.matchIndex
-        );
+function isCurrentVisualMatch(match: IVisualSearchMatch, pageMatches: IPdfPageMatches, currentMatch: IPdfSearchMatch | null) {
+    return (
+        currentMatch !== null &&
+        currentMatch.pageIndex === pageMatches.pageIndex &&
+        match.canUseBackendIdentity &&
+        (currentMatch.pageMatchIndex === match.pageMatchIndex || currentMatch.matchIndex === match.matchIndex)
+    );
 }
 
 function arePageMatchesInSearchOrder(pageMatches: IPdfPageMatches) {
@@ -69,17 +56,14 @@ function arePageMatchesInSearchOrder(pageMatches: IPdfPageMatches) {
     });
 }
 
-function getFallbackCurrentMatchIndex(
-    matches: readonly IVisualSearchMatch[],
-    currentMatch: IPdfSearchMatch | null,
-) {
+function getFallbackCurrentMatchIndex(matches: readonly IVisualSearchMatch[], currentMatch: IPdfSearchMatch | null) {
     if (!currentMatch || matches.length === 0) {
         return -1;
     }
 
-    if (!matches.every(match => match.canUseBackendIdentity)) {
-        const distance = (match: IVisualSearchMatch) => Math.abs(match.start - currentMatch.startOffset)
-            + Math.abs(match.end - currentMatch.endOffset);
+    if (!matches.every((match) => match.canUseBackendIdentity)) {
+        const distance = (match: IVisualSearchMatch) =>
+            Math.abs(match.start - currentMatch.startOffset) + Math.abs(match.end - currentMatch.endOffset);
         return matches.reduce((bestIndex, match, index) => {
             const bestMatch = matches[bestIndex];
             return !bestMatch || distance(match) < distance(bestMatch) ? index : bestIndex;
@@ -102,7 +86,7 @@ export function markVisualMatchesWithCurrent(
     }));
 
     const shouldHaveCurrent = currentMatch?.pageIndex === pageMatches.pageIndex;
-    if (shouldHaveCurrent && ranges.length > 0 && !ranges.some(match => match.isCurrent)) {
+    if (shouldHaveCurrent && ranges.length > 0 && !ranges.some((match) => match.isCurrent)) {
         const fallbackIndex = getFallbackCurrentMatchIndex(matches, currentMatch);
         if (fallbackIndex >= 0) {
             const fallbackRange = ranges[fallbackIndex];
@@ -123,9 +107,11 @@ export function buildVisualMatches(
     layerText: string,
     assembledLayerText = assembleSearchablePageText([{text: layerText}]),
 ): IVisualSearchMatch[] {
-    const verified = pageMatches.pageText === assembledLayerText.text
-        ? assembledLayerText : assembleSearchablePageText([{text: layerText}]);
-    if (pageMatches.pageText !== verified.text) {return [];}
+    const verified =
+        pageMatches.pageText === assembledLayerText.text ? assembledLayerText : assembleSearchablePageText([{text: layerText}]);
+    if (pageMatches.pageText !== verified.text) {
+        return [];
+    }
     return buildBackendVisualMatches(pageMatches, verified);
 }
 
@@ -136,7 +122,9 @@ export async function reconcileVisualMatches(
     assembledLayerText = assembleSearchablePageText([{text: layerText}]),
     signal = new AbortController().signal,
 ): Promise<IVisualSearchMatch[]> {
-    if (pageMatches.matches.length === 0) {return [];}
+    if (pageMatches.matches.length === 0) {
+        return [];
+    }
     const contiguous = withoutGeneratedSeparators(assembledLayerText);
     if (!pageMatches.searchQuery || pageMatches.pageText === contiguous.text || pageMatches.pageText === assembledLayerText.text) {
         // Backend text without the generated separators maps through that assembly.
@@ -151,9 +139,18 @@ export async function reconcileVisualMatches(
         wholeWord: pageMatches.searchOptions?.wholeWord ?? false,
         useRegex: pageMatches.searchOptions?.useRegex ?? false,
     };
-    const matchLayer = (assembled: IAssembledSearchablePageText) => options.useRegex
-        ? matchBrowserSearchPageWindowInWorker(assembled.text, pageMatches.searchQuery, options, maxMatches, firstOrdinal, budget, signal)
-        : matchPdfSearchPageWindow(assembled.text, pageMatches.searchQuery, options, maxMatches, firstOrdinal);
+    const matchLayer = (assembled: IAssembledSearchablePageText) =>
+        options.useRegex
+            ? matchBrowserSearchPageWindowInWorker(
+                  assembled.text,
+                  pageMatches.searchQuery,
+                  options,
+                  maxMatches,
+                  firstOrdinal,
+                  budget,
+                  signal,
+              )
+            : matchPdfSearchPageWindow(assembled.text, pageMatches.searchQuery, options, maxMatches, firstOrdinal);
     const backendRangeCounts = new Map<string, number>();
     for (const match of pageMatches.matches) {
         const key = `${match.start}:${match.end}`;
@@ -162,16 +159,17 @@ export async function reconcileVisualMatches(
     const ordered = arePageMatchesInSearchOrder(pageMatches);
     const evaluate = async (assembled: IAssembledSearchablePageText) => {
         const result = await matchLayer(assembled);
-        const matchedRanges = new Map(result.matches.map(match => [
-            `${match.startOffset}:${match.endOffset}`,
-            match.pageMatchIndex,
-        ]));
-        const compatible = new Set(pageMatches.matches.flatMap((match, index) => {
-            const key = `${match.start}:${match.end}`;
-            return backendRangeCounts.get(key) === 1 && matchedRanges.has(key)
-                && (!ordered || result.matches.length !== pageMatches.matches.length || matchedRanges.get(key) === ordinals[index])
-                ? [index] : [];
-        }));
+        const matchedRanges = new Map(result.matches.map((match) => [`${match.startOffset}:${match.endOffset}`, match.pageMatchIndex]));
+        const compatible = new Set(
+            pageMatches.matches.flatMap((match, index) => {
+                const key = `${match.start}:${match.end}`;
+                return backendRangeCounts.get(key) === 1 &&
+                    matchedRanges.has(key) &&
+                    (!ordered || result.matches.length !== pageMatches.matches.length || matchedRanges.get(key) === ordinals[index])
+                    ? [index]
+                    : [];
+            }),
+        );
         return {
             assembled,
             result,
@@ -179,24 +177,28 @@ export async function reconcileVisualMatches(
         };
     };
     const candidates = [await evaluate(assembledLayerText)];
-    if (assembledLayerText.text !== contiguous.text) {candidates.push(await evaluate(contiguous));}
-    const coverage = (candidate: typeof candidates[number]) => ordinals.filter(ordinal => candidate.result.matches.some(match => match.pageMatchIndex === ordinal)).length;
+    if (assembledLayerText.text !== contiguous.text) {
+        candidates.push(await evaluate(contiguous));
+    }
+    const coverage = (candidate: (typeof candidates)[number]) =>
+        ordinals.filter((ordinal) => candidate.result.matches.some((match) => match.pageMatchIndex === ordinal)).length;
     // Coverage alone can label the third word as ordinal 1 after missing a
     // fragmented second word. Prefer agreement with the authoritative ranges.
-    const {
-        assembled, result, compatible,
-    } = candidates.sort((a, b) => b.compatible.size - a.compatible.size || coverage(b) - coverage(a))[0]!;
-    const occurrences = new Map(result.matches.map(match => [
-        match.pageMatchIndex,
-        match,
-    ]));
+    const {assembled, result, compatible} = candidates.sort(
+        (a, b) => b.compatible.size - a.compatible.size || coverage(b) - coverage(a),
+    )[0]!;
+    const occurrences = new Map(result.matches.map((match) => [match.pageMatchIndex, match]));
     const matches = buildBackendVisualMatches(pageMatches, assembled, compatible);
     pageMatches.matches.forEach((backendMatch, index) => {
-        if (compatible.has(index)) {return;}
+        if (compatible.has(index)) {
+            return;
+        }
         const pageMatchIndex = ordinals[index]!;
         const occurrence = occurrences.get(pageMatchIndex);
         const mapped = occurrence && mapAssembledSearchablePageTextRange(assembled, occurrence);
-        if (!mapped) {return;}
+        if (!mapped) {
+            return;
+        }
         matches.push({
             start: mapped.startOffset,
             end: mapped.endOffset,

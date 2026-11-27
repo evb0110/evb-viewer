@@ -13,7 +13,11 @@
             :data-thumbnail-scroll-segment="activeScrollSegmentIndex"
             :style="{height: contentHeight, ...slotPatternStyle}"
         >
-            <span v-if="slotPatternStyle" class="document-thumbnail-list__slots" aria-hidden="true" />
+            <span
+                v-if="slotPatternStyle"
+                class="document-thumbnail-list__slots"
+                aria-hidden="true"
+            />
             <span
                 v-for="row in mountedRows"
                 :key="row.pageNumber"
@@ -42,7 +46,10 @@
                 @click="handleItemClick(row.pageNumber, $event)"
             >
                 <template #overlay>
-                    <slot name="overlay" :page-number="row.pageNumber" />
+                    <slot
+                        name="overlay"
+                        :page-number="row.pageNumber"
+                    />
                 </template>
                 <img
                     v-if="row.imageSrc !== undefined"
@@ -51,17 +58,28 @@
                     :style="row.surfaceStyle"
                     alt=""
                     draggable="false"
-                >
+                />
                 <span
                     v-else-if="row.hasCanvasSurface"
-                    :ref="element => setCanvasHost(row.pageNumber, element)"
+                    :ref="(element) => setCanvasHost(row.pageNumber, element)"
                     class="document-thumbnail-list__canvas-host"
                     :style="row.surfaceStyle"
                 />
-                <span v-else class="document-thumbnail-list__placeholder" />
+                <span
+                    v-else
+                    class="document-thumbnail-list__placeholder"
+                />
                 <template #label>
-                    <slot name="label" :page-number="row.pageNumber">{{ row.pageNumber }}</slot>
-                    <span v-if="row.showsRenderError" class="document-thumbnail-list__error" aria-hidden="true">
+                    <slot
+                        name="label"
+                        :page-number="row.pageNumber"
+                        >{{ row.pageNumber }}</slot
+                    >
+                    <span
+                        v-if="row.showsRenderError"
+                        class="document-thumbnail-list__error"
+                        aria-hidden="true"
+                    >
                         <UIcon name="i-ph-warning-circle" />
                         <span class="sr-only document-thumbnail-list__error-text">{{ t('common.pageRenderFailed') }}</span>
                     </span>
@@ -73,40 +91,27 @@
 
 <script setup lang="ts">
 import type {ComponentPublicInstance} from 'vue';
-import type {
-    IDocumentPageSource,IDocumentThumbnailListEmits,
-} from '@app/modules/document-viewer/public';
+import type {IDocumentPageSource, IDocumentThumbnailListEmits} from '@app/modules/document-viewer/public';
 import {useDocumentThumbnailController} from '@app/modules/document-viewer/public';
 import DocumentThumbnailItem from '@app/components/document-viewer/DocumentThumbnailItem.vue';
 import DocumentThumbnailRail from '@app/components/document-viewer/DocumentThumbnailRail.vue';
 
-const {
-    source,
-    currentPage,
-    isActive,
-    isResizing,
-    itemMetricsKey,
-    itemTag,
-    selectedPages,
-    focusPage,
-    pageRevision,
-    documentPage,
-    disabled,
-} = defineProps<{
-    source: IDocumentPageSource | null;
-    currentPage: number;
-    isActive?: boolean;
-    isResizing?: boolean;
-    itemMetricsKey?: unknown;
-    itemTag?: 'button' | 'div';
-    selectedPages?: Pick<ReadonlySet<number>, 'has'>;
-    /** The row that holds the tab stop; the current page by default. */
-    focusPage?: number | null;
-    pageRevision?: (pageNumber: number) => string;
-    /** The document page a row names, when rows are not in page order. */
-    documentPage?: (pageNumber: number) => number;
-    disabled?: boolean;
-}>();
+const {source, currentPage, isActive, isResizing, itemMetricsKey, itemTag, selectedPages, focusPage, pageRevision, documentPage, disabled} =
+    defineProps<{
+        source: IDocumentPageSource | null;
+        currentPage: number;
+        isActive?: boolean;
+        isResizing?: boolean;
+        itemMetricsKey?: unknown;
+        itemTag?: 'button' | 'div';
+        selectedPages?: Pick<ReadonlySet<number>, 'has'>;
+        /** The row that holds the tab stop; the current page by default. */
+        focusPage?: number | null;
+        pageRevision?: (pageNumber: number) => string;
+        /** The document page a row names, when rows are not in page order. */
+        documentPage?: (pageNumber: number) => number;
+        disabled?: boolean;
+    }>();
 const labelPage = (pageNumber: number) => documentPage?.(pageNumber) ?? pageNumber;
 const emit = defineEmits<IDocumentThumbnailListEmits>();
 const {t} = useTypedI18n();
@@ -171,11 +176,9 @@ const mountedRows = computed(() => {
     const minRasterWidth = unref(rasterWidth) ?? 0;
     const scale = unref(outputScale) ?? 1;
     return items.map((item) => {
-        const { pageNumber } = item;
+        const {pageNumber} = item;
         const rawState = states.get(pageNumber);
-        const qualifiedState = rawState && rawState.requestWidthPx >= minRasterWidth
-            ? rawState
-            : undefined;
+        const qualifiedState = rawState && rawState.requestWidthPx >= minRasterWidth ? rawState : undefined;
         const surface = qualifiedState?.surface;
         // A committed surface wins over a render error everywhere in the row: the
         // failure semantics belong to a row that has nothing to show, so a page still
@@ -194,9 +197,7 @@ const mountedRows = computed(() => {
             selected,
             role: hasSelection ? 'option' : undefined,
             ariaSelected: selected,
-            tabindex: itemTag === 'div'
-                ? (disabled ? -1 : pageNumber === stopPage ? 0 : -1)
-                : undefined,
+            tabindex: itemTag === 'div' ? (disabled ? -1 : pageNumber === stopPage ? 0 : -1) : undefined,
             ariaLabel: showsRenderError
                 ? t('documentSourceSidebar.goToPageRenderFailed', {page: displayPage})
                 : t('documentSourceSidebar.goToPage', {page: displayPage}),
@@ -205,21 +206,18 @@ const mountedRows = computed(() => {
             requestWidthAttr: rawState?.widthPx ?? '',
             imageSrc: typeof surface === 'string' ? surface : undefined,
             hasCanvasSurface: Boolean(surface && typeof surface !== 'string'),
-            surfaceStyle: qualifiedState ? {
-                maxWidth: `min(100%, ${String(qualifiedState.widthPx / scale)}px)`,
-                maxHeight: `min(100%, ${String(qualifiedState.heightPx / scale)}px)`,
-            } : undefined,
+            surfaceStyle: qualifiedState
+                ? {
+                      maxWidth: `min(100%, ${String(qualifiedState.widthPx / scale)}px)`,
+                      maxHeight: `min(100%, ${String(qualifiedState.heightPx / scale)}px)`,
+                  }
+                : undefined,
         };
     });
 });
 
-function setCanvasHost(
-    pageNumber: number,
-    value: Element | ComponentPublicInstance | null,
-) {
-    const host = value instanceof HTMLElement
-        ? value
-        : value && '$el' in value && value.$el instanceof HTMLElement ? value.$el : null;
+function setCanvasHost(pageNumber: number, value: Element | ComponentPublicInstance | null) {
+    const host = value instanceof HTMLElement ? value : value && '$el' in value && value.$el instanceof HTMLElement ? value.$el : null;
     if (!host) {
         return;
     }
@@ -298,17 +296,17 @@ function handleItemClick(pageNumber: number, event: MouseEvent) {
 .document-thumbnail-list__slots {
     top: calc(-1 * var(--document-thumbnail-slot-stride));
     height: var(--document-thumbnail-slot-cover);
-    background:
-        linear-gradient(var(--ui-bg-accented) var(--document-thumbnail-slot-height), transparent 0)
-        var(--document-thumbnail-slot-x) var(--document-thumbnail-slot-y) / var(--document-thumbnail-slot-width) var(--document-thumbnail-slot-stride)
-        repeat-y;
+    background: linear-gradient(var(--ui-bg-accented) var(--document-thumbnail-slot-height), transparent 0) var(--document-thumbnail-slot-x)
+        var(--document-thumbnail-slot-y) / var(--document-thumbnail-slot-width) var(--document-thumbnail-slot-stride) repeat-y;
     animation: document-thumbnail-slots both steps(var(--document-thumbnail-slot-steps), end);
     animation-range: 0 calc(var(--document-thumbnail-slot-steps) * var(--document-thumbnail-slot-stride));
     animation-timeline: scroll(nearest block);
 }
 
 @keyframes document-thumbnail-slots {
-    to { transform: translateY(calc(var(--document-thumbnail-slot-steps) * var(--document-thumbnail-slot-stride))); }
+    to {
+        transform: translateY(calc(var(--document-thumbnail-slot-steps) * var(--document-thumbnail-slot-stride)));
+    }
 }
 
 /* Each mounted row sits on the rail color, so the slots never show around a

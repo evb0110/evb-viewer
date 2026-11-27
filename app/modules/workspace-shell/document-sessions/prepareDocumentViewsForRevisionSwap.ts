@@ -1,12 +1,12 @@
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import {
     getPageIdentityDeltaNextPageCount,
     mapPageNumberThroughPageIdentityDelta,
     type IPageIdentityDelta,
 } from '@contracts/electronApiPageOps';
-import { requirePageNumber } from '@contracts/pageNumbers';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import type { TDocumentViews } from '@app/modules/workspace-shell/document-sessions/createDocumentViews';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import type {TDocumentViews} from '@app/modules/workspace-shell/document-sessions/createDocumentViews';
 
 interface IDocumentRevisionSwap {
     documentRevision: TDocumentRevisionToken;
@@ -22,23 +22,19 @@ interface IDocumentRevisionSwap {
  * view that cannot prepare reloads as a fresh open. Returns whether any view
  * prepared.
  */
-export async function prepareDocumentViewsForRevisionSwap(
-    views: Pick<TDocumentViews, 'viewPorts'>,
-    swap: IDocumentRevisionSwap,
-) {
-    const {
-        mapPageNumber, ...revisionSwap
-    } = swap;
+export async function prepareDocumentViewsForRevisionSwap(views: Pick<TDocumentViews, 'viewPorts'>, swap: IDocumentRevisionSwap) {
+    const {mapPageNumber, ...revisionSwap} = swap;
     let didPrepare = false;
     for (const port of views.viewPorts.value.values()) {
         if (swap.rotationDelta !== undefined) {
             port.search.adoptPageRotation(swap.documentRevision, swap.invalidatedPages, swap.rotationDelta);
         }
         try {
-            didPrepare = await port.view.pdfViewerRef.value?.preparePageMutationRevisionSwap?.({
-                ...revisionSwap,
-                pageNumber: mapPageNumber?.(port.view.currentPage.value) ?? port.view.currentPage.value,
-            }) === true || didPrepare;
+            didPrepare =
+                (await port.view.pdfViewerRef.value?.preparePageMutationRevisionSwap?.({
+                    ...revisionSwap,
+                    pageNumber: mapPageNumber?.(port.view.currentPage.value) ?? port.view.currentPage.value,
+                })) === true || didPrepare;
         } catch (error) {
             BrowserLogger.warn('pdf-document', 'A view could not keep its surface through the revision swap', {error});
         }
@@ -61,13 +57,17 @@ export async function prepareDocumentViewsForHistorySwap(
     await prepareDocumentViewsForRevisionSwap(views, {
         documentRevision,
         invalidatedPages: Array.from({length: pageCount}, (_, index) => index + 1),
-        ...(delta ? {
-            pageIdentityDelta: delta,
-            mapPageNumber: (page: number) => mapPageNumberThroughPageIdentityDelta(delta, requirePageNumber(page))
-                ?? Math.max(1, Math.min(page, pageCount)),
-        } : {}),
+        ...(delta
+            ? {
+                  pageIdentityDelta: delta,
+                  mapPageNumber: (page: number) =>
+                      mapPageNumberThroughPageIdentityDelta(delta, requirePageNumber(page)) ?? Math.max(1, Math.min(page, pageCount)),
+              }
+            : {}),
     });
     return () => {
-        if (delta) {views.mapPageIdentity(delta);}
+        if (delta) {
+            views.mapPageIdentity(delta);
+        }
     };
 }

@@ -1,4 +1,4 @@
-import { sanitizeAllowedExternalUrl } from '@contracts/externalUrl';
+import {sanitizeAllowedExternalUrl} from '@contracts/externalUrl';
 import {
     defineForwardedPlatformMethod,
     definePlatformFeature,
@@ -19,13 +19,15 @@ export const SHELL_PLATFORM_FEATURE = definePlatformFeature({
         browser: true,
         electron: true,
     },
-    methods: {openExternal: defineForwardedPlatformMethod({
-        name: 'openExternal',
-        channel: 'shell:openExternal',
-        args: v.strictTuple([externalUrl]),
-        result: voidResult,
-        main: 'openExternal',
-    })},
+    methods: {
+        openExternal: defineForwardedPlatformMethod({
+            name: 'openExternal',
+            channel: 'shell:openExternal',
+            args: v.strictTuple([externalUrl]),
+            result: voidResult,
+            main: 'openExternal',
+        }),
+    },
     events: {},
 });
 

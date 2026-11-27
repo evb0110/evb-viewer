@@ -1,11 +1,7 @@
-import type { Ref } from 'vue';
-import type { IResolvedSearchMatchOptions } from '@contracts/search';
-import type { IPdfSearchMatch } from '@app/types/pdfUi';
-import type {
-    IDocumentSearchProgress,
-    IDocumentSearchSession,
-    TDocumentSearchDirection,
-} from '@app/modules/document-viewer/public';
+import type {Ref} from 'vue';
+import type {IResolvedSearchMatchOptions} from '@contracts/search';
+import type {IPdfSearchMatch} from '@app/types/pdfUi';
+import type {IDocumentSearchProgress, IDocumentSearchSession, TDocumentSearchDirection} from '@app/modules/document-viewer/public';
 
 interface ICreatePdfDocumentSearchSessionOptions {
     query: Readonly<Ref<string>>;
@@ -29,9 +25,7 @@ interface ICreatePdfDocumentSearchSessionOptions {
 }
 
 /** Projects the indexed PDF engine through the shared document-search contract. */
-export function createPdfDocumentSearchSession(
-    options: ICreatePdfDocumentSearchSessionOptions,
-): IDocumentSearchSession {
+export function createPdfDocumentSearchSession(options: ICreatePdfDocumentSearchSessionOptions): IDocumentSearchSession {
     return {
         query: options.query,
         submittedQuery: options.submittedQuery,

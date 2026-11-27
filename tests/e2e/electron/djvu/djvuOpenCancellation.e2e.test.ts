@@ -1,31 +1,15 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {readFileSync} from 'node:fs';
-import {
-    copyFile,
-    mkdtemp,
-    rm,
-    truncate,
-    writeFile,
-} from 'node:fs/promises';
+import {copyFile, mkdtemp, rm, truncate, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {
-    join,
-    resolve,
-} from 'node:path';
+import {join, resolve} from 'node:path';
 import {electronFileLogDir} from '@scripts/electron-run/electronRunSessionPaths';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
 import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
 import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 import {observeRendererErrors} from '@tests/e2e/electron/helpers/rendererErrorObservation';
-import {
-    openDjvuInApp,
-    triggerOpenPathInApp,
-} from '@tests/e2e/electron/helpers/viewerCore';
+import {openDjvuInApp, triggerOpenPathInApp} from '@tests/e2e/electron/helpers/viewerCore';
 
 const DJVU_OPEN_TIMEOUT_MS = 90_000;
 const djvuFixturePath = resolve('tests/fixtures/electron/djvu-fixtures/djvu-open-cancellation-5010-pages.djvu');
@@ -47,7 +31,7 @@ describe('Electron E2E - DjVu Open Cancellation', () => {
             await session.page.waitForSelector('.start-open-panel .open-panel-cta', {visible: true});
             await clickAsUser(session.page, '.start-open-panel .open-panel-cta');
             await session.page.waitForSelector('.app-toast-failure', {visible: true});
-            const message = await session.page.$eval('.app-toast-failure', element => element.textContent ?? '');
+            const message = await session.page.$eval('.app-toast-failure', (element) => element.textContent ?? '');
             expect(message).toContain('This file is not a DjVu document');
             expect(message).toContain('web page (HTML)');
             expect(message).not.toContain('djvused');
@@ -76,12 +60,8 @@ describe('Electron E2E - DjVu Open Cancellation', () => {
                 await openDjvuInApp(session.page, nativePreviewFixturePath, DJVU_OPEN_TIMEOUT_MS);
                 const renderedPage = await session.page.evaluate(() => {
                     const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-                    const page = host?.querySelector<HTMLElement>(
-                        '[data-testid="document-page-source-page"][data-page-number="1"]',
-                    );
-                    const image = page?.querySelector<HTMLImageElement>(
-                        ':scope > [data-testid="document-page-source-image"]',
-                    );
+                    const page = host?.querySelector<HTMLElement>('[data-testid="document-page-source-page"][data-page-number="1"]');
+                    const image = page?.querySelector<HTMLImageElement>(':scope > [data-testid="document-page-source-image"]');
                     const toolbar = (window as IE2EWindow).__evbTestApi?.getActiveToolbarSnapshot?.();
                     return {
                         imageComplete: image?.complete ?? false,
@@ -122,35 +102,44 @@ describe('Electron E2E - DjVu Open Cancellation', () => {
         try {
             const logPath = join(electronFileLogDir(session.name), 'app.ndjson');
             const initialLogLength = readFileSync(logPath, 'utf8').length;
-            const openingSurface = waitForFunctionInPage(session.page, () => {
-                const host = document.querySelector<HTMLElement>(
-                    '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
-                );
-                const visible = (element: Element) => {
-                    const rect = element.getBoundingClientRect();
-                    const style = getComputedStyle(element);
-                    return rect.width > 0 && rect.height > 0
-                        && style.display !== 'none' && style.visibility !== 'hidden';
-                };
-                return (host?.querySelectorAll('[data-testid="document-page-source-image"]').length ?? 0) === 0
-                    && Array.from(host?.querySelectorAll(
-                        '.document-viewer-chassis[aria-busy="true"], .document-viewer-chassis__opening-page, .document-source-viewer__skeleton, [data-document-page-visual="skeleton"]',
-                    ) ?? []).some(visible);
-            }, {timeout: DJVU_OPEN_TIMEOUT_MS});
+            const openingSurface = waitForFunctionInPage(
+                session.page,
+                () => {
+                    const host = document.querySelector<HTMLElement>(
+                        '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
+                    );
+                    const visible = (element: Element) => {
+                        const rect = element.getBoundingClientRect();
+                        const style = getComputedStyle(element);
+                        return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+                    };
+                    return (
+                        (host?.querySelectorAll('[data-testid="document-page-source-image"]').length ?? 0) === 0 &&
+                        Array.from(
+                            host?.querySelectorAll(
+                                '.document-viewer-chassis[aria-busy="true"], .document-viewer-chassis__opening-page, .document-source-viewer__skeleton, [data-document-page-visual="skeleton"]',
+                            ) ?? [],
+                        ).some(visible)
+                    );
+                },
+                {timeout: DJVU_OPEN_TIMEOUT_MS},
+            );
             await triggerOpenPathInApp(session.page, djvuFixturePath, DJVU_OPEN_TIMEOUT_MS);
             await openingSurface;
             await clickAsUser(session.page, '.tab-list .tab.is-active .tab-close');
 
             const readNewLog = () => readFileSync(logPath, 'utf8').slice(initialLogLength);
-            await expect.poll(readNewLog, {timeout: DJVU_OPEN_TIMEOUT_MS})
-                .toContain('Cancel result: true');
+            await expect.poll(readNewLog, {timeout: DJVU_OPEN_TIMEOUT_MS}).toContain('Cancel result: true');
             const cancellationLog = readNewLog();
             expect(cancellationLog).toContain('Cancel requested');
             expect(cancellationLog).not.toContain('DjVu open failed:');
 
-            await session.page.evaluate(() => new Promise<void>((resolve) => {
-                requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-            }));
+            await session.page.evaluate(
+                () =>
+                    new Promise<void>((resolve) => {
+                        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+                    }),
+            );
             const errors = await observer.collect();
             expect(errors.visibleErrorSurfaces).toEqual([]);
         } finally {

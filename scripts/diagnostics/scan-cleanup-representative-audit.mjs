@@ -7,21 +7,11 @@
 // coarse pixel-grid oracle (~50 DPI), augmented with bounded local component
 // sampling, not a replacement for the finer word-loss audit.
 
-import { getCliErrorMessage } from '../lib/cli-error.mjs';
+import {getCliErrorMessage} from '../lib/cli-error.mjs';
 import {execFile} from 'node:child_process';
-import {
-    mkdtemp,
-    readdir,
-    readFile,
-    rm,
-    writeFile,
-} from 'node:fs/promises';
+import {mkdtemp, readdir, readFile, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {
-    dirname,
-    join,
-    resolve,
-} from 'node:path';
+import {dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {promisify} from 'node:util';
 import {tsImport} from 'tsx/esm/api';
@@ -162,13 +152,7 @@ function parseArgs(argv) {
         out: null,
         source: null,
     };
-    const valueArguments = new Set([
-        '--cleaned',
-        '--dpi',
-        '--expect-singles',
-        '--out',
-        '--source',
-    ]);
+    const valueArguments = new Set(['--cleaned', '--dpi', '--expect-singles', '--out', '--source']);
     for (let index = 0; index < argv.length; index += 1) {
         const argument = argv[index];
         if (argument === '--help' || argument === '-h') {
@@ -263,10 +247,11 @@ function parsePgm(buffer) {
         throw new Error(`Expected a binary (P5) PGM file, got magic "${magic}"`);
     }
     const line2End = buffer.indexOf(0x0a, line1End + 1);
-    const [
-        width,
-        height,
-    ] = buffer.toString('ascii', line1End + 1, line2End).trim().split(/\s+/u).map(Number);
+    const [width, height] = buffer
+        .toString('ascii', line1End + 1, line2End)
+        .trim()
+        .split(/\s+/u)
+        .map(Number);
     const line3End = buffer.indexOf(0x0a, line2End + 1);
     const maxValue = Number(buffer.toString('ascii', line2End + 1, line3End).trim());
     if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
@@ -291,25 +276,9 @@ function pageNumberFromFileName(fileName) {
     return match ? Number(match[1]) : null;
 }
 
-async function renderPdfPagesGray({
-    dpi,
-    label,
-    pageCount,
-    pdfPath,
-    workDirectory,
-}) {
+async function renderPdfPagesGray({dpi, label, pageCount, pdfPath, workDirectory}) {
     const prefix = join(workDirectory, label);
-    await run('pdftoppm', [
-        '-f',
-        '1',
-        '-l',
-        String(pageCount),
-        '-r',
-        String(dpi),
-        '-gray',
-        pdfPath,
-        prefix,
-    ]);
+    await run('pdftoppm', ['-f', '1', '-l', String(pageCount), '-r', String(dpi), '-gray', pdfPath, prefix]);
     const entries = await readdir(workDirectory);
     const pages = new Map();
     for (const entry of entries) {
@@ -374,7 +343,7 @@ function measureTextBlockHorizontalMargins(bitmap) {
             totalInkPixels,
         };
     }
-    const left = columnInk.findIndex(count => count >= FACING_MARGIN_MIN_COLUMN_INK_PIXELS);
+    const left = columnInk.findIndex((count) => count >= FACING_MARGIN_MIN_COLUMN_INK_PIXELS);
     let right = -1;
     for (let x = columnInk.length - 1; x >= 0; x -= 1) {
         if (columnInk[x] >= FACING_MARGIN_MIN_COLUMN_INK_PIXELS) {
@@ -410,10 +379,7 @@ function measureTextBlockHorizontalMargins(bitmap) {
     };
 }
 
-export function measureFacingMarginAsymmetry({
-    leftBitmap,
-    rightBitmap,
-}) {
+export function measureFacingMarginAsymmetry({leftBitmap, rightBitmap}) {
     const left = measureTextBlockHorizontalMargins(leftBitmap);
     const right = measureTextBlockHorizontalMargins(rightBitmap);
     const result = {
@@ -427,10 +393,7 @@ export function measureFacingMarginAsymmetry({
         return result;
     }
     const oneImbalancedOneBalanced = left.balanced !== right.balanced;
-    const mirrorConflict = !left.balanced
-        && !right.balanced
-        && left.direction !== 0
-        && left.direction === -right.direction;
+    const mirrorConflict = !left.balanced && !right.balanced && left.direction !== 0 && left.direction === -right.direction;
     result.mirrorConflict = mirrorConflict;
     if (oneImbalancedOneBalanced || mirrorConflict) {
         result.status = 'violation';
@@ -441,10 +404,7 @@ export function measureFacingMarginAsymmetry({
     return result;
 }
 
-function buildFacingMarginAsymmetry({
-    cleanedPages,
-    entries,
-}) {
+function buildFacingMarginAsymmetry({cleanedPages, entries}) {
     const entriesBySource = new Map();
     for (const entry of entries) {
         if (entry.side !== 'left' && entry.side !== 'right') {
@@ -454,24 +414,23 @@ function buildFacingMarginAsymmetry({
         pair[entry.side] = entry;
         entriesBySource.set(entry.sourcePage, pair);
     }
-    return [...entriesBySource.entries()].flatMap(([
-        sourcePage,
-        pair,
-    ]) => {
+    return [...entriesBySource.entries()].flatMap(([sourcePage, pair]) => {
         if (!pair.left || !pair.right) {
             return [];
         }
-        return [{
-            cleanedPages: {
-                left: pair.left.cleanedPage,
-                right: pair.right.cleanedPage,
+        return [
+            {
+                cleanedPages: {
+                    left: pair.left.cleanedPage,
+                    right: pair.right.cleanedPage,
+                },
+                sourcePage,
+                ...measureFacingMarginAsymmetry({
+                    leftBitmap: cleanedPages.get(pair.left.cleanedPage) ?? null,
+                    rightBitmap: cleanedPages.get(pair.right.cleanedPage) ?? null,
+                }),
             },
-            sourcePage,
-            ...measureFacingMarginAsymmetry({
-                leftBitmap: cleanedPages.get(pair.left.cleanedPage) ?? null,
-                rightBitmap: cleanedPages.get(pair.right.cleanedPage) ?? null,
-            }),
-        }];
+        ];
     });
 }
 
@@ -479,14 +438,7 @@ function buildFacingMarginAsymmetry({
 // any sample within it is below INK_THRESHOLD. Min-pooling (rather than
 // averaging) is what lets a one-pixel-wide rule or a thin footnote digit
 // register instead of being diluted away by a mostly-white cell.
-function minPoolGrid(
-    bitmap,
-    cols,
-    rows,
-    threshold = INK_THRESHOLD,
-    offsetX = 0,
-    offsetY = 0,
-) {
+function minPoolGrid(bitmap, cols, rows, threshold = INK_THRESHOLD, offsetX = 0, offsetY = 0) {
     const dark = new Uint8Array(cols * rows);
     let darkCount = 0;
     for (let row = 0; row < rows; row += 1) {
@@ -541,10 +493,10 @@ function findGridComponents(grid) {
             minY = Math.min(minY, y);
             maxY = Math.max(maxY, y);
             if (
-                x >= STRUCTURE_INTERIOR_MARGIN_CELLS
-                && x < grid.cols - STRUCTURE_INTERIOR_MARGIN_CELLS
-                && y >= STRUCTURE_INTERIOR_MARGIN_CELLS
-                && y < grid.rows - STRUCTURE_INTERIOR_MARGIN_CELLS
+                x >= STRUCTURE_INTERIOR_MARGIN_CELLS &&
+                x < grid.cols - STRUCTURE_INTERIOR_MARGIN_CELLS &&
+                y >= STRUCTURE_INTERIOR_MARGIN_CELLS &&
+                y < grid.rows - STRUCTURE_INTERIOR_MARGIN_CELLS
             ) {
                 interiorCells += 1;
             }
@@ -555,12 +507,7 @@ function findGridComponents(grid) {
                     }
                     const neighborX = x + deltaX;
                     const neighborY = y + deltaY;
-                    if (
-                        neighborX < 0
-                        || neighborY < 0
-                        || neighborX >= grid.cols
-                        || neighborY >= grid.rows
-                    ) {
+                    if (neighborX < 0 || neighborY < 0 || neighborX >= grid.cols || neighborY >= grid.rows) {
                         continue;
                     }
                     const neighborIndex = neighborY * grid.cols + neighborX;
@@ -587,10 +534,7 @@ function findGridComponents(grid) {
 }
 
 function componentTouchesBoundary(component, grid) {
-    return component.minX === 0
-        || component.minY === 0
-        || component.maxX === grid.cols - 1
-        || component.maxY === grid.rows - 1;
+    return component.minX === 0 || component.minY === 0 || component.maxX === grid.cols - 1 || component.maxY === grid.rows - 1;
 }
 
 function isStructuredComponent(component, grid) {
@@ -598,16 +542,10 @@ function isStructuredComponent(component, grid) {
         return false;
     }
     const touchesBoundary = componentTouchesBoundary(component, grid);
-    const edgeThin = touchesBoundary && (
-        (
-            component.width <= EDGE_RESIDUE_MAX_THICKNESS_CELLS
-            && component.height >= grid.rows * EDGE_RESIDUE_MIN_SPAN_FRACTION
-        )
-        || (
-            component.height <= EDGE_RESIDUE_MAX_THICKNESS_CELLS
-            && component.width >= grid.cols * EDGE_RESIDUE_MIN_SPAN_FRACTION
-        )
-    );
+    const edgeThin =
+        touchesBoundary &&
+        ((component.width <= EDGE_RESIDUE_MAX_THICKNESS_CELLS && component.height >= grid.rows * EDGE_RESIDUE_MIN_SPAN_FRACTION) ||
+            (component.height <= EDGE_RESIDUE_MAX_THICKNESS_CELLS && component.width >= grid.cols * EDGE_RESIDUE_MIN_SPAN_FRACTION));
     if (edgeThin) {
         return false;
     }
@@ -621,9 +559,9 @@ function addComponentToGrid(target, component) {
 }
 
 function isFullFrameField(component, grid, minimumFraction) {
-    return component.area / grid.dark.length >= minimumFraction
-        && component.width >= grid.cols * 0.95
-        && component.height >= grid.rows * 0.95;
+    return (
+        component.area / grid.dark.length >= minimumFraction && component.width >= grid.cols * 0.95 && component.height >= grid.rows * 0.95
+    );
 }
 
 function gridWithDarkCells(dark, cols, rows) {
@@ -691,16 +629,10 @@ function findStructuredEdge(grid) {
     }
 
     const structuredDark = new Uint8Array(grid.dark.length);
-    for (const [
-        index,
-        candidate,
-    ] of candidates.entries()) {
+    for (const [index, candidate] of candidates.entries()) {
         const spanLength = candidate.max < 0 ? 0 : candidate.max - candidate.min + 1;
         const spanLimit = index < 2 ? grid.rows : grid.cols;
-        if (
-            candidate.cells.length < MIN_EDGE_STRUCTURE_CELLS
-            || spanLength < spanLimit * MIN_EDGE_STRUCTURE_SPAN_FRACTION
-        ) {
+        if (candidate.cells.length < MIN_EDGE_STRUCTURE_CELLS || spanLength < spanLimit * MIN_EDGE_STRUCTURE_SPAN_FRACTION) {
             continue;
         }
         for (const cellIndex of candidate.cells) {
@@ -712,12 +644,7 @@ function findStructuredEdge(grid) {
 
 function analyzeBitmap(bitmap) {
     const coarse = minPoolGrid(bitmap, COARSE_COLS, COARSE_ROWS);
-    const structureGrid = minPoolGrid(
-        bitmap,
-        STRUCTURE_COLS,
-        STRUCTURE_ROWS,
-        STRUCTURED_INK_THRESHOLD,
-    );
+    const structureGrid = minPoolGrid(bitmap, STRUCTURE_COLS, STRUCTURE_ROWS, STRUCTURED_INK_THRESHOLD);
     const structureComponents = findGridComponents(structureGrid);
     const structuredDark = new Uint8Array(structureGrid.dark.length);
     for (const component of structureComponents) {
@@ -731,11 +658,9 @@ function analyzeBitmap(bitmap) {
     // covers full-bleed covers and color plates without promoting diffuse
     // ghosting or a one-pixel rail to content.
     const layoutGrid = minPoolGrid(bitmap, STRUCTURE_COLS, STRUCTURE_ROWS);
-    const fullPageField = findGridComponents(layoutGrid).find(component => isFullFrameField(
-        component,
-        layoutGrid,
-        SEMANTIC_FULL_PAGE_FIELD_MIN_FRACTION,
-    ));
+    const fullPageField = findGridComponents(layoutGrid).find((component) =>
+        isFullFrameField(component, layoutGrid, SEMANTIC_FULL_PAGE_FIELD_MIN_FRACTION),
+    );
     if (fullPageField) {
         addComponentToGrid(structuredDark, fullPageField);
     }
@@ -773,14 +698,7 @@ function jaccardSimilarity(gridA, gridB) {
 }
 
 function scoreBitmapTranslation(sourceGrid, cleanedBitmap, offsetX, offsetY) {
-    const cleanedGrid = minPoolGrid(
-        cleanedBitmap,
-        sourceGrid.cols,
-        sourceGrid.rows,
-        INK_THRESHOLD,
-        offsetX,
-        offsetY,
-    );
+    const cleanedGrid = minPoolGrid(cleanedBitmap, sourceGrid.cols, sourceGrid.rows, INK_THRESHOLD, offsetX, offsetY);
     let intersection = 0;
     let cleanedDark = 0;
     let sourceDark = 0;
@@ -820,17 +738,7 @@ function isBetterAlignment(candidate, best) {
     return candidate.offsetX < best.offsetX;
 }
 
-function searchBitmapTranslation({
-    centerX,
-    centerY,
-    cleanedBitmap,
-    maxX,
-    maxY,
-    radiusX,
-    radiusY,
-    sourceGrid,
-    step,
-}) {
+function searchBitmapTranslation({centerX, centerY, cleanedBitmap, maxX, maxY, radiusX, radiusY, sourceGrid, step}) {
     const startX = Math.max(-maxX, centerX - radiusX);
     const endX = Math.min(maxX, centerX + radiusX);
     const startY = maxY === 0 ? 0 : Math.max(-maxY, centerY - radiusY);
@@ -838,12 +746,7 @@ function searchBitmapTranslation({
     let best = scoreBitmapTranslation(sourceGrid, cleanedBitmap, centerX, centerY);
     for (let offsetY = startY; offsetY <= endY; offsetY += step) {
         for (let offsetX = startX; offsetX <= endX; offsetX += step) {
-            const candidate = scoreBitmapTranslation(
-                sourceGrid,
-                cleanedBitmap,
-                offsetX,
-                offsetY,
-            );
+            const candidate = scoreBitmapTranslation(sourceGrid, cleanedBitmap, offsetX, offsetY);
             if (isBetterAlignment(candidate, best)) {
                 best = candidate;
             }
@@ -858,15 +761,10 @@ export function alignBitmapForComparison(sourceBitmap, cleanedBitmap) {
     // Optical placement moves horizontally; keeping y fixed prevents this
     // normalization from concealing vertical squeeze or page-cascade damage.
     const maxY = 0;
-    const initialStep = Math.max(1, Math.floor(Math.min(
-        cleanedBitmap.width / COARSE_COLS,
-        cleanedBitmap.height / COARSE_ROWS,
-    ) / 4));
-    const steps = [
-        initialStep,
-        Math.max(1, Math.floor(initialStep / 4)),
-        1,
-    ].filter((step, index, values) => values.indexOf(step) === index);
+    const initialStep = Math.max(1, Math.floor(Math.min(cleanedBitmap.width / COARSE_COLS, cleanedBitmap.height / COARSE_ROWS) / 4));
+    const steps = [initialStep, Math.max(1, Math.floor(initialStep / 4)), 1].filter(
+        (step, index, values) => values.indexOf(step) === index,
+    );
     let best = scoreBitmapTranslation(sourceGrid, cleanedBitmap, 0, 0);
     let radiusX = maxX;
     let radiusY = maxY;
@@ -886,16 +784,13 @@ export function alignBitmapForComparison(sourceBitmap, cleanedBitmap) {
         radiusY = step;
     }
 
-    const accepted = best.overlap >= ALIGNMENT_MIN_OVERLAP
-        && best.similarity >= ALIGNMENT_MIN_SIMILARITY;
+    const accepted = best.overlap >= ALIGNMENT_MIN_OVERLAP && best.similarity >= ALIGNMENT_MIN_SIMILARITY;
     const appliedOffsetPixels = {
         x: accepted ? best.offsetX : 0,
         y: accepted ? best.offsetY : 0,
     };
     return {
-        grid: accepted
-            ? best.cleanedGrid
-            : minPoolGrid(cleanedBitmap, COARSE_COLS, COARSE_ROWS),
+        grid: accepted ? best.cleanedGrid : minPoolGrid(cleanedBitmap, COARSE_COLS, COARSE_ROWS),
         metrics: {
             applied: accepted && (best.offsetX !== 0 || best.offsetY !== 0),
             appliedOffsetPixels,
@@ -928,25 +823,18 @@ export function measureSpreadLeafScale(args) {
 }
 
 function componentSamplingDimensions(bitmap) {
-    const scale = Math.min(
-        1,
-        Math.sqrt(COMPONENT_SURVIVAL_MAX_GRID_CELLS / (bitmap.width * bitmap.height)),
-    );
+    const scale = Math.min(1, Math.sqrt(COMPONENT_SURVIVAL_MAX_GRID_CELLS / (bitmap.width * bitmap.height)));
     return {
         cols: Math.max(1, Math.floor(bitmap.width * scale)),
         rows: Math.max(1, Math.floor(bitmap.height * scale)),
     };
 }
 
-function survivalComponents(
-    grid,
-    maximumAreaFraction = COMPONENT_SURVIVAL_MAX_COMPONENT_AREA_FRACTION,
-) {
+function survivalComponents(grid, maximumAreaFraction = COMPONENT_SURVIVAL_MAX_COMPONENT_AREA_FRACTION) {
     const maximumArea = grid.dark.length * maximumAreaFraction;
-    return findGridComponents(grid).filter(component => (
-        component.area >= COMPONENT_SURVIVAL_MIN_COMPONENT_CELLS
-        && component.area <= maximumArea
-    ));
+    return findGridComponents(grid).filter(
+        (component) => component.area >= COMPONENT_SURVIVAL_MIN_COMPONENT_CELLS && component.area <= maximumArea,
+    );
 }
 
 function componentVerticalBounds(components, rows) {
@@ -957,8 +845,8 @@ function componentVerticalBounds(components, rows) {
             top: 0,
         };
     }
-    const top = Math.min(...components.map(component => component.minY));
-    const bottom = Math.max(...components.map(component => component.maxY)) + 1;
+    const top = Math.min(...components.map((component) => component.minY));
+    const bottom = Math.max(...components.map((component) => component.maxY)) + 1;
     return {
         bottom,
         span: bottom - top,
@@ -972,9 +860,7 @@ function groupComponentsByBand(components, bounds) {
         const centerY = (component.minY + component.maxY) / 2;
         const band = Math.min(
             COMPONENT_SURVIVAL_BAND_COUNT - 1,
-            Math.max(0, Math.floor(
-                (centerY - bounds.top) * COMPONENT_SURVIVAL_BAND_COUNT / bounds.span,
-            )),
+            Math.max(0, Math.floor(((centerY - bounds.top) * COMPONENT_SURVIVAL_BAND_COUNT) / bounds.span)),
         );
         bands[band].push(component);
     }
@@ -986,7 +872,7 @@ function componentsInPaddedBand(components, bounds, bandIndex) {
     const padding = bandHeight * COMPONENT_SURVIVAL_WINDOW_PADDING_FRACTION;
     const top = bounds.top + bandIndex * bandHeight - padding;
     const bottom = bounds.top + (bandIndex + 1) * bandHeight + padding;
-    return components.filter(component => {
+    return components.filter((component) => {
         const centerY = (component.minY + component.maxY) / 2;
         return centerY >= top && centerY < bottom;
     });
@@ -996,20 +882,14 @@ function bandMidtoneFraction(bitmap, gridRows, bounds, bandIndex) {
     const bandHeight = bounds.span / COMPONENT_SURVIVAL_BAND_COUNT;
     const gridTop = bounds.top + bandIndex * bandHeight;
     const gridBottom = bounds.top + (bandIndex + 1) * bandHeight;
-    const top = Math.max(0, Math.floor(gridTop * bitmap.height / gridRows));
-    const bottom = Math.min(
-        bitmap.height,
-        Math.ceil(gridBottom * bitmap.height / gridRows),
-    );
+    const top = Math.max(0, Math.floor((gridTop * bitmap.height) / gridRows));
+    const bottom = Math.min(bitmap.height, Math.ceil((gridBottom * bitmap.height) / gridRows));
     let midtonePixels = 0;
     const totalPixels = Math.max(1, (bottom - top) * bitmap.width);
     for (let y = top; y < bottom; y += 1) {
         for (let x = 0; x < bitmap.width; x += 1) {
             const value = bitmap.data[y * bitmap.width + x];
-            if (
-                value >= COMPONENT_SURVIVAL_INK_THRESHOLD
-                && value < COMPONENT_SURVIVAL_PAPER_THRESHOLD
-            ) {
+            if (value >= COMPONENT_SURVIVAL_INK_THRESHOLD && value < COMPONENT_SURVIVAL_PAPER_THRESHOLD) {
                 midtonePixels += 1;
             }
         }
@@ -1017,47 +897,22 @@ function bandMidtoneFraction(bitmap, gridRows, bounds, bandIndex) {
     return midtonePixels / totalPixels;
 }
 
-function componentHasMappedCleanedSupport(
-    bandOffset,
-    component,
-    cleanedGrid,
-    sourceBounds,
-    cleanedBounds,
-) {
-    const mappedCells = component.cells.map(cellIndex => {
+function componentHasMappedCleanedSupport(bandOffset, component, cleanedGrid, sourceBounds, cleanedBounds) {
+    const mappedCells = component.cells.map((cellIndex) => {
         const sourceY = Math.floor(cellIndex / cleanedGrid.cols);
         return {
             x: cellIndex % cleanedGrid.cols,
-            y: Math.round(
-                cleanedBounds.top
-                + (sourceY - sourceBounds.top) * cleanedBounds.span / sourceBounds.span,
-            ),
+            y: Math.round(cleanedBounds.top + ((sourceY - sourceBounds.top) * cleanedBounds.span) / sourceBounds.span),
         };
     });
-    const minimumSupportedCells = Math.ceil(
-        component.area * COMPONENT_SURVIVAL_SUPPORT_FRACTION,
-    );
-    for (
-        let deltaY = -COMPONENT_SURVIVAL_SUPPORT_RADIUS_CELLS;
-        deltaY <= COMPONENT_SURVIVAL_SUPPORT_RADIUS_CELLS;
-        deltaY += 1
-    ) {
-        for (
-            let deltaX = -COMPONENT_SURVIVAL_SUPPORT_RADIUS_CELLS;
-            deltaX <= COMPONENT_SURVIVAL_SUPPORT_RADIUS_CELLS;
-            deltaX += 1
-        ) {
+    const minimumSupportedCells = Math.ceil(component.area * COMPONENT_SURVIVAL_SUPPORT_FRACTION);
+    for (let deltaY = -COMPONENT_SURVIVAL_SUPPORT_RADIUS_CELLS; deltaY <= COMPONENT_SURVIVAL_SUPPORT_RADIUS_CELLS; deltaY += 1) {
+        for (let deltaX = -COMPONENT_SURVIVAL_SUPPORT_RADIUS_CELLS; deltaX <= COMPONENT_SURVIVAL_SUPPORT_RADIUS_CELLS; deltaX += 1) {
             let supportedCells = 0;
             for (const cell of mappedCells) {
                 const x = cell.x + bandOffset.x + deltaX;
                 const y = cell.y + bandOffset.y + deltaY;
-                if (
-                    x >= 0
-                    && y >= 0
-                    && x < cleanedGrid.cols
-                    && y < cleanedGrid.rows
-                    && cleanedGrid.dark[y * cleanedGrid.cols + x]
-                ) {
+                if (x >= 0 && y >= 0 && x < cleanedGrid.cols && y < cleanedGrid.rows && cleanedGrid.dark[y * cleanedGrid.cols + x]) {
                     supportedCells += 1;
                 }
             }
@@ -1070,21 +925,15 @@ function componentHasMappedCleanedSupport(
 }
 
 function findMappedBandOffset(sourceComponents, cleanedGrid, sourceBounds, cleanedBounds) {
-    const allCells = sourceComponents.flatMap(component => component.cells);
-    const sampleStep = Math.max(
-        1,
-        Math.ceil(allCells.length / COMPONENT_SURVIVAL_BAND_ALIGNMENT_SAMPLES),
-    );
+    const allCells = sourceComponents.flatMap((component) => component.cells);
+    const sampleStep = Math.max(1, Math.ceil(allCells.length / COMPONENT_SURVIVAL_BAND_ALIGNMENT_SAMPLES));
     const samples = [];
     for (let index = 0; index < allCells.length; index += sampleStep) {
         const cellIndex = allCells[index];
         const sourceY = Math.floor(cellIndex / cleanedGrid.cols);
         samples.push({
             x: cellIndex % cleanedGrid.cols,
-            y: Math.round(
-                cleanedBounds.top
-                + (sourceY - sourceBounds.top) * cleanedBounds.span / sourceBounds.span,
-            ),
+            y: Math.round(cleanedBounds.top + ((sourceY - sourceBounds.top) * cleanedBounds.span) / sourceBounds.span),
         });
     }
     let best = {
@@ -1092,26 +941,18 @@ function findMappedBandOffset(sourceComponents, cleanedGrid, sourceBounds, clean
         x: 0,
         y: 0,
     };
-    for (
-        let y = -COMPONENT_SURVIVAL_BAND_ALIGNMENT_RADIUS_CELLS;
-        y <= COMPONENT_SURVIVAL_BAND_ALIGNMENT_RADIUS_CELLS;
-        y += 1
-    ) {
-        for (
-            let x = -COMPONENT_SURVIVAL_BAND_ALIGNMENT_RADIUS_CELLS;
-            x <= COMPONENT_SURVIVAL_BAND_ALIGNMENT_RADIUS_CELLS;
-            x += 1
-        ) {
+    for (let y = -COMPONENT_SURVIVAL_BAND_ALIGNMENT_RADIUS_CELLS; y <= COMPONENT_SURVIVAL_BAND_ALIGNMENT_RADIUS_CELLS; y += 1) {
+        for (let x = -COMPONENT_SURVIVAL_BAND_ALIGNMENT_RADIUS_CELLS; x <= COMPONENT_SURVIVAL_BAND_ALIGNMENT_RADIUS_CELLS; x += 1) {
             let score = 0;
             for (const sample of samples) {
                 const targetX = sample.x + x;
                 const targetY = sample.y + y;
                 if (
-                    targetX >= 0
-                    && targetY >= 0
-                    && targetX < cleanedGrid.cols
-                    && targetY < cleanedGrid.rows
-                    && cleanedGrid.dark[targetY * cleanedGrid.cols + targetX]
+                    targetX >= 0 &&
+                    targetY >= 0 &&
+                    targetX < cleanedGrid.cols &&
+                    targetY < cleanedGrid.rows &&
+                    cleanedGrid.dark[targetY * cleanedGrid.cols + targetX]
                 ) {
                     score += 1;
                 }
@@ -1130,11 +971,7 @@ function findMappedBandOffset(sourceComponents, cleanedGrid, sourceBounds, clean
     return best;
 }
 
-export function measureComponentSurvival({
-    alignment = null,
-    cleanedBitmap,
-    sourceBitmap,
-}) {
+export function measureComponentSurvival({alignment = null, cleanedBitmap, sourceBitmap}) {
     const result = {
         bands: [],
         measuredBands: 0,
@@ -1165,24 +1002,15 @@ export function measureComponentSurvival({
         result.reason = 'cleaned-page-missing';
         return result;
     }
-    const resolvedAlignment = alignment
-        ?? alignBitmapForComparison(sourceBitmap, cleanedBitmap);
+    const resolvedAlignment = alignment ?? alignBitmapForComparison(sourceBitmap, cleanedBitmap);
     result.alignment = resolvedAlignment.metrics;
     if (resolvedAlignment.metrics.rejected) {
         result.reason = 'placement-alignment-not-reliable';
         return result;
     }
 
-    const {
-        cols,
-        rows,
-    } = componentSamplingDimensions(sourceBitmap);
-    const sourceGrid = minPoolGrid(
-        sourceBitmap,
-        cols,
-        rows,
-        COMPONENT_SURVIVAL_INK_THRESHOLD,
-    );
+    const {cols, rows} = componentSamplingDimensions(sourceBitmap);
+    const sourceGrid = minPoolGrid(sourceBitmap, cols, rows, COMPONENT_SURVIVAL_INK_THRESHOLD);
     const cleanedGrid = minPoolGrid(
         cleanedBitmap,
         cols,
@@ -1192,10 +1020,7 @@ export function measureComponentSurvival({
         resolvedAlignment.metrics.appliedOffsetPixels.y,
     );
     const sourceComponentList = survivalComponents(sourceGrid);
-    const cleanedComponentList = survivalComponents(
-        cleanedGrid,
-        COMPONENT_SURVIVAL_MAX_CLEANED_COMPONENT_AREA_FRACTION,
-    );
+    const cleanedComponentList = survivalComponents(cleanedGrid, COMPONENT_SURVIVAL_MAX_CLEANED_COMPONENT_AREA_FRACTION);
     const sourceBounds = componentVerticalBounds(sourceComponentList, rows);
     const cleanedBounds = componentVerticalBounds(cleanedComponentList, rows);
     const sourceBands = groupComponentsByBand(sourceComponentList, sourceBounds);
@@ -1203,47 +1028,33 @@ export function measureComponentSurvival({
         cleaned: cleanedBounds,
         source: sourceBounds,
     };
-    for (
-        let index = COMPONENT_SURVIVAL_MARGIN_BANDS;
-        index < COMPONENT_SURVIVAL_BAND_COUNT - COMPONENT_SURVIVAL_MARGIN_BANDS;
-        index += 1
-    ) {
+    for (let index = COMPONENT_SURVIVAL_MARGIN_BANDS; index < COMPONENT_SURVIVAL_BAND_COUNT - COMPONENT_SURVIVAL_MARGIN_BANDS; index += 1) {
         const sourceComponents = sourceBands[index].length;
         if (sourceComponents === 0) {
             continue;
         }
-        const sourceMidtoneFraction = bandMidtoneFraction(
-            sourceBitmap,
-            rows,
-            sourceBounds,
-            index,
-        );
-        const sourceCenters = sourceBands[index].map(
-            component => (component.minY + component.maxY) / 2,
-        );
-        const sourceCenterSpreadFraction = sourceCenters.length < 2
-            ? 0
-            : (Math.max(...sourceCenters) - Math.min(...sourceCenters))
-                / (sourceBounds.span / COMPONENT_SURVIVAL_BAND_COUNT);
-        const cleanedBandComponents = componentsInPaddedBand(
-            cleanedComponentList,
-            cleanedBounds,
-            index,
-        );
+        const sourceMidtoneFraction = bandMidtoneFraction(sourceBitmap, rows, sourceBounds, index);
+        const sourceCenters = sourceBands[index].map((component) => (component.minY + component.maxY) / 2);
+        const sourceCenterSpreadFraction =
+            sourceCenters.length < 2
+                ? 0
+                : (Math.max(...sourceCenters) - Math.min(...sourceCenters)) / (sourceBounds.span / COMPONENT_SURVIVAL_BAND_COUNT);
+        const cleanedBandComponents = componentsInPaddedBand(cleanedComponentList, cleanedBounds, index);
         const cleanedComponents = cleanedBandComponents.length;
         if (
-            sourceComponents < COMPONENT_SURVIVAL_MIN_SOURCE_COMPONENTS
-            || sourceMidtoneFraction > COMPONENT_SURVIVAL_MAX_MIDTONE_FRACTION
-            || sourceCenterSpreadFraction > COMPONENT_SURVIVAL_MAX_CENTER_SPREAD_FRACTION
+            sourceComponents < COMPONENT_SURVIVAL_MIN_SOURCE_COMPONENTS ||
+            sourceMidtoneFraction > COMPONENT_SURVIVAL_MAX_MIDTONE_FRACTION ||
+            sourceCenterSpreadFraction > COMPONENT_SURVIVAL_MAX_CENTER_SPREAD_FRACTION
         ) {
             result.bands.push({
                 cleanedComponents,
                 index,
-                reason: sourceComponents < COMPONENT_SURVIVAL_MIN_SOURCE_COMPONENTS
-                    ? 'sparse-source-band'
-                    : sourceMidtoneFraction > COMPONENT_SURVIVAL_MAX_MIDTONE_FRACTION
-                        ? 'source-band-too-tonal'
-                        : 'source-band-components-not-line-like',
+                reason:
+                    sourceComponents < COMPONENT_SURVIVAL_MIN_SOURCE_COMPONENTS
+                        ? 'sparse-source-band'
+                        : sourceMidtoneFraction > COMPONENT_SURVIVAL_MAX_MIDTONE_FRACTION
+                          ? 'source-band-too-tonal'
+                          : 'source-band-components-not-line-like',
                 sourceCenterSpreadFraction: round(sourceCenterSpreadFraction),
                 sourceComponents,
                 sourceMidtoneFraction: round(sourceMidtoneFraction),
@@ -1252,44 +1063,22 @@ export function measureComponentSurvival({
             result.unmeasuredBands += 1;
             continue;
         }
-        const sourceComponentCells = sourceBands[index].reduce(
-            (sum, component) => sum + component.area,
-            0,
-        );
-        const cleanedComponentCells = cleanedBandComponents.reduce(
-            (sum, component) => sum + component.area,
-            0,
-        );
+        const sourceComponentCells = sourceBands[index].reduce((sum, component) => sum + component.area, 0);
+        const cleanedComponentCells = cleanedBandComponents.reduce((sum, component) => sum + component.area, 0);
         // Connected glyphs may bridge in a healthy bilevel output. Express
         // their retained area in units of the source band's mean component
         // instead of treating every bridge as a deletion.
         const sourceMeanComponentCells = sourceComponentCells / sourceComponents;
         const cleanedComponentEquivalents = Math.min(
             sourceComponents,
-            Math.max(
-                cleanedComponents,
-                cleanedComponentCells / sourceMeanComponentCells,
-            ),
+            Math.max(cleanedComponents, cleanedComponentCells / sourceMeanComponentCells),
         );
-        const bandOffset = findMappedBandOffset(
-            sourceBands[index],
-            cleanedGrid,
-            sourceBounds,
-            cleanedBounds,
-        );
-        const survivingSourceComponents = sourceBands[index].filter(component => (
-            componentHasMappedCleanedSupport(
-                bandOffset,
-                component,
-                cleanedGrid,
-                sourceBounds,
-                cleanedBounds,
-            )
-        )).length;
+        const bandOffset = findMappedBandOffset(sourceBands[index], cleanedGrid, sourceBounds, cleanedBounds);
+        const survivingSourceComponents = sourceBands[index].filter((component) =>
+            componentHasMappedCleanedSupport(bandOffset, component, cleanedGrid, sourceBounds, cleanedBounds),
+        ).length;
         const lossFraction = (sourceComponents - survivingSourceComponents) / sourceComponents;
-        const status = lossFraction > COMPONENT_SURVIVAL_MAX_LOSS_FRACTION
-            ? 'violation'
-            : 'pass';
+        const status = lossFraction > COMPONENT_SURVIVAL_MAX_LOSS_FRACTION ? 'violation' : 'pass';
         result.bands.push({
             bandOffset,
             cleanedComponents,
@@ -1309,24 +1098,16 @@ export function measureComponentSurvival({
             result.violations.push('component-survival');
         }
     }
-    const measuredBands = result.bands.filter(band => band.status !== 'unmeasured');
-    const aggregateSourceComponents = measuredBands.reduce(
-        (sum, band) => sum + band.sourceComponents,
-        0,
-    );
+    const measuredBands = result.bands.filter((band) => band.status !== 'unmeasured');
+    const aggregateSourceComponents = measuredBands.reduce((sum, band) => sum + band.sourceComponents, 0);
     if (aggregateSourceComponents < COMPONENT_SURVIVAL_MIN_TOTAL_COMPONENTS) {
         result.reason = 'insufficient-total-source-components';
         result.measuredBands = 0;
         return result;
     }
-    const aggregateSurvivingComponents = measuredBands.reduce(
-        (sum, band) => sum + band.survivingSourceComponents,
-        0,
-    );
-    const aggregateLossFraction = aggregateSourceComponents === 0
-        ? 0
-        : (aggregateSourceComponents - aggregateSurvivingComponents)
-            / aggregateSourceComponents;
+    const aggregateSurvivingComponents = measuredBands.reduce((sum, band) => sum + band.survivingSourceComponents, 0);
+    const aggregateLossFraction =
+        aggregateSourceComponents === 0 ? 0 : (aggregateSourceComponents - aggregateSurvivingComponents) / aggregateSourceComponents;
     result.aggregate = {
         lossFraction: round(aggregateLossFraction),
         sourceComponents: aggregateSourceComponents,
@@ -1340,24 +1121,16 @@ export function summarizeMeasurementCoverage(measurementsByClass) {
     /** @type {Record<string, any>} */
     const classes = {};
     let measurementCollapsed = false;
-    for (const [
-        className,
-        measurements,
-    ] of Object.entries(measurementsByClass)) {
+    for (const [className, measurements] of Object.entries(measurementsByClass)) {
         const totalPairs = measurements.length;
-        const unmeasuredPairs = measurements.filter(
-            measurement => measurement.status === 'unmeasured',
-        ).length;
+        const unmeasuredPairs = measurements.filter((measurement) => measurement.status === 'unmeasured').length;
         const unmeasuredFraction = totalPairs === 0 ? 0 : unmeasuredPairs / totalPairs;
-        const collapsed = totalPairs > 0
-            && unmeasuredFraction > UNMEASURED_PAIR_MAX_FRACTION;
+        const collapsed = totalPairs > 0 && unmeasuredFraction > UNMEASURED_PAIR_MAX_FRACTION;
         measurementCollapsed ||= collapsed;
         classes[className] = {
             collapsed,
             measuredPairs: totalPairs - unmeasuredPairs,
-            status: totalPairs === 0
-                ? 'not-applicable'
-                : collapsed ? 'measurement-collapse' : 'sufficient',
+            status: totalPairs === 0 ? 'not-applicable' : collapsed ? 'measurement-collapse' : 'sufficient',
             totalPairs,
             unmeasuredFraction: round(unmeasuredFraction),
             unmeasuredPairs,
@@ -1381,15 +1154,7 @@ function round(value) {
     return Math.round(value * 10_000) / 10_000;
 }
 
-function auditHalf({
-    cleanedBitmap,
-    cleanedPage,
-    componentCleanedBitmap,
-    componentSourceBitmap,
-    side,
-    sourceBitmap,
-    sourcePage,
-}) {
+function auditHalf({cleanedBitmap, cleanedPage, componentCleanedBitmap, componentSourceBitmap, side, sourceBitmap, sourcePage}) {
     const sourceAnalysis = analyzeBitmap(sourceBitmap);
     const record = {
         cleanedPage,
@@ -1412,9 +1177,7 @@ function auditHalf({
     }
     const cleanedAnalysis = analyzeBitmap(cleanedBitmap);
     const alignment = alignBitmapForComparison(sourceBitmap, cleanedBitmap);
-    const componentAlignment = componentCleanedBitmap
-        ? alignBitmapForComparison(componentSourceBitmap, componentCleanedBitmap)
-        : null;
+    const componentAlignment = componentCleanedBitmap ? alignBitmapForComparison(componentSourceBitmap, componentCleanedBitmap) : null;
     const componentSurvival = measureComponentSurvival({
         alignment: componentAlignment,
         cleanedBitmap: componentCleanedBitmap,
@@ -1429,17 +1192,9 @@ function auditHalf({
     const bboxRatio = sourceBboxHeight === 0 ? null : cleanedBboxHeight / sourceBboxHeight;
     // Confirm fragmented low-contrast geometry on an edge-trimmed coarse grid;
     // the separate structured-edge branch below still catches scanner rails.
-    const sourceCoarseBboxHeight = contentBboxHeightFraction(
-        sourceAnalysis.coarse,
-        GEOMETRY_INTERIOR_MARGIN_CELLS,
-    );
-    const cleanedCoarseBboxHeight = contentBboxHeightFraction(
-        alignment.grid,
-        GEOMETRY_INTERIOR_MARGIN_CELLS,
-    );
-    const coarseBboxRatio = sourceCoarseBboxHeight === 0
-        ? null
-        : cleanedCoarseBboxHeight / sourceCoarseBboxHeight;
+    const sourceCoarseBboxHeight = contentBboxHeightFraction(sourceAnalysis.coarse, GEOMETRY_INTERIOR_MARGIN_CELLS);
+    const cleanedCoarseBboxHeight = contentBboxHeightFraction(alignment.grid, GEOMETRY_INTERIOR_MARGIN_CELLS);
+    const coarseBboxRatio = sourceCoarseBboxHeight === 0 ? null : cleanedCoarseBboxHeight / sourceCoarseBboxHeight;
     record.cleanInk = round(cleanedAnalysis.coarse.inkFraction);
     record.alignedCleanInk = round(alignment.grid.inkFraction);
     record.alignment = alignment.metrics;
@@ -1475,11 +1230,9 @@ function auditHalf({
     // pale ghost can occupy many coarse cells without being semantic content.
     if (sourceAnalysis.structured.inkFraction < STRUCTURED_BLANK_INK_FRACTION) {
         if (
-            sourceAnalysis.coarse.inkFraction < BLANK_INK_FRACTION
-            && (
-                cleanedAnalysis.structured.inkFraction > STRUCTURED_BLANK_MAX_CLEANED_INK_FRACTION
-                || cleanedAnalysis.structuredEdge.inkFraction > STRUCTURED_EDGE_ARTIFACT_MIN_FRACTION
-            )
+            sourceAnalysis.coarse.inkFraction < BLANK_INK_FRACTION &&
+            (cleanedAnalysis.structured.inkFraction > STRUCTURED_BLANK_MAX_CLEANED_INK_FRACTION ||
+                cleanedAnalysis.structuredEdge.inkFraction > STRUCTURED_EDGE_ARTIFACT_MIN_FRACTION)
         ) {
             record.violations.push('artifact-retention');
         } else if (sourceAnalysis.coarse.inkFraction >= BLANK_INK_FRACTION) {
@@ -1511,10 +1264,10 @@ function auditHalf({
         if (!geometrySourceIsTallEnough) {
             record.bboxHeightFraction.geometrySkip = 'source-content-bbox-short';
         } else if (
-            bboxRatio !== null
-            && bboxRatio < GEOMETRY_MIN_HEIGHT_RATIO
-            && coarseBboxRatio !== null
-            && coarseBboxRatio < GEOMETRY_MIN_HEIGHT_RATIO
+            bboxRatio !== null &&
+            bboxRatio < GEOMETRY_MIN_HEIGHT_RATIO &&
+            coarseBboxRatio !== null &&
+            coarseBboxRatio < GEOMETRY_MIN_HEIGHT_RATIO
         ) {
             record.violations.push('geometry');
         }
@@ -1541,11 +1294,9 @@ function inferSourcePageLayout(bitmap) {
     }
 
     const layoutGrid = minPoolGrid(bitmap, STRUCTURE_COLS, STRUCTURE_ROWS);
-    const fullPageField = findGridComponents(layoutGrid).find(component => isFullFrameField(
-        component,
-        layoutGrid,
-        FULL_PAGE_FIELD_MIN_FRACTION,
-    ));
+    const fullPageField = findGridComponents(layoutGrid).find((component) =>
+        isFullFrameField(component, layoutGrid, FULL_PAGE_FIELD_MIN_FRACTION),
+    );
     if (fullPageField) {
         return {
             layout: 'single',
@@ -1554,15 +1305,8 @@ function inferSourcePageLayout(bitmap) {
     }
 
     const sourceHalves = splitHalves(bitmap);
-    const halves = [
-        sourceHalves.left,
-        sourceHalves.right,
-    ];
-    const halfInk = halves.map(half => minPoolGrid(
-        half,
-        STRUCTURE_COLS / 2,
-        STRUCTURE_ROWS,
-    ).inkFraction);
+    const halves = [sourceHalves.left, sourceHalves.right];
+    const halfInk = halves.map((half) => minPoolGrid(half, STRUCTURE_COLS / 2, STRUCTURE_ROWS).inkFraction);
     if (Math.min(...halfInk) >= LAYOUT_MIN_HALF_INK_FRACTION) {
         return {
             halfInk: halfInk.map(round),
@@ -1590,10 +1334,7 @@ function layoutForSourcePages(sourcePageCount, sourcePages) {
 function buildEntriesForLayouts(layouts) {
     const entries = [];
     let cursor = 1;
-    for (const [
-        index,
-        layout,
-    ] of layouts.entries()) {
+    for (const [index, layout] of layouts.entries()) {
         const sourcePage = index + 1;
         if (layout === 'single' || layout === 'unknown') {
             entries.push({
@@ -1634,10 +1375,7 @@ function buildEntriesForLayouts(layouts) {
 // output count.
 export function buildExpectedMapping(sourcePageCount, actualCleanedCount, sourcePages = null) {
     const visualLayouts = layoutForSourcePages(sourcePageCount, sourcePages);
-    const visualExpectedCount = visualLayouts.reduce(
-        (count, layout) => count + (layout === 'spread' ? 2 : 1),
-        0,
-    );
+    const visualExpectedCount = visualLayouts.reduce((count, layout) => count + (layout === 'spread' ? 2 : 1), 0);
     let layouts;
     let entries;
     let expectedCleanedCount;
@@ -1646,9 +1384,7 @@ export function buildExpectedMapping(sourcePageCount, actualCleanedCount, source
         layouts = visualLayouts;
         reason = 'rendered-source-layout-and-output-count';
     } else if (actualCleanedCount === sourcePageCount) {
-        layouts = sourcePages
-            ? visualLayouts
-            : Array.from({length: sourcePageCount}, () => 'single');
+        layouts = sourcePages ? visualLayouts : Array.from({length: sourcePageCount}, () => 'single');
         reason = 'one-output-page-per-source-page';
     } else if (actualCleanedCount >= sourcePageCount * 2) {
         layouts = Array.from({length: sourcePageCount}, () => 'spread');
@@ -1663,18 +1399,13 @@ export function buildExpectedMapping(sourcePageCount, actualCleanedCount, source
         layouts = Array.from({length: sourcePageCount}, () => 'single');
         reason = 'short-output-count';
     }
-    ({
-        entries,
-        expectedCleanedCount,
-    } = buildEntriesForLayouts(layouts));
+    ({entries, expectedCleanedCount} = buildEntriesForLayouts(layouts));
     if (actualCleanedCount === sourcePageCount && expectedCleanedCount !== actualCleanedCount) {
         // The output count still determines the page-to-page comparison when
         // a visually bilateral source was left unsplit. Preserve that whole
         // page for content/geometry checks, while retaining the visual
         // expected count so the missing split remains a page-count finding.
-        entries = buildEntriesForLayouts(
-            Array.from({length: sourcePageCount}, () => 'single'),
-        ).entries;
+        entries = buildEntriesForLayouts(Array.from({length: sourcePageCount}, () => 'single')).entries;
     }
     return {
         entries,
@@ -1702,12 +1433,7 @@ async function main() {
     let scaleCleanedPages;
     let scaleSourcePages;
     try {
-        [
-            sourcePages,
-            cleanedPages,
-            scaleSourcePages,
-            scaleCleanedPages,
-        ] = await Promise.all([
+        [sourcePages, cleanedPages, scaleSourcePages, scaleCleanedPages] = await Promise.all([
             renderPdfPagesGray({
                 dpi: options.dpi,
                 label: 'src',
@@ -1738,12 +1464,9 @@ async function main() {
             }),
         ]);
         const mapping = buildExpectedMapping(sourcePageCount, actualCleanedCount, sourcePages);
-        const {
-            entries,
-            expectedCleanedCount,
-        } = mapping;
+        const {entries, expectedCleanedCount} = mapping;
         const pageCountMismatch = actualCleanedCount !== expectedCleanedCount;
-        pages = entries.map(entry => {
+        pages = entries.map((entry) => {
             const sourceBitmap = sourcePages.get(entry.sourcePage);
             const scaleSourceBitmap = scaleSourcePages.get(entry.sourcePage);
             if (!sourceBitmap) {
@@ -1753,9 +1476,7 @@ async function main() {
                 throw new Error(`Missing scale-rendered source page ${String(entry.sourcePage)}`);
             }
             const sourceHalfBitmap = entry.side === 'whole' ? sourceBitmap : splitHalves(sourceBitmap)[entry.side];
-            const componentSourceBitmap = entry.side === 'whole'
-                ? scaleSourceBitmap
-                : splitHalves(scaleSourceBitmap)[entry.side];
+            const componentSourceBitmap = entry.side === 'whole' ? scaleSourceBitmap : splitHalves(scaleSourceBitmap)[entry.side];
             return auditHalf({
                 cleanedBitmap: cleanedPages.get(entry.cleanedPage) ?? null,
                 cleanedPage: entry.cleanedPage,
@@ -1819,28 +1540,17 @@ async function main() {
             }
         }
         const measurementCoverage = summarizeMeasurementCoverage({
-            'component-survival': pages.map(page => page.componentSurvival),
+            'component-survival': pages.map((page) => page.componentSurvival),
             'facing-margin-asymmetry': facingMarginAsymmetry,
             'leaf-misalignment': leafPairAlignment,
             'leaf-scale-mismatch': leafPairScale,
         });
-        const unmeasuredCounts = Object.fromEntries(Object.entries(
-            measurementCoverage.classes,
-        ).map(([
-            className,
-            coverage,
-        ]) => [
-            className,
-            coverage.unmeasuredPairs,
-        ]));
-        const totalViolations = Object.values(violationCounts).reduce((sum, count) => sum + count, 0);
-        const exitCode = auditExitCode(
-            totalViolations,
-            measurementCoverage.measurementCollapsed,
+        const unmeasuredCounts = Object.fromEntries(
+            Object.entries(measurementCoverage.classes).map(([className, coverage]) => [className, coverage.unmeasuredPairs]),
         );
-        const auditStatus = exitCode === 2
-            ? 'measurement-collapse'
-            : exitCode === 1 ? 'violations' : 'pass';
+        const totalViolations = Object.values(violationCounts).reduce((sum, count) => sum + count, 0);
+        const exitCode = auditExitCode(totalViolations, measurementCoverage.measurementCollapsed);
+        const auditStatus = exitCode === 2 ? 'measurement-collapse' : exitCode === 1 ? 'violations' : 'pass';
 
         const report = {
             auditStatus,
@@ -1861,13 +1571,11 @@ async function main() {
                 actualCleanedCount,
                 expectedCleanedCount,
                 infoCount: infos.length,
-                facingMarginAsymmetryPairs: facingMarginAsymmetry.filter(
-                    pair => pair.status === 'violation',
-                ).length,
+                facingMarginAsymmetryPairs: facingMarginAsymmetry.filter((pair) => pair.status === 'violation').length,
                 leafPairCount: leafPairAlignment.length,
                 leafScaleDpi: SCALE_DPI,
-                leafMisalignmentPairs: leafPairAlignment.filter(pair => pair.status === 'violation').length,
-                leafScaleMismatchPairs: leafPairScale.filter(pair => pair.status === 'violation').length,
+                leafMisalignmentPairs: leafPairAlignment.filter((pair) => pair.status === 'violation').length,
+                leafScaleMismatchPairs: leafPairScale.filter((pair) => pair.status === 'violation').length,
                 measurementCoverage,
                 pageCountMismatch,
                 sourcePageCount,
@@ -1906,12 +1614,14 @@ async function main() {
         };
         await writeFile(options.out, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
         console.log(`Wrote ${options.out}`);
-        console.log(`Source pages: ${String(sourcePageCount)}, inferred cleaned pages: ${String(expectedCleanedCount)}, actual cleaned pages: ${String(actualCleanedCount)}`);
+        console.log(
+            `Source pages: ${String(sourcePageCount)}, inferred cleaned pages: ${String(expectedCleanedCount)}, actual cleaned pages: ${String(actualCleanedCount)}`,
+        );
         console.log(`Violations: ${JSON.stringify(violationCounts)}`);
         console.log(`Unmeasured pairs by class: ${JSON.stringify(unmeasuredCounts)}`);
         console.log(`Audit status: ${auditStatus}`);
         if (infos.length > 0) {
-            console.log(`Infos: ${JSON.stringify(infos.map(info => info.code))}`);
+            console.log(`Infos: ${JSON.stringify(infos.map((info) => info.code))}`);
         }
         return exitCode;
     } finally {
@@ -1924,10 +1634,10 @@ async function main() {
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
     main().then(
-        exitCode => {
+        (exitCode) => {
             process.exitCode = exitCode;
         },
-        error => {
+        (error) => {
             console.error(error instanceof Error ? getCliErrorMessage(error) : error);
             process.exitCode = 1;
         },

@@ -1,7 +1,4 @@
-import {
-    isIsoTimestamp,
-    type TIsoTimestamp,
-} from '@contracts/timestamps';
+import {isIsoTimestamp, type TIsoTimestamp} from '@contracts/timestamps';
 import {
     createReleaseCatalogLoader,
     fetchReleaseDataWithRetry,
@@ -20,12 +17,12 @@ import {
 } from '@releaseSelection';
 
 interface IGithubReleaseAsset {
-    id: number
-    name: string
-    browser_download_url: string
-    size: number
-    updated_at: string
-    content_type: string
+    id: number;
+    name: string;
+    browser_download_url: string;
+    size: number;
+    updated_at: string;
+    content_type: string;
 }
 
 /** A GitHub asset whose wire timestamp has been checked against the ISO contract. */
@@ -41,10 +38,13 @@ const MIRROR_PROBE_TIMEOUT_MS = 2_000;
 const MIRROR_PROBE_HIT_TTL_MS = 60 * 60_000;
 const MIRROR_PROBE_MISS_TTL_MS = 5 * 60_000;
 const MIRROR_PROBE_CACHE_LIMIT = 32;
-const mirrorProbeCache = new Map<string, {
-    available: boolean
-    checkedAt: number
-}>();
+const mirrorProbeCache = new Map<
+    string,
+    {
+        available: boolean;
+        checkedAt: number;
+    }
+>();
 
 function readCachedMirrorProbe(url: string, now: number) {
     const cached = mirrorProbeCache.get(url);
@@ -57,10 +57,7 @@ function readCachedMirrorProbe(url: string, now: number) {
 
 function recordMirrorProbe(url: string, available: boolean, now: number) {
     if (mirrorProbeCache.size >= MIRROR_PROBE_CACHE_LIMIT) {
-        for (const [
-            cachedUrl,
-            entry,
-        ] of mirrorProbeCache) {
+        for (const [cachedUrl, entry] of mirrorProbeCache) {
             if (now - entry.checkedAt > MIRROR_PROBE_MISS_TTL_MS) {
                 mirrorProbeCache.delete(cachedUrl);
             }
@@ -111,7 +108,7 @@ async function resolveMirrorDownloadUrl(tag: string, assetName: string, mirrorBa
         return null;
     }
     const url = `${mirrorBaseUrl}/${encodeURIComponent(tag)}/${encodeURIComponent(assetName)}`;
-    return await isOnReleaseMirror(url) ? url : null;
+    return (await isOnReleaseMirror(url)) ? url : null;
 }
 
 function parseHttpsUrl(value: string): string | null {
@@ -141,14 +138,14 @@ function getReleaseCohortKey(event: Parameters<typeof getCookie>[0]) {
 }
 
 interface IGithubRelease {
-    draft?: boolean
-    prerelease?: boolean
-    tag_name: string
+    draft?: boolean;
+    prerelease?: boolean;
+    tag_name: string;
     // GitHub omits the name of an untitled release and the publish date of a draft.
-    name: string | null
-    published_at: string | null
-    html_url: string
-    assets?: IGithubReleaseAsset[]
+    name: string | null;
+    published_at: string | null;
+    html_url: string;
+    assets?: IGithubReleaseAsset[];
 }
 
 /** A GitHub release whose wire timestamp has been checked against the ISO contract. */
@@ -159,30 +156,29 @@ function isPublishedGithubRelease(release: IGithubRelease): release is TPublishe
 }
 
 async function toInstallers(release: IGithubRelease, mirrorBaseUrl: string) {
-    const installers = await Promise.all((release.assets ?? [])
-        .filter((asset): asset is TDatedReleaseAsset => isInstallerAsset(asset.name)
-            && parseHttpsUrl(asset.browser_download_url) !== null
-            && isIsoTimestamp(asset.updated_at))
-        .map(async (asset) => {
-            const mirrorDownloadUrl = await resolveMirrorDownloadUrl(
-                release.tag_name,
-                asset.name,
-                mirrorBaseUrl,
-            );
-            const installer: IReleaseInstaller = {
-                id: asset.id,
-                name: asset.name,
-                downloadUrl: asset.browser_download_url,
-                ...(mirrorDownloadUrl ? {mirrorDownloadUrl} : {}),
-                size: asset.size,
-                updatedAt: asset.updated_at,
-                contentType: asset.content_type,
-                extension: getAssetExtension(asset.name),
-                platform: detectPlatform(asset.name),
-                arch: detectArchitecture(asset.name),
-            };
-            return installer;
-        }));
+    const installers = await Promise.all(
+        (release.assets ?? [])
+            .filter(
+                (asset): asset is TDatedReleaseAsset =>
+                    isInstallerAsset(asset.name) && parseHttpsUrl(asset.browser_download_url) !== null && isIsoTimestamp(asset.updated_at),
+            )
+            .map(async (asset) => {
+                const mirrorDownloadUrl = await resolveMirrorDownloadUrl(release.tag_name, asset.name, mirrorBaseUrl);
+                const installer: IReleaseInstaller = {
+                    id: asset.id,
+                    name: asset.name,
+                    downloadUrl: asset.browser_download_url,
+                    ...(mirrorDownloadUrl ? {mirrorDownloadUrl} : {}),
+                    size: asset.size,
+                    updatedAt: asset.updated_at,
+                    contentType: asset.content_type,
+                    extension: getAssetExtension(asset.name),
+                    platform: detectPlatform(asset.name),
+                    arch: detectArchitecture(asset.name),
+                };
+                return installer;
+            }),
+    );
 
     return normalizeInstallers(installers);
 }
@@ -204,13 +200,10 @@ export default defineEventHandler(async (event): Promise<ILatestReleaseResponse>
     const releaseMirrorBaseUrl = parseHttpsUrl(String(config.releaseMirrorBaseUrl)) ?? '';
     const stableTags = parseReleaseTagList(String(config.releaseStableTags || ''));
     const canaryTag = String(config.releaseCanaryTag || '').trim() || null;
-    const configuredTags = Array.from(new Set([
-        ...stableTags,
-        ...(canaryTag ? [canaryTag] : []),
-    ]));
+    const configuredTags = Array.from(new Set([...stableTags, ...(canaryTag ? [canaryTag] : [])]));
 
     const headers: Record<string, string> = {
-        'accept': 'application/vnd.github+json',
+        accept: 'application/vnd.github+json',
         'x-github-api-version': '2022-11-28',
     };
 
@@ -228,51 +221,43 @@ export default defineEventHandler(async (event): Promise<ILatestReleaseResponse>
             signal,
             timeout: 6_000,
         });
-        const exactReleases = await Promise.all(getMissingConfiguredReleaseTags(releases, configuredTags)
-            .map(async (tag) => {
+        const exactReleases = await Promise.all(
+            getMissingConfiguredReleaseTags(releases, configuredTags).map(async (tag) => {
                 try {
-                    return await $fetch<IGithubRelease>(
-                        `${githubRepositoryApiUrl}/releases/tags/${encodeURIComponent(tag)}`,
-                        {
-                            headers,
-                            retry: 0,
-                            signal,
-                            timeout: 6_000,
-                        },
-                    );
+                    return await $fetch<IGithubRelease>(`${githubRepositoryApiUrl}/releases/tags/${encodeURIComponent(tag)}`, {
+                        headers,
+                        retry: 0,
+                        signal,
+                        timeout: 6_000,
+                    });
                 } catch (error) {
                     if (getReleaseFetchStatusCode(error) === 404) {
                         return null;
                     }
                     throw error;
                 }
-            }));
-        return [
-            ...releases,
-            ...exactReleases.filter((release): release is IGithubRelease => release !== null),
-        ].filter(isPublishedGithubRelease);
+            }),
+        );
+        return [...releases, ...exactReleases.filter((release): release is IGithubRelease => release !== null)].filter(
+            isPublishedGithubRelease,
+        );
     }
 
     let catalogResult: {
-        catalog: TPublishedGithubRelease[]
-        stale: boolean
+        catalog: TPublishedGithubRelease[];
+        stale: boolean;
     };
     try {
-        const cacheKey = JSON.stringify([
-            githubApiBase,
-            githubOwner,
-            githubRepo,
-            configuredTags,
-        ]);
+        const cacheKey = JSON.stringify([githubApiBase, githubOwner, githubRepo, configuredTags]);
         catalogResult = await releaseCatalogLoader({
             cacheKey,
             fetchCatalog: async () => {
                 return fetchReleaseDataWithRetry({
                     fetchResult: fetchReleaseCatalog,
-                    shouldRetryResult: catalog => catalog.length === 0,
+                    shouldRetryResult: (catalog) => catalog.length === 0,
                 });
             },
-            isUsableCatalog: catalog => catalog.length > 0,
+            isUsableCatalog: (catalog) => catalog.length > 0,
         });
     } catch (error) {
         console.warn('Unable to fetch release catalog', {
@@ -287,18 +272,21 @@ export default defineEventHandler(async (event): Promise<ILatestReleaseResponse>
         });
     }
 
-    const release = selectReleaseForRollout(catalogResult.catalog, {
-        canaryPercent: normalizeCanaryPercent(String(config.releaseCanaryPercent || '0')),
-        canaryTag,
-        stableTags,
-        withdrawnTags: new Set(parseReleaseTagList(String(config.releaseWithdrawnTags || ''))),
-    }, getReleaseCohortKey(event));
+    const release = selectReleaseForRollout(
+        catalogResult.catalog,
+        {
+            canaryPercent: normalizeCanaryPercent(String(config.releaseCanaryPercent || '0')),
+            canaryTag,
+            stableTags,
+            withdrawnTags: new Set(parseReleaseTagList(String(config.releaseWithdrawnTags || ''))),
+        },
+        getReleaseCohortKey(event),
+    );
     if (!release) {
         throw createError({
             statusCode: 503,
-            statusMessage: stableTags.length > 0
-                ? 'No configured stable release is currently available'
-                : 'No public release is currently available',
+            statusMessage:
+                stableTags.length > 0 ? 'No configured stable release is currently available' : 'No public release is currently available',
         });
     }
     const installers = await toInstallers(release, releaseMirrorBaseUrl);
@@ -312,8 +300,9 @@ export default defineEventHandler(async (event): Promise<ILatestReleaseResponse>
             tag: release.tag_name,
             name: release.name ?? release.tag_name,
             publishedAt: release.published_at,
-            htmlUrl: parseHttpsUrl(release.html_url)
-                ?? `https://github.com/${encodeURIComponent(githubOwner)}/${encodeURIComponent(githubRepo)}/releases/tag/${encodeURIComponent(release.tag_name)}`,
+            htmlUrl:
+                parseHttpsUrl(release.html_url) ??
+                `https://github.com/${encodeURIComponent(githubOwner)}/${encodeURIComponent(githubRepo)}/releases/tag/${encodeURIComponent(release.tag_name)}`,
         },
         assets: installers,
         recommendation: {

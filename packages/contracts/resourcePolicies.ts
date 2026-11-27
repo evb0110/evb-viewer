@@ -1,4 +1,4 @@
-import { isRecord } from '@contracts/runtimeGuards';
+import {isRecord} from '@contracts/runtimeGuards';
 
 export const SCAN_CLEANUP_MAX_RASTER_CONCURRENCY = 64;
 
@@ -27,10 +27,7 @@ export function parseBoundedEnvInt(
     },
 ): number {
     const parsed = Number.parseInt(value ?? '', 10);
-    if (
-        !Number.isFinite(parsed)
-        || (requireSafeInteger && !Number.isSafeInteger(parsed))
-    ) {
+    if (!Number.isFinite(parsed) || (requireSafeInteger && !Number.isSafeInteger(parsed))) {
         return fallback;
     }
     if (parsed < min) {
@@ -40,37 +37,25 @@ export function parseBoundedEnvInt(
 }
 
 function isPositiveSafeInteger(value: unknown): value is number {
-    return typeof value === 'number'
-        && Number.isSafeInteger(value)
-        && value > 0;
+    return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
 }
 
 function isNonNegativeSafeInteger(value: unknown): value is number {
-    return typeof value === 'number'
-        && Number.isSafeInteger(value)
-        && value >= 0;
+    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
 
-function isPositiveSafeIntegerAtMost(
-    value: unknown,
-    max: number,
-): value is number {
+function isPositiveSafeIntegerAtMost(value: unknown, max: number): value is number {
     return isPositiveSafeInteger(value) && value <= max;
 }
 
-export function decodeScanCleanupRuntimePolicy(
-    value: unknown,
-): IScanCleanupRuntimePolicy | null {
+export function decodeScanCleanupRuntimePolicy(value: unknown): IScanCleanupRuntimePolicy | null {
     const rasterMaxPixels = isRecord(value) ? value.rasterMaxPixels : undefined;
     if (
-        !isRecord(value)
-        || !isPositiveSafeIntegerAtMost(
-            value.rasterConcurrency,
-            SCAN_CLEANUP_MAX_RASTER_CONCURRENCY,
-        )
-        || !isNonNegativeSafeInteger(value.logicalCpus)
-        || !isNonNegativeSafeInteger(value.totalRamBytes)
-        || (rasterMaxPixels !== undefined && !isPositiveSafeInteger(rasterMaxPixels))
+        !isRecord(value) ||
+        !isPositiveSafeIntegerAtMost(value.rasterConcurrency, SCAN_CLEANUP_MAX_RASTER_CONCURRENCY) ||
+        !isNonNegativeSafeInteger(value.logicalCpus) ||
+        !isNonNegativeSafeInteger(value.totalRamBytes) ||
+        (rasterMaxPixels !== undefined && !isPositiveSafeInteger(rasterMaxPixels))
     ) {
         return null;
     }

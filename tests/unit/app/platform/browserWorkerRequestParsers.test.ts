@@ -1,11 +1,7 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { parseBrowserSearchWorkerRequest } from '@app/platform/browser-api/browserSearchWorker.types';
-import { parseBrowserPdfCombineWorkerRequest } from '@contracts/browserPdfCombineWorker';
-import { parseBrowserPageOpsWorkerRequest } from '@contracts/browserPageOpsWorker';
+import {describe, expect, it} from 'vitest';
+import {parseBrowserSearchWorkerRequest} from '@app/platform/browser-api/browserSearchWorker.types';
+import {parseBrowserPdfCombineWorkerRequest} from '@contracts/browserPdfCombineWorker';
+import {parseBrowserPageOpsWorkerRequest} from '@contracts/browserPageOpsWorker';
 
 describe('browser worker request parsers', () => {
     it('parses and rejects browser search worker requests', () => {
@@ -25,133 +21,145 @@ describe('browser worker request parsers', () => {
         };
         expect(parseBrowserSearchWorkerRequest(request)).toEqual(request);
 
-        expect(parseBrowserSearchWorkerRequest({
-            ...request,
-            payload: {
-                ...request.payload,
-                maxMatches: 0,
-            },
-        })).toBeNull();
+        expect(
+            parseBrowserSearchWorkerRequest({
+                ...request,
+                payload: {
+                    ...request.payload,
+                    maxMatches: 0,
+                },
+            }),
+        ).toBeNull();
         // The worker opens no documents.
-        expect(parseBrowserSearchWorkerRequest({
-            id: 3,
-            type: 'streamDocumentText',
-            payload: {pdfPath: '/tmp/stream.pdf'},
-        })).toBeNull();
+        expect(
+            parseBrowserSearchWorkerRequest({
+                id: 3,
+                type: 'streamDocumentText',
+                payload: {pdfPath: '/tmp/stream.pdf'},
+            }),
+        ).toBeNull();
     });
 
     it('parses and rejects browser PDF combine worker requests', () => {
-        const data = new Uint8Array([
-            1,
-            2,
-            3,
-        ]);
-        expect(parseBrowserPdfCombineWorkerRequest({
-            id: 4,
-            type: 'combinePdfs',
-            payload: {
-                inputs: [{
-                    fileName: 'a.pdf',
-                    data,
-                }],
-                wasmImagePreprocessing: {
-                    jpegQuality: 75,
-                    ppiCap: 300,
-                    pageSpecs: [{
-                        kind: 'layered-color',
-                        pageSize: {
-                            widthPoints: 310.32,
-                            heightPoints: 471.84,
-                        },
-                        background: {
-                            fileName: 'background.ppm',
+        const data = new Uint8Array([1, 2, 3]);
+        expect(
+            parseBrowserPdfCombineWorkerRequest({
+                id: 4,
+                type: 'combinePdfs',
+                payload: {
+                    inputs: [
+                        {
+                            fileName: 'a.pdf',
                             data,
                         },
-                        mask: {
-                            fileName: 'mask.pbm',
-                            data,
-                        },
-                        foregroundColor: [
-                            128,
-                            16,
-                            16,
+                    ],
+                    wasmImagePreprocessing: {
+                        jpegQuality: 75,
+                        ppiCap: 300,
+                        pageSpecs: [
+                            {
+                                kind: 'layered-color',
+                                pageSize: {
+                                    widthPoints: 310.32,
+                                    heightPoints: 471.84,
+                                },
+                                background: {
+                                    fileName: 'background.ppm',
+                                    data,
+                                },
+                                mask: {
+                                    fileName: 'mask.pbm',
+                                    data,
+                                },
+                                foregroundColor: [128, 16, 16],
+                            },
                         ],
-                    }],
+                    },
                 },
-            },
-        })).toEqual({
+            }),
+        ).toEqual({
             id: 4,
             type: 'combinePdfs',
             payload: {
-                inputs: [{
-                    fileName: 'a.pdf',
-                    data,
-                }],
+                inputs: [
+                    {
+                        fileName: 'a.pdf',
+                        data,
+                    },
+                ],
                 wasmImagePreprocessing: {
                     jpegQuality: 75,
                     ppiCap: 300,
-                    pageSpecs: [{
-                        kind: 'layered-color',
-                        pageSize: {
-                            widthPoints: 310.32,
-                            heightPoints: 471.84,
+                    pageSpecs: [
+                        {
+                            kind: 'layered-color',
+                            pageSize: {
+                                widthPoints: 310.32,
+                                heightPoints: 471.84,
+                            },
+                            background: {
+                                fileName: 'background.ppm',
+                                data,
+                            },
+                            mask: {
+                                fileName: 'mask.pbm',
+                                data,
+                            },
+                            foregroundColor: [128, 16, 16],
                         },
-                        background: {
-                            fileName: 'background.ppm',
-                            data,
-                        },
-                        mask: {
-                            fileName: 'mask.pbm',
-                            data,
-                        },
-                        foregroundColor: [
-                            128,
-                            16,
-                            16,
-                        ],
-                    }],
+                    ],
                 },
             },
         });
 
-        expect(parseBrowserPdfCombineWorkerRequest({
-            id: 5,
-            type: 'combinePdfs',
-            payload: {inputs: [{
-                fileName: 'a.pdf',
-                data: [
-                    1,
-                    2,
-                    3,
-                ],
-            }]},
-        })).toBeNull();
+        expect(
+            parseBrowserPdfCombineWorkerRequest({
+                id: 5,
+                type: 'combinePdfs',
+                payload: {
+                    inputs: [
+                        {
+                            fileName: 'a.pdf',
+                            data: [1, 2, 3],
+                        },
+                    ],
+                },
+            }),
+        ).toBeNull();
 
-        expect(parseBrowserPdfCombineWorkerRequest({
-            id: 6,
-            type: 'combinePdfs',
-            payload: {
-                inputs: [{
-                    fileName: 'a.pdf',
-                    data,
-                }],
-                wasmImagePreprocessing: {pageSpecs: [{
-                    kind: 'layered-color',
-                    pageSize: {
-                        widthPoints: 72,
-                        heightPoints: 72,
+        expect(
+            parseBrowserPdfCombineWorkerRequest({
+                id: 6,
+                type: 'combinePdfs',
+                payload: {
+                    inputs: [
+                        {
+                            fileName: 'a.pdf',
+                            data,
+                        },
+                    ],
+                    wasmImagePreprocessing: {
+                        pageSpecs: [
+                            {
+                                kind: 'layered-color',
+                                pageSize: {
+                                    widthPoints: 72,
+                                    heightPoints: 72,
+                                },
+                                background: {
+                                    fileName: 'background.ppm',
+                                    data,
+                                },
+                                mask: {
+                                    fileName: 'mask.pbm',
+                                    data,
+                                },
+                            },
+                        ],
                     },
-                    background: {
-                        fileName: 'background.ppm',
-                        data,
-                    },
-                    mask: {
-                        fileName: 'mask.pbm',
-                        data,
-                    },
-                }]},
-            },
-        })).toBeNull();
+                },
+            }),
+        ).toBeNull();
     });
 
     it('parses the Optimize page kinds only with the options desktop gives them', () => {
@@ -163,28 +171,37 @@ describe('browser worker request parsers', () => {
             widthPoints: 72,
             heightPoints: 72,
         };
-        const parse = (spec: Record<string, unknown>) => parseBrowserPdfCombineWorkerRequest({
-            id: 7,
-            type: 'combinePdfs',
-            payload: {
-                inputs: [],
-                wasmImagePreprocessing: {pageSpecs: [{
-                    pageSize,
-                    image,
-                    ...spec,
-                }]},
-            },
-        });
+        const parse = (spec: Record<string, unknown>) =>
+            parseBrowserPdfCombineWorkerRequest({
+                id: 7,
+                type: 'combinePdfs',
+                payload: {
+                    inputs: [],
+                    wasmImagePreprocessing: {
+                        pageSpecs: [
+                            {
+                                pageSize,
+                                image,
+                                ...spec,
+                            },
+                        ],
+                    },
+                },
+            });
 
         expect(parse({kind: 'image-bw'})).not.toBeNull();
-        expect(parse({
-            kind: 'image-bw',
-            ppiCap: 0,
-        })).not.toBeNull();
-        expect(parse({
-            kind: 'image-jpeg-with-flate-fallback',
-            jpegQuality: 82,
-        })).not.toBeNull();
+        expect(
+            parse({
+                kind: 'image-bw',
+                ppiCap: 0,
+            }),
+        ).not.toBeNull();
+        expect(
+            parse({
+                kind: 'image-jpeg-with-flate-fallback',
+                jpegQuality: 82,
+            }),
+        ).not.toBeNull();
         for (const spec of [
             {
                 kind: 'image-bw',
@@ -214,235 +231,271 @@ describe('browser worker request parsers', () => {
     });
 
     it('parses and rejects browser page operation worker requests', () => {
-        const data = new Uint8Array([
-            1,
-            2,
-            3,
-        ]);
+        const data = new Uint8Array([1, 2, 3]);
         const blobSource = new Blob([data]);
 
         // Whole-PDF rotate/crop/removeCrop byte-buffer ops were replaced by incremental OPFS mutations.
-        expect(parseBrowserPageOpsWorkerRequest({
-            id: 6,
-            type: 'rotate',
-            payload: {
-                data,
-                pages: [1],
-                angle: 90,
-            },
-        })).toBeNull();
-        expect(parseBrowserPageOpsWorkerRequest({
-            id: 7,
-            type: 'crop',
-            payload: {
-                data,
-                pages: [1],
-                margins: {
-                    top: 1,
-                    bottom: 2,
-                    left: 3,
-                    right: 4,
-                },
-            },
-        })).toBeNull();
-        expect(parseBrowserPageOpsWorkerRequest({
-            id: 8,
-            type: 'removeCrop',
-            payload: {
-                data,
-                pages: [1],
-            },
-        })).toBeNull();
-
-        expect(parseBrowserPageOpsWorkerRequest({
-            id: 19,
-            type: 'appendAdmission',
-            payload: {source: blobSource},
-        })).toEqual({
-            id: 19,
-            type: 'appendAdmission',
-            payload: {source: blobSource},
-        });
-        expect(parseBrowserPageOpsWorkerRequest({
-            id: 20,
-            type: 'appendAdmission',
-            payload: {source: data},
-        })).toBeNull();
-        expect(parseBrowserPageOpsWorkerRequest({
-            id: 21,
-            type: 'renderScanCleanupRaster',
-            payload: {
-                source: blobSource,
-                cacheKey: 'doc-1:rev-2',
-                request: {
-                    pageNumber: 3,
-                    dpi: 150,
-                    renderBox: 'cropBox',
-                    maxPixels: 4_000_000,
-                },
-            },
-        })).toEqual({
-            id: 21,
-            type: 'renderScanCleanupRaster',
-            payload: {
-                source: blobSource,
-                cacheKey: 'doc-1:rev-2',
-                request: {
-                    pageNumber: 3,
-                    dpi: 150,
-                    renderBox: 'cropBox',
-                    maxPixels: 4_000_000,
-                },
-            },
-        });
-        expect(parseBrowserPageOpsWorkerRequest({
-            id: 22,
-            type: 'renderScanCleanupRaster',
-            payload: {
-                source: blobSource,
-                cacheKey: '',
-                request: {
-                    pageNumber: 3,
-                    dpi: 150,
-                    renderBox: 'cropBox',
-                    maxPixels: 4_000_000,
-                },
-            },
-        })).toBeNull();
-
-        expect(parseBrowserPdfCombineWorkerRequest({
-            id: 13,
-            type: 'combinePdfs',
-            payload: {
-                inputs: [{
-                    fileName: 'page.ppm',
+        expect(
+            parseBrowserPageOpsWorkerRequest({
+                id: 6,
+                type: 'rotate',
+                payload: {
                     data,
-                }],
-                wasmImagePreprocessing: {pageSpecs: [{
-                    kind: 'image',
-                    pageSize: {
-                        widthPoints: 72,
-                        heightPoints: 72,
+                    pages: [1],
+                    angle: 90,
+                },
+            }),
+        ).toBeNull();
+        expect(
+            parseBrowserPageOpsWorkerRequest({
+                id: 7,
+                type: 'crop',
+                payload: {
+                    data,
+                    pages: [1],
+                    margins: {
+                        top: 1,
+                        bottom: 2,
+                        left: 3,
+                        right: 4,
                     },
-                    image: {
-                        fileName: 'page.ppm',
-                        data,
+                },
+            }),
+        ).toBeNull();
+        expect(
+            parseBrowserPageOpsWorkerRequest({
+                id: 8,
+                type: 'removeCrop',
+                payload: {
+                    data,
+                    pages: [1],
+                },
+            }),
+        ).toBeNull();
+
+        expect(
+            parseBrowserPageOpsWorkerRequest({
+                id: 19,
+                type: 'appendAdmission',
+                payload: {source: blobSource},
+            }),
+        ).toEqual({
+            id: 19,
+            type: 'appendAdmission',
+            payload: {source: blobSource},
+        });
+        expect(
+            parseBrowserPageOpsWorkerRequest({
+                id: 20,
+                type: 'appendAdmission',
+                payload: {source: data},
+            }),
+        ).toBeNull();
+        expect(
+            parseBrowserPageOpsWorkerRequest({
+                id: 21,
+                type: 'renderScanCleanupRaster',
+                payload: {
+                    source: blobSource,
+                    cacheKey: 'doc-1:rev-2',
+                    request: {
+                        pageNumber: 3,
+                        dpi: 150,
+                        renderBox: 'cropBox',
+                        maxPixels: 4_000_000,
                     },
-                }]},
+                },
+            }),
+        ).toEqual({
+            id: 21,
+            type: 'renderScanCleanupRaster',
+            payload: {
+                source: blobSource,
+                cacheKey: 'doc-1:rev-2',
+                request: {
+                    pageNumber: 3,
+                    dpi: 150,
+                    renderBox: 'cropBox',
+                    maxPixels: 4_000_000,
+                },
             },
-        })).toMatchObject({
+        });
+        expect(
+            parseBrowserPageOpsWorkerRequest({
+                id: 22,
+                type: 'renderScanCleanupRaster',
+                payload: {
+                    source: blobSource,
+                    cacheKey: '',
+                    request: {
+                        pageNumber: 3,
+                        dpi: 150,
+                        renderBox: 'cropBox',
+                        maxPixels: 4_000_000,
+                    },
+                },
+            }),
+        ).toBeNull();
+
+        expect(
+            parseBrowserPdfCombineWorkerRequest({
+                id: 13,
+                type: 'combinePdfs',
+                payload: {
+                    inputs: [
+                        {
+                            fileName: 'page.ppm',
+                            data,
+                        },
+                    ],
+                    wasmImagePreprocessing: {
+                        pageSpecs: [
+                            {
+                                kind: 'image',
+                                pageSize: {
+                                    widthPoints: 72,
+                                    heightPoints: 72,
+                                },
+                                image: {
+                                    fileName: 'page.ppm',
+                                    data,
+                                },
+                            },
+                        ],
+                    },
+                },
+            }),
+        ).toMatchObject({
             id: 13,
             type: 'combinePdfs',
             payload: {wasmImagePreprocessing: {pageSpecs: [{kind: 'image'}]}},
         });
 
         const catalogSource = new Blob([data]);
-        expect(parseBrowserPageOpsWorkerRequest({
+        expect(
+            parseBrowserPageOpsWorkerRequest({
+                id: 9,
+                type: 'readCatalog',
+                payload: {source: catalogSource},
+            }),
+        ).toEqual({
             id: 9,
             type: 'readCatalog',
             payload: {source: catalogSource},
-        })).toEqual({
-            id: 9,
-            type: 'readCatalog',
-            payload: {source: catalogSource},
         });
-        expect(parseBrowserPageOpsWorkerRequest({
+        expect(
+            parseBrowserPageOpsWorkerRequest({
+                id: 10,
+                type: 'conformance',
+                payload: {source: catalogSource},
+            }),
+        ).toEqual({
             id: 10,
             type: 'conformance',
             payload: {source: catalogSource},
-        })).toEqual({
-            id: 10,
-            type: 'conformance',
-            payload: {source: catalogSource},
         });
-        expect(parseBrowserPageOpsWorkerRequest({
-            id: 14,
-            type: 'readPageSizes',
-            payload: {source: catalogSource},
-        })).toEqual({
+        expect(
+            parseBrowserPageOpsWorkerRequest({
+                id: 14,
+                type: 'readPageSizes',
+                payload: {source: catalogSource},
+            }),
+        ).toEqual({
             id: 14,
             type: 'readPageSizes',
             payload: {source: catalogSource},
         });
-        expect(parseBrowserPageOpsWorkerRequest({
-            id: 15,
-            type: 'readPageSizes',
-            payload: {source: data},
-        })).toBeNull();
-        expect(parseBrowserPageOpsWorkerRequest({
+        expect(
+            parseBrowserPageOpsWorkerRequest({
+                id: 15,
+                type: 'readPageSizes',
+                payload: {source: data},
+            }),
+        ).toBeNull();
+        expect(
+            parseBrowserPageOpsWorkerRequest({
+                id: 16,
+                type: 'getPageGeometry',
+                payload: {
+                    source: catalogSource,
+                    pageNumber: 2,
+                },
+            }),
+        ).toEqual({
             id: 16,
             type: 'getPageGeometry',
             payload: {
                 source: catalogSource,
                 pageNumber: 2,
             },
-        })).toEqual({
-            id: 16,
-            type: 'getPageGeometry',
-            payload: {
-                source: catalogSource,
-                pageNumber: 2,
-            },
         });
-        expect(parseBrowserPageOpsWorkerRequest({
-            id: 17,
-            type: 'getPageGeometry',
-            payload: {
-                data,
-                pageNumber: 2,
-            },
-        })).toBeNull();
-        expect(parseBrowserPageOpsWorkerRequest({
-            id: 18,
-            type: 'getPageGeometry',
-            payload: {
-                source: catalogSource,
-                pageNumber: 0,
-            },
-        })).toBeNull();
+        expect(
+            parseBrowserPageOpsWorkerRequest({
+                id: 17,
+                type: 'getPageGeometry',
+                payload: {
+                    data,
+                    pageNumber: 2,
+                },
+            }),
+        ).toBeNull();
+        expect(
+            parseBrowserPageOpsWorkerRequest({
+                id: 18,
+                type: 'getPageGeometry',
+                payload: {
+                    source: catalogSource,
+                    pageNumber: 0,
+                },
+            }),
+        ).toBeNull();
         const source = new Blob([data]);
         const merge = {
             id: 11,
             type: 'pageStructure',
             payload: {
                 edit: {kind: 'merge'},
-                sources: [
-                    source,
-                    source,
-                ],
+                sources: [source, source],
                 output: 'documents/a/r2.pdf',
             },
         };
         expect(parseBrowserPageOpsWorkerRequest(merge)).toEqual(merge);
-        expect(parseBrowserPageOpsWorkerRequest({
-            ...merge,
-            payload: {...merge.payload, sources: []},
-        })).toBeNull();
-        expect(parseBrowserPageOpsWorkerRequest({
-            ...merge,
-            payload: {...merge.payload, edit: {kind: 'delete', pages: [0]}},
-        })).toBeNull();
+        expect(
+            parseBrowserPageOpsWorkerRequest({
+                ...merge,
+                payload: {...merge.payload, sources: []},
+            }),
+        ).toBeNull();
+        expect(
+            parseBrowserPageOpsWorkerRequest({
+                ...merge,
+                payload: {...merge.payload, edit: {kind: 'delete', pages: [0]}},
+            }),
+        ).toBeNull();
     });
     it('validates password and print inputs with the shared native contracts', () => {
         const data = new Uint8Array([1]);
-        expect(parseBrowserPageOpsWorkerRequest({
-            id: 91,
-            type: 'decrypt',
-            payload: {
-                data,
-                password: '秘密'.repeat(4096),
-            },
-        })).toBeNull();
-        expect(parseBrowserPageOpsWorkerRequest({
-            id: 92,
-            type: 'printLayout',
-            payload: {
-                data,
-                pageNumbers: [0],
-                viewMode: 'facing',
-                orientation: 'landscape',
-            },
-        })).toBeNull();
+        expect(
+            parseBrowserPageOpsWorkerRequest({
+                id: 91,
+                type: 'decrypt',
+                payload: {
+                    data,
+                    password: '秘密'.repeat(4096),
+                },
+            }),
+        ).toBeNull();
+        expect(
+            parseBrowserPageOpsWorkerRequest({
+                id: 92,
+                type: 'printLayout',
+                payload: {
+                    data,
+                    pageNumbers: [0],
+                    viewMode: 'facing',
+                    orientation: 'landscape',
+                },
+            }),
+        ).toBeNull();
     });
-
 });

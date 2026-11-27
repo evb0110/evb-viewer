@@ -1,4 +1,4 @@
-import { isAbortError } from '@contracts/isAbortError';
+import {isAbortError} from '@contracts/isAbortError';
 import type {TTranslateFn} from '@i18n-app';
 import type {
     IDocumentPageMetrics,
@@ -6,25 +6,22 @@ import type {
     IDocumentRenderLease,
     TDocumentRenderPriority,
 } from '@app/modules/document-viewer/source/documentPageSource';
-import type { IDocumentViewerRuntime } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
-import type { IDocumentViewerRenderSession } from '@app/modules/document-viewer/runtime/createDocumentViewerRenderCoordinator';
-import type { IDocumentOpenSurfaceRenderOwner } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSessionContract';
+import type {IDocumentViewerRuntime} from '@app/modules/document-viewer/runtime/documentViewerRuntime';
+import type {IDocumentViewerRenderSession} from '@app/modules/document-viewer/runtime/createDocumentViewerRenderCoordinator';
+import type {IDocumentOpenSurfaceRenderOwner} from '@app/modules/document-viewer/runtime/documentOpenSurfaceSessionContract';
 import type {
     IDocumentPageSourceTransition,
     IDocumentPageSourceFence,
     IDocumentPageSourceFeaturePackEmit,
     TDocumentPageSourceOpenJob,
 } from '@app/modules/document-viewer/page-source-renderer/documentPageSourceFeaturePackState';
-import {
-    getFailureReceipt,
-    type FailureReceipt,
-} from '@contracts/diagnostics/failureReceipt';
-import type { IFailurePresentation } from '@app/composables/useFailureToast';
-import { DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA } from '@contracts/documentOpenErrors';
-import { findSerializableErrorEnvelope } from '@contracts/serializableError';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { DOCUMENT_PAGE_GUTTER_PX } from '@app/modules/document-viewer/layout/documentPageGutterPx';
-import { reportDocumentViewportPlacement } from '@app/modules/document-viewer/runtime/reportDocumentViewportPlacement';
+import {getFailureReceipt, type FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import type {IFailurePresentation} from '@app/composables/useFailureToast';
+import {DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA} from '@contracts/documentOpenErrors';
+import {findSerializableErrorEnvelope} from '@contracts/serializableError';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {DOCUMENT_PAGE_GUTTER_PX} from '@app/modules/document-viewer/layout/documentPageGutterPx';
+import {reportDocumentViewportPlacement} from '@app/modules/document-viewer/runtime/reportDocumentViewportPlacement';
 const DOCUMENT_RENDER_PRIORITY_RANK: Record<TDocumentRenderPriority, number> = {
     navigation: 5,
     visible: 4,
@@ -60,18 +57,10 @@ function attachFailureReceipt(error: unknown, receipt: FailureReceipt) {
     }
 }
 
-export function resolveDocumentPageSourceRenderWidthPx(
-    metrics: IDocumentPageMetrics,
-    effectiveZoom: number,
-    pixelRatio: number,
-) {
+export function resolveDocumentPageSourceRenderWidthPx(metrics: IDocumentPageMetrics, effectiveZoom: number, pixelRatio: number) {
     return Math.max(1, Math.round(metrics.widthPoints * effectiveZoom * pixelRatio));
 }
-function isOwnedConnectedDocumentPageImage(
-    image: HTMLImageElement,
-    pageNumber: number,
-    openingTarget: HTMLElement | null,
-) {
+function isOwnedConnectedDocumentPageImage(image: HTMLImageElement, pageNumber: number, openingTarget: HTMLElement | null) {
     if (openingTarget) {
         return image.parentElement === openingTarget && openingTarget.isConnected;
     }
@@ -95,7 +84,9 @@ function waitForDocumentPageImagePaint(image: HTMLImageElement, signal: AbortSig
         };
         const handleAbort = () => finish(false);
         const handleVisibilityChange = () => {
-            if (document.visibilityState !== 'visible') {finish(true);}
+            if (document.visibilityState !== 'visible') {
+                finish(true);
+            }
         };
         signal.addEventListener('abort', handleAbort, {once: true});
         document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -106,8 +97,11 @@ export function createDocumentPageSourcePresentation(options: {
     chassisAuthority: IDocumentViewerRuntime | null;
     emit: IDocumentPageSourceFeaturePackEmit;
     ensureExactPageMetric: (
-        source: IDocumentPageSource, generation: number, pageNumber: number,
-        signal: AbortSignal, isCurrent: () => boolean,
+        source: IDocumentPageSource,
+        generation: number,
+        pageNumber: number,
+        signal: AbortSignal,
+        isCurrent: () => boolean,
     ) => Promise<IDocumentPageMetrics>;
     flushMetricPublication: () => void;
     getOpeningTarget: (pageNumber: number) => HTMLElement | null;
@@ -144,57 +138,54 @@ export function createDocumentPageSourcePresentation(options: {
         state.failurePresentation = null;
         state.ready = false;
     };
-    const createVisualState = (
-        generation: number,
-        priority: TDocumentRenderPriority,
-        widthPx: number,
-    ) => shallowReactive<IDocumentPageSourceVisualState>({
-        generation,
-        error: null,
-        failurePresentation: null,
-        ready: false,
-        lease: null,
-        priority,
-        retryCount: 0,
-        widthPx,
-        unsubscribeInvalidation: null,
-    });
-    const subscribeInvalidation = (
-        pageNumber: number,
-        state: IDocumentPageSourceVisualState,
-        lease: IDocumentRenderLease,
-    ) => lease.onInvalidated?.(() => {
-        const invalidated = pageStates.get(pageNumber);
-        if (invalidated !== state || invalidated.lease !== lease) {
-            return;
-        }
-        const image = getMountedImage(pageNumber, invalidated);
-        if (image?.dataset.pageSourceCandidate) {image.remove();}
-        invalidated.unsubscribeInvalidation?.();
-        invalidated.unsubscribeInvalidation = null;
-        invalidated.lease = null;
-        beginPending(pageNumber, invalidated);
-        if (invalidated.priority !== 'nearby') {
-            options.scheduleRender();
-        }
-    }) ?? null;
+    const createVisualState = (generation: number, priority: TDocumentRenderPriority, widthPx: number) =>
+        shallowReactive<IDocumentPageSourceVisualState>({
+            generation,
+            error: null,
+            failurePresentation: null,
+            ready: false,
+            lease: null,
+            priority,
+            retryCount: 0,
+            widthPx,
+            unsubscribeInvalidation: null,
+        });
+    const subscribeInvalidation = (pageNumber: number, state: IDocumentPageSourceVisualState, lease: IDocumentRenderLease) =>
+        lease.onInvalidated?.(() => {
+            const invalidated = pageStates.get(pageNumber);
+            if (invalidated !== state || invalidated.lease !== lease) {
+                return;
+            }
+            const image = getMountedImage(pageNumber, invalidated);
+            if (image?.dataset.pageSourceCandidate) {
+                image.remove();
+            }
+            invalidated.unsubscribeInvalidation?.();
+            invalidated.unsubscribeInvalidation = null;
+            invalidated.lease = null;
+            beginPending(pageNumber, invalidated);
+            if (invalidated.priority !== 'nearby') {
+                options.scheduleRender();
+            }
+        }) ?? null;
     const getSurface = (pageNumber: number) => {
         const surface = pageStates.get(pageNumber)?.lease?.surface;
         return typeof surface === 'string' ? surface : null;
     };
-    const getRenderGeneration = (pageNumber: number): number | '' => (
-        pageStates.get(pageNumber)?.generation ?? ''
-    );
+    const getRenderGeneration = (pageNumber: number): number | '' => pageStates.get(pageNumber)?.generation ?? '';
     const getMountedImage = (pageNumber: number, state: IDocumentPageSourceVisualState) => {
         const openingTarget = options.getOpeningTarget(pageNumber);
         const candidates = openingTarget
             ? openingTarget.querySelectorAll<HTMLImageElement>('[data-testid="document-page-source-image"]')
             : options.readViewport()?.querySelectorAll<HTMLImageElement>('[data-testid="document-page-source-image"]');
-        return [...(candidates ?? [])].find(image => (
-            image.dataset.pageRenderGeneration === String(state.generation)
-            && image.dataset.documentLoadGeneration === String(options.readFence().loadGeneration)
-            && isOwnedConnectedDocumentPageImage(image, pageNumber, openingTarget)
-        )) ?? null;
+        return (
+            [...(candidates ?? [])].find(
+                (image) =>
+                    image.dataset.pageRenderGeneration === String(state.generation) &&
+                    image.dataset.documentLoadGeneration === String(options.readFence().loadGeneration) &&
+                    isOwnedConnectedDocumentPageImage(image, pageNumber, openingTarget),
+            ) ?? null
+        );
     };
     const getConnectedImage = (pageNumber: number, state: IDocumentPageSourceVisualState) => {
         const image = getMountedImage(pageNumber, state);
@@ -222,15 +213,13 @@ export function createDocumentPageSourcePresentation(options: {
     };
     const getVisualError = (pageNumber: number) => {
         const viewportVisual = options.chassisAuthority?.openSurface.viewportSession.value.visual;
-        return pageStates.get(pageNumber)?.error
-            ?? (viewportVisual?.kind === 'page' && viewportVisual.pageNumber === pageNumber
-                ? viewportVisual.error
-                : null)
-            ?? options.t('common.pageRenderFailed');
+        return (
+            pageStates.get(pageNumber)?.error ??
+            (viewportVisual?.kind === 'page' && viewportVisual.pageNumber === pageNumber ? viewportVisual.error : null) ??
+            options.t('common.pageRenderFailed')
+        );
     };
-    const getVisualFailurePresentation = (pageNumber: number) => (
-        pageStates.get(pageNumber)?.failurePresentation ?? null
-    );
+    const getVisualFailurePresentation = (pageNumber: number) => pageStates.get(pageNumber)?.failurePresentation ?? null;
     const createFailureError = (pageNumber: number, message?: string) => {
         const error = new Error(message ?? getVisualError(pageNumber));
         const receipt = getVisualFailurePresentation(pageNumber)?.failure;
@@ -252,12 +241,14 @@ export function createDocumentPageSourcePresentation(options: {
         state.lease = null;
         const message = options.t('common.pageRenderFailed');
         state.error = message;
-        const receipt = state.failurePresentation?.failure ?? BrowserLogger.error(
-            'pdf-page-source',
-            'Failed to render document page',
-            cause ?? `Unable to display page ${String(pageNumber)}`,
-            getFailureReceipt(cause) ?? {code: 'RENDERER_PDF_PAGE_RENDER_FAILED'},
-        );
+        const receipt =
+            state.failurePresentation?.failure ??
+            BrowserLogger.error(
+                'pdf-page-source',
+                'Failed to render document page',
+                cause ?? `Unable to display page ${String(pageNumber)}`,
+                getFailureReceipt(cause) ?? {code: 'RENDERER_PDF_PAGE_RENDER_FAILED'},
+            );
         state.failurePresentation = {
             failure: receipt,
             title: options.t('common.pageRenderFailed'),
@@ -270,15 +261,16 @@ export function createDocumentPageSourcePresentation(options: {
         const viewportState = openSurface?.viewportSession.value;
         const surfaceGeneration = lifecycleFence.openSurfaceGeneration;
         if (
-            openSurface
-            && snapshot
-            && viewportState?.requestedPage === pageNumber
-            && surfaceGeneration !== null
-            && snapshot.generation === surfaceGeneration
+            openSurface &&
+            snapshot &&
+            viewportState?.requestedPage === pageNumber &&
+            surfaceGeneration !== null &&
+            snapshot.generation === surfaceGeneration
         ) {
             if (viewportState.lifecycle === 'transitioning') {
-                const navigationFence = options.openSurfaceRenderOwner
-                    && openSurface.createOwnedRenderFence(options.openSurfaceRenderOwner, {
+                const navigationFence =
+                    options.openSurfaceRenderOwner &&
+                    openSurface.createOwnedRenderFence(options.openSurfaceRenderOwner, {
                         generation: surfaceGeneration,
                         documentRevision: snapshot.identity?.documentRevision ?? '',
                         requestId: state.generation,
@@ -305,43 +297,42 @@ export function createDocumentPageSourcePresentation(options: {
         const navigationTicket = openSurface?.navigationTicket.value ?? null;
         const requiresOpeningLayout = snapshot?.committedRender === null;
         if (
-            !state.ready
-            || !image
-            || pageStates.get(pageNumber) !== state
-            || !openSurface
-            || !snapshot
-            || !viewportState
-            || lifecycleFence.openSurfaceGeneration === null
-            || snapshot.generation !== lifecycleFence.openSurfaceGeneration
-            || viewportState.requestedPage !== pageNumber
-            || viewportState.viewportIntent?.pageNumber !== pageNumber
-            || ![
-                'opening',
-                'transitioning',
-            ].includes(viewportState.lifecycle)
-            || requiresOpeningLayout && (
-                snapshot.openingPageFrame?.generation !== lifecycleFence.openSurfaceGeneration
-                || snapshot.openingPageFrame.pageNumber !== pageNumber
-            )
-            || navigationTicket !== null && !openSurface.isNavigationCurrent(navigationTicket)
+            !state.ready ||
+            !image ||
+            pageStates.get(pageNumber) !== state ||
+            !openSurface ||
+            !snapshot ||
+            !viewportState ||
+            lifecycleFence.openSurfaceGeneration === null ||
+            snapshot.generation !== lifecycleFence.openSurfaceGeneration ||
+            viewportState.requestedPage !== pageNumber ||
+            viewportState.viewportIntent?.pageNumber !== pageNumber ||
+            !['opening', 'transitioning'].includes(viewportState.lifecycle) ||
+            (requiresOpeningLayout &&
+                (snapshot.openingPageFrame?.generation !== lifecycleFence.openSurfaceGeneration ||
+                    snapshot.openingPageFrame.pageNumber !== pageNumber)) ||
+            (navigationTicket !== null && !openSurface.isNavigationCurrent(navigationTicket))
         ) {
             return false;
         }
         if (requiresOpeningLayout) {
             const rect = options.getOpeningTarget(pageNumber)?.getBoundingClientRect();
-            if (!rect || rect.width <= 0 || rect.height <= 0 || !openSurface.commitGeometry(
-                lifecycleFence.openSurfaceGeneration,
-                {
+            if (
+                !rect ||
+                rect.width <= 0 ||
+                rect.height <= 0 ||
+                !openSurface.commitGeometry(lifecycleFence.openSurfaceGeneration, {
                     width: rect.width,
                     height: rect.height,
                     margin: DOCUMENT_PAGE_GUTTER_PX,
-                },
-            )) {
+                })
+            ) {
                 return false;
             }
         }
-        const fence = options.openSurfaceRenderOwner
-            && openSurface.createOwnedRenderFence(options.openSurfaceRenderOwner, {
+        const fence =
+            options.openSurfaceRenderOwner &&
+            openSurface.createOwnedRenderFence(options.openSurfaceRenderOwner, {
                 generation: lifecycleFence.openSurfaceGeneration,
                 documentRevision: snapshot.identity?.documentRevision ?? '',
                 requestId: state.generation,
@@ -365,19 +356,26 @@ export function createDocumentPageSourcePresentation(options: {
         options.readOpenJob()?.settleVisual(true);
         return navigationTicket
             ? openSurface.reportNavigation(navigationTicket, {
-                kind: 'arrived',
-                page: pageNumber,
-            })
+                  kind: 'arrived',
+                  page: pageNumber,
+              })
             : true;
     }
     // An open's visual nothing will commit ends: an inactive renderer draws no
     // target, and the navigation it opened with can retire without arriving,
     // even before the open got here (or hand over to a newer one).
-    function settleUncommittedVisual(job: TDocumentPageSourceOpenJob, ticket = options.chassisAuthority?.openSurface.navigationTicket.value) {
+    function settleUncommittedVisual(
+        job: TDocumentPageSourceOpenJob,
+        ticket = options.chassisAuthority?.openSurface.navigationTicket.value,
+    ) {
         const openSurface = options.chassisAuthority?.openSurface;
-        if (!options.readIsActive()) {return job.settleVisual(false);}
+        if (!options.readIsActive()) {
+            return job.settleVisual(false);
+        }
         void ticket?.finished.then((outcome) => {
-            if (outcome.kind === 'arrived' || job.abort.signal.aborted) {return;}
+            if (outcome.kind === 'arrived' || job.abort.signal.aborted) {
+                return;
+            }
             return openSurface?.navigationTicket.value ? settleUncommittedVisual(job) : job.settleVisual(false);
         });
     }
@@ -397,12 +395,11 @@ export function createDocumentPageSourcePresentation(options: {
         const fence = options.readFence();
         const loadSignal = options.readOpenJob()?.abort.signal;
         const currentPage = options.readCurrentPage();
-        const isCurrent = () => (
-            options.isFenceCurrent(fence)
-            && options.readIsActive()
-            && options.readSource() === activeSource
-            && loadSignal?.aborted === false
-        );
+        const isCurrent = () =>
+            options.isFenceCurrent(fence) &&
+            options.readIsActive() &&
+            options.readSource() === activeSource &&
+            loadSignal?.aborted === false;
         if (!activeSource || !loadSignal || !options.readIsActive()) {
             return;
         }
@@ -412,23 +409,19 @@ export function createDocumentPageSourcePresentation(options: {
         }
         const demand = options.readRenderDemand();
         const direction = options.readViewportScrollDirection();
-        const leading = options.readContinuousScroll()
-            && direction !== 0
-            && demand.bufferPages.includes(pageNumber)
-            && Math.sign(pageNumber - currentPage) === direction;
-        const priority: TDocumentRenderPriority = pageNumber === (
-            options.chassisAuthority?.openSurface.viewportSession.value.requestedPage ?? currentPage
-        )
-            ? 'navigation'
-            : demand.visiblePages.includes(pageNumber) || leading ? 'visible' : 'nearby';
+        const leading =
+            options.readContinuousScroll() &&
+            direction !== 0 &&
+            demand.bufferPages.includes(pageNumber) &&
+            Math.sign(pageNumber - currentPage) === direction;
+        const priority: TDocumentRenderPriority =
+            pageNumber === (options.chassisAuthority?.openSurface.viewportSession.value.requestedPage ?? currentPage)
+                ? 'navigation'
+                : demand.visiblePages.includes(pageNumber) || leading
+                  ? 'visible'
+                  : 'nearby';
         try {
-            await options.ensureExactPageMetric(
-                activeSource,
-                fence.loadGeneration,
-                pageNumber,
-                loadSignal,
-                isCurrent,
-            );
+            await options.ensureExactPageMetric(activeSource, fence.loadGeneration, pageNumber, loadSignal, isCurrent);
             if (!isCurrent()) {
                 return;
             }
@@ -450,11 +443,7 @@ export function createDocumentPageSourcePresentation(options: {
         if (!metric || !isCurrent()) {
             return;
         }
-        const widthPx = resolveDocumentPageSourceRenderWidthPx(
-            metric,
-            options.readPageScale(pageNumber),
-            options.readPixelRatio(),
-        );
+        const widthPx = resolveDocumentPageSourceRenderWidthPx(metric, options.readPageScale(pageNumber), options.readPixelRatio());
         const previous = pageStates.get(pageNumber);
         const activeController = renderControllers.get(pageNumber);
         if (previous?.widthPx === widthPx && previous.lease) {
@@ -487,7 +476,7 @@ export function createDocumentPageSourcePresentation(options: {
         }
         const renderController = new AbortController();
         renderControllers.set(pageNumber, renderController);
-        const renderAttempt: { generation: number | null } = {generation: null};
+        const renderAttempt: {generation: number | null} = {generation: null};
         try {
             const outcome = await options.renderSession?.runPageRender(pageNumber, async ({requestId: renderGeneration}) => {
                 renderAttempt.generation = renderGeneration;
@@ -522,13 +511,11 @@ export function createDocumentPageSourcePresentation(options: {
                 renderController.signal.throwIfAborted();
                 const current = pageStates.get(pageNumber);
                 if (
-                    !outcome.committed
-                    || !isCurrent()
-                    || renderControllers.get(pageNumber) !== renderController
-                    || !current
-                    || (preserveExistingVisual
-                        ? current !== previous
-                        : current.generation !== renderGeneration)
+                    !outcome.committed ||
+                    !isCurrent() ||
+                    renderControllers.get(pageNumber) !== renderController ||
+                    !current ||
+                    (preserveExistingVisual ? current !== previous : current.generation !== renderGeneration)
                 ) {
                     lease.release();
                     return;
@@ -550,14 +537,10 @@ export function createDocumentPageSourcePresentation(options: {
                     await candidate.decode();
                     renderController.signal.throwIfAborted();
                     if (
-                        !await waitForDocumentPageImagePaint(candidate, renderController.signal)
-                        || !isCurrent()
-                        || pageStates.get(pageNumber) !== current
-                        || !isOwnedConnectedDocumentPageImage(
-                            candidate,
-                            pageNumber,
-                            options.getOpeningTarget(pageNumber),
-                        )
+                        !(await waitForDocumentPageImagePaint(candidate, renderController.signal)) ||
+                        !isCurrent() ||
+                        pageStates.get(pageNumber) !== current ||
+                        !isOwnedConnectedDocumentPageImage(candidate, pageNumber, options.getOpeningTarget(pageNumber))
                     ) {
                         throw new DOMException('Superseded page render', 'AbortError');
                     }
@@ -570,12 +553,16 @@ export function createDocumentPageSourcePresentation(options: {
                 current.priority = priority;
                 current.widthPx = widthPx;
                 current.unsubscribeInvalidation = subscribeInvalidation(pageNumber, current, lease);
-                if (candidate) {markReady(pageNumber, current);}
+                if (candidate) {
+                    markReady(pageNumber, current);
+                }
                 await nextTick();
                 previousUnsubscribeInvalidation?.();
                 previousLease?.release();
                 const renderedImage = getConnectedImage(pageNumber, current);
-                if (renderedImage && renderedImage !== candidate) {candidate?.remove();}
+                if (renderedImage && renderedImage !== candidate) {
+                    candidate?.remove();
+                }
             } catch (error) {
                 candidate?.remove();
                 lease.release();
@@ -584,13 +571,11 @@ export function createDocumentPageSourcePresentation(options: {
         } catch (error) {
             const current = pageStates.get(pageNumber);
             if (
-                renderControllers.get(pageNumber) === renderController
-                && !renderController.signal.aborted
-                && isCurrent()
-                && (preserveExistingVisual
-                    ? current === previous
-                    : current?.generation === renderAttempt.generation)
-                && !isAbortError(error)
+                renderControllers.get(pageNumber) === renderController &&
+                !renderController.signal.aborted &&
+                isCurrent() &&
+                (preserveExistingVisual ? current === previous : current?.generation === renderAttempt.generation) &&
+                !isAbortError(error)
             ) {
                 // A refused page (invalid DjVu, raster limit) fails the same way every time.
                 if (current && current.retryCount < 2 && !findSerializableErrorEnvelope(error, DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA)) {
@@ -600,14 +585,17 @@ export function createDocumentPageSourcePresentation(options: {
                     }
                     options.scheduleRender();
                 } else {
-                    if (current) {current.retryCount += 1;}
-                    if (!preserveExistingVisual) {commitTerminalError(pageNumber, error);}
+                    if (current) {
+                        current.retryCount += 1;
+                    }
+                    if (!preserveExistingVisual) {
+                        commitTerminalError(pageNumber, error);
+                    }
                     if (pageNumber === options.readCurrentPage()) {
-                        options.emit('loadError', preserveExistingVisual
-                            ? error
-                            : error instanceof Error
-                                ? error
-                                : createFailureError(pageNumber));
+                        options.emit(
+                            'loadError',
+                            preserveExistingVisual ? error : error instanceof Error ? error : createFailureError(pageNumber),
+                        );
                     }
                 }
             }
@@ -623,13 +611,13 @@ export function createDocumentPageSourcePresentation(options: {
         const image = event.currentTarget;
         const fence = options.readFence();
         if (
-            !(image instanceof HTMLImageElement)
-            || !state
-            || state.lease?.surface !== surface
-            || image.dataset.pageRenderGeneration !== String(state.generation)
-            || image.dataset.documentLoadGeneration !== String(fence.loadGeneration)
-            || image.dataset.openSurfaceGeneration !== String(fence.openSurfaceGeneration ?? '')
-            || !isOwnedConnectedDocumentPageImage(image, pageNumber, options.getOpeningTarget(pageNumber))
+            !(image instanceof HTMLImageElement) ||
+            !state ||
+            state.lease?.surface !== surface ||
+            image.dataset.pageRenderGeneration !== String(state.generation) ||
+            image.dataset.documentLoadGeneration !== String(fence.loadGeneration) ||
+            image.dataset.openSurfaceGeneration !== String(fence.openSurfaceGeneration ?? '') ||
+            !isOwnedConnectedDocumentPageImage(image, pageNumber, options.getOpeningTarget(pageNumber))
         ) {
             return null;
         }
@@ -646,27 +634,23 @@ export function createDocumentPageSourcePresentation(options: {
         }
         loadedSurfaceImages.set(pageNumber, markRaw(target.image));
         const controller = renderControllers.get(pageNumber) ?? new AbortController();
-        if (!await waitForDocumentPageImagePaint(target.image, controller.signal)) {
+        if (!(await waitForDocumentPageImagePaint(target.image, controller.signal))) {
             return;
         }
         const state = pageStates.get(pageNumber);
         if (
-            !options.isFenceCurrent(target.fence)
-            || !options.readIsActive()
-            || state !== target.state
-            || state.lease?.surface !== surface
-            || !isOwnedConnectedDocumentPageImage(
-                target.image,
-                pageNumber,
-                options.getOpeningTarget(pageNumber),
-            )
+            !options.isFenceCurrent(target.fence) ||
+            !options.readIsActive() ||
+            state !== target.state ||
+            state.lease?.surface !== surface ||
+            !isOwnedConnectedDocumentPageImage(target.image, pageNumber, options.getOpeningTarget(pageNumber))
         ) {
             return;
         }
         if (!target.image.dataset.pageSourceCandidate) {
-            target.image.parentElement?.querySelectorAll<HTMLImageElement>(
-                '[data-page-source-candidate]',
-            ).forEach(image => image.remove());
+            target.image.parentElement
+                ?.querySelectorAll<HTMLImageElement>('[data-page-source-candidate]')
+                .forEach((image) => image.remove());
         }
         markReady(pageNumber, state);
     }
@@ -679,9 +663,7 @@ export function createDocumentPageSourcePresentation(options: {
         target.state.unsubscribeInvalidation?.();
         target.state.unsubscribeInvalidation = null;
         target.state.lease = null;
-        target.image.parentElement?.querySelectorAll<HTMLImageElement>(
-            '[data-page-source-candidate]',
-        ).forEach(image => image.remove());
+        target.image.parentElement?.querySelectorAll<HTMLImageElement>('[data-page-source-candidate]').forEach((image) => image.remove());
         if (target.state.retryCount >= 2) {
             target.state.retryCount += 1;
             const message = commitTerminalError(pageNumber, event);
@@ -701,7 +683,9 @@ export function createDocumentPageSourcePresentation(options: {
         const image = state && getConnectedImage(pageNumber, state);
         state?.unsubscribeInvalidation?.();
         state?.lease?.release();
-        if (image?.dataset.pageSourceCandidate) {image.remove();}
+        if (image?.dataset.pageSourceCandidate) {
+            image.remove();
+        }
         pageStates.delete(pageNumber);
         loadedSurfaceImages.delete(pageNumber);
         options.renderSession?.releasePage(pageNumber);
@@ -724,10 +708,7 @@ export function createDocumentPageSourcePresentation(options: {
         }
         restoreOptions.restoreViewport();
         const currentPage = options.readCurrentPage();
-        for (const pageNumber of new Set([
-            currentPage,
-            ...options.readRenderDemand().residentPages,
-        ])) {
+        for (const pageNumber of new Set([currentPage, ...options.readRenderDemand().residentPages])) {
             if (!isCurrent()) {
                 return;
             }
@@ -738,11 +719,11 @@ export function createDocumentPageSourcePresentation(options: {
             const image = getConnectedImage(pageNumber, state);
             const metric = options.readMetric(pageNumber);
             if (image?.complete && image.naturalWidth > 0) {
-                if (metric && state.widthPx === resolveDocumentPageSourceRenderWidthPx(
-                    metric,
-                    options.readPageScale(pageNumber),
-                    options.readPixelRatio(),
-                )) {
+                if (
+                    metric &&
+                    state.widthPx ===
+                        resolveDocumentPageSourceRenderWidthPx(metric, options.readPageScale(pageNumber), options.readPixelRatio())
+                ) {
                     markReady(pageNumber, state);
                 }
                 continue;
@@ -763,7 +744,7 @@ export function createDocumentPageSourcePresentation(options: {
     }
     return {
         beginSourceGeneration() {
-            renderControllers.forEach(controller => controller.abort());
+            renderControllers.forEach((controller) => controller.abort());
             renderControllers.clear();
             for (const pageNumber of [...pageStates.keys()]) {
                 releasePage(pageNumber);
@@ -791,7 +772,9 @@ export function createDocumentPageSourcePresentation(options: {
         renderPage,
         retryPage(pageNumber: number) {
             const state = pageStates.get(pageNumber);
-            if (!state?.error) {return;}
+            if (!state?.error) {
+                return;
+            }
             state.error = null;
             state.failurePresentation = null;
             state.retryCount = 0;

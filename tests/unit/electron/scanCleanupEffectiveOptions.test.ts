@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import type {IScanCleanupOptions} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {createScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
@@ -44,36 +40,48 @@ function resolve(pageOverride = createScanCleanupPageOverride()) {
 
 describe('effective scan cleanup options', () => {
     it('keeps measured source rasters on their native grid and floors only synthesized binary pages', () => {
-        expect(resolveScanCleanupRequestedRenderDpi({
-            sourceDpi: 200,
-            outputCarriesBinaryLayer: true,
-            sourceRasterDetected: true,
-        })).toBe(200);
-        expect(resolveScanCleanupRequestedRenderDpi({
-            sourceDpi: 300,
-            outputCarriesBinaryLayer: true,
-            sourceRasterDetected: true,
-        })).toBe(300);
-        expect(resolveScanCleanupRequestedRenderDpi({
-            sourceDpi: 360,
-            outputCarriesBinaryLayer: true,
-            sourceRasterDetected: true,
-        })).toBe(360);
-        expect(resolveScanCleanupRequestedRenderDpi({
-            sourceDpi: 200,
-            outputCarriesBinaryLayer: true,
-            sourceRasterDetected: false,
-        })).toBe(600);
-        expect(resolveScanCleanupRequestedRenderDpi({
-            sourceDpi: 720,
-            outputCarriesBinaryLayer: true,
-            sourceRasterDetected: false,
-        })).toBe(720);
-        expect(resolveScanCleanupRequestedRenderDpi({
-            sourceDpi: 200,
-            outputCarriesBinaryLayer: false,
-            sourceRasterDetected: false,
-        })).toBe(200);
+        expect(
+            resolveScanCleanupRequestedRenderDpi({
+                sourceDpi: 200,
+                outputCarriesBinaryLayer: true,
+                sourceRasterDetected: true,
+            }),
+        ).toBe(200);
+        expect(
+            resolveScanCleanupRequestedRenderDpi({
+                sourceDpi: 300,
+                outputCarriesBinaryLayer: true,
+                sourceRasterDetected: true,
+            }),
+        ).toBe(300);
+        expect(
+            resolveScanCleanupRequestedRenderDpi({
+                sourceDpi: 360,
+                outputCarriesBinaryLayer: true,
+                sourceRasterDetected: true,
+            }),
+        ).toBe(360);
+        expect(
+            resolveScanCleanupRequestedRenderDpi({
+                sourceDpi: 200,
+                outputCarriesBinaryLayer: true,
+                sourceRasterDetected: false,
+            }),
+        ).toBe(600);
+        expect(
+            resolveScanCleanupRequestedRenderDpi({
+                sourceDpi: 720,
+                outputCarriesBinaryLayer: true,
+                sourceRasterDetected: false,
+            }),
+        ).toBe(720);
+        expect(
+            resolveScanCleanupRequestedRenderDpi({
+                sourceDpi: 200,
+                outputCarriesBinaryLayer: false,
+                sourceRasterDetected: false,
+            }),
+        ).toBe(200);
     });
 
     it('keeps a detected raster on one document canvas grid in every run scope', () => {
@@ -114,75 +122,89 @@ describe('effective scan cleanup options', () => {
             width: 1_152,
             height: 1_152,
         });
-        expect(resolveScanCleanupPlannedDpi({
-            sourceDpi: 600,
-            outputCarriesBinaryLayer: true,
-            sourceRasterDetected: true,
-            maxPixels: 60_000_000,
-            guardrail,
-        })).toMatchObject({
+        expect(
+            resolveScanCleanupPlannedDpi({
+                sourceDpi: 600,
+                outputCarriesBinaryLayer: true,
+                sourceRasterDetected: true,
+                maxPixels: 60_000_000,
+                guardrail,
+            }),
+        ).toMatchObject({
             requestedRenderDpi: 600,
             dpi: 484,
         });
     });
 
     it('reuses only non-destructive observed layout labels while preserving explicit page choices', () => {
-        expect(resolveEffectiveScanCleanupOptions({
-            options,
-            pageOverride: createScanCleanupPageOverride(),
-            dpi: 300,
-            observedLayout: 'single-uncut-page',
-            qualityPath: 'raster',
-        }).layout).toBe('force-single');
-        expect(resolveEffectiveScanCleanupOptions({
-            options,
-            pageOverride: createScanCleanupPageOverride({layoutOverride: 'spread'}),
-            dpi: 300,
-            observedLayout: 'single-uncut-page',
-            qualityPath: 'raster',
-        }).layout).toBe('force-two-page');
-        expect(resolveEffectiveScanCleanupOptions({
-            options,
-            pageOverride: createScanCleanupPageOverride(),
-            dpi: 300,
-            observedLayout: 'two-page-spread',
-            qualityPath: 'raster',
-        }).layout).toBe('auto');
-        expect(resolveEffectiveScanCleanupOptions({
-            options,
-            pageOverride: createScanCleanupPageOverride(),
-            dpi: 300,
-            observedLayout: 'two-page-spread',
-            automaticSplit: {
-                xNormalized: 0.47,
-                rotationDegrees: 0,
-            },
-            qualityPath: 'raster',
-        })).toMatchObject({
+        expect(
+            resolveEffectiveScanCleanupOptions({
+                options,
+                pageOverride: createScanCleanupPageOverride(),
+                dpi: 300,
+                observedLayout: 'single-uncut-page',
+                qualityPath: 'raster',
+            }).layout,
+        ).toBe('force-single');
+        expect(
+            resolveEffectiveScanCleanupOptions({
+                options,
+                pageOverride: createScanCleanupPageOverride({layoutOverride: 'spread'}),
+                dpi: 300,
+                observedLayout: 'single-uncut-page',
+                qualityPath: 'raster',
+            }).layout,
+        ).toBe('force-two-page');
+        expect(
+            resolveEffectiveScanCleanupOptions({
+                options,
+                pageOverride: createScanCleanupPageOverride(),
+                dpi: 300,
+                observedLayout: 'two-page-spread',
+                qualityPath: 'raster',
+            }).layout,
+        ).toBe('auto');
+        expect(
+            resolveEffectiveScanCleanupOptions({
+                options,
+                pageOverride: createScanCleanupPageOverride(),
+                dpi: 300,
+                observedLayout: 'two-page-spread',
+                automaticSplit: {
+                    xNormalized: 0.47,
+                    rotationDegrees: 0,
+                },
+                qualityPath: 'raster',
+            }),
+        ).toMatchObject({
             layout: 'force-two-page',
             automaticSplit: {
                 xNormalized: 0.47,
                 rotationDegrees: 0,
             },
         });
-        expect(resolveEffectiveScanCleanupOptions({
-            options,
-            pageOverride: createScanCleanupPageOverride(),
-            dpi: 300,
-            observedLayout: 'page-with-offcut',
-            qualityPath: 'raster',
-        }).layout).toBe('auto');
-        expect(resolveEffectiveScanCleanupOptions({
-            options,
-            pageOverride: createScanCleanupPageOverride(),
-            dpi: 300,
-            observedLayout: 'page-with-offcut',
-            automaticSplit: {
-                xNormalized: 0.08,
-                rotationDegrees: 0,
-            },
-            qualityPath: 'raster',
-        })).toMatchObject({
+        expect(
+            resolveEffectiveScanCleanupOptions({
+                options,
+                pageOverride: createScanCleanupPageOverride(),
+                dpi: 300,
+                observedLayout: 'page-with-offcut',
+                qualityPath: 'raster',
+            }).layout,
+        ).toBe('auto');
+        expect(
+            resolveEffectiveScanCleanupOptions({
+                options,
+                pageOverride: createScanCleanupPageOverride(),
+                dpi: 300,
+                observedLayout: 'page-with-offcut',
+                automaticSplit: {
+                    xNormalized: 0.08,
+                    rotationDegrees: 0,
+                },
+                qualityPath: 'raster',
+            }),
+        ).toMatchObject({
             layout: 'page-with-offcut',
             automaticSplit: {
                 xNormalized: 0.08,
@@ -193,15 +215,17 @@ describe('effective scan cleanup options', () => {
 
     it('maps the existing despeckle boolean to the native level contract', () => {
         expect(resolve().despeckleLevel).toBe('normal');
-        expect(resolveEffectiveScanCleanupOptions({
-            options: {
-                ...options,
-                despeckle: false,
-            },
-            pageOverride: createScanCleanupPageOverride(),
-            dpi: 300,
-            qualityPath: 'raster',
-        }).despeckleLevel).toBe('off');
+        expect(
+            resolveEffectiveScanCleanupOptions({
+                options: {
+                    ...options,
+                    despeckle: false,
+                },
+                pageOverride: createScanCleanupPageOverride(),
+                dpi: 300,
+                qualityPath: 'raster',
+            }).despeckleLevel,
+        ).toBe('off');
     });
 
     it('passes advanced raster controls through to the native options', () => {
@@ -264,47 +288,57 @@ describe('effective scan cleanup options', () => {
                 ...options,
                 outputMode: 'mixed',
             },
-            pageOverride: createScanCleanupPageOverride({manualZones: {
-                picture: [{
-                    polygon,
-                    layer: 'painter2',
-                }],
-                fill: [polygon],
-            }}),
+            pageOverride: createScanCleanupPageOverride({
+                manualZones: {
+                    picture: [
+                        {
+                            polygon,
+                            layer: 'painter2',
+                        },
+                    ],
+                    fill: [polygon],
+                },
+            }),
             dpi: 300,
             qualityPath: 'raster',
         });
         expect(effective.outputMode).toBe('mixed');
         expect(effective.despeckleLevel).toBe('normal');
         expect(effective.manualZones).toEqual({
-            picture: [{
-                polygon,
-                layer: 'painter2',
-            }],
+            picture: [
+                {
+                    polygon,
+                    layer: 'painter2',
+                },
+            ],
             fill: [polygon],
         });
     });
 
     it('passes auto through and gives a concrete page override precedence', () => {
-        expect(resolveEffectiveScanCleanupOptions({
-            options: {
-                ...options,
-                outputMode: 'auto',
-            },
-            pageOverride: createScanCleanupPageOverride(),
-            dpi: 300,
-            qualityPath: 'raster',
-        }).outputMode).toBe('auto');
+        expect(
+            resolveEffectiveScanCleanupOptions({
+                options: {
+                    ...options,
+                    outputMode: 'auto',
+                },
+                pageOverride: createScanCleanupPageOverride(),
+                dpi: 300,
+                qualityPath: 'raster',
+            }).outputMode,
+        ).toBe('auto');
 
-        expect(resolveEffectiveScanCleanupOptions({
-            options: {
-                ...options,
-                outputMode: 'auto',
-            },
-            pageOverride: createScanCleanupPageOverride({outputModeOverride: 'grayscale'}),
-            dpi: 300,
-            qualityPath: 'raster',
-        }).outputMode).toBe('grayscale');
+        expect(
+            resolveEffectiveScanCleanupOptions({
+                options: {
+                    ...options,
+                    outputMode: 'auto',
+                },
+                pageOverride: createScanCleanupPageOverride({outputModeOverride: 'grayscale'}),
+                dpi: 300,
+                qualityPath: 'raster',
+            }).outputMode,
+        ).toBe('grayscale');
     });
 
     it('matches native raster limits to the combiner payload depth', () => {
@@ -334,33 +368,38 @@ describe('effective scan cleanup options', () => {
             rightMm: 6,
             bottomMm: 5,
         };
-        expect(resolve(createScanCleanupPageOverride({marginsMm: pageMargins})).margins)
-            .toEqual(pageMargins);
+        expect(resolve(createScanCleanupPageOverride({marginsMm: pageMargins})).margins).toEqual(pageMargins);
     });
 
     it('composes crop, manual content, and margins with automatic dewarp', () => {
         const effective = resolveEffectiveScanCleanupOptions({
             options,
-            pageOverride: createScanCleanupPageOverride({manualContentBoxes: {full: {
-                xNormalized: 0.1,
-                yNormalized: 0.1,
-                widthNormalized: 0.8,
-                heightNormalized: 0.8,
-                rotationDegrees: 0,
-            }}}),
+            pageOverride: createScanCleanupPageOverride({
+                manualContentBoxes: {
+                    full: {
+                        xNormalized: 0.1,
+                        yNormalized: 0.1,
+                        widthNormalized: 0.8,
+                        heightNormalized: 0.8,
+                        rotationDegrees: 0,
+                    },
+                },
+            }),
             dpi: 300,
             qualityPath: 'raster',
             experimental: {autoDewarp: true},
         });
 
         expect(effective.cropContent).toBe(true);
-        expect(effective.manualContentBoxes).toEqual({full: {
-            xNormalized: 0.1,
-            yNormalized: 0.1,
-            widthNormalized: 0.8,
-            heightNormalized: 0.8,
-            rotationDegrees: 0,
-        }});
+        expect(effective.manualContentBoxes).toEqual({
+            full: {
+                xNormalized: 0.1,
+                yNormalized: 0.1,
+                widthNormalized: 0.8,
+                heightNormalized: 0.8,
+                rotationDegrees: 0,
+            },
+        });
         expect(effective.margins).toEqual(options.marginsMm);
         expect(effective.experimental.autoDewarp).toBe(true);
     });

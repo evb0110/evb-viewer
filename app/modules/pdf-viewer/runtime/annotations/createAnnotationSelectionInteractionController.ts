@@ -1,7 +1,4 @@
-import type {
-    ComputedRef,
-    Ref,
-} from 'vue';
+import type {ComputedRef, Ref} from 'vue';
 import type {TAnnotationTool} from '@app/types/annotations';
 import {isSelectionMarkupTool} from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isSelectionMarkupTool';
 import {runGuardedTask} from '@app/utils/asyncGuard';
@@ -12,7 +9,9 @@ interface IAnnotationSelectionCachePort {
     invalidateSelectionForToolActivation: () => void;
 }
 
-interface IAnnotationSelectionLifecyclePort {invalidateActiveRequests: () => void;}
+interface IAnnotationSelectionLifecyclePort {
+    invalidateActiveRequests: () => void;
+}
 
 interface ICreateAnnotationSelectionInteractionControllerOptions {
     viewerContainer: Ref<HTMLElement | null>;
@@ -37,23 +36,20 @@ function selectionCaretFromPoint(event: PointerEvent): ISelectionCaret | null {
     if (!position) {
         return null;
     }
-    const element = position.offsetNode.nodeType === Node.ELEMENT_NODE
-        ? position.offsetNode as Element
-        : position.offsetNode.parentElement;
+    const element =
+        position.offsetNode.nodeType === Node.ELEMENT_NODE ? (position.offsetNode as Element) : position.offsetNode.parentElement;
     const layer = element?.closest<HTMLElement>('.text-layer, .textLayer') ?? null;
     return layer
         ? {
-            layer,
-            node: position.offsetNode,
-            offset: position.offset,
-        }
+              layer,
+              node: position.offsetNode,
+              offset: position.offset,
+          }
         : null;
 }
 
 function caretIsInsideSearchHighlight(caret: ISelectionCaret | null) {
-    const element = caret?.node.nodeType === Node.ELEMENT_NODE
-        ? caret.node as Element
-        : caret?.node.parentElement;
+    const element = caret?.node.nodeType === Node.ELEMENT_NODE ? (caret.node as Element) : caret?.node.parentElement;
     return Boolean(element?.closest('.pdf-search-highlight'));
 }
 
@@ -80,29 +76,31 @@ function rangeBetweenCarets(start: ISelectionCaret, end: ISelectionCaret) {
 }
 
 /** Owns DOM selection and pointer gesture routing for all text-markup tools. */
-export function createAnnotationSelectionInteractionController(
-    options: ICreateAnnotationSelectionInteractionControllerOptions,
-) {
+export function createAnnotationSelectionInteractionController(options: ICreateAnnotationSelectionInteractionControllerOptions) {
     let selectionPointerId: number | null = null;
     let selectionAnchor: ISelectionCaret | null = null;
-    const stopToolWatch = watch(options.annotationTool, tool => {
-        selectionPointerId = null;
-        selectionAnchor = null;
-        options.selectionLifecycle.invalidateActiveRequests();
-        if (!options.isActive.value || !isSelectionMarkupTool(tool)) {
-            return;
-        }
-        runGuardedTask(
-            async () => {
-                await options.applySelectionMarkup();
-            },
-            {
-                category: 'user-visible-operation',
-                scope: 'annotations',
-                message: 'Failed to apply selected text after activating markup tool',
-            },
-        );
-    }, {flush: 'sync'});
+    const stopToolWatch = watch(
+        options.annotationTool,
+        (tool) => {
+            selectionPointerId = null;
+            selectionAnchor = null;
+            options.selectionLifecycle.invalidateActiveRequests();
+            if (!options.isActive.value || !isSelectionMarkupTool(tool)) {
+                return;
+            }
+            runGuardedTask(
+                async () => {
+                    await options.applySelectionMarkup();
+                },
+                {
+                    category: 'user-visible-operation',
+                    scope: 'annotations',
+                    message: 'Failed to apply selected text after activating markup tool',
+                },
+            );
+        },
+        {flush: 'sync'},
+    );
 
     const handleDocumentPointerCancel = (event: PointerEvent) => {
         if (selectionPointerId === event.pointerId) {
@@ -112,10 +110,10 @@ export function createAnnotationSelectionInteractionController(
     };
     const handleDocumentPointerMove = (event: PointerEvent) => {
         if (
-            selectionPointerId !== event.pointerId
-            || !selectionAnchor
-            || !caretIsInsideSearchHighlight(selectionAnchor)
-            || !isSelectionMarkupTool(options.annotationTool.value)
+            selectionPointerId !== event.pointerId ||
+            !selectionAnchor ||
+            !caretIsInsideSearchHighlight(selectionAnchor) ||
+            !isSelectionMarkupTool(options.annotationTool.value)
         ) {
             return;
         }
@@ -144,12 +142,8 @@ export function createAnnotationSelectionInteractionController(
         const textLayer = target?.closest<HTMLElement>('.text-layer, .textLayer');
         if (textLayer && viewerContainer.contains(textLayer)) {
             options.selectionCache.beginSelectionGesture();
-            selectionPointerId = isSelectionMarkupTool(options.annotationTool.value)
-                ? event.pointerId
-                : null;
-            selectionAnchor = selectionPointerId === event.pointerId
-                ? selectionCaretFromPoint(event)
-                : null;
+            selectionPointerId = isSelectionMarkupTool(options.annotationTool.value) ? event.pointerId : null;
+            selectionAnchor = selectionPointerId === event.pointerId ? selectionCaretFromPoint(event) : null;
             if (caretIsInsideSearchHighlight(selectionAnchor)) {
                 event.preventDefault();
             } else {
@@ -195,20 +189,15 @@ export function createAnnotationSelectionInteractionController(
         selectionPointerId = null;
         selectionAnchor = null;
         const selection = document.getSelection();
-        const range = selection && selection.rangeCount > 0
-            ? selection.getRangeAt(0).cloneRange()
-            : null;
+        const range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0).cloneRange() : null;
         if (!range || range.collapsed) {
             return;
         }
-        runGuardedTask(
-            () => options.applySelectionMarkup(range),
-            {
-                category: 'user-visible-operation',
-                scope: 'annotations',
-                message: 'Failed to apply selection markup on pointer up',
-            },
-        );
+        runGuardedTask(() => options.applySelectionMarkup(range), {
+            category: 'user-visible-operation',
+            scope: 'annotations',
+            message: 'Failed to apply selection markup on pointer up',
+        });
     }
 
     const handleSelectionChange = () => {

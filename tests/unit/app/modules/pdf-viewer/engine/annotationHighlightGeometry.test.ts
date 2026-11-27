@@ -1,36 +1,21 @@
 import type {IPdfTextContent} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 // @vitest-environment happy-dom
 
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    onTestFinished,
-    vi,
-} from 'vitest';
-import { buildHighlightQuadsFromSelection } from '@app/modules/pdf-viewer/engine/annotation-highlight-geometry/buildHighlightQuadsFromSelection';
+import {afterEach, describe, expect, it, onTestFinished, vi} from 'vitest';
+import {buildHighlightQuadsFromSelection} from '@app/modules/pdf-viewer/engine/annotation-highlight-geometry/buildHighlightQuadsFromSelection';
 import type {
     ITextLineBox,
     ITextLineRun,
 } from '@app/modules/pdf-viewer/engine/annotation-highlight-geometry/buildTextLineBoxesFromTextContent';
-import { buildTextLineBoxesFromTextContent } from '@app/modules/pdf-viewer/engine/annotation-highlight-geometry/buildTextLineBoxesFromTextContent';
-import { mergeLineBoxesOnBaseline } from '@app/modules/pdf-viewer/engine/annotation-highlight-geometry/mergeLineBoxesOnBaseline';
-import {
-    clearTextLayerTextMapping,
-    registerTextLayerTextMapping,
-} from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightDom';
+import {buildTextLineBoxesFromTextContent} from '@app/modules/pdf-viewer/engine/annotation-highlight-geometry/buildTextLineBoxesFromTextContent';
+import {mergeLineBoxesOnBaseline} from '@app/modules/pdf-viewer/engine/annotation-highlight-geometry/mergeLineBoxesOnBaseline';
+import {clearTextLayerTextMapping, registerTextLayerTextMapping} from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightDom';
 import {resolvePdfAnnotationSelectionGeometry} from '@app/modules/pdf-viewer/runtime/sessions/resolvePdfAnnotationSelectionGeometry';
-import { subtypeForAnnotationTool } from '@app/modules/pdf-viewer/runtime/sessions/subtypeForAnnotationTool';
-import type { TPdfDocumentView } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
-import { cast } from '@tests/helpers/cast';
+import {subtypeForAnnotationTool} from '@app/modules/pdf-viewer/runtime/sessions/subtypeForAnnotationTool';
+import type {TPdfDocumentView} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
+import {cast} from '@tests/helpers/cast';
 
-function rect(
-    left: number,
-    top: number,
-    width: number,
-    height: number,
-) {
+function rect(left: number, top: number, width: number, height: number) {
     return {
         left,
         top,
@@ -98,10 +83,10 @@ function run(
 function line(...runs: ITextLineRun[]): ITextLineBox {
     return {
         runs,
-        left: Math.min(...runs.map(item => item.rect.left)),
-        top: Math.min(...runs.map(item => item.rect.top)),
-        right: Math.max(...runs.map(item => item.rect.left + item.rect.width)),
-        bottom: Math.max(...runs.map(item => item.rect.top + item.rect.height)),
+        left: Math.min(...runs.map((item) => item.rect.left)),
+        top: Math.min(...runs.map((item) => item.rect.top)),
+        right: Math.max(...runs.map((item) => item.rect.left + item.rect.width)),
+        bottom: Math.max(...runs.map((item) => item.rect.top + item.rect.height)),
         baseline: runs[0]?.baseline ?? 0,
     };
 }
@@ -149,14 +134,7 @@ describe('annotation highlight geometry', () => {
                 {
                     str: 'first',
                     dir: 'ltr',
-                    transform: [
-                        1,
-                        0,
-                        0,
-                        1,
-                        10,
-                        80,
-                    ],
+                    transform: [1, 0, 0, 1, 10, 80],
                     width: 25,
                     height: 10,
                     fontName: 'font',
@@ -169,14 +147,7 @@ describe('annotation highlight geometry', () => {
                 {
                     str: '',
                     dir: 'ltr',
-                    transform: [
-                        1,
-                        0,
-                        0,
-                        1,
-                        10,
-                        70,
-                    ],
+                    transform: [1, 0, 0, 1, 10, 70],
                     width: 1,
                     height: 10,
                     fontName: 'font',
@@ -185,58 +156,42 @@ describe('annotation highlight geometry', () => {
                 {
                     str: 'second',
                     dir: 'ltr',
-                    transform: [
-                        1,
-                        0,
-                        0,
-                        1,
-                        10,
-                        60,
-                    ],
+                    transform: [1, 0, 0, 1, 10, 60],
                     width: 30,
                     height: 10,
                     fontName: 'font',
                     hasEOL: true,
                 },
             ],
-            styles: {font: {
-                ascent: 0.8,
-                descent: -0.2,
-                vertical: false,
-                fontFamily: 'sans-serif',
-            }},
+            styles: {
+                font: {
+                    ascent: 0.8,
+                    descent: -0.2,
+                    vertical: false,
+                    fontFamily: 'sans-serif',
+                },
+            },
             lang: null,
         };
 
         const boxes = buildTextLineBoxesFromTextContent({
             textContent,
             textMapping: {
-                textDivs: [
-                    firstSpan,
-                    emptySpan,
-                    secondSpan,
-                ],
-                textContentItemsStr: [
-                    'mapped first',
-                    '',
-                    'mapped second',
-                ],
+                textDivs: [firstSpan, emptySpan, secondSpan],
+                textContentItemsStr: ['mapped first', '', 'mapped second'],
             },
-            pageView: [
-                0,
-                0,
-                100,
-                100,
-            ],
+            pageView: [0, 0, 100, 100],
             pageRotation: 0,
         });
 
         expect(boxes).toHaveLength(2);
-        expect(boxes.map(box => ({
-            itemIndex: box.runs[0]?.itemIndex,
-            text: box.runs[0]?.text,
-            hasEOL: box.runs[0]?.hasEOL,
-        }))).toEqual([
+        expect(
+            boxes.map((box) => ({
+                itemIndex: box.runs[0]?.itemIndex,
+                text: box.runs[0]?.text,
+                hasEOL: box.runs[0]?.hasEOL,
+            })),
+        ).toEqual([
             {
                 itemIndex: 0,
                 text: 'mapped first',
@@ -256,28 +211,25 @@ describe('annotation highlight geometry', () => {
         const span = document.createElement('span');
         span.textContent = 'rotated text';
         const textContent: IPdfTextContent = {
-            items: [{
-                str: 'raw text',
-                dir: 'ltr',
-                transform: [
-                    1,
-                    0,
-                    0,
-                    1,
-                    10,
-                    20,
-                ],
-                width: 30,
-                height: 10,
-                fontName: 'font',
-                hasEOL: false,
-            }],
-            styles: {font: {
-                ascent: 0.8,
-                descent: -0.2,
-                vertical: false,
-                fontFamily: 'sans-serif',
-            }},
+            items: [
+                {
+                    str: 'raw text',
+                    dir: 'ltr',
+                    transform: [1, 0, 0, 1, 10, 20],
+                    width: 30,
+                    height: 10,
+                    fontName: 'font',
+                    hasEOL: false,
+                },
+            ],
+            styles: {
+                font: {
+                    ascent: 0.8,
+                    descent: -0.2,
+                    vertical: false,
+                    fontFamily: 'sans-serif',
+                },
+            },
             lang: null,
         };
 
@@ -287,12 +239,7 @@ describe('annotation highlight geometry', () => {
                 textDivs: [span],
                 textContentItemsStr: ['rotated text'],
             },
-            pageView: [
-                0,
-                0,
-                100,
-                200,
-            ],
+            pageView: [0, 0, 100, 200],
             pageRotation: 90,
         });
         const rotatedRun = box?.runs[0];
@@ -313,98 +260,35 @@ describe('annotation highlight geometry', () => {
     });
 
     it.each([
-        [
-            0,
-            false,
-            [
-                20,
-                30,
-                40,
-                10,
-            ],
-            [
-                0.2,
-                0.3,
-                0.4,
-                0.1,
-            ],
-        ],
-        [
-            90,
-            true,
-            [
-                30,
-                20,
-                10,
-                40,
-            ],
-            [
-                0.3,
-                0.2,
-                0.1,
-                0.4,
-            ],
-        ],
-        [
-            180,
-            false,
-            [
-                20,
-                30,
-                40,
-                10,
-            ],
-            [
-                0.2,
-                0.3,
-                0.4,
-                0.1,
-            ],
-        ],
-        [
-            270,
-            true,
-            [
-                30,
-                20,
-                10,
-                40,
-            ],
-            [
-                0.3,
-                0.2,
-                0.1,
-                0.4,
-            ],
-        ],
+        [0, false, [20, 30, 40, 10], [0.2, 0.3, 0.4, 0.1]],
+        [90, true, [30, 20, 10, 40], [0.3, 0.2, 0.1, 0.4]],
+        [180, false, [20, 30, 40, 10], [0.2, 0.3, 0.4, 0.1]],
+        [270, true, [30, 20, 10, 40], [0.3, 0.2, 0.1, 0.4]],
     ] as const)('uses DOM display axes for page rotation %i', (pageRotation, isVertical, rect, expected) => {
         const page = pageContainer(1);
         const span = document.createElement('span');
         span.textContent = 'rotated text';
         page.append(span);
         const textContent: IPdfTextContent = {
-            items: [{
-                str: 'raw text',
-                dir: 'ltr',
-                transform: [
-                    1,
-                    0,
-                    0,
-                    1,
-                    10,
-                    20,
-                ],
-                width: 30,
-                height: 10,
-                fontName: 'font',
-                hasEOL: false,
-            }],
-            styles: {font: {
-                ascent: 0.8,
-                descent: -0.2,
-                vertical: false,
-                fontFamily: 'sans-serif',
-            }},
+            items: [
+                {
+                    str: 'raw text',
+                    dir: 'ltr',
+                    transform: [1, 0, 0, 1, 10, 20],
+                    width: 30,
+                    height: 10,
+                    fontName: 'font',
+                    hasEOL: false,
+                },
+            ],
+            styles: {
+                font: {
+                    ascent: 0.8,
+                    descent: -0.2,
+                    vertical: false,
+                    fontFamily: 'sans-serif',
+                },
+            },
             lang: null,
         };
         const [box] = buildTextLineBoxesFromTextContent({
@@ -413,12 +297,7 @@ describe('annotation highlight geometry', () => {
                 textDivs: [span],
                 textContentItemsStr: ['rotated text'],
             },
-            pageView: [
-                0,
-                0,
-                100,
-                100,
-            ],
+            pageView: [0, 0, 100, 100],
             pageRotation,
         });
         const selectedRun = box?.runs[0];
@@ -431,11 +310,13 @@ describe('annotation highlight geometry', () => {
 
         const range = document.createRange();
         range.selectNodeContents(span);
-        const geometry = buildHighlightQuadsFromSelection(range, [{
-            pageNumber: 1,
-            pageContainer: page,
-            lineBoxes: [box],
-        }]);
+        const geometry = buildHighlightQuadsFromSelection(range, [
+            {
+                pageNumber: 1,
+                pageContainer: page,
+                lineBoxes: [box],
+            },
+        ]);
         expect(geometry[0]?.quadPoints[0]).toMatchObject({
             left: expect.closeTo(expected[0], 8),
             top: expect.closeTo(expected[1], 8),
@@ -457,28 +338,25 @@ describe('annotation highlight geometry', () => {
         page.append(span);
 
         const textContent: IPdfTextContent = {
-            items: [{
-                str: 'prefix selected suffix',
-                dir: 'ltr',
-                transform: [
-                    1,
-                    0,
-                    0,
-                    1,
-                    10,
-                    20,
-                ],
-                width: 80,
-                height: 10,
-                fontName: 'font',
-                hasEOL: false,
-            }],
-            styles: {font: {
-                ascent: 0.8,
-                descent: -0.2,
-                vertical: false,
-                fontFamily: 'sans-serif',
-            }},
+            items: [
+                {
+                    str: 'prefix selected suffix',
+                    dir: 'ltr',
+                    transform: [1, 0, 0, 1, 10, 20],
+                    width: 80,
+                    height: 10,
+                    fontName: 'font',
+                    hasEOL: false,
+                },
+            ],
+            styles: {
+                font: {
+                    ascent: 0.8,
+                    descent: -0.2,
+                    vertical: false,
+                    fontFamily: 'sans-serif',
+                },
+            },
             lang: null,
         };
         const [box] = buildTextLineBoxesFromTextContent({
@@ -487,32 +365,27 @@ describe('annotation highlight geometry', () => {
                 textDivs: [span],
                 textContentItemsStr: ['prefix selected suffix'],
             },
-            pageView: [
-                0,
-                0,
-                100,
-                100,
-            ],
+            pageView: [0, 0, 100, 100],
             pageRotation: 0,
         });
         if (!box) {
             throw new Error('No text line for search-decorated text');
         }
-        const createRangeSpy = mockSelectionClientRects(activeRange => (
-            activeRange.startContainer === match
-                ? [clientRect(30, 20, 30, 8)]
-                : []
-        ));
+        const createRangeSpy = mockSelectionClientRects((activeRange) =>
+            activeRange.startContainer === match ? [clientRect(30, 20, 30, 8)] : [],
+        );
         onTestFinished(() => createRangeSpy.mockRestore());
 
         const range = document.createRange();
         range.setStart(match, 1);
         range.setEnd(match, match.length - 1);
-        const geometry = buildHighlightQuadsFromSelection(range, [{
-            pageNumber: 1,
-            pageContainer: page,
-            lineBoxes: [box],
-        }]);
+        const geometry = buildHighlightQuadsFromSelection(range, [
+            {
+                pageNumber: 1,
+                pageContainer: page,
+                lineBoxes: [box],
+            },
+        ]);
 
         expect(geometry[0]?.selectedText).toBe('electe');
         expect(geometry[0]?.quadPoints[0]).toMatchObject({
@@ -546,28 +419,25 @@ describe('annotation highlight geometry', () => {
         range.selectNodeContents(span);
         expect(range.intersectsNode(textLayer)).toBe(true);
         const textContent: IPdfTextContent = {
-            items: [{
-                str: 'selected text',
-                dir: 'ltr',
-                transform: [
-                    1,
-                    0,
-                    0,
-                    1,
-                    10,
-                    80,
-                ],
-                width: 50,
-                height: 10,
-                fontName: 'font',
-                hasEOL: true,
-            }],
-            styles: {font: {
-                ascent: 0.8,
-                descent: -0.2,
-                vertical: false,
-                fontFamily: 'sans-serif',
-            }},
+            items: [
+                {
+                    str: 'selected text',
+                    dir: 'ltr',
+                    transform: [1, 0, 0, 1, 10, 80],
+                    width: 50,
+                    height: 10,
+                    fontName: 'font',
+                    hasEOL: true,
+                },
+            ],
+            styles: {
+                font: {
+                    ascent: 0.8,
+                    descent: -0.2,
+                    vertical: false,
+                    fontFamily: 'sans-serif',
+                },
+            },
             lang: null,
         };
         const release = vi.fn();
@@ -582,23 +452,11 @@ describe('annotation highlight geometry', () => {
             isCurrent: vi.fn(() => true),
             leasePage: vi.fn(async () => ({
                 page: cast({
-                    view: [
-                        0,
-                        0,
-                        100,
-                        100,
-                    ],
+                    view: [0, 0, 100, 100],
                     rotate: 0,
                     getTextContent,
                     getViewport: vi.fn(() => ({
-                        transform: [
-                            1,
-                            0,
-                            0,
-                            1,
-                            0,
-                            0,
-                        ],
+                        transform: [1, 0, 0, 1, 0, 0],
                         width: 100,
                         height: 100,
                         scale: 1,
@@ -630,24 +488,28 @@ describe('annotation highlight geometry', () => {
         staleSurface.dataset.pdfAnnotationEditorSurface = '';
         staleSurface.dataset.viewRotation = '180';
         page.append(staleSurface);
-        expect(await resolvePdfAnnotationSelectionGeometry({
-            documentSession,
-            viewerContainer: viewer,
-            range,
-            getViewRotation: () => 0,
-        })).toEqual(result);
+        expect(
+            await resolvePdfAnnotationSelectionGeometry({
+                documentSession,
+                viewerContainer: viewer,
+                range,
+                getViewRotation: () => 0,
+            }),
+        ).toEqual(result);
 
         let ownedRotation = 0;
         getTextContent.mockImplementationOnce(async () => {
             ownedRotation = 90;
             return textContent;
         });
-        expect(await resolvePdfAnnotationSelectionGeometry({
-            documentSession,
-            viewerContainer: viewer,
-            range,
-            getViewRotation: () => ownedRotation,
-        })).toEqual({status: 'stale'});
+        expect(
+            await resolvePdfAnnotationSelectionGeometry({
+                documentSession,
+                viewerContainer: viewer,
+                range,
+                getViewRotation: () => ownedRotation,
+            }),
+        ).toEqual({status: 'stale'});
     });
 
     it('maps every text-markup tool to its PDF subtype', () => {
@@ -663,18 +525,11 @@ describe('annotation highlight geometry', () => {
         const second = run(page, 1, ' world', 0.31, 0.1, 0.25);
         const nextLine = run(page, 2, 'Next', 0.1, 0.2, 0.2, 0.23);
 
-        const merged = mergeLineBoxesOnBaseline([
-            line(nextLine),
-            line(second),
-            line(first),
-        ]);
+        const merged = mergeLineBoxesOnBaseline([line(nextLine), line(second), line(first)]);
 
         expect(merged).toHaveLength(2);
-        expect(merged[0]?.runs.map(item => item.text)).toEqual([
-            'Hello',
-            ' world',
-        ]);
-        expect(merged[1]?.runs.map(item => item.text)).toEqual(['Next']);
+        expect(merged[0]?.runs.map((item) => item.text)).toEqual(['Hello', ' world']);
+        expect(merged[1]?.runs.map((item) => item.text)).toEqual(['Next']);
     });
 
     it('uses selected DOM cross-axis bounds for mixed-size runs on one line', () => {
@@ -687,29 +542,31 @@ describe('annotation highlight geometry', () => {
             ...run(page, 1, 'small', 0.5, 0.13, 0.4, 0.16),
             rect: rect(0.5, 0.13, 0.4, 0.09),
         };
-        const createRangeSpy = mockSelectionClientRects(activeRange => (
-            activeRange.startContainer === first.textNode
-                ? [clientRect(15, 12, 25, 8)]
-                : [clientRect(55, 15, 20, 3)]
-        ));
+        const createRangeSpy = mockSelectionClientRects((activeRange) =>
+            activeRange.startContainer === first.textNode ? [clientRect(15, 12, 25, 8)] : [clientRect(55, 15, 20, 3)],
+        );
         onTestFinished(() => createRangeSpy.mockRestore());
 
         const range = document.createRange();
         range.setStart(first.textNode!, 1);
         range.setEnd(second.textNode!, second.textNode!.length - 1);
 
-        const geometry = buildHighlightQuadsFromSelection(range, [{
-            pageNumber: 1,
-            pageContainer: page,
-            lineBoxes: [line(first, second)],
-        }]);
+        const geometry = buildHighlightQuadsFromSelection(range, [
+            {
+                pageNumber: 1,
+                pageContainer: page,
+                lineBoxes: [line(first, second)],
+            },
+        ]);
 
-        expect(geometry[0]?.quadPoints).toEqual([{
-            left: 0.15,
-            top: 0.12,
-            width: 0.6,
-            height: 0.08,
-        }]);
+        expect(geometry[0]?.quadPoints).toEqual([
+            {
+                left: 0.15,
+                top: 0.12,
+                width: 0.6,
+                height: 0.08,
+            },
+        ]);
     });
 
     it('uses actual DOM endpoints instead of character interpolation', () => {
@@ -722,11 +579,13 @@ describe('annotation highlight geometry', () => {
         range.setStart(selectedRun.textNode!, 2);
         range.setEnd(selectedRun.textNode!, 8);
 
-        const geometry = buildHighlightQuadsFromSelection(range, [{
-            pageNumber: 1,
-            pageContainer: page,
-            lineBoxes: [line(selectedRun)],
-        }]);
+        const geometry = buildHighlightQuadsFromSelection(range, [
+            {
+                pageNumber: 1,
+                pageContainer: page,
+                lineBoxes: [line(selectedRun)],
+            },
+        ]);
 
         expect(geometry[0]?.quadPoints).toHaveLength(1);
         expect(geometry[0]?.quadPoints[0]).toMatchObject({
@@ -747,11 +606,13 @@ describe('annotation highlight geometry', () => {
         range.setStart(selectedRun.textNode!, 1);
         range.setEnd(selectedRun.textNode!, selectedRun.textNode!.length - 1);
 
-        const geometry = buildHighlightQuadsFromSelection(range, [{
-            pageNumber: 1,
-            pageContainer: page,
-            lineBoxes: [line(selectedRun)],
-        }]);
+        const geometry = buildHighlightQuadsFromSelection(range, [
+            {
+                pageNumber: 1,
+                pageContainer: page,
+                lineBoxes: [line(selectedRun)],
+            },
+        ]);
 
         expect(geometry[0]?.quadPoints[0]).toMatchObject({
             left: expect.closeTo(0.15, 8),
@@ -772,11 +633,13 @@ describe('annotation highlight geometry', () => {
         range.setStart(selectedRun.textNode!, 1);
         range.setEnd(selectedRun.textNode!, selectedRun.textNode!.length - 1);
 
-        const geometry = buildHighlightQuadsFromSelection(range, [{
-            pageNumber: 1,
-            pageContainer: page,
-            lineBoxes: [line(selectedRun, unselectedRun)],
-        }]);
+        const geometry = buildHighlightQuadsFromSelection(range, [
+            {
+                pageNumber: 1,
+                pageContainer: page,
+                lineBoxes: [line(selectedRun, unselectedRun)],
+            },
+        ]);
 
         expect(geometry[0]?.quadPoints[0]).toMatchObject({
             left: expect.closeTo(0.22, 8),
@@ -800,18 +663,22 @@ describe('annotation highlight geometry', () => {
         range.setStart(verticalRun.textNode!, 1);
         range.setEnd(verticalRun.textNode!, verticalRun.textNode!.length - 1);
 
-        const geometry = buildHighlightQuadsFromSelection(range, [{
-            pageNumber: 1,
-            pageContainer: page,
-            lineBoxes: [line(verticalRun)],
-        }]);
+        const geometry = buildHighlightQuadsFromSelection(range, [
+            {
+                pageNumber: 1,
+                pageContainer: page,
+                lineBoxes: [line(verticalRun)],
+            },
+        ]);
 
-        expect(geometry[0]?.quadPoints).toEqual([{
-            left: 0.22,
-            top: 0.25,
-            width: 0.06,
-            height: 0.3,
-        }]);
+        expect(geometry[0]?.quadPoints).toEqual([
+            {
+                left: 0.22,
+                top: 0.25,
+                width: 0.06,
+                height: 0.3,
+            },
+        ]);
     });
 
     it('uses span metrics only for partial horizontal endpoints and splits by page', () => {
@@ -830,10 +697,7 @@ describe('annotation highlight geometry', () => {
             {
                 pageNumber: 1,
                 pageContainer: firstPage,
-                lineBoxes: [
-                    line(firstRun),
-                    line(secondRun),
-                ],
+                lineBoxes: [line(firstRun), line(secondRun)],
             },
             {
                 pageNumber: 2,
@@ -872,16 +736,20 @@ describe('annotation highlight geometry', () => {
             range.setEnd(textNode, textNode.length - 1);
             return range;
         };
-        const firstGeometry = buildHighlightQuadsFromSelection(makeRange(firstRun.textNode!), [{
-            pageNumber: 1,
-            pageContainer: firstPage,
-            lineBoxes: [line(firstRun)],
-        }]);
-        const scaledGeometry = buildHighlightQuadsFromSelection(makeRange(scaledRun.textNode!), [{
-            pageNumber: 1,
-            pageContainer: scaledPage,
-            lineBoxes: [line(scaledRun)],
-        }]);
+        const firstGeometry = buildHighlightQuadsFromSelection(makeRange(firstRun.textNode!), [
+            {
+                pageNumber: 1,
+                pageContainer: firstPage,
+                lineBoxes: [line(firstRun)],
+            },
+        ]);
+        const scaledGeometry = buildHighlightQuadsFromSelection(makeRange(scaledRun.textNode!), [
+            {
+                pageNumber: 1,
+                pageContainer: scaledPage,
+                lineBoxes: [line(scaledRun)],
+            },
+        ]);
 
         expect(scaledGeometry).toEqual(firstGeometry);
     });
@@ -891,11 +759,9 @@ describe('annotation highlight geometry', () => {
         const scaledPage = pageContainer(2);
         const firstRun = run(firstPage, 0, 'scaled text', 0.1, 0.1, 0.6, 0.13, 1);
         const scaledRun = run(scaledPage, 0, 'scaled text', 0.1, 0.1, 0.6, 0.13, 2);
-        const createRangeSpy = mockSelectionClientRects(activeRange => (
-            activeRange.startContainer === firstRun.textNode
-                ? [clientRect(20, 24, 40, 5)]
-                : [clientRect(40, 48, 80, 10)]
-        ));
+        const createRangeSpy = mockSelectionClientRects((activeRange) =>
+            activeRange.startContainer === firstRun.textNode ? [clientRect(20, 24, 40, 5)] : [clientRect(40, 48, 80, 10)],
+        );
         onTestFinished(() => createRangeSpy.mockRestore());
 
         const makeRange = (textNode: Text) => {
@@ -904,16 +770,20 @@ describe('annotation highlight geometry', () => {
             range.setEnd(textNode, textNode.length - 1);
             return range;
         };
-        const firstGeometry = buildHighlightQuadsFromSelection(makeRange(firstRun.textNode!), [{
-            pageNumber: 1,
-            pageContainer: firstPage,
-            lineBoxes: [line(firstRun)],
-        }]);
-        const scaledGeometry = buildHighlightQuadsFromSelection(makeRange(scaledRun.textNode!), [{
-            pageNumber: 1,
-            pageContainer: scaledPage,
-            lineBoxes: [line(scaledRun)],
-        }]);
+        const firstGeometry = buildHighlightQuadsFromSelection(makeRange(firstRun.textNode!), [
+            {
+                pageNumber: 1,
+                pageContainer: firstPage,
+                lineBoxes: [line(firstRun)],
+            },
+        ]);
+        const scaledGeometry = buildHighlightQuadsFromSelection(makeRange(scaledRun.textNode!), [
+            {
+                pageNumber: 1,
+                pageContainer: scaledPage,
+                lineBoxes: [line(scaledRun)],
+            },
+        ]);
 
         expect(scaledGeometry).toEqual(firstGeometry);
     });

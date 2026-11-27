@@ -2,29 +2,12 @@
 
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    createApp,
-    computed,
-    defineComponent,
-    h,
-    nextTick,
-    ref,
-    shallowRef,
-} from 'vue';
-import { requireDocumentRef } from '@contracts/documentRef';
-import type {
-    IDocumentOutlineItem,
-    IDocumentPageSource,
-} from '@app/modules/document-viewer/source/documentPageSource';
-import type { IDocumentSearchSession } from '@app/modules/document-viewer/search/documentSearch';
-import type { TDocumentSidebarTab } from '@app/modules/document-viewer/sidebar/documentSidebarTabs';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {createApp, computed, defineComponent, h, nextTick, ref, shallowRef} from 'vue';
+import {requireDocumentRef} from '@contracts/documentRef';
+import type {IDocumentOutlineItem, IDocumentPageSource} from '@app/modules/document-viewer/source/documentPageSource';
+import type {IDocumentSearchSession} from '@app/modules/document-viewer/search/documentSearch';
+import type {TDocumentSidebarTab} from '@app/modules/document-viewer/sidebar/documentSidebarTabs';
 import {useDocumentSidebarCapabilitySession} from '@app/modules/document-viewer/sidebar/useDocumentSidebarCapabilitySession';
 import DocumentSourceSidebar from '@app/modules/workspace-shell/components/DocumentSourceSidebar.vue';
 
@@ -37,16 +20,22 @@ vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
 }));
 
 function stub(marker: string) {
-    return {default: defineComponent({
-        inheritAttrs: false,
-        setup: (_props, {
-            attrs,
-            slots,
-        }) => () => h('div', {
-            ...attrs,
-            [marker]: '',
-        }, slots.default?.()),
-    })};
+    return {
+        default: defineComponent({
+            inheritAttrs: false,
+            setup:
+                (_props, {attrs, slots}) =>
+                () =>
+                    h(
+                        'div',
+                        {
+                            ...attrs,
+                            [marker]: '',
+                        },
+                        slots.default?.(),
+                    ),
+        }),
+    };
 }
 
 vi.mock('@app/components/document-viewer/DocumentBookmarkToolbar.vue', () => stub('data-bookmark-toolbar-stub'));
@@ -57,20 +46,25 @@ vi.mock('@app/components/document-viewer/DocumentThumbnailList.vue', () => stub(
 vi.mock('@app/components/document-viewer/DocumentSidebarPagesPanel.vue', () => stub('data-pages-panel-stub'));
 vi.mock('@app/components/sidebar/AppSidebarShell.vue', async () => {
     const vue = await import('vue');
-    return {default: vue.defineComponent({
-        props: {
-            modelValue: {
-                type: String,
-                required: true,
+    return {
+        default: vue.defineComponent({
+            props: {
+                modelValue: {
+                    type: String,
+                    required: true,
+                },
+                tabs: {
+                    type: Array,
+                    required: true,
+                },
             },
-            tabs: {
-                type: Array,
-                required: true,
-            },
-        },
-        emits: ['update:model-value'],
-        setup: (_props, {slots}) => () => vue.h('aside', {'data-shell-stub': ''}, slots.default?.()),
-    })};
+            emits: ['update:model-value'],
+            setup:
+                (_props, {slots}) =>
+                () =>
+                    vue.h('aside', {'data-shell-stub': ''}, slots.default?.()),
+        }),
+    };
 });
 
 function createSearchSession(): IDocumentSearchSession {
@@ -135,14 +129,19 @@ async function mountSidebar(source: IDocumentPageSource | null) {
     });
     const host = document.createElement('div');
     document.body.append(host);
-    const app = createApp(defineComponent({setup: () => () => h(DocumentSourceSidebar, {
-        activeTab: sidebarTabs.effectiveTab.value,
-        availableTabs: sidebarTabs.availableTabs.value,
-        currentPage: 1,
-        searchSession: createSearchSession(),
-        source: pageSource.value,
-        'onUpdate:activeTab': sidebarTabs.select,
-    })}));
+    const app = createApp(
+        defineComponent({
+            setup: () => () =>
+                h(DocumentSourceSidebar, {
+                    activeTab: sidebarTabs.effectiveTab.value,
+                    availableTabs: sidebarTabs.availableTabs.value,
+                    currentPage: 1,
+                    searchSession: createSearchSession(),
+                    source: pageSource.value,
+                    'onUpdate:activeTab': sidebarTabs.select,
+                }),
+        }),
+    );
     app.mount(host);
     await nextTick();
     const unmount = () => {
@@ -154,7 +153,7 @@ async function mountSidebar(source: IDocumentPageSource | null) {
 
     async function settle() {
         await nextTick();
-        await new Promise(resolve => setTimeout(resolve, 0));
+        await new Promise((resolve) => setTimeout(resolve, 0));
         await nextTick();
     }
 
@@ -188,11 +187,17 @@ describe('DocumentSourceSidebar bookmarks panel', () => {
     });
 
     it('shows the display-mode toolbar once the outline is available', async () => {
-        const sidebar = await mountSidebar(createSource(() => Promise.resolve([{
-            title: 'Part',
-            pageNumber: 1,
-            children: [],
-        }])));
+        const sidebar = await mountSidebar(
+            createSource(() =>
+                Promise.resolve([
+                    {
+                        title: 'Part',
+                        pageNumber: 1,
+                        children: [],
+                    },
+                ]),
+            ),
+        );
 
         await sidebar.settle();
 

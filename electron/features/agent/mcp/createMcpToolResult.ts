@@ -1,5 +1,5 @@
-import { isRecord } from '@contracts/runtimeGuards';
-import { getErrorMessage } from '@electron/utils/error';
+import {isRecord} from '@contracts/runtimeGuards';
+import {getErrorMessage} from '@electron/utils/error';
 
 interface IMcpToolTextContent {
     type: 'text';
@@ -19,15 +19,15 @@ function getMcpImagePayload(data: unknown) {
         return null;
     }
 
-    const { image } = data;
-    return typeof image.data === 'string'
-        && image.data.trim().length > 0
-        && typeof image.mimeType === 'string'
-        && image.mimeType.trim().startsWith('image/')
+    const {image} = data;
+    return typeof image.data === 'string' &&
+        image.data.trim().length > 0 &&
+        typeof image.mimeType === 'string' &&
+        image.mimeType.trim().startsWith('image/')
         ? {
-            data: image.data.trim(),
-            mimeType: image.mimeType.trim(),
-        }
+              data: image.data.trim(),
+              mimeType: image.mimeType.trim(),
+          }
         : null;
 }
 
@@ -36,9 +36,7 @@ function createToolStructuredContent(data: unknown) {
         return data;
     }
 
-    const imageMetadata = Object.fromEntries(
-        Object.entries(data.image).filter(([key]) => key !== 'data'),
-    );
+    const imageMetadata = Object.fromEntries(Object.entries(data.image).filter(([key]) => key !== 'data'));
     return {
         ...data,
         image: imageMetadata,
@@ -47,10 +45,12 @@ function createToolStructuredContent(data: unknown) {
 
 export function createMcpToolResult(data: unknown) {
     const structuredContent = createToolStructuredContent(data);
-    const content: TMcpToolContent[] = [{
-        type: 'text',
-        text: JSON.stringify(structuredContent),
-    }];
+    const content: TMcpToolContent[] = [
+        {
+            type: 'text',
+            text: JSON.stringify(structuredContent),
+        },
+    ];
     const image = getMcpImagePayload(data);
     if (image) {
         content.push({
@@ -66,21 +66,19 @@ export function createMcpToolResult(data: unknown) {
     };
 }
 
-function createMcpToolErrorResult(
-    code: string,
-    message: string,
-    capabilityId: string | null,
-) {
+function createMcpToolErrorResult(code: string, message: string, capabilityId: string | null) {
     const structuredContent = {
         code,
         message,
         capabilityId,
     };
     return {
-        content: [{
-            type: 'text' as const,
-            text: JSON.stringify(structuredContent),
-        }],
+        content: [
+            {
+                type: 'text' as const,
+                text: JSON.stringify(structuredContent),
+            },
+        ],
         isError: true,
         structuredContent,
     };

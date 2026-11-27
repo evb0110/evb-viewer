@@ -1,37 +1,14 @@
-import {
-    createHash,
-    randomUUID,
-} from 'node:crypto';
+import {createHash, randomUUID} from 'node:crypto';
 import {execFile} from 'node:child_process';
 import {createReadStream} from 'node:fs';
-import {
-    mkdir,
-    open,
-    readFile,
-    realpath,
-    rename,
-    rm,
-    stat,
-    writeFile,
-} from 'node:fs/promises';
-import {
-    dirname,
-    extname,
-    join,
-    resolve,
-} from 'node:path';
-import type {
-    IScanCleanupDetectionResult,
-    IScanCleanupOptions,
-} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {mkdir, open, readFile, realpath, rename, rm, stat, writeFile} from 'node:fs/promises';
+import {dirname, extname, join, resolve} from 'node:path';
+import type {IScanCleanupDetectionResult, IScanCleanupOptions} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
 import {createFileBackedScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/fileBackedResultStore';
 import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 import {SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION} from '@contracts/scan-cleanup/nativeProtocolV3';
-import {
-    DETECTION_DPI,
-    PREVIEW_DPI,
-} from '@evb/scan-cleanup/core/detection';
+import {DETECTION_DPI, PREVIEW_DPI} from '@evb/scan-cleanup/core/detection';
 
 const SCAN_CLEANUP_DETECTION_CACHE_FORMAT_VERSION = 2 as const;
 export const DEFAULT_SCAN_CLEANUP_DETECTION_CACHE_PATH = '.devkit/tmp/detection-cache';
@@ -115,15 +92,13 @@ function isJsonValue(value: unknown): boolean {
         return Number.isFinite(value);
     }
     if (Array.isArray(value)) {
-        return value.every(item => isJsonValue(item));
+        return value.every((item) => isJsonValue(item));
     }
-    return isRecord(value) && Object.values(value).every(item => isJsonValue(item));
+    return isRecord(value) && Object.values(value).every((item) => isJsonValue(item));
 }
 
 function isLayoutClassification(value: unknown): value is IScanCleanupDetectionResult['classification'] {
-    return value === 'single-uncut-page'
-        || value === 'two-page-spread'
-        || value === 'page-with-offcut';
+    return value === 'single-uncut-page' || value === 'two-page-spread' || value === 'page-with-offcut';
 }
 
 function isDetectionResult(value: unknown): value is IScanCleanupDetectionResult {
@@ -131,21 +106,21 @@ function isDetectionResult(value: unknown): value is IScanCleanupDetectionResult
         return false;
     }
     const pageNumber = value.pageNumber;
-    return typeof pageNumber === 'number'
-        && Number.isSafeInteger(pageNumber)
-        && pageNumber >= 1
-        && isLayoutClassification(value.classification)
-        && typeof value.confidence === 'number'
-        && Number.isFinite(value.confidence)
-        && (value.cutterXPx === null || (
-            typeof value.cutterXPx === 'number' && Number.isFinite(value.cutterXPx)
-        ))
-        && isLayoutClassification(value.tier1Verdict)
-        && typeof value.reconciled === 'boolean'
-        && typeof value.clusterAgreement === 'number'
-        && Number.isFinite(value.clusterAgreement)
-        && (value.documentPrior === null || isRecord(value.documentPrior))
-        && (value.revision === undefined || Number.isSafeInteger(value.revision));
+    return (
+        typeof pageNumber === 'number' &&
+        Number.isSafeInteger(pageNumber) &&
+        pageNumber >= 1 &&
+        isLayoutClassification(value.classification) &&
+        typeof value.confidence === 'number' &&
+        Number.isFinite(value.confidence) &&
+        (value.cutterXPx === null || (typeof value.cutterXPx === 'number' && Number.isFinite(value.cutterXPx))) &&
+        isLayoutClassification(value.tier1Verdict) &&
+        typeof value.reconciled === 'boolean' &&
+        typeof value.clusterAgreement === 'number' &&
+        Number.isFinite(value.clusterAgreement) &&
+        (value.documentPrior === null || isRecord(value.documentPrior)) &&
+        (value.revision === undefined || Number.isSafeInteger(value.revision))
+    );
 }
 
 function isCacheFile(value: unknown, expectedKey: IScanCleanupDetectionCacheKey): value is IScanCleanupDetectionCacheFile {
@@ -154,13 +129,13 @@ function isCacheFile(value: unknown, expectedKey: IScanCleanupDetectionCacheKey)
     }
     const results = value.results;
     if (
-        value.cacheFormatVersion !== SCAN_CLEANUP_DETECTION_CACHE_FORMAT_VERSION
-        || value.detectionScope !== DETECTION_SCOPE
-        || value.key !== expectedKey.key
-        || value.sourceSha256 !== expectedKey.sourceSha256
-        || !Array.isArray(results)
-        || results.length === 0
-        || !results.every(result => isDetectionResult(result))
+        value.cacheFormatVersion !== SCAN_CLEANUP_DETECTION_CACHE_FORMAT_VERSION ||
+        value.detectionScope !== DETECTION_SCOPE ||
+        value.key !== expectedKey.key ||
+        value.sourceSha256 !== expectedKey.sourceSha256 ||
+        !Array.isArray(results) ||
+        results.length === 0 ||
+        !results.every((result) => isDetectionResult(result))
     ) {
         return false;
     }
@@ -169,16 +144,13 @@ function isCacheFile(value: unknown, expectedKey: IScanCleanupDetectionCacheKey)
 
 function canonicalize(value: unknown): unknown {
     if (Array.isArray(value)) {
-        return value.map(item => canonicalize(item));
+        return value.map((item) => canonicalize(item));
     }
     if (isRecord(value)) {
         return Object.fromEntries(
             Object.keys(value)
                 .sort()
-                .map(key => [
-                    key,
-                    canonicalize(value[key]),
-                ]),
+                .map((key) => [key, canonicalize(value[key])]),
         );
     }
     return value;
@@ -205,13 +177,7 @@ async function hashNativeBinary(path: string) {
     if (!binaryStats.isFile()) {
         throw new Error(`Scan-cleanup detector is not a file: ${path}`);
     }
-    const fingerprint = [
-        binaryStats.dev,
-        binaryStats.ino,
-        binaryStats.size,
-        binaryStats.mtimeNs,
-        binaryStats.ctimeNs,
-    ].join(':');
+    const fingerprint = [binaryStats.dev, binaryStats.ino, binaryStats.size, binaryStats.mtimeNs, binaryStats.ctimeNs].join(':');
     const cached = nativeBinaryHashes.get(path);
     if (cached?.fingerprint === fingerprint) {
         return cached.sha256;
@@ -235,10 +201,7 @@ function readPdftoppmVersion(path: string) {
     return new Promise<string>((resolvePromise, reject) => {
         execFile(path, ['-v'], {encoding: 'utf8'}, (error, stdout, stderr) => {
             if (error !== null) {
-                reject(new Error(
-                    `Could not read pdftoppm identity from ${path}: ${error.message}`,
-                    {cause: error},
-                ));
+                reject(new Error(`Could not read pdftoppm identity from ${path}: ${error.message}`, {cause: error}));
                 return;
             }
             const version = `${stdout}${stderr}`.trim();
@@ -267,9 +230,7 @@ function getPdftoppmVersion(path: string) {
 }
 
 export function resolveScanCleanupDetectionCacheEntryPath(cachePath: string, key: IScanCleanupDetectionCacheKey) {
-    return extname(cachePath).toLowerCase() === '.json'
-        ? cachePath
-        : join(cachePath, `${key.key}.json`);
+    return extname(cachePath).toLowerCase() === '.json' ? cachePath : join(cachePath, `${key.key}.json`);
 }
 
 function resolveStreamingCacheRecordsPath(entryPath: string) {
@@ -285,16 +246,18 @@ function isStreamingCacheFile(
     }
     const pageCount = value.pageCount;
     const resultCount = value.resultCount;
-    return value.cacheFormatVersion === SCAN_CLEANUP_DETECTION_CACHE_STREAMING_FORMAT_VERSION
-        && value.detectionScope === DETECTION_SCOPE
-        && value.key === expectedKey.key
-        && value.sourceSha256 === expectedKey.sourceSha256
-        && typeof pageCount === 'number'
-        && Number.isSafeInteger(pageCount)
-        && pageCount > SCAN_CLEANUP_STREAMING_BATCH_PAGES
-        && typeof resultCount === 'number'
-        && Number.isSafeInteger(resultCount)
-        && resultCount === pageCount;
+    return (
+        value.cacheFormatVersion === SCAN_CLEANUP_DETECTION_CACHE_STREAMING_FORMAT_VERSION &&
+        value.detectionScope === DETECTION_SCOPE &&
+        value.key === expectedKey.key &&
+        value.sourceSha256 === expectedKey.sourceSha256 &&
+        typeof pageCount === 'number' &&
+        Number.isSafeInteger(pageCount) &&
+        pageCount > SCAN_CLEANUP_STREAMING_BATCH_PAGES &&
+        typeof resultCount === 'number' &&
+        Number.isSafeInteger(resultCount) &&
+        resultCount === pageCount
+    );
 }
 
 async function readStreamingCacheDescriptor(
@@ -322,7 +285,7 @@ async function readStreamingCacheDescriptor(
     return isStreamingCacheFile(parsed, key) ? parsed : null;
 }
 
-async function *readStreamingCacheRecords(path: string): AsyncGenerator<IScanCleanupDetectionResult> {
+async function* readStreamingCacheRecords(path: string): AsyncGenerator<IScanCleanupDetectionResult> {
     const stream = createReadStream(path, {
         encoding: 'utf8',
         highWaterMark: 64 * 1024,
@@ -363,12 +326,16 @@ async function *readStreamingCacheRecords(path: string): AsyncGenerator<IScanCle
                 const parsed = parseLine(pending.slice(0, newline));
                 pending = pending.slice(newline + 1);
                 pendingBytes = Buffer.byteLength(pending, 'utf8');
-                if (parsed !== undefined) {yield parsed;}
+                if (parsed !== undefined) {
+                    yield parsed;
+                }
                 newline = pending.indexOf('\n');
             }
         }
         const parsed = parseLine(pending);
-        if (parsed !== undefined) {yield parsed;}
+        if (parsed !== undefined) {
+            yield parsed;
+        }
     } finally {
         stream.destroy();
     }
@@ -398,9 +365,7 @@ export async function openScanCleanupDetectionCacheStore(
         let expectedPageNumber = 1;
         for await (const result of readStreamingCacheRecords(recordsPath)) {
             if (result.pageNumber !== expectedPageNumber) {
-                throw new Error(
-                    `Scan cleanup detection cache record ${String(result.pageNumber)} is out of order`,
-                );
+                throw new Error(`Scan cleanup detection cache record ${String(result.pageNumber)} is out of order`);
             }
             await store.append(result);
             expectedPageNumber += 1;
@@ -420,19 +385,12 @@ export async function createScanCleanupDetectionCacheKey(
     options: IScanCleanupOptions,
     detectorPaths: IScanCleanupDetectionCacheDetectorPaths,
 ): Promise<IScanCleanupDetectionCacheKey> {
-    const [
-        sourceSha256,
-        pdftoppmBinaryPath,
-        scanCleanupBinaryPath,
-    ] = await Promise.all([
+    const [sourceSha256, pdftoppmBinaryPath, scanCleanupBinaryPath] = await Promise.all([
         hashFile(sourcePdfPath),
         resolveAbsoluteToolPath(detectorPaths.pdftoppmBinaryPath),
         resolveAbsoluteToolPath(detectorPaths.scanCleanupBinaryPath),
     ]);
-    const [
-        pdftoppmVersion,
-        scanCleanupBinarySha256,
-    ] = await Promise.all([
+    const [pdftoppmVersion, scanCleanupBinarySha256] = await Promise.all([
         getPdftoppmVersion(pdftoppmBinaryPath),
         hashNativeBinary(scanCleanupBinaryPath),
     ]);
@@ -469,7 +427,7 @@ export async function readScanCleanupDetectionCache(
     const entryPath = resolveScanCleanupDetectionCacheEntryPath(cachePath, key);
     // A streaming descriptor is intentionally not adapted back into one array.
     // Callers that need document-scale results must use the store API below.
-    if (await readStreamingCacheDescriptor(entryPath, key) !== null) {
+    if ((await readStreamingCacheDescriptor(entryPath, key)) !== null) {
         return null;
     }
     let entryStats: Awaited<ReturnType<typeof stat>>;
@@ -551,7 +509,7 @@ export async function writeScanCleanupDetectionCacheStore(
         recordsHandle = await open(temporaryRecordsPath, 'w');
         let expectedPageNumber = 1;
         let resultCount = 0;
-        await store.forEachChunk(async records => {
+        await store.forEachChunk(async (records) => {
             for (const result of records) {
                 if (result.pageNumber !== expectedPageNumber) {
                     throw new Error(
@@ -586,7 +544,9 @@ export async function writeScanCleanupDetectionCacheStore(
         await rename(temporaryEntryPath, entryPath);
     } finally {
         await recordsHandle?.close();
-        if (!recordsPublished) {await rm(temporaryRecordsPath, {force: true});}
+        if (!recordsPublished) {
+            await rm(temporaryRecordsPath, {force: true});
+        }
         await rm(temporaryEntryPath, {force: true});
     }
 }
@@ -616,10 +576,7 @@ export async function runScanCleanupDetectionWithCache({
     }
     const result = await detect();
     if (cachePath !== undefined && key !== undefined) {
-        if (
-            result.resultStore !== undefined
-            && result.resultStore.pageCount > SCAN_CLEANUP_STREAMING_BATCH_PAGES
-        ) {
+        if (result.resultStore !== undefined && result.resultStore.pageCount > SCAN_CLEANUP_STREAMING_BATCH_PAGES) {
             await writeScanCleanupDetectionCacheStore(cachePath, key, result.resultStore);
         } else {
             await writeScanCleanupDetectionCache(cachePath, key, result.results);

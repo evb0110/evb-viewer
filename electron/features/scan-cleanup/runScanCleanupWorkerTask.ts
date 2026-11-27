@@ -1,9 +1,6 @@
 import {randomUUID} from 'node:crypto';
 import {basename} from 'node:path';
-import type {
-    TScanCleanupProgress,
-    TScanCleanupSummary,
-} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import type {TScanCleanupProgress, TScanCleanupSummary} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {IScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
 import {
     runScanCleanupPipeline,
@@ -11,18 +8,12 @@ import {
     type IScanCleanupWorkerPaths,
 } from '@electron/features/scan-cleanup/worker/runScanCleanupPipeline';
 import {reclaimScanCleanupCheckpointOwner} from '@evb/scan-cleanup/core/conversionCheckpoint';
-import {
-    getWorkerTaskFailureReceipt,
-    rememberWorkerTaskFailureReceipt,
-} from '@electron/utils/workerTask';
+import {getWorkerTaskFailureReceipt, rememberWorkerTaskFailureReceipt} from '@electron/utils/workerTask';
 import {isAbortError} from '@electron/utils/abort';
 import {getErrorMessage} from '@electron/utils/error';
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 import {createLogger} from '@electron/utils/createLogger';
-import type {
-    IJobBrokerRunContext,
-    TTerminationProofSink,
-} from '@electron/resources/jobBroker';
+import type {IJobBrokerRunContext, TTerminationProofSink} from '@electron/resources/jobBroker';
 
 const logger = createLogger('scan-cleanup-runner');
 
@@ -30,10 +21,14 @@ export type TScanCleanupWorkerRequest = IRunScanCleanupPipelineRequest;
 
 function logScanCleanupMessage(jobId: string, level: 'debug' | 'error' | 'info' | 'warn', message: string) {
     if (level === 'error') {
-        logger.error('Scan cleanup reported an error', {code: 'MAIN_SCAN_CLEANUP_FAILED'}, {
-            jobId,
-            message,
-        });
+        logger.error(
+            'Scan cleanup reported an error',
+            {code: 'MAIN_SCAN_CLEANUP_FAILED'},
+            {
+                jobId,
+                message,
+            },
+        );
         return;
     }
     logger[level]('Scan cleanup reported a message', {
@@ -61,12 +56,13 @@ export async function runScanCleanupWorkerTask(
     },
 ): Promise<TScanCleanupSummary> {
     const checkpointOwnerId = `${jobId}-${randomUUID()}`;
-    const workerPaths: IScanCleanupWorkerPaths = paths.checkpointDir === undefined
-        ? paths
-        : {
-            ...paths,
-            checkpointOwnerId,
-        };
+    const workerPaths: IScanCleanupWorkerPaths =
+        paths.checkpointDir === undefined
+            ? paths
+            : {
+                  ...paths,
+                  checkpointOwnerId,
+              };
     const startedAt = performance.now();
     let lastProgressStage: TScanCleanupProgress['stage'] | null = null;
     let lastProgressStageStartedAt = startedAt;
@@ -80,7 +76,7 @@ export async function runScanCleanupWorkerTask(
             request,
             workerPaths,
             signal,
-            progress => {
+            (progress) => {
                 if (progress.stage !== lastProgressStage) {
                     const now = performance.now();
                     logger.info('Scan cleanup phase started', {
@@ -102,15 +98,9 @@ export async function runScanCleanupWorkerTask(
             (level, message) => logScanCleanupMessage(jobId, level, message),
             undefined,
             {
-                ...(options?.onCheckpointReady === undefined
-                    ? {}
-                    : {onCheckpointReadyForCleanup: options.onCheckpointReady}),
-                ...(options?.brokerRun === undefined
-                    ? {}
-                    : {brokerRun: options.brokerRun}),
-                ...(options?.onTerminationProof === undefined
-                    ? {}
-                    : {onTerminationProof: options.onTerminationProof}),
+                ...(options?.onCheckpointReady === undefined ? {} : {onCheckpointReadyForCleanup: options.onCheckpointReady}),
+                ...(options?.brokerRun === undefined ? {} : {brokerRun: options.brokerRun}),
+                ...(options?.onTerminationProof === undefined ? {} : {onTerminationProof: options.onTerminationProof}),
             },
         );
         logger.info('Scan cleanup run completed', {
@@ -146,22 +136,26 @@ export async function runScanCleanupWorkerTask(
         } else {
             rememberWorkerTaskFailureReceipt(
                 error,
-                logger.error('Scan cleanup run failed', {
-                    code: 'MAIN_SCAN_CLEANUP_FAILED',
-                    cause: error,
-                }, {
-                    jobId,
-                    stage: lastProgressStage,
-                    elapsedMs,
-                    errorMessage: getErrorMessage(error),
-                    detail,
-                }),
+                logger.error(
+                    'Scan cleanup run failed',
+                    {
+                        code: 'MAIN_SCAN_CLEANUP_FAILED',
+                        cause: error,
+                    },
+                    {
+                        jobId,
+                        stage: lastProgressStage,
+                        elapsedMs,
+                        errorMessage: getErrorMessage(error),
+                        detail,
+                    },
+                ),
             );
         }
         throw error;
     } finally {
         if (paths.checkpointDir !== undefined) {
-            await reclaimScanCleanupCheckpointOwner(paths.checkpointDir, checkpointOwnerId).catch(reclaimError => {
+            await reclaimScanCleanupCheckpointOwner(paths.checkpointDir, checkpointOwnerId).catch((reclaimError) => {
                 logger.warn('Failed to reclaim scan cleanup checkpoint owner artifacts', {
                     jobId,
                     checkpointOwnerId,

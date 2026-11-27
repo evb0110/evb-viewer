@@ -1,14 +1,14 @@
 export interface IRolloutRelease {
-    draft?: boolean
-    prerelease?: boolean
-    tag_name: string
+    draft?: boolean;
+    prerelease?: boolean;
+    tag_name: string;
 }
 
 export interface IReleaseRolloutPolicy {
-    canaryPercent: number
-    canaryTag: string | null
-    stableTags: readonly string[]
-    withdrawnTags: ReadonlySet<string>
+    canaryPercent: number;
+    canaryTag: string | null;
+    stableTags: readonly string[];
+    withdrawnTags: ReadonlySet<string>;
 }
 
 function stableHash(value: string): number {
@@ -21,7 +21,14 @@ function stableHash(value: string): number {
 }
 
 export function parseReleaseTagList(value: string): string[] {
-    return Array.from(new Set(value.split(',').map(tag => tag.trim()).filter(Boolean)));
+    return Array.from(
+        new Set(
+            value
+                .split(',')
+                .map((tag) => tag.trim())
+                .filter(Boolean),
+        ),
+    );
 }
 
 export function normalizeCanaryPercent(value: string | number): number {
@@ -35,12 +42,11 @@ export function selectReleaseForRollout<TRelease extends IRolloutRelease>(
     policy: IReleaseRolloutPolicy,
     cohortKey: string,
 ): TRelease | null {
-    const byTag = new Map(releases
-        .filter(release => !release.draft && !policy.withdrawnTags.has(release.tag_name))
-        .map(release => [
-            release.tag_name,
-            release,
-        ]));
+    const byTag = new Map(
+        releases
+            .filter((release) => !release.draft && !policy.withdrawnTags.has(release.tag_name))
+            .map((release) => [release.tag_name, release]),
+    );
     const canary = policy.canaryTag ? byTag.get(policy.canaryTag) : undefined;
     if (canary && stableHash(cohortKey) % 10_000 < Math.round(policy.canaryPercent * 100)) {
         return canary;
@@ -54,5 +60,5 @@ export function selectReleaseForRollout<TRelease extends IRolloutRelease>(
         }
         return null;
     }
-    return releases.find(release => !release.draft && !release.prerelease && !policy.withdrawnTags.has(release.tag_name)) ?? null;
+    return releases.find((release) => !release.draft && !release.prerelease && !policy.withdrawnTags.has(release.tag_name)) ?? null;
 }

@@ -1,37 +1,33 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    ref,
-    shallowRef,
-} from 'vue';
-import { hasAnnotationChanges } from '@app/modules/workspace-shell/annotations/hasAnnotationChanges';
-import { hasViewerShapeChanges } from '@app/modules/workspace-shell/annotations/hasViewerShapeChanges';
+import {describe, expect, it, vi} from 'vitest';
+import {ref, shallowRef} from 'vue';
+import {hasAnnotationChanges} from '@app/modules/workspace-shell/annotations/hasAnnotationChanges';
+import {hasViewerShapeChanges} from '@app/modules/workspace-shell/annotations/hasViewerShapeChanges';
 
 describe('hasViewerShapeChanges', () => {
     it('unwraps ref-backed viewer shape state', () => {
-        expect(hasViewerShapeChanges({ hasShapes: ref(true) })).toBe(true);
-        expect(hasViewerShapeChanges({ hasShapes: ref(false) })).toBe(false);
+        expect(hasViewerShapeChanges({hasShapes: ref(true)})).toBe(true);
+        expect(hasViewerShapeChanges({hasShapes: ref(false)})).toBe(false);
     });
 
     it('falls back to plain booleans and null viewers', () => {
-        expect(hasViewerShapeChanges({ hasShapes: true })).toBe(true);
-        expect(hasViewerShapeChanges({ hasShapes: false })).toBe(false);
+        expect(hasViewerShapeChanges({hasShapes: true})).toBe(true);
+        expect(hasViewerShapeChanges({hasShapes: false})).toBe(false);
         expect(hasViewerShapeChanges(null)).toBe(false);
     });
 
     it('uses canonical shape dirtiness when the viewer exposes it', () => {
-        expect(hasViewerShapeChanges({
-            hasCanonicalShapeChanges: () => false,
-            hasShapes: ref(true),
-        })).toBe(false);
-        expect(hasViewerShapeChanges({
-            hasCanonicalShapeChanges: () => true,
-            hasShapes: ref(false),
-        })).toBe(true);
+        expect(
+            hasViewerShapeChanges({
+                hasCanonicalShapeChanges: () => false,
+                hasShapes: ref(true),
+            }),
+        ).toBe(false);
+        expect(
+            hasViewerShapeChanges({
+                hasCanonicalShapeChanges: () => true,
+                hasShapes: ref(false),
+            }),
+        ).toBe(true);
     });
 });
 
@@ -89,5 +85,4 @@ describe('hasAnnotationChanges', () => {
 
         expect(result).toBe(false);
     });
-
 });

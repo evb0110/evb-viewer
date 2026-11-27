@@ -9,12 +9,7 @@ export const WASM_REQUEST_ALLOCATION_ABI_VERSION = 1;
  * Consume the view immediately. Do not retain it across any WASM export call,
  * because memory growth replaces the underlying buffer and invalidates prior views.
  */
-export function getCheckedWasmMemoryView(
-    memory: WebAssembly.Memory,
-    pointer: number,
-    byteLength: number,
-    label: string,
-) {
+export function getCheckedWasmMemoryView(memory: WebAssembly.Memory, pointer: number, byteLength: number, label: string) {
     if (!Number.isInteger(pointer) || pointer < WASM_I32_MIN || pointer > WASM_I32_MAX) {
         throw new RangeError(`${label} returned an invalid pointer`);
     }

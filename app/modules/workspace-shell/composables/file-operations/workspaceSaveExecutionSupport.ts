@@ -1,14 +1,8 @@
-import type {
-    ComputedRef, Ref,
-} from 'vue';
+import type {ComputedRef, Ref} from 'vue';
 import type {TDocumentRef} from '@contracts/documentRef';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import type {TRequestId} from '@contracts/shared';
-import type {
-    IPdfBookmarkEntry,
-    IPdfPageLabelRange,
-    TPdfSaveMode,
-} from '@app/types/pdfContracts';
+import type {IPdfBookmarkEntry, IPdfPageLabelRange, TPdfSaveMode} from '@app/types/pdfContracts';
 import type {
     IPdfNativeAnnotationIdentityBinding,
     IPdfNativeMutationSet,
@@ -26,9 +20,7 @@ import {
     type IPdfViewerSaveTransactionNativeCapabilities,
     type IPdfViewerNativeMaterializationRequest,
 } from '@app/modules/pdf-viewer/public';
-import type {
-    IPdfPersistResult, IPdfSaveResult,
-} from '@app/types/pdfUi';
+import type {IPdfPersistResult, IPdfSaveResult} from '@app/types/pdfUi';
 import type {TRunWithDocumentOperationLease} from '@app/types/documentOperationKind';
 import type {TWorkspaceFailureSurface} from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
 import {collectDirtyState} from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveState';
@@ -45,22 +37,22 @@ import type {
 export type TWorkspaceSaveRequest =
     | {kind: 'save'}
     | {
-        kind: 'save-as';
-        optimizeLossless: boolean
-    }
+          kind: 'save-as';
+          optimizeLossless: boolean;
+      }
     | {kind: 'repair'}
     | {kind: 'optimize'}
     | {
-        kind: 'optimize-copy';
-        options: IPdfOptimizeOptions;
-        requestId?: TRequestId;
-        /** Receives what the optimizer did, including a copy it declined to write. */
-        onResult?: (result: IPdfOptimizeResult) => void;
-        /** The platform's Optimize, bound to the target picked during the user's click. */
-        preparedOptimize?: TPreparedPdfOptimizeCopy;
-        /** Ends the optimization when its document goes away. */
-        signal?: AbortSignal;
-    };
+          kind: 'optimize-copy';
+          options: IPdfOptimizeOptions;
+          requestId?: TRequestId;
+          /** Receives what the optimizer did, including a copy it declined to write. */
+          onResult?: (result: IPdfOptimizeResult) => void;
+          /** The platform's Optimize, bound to the target picked during the user's click. */
+          preparedOptimize?: TPreparedPdfOptimizeCopy;
+          /** Ends the optimization when its document goes away. */
+          signal?: AbortSignal;
+      };
 
 export interface IWorkspaceSaveTarget {
     expectedDocumentSessionKey: string | null;
@@ -104,29 +96,29 @@ interface IWorkspaceSavePlanCommon {
 
 export type TWorkspaceSavePlan =
     | (IWorkspaceSavePlanCommon & {
-        kind: 'serialized';
-        destination: 'original' | 'save-as';
-        body: IWorkspaceSerializedSaveBody
-    })
+          kind: 'serialized';
+          destination: 'original' | 'save-as';
+          body: IWorkspaceSerializedSaveBody;
+      })
     | (IWorkspaceSavePlanCommon & {
-        kind: 'native-working-copy';
-        request: Extract<TWorkspaceSaveRequest, {kind: 'repair' | 'optimize'}>;
-        operation: 'repair' | 'optimize'
-    })
+          kind: 'native-working-copy';
+          request: Extract<TWorkspaceSaveRequest, {kind: 'repair' | 'optimize'}>;
+          operation: 'repair' | 'optimize';
+      })
     | (IWorkspaceSavePlanCommon & {
-        kind: 'native-mutation';
-        request: Extract<TWorkspaceSaveRequest, {kind: 'save' | 'save-as'}>;
-        serializedFallback: IWorkspaceSerializedSaveBody
-    })
+          kind: 'native-mutation';
+          request: Extract<TWorkspaceSaveRequest, {kind: 'save' | 'save-as'}>;
+          serializedFallback: IWorkspaceSerializedSaveBody;
+      })
     | (IWorkspaceSavePlanCommon & {
-        kind: 'staged-repair';
-        request: Extract<TWorkspaceSaveRequest, {kind: 'repair'}>;
-        serializedFallback: IWorkspaceSerializedSaveBody
-    })
+          kind: 'staged-repair';
+          request: Extract<TWorkspaceSaveRequest, {kind: 'repair'}>;
+          serializedFallback: IWorkspaceSerializedSaveBody;
+      })
     | (IWorkspaceSavePlanCommon & {
-        kind: 'optimization';
-        request: Extract<TWorkspaceSaveRequest, {kind: 'optimize-copy'}>
-    });
+          kind: 'optimization';
+          request: Extract<TWorkspaceSaveRequest, {kind: 'optimize-copy'}>;
+      });
 
 export function createWorkspaceSavePlan(input: {
     request: TWorkspaceSaveRequest;
@@ -136,9 +128,7 @@ export function createWorkspaceSavePlan(input: {
     hasManagedShapes: boolean;
     canPersistNativeWorkingCopy: boolean;
 }): TWorkspaceSavePlan {
-    const {
-        request, target, baseline, dirtyState,
-    } = input;
+    const {request, target, baseline, dirtyState} = input;
     const common = {
         request,
         target,
@@ -160,13 +150,19 @@ export function createWorkspaceSavePlan(input: {
         includeManagedShapes: input.hasManagedShapes && dirtyState.shapes,
         // The live document already shows the bytes a clean Save or an unoptimized Save As publishes (applied
         // OCR and page operations included), so persisting them does not replace its rendered surface.
-        preserveLoadedSource: !forcedByDirtyState && isNativeDocumentRef(target.expectedWorkingPath)
-            && (request.kind === 'save-as' ? !request.optimizeLossless : request.kind === 'save' && Boolean(target.expectedOriginalPath)),
+        preserveLoadedSource:
+            !forcedByDirtyState &&
+            isNativeDocumentRef(target.expectedWorkingPath) &&
+            (request.kind === 'save-as' ? !request.optimizeLossless : request.kind === 'save' && Boolean(target.expectedOriginalPath)),
         requiresLargeFileGuard: forcedByDirtyState || forceRewrite,
     };
-    if ((request.kind === 'repair' || request.kind === 'optimize') && !forcedByDirtyState
-        && Boolean(target.expectedOriginalPath) && Boolean(target.expectedWorkingPath)
-        && input.canPersistNativeWorkingCopy) {
+    if (
+        (request.kind === 'repair' || request.kind === 'optimize') &&
+        !forcedByDirtyState &&
+        Boolean(target.expectedOriginalPath) &&
+        Boolean(target.expectedWorkingPath) &&
+        input.canPersistNativeWorkingCopy
+    ) {
         return {
             ...common,
             kind: 'native-working-copy',
@@ -225,7 +221,7 @@ export interface IWorkspaceSaveDependencies {
     unencryptedSaveNotice?: {
         request: () => Promise<{
             confirmed: boolean;
-            dontShowAgain: boolean
+            dontShowAgain: boolean;
         }>;
         suppress: Ref<boolean>;
         updateSuppress: () => void;
@@ -258,10 +254,12 @@ export interface IWorkspaceSaveDependencies {
     };
     pdf: {
         document: Readonly<Ref<IPdfDocument | null>>;
-        viewer: Readonly<Ref<{
-            runSaveTransaction: IPdfViewerSaveExpose['runSaveTransaction'];
-            getAnnotationDirtyEntityCount?: (() => number) | undefined
-        } | null>>;
+        viewer: Readonly<
+            Ref<{
+                runSaveTransaction: IPdfViewerSaveExpose['runSaveTransaction'];
+                getAnnotationDirtyEntityCount?: (() => number) | undefined;
+            } | null>
+        >;
         commitEditorsForSave?: (options?: {joinRead?: true}) => Promise<void>;
         runSaveTransaction: IPdfViewerSaveExpose['runSaveTransaction'];
         getSourceData: () => Promise<Uint8Array | null>;
@@ -352,9 +350,7 @@ export function buildSaveTransactionRequest(
         bookmarksDirty: plan.dirtyState.bookmarks,
         bookmarkItems: deps.metadata.bookmarkItems.value,
         untitledBookmarkLabel: deps.metadata.untitledBookmarkLabel,
-        totalPages: deps.metadata.totalPages.value > 0
-            ? deps.metadata.totalPages.value
-            : deps.pdf.document.value?.numPages ?? 0,
+        totalPages: deps.metadata.totalPages.value > 0 ? deps.metadata.totalPages.value : (deps.pdf.document.value?.numPages ?? 0),
     };
     const nativeCapabilities: IPdfViewerSaveTransactionNativeCapabilities = {
         hasNativePdfMutationCapability: options.allowNativeMutationPlan,
@@ -388,13 +384,12 @@ export interface IWorkspaceSaveExecutionSupportDependencies {
     };
 }
 
-export function isTargetCurrent(
-    plan: TWorkspaceSavePlan,
-    deps: IWorkspaceSaveExecutionSupportDependencies,
-) {
-    return deps.document.sessionKey.value === plan.target.expectedDocumentSessionKey
-        && deps.document.originalPath.value === plan.target.expectedOriginalPath
-        && deps.document.workingCopyPath.value === plan.target.expectedWorkingPath;
+export function isTargetCurrent(plan: TWorkspaceSavePlan, deps: IWorkspaceSaveExecutionSupportDependencies) {
+    return (
+        deps.document.sessionKey.value === plan.target.expectedDocumentSessionKey &&
+        deps.document.originalPath.value === plan.target.expectedOriginalPath &&
+        deps.document.workingCopyPath.value === plan.target.expectedWorkingPath
+    );
 }
 
 export interface IWorkspaceSaveCompletionDependencies {
@@ -422,17 +417,12 @@ export function getCompletionBaseline(
         return plan.baseline;
     }
 
-    const saveFrontierIsStillCurrent = !deps.annotations.getSaveStateToken
-        || Object.is(
-            deps.annotations.getSaveStateToken(),
-            result.annotationMaterializationBaseline,
-        );
+    const saveFrontierIsStillCurrent =
+        !deps.annotations.getSaveStateToken || Object.is(deps.annotations.getSaveStateToken(), result.annotationMaterializationBaseline);
     result.commitAnnotationSave?.(result.persisted.materializedIdentityBindings);
     return {
         ...plan.baseline,
-        annotations: saveFrontierIsStillCurrent
-            ? deps.annotations.getSaveStateToken?.()
-            : result.annotationMaterializationBaseline,
+        annotations: saveFrontierIsStillCurrent ? deps.annotations.getSaveStateToken?.() : result.annotationMaterializationBaseline,
     };
 }
 
@@ -441,8 +431,8 @@ export function completeSuccessfulSaveState(
     policy: ISaveCompletionPolicy,
     deps: IWorkspaceSaveCompletionDependencies,
 ) {
-    const annotationUnchanged = !deps.annotations.getSaveStateToken
-        || Object.is(deps.annotations.getSaveStateToken(), baseline.annotations);
+    const annotationUnchanged =
+        !deps.annotations.getSaveStateToken || Object.is(deps.annotations.getSaveStateToken(), baseline.annotations);
     if (policy.markAnnotationStateSaved && annotationUnchanged) {
         deps.annotations.markSaved();
     }
@@ -451,28 +441,27 @@ export function completeSuccessfulSaveState(
     // reader shows now is unsaved exactly where it differs from that, whether
     // edited on or back while saving. Without the written value, it is
     // acknowledged only at the revision the save wrote, or once clean again.
-    const pageLabelsUnchanged = !deps.metadata.getPageLabelsSaveStateToken
-        || Object.is(deps.metadata.getPageLabelsSaveStateToken(), baseline.pageLabels);
-    if (policy.markPageLabelsStateSaved && (baseline.writtenPageLabelRanges || pageLabelsUnchanged || !deps.metadata.pageLabelsDirty.value)) {
+    const pageLabelsUnchanged =
+        !deps.metadata.getPageLabelsSaveStateToken || Object.is(deps.metadata.getPageLabelsSaveStateToken(), baseline.pageLabels);
+    if (
+        policy.markPageLabelsStateSaved &&
+        (baseline.writtenPageLabelRanges || pageLabelsUnchanged || !deps.metadata.pageLabelsDirty.value)
+    ) {
         deps.metadata.markPageLabelsSaved(baseline.writtenPageLabelRanges);
     }
 
-    const bookmarksUnchanged = !deps.metadata.getBookmarksSaveStateToken
-        || Object.is(deps.metadata.getBookmarksSaveStateToken(), baseline.bookmarks);
+    const bookmarksUnchanged =
+        !deps.metadata.getBookmarksSaveStateToken || Object.is(deps.metadata.getBookmarksSaveStateToken(), baseline.bookmarks);
     if (policy.markBookmarksStateSaved && (baseline.writtenBookmarkItems || bookmarksUnchanged || !deps.metadata.bookmarksDirty.value)) {
         deps.metadata.markBookmarksSaved(baseline.writtenBookmarkItems);
     }
-
 }
 
-export function getNativeSaveTransactionOptions(
-    deps: IWorkspaceSaveDependencies,
-): INativePdfSaveTransactionOptions {
+export function getNativeSaveTransactionOptions(deps: IWorkspaceSaveDependencies): INativePdfSaveTransactionOptions {
     const documentFiles = getDocumentFilesCapability();
-    const canStageNativeMutation = (
-        typeof documentFiles.releaseManagedTempFileHandle === 'function'
-        && typeof documentFiles.applyPdfNativeMutationsToWorkingCopy === 'function'
-    );
+    const canStageNativeMutation =
+        typeof documentFiles.releaseManagedTempFileHandle === 'function' &&
+        typeof documentFiles.applyPdfNativeMutationsToWorkingCopy === 'function';
     return {
         forceWriterSave: false,
         nativeCapabilities: {
@@ -490,9 +479,7 @@ export function getNativeSaveTransactionOptions(
             bookmarksDirty: deps.metadata.bookmarksDirty.value,
             bookmarkItems: deps.metadata.bookmarkItems.value,
             untitledBookmarkLabel: deps.metadata.untitledBookmarkLabel,
-            totalPages: deps.metadata.totalPages.value > 0
-                ? deps.metadata.totalPages.value
-                : (deps.pdf.document.value?.numPages ?? 0),
+            totalPages: deps.metadata.totalPages.value > 0 ? deps.metadata.totalPages.value : (deps.pdf.document.value?.numPages ?? 0),
         },
     };
 }
@@ -507,7 +494,7 @@ export function createPageMutationWriterSave(deps: {
         const saveDeps = deps.save;
         // A rotation's pending read moves dirty geometry into the rotated page frame first.
         await saveDeps.pdf.commitEditorsForSave?.({joinRead: true});
-        if (!await saveDeps.annotations.persistOpenNotes()) {
+        if (!(await saveDeps.annotations.persistOpenNotes())) {
             return false;
         }
         if (!Object.values(collectDirtyState(saveDeps)).some(Boolean)) {
@@ -520,11 +507,10 @@ export function createPageMutationWriterSave(deps: {
         if (!capturedWorkingCopyPath || !viewer) {
             return false;
         }
-        const isCapturedTargetCurrent = (includeRevision = true) => (
-            saveDeps.document.workingCopyPath.value === capturedWorkingCopyPath
-            && saveDeps.pdf.viewer.value === viewer
-            && (!includeRevision || saveDeps.document.revisionToken.value === capturedDocumentRevisionToken)
-        );
+        const isCapturedTargetCurrent = (includeRevision = true) =>
+            saveDeps.document.workingCopyPath.value === capturedWorkingCopyPath &&
+            saveDeps.pdf.viewer.value === viewer &&
+            (!includeRevision || saveDeps.document.revisionToken.value === capturedDocumentRevisionToken);
         const transaction = await viewer.runSaveTransaction({
             mode: 'embedded-mutation',
             saveFlowMode: 'save',
@@ -532,8 +518,12 @@ export function createPageMutationWriterSave(deps: {
             workingPath: capturedWorkingCopyPath,
             ...getNativeSaveTransactionOptions(saveDeps),
         });
-        if (transaction.verifiedUnchangedWorkingCopy) {return isCapturedTargetCurrent();}
-        if (transaction.nativeRequiredFailure) {throw new NativePdfSaveRequiredError(transaction.nativeRequiredFailure);}
+        if (transaction.verifiedUnchangedWorkingCopy) {
+            return isCapturedTargetCurrent();
+        }
+        if (transaction.nativeRequiredFailure) {
+            throw new NativePdfSaveRequiredError(transaction.nativeRequiredFailure);
+        }
         const projection = transaction.nativeMutationProjection;
         if (!projection || !isCapturedTargetCurrent()) {
             return false;
@@ -547,7 +537,7 @@ export function createPageMutationWriterSave(deps: {
             operation: 'replace',
             ...(transaction.verifyAnnotationSavePath ? {verifyPathBeforeExpose: transaction.verifyAnnotationSavePath} : {}),
             ...(transaction.assertAnnotationSaveCurrent ? {assertBeforeExpose: transaction.assertAnnotationSaveCurrent} : {}),
-            onIdentityBindings: bindings => {
+            onIdentityBindings: (bindings) => {
                 materializedIdentityBindings = bindings;
             },
         });

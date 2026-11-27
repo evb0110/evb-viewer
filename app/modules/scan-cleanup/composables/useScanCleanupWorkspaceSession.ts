@@ -4,9 +4,7 @@ import {
     type TScanCleanupPlacementAnchorsByPage,
     resolveScanCleanupDocumentInkAnchors,
 } from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
-import {
-    isScanCleanupSourceSha256,toPlainScanCleanupOptions,
-} from '@contracts/scan-cleanup/scanCleanupSettings';
+import {isScanCleanupSourceSha256, toPlainScanCleanupOptions} from '@contracts/scan-cleanup/scanCleanupSettings';
 import {isScanCleanupRunning} from '@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator';
 import {useScanCleanupSelection} from '@app/modules/scan-cleanup/composables/useScanCleanupSelection';
 import {useScanCleanupDocumentSettings} from '@app/modules/scan-cleanup/composables/useScanCleanupDocumentSettings';
@@ -46,13 +44,10 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         const supplied = options.sourceSha256?.() ?? options.documentKey();
         return isScanCleanupSourceSha256(supplied) ? supplied.toLowerCase() : null;
     });
-    const documentRevision = computed(() => options.documentRevision?.()
-        ?? legacyDocumentKey.value
-        ?? sourcePath.value
-        ?? 'unavailable');
-    const lifecycleDocumentKey = computed(() => legacyDocumentKey.value === null
-        ? null
-        : `${sourceSha256.value ?? legacyDocumentKey.value}\u0000${documentRevision.value}`);
+    const documentRevision = computed(() => options.documentRevision?.() ?? legacyDocumentKey.value ?? sourcePath.value ?? 'unavailable');
+    const lifecycleDocumentKey = computed(() =>
+        legacyDocumentKey.value === null ? null : `${sourceSha256.value ?? legacyDocumentKey.value}\u0000${documentRevision.value}`,
+    );
 
     const settings = useScanCleanupDocumentSettings({
         active: options.active,
@@ -88,34 +83,37 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
     // One transition for the selection: coming on screen restarts it at its
     // leader, a replaced document maps it through the replacement's page
     // mapping, and a changed page count keeps it in range.
-    watch([
-        options.active,
-        documentIdentity,
-        totalPages,
-    ], ([
-        active,
-        identity,
-        pageCount,
-    ], previous) => {
-        // No count yet (a document still loading) is not a count of no pages: the last one stands.
-        const countedPages = pageCount > 0 ? pageCount : previous?.[2] ?? 0;
-        const normalizedPageCount = Math.max(1, Math.trunc(countedPages));
-        // A retained page stands until the viewer or a preview has counted the pages.
-        const knownPageCount = previewResult?.rawResult.value?.totalPages ?? previewResult?.result.value?.totalPages ?? (countedPages > 0 ? normalizedPageCount : null);
-        if (active && !previous?.[0] && knownPageCount !== null) {selection.resetToLeader(knownPageCount);}
-        if (!previous?.length) {return;}
-        if (identity !== previous[1]) {
-            const pageMapping = options.pageMapping?.();
-            selection.reconcileDocumentReplacement({
-                defaultPage: options.currentPage(),
-                pageCount: normalizedPageCount,
-                ...(pageMapping === undefined ? {} : {pageMapping}),
-            });
-            saveViewState(null);
-        } else if (pageCount > 0 && pageCount !== previous[2]) {
-            selection.reconcilePageCount(normalizedPageCount, options.currentPage());
-        }
-    }, {immediate: true});
+    watch(
+        [options.active, documentIdentity, totalPages],
+        ([active, identity, pageCount], previous) => {
+            // No count yet (a document still loading) is not a count of no pages: the last one stands.
+            const countedPages = pageCount > 0 ? pageCount : (previous?.[2] ?? 0);
+            const normalizedPageCount = Math.max(1, Math.trunc(countedPages));
+            // A retained page stands until the viewer or a preview has counted the pages.
+            const knownPageCount =
+                previewResult?.rawResult.value?.totalPages ??
+                previewResult?.result.value?.totalPages ??
+                (countedPages > 0 ? normalizedPageCount : null);
+            if (active && !previous?.[0] && knownPageCount !== null) {
+                selection.resetToLeader(knownPageCount);
+            }
+            if (!previous?.length) {
+                return;
+            }
+            if (identity !== previous[1]) {
+                const pageMapping = options.pageMapping?.();
+                selection.reconcileDocumentReplacement({
+                    defaultPage: options.currentPage(),
+                    pageCount: normalizedPageCount,
+                    ...(pageMapping === undefined ? {} : {pageMapping}),
+                });
+                saveViewState(null);
+            } else if (pageCount > 0 && pageCount !== previous[2]) {
+                selection.reconcilePageCount(normalizedPageCount, options.currentPage());
+            }
+        },
+        {immediate: true},
+    );
     const detection = useScanCleanupDetectionSession({
         active: options.active,
         documentRevision,
@@ -132,9 +130,9 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
     // That comparison is document-wide, so it is resolved once here rather
     // than per request: the preview the user judges and the run they start
     // must place a page identically.
-    const placementAnchorsByPage = computed<TScanCleanupPlacementAnchorsByPage>(() => (
-        resolveScanCleanupDocumentInkAnchors(resolvedOptions.value, detection.inkSheets.value)
-    ));
+    const placementAnchorsByPage = computed<TScanCleanupPlacementAnchorsByPage>(() =>
+        resolveScanCleanupDocumentInkAnchors(resolvedOptions.value, detection.inkSheets.value),
+    );
     previewResult = useScanCleanupPreviewSession({
         active: options.active,
         authoritativeLayoutByPage: detection.authoritativeLayoutByPage,
@@ -201,30 +199,25 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
     // is built, and the retained raw-raster cache makes the refresh a single
     // preview sidecar pass rather than another PDF rasterization.
     const runPreviewRefreshPages = new Set<number>();
-    watch([
-        run.isRunning,
-        selection.leader,
-        () => run.processedPages.value.has(selection.leader.value),
-    ], ([
-        running,
-        pageNumber,
-        pageCompleted,
-    ], [wasRunning]) => {
-        if (!running) {
-            runPreviewRefreshPages.clear();
-            if (wasRunning) {
+    watch(
+        [run.isRunning, selection.leader, () => run.processedPages.value.has(selection.leader.value)],
+        ([running, pageNumber, pageCompleted], [wasRunning]) => {
+            if (!running) {
+                runPreviewRefreshPages.clear();
+                if (wasRunning) {
+                    previewResult.schedule();
+                }
+                return;
+            }
+            if (!pageCompleted || runPreviewRefreshPages.has(pageNumber)) {
+                return;
+            }
+            runPreviewRefreshPages.add(pageNumber);
+            if (!previewResult.resultCurrent.value) {
                 previewResult.schedule();
             }
-            return;
-        }
-        if (!pageCompleted || runPreviewRefreshPages.has(pageNumber)) {
-            return;
-        }
-        runPreviewRefreshPages.add(pageNumber);
-        if (!previewResult.resultCurrent.value) {
-            previewResult.schedule();
-        }
-    });
+        },
+    );
     // Preview has its own immediate activity watcher. Detection is a main-side
     // job, so ordinarily cancel it and wait for its terminal snapshot when the
     // tab becomes inactive. Once Clean Up owns that pass, however, detection is
@@ -232,11 +225,12 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
     // run can start instead of misreporting its deliberate cancellation as
     // missing evidence. If an ordinary hidden tab returns while cancellation
     // is crossing the bridge, resume only after that old job has settled.
-    watch(options.active, active => {
+    watch(options.active, (active) => {
         if (active || run.waitingForDetection.value) {
             return;
         }
-        void detection.cancelAndWaitForTerminal()
+        void detection
+            .cancelAndWaitForTerminal()
             .catch(() => undefined)
             .then(() => {
                 if (options.active()) {
@@ -245,23 +239,25 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
             });
     });
 
-    const activity = computed(() => resolveScanCleanupActivity({
-        detection: {
-            pending: detection.pending.value,
-            progress: detection.jobProgress.value,
-            analyzedPages: detection.analyzedPages.value,
-            totalPages: totalPages.value,
-            calibrating: detection.placementAnchorCalibrationPending.value,
-        },
-        run: run.isRunning.value
-            ? {
-                waitingForDetection: run.waitingForDetection.value,
-                starting: run.starting.value,
-                progress: run.jobProgress.value,
-                committing: run.finishing.value,
-            }
-            : null,
-    }));
+    const activity = computed(() =>
+        resolveScanCleanupActivity({
+            detection: {
+                pending: detection.pending.value,
+                progress: detection.jobProgress.value,
+                analyzedPages: detection.analyzedPages.value,
+                totalPages: totalPages.value,
+                calibrating: detection.placementAnchorCalibrationPending.value,
+            },
+            run: run.isRunning.value
+                ? {
+                      waitingForDetection: run.waitingForDetection.value,
+                      starting: run.starting.value,
+                      progress: run.jobProgress.value,
+                      committing: run.finishing.value,
+                  }
+                : null,
+        }),
+    );
     const activityTimeline = useScanCleanupActivityTimeline(activity);
     const preview = {
         ...previewResult,

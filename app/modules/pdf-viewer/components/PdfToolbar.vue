@@ -6,9 +6,15 @@
         role="toolbar"
         :aria-label="t('toolbar.readerToolbar')"
     >
-        <span class="toolbar-collapse-probe" aria-hidden="true" />
+        <span
+            class="toolbar-collapse-probe"
+            aria-hidden="true"
+        />
         <div class="toolbar-section toolbar-left">
-            <span class="toolbar-collapsible" data-collapse-at="5">
+            <span
+                class="toolbar-collapsible"
+                data-collapse-at="5"
+            >
                 <ToolbarButton
                     v-if="isCommandInline('open-file')"
                     :icon="getReaderCommandToolbarIcon('open-file')"
@@ -116,8 +122,14 @@
                 />
             </div>
 
-            <div data-collapse-at="2" class="toolbar-button-group toolbar-button-group--fit">
-                <div v-if="isCommandInline('fit-width')" class="toolbar-group-item">
+            <div
+                data-collapse-at="2"
+                class="toolbar-button-group toolbar-button-group--fit"
+            >
+                <div
+                    v-if="isCommandInline('fit-width')"
+                    class="toolbar-group-item"
+                >
                     <ToolbarButton
                         :icon="getReaderCommandToolbarIcon('fit-width')"
                         :active="isFitWidthActive"
@@ -128,7 +140,10 @@
                         @click="handleToolbarCommand('fit-width')"
                     />
                 </div>
-                <div v-if="isCommandInline('fit-height')" class="toolbar-group-item">
+                <div
+                    v-if="isCommandInline('fit-height')"
+                    class="toolbar-group-item"
+                >
                     <ToolbarButton
                         :icon="getReaderCommandToolbarIcon('fit-height')"
                         :active="isFitHeightActive"
@@ -139,7 +154,10 @@
                         @click="handleToolbarCommand('fit-height')"
                     />
                 </div>
-                <div v-if="isCommandInline('continuous-scroll')" class="toolbar-group-item toolbar-group-item--continuous-scroll">
+                <div
+                    v-if="isCommandInline('continuous-scroll')"
+                    class="toolbar-group-item toolbar-group-item--continuous-scroll"
+                >
                     <ToolbarButton
                         :icon="getReaderCommandToolbarIcon('continuous-scroll')"
                         :active="continuousScroll"
@@ -151,10 +169,19 @@
                 </div>
             </div>
 
-            <div data-collapse-at="3" class="toolbar-separator" />
+            <div
+                data-collapse-at="3"
+                class="toolbar-separator"
+            />
 
-            <div data-collapse-at="3" class="toolbar-button-group toolbar-button-group--interaction">
-                <div v-if="isCommandInline('quick-note')" class="toolbar-group-item toolbar-group-item--quick-note">
+            <div
+                data-collapse-at="3"
+                class="toolbar-button-group toolbar-button-group--interaction"
+            >
+                <div
+                    v-if="isCommandInline('quick-note')"
+                    class="toolbar-group-item toolbar-group-item--quick-note"
+                >
                     <ToolbarButton
                         :icon="getReaderCommandToolbarIcon('quick-note')"
                         :active="isPlacingPageNote"
@@ -164,7 +191,10 @@
                         @click="handleToolbarCommand('quick-note')"
                     />
                 </div>
-                <div v-if="isCommandInline('drag-mode')" class="toolbar-group-item toolbar-group-item--drag-mode">
+                <div
+                    v-if="isCommandInline('drag-mode')"
+                    class="toolbar-group-item toolbar-group-item--drag-mode"
+                >
                     <ToolbarButton
                         :icon="getReaderCommandToolbarIcon('drag-mode')"
                         :active="dragMode && !isPlacingPageNote"
@@ -174,7 +204,10 @@
                         @click="handleToolbarCommand('enable-drag')"
                     />
                 </div>
-                <div v-if="isCommandInline('text-select')" class="toolbar-group-item toolbar-group-item--text-select">
+                <div
+                    v-if="isCommandInline('text-select')"
+                    class="toolbar-group-item toolbar-group-item--text-select"
+                >
                     <ToolbarButton
                         :icon="getReaderCommandToolbarIcon('text-select')"
                         :active="!dragMode && !isPlacingPageNote"
@@ -224,14 +257,13 @@
                     v-if="isCommandInline('scan-cleanup')"
                     class="toolbar-action toolbar-action--scan-cleanup"
                 >
-                    <slot
-                        name="scan-cleanup"
-                    />
+                    <slot name="scan-cleanup" />
                 </div>
-                <div v-if="isCommandInline('ocr')" class="toolbar-action toolbar-action--ocr">
-                    <slot
-                        name="ocr"
-                    />
+                <div
+                    v-if="isCommandInline('ocr')"
+                    class="toolbar-action toolbar-action--ocr"
+                >
+                    <slot name="ocr" />
                 </div>
                 <div class="toolbar-action toolbar-action--export-docx">
                     <ToolbarButton
@@ -245,10 +277,16 @@
                 </div>
             </div>
 
-            <div data-collapse-at="1" class="toolbar-separator" />
+            <div
+                data-collapse-at="1"
+                class="toolbar-separator"
+            />
 
             <div class="toolbar-cluster">
-                <span class="toolbar-collapsible" data-collapse-at="5">
+                <span
+                    class="toolbar-collapsible"
+                    data-collapse-at="5"
+                >
                     <ToolbarButton
                         v-if="isCommandInline('fullscreen')"
                         :icon="isFullscreen ? 'ph:corners-in' : getReaderCommandToolbarIcon('fullscreen')"
@@ -274,18 +312,14 @@
 <script setup lang="ts">
 import ToolbarButton from '@app/components/ToolbarButton.vue';
 import ToolbarSaveSplitButton from '@app/components/toolbar/ToolbarSaveSplitButton.vue';
-import { AssistantToolbarToggle } from '@app/modules/agent-panel/public/component-exports/assistantToolbarToggle';
+import {AssistantToolbarToggle} from '@app/modules/agent-panel/public/component-exports/assistantToolbarToggle';
 import PrintCurrentPageIcon from '@app/components/icons/PrintCurrentPageIcon.vue';
-import { useShortcutLabels } from '@app/constants/shortcuts';
-import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
-import { useAssistantPanel } from '@app/composables/useAssistantPanel';
-import { getReaderCommandToolbarIcon } from '@app/utils/readerCommandIcons';
-import { isReaderPrintCommandDisabled } from '@app/utils/isReaderPrintCommandDisabled';
-import {
-    isReaderCommandInline,
-    type TReaderCommandId,
-    type IReaderCommandSurface,
-} from '@app/utils/readerCommandSurface';
+import {useShortcutLabels} from '@app/constants/shortcuts';
+import {useRuntimeEnvironment} from '@app/composables/useRuntimeEnvironment';
+import {useAssistantPanel} from '@app/composables/useAssistantPanel';
+import {getReaderCommandToolbarIcon} from '@app/utils/readerCommandIcons';
+import {isReaderPrintCommandDisabled} from '@app/utils/isReaderPrintCommandDisabled';
+import {isReaderCommandInline, type TReaderCommandId, type IReaderCommandSurface} from '@app/utils/readerCommandSurface';
 
 const {
     hasPdf,
@@ -342,13 +376,13 @@ const {
 const emit = defineEmits<{
     'open-file': [];
     'open-settings': [];
-    'save': [];
+    save: [];
     'save-as': [];
-    'print': [];
+    print: [];
     'print-current-page': [];
     'export-docx': [];
-    'undo': [];
-    'redo': [];
+    undo: [];
+    redo: [];
     'toggle-sidebar': [];
     'fit-width': [];
     'fit-height': [];
@@ -356,7 +390,7 @@ const emit = defineEmits<{
     'enable-drag': [];
     'disable-drag': [];
     'capture-region': [];
-    'crop': [];
+    crop: [];
     'quick-note': [];
     'toggle-fullscreen': [];
 }>();
@@ -382,7 +416,7 @@ type TToolbarCommand =
     | 'quick-note'
     | 'toggle-fullscreen';
 
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 
 const shortcutLabels = useShortcutLabels();
 const hasInteractiveDocument = computed(() => hasPdf && !documentBusy && !isOpeningDocument);
@@ -393,33 +427,27 @@ const isSaveCommandDisabled = computed(() => isPdfMutationDisabled.value || !can
 const isSaveAsCommandDisabled = computed(() => isPdfMutationDisabled.value || !canSaveAs);
 const isUndoCommandDisabled = computed(() => isPdfMutationDisabled.value || !canUndo);
 const isRedoCommandDisabled = computed(() => isPdfMutationDisabled.value || !canRedo);
-const isExportDocxCommandDisabled = computed(() => (
-    !isExportingDocx && (isDocumentWorkDisabled.value || !canExportDocx)
-));
-const isPrintCommandDisabled = computed(() => isReaderPrintCommandDisabled({
-    hasInteractiveDocument: hasInteractiveDocument.value,
-    canPrint,
-    isPreparingPrint,
-    isAnySaving,
-    isHistoryBusy,
-}));
-const showFileActionsCluster = computed(() => (
-    isCommandInline('save') || isCommandInline('print') || isCommandInline('print-current-page')
-));
-const showHistoryCluster = computed(() => (
-    isCommandInline('undo') || isCommandInline('redo')
-));
-const showRegionToolsCluster = computed(() => (
-    isCommandInline('capture-region') || isCommandInline('crop')
-));
-const showDocumentToolsCluster = computed(() => (
-    isCommandInline('scan-cleanup') || isCommandInline('ocr') || isCommandInline('export-docx')
-));
+const isExportDocxCommandDisabled = computed(() => !isExportingDocx && (isDocumentWorkDisabled.value || !canExportDocx));
+const isPrintCommandDisabled = computed(() =>
+    isReaderPrintCommandDisabled({
+        hasInteractiveDocument: hasInteractiveDocument.value,
+        canPrint,
+        isPreparingPrint,
+        isAnySaving,
+        isHistoryBusy,
+    }),
+);
+const showFileActionsCluster = computed(() => isCommandInline('save') || isCommandInline('print') || isCommandInline('print-current-page'));
+const showHistoryCluster = computed(() => isCommandInline('undo') || isCommandInline('redo'));
+const showRegionToolsCluster = computed(() => isCommandInline('capture-region') || isCommandInline('crop'));
+const showDocumentToolsCluster = computed(
+    () => isCommandInline('scan-cleanup') || isCommandInline('ocr') || isCommandInline('export-docx'),
+);
 // The toolbar's container queries decide which groups it shows, so the
 // prerendered page already has the final layout. The window's More tools
 // lists what they hid; it reads the tier those queries set on the probe.
-const { isBrowserRuntime } = useRuntimeEnvironment();
-const { isEnabled: isAssistantToggleShown } = useAssistantPanel();
+const {isBrowserRuntime} = useRuntimeEnvironment();
+const {isEnabled: isAssistantToggleShown} = useAssistantPanel();
 const toolbarLayout = computed(() => {
     if (isBrowserRuntime.value) {
         return 'browser';
@@ -430,13 +458,13 @@ const toolbarLayout = computed(() => {
 const toolbarCommandHandlers = {
     'open-file': () => emit('open-file'),
     'open-settings': () => emit('open-settings'),
-    'save': () => emit('save'),
+    save: () => emit('save'),
     'save-as': () => emit('save-as'),
-    'print': () => emit('print'),
+    print: () => emit('print'),
     'print-current-page': () => emit('print-current-page'),
     'export-docx': () => emit('export-docx'),
-    'undo': () => emit('undo'),
-    'redo': () => emit('redo'),
+    undo: () => emit('undo'),
+    redo: () => emit('redo'),
     'toggle-sidebar': () => emit('toggle-sidebar'),
     'fit-width': () => emit('fit-width'),
     'fit-height': () => emit('fit-height'),
@@ -444,7 +472,7 @@ const toolbarCommandHandlers = {
     'enable-drag': () => emit('enable-drag'),
     'disable-drag': () => emit('disable-drag'),
     'capture-region': () => emit('capture-region'),
-    'crop': () => emit('crop'),
+    crop: () => emit('crop'),
     'quick-note': () => emit('quick-note'),
     'toggle-fullscreen': () => emit('toggle-fullscreen'),
 } satisfies Record<TToolbarCommand, () => void>;
@@ -456,7 +484,6 @@ function isCommandInline(command: TReaderCommandId) {
 function handleToolbarCommand(command: TToolbarCommand) {
     toolbarCommandHandlers[command]();
 }
-
 </script>
 
 <style lang="scss" scoped>
@@ -611,9 +638,27 @@ function handleToolbarCommand(command: TToolbarCommand) {
    gaps beside them stay in the toolbar. Scan cleanup at tier 0 measures
    1212 px in the browser. The assistant toggle adds 38 px to tiers 0-4. */
 $toolbar-collapse-thresholds: (
-    'browser': (77.125rem, 67.9375rem, 60.4375rem, 46.9375rem, 29.9375rem),
-    'desktop': (76.25rem, 68.25rem, 60.75rem, 47.25rem, 29.75rem),
-    'desktop-assistant': (78.25rem, 70.75rem, 62.75rem, 49.75rem, 32.25rem),
+    'browser': (
+        77.125rem,
+        67.9375rem,
+        60.4375rem,
+        46.9375rem,
+        29.9375rem,
+    ),
+    'desktop': (
+        76.25rem,
+        68.25rem,
+        60.75rem,
+        47.25rem,
+        29.75rem,
+    ),
+    'desktop-assistant': (
+        78.25rem,
+        70.75rem,
+        62.75rem,
+        49.75rem,
+        32.25rem,
+    ),
 );
 
 @each $layout, $widths in $toolbar-collapse-thresholds {

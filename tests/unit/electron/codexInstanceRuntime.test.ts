@@ -1,47 +1,42 @@
-import {
-    afterEach, beforeEach, describe, expect, it, vi,
-} from 'vitest';
-import {
-    mkdtemp, readFile, rm,
-} from 'node:fs/promises';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {mkdtemp, readFile, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {
-    join, resolve,
-} from 'node:path';
+import {join, resolve} from 'node:path';
 import type {IAssistantLaunchContext} from '@electron/features/agent/assistantInstances';
 import {CodexInstanceRuntime} from '@electron/features/agent/codexInstanceRuntime';
-import {
-    CodexAppServerClient, CODEX_INITIALIZE_TIMEOUT_MS,
-} from '@electron/features/agent/codexAppServerClient';
+import {CodexAppServerClient, CODEX_INITIALIZE_TIMEOUT_MS} from '@electron/features/agent/codexAppServerClient';
 
 vi.mock('electron', () => ({
     app: {getVersion: () => 'unit-test'},
     shell: {openExternal: vi.fn()},
 }));
 // Execute the protocol fixture with this test runner's Node on every platform.
-vi.mock('@electron/features/agent/codexProcessLaunch', () => ({resolveCodexProcessLaunch: (path: string, args: string[]) => ({
-    command: process.execPath,
-    args: [
-        path,
-        ...args,
-    ],
-    shell: false,
-})}));
-vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-})}));
+vi.mock('@electron/features/agent/codexProcessLaunch', () => ({
+    resolveCodexProcessLaunch: (path: string, args: string[]) => ({
+        command: process.execPath,
+        args: [path, ...args],
+        shell: false,
+    }),
+}));
+vi.mock('@electron/utils/createLogger', () => ({
+    createLogger: () => ({
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+    }),
+}));
 const binary = resolve('tests/fixtures/electron/codex-unit-app-server.mjs');
 let root: string;
 const runtimes: CodexInstanceRuntime[] = [];
 const clients: CodexAppServerClient[] = [];
 
-beforeEach(async () => { root = await mkdtemp(join(tmpdir(), 'codex-unit-')); });
+beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'codex-unit-'));
+});
 afterEach(async () => {
     await Promise.all([
-        ...runtimes.splice(0).map(runtime => runtime.shutdown()),
-        ...clients.splice(0).map(client => client.shutdown()),
+        ...runtimes.splice(0).map((runtime) => runtime.shutdown()),
+        ...clients.splice(0).map((client) => client.shutdown()),
     ]);
     await rm(root, {
         recursive: true,
@@ -93,10 +88,14 @@ async function expectChildrenExited() {
 describe('Codex real subprocess transport and instance runtime', () => {
     it('passes extra arguments before --listen to the executable', async () => {
         const launch = context();
-        const client = new CodexAppServerClient(binary, [
-            '-c',
-            'model_provider="fixture"',
-        ], launch.env, root, () => undefined, () => undefined);
+        const client = new CodexAppServerClient(
+            binary,
+            ['-c', 'model_provider="fixture"'],
+            launch.env,
+            root,
+            () => undefined,
+            () => undefined,
+        );
         clients.push(client);
         await client.initialize();
         expect(JSON.parse(await readFile(join(root, 'argv.json'), 'utf8'))).toEqual([
@@ -109,7 +108,14 @@ describe('Codex real subprocess transport and instance runtime', () => {
     });
     it('rejects a silent initialize at the configured deadline with stderr diagnostics', async () => {
         const launch = context('hang');
-        const client = new CodexAppServerClient(binary, [], launch.env, root, () => undefined, () => undefined);
+        const client = new CodexAppServerClient(
+            binary,
+            [],
+            launch.env,
+            root,
+            () => undefined,
+            () => undefined,
+        );
         clients.push(client);
         const started = performance.now();
         await expect(client.initialize()).rejects.toThrow(/Codex did not start within 10 seconds.*fixture login refresh is blocked/u);
@@ -137,10 +143,12 @@ describe('Codex real subprocess transport and instance runtime', () => {
                 email: 'reader@example.test',
                 planType: 'plus',
             },
-            models: [{
-                id: 'gpt-5.4',
-                label: 'GPT 5.4',
-            }],
+            models: [
+                {
+                    id: 'gpt-5.4',
+                    label: 'GPT 5.4',
+                },
+            ],
         });
         expect(embeddedMcp).not.toHaveBeenCalled();
         await expectChildrenExited();
@@ -152,10 +160,12 @@ describe('Codex real subprocess transport and instance runtime', () => {
         await expectChildrenExited();
     }, 16_000);
     it('fails closed before opening a chat when another server exposes tools', async () => {
-        await expect(runtime('leak').openThread(null, 'gpt-5.4', {
-            onNotification: () => undefined,
-            onExit: () => undefined,
-        })).rejects.toThrow(/cannot restrict \(leaking-server\)/u);
+        await expect(
+            runtime('leak').openThread(null, 'gpt-5.4', {
+                onNotification: () => undefined,
+                onExit: () => undefined,
+            }),
+        ).rejects.toThrow(/cannot restrict \(leaking-server\)/u);
         await expectChildrenExited();
     });
     it('stops a chat start that is still waiting for Codex when the instance shuts down', async () => {
@@ -174,7 +184,9 @@ describe('Codex real subprocess transport and instance runtime', () => {
 
     it('spawns nothing for a probe whose setup finishes after shutdown', async () => {
         let releaseContext: () => void = () => undefined;
-        const held = new Promise<void>(resolveHeld => { releaseContext = resolveHeld; });
+        const held = new Promise<void>((resolveHeld) => {
+            releaseContext = resolveHeld;
+        });
         const instance = new CodexInstanceRuntime({
             resolveContext: async () => {
                 await held;
@@ -197,7 +209,9 @@ describe('Codex real subprocess transport and instance runtime', () => {
 
     it('spawns nothing for a chat start whose setup finishes after shutdown', async () => {
         let releaseContext: () => void = () => undefined;
-        const held = new Promise<void>(resolveHeld => { releaseContext = resolveHeld; });
+        const held = new Promise<void>((resolveHeld) => {
+            releaseContext = resolveHeld;
+        });
         const instance = new CodexInstanceRuntime({
             resolveContext: async () => {
                 await held;
@@ -228,14 +242,16 @@ describe('Codex real subprocess transport and instance runtime', () => {
         await instance.openThread(null, 'model-1', {
             onNotification: () => undefined,
             onExit: () => {
-                aliveAtExit.push(pids.some(pid => {
-                    try {
-                        process.kill(pid, 0);
-                        return true;
-                    } catch {
-                        return false;
-                    }
-                }));
+                aliveAtExit.push(
+                    pids.some((pid) => {
+                        try {
+                            process.kill(pid, 0);
+                            return true;
+                        } catch {
+                            return false;
+                        }
+                    }),
+                );
             },
         });
         pids = (await readFile(join(root, 'pids'), 'utf8')).trim().split('\n').map(Number);
@@ -277,10 +293,12 @@ describe('Codex real subprocess transport and instance runtime', () => {
 
     it('starts a fresh thread when a stored native thread cannot be resumed', async () => {
         const instance = runtime('resume-error');
-        expect(await instance.openThread('old-thread', 'gpt-5.4', {
-            onNotification: () => undefined,
-            onExit: () => undefined,
-        })).toEqual({
+        expect(
+            await instance.openThread('old-thread', 'gpt-5.4', {
+                onNotification: () => undefined,
+                onExit: () => undefined,
+            }),
+        ).toEqual({
             threadId: 'fresh-thread',
             resumed: false,
         });

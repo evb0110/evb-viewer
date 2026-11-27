@@ -1,18 +1,8 @@
-import { requirePageNumber } from '@contracts/pageNumbers';
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    effectScope,
-    ref,
-} from 'vue';
-import { usePdfImagePlacement } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfImagePlacement';
-import { getInitialImagePlacementRect } from '@app/modules/pdf-viewer/engine/image-placement/getInitialImagePlacementRect';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {effectScope, ref} from 'vue';
+import {usePdfImagePlacement} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfImagePlacement';
+import {getInitialImagePlacementRect} from '@app/modules/pdf-viewer/engine/image-placement/getInitialImagePlacementRect';
 import type {IPdfPlacedImageFinalizePayload} from '@app/types/pdfImagePlacement';
 
 function toElement<T extends object>(value: T) {
@@ -69,12 +59,12 @@ describe('usePdfImagePlacement', () => {
             }),
             clientWidth: 600,
             clientHeight: 800,
-            querySelector: vi.fn((selector: string) =>
-                selector === '.page_canvas canvas' ? canvas : null),
+            querySelector: vi.fn((selector: string) => (selector === '.page_canvas canvas' ? canvas : null)),
         });
 
-        return toElement({ querySelector: vi.fn((selector: string) =>
-            selector === '.page_container[data-page="1"]' ? pageContainer : null) });
+        return toElement({
+            querySelector: vi.fn((selector: string) => (selector === '.page_container[data-page="1"]' ? pageContainer : null)),
+        });
     }
 
     async function probeImageForTest(file: File) {
@@ -96,34 +86,50 @@ describe('usePdfImagePlacement', () => {
 
     it('#1608 explains an image probe failure instead of silently losing placement', async () => {
         const messages: string[] = [];
-        vi.stubGlobal('useToast', () => ({add: (notice: {title: string; description?: string}) => {
-            messages.push([notice.title, notice.description].filter(Boolean).join(' '));
-        }}));
+        vi.stubGlobal('useToast', () => ({
+            add: (notice: {title: string; description?: string}) => {
+                messages.push([notice.title, notice.description].filter(Boolean).join(' '));
+            },
+        }));
         const scope = effectScope();
-        const placement = scope.run(() => usePdfImagePlacement({
-            viewerContainer: ref(createViewerContainer()), currentPage: ref(1), numPages: ref(1),
-            effectiveScale: ref(1), finalizePlacement: () => {},
-            probeImage: async () => {throw new Error('Unsupported image encoding');},
-            createPreview: createPreviewForTest,
-        }))!;
+        const placement = scope.run(() =>
+            usePdfImagePlacement({
+                viewerContainer: ref(createViewerContainer()),
+                currentPage: ref(1),
+                numPages: ref(1),
+                effectiveScale: ref(1),
+                finalizePlacement: () => {},
+                probeImage: async () => {
+                    throw new Error('Unsupported image encoding');
+                },
+                createPreview: createPreviewForTest,
+            }),
+        )!;
         try {
             expect(await placement.startImagePlacement(new File(['bad image'], 'broken.png', {type: 'image/png'}))).toBe(false);
             expect(placement.pendingImagePlacement.value).toBeNull();
             expect(messages.join(' ')).toMatch(/image/i);
-        } finally {scope.stop();}
+        } finally {
+            scope.stop();
+        }
     });
 
     it('clamps the initial placement rect to page bounds', () => {
-        expect(getInitialImagePlacementRect({
-            pageNumber: requirePageNumber(2),
-            pageX: 0,
-            pageY: 1,
-            pageWidthPx: 600,
-            pageHeightPx: 800,
-        }, {
-            width: 0.4,
-            height: 0.3,
-        })).toEqual({
+        expect(
+            getInitialImagePlacementRect(
+                {
+                    pageNumber: requirePageNumber(2),
+                    pageX: 0,
+                    pageY: 1,
+                    pageWidthPx: 600,
+                    pageHeightPx: 800,
+                },
+                {
+                    width: 0.4,
+                    height: 0.3,
+                },
+            ),
+        ).toEqual({
             pageNumber: 2,
             x: 0,
             y: 0.7,
@@ -133,22 +139,27 @@ describe('usePdfImagePlacement', () => {
     });
 
     it('returns false and leaves no draft when image decoding fails', async () => {
-        vi.stubGlobal('createImageBitmap', vi.fn(async () => {
-            throw new Error('decode failed');
-        }));
+        vi.stubGlobal(
+            'createImageBitmap',
+            vi.fn(async () => {
+                throw new Error('decode failed');
+            }),
+        );
 
         const viewerContainer = ref<HTMLElement | null>(createViewerContainer());
         const finalized = vi.fn();
         const scope = effectScope();
-        const imagePlacement = scope.run(() => usePdfImagePlacement({
-            viewerContainer,
-            currentPage: ref(1),
-            numPages: ref(4),
-            effectiveScale: ref(2),
-            finalizePlacement: finalized,
-            probeImage: probeImageForTest,
-            createPreview: createPreviewForTest,
-        }));
+        const imagePlacement = scope.run(() =>
+            usePdfImagePlacement({
+                viewerContainer,
+                currentPage: ref(1),
+                numPages: ref(4),
+                effectiveScale: ref(2),
+                finalizePlacement: finalized,
+                probeImage: probeImageForTest,
+                createPreview: createPreviewForTest,
+            }),
+        );
 
         if (!imagePlacement) {
             throw new Error('Failed to create image placement composable');
@@ -178,34 +189,30 @@ describe('usePdfImagePlacement', () => {
             height: number;
             close: () => void;
         }>();
-        vi.stubGlobal('createImageBitmap', vi.fn()
-            .mockReturnValueOnce(slowBitmap.promise)
-            .mockReturnValueOnce(fastBitmap.promise));
+        vi.stubGlobal('createImageBitmap', vi.fn().mockReturnValueOnce(slowBitmap.promise).mockReturnValueOnce(fastBitmap.promise));
 
         const viewerContainer = ref<HTMLElement | null>(createViewerContainer());
         const finalized = vi.fn();
         const scope = effectScope();
-        const imagePlacement = scope.run(() => usePdfImagePlacement({
-            viewerContainer,
-            currentPage: ref(1),
-            numPages: ref(4),
-            effectiveScale: ref(2),
-            finalizePlacement: finalized,
-            probeImage: probeImageForTest,
-            createPreview: createPreviewForTest,
-        }));
+        const imagePlacement = scope.run(() =>
+            usePdfImagePlacement({
+                viewerContainer,
+                currentPage: ref(1),
+                numPages: ref(4),
+                effectiveScale: ref(2),
+                finalizePlacement: finalized,
+                probeImage: probeImageForTest,
+                createPreview: createPreviewForTest,
+            }),
+        );
 
         if (!imagePlacement) {
             throw new Error('Failed to create image placement composable');
         }
 
         try {
-            const slowStart = imagePlacement.startImagePlacement(
-                new File([new Uint8Array([1])], 'slow.png', { type: 'image/png' }),
-            );
-            const fastStart = imagePlacement.startImagePlacement(
-                new File([new Uint8Array([2])], 'fast.png', { type: 'image/png' }),
-            );
+            const slowStart = imagePlacement.startImagePlacement(new File([new Uint8Array([1])], 'slow.png', {type: 'image/png'}));
+            const fastStart = imagePlacement.startImagePlacement(new File([new Uint8Array([2])], 'fast.png', {type: 'image/png'}));
 
             fastBitmap.resolve({
                 width: 200,
@@ -229,41 +236,39 @@ describe('usePdfImagePlacement', () => {
     });
 
     it('finalizes with target pixel dimensions derived from the rendered page size', async () => {
-        vi.stubGlobal('createImageBitmap', vi.fn(async () => ({
-            width: 400,
-            height: 200,
-            close: vi.fn(),
-        })));
+        vi.stubGlobal(
+            'createImageBitmap',
+            vi.fn(async () => ({
+                width: 400,
+                height: 200,
+                close: vi.fn(),
+            })),
+        );
 
         const viewerContainer = ref<HTMLElement | null>(createViewerContainer());
         const finalized = vi.fn();
         const scope = effectScope();
-        const imagePlacement = scope.run(() => usePdfImagePlacement({
-            viewerContainer,
-            currentPage: ref(1),
-            numPages: ref(4),
-            effectiveScale: ref(2),
-            finalizePlacement: finalized,
-            probeImage: probeImageForTest,
-            createPreview: createPreviewForTest,
-        }));
+        const imagePlacement = scope.run(() =>
+            usePdfImagePlacement({
+                viewerContainer,
+                currentPage: ref(1),
+                numPages: ref(4),
+                effectiveScale: ref(2),
+                finalizePlacement: finalized,
+                probeImage: probeImageForTest,
+                createPreview: createPreviewForTest,
+            }),
+        );
 
         if (!imagePlacement) {
             throw new Error('Failed to create image placement composable');
         }
 
         try {
-            await imagePlacement.startImagePlacement(
-                new File([new Uint8Array([
-                    1,
-                    2,
-                    3,
-                ])], 'image.png', { type: 'image/png' }),
-                {
-                    stableKey: 'placed-image-app-1',
-                    annotationId: '44R',
-                },
-            );
+            await imagePlacement.startImagePlacement(new File([new Uint8Array([1, 2, 3])], 'image.png', {type: 'image/png'}), {
+                stableKey: 'placed-image-app-1',
+                annotationId: '44R',
+            });
             imagePlacement.updatePendingImagePlacementRect({
                 x: 0.1,
                 y: 0.2,
@@ -275,20 +280,22 @@ describe('usePdfImagePlacement', () => {
             imagePlacement.requestPendingImagePlacementFinalize();
 
             expect(finalized).toHaveBeenCalledOnce();
-            expect(finalized).toHaveBeenCalledWith(expect.objectContaining({
-                stableKey: 'placed-image-app-1',
-                annotationId: '44R',
-                pageNumber: 1,
-                x: 0.1,
-                y: 0.2,
-                width: 0.25,
-                height: 0.5,
-                rotationDegrees: 90,
-                fileName: 'image.png',
-                mimeType: 'image/png',
-                targetPixelWidth: 150,
-                targetPixelHeight: 400,
-            }));
+            expect(finalized).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    stableKey: 'placed-image-app-1',
+                    annotationId: '44R',
+                    pageNumber: 1,
+                    x: 0.1,
+                    y: 0.2,
+                    width: 0.25,
+                    height: 0.5,
+                    rotationDegrees: 90,
+                    fileName: 'image.png',
+                    mimeType: 'image/png',
+                    targetPixelWidth: 150,
+                    targetPixelHeight: 400,
+                }),
+            );
             expect(imagePlacement.pendingImagePlacement.value).toBeNull();
             expect(imagePlacement.isPendingImagePlacementFinalizing.value).toBe(false);
         } finally {
@@ -297,38 +304,37 @@ describe('usePdfImagePlacement', () => {
     });
 
     it('releases the placement only after canonical stamp creation succeeds', async () => {
-        vi.stubGlobal('createImageBitmap', vi.fn(async () => ({
-            width: 400,
-            height: 200,
-            close: vi.fn(),
-        })));
+        vi.stubGlobal(
+            'createImageBitmap',
+            vi.fn(async () => ({
+                width: 400,
+                height: 200,
+                close: vi.fn(),
+            })),
+        );
 
         const viewerContainer = ref<HTMLElement | null>(createViewerContainer());
         const finalization = createDeferred<boolean>();
         const finalized = vi.fn(() => finalization.promise);
         const scope = effectScope();
-        const imagePlacement = scope.run(() => usePdfImagePlacement({
-            viewerContainer,
-            currentPage: ref(1),
-            numPages: ref(4),
-            effectiveScale: ref(2),
-            finalizePlacement: finalized,
-            probeImage: probeImageForTest,
-            createPreview: createPreviewForTest,
-        }));
+        const imagePlacement = scope.run(() =>
+            usePdfImagePlacement({
+                viewerContainer,
+                currentPage: ref(1),
+                numPages: ref(4),
+                effectiveScale: ref(2),
+                finalizePlacement: finalized,
+                probeImage: probeImageForTest,
+                createPreview: createPreviewForTest,
+            }),
+        );
 
         if (!imagePlacement) {
             throw new Error('Failed to create image placement composable');
         }
 
         try {
-            await imagePlacement.startImagePlacement(
-                new File([new Uint8Array([
-                    1,
-                    2,
-                    3,
-                ])], 'image.jpg', {type: 'image/jpeg'}),
-            );
+            await imagePlacement.startImagePlacement(new File([new Uint8Array([1, 2, 3])], 'image.jpg', {type: 'image/jpeg'}));
             imagePlacement.requestPendingImagePlacementFinalize();
 
             expect(imagePlacement.isPendingImagePlacementFinalizing.value).toBe(true);
@@ -344,26 +350,28 @@ describe('usePdfImagePlacement', () => {
     it('preserves a draft position and physical size across view rotations', async () => {
         const scope = effectScope();
         const viewRotation = ref(0);
-        const placement = scope.run(() => usePdfImagePlacement({
-            viewerContainer: ref(createViewerContainer()),
-            currentPage: ref(1),
-            numPages: ref(1),
-            effectiveScale: ref(1),
-            viewRotation,
-            getPageDimensions: () => ({
-                width: 600,
-                height: 800,
+        const placement = scope.run(() =>
+            usePdfImagePlacement({
+                viewerContainer: ref(createViewerContainer()),
+                currentPage: ref(1),
+                numPages: ref(1),
+                effectiveScale: ref(1),
+                viewRotation,
+                getPageDimensions: () => ({
+                    width: 600,
+                    height: 800,
+                }),
+                finalizePlacement: () => false,
+                probeImage: async () => ({
+                    bytes: Uint8Array.of(1),
+                    width: 40,
+                    height: 20,
+                    frameCount: 1,
+                    mimeType: 'image/png',
+                }),
+                createPreview: createPreviewForTest,
             }),
-            finalizePlacement: () => false,
-            probeImage: async () => ({
-                bytes: Uint8Array.of(1),
-                width: 40,
-                height: 20,
-                frameCount: 1,
-                mimeType: 'image/png',
-            }),
-            createPreview: createPreviewForTest,
-        }))!;
+        )!;
         try {
             await placement.startImagePlacement(new File([Uint8Array.of(1)], 'image.png', {type: 'image/png'}));
             const original = {...placement.pendingImagePlacement.value!};
@@ -387,62 +395,73 @@ describe('usePdfImagePlacement', () => {
         const viewRotation = ref(0);
         let hasMetrics = true;
         const finalizePlacement = vi.fn(() => false);
-        const placement = scope.run(() => usePdfImagePlacement({
-            viewerContainer: ref(createViewerContainer()),
-            currentPage: ref(1),
-            numPages: ref(1),
-            effectiveScale: ref(1),
-            viewRotation,
-            getPageDimensions: () => hasMetrics ? {
-                width: 600,
-                height: 800,
-            } : null,
-            finalizePlacement,
-            probeImage: async () => ({
-                bytes: Uint8Array.of(1),
-                width: 40,
-                height: 20,
-                frameCount: 1,
-                mimeType: 'image/png',
+        const placement = scope.run(() =>
+            usePdfImagePlacement({
+                viewerContainer: ref(createViewerContainer()),
+                currentPage: ref(1),
+                numPages: ref(1),
+                effectiveScale: ref(1),
+                viewRotation,
+                getPageDimensions: () =>
+                    hasMetrics
+                        ? {
+                              width: 600,
+                              height: 800,
+                          }
+                        : null,
+                finalizePlacement,
+                probeImage: async () => ({
+                    bytes: Uint8Array.of(1),
+                    width: 40,
+                    height: 20,
+                    frameCount: 1,
+                    mimeType: 'image/png',
+                }),
+                createPreview: createPreviewForTest,
             }),
-            createPreview: createPreviewForTest,
-        }))!;
+        )!;
         try {
             await placement.startImagePlacement(new File([Uint8Array.of(1)], 'image.png', {type: 'image/png'}));
             hasMetrics = false;
             viewRotation.value = 90;
             placement.requestPendingImagePlacementFinalize();
-            expect(finalizePlacement).toHaveBeenLastCalledWith(expect.objectContaining({
-                viewRotation: 0,
-                rotationDegrees: 0,
-            }));
+            expect(finalizePlacement).toHaveBeenLastCalledWith(
+                expect.objectContaining({
+                    viewRotation: 0,
+                    rotationDegrees: 0,
+                }),
+            );
             hasMetrics = true;
             viewRotation.value = 180;
             expect(placement.pendingImagePlacement.value).toMatchObject({
                 viewRotation: 180,
                 rotationDegrees: 180,
             });
-        } finally { scope.stop(); }
+        } finally {
+            scope.stop();
+        }
     });
 
     it('does not clear a newer replacement when an older finalization completes', async () => {
         const first = createDeferred<boolean>();
         const scope = effectScope();
-        const placement = scope.run(() => usePdfImagePlacement({
-            viewerContainer: ref(createViewerContainer()),
-            currentPage: ref(1),
-            numPages: ref(1),
-            effectiveScale: ref(1),
-            finalizePlacement: () => first.promise,
-            probeImage: async () => ({
-                bytes: Uint8Array.of(1),
-                width: 40,
-                height: 20,
-                frameCount: 1,
-                mimeType: 'image/png',
+        const placement = scope.run(() =>
+            usePdfImagePlacement({
+                viewerContainer: ref(createViewerContainer()),
+                currentPage: ref(1),
+                numPages: ref(1),
+                effectiveScale: ref(1),
+                finalizePlacement: () => first.promise,
+                probeImage: async () => ({
+                    bytes: Uint8Array.of(1),
+                    width: 40,
+                    height: 20,
+                    frameCount: 1,
+                    mimeType: 'image/png',
+                }),
+                createPreview: createPreviewForTest,
             }),
-            createPreview: createPreviewForTest,
-        }))!;
+        )!;
         try {
             const file = new File([Uint8Array.of(1)], 'image.png', {type: 'image/png'});
             await placement.startImagePlacement(file, {stableKey: 'same-annotation'});
@@ -459,39 +478,36 @@ describe('usePdfImagePlacement', () => {
     });
 
     it('restores a failed stamp finalization and allows a retry', async () => {
-        vi.stubGlobal('createImageBitmap', vi.fn(async () => ({
-            width: 400,
-            height: 200,
-            close: vi.fn(),
-        })));
+        vi.stubGlobal(
+            'createImageBitmap',
+            vi.fn(async () => ({
+                width: 400,
+                height: 200,
+                close: vi.fn(),
+            })),
+        );
 
         const viewerContainer = ref<HTMLElement | null>(createViewerContainer());
-        const finalized = vi.fn()
-            .mockResolvedValueOnce(false)
-            .mockResolvedValueOnce(true);
+        const finalized = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
         const scope = effectScope();
-        const imagePlacement = scope.run(() => usePdfImagePlacement({
-            viewerContainer,
-            currentPage: ref(1),
-            numPages: ref(4),
-            effectiveScale: ref(2),
-            finalizePlacement: finalized,
-            probeImage: probeImageForTest,
-            createPreview: createPreviewForTest,
-        }));
+        const imagePlacement = scope.run(() =>
+            usePdfImagePlacement({
+                viewerContainer,
+                currentPage: ref(1),
+                numPages: ref(4),
+                effectiveScale: ref(2),
+                finalizePlacement: finalized,
+                probeImage: probeImageForTest,
+                createPreview: createPreviewForTest,
+            }),
+        );
 
         if (!imagePlacement) {
             throw new Error('Failed to create image placement composable');
         }
 
         try {
-            await imagePlacement.startImagePlacement(
-                new File([new Uint8Array([
-                    1,
-                    2,
-                    3,
-                ])], 'image.jpg', {type: 'image/jpeg'}),
-            );
+            await imagePlacement.startImagePlacement(new File([new Uint8Array([1, 2, 3])], 'image.jpg', {type: 'image/jpeg'}));
             imagePlacement.requestPendingImagePlacementFinalize();
             await vi.waitFor(() => expect(finalized).toHaveBeenCalledOnce());
             await vi.waitFor(() => expect(imagePlacement.isPendingImagePlacementFinalizing.value).toBe(false));
@@ -506,11 +522,14 @@ describe('usePdfImagePlacement', () => {
     });
 
     it('passes owned bytes to stamp creation without exposing the draft buffer', async () => {
-        vi.stubGlobal('createImageBitmap', vi.fn(async () => ({
-            width: 400,
-            height: 200,
-            close: vi.fn(),
-        })));
+        vi.stubGlobal(
+            'createImageBitmap',
+            vi.fn(async () => ({
+                width: 400,
+                height: 200,
+                close: vi.fn(),
+            })),
+        );
 
         const viewerContainer = ref<HTMLElement | null>(createViewerContainer());
         const finalized = vi.fn((candidate: IPdfPlacedImageFinalizePayload) => {
@@ -518,28 +537,24 @@ describe('usePdfImagePlacement', () => {
             return false;
         });
         const scope = effectScope();
-        const imagePlacement = scope.run(() => usePdfImagePlacement({
-            viewerContainer,
-            currentPage: ref(1),
-            numPages: ref(4),
-            effectiveScale: ref(2),
-            finalizePlacement: finalized,
-            probeImage: probeImageForTest,
-            createPreview: createPreviewForTest,
-        }));
+        const imagePlacement = scope.run(() =>
+            usePdfImagePlacement({
+                viewerContainer,
+                currentPage: ref(1),
+                numPages: ref(4),
+                effectiveScale: ref(2),
+                finalizePlacement: finalized,
+                probeImage: probeImageForTest,
+                createPreview: createPreviewForTest,
+            }),
+        );
 
         if (!imagePlacement) {
             throw new Error('Failed to create image placement composable');
         }
 
         try {
-            await imagePlacement.startImagePlacement(
-                new File([new Uint8Array([
-                    1,
-                    2,
-                    3,
-                ])], 'image.jpg', {type: 'image/jpeg'}),
-            );
+            await imagePlacement.startImagePlacement(new File([new Uint8Array([1, 2, 3])], 'image.jpg', {type: 'image/jpeg'}));
             const draftBytes = imagePlacement.pendingImagePlacement.value?.bytes.slice();
             imagePlacement.requestPendingImagePlacementFinalize();
 
@@ -553,37 +568,36 @@ describe('usePdfImagePlacement', () => {
     });
 
     it('upsizes tiny finalized placements before serialization', async () => {
-        vi.stubGlobal('createImageBitmap', vi.fn(async () => ({
-            width: 400,
-            height: 400,
-            close: vi.fn(),
-        })));
+        vi.stubGlobal(
+            'createImageBitmap',
+            vi.fn(async () => ({
+                width: 400,
+                height: 400,
+                close: vi.fn(),
+            })),
+        );
 
         const viewerContainer = ref<HTMLElement | null>(createViewerContainer());
         const finalized = vi.fn();
         const scope = effectScope();
-        const imagePlacement = scope.run(() => usePdfImagePlacement({
-            viewerContainer,
-            currentPage: ref(1),
-            numPages: ref(4),
-            effectiveScale: ref(2),
-            finalizePlacement: finalized,
-            probeImage: probeImageForTest,
-            createPreview: createPreviewForTest,
-        }));
+        const imagePlacement = scope.run(() =>
+            usePdfImagePlacement({
+                viewerContainer,
+                currentPage: ref(1),
+                numPages: ref(4),
+                effectiveScale: ref(2),
+                finalizePlacement: finalized,
+                probeImage: probeImageForTest,
+                createPreview: createPreviewForTest,
+            }),
+        );
 
         if (!imagePlacement) {
             throw new Error('Failed to create image placement composable');
         }
 
         try {
-            await imagePlacement.startImagePlacement(
-                new File([new Uint8Array([
-                    1,
-                    2,
-                    3,
-                ])], 'tiny.png', { type: 'image/png' }),
-            );
+            await imagePlacement.startImagePlacement(new File([new Uint8Array([1, 2, 3])], 'tiny.png', {type: 'image/png'}));
             imagePlacement.updatePendingImagePlacementRect({
                 x: 0.15,
                 y: 0.2,
@@ -595,43 +609,48 @@ describe('usePdfImagePlacement', () => {
             imagePlacement.requestPendingImagePlacementFinalize();
 
             expect(finalized).toHaveBeenCalledOnce();
-            expect(finalized).toHaveBeenCalledWith(expect.objectContaining({
-                fileName: 'tiny.png',
-                targetPixelWidth: 48,
-                targetPixelHeight: 64,
-            }));
+            expect(finalized).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    fileName: 'tiny.png',
+                    targetPixelWidth: 48,
+                    targetPixelHeight: 64,
+                }),
+            );
         } finally {
             scope.stop();
         }
     });
 
     it('revokes the preview URL when the draft is cleared', async () => {
-        vi.stubGlobal('createImageBitmap', vi.fn(async () => ({
-            width: 400,
-            height: 200,
-            close: vi.fn(),
-        })));
+        vi.stubGlobal(
+            'createImageBitmap',
+            vi.fn(async () => ({
+                width: 400,
+                height: 200,
+                close: vi.fn(),
+            })),
+        );
 
         const viewerContainer = ref<HTMLElement | null>(createViewerContainer());
         const scope = effectScope();
-        const imagePlacement = scope.run(() => usePdfImagePlacement({
-            viewerContainer,
-            currentPage: ref(1),
-            numPages: ref(4),
-            effectiveScale: ref(2),
-            finalizePlacement: vi.fn(),
-            probeImage: probeImageForTest,
-            createPreview: createPreviewForTest,
-        }));
+        const imagePlacement = scope.run(() =>
+            usePdfImagePlacement({
+                viewerContainer,
+                currentPage: ref(1),
+                numPages: ref(4),
+                effectiveScale: ref(2),
+                finalizePlacement: vi.fn(),
+                probeImage: probeImageForTest,
+                createPreview: createPreviewForTest,
+            }),
+        );
 
         if (!imagePlacement) {
             throw new Error('Failed to create image placement composable');
         }
 
         try {
-            await imagePlacement.startImagePlacement(
-                new File([Uint8Array.of(1, 2, 3)], 'image.png', {type: 'image/png'}),
-            );
+            await imagePlacement.startImagePlacement(new File([Uint8Array.of(1, 2, 3)], 'image.png', {type: 'image/png'}));
 
             imagePlacement.clearPendingImagePlacement();
 
@@ -641,7 +660,6 @@ describe('usePdfImagePlacement', () => {
             scope.stop();
         }
     });
-
 });
 
 beforeEach(() => {

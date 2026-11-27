@@ -1,31 +1,14 @@
 import {createHash} from 'node:crypto';
 import {electronUserDataPath} from '@scripts/electron-run/electronRunSessionPaths';
-import {
-    copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync,
-} from 'node:fs';
-import {
-    join, resolve,
-} from 'node:path';
+import {copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync} from 'node:fs';
+import {join, resolve} from 'node:path';
 import {tmpdir} from 'node:os';
-import {
-    afterAll, describe, expect, it,
-} from 'vitest';
+import {afterAll, describe, expect, it} from 'vitest';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
-import {
-    activateMenuItemAsUser,
-    clickAsUser,
-    clickFoundAsUser,
-} from '@tests/e2e/electron/helpers/userInput';
-import {
-    openDocumentSidebarTab,
-    openPdfInApp,
-    saveViaVisibleToolbar,
-    waitForPdfLoaded,
-} from '@tests/e2e/electron/helpers/viewerCore';
+import {activateMenuItemAsUser, clickAsUser, clickFoundAsUser} from '@tests/e2e/electron/helpers/userInput';
+import {openDocumentSidebarTab, openPdfInApp, saveViaVisibleToolbar, waitForPdfLoaded} from '@tests/e2e/electron/helpers/viewerCore';
 import {readWorkspaceStateValues} from '@tests/e2e/electron/helpers/workspaceExpose';
-import {
-    readPdfPageSnapshots, readPdfCatalogWithPdfjs, createScannedTextFixturePdf,
-} from '@tests/e2e/electron/helpers/fixtures';
+import {readPdfPageSnapshots, readPdfCatalogWithPdfjs, createScannedTextFixturePdf} from '@tests/e2e/electron/helpers/fixtures';
 import type {IWorkspaceAutomationStateSnapshot} from '@app/types/workspaceExpose';
 import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
 
@@ -62,7 +45,9 @@ describe('Electron E2E - assistant draft revision', () => {
         await page.reload();
         await openPdfInApp(page, pdfPath);
         await waitForPdfLoaded(page);
-        const before = await readWorkspaceStateValues<Pick<IWorkspaceAutomationStateSnapshot, 'documentIdentity'>>(page, ['documentIdentity']);
+        const before = await readWorkspaceStateValues<Pick<IWorkspaceAutomationStateSnapshot, 'documentIdentity'>>(page, [
+            'documentIdentity',
+        ]);
         await clickAsUser(page, 'button[aria-label="Toggle EVB Assistant"]');
         await page.waitForSelector('.composer-input:not(:disabled)', {visible: true});
         await clickAsUser(page, '.composer-input');
@@ -78,25 +63,29 @@ describe('Electron E2E - assistant draft revision', () => {
             context.fillRect(0, 0, 24, 32);
             context.fillStyle = '#1976d2';
             context.fillRect(24, 0, 24, 32);
-            const png = await new Promise<Blob>(resolve => canvas.toBlob(blob => resolve(blob!), 'image/png'));
+            const png = await new Promise<Blob>((resolve) => canvas.toBlob((blob) => resolve(blob!), 'image/png'));
             await navigator.clipboard.write([new ClipboardItem({'image/png': png})]);
         });
         await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+V'});
         await page.waitForFunction(() => (document.querySelector('.composer-image img') as HTMLImageElement | null)?.naturalWidth === 48);
-        const imageBefore = await page.$eval('.composer-image img', image => (image as HTMLImageElement).src);
+        const imageBefore = await page.$eval('.composer-image img', (image) => (image as HTMLImageElement).src);
         await session.command('screenshot', ['as03-composed']);
 
         await openDocumentSidebarTab(page, 'Pages');
         const disclosure = '.workspace-host[data-workspace-active="true"] .pdf-sidebar-pages-disclosure';
-        if (await page.$eval(disclosure, button => button.getAttribute('aria-expanded')) !== 'true') {
+        if ((await page.$eval(disclosure, (button) => button.getAttribute('aria-expanded'))) !== 'true') {
             await clickAsUser(page, disclosure);
         }
         await clickAsUser(page, '#page-label-prefix-input');
         await page.keyboard.type('AS03-');
         await clickAsUser(page, '.workspace-host[data-workspace-active="true"] .pdf-sidebar-pages-primary-button');
-        expect(await page.$eval('.composer-input', input => (input as HTMLTextAreaElement).value)).toBe('Keep this composed prompt and image after Save.');
+        expect(await page.$eval('.composer-input', (input) => (input as HTMLTextAreaElement).value)).toBe(
+            'Keep this composed prompt and image after Save.',
+        );
         await saveViaVisibleToolbar(page, 30_000, pdfPath);
-        const after = await readWorkspaceStateValues<Pick<IWorkspaceAutomationStateSnapshot, 'documentIdentity'>>(page, ['documentIdentity']);
+        const after = await readWorkspaceStateValues<Pick<IWorkspaceAutomationStateSnapshot, 'documentIdentity'>>(page, [
+            'documentIdentity',
+        ]);
         expect(before.documentIdentity).toBeTruthy();
         expect(after.documentIdentity).toBeTruthy();
         expect(after.documentIdentity?.token).not.toBe(before.documentIdentity?.token);
@@ -106,17 +95,19 @@ describe('Electron E2E - assistant draft revision', () => {
         await session.command('screenshot', ['as03-saved']);
         const composed = await page.evaluate(() => ({
             text: document.querySelector<HTMLTextAreaElement>('.composer-input')?.value,
-            images: [...document.querySelectorAll<HTMLImageElement>('.composer-image img')].map(image => ({
+            images: [...document.querySelectorAll<HTMLImageElement>('.composer-image img')].map((image) => ({
                 src: image.src,
                 width: image.naturalWidth,
             })),
         }));
         expect(composed).toEqual({
             text: 'Keep this composed prompt and image after Save.',
-            images: [{
-                src: imageBefore,
-                width: 48,
-            }],
+            images: [
+                {
+                    src: imageBefore,
+                    width: 48,
+                },
+            ],
         });
     }, 60_000);
 
@@ -137,13 +128,13 @@ describe('Electron E2E - assistant draft revision', () => {
         await waitForPdfLoaded(page);
         await openDocumentSidebarTab(page, 'Pages');
         const disclosure = '.workspace-host[data-workspace-active="true"] .pdf-sidebar-pages-disclosure';
-        if (await page.$eval(disclosure, button => button.getAttribute('aria-expanded')) !== 'true') {
+        if ((await page.$eval(disclosure, (button) => button.getAttribute('aria-expanded'))) !== 'true') {
             await clickAsUser(page, disclosure);
         }
         await clickAsUser(page, '#page-label-prefix-input');
         await page.keyboard.type('A104-');
         await clickAsUser(page, '.workspace-host[data-workspace-active="true"] .pdf-sidebar-pages-primary-button');
-        if (await page.$('.composer-input') === null) {
+        if ((await page.$('.composer-input')) === null) {
             await clickAsUser(page, 'button[aria-label="Toggle EVB Assistant"]');
         }
         await page.waitForSelector('.composer-input:not(:disabled)', {visible: true});
@@ -153,12 +144,11 @@ describe('Electron E2E - assistant draft revision', () => {
         await page.keyboard.press('Enter');
 
         const reply = '.assistant-message:not(.is-user):last-of-type';
-        await page.waitForFunction(selector => document.querySelector(selector)?.textContent?.includes('save:'), {}, reply);
+        await page.waitForFunction((selector) => document.querySelector(selector)?.textContent?.includes('save:'), {}, reply);
         await session.command('screenshot', ['a10-4-own-save']);
-        expect(await page.$eval(reply, element => element.textContent?.trim())).toContain('save:ok read:ok');
+        expect(await page.$eval(reply, (element) => element.textContent?.trim())).toContain('save:ok read:ok');
         expect((await readPdfCatalogWithPdfjs(pdfPath)).pageLabels?.[0]).toBe('A104-1');
     });
-
 
     it('preserves explicit agent preprocessing when OCR changes the quality profile', async () => {
         const session = fixture.getSession();
@@ -177,24 +167,51 @@ describe('Electron E2E - assistant draft revision', () => {
         await page.waitForSelector('.composer-send:not(:disabled)', {visible: true});
         await page.keyboard.press('Enter');
         const reply = '.assistant-message:not(.is-user):last-of-type';
-        await page.waitForFunction(selector => document.querySelector(selector)?.textContent?.includes('ocr:'), {timeout: 180_000}, reply);
-        expect(await page.$eval(reply, element => element.textContent?.trim())).toContain('ocr:ok');
-        await page.waitForFunction(() => document.querySelector('.workspace-host[data-workspace-active="true"] .text-layer[data-pdf-text-layer-ready="true"]')?.textContent?.toLowerCase().includes('lantern'));
+        await page.waitForFunction(
+            (selector) => document.querySelector(selector)?.textContent?.includes('ocr:'),
+            {timeout: 180_000},
+            reply,
+        );
+        expect(await page.$eval(reply, (element) => element.textContent?.trim())).toContain('ocr:ok');
+        await page.waitForFunction(() =>
+            document
+                .querySelector('.workspace-host[data-workspace-active="true"] .text-layer[data-pdf-text-layer-ready="true"]')
+                ?.textContent?.toLowerCase()
+                .includes('lantern'),
+        );
         const openOcr = async () => {
             await clickAsUser(page, '.editor-global-toolbar-shell button[aria-label="More tools"]');
-            await clickFoundAsUser(page, () => [...document.querySelectorAll('button, [role="menuitem"]')]
-                .find(element => element.checkVisibility() && element.textContent?.trim() === 'OCR'), undefined, {description: 'OCR'});
+            await clickFoundAsUser(
+                page,
+                () =>
+                    [...document.querySelectorAll('button, [role="menuitem"]')].find(
+                        (element) => element.checkVisibility() && element.textContent?.trim() === 'OCR',
+                    ),
+                undefined,
+                {description: 'OCR'},
+            );
             await page.waitForSelector('[role="dialog"]', {visible: true});
         };
         await openOcr();
-        await clickFoundAsUser(page, () => [...document.querySelectorAll('[role="dialog"] button')]
-            .find(element => element.checkVisibility() && element.textContent?.trim() === 'Close'), undefined, {description: 'Close OCR results'});
+        await clickFoundAsUser(
+            page,
+            () =>
+                [...document.querySelectorAll('[role="dialog"] button')].find(
+                    (element) => element.checkVisibility() && element.textContent?.trim() === 'Close',
+                ),
+            undefined,
+            {description: 'Close OCR results'},
+        );
         await page.waitForSelector('[role="dialog"]', {hidden: true});
         await openOcr();
         await page.waitForSelector('[role="dialog"] [role="radio"][value="off"]', {visible: true});
         await session.command('screenshot', ['p3-agent-preprocessing']);
-        expect(await page.$eval('[role="dialog"] [role="radio"][value="poor-scan"]', element => element.getAttribute('aria-checked'))).toBe('true');
-        expect(await page.$eval('[role="dialog"] [role="radio"][value="off"]', element => element.getAttribute('aria-checked'))).toBe('true');
+        expect(
+            await page.$eval('[role="dialog"] [role="radio"][value="poor-scan"]', (element) => element.getAttribute('aria-checked')),
+        ).toBe('true');
+        expect(await page.$eval('[role="dialog"] [role="radio"][value="off"]', (element) => element.getAttribute('aria-checked'))).toBe(
+            'true',
+        );
     }, 180_000);
 
     // The turn follows its own native page edit before issuing its next command.
@@ -214,7 +231,7 @@ describe('Electron E2E - assistant draft revision', () => {
         await waitForPdfLoaded(page);
         await openDocumentSidebarTab(page, 'Pages');
         const selection = '[data-thumbnail-page="1"] .pdf-thumbnail-selection-toggle';
-        if (await page.$eval(selection, button => button.getAttribute('aria-pressed')) !== 'true') {
+        if ((await page.$eval(selection, (button) => button.getAttribute('aria-pressed'))) !== 'true') {
             await clickAsUser(page, selection);
         }
         await clickAsUser(page, 'button[aria-label="Toggle EVB Assistant"]');
@@ -231,13 +248,13 @@ describe('Electron E2E - assistant draft revision', () => {
             turnId: string;
             rotate: string;
             read: string;
-            save: string
+            save: string;
         };
         if (trace.read === 'ok' && trace.save === 'ok') {
-            await page.waitForFunction(selector => document.querySelector(selector)?.textContent?.includes('rotate:'), {}, reply);
+            await page.waitForFunction((selector) => document.querySelector(selector)?.textContent?.includes('rotate:'), {}, reply);
         }
-        const text = await page.evaluate(selector => document.querySelector(selector)?.textContent?.trim() ?? '', reply);
-        const rendered = await page.$eval('.page_container[data-page="1"]', element => {
+        const text = await page.evaluate((selector) => document.querySelector(selector)?.textContent?.trim() ?? '', reply);
+        const rendered = await page.$eval('.page_container[data-page="1"]', (element) => {
             const rect = element.getBoundingClientRect();
             return {
                 width: rect.width,
@@ -246,29 +263,38 @@ describe('Electron E2E - assistant draft revision', () => {
         });
         const after = await readPdfPageSnapshots(pdfPath);
         await page.screenshot({path: join(directory, 'rotation-turn.png')});
-        writeFileSync(join(directory, 'result.json'), JSON.stringify({
-            session: session.name,
-            text,
-            trace,
-            rendered,
-            before,
-            after,
-        }, null, 2));
-        console.log(`1544_ASSISTANT ${JSON.stringify({
-            session: session.name,
-            text,
-            trace,
-            rendered,
-            before,
-            after,
-        })}`);
+        writeFileSync(
+            join(directory, 'result.json'),
+            JSON.stringify(
+                {
+                    session: session.name,
+                    text,
+                    trace,
+                    rendered,
+                    before,
+                    after,
+                },
+                null,
+                2,
+            ),
+        );
+        console.log(
+            `1544_ASSISTANT ${JSON.stringify({
+                session: session.name,
+                text,
+                trace,
+                rendered,
+                before,
+                after,
+            })}`,
+        );
         expect.soft(trace.rotate).toBe('ok');
         expect.soft(trace.read).toBe('ok');
         expect.soft(trace.save).toBe('ok');
         expect.soft(rendered.width).toBeGreaterThan(rendered.height);
         expect.soft(text).toContain('rotate:ok read:ok save:ok');
         expect.soft(after[0]?.rotation).toBe(((before[0]?.rotation ?? 0) + 90) % 360);
-        expect.soft(after.map(item => item.textSnippet)).toEqual(before.map(item => item.textSnippet));
+        expect.soft(after.map((item) => item.textSnippet)).toEqual(before.map((item) => item.textSnippet));
         expect.soft(after.slice(1)).toEqual(before.slice(1));
     });
 
@@ -314,12 +340,16 @@ describe('Electron E2E - assistant draft revision', () => {
                         turnId: null,
                         localTurnId: null,
                     },
-                    messages: text ? [{
-                        id: scopeKey,
-                        role: 'user',
-                        text,
-                        createdAt: '2026-01-01T00:00:00.000Z',
-                    }] : [],
+                    messages: text
+                        ? [
+                              {
+                                  id: scopeKey,
+                                  role: 'user',
+                                  text,
+                                  createdAt: '2026-01-01T00:00:00.000Z',
+                              },
+                          ]
+                        : [],
                     lastAccessedAtMs,
                 },
             })}\n`;
@@ -343,50 +373,64 @@ describe('Electron E2E - assistant draft revision', () => {
             await waitForPdfLoaded(session.page);
             await clickAsUser(session.page, 'button[aria-label="Toggle EVB Assistant"]');
         };
-        const readPanel = () => session.page.evaluate(() => {
-            const picker = document.querySelector('[data-model-picker-trigger]');
-            return {
-                picker: picker?.checkVisibility() ? picker.getAttribute('aria-label') : null,
-                messages: [...document.querySelectorAll<HTMLElement>('.assistant-message.is-user .user-bubble')]
-                    .filter(bubble => bubble.checkVisibility())
-                    .map(bubble => bubble.innerText.trim()),
-            };
-        });
+        const readPanel = () =>
+            session.page.evaluate(() => {
+                const picker = document.querySelector('[data-model-picker-trigger]');
+                return {
+                    picker: picker?.checkVisibility() ? picker.getAttribute('aria-label') : null,
+                    messages: [...document.querySelectorAll<HTMLElement>('.assistant-message.is-user .user-bubble')]
+                        .filter((bubble) => bubble.checkVisibility())
+                        .map((bubble) => bubble.innerText.trim()),
+                };
+            });
         await openChat();
         // AS1: allow 1 s for local history and rendering. The synthetic 2.7 s
         // launcher is still checking at that point if discovery starts on open.
-        await expect.poll(readPanel, {
-            timeout: 1_000,
-            message: 'First open shows the selected Codex setup and saved conversation during discovery',
-        }).toEqual({
-            picker: expect.stringMatching(/^Codex(?:$| · (?!codex-slow\b))/u),
-            messages: ['Saved before the file-key upgrade'],
-        });
+        await expect
+            .poll(readPanel, {
+                timeout: 1_000,
+                message: 'First open shows the selected Codex setup and saved conversation during discovery',
+            })
+            .toEqual({
+                picker: expect.stringMatching(/^Codex(?:$| · (?!codex-slow\b))/u),
+                messages: ['Saved before the file-key upgrade'],
+            });
         await session.command('screenshot', ['a35-legacy-chat-recovered']);
         const canonicalPath = join(sessions, fileName(canonicalKey));
-        const readCanonicalSnapshot = () => readFileSync(canonicalPath, 'utf8').trim().split('\n')
-            .map(line => JSON.parse(line) as {
-                type: string;
-                session?: {providerThreadId: string}
-            })
-            .findLast(record => record.type === 'session-snapshot');
+        const readCanonicalSnapshot = () =>
+            readFileSync(canonicalPath, 'utf8')
+                .trim()
+                .split('\n')
+                .map(
+                    (line) =>
+                        JSON.parse(line) as {
+                            type: string;
+                            session?: {providerThreadId: string};
+                        },
+                )
+                .findLast((record) => record.type === 'session-snapshot');
         expect(readCanonicalSnapshot()?.session?.providerThreadId).toBe('thread-Saved before the file-key upgrade');
-        const backups = readdirSync(join(root, 'archive')).map(name => readFileSync(join(root, 'archive', name), 'utf8'));
-        for (const bytes of originals) {expect(backups).toContain(bytes);}
+        const backups = readdirSync(join(root, 'archive')).map((name) => readFileSync(join(root, 'archive', name), 'utf8'));
+        for (const bytes of originals) {
+            expect(backups).toContain(bytes);
+        }
         await clickAsUser(session.page, '.composer-input');
         await session.page.keyboard.type('Continue this saved conversation.');
         await session.page.waitForSelector('.composer-send:not(:disabled)', {visible: true});
         await session.page.keyboard.press('Enter');
-        await expect.poll(() => session.page.$$eval('.assistant-message:not(.is-user) .assistant-markdown',
-            bubbles => bubbles.map(bubble => bubble.textContent?.trim()))).toContain('Image received.');
+        await expect
+            .poll(() =>
+                session.page.$$eval('.assistant-message:not(.is-user) .assistant-markdown', (bubbles) =>
+                    bubbles.map((bubble) => bubble.textContent?.trim()),
+                ),
+            )
+            .toContain('Image received.');
         session = await fixture.restart({clean: false});
         await openChat();
-        await expect.poll(async () => (await readPanel()).messages).toEqual([
-            'Saved before the file-key upgrade',
-            'Continue this saved conversation.',
-        ]);
+        await expect
+            .poll(async () => (await readPanel()).messages)
+            .toEqual(['Saved before the file-key upgrade', 'Continue this saved conversation.']);
         expect(readCanonicalSnapshot()?.session?.providerThreadId).toBe('thread-Saved before the file-key upgrade');
         await session.command('screenshot', ['a35-legacy-chat-relaunched']);
     });
-
 });

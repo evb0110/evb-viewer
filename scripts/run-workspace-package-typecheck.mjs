@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 
-import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import {execFileSync} from 'node:child_process';
+import {existsSync} from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { getWorkspacePackageRoots } from './workspace-roots.mjs';
-import { withTypecheckNodeHeap } from './typecheckNodeEnv.mjs';
+import {fileURLToPath} from 'node:url';
+import {getWorkspacePackageRoots} from './workspace-roots.mjs';
+import {withTypecheckNodeHeap} from './typecheckNodeEnv.mjs';
 
 /** @type {Record<string, string>} */
 export const TYPECHECK_EXEMPT_WORKSPACE_PACKAGES = {
@@ -39,24 +39,13 @@ function toPosixPath(filePath) {
 }
 
 /** @param {{cold?: boolean, projectRoot?: string, projects?: string[]}} options @returns {{command: ITypecheckCommand, skipped: ITypecheckSkip[]}} */
-export function getWorkspacePackageTypecheckPlan({
-    cold = false,
-    projectRoot = process.cwd(),
-    projects = [],
-} = {}) {
+export function getWorkspacePackageTypecheckPlan({cold = false, projectRoot = process.cwd(), projects = []} = {}) {
     const effectiveCold = cold || process.env.EVB_GATE_NO_CACHE === '1';
-    const args = [
-        'scripts/run-ts7-typecheck.mjs',
-        ...(effectiveCold ? ['--cold'] : []),
-        ...projects.flatMap(project => [
-            '-p',
-            project,
-        ]),
-    ];
+    const args = ['scripts/run-ts7-typecheck.mjs', ...(effectiveCold ? ['--cold'] : []), ...projects.flatMap((project) => ['-p', project])];
     /** @type {ITypecheckSkip[]} */
     const skipped = [];
 
-    for (const packageRoot of getWorkspacePackageRoots({ projectRoot })) {
+    for (const packageRoot of getWorkspacePackageRoots({projectRoot})) {
         const tsconfigPath = toPosixPath(path.join(packageRoot, 'tsconfig.json'));
         if (existsSync(path.join(projectRoot, tsconfigPath))) {
             args.push('-p', tsconfigPath);
@@ -72,9 +61,7 @@ export function getWorkspacePackageTypecheckPlan({
             continue;
         }
 
-        throw new Error(
-            `Workspace package ${packageRoot} is missing tsconfig.json and has no typecheck exemption.`,
-        );
+        throw new Error(`Workspace package ${packageRoot} is missing tsconfig.json and has no typecheck exemption.`);
     }
 
     return {
@@ -94,10 +81,7 @@ export function runWorkspacePackageTypecheck({
     runCommand = defaultRun,
     stdout = process.stdout,
 } = {}) {
-    const {
-        command,
-        skipped,
-    } = getWorkspacePackageTypecheckPlan({
+    const {command, skipped} = getWorkspacePackageTypecheckPlan({
         cold: cold || process.env.EVB_GATE_NO_CACHE === '1',
         projectRoot,
         projects,
@@ -105,12 +89,7 @@ export function runWorkspacePackageTypecheck({
 
     if (skipped.length > 0) {
         stdout.write(
-            `${skipped.map(({
-                packageRoot,
-                reason,
-            }) => (
-                `Skipping workspace package typecheck for ${packageRoot}: ${reason}`
-            )).join('\n')}\n`,
+            `${skipped.map(({packageRoot, reason}) => `Skipping workspace package typecheck for ${packageRoot}: ${reason}`).join('\n')}\n`,
         );
     }
 
@@ -121,13 +100,12 @@ export function runWorkspacePackageTypecheck({
     });
 }
 
-const isDirectCliRun = process.argv[1]
-    && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
+const isDirectCliRun = process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
 
 if (isDirectCliRun) {
     const args = process.argv.slice(2);
     const cold = args.includes('--cold');
-    const projectArgs = args.filter(argument => argument !== '--cold' && argument !== '--all');
+    const projectArgs = args.filter((argument) => argument !== '--cold' && argument !== '--all');
     const projects = args.includes('--all') ? [...FULL_TYPECHECK_PROJECTS] : [];
     for (let index = 0; index < projectArgs.length; index += 2) {
         const project = projectArgs[index + 1];

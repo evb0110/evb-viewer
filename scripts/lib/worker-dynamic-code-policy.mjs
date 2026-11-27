@@ -16,8 +16,8 @@
 // vendored dependency idioms use it; those two forms are allowlisted here with
 // their justification, so any *new* runtime code construction still fails.
 
-const DYNAMIC_CODE_CALL_SITE_PATTERN
-    = /\(\s*0\s*,\s*eval\s*\)|(?<![.\w$])(?:new\s+)?(?:(?:globalThis|window|self)\.)?(?:Function|eval)\s*\(/gu;
+const DYNAMIC_CODE_CALL_SITE_PATTERN =
+    /\(\s*0\s*,\s*eval\s*\)|(?<![.\w$])(?:new\s+)?(?:(?:globalThis|window|self)\.)?(?:Function|eval)\s*\(/gu;
 
 const CALL_SITE_SHAPE = /^(new\s+)?((?:globalThis|window|self)\.)?(Function|eval)/u;
 
@@ -42,12 +42,7 @@ function classifyCallSite(matchText) {
     if (matchText.startsWith('(')) {
         return 'indirect (0, eval)';
     }
-    const [
-        ,
-        constructor,
-        globalPrefix,
-        name,
-    ] = CALL_SITE_SHAPE.exec(matchText) ?? [];
+    const [, constructor, globalPrefix, name] = CALL_SITE_SHAPE.exec(matchText) ?? [];
     return `${constructor ? 'new ' : ''}${globalPrefix ?? ''}${name}(`;
 }
 
@@ -69,8 +64,7 @@ export function analyzeDynamicCodeConstruction(content) {
     for (const match of content.matchAll(DYNAMIC_CODE_CALL_SITE_PATTERN)) {
         const callSite = content.slice(match.index, match.index + EXCERPT_LENGTH);
         const kind = classifyCallSite(match[0]);
-        const allowed = kind === 'Function('
-            && ALLOWED_VENDOR_IDIOMS.find(({pattern}) => pattern.test(callSite));
+        const allowed = kind === 'Function(' && ALLOWED_VENDOR_IDIOMS.find(({pattern}) => pattern.test(callSite));
 
         if (allowed) {
             allowedIdioms.add(allowed.justification);

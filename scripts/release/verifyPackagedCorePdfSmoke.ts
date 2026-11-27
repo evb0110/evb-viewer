@@ -1,13 +1,5 @@
 import {createHash} from 'node:crypto';
-import {
-    access,
-    copyFile,
-    mkdtemp,
-    readFile,
-    readdir,
-    realpath,
-    rm,
-} from 'node:fs/promises';
+import {access, copyFile, mkdtemp, readFile, readdir, realpath, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
@@ -21,14 +13,8 @@ import {requirePageIndex} from '@contracts/pageNumbers';
 import {assertNoPackagedRendererFailures} from '@scripts/release/assertNoPackagedRendererFailures';
 import {startOwnedPackagedProcess} from '@scripts/release/runPackagedAutomation';
 import type {IOwnedPackagedProcess} from '@scripts/release/runPackagedAutomation';
-import {
-    waitForPackagedCdpEndpoint,
-    waitForPackagedRendererPage,
-} from '@scripts/release/waitForPackagedCdpEndpoint';
-import {
-    findFreePort,
-    isProcessAlive,
-} from '@scripts/electron-run/electronRunProcessTree';
+import {waitForPackagedCdpEndpoint, waitForPackagedRendererPage} from '@scripts/release/waitForPackagedCdpEndpoint';
+import {findFreePort, isProcessAlive} from '@scripts/electron-run/electronRunProcessTree';
 import {capturePackagedCorePdfFailureArtifacts} from '@tests/e2e/electron/helpers/capturePackagedCorePdfFailureArtifacts';
 import {
     assertOcrPdfSemanticOutput,
@@ -47,10 +33,7 @@ import {
 import {createCanonicalTextBoxWithPointer} from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {installPageEvaluationShims} from '@tests/e2e/electron/helpers/pageRuntime';
 import {getWorkspaceToolbarSnapshot} from '@tests/e2e/electron/helpers/workspaceExpose';
-import {
-    readPdfAnnotationSummary,
-    readPdfCatalogWithPdfjs,
-} from '@tests/e2e/electron/helpers/fixtures';
+import {readPdfAnnotationSummary, readPdfCatalogWithPdfjs} from '@tests/e2e/electron/helpers/fixtures';
 import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
 
 const STARTUP_TIMEOUT_MS = 75_000;
@@ -95,7 +78,7 @@ const PACKAGED_SMOKE_METADATA: IPageOpsMetadataSnapshot = {
             startNumber: 1,
         },
     ],
-    bookmarks: PACKAGED_SMOKE_BOOKMARKS.map(bookmark => ({...bookmark})),
+    bookmarks: PACKAGED_SMOKE_BOOKMARKS.map((bookmark) => ({...bookmark})),
     untitledBookmarkLabel: 'Untitled',
 };
 
@@ -106,12 +89,13 @@ function sha256(bytes: Uint8Array) {
 async function assertNoPageOperationResidue(workingCopyPath: string) {
     const directoryPath = path.dirname(workingCopyPath);
     const fileName = path.basename(workingCopyPath);
-    const residue = (await readdir(directoryPath)).filter(name => (
-        name.startsWith(`.${fileName}.evb-tmp-`)
-        || name.startsWith(`.${fileName}.bak-`)
-        || name.startsWith(`.${fileName}.`) && name.endsWith('.tmp')
-        || name.startsWith('journal')
-    ));
+    const residue = (await readdir(directoryPath)).filter(
+        (name) =>
+            name.startsWith(`.${fileName}.evb-tmp-`) ||
+            name.startsWith(`.${fileName}.bak-`) ||
+            (name.startsWith(`.${fileName}.`) && name.endsWith('.tmp')) ||
+            name.startsWith('journal'),
+    );
     if (residue.length > 0) {
         throw new Error(`Packaged smoke page operation left transaction residue: ${residue.join(', ')}`);
     }
@@ -182,13 +166,15 @@ async function quitAppGracefully(page: Page | null) {
     // with unsaved work for a close decision that this hidden session never
     // answers. The automation hook requests the coordinated quit instead.
     await Promise.race([
-        page.evaluate(() => {
-            const quit = (window as {__quitForAutomation?: () => Promise<void>}).__quitForAutomation;
-            if (typeof quit !== 'function') {
-                throw new Error('Packaged smoke session does not expose quit automation');
-            }
-            return quit();
-        }).catch(() => {}),
+        page
+            .evaluate(() => {
+                const quit = (window as {__quitForAutomation?: () => Promise<void>}).__quitForAutomation;
+                if (typeof quit !== 'function') {
+                    throw new Error('Packaged smoke session does not expose quit automation');
+                }
+                return quit();
+            })
+            .catch(() => {}),
         delay(SHUTDOWN_TIMEOUT_MS),
     ]);
 }
@@ -221,26 +207,18 @@ async function run() {
     const starting = startOwnedPackagedProcess({
         executablePath,
         workDirectory,
-        args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            `--remote-debugging-port=${cdpPort}`,
-        ],
+        args: ['--no-sandbox', '--disable-setuid-sandbox', `--remote-debugging-port=${cdpPort}`],
         sessionName: 'packaged-core-pdf-smoke',
         env: {
             ...process.env,
             EVB_ENABLE_RENDERER_FILE_OPEN_HELPER: '1',
         },
-        stdio: [
-            'ignore',
-            'pipe',
-            'pipe',
-        ],
+        stdio: ['ignore', 'pipe', 'pipe'],
     });
     const stopOnSignal = (signal: NodeJS.Signals) => {
         void starting
-            .then(owned => owned.stop())
-            .catch(error => console.error(error))
+            .then((owned) => owned.stop())
+            .catch((error) => console.error(error))
             .finally(() => process.exit(signal === 'SIGINT' ? 130 : 143));
     };
     process.on('SIGINT', stopOnSignal);
@@ -274,11 +252,7 @@ async function run() {
         child.stdout?.pipe(process.stdout);
         child.stderr?.pipe(process.stderr);
         child.stderr?.on('data', (chunk: Buffer) => collectDeprecations(chunk.toString('utf8')));
-        const browserWSEndpoint = await waitForPackagedCdpEndpoint(
-            cdpPort,
-            STARTUP_TIMEOUT_MS,
-            'Packaged Electron',
-        );
+        const browserWSEndpoint = await waitForPackagedCdpEndpoint(cdpPort, STARTUP_TIMEOUT_MS, 'Packaged Electron');
         browser = await puppeteer.connect({
             browserWSEndpoint,
             defaultViewport: null,
@@ -286,11 +260,7 @@ async function run() {
         });
         // CDP answers before the main process has created its BrowserWindow, so a
         // single pages() snapshot taken right after connect can be empty.
-        page = await waitForPackagedRendererPage(
-            browser,
-            STARTUP_TIMEOUT_MS,
-            'Packaged Electron',
-        );
+        page = await waitForPackagedRendererPage(browser, STARTUP_TIMEOUT_MS, 'Packaged Electron');
         const rendererFailures: string[] = [];
         page.on('console', (message) => {
             const renderedMessage = `[packaged-renderer:${message.type()}] ${message.text()}`;
@@ -302,9 +272,7 @@ async function run() {
             }
         });
         page.on('pageerror', (error) => {
-            const errorDetails = error instanceof Error
-                ? error.stack ?? error.message
-                : String(error);
+            const errorDetails = error instanceof Error ? (error.stack ?? error.message) : String(error);
             const renderedError = `[packaged-renderer:pageerror] ${errorDetails}`;
             rendererFailures.push(renderedError);
             console.error(renderedError);
@@ -328,14 +296,7 @@ async function run() {
         const originalHashBeforeRotation = sha256(await readFile(fixturePath));
 
         const workingCopyPath = await getActiveWorkspaceWorkingCopyPath(page);
-        const rotateResult = await rotatePages(
-            page,
-            workingCopyPath,
-            [1],
-            2,
-            90,
-            PACKAGED_SMOKE_METADATA,
-        );
+        const rotateResult = await rotatePages(page, workingCopyPath, [1], 2, 90, PACKAGED_SMOKE_METADATA);
         if (!rotateResult.success) {
             throw new Error('Packaged smoke page rotation failed');
         }
@@ -345,14 +306,11 @@ async function run() {
             throw new Error('Packaged smoke page rotation was not persisted to PDF bytes');
         }
         const rotatedCatalog = await readPdfCatalogWithPdfjs(rotatedBytes);
-        const expectedPageLabels = [
-            'front-i',
-            'body-1',
-        ];
+        const expectedPageLabels = ['front-i', 'body-1'];
         if (JSON.stringify(rotatedCatalog.pageLabels) !== JSON.stringify(expectedPageLabels)) {
             throw new Error(`Packaged smoke page labels changed during rotation: ${JSON.stringify(rotatedCatalog.pageLabels)}`);
         }
-        const expectedBookmarks = PACKAGED_SMOKE_BOOKMARKS.map(bookmark => ({
+        const expectedBookmarks = PACKAGED_SMOKE_BOOKMARKS.map((bookmark) => ({
             title: bookmark.title,
             pageIndex: bookmark.pageIndex,
             items: [],
@@ -366,24 +324,30 @@ async function run() {
         await assertNoPageOperationResidue(workingCopyPath);
 
         // Exercise a full qpdf --check validation via the packaged evb-qpdf.wasm worker.
-        const qpdfValidation = await page.evaluate(async ({pdfPath}) => {
-            const api = (window as IE2EWindow).electronAPI;
-            if (!api?.documentPdf?.validatePdfPath) {
-                throw new Error('electronAPI.documentPdf.validatePdfPath is unavailable');
-            }
-            return api.documentPdf.validatePdfPath(pdfPath);
-        }, {pdfPath: workingCopyPath});
+        const qpdfValidation = await page.evaluate(
+            async ({pdfPath}) => {
+                const api = (window as IE2EWindow).electronAPI;
+                if (!api?.documentPdf?.validatePdfPath) {
+                    throw new Error('electronAPI.documentPdf.validatePdfPath is unavailable');
+                }
+                return api.documentPdf.validatePdfPath(pdfPath);
+            },
+            {pdfPath: workingCopyPath},
+        );
         if (!qpdfValidation.isValid || qpdfValidation.tool !== 'qpdf') {
             throw new Error(`Packaged smoke qpdf WASM validation failed: ${JSON.stringify(qpdfValidation)}`);
         }
 
-        const searchResult = await page.evaluate(async ({pdfPath}) => {
-            const api = (window as IE2EWindow).electronAPI;
-            if (!api?.search?.run) {
-                throw new Error('electronAPI.search.run is unavailable');
-            }
-            return api.search.run(pdfPath, 'searchable text');
-        }, {pdfPath: workingCopyPath});
+        const searchResult = await page.evaluate(
+            async ({pdfPath}) => {
+                const api = (window as IE2EWindow).electronAPI;
+                if (!api?.search?.run) {
+                    throw new Error('electronAPI.search.run is unavailable');
+                }
+                return api.search.run(pdfPath, 'searchable text');
+            },
+            {pdfPath: workingCopyPath},
+        );
         if (searchResult.results.length < 1) {
             throw new Error('Packaged smoke search returned no fixture matches');
         }
@@ -402,12 +366,11 @@ async function run() {
         // CDP before deciding that the packaged journey passed.
         await delay(250);
         collectDeprecations('\n');
-        assertNoPackagedRendererFailures([
-            ...rendererFailures,
-            ...mainProcessDeprecations,
-        ]);
+        assertNoPackagedRendererFailures([...rendererFailures, ...mainProcessDeprecations]);
 
-        console.log('Packaged core-PDF smoke passed: OCR, open, annotation save, metadata-preserving rotate, source isolation, and search.');
+        console.log(
+            'Packaged core-PDF smoke passed: OCR, open, annotation save, metadata-preserving rotate, source isolation, and search.',
+        );
     } catch (error) {
         primaryError = error instanceof Error ? error : new Error(String(error));
         try {
@@ -435,10 +398,7 @@ async function run() {
         process.off('SIGINT', stopOnSignal);
         process.off('SIGTERM', stopOnSignal);
         if (launchStopped) {
-            for (const directory of [
-                workDirectory,
-                fixtureDirectory,
-            ]) {
+            for (const directory of [workDirectory, fixtureDirectory]) {
                 try {
                     await rm(directory, {
                         force: true,
@@ -468,12 +428,9 @@ async function run() {
     }
 }
 
-const canonicalEntryPath = process.argv[1] === undefined
-    ? null
-    : await realpath(path.resolve(process.argv[1])).catch(() => null);
+const canonicalEntryPath = process.argv[1] === undefined ? null : await realpath(path.resolve(process.argv[1])).catch(() => null);
 const canonicalModulePath = await realpath(fileURLToPath(import.meta.url));
-const isDirectInvocation = canonicalEntryPath !== null
-    && canonicalEntryPath === canonicalModulePath;
+const isDirectInvocation = canonicalEntryPath !== null && canonicalEntryPath === canonicalModulePath;
 
 if (isDirectInvocation) {
     await run();

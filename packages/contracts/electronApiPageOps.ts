@@ -1,64 +1,51 @@
 import {decodeBookmarkSourceIntent} from '@contracts/pdfBookmarkEntry';
-import {
-    isFiniteNumber,isRecord,
-} from '@contracts/runtimeGuards';
+import {isFiniteNumber, isRecord} from '@contracts/runtimeGuards';
 import {parseDocumentRef} from '@contracts/documentRef';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import {parseDocumentRevisionToken} from '@contracts/documentRevision';
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 import type {IPdfPageLabelRange} from '@contracts/pdfPageLabels';
-import type {
-    IPageMoveRangeSegment, TPageNumber,
-} from '@contracts/pageNumbers';
-import {
-    requirePageIndex, requirePageNumber,
-} from '@contracts/pageNumbers';
+import type {IPageMoveRangeSegment, TPageNumber} from '@contracts/pageNumbers';
+import {requirePageIndex, requirePageNumber} from '@contracts/pageNumbers';
 import {parseEpochMs} from '@contracts/timestamps';
 import * as v from 'valibot';
 
 const MAX_COLLECTION_ITEMS = 100_000;
 
 function safeInteger(min: number, message: string) {
-    return v.pipe(
-        v.number(message),
-        v.safeInteger(message),
-        v.minValue(min, message),
-    );
+    return v.pipe(v.number(message), v.safeInteger(message), v.minValue(min, message));
 }
 
 const positivePageNumberSchema = safeInteger(1, 'page number must be a positive safe integer');
 const documentRefSchema = v.pipe(
     v.string(),
-    v.check(value => parseDocumentRef(value) !== null, 'destPath must be an absolute document reference'),
-    v.transform(value => parseDocumentRef(value)!),
+    v.check((value) => parseDocumentRef(value) !== null, 'destPath must be an absolute document reference'),
+    v.transform((value) => parseDocumentRef(value)!),
 );
 const revisionTokenSchema = v.pipe(
     v.string(),
-    v.check(value => parseDocumentRevisionToken(value) !== null, 'document revision token must be valid'),
-    v.transform(value => parseDocumentRevisionToken(value)!),
+    v.check((value) => parseDocumentRevisionToken(value) !== null, 'document revision token must be valid'),
+    v.transform((value) => parseDocumentRevisionToken(value)!),
 );
 const revisionDocumentRefSchema = v.pipe(
     documentRefSchema,
-    v.check(value => value.length <= 32_768, 'documentRevision.documentRef exceeds maximum length (32768)'),
+    v.check((value) => value.length <= 32_768, 'documentRevision.documentRef exceeds maximum length (32768)'),
 );
 const revisionInfoSchema = v.object({
     version: v.literal(1),
     token: revisionTokenSchema,
     documentRef: revisionDocumentRefSchema,
-    authority: v.picklist([
-        'electron-working-copy',
-        'browser-document-store',
-    ]),
+    authority: v.picklist(['electron-working-copy', 'browser-document-store']),
     contentRevision: safeInteger(0, 'documentRevision.contentRevision must be a non-negative safe integer'),
     mintedAt: v.pipe(
         safeInteger(1, 'documentRevision.mintedAt must be a positive safe integer timestamp'),
-        v.transform(value => parseEpochMs(value)!),
+        v.transform((value) => parseEpochMs(value)!),
     ),
 });
-const identityDeltaPageSchema = v.union([
-    v.object({insertedId: v.pipe(v.string(), v.minLength(1))}),
-    v.object({fromPageNumber: positivePageNumberSchema}),
-], 'pageIdentityDelta.pages entries must carry fromPageNumber or insertedId');
+const identityDeltaPageSchema = v.union(
+    [v.object({insertedId: v.pipe(v.string(), v.minLength(1))}), v.object({fromPageNumber: positivePageNumberSchema})],
+    'pageIdentityDelta.pages entries must carry fromPageNumber or insertedId',
+);
 const pageIdentityRangeSchema = v.variant('kind', [
     v.object({
         kind: v.literal('retain'),
@@ -88,22 +75,21 @@ const pageIdentityRangeSchema = v.variant('kind', [
         kind: v.literal('touch'),
         toPageNumber: positivePageNumberSchema,
         count: safeInteger(1, 'pageIdentityDelta.ranges count must be a positive safe integer'),
-        reason: v.picklist([
-            'rotate',
-            'crop',
-            'remove-crop',
-        ]),
+        reason: v.picklist(['rotate', 'crop', 'remove-crop']),
     }),
 ]);
-const identityDeltaLimits = v.check(value => {
-    if (!isRecord(value)) {return true;}
-    return (!Array.isArray(value.pages) || value.pages.length <= MAX_COLLECTION_ITEMS)
-        && (!Array.isArray(value.ranges) || value.ranges.length <= MAX_COLLECTION_ITEMS)
-        && (!Array.isArray(value.ranges) || value.ranges.every(range => (
-            !isRecord(range)
-            || !Array.isArray(range.insertedIds)
-            || range.insertedIds.length <= MAX_COLLECTION_ITEMS
-        )));
+const identityDeltaLimits = v.check((value) => {
+    if (!isRecord(value)) {
+        return true;
+    }
+    return (
+        (!Array.isArray(value.pages) || value.pages.length <= MAX_COLLECTION_ITEMS) &&
+        (!Array.isArray(value.ranges) || value.ranges.length <= MAX_COLLECTION_ITEMS) &&
+        (!Array.isArray(value.ranges) ||
+            value.ranges.every(
+                (range) => !isRecord(range) || !Array.isArray(range.insertedIds) || range.insertedIds.length <= MAX_COLLECTION_ITEMS,
+            ))
+    );
 }, 'pageIdentityDelta exceeds the item limit');
 
 export const PAGE_IDENTITY_DELTA_SCHEMA = v.pipe(
@@ -115,28 +101,34 @@ export const PAGE_IDENTITY_DELTA_SCHEMA = v.pipe(
         nextPageCount: v.optional(safeInteger(0, 'pageIdentityDelta.nextPageCount must be a non-negative safe integer')),
         ranges: v.optional(v.pipe(v.array(pageIdentityRangeSchema), v.maxLength(MAX_COLLECTION_ITEMS))),
     }),
-    v.check(delta => delta.pages !== undefined || delta.ranges !== undefined,
-        'pageIdentityDelta must contain pages or ranges'),
-    v.check(delta => delta.ranges === undefined || delta.ranges.every(range => (
-        range.kind !== 'insert'
-        || range.insertedIds === undefined
-        || range.insertedIds.length === range.count
-    )), 'pageIdentityDelta.ranges insertedIds must match the range count'),
+    v.check((delta) => delta.pages !== undefined || delta.ranges !== undefined, 'pageIdentityDelta must contain pages or ranges'),
+    v.check(
+        (delta) =>
+            delta.ranges === undefined ||
+            delta.ranges.every(
+                (range) => range.kind !== 'insert' || range.insertedIds === undefined || range.insertedIds.length === range.count,
+            ),
+        'pageIdentityDelta.ranges insertedIds must match the range count',
+    ),
 );
 
 /** A page operation either commits a revision of the working copy or is canceled. */
-export const PAGE_OPS_RESULT_SCHEMA = v.variant('success', [
-    v.object({
-        success: v.literal(true),
-        pageCount: v.optional(safeInteger(0, 'pageCount must be a safe integer >= 0')),
-        documentRevision: revisionInfoSchema,
-        pageIdentityDelta: v.optional(PAGE_IDENTITY_DELTA_SCHEMA),
-    }),
-    v.object({
-        success: v.literal(false),
-        canceled: v.literal(true),
-    }),
-], 'page operation result must include success');
+export const PAGE_OPS_RESULT_SCHEMA = v.variant(
+    'success',
+    [
+        v.object({
+            success: v.literal(true),
+            pageCount: v.optional(safeInteger(0, 'pageCount must be a safe integer >= 0')),
+            documentRevision: revisionInfoSchema,
+            pageIdentityDelta: v.optional(PAGE_IDENTITY_DELTA_SCHEMA),
+        }),
+        v.object({
+            success: v.literal(false),
+            canceled: v.literal(true),
+        }),
+    ],
+    'page operation result must include success',
+);
 export const PAGE_OPS_CANCEL_ACTIVE_RESULT_SCHEMA = v.object({
     canceled: safeInteger(0, 'canceled must be a safe integer >= 0'),
     committing: safeInteger(0, 'committing must be a safe integer >= 0'),
@@ -147,11 +139,7 @@ export const PAGE_OPS_EXTRACT_RESULT_SCHEMA = v.object({
     destPath: v.optional(documentRefSchema),
 });
 
-const PAGE_OPS_ROTATION_ANGLES = [
-    90,
-    180,
-    270,
-] as const;
+const PAGE_OPS_ROTATION_ANGLES = [90, 180, 270] as const;
 export const PAGE_OPS_ROTATION_ANGLE_SCHEMA = v.picklist(PAGE_OPS_ROTATION_ANGLES);
 export type TPageOpsRotationAngle = v.InferOutput<typeof PAGE_OPS_ROTATION_ANGLE_SCHEMA>;
 
@@ -195,19 +183,32 @@ export function getPageIdentityDeltaNextPageCount(delta: IPageIdentityDelta) {
 
 /** Reverses surviving page identity without expanding compact page ranges. */
 export function invertPageIdentityDelta(delta: IPageIdentityDelta): IPageIdentityDelta {
-    const ranges: IPageIdentityRangeMapping[] = delta.pages !== undefined
-        ? delta.pages.flatMap((page, index) => 'fromPageNumber' in page ? [{
-            kind: 'move' as const,
-            fromPageNumber: requirePageNumber(index + 1),
-            toPageNumber: page.fromPageNumber,
-            count: 1,
-        }] : [])
-        : (delta.ranges ?? []).flatMap(range => range.kind === 'retain' || range.kind === 'move' ? [{
-            kind: range.kind,
-            fromPageNumber: range.toPageNumber,
-            toPageNumber: range.fromPageNumber,
-            count: range.count,
-        }] : []);
+    const ranges: IPageIdentityRangeMapping[] =
+        delta.pages !== undefined
+            ? delta.pages.flatMap((page, index) =>
+                  'fromPageNumber' in page
+                      ? [
+                            {
+                                kind: 'move' as const,
+                                fromPageNumber: requirePageNumber(index + 1),
+                                toPageNumber: page.fromPageNumber,
+                                count: 1,
+                            },
+                        ]
+                      : [],
+              )
+            : (delta.ranges ?? []).flatMap((range) =>
+                  range.kind === 'retain' || range.kind === 'move'
+                      ? [
+                            {
+                                kind: range.kind,
+                                fromPageNumber: range.toPageNumber,
+                                toPageNumber: range.fromPageNumber,
+                                count: range.count,
+                            },
+                        ]
+                      : [],
+              );
     return {
         previousPageCount: getPageIdentityDeltaNextPageCount(delta) ?? 0,
         nextPageCount: delta.previousPageCount,
@@ -215,24 +216,19 @@ export function invertPageIdentityDelta(delta: IPageIdentityDelta): IPageIdentit
     };
 }
 
-export function mapPageNumberThroughPageIdentityDelta(
-    delta: IPageIdentityDelta,
-    pageNumber: TPageNumber,
-) {
+export function mapPageNumberThroughPageIdentityDelta(delta: IPageIdentityDelta, pageNumber: TPageNumber) {
     if (!Number.isSafeInteger(pageNumber) || pageNumber < 1) {
         return null;
     }
     if (delta.pages !== undefined) {
-        const nextPageIndex = delta.pages.findIndex(page => (
-            'fromPageNumber' in page && page.fromPageNumber === pageNumber
-        ));
+        const nextPageIndex = delta.pages.findIndex((page) => 'fromPageNumber' in page && page.fromPageNumber === pageNumber);
         return nextPageIndex < 0 ? null : requirePageNumber(nextPageIndex + 1);
     }
     for (const range of delta.ranges ?? []) {
         if (
-            (range.kind === 'retain' || range.kind === 'move')
-            && pageNumber >= range.fromPageNumber
-            && pageNumber < range.fromPageNumber + range.count
+            (range.kind === 'retain' || range.kind === 'move') &&
+            pageNumber >= range.fromPageNumber &&
+            pageNumber < range.fromPageNumber + range.count
         ) {
             return requirePageNumber(range.toPageNumber + pageNumber - range.fromPageNumber);
         }
@@ -247,9 +243,7 @@ export function mapPageNumberThroughPageIdentityDelta(
  * quadratic. Overlapping source ranges, which no page operation produces,
  * keep the first match by scanning as the single-page mapping does.
  */
-export function createPageIdentityDeltaPageMapper(
-    delta: IPageIdentityDelta,
-): (pageNumber: TPageNumber) => TPageNumber | null {
+export function createPageIdentityDeltaPageMapper(delta: IPageIdentityDelta): (pageNumber: TPageNumber) => TPageNumber | null {
     const isPageNumber = (pageNumber: number) => Number.isSafeInteger(pageNumber) && pageNumber >= 1;
     if (delta.pages !== undefined) {
         const nextPageNumbers = new Map<number, number>();
@@ -271,7 +265,7 @@ export function createPageIdentityDeltaPageMapper(
         return previous !== undefined && range.fromPageNumber < previous.fromPageNumber + previous.count;
     });
     if (overlapping) {
-        return pageNumber => mapPageNumberThroughPageIdentityDelta(delta, pageNumber);
+        return (pageNumber) => mapPageNumberThroughPageIdentityDelta(delta, pageNumber);
     }
     return (pageNumber) => {
         if (!isPageNumber(pageNumber)) {
@@ -294,19 +288,9 @@ export function createPageIdentityDeltaPageMapper(
     };
 }
 
-const PAGE_LABEL_STYLES = [
-    'D',
-    'R',
-    'r',
-    'A',
-    'a',
-] as const;
+const PAGE_LABEL_STYLES = ['D', 'R', 'r', 'A', 'a'] as const;
 
-function decodeBookmarkEntries(
-    value: unknown,
-    depth = 0,
-    counter = {value: 0},
-): IPdfBookmarkEntry[] {
+function decodeBookmarkEntries(value: unknown, depth = 0, counter = {value: 0}): IPdfBookmarkEntry[] {
     if (!Array.isArray(value) || depth > 64) {
         throw new Error('options.metadataSnapshot.bookmarks must be a bounded bookmark array');
     }
@@ -320,24 +304,20 @@ function decodeBookmarkEntries(
         }
         const pageIndex = raw.pageIndex;
         const pageYRatio = raw.pageYRatio;
-        if (
-            pageIndex !== null
-            && (typeof pageIndex !== 'number' || !Number.isSafeInteger(pageIndex) || pageIndex < 0)
-        ) {
+        if (pageIndex !== null && (typeof pageIndex !== 'number' || !Number.isSafeInteger(pageIndex) || pageIndex < 0)) {
             throw new Error('bookmark.pageIndex must be a non-negative integer or null');
         }
         if (
-            typeof raw.title !== 'string'
-            || raw.title.length > 4_096
-            || (raw.namedDest !== null && typeof raw.namedDest !== 'string')
-            || typeof raw.bold !== 'boolean'
-            || typeof raw.italic !== 'boolean'
-            || (raw.color !== null && typeof raw.color !== 'string')
+            typeof raw.title !== 'string' ||
+            raw.title.length > 4_096 ||
+            (raw.namedDest !== null && typeof raw.namedDest !== 'string') ||
+            typeof raw.bold !== 'boolean' ||
+            typeof raw.italic !== 'boolean' ||
+            (raw.color !== null && typeof raw.color !== 'string')
         ) {
             throw new Error('options.metadataSnapshot.bookmarks contains invalid fields');
         }
-        if (pageYRatio !== undefined && pageYRatio !== null
-            && (!isFiniteNumber(pageYRatio) || pageYRatio < 0 || pageYRatio > 1)) {
+        if (pageYRatio !== undefined && pageYRatio !== null && (!isFiniteNumber(pageYRatio) || pageYRatio < 0 || pageYRatio > 1)) {
             throw new Error('bookmark.pageYRatio must be a finite number from 0 to 1 or null');
         }
         return {
@@ -360,13 +340,11 @@ export function decodeMetadataSnapshot(value: unknown): IPageOpsMetadataSnapshot
     }
     const pageLabels = value.pageLabels;
     if (
-        pageLabels !== undefined
-        && pageLabels !== null
-        && (
-            !Array.isArray(pageLabels)
-            || pageLabels.length > 1_000_000
-            || !pageLabels.every(label => typeof label === 'string' && label.length <= 4_096)
-        )
+        pageLabels !== undefined &&
+        pageLabels !== null &&
+        (!Array.isArray(pageLabels) ||
+            pageLabels.length > 1_000_000 ||
+            !pageLabels.every((label) => typeof label === 'string' && label.length <= 4_096))
     ) {
         throw new Error('options.metadataSnapshot.pageLabels must be a string array, null, or omitted');
     }
@@ -386,22 +364,20 @@ export function decodeMetadataSnapshot(value: unknown): IPageOpsMetadataSnapshot
             const prefix = rawRange.prefix;
             const startNumber = rawRange.startNumber;
             if (
-                typeof startPage !== 'number'
-                || !Number.isSafeInteger(startPage)
-                || startPage < 1
-                || index > 0 && startPage <= previousStartPage
-                || style !== null && !PAGE_LABEL_STYLES.some(candidate => candidate === style)
-                || typeof prefix !== 'string'
-                || prefix.length > 4_096
-                || typeof startNumber !== 'number'
-                || !Number.isSafeInteger(startNumber)
-                || startNumber < 1
+                typeof startPage !== 'number' ||
+                !Number.isSafeInteger(startPage) ||
+                startPage < 1 ||
+                (index > 0 && startPage <= previousStartPage) ||
+                (style !== null && !PAGE_LABEL_STYLES.some((candidate) => candidate === style)) ||
+                typeof prefix !== 'string' ||
+                prefix.length > 4_096 ||
+                typeof startNumber !== 'number' ||
+                !Number.isSafeInteger(startNumber) ||
+                startNumber < 1
             ) {
                 throw new Error('options.metadataSnapshot.pageLabelRanges must be a compact page-label range array or omitted');
             }
-            const normalizedStyle = style === null
-                ? null
-                : PAGE_LABEL_STYLES.find(candidate => candidate === style);
+            const normalizedStyle = style === null ? null : PAGE_LABEL_STYLES.find((candidate) => candidate === style);
             if (normalizedStyle === undefined) {
                 throw new Error('options.metadataSnapshot.pageLabelRanges must be a compact page-label range array or omitted');
             }

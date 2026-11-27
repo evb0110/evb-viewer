@@ -14,15 +14,12 @@
 // reporting real late CI failures as timeouts. The budgets here are policy:
 // tests/unit/scripts/waitForExactShaCi.test.ts asserts the completion budget
 // stays ahead of the blocking CI job timeouts declared in ci.yml.
-import { getCliErrorMessage } from '../lib/cli-error.mjs';
-import { execFileSync } from 'node:child_process';
-import { setTimeout as delay } from 'node:timers/promises';
-import { fileURLToPath } from 'node:url';
+import {getCliErrorMessage} from '../lib/cli-error.mjs';
+import {execFileSync} from 'node:child_process';
+import {setTimeout as delay} from 'node:timers/promises';
+import {fileURLToPath} from 'node:url';
 import path from 'node:path';
-import {
-    getCommitParentSha,
-    isVersionOnlyPackageCommit,
-} from './shared.mjs';
+import {getCommitParentSha, isVersionOnlyPackageCommit} from './shared.mjs';
 
 /** @typedef {{conclusion?: string | null, event?: string, head_branch?: string, head_sha?: string, html_url?: string, id: number, run_number?: number, status?: string}} IWorkflowRun */
 /** @typedef {(command: string, args: string[], options?: import('node:child_process').ExecFileSyncOptions) => string} TCommandRunner */
@@ -43,11 +40,7 @@ export const EXACT_SHA_CI_POLL_INTERVAL_MS = 30_000;
 export function defaultCommandRunner(command, args, options = {}) {
     const output = execFileSync(command, args, {
         encoding: 'utf8',
-        stdio: [
-            'ignore',
-            'pipe',
-            'pipe',
-        ],
+        stdio: ['ignore', 'pipe', 'pipe'],
         ...options,
     });
 
@@ -64,8 +57,7 @@ function isMainPushRun(runInfo) {
     if (!runInfo) {
         return false;
     }
-    return runInfo.head_branch === 'main'
-        && (!runInfo.event || runInfo.event === 'push');
+    return runInfo.head_branch === 'main' && (!runInfo.event || runInfo.event === 'push');
 }
 
 /** @param {string} targetSha @param {TCommandRunner} [runCommand] @returns {IWorkflowRun | null} */
@@ -80,10 +72,12 @@ export function findLatestMatchingRun(targetSha, runCommand = defaultCommandRunn
     if (!Array.isArray(workflowRuns)) {
         throw new Error('Unexpected GitHub API response while looking up exact-SHA push runs');
     }
-    return workflowRuns
-        .filter(runInfo => isMainPushRun(runInfo) && runInfo.head_sha === targetSha)
-        .sort((left, right) => (left.run_number ?? 0) - (right.run_number ?? 0))
-        .at(-1) ?? null;
+    return (
+        workflowRuns
+            .filter((runInfo) => isMainPushRun(runInfo) && runInfo.head_sha === targetSha)
+            .sort((left, right) => (left.run_number ?? 0) - (right.run_number ?? 0))
+            .at(-1) ?? null
+    );
 }
 
 /**
@@ -106,7 +100,7 @@ export function listSuccessfulMainPushRuns(runCommand = defaultCommandRunner, li
         throw new Error('Unexpected GitHub API response while listing successful main push runs');
     }
     return workflowRuns
-        .filter(runInfo => isMainPushRun(runInfo) && runInfo.conclusion === 'success')
+        .filter((runInfo) => isMainPushRun(runInfo) && runInfo.conclusion === 'success')
         .sort((left, right) => (right.run_number ?? 0) - (left.run_number ?? 0));
 }
 
@@ -120,7 +114,10 @@ export function readGatesOkConclusion(runId, runCommand = defaultCommandRunner) 
         `repos/{owner}/{repo}/actions/runs/${runId}/jobs?per_page=100`,
         '--jq',
         '.jobs[] | select(.name == "gates_ok") | .conclusion',
-    ]).split('\n').filter(Boolean).at(-1);
+    ])
+        .split('\n')
+        .filter(Boolean)
+        .at(-1);
 }
 
 /** @param {IWorkflowRun} runInfo @returns {string} */
@@ -140,10 +137,7 @@ function readVersionOnlyParent(targetSha, runCommand) {
     try {
         parentSha = getCommitParentSha(targetSha, {runCommand});
     } catch (error) {
-        throw new Error(
-            `Could not inspect the parent of release target ${targetSha}: ${
-                getCliErrorMessage(error)}`,
-        );
+        throw new Error(`Could not inspect the parent of release target ${targetSha}: ${getCliErrorMessage(error)}`);
     }
 
     return isVersionOnlyPackageCommit(parentSha, targetSha, {runCommand}) ? parentSha : null;
@@ -154,23 +148,22 @@ function verifyByParent(targetSha, parentSha, runCommand) {
     const parentRun = findLatestMatchingRun(parentSha, runCommand);
     if (!parentRun) {
         throw new Error(
-            `No ci.yml run appeared for release parent ${parentSha}. Every push to main runs it; `
-            + 'check the Actions page for that commit before releasing.',
+            `No ci.yml run appeared for release parent ${parentSha}. Every push to main runs it; ` +
+                'check the Actions page for that commit before releasing.',
         );
     }
     if (parentRun.status !== 'completed') {
         throw new Error(
-            `Release parent ${parentSha} has ci.yml ${describeRun(parentRun)} in `
-            + `${parentRun.status} state; wait for it to finish.`,
+            `Release parent ${parentSha} has ci.yml ${describeRun(parentRun)} in ` + `${parentRun.status} state; wait for it to finish.`,
         );
     }
     if (parentRun.conclusion !== 'success') {
         throw new Error(
-            `Release parent ${parentSha} ci.yml ${describeRun(parentRun)} concluded `
-            + `'${parentRun.conclusion}'. `
-            + (parentRun.conclusion === 'cancelled'
-                ? `A cancelled run has no verdict; re-run it with \`gh run rerun ${parentRun.id}\` and dispatch the release again.`
-                : 'Fix the failure with a new green commit and version.'),
+            `Release parent ${parentSha} ci.yml ${describeRun(parentRun)} concluded ` +
+                `'${parentRun.conclusion}'. ` +
+                (parentRun.conclusion === 'cancelled'
+                    ? `A cancelled run has no verdict; re-run it with \`gh run rerun ${parentRun.id}\` and dispatch the release again.`
+                    : 'Fix the failure with a new green commit and version.'),
         );
     }
 
@@ -179,14 +172,13 @@ function verifyByParent(targetSha, parentSha, runCommand) {
         gatesConclusion = readGatesOkConclusion(parentRun.id, runCommand);
     } catch (error) {
         throw new Error(
-            `Release parent ${parentSha} ${describeRun(parentRun)} succeeded but the gates_ok lookup failed: ${
-                getCliErrorMessage(error)}`,
+            `Release parent ${parentSha} ${describeRun(parentRun)} succeeded but the gates_ok lookup failed: ${getCliErrorMessage(error)}`,
         );
     }
     if (gatesConclusion !== 'success') {
         throw new Error(
-            `Release parent ${parentSha} ${describeRun(parentRun)} did not contain a successful gates_ok `
-            + `aggregate (saw '${gatesConclusion ?? 'no gates_ok job'}').`,
+            `Release parent ${parentSha} ${describeRun(parentRun)} did not contain a successful gates_ok ` +
+                `aggregate (saw '${gatesConclusion ?? 'no gates_ok job'}').`,
         );
     }
 
@@ -213,23 +205,25 @@ function verifyByParent(targetSha, parentSha, runCommand) {
  * other target needs its own exact-SHA push run.
  */
 /** @param {string} targetSha @param {IWaitOptions} [options] @returns {Promise<{id: number, url: string}>} */
-export async function waitForExactShaCiGates(targetSha, {
-    appearanceTimeoutMs = EXACT_SHA_CI_APPEARANCE_TIMEOUT_MS,
-    completionTimeoutMs = EXACT_SHA_CI_COMPLETION_TIMEOUT_MS,
-    pollIntervalMs = EXACT_SHA_CI_POLL_INTERVAL_MS,
-    nowFn = Date.now,
-    sleepFn = milliseconds => delay(milliseconds),
-    runCommand = defaultCommandRunner,
-    // Only .write is part of the contract; keep the option narrow so test
-    // harnesses can satisfy it without impersonating process.stderr.
-    stderr = {write: chunk => process.stderr.write(chunk)},
-    failOnLookupError = false,
-} = {}) {
+export async function waitForExactShaCiGates(
+    targetSha,
+    {
+        appearanceTimeoutMs = EXACT_SHA_CI_APPEARANCE_TIMEOUT_MS,
+        completionTimeoutMs = EXACT_SHA_CI_COMPLETION_TIMEOUT_MS,
+        pollIntervalMs = EXACT_SHA_CI_POLL_INTERVAL_MS,
+        nowFn = Date.now,
+        sleepFn = (milliseconds) => delay(milliseconds),
+        runCommand = defaultCommandRunner,
+        // Only .write is part of the contract; keep the option narrow so test
+        // harnesses can satisfy it without impersonating process.stderr.
+        stderr = {write: (chunk) => process.stderr.write(chunk)},
+        failOnLookupError = false,
+    } = {},
+) {
     const versionOnlyParentSha = readVersionOnlyParent(targetSha, runCommand);
     if (versionOnlyParentSha !== null) {
         return verifyByParent(targetSha, versionOnlyParentSha, runCommand);
     }
-
 
     const startedAt = nowFn();
     let knownRun = null;
@@ -241,25 +235,28 @@ export async function waitForExactShaCiGates(targetSha, {
                 knownRun = latestRun;
             }
         } catch (error) {
-            if (failOnLookupError) {throw error;}
+            if (failOnLookupError) {
+                throw error;
+            }
             // Transient API failures must not abort the wait; the deadlines
             // below keep the loop bounded and fail-closed.
-            stderr.write(`Transient CI lookup failure for ${targetSha}; retrying: ${
-                error instanceof Error ? getCliErrorMessage(error).split('\n')[0] : String(error)}\n`);
+            stderr.write(
+                `Transient CI lookup failure for ${targetSha}; retrying: ${
+                    error instanceof Error ? getCliErrorMessage(error).split('\n')[0] : String(error)
+                }\n`,
+            );
         }
 
         if (knownRun && knownRun.status === 'completed') {
             if (knownRun.conclusion === 'cancelled') {
                 throw new Error(
-                    `Exact-SHA CI ${describeRun(knownRun)} for ${targetSha} was cancelled, so it has no `
-                    + 'verdict. Release from the current main tip, or re-run it with '
-                    + `\`gh run rerun ${knownRun.id}\`.`,
+                    `Exact-SHA CI ${describeRun(knownRun)} for ${targetSha} was cancelled, so it has no ` +
+                        'verdict. Release from the current main tip, or re-run it with ' +
+                        `\`gh run rerun ${knownRun.id}\`.`,
                 );
             }
             if (knownRun.conclusion !== 'success') {
-                throw new Error(
-                    `Exact-SHA CI ${describeRun(knownRun)} for ${targetSha} concluded '${knownRun.conclusion}'.`,
-                );
+                throw new Error(`Exact-SHA CI ${describeRun(knownRun)} for ${targetSha} concluded '${knownRun.conclusion}'.`);
             }
             // The run's verdict is final, so a failed gates_ok read is the same
             // transient API failure as a failed run lookup: keep polling inside
@@ -269,15 +266,15 @@ export async function waitForExactShaCiGates(targetSha, {
             try {
                 gatesConclusion = readGatesOkConclusion(knownRun.id, runCommand);
             } catch (error) {
-                if (failOnLookupError) {throw error;}
-                gatesLookupError = error instanceof Error
-                    ? getCliErrorMessage(error).split('\n')[0]
-                    : String(error);
+                if (failOnLookupError) {
+                    throw error;
+                }
+                gatesLookupError = error instanceof Error ? getCliErrorMessage(error).split('\n')[0] : String(error);
             }
             if (gatesLookupError === null && gatesConclusion !== 'success') {
                 throw new Error(
-                    `Exact-SHA CI ${describeRun(knownRun)} did not contain a successful gates_ok aggregate `
-                    + `(saw '${gatesConclusion ?? 'no gates_ok job'}').`,
+                    `Exact-SHA CI ${describeRun(knownRun)} did not contain a successful gates_ok aggregate ` +
+                        `(saw '${gatesConclusion ?? 'no gates_ok job'}').`,
                 );
             }
             if (gatesLookupError === null) {
@@ -288,8 +285,7 @@ export async function waitForExactShaCiGates(targetSha, {
             }
             if (nowFn() - startedAt >= completionTimeoutMs) {
                 throw new Error(
-                    `Exact-SHA CI ${describeRun(knownRun)} succeeded but the gates_ok lookup kept failing: `
-                    + gatesLookupError,
+                    `Exact-SHA CI ${describeRun(knownRun)} succeeded but the gates_ok lookup kept failing: ` + gatesLookupError,
                 );
             }
             stderr.write(`Transient gates_ok lookup failure for ${describeRun(knownRun)}; retrying: ${gatesLookupError}\n`);
@@ -300,24 +296,26 @@ export async function waitForExactShaCiGates(targetSha, {
         const elapsedMs = nowFn() - startedAt;
         if (!knownRun && elapsedMs >= appearanceTimeoutMs) {
             throw new Error(
-                `No ci.yml push run appeared for release target ${targetSha} within `
-                + `${Math.round(appearanceTimeoutMs / 1_000)}s, and it is not a version-only package.json commit `
-                + 'whose parent could vouch for it. Every push to main runs ci.yml; check the Actions '
-                + 'page for that commit, or release a version-only commit over a green parent.',
+                `No ci.yml push run appeared for release target ${targetSha} within ` +
+                    `${Math.round(appearanceTimeoutMs / 1_000)}s, and it is not a version-only package.json commit ` +
+                    'whose parent could vouch for it. Every push to main runs ci.yml; check the Actions ' +
+                    'page for that commit, or release a version-only commit over a green parent.',
             );
         }
         if (knownRun && elapsedMs >= completionTimeoutMs) {
             throw new Error(
-                `Exact-SHA CI ${describeRun(knownRun)} did not reach a terminal state within `
-                + `${Math.round(completionTimeoutMs / 60_000)} minutes; the wait budget must stay `
-                + 'ahead of the blocking CI job timeouts (see issue #109).',
+                `Exact-SHA CI ${describeRun(knownRun)} did not reach a terminal state within ` +
+                    `${Math.round(completionTimeoutMs / 60_000)} minutes; the wait budget must stay ` +
+                    'ahead of the blocking CI job timeouts (see issue #109).',
             );
         }
 
-        stderr.write(knownRun
-            ? `Waiting for ci.yml ${describeRun(knownRun)} (status: ${knownRun.status}, `
-                + `${Math.round(elapsedMs / 60_000)}m elapsed).\n`
-            : `Waiting for a ci.yml run to appear for ${targetSha} (${Math.round(elapsedMs / 1_000)}s elapsed).\n`);
+        stderr.write(
+            knownRun
+                ? `Waiting for ci.yml ${describeRun(knownRun)} (status: ${knownRun.status}, ` +
+                      `${Math.round(elapsedMs / 60_000)}m elapsed).\n`
+                : `Waiting for a ci.yml run to appear for ${targetSha} (${Math.round(elapsedMs / 1_000)}s elapsed).\n`,
+        );
         await sleepFn(pollIntervalMs);
     }
 }
@@ -338,36 +336,31 @@ export function resolveTargetSha(argument, runCommand = defaultCommandRunner) {
 
     let resolved;
     try {
-        resolved = runCommand('git', [
-            'rev-parse',
-            '--verify',
-            `${argument}^{commit}`,
-        ]);
+        resolved = runCommand('git', ['rev-parse', '--verify', `${argument}^{commit}`]);
     } catch (error) {
         throw new Error(
-            `Could not resolve '${argument}' to a commit: ${getCliErrorMessage(error).split('\n')[0]}. `
-            + 'Pass a commit this checkout contains, such as HEAD or a short SHA.',
+            `Could not resolve '${argument}' to a commit: ${getCliErrorMessage(error).split('\n')[0]}. ` +
+                'Pass a commit this checkout contains, such as HEAD or a short SHA.',
         );
     }
 
     const sha = String(resolved ?? '').trim();
     if (!/^[0-9a-f]{40}$/u.test(sha)) {
         throw new Error(
-            `Resolving '${argument}' produced '${sha}', which is not a commit SHA. `
-            + 'Pass a commit this checkout contains, such as HEAD or a short SHA.',
+            `Resolving '${argument}' produced '${sha}', which is not a commit SHA. ` +
+                'Pass a commit this checkout contains, such as HEAD or a short SHA.',
         );
     }
     return sha;
 }
 
-const isDirectCliRun = process.argv[1]
-    && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
+const isDirectCliRun = process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
 
 if (isDirectCliRun) {
     const argv = process.argv.slice(2);
     const noticeIfMissing = argv.includes('--notice-if-no-main-run');
     const failOnLookupError = argv.includes('--fail-on-lookup-error');
-    const requestedTarget = argv.find(argument => !argument.startsWith('--')) ?? 'HEAD';
+    const requestedTarget = argv.find((argument) => !argument.startsWith('--')) ?? 'HEAD';
     /** @param {string} argument @returns {string} */
     const resolveCliTarget = (argument) => {
         try {
@@ -383,7 +376,9 @@ if (isDirectCliRun) {
         try {
             const matchingRun = findLatestMatchingRun(targetSha);
             if (!matchingRun) {
-                process.stdout.write(`::notice::No ci.yml push run on main exists for dry-run commit ${targetSha}; exact-SHA gate lookup succeeded.\n`);
+                process.stdout.write(
+                    `::notice::No ci.yml push run on main exists for dry-run commit ${targetSha}; exact-SHA gate lookup succeeded.\n`,
+                );
                 process.exit(0);
             }
         } catch (error) {

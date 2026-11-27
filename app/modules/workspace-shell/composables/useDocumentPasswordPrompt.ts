@@ -37,10 +37,7 @@ function resolvePasswordPrompt(result: TPasswordPromptResult, owner?: symbol) {
 export const useDocumentPasswordPrompt = () => {
     const owner = Symbol('document-password-prompt');
 
-    function requestPassword(
-        nextFileName: string,
-        nextErrorMessage: string | null = null,
-    ): TPasswordRequest {
+    function requestPassword(nextFileName: string, nextErrorMessage: string | null = null): TPasswordRequest {
         activePrompt?.resolve?.(null);
         fileName.value = nextFileName;
         errorMessage.value = nextErrorMessage;

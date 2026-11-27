@@ -17,14 +17,16 @@ function isFiniteUnit(value: number) {
 }
 
 export function isPdfNativeNormalizedRectInsidePageBounds(rect: IPdfNativeNormalizedRectBounds) {
-    return isFiniteUnit(rect.left)
-        && isFiniteUnit(rect.top)
-        && isFiniteUnit(rect.width)
-        && isFiniteUnit(rect.height)
-        && rect.width > 0
-        && rect.height > 0
-        && rect.left + rect.width <= 1
-        && rect.top + rect.height <= 1;
+    return (
+        isFiniteUnit(rect.left) &&
+        isFiniteUnit(rect.top) &&
+        isFiniteUnit(rect.width) &&
+        isFiniteUnit(rect.height) &&
+        rect.width > 0 &&
+        rect.height > 0 &&
+        rect.left + rect.width <= 1 &&
+        rect.top + rect.height <= 1
+    );
 }
 
 export function isPdfNativeNormalizedBoxInsidePageBounds(box: IPdfNativeNormalizedBoxBounds) {

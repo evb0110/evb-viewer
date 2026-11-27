@@ -13,23 +13,10 @@ import {
     writeFileSync,
 } from 'node:fs';
 import {tmpdir} from 'node:os';
-import {
-    dirname,
-    join,
-    resolve,
-} from 'node:path';
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {dirname, join, resolve} from 'node:path';
+import {afterEach, describe, expect, it, vi} from 'vitest';
 import {prepareMacOSHiddenAppBundle} from '@scripts/electron-run/electronRunLaunchConfig';
-import {
-    preparePackagedAutomationLaunch,
-    removeMacOSAutomationCopyRecords,
-} from '@scripts/release/preparePackagedAutomationLaunch';
+import {preparePackagedAutomationLaunch, removeMacOSAutomationCopyRecords} from '@scripts/release/preparePackagedAutomationLaunch';
 import {startOwnedPackagedProcess} from '@scripts/release/runPackagedAutomation';
 
 describe('packaged automation environment', () => {
@@ -91,11 +78,14 @@ describe.skipIf(process.platform !== 'darwin')('macOS hidden bundle launch contr
         mkdirSync(join(sourceAppPath, 'Contents', 'MacOS'), {recursive: true});
         writeFileSync(join(sourceAppPath, 'Contents', 'MacOS', 'Example'), 'fixture executable');
         const infoPlistPath = join(sourceAppPath, 'Contents', 'Info.plist');
-        writeFileSync(infoPlistPath, '<?xml version="1.0" encoding="UTF-8"?>'
-            + '<plist version="1.0"><dict>'
-            + '<key>CFBundleExecutable</key><string>Example</string>'
-            + '<key>CFBundleIdentifier</key><string>com.example.fixture</string>'
-            + '</dict></plist>');
+        writeFileSync(
+            infoPlistPath,
+            '<?xml version="1.0" encoding="UTF-8"?>' +
+                '<plist version="1.0"><dict>' +
+                '<key>CFBundleExecutable</key><string>Example</string>' +
+                '<key>CFBundleIdentifier</key><string>com.example.fixture</string>' +
+                '</dict></plist>',
+        );
         return {
             sourceAppPath,
             destinationRoot: join(root, 'automation'),
@@ -107,16 +97,11 @@ describe.skipIf(process.platform !== 'darwin')('macOS hidden bundle launch contr
         const options = fixture();
         const original = readFileSync(options.infoPlistPath);
         const bundle = prepareMacOSHiddenAppBundle(options);
-        expect(execFileSync('/usr/bin/plutil', [
-            '-extract',
-            'LSUIElement',
-            'raw',
-            '-expect',
-            'bool',
-            '-o',
-            '-',
-            bundle.infoPlistPath,
-        ], {encoding: 'utf8'}).trim()).toBe('true');
+        expect(
+            execFileSync('/usr/bin/plutil', ['-extract', 'LSUIElement', 'raw', '-expect', 'bool', '-o', '-', bundle.infoPlistPath], {
+                encoding: 'utf8',
+            }).trim(),
+        ).toBe('true');
         expect(readFileSync(options.infoPlistPath)).toEqual(original);
     });
 
@@ -139,11 +124,7 @@ describe.skipIf(process.platform !== 'darwin')('macOS hidden bundle launch contr
     it('refuses a cached bundle whose Dock suppression has been removed', () => {
         const options = fixture();
         const bundle = prepareMacOSHiddenAppBundle(options);
-        execFileSync('/usr/bin/plutil', [
-            '-remove',
-            'LSUIElement',
-            bundle.infoPlistPath,
-        ]);
+        execFileSync('/usr/bin/plutil', ['-remove', 'LSUIElement', bundle.infoPlistPath]);
         expect(() => prepareMacOSHiddenAppBundle(options)).toThrow(/LSUIElement/u);
     });
 
@@ -169,19 +150,25 @@ describe.skipIf(process.platform !== 'darwin')('macOS hidden bundle launch contr
     it('rejects copying into the source app and rejects non-bundle launch paths', () => {
         const options = fixture();
         const nestedWorkDirectory = join(options.sourceAppPath, '..cache', 'new-run');
-        expect(() => preparePackagedAutomationLaunch({
-            executablePath: join(options.sourceAppPath, 'Contents', 'MacOS', 'Example'),
-            workDirectory: options.sourceAppPath,
-        })).toThrow(/outside the source app/u);
-        expect(() => preparePackagedAutomationLaunch({
-            executablePath: join(options.sourceAppPath, 'Contents', 'MacOS', 'Example'),
-            workDirectory: nestedWorkDirectory,
-        })).toThrow(/outside the source app/u);
+        expect(() =>
+            preparePackagedAutomationLaunch({
+                executablePath: join(options.sourceAppPath, 'Contents', 'MacOS', 'Example'),
+                workDirectory: options.sourceAppPath,
+            }),
+        ).toThrow(/outside the source app/u);
+        expect(() =>
+            preparePackagedAutomationLaunch({
+                executablePath: join(options.sourceAppPath, 'Contents', 'MacOS', 'Example'),
+                workDirectory: nestedWorkDirectory,
+            }),
+        ).toThrow(/outside the source app/u);
         expect(existsSync(join(options.sourceAppPath, '..cache'))).toBe(false);
-        expect(() => preparePackagedAutomationLaunch({
-            executablePath: '/tmp/raw-electron',
-            workDirectory: options.destinationRoot,
-        })).toThrow(/inside a .app/u);
+        expect(() =>
+            preparePackagedAutomationLaunch({
+                executablePath: '/tmp/raw-electron',
+                workDirectory: options.destinationRoot,
+            }),
+        ).toThrow(/inside a .app/u);
     });
 
     it('starts a copy under its own identifier and task-owned folders, then removes its records and itself', async () => {
@@ -191,15 +178,22 @@ describe.skipIf(process.platform !== 'darwin')('macOS hidden bundle launch contr
         const executablePath = join(sourceAppPath, 'Contents', 'MacOS', 'Example');
         const infoPlistPath = join(sourceAppPath, 'Contents', 'Info.plist');
         mkdirSync(join(sourceAppPath, 'Contents', 'MacOS'), {recursive: true});
-        writeFileSync(infoPlistPath, '<?xml version="1.0" encoding="UTF-8"?>'
-            + '<plist version="1.0"><dict>'
-            + '<key>CFBundleExecutable</key><string>Example</string>'
-            + '<key>CFBundleIdentifier</key><string>com.example.fixture</string>'
-            + '</dict></plist>');
+        writeFileSync(
+            infoPlistPath,
+            '<?xml version="1.0" encoding="UTF-8"?>' +
+                '<plist version="1.0"><dict>' +
+                '<key>CFBundleExecutable</key><string>Example</string>' +
+                '<key>CFBundleIdentifier</key><string>com.example.fixture</string>' +
+                '</dict></plist>',
+        );
         // The payload records the identifier and folders it was launched with.
-        writeFileSync(executablePath, '#!/bin/sh\n'
-            + 'printf "%s\\n" "$(/usr/bin/plutil -extract CFBundleIdentifier raw -o - "$(dirname "$0")/../Info.plist")" '
-            + '"$EVB_AUTOMATION_USER_DATA_DIR" "$EVB_FILE_LOG_DIR" > "$EVB_AUTOMATION_USER_DATA_DIR.env"\n', {mode: 0o755});
+        writeFileSync(
+            executablePath,
+            '#!/bin/sh\n' +
+                'printf "%s\\n" "$(/usr/bin/plutil -extract CFBundleIdentifier raw -o - "$(dirname "$0")/../Info.plist")" ' +
+                '"$EVB_AUTOMATION_USER_DATA_DIR" "$EVB_FILE_LOG_DIR" > "$EVB_AUTOMATION_USER_DATA_DIR.env"\n',
+            {mode: 0o755},
+        );
         const originalPlist = readFileSync(infoPlistPath);
         const workDirectory = join(root, 'run');
         const owned = await startOwnedPackagedProcess({
@@ -210,11 +204,12 @@ describe.skipIf(process.platform !== 'darwin')('macOS hidden bundle launch contr
         });
         try {
             expect(await owned.exited).toBe(0);
-            const [
-                copyIdentifier = '',
-                userDataPath = '',
-                logDirectory = '',
-            ] = readFileSync(`${join(workDirectory, 'user-data')}.env`, 'utf8').trim().split('\n');
+            const [copyIdentifier = '', userDataPath = '', logDirectory = ''] = readFileSync(
+                `${join(workDirectory, 'user-data')}.env`,
+                'utf8',
+            )
+                .trim()
+                .split('\n');
             expect(copyIdentifier).toMatch(/^com\.example\.fixture\.automation-[0-9a-f]{8}$/u);
             expect(realpathSync(dirname(userDataPath))).toBe(realpathSync(workDirectory));
             expect(realpathSync(dirname(logDirectory))).toBe(realpathSync(workDirectory));
@@ -230,7 +225,7 @@ describe.skipIf(process.platform !== 'darwin')('macOS hidden bundle launch contr
         } finally {
             await owned.stop();
         }
-        expect(readdirSync(workDirectory).filter(name => name.startsWith('hidden-packaged-app-'))).toEqual([]);
+        expect(readdirSync(workDirectory).filter((name) => name.startsWith('hidden-packaged-app-'))).toEqual([]);
     });
 
     it('gives each nested helper app an identifier derived from the copy, and refuses a copy whose helper keeps the installed one', () => {
@@ -249,11 +244,14 @@ describe.skipIf(process.platform !== 'darwin')('macOS hidden bundle launch contr
             const helperPath = join(options.sourceAppPath, 'Contents', 'Frameworks', `${helper.name}.app`);
             mkdirSync(join(helperPath, 'Contents', 'MacOS'), {recursive: true});
             writeFileSync(join(helperPath, 'Contents', 'MacOS', helper.name), 'fixture helper');
-            writeFileSync(join(helperPath, 'Contents', 'Info.plist'), '<?xml version="1.0" encoding="UTF-8"?>'
-                + '<plist version="1.0"><dict>'
-                + `<key>CFBundleExecutable</key><string>${helper.name}</string>`
-                + `<key>CFBundleIdentifier</key><string>${helper.identifier}</string>`
-                + '</dict></plist>');
+            writeFileSync(
+                join(helperPath, 'Contents', 'Info.plist'),
+                '<?xml version="1.0" encoding="UTF-8"?>' +
+                    '<plist version="1.0"><dict>' +
+                    `<key>CFBundleExecutable</key><string>${helper.name}</string>` +
+                    `<key>CFBundleIdentifier</key><string>${helper.identifier}</string>` +
+                    '</dict></plist>',
+            );
         }
         const bundleIdentifier = 'com.example.fixture.automation-0badc0de';
         const bundle = prepareMacOSHiddenAppBundle({
@@ -261,14 +259,10 @@ describe.skipIf(process.platform !== 'darwin')('macOS hidden bundle launch contr
             bundleIdentifier,
         });
         const helperPlistPath = (name: string) => join(bundle.appPath, 'Contents', 'Frameworks', `${name}.app`, 'Contents', 'Info.plist');
-        const helperIdentifier = (name: string) => execFileSync('/usr/bin/plutil', [
-            '-extract',
-            'CFBundleIdentifier',
-            'raw',
-            '-o',
-            '-',
-            helperPlistPath(name),
-        ], {encoding: 'utf8'}).trim();
+        const helperIdentifier = (name: string) =>
+            execFileSync('/usr/bin/plutil', ['-extract', 'CFBundleIdentifier', 'raw', '-o', '-', helperPlistPath(name)], {
+                encoding: 'utf8',
+            }).trim();
         expect(helperIdentifier('Example Helper')).toBe(`${bundleIdentifier}.helper`);
         expect(helperIdentifier('Example Helper (Renderer)')).toBe(`${bundleIdentifier}.helper.Renderer`);
         // A copy whose helper still carries the installed identifier is refused.
@@ -279,10 +273,12 @@ describe.skipIf(process.platform !== 'darwin')('macOS hidden bundle launch contr
             'com.example.fixture.helper',
             helperPlistPath('Example Helper'),
         ]);
-        expect(() => prepareMacOSHiddenAppBundle({
-            ...options,
-            bundleIdentifier,
-        })).toThrow(/helper/u);
+        expect(() =>
+            prepareMacOSHiddenAppBundle({
+                ...options,
+                bundleIdentifier,
+            }),
+        ).toThrow(/helper/u);
     });
 });
 
@@ -306,7 +302,12 @@ describe('macOS copy records', () => {
     it('removes only the owned copy records and preserves concurrent copies', () => {
         const library = mkdtempSync(join(tmpdir(), 'evb-copy-records-test-'));
         roots.push(library);
-        const recent = join(library, 'Application Support', 'com.apple.sharedfilelist', 'com.apple.LSSharedFileList.ApplicationRecentDocuments');
+        const recent = join(
+            library,
+            'Application Support',
+            'com.apple.sharedfilelist',
+            'com.apple.LSSharedFileList.ApplicationRecentDocuments',
+        );
         const copyIdentifier = 'com.evb.viewer.automation-44444444';
         const folderRecord = join(library, 'Caches', copyIdentifier);
         mkdirSync(folderRecord, {recursive: true});
@@ -343,37 +344,37 @@ describe('macOS copy records', () => {
             join(library, 'Application Support', 'Vendor', 'com.evb.viewer.automation-10101010'),
             join(library, 'Containers', 'com.evb.viewer.automation-11111112'),
         ];
-        for (const path of [
-            ...removed.slice(1),
-            ...kept,
-        ]) {
+        for (const path of [...removed.slice(1), ...kept]) {
             plantRecord(path);
         }
         removeMacOSAutomationCopyRecords('com.evb.viewer.automation-44444444', library);
-        expect(removed.filter(path => existsSync(path))).toEqual([]);
-        expect(kept.filter(path => !existsSync(path))).toEqual([]);
+        expect(removed.filter((path) => existsSync(path))).toEqual([]);
+        expect(kept.filter((path) => !existsSync(path))).toEqual([]);
     });
 
-    it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('reports a listed folder that cannot be read, and still cleans the other folders', () => {
-        const library = mkdtempSync(join(tmpdir(), 'evb-copy-records-unreadable-test-'));
-        roots.push(library);
-        const caches = join(library, 'Caches');
-        const cachedRecord = join(caches, 'com.evb.viewer.automation-19191919');
-        const preference = join(library, 'Preferences', 'com.evb.viewer.automation-19191919.plist');
-        const storage = join(library, 'HTTPStorages', 'com.evb.viewer.automation-19191919');
-        mkdirSync(cachedRecord, {recursive: true});
-        plantRecord(preference);
-        mkdirSync(storage, {recursive: true});
-        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-        chmodSync(caches, 0o000);
-        try {
-            expect(() => removeMacOSAutomationCopyRecords('com.evb.viewer.automation-19191919', library)).not.toThrow();
-        } finally {
-            chmodSync(caches, 0o700);
-        }
-        expect(existsSync(preference)).toBe(false);
-        expect(existsSync(storage)).toBe(false);
-        expect(existsSync(cachedRecord)).toBe(true);
-        expect(warn).toHaveBeenCalledWith(expect.stringContaining(caches));
-    });
+    it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+        'reports a listed folder that cannot be read, and still cleans the other folders',
+        () => {
+            const library = mkdtempSync(join(tmpdir(), 'evb-copy-records-unreadable-test-'));
+            roots.push(library);
+            const caches = join(library, 'Caches');
+            const cachedRecord = join(caches, 'com.evb.viewer.automation-19191919');
+            const preference = join(library, 'Preferences', 'com.evb.viewer.automation-19191919.plist');
+            const storage = join(library, 'HTTPStorages', 'com.evb.viewer.automation-19191919');
+            mkdirSync(cachedRecord, {recursive: true});
+            plantRecord(preference);
+            mkdirSync(storage, {recursive: true});
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            chmodSync(caches, 0o000);
+            try {
+                expect(() => removeMacOSAutomationCopyRecords('com.evb.viewer.automation-19191919', library)).not.toThrow();
+            } finally {
+                chmodSync(caches, 0o700);
+            }
+            expect(existsSync(preference)).toBe(false);
+            expect(existsSync(storage)).toBe(false);
+            expect(existsSync(cachedRecord)).toBe(true);
+            expect(warn).toHaveBeenCalledWith(expect.stringContaining(caches));
+        },
+    );
 });

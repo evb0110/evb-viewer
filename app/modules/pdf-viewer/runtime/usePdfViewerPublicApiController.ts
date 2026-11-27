@@ -1,39 +1,34 @@
-import {
-    pageNumberToPageIndex,
-    requirePageNumber,
-} from '@contracts/pageNumbers';
-import type { TPageNumber } from '@contracts/pageNumbers';
+import {pageNumberToPageIndex, requirePageNumber} from '@contracts/pageNumbers';
+import type {TPageNumber} from '@contracts/pageNumbers';
 
-import type { Ref } from 'vue';
-import type { Merge } from 'type-fest';
-import type { TPdfDocumentView } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
-import type { TPdfViewportSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
-import type { TPdfAnnotationSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession';
-import type { IPdfViewerExpose } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types';
-import type { TAnnotationCreationFailureReason } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
-import { projectAnnotationCreationOutcome } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/projectAnnotationCreationOutcome';
-import { asAnnotationId } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
-import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import { getPageContainerByNumber } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getPageContainerByNumber';
-import { buildShapeAnnotation } from '@app/modules/pdf-viewer/tools/annotationShapeDrawing';
+import type {Ref} from 'vue';
+import type {Merge} from 'type-fest';
+import type {TPdfDocumentView} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
+import type {TPdfViewportSession} from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
+import type {TPdfAnnotationSession} from '@app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession';
+import type {IPdfViewerExpose} from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types';
+import type {TAnnotationCreationFailureReason} from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
+import {projectAnnotationCreationOutcome} from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/projectAnnotationCreationOutcome';
+import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {DEFAULT_ANNOTATION_SETTINGS} from '@app/constants/annotationDefaults';
+import type {IAnnotationCommentSummary} from '@app/types/annotations';
+import {getPageContainerByNumber} from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getPageContainerByNumber';
+import {buildShapeAnnotation} from '@app/modules/pdf-viewer/tools/annotationShapeDrawing';
 
 const POINT_NOTE_CANCELLED_REASON = 'The document changed before the point note was created.';
 const DOCUMENT_CHANGED_REASON = 'The document changed before the annotation was created.';
 
-type TPdfViewerPublicApiRefBackedKeys =
-    | 'hasShapes'
-    | 'isCropSelecting'
-    | 'pageMetrics'
-    | 'pageMetricsVersion'
-    | 'selectedAnnotations';
+type TPdfViewerPublicApiRefBackedKeys = 'hasShapes' | 'isCropSelecting' | 'pageMetrics' | 'pageMetricsVersion' | 'selectedAnnotations';
 
 type TPdfViewerRefBackedSource = {
     [TKey in TPdfViewerPublicApiRefBackedKeys]-?: Readonly<Ref<Exclude<IPdfViewerExpose[TKey], undefined>>>;
 };
 
 type TPdfViewerPublicApiSource = Merge<
-    Omit<IPdfViewerExpose, TPdfViewerPublicApiRefBackedKeys | 'captureRegionToClipboard' | 'captureVisibleRegionAsPng' | 'isCapturingRegion'>,
+    Omit<
+        IPdfViewerExpose,
+        TPdfViewerPublicApiRefBackedKeys | 'captureRegionToClipboard' | 'captureVisibleRegionAsPng' | 'isCapturingRegion'
+    >,
     TPdfViewerRefBackedSource
 >;
 
@@ -65,20 +60,11 @@ interface IUsePdfViewerPublicApiControllerOptions {
     isCropSelecting: TPdfViewerPublicApiSource['isCropSelecting'];
 }
 
-export const usePdfViewerPublicApiController = (
-    options: IUsePdfViewerPublicApiControllerOptions,
-): TPdfViewerPublicApiSource => {
-    const {
-        annotationSession,
-        documentSession,
-    } = options;
+export const usePdfViewerPublicApiController = (options: IUsePdfViewerPublicApiControllerOptions): TPdfViewerPublicApiSource => {
+    const {annotationSession, documentSession} = options;
     const annotationRuntime = annotationSession;
     const viewportSession = options.viewportSession;
-    const {
-        annotationSettings,
-        commentCrud,
-        shapeTool,
-    } = annotationRuntime;
+    const {annotationSettings, commentCrud, shapeTool} = annotationRuntime;
     const {focusAnnotationComment} = commentCrud;
     const currentPage = viewportSession.currentPage;
 
@@ -89,9 +75,7 @@ export const usePdfViewerPublicApiController = (
     // page beyond that range and requirePageNumber rejects one.
     function normalizePublicPageNumber(requestedPage: number | null | undefined) {
         const fallbackPage = Number.isFinite(currentPage.value) ? currentPage.value : 1;
-        const page = typeof requestedPage === 'number' && Number.isFinite(requestedPage)
-            ? requestedPage
-            : fallbackPage;
+        const page = typeof requestedPage === 'number' && Number.isFinite(requestedPage) ? requestedPage : fallbackPage;
         return requirePageNumber(Math.min(Math.max(1, Math.trunc(page)), Number.MAX_SAFE_INTEGER));
     }
 
@@ -101,9 +85,7 @@ export const usePdfViewerPublicApiController = (
     function resolveNavigationPageNumber(requestedPage: number | null | undefined) {
         const totalPages = documentSession.numPages.value;
         const normalizedPage = normalizePublicPageNumber(requestedPage);
-        return totalPages > 0
-            ? requirePageNumber(Math.min(normalizedPage, totalPages), totalPages)
-            : normalizedPage;
+        return totalPages > 0 ? requirePageNumber(Math.min(normalizedPage, totalPages), totalPages) : normalizedPage;
     }
 
     /**
@@ -124,7 +106,9 @@ export const usePdfViewerPublicApiController = (
         const navigation = viewportSession.singlePageScroll.scrollToPage(pageNumber);
         // Within its document the request keeps its page even when a newer
         // navigation took the viewport; a reload or replacement ends it here.
-        if (typeof navigation === 'object') {await navigation.finished;}
+        if (typeof navigation === 'object') {
+            await navigation.finished;
+        }
         if (!isCurrent() || (documentSession.numPages.value > 0 && pageNumber > documentSession.numPages.value)) {
             return {
                 ready: false,
@@ -157,10 +141,7 @@ export const usePdfViewerPublicApiController = (
         getCurrentPage: () => currentPage.value,
         scrollToPage: (pageNumber, scrollOptions) => {
             options.cancelPendingSearchScroll();
-            viewportSession.singlePageScroll.scrollToPage(
-                resolveNavigationPageNumber(pageNumber),
-                scrollOptions,
-            );
+            viewportSession.singlePageScroll.scrollToPage(resolveNavigationPageNumber(pageNumber), scrollOptions);
         },
         captureReadingAnchor: () => viewportSession.singlePageScroll.captureRelayoutAnchor(),
         whenLayoutPlaced: viewportSession.whenLayoutPlaced,
@@ -186,15 +167,11 @@ export const usePdfViewerPublicApiController = (
         // The narrow boolean surface predates typed outcomes. It answers the
         // same question as `createPointNoteAnnotation`, so it derives its
         // answer from the same rule rather than testing the status by hand.
-        commentAtPoint: async (pageNumber, pageX, pageY, pointOptions) => projectAnnotationCreationOutcome(
-            await Promise.resolve(annotationRuntime.highlightComposable.commentAtPoint(
-                pageNumber,
-                pageX,
-                pageY,
-                pointOptions ?? {},
-            )),
-            POINT_NOTE_CANCELLED_REASON,
-        ).created,
+        commentAtPoint: async (pageNumber, pageX, pageY, pointOptions) =>
+            projectAnnotationCreationOutcome(
+                await Promise.resolve(annotationRuntime.highlightComposable.commentAtPoint(pageNumber, pageX, pageY, pointOptions ?? {})),
+                POINT_NOTE_CANCELLED_REASON,
+            ).created,
         createPointNoteAnnotation: async (target) => {
             const pageNumber = normalizePublicPageNumber(target.pageNumber);
             const pageX = Number.isFinite(target.pageX) ? target.pageX : 0;
@@ -225,30 +202,14 @@ export const usePdfViewerPublicApiController = (
             if (!prepared.ready) {
                 return result(false, `Page ${pageNumber} is not rendered.`);
             }
-            const pointOptions = target.preferTextAnchor === undefined
-                ? {}
-                : {preferTextAnchor: target.preferTextAnchor};
-            const outcome = annotationRuntime.highlightComposable.commentAtPoint(
-                pageNumber,
-                pageX,
-                pageY,
-                pointOptions,
-            );
+            const pointOptions = target.preferTextAnchor === undefined ? {} : {preferTextAnchor: target.preferTextAnchor};
+            const outcome = annotationRuntime.highlightComposable.commentAtPoint(pageNumber, pageX, pageY, pointOptions);
             const projection = projectAnnotationCreationOutcome(outcome, POINT_NOTE_CANCELLED_REASON);
-            return result(
-                projection.created,
-                projection.reason,
-                projection.failureReason,
-                projection.pendingEditor,
-            );
+            return result(projection.created, projection.reason, projection.failureReason, projection.pendingEditor);
         },
         createShapeAnnotation: async (target) => {
             const pageNumber = normalizePublicPageNumber(target.pageNumber);
-            const result = (
-                created: boolean,
-                shape: IAnnotationCommentSummary | null,
-                reason?: string,
-            ) => ({
+            const result = (created: boolean, shape: IAnnotationCommentSummary | null, reason?: string) => ({
                 created,
                 pageNumber,
                 shape,
@@ -279,8 +240,12 @@ export const usePdfViewerPublicApiController = (
             }
 
             shapeTool.createShape(shape);
-            return result(true, annotationSession.annotationApplication.value.listCommentSummaries()
-                .find(comment => comment.appAnnotationId === shape.id) ?? null);
+            return result(
+                true,
+                annotationSession.annotationApplication.value
+                    .listCommentSummaries()
+                    .find((comment) => comment.appAnnotationId === shape.id) ?? null,
+            );
         },
         hasCanonicalAnnotationChanges: annotationRuntime.hasCanonicalAnnotationChanges,
         getAnnotationDirtyEntityCount: () => annotationSession.annotationApplication.value.store.dirtyEntities().length,
@@ -291,14 +256,19 @@ export const usePdfViewerPublicApiController = (
         registerAnnotationHistoryCommand: annotationRuntime.registerShapeHistoryCommand,
         selectAllAnnotations: () => {
             const focused = typeof document === 'undefined' ? null : document.activeElement;
-            if (!(focused instanceof HTMLElement) || !focused.closest('.pdf-annotation-editor-layer')
-                || focused.isContentEditable || focused.closest('input, textarea, select, [contenteditable="true"]')) {
+            if (
+                !(focused instanceof HTMLElement) ||
+                !focused.closest('.pdf-annotation-editor-layer') ||
+                focused.isContentEditable ||
+                focused.closest('input, textarea, select, [contenteditable="true"]')
+            ) {
                 return false;
             }
             return annotationRuntime.annotationEditorSurface.selectAll();
         },
         paintsAnnotationPage: annotationSession.paintsPage,
-        focusSelectedAnnotation: (annotationId: string) => annotationRuntime.annotationEditorSurface.focusSelectedAnnotation(asAnnotationId(annotationId)),
+        focusSelectedAnnotation: (annotationId: string) =>
+            annotationRuntime.annotationEditorSurface.focusSelectedAnnotation(asAnnotationId(annotationId)),
         selectAnnotationById: (annotationId: string) => {
             const id = asAnnotationId(annotationId);
             const entity = annotationSession.annotationApplication.value.store.get(id);
@@ -309,7 +279,9 @@ export const usePdfViewerPublicApiController = (
             return true;
         },
         editAnnotationTextBox: async (comment) => {
-            if (!comment.appAnnotationId || !await focusAnnotationComment(comment)) {return;}
+            if (!comment.appAnnotationId || !(await focusAnnotationComment(comment))) {
+                return;
+            }
             await annotationRuntime.annotationEditorSurface.beginTextEditing(asAnnotationId(comment.appAnnotationId));
         },
         selectedAnnotations: annotationRuntime.annotationEditorSurface.selectedAnnotations,
@@ -319,7 +291,9 @@ export const usePdfViewerPublicApiController = (
         handleAnnotationEscape: annotationRuntime.annotationEditorSurface.handleEscape,
         captureCanonicalAnnotationRecovery: annotationRuntime.captureCanonicalAnnotationRecovery,
         restoreCanonicalAnnotationRecovery: annotationRuntime.restoreCanonicalAnnotationRecovery,
-        focusAnnotationComment: async (comment) => { await focusAnnotationComment(comment); },
+        focusAnnotationComment: async (comment) => {
+            await focusAnnotationComment(comment);
+        },
         updateAnnotationComment: commentCrud.updateAnnotationComment,
         moveAnnotationMarker: commentCrud.moveAnnotationMarker,
         deleteAnnotationComment: commentCrud.deleteAnnotationComment,
@@ -332,15 +306,9 @@ export const usePdfViewerPublicApiController = (
         deleteSelectedShape: annotationRuntime.annotationEditorSurface.deleteSelection,
         hasShapes: shapeTool.hasShapes,
         startImagePlacement: options.startImagePlacement,
-        ...(options.preparePageMutationRevisionSwap
-            ? {preparePageMutationRevisionSwap: options.preparePageMutationRevisionSwap}
-            : {}),
-        ...(options.beginPageRotationPreview
-            ? {beginPageRotationPreview: options.beginPageRotationPreview}
-            : {}),
-        ...(options.cancelPageRotationPreview
-            ? {cancelPageRotationPreview: options.cancelPageRotationPreview}
-            : {}),
+        ...(options.preparePageMutationRevisionSwap ? {preparePageMutationRevisionSwap: options.preparePageMutationRevisionSwap} : {}),
+        ...(options.beginPageRotationPreview ? {beginPageRotationPreview: options.beginPageRotationPreview} : {}),
+        ...(options.cancelPageRotationPreview ? {cancelPageRotationPreview: options.cancelPageRotationPreview} : {}),
         startCropSelection: options.startCropSelection,
         cancelCropSelection: options.cancelCropSelection,
         isCropSelecting: options.isCropSelecting,

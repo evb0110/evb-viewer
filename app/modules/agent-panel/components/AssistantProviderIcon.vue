@@ -1,5 +1,8 @@
 <template>
-    <span class="assistant-provider-mark" :class="`is-${provider}`">
+    <span
+        class="assistant-provider-mark"
+        :class="`is-${provider}`"
+    >
         <UIcon
             :name="provider === 'claude' ? 'evb:provider-claude' : 'evb:provider-openai'"
             mode="svg"
@@ -7,12 +10,17 @@
             aria-hidden="true"
             focusable="false"
         />
-        <span v-if="badge" class="assistant-provider-badge" aria-hidden="true">{{ badge }}</span>
+        <span
+            v-if="badge"
+            class="assistant-provider-badge"
+            aria-hidden="true"
+            >{{ badge }}</span
+        >
     </span>
 </template>
 
 <script setup lang="ts">
-import type { TAssistantDriver } from '@contracts/assistant';
+import type {TAssistantDriver} from '@contracts/assistant';
 
 defineProps<{
     provider: TAssistantDriver;

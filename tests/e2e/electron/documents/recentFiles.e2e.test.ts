@@ -1,32 +1,10 @@
-import {
-    describe,
-    expect,
-    it,
-    onTestFinished,
-} from 'vitest';
-import { delay } from 'es-toolkit/promise';
-import { PDFDocument } from 'pdf-lib';
-import {
-    activateMenuItemAsUser,
-    clickAsUser,
-    clickFoundAsUser,
-} from '@tests/e2e/electron/helpers/userInput';
-import {
-    requireDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
-import {
-    copyFileSync,
-    mkdirSync,
-    readFileSync,
-    rmSync,
-    writeFileSync,
-} from 'node:fs';
-import {
-    basename,
-    dirname,
-    join,
-} from 'node:path';
+import {describe, expect, it, onTestFinished} from 'vitest';
+import {delay} from 'es-toolkit/promise';
+import {PDFDocument} from 'pdf-lib';
+import {activateMenuItemAsUser, clickAsUser, clickFoundAsUser} from '@tests/e2e/electron/helpers/userInput';
+import {requireDocumentRef, type TDocumentRef} from '@contracts/documentRef';
+import {copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
+import {basename, dirname, join} from 'node:path';
 import {
     createFixturePath,
     createLargeScannedFixturePdf,
@@ -38,16 +16,13 @@ import {
     resolveDjvuFixturePath,
     selectFixtureDescribe,
 } from '@tests/e2e/electron/helpers/fixtures';
-import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
-import {
-    clickAnnotationTool,
-    waitForNoOpenNoteWindows,
-} from '@tests/e2e/electron/helpers/viewerAnnotations';
+import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
+import {clickAnnotationTool, waitForNoOpenNoteWindows} from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {readWorkspaceRecoveryRecords} from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
 import {electronUserDataPath} from '@scripts/electron-run/electronRunSessionPaths';
 import {stopSingleSession} from '@scripts/electron-run/stopSession';
 import type {IWorkspaceCheckpoint} from '@contracts/workspaceCheckpoint';
-import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import type {IElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {
     clickVisibleToolbarButton,
     goToPageViaToolbar,
@@ -64,20 +39,10 @@ import {
     setRememberPlaceAsUser,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {readToolbarPageIndicator} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
-import { waitForViewportQuiet } from '@tests/e2e/electron/helpers/viewportPageObservation';
-import {
-    activatePaneByTab,
-    createNewWorkspaceTab,
-    splitActiveTabFromTabMenu,
-} from '@tests/e2e/electron/helpers/workspaceTabs';
-import {
-    evaluateInPage,
-    waitForFunctionInPage,
-} from '@tests/e2e/electron/helpers/pageRuntime';
-import {
-    callWorkspaceCommand,
-    requireWorkspaceCommand,
-} from '@tests/e2e/electron/helpers/workspaceExpose';
+import {waitForViewportQuiet} from '@tests/e2e/electron/helpers/viewportPageObservation';
+import {activatePaneByTab, createNewWorkspaceTab, splitActiveTabFromTabMenu} from '@tests/e2e/electron/helpers/workspaceTabs';
+import {evaluateInPage, waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
+import {callWorkspaceCommand, requireWorkspaceCommand} from '@tests/e2e/electron/helpers/workspaceExpose';
 import {
     findCommittedSurfaceCausalOpenViolations,
     installCommittedSurfaceSampler,
@@ -159,94 +124,99 @@ interface IRecentOpenTransitionResult {
 }
 
 async function waitForOpenCheckpoint(session: IElectronE2ESession, sourcePath: string, page: number, zoom: string) {
-    await expect.poll(() => {
-        const tab = readWorkspaceRecoveryRecords<{checkpoint: IWorkspaceCheckpoint}>(session.name)
-            .flatMap(record => record.checkpoint.tabs)
-            .find(candidate => candidate.sourceRef === sourcePath);
-        return tab && {
-            page: tab.currentPage,
-            zoom: `${Math.round((tab.zoom ?? 0) * 100)}%`,
-        };
-    }, {timeout: RECENT_ROW_TIMEOUT_MS}).toEqual({
-        page,
-        zoom,
-    });
+    await expect
+        .poll(
+            () => {
+                const tab = readWorkspaceRecoveryRecords<{checkpoint: IWorkspaceCheckpoint}>(session.name)
+                    .flatMap((record) => record.checkpoint.tabs)
+                    .find((candidate) => candidate.sourceRef === sourcePath);
+                return (
+                    tab && {
+                        page: tab.currentPage,
+                        zoom: `${Math.round((tab.zoom ?? 0) * 100)}%`,
+                    }
+                );
+            },
+            {timeout: RECENT_ROW_TIMEOUT_MS},
+        )
+        .toEqual({
+            page,
+            zoom,
+        });
 }
 
 async function startToolbarTransitionSampling(session: IElectronE2ESession) {
-    await evaluateInPage(session.page, (pollMs: number) => {
-        const transitionWindow = window as Window & {
-            __evbToolbarOpenTransitionInterval?: number;
-            __evbToolbarOpenTransitionSamples?: IToolbarTransitionSample[];
-        };
-        const samples: IToolbarTransitionSample[] = [];
-        const startedAt = performance.now();
+    await evaluateInPage(
+        session.page,
+        (pollMs: number) => {
+            const transitionWindow = window as Window & {
+                __evbToolbarOpenTransitionInterval?: number;
+                __evbToolbarOpenTransitionSamples?: IToolbarTransitionSample[];
+            };
+            const samples: IToolbarTransitionSample[] = [];
+            const startedAt = performance.now();
 
-        function isVisible(element: HTMLElement | null) {
-            if (!element?.isConnected) {
-                return false;
-            }
-
-            let current: HTMLElement | null = element;
-            while (current) {
-                const style = window.getComputedStyle(current);
-                if (
-                    style.display === 'none'
-                    || style.visibility === 'hidden'
-                    || Number(style.opacity || '1') <= 0.05
-                ) {
+            function isVisible(element: HTMLElement | null) {
+                if (!element?.isConnected) {
                     return false;
                 }
-                current = current.parentElement;
+
+                let current: HTMLElement | null = element;
+                while (current) {
+                    const style = window.getComputedStyle(current);
+                    if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity || '1') <= 0.05) {
+                        return false;
+                    }
+                    current = current.parentElement;
+                }
+
+                const rect = element.getBoundingClientRect();
+                return rect.width > 0 && rect.height > 0;
             }
 
-            const rect = element.getBoundingClientRect();
-            return rect.width > 0 && rect.height > 0;
-        }
-
-        function countVisible(toolbar: HTMLElement | null, selector: string) {
-            if (!toolbar) {
-                return 0;
+            function countVisible(toolbar: HTMLElement | null, selector: string) {
+                if (!toolbar) {
+                    return 0;
+                }
+                return Array.from(toolbar.querySelectorAll<HTMLElement>(selector)).filter(isVisible).length;
             }
-            return Array.from(toolbar.querySelectorAll<HTMLElement>(selector))
-                .filter(isVisible)
-                .length;
-        }
 
-        function sampleToolbar() {
-            const shell = document.querySelector<HTMLElement>('.editor-global-toolbar-shell');
-            const workspace = document.querySelector<HTMLElement>('.workspace-main-shell');
-            const shellToolbar = shell?.querySelector<HTMLElement>(':scope > .toolbar') ?? null;
-            const hostToolbar = document.querySelector<HTMLElement>('#editor-global-toolbar-host .toolbar');
-            const visibleHostToolbar = isVisible(hostToolbar);
-            const visibleShellToolbar = isVisible(shellToolbar);
-            const toolbar = visibleHostToolbar ? hostToolbar : (visibleShellToolbar ? shellToolbar : null);
-            const shellRect = shell?.getBoundingClientRect();
-            const workspaceRect = workspace?.getBoundingClientRect();
-            const toolbarRect = toolbar?.getBoundingClientRect();
-            const owner = visibleHostToolbar ? 'workspace' : (visibleShellToolbar ? 'shell' : 'none');
+            function sampleToolbar() {
+                const shell = document.querySelector<HTMLElement>('.editor-global-toolbar-shell');
+                const workspace = document.querySelector<HTMLElement>('.workspace-main-shell');
+                const shellToolbar = shell?.querySelector<HTMLElement>(':scope > .toolbar') ?? null;
+                const hostToolbar = document.querySelector<HTMLElement>('#editor-global-toolbar-host .toolbar');
+                const visibleHostToolbar = isVisible(hostToolbar);
+                const visibleShellToolbar = isVisible(shellToolbar);
+                const toolbar = visibleHostToolbar ? hostToolbar : visibleShellToolbar ? shellToolbar : null;
+                const shellRect = shell?.getBoundingClientRect();
+                const workspaceRect = workspace?.getBoundingClientRect();
+                const toolbarRect = toolbar?.getBoundingClientRect();
+                const owner = visibleHostToolbar ? 'workspace' : visibleShellToolbar ? 'shell' : 'none';
 
-            samples.push({
-                atMs: Math.round(performance.now() - startedAt),
-                atPageMs: performance.now(),
-                hasShell: Boolean(shell),
-                hasWorkspace: Boolean(workspace),
-                owner,
-                shellHeight: shellRect?.height ?? 0,
-                workspaceTop: workspaceRect?.top ?? 0,
-                toolbarHeight: toolbarRect?.height ?? 0,
-                toolbarText: toolbar?.textContent?.replace(/\s+/g, ' ').trim() ?? '',
-                toolbarVisible: Boolean(toolbar && isVisible(toolbar)),
-                visibleControlCount: countVisible(toolbar, 'button, [role="button"], input, select'),
-                visibleIconCount: countVisible(toolbar, '.iconify, svg, [class*="i-ph-"]'),
-            });
-        }
+                samples.push({
+                    atMs: Math.round(performance.now() - startedAt),
+                    atPageMs: performance.now(),
+                    hasShell: Boolean(shell),
+                    hasWorkspace: Boolean(workspace),
+                    owner,
+                    shellHeight: shellRect?.height ?? 0,
+                    workspaceTop: workspaceRect?.top ?? 0,
+                    toolbarHeight: toolbarRect?.height ?? 0,
+                    toolbarText: toolbar?.textContent?.replace(/\s+/g, ' ').trim() ?? '',
+                    toolbarVisible: Boolean(toolbar && isVisible(toolbar)),
+                    visibleControlCount: countVisible(toolbar, 'button, [role="button"], input, select'),
+                    visibleIconCount: countVisible(toolbar, '.iconify, svg, [class*="i-ph-"]'),
+                });
+            }
 
-        window.clearInterval(transitionWindow.__evbToolbarOpenTransitionInterval);
-        sampleToolbar();
-        transitionWindow.__evbToolbarOpenTransitionSamples = samples;
-        transitionWindow.__evbToolbarOpenTransitionInterval = window.setInterval(sampleToolbar, pollMs);
-    }, TOOLBAR_OPEN_TRANSITION_POLL_MS);
+            window.clearInterval(transitionWindow.__evbToolbarOpenTransitionInterval);
+            sampleToolbar();
+            transitionWindow.__evbToolbarOpenTransitionSamples = samples;
+            transitionWindow.__evbToolbarOpenTransitionInterval = window.setInterval(sampleToolbar, pollMs);
+        },
+        TOOLBAR_OPEN_TRANSITION_POLL_MS,
+    );
 }
 
 async function stopToolbarTransitionSampling(session: IElectronE2ESession) {
@@ -265,112 +235,108 @@ async function stopToolbarTransitionSampling(session: IElectronE2ESession) {
 // contract's one CSS pixel (scroll positions snap to device pixels).
 function expectSameRect(actual: Awaited<ReturnType<typeof readDrawnPage>>, expected: Awaited<ReturnType<typeof readHeldShell>>) {
     expect(actual?.page).toBe(expected?.page);
-    for (const key of [
-        'top',
-        'left',
-        'width',
-        'height',
-    ] as const) {
-        expect(Math.abs((actual?.[key] ?? Number.NaN) - (expected?.[key] ?? Number.NaN)), `${key}: ${JSON.stringify({
-            actual,
-            expected,
-        })}`).toBeLessThanOrEqual(1);
+    for (const key of ['top', 'left', 'width', 'height'] as const) {
+        expect(
+            Math.abs((actual?.[key] ?? Number.NaN) - (expected?.[key] ?? Number.NaN)),
+            `${key}: ${JSON.stringify({
+                actual,
+                expected,
+            })}`,
+        ).toBeLessThanOrEqual(1);
     }
 }
 
-function assertToolbarTransitionStable(
-    samples: IToolbarTransitionSample[],
-    openClickAtPageMs: number | null,
-) {
-    const relevantSamples = samples.filter(sample => sample.hasShell && sample.hasWorkspace);
+function assertToolbarTransitionStable(samples: IToolbarTransitionSample[], openClickAtPageMs: number | null) {
+    const relevantSamples = samples.filter((sample) => sample.hasShell && sample.hasWorkspace);
     expect(relevantSamples.length, JSON.stringify(samples)).toBeGreaterThan(5);
 
-    const collapsedSamples = relevantSamples.filter(sample => sample.shellHeight < TOOLBAR_MIN_VISIBLE_HEIGHT_PX);
+    const collapsedSamples = relevantSamples.filter((sample) => sample.shellHeight < TOOLBAR_MIN_VISIBLE_HEIGHT_PX);
     expect(collapsedSamples, JSON.stringify(samples)).toEqual([]);
 
-    const absentToolbarSamples = relevantSamples.filter(sample => (
-        !sample.toolbarVisible
-        || sample.owner === 'none'
-        || sample.toolbarHeight < TOOLBAR_MIN_VISIBLE_HEIGHT_PX
-    ));
+    const absentToolbarSamples = relevantSamples.filter(
+        (sample) => !sample.toolbarVisible || sample.owner === 'none' || sample.toolbarHeight < TOOLBAR_MIN_VISIBLE_HEIGHT_PX,
+    );
     expect(absentToolbarSamples, JSON.stringify(samples)).toEqual([]);
 
     // Before the Recent click the tab is the New Tab screen, whose toolbar
     // deliberately shows only its shell actions (13e432ddd). The document
     // toolbar must be full from the click that starts the open.
     expect(openClickAtPageMs, JSON.stringify(samples)).not.toBeNull();
-    const sparseToolbarSamples = relevantSamples.filter(sample => (
-        sample.atPageMs >= openClickAtPageMs!
-        && sample.visibleControlCount < TOOLBAR_MIN_VISIBLE_CONTROL_COUNT
-        && sample.visibleIconCount < TOOLBAR_MIN_VISIBLE_CONTROL_COUNT
-    ));
+    const sparseToolbarSamples = relevantSamples.filter(
+        (sample) =>
+            sample.atPageMs >= openClickAtPageMs! &&
+            sample.visibleControlCount < TOOLBAR_MIN_VISIBLE_CONTROL_COUNT &&
+            sample.visibleIconCount < TOOLBAR_MIN_VISIBLE_CONTROL_COUNT,
+    );
     expect(sparseToolbarSamples, JSON.stringify(samples)).toEqual([]);
 
-    const workspaceTops = relevantSamples.map(sample => sample.workspaceTop);
+    const workspaceTops = relevantSamples.map((sample) => sample.workspaceTop);
     const workspaceTopDelta = Math.max(...workspaceTops) - Math.min(...workspaceTops);
     expect(workspaceTopDelta, JSON.stringify(samples)).toBeLessThanOrEqual(TOOLBAR_MAX_OPEN_SHIFT_PX);
 
-    expect(relevantSamples.some(sample => sample.owner === 'workspace'), JSON.stringify(samples)).toBe(true);
+    expect(
+        relevantSamples.some((sample) => sample.owner === 'workspace'),
+        JSON.stringify(samples),
+    ).toBe(true);
 }
 
-async function readRecentOpenDomState(
-    session: IElectronE2ESession,
-    sourcePath: string,
-): Promise<IRecentOpenDomState> {
-    return evaluateInPage(session.page, (targetSourcePath: string) => {
-        const isVisible = (element: HTMLElement) => {
-            let current: HTMLElement | null = element;
-            while (current) {
-                const style = window.getComputedStyle(current);
-                if (
-                    style.display === 'none'
-                    || style.visibility === 'hidden'
-                    || Number(style.opacity || '1') === 0
-                ) {
-                    return false;
+async function readRecentOpenDomState(session: IElectronE2ESession, sourcePath: string): Promise<IRecentOpenDomState> {
+    return evaluateInPage(
+        session.page,
+        (targetSourcePath: string) => {
+            const isVisible = (element: HTMLElement) => {
+                let current: HTMLElement | null = element;
+                while (current) {
+                    const style = window.getComputedStyle(current);
+                    if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity || '1') === 0) {
+                        return false;
+                    }
+                    current = current.parentElement;
                 }
-                current = current.parentElement;
-            }
-            const rect = element.getBoundingClientRect();
-            return rect.width > 0 && rect.height > 0;
-        };
-        const activeHost = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
-        )
-            ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host')
-            ?? document.querySelector<HTMLElement>('.workspace-host');
-        if (!activeHost) {
-            return {
-                hasHost: false,
-                hasLoader: false,
-                hasViewer: false,
-                hasRenderedContent: false,
-                recentRowVisible: false,
-                visibleRecentRows: 0,
-                visibleText: '',
+                const rect = element.getBoundingClientRect();
+                return rect.width > 0 && rect.height > 0;
             };
-        }
+            const activeHost =
+                document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]') ??
+                document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host') ??
+                document.querySelector<HTMLElement>('.workspace-host');
+            if (!activeHost) {
+                return {
+                    hasHost: false,
+                    hasLoader: false,
+                    hasViewer: false,
+                    hasRenderedContent: false,
+                    recentRowVisible: false,
+                    visibleRecentRows: 0,
+                    visibleText: '',
+                };
+            }
 
-        const recentRows = Array.from(activeHost.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)'))
-            .filter(isVisible);
-        const viewer = activeHost.querySelector<HTMLElement>('#pdf-viewer');
-        const hasOpeningSurface = Array.from(activeHost.querySelectorAll<HTMLElement>(
-            '.document-viewer-chassis__opening-page, .document-page-source-feature-pack__page',
-        )).some(isVisible);
-        const hasRenderedContent = Array.from(viewer?.querySelectorAll<HTMLElement>(
-            '.page_canvas canvas, .text-layer span, .textLayer span',
-        ) ?? []).some(isVisible);
+            const recentRows = Array.from(activeHost.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)')).filter(
+                isVisible,
+            );
+            const viewer = activeHost.querySelector<HTMLElement>('#pdf-viewer');
+            const hasOpeningSurface = Array.from(
+                activeHost.querySelectorAll<HTMLElement>(
+                    '.document-viewer-chassis__opening-page, .document-page-source-feature-pack__page',
+                ),
+            ).some(isVisible);
+            const hasRenderedContent = Array.from(
+                viewer?.querySelectorAll<HTMLElement>('.page_canvas canvas, .text-layer span, .textLayer span') ?? [],
+            ).some(isVisible);
 
-        return {
-            hasHost: true,
-            hasLoader: Array.from(activeHost.querySelectorAll<HTMLElement>('.workspace-host__loading')).some(isVisible),
-            hasViewer: hasOpeningSurface || hasRenderedContent,
-            hasRenderedContent,
-            recentRowVisible: recentRows.some(row => row.dataset.recentSource === targetSourcePath),
-            visibleRecentRows: recentRows.length,
-            visibleText: (activeHost.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 300),
-        };
-    }, sourcePath);
+            return {
+                hasHost: true,
+                hasLoader: Array.from(activeHost.querySelectorAll<HTMLElement>('.workspace-host__loading')).some(isVisible),
+                hasViewer: hasOpeningSurface || hasRenderedContent,
+                hasRenderedContent,
+                recentRowVisible: recentRows.some((row) => row.dataset.recentSource === targetSourcePath),
+                visibleRecentRows: recentRows.length,
+                visibleText: (activeHost.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 300),
+            };
+        },
+        sourcePath,
+    );
 }
 
 function describeRecentOpenDomState(state: IRecentOpenDomState) {
@@ -381,35 +347,41 @@ function describeRecentOpenDomState(state: IRecentOpenDomState) {
 // text drawn in the viewport.
 async function expectReadingPlace(session: IElectronE2ESession, pageNumber: number, zoomLabel: string) {
     await waitForToolbarCurrentPage(session.page, pageNumber);
-    await waitForFunctionInPage(session.page, (expected: {
-        pageNumber: number;
-        zoomLabel: string;
-    }) => {
-        const viewport = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active [data-document-viewer-chassis-viewport]',
-        )?.getBoundingClientRect();
-        const container = document.querySelector<HTMLElement>(
-            `.editor-pane.is-active #pdf-viewer .page_container[data-page="${expected.pageNumber}"]`,
-        );
-        const rect = container?.getBoundingClientRect();
-        const zoom = document.querySelector('#editor-global-toolbar-host .zoom-controls-display-value')?.textContent?.trim();
-        return Boolean(
-            viewport && rect
-            && rect.bottom > viewport.top && rect.top < viewport.bottom
-            && container?.querySelector('.textLayer, .text-layer')?.textContent
-                ?.includes(`E2E Multi Page Fixture ${expected.pageNumber}/40`)
-            && zoom === expected.zoomLabel,
-        );
-    }, {timeout: RECENT_OPEN_TIMEOUT_MS}, {
-        pageNumber,
-        zoomLabel,
-    });
+    await waitForFunctionInPage(
+        session.page,
+        (expected: {pageNumber: number; zoomLabel: string}) => {
+            const viewport = document
+                .querySelector<HTMLElement>('.editor-pane.is-active [data-document-viewer-chassis-viewport]')
+                ?.getBoundingClientRect();
+            const container = document.querySelector<HTMLElement>(
+                `.editor-pane.is-active #pdf-viewer .page_container[data-page="${expected.pageNumber}"]`,
+            );
+            const rect = container?.getBoundingClientRect();
+            const zoom = document.querySelector('#editor-global-toolbar-host .zoom-controls-display-value')?.textContent?.trim();
+            return Boolean(
+                viewport &&
+                rect &&
+                rect.bottom > viewport.top &&
+                rect.top < viewport.bottom &&
+                container
+                    ?.querySelector('.textLayer, .text-layer')
+                    ?.textContent?.includes(`E2E Multi Page Fixture ${expected.pageNumber}/40`) &&
+                zoom === expected.zoomLabel,
+            );
+        },
+        {timeout: RECENT_OPEN_TIMEOUT_MS},
+        {
+            pageNumber,
+            zoomLabel,
+        },
+    );
 }
 
 function readZoomLabel(session: IElectronE2ESession) {
-    return evaluateInPage(session.page, () => (
-        document.querySelector('#editor-global-toolbar-host .zoom-controls-display-value')?.textContent?.trim() ?? ''
-    ));
+    return evaluateInPage(
+        session.page,
+        () => document.querySelector('#editor-global-toolbar-host .zoom-controls-display-value')?.textContent?.trim() ?? '',
+    );
 }
 
 // Each Zoom In shows a new zoom before the next is pressed.
@@ -417,10 +389,15 @@ async function zoomInTwiceAsReader(session: IElectronE2ESession, before: string)
     let shown = before;
     for (let step = 0; step < 2; step += 1) {
         await clickVisibleToolbarButton(session.page, 'Zoom In');
-        await waitForFunctionInPage(session.page, (previous: string) => {
-            const zoom = document.querySelector('#editor-global-toolbar-host .zoom-controls-display-value')?.textContent?.trim();
-            return Boolean(zoom) && zoom !== previous;
-        }, {timeout: RECENT_OPEN_TIMEOUT_MS}, shown);
+        await waitForFunctionInPage(
+            session.page,
+            (previous: string) => {
+                const zoom = document.querySelector('#editor-global-toolbar-host .zoom-controls-display-value')?.textContent?.trim();
+                return Boolean(zoom) && zoom !== previous;
+            },
+            {timeout: RECENT_OPEN_TIMEOUT_MS},
+            shown,
+        );
         shown = await readZoomLabel(session);
     }
     return shown;
@@ -435,9 +412,9 @@ async function recordDrawnPages(session: IElectronE2ESession) {
         const drawn: number[] = [];
         (window as Window & {__drawnPagesForTest?: number[]}).__drawnPagesForTest = drawn;
         const record = () => {
-            const viewport = document.querySelector<HTMLElement>(
-                '.editor-pane.is-active [data-document-viewer-chassis-viewport]',
-            )?.getBoundingClientRect();
+            const viewport = document
+                .querySelector<HTMLElement>('.editor-pane.is-active [data-document-viewer-chassis-viewport]')
+                ?.getBoundingClientRect();
             for (const page of document.querySelectorAll<HTMLElement>('.editor-pane.is-active [data-document-page-number]')) {
                 const pageNumber = Number(page.dataset.documentPageNumber);
                 if (!viewport || drawn.includes(pageNumber)) {
@@ -446,10 +423,17 @@ async function recordDrawnPages(session: IElectronE2ESession) {
                 const image = page.querySelector<HTMLImageElement>('img[data-document-page-visual="committed"]');
                 const painted = page.classList.contains('page_container--rendered')
                     ? page
-                    : (image?.complete && image.naturalWidth > 0 ? image : null);
+                    : image?.complete && image.naturalWidth > 0
+                      ? image
+                      : null;
                 const rect = painted?.getBoundingClientRect();
-                if (rect && rect.bottom > viewport.top && rect.top < viewport.bottom
-                    && rect.right > viewport.left && rect.left < viewport.right) {
+                if (
+                    rect &&
+                    rect.bottom > viewport.top &&
+                    rect.top < viewport.bottom &&
+                    rect.right > viewport.left &&
+                    rect.left < viewport.right
+                ) {
                     drawn.push(pageNumber);
                 }
             }
@@ -464,9 +448,7 @@ async function recordDrawnPages(session: IElectronE2ESession) {
 // The first page drawn is the remembered one or its neighbour, never page 1
 // painted and then replaced.
 async function expectFirstDrawnPageNear(session: IElectronE2ESession, pageNumber: number) {
-    const drawn = await evaluateInPage(session.page, () => (
-        (window as Window & {__drawnPagesForTest?: number[]}).__drawnPagesForTest ?? []
-    ));
+    const drawn = await evaluateInPage(session.page, () => (window as Window & {__drawnPagesForTest?: number[]}).__drawnPagesForTest ?? []);
     expect(drawn.length, JSON.stringify(drawn)).toBeGreaterThan(0);
     expect(Math.abs(drawn[0]! - pageNumber), JSON.stringify(drawn)).toBeLessThanOrEqual(1);
 }
@@ -474,44 +456,60 @@ async function expectFirstDrawnPageNear(session: IElectronE2ESession, pageNumber
 // Quit through the installed menu's accelerator, as the reader would, and wait
 // for this window to go: the quit must pass the window's close decision.
 async function quitAsUser(session: IElectronE2ESession) {
-    const windowClosed = new Promise<void>(resolve => session.page.once('close', () => resolve()));
+    const windowClosed = new Promise<void>((resolve) => session.page.once('close', () => resolve()));
     await activateMenuItemAsUser(session.page, {accelerator: 'CmdOrCtrl+Q'});
     await windowClosed;
 }
 
 async function waitForRecentFileRow(session: IElectronE2ESession, sourcePath: string) {
-    await waitForFunctionInPage(session.page, (targetSourcePath: string) => {
-        return Array.from(document.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)'))
-            .some(row => row.dataset.recentSource === targetSourcePath);
-    }, { timeout: RECENT_ROW_TIMEOUT_MS }, sourcePath);
+    await waitForFunctionInPage(
+        session.page,
+        (targetSourcePath: string) => {
+            return Array.from(document.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)')).some(
+                (row) => row.dataset.recentSource === targetSourcePath,
+            );
+        },
+        {timeout: RECENT_ROW_TIMEOUT_MS},
+        sourcePath,
+    );
 }
 
 async function clickRecentFile(session: IElectronE2ESession, sourcePath: string) {
     await waitForRecentFileRow(session, sourcePath);
 
-    await clickFoundAsUser(session.page, (targetSourcePath: string) => Array.from(
-        document.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)'),
-    ).find(candidate => candidate.dataset.recentSource === targetSourcePath)
-        ?.querySelector<HTMLButtonElement>('button.recent-open'), sourcePath, {description: `recent open button for ${sourcePath}`});
+    await clickFoundAsUser(
+        session.page,
+        (targetSourcePath: string) =>
+            Array.from(document.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)'))
+                .find((candidate) => candidate.dataset.recentSource === targetSourcePath)
+                ?.querySelector<HTMLButtonElement>('button.recent-open'),
+        sourcePath,
+        {description: `recent open button for ${sourcePath}`},
+    );
 }
 
 // The open is held before its working copy exists, so a skeleton now was sized
 // from the source file, not from the copy.
 async function waitForOpeningSkeletonWhileOpenHeld(session: IElectronE2ESession) {
-    await waitForFunctionInPage(session.page, () => Array.from(
-        document.querySelectorAll<HTMLElement>(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-page-skeleton',
-        ),
-    ).some((skeleton) => {
-        const rect = skeleton.getBoundingClientRect();
-        return rect.width > 0 && rect.height > 0 && window.getComputedStyle(skeleton).visibility !== 'hidden';
-    }), {timeout: RECENT_OPEN_TIMEOUT_MS});
+    await waitForFunctionInPage(
+        session.page,
+        () =>
+            Array.from(
+                document.querySelectorAll<HTMLElement>(
+                    '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-page-skeleton',
+                ),
+            ).some((skeleton) => {
+                const rect = skeleton.getBoundingClientRect();
+                return rect.width > 0 && rect.height > 0 && window.getComputedStyle(skeleton).visibility !== 'hidden';
+            }),
+        {timeout: RECENT_OPEN_TIMEOUT_MS},
+    );
 }
 
 async function waitForStartupOverlayRemoved(session: IElectronE2ESession) {
-    await waitForFunctionInPage(session.page, () => (
-        document.querySelector('#evb-startup-overlay') === null
-    ), {timeout: RECENT_ROW_TIMEOUT_MS});
+    await waitForFunctionInPage(session.page, () => document.querySelector('#evb-startup-overlay') === null, {
+        timeout: RECENT_ROW_TIMEOUT_MS,
+    });
 }
 
 async function emptyCurrentTabAndOpenRecentAtFirstOpenSurface(
@@ -523,215 +521,221 @@ async function emptyCurrentTabAndOpenRecentAtFirstOpenSurface(
     // IPC/stat preflight has variable duration, so opening-surface budgets
     // start with the first positive open-surface snapshot—not the raw click or
     // the tab/session bookkeeping that may precede that snapshot.
-    const transition = evaluateInPage(session.page, (
-        targetSourcePath: string,
-        shellBudgetMs: number,
-    ) => new Promise<IRecentOpenTransitionResult>((resolve) => {
-        const previousActiveTabId = document.querySelector<HTMLElement>(
-            '.tab-list .tab.is-active[data-tab-id]',
-        )?.dataset.tabId ?? null;
-        const currentTabCloseButton = document.querySelector<HTMLButtonElement>(
-            '.tab-list .tab.is-active .tab-close',
-        );
-        const shellInteractiveAtMs = performance
-            .getEntriesByName('evb:shell-interactive', 'mark')
-            .at(-1)?.startTime ?? null;
-        let emptyTabCreatedAtMs: number | null = null;
-        let actionableAtMs: number | null = null;
-        let clickAtMs: number | null = null;
-        let framesAfterClick = 0;
-        let preSurfaceFrames = 0;
-        let sawVisibleDisabledTargetRow = false;
-        let sawRecentSkeleton = false;
-        let targetReadyAtClick = false;
-        let targetActionableAtClick = false;
-        let firstOpenSurfaceFrame: IRecentOpenTransitionResult['firstOpenSurfaceFrame'] = null;
+    const transition = evaluateInPage(
+        session.page,
+        (targetSourcePath: string, shellBudgetMs: number) =>
+            new Promise<IRecentOpenTransitionResult>((resolve) => {
+                const previousActiveTabId =
+                    document.querySelector<HTMLElement>('.tab-list .tab.is-active[data-tab-id]')?.dataset.tabId ?? null;
+                const currentTabCloseButton = document.querySelector<HTMLButtonElement>('.tab-list .tab.is-active .tab-close');
+                const shellInteractiveAtMs = performance.getEntriesByName('evb:shell-interactive', 'mark').at(-1)?.startTime ?? null;
+                let emptyTabCreatedAtMs: number | null = null;
+                let actionableAtMs: number | null = null;
+                let clickAtMs: number | null = null;
+                let framesAfterClick = 0;
+                let preSurfaceFrames = 0;
+                let sawVisibleDisabledTargetRow = false;
+                let sawRecentSkeleton = false;
+                let targetReadyAtClick = false;
+                let targetActionableAtClick = false;
+                let firstOpenSurfaceFrame: IRecentOpenTransitionResult['firstOpenSurfaceFrame'] = null;
 
-        const isVisible = (element: HTMLElement | null) => {
-            if (!element?.isConnected) {
-                return false;
-            }
-            const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return rect.width > 0
-                && rect.height > 0
-                && style.display !== 'none'
-                && style.visibility !== 'hidden'
-                && Number(style.opacity || '1') > 0;
-        };
-        const getActiveHost = () => document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
-        );
-        const getTargetRecentRows = () => Array.from(
-            getActiveHost()?.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)') ?? [],
-        ).filter(row => (
-            row.dataset.recentSource === targetSourcePath
-            && isVisible(row)
-        ));
-        const getRecentRow = () => getTargetRecentRows()
-            .find(row => row.dataset.recentOpenActionable === 'true') ?? null;
-        const getExactPageShell = () => {
-            const openingShell = getActiveHost()?.querySelector<HTMLElement>(
-                '.document-viewer-chassis__opening-page',
-            ) ?? null;
-            if (isVisible(openingShell)) {
-                return openingShell;
-            }
-            const pageCanvas = getActiveHost()?.querySelector<HTMLElement>(
-                '#pdf-viewer .page_container[data-page="1"] .page_canvas',
-            ) ?? null;
-            return isVisible(pageCanvas) ? pageCanvas : null;
-        };
-        const readOpenSurfaceFrame = (): NonNullable<IRecentOpenTransitionResult['firstOpenSurfaceFrame']> => {
-            const activeHost = getActiveHost();
-            const chassis = activeHost?.querySelector<HTMLElement>('.document-viewer-chassis') ?? null;
-            const exactPageShell = getExactPageShell();
-            return {
-                activeTabTitle: document.querySelector<HTMLElement>(
-                    '.tab-list .tab.is-active .tab-label',
-                )?.textContent?.trim() ?? '',
-                openSurfacePhase: activeHost?.querySelector<HTMLElement>(
-                    '[data-document-viewer-chassis-viewport]',
-                )?.dataset.openSurfacePhase ?? null,
-                openSurfacePresentation: chassis?.dataset.openSurfacePresentation ?? null,
-                openingGeometryKnown: chassis?.dataset.openSurfaceHasOpeningGeometry === 'true',
-                viewportVisualPresentation: chassis?.dataset.viewportVisualPresentation ?? null,
-                recentRowVisible: isVisible(getRecentRow()),
-                shellVisible: exactPageShell !== null,
-                // Any skeleton the tab paints, not only the page shell's: a
-                // placeholder that is not page-shaped is what this rules out.
-                skeletonVisible: Array.from(
-                    activeHost?.querySelectorAll<HTMLElement>('.document-page-skeleton') ?? [],
-                ).some(isVisible),
-            };
-        };
-        // Keep this predicate aligned with the committed-surface trace rebase
-        // below. Tab-title and Recent-row updates belong to session bookkeeping;
-        // they are asserted at the first surface frame but do not start its clock.
-        // Presentation remains idle for the supported provisional-shell begin
-        // path, so it is a transition signal here but not a required value.
-        const hasOpenSurfaceTransitionStarted = (
-            frame: NonNullable<IRecentOpenTransitionResult['firstOpenSurfaceFrame']>,
-        ) => (
-            (frame.openSurfacePhase !== null && frame.openSurfacePhase !== 'idle')
-            || (frame.openSurfacePresentation !== null && frame.openSurfacePresentation !== 'idle')
-            || frame.shellVisible
-        );
-        const finish = (openingSurfaceAtMs: number | null) => {
-            const activeTabId = document.querySelector<HTMLElement>(
-                '.tab-list .tab.is-active[data-tab-id]',
-            )?.dataset.tabId ?? null;
-            resolve({
-                activeTabChanged: Boolean(activeTabId && activeTabId !== previousActiveTabId),
-                actionableElapsedMs: emptyTabCreatedAtMs !== null && actionableAtMs !== null
-                    ? Math.round(actionableAtMs - emptyTabCreatedAtMs)
-                    : null,
-                clickAtMs,
-                emptyTabCreatedAtMs,
-                framesAfterClick,
-                preSurfaceFrames,
-                shellInteractiveAtMs,
-                recentRowVisibleAtShell: isVisible(getRecentRow()),
-                sawVisibleDisabledTargetRow,
-                sawRecentSkeleton,
-                openingSurfaceAtMs,
-                openingSurfaceElapsedMs: clickAtMs !== null && openingSurfaceAtMs !== null
-                    ? Math.round(openingSurfaceAtMs - clickAtMs)
-                    : null,
-                openingSurfaceFound: openingSurfaceAtMs !== null,
-                targetReadyAtClick,
-                targetActionableAtClick,
-                firstOpenSurfaceFrame,
-                visibleTextAtDeadline: (getActiveHost()?.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 300),
-            });
-        };
-        const sample = () => {
-            if (clickAtMs === null) {
-                sawVisibleDisabledTargetRow ||= getTargetRecentRows()
-                    .some(row => row.dataset.recentOpenActionable !== 'true');
-                sawRecentSkeleton ||= Array.from(
-                    getActiveHost()?.querySelectorAll<HTMLElement>('.recent-row--skeleton') ?? [],
-                ).some(isVisible);
-                const recentRow = getRecentRow();
-                const openButton = recentRow?.querySelector<HTMLButtonElement>('button.recent-open') ?? null;
-                const pressWindow = window as Window & {__recentPressPoint?: {
-                    x: number;
-                    y: number
-                } | null};
-                if (recentRow && openButton && isVisible(openButton) && !openButton.disabled
-                    && pressWindow.__recentPressPoint === undefined) {
-                    // Readiness ends at the painted actionable button. Sending
-                    // its pointer or keyboard activation adds driver latency.
-                    actionableAtMs = performance.now();
-                    openButton.addEventListener('click', () => {
-                        targetReadyAtClick = recentRow.dataset.recentOpenReady === 'true';
-                        targetActionableAtClick = recentRow.dataset.recentOpenActionable === 'true';
-                        clickAtMs = performance.now();
-                        pressWindow.__recentPressPoint = null;
-                        (window as Window & {__committedSurfaceInteractionCheckpoint?: string | null;})
-                            .__committedSurfaceInteractionCheckpoint = 'recent-click';
-                    }, {
-                        capture: true,
-                        once: true,
+                const isVisible = (element: HTMLElement | null) => {
+                    if (!element?.isConnected) {
+                        return false;
+                    }
+                    const rect = element.getBoundingClientRect();
+                    const style = window.getComputedStyle(element);
+                    return (
+                        rect.width > 0 &&
+                        rect.height > 0 &&
+                        style.display !== 'none' &&
+                        style.visibility !== 'hidden' &&
+                        Number(style.opacity || '1') > 0
+                    );
+                };
+                const getActiveHost = () =>
+                    document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
+                const getTargetRecentRows = () =>
+                    Array.from(getActiveHost()?.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)') ?? []).filter(
+                        (row) => row.dataset.recentSource === targetSourcePath && isVisible(row),
+                    );
+                const getRecentRow = () => getTargetRecentRows().find((row) => row.dataset.recentOpenActionable === 'true') ?? null;
+                const getExactPageShell = () => {
+                    const openingShell = getActiveHost()?.querySelector<HTMLElement>('.document-viewer-chassis__opening-page') ?? null;
+                    if (isVisible(openingShell)) {
+                        return openingShell;
+                    }
+                    const pageCanvas =
+                        getActiveHost()?.querySelector<HTMLElement>('#pdf-viewer .page_container[data-page="1"] .page_canvas') ?? null;
+                    return isVisible(pageCanvas) ? pageCanvas : null;
+                };
+                const readOpenSurfaceFrame = (): NonNullable<IRecentOpenTransitionResult['firstOpenSurfaceFrame']> => {
+                    const activeHost = getActiveHost();
+                    const chassis = activeHost?.querySelector<HTMLElement>('.document-viewer-chassis') ?? null;
+                    const exactPageShell = getExactPageShell();
+                    return {
+                        activeTabTitle:
+                            document.querySelector<HTMLElement>('.tab-list .tab.is-active .tab-label')?.textContent?.trim() ?? '',
+                        openSurfacePhase:
+                            activeHost?.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]')?.dataset.openSurfacePhase ??
+                            null,
+                        openSurfacePresentation: chassis?.dataset.openSurfacePresentation ?? null,
+                        openingGeometryKnown: chassis?.dataset.openSurfaceHasOpeningGeometry === 'true',
+                        viewportVisualPresentation: chassis?.dataset.viewportVisualPresentation ?? null,
+                        recentRowVisible: isVisible(getRecentRow()),
+                        shellVisible: exactPageShell !== null,
+                        // Any skeleton the tab paints, not only the page shell's: a
+                        // placeholder that is not page-shaped is what this rules out.
+                        skeletonVisible: Array.from(activeHost?.querySelectorAll<HTMLElement>('.document-page-skeleton') ?? []).some(
+                            isVisible,
+                        ),
+                    };
+                };
+                // Keep this predicate aligned with the committed-surface trace rebase
+                // below. Tab-title and Recent-row updates belong to session bookkeeping;
+                // they are asserted at the first surface frame but do not start its clock.
+                // Presentation remains idle for the supported provisional-shell begin
+                // path, so it is a transition signal here but not a required value.
+                const hasOpenSurfaceTransitionStarted = (frame: NonNullable<IRecentOpenTransitionResult['firstOpenSurfaceFrame']>) =>
+                    (frame.openSurfacePhase !== null && frame.openSurfacePhase !== 'idle') ||
+                    (frame.openSurfacePresentation !== null && frame.openSurfacePresentation !== 'idle') ||
+                    frame.shellVisible;
+                const finish = (openingSurfaceAtMs: number | null) => {
+                    const activeTabId = document.querySelector<HTMLElement>('.tab-list .tab.is-active[data-tab-id]')?.dataset.tabId ?? null;
+                    resolve({
+                        activeTabChanged: Boolean(activeTabId && activeTabId !== previousActiveTabId),
+                        actionableElapsedMs:
+                            emptyTabCreatedAtMs !== null && actionableAtMs !== null
+                                ? Math.round(actionableAtMs - emptyTabCreatedAtMs)
+                                : null,
+                        clickAtMs,
+                        emptyTabCreatedAtMs,
+                        framesAfterClick,
+                        preSurfaceFrames,
+                        shellInteractiveAtMs,
+                        recentRowVisibleAtShell: isVisible(getRecentRow()),
+                        sawVisibleDisabledTargetRow,
+                        sawRecentSkeleton,
+                        openingSurfaceAtMs,
+                        openingSurfaceElapsedMs:
+                            clickAtMs !== null && openingSurfaceAtMs !== null ? Math.round(openingSurfaceAtMs - clickAtMs) : null,
+                        openingSurfaceFound: openingSurfaceAtMs !== null,
+                        targetReadyAtClick,
+                        targetActionableAtClick,
+                        firstOpenSurfaceFrame,
+                        visibleTextAtDeadline: (getActiveHost()?.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 300),
                     });
-                    const rect = openButton.getBoundingClientRect();
-                    pressWindow.__recentPressPoint = {
-                        x: rect.left + (rect.width / 2),
-                        y: rect.top + (rect.height / 2),
+                };
+                const sample = () => {
+                    if (clickAtMs === null) {
+                        sawVisibleDisabledTargetRow ||= getTargetRecentRows().some((row) => row.dataset.recentOpenActionable !== 'true');
+                        sawRecentSkeleton ||= Array.from(
+                            getActiveHost()?.querySelectorAll<HTMLElement>('.recent-row--skeleton') ?? [],
+                        ).some(isVisible);
+                        const recentRow = getRecentRow();
+                        const openButton = recentRow?.querySelector<HTMLButtonElement>('button.recent-open') ?? null;
+                        const pressWindow = window as Window & {
+                            __recentPressPoint?: {
+                                x: number;
+                                y: number;
+                            } | null;
+                        };
+                        if (
+                            recentRow &&
+                            openButton &&
+                            isVisible(openButton) &&
+                            !openButton.disabled &&
+                            pressWindow.__recentPressPoint === undefined
+                        ) {
+                            // Readiness ends at the painted actionable button. Sending
+                            // its pointer or keyboard activation adds driver latency.
+                            actionableAtMs = performance.now();
+                            openButton.addEventListener(
+                                'click',
+                                () => {
+                                    targetReadyAtClick = recentRow.dataset.recentOpenReady === 'true';
+                                    targetActionableAtClick = recentRow.dataset.recentOpenActionable === 'true';
+                                    clickAtMs = performance.now();
+                                    pressWindow.__recentPressPoint = null;
+                                    (
+                                        window as Window & {__committedSurfaceInteractionCheckpoint?: string | null}
+                                    ).__committedSurfaceInteractionCheckpoint = 'recent-click';
+                                },
+                                {
+                                    capture: true,
+                                    once: true,
+                                },
+                            );
+                            const rect = openButton.getBoundingClientRect();
+                            pressWindow.__recentPressPoint = {
+                                x: rect.left + rect.width / 2,
+                                y: rect.top + rect.height / 2,
+                            };
+                        }
+                        window.requestAnimationFrame(sample);
+                        return;
+                    }
+                    const sampledAtMs = performance.now();
+                    framesAfterClick += 1;
+                    const transitionFrame = readOpenSurfaceFrame();
+                    if (hasOpenSurfaceTransitionStarted(transitionFrame)) {
+                        firstOpenSurfaceFrame = transitionFrame;
+                        finish(sampledAtMs);
+                        return;
+                    }
+                    preSurfaceFrames += 1;
+                    if (sampledAtMs - clickAtMs > shellBudgetMs) {
+                        finish(null);
+                        return;
+                    }
+                    window.requestAnimationFrame(sample);
+                };
+
+                delete (window as Window & {__recentPressPoint?: unknown}).__recentPressPoint;
+                currentTabCloseButton?.click();
+                emptyTabCreatedAtMs = performance.now();
+                window.requestAnimationFrame(sample);
+            }),
+        sourcePath,
+        RECENT_OPEN_TIMEOUT_MS,
+    );
+    await waitForFunctionInPage(session.page, () => (window as Window & {__recentPressPoint?: unknown}).__recentPressPoint !== undefined, {
+        timeout: RECENT_ROW_TIMEOUT_MS,
+    });
+    const pressPoint = await evaluateInPage(
+        session.page,
+        () =>
+            (
+                window as Window & {
+                    __recentPressPoint?: {
+                        x: number;
+                        y: number;
                     };
                 }
-                window.requestAnimationFrame(sample);
-                return;
-            }
-            const sampledAtMs = performance.now();
-            framesAfterClick += 1;
-            const transitionFrame = readOpenSurfaceFrame();
-            if (hasOpenSurfaceTransitionStarted(transitionFrame)) {
-                firstOpenSurfaceFrame = transitionFrame;
-                finish(sampledAtMs);
-                return;
-            }
-            preSurfaceFrames += 1;
-            if (sampledAtMs - clickAtMs > shellBudgetMs) {
-                finish(null);
-                return;
-            }
-            window.requestAnimationFrame(sample);
-        };
-
-        delete (window as Window & {__recentPressPoint?: unknown}).__recentPressPoint;
-        currentTabCloseButton?.click();
-        emptyTabCreatedAtMs = performance.now();
-        window.requestAnimationFrame(sample);
-    }), sourcePath, RECENT_OPEN_TIMEOUT_MS);
-    await waitForFunctionInPage(session.page, () => (
-        (window as Window & {__recentPressPoint?: unknown}).__recentPressPoint !== undefined
-    ), {timeout: RECENT_ROW_TIMEOUT_MS});
-    const pressPoint = await evaluateInPage(session.page, () => (
-        (window as Window & {__recentPressPoint?: {
-            x: number;
-            y: number
-        }}).__recentPressPoint!
-    ));
+            ).__recentPressPoint!,
+    );
     // Sampling starts only once the row is actionable, so its per-frame
     // visibility walks stay out of the timed interval. Only frames from the
     // press onward are read, so nothing it skipped is asserted.
     await installCommittedSurfaceSampler(session.page);
     if (activation === 'keyboard') {
         // Focus is setup; the activation itself is a trusted keyboard input.
-        await evaluateInPage(session.page, (targetSourcePath: string) => {
-            const host = document.querySelector<HTMLElement>(
-                '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
-            );
-            const row = Array.from(host?.querySelectorAll<HTMLElement>(
-                '.recent-row--data[data-recent-open-actionable="true"]',
-            ) ?? []).find(candidate => candidate.dataset.recentSource === targetSourcePath);
-            const button = row?.querySelector<HTMLButtonElement>('button.recent-open');
-            if (!button || button.disabled || button.getClientRects().length === 0) {
-                throw new Error(`No visible actionable Recent button for ${targetSourcePath}`);
-            }
-            button.focus();
-        }, sourcePath);
+        await evaluateInPage(
+            session.page,
+            (targetSourcePath: string) => {
+                const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
+                const row = Array.from(
+                    host?.querySelectorAll<HTMLElement>('.recent-row--data[data-recent-open-actionable="true"]') ?? [],
+                ).find((candidate) => candidate.dataset.recentSource === targetSourcePath);
+                const button = row?.querySelector<HTMLButtonElement>('button.recent-open');
+                if (!button || button.disabled || button.getClientRects().length === 0) {
+                    throw new Error(`No visible actionable Recent button for ${targetSourcePath}`);
+                }
+                button.focus();
+            },
+            sourcePath,
+        );
         await session.page.keyboard.press('Enter');
     } else {
         await session.page.mouse.move(pressPoint.x, pressPoint.y);
@@ -742,14 +746,21 @@ async function emptyCurrentTabAndOpenRecentAtFirstOpenSurface(
     // The press opens only if its click reached the row's open button. One
     // that missed, because the row moved or was replaced after its point was
     // read, would leave the sampler waiting for a click until the test timed out.
-    const clicked = await waitForFunctionInPage(session.page, () => (
-        (window as Window & {__recentPressPoint?: unknown}).__recentPressPoint === null
-    ), {timeout: RECENT_ROW_TIMEOUT_MS}).then(() => true, () => false);
+    const clicked = await waitForFunctionInPage(
+        session.page,
+        () => (window as Window & {__recentPressPoint?: unknown}).__recentPressPoint === null,
+        {timeout: RECENT_ROW_TIMEOUT_MS},
+    ).then(
+        () => true,
+        () => false,
+    );
     if (!clicked) {
         void transition.catch(() => undefined);
-        throw new Error(`The press at ${JSON.stringify(pressPoint)} did not click the Recent row of ${sourcePath}: ${
-            describeRecentOpenDomState(await readRecentOpenDomState(session, sourcePath))
-        }`);
+        throw new Error(
+            `The press at ${JSON.stringify(pressPoint)} did not click the Recent row of ${sourcePath}: ${describeRecentOpenDomState(
+                await readRecentOpenDomState(session, sourcePath),
+            )}`,
+        );
     }
     return transition;
 }
@@ -784,7 +795,9 @@ async function waitForRecentPdfOpen(session: IElectronE2ESession, sourcePath: st
         }
 
         if (sawOpenAttempt && state.recentRowVisible && !state.hasViewer && !state.hasLoader) {
-            throw new Error(`Recent file "${sourcePath}" returned to the placeholder instead of opening: ${describeRecentOpenDomState(state)}`);
+            throw new Error(
+                `Recent file "${sourcePath}" returned to the placeholder instead of opening: ${describeRecentOpenDomState(state)}`,
+            );
         }
 
         if (state.hasViewer && state.hasRenderedContent) {
@@ -795,15 +808,19 @@ async function waitForRecentPdfOpen(session: IElectronE2ESession, sourcePath: st
         await delay(RECENT_POLL_INTERVAL_MS);
     }
 
-    throw new Error(`Recent file "${sourcePath}" did not settle into a loaded viewer: ${describeRecentOpenDomState(lastState ?? {
-        hasHost: false,
-        hasLoader: false,
-        hasViewer: false,
-        hasRenderedContent: false,
-        recentRowVisible: false,
-        visibleRecentRows: 0,
-        visibleText: '',
-    })}`);
+    throw new Error(
+        `Recent file "${sourcePath}" did not settle into a loaded viewer: ${describeRecentOpenDomState(
+            lastState ?? {
+                hasHost: false,
+                hasLoader: false,
+                hasViewer: false,
+                hasRenderedContent: false,
+                recentRowVisible: false,
+                visibleRecentRows: 0,
+                visibleText: '',
+            },
+        )}`,
+    );
 }
 
 async function waitForRecentDjvuOpen(session: IElectronE2ESession, sourcePath: string) {
@@ -824,12 +841,15 @@ async function waitForRecentDjvuOpen(session: IElectronE2ESession, sourcePath: s
         }
 
         if (sawOpenAttempt && state.recentRowVisible && !state.hasViewer && !state.hasLoader) {
-            throw new Error(`Recent DjVu "${sourcePath}" returned to the placeholder instead of opening: ${describeRecentOpenDomState(state)}`);
+            throw new Error(
+                `Recent DjVu "${sourcePath}" returned to the placeholder instead of opening: ${describeRecentOpenDomState(state)}`,
+            );
         }
 
         const loaded = await evaluateInPage(session.page, () => {
-            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host')
-                ?? document.querySelector<HTMLElement>('.workspace-host');
+            const activeHost =
+                document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host') ??
+                document.querySelector<HTMLElement>('.workspace-host');
             return (activeHost?.querySelectorAll('[data-testid="document-page-source-image"]').length ?? 0) > 0;
         });
         if (loaded) {
@@ -840,15 +860,19 @@ async function waitForRecentDjvuOpen(session: IElectronE2ESession, sourcePath: s
         await delay(RECENT_POLL_INTERVAL_MS);
     }
 
-    throw new Error(`Recent DjVu "${sourcePath}" did not settle into a loaded viewer: ${describeRecentOpenDomState(lastState ?? {
-        hasHost: false,
-        hasLoader: false,
-        hasViewer: false,
-        hasRenderedContent: false,
-        recentRowVisible: false,
-        visibleRecentRows: 0,
-        visibleText: '',
-    })}`);
+    throw new Error(
+        `Recent DjVu "${sourcePath}" did not settle into a loaded viewer: ${describeRecentOpenDomState(
+            lastState ?? {
+                hasHost: false,
+                hasLoader: false,
+                hasViewer: false,
+                hasRenderedContent: false,
+                recentRowVisible: false,
+                visibleRecentRows: 0,
+                visibleText: '',
+            },
+        )}`,
+    );
 }
 
 async function assertRecentPdfStaysLoaded(session: IElectronE2ESession, sourcePath: string) {
@@ -869,10 +893,12 @@ describe('Electron E2E - Recent Files', () => {
 
     it('keeps Start state through document opens and releases it with the tab', async () => {
         const pickedPath = createFixturePath(`start-picked-${Date.now()}.pdf`);
-        const session = await sessionFixture.restart({extraEnv: {
-            EVB_E2E_OPEN_DIALOG_PATH: pickedPath,
-            EVB_PDF_NATIVE_ASSEMBLER_ENABLE: '1',
-        }});
+        const session = await sessionFixture.restart({
+            extraEnv: {
+                EVB_E2E_OPEN_DIALOG_PATH: pickedPath,
+                EVB_PDF_NATIVE_ASSEMBLER_ENABLE: '1',
+            },
+        });
         try {
             const {page} = session;
             const firstPath = await createMultiPageTextFixturePdf(`start-queue-first-${Date.now()}.pdf`, 1);
@@ -888,22 +914,21 @@ describe('Electron E2E - Recent Files', () => {
             await clickAsUser(page, 'nav[aria-label="File"] button.rail-item');
             await page.waitForSelector('[data-combine-page]', {visible: true});
             await (await page.$('[data-combine-page] input[type="file"]'))!.uploadFile(firstPath, secondPath);
-            const queueNames = [
-                basename(firstPath),
-                basename(secondPath),
-            ];
-            await expect.poll(() => page.$$eval('[data-combine-row] .combine-file-copy strong', rows => (
-                rows.map(row => row.textContent?.trim())
-            ))).toEqual(queueNames);
+            const queueNames = [basename(firstPath), basename(secondPath)];
+            await expect
+                .poll(() =>
+                    page.$$eval('[data-combine-row] .combine-file-copy strong', (rows) => rows.map((row) => row.textContent?.trim())),
+                )
+                .toEqual(queueNames);
 
             // A refused picker open returns to the same queued files.
             await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+O'});
             await page.waitForSelector('.app-toast-failure', {visible: true});
-            expect(await page.$eval('.app-toast-failure', toast => toast.textContent)).toContain(basename(pickedPath));
+            expect(await page.$eval('.app-toast-failure', (toast) => toast.textContent)).toContain(basename(pickedPath));
             await page.waitForSelector('[data-combine-page]', {visible: true});
-            expect(await page.$$eval('[data-combine-row] .combine-file-copy strong', rows => (
-                rows.map(row => row.textContent?.trim())
-            ))).toEqual(queueNames);
+            expect(
+                await page.$$eval('[data-combine-row] .combine-file-copy strong', (rows) => rows.map((row) => row.textContent?.trim())),
+            ).toEqual(queueNames);
 
             // The next selection succeeds; closing its document restores the queue.
             copyFileSync(firstPath, pickedPath);
@@ -912,36 +937,48 @@ describe('Electron E2E - Recent Files', () => {
             await page.waitForSelector('.workspace-host__start', {hidden: true});
             await clickAsUser(page, '.tab-list .tab.is-active .tab-close');
             await page.waitForSelector('[data-combine-page]', {visible: true});
-            expect(await page.$$eval('[data-combine-row] .combine-file-copy strong', rows => (
-                rows.map(row => row.textContent?.trim())
-            ))).toEqual(queueNames);
+            expect(
+                await page.$$eval('[data-combine-row] .combine-file-copy strong', (rows) => rows.map((row) => row.textContent?.trim())),
+            ).toEqual(queueNames);
 
             // Combine owns clearing completed inputs even while Start is hidden.
             await clickAsUser(page, 'footer.combine-actions button');
             await waitForPdfLoaded(page);
             await clickAsUser(page, '.tab-list .tab.is-active .tab-close');
-            await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] button'))
-                .find(button => button.textContent?.trim() === 'Discard changes'), null, {description: 'discard the unsaved combined PDF'});
+            await clickFoundAsUser(
+                page,
+                () =>
+                    Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] button')).find(
+                        (button) => button.textContent?.trim() === 'Discard changes',
+                    ),
+                null,
+                {description: 'discard the unsaved combined PDF'},
+            );
             await page.waitForSelector('[data-combine-page].is-empty', {visible: true});
             expect(await page.$$('[data-combine-row]')).toHaveLength(0);
             await clickAsUser(page, 'nav[aria-label="Start"] button.rail-item');
-            expect(await page.$eval('.recent-search input', input => (input as HTMLInputElement).value)).toBe(basename(firstPath));
+            expect(await page.$eval('.recent-search input', (input) => (input as HTMLInputElement).value)).toBe(basename(firstPath));
 
             // Disposing this tab releases its queue and search, rather than handing
             // that state to the new tab.
             await clickAsUser(page, 'nav[aria-label="File"] button.rail-item');
             await page.waitForSelector('[data-combine-page]', {visible: true});
             await (await page.$('[data-combine-page] input[type="file"]'))!.uploadFile(firstPath, secondPath);
-            await expect.poll(() => page.$$eval('[data-combine-row]', rows => rows.length)).toBe(2);
-            const disposedTabId = await page.$eval('.tab-list .tab.is-active', tab => tab.getAttribute('data-tab-id'));
+            await expect.poll(() => page.$$eval('[data-combine-row]', (rows) => rows.length)).toBe(2);
+            const disposedTabId = await page.$eval('.tab-list .tab.is-active', (tab) => tab.getAttribute('data-tab-id'));
             await createNewWorkspaceTab(session);
             await clickAsUser(page, `.tab-list .tab[data-tab-id="${disposedTabId}"] .tab-close`);
-            await page.waitForFunction((tabId: string | null) => (
-                !document.querySelector(`.workspace-host[data-workspace-tab-id="${tabId}"]`)
-            ), {}, disposedTabId);
-            expect(await page.$eval('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .recent-search input', input => (
-                (input as HTMLInputElement).value
-            ))).toBe('');
+            await page.waitForFunction(
+                (tabId: string | null) => !document.querySelector(`.workspace-host[data-workspace-tab-id="${tabId}"]`),
+                {},
+                disposedTabId,
+            );
+            expect(
+                await page.$eval(
+                    '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .recent-search input',
+                    (input) => (input as HTMLInputElement).value,
+                ),
+            ).toBe('');
             await clickAsUser(page, 'nav[aria-label="File"] button.rail-item');
             await page.waitForSelector('[data-combine-page].is-empty', {visible: true});
             expect(await page.$$('[data-combine-row]')).toHaveLength(0);
@@ -953,275 +990,262 @@ describe('Electron E2E - Recent Files', () => {
         }
     });
 
-    it.each([
-        'pointer',
-        'keyboard',
-    ] as const)('opens a previously read Recent file to its page-shaped skeleton in the first frame, before the working copy is made (%s)', async (activation) => {
-        const session = sessionFixture.getSession();
-        // A valid remembered view requests source geometry before the held
-        // working-copy open. An ordinary first open has no known shape yet.
-        await setRememberPlaceAsUser(session, true);
-        onTestFinished(async () => {
-            await setRememberPlaceAsUser(session, false);
-        });
+    it.each(['pointer', 'keyboard'] as const)(
+        'opens a previously read Recent file to its page-shaped skeleton in the first frame, before the working copy is made (%s)',
+        async (activation) => {
+            const session = sessionFixture.getSession();
+            // A valid remembered view requests source geometry before the held
+            // working-copy open. An ordinary first open has no known shape yet.
+            await setRememberPlaceAsUser(session, true);
+            onTestFinished(async () => {
+                await setRememberPlaceAsUser(session, false);
+            });
 
-        // This geometry oracle needs a fixed non-Letter page. The OCR fixture
-        // widens its page to fit text using host-dependent canvas font metrics.
-        const fixturePath = createFixturePath(`recent-file-${Date.now()}.pdf`);
-        const fixtureDocument = await PDFDocument.create();
-        const fixturePage = fixtureDocument.addPage([
-            600,
-            250,
-        ]);
-        fixturePage.drawText('NON-LETTER PAGE', {
-            x: 30,
-            y: 135,
-            size: 36,
-        });
-        writeFileSync(fixturePath, await fixtureDocument.save());
-        const fixtureDocumentRef = requireDocumentRef(fixturePath);
-        await openPdfInApp(session.page, fixturePath);
-        await waitForPdfLoaded(session.page);
+            // This geometry oracle needs a fixed non-Letter page. The OCR fixture
+            // widens its page to fit text using host-dependent canvas font metrics.
+            const fixturePath = createFixturePath(`recent-file-${Date.now()}.pdf`);
+            const fixtureDocument = await PDFDocument.create();
+            const fixturePage = fixtureDocument.addPage([600, 250]);
+            fixturePage.drawText('NON-LETTER PAGE', {
+                x: 30,
+                y: 135,
+                size: 36,
+            });
+            writeFileSync(fixturePath, await fixtureDocument.save());
+            const fixtureDocumentRef = requireDocumentRef(fixturePath);
+            await openPdfInApp(session.page, fixturePath);
+            await waitForPdfLoaded(session.page);
 
-        await startToolbarTransitionSampling(session);
-        const sourceDeferred = await evaluateInPage(session.page, (path: TDocumentRef) => (
-            window.__deferDocumentOpenForAutomation?.(path) ?? false
-        ), fixtureDocumentRef);
-        expect(sourceDeferred).toBe(true);
-        const client = await session.page.createCDPSession();
-        await client.send('Emulation.setCPUThrottlingRate', {rate: 6});
-        const immediateOpen = await emptyCurrentTabAndOpenRecentAtFirstOpenSurface(
-            session,
-            fixturePath,
-            activation,
-        ).finally(async () => {
-            await client.send('Emulation.setCPUThrottlingRate', {rate: 1});
-            await client.detach();
-        });
-        expect(immediateOpen.openingSurfaceFound, JSON.stringify(immediateOpen)).toBe(true);
-        // The open is held before the working copy exists, as a slow disk holds
-        // it. The page's shape does not wait for the working copy, so the
-        // page-shaped skeleton is on screen while the open is still held.
-        await waitForOpeningSkeletonWhileOpenHeld(session);
-        const sourceReleased = await evaluateInPage(session.page, (path: TDocumentRef) => (
-            window.__releaseDocumentOpenForAutomation?.(path) ?? false
-        ), fixtureDocumentRef);
-        expect(sourceReleased).toBe(true);
-        // Opening a Recent file consumes the current empty tab; it must not create
-        // another tab or replace the current tab identity.
-        expect(immediateOpen.activeTabChanged, JSON.stringify(immediateOpen)).toBe(false);
-        expect(immediateOpen.shellInteractiveAtMs, JSON.stringify(immediateOpen)).not.toBeNull();
-        expect(immediateOpen.clickAtMs, JSON.stringify(immediateOpen)).not.toBeNull();
-        // The user would see the Recent file before they could open it.
-        expect(immediateOpen.sawVisibleDisabledTargetRow, JSON.stringify(immediateOpen)).toBe(false);
-        // The user would see a loading placeholder in Recent.
-        expect(immediateOpen.sawRecentSkeleton, JSON.stringify(immediateOpen)).toBe(false);
-        expect(immediateOpen.targetReadyAtClick, JSON.stringify(immediateOpen)).toBe(true);
-        expect(immediateOpen.targetActionableAtClick, JSON.stringify(immediateOpen)).toBe(true);
-        expect(immediateOpen.recentRowVisibleAtShell, JSON.stringify(immediateOpen)).toBe(false);
-        // The app has read this file before, so its page shape is known when
-        // the open claims the tab: the first frame after the click shows the
-        // page skeleton, never the bare viewer (#931).
-        expect(immediateOpen.firstOpenSurfaceFrame, JSON.stringify(immediateOpen)).toMatchObject({
-            activeTabTitle: basename(fixturePath),
-            openingGeometryKnown: true,
-            recentRowVisible: false,
-            shellVisible: true,
-            skeletonVisible: true,
-        });
-        expect([
-            'pending',
-            'geometry-committed',
-            'canvas-committed',
-            'viewport-committed',
-        ], JSON.stringify(immediateOpen)).toContain(
-            immediateOpen.firstOpenSurfaceFrame?.openSurfacePhase,
-        );
-        await waitForRecentPdfOpen(session, fixturePath);
-        const committedCanvasState = await evaluateInPage(session.page, () => {
-            const shell = document.querySelector<HTMLElement>(
-                '.editor-pane.is-active #pdf-viewer .page_canvas',
+            await startToolbarTransitionSampling(session);
+            const sourceDeferred = await evaluateInPage(
+                session.page,
+                (path: TDocumentRef) => window.__deferDocumentOpenForAutomation?.(path) ?? false,
+                fixtureDocumentRef,
             );
-            if (!shell) {
+            expect(sourceDeferred).toBe(true);
+            const client = await session.page.createCDPSession();
+            await client.send('Emulation.setCPUThrottlingRate', {rate: 6});
+            const immediateOpen = await emptyCurrentTabAndOpenRecentAtFirstOpenSurface(session, fixturePath, activation).finally(
+                async () => {
+                    await client.send('Emulation.setCPUThrottlingRate', {rate: 1});
+                    await client.detach();
+                },
+            );
+            expect(immediateOpen.openingSurfaceFound, JSON.stringify(immediateOpen)).toBe(true);
+            // The open is held before the working copy exists, as a slow disk holds
+            // it. The page's shape does not wait for the working copy, so the
+            // page-shaped skeleton is on screen while the open is still held.
+            await waitForOpeningSkeletonWhileOpenHeld(session);
+            const sourceReleased = await evaluateInPage(
+                session.page,
+                (path: TDocumentRef) => window.__releaseDocumentOpenForAutomation?.(path) ?? false,
+                fixtureDocumentRef,
+            );
+            expect(sourceReleased).toBe(true);
+            // Opening a Recent file consumes the current empty tab; it must not create
+            // another tab or replace the current tab identity.
+            expect(immediateOpen.activeTabChanged, JSON.stringify(immediateOpen)).toBe(false);
+            expect(immediateOpen.shellInteractiveAtMs, JSON.stringify(immediateOpen)).not.toBeNull();
+            expect(immediateOpen.clickAtMs, JSON.stringify(immediateOpen)).not.toBeNull();
+            // The user would see the Recent file before they could open it.
+            expect(immediateOpen.sawVisibleDisabledTargetRow, JSON.stringify(immediateOpen)).toBe(false);
+            // The user would see a loading placeholder in Recent.
+            expect(immediateOpen.sawRecentSkeleton, JSON.stringify(immediateOpen)).toBe(false);
+            expect(immediateOpen.targetReadyAtClick, JSON.stringify(immediateOpen)).toBe(true);
+            expect(immediateOpen.targetActionableAtClick, JSON.stringify(immediateOpen)).toBe(true);
+            expect(immediateOpen.recentRowVisibleAtShell, JSON.stringify(immediateOpen)).toBe(false);
+            // The app has read this file before, so its page shape is known when
+            // the open claims the tab: the first frame after the click shows the
+            // page skeleton, never the bare viewer (#931).
+            expect(immediateOpen.firstOpenSurfaceFrame, JSON.stringify(immediateOpen)).toMatchObject({
+                activeTabTitle: basename(fixturePath),
+                openingGeometryKnown: true,
+                recentRowVisible: false,
+                shellVisible: true,
+                skeletonVisible: true,
+            });
+            expect(['pending', 'geometry-committed', 'canvas-committed', 'viewport-committed'], JSON.stringify(immediateOpen)).toContain(
+                immediateOpen.firstOpenSurfaceFrame?.openSurfacePhase,
+            );
+            await waitForRecentPdfOpen(session, fixturePath);
+            const committedCanvasState = await evaluateInPage(session.page, () => {
+                const shell = document.querySelector<HTMLElement>('.editor-pane.is-active #pdf-viewer .page_canvas');
+                if (!shell) {
+                    return {
+                        found: false,
+                        rect: null,
+                        borderRadius: '',
+                        boxShadow: '',
+                        hasSkeleton: true,
+                    };
+                }
+                const rect = shell.getBoundingClientRect();
+                const style = window.getComputedStyle(shell);
+                const viewport = document.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]');
+                const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+                const workspace = document.querySelector<HTMLElement>('.workspace-main-shell');
+                const track = document.querySelector<HTMLElement>('[data-pdf-page-track]');
+                const pageContainer = shell.closest<HTMLElement>('.page_container');
                 return {
-                    found: false,
-                    rect: null,
-                    borderRadius: '',
-                    boxShadow: '',
-                    hasSkeleton: true,
+                    found: shell.querySelector('canvas') !== null,
+                    rect: {
+                        height: rect.height,
+                        left: rect.left,
+                        top: rect.top,
+                        width: rect.width,
+                    },
+                    borderRadius: style.borderRadius,
+                    boxShadow: style.boxShadow,
+                    hasSkeleton: shell.querySelector('.document-page-skeleton') !== null,
+                    diagnostics: {
+                        hostClientWidth: host?.clientWidth ?? 0,
+                        viewportClientWidth: viewport?.clientWidth ?? 0,
+                        viewportOffsetWidth: viewport?.offsetWidth ?? 0,
+                        viewportScrollTop: viewport?.scrollTop ?? 0,
+                        viewportTop: viewport?.getBoundingClientRect().top ?? 0,
+                        workspaceTop: workspace?.getBoundingClientRect().top ?? 0,
+                        trackTop: track?.getBoundingClientRect().top ?? 0,
+                        pageContainerTop: pageContainer?.getBoundingClientRect().top ?? 0,
+                        pageContainerOffsetTop: pageContainer?.offsetTop ?? 0,
+                        trackPaddingTop: track ? window.getComputedStyle(track).paddingTop : '',
+                    },
                 };
-            }
-            const rect = shell.getBoundingClientRect();
-            const style = window.getComputedStyle(shell);
-            const viewport = document.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]');
-            const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-            const workspace = document.querySelector<HTMLElement>('.workspace-main-shell');
-            const track = document.querySelector<HTMLElement>('[data-pdf-page-track]');
-            const pageContainer = shell.closest<HTMLElement>('.page_container');
-            return {
-                found: shell.querySelector('canvas') !== null,
-                rect: {
-                    height: rect.height,
-                    left: rect.left,
-                    top: rect.top,
-                    width: rect.width,
-                },
-                borderRadius: style.borderRadius,
-                boxShadow: style.boxShadow,
-                hasSkeleton: shell.querySelector('.document-page-skeleton') !== null,
-                diagnostics: {
-                    hostClientWidth: host?.clientWidth ?? 0,
-                    viewportClientWidth: viewport?.clientWidth ?? 0,
-                    viewportOffsetWidth: viewport?.offsetWidth ?? 0,
-                    viewportScrollTop: viewport?.scrollTop ?? 0,
-                    viewportTop: viewport?.getBoundingClientRect().top ?? 0,
-                    workspaceTop: workspace?.getBoundingClientRect().top ?? 0,
-                    trackTop: track?.getBoundingClientRect().top ?? 0,
-                    pageContainerTop: pageContainer?.getBoundingClientRect().top ?? 0,
-                    pageContainerOffsetTop: pageContainer?.offsetTop ?? 0,
-                    trackPaddingTop: track ? window.getComputedStyle(track).paddingTop : '',
-                },
+            });
+            expect(committedCanvasState.found).toBe(true);
+            expect(committedCanvasState.hasSkeleton).toBe(false);
+            expect(committedCanvasState.rect).not.toBeNull();
+            assertToolbarTransitionStable(await stopToolbarTransitionSampling(session), immediateOpen.clickAtMs);
+            await delay(250);
+            const committedSurfaceTrace = await stopCommittedSurfaceSampler(session.page);
+            const postClickFrames = committedSurfaceTrace.frames.filter((frame) => frame.interactionCheckpoint === 'recent-click');
+            // Keep the raw-click checkpoint for pre-surface diagnostics, then rebase
+            // paint timing at the first positive open-surface transition signal.
+            const firstOpenSurfaceIndex = postClickFrames.findIndex(
+                (frame) =>
+                    (frame.openSurfacePhase !== null && frame.openSurfacePhase !== 'idle') ||
+                    (frame.openSurfacePresentation !== null && frame.openSurfacePresentation !== 'idle') ||
+                    frame.kind === 'page-shell',
+            );
+            const openSurfaceFrames = firstOpenSurfaceIndex >= 0 ? postClickFrames.slice(firstOpenSurfaceIndex) : [];
+            const firstOpenSurfaceElapsedMs = openSurfaceFrames[0]?.elapsedMs ?? 0;
+            const openSurfaceTrace = {
+                ...(committedSurfaceTrace.errors ? {errors: committedSurfaceTrace.errors} : {}),
+                frames: openSurfaceFrames.map((frame) => ({
+                    ...frame,
+                    elapsedMs: Math.max(0, frame.elapsedMs - firstOpenSurfaceElapsedMs),
+                })),
             };
-        });
-        expect(committedCanvasState.found).toBe(true);
-        expect(committedCanvasState.hasSkeleton).toBe(false);
-        expect(committedCanvasState.rect).not.toBeNull();
-        assertToolbarTransitionStable(await stopToolbarTransitionSampling(session), immediateOpen.clickAtMs);
-        await delay(250);
-        const committedSurfaceTrace = await stopCommittedSurfaceSampler(session.page);
-        const postClickFrames = committedSurfaceTrace.frames.filter(
-            frame => frame.interactionCheckpoint === 'recent-click',
-        );
-        // Keep the raw-click checkpoint for pre-surface diagnostics, then rebase
-        // paint timing at the first positive open-surface transition signal.
-        const firstOpenSurfaceIndex = postClickFrames.findIndex(frame => (
-            (frame.openSurfacePhase !== null && frame.openSurfacePhase !== 'idle')
-            || (frame.openSurfacePresentation !== null && frame.openSurfacePresentation !== 'idle')
-            || frame.kind === 'page-shell'
-        ));
-        const openSurfaceFrames = firstOpenSurfaceIndex >= 0
-            ? postClickFrames.slice(firstOpenSurfaceIndex)
-            : [];
-        const firstOpenSurfaceElapsedMs = openSurfaceFrames[0]?.elapsedMs ?? 0;
-        const openSurfaceTrace = {
-            ...(committedSurfaceTrace.errors
-                ? { errors: committedSurfaceTrace.errors }
-                : {}),
-            frames: openSurfaceFrames.map(frame => ({
-                ...frame,
-                elapsedMs: Math.max(0, frame.elapsedMs - firstOpenSurfaceElapsedMs),
-            })),
-        };
-        const firstGeometryIndex = openSurfaceTrace.frames.findIndex(frame => (
-            frame.openSurfaceDiagnostic?.openSurfaceHasOpeningGeometry === 'true'
-        ));
-        expect(firstGeometryIndex, JSON.stringify(openSurfaceTrace.frames)).toBeGreaterThanOrEqual(0);
-        const firstGeometryFrame = openSurfaceTrace.frames[firstGeometryIndex]!;
-        const geometryTrace = {
-            ...(openSurfaceTrace.errors ? {errors: openSurfaceTrace.errors} : {}),
-            frames: openSurfaceTrace.frames.slice(firstGeometryIndex).map(frame => ({
-                ...frame,
-                elapsedMs: Math.max(0, frame.elapsedMs - firstGeometryFrame.elapsedMs),
-            })),
-        };
-        const causalViolations = findCommittedSurfaceCausalOpenViolations(geometryTrace, {
-            maxFirstCanvasMs: RECENT_FIRST_CANVAS_BUDGET_MS,
-            maxFirstPageShellMs: RECENT_FIRST_PAGE_SHELL_BUDGET_MS,
-            maxReadyAfterCanvasMs: RECENT_READY_AFTER_CANVAS_BUDGET_MS,
-            requirePageShell: true,
-        });
-        const firstGeometryTraceFrame = geometryTrace.frames[0];
-        const firstVisiblePageShellFrame = openSurfaceTrace.frames.find(frame => frame.kind === 'page-shell');
-        expect(firstVisiblePageShellFrame, JSON.stringify(openSurfaceTrace.frames)).toBeDefined();
-        expect(
-            firstVisiblePageShellFrame?.openSurfaceDiagnostic?.openSurfaceHasOpeningGeometry,
-            JSON.stringify(firstVisiblePageShellFrame),
-        ).toBe('true');
-        expect(
-            firstVisiblePageShellFrame?.shellRect
-                ? firstVisiblePageShellFrame.shellRect.width / firstVisiblePageShellFrame.shellRect.height
-                : null,
-            JSON.stringify(firstVisiblePageShellFrame),
-        ).toBeCloseTo(2.4, 2);
-        expect(committedCanvasState.borderRadius).toBe(firstVisiblePageShellFrame?.shellStyle?.borderRadius);
-        expect(committedCanvasState.boxShadow).toBe(firstVisiblePageShellFrame?.shellStyle?.boxShadow);
-        for (const key of [
-            'height',
-            'left',
-            'top',
-            'width',
-        ] as const) {
-            expect(Math.abs(
-                committedCanvasState.rect![key] - firstVisiblePageShellFrame!.shellRect![key],
-            ), JSON.stringify({
-                key,
-                committedCanvasState,
-                openingPageShell: firstVisiblePageShellFrame,
-            })).toBeLessThanOrEqual(0.5);
-        }
-        const visiblePageShellFrameDelta = firstGeometryTraceFrame && firstVisiblePageShellFrame
-            ? firstVisiblePageShellFrame.frame - firstGeometryTraceFrame.frame
-            : null;
-        console.info('[E2E recent PDF open timing]', JSON.stringify({
-            actionableElapsedMs: immediateOpen.actionableElapsedMs,
-            sawVisibleDisabledTargetRow: immediateOpen.sawVisibleDisabledTargetRow,
-            sawRecentSkeleton: immediateOpen.sawRecentSkeleton,
-            firstOpenSurfaceFrame: immediateOpen.firstOpenSurfaceFrame,
-            framesAfterClick: immediateOpen.framesAfterClick,
-            preSurfaceFrames: immediateOpen.preSurfaceFrames,
-            preSurfaceTraceFrames: Math.max(0, firstOpenSurfaceIndex),
-            framesThroughFirstVisibleShell: openSurfaceTrace.frames
-                .slice(0, Math.max(1, openSurfaceTrace.frames.findIndex(frame => frame.kind === 'page-shell') + 1))
-                .map(frame => ({
-                    elapsedMs: frame.elapsedMs,
-                    frame: frame.frame,
-                    kind: frame.kind,
-                    openSurfacePhase: frame.openSurfacePhase,
-                    openSurfacePresentation: frame.openSurfacePresentation,
-                    outerPlaceholderOwnsCenter: frame.outerPlaceholderOwnsCenter,
-                    topElementPath: frame.topElementPath,
+            const firstGeometryIndex = openSurfaceTrace.frames.findIndex(
+                (frame) => frame.openSurfaceDiagnostic?.openSurfaceHasOpeningGeometry === 'true',
+            );
+            expect(firstGeometryIndex, JSON.stringify(openSurfaceTrace.frames)).toBeGreaterThanOrEqual(0);
+            const firstGeometryFrame = openSurfaceTrace.frames[firstGeometryIndex]!;
+            const geometryTrace = {
+                ...(openSurfaceTrace.errors ? {errors: openSurfaceTrace.errors} : {}),
+                frames: openSurfaceTrace.frames.slice(firstGeometryIndex).map((frame) => ({
+                    ...frame,
+                    elapsedMs: Math.max(0, frame.elapsedMs - firstGeometryFrame.elapsedMs),
                 })),
-            openingSurfaceElapsedMs: immediateOpen.openingSurfaceElapsedMs,
-            timing: summarizeCommittedSurfaceTiming(openSurfaceTrace),
-            visiblePageShellFrameDelta,
-        }));
-        expect(
-            visiblePageShellFrameDelta,
-            JSON.stringify({
-                immediateOpen,
-                frames: openSurfaceTrace.frames,
-            }),
-        ).not.toBeNull();
-        expect(
-            visiblePageShellFrameDelta!,
-            JSON.stringify({
-                immediateOpen,
-                frames: openSurfaceTrace.frames,
-            }),
-        ).toBeLessThanOrEqual(RECENT_FIRST_VISIBLE_PAGE_SHELL_BUDGET_FRAMES);
-        expect(
-            causalViolations,
-            JSON.stringify({
+            };
+            const causalViolations = findCommittedSurfaceCausalOpenViolations(geometryTrace, {
+                maxFirstCanvasMs: RECENT_FIRST_CANVAS_BUDGET_MS,
+                maxFirstPageShellMs: RECENT_FIRST_PAGE_SHELL_BUDGET_MS,
+                maxReadyAfterCanvasMs: RECENT_READY_AFTER_CANVAS_BUDGET_MS,
+                requirePageShell: true,
+            });
+            const firstGeometryTraceFrame = geometryTrace.frames[0];
+            const firstVisiblePageShellFrame = openSurfaceTrace.frames.find((frame) => frame.kind === 'page-shell');
+            expect(firstVisiblePageShellFrame, JSON.stringify(openSurfaceTrace.frames)).toBeDefined();
+            expect(
+                firstVisiblePageShellFrame?.openSurfaceDiagnostic?.openSurfaceHasOpeningGeometry,
+                JSON.stringify(firstVisiblePageShellFrame),
+            ).toBe('true');
+            expect(
+                firstVisiblePageShellFrame?.shellRect
+                    ? firstVisiblePageShellFrame.shellRect.width / firstVisiblePageShellFrame.shellRect.height
+                    : null,
+                JSON.stringify(firstVisiblePageShellFrame),
+            ).toBeCloseTo(2.4, 2);
+            expect(committedCanvasState.borderRadius).toBe(firstVisiblePageShellFrame?.shellStyle?.borderRadius);
+            expect(committedCanvasState.boxShadow).toBe(firstVisiblePageShellFrame?.shellStyle?.boxShadow);
+            for (const key of ['height', 'left', 'top', 'width'] as const) {
+                expect(
+                    Math.abs(committedCanvasState.rect![key] - firstVisiblePageShellFrame!.shellRect![key]),
+                    JSON.stringify({
+                        key,
+                        committedCanvasState,
+                        openingPageShell: firstVisiblePageShellFrame,
+                    }),
+                ).toBeLessThanOrEqual(0.5);
+            }
+            const visiblePageShellFrameDelta =
+                firstGeometryTraceFrame && firstVisiblePageShellFrame
+                    ? firstVisiblePageShellFrame.frame - firstGeometryTraceFrame.frame
+                    : null;
+            console.info(
+                '[E2E recent PDF open timing]',
+                JSON.stringify({
+                    actionableElapsedMs: immediateOpen.actionableElapsedMs,
+                    sawVisibleDisabledTargetRow: immediateOpen.sawVisibleDisabledTargetRow,
+                    sawRecentSkeleton: immediateOpen.sawRecentSkeleton,
+                    firstOpenSurfaceFrame: immediateOpen.firstOpenSurfaceFrame,
+                    framesAfterClick: immediateOpen.framesAfterClick,
+                    preSurfaceFrames: immediateOpen.preSurfaceFrames,
+                    preSurfaceTraceFrames: Math.max(0, firstOpenSurfaceIndex),
+                    framesThroughFirstVisibleShell: openSurfaceTrace.frames
+                        .slice(0, Math.max(1, openSurfaceTrace.frames.findIndex((frame) => frame.kind === 'page-shell') + 1))
+                        .map((frame) => ({
+                            elapsedMs: frame.elapsedMs,
+                            frame: frame.frame,
+                            kind: frame.kind,
+                            openSurfacePhase: frame.openSurfacePhase,
+                            openSurfacePresentation: frame.openSurfacePresentation,
+                            outerPlaceholderOwnsCenter: frame.outerPlaceholderOwnsCenter,
+                            topElementPath: frame.topElementPath,
+                        })),
+                    openingSurfaceElapsedMs: immediateOpen.openingSurfaceElapsedMs,
+                    timing: summarizeCommittedSurfaceTiming(openSurfaceTrace),
+                    visiblePageShellFrameDelta,
+                }),
+            );
+            expect(
+                visiblePageShellFrameDelta,
+                JSON.stringify({
+                    immediateOpen,
+                    frames: openSurfaceTrace.frames,
+                }),
+            ).not.toBeNull();
+            expect(
+                visiblePageShellFrameDelta!,
+                JSON.stringify({
+                    immediateOpen,
+                    frames: openSurfaceTrace.frames,
+                }),
+            ).toBeLessThanOrEqual(RECENT_FIRST_VISIBLE_PAGE_SHELL_BUDGET_FRAMES);
+            expect(
                 causalViolations,
-                immediateOpen,
-                frames: openSurfaceTrace.frames.map(frame => ({
-                    elapsedMs: frame.elapsedMs,
-                    frame: frame.frame,
-                    kind: frame.kind,
-                    openSurfacePhase: frame.openSurfacePhase,
-                    openSurfacePresentation: frame.openSurfacePresentation,
-                    outerPlaceholderOwnsCenter: frame.outerPlaceholderOwnsCenter,
-                    pageClassName: frame.pageClassName,
-                    shellRect: frame.shellRect,
-                    skeletonCount: frame.skeletonCount,
-                    skeletonRect: frame.skeletonRect,
-                    topElementPath: frame.topElementPath,
-                })),
-                timing: summarizeCommittedSurfaceTiming(openSurfaceTrace),
-            }),
-        ).toEqual([]);
-        await assertRecentPdfStaysLoaded(session, fixturePath);
-    });
+                JSON.stringify({
+                    causalViolations,
+                    immediateOpen,
+                    frames: openSurfaceTrace.frames.map((frame) => ({
+                        elapsedMs: frame.elapsedMs,
+                        frame: frame.frame,
+                        kind: frame.kind,
+                        openSurfacePhase: frame.openSurfacePhase,
+                        openSurfacePresentation: frame.openSurfacePresentation,
+                        outerPlaceholderOwnsCenter: frame.outerPlaceholderOwnsCenter,
+                        pageClassName: frame.pageClassName,
+                        shellRect: frame.shellRect,
+                        skeletonCount: frame.skeletonCount,
+                        skeletonRect: frame.skeletonRect,
+                        topElementPath: frame.topElementPath,
+                    })),
+                    timing: summarizeCommittedSurfaceTiming(openSurfaceTrace),
+                }),
+            ).toEqual([]);
+            await assertRecentPdfStaysLoaded(session, fixturePath);
+        },
+    );
 
     it('opens a dropped PDF in a new tab through one page-shaped skeleton', async () => {
         const session = await sessionFixture.restart({clean: true});
@@ -1231,14 +1255,14 @@ describe('Electron E2E - Recent Files', () => {
         await openPdfInApp(session.page, openPath);
         await waitForPdfLoaded(session.page);
         const dropPoint = await evaluateInPage(session.page, () => {
-            const rect = document.querySelector<HTMLElement>(
-                '.editor-pane.is-active [data-document-viewer-chassis-viewport]',
-            )?.getBoundingClientRect();
+            const rect = document
+                .querySelector<HTMLElement>('.editor-pane.is-active [data-document-viewer-chassis-viewport]')
+                ?.getBoundingClientRect();
             return rect
                 ? {
-                    x: rect.left + (rect.width / 2),
-                    y: rect.top + (rect.height / 2),
-                }
+                      x: rect.left + rect.width / 2,
+                      y: rect.top + rect.height / 2,
+                  }
                 : null;
         });
         expect(dropPoint).not.toBeNull();
@@ -1247,9 +1271,13 @@ describe('Electron E2E - Recent Files', () => {
         await markCommittedSurfaceInteractionCheckpoint(session.page, 'drop');
         // Hold the open before its working copy exists, as a slow disk does.
         const droppedDocumentRef = requireDocumentRef(droppedPath);
-        expect(await evaluateInPage(session.page, (path: TDocumentRef) => (
-            window.__deferDocumentOpenForAutomation?.(path) ?? false
-        ), droppedDocumentRef)).toBe(true);
+        expect(
+            await evaluateInPage(
+                session.page,
+                (path: TDocumentRef) => window.__deferDocumentOpenForAutomation?.(path) ?? false,
+                droppedDocumentRef,
+            ),
+        ).toBe(true);
         // A file dragged in from the desktop, through the browser's drag input.
         const cdp = await session.page.createCDPSession();
         try {
@@ -1258,11 +1286,7 @@ describe('Electron E2E - Recent Files', () => {
                 files: [droppedPath],
                 dragOperationsMask: 1,
             };
-            for (const type of [
-                'dragEnter',
-                'dragOver',
-                'drop',
-            ] as const) {
+            for (const type of ['dragEnter', 'dragOver', 'drop'] as const) {
                 await cdp.send('Input.dispatchDragEvent', {
                     type,
                     x: dropPoint!.x,
@@ -1276,107 +1300,135 @@ describe('Electron E2E - Recent Files', () => {
         // This fresh source has no remembered geometry. While its copy is
         // held, the claimed tab explains loading without guessing a page shape.
         // The explanation is a hairline across the top of the tab's surface.
-        await waitForFunctionInPage(session.page, (fileName: string) => {
-            const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
-            const chassis = host?.querySelector<HTMLElement>('.document-viewer-chassis');
-            const viewport = host?.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]');
-            const rect = viewport?.getBoundingClientRect();
-            const progress = host?.querySelector<HTMLElement>('.workspace-host__opening-progress [role="progressbar"]');
-            const progressRect = progress?.getBoundingClientRect();
-            const visibleSurface = Array.from(host?.querySelectorAll<HTMLElement>(
-                '.start-open-panel, .document-page-skeleton, .document-viewer-chassis__opening-page, .page_canvas, canvas',
-            ) ?? []).some(node => {
-                const box = node.getBoundingClientRect();
-                return box.width > 0 && box.height > 0 && getComputedStyle(node).visibility !== 'hidden';
-            });
-            return document.querySelector('.tab-list .tab.is-active .tab-label')?.textContent?.trim() === fileName
-                && viewport?.dataset.openSurfacePhase === 'pending'
-                && chassis?.dataset.openSurfaceHasOpeningGeometry === 'false'
-                && Boolean(rect && rect.width > 0 && rect.height > 0)
-                && Boolean(progressRect && progressRect.width > 0 && progressRect.height > 0
-                    && getComputedStyle(progress!).visibility !== 'hidden')
-                && Boolean(host && progressRect
-                    && progressRect.height <= 3
-                    && Math.abs(progressRect.top - host.getBoundingClientRect().top) <= 1
-                    && progressRect.width >= host.getBoundingClientRect().width - 1)
-                && !visibleSurface;
-        }, {timeout: RECENT_OPEN_TIMEOUT_MS}, basename(droppedPath));
-        expect(await evaluateInPage(session.page, (path: TDocumentRef) => (
-            window.__releaseDocumentOpenForAutomation?.(path) ?? false
-        ), droppedDocumentRef)).toBe(true);
-        await waitForFunctionInPage(session.page, (fileName: string) => (
-            document.querySelector('.tab-list .tab.is-active .tab-label')?.textContent?.trim() === fileName
-            && document.querySelector(
-                '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .page_container--rendered canvas',
-            ) !== null
-        ), {timeout: RECENT_OPEN_TIMEOUT_MS}, basename(droppedPath));
+        await waitForFunctionInPage(
+            session.page,
+            (fileName: string) => {
+                const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
+                const chassis = host?.querySelector<HTMLElement>('.document-viewer-chassis');
+                const viewport = host?.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]');
+                const rect = viewport?.getBoundingClientRect();
+                const progress = host?.querySelector<HTMLElement>('.workspace-host__opening-progress [role="progressbar"]');
+                const progressRect = progress?.getBoundingClientRect();
+                const visibleSurface = Array.from(
+                    host?.querySelectorAll<HTMLElement>(
+                        '.start-open-panel, .document-page-skeleton, .document-viewer-chassis__opening-page, .page_canvas, canvas',
+                    ) ?? [],
+                ).some((node) => {
+                    const box = node.getBoundingClientRect();
+                    return box.width > 0 && box.height > 0 && getComputedStyle(node).visibility !== 'hidden';
+                });
+                return (
+                    document.querySelector('.tab-list .tab.is-active .tab-label')?.textContent?.trim() === fileName &&
+                    viewport?.dataset.openSurfacePhase === 'pending' &&
+                    chassis?.dataset.openSurfaceHasOpeningGeometry === 'false' &&
+                    Boolean(rect && rect.width > 0 && rect.height > 0) &&
+                    Boolean(
+                        progressRect &&
+                        progressRect.width > 0 &&
+                        progressRect.height > 0 &&
+                        getComputedStyle(progress!).visibility !== 'hidden',
+                    ) &&
+                    Boolean(
+                        host &&
+                        progressRect &&
+                        progressRect.height <= 3 &&
+                        Math.abs(progressRect.top - host.getBoundingClientRect().top) <= 1 &&
+                        progressRect.width >= host.getBoundingClientRect().width - 1,
+                    ) &&
+                    !visibleSurface
+                );
+            },
+            {timeout: RECENT_OPEN_TIMEOUT_MS},
+            basename(droppedPath),
+        );
+        expect(
+            await evaluateInPage(
+                session.page,
+                (path: TDocumentRef) => window.__releaseDocumentOpenForAutomation?.(path) ?? false,
+                droppedDocumentRef,
+            ),
+        ).toBe(true);
+        await waitForFunctionInPage(
+            session.page,
+            (fileName: string) =>
+                document.querySelector('.tab-list .tab.is-active .tab-label')?.textContent?.trim() === fileName &&
+                document.querySelector(
+                    '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .page_container--rendered canvas',
+                ) !== null,
+            {timeout: RECENT_OPEN_TIMEOUT_MS},
+            basename(droppedPath),
+        );
         await delay(250);
         const trace = await stopCommittedSurfaceSampler(session.page);
-        const frames = trace.frames.filter(frame => frame.interactionCheckpoint === 'drop');
-        const details = JSON.stringify(frames.map(frame => ({
-            elapsedMs: frame.elapsedMs,
-            frame: frame.frame,
-            hasOpeningGeometry: frame.openSurfaceDiagnostic?.openSurfaceHasOpeningGeometry,
-            hosts: frame.visibleWorkspaceHostCount,
-            kind: frame.kind,
-            phase: frame.openSurfacePhase,
-            shellRect: frame.shellRect,
-            skeletonCount: frame.skeletonCount,
-            skeletonSharesShell: frame.skeletonSharesShell,
-        })));
+        const frames = trace.frames.filter((frame) => frame.interactionCheckpoint === 'drop');
+        const details = JSON.stringify(
+            frames.map((frame) => ({
+                elapsedMs: frame.elapsedMs,
+                frame: frame.frame,
+                hasOpeningGeometry: frame.openSurfaceDiagnostic?.openSurfaceHasOpeningGeometry,
+                hosts: frame.visibleWorkspaceHostCount,
+                kind: frame.kind,
+                phase: frame.openSurfacePhase,
+                shellRect: frame.shellRect,
+                skeletonCount: frame.skeletonCount,
+                skeletonSharesShell: frame.skeletonSharesShell,
+            })),
+        );
 
         expect(trace.errors ?? [], details).toEqual([]);
         // The tab the file was dropped on is not kept on screen over the new
         // one, and the new tab never shows its Start page on the way.
-        expect(frames.filter(frame => (frame.visibleWorkspaceHostCount ?? 0) > 1), details).toEqual([]);
-        expect(frames.filter(frame => (
-            frame.kind === 'committed-empty' || frame.kind === 'loader' || frame.kind === 'tool-surface'
-        )), details).toEqual([]);
+        expect(
+            frames.filter((frame) => (frame.visibleWorkspaceHostCount ?? 0) > 1),
+            details,
+        ).toEqual([]);
+        expect(
+            frames.filter((frame) => frame.kind === 'committed-empty' || frame.kind === 'loader' || frame.kind === 'tool-surface'),
+            details,
+        ).toEqual([]);
         // Until the page's shape is known the new tab explains loading; then
         // it shows that shape, and then the page in the same place.
-        const firstShellIndex = frames.findIndex(frame => frame.kind === 'page-shell');
+        const firstShellIndex = frames.findIndex((frame) => frame.kind === 'page-shell');
         expect(firstShellIndex, details).toBeGreaterThan(0);
-        expect(frames.slice(0, firstShellIndex).filter(frame => (
-            !isOpeningBeforePageGeometry(frame) && frame.kind !== 'committed-canvas'
-        )), details).toEqual([]);
+        expect(
+            frames.slice(0, firstShellIndex).filter((frame) => !isOpeningBeforePageGeometry(frame) && frame.kind !== 'committed-canvas'),
+            details,
+        ).toEqual([]);
         // Unknown geometry keeps visible progress while the copy is held. Once the
         // complete shape arrives, the existing one-frame shell budget applies.
-        const claimIndex = frames.findIndex(frame => (
-            frame.openSurfacePhase === 'pending'
-            && frame.openSurfaceDiagnostic?.openSurfaceHasOpeningGeometry === 'false'
-        ));
+        const claimIndex = frames.findIndex(
+            (frame) => frame.openSurfacePhase === 'pending' && frame.openSurfaceDiagnostic?.openSurfaceHasOpeningGeometry === 'false',
+        );
         expect(claimIndex, details).toBeGreaterThanOrEqual(0);
         // The prefix can still show the prior document's ready canvas.
-        const firstKnownGeometry = frames.findIndex((frame, index) => (
-            index >= claimIndex
-            && frame.openSurfaceDiagnostic?.openSurfaceHasOpeningGeometry === 'true'
-        ));
+        const firstKnownGeometry = frames.findIndex(
+            (frame, index) => index >= claimIndex && frame.openSurfaceDiagnostic?.openSurfaceHasOpeningGeometry === 'true',
+        );
         expect(firstKnownGeometry, details).toBeGreaterThanOrEqual(claimIndex);
-        expect(frames.slice(claimIndex, firstKnownGeometry).every(frame => (
-            isOpeningBeforePageGeometry(frame)
-            && frame.skeletonCount === 0
-            && !frame.outerPlaceholderVisible
-        )), details).toBe(true);
-        expect(frames[firstShellIndex]!.frame - frames[firstKnownGeometry]!.frame, details)
-            .toBeLessThanOrEqual(1);
+        expect(
+            frames
+                .slice(claimIndex, firstKnownGeometry)
+                .every((frame) => isOpeningBeforePageGeometry(frame) && frame.skeletonCount === 0 && !frame.outerPlaceholderVisible),
+            details,
+        ).toBe(true);
+        expect(frames[firstShellIndex]!.frame - frames[firstKnownGeometry]!.frame, details).toBeLessThanOrEqual(1);
         const opening = frames.slice(firstShellIndex);
-        const firstCanvasIndex = opening.findIndex(frame => frame.kind === 'committed-canvas');
+        const firstCanvasIndex = opening.findIndex((frame) => frame.kind === 'committed-canvas');
         expect(firstCanvasIndex, details).toBeGreaterThan(0);
         // A shell frame is the page frame holding exactly its one skeleton.
-        expect(opening.slice(0, firstCanvasIndex).every(frame => (
-            frame.kind === 'page-shell'
-            && frame.skeletonCount === 1
-            && frame.skeletonSharesShell
-        )), details).toBe(true);
-        expect(opening.slice(firstCanvasIndex).every(frame => frame.kind === 'committed-canvas'), details).toBe(true);
+        expect(
+            opening
+                .slice(0, firstCanvasIndex)
+                .every((frame) => frame.kind === 'page-shell' && frame.skeletonCount === 1 && frame.skeletonSharesShell),
+            details,
+        ).toBe(true);
+        expect(
+            opening.slice(firstCanvasIndex).every((frame) => frame.kind === 'committed-canvas'),
+            details,
+        ).toBe(true);
         const canvasRect = opening.at(-1)!.shellRect!;
         for (const shell of opening.slice(0, firstCanvasIndex)) {
-            for (const key of [
-                'height',
-                'left',
-                'top',
-                'width',
-            ] as const) {
+            for (const key of ['height', 'left', 'top', 'width'] as const) {
                 expect(Math.abs(shell.shellRect![key] - canvasRect[key]), details).toBeLessThanOrEqual(0.5);
             }
         }
@@ -1388,11 +1440,7 @@ describe('Electron E2E - Recent Files', () => {
             sessionName: () => `e2e-recent-cold-fit-${Date.now()}`,
         });
 
-        const fixturePath = await createLargeScannedFixturePdf(
-            `recent-cold-fit-${Date.now()}.pdf`,
-            3,
-            0,
-        );
+        const fixturePath = await createLargeScannedFixturePdf(`recent-cold-fit-${Date.now()}.pdf`, 3, 0);
         await openPdfInApp(session.page, fixturePath);
         await waitForPdfLoaded(session.page);
 
@@ -1410,9 +1458,7 @@ describe('Electron E2E - Recent Files', () => {
         const coldOpenTrace = await stopCommittedSurfaceSampler(session.page);
 
         const layout = await evaluateInPage(session.page, () => {
-            const viewport = document.querySelector<HTMLElement>(
-                '.editor-pane.is-active [data-document-viewer-chassis-viewport]',
-            );
+            const viewport = document.querySelector<HTMLElement>('.editor-pane.is-active [data-document-viewer-chassis-viewport]');
             const page = document.querySelector<HTMLElement>(
                 '.editor-pane.is-active #pdf-viewer .page_container[data-page="1"] .page_canvas',
             );
@@ -1421,20 +1467,21 @@ describe('Electron E2E - Recent Files', () => {
                 viewportWidth: viewport?.clientWidth ?? 0,
             };
         });
-        const firstPreparedFrame = coldOpenTrace.frames.find(frame => (
-            frame.openSurfaceDiagnostic?.openSurfaceOpeningFrameOwner?.startsWith('document-viewer-runtime:')
-            && frame.shellRect !== null
-            && (frame.viewportClientWidth ?? 0) > 0
-        ));
-        expect(firstPreparedFrame, JSON.stringify({
-            layout,
-            frames: coldOpenTrace.frames,
-        })).toBeDefined();
+        const firstPreparedFrame = coldOpenTrace.frames.find(
+            (frame) =>
+                frame.openSurfaceDiagnostic?.openSurfaceOpeningFrameOwner?.startsWith('document-viewer-runtime:') &&
+                frame.shellRect !== null &&
+                (frame.viewportClientWidth ?? 0) > 0,
+        );
         expect(
-            Math.abs(
-                firstPreparedFrame!.shellRect!.width
-                - (firstPreparedFrame!.viewportClientWidth! - 40),
-            ),
+            firstPreparedFrame,
+            JSON.stringify({
+                layout,
+                frames: coldOpenTrace.frames,
+            }),
+        ).toBeDefined();
+        expect(
+            Math.abs(firstPreparedFrame!.shellRect!.width - (firstPreparedFrame!.viewportClientWidth! - 40)),
             JSON.stringify({
                 layout,
                 firstPreparedFrame,
@@ -1442,10 +1489,7 @@ describe('Electron E2E - Recent Files', () => {
         ).toBeLessThanOrEqual(1);
         expect(layout.viewportWidth).toBeGreaterThan(0);
         expect(layout.pageWidth).toBeGreaterThan(0);
-        expect(
-            Math.abs(layout.pageWidth - (layout.viewportWidth - 40)),
-            JSON.stringify(layout),
-        ).toBeLessThanOrEqual(1);
+        expect(Math.abs(layout.pageWidth - (layout.viewportWidth - 40)), JSON.stringify(layout)).toBeLessThanOrEqual(1);
     });
 
     it('keeps keyboard remove isolated from opening the recent document', async () => {
@@ -1454,11 +1498,7 @@ describe('Electron E2E - Recent Files', () => {
             sessionName: () => `e2e-recent-keyboard-${Date.now()}`,
         });
 
-        const fixturePath = await createLargeScannedFixturePdf(
-            `recent-keyboard-${Date.now()}.pdf`,
-            3,
-            0,
-        );
+        const fixturePath = await createLargeScannedFixturePdf(`recent-keyboard-${Date.now()}.pdf`, 3, 0);
         const fixtureName = basename(fixturePath);
         await openPdfInApp(session.page, fixturePath);
         await waitForPdfLoaded(session.page);
@@ -1466,18 +1506,22 @@ describe('Electron E2E - Recent Files', () => {
 
         await waitForStartupOverlayRemoved(session);
         await assertRecentListStaysStableBeforeOpen(session, fixturePath);
-        const semanticSnapshot = await evaluateInPage(session.page, (targetSourcePath: string) => {
-            const row = Array.from(document.querySelectorAll<HTMLElement>(
-                '.recent-row--data:not(.recent-row--skeleton)',
-            )).find(candidate => candidate.dataset.recentSource === targetSourcePath);
-            return {
-                rowTag: row?.tagName ?? null,
-                openTag: row?.querySelector('.recent-open')?.tagName ?? null,
-                revealTag: row?.querySelector('.recent-location--reveal')?.tagName ?? null,
-                removeTag: row?.querySelector('.recent-action--remove')?.tagName ?? null,
-                nestedButtons: row?.querySelectorAll('button button').length ?? -1,
-            };
-        }, fixturePath);
+        const semanticSnapshot = await evaluateInPage(
+            session.page,
+            (targetSourcePath: string) => {
+                const row = Array.from(document.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)')).find(
+                    (candidate) => candidate.dataset.recentSource === targetSourcePath,
+                );
+                return {
+                    rowTag: row?.tagName ?? null,
+                    openTag: row?.querySelector('.recent-open')?.tagName ?? null,
+                    revealTag: row?.querySelector('.recent-location--reveal')?.tagName ?? null,
+                    removeTag: row?.querySelector('.recent-action--remove')?.tagName ?? null,
+                    nestedButtons: row?.querySelectorAll('button button').length ?? -1,
+                };
+            },
+            fixturePath,
+        );
         expect(semanticSnapshot).toEqual({
             rowTag: 'DIV',
             openTag: 'BUTTON',
@@ -1486,17 +1530,18 @@ describe('Electron E2E - Recent Files', () => {
             nestedButtons: 0,
         });
 
-        const searchInput = await session.page.$(
-            '.editor-pane.is-active input[aria-label="Search recent files"]',
-        );
+        const searchInput = await session.page.$('.editor-pane.is-active input[aria-label="Search recent files"]');
         expect(searchInput).not.toBeNull();
         await searchInput!.type(fixtureName);
-        await waitForFunctionInPage(session.page, (targetFileName: string) => {
-            const rows = Array.from(document.querySelectorAll<HTMLElement>(
-                '.recent-row--data:not(.recent-row--skeleton)',
-            ));
-            return rows.length === 1 && rows[0]?.textContent?.includes(targetFileName);
-        }, { timeout: RECENT_ROW_TIMEOUT_MS }, fixtureName);
+        await waitForFunctionInPage(
+            session.page,
+            (targetFileName: string) => {
+                const rows = Array.from(document.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)'));
+                return rows.length === 1 && rows[0]?.textContent?.includes(targetFileName);
+            },
+            {timeout: RECENT_ROW_TIMEOUT_MS},
+            fixtureName,
+        );
 
         const removeButton = await session.page.$(
             '.editor-pane.is-active .recent-row--data:not(.recent-row--skeleton) button.recent-action--remove',
@@ -1504,22 +1549,22 @@ describe('Electron E2E - Recent Files', () => {
         expect(removeButton).not.toBeNull();
         await removeButton!.focus();
         await session.page.keyboard.press('Enter');
-        await waitForFunctionInPage(session.page, (targetSourcePath: string) => (
-            !Array.from(document.querySelectorAll<HTMLElement>(
-                '.recent-row--data:not(.recent-row--skeleton)',
-            )).some(row => row.dataset.recentSource === targetSourcePath)
-        ), { timeout: RECENT_ROW_TIMEOUT_MS }, fixturePath);
+        await waitForFunctionInPage(
+            session.page,
+            (targetSourcePath: string) =>
+                !Array.from(document.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)')).some(
+                    (row) => row.dataset.recentSource === targetSourcePath,
+                ),
+            {timeout: RECENT_ROW_TIMEOUT_MS},
+            fixturePath,
+        );
 
         const finalState = await evaluateInPage(session.page, () => {
             const isVisible = (element: HTMLElement) => {
                 let current: HTMLElement | null = element;
                 while (current) {
                     const style = window.getComputedStyle(current);
-                    if (
-                        style.display === 'none'
-                        || style.visibility === 'hidden'
-                        || Number(style.opacity || '1') === 0
-                    ) {
+                    if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity || '1') === 0) {
                         return false;
                     }
                     current = current.parentElement;
@@ -1527,16 +1572,13 @@ describe('Electron E2E - Recent Files', () => {
                 const rect = element.getBoundingClientRect();
                 return rect.width > 0 && rect.height > 0;
             };
-            const activeHost = document.querySelector<HTMLElement>(
-                '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
-            );
+            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
             return {
-                activeTabTitle: document.querySelector<HTMLElement>(
-                    '.tab-list .tab.is-active .tab-label',
-                )?.textContent?.trim() ?? '',
-                hasVisibleDocumentContent: Array.from(activeHost?.querySelectorAll<HTMLElement>(
-                    '#pdf-viewer .page_canvas canvas, .document-viewer-chassis__opening-page',
-                ) ?? []).some(isVisible),
+                activeTabTitle: document.querySelector<HTMLElement>('.tab-list .tab.is-active .tab-label')?.textContent?.trim() ?? '',
+                hasVisibleDocumentContent: Array.from(
+                    activeHost?.querySelectorAll<HTMLElement>('#pdf-viewer .page_canvas canvas, .document-viewer-chassis__opening-page') ??
+                        [],
+                ).some(isVisible),
             };
         });
         expect(finalState).toEqual({
@@ -1545,7 +1587,7 @@ describe('Electron E2E - Recent Files', () => {
         });
     });
 
-    it('ages a Recent file\'s Opened time while Start stays on screen', async () => {
+    it("ages a Recent file's Opened time while Start stays on screen", async () => {
         const session = await sessionFixture.restart({
             clean: true,
             sessionName: () => `e2e-recent-opened-age-${Date.now()}`,
@@ -1558,28 +1600,40 @@ describe('Electron E2E - Recent Files', () => {
             await waitForPdfLoaded(page);
             await clickAsUser(page, '.tab-list .tab.is-active .tab-close');
             await page.waitForSelector('.recent-search input', {visible: true});
-            const readOpened = () => evaluateInPage(page, (source: string) => (
-                Array.from(document.querySelectorAll<HTMLElement>(
-                    '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .recent-row--data:not(.recent-row--skeleton)',
-                )).find(row => row.dataset.recentSource === source)
-                    ?.querySelector('.recent-col--time')?.textContent?.trim() ?? null
-            ), fixturePath);
+            const readOpened = () =>
+                evaluateInPage(
+                    page,
+                    (source: string) =>
+                        Array.from(
+                            document.querySelectorAll<HTMLElement>(
+                                '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .recent-row--data:not(.recent-row--skeleton)',
+                            ),
+                        )
+                            .find((row) => row.dataset.recentSource === source)
+                            ?.querySelector('.recent-col--time')
+                            ?.textContent?.trim() ?? null,
+                    fixturePath,
+                );
             await expect.poll(readOpened, {timeout: RECENT_ROW_TIMEOUT_MS}).toBe('Just now');
 
             // Two days pass while Start stays on screen and nothing else
             // changes. The session restarts below, so the shifted clock does
             // not reach later cases.
-            await evaluateInPage(page, (offsetMs: number) => {
-                const realNow = Date.now.bind(Date);
-                Date.now = () => realNow() + offsetMs;
-            }, (2 * 24 + 1) * 60 * 60 * 1000);
+            await evaluateInPage(
+                page,
+                (offsetMs: number) => {
+                    const realNow = Date.now.bind(Date);
+                    Date.now = () => realNow() + offsetMs;
+                },
+                (2 * 24 + 1) * 60 * 60 * 1000,
+            );
             await expect.poll(readOpened, {timeout: RECENT_OPENED_AGE_TIMEOUT_MS}).toBe('2 days ago');
         } finally {
             await sessionFixture.restart({clean: true});
         }
     });
 
-    it('keeps a restored tab\'s Recent Files time and place until the reader opens it again', async () => {
+    it("keeps a restored tab's Recent Files time and place until the reader opens it again", async () => {
         let session = await sessionFixture.restart({
             clean: true,
             sessionName: () => `e2e-recent-restored-time-${Date.now()}`,
@@ -1595,18 +1649,26 @@ describe('Electron E2E - Recent Files', () => {
             await waitForRecentFileRow(session, closedPath);
             await openPdfInApp(session.page, restoredPath);
             await waitForPdfLoaded(session.page);
-            await expect.poll(() => readWorkspaceRecoveryRecords<{checkpoint: IWorkspaceCheckpoint}>(session.name)
-                .flatMap(record => record.checkpoint.tabs)
-                .some(tab => tab.sourceRef === restoredPath), {timeout: RECENT_ROW_TIMEOUT_MS}).toBe(true);
+            await expect
+                .poll(
+                    () =>
+                        readWorkspaceRecoveryRecords<{checkpoint: IWorkspaceCheckpoint}>(session.name)
+                            .flatMap((record) => record.checkpoint.tabs)
+                            .some((tab) => tab.sourceRef === restoredPath),
+                    {timeout: RECENT_ROW_TIMEOUT_MS},
+                )
+                .toBe(true);
 
             const recentFilesPath = join(electronUserDataPath(session.name), 'recentFiles.json');
-            const readStored = () => JSON.parse(readFileSync(recentFilesPath, 'utf8')) as {
-                files: Array<{
-                    originalPath: string;
-                    timestamp: number;
-                }>;
-            };
-            await expect.poll(() => readStored().files.map(file => file.originalPath), {timeout: RECENT_ROW_TIMEOUT_MS})
+            const readStored = () =>
+                JSON.parse(readFileSync(recentFilesPath, 'utf8')) as {
+                    files: Array<{
+                        originalPath: string;
+                        timestamp: number;
+                    }>;
+                };
+            await expect
+                .poll(() => readStored().files.map((file) => file.originalPath), {timeout: RECENT_ROW_TIMEOUT_MS})
                 .toEqual([restoredPath, closedPath]);
 
             // The app stops as a crash does, keeping its checkpoint. While no
@@ -1620,20 +1682,20 @@ describe('Electron E2E - Recent Files', () => {
             const hourMs = 60 * 60 * 1000;
             const stored = readStored();
             const ageHours = (path: string) => (path === restoredPath ? 3 * 24 + 1 : 2 * 24 + 1);
-            stored.files = [...stored.files]
-                .reverse()
-                .map(file => ({
-                    ...file,
-                    timestamp: Date.now() - ageHours(file.originalPath) * hourMs,
-                }));
+            stored.files = [...stored.files].reverse().map((file) => ({
+                ...file,
+                timestamp: Date.now() - ageHours(file.originalPath) * hourMs,
+            }));
             writeFileSync(recentFilesPath, JSON.stringify(stored, null, 2));
 
-            const readRecentRows = () => evaluateInPage(session.page, () => Array.from(document.querySelectorAll<HTMLElement>(
-                '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .recent-row--data:not(.recent-row--skeleton)',
-            )).map(row => [
-                row.dataset.recentSource ?? '',
-                row.querySelector('.recent-col--time')?.textContent?.trim() ?? '',
-            ]));
+            const readRecentRows = () =>
+                evaluateInPage(session.page, () =>
+                    Array.from(
+                        document.querySelectorAll<HTMLElement>(
+                            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .recent-row--data:not(.recent-row--skeleton)',
+                        ),
+                    ).map((row) => [row.dataset.recentSource ?? '', row.querySelector('.recent-col--time')?.textContent?.trim() ?? '']),
+                );
 
             // The relaunch restores the open tab; that is not the reader opening it.
             session = await sessionFixture.restart({
@@ -1696,17 +1758,19 @@ describe('Electron E2E - Recent Files', () => {
         await waitForStartupOverlayRemoved(session);
         await waitForRecentFileRow(session, firstPath);
         await waitForRecentFileRow(session, secondPath);
-        expect(await evaluateInPage(session.page, (paths: string[]) => (
-            paths.map(path => Array.from(document.querySelectorAll<HTMLElement>(
-                '.recent-row--data:not(.recent-row--skeleton)',
-            )).filter(row => row.dataset.recentSource === path).length)
-        ), [
-            firstPath,
-            secondPath,
-        ])).toEqual([
-            1,
-            1,
-        ]);
+        expect(
+            await evaluateInPage(
+                session.page,
+                (paths: string[]) =>
+                    paths.map(
+                        (path) =>
+                            Array.from(document.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)')).filter(
+                                (row) => row.dataset.recentSource === path,
+                            ).length,
+                    ),
+                [firstPath, secondPath],
+            ),
+        ).toEqual([1, 1]);
 
         await clickRecentFile(session, firstPath);
         await waitForRecentPdfOpen(session, firstPath);
@@ -1763,32 +1827,32 @@ describe('Electron E2E - Recent Files', () => {
         await expectReadingPlace(session, 27, readingZoomLabel);
         await waitForViewerInteractive(session.page);
         await waitForViewportQuiet(session.page);
-        const viewport = await session.page.$eval('.editor-pane.is-active [data-document-viewer-chassis-viewport]', element => (
-            element.getBoundingClientRect().toJSON()
-        ));
+        const viewport = await session.page.$eval('.editor-pane.is-active [data-document-viewer-chassis-viewport]', (element) =>
+            element.getBoundingClientRect().toJSON(),
+        );
         await session.page.mouse.move(viewport.x + viewport.width / 2, viewport.y + viewport.height / 2);
         await session.page.mouse.wheel({deltaY: 230});
         await waitForViewportQuiet(session.page);
-        const readPoint = () => evaluateInPage(session.page, () => {
-            const viewport = document.querySelector<HTMLElement>('.editor-pane.is-active [data-document-viewer-chassis-viewport]')!;
-            const box = viewport.getBoundingClientRect();
-            const x = box.left + viewport.clientLeft + viewport.clientWidth / 2;
-            const y = box.top + viewport.clientTop + viewport.clientHeight / 2;
-            const page = Array.from(viewport.querySelectorAll<HTMLElement>('.page_container--rendered[data-page]'))
-                .find(element => {
+        const readPoint = () =>
+            evaluateInPage(session.page, () => {
+                const viewport = document.querySelector<HTMLElement>('.editor-pane.is-active [data-document-viewer-chassis-viewport]')!;
+                const box = viewport.getBoundingClientRect();
+                const x = box.left + viewport.clientLeft + viewport.clientWidth / 2;
+                const y = box.top + viewport.clientTop + viewport.clientHeight / 2;
+                const page = Array.from(viewport.querySelectorAll<HTMLElement>('.page_container--rendered[data-page]')).find((element) => {
                     const rect = element.getBoundingClientRect();
                     return x >= rect.left && x < rect.right && y >= rect.top && y < rect.bottom;
                 })!;
-            const rect = page.getBoundingClientRect();
-            return {
-                page: Number(page.dataset.page),
-                x: (x - rect.left) / rect.width,
-                y: (y - rect.top) / rect.height,
-                width: rect.width,
-                height: rect.height,
-                painted: (page.querySelector<HTMLCanvasElement>('canvas')?.width ?? 0) > 0,
-            };
-        });
+                const rect = page.getBoundingClientRect();
+                return {
+                    page: Number(page.dataset.page),
+                    x: (x - rect.left) / rect.width,
+                    y: (y - rect.top) / rect.height,
+                    width: rect.width,
+                    height: rect.height,
+                    painted: (page.querySelector<HTMLCanvasElement>('canvas')?.width ?? 0) > 0,
+                };
+            });
         const beforeClose = await readPoint();
         expect(beforeClose.page).toBe(27);
         expect(beforeClose.painted).toBe(true);
@@ -1805,14 +1869,20 @@ describe('Electron E2E - Recent Files', () => {
         const afterReopen = await readPoint();
         expect(afterReopen.page).toBe(27);
         expect(afterReopen.painted).toBe(true);
-        expect(Math.abs(afterReopen.x - beforeClose.x) * afterReopen.width, JSON.stringify({
-            beforeClose,
-            afterReopen,
-        })).toBeLessThanOrEqual(1);
-        expect(Math.abs(afterReopen.y - beforeClose.y) * afterReopen.height, JSON.stringify({
-            beforeClose,
-            afterReopen,
-        })).toBeLessThanOrEqual(1);
+        expect(
+            Math.abs(afterReopen.x - beforeClose.x) * afterReopen.width,
+            JSON.stringify({
+                beforeClose,
+                afterReopen,
+            }),
+        ).toBeLessThanOrEqual(1);
+        expect(
+            Math.abs(afterReopen.y - beforeClose.y) * afterReopen.height,
+            JSON.stringify({
+                beforeClose,
+                afterReopen,
+            }),
+        ).toBeLessThanOrEqual(1);
 
         await waitForOpenCheckpoint(session, fixturePath, 27, readingZoomLabel);
         session = await sessionFixture.restart({
@@ -1842,11 +1912,20 @@ describe('Electron E2E - Recent Files', () => {
         await clickAsUser(session.page, '.editor-pane.is-active .tab.is-active .tab-close');
         await waitForRecentFileRow(session, fixturePath);
         await clickAsUser(session.page, '.editor-pane.is-active .recent-clear');
-        await clickFoundAsUser(session.page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] button'))
-            .find(button => button.textContent?.trim() === 'Clear History'), undefined, {description: 'Clear History confirmation'});
-        await waitForFunctionInPage(session.page, () => (
-            document.querySelectorAll('.recent-row--data:not(.recent-row--skeleton)').length === 0
-        ), {timeout: RECENT_ROW_TIMEOUT_MS});
+        await clickFoundAsUser(
+            session.page,
+            () =>
+                Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] button')).find(
+                    (button) => button.textContent?.trim() === 'Clear History',
+                ),
+            undefined,
+            {description: 'Clear History confirmation'},
+        );
+        await waitForFunctionInPage(
+            session.page,
+            () => document.querySelectorAll('.recent-row--data:not(.recent-row--skeleton)').length === 0,
+            {timeout: RECENT_ROW_TIMEOUT_MS},
+        );
         await clickAsUser(session.page, '.editor-pane.is-active .start-open-panel .open-panel-cta');
         await waitForPdfLoaded(session.page);
         await expectReadingPlace(session, 1, defaultZoomLabel);
@@ -1866,9 +1945,12 @@ describe('Electron E2E - Recent Files', () => {
             extraEnv: {EVB_E2E_OPEN_DIALOG_PATH: second},
         });
         const {page} = session;
-        const readOutline = () => evaluateInPage(page, () => Array.from(
-            document.querySelectorAll<HTMLElement>('.editor-pane.is-active .document-bookmark-item__row'),
-        ).filter(row => row.getBoundingClientRect().width > 0).map(row => row.textContent?.trim() ?? ''));
+        const readOutline = () =>
+            evaluateInPage(page, () =>
+                Array.from(document.querySelectorAll<HTMLElement>('.editor-pane.is-active .document-bookmark-item__row'))
+                    .filter((row) => row.getBoundingClientRect().width > 0)
+                    .map((row) => row.textContent?.trim() ?? ''),
+            );
 
         await openPdfInApp(page, first);
         await waitForViewerInteractive(page);
@@ -1884,12 +1966,24 @@ describe('Electron E2E - Recent Files', () => {
         await page.keyboard.type('Open while the tab closes');
 
         await clickAsUser(page, '.editor-pane.is-active .tab.is-active .tab-close');
-        await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] button'))
-            .find(button => button.textContent?.trim() === 'Discard changes'), undefined, {description: 'Discard changes in the dirty-close dialog'});
-        await waitForFunctionInPage(page, (source: string) => {
-            const row = document.querySelector<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)');
-            return row?.dataset.recentSource === source && row.dataset.recentOpenActionable === 'true';
-        }, {timeout: RECENT_ROW_TIMEOUT_MS}, first);
+        await clickFoundAsUser(
+            page,
+            () =>
+                Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] button')).find(
+                    (button) => button.textContent?.trim() === 'Discard changes',
+                ),
+            undefined,
+            {description: 'Discard changes in the dirty-close dialog'},
+        );
+        await waitForFunctionInPage(
+            page,
+            (source: string) => {
+                const row = document.querySelector<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)');
+                return row?.dataset.recentSource === source && row.dataset.recentOpenActionable === 'true';
+            },
+            {timeout: RECENT_ROW_TIMEOUT_MS},
+            first,
+        );
         // The closed document takes its note window with it.
         await waitForNoOpenNoteWindows(page);
 
@@ -1927,10 +2021,7 @@ describe('Electron E2E - Recent Files', () => {
 
         // Another program rewrites the file with other pages.
         const replacement = await createMultiPageTextFixturePdf(`recent-reading-replacement-${Date.now()}.pdf`, 40);
-        writeFileSync(fixturePath, Buffer.concat([
-            readFileSync(replacement),
-            Buffer.from('\n% rewritten\n'),
-        ]));
+        writeFileSync(fixturePath, Buffer.concat([readFileSync(replacement), Buffer.from('\n% rewritten\n')]));
 
         await clickRecentFile(session, fixturePath);
         await waitForRecentPdfOpen(session, fixturePath);
@@ -1957,22 +2048,29 @@ describe('Electron E2E - Recent Files', () => {
         // Hold the open before its working copy exists, as a slow disk does.
         // The held view already shows the place the reader left: page 27 at
         // the reading zoom.
-        expect(await evaluateInPage(session.page, (path: TDocumentRef) => (
-            window.__deferDocumentOpenForAutomation?.(path) ?? false
-        ), fixtureDocumentRef)).toBe(true);
+        expect(
+            await evaluateInPage(
+                session.page,
+                (path: TDocumentRef) => window.__deferDocumentOpenForAutomation?.(path) ?? false,
+                fixtureDocumentRef,
+            ),
+        ).toBe(true);
         await clickRecentFile(session, fixturePath);
         await waitForOpeningSkeletonWhileOpenHeld(session);
         const held = await readHeldShell(session);
         expect(held?.page).toBe(27);
 
-
         // A plain press moves nothing: the held view stays exactly as shown,
         // and the open presents that place, not the defaults.
         await clickAsUser(session.page, '.editor-pane.is-active [data-document-viewer-chassis-viewport]');
         expect(await readHeldShell(session)).toEqual(held);
-        expect(await evaluateInPage(session.page, (path: TDocumentRef) => (
-            window.__releaseDocumentOpenForAutomation?.(path) ?? false
-        ), fixtureDocumentRef)).toBe(true);
+        expect(
+            await evaluateInPage(
+                session.page,
+                (path: TDocumentRef) => window.__releaseDocumentOpenForAutomation?.(path) ?? false,
+                fixtureDocumentRef,
+            ),
+        ).toBe(true);
         await waitForRecentPdfOpen(session, fixturePath);
         await expectReadingPlace(session, 27, readingZoomLabel);
         expectSameRect(await readDrawnPage(session, 27), held);
@@ -2000,26 +2098,36 @@ describe('Electron E2E - Recent Files', () => {
         const readingZoomLabel = await zoomInTwiceAsReader(session, defaultZoomLabel);
         await clickAsUser(session.page, '.editor-pane.is-active .tab.is-active .tab-close');
         await waitForRecentFileRow(session, fixturePath);
-        const openingPaneId = await evaluateInPage(session.page, () => (
-            document.querySelector<HTMLElement>('.editor-pane.is-active')?.dataset.editorPaneId ?? null
-        ));
+        const openingPaneId = await evaluateInPage(
+            session.page,
+            () => document.querySelector<HTMLElement>('.editor-pane.is-active')?.dataset.editorPaneId ?? null,
+        );
         expect(openingPaneId).not.toBeNull();
 
         // Hold the open, then Split Right: the new pane's linked view becomes
         // the one in use before the source arrives.
-        expect(await evaluateInPage(session.page, (path: TDocumentRef) => (
-            window.__deferDocumentOpenForAutomation?.(path) ?? false
-        ), fixtureDocumentRef)).toBe(true);
+        expect(
+            await evaluateInPage(
+                session.page,
+                (path: TDocumentRef) => window.__deferDocumentOpenForAutomation?.(path) ?? false,
+                fixtureDocumentRef,
+            ),
+        ).toBe(true);
         await clickRecentFile(session, fixturePath);
         await waitForOpeningSkeletonWhileOpenHeld(session);
         await splitActiveTabFromTabMenu(session.page, 'right');
-        const linkedPaneId = await evaluateInPage(session.page, () => (
-            document.querySelector<HTMLElement>('.editor-pane.is-active')?.dataset.editorPaneId ?? null
-        ));
+        const linkedPaneId = await evaluateInPage(
+            session.page,
+            () => document.querySelector<HTMLElement>('.editor-pane.is-active')?.dataset.editorPaneId ?? null,
+        );
         expect(linkedPaneId).not.toBe(openingPaneId);
-        expect(await evaluateInPage(session.page, (path: TDocumentRef) => (
-            window.__releaseDocumentOpenForAutomation?.(path) ?? false
-        ), fixtureDocumentRef)).toBe(true);
+        expect(
+            await evaluateInPage(
+                session.page,
+                (path: TDocumentRef) => window.__releaseDocumentOpenForAutomation?.(path) ?? false,
+                fixtureDocumentRef,
+            ),
+        ).toBe(true);
 
         // The linked view shows the document from its own start, at its own
         // pane's fit; the view the open began in returns to the place it was left.
@@ -2051,14 +2159,17 @@ describe('Electron E2E - Recent Files', () => {
         // Hold the open before its working copy exists, as a slow disk does.
         // The held view already shows the place the reader left: page 27 at
         // the reading zoom.
-        expect(await evaluateInPage(session.page, (path: TDocumentRef) => (
-            window.__deferDocumentOpenForAutomation?.(path) ?? false
-        ), fixtureDocumentRef)).toBe(true);
+        expect(
+            await evaluateInPage(
+                session.page,
+                (path: TDocumentRef) => window.__deferDocumentOpenForAutomation?.(path) ?? false,
+                fixtureDocumentRef,
+            ),
+        ).toBe(true);
         await clickRecentFile(session, fixturePath);
         await waitForOpeningSkeletonWhileOpenHeld(session);
         const held = await readHeldShell(session);
         expect(held?.page).toBe(27);
-
 
         // Zoom with the wheel over the held view (Command on macOS, where
         // Control and the wheel scroll; Control elsewhere). The zoom starts
@@ -2068,12 +2179,7 @@ describe('Electron E2E - Recent Files', () => {
             x: held!.left + held!.width / 2,
             y: held!.top + held!.height * 0.25,
         };
-        const pointOn = (rect: {
-            top: number;
-            left: number;
-            width: number;
-            height: number
-        }) => ({
+        const pointOn = (rect: {top: number; left: number; width: number; height: number}) => ({
             x: (pointer.x - rect.left) / rect.width,
             y: (pointer.y - rect.top) / rect.height,
         });
@@ -2082,18 +2188,29 @@ describe('Electron E2E - Recent Files', () => {
         await session.page.keyboard.down(zoomModifier);
         await session.page.mouse.wheel({deltaY: -40});
         await session.page.keyboard.up(zoomModifier);
-        await waitForFunctionInPage(session.page, (heldWidth: number) => {
-            const width = document.querySelector('.editor-pane.is-active [data-document-opening-shell-id]')?.getBoundingClientRect().width;
-            return width !== undefined && width > heldWidth;
-        }, {timeout: RECENT_OPEN_TIMEOUT_MS}, held!.width);
+        await waitForFunctionInPage(
+            session.page,
+            (heldWidth: number) => {
+                const width = document
+                    .querySelector('.editor-pane.is-active [data-document-opening-shell-id]')
+                    ?.getBoundingClientRect().width;
+                return width !== undefined && width > heldWidth;
+            },
+            {timeout: RECENT_OPEN_TIMEOUT_MS},
+            held!.width,
+        );
         const zoomed = await readHeldShell(session);
         expect(zoomed?.page).toBe(27);
         expect(pointOn(zoomed!).x).toBeCloseTo(pointOn(held!).x, 2);
         expect(pointOn(zoomed!).y).toBeCloseTo(pointOn(held!).y, 2);
 
-        expect(await evaluateInPage(session.page, (path: TDocumentRef) => (
-            window.__releaseDocumentOpenForAutomation?.(path) ?? false
-        ), fixtureDocumentRef)).toBe(true);
+        expect(
+            await evaluateInPage(
+                session.page,
+                (path: TDocumentRef) => window.__releaseDocumentOpenForAutomation?.(path) ?? false,
+                fixtureDocumentRef,
+            ),
+        ).toBe(true);
         await waitForRecentPdfOpen(session, fixturePath);
         // The page is drawn at the zoomed shell's rect, so at its scale; the
         // zoom shown is above the reading zoom the open started from.
@@ -2127,14 +2244,17 @@ describe('Electron E2E - Recent Files', () => {
         // Hold the open before its working copy exists, as a slow disk does.
         // The held view already shows the place the reader left: page 27 at
         // the reading zoom.
-        expect(await evaluateInPage(session.page, (path: TDocumentRef) => (
-            window.__deferDocumentOpenForAutomation?.(path) ?? false
-        ), fixtureDocumentRef)).toBe(true);
+        expect(
+            await evaluateInPage(
+                session.page,
+                (path: TDocumentRef) => window.__deferDocumentOpenForAutomation?.(path) ?? false,
+                fixtureDocumentRef,
+            ),
+        ).toBe(true);
         await clickRecentFile(session, fixturePath);
         await waitForOpeningSkeletonWhileOpenHeld(session);
         const held = await readHeldShell(session);
         expect(held?.page).toBe(27);
-
 
         // Zoom with the wheel over the held view (Command on macOS, where
         // Control and the wheel scroll; Control elsewhere). The zoom starts
@@ -2144,12 +2264,7 @@ describe('Electron E2E - Recent Files', () => {
             x: held!.left + held!.width / 2,
             y: held!.top + held!.height * 0.25,
         };
-        const pointOn = (rect: {
-            top: number;
-            left: number;
-            width: number;
-            height: number
-        }) => ({
+        const pointOn = (rect: {top: number; left: number; width: number; height: number}) => ({
             x: (pointer.x - rect.left) / rect.width,
             y: (pointer.y - rect.top) / rect.height,
         });
@@ -2158,18 +2273,29 @@ describe('Electron E2E - Recent Files', () => {
         await session.page.keyboard.down(zoomModifier);
         await session.page.mouse.wheel({deltaY: -40});
         await session.page.keyboard.up(zoomModifier);
-        await waitForFunctionInPage(session.page, (heldWidth: number) => {
-            const width = document.querySelector('.editor-pane.is-active [data-document-opening-shell-id]')?.getBoundingClientRect().width;
-            return width !== undefined && width > heldWidth;
-        }, {timeout: RECENT_OPEN_TIMEOUT_MS}, held!.width);
+        await waitForFunctionInPage(
+            session.page,
+            (heldWidth: number) => {
+                const width = document
+                    .querySelector('.editor-pane.is-active [data-document-opening-shell-id]')
+                    ?.getBoundingClientRect().width;
+                return width !== undefined && width > heldWidth;
+            },
+            {timeout: RECENT_OPEN_TIMEOUT_MS},
+            held!.width,
+        );
         const zoomed = await readHeldShell(session);
         expect(zoomed?.page).toBe(27);
         expect(pointOn(zoomed!).x).toBeCloseTo(pointOn(held!).x, 2);
         expect(pointOn(zoomed!).y).toBeCloseTo(pointOn(held!).y, 2);
 
-        expect(await evaluateInPage(session.page, (path: TDocumentRef) => (
-            window.__releaseDocumentOpenForAutomation?.(path) ?? false
-        ), fixtureDocumentRef)).toBe(true);
+        expect(
+            await evaluateInPage(
+                session.page,
+                (path: TDocumentRef) => window.__releaseDocumentOpenForAutomation?.(path) ?? false,
+                fixtureDocumentRef,
+            ),
+        ).toBe(true);
         await waitForRecentPdfOpen(session, fixturePath);
         // The page is drawn at the zoomed shell's rect, so at its scale; the
         // zoom shown is above the reading zoom the open started from.
@@ -2185,10 +2311,17 @@ describe('Electron E2E - Recent Files', () => {
         await session.page.keyboard.down(zoomModifier);
         await session.page.mouse.wheel({deltaY: -40});
         await session.page.keyboard.up(zoomModifier);
-        await waitForFunctionInPage(session.page, (width: number) => {
-            const drawnWidth = document.querySelector('.editor-pane.is-active #pdf-viewer .page_container[data-page="27"]')?.getBoundingClientRect().width;
-            return drawnWidth !== undefined && Math.abs(drawnWidth - width) > 1;
-        }, {timeout: RECENT_OPEN_TIMEOUT_MS}, drawnBefore!.width);
+        await waitForFunctionInPage(
+            session.page,
+            (width: number) => {
+                const drawnWidth = document
+                    .querySelector('.editor-pane.is-active #pdf-viewer .page_container[data-page="27"]')
+                    ?.getBoundingClientRect().width;
+                return drawnWidth !== undefined && Math.abs(drawnWidth - width) > 1;
+            },
+            {timeout: RECENT_OPEN_TIMEOUT_MS},
+            drawnBefore!.width,
+        );
         const drawnAfter = await readDrawnPage(session, 27);
         expect(zoomed!.width / held!.width).toBeCloseTo(drawnAfter!.width / drawnBefore!.width, 2);
     });
@@ -2202,7 +2335,7 @@ describe('Electron E2E - Recent Files', () => {
             const snapshot = await requireWorkspaceCommand<{
                 viewMode: string;
                 continuousScroll: boolean;
-                viewRotation: number
+                viewRotation: number;
             }>(session.page, 'getToolbarSnapshot');
             return {
                 viewMode: snapshot?.viewMode,
@@ -2213,34 +2346,44 @@ describe('Electron E2E - Recent Files', () => {
         const left = await readView();
         await clickAsUser(session.page, '.editor-pane.is-active .tab.is-active .tab-close');
         await waitForRecentFileRow(session, fixturePath);
-        expect(await evaluateInPage(session.page, (path: TDocumentRef) => (
-            window.__deferDocumentOpenForAutomation?.(path) ?? false
-        ), fixtureDocumentRef)).toBe(true);
+        expect(
+            await evaluateInPage(
+                session.page,
+                (path: TDocumentRef) => window.__deferDocumentOpenForAutomation?.(path) ?? false,
+                fixtureDocumentRef,
+            ),
+        ).toBe(true);
         await clickRecentFile(session, fixturePath);
         await waitForOpeningSkeletonWhileOpenHeld(session);
         const held = await readHeldShell(session);
         expect(held?.page, JSON.stringify(left)).toBe(pageNumber);
-        expect(await evaluateInPage(session.page, (path: TDocumentRef) => (
-            window.__releaseDocumentOpenForAutomation?.(path) ?? false
-        ), fixtureDocumentRef)).toBe(true);
+        expect(
+            await evaluateInPage(
+                session.page,
+                (path: TDocumentRef) => window.__releaseDocumentOpenForAutomation?.(path) ?? false,
+                fixtureDocumentRef,
+            ),
+        ).toBe(true);
         await waitForRecentPdfOpen(session, fixturePath);
         await waitForToolbarCurrentPage(session.page, pageNumber);
-        await waitForFunctionInPage(session.page, (page: number) => Boolean(document.querySelector(
-            `.editor-pane.is-active #pdf-viewer .page_container[data-page="${page}"] canvas`,
-        )), {timeout: RECENT_OPEN_TIMEOUT_MS}, pageNumber);
+        await waitForFunctionInPage(
+            session.page,
+            (page: number) =>
+                Boolean(document.querySelector(`.editor-pane.is-active #pdf-viewer .page_container[data-page="${page}"] canvas`)),
+            {timeout: RECENT_OPEN_TIMEOUT_MS},
+            pageNumber,
+        );
         const drawn = await readDrawnPage(session, pageNumber);
         // Within the committed surface contract's one CSS pixel.
-        for (const key of [
-            'top',
-            'left',
-            'width',
-            'height',
-        ] as const) {
-            expect(Math.abs((drawn?.[key] ?? Number.NaN) - (held?.[key] ?? Number.NaN)), `${key}: ${JSON.stringify({
-                left,
-                held,
-                drawn,
-            })}`).toBeLessThanOrEqual(1);
+        for (const key of ['top', 'left', 'width', 'height'] as const) {
+            expect(
+                Math.abs((drawn?.[key] ?? Number.NaN) - (held?.[key] ?? Number.NaN)),
+                `${key}: ${JSON.stringify({
+                    left,
+                    held,
+                    drawn,
+                })}`,
+            ).toBeLessThanOrEqual(1);
         }
         expect(await readView()).toEqual(left);
     }
@@ -2255,7 +2398,7 @@ describe('Electron E2E - Recent Files', () => {
             name: string;
             commands: string[];
             page: number;
-            expectedRotation?: number
+            expectedRotation?: number;
         }> = [
             {
                 name: 'continuous-last',
@@ -2299,7 +2442,7 @@ describe('Electron E2E - Recent Files', () => {
                 await requireWorkspaceCommand(session.page, command);
             }
             if (view.expectedRotation !== undefined) {
-                const snapshot = await requireWorkspaceCommand<{ viewRotation: number }>(session.page, 'getToolbarSnapshot');
+                const snapshot = await requireWorkspaceCommand<{viewRotation: number}>(session.page, 'getToolbarSnapshot');
                 expect(snapshot?.viewRotation, view.name).toBe(view.expectedRotation);
             }
             await goToPageViaToolbar(session.page, view.page);
@@ -2346,19 +2489,26 @@ runDjvuRecentOrSkip('Electron E2E - Recent DjVu Files', () => {
         // The toolbar's page and zoom, and a drawn page image in the viewport.
         async function expectDjvuPlace(pageNumber: number, zoomLabel: string) {
             await waitForToolbarCurrentPage(session.page, pageNumber);
-            await waitForFunctionInPage(session.page, (expectedZoom: string) => {
-                const viewport = document.querySelector<HTMLElement>(
-                    '.editor-pane.is-active [data-document-viewer-chassis-viewport]',
-                )?.getBoundingClientRect();
-                const drawn = Array.from(document.querySelectorAll<HTMLElement>(
-                    '.editor-pane.is-active [data-testid="document-page-source-image"][data-document-page-visual="committed"]',
-                )).some((image) => {
-                    const rect = image.getBoundingClientRect();
-                    return viewport && rect.bottom > viewport.top && rect.top < viewport.bottom;
-                });
-                const zoom = document.querySelector('#editor-global-toolbar-host .zoom-controls-display-value')?.textContent?.trim();
-                return drawn && zoom === expectedZoom;
-            }, {timeout: RECENT_OPEN_TIMEOUT_MS}, zoomLabel);
+            await waitForFunctionInPage(
+                session.page,
+                (expectedZoom: string) => {
+                    const viewport = document
+                        .querySelector<HTMLElement>('.editor-pane.is-active [data-document-viewer-chassis-viewport]')
+                        ?.getBoundingClientRect();
+                    const drawn = Array.from(
+                        document.querySelectorAll<HTMLElement>(
+                            '.editor-pane.is-active [data-testid="document-page-source-image"][data-document-page-visual="committed"]',
+                        ),
+                    ).some((image) => {
+                        const rect = image.getBoundingClientRect();
+                        return viewport && rect.bottom > viewport.top && rect.top < viewport.bottom;
+                    });
+                    const zoom = document.querySelector('#editor-global-toolbar-host .zoom-controls-display-value')?.textContent?.trim();
+                    return drawn && zoom === expectedZoom;
+                },
+                {timeout: RECENT_OPEN_TIMEOUT_MS},
+                zoomLabel,
+            );
         }
 
         await openDjvuInApp(session.page, sourcePath, 90_000);
@@ -2369,10 +2519,15 @@ runDjvuRecentOrSkip('Electron E2E - Recent DjVu Files', () => {
         const defaultZoomLabel = await readZoomLabel(session);
         await goToPageViaToolbar(session.page, readingPage);
         await clickVisibleToolbarButton(session.page, 'Zoom In');
-        await waitForFunctionInPage(session.page, (before: string) => {
-            const zoom = document.querySelector('#editor-global-toolbar-host .zoom-controls-display-value')?.textContent?.trim();
-            return Boolean(zoom) && zoom !== before;
-        }, {timeout: RECENT_OPEN_TIMEOUT_MS}, defaultZoomLabel);
+        await waitForFunctionInPage(
+            session.page,
+            (before: string) => {
+                const zoom = document.querySelector('#editor-global-toolbar-host .zoom-controls-display-value')?.textContent?.trim();
+                return Boolean(zoom) && zoom !== before;
+            },
+            {timeout: RECENT_OPEN_TIMEOUT_MS},
+            defaultZoomLabel,
+        );
         const readingZoomLabel = await readZoomLabel(session);
         await expectDjvuPlace(readingPage, readingZoomLabel);
 
@@ -2421,36 +2576,30 @@ runDjvuRecentOrSkip('Electron E2E - Recent DjVu Files', () => {
         await waitForRecentDjvuOpen(session, sourcePath);
         await waitForToolbarCurrentPage(session.page, 7);
         await waitForViewportQuiet(session.page);
-        const frames = (await stopCommittedSurfaceSampler(session.page)).frames
-            .filter(frame => frame.interactionCheckpoint === 'djvu-reopen');
+        const frames = (await stopCommittedSurfaceSampler(session.page)).frames.filter(
+            (frame) => frame.interactionCheckpoint === 'djvu-reopen',
+        );
         // The open begins at its first pending frame; the closed tab's last frames come before it.
-        const opening = {frames: frames.slice(frames.findIndex(frame => frame.openSurfacePhase === 'pending'))};
-        const detail = JSON.stringify(opening.frames.map(frame => [
-            frame.frame,
-            frame.kind,
-            frame.openSurfacePhase,
-            frame.shellRect,
-        ]));
+        const opening = {frames: frames.slice(frames.findIndex((frame) => frame.openSurfacePhase === 'pending'))};
+        const detail = JSON.stringify(opening.frames.map((frame) => [frame.frame, frame.kind, frame.openSurfacePhase, frame.shellRect]));
         // T5: bare background until page 7's shape is known, then that shape, then the page in its place.
-        expect(findCommittedSurfaceCausalOpenViolations(opening, {
-            maxFirstCanvasMs: 60_000,
-            maxFirstPageShellMs: 60_000,
-            maxReadyAfterCanvasMs: 60_000,
-            requirePageShell: true,
-        }), detail).toEqual([]);
-        const shells = opening.frames.filter(frame => frame.kind === 'page-shell');
-        const page = opening.frames.find(frame => frame.kind === 'committed-canvas');
-        for (const frame of [
-            ...shells,
-            page,
-        ]) {
-            for (const key of [
-                'top',
-                'left',
-                'width',
-                'height',
-            ] as const) {
-                expect(Math.abs((frame?.shellRect?.[key] ?? Number.NaN) - (shells[0]?.shellRect?.[key] ?? Number.NaN)), detail).toBeLessThanOrEqual(1);
+        expect(
+            findCommittedSurfaceCausalOpenViolations(opening, {
+                maxFirstCanvasMs: 60_000,
+                maxFirstPageShellMs: 60_000,
+                maxReadyAfterCanvasMs: 60_000,
+                requirePageShell: true,
+            }),
+            detail,
+        ).toEqual([]);
+        const shells = opening.frames.filter((frame) => frame.kind === 'page-shell');
+        const page = opening.frames.find((frame) => frame.kind === 'committed-canvas');
+        for (const frame of [...shells, page]) {
+            for (const key of ['top', 'left', 'width', 'height'] as const) {
+                expect(
+                    Math.abs((frame?.shellRect?.[key] ?? Number.NaN) - (shells[0]?.shellRect?.[key] ?? Number.NaN)),
+                    detail,
+                ).toBeLessThanOrEqual(1);
             }
         }
     });

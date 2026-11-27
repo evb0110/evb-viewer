@@ -1,18 +1,10 @@
-import { getErrorMessage } from '@contracts/getErrorMessage';
-import {
-    constants,
-    copyFileSync,
-    existsSync,
-    readFileSync,
-    readdirSync,
-    statSync,
-    unlinkSync,
-} from 'node:fs';
-import { join } from 'node:path';
-import { delay } from 'es-toolkit/promise';
-import { safeJsonParse } from '@contracts/safeJsonParse';
-import { sendCommand } from '@scripts/electron-run/sendCommand';
-import { COMMAND_EXECUTION_TIMEOUT_MS } from '@scripts/electron-run/electronRunTimeouts';
+import {getErrorMessage} from '@contracts/getErrorMessage';
+import {constants, copyFileSync, existsSync, readFileSync, readdirSync, statSync, unlinkSync} from 'node:fs';
+import {join} from 'node:path';
+import {delay} from 'es-toolkit/promise';
+import {safeJsonParse} from '@contracts/safeJsonParse';
+import {sendCommand} from '@scripts/electron-run/sendCommand';
+import {COMMAND_EXECUTION_TIMEOUT_MS} from '@scripts/electron-run/electronRunTimeouts';
 import {
     cleanupStaleSessionArtifacts,
     clearSessionStarting,
@@ -21,24 +13,16 @@ import {
     isSessionRunning,
     listAllSessionNames,
 } from '@scripts/electron-run/electronRunSessionArtifacts';
-import {
-    getCurrentSessionName,
-    sessionFilePath,
-    sessionDir,
-    setCurrentSessionName,
-} from '@scripts/electron-run/electronRunSessionPaths';
-import { isProcessAlive } from '@scripts/electron-run/electronRunProcessTree';
-import { projectRoot } from '@scripts/electron-run/projectRoot';
-import { devSupervisor } from '@scripts/electron-run/devSupervisor';
-import { runDevLogs } from '@scripts/devLogs';
-import { startSessionDetached } from '@scripts/electron-run/startSessionDetached';
-import { recoverSessionRecording } from '@scripts/electron-run/sessionRecording';
-import { prepareRecordingReview } from '@scripts/electron-run/recordingAnalysis';
-import { serveRecordingReview } from '@scripts/electron-run/serveRecordingReview';
-import {
-    stopSession,
-    stopSingleSession,
-} from '@scripts/electron-run/stopSession';
+import {getCurrentSessionName, sessionFilePath, sessionDir, setCurrentSessionName} from '@scripts/electron-run/electronRunSessionPaths';
+import {isProcessAlive} from '@scripts/electron-run/electronRunProcessTree';
+import {projectRoot} from '@scripts/electron-run/projectRoot';
+import {devSupervisor} from '@scripts/electron-run/devSupervisor';
+import {runDevLogs} from '@scripts/devLogs';
+import {startSessionDetached} from '@scripts/electron-run/startSessionDetached';
+import {recoverSessionRecording} from '@scripts/electron-run/sessionRecording';
+import {prepareRecordingReview} from '@scripts/electron-run/recordingAnalysis';
+import {serveRecordingReview} from '@scripts/electron-run/serveRecordingReview';
+import {stopSession, stopSingleSession} from '@scripts/electron-run/stopSession';
 
 const CLI_COMMANDS = [
     'record',
@@ -71,7 +55,7 @@ const CLI_COMMANDS = [
     'health',
 ] as const;
 
-type TCliCommand = typeof CLI_COMMANDS[number];
+type TCliCommand = (typeof CLI_COMMANDS)[number];
 const CLI_COMMAND_SET: ReadonlySet<string> = new Set<TCliCommand>(CLI_COMMANDS);
 
 function isCliCommand(value: string): value is TCliCommand {
@@ -83,9 +67,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function parsePositivePid(value: unknown) {
-    return typeof value === 'number' && Number.isInteger(value) && value > 0
-        ? value
-        : null;
+    return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : null;
 }
 
 type TLegacySessionFileKind = 'session' | 'starting';
@@ -102,12 +84,7 @@ interface ILegacySessionFileObservation {
     inode: number | null;
 }
 
-const READ_ONLY_CLI_COMMANDS: ReadonlySet<TCliCommand> = new Set([
-    'status',
-    'list',
-    'health',
-    'logs',
-]);
+const READ_ONLY_CLI_COMMANDS: ReadonlySet<TCliCommand> = new Set(['status', 'list', 'health', 'logs']);
 
 function legacySessionFileLabel(kind: TLegacySessionFileKind) {
     return kind === 'session' ? 'session' : 'startup';
@@ -126,10 +103,7 @@ function legacySessionFilePaths() {
     ];
 }
 
-function inspectLegacySessionFile(
-    kind: TLegacySessionFileKind,
-    filePath: string,
-): ILegacySessionFileObservation | null {
+function inspectLegacySessionFile(kind: TLegacySessionFileKind, filePath: string): ILegacySessionFileObservation | null {
     try {
         if (!existsSync(filePath)) {
             return null;
@@ -258,10 +232,7 @@ function inspectLegacySessionFile(
 
 function inspectLegacySessionFiles() {
     return legacySessionFilePaths()
-        .map(({
-            kind,
-            filePath,
-        }) => inspectLegacySessionFile(kind, filePath))
+        .map(({kind, filePath}) => inspectLegacySessionFile(kind, filePath))
         .filter((observation): observation is ILegacySessionFileObservation => observation !== null);
 }
 
@@ -287,45 +258,46 @@ function archiveDeadLegacySessionFile(observation: ILegacySessionFileObservation
         }
         const currentSource = readFileSync(observation.filePath, 'utf8');
         const currentStat = statSync(observation.filePath);
-        if (currentSource !== observation.source
-            || currentStat.dev !== observation.device
-            || currentStat.ino !== observation.inode) {
+        if (currentSource !== observation.source || currentStat.dev !== observation.device || currentStat.ino !== observation.inode) {
             throw new Error('the source metadata changed after inspection');
         }
         // COPYFILE_EXCL makes archive creation no-clobber. If interrupted
         // before the source unlink, both copies remain available for recovery.
         copyFileSync(observation.filePath, archivePath, constants.COPYFILE_EXCL);
         const beforeUnlink = statSync(observation.filePath);
-        if (beforeUnlink.dev !== observation.device
-            || beforeUnlink.ino !== observation.inode
-            || readFileSync(observation.filePath, 'utf8') !== observation.source) {
+        if (
+            beforeUnlink.dev !== observation.device ||
+            beforeUnlink.ino !== observation.inode ||
+            readFileSync(observation.filePath, 'utf8') !== observation.source
+        ) {
             throw new Error('the source metadata changed before migration could finish');
         }
         unlinkSync(observation.filePath);
     } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
         throw new Error(
-            `Legacy ${legacySessionFileLabel(observation.kind)} metadata at ${observation.filePath} `
-            + `was retained because migration could not complete: ${detail}`,
+            `Legacy ${legacySessionFileLabel(observation.kind)} metadata at ${observation.filePath} ` +
+                `was retained because migration could not complete: ${detail}`,
         );
     }
     console.log(`[Migration] Archived inactive legacy ${legacySessionFileLabel(observation.kind)} metadata at ${archivePath}`);
 }
 
 function migrateLegacySessionFiles(observations: readonly ILegacySessionFileObservation[]) {
-    const unresolvedObservations = observations.filter(observation => (
-        observation.state === 'live'
-        || observation.state === 'malformed'
-        || observation.state === 'unreadable'
-    ));
+    const unresolvedObservations = observations.filter(
+        (observation) => observation.state === 'live' || observation.state === 'malformed' || observation.state === 'unreadable',
+    );
     if (unresolvedObservations.length > 0) {
         const details = unresolvedObservations
-            .map(observation => `${observation.filePath} (${observation.state}${observation.pid ? `, PID ${String(observation.pid)}` : ''})`)
+            .map(
+                (observation) =>
+                    `${observation.filePath} (${observation.state}${observation.pid ? `, PID ${String(observation.pid)}` : ''})`,
+            )
             .join(', ');
         throw new Error(
-            `Refused legacy session migration for ${details}: the live PID is ambiguous because `
-            + 'legacy metadata lacks exact executable, process start-time, project, and session identity. '
-            + 'No process was signaled and the metadata was retained. Inspect the live PID, then move or delete the named legacy session file when it is safe.',
+            `Refused legacy session migration for ${details}: the live PID is ambiguous because ` +
+                'legacy metadata lacks exact executable, process start-time, project, and session identity. ' +
+                'No process was signaled and the metadata was retained. Inspect the live PID, then move or delete the named legacy session file when it is safe.',
         );
     }
 
@@ -334,8 +306,8 @@ function migrateLegacySessionFiles(observations: readonly ILegacySessionFileObse
             archiveDeadLegacySessionFile(observation);
         } else {
             console.warn(
-                `[Migration] Retained legacy ${legacySessionFileLabel(observation.kind)} metadata at `
-                + `${observation.filePath}: ${observation.reason}.`,
+                `[Migration] Retained legacy ${legacySessionFileLabel(observation.kind)} metadata at ` +
+                    `${observation.filePath}: ${observation.reason}.`,
             );
         }
     }
@@ -356,9 +328,9 @@ function parseHealthResult(value: unknown) {
     const healthValue = value.health;
     const health = isRecord(healthValue)
         ? {
-            openFileDirect: typeof healthValue.openFileDirect === 'string' ? healthValue.openFileDirect : undefined,
-            electronAPI: typeof healthValue.electronAPI === 'string' ? healthValue.electronAPI : undefined,
-        }
+              openFileDirect: typeof healthValue.openFileDirect === 'string' ? healthValue.openFileDirect : undefined,
+              electronAPI: typeof healthValue.electronAPI === 'string' ? healthValue.electronAPI : undefined,
+          }
         : undefined;
 
     return {
@@ -471,10 +443,7 @@ function parseCliArgs(rawArgs: string[]): IParsedCliArgs {
         }
     }
 
-    const [
-        rawCommand = null,
-        ...args
-    ] = filteredArgs;
+    const [rawCommand = null, ...args] = filteredArgs;
 
     return {
         sessionName,
@@ -533,9 +502,13 @@ async function printSessionHealthStatus(port: number, uptime: number) {
         }
         const openFileDirect = healthResult?.health?.openFileDirect ?? 'unknown';
         const electronAPI = healthResult?.health?.electronAPI ?? 'unknown';
-        console.log(`Session '${getCurrentSessionName()}' running (port: ${port}, uptime: ${Math.round(uptime)}s) - \u26a0\ufe0f  App not ready (openFileDirect=${openFileDirect}, electronAPI=${electronAPI})`);
+        console.log(
+            `Session '${getCurrentSessionName()}' running (port: ${port}, uptime: ${Math.round(uptime)}s) - \u26a0\ufe0f  App not ready (openFileDirect=${openFileDirect}, electronAPI=${electronAPI})`,
+        );
     } catch {
-        console.log(`Session '${getCurrentSessionName()}' running (port: ${port}, uptime: ${Math.round(uptime)}s) - \u26a0\ufe0f  Electron DISCONNECTED`);
+        console.log(
+            `Session '${getCurrentSessionName()}' running (port: ${port}, uptime: ${Math.round(uptime)}s) - \u26a0\ufe0f  Electron DISCONNECTED`,
+        );
         console.log(`  Use \`pnpm electron:run --session=${getCurrentSessionName()} restart\` to recover.`);
     }
 }
@@ -618,9 +591,11 @@ async function printSessionList() {
 }
 
 async function restartSession(detached: boolean) {
-    console.log(detached
-        ? `Restarting session '${getCurrentSessionName()}' in background...`
-        : `Restarting session '${getCurrentSessionName()}'...`);
+    console.log(
+        detached
+            ? `Restarting session '${getCurrentSessionName()}' in background...`
+            : `Restarting session '${getCurrentSessionName()}'...`,
+    );
     await stopSingleSession(getCurrentSessionName());
     await delay(1000);
     if (detached) {
@@ -637,7 +612,7 @@ const CLI_COMMAND_HANDLERS: Record<TCliCommand, TCliCommandHandler> = {
         if (getCurrentSessionName() === 'default') {
             throw new Error('Choose a task-owned session: electron:run -s <name> record');
         }
-        if (await isSessionRunning() || isProcessAlive(getSessionInfo()?.pid ?? 0) || getSessionStartingInfo()) {
+        if ((await isSessionRunning()) || isProcessAlive(getSessionInfo()?.pid ?? 0) || getSessionStartingInfo()) {
             throw new Error('Session already exists; choose a new task-owned name');
         }
         process.env.EVB_RECORD_SESSION = '1';
@@ -649,18 +624,19 @@ const CLI_COMMAND_HANDLERS: Record<TCliCommand, TCliCommandHandler> = {
     },
     async recording(args) {
         if (args[0] === 'serve') {
-            if (!args[1] || args.length !== 2) { throw new Error('Usage: recording serve <directory>'); }
+            if (!args[1] || args.length !== 2) {
+                throw new Error('Usage: recording serve <directory>');
+            }
             const server = await serveRecordingReview(args[1]);
             printJson({
                 url: server.url,
                 directory: server.directory,
                 pid: process.pid,
             });
-            for (const signal of [
-                'SIGINT',
-                'SIGTERM',
-            ] as const) {
-                process.once(signal, () => { void server.close(); });
+            for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+                process.once(signal, () => {
+                    void server.close();
+                });
             }
             return;
         }
@@ -670,36 +646,54 @@ const CLI_COMMAND_HANDLERS: Record<TCliCommand, TCliCommandHandler> = {
                 to?: number;
                 step?: number;
                 at?: number[];
-                track?: string
+                track?: string;
             } = {};
             let path: string | undefined;
             for (let index = 1; index < args.length; index++) {
                 const arg = args[index];
                 if (arg === '--from' || arg === '--to' || arg === '--step') {
                     const value = Number(args[++index]);
-                    if (!Number.isFinite(value)) { throw new Error(`${arg} requires a number`); }
-                    if (arg === '--from') { options.from = value; }
-                    else if (arg === '--to') { options.to = value; }
-                    else { options.step = value; }
+                    if (!Number.isFinite(value)) {
+                        throw new Error(`${arg} requires a number`);
+                    }
+                    if (arg === '--from') {
+                        options.from = value;
+                    } else if (arg === '--to') {
+                        options.to = value;
+                    } else {
+                        options.step = value;
+                    }
                 } else if (arg === '--at') {
                     const value = args[++index];
-                    if (!value || value.split(',').some(item => !item.trim())) { throw new Error('--at requires comma-separated timestamps'); }
+                    if (!value || value.split(',').some((item) => !item.trim())) {
+                        throw new Error('--at requires comma-separated timestamps');
+                    }
                     options.at = value.split(',').map(Number);
                 } else if (arg === '--track') {
                     const value = args[++index];
-                    if (!value || value.startsWith('--')) { throw new Error('--track requires a track ID'); }
+                    if (!value || value.startsWith('--')) {
+                        throw new Error('--track requires a track ID');
+                    }
                     options.track = value;
-                } else if (!path && arg && !arg.startsWith('--')) { path = arg; }
-                else { throw new Error(`Unexpected review argument: ${String(arg)}`); }
+                } else if (!path && arg && !arg.startsWith('--')) {
+                    path = arg;
+                } else {
+                    throw new Error(`Unexpected review argument: ${String(arg)}`);
+                }
             }
             if (!path) {
-                if (await isSessionRunning() || isProcessAlive(getSessionInfo()?.pid ?? 0)
-                    || isProcessAlive(getSessionStartingInfo()?.pid ?? 0)) {
+                if (
+                    (await isSessionRunning()) ||
+                    isProcessAlive(getSessionInfo()?.pid ?? 0) ||
+                    isProcessAlive(getSessionStartingInfo()?.pid ?? 0)
+                ) {
                     throw new Error('Stop the task-owned recording before reviewing it');
                 }
                 const root = join(sessionDir(), 'recordings');
                 const latest = readdirSync(root).sort().at(-1);
-                if (!latest) { throw new Error('No recording exists for this session'); }
+                if (!latest) {
+                    throw new Error('No recording exists for this session');
+                }
                 path = join(root, latest, 'manifest.json');
                 await recoverSessionRecording(path);
             }
@@ -714,7 +708,9 @@ const CLI_COMMAND_HANDLERS: Record<TCliCommand, TCliCommandHandler> = {
             }
             const root = join(sessionDir(), 'recordings');
             const latest = readdirSync(root).sort().at(-1);
-            if (!latest) { throw new Error('No recording exists for this session'); }
+            if (!latest) {
+                throw new Error('No recording exists for this session');
+            }
             printJson(await recoverSessionRecording(join(root, latest, 'manifest.json')));
         }
     },
@@ -749,26 +745,23 @@ const CLI_COMMAND_HANDLERS: Record<TCliCommand, TCliCommandHandler> = {
         await printSessionList();
     },
     logs(args) {
-        runDevLogs([
-            `--session=${getCurrentSessionName()}`,
-            ...args,
-        ]);
+        runDevLogs([`--session=${getCurrentSessionName()}`, ...args]);
         return Promise.resolve();
     },
-    screenshot: args => printJsonCommand('screenshot', args),
-    screenshots: args => printJsonCommand('screenshots', args, 600_000),
-    console: args => printJsonCommand('console', args),
-    devtools: args => printJsonCommand('devtools', args),
-    click: args => printJsonCommand('click', args),
-    type: args => printJsonCommand('type', args),
+    screenshot: (args) => printJsonCommand('screenshot', args),
+    screenshots: (args) => printJsonCommand('screenshots', args, 600_000),
+    console: (args) => printJsonCommand('console', args),
+    devtools: (args) => printJsonCommand('devtools', args),
+    click: (args) => printJsonCommand('click', args),
+    type: (args) => printJsonCommand('type', args),
     async content(args) {
         console.log(await sendCommand('content', args));
     },
-    waitfor: args => printJsonCommand('waitfor', args, COMMAND_EXECUTION_TIMEOUT_MS),
-    windowResize: args => printJsonCommand('windowResize', args, COMMAND_EXECUTION_TIMEOUT_MS),
-    activateMenuItem: args => printJsonCommand('activateMenuItem', args),
-    emulateViewport: args => printJsonCommand('emulateViewport', args),
-    viewport: args => printJsonCommand('viewport', args),
+    waitfor: (args) => printJsonCommand('waitfor', args, COMMAND_EXECUTION_TIMEOUT_MS),
+    windowResize: (args) => printJsonCommand('windowResize', args, COMMAND_EXECUTION_TIMEOUT_MS),
+    activateMenuItem: (args) => printJsonCommand('activateMenuItem', args),
+    emulateViewport: (args) => printJsonCommand('emulateViewport', args),
+    viewport: (args) => printJsonCommand('viewport', args),
     async run(args) {
         const code = requireJoinedArgs(args, 'No code provided');
         const result = await sendCommand('run', [code], COMMAND_EXECUTION_TIMEOUT_MS);

@@ -1,10 +1,6 @@
-import type {
-    ComputedRef,
-    InjectionKey,
-    MaybeRefOrGetter,
-} from 'vue';
-import type { IContentInsets } from '@app/types/pdfUi';
-import { clamp } from 'es-toolkit/math';
+import type {ComputedRef, InjectionKey, MaybeRefOrGetter} from 'vue';
+import type {IContentInsets} from '@app/types/pdfUi';
+import {clamp} from 'es-toolkit/math';
 
 interface IPdfSkeletonContext {
     scaledSkeletonPadding: ComputedRef<IContentInsets | null>;

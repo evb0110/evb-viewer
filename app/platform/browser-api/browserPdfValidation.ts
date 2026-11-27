@@ -1,11 +1,7 @@
 import {isBrowserFullReadTooLargeError} from '@app/platform/browser/browserDocumentReadError';
-import { getErrorMessage } from '@app/utils/error';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import type {
-    IPdfConformanceAnalysisOptions,
-    IPdfConformanceProfile,
-    IPdfValidationResult,
-} from '@contracts/pdfConformance';
+import {getErrorMessage} from '@app/utils/error';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import type {IPdfConformanceAnalysisOptions, IPdfConformanceProfile, IPdfValidationResult} from '@contracts/pdfConformance';
 import type {IPdfPathValidationOptions} from '@contracts/pdfValidationPathArgs';
 import {isAbortError} from '@contracts/isAbortError';
 import {BROWSER_QPDF_MAX_INPUT_BYTES} from '@contracts/browserQpdfEngine';
@@ -32,7 +28,7 @@ import {
     runBrowserQpdfCommand,
 } from '@app/platform/browser-api/browserQpdfEngineClient';
 import {buildBrowserByteLimitError} from '@app/platform/browser-api/browserPlatformHelpers';
-import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
+import {yieldToBrowser} from '@app/platform/browser-api/browserYield';
 
 const COMPATIBILITY_WARNING = `qpdf validation is unavailable above the ${Math.round(BROWSER_QPDF_MAX_INPUT_BYTES / (1024 * 1024))} MiB browser input limit; only browser loadability was checked.`;
 
@@ -43,7 +39,11 @@ const MARKER_SCAN_SLICE_STRIDE = 16 * (PDF_CONFORMANCE_MARKER_SCAN_CHUNK_BYTES -
 
 async function scanPdfMarkerEvidenceInSlices(source: Blob) {
     let evidence = scanPdfMarkerEvidence(new Uint8Array());
-    for (let offset = 0; offset === 0 || offset + PDF_CONFORMANCE_MARKER_SCAN_OVERLAP_BYTES < source.size; offset += MARKER_SCAN_SLICE_STRIDE) {
+    for (
+        let offset = 0;
+        offset === 0 || offset + PDF_CONFORMANCE_MARKER_SCAN_OVERLAP_BYTES < source.size;
+        offset += MARKER_SCAN_SLICE_STRIDE
+    ) {
         const slice = source.slice(offset, offset + MARKER_SCAN_SLICE_STRIDE + PDF_CONFORMANCE_MARKER_SCAN_OVERLAP_BYTES);
         const found = scanPdfMarkerEvidence(new Uint8Array(await slice.arrayBuffer()));
         evidence = {
@@ -59,12 +59,16 @@ async function scanPdfMarkerEvidenceInSlices(source: Blob) {
  * enters its memory, which this thread's fallback would read it into.
  */
 function readPdfStructuralFacts(source: Blob, signal?: AbortSignal) {
-    return runBrowserPageOpsWorkerRequest('conformance', {source}, {
-        dedicated: true,
-        requireWorker: true,
-        timeoutMs: QPDF_VALIDATE_MAX_TIMEOUT_MS,
-        ...(signal ? {signal} : {}),
-    });
+    return runBrowserPageOpsWorkerRequest(
+        'conformance',
+        {source},
+        {
+            dedicated: true,
+            requireWorker: true,
+            timeoutMs: QPDF_VALIDATE_MAX_TIMEOUT_MS,
+            ...(signal ? {signal} : {}),
+        },
+    );
 }
 
 /** Strict facts: failure must never authorize a rewrite or a timeout fallback. */
@@ -115,7 +119,9 @@ async function validateQpdfInput(
     readFallbackInput = readInput,
     signal?: AbortSignal,
 ): Promise<IPdfValidationResult> {
-    if (size === 0) {return validationResult(false, ['PDF validation failed: empty document data']);}
+    if (size === 0) {
+        return validationResult(false, ['PDF validation failed: empty document data']);
+    }
     const fullCheck = purpose === undefined;
     const timeoutMs = fullCheck ? resolveQpdfValidationTimeoutMs(size) : QPDF_STRUCTURAL_VALIDATE_TIMEOUT_MS;
     const label = fullCheck ? 'qpdf(validate-pdf)' : purpose === 'opening' ? 'qpdf(validate-pdf-opening)' : 'qpdf(validate-pdf-structure)';
@@ -129,27 +135,41 @@ async function validateQpdfInput(
         if (!isQpdfSuccessExitCode(result.exitCode)) {
             // Desktop chooses raw stderr || stdout before trimming, including whitespace-only stderr.
             const detail = display(result.stderr || result.stdout).trim() || 'No process output was captured.';
-            return validationResult(false, [`${label} failed with exit code ${result.exitCode}. ${detail.length > 1_200 ? `${detail.slice(0, 1_197)}...` : detail}`]);
+            return validationResult(false, [
+                `${label} failed with exit code ${result.exitCode}. ${detail.length > 1_200 ? `${detail.slice(0, 1_197)}...` : detail}`,
+            ]);
         }
         if (!fullCheck && parseQpdfPageCount(result.stdout) === null) {
             return validationResult(false, ['PDF structural validation returned an invalid page count']);
         }
-        return validationResult(true, [], [
-            ...(fullCheck ? extractQpdfWarnings(display(result.stdout)) : []),
-            ...extractQpdfWarnings(display(result.stderr)),
-        ]);
+        return validationResult(
+            true,
+            [],
+            [...(fullCheck ? extractQpdfWarnings(display(result.stdout)) : []), ...extractQpdfWarnings(display(result.stderr))],
+        );
     } catch (error) {
-        if (isAbortError(error) || isBrowserQpdfEngineUnavailableError(error) || isBrowserFullReadTooLargeError(error)) {throw error;}
-        const message = error instanceof BrowserQpdfEngineTimeoutError
-            ? `${label} timed out after ${error.timeoutMs}ms`
-            : display(getErrorMessage(error));
+        if (isAbortError(error) || isBrowserQpdfEngineUnavailableError(error) || isBrowserFullReadTooLargeError(error)) {
+            throw error;
+        }
+        const message =
+            error instanceof BrowserQpdfEngineTimeoutError
+                ? `${label} timed out after ${error.timeoutMs}ms`
+                : display(getErrorMessage(error));
         if (fullCheck && error instanceof BrowserQpdfEngineTimeoutError) {
             try {
-                await readPdfStructuralFacts(new Blob([await readFallbackInput() as BlobPart]), signal);
-                return validationResult(true, [], [`qpdf validation timed out after ${timeoutMs}ms; fallback PDF structure validation succeeded.`]);
+                await readPdfStructuralFacts(new Blob([(await readFallbackInput()) as BlobPart]), signal);
+                return validationResult(
+                    true,
+                    [],
+                    [`qpdf validation timed out after ${timeoutMs}ms; fallback PDF structure validation succeeded.`],
+                );
             } catch (fallbackError) {
-                if (isAbortError(fallbackError)) {throw fallbackError;}
-                return validationResult(false, [`${message}; fallback PDF structure validation failed: ${display(getErrorMessage(fallbackError))}`]);
+                if (isAbortError(fallbackError)) {
+                    throw fallbackError;
+                }
+                return validationResult(false, [
+                    `${message}; fallback PDF structure validation failed: ${display(getErrorMessage(fallbackError))}`,
+                ]);
             }
         }
         return validationResult(false, [message]);
@@ -161,13 +181,20 @@ export async function validateBrowserPdfData(
     data: Uint8Array,
     options: {
         fileName?: string;
-        signal?: AbortSignal
+        signal?: AbortSignal;
     } = {},
 ): Promise<IPdfValidationResult> {
     if (data.byteLength > BROWSER_QPDF_MAX_INPUT_BYTES) {
         throw buildBrowserByteLimitError('PDF validation', BROWSER_QPDF_MAX_INPUT_BYTES, 'inputs');
     }
-    return validateQpdfInput(data.byteLength, () => Promise.resolve(data.slice()), options.fileName ?? 'document.pdf', undefined, () => Promise.resolve(data), options.signal);
+    return validateQpdfInput(
+        data.byteLength,
+        () => Promise.resolve(data.slice()),
+        options.fileName ?? 'document.pdf',
+        undefined,
+        () => Promise.resolve(data),
+        options.signal,
+    );
 }
 
 /**
@@ -189,7 +216,9 @@ export async function validateBrowserPdfLoadability(source: Blob): Promise<IPdfV
             warnings: [COMPATIBILITY_WARNING],
         };
     } catch (error) {
-        if (isAbortError(error)) {throw error;}
+        if (isAbortError(error)) {
+            throw error;
+        }
         return {
             isValid: false,
             tool: 'browser',
@@ -199,17 +228,20 @@ export async function validateBrowserPdfLoadability(source: Blob): Promise<IPdfV
     }
 }
 
-export async function validateBrowserPdfPath(
-    path: string,
-    options?: IPdfPathValidationOptions,
-): Promise<IPdfValidationResult> {
+export async function validateBrowserPdfPath(path: string, options?: IPdfPathValidationOptions): Promise<IPdfValidationResult> {
     // The engine's worker, or PDF.js above its ceiling, reads the document's file by range; the window never holds
     // it whole. Every check reads the same revision, the one `token` names, and a result for a revision the document
     // no longer has is not its result.
     const {blob: source, token, byteRevision, instance} = await browserDocumentStore.readableRevision(path);
-    const result = source.size <= BROWSER_QPDF_MAX_INPUT_BYTES
-        ? await validateQpdfInput(source.size, () => Promise.resolve(source), (await browserDocumentStore.requireEntry(path)).fileName, options?.purpose)
-        : await validateBrowserPdfLoadability(source);
+    const result =
+        source.size <= BROWSER_QPDF_MAX_INPUT_BYTES
+            ? await validateQpdfInput(
+                  source.size,
+                  () => Promise.resolve(source),
+                  (await browserDocumentStore.requireEntry(path)).fileName,
+                  options?.purpose,
+              )
+            : await validateBrowserPdfLoadability(source);
     await browserDocumentStore.assertDocumentRevisionCurrent(path, token, {
         strict: true,
         expectedInstance: instance,

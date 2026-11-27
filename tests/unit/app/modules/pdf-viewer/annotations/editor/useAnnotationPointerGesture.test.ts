@@ -1,21 +1,8 @@
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    computed,
-    effectScope,
-    ref,
-} from 'vue';
-import type {
-    IAnnotationGesture,
-    IAnnotationEditorSurface,
-} from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
-import type { INoteEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import { useAnnotationPointerGesture } from '@app/modules/pdf-viewer/annotations/editor/useAnnotationPointerGesture';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {computed, effectScope, ref} from 'vue';
+import type {IAnnotationGesture, IAnnotationEditorSurface} from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
+import type {INoteEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {useAnnotationPointerGesture} from '@app/modules/pdf-viewer/annotations/editor/useAnnotationPointerGesture';
 import {requirePageIndex} from '@contracts/pageNumbers';
 
 const gesture: IAnnotationGesture = {
@@ -74,13 +61,13 @@ function expectRectClose(
         left: number;
         top: number;
         width: number;
-        height: number
+        height: number;
     } | null,
     expected: {
         left: number;
         top: number;
         width: number;
-        height: number
+        height: number;
     },
 ) {
     expect(actual).not.toBeNull();
@@ -102,32 +89,27 @@ function createHarness(scopes: Set<ReturnType<typeof effectScope>>) {
     const scope = effectScope();
     scopes.add(scope);
     const selectedIds = ref(new Set([gesture.annotationId]));
-    const surfaceMethods: Pick<IAnnotationEditorSurface, 'beginMove' | 'beginResize' | 'entitiesByPage' | 'movingIds' | 'getPageGeometry'> = {
-        entitiesByPage: computed(() => new Map([[
-            0,
-            [gesture.entity],
-        ]])),
-        movingIds: computed(() => selectedIds.value),
-        getPageGeometry: () => ({
-            pageView: [
-                0,
-                0,
-                612,
-                792,
-            ],
-            rotation: 0,
-        }),
-        beginMove: vi.fn(() => gesture),
-        beginResize: vi.fn(() => ({
-            ...gesture,
-            kind: 'resize' as const,
-        })),
-    };
+    const surfaceMethods: Pick<IAnnotationEditorSurface, 'beginMove' | 'beginResize' | 'entitiesByPage' | 'movingIds' | 'getPageGeometry'> =
+        {
+            entitiesByPage: computed(() => new Map([[0, [gesture.entity]]])),
+            movingIds: computed(() => selectedIds.value),
+            getPageGeometry: () => ({
+                pageView: [0, 0, 612, 792],
+                rotation: 0,
+            }),
+            beginMove: vi.fn(() => gesture),
+            beginResize: vi.fn(() => ({
+                ...gesture,
+                kind: 'resize' as const,
+            })),
+        };
     const surface = {...surfaceMethods} as IAnnotationEditorSurface;
-    const interaction = scope.run(() => useAnnotationPointerGesture({
-        surface,
-        pageIndex: requirePageIndex(0),
-    }))!;
+    const interaction = scope.run(() =>
+        useAnnotationPointerGesture({
+            surface,
+            pageIndex: requirePageIndex(0),
+        }),
+    )!;
     return {
         scope,
         surface,
@@ -140,21 +122,29 @@ describe('useAnnotationPointerGesture', () => {
     const scopes = new Set<ReturnType<typeof effectScope>>();
 
     afterEach(() => {
-        scopes.forEach(scope => scope.stop());
+        scopes.forEach((scope) => scope.stop());
         scopes.clear();
     });
 
     it('previews a create drag and returns the final rectangle without writing during movement', () => {
         const harness = createHarness(scopes);
 
-        expect(harness.interaction.beginCreate({
-            x: 0.2,
-            y: 0.3,
-        }, pointer(20, 30))).toBe(true);
-        harness.interaction.update({
-            x: 0.6,
-            y: 0.7,
-        }, pointer(60, 70));
+        expect(
+            harness.interaction.beginCreate(
+                {
+                    x: 0.2,
+                    y: 0.3,
+                },
+                pointer(20, 30),
+            ),
+        ).toBe(true);
+        harness.interaction.update(
+            {
+                x: 0.6,
+                y: 0.7,
+            },
+            pointer(60, 70),
+        );
 
         expectRectClose(harness.interaction.previewRect.value, {
             left: 0.2,
@@ -162,10 +152,13 @@ describe('useAnnotationPointerGesture', () => {
             width: 0.4,
             height: 0.4,
         });
-        const completion = harness.interaction.finish({
-            x: 0.6,
-            y: 0.7,
-        }, pointer(60, 70));
+        const completion = harness.interaction.finish(
+            {
+                x: 0.6,
+                y: 0.7,
+            },
+            pointer(60, 70),
+        );
         expect(completion).toMatchObject({
             mode: 'create',
             hasMoved: true,
@@ -182,15 +175,21 @@ describe('useAnnotationPointerGesture', () => {
     it('keeps a click-create distinct from a drag so the caller can use the default box', () => {
         const harness = createHarness(scopes);
 
-        harness.interaction.beginCreate({
-            x: 0.4,
-            y: 0.5,
-        }, pointer(40, 50));
+        harness.interaction.beginCreate(
+            {
+                x: 0.4,
+                y: 0.5,
+            },
+            pointer(40, 50),
+        );
 
-        const completion = harness.interaction.finish({
-            x: 0.41,
-            y: 0.5,
-        }, pointer(41, 50));
+        const completion = harness.interaction.finish(
+            {
+                x: 0.41,
+                y: 0.5,
+            },
+            pointer(41, 50),
+        );
         expect(completion).toMatchObject({
             mode: 'create',
             hasMoved: false,
@@ -206,14 +205,23 @@ describe('useAnnotationPointerGesture', () => {
     it('previews and completes a move from the captured text-box entity', () => {
         const harness = createHarness(scopes);
 
-        expect(harness.interaction.beginMove(gesture.annotationId, {
-            x: 0.3,
-            y: 0.4,
-        }, pointer(30, 40))).toBe(true);
-        harness.interaction.update({
-            x: 0.5,
-            y: 0.1,
-        }, pointer(50, 10));
+        expect(
+            harness.interaction.beginMove(
+                gesture.annotationId,
+                {
+                    x: 0.3,
+                    y: 0.4,
+                },
+                pointer(30, 40),
+            ),
+        ).toBe(true);
+        harness.interaction.update(
+            {
+                x: 0.5,
+                y: 0.1,
+            },
+            pointer(50, 10),
+        );
 
         expect(harness.interaction.previewRect.value).toMatchObject({
             left: 0.4,
@@ -221,10 +229,15 @@ describe('useAnnotationPointerGesture', () => {
             width: 0.4,
             height: 0.2,
         });
-        expect(harness.interaction.finish({
-            x: 0.5,
-            y: 0.1,
-        }, pointer(50, 10))).toMatchObject({
+        expect(
+            harness.interaction.finish(
+                {
+                    x: 0.5,
+                    y: 0.1,
+                },
+                pointer(50, 10),
+            ),
+        ).toMatchObject({
             mode: 'move',
             gesture,
             hasMoved: true,
@@ -236,14 +249,23 @@ describe('useAnnotationPointerGesture', () => {
         const harness = createHarness(scopes);
         harness.surface.beginMove = vi.fn(() => noteGesture);
 
-        expect(harness.interaction.beginMove(noteGesture.annotationId, {
-            x: 0.3,
-            y: 0.4,
-        }, pointer(30, 40))).toBe(true);
-        harness.interaction.update({
-            x: 0.5,
-            y: 0.1,
-        }, pointer(50, 10));
+        expect(
+            harness.interaction.beginMove(
+                noteGesture.annotationId,
+                {
+                    x: 0.3,
+                    y: 0.4,
+                },
+                pointer(30, 40),
+            ),
+        ).toBe(true);
+        harness.interaction.update(
+            {
+                x: 0.5,
+                y: 0.1,
+            },
+            pointer(50, 10),
+        );
 
         // The note stops where its 20 pt icon meets the edge. Committing it fits the saved rect inside the page.
         expect(harness.interaction.previewRect.value).toMatchObject({
@@ -252,10 +274,15 @@ describe('useAnnotationPointerGesture', () => {
             width: 0.4,
             height: 0.2,
         });
-        expect(harness.interaction.finish({
-            x: 0.5,
-            y: 0.1,
-        }, pointer(50, 10))).toMatchObject({
+        expect(
+            harness.interaction.finish(
+                {
+                    x: 0.5,
+                    y: 0.1,
+                },
+                pointer(50, 10),
+            ),
+        ).toMatchObject({
             mode: 'move',
             gesture: noteGesture,
             hasMoved: true,
@@ -264,29 +291,43 @@ describe('useAnnotationPointerGesture', () => {
 
     it('keeps deliberate drag creation when the pointer returns to its starting point', () => {
         const harness = createHarness(scopes);
-        harness.interaction.beginCreate({
-            x: 0.2,
-            y: 0.2,
-        }, pointer(20, 20));
-        harness.interaction.update({
-            x: 0.4,
-            y: 0.4,
-        }, pointer(40, 40));
+        harness.interaction.beginCreate(
+            {
+                x: 0.2,
+                y: 0.2,
+            },
+            pointer(20, 20),
+        );
+        harness.interaction.update(
+            {
+                x: 0.4,
+                y: 0.4,
+            },
+            pointer(40, 40),
+        );
         expect(harness.interaction.hasMoved.value).toBe(true);
-        const completion = harness.interaction.finish({
-            x: 0.2,
-            y: 0.2,
-        }, pointer(20, 20));
+        const completion = harness.interaction.finish(
+            {
+                x: 0.2,
+                y: 0.2,
+            },
+            pointer(20, 20),
+        );
         expect(completion?.hasMoved).toBe(true);
     });
 
     it('cancels the active gesture and clears its preview', () => {
         const harness = createHarness(scopes);
 
-        harness.interaction.beginResize(gesture.annotationId, 'se', {
-            x: 0.6,
-            y: 0.5,
-        }, pointer(60, 50));
+        harness.interaction.beginResize(
+            gesture.annotationId,
+            'se',
+            {
+                x: 0.6,
+                y: 0.5,
+            },
+            pointer(60, 50),
+        );
         expect(harness.interaction.isActive.value).toBe(true);
         harness.interaction.cancel();
 
@@ -296,48 +337,74 @@ describe('useAnnotationPointerGesture', () => {
 
     it('releases the pointer while retaining its proposal until that accepted gesture settles', () => {
         const {interaction} = createHarness(scopes);
-        interaction.beginResize(gesture.annotationId, 'se', {
-            x: 0.6,
-            y: 0.5,
-        }, pointer(60, 50));
-        const first = interaction.finish({
-            x: 0.8,
-            y: 0.7,
-        }, pointer(80, 70))!;
+        interaction.beginResize(
+            gesture.annotationId,
+            'se',
+            {
+                x: 0.6,
+                y: 0.5,
+            },
+            pointer(60, 50),
+        );
+        const first = interaction.finish(
+            {
+                x: 0.8,
+                y: 0.7,
+            },
+            pointer(80, 70),
+        )!;
         expect(interaction.isActive.value).toBe(false);
         expect(interaction.isActiveForPointer(1)).toBe(false);
         expectRectClose(interaction.previewRect.value, first.rect);
-        expect(interaction.beginResize(gesture.annotationId, 'e', {
-            x: 0.8,
-            y: 0.5,
-        }, pointer(80, 50, 2))).toBe(true);
-        interaction.update({
-            x: 0.5,
-            y: 0.5,
-        }, pointer(50, 50, 2));
+        expect(
+            interaction.beginResize(
+                gesture.annotationId,
+                'e',
+                {
+                    x: 0.8,
+                    y: 0.5,
+                },
+                pointer(80, 50, 2),
+            ),
+        ).toBe(true);
+        interaction.update(
+            {
+                x: 0.5,
+                y: 0.5,
+            },
+            pointer(50, 50, 2),
+        );
         const nextPreview = interaction.previewRect.value;
         expect(interaction.cancel(first.gesture)).toBe(false);
         expectRectClose(interaction.previewRect.value, nextPreview!);
-        const second = interaction.finish({
-            x: 0.5,
-            y: 0.5,
-        }, pointer(50, 50, 2))!;
+        const second = interaction.finish(
+            {
+                x: 0.5,
+                y: 0.5,
+            },
+            pointer(50, 50, 2),
+        )!;
         expect(interaction.cancel(second.gesture)).toBe(true);
         expect(interaction.previewRect.value).toBeNull();
     });
 
     it('retains the released move cohort when later input changes the selection', () => {
-        const {
-            interaction, selectedIds,
-        } = createHarness(scopes);
-        interaction.beginMove(gesture.annotationId, {
-            x: 0.3,
-            y: 0.4,
-        }, pointer(30, 40));
-        const completed = interaction.finish({
-            x: 0.4,
-            y: 0.5,
-        }, pointer(40, 50))!;
+        const {interaction, selectedIds} = createHarness(scopes);
+        interaction.beginMove(
+            gesture.annotationId,
+            {
+                x: 0.3,
+                y: 0.4,
+            },
+            pointer(30, 40),
+        );
+        const completed = interaction.finish(
+            {
+                x: 0.4,
+                y: 0.5,
+            },
+            pointer(40, 50),
+        )!;
         selectedIds.value = new Set([noteGesture.annotationId]);
         expect(interaction.movingIds.value).toEqual(new Set([gesture.annotationId]));
         expectRectClose(interaction.previewRect.value, completed.rect);
@@ -347,14 +414,21 @@ describe('useAnnotationPointerGesture', () => {
 
     it('keeps a newer text selection when the previous released preview settles', () => {
         const {interaction} = createHarness(scopes);
-        interaction.beginMove(gesture.annotationId, {
-            x: 0.3,
-            y: 0.4,
-        }, pointer(30, 40));
-        const completed = interaction.finish({
-            x: 0.4,
-            y: 0.5,
-        }, pointer(40, 50))!;
+        interaction.beginMove(
+            gesture.annotationId,
+            {
+                x: 0.3,
+                y: 0.4,
+            },
+            pointer(30, 40),
+        );
+        const completed = interaction.finish(
+            {
+                x: 0.4,
+                y: 0.5,
+            },
+            pointer(40, 50),
+        )!;
         expect(interaction.beginTextSelection(pointer(50, 50, 2))).toBe(true);
         interaction.cancel(completed.gesture);
         expect(interaction.isTextSelecting.value).toBe(true);
@@ -364,20 +438,30 @@ describe('useAnnotationPointerGesture', () => {
 
     it('marks pointer gestures moved only once displacement reaches the 6px drag threshold', () => {
         const {interaction} = createHarness(scopes);
-        interaction.beginMove(gesture.annotationId, {
-            x: 0.3,
-            y: 0.4,
-        }, pointer(10, 10));
-        interaction.update({
-            x: 0.31,
-            y: 0.4,
-        }, pointer(15, 10));
+        interaction.beginMove(
+            gesture.annotationId,
+            {
+                x: 0.3,
+                y: 0.4,
+            },
+            pointer(10, 10),
+        );
+        interaction.update(
+            {
+                x: 0.31,
+                y: 0.4,
+            },
+            pointer(15, 10),
+        );
         expect(interaction.hasMoved.value).toBe(false);
 
-        interaction.update({
-            x: 0.32,
-            y: 0.4,
-        }, pointer(16, 10));
+        interaction.update(
+            {
+                x: 0.32,
+                y: 0.4,
+            },
+            pointer(16, 10),
+        );
         expect(interaction.hasMoved.value).toBe(true);
         interaction.cancel();
 

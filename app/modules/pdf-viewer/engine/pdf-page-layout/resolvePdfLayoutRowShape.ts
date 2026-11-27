@@ -1,8 +1,4 @@
-import {
-    pageNumberToPageIndex,
-    requirePageNumber,
-    type TPageNumber,
-} from '@contracts/pageNumbers';
+import {pageNumberToPageIndex, requirePageNumber, type TPageNumber} from '@contracts/pageNumbers';
 import {
     getLayoutPageHeight,
     getLayoutPageWidth,
@@ -25,18 +21,12 @@ export interface IPdfLayoutRowShape {
 }
 
 /** The painted shape of the row that holds a page, as the page track lays it out. */
-export function resolvePdfLayoutRowShape(
-    layout: IPdfPageLayoutMetrics,
-    page: TPageNumber,
-): IPdfLayoutRowShape | null {
+export function resolvePdfLayoutRowShape(layout: IPdfPageLayoutMetrics, page: TPageNumber): IPdfLayoutRowShape | null {
     const totalPages = layout.base.totalPages;
     if (totalPages <= 0) {
         return null;
     }
-    const pageIndex = pageNumberToPageIndex(requirePageNumber(
-        Math.min(totalPages, Math.max(1, Math.trunc(page))),
-        totalPages,
-    ));
+    const pageIndex = pageNumberToPageIndex(requirePageNumber(Math.min(totalPages, Math.max(1, Math.trunc(page))), totalPages));
     const rowIndex = layout.base.pageRowIndices[pageIndex] ?? -1;
     if (rowIndex < 0) {
         return null;
@@ -53,10 +43,10 @@ export function resolvePdfLayoutRowShape(
     }
     const pitch = getLayoutRowHeight(layout, rowIndex) + layout.gap;
     if (
-        pages.length === 0
-        || !Number.isFinite(pitch)
-        || pitch <= layout.gap
-        || pages.some(shapePage => !(shapePage.width > 0 && shapePage.height > 0))
+        pages.length === 0 ||
+        !Number.isFinite(pitch) ||
+        pitch <= layout.gap ||
+        pages.some((shapePage) => !(shapePage.width > 0 && shapePage.height > 0))
     ) {
         return null;
     }

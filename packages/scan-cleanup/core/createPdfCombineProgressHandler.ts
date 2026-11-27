@@ -27,9 +27,7 @@ export function createPdfCombineProgressHandler(
                 onMalformedLine?.(line);
                 continue;
             }
-            const total = parsed.output.total > 0
-                ? parsed.output.total
-                : Math.max(1, totalPages);
+            const total = parsed.output.total > 0 ? parsed.output.total : Math.max(1, totalPages);
             onProcessed(Math.min(parsed.output.processed, total), total);
         }
     };

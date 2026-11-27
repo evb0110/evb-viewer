@@ -1,27 +1,32 @@
-import type { Ref } from 'vue';
+import type {Ref} from 'vue';
 import {cloneDeep} from 'es-toolkit/object';
-import type { TPageSelection } from '@pdf-core/pdfPageSelection';
-import {
-    pageSelectionCount,
-    parsePageNumber,
-} from '@pdf-core/pdfPageSelection';
+import type {TPageSelection} from '@pdf-core/pdfPageSelection';
+import {pageSelectionCount, parsePageNumber} from '@pdf-core/pdfPageSelection';
 import type {
     IWorkspaceExpose,
     IWorkspaceAutomationStateSnapshot,
     IWorkspaceToolbarSnapshot,
     IWorkspaceViewerCapabilities,
 } from '@app/types/workspaceExpose';
-import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
-import type { TDocumentContext } from '@app/modules/workspace-shell/documentContext';
-import type { TDocumentViewContext } from '@app/modules/workspace-shell/documentViewContext';
-import { stepPdfViewRotation } from '@app/utils/pdfViewRotation';
+import type {IScrollToPageOptions} from '@app/modules/pdf-viewer/public';
+import type {TDocumentContext} from '@app/modules/workspace-shell/documentContext';
+import type {TDocumentViewContext} from '@app/modules/workspace-shell/documentViewContext';
+import {stepPdfViewRotation} from '@app/utils/pdfViewRotation';
 
 /** Commands and display state the workspace owns beyond the document context. */
-export interface IWorkspaceExposeOwners extends Pick<IWorkspaceExpose,
-    | 'handleSave' | 'handleOptimizePdfForInteraction' | 'handleSaveAs' | 'handleExportDocx'
-    | 'handleInsertImageFromFile' | 'handlePasteImageFromClipboard' | 'handleCrop'
+export interface IWorkspaceExposeOwners extends Pick<
+    IWorkspaceExpose,
+    | 'handleSave'
+    | 'handleOptimizePdfForInteraction'
+    | 'handleSaveAs'
+    | 'handleExportDocx'
+    | 'handleInsertImageFromFile'
+    | 'handlePasteImageFromClipboard'
+    | 'handleCrop'
     | 'waitForDocumentOpenSettled'
-    | 'runAgentAction' | 'readAgentResource'> {
+    | 'runAgentAction'
+    | 'readAgentResource'
+> {
     handleGoToPage: (page: number, options?: IScrollToPageOptions) => void;
     ensurePdfProjectionForEdit: () => Promise<boolean>;
     initialVisualReady: Readonly<Ref<boolean>>;
@@ -61,40 +66,27 @@ export function createWorkspaceExpose(
         history,
         isOpeningDocument,
         annotations,
-        metadata: {
-            pageLabelState, bookmarkState,
-        },
+        metadata: {pageLabelState, bookmarkState},
         exportWorkflow,
     } = document;
     // The document's commands as this view starts them, with its page and selection.
-    const {
-        view,
-        search,
-        navigation,
-        openSurface,
-        viewerDefaults,
-        pageOps,
-        fileOps,
-        print,
-    } = viewContext;
+    const {view, search, navigation, openSurface, viewerDefaults, pageOps, fileOps, print} = viewContext;
     const viewerCapabilities = () => owners.viewerCapabilities.value;
     const hasOpenError = () => Boolean(file.pdfError.value) || Boolean(file.djvuError.value);
     const pdfViewer = () => view.pdfViewerRef.value;
 
     function getSelectedPagePayload() {
         const selection = view.selectedPageSelection.value;
-        return selection?.pageCount === view.totalPages.value
-            ? selection
-            : view.selectedThumbnailPages.value;
+        return selection?.pageCount === view.totalPages.value ? selection : view.selectedThumbnailPages.value;
     }
 
     async function handleSaveFromCommandSurface() {
         if (
-            document.isMoving.value
-            || !file.hasPdf.value
-            || save.isAnySaving.value
-            || history.isHistoryBusy.value
-            || !viewerCapabilities().save
+            document.isMoving.value ||
+            !file.hasPdf.value ||
+            save.isAnySaving.value ||
+            history.isHistoryBusy.value ||
+            !viewerCapabilities().save
         ) {
             return false;
         }
@@ -105,13 +97,8 @@ export function createWorkspaceExpose(
         const isOpening = isOpeningDocument.value;
         // While a document opens, page one prevents stale position from the
         // replaced document leaking into the new open.
-        const currentPage = isOpening
-            ? 1
-            : normalizeToolbarSnapshotPage(view.currentPage.value);
-        const totalPages = normalizeToolbarSnapshotPage(
-            view.totalPages.value,
-            isOpening ? 0 : currentPage,
-        );
+        const currentPage = isOpening ? 1 : normalizeToolbarSnapshotPage(view.currentPage.value);
+        const totalPages = normalizeToolbarSnapshotPage(view.totalPages.value, isOpening ? 0 : currentPage);
         const zoom = view.zoom.value;
         return {
             hasPdf: file.hasPdf.value,
@@ -197,15 +184,11 @@ export function createWorkspaceExpose(
             originalPath: file.originalPath.value,
             pdfSourceState: {
                 hasInMemoryData: file.pdfData.value !== null,
-                reloadKind: reloadSrc instanceof Blob
-                    ? 'blob'
-                    : reloadSrc?.kind ?? 'none',
-                reloadPath: reloadSrc instanceof Blob
-                    ? null
-                    : reloadSrc?.path ?? null,
+                reloadKind: reloadSrc instanceof Blob ? 'blob' : (reloadSrc?.kind ?? 'none'),
+                reloadPath: reloadSrc instanceof Blob ? null : (reloadSrc?.path ?? null),
             },
             requiresSaveAsOnFirstSave: file.requiresSaveAsOnFirstSave.value,
-            sortedAnnotationNoteWindows: annotations.sortedAnnotationNoteWindows.value.map(note => ({
+            sortedAnnotationNoteWindows: annotations.sortedAnnotationNoteWindows.value.map((note) => ({
                 ...note,
                 markerRect: note.markerRect ? {...note.markerRect} : null,
             })),
@@ -214,7 +197,7 @@ export function createWorkspaceExpose(
     }
 
     async function runPageOperation(operation: () => Promise<boolean>) {
-        return !document.isMoving.value && await owners.ensurePdfProjectionForEdit() && operation();
+        return !document.isMoving.value && (await owners.ensurePdfProjectionForEdit()) && operation();
     }
 
     function whenCapable(capability: keyof IWorkspaceViewerCapabilities, action: () => void) {
@@ -227,11 +210,21 @@ export function createWorkspaceExpose(
 
     return {
         hasPdf: file.hasPdf,
-        handleSaveAs: () => document.isMoving.value ? Promise.resolve(false) : owners.handleSaveAs(),
+        handleSaveAs: () => (document.isMoving.value ? Promise.resolve(false) : owners.handleSaveAs()),
         handlePrint: print.handlePrint,
-        handlePrintCurrentPage: () => { void print.handlePrintCurrentPage(); },
-        handleUndo: () => { if (!document.isMoving.value) {void history.handleUndo();} },
-        handleRedo: () => { if (!document.isMoving.value) {void history.handleRedo();} },
+        handlePrintCurrentPage: () => {
+            void print.handlePrintCurrentPage();
+        },
+        handleUndo: () => {
+            if (!document.isMoving.value) {
+                void history.handleUndo();
+            }
+        },
+        handleRedo: () => {
+            if (!document.isMoving.value) {
+                void history.handleRedo();
+            }
+        },
         handleOpenFileFromUi: fileOps.handleOpenFileFromUi,
         handleCombineImages: fileOps.handleCombineImages,
         handleOpenFileDirectWithPersist: fileOps.handleOpenFileDirectWithPersist,
@@ -242,13 +235,33 @@ export function createWorkspaceExpose(
         handleExportImages: () => exportWorkflow.handleExportImages(),
         handleExportMultiPageTiff: () => exportWorkflow.handleExportMultiPageTiff(),
         handleGoToPage: owners.handleGoToPage,
-        handleToggleSidebar: () => { view.showSidebar.value = !view.showSidebar.value; },
-        handleOpenSearch: () => { search.openSearch(); },
-        handleEnableDragMode: () => { void viewContext.annotationToolState.handleAnnotationToolChange('none', {dragMode: true}); },
-        handleDisableDragMode: () => { void viewContext.annotationToolState.handleAnnotationToolChange('none'); },
-        handleQuickNote: () => { if (!document.isMoving.value) {void viewContext.annotationActions.handleQuickNoteAction();} },
-        handleInsertImageFromFile: async () => { if (!document.isMoving.value) {await owners.handleInsertImageFromFile();} },
-        handlePasteImageFromClipboard: async () => { if (!document.isMoving.value) {await owners.handlePasteImageFromClipboard();} },
+        handleToggleSidebar: () => {
+            view.showSidebar.value = !view.showSidebar.value;
+        },
+        handleOpenSearch: () => {
+            search.openSearch();
+        },
+        handleEnableDragMode: () => {
+            void viewContext.annotationToolState.handleAnnotationToolChange('none', {dragMode: true});
+        },
+        handleDisableDragMode: () => {
+            void viewContext.annotationToolState.handleAnnotationToolChange('none');
+        },
+        handleQuickNote: () => {
+            if (!document.isMoving.value) {
+                void viewContext.annotationActions.handleQuickNoteAction();
+            }
+        },
+        handleInsertImageFromFile: async () => {
+            if (!document.isMoving.value) {
+                await owners.handleInsertImageFromFile();
+            }
+        },
+        handlePasteImageFromClipboard: async () => {
+            if (!document.isMoving.value) {
+                await owners.handlePasteImageFromClipboard();
+            }
+        },
         handlePageDelete: (pages) => {
             void runPageOperation(() => pageOps.pageOpsDelete(pages, view.totalPages.value));
         },
@@ -263,7 +276,9 @@ export function createWorkspaceExpose(
         closeAllDropdowns: view.closeAllDropdowns,
         waitForDocumentOpenSettled: owners.waitForDocumentOpenSettled,
         runAgentAction: async (...args) => {
-            if (document.isMoving.value) {throw new Error(t('tabs.moving'));}
+            if (document.isMoving.value) {
+                throw new Error(t('tabs.moving'));
+            }
             return owners.runAgentAction(...args);
         },
         readAgentResource: owners.readAgentResource,
@@ -278,31 +293,63 @@ export function createWorkspaceExpose(
         captureCanonicalAnnotationRecovery: document.recovery.capture,
         commitDocumentDrafts: document.recovery.commitDrafts,
         holdDocumentDrafts: document.recovery.holdDrafts,
-        restoreCanonicalAnnotationRecovery: value => document.recovery.restoreCanonicalAnnotationRecovery(pdfViewer(), value),
+        restoreCanonicalAnnotationRecovery: (value) => document.recovery.restoreCanonicalAnnotationRecovery(pdfViewer(), value),
         handlePageRotate: (pages, angle) => runPageOperation(() => pageOps.handlePageRotate(pages, angle)),
         handleCropPages: (pages, margins) => runPageOperation(() => pageOps.handleCropPages(pages, margins)),
         handleSave: handleSaveFromCommandSurface,
-        handleSelectAll: () => { pdfViewer()?.selectAllAnnotations?.(); },
+        handleSelectAll: () => {
+            pdfViewer()?.selectAllAnnotations?.();
+        },
         handleRepairSave: async () => owners.canRepairSave.value && save.handleRepairSave(),
-        handleOptimizePdfForInteraction: async () => (
-            owners.canOptimizePdf.value && owners.handleOptimizePdfForInteraction()
-        ),
+        handleOptimizePdfForInteraction: async () => owners.canOptimizePdf.value && owners.handleOptimizePdfForInteraction(),
         handleZoomIn: viewerDefaults.handleZoomIn,
         handleZoomOut: viewerDefaults.handleZoomOut,
-        handleFitWidth: () => { navigation.handleFitMode('width'); },
-        handleFitHeight: () => { navigation.handleFitMode('height'); },
+        handleFitWidth: () => {
+            navigation.handleFitMode('width');
+        },
+        handleFitHeight: () => {
+            navigation.handleFitMode('height');
+        },
         handleActualSize: viewerDefaults.handleActualSize,
         setCustomZoomFromDisplay: viewerDefaults.setCustomZoomFromDisplay,
         handleCaptureRegion: whenCapable('regionCapture', viewContext.handleCaptureRegion),
         handleCrop: whenCapable('crop', owners.handleCrop),
-        handleToggleContinuousScroll: whenCapable('continuousScroll', readerCommand(() => {
-            view.continuousScroll.value = !view.continuousScroll.value;
-        })),
-        handleViewModeSingle: whenCapable('viewMode', readerCommand(() => { view.viewMode.value = 'single'; })),
-        handleViewModeFacing: whenCapable('viewMode', readerCommand(() => { view.viewMode.value = 'facing'; })),
-        handleViewModeFacingFirstSingle: whenCapable('viewMode', readerCommand(() => { view.viewMode.value = 'facing-first-single'; })),
-        handleViewRotationCw: whenCapable('viewRotation', readerCommand(() => { view.viewRotation.value = stepPdfViewRotation(view.viewRotation.value, 'clockwise'); })),
-        handleViewRotationCcw: whenCapable('viewRotation', readerCommand(() => { view.viewRotation.value = stepPdfViewRotation(view.viewRotation.value, 'counterclockwise'); })),
+        handleToggleContinuousScroll: whenCapable(
+            'continuousScroll',
+            readerCommand(() => {
+                view.continuousScroll.value = !view.continuousScroll.value;
+            }),
+        ),
+        handleViewModeSingle: whenCapable(
+            'viewMode',
+            readerCommand(() => {
+                view.viewMode.value = 'single';
+            }),
+        ),
+        handleViewModeFacing: whenCapable(
+            'viewMode',
+            readerCommand(() => {
+                view.viewMode.value = 'facing';
+            }),
+        ),
+        handleViewModeFacingFirstSingle: whenCapable(
+            'viewMode',
+            readerCommand(() => {
+                view.viewMode.value = 'facing-first-single';
+            }),
+        ),
+        handleViewRotationCw: whenCapable(
+            'viewRotation',
+            readerCommand(() => {
+                view.viewRotation.value = stepPdfViewRotation(view.viewRotation.value, 'clockwise');
+            }),
+        ),
+        handleViewRotationCcw: whenCapable(
+            'viewRotation',
+            readerCommand(() => {
+                view.viewRotation.value = stepPdfViewRotation(view.viewRotation.value, 'counterclockwise');
+            }),
+        ),
         restoreViewState: (state) => {
             const capabilities = viewerCapabilities();
             viewerDefaults.applyView({
@@ -351,19 +398,23 @@ export function createWorkspaceExpose(
             }
             void fileOps.handleOpenFileFromUi();
         },
-        handleOpenOcr: () => { viewContext.djvuProjection.handleDropdownOpen('ocr', true); },
-        handleOpenScanCleanup: () => { viewContext.scanCleanup.openScanCleanup(); },
+        handleOpenOcr: () => {
+            viewContext.djvuProjection.handleDropdownOpen('ocr', true);
+        },
+        handleOpenScanCleanup: () => {
+            viewContext.scanCleanup.openScanCleanup();
+        },
         getToolbarSnapshot,
         getOpenFailure: () => {
             const message = file.pdfError.value ?? file.djvuError.value;
             const presentation = file.pdfFailurePresentation.value;
             return message
                 ? {
-                    message: presentation?.description ?? String(message),
-                    failure: presentation?.failure ?? null,
-                    ...(presentation?.technicalDetails ? {technicalDetails: presentation.technicalDetails} : {}),
-                    ...(presentation?.actions ? {actions: presentation.actions} : {}),
-                }
+                      message: presentation?.description ?? String(message),
+                      failure: presentation?.failure ?? null,
+                      ...(presentation?.technicalDetails ? {technicalDetails: presentation.technicalDetails} : {}),
+                      ...(presentation?.actions ? {actions: presentation.actions} : {}),
+                  }
                 : null;
         },
         getAutomationStateSnapshot,
@@ -386,8 +437,9 @@ export function createWorkspaceExpose(
             const readerMoved = () => {
                 const ticket = openSurface.navigationTicket.value;
                 const epoch = readEpoch?.() ?? null;
-                moved ||= (ticket !== startTicket && (ticket?.request.source ?? 'restore') !== 'restore')
-                    || (epoch !== null && baseline !== null && epoch > baseline);
+                moved ||=
+                    (ticket !== startTicket && (ticket?.request.source ?? 'restore') !== 'restore') ||
+                    (epoch !== null && baseline !== null && epoch > baseline);
                 const authority = view.documentViewerRef.value?.getReaderInteractionEpoch;
                 if (authority && authority !== readEpoch) {
                     readEpoch = authority;
@@ -411,13 +463,13 @@ export function createWorkspaceExpose(
         getAllShapes: () => pdfViewer()?.getAllShapes?.() ?? [],
         getDeletedEmbeddedShapeAnnotationIds: () => pdfViewer()?.getDeletedEmbeddedShapeAnnotationIds?.() ?? [],
         getDeletedEmbeddedShapeStableKeys: () => pdfViewer()?.getDeletedEmbeddedShapeStableKeys?.() ?? [],
-        highlightSelection: () => !document.isMoving.value ? pdfViewer()?.highlightSelection?.() ?? Promise.resolve(false) : Promise.resolve(false),
+        highlightSelection: () =>
+            !document.isMoving.value ? (pdfViewer()?.highlightSelection?.() ?? Promise.resolve(false)) : Promise.resolve(false),
         commentAtPoint: (pageNumber, pageX, pageY, options) => {
             const parsedPageNumber = parsePageNumber(pageNumber);
             return document.isMoving.value || parsedPageNumber === null
                 ? Promise.resolve(false)
-                : pdfViewer()?.commentAtPoint?.(parsedPageNumber, pageX, pageY, options)
-                    ?? Promise.resolve(false);
+                : (pdfViewer()?.commentAtPoint?.(parsedPageNumber, pageX, pageY, options) ?? Promise.resolve(false));
         },
     };
 }

@@ -46,54 +46,59 @@ import {parseArgs} from 'node:util';
 // The workflow a commit is judged by: the one required verdict that branch
 // protection and the release cutter read. Nightly is deliberately absent: it
 // is not about a commit.
-const TIER_WORKFLOWS = [{
-    tier: 'required',
-    workflow: 'ci.yml',
-}];
+const TIER_WORKFLOWS = [
+    {
+        tier: 'required',
+        workflow: 'ci.yml',
+    },
+];
 
-const {values: options} = parseArgs({options: {
-    attribute: {
-        default: false,
-        type: 'boolean',
+const {values: options} = parseArgs({
+    options: {
+        attribute: {
+            default: false,
+            type: 'boolean',
+        },
+        branch: {
+            default: 'main',
+            type: 'string',
+        },
+        days: {
+            default: '7',
+            type: 'string',
+        },
+        jobs: {
+            default: '40',
+            type: 'string',
+        },
+        json: {
+            default: false,
+            type: 'boolean',
+        },
+        limit: {
+            default: '300',
+            type: 'string',
+        },
+        sha: {
+            default: '',
+            type: 'string',
+        },
+        'verdict-times': {
+            default: false,
+            type: 'boolean',
+        },
+        workflow: {
+            default: 'ci.yml',
+            type: 'string',
+        },
     },
-    branch: {
-        default: 'main',
-        type: 'string',
-    },
-    days: {
-        default: '7',
-        type: 'string',
-    },
-    jobs: {
-        default: '40',
-        type: 'string',
-    },
-    json: {
-        default: false,
-        type: 'boolean',
-    },
-    limit: {
-        default: '300',
-        type: 'string',
-    },
-    sha: {
-        default: '',
-        type: 'string',
-    },
-    'verdict-times': {
-        default: false,
-        type: 'boolean',
-    },
-    workflow: {
-        default: 'ci.yml',
-        type: 'string',
-    },
-}});
+});
 
 // A read of the Actions API that dies in the network is worth asking again; a
 // read the API answered with an error is not. This is a reporting client, not
 // a check, so a bounded re-read hides no defect.
-const NETWORK_FAILURE = /TLS handshake timeout|connection reset|i\/o timeout|EOF|timeout awaiting|temporary failure|could not resolve host|HTTP 50[234]/iu;
+const NETWORK_FAILURE =
+    /TLS handshake timeout|connection reset|i\/o timeout|EOF|timeout awaiting|temporary failure|could not resolve host|HTTP 50[234]/iu;
 const NETWORK_ATTEMPTS = 4;
 
 /** @param {unknown} error @returns {string} */
@@ -115,11 +120,7 @@ function gh(args, quiet = false) {
             return execFileSync('gh', args, {
                 encoding: 'utf8',
                 maxBuffer: 256 * 1024 * 1024,
-                stdio: [
-                    'ignore',
-                    'pipe',
-                    'pipe',
-                ],
+                stdio: ['ignore', 'pipe', 'pipe'],
             });
         } catch (error) {
             if (attempt >= NETWORK_ATTEMPTS || !isNetworkFailure(error)) {
@@ -144,18 +145,10 @@ function ghOptional(args) {
 
 /** @template T @param {string} endpoint @param {string} jq @param {boolean} [quiet=false] @returns {T[]} */
 function ghLines(endpoint, jq, quiet = false) {
-    return gh([
-        'api',
-        '--paginate',
-        '-H',
-        'Accept: application/vnd.github+json',
-        endpoint,
-        '--jq',
-        jq,
-    ], quiet)
+    return gh(['api', '--paginate', '-H', 'Accept: application/vnd.github+json', endpoint, '--jq', jq], quiet)
         .split('\n')
         .filter(Boolean)
-        .map(line => JSON.parse(line));
+        .map((line) => JSON.parse(line));
 }
 
 /** @param {number} days @returns {string} */
@@ -173,18 +166,9 @@ function gitSubject(sha) {
     }
     let subject = '(not in local history)';
     try {
-        const output = execFileSync('git', [
-            'log',
-            '-1',
-            '--format=%s',
-            sha,
-        ], {
+        const output = execFileSync('git', ['log', '-1', '--format=%s', sha], {
             encoding: 'utf8',
-            stdio: [
-                'ignore',
-                'pipe',
-                'ignore',
-            ],
+            stdio: ['ignore', 'pipe', 'ignore'],
         }).trim();
         if (output) {
             subject = output;
@@ -209,10 +193,12 @@ function compareInspectedRuns(left, right) {
 
 /** @param {string} line @returns {boolean} */
 function isFailureEvidence(line) {
-    return /\bFAIL\s+(?:\|[^|]+\|\s+)?\S.*\s+>\s+.+/.test(line)
-        || line.includes('×')
-        || /\S+:\d+:\d+\s+error\b/.test(line)
-        || /\berror TS\b/.test(line);
+    return (
+        /\bFAIL\s+(?:\|[^|]+\|\s+)?\S.*\s+>\s+.+/.test(line) ||
+        line.includes('×') ||
+        /\S+:\d+:\d+\s+error\b/.test(line) ||
+        /\berror TS\b/.test(line)
+    );
 }
 
 // `gh run view --log-failed` prefixes every line with the job name, the step
@@ -225,10 +211,7 @@ function logMessage(line) {
 
 /** @param {string} log @returns {{lines: string[], more: number, unavailable: boolean}} */
 function extractFailureEvidence(log) {
-    const ansiPattern = new RegExp(
-        `${String.fromCharCode(27)}(?:[@-Z\\\\-_]|\\[[0-?]*[ -/]*[@-~])`,
-        'g',
-    );
+    const ansiPattern = new RegExp(`${String.fromCharCode(27)}(?:[@-Z\\\\-_]|\\[[0-?]*[ -/]*[@-~])`, 'g');
     const messages = log
         .replace(ansiPattern, '')
         .replace(/\^\[\[[0-?]*[ -/]*[@-~]/g, '')
@@ -236,11 +219,10 @@ function extractFailureEvidence(log) {
         .map(logMessage)
         .filter(Boolean);
     const testMatches = messages.filter(isFailureEvidence);
-    const matches = testMatches.length > 0
-        ? testMatches
-        : messages
-            .filter(line => line.startsWith('##[error]'))
-            .map(line => line.slice('##[error]'.length));
+    const matches =
+        testMatches.length > 0
+            ? testMatches
+            : messages.filter((line) => line.startsWith('##[error]')).map((line) => line.slice('##[error]'.length));
     return {
         lines: matches.slice(0, 8),
         more: Math.max(0, matches.length - 8),
@@ -250,20 +232,13 @@ function extractFailureEvidence(log) {
 
 /** @param {number} runId @param {number} jobId @returns {{lines: string[], more: number, unavailable: boolean}} */
 function failureEvidence(runId, jobId) {
-    const log = ghOptional([
-        'run',
-        'view',
-        String(runId),
-        '--log-failed',
-        '--job',
-        String(jobId),
-    ]);
+    const log = ghOptional(['run', 'view', String(runId), '--log-failed', '--job', String(jobId)]);
     return log === null
         ? {
-            lines: [],
-            more: 0,
-            unavailable: true,
-        }
+              lines: [],
+              more: 0,
+              unavailable: true,
+          }
         : extractFailureEvidence(log);
 }
 
@@ -272,22 +247,19 @@ function summarizeRuns(runs) {
     const byConclusion = new Map();
     const bySha = new Map();
     for (const run of runs) {
-        const key = run.status === 'completed' ? run.conclusion ?? 'unknown' : run.status;
+        const key = run.status === 'completed' ? (run.conclusion ?? 'unknown') : run.status;
         byConclusion.set(key, (byConclusion.get(key) ?? 0) + 1);
         const attempts = bySha.get(run.head_sha) ?? [];
         attempts.push(run);
         bySha.set(run.head_sha, attempts);
     }
     const reruns = [];
-    for (const [
-        sha,
-        attempts,
-    ] of bySha) {
-        const retried = attempts.filter(run => (run.run_attempt ?? 1) > 1);
+    for (const [sha, attempts] of bySha) {
+        const retried = attempts.filter((run) => (run.run_attempt ?? 1) > 1);
         if (attempts.length < 2 && retried.length === 0) {
             continue;
         }
-        const conclusions = new Set(attempts.map(run => run.conclusion).filter(Boolean));
+        const conclusions = new Set(attempts.map((run) => run.conclusion).filter(Boolean));
         reruns.push({
             flipped: conclusions.has('failure') && conclusions.has('success'),
             sha,
@@ -295,8 +267,8 @@ function summarizeRuns(runs) {
     }
     return {
         byConclusion: Object.fromEntries([...byConclusion].sort((left, right) => right[1] - left[1])),
-        flippedShas: reruns.filter(entry => entry.flipped).map(entry => entry.sha),
-        rerunShas: reruns.map(entry => entry.sha),
+        flippedShas: reruns.filter((entry) => entry.flipped).map((entry) => entry.sha),
+        rerunShas: reruns.map((entry) => entry.sha),
         total: runs.length,
     };
 }
@@ -326,42 +298,30 @@ function summarizeJobs(inspected) {
             }
             if (job.conclusion === 'success' && job.started_at && job.completed_at) {
                 const minutes = (Date.parse(job.completed_at) - Date.parse(job.started_at)) / 60_000;
-                durations.set(job.name, [
-                    ...durations.get(job.name) ?? [],
-                    minutes,
-                ]);
+                durations.set(job.name, [...(durations.get(job.name) ?? []), minutes]);
             }
         }
     }
-    const median = values => {
+    const median = (values) => {
         const sorted = [...values].sort((left, right) => left - right);
         return sorted[Math.floor(sorted.length / 2)];
     };
     return {
         failingJobs: [...failures]
             .sort((left, right) => right[1].count - left[1].count)
-            .map(([
-                name,
-                entry,
-            ]) => ({
+            .map(([name, entry]) => ({
                 count: entry.count,
                 name,
                 steps: [...entry.steps]
                     .sort((left, right) => right[1] - left[1])
-                    .map(([
-                        step,
-                        count,
-                    ]) => ({
+                    .map(([step, count]) => ({
                         count,
                         step,
                     })),
             })),
         inspectedRuns: inspected.length,
         slowestJobs: [...durations]
-            .map(([
-                name,
-                values,
-            ]) => ({
+            .map(([name, values]) => ({
                 medianMinutes: median(values),
                 name,
                 samples: values.length,
@@ -385,11 +345,7 @@ function summarizeAttribution(inspected) {
             if (job.name === 'gates_ok') {
                 continue;
             }
-            const verdict = job.conclusion === 'failure'
-                ? 'red'
-                : job.conclusion === 'success'
-                    ? 'green'
-                    : null;
+            const verdict = job.conclusion === 'failure' ? 'red' : job.conclusion === 'success' ? 'green' : null;
             if (!verdict) {
                 continue;
             }
@@ -403,38 +359,40 @@ function summarizeAttribution(inspected) {
         }
     }
     return current.jobs
-        .filter(job => job.name !== 'gates_ok' && job.conclusion === 'failure')
+        .filter((job) => job.name !== 'gates_ok' && job.conclusion === 'failure')
         .sort((left, right) => left.name.localeCompare(right.name))
-        .flatMap(job => {
+        .flatMap((job) => {
             const verdicts = verdictsByName.get(job.name) ?? [];
-            const firstRedIndex = verdicts.findIndex(entry => entry.verdict === 'red');
+            const firstRedIndex = verdicts.findIndex((entry) => entry.verdict === 'red');
             if (firstRedIndex < 0) {
                 return [];
             }
             const sinceFirstRed = verdicts.slice(firstRedIndex);
-            const redRuns = sinceFirstRed.filter(entry => entry.verdict === 'red').length;
-            const greenRuns = sinceFirstRed.filter(entry => entry.verdict === 'green').length;
+            const redRuns = sinceFirstRed.filter((entry) => entry.verdict === 'red').length;
+            const greenRuns = sinceFirstRed.filter((entry) => entry.verdict === 'green').length;
             const firstRed = verdicts[firstRedIndex];
-            return [{
-                name: job.name,
-                state: greenRuns === 0 ? 'streak' : 'flapping',
-                firstRed: {
-                    date: runDate(firstRed.run.created_at),
-                    runNumber: firstRed.run.run_number,
-                    sha: firstRed.run.head_sha.slice(0, 10),
-                    subject: gitSubject(firstRed.run.head_sha),
+            return [
+                {
+                    name: job.name,
+                    state: greenRuns === 0 ? 'streak' : 'flapping',
+                    firstRed: {
+                        date: runDate(firstRed.run.created_at),
+                        runNumber: firstRed.run.run_number,
+                        sha: firstRed.run.head_sha.slice(0, 10),
+                        subject: gitSubject(firstRed.run.head_sha),
+                    },
+                    firstRedJobId: firstRed.job.id,
+                    firstRedRunId: firstRed.run.id,
+                    olderThanWindow: firstRed.run.id === chronological[0].run.id,
+                    redRuns,
+                    greenRuns,
+                    evidence: {
+                        lines: [],
+                        more: 0,
+                        unavailable: false,
+                    },
                 },
-                firstRedJobId: firstRed.job.id,
-                firstRedRunId: firstRed.run.id,
-                olderThanWindow: firstRed.run.id === chronological[0].run.id,
-                redRuns,
-                greenRuns,
-                evidence: {
-                    lines: [],
-                    more: 0,
-                    unavailable: false,
-                },
-            }];
+            ];
         });
 }
 
@@ -456,7 +414,7 @@ function summarizeAttribution(inspected) {
  */
 export function classifyShaJobs(inspected, sha) {
     const chronological = [...inspected].sort(compareInspectedRuns);
-    const targetIndex = chronological.findLastIndex(entry => entry.run.head_sha.startsWith(sha));
+    const targetIndex = chronological.findLastIndex((entry) => entry.run.head_sha.startsWith(sha));
     const target = chronological[targetIndex];
     if (!target) {
         return {
@@ -474,7 +432,7 @@ export function classifyShaJobs(inspected, sha) {
             // gates_ok only restates the other jobs; the run conclusion
             // already carries the aggregate, and listing it would name the
             // aggregate as a thing the commit broke.
-            .filter(job => job.name !== 'gates_ok')
+            .filter((job) => job.name !== 'gates_ok')
             .sort((left, right) => left.name.localeCompare(right.name))
             .map((job) => {
                 if (job.conclusion !== 'failure') {
@@ -489,11 +447,11 @@ export function classifyShaJobs(inspected, sha) {
                 // A skipped or cancelled job proves nothing either way, so the
                 // streak only looks at runs that reached a verdict for it.
                 const history = earlier
-                    .map(entry => ({
+                    .map((entry) => ({
                         entry,
-                        verdict: entry.jobs.find(candidate => candidate.name === job.name)?.conclusion,
+                        verdict: entry.jobs.find((candidate) => candidate.name === job.name)?.conclusion,
                     }))
-                    .filter(item => item.verdict === 'failure' || item.verdict === 'success');
+                    .filter((item) => item.verdict === 'failure' || item.verdict === 'success');
                 let index = history.length - 1;
                 let firstBad = target;
                 while (index >= 0 && history[index].verdict === 'failure') {
@@ -504,40 +462,29 @@ export function classifyShaJobs(inspected, sha) {
                 const inherited = lastVerdict?.verdict === 'failure';
                 const greenBeforeStreak = index >= 0 ? history[index].entry : null;
                 const unjudgedBeforeStreak = greenBeforeStreak
-                    ? chronological.slice(
-                        chronological.indexOf(greenBeforeStreak) + 1,
-                        chronological.indexOf(firstBad),
-                    )
+                    ? chronological.slice(chronological.indexOf(greenBeforeStreak) + 1, chronological.indexOf(firstBad))
                     : [];
-                const streakRange = inherited && unjudgedBeforeStreak.length > 0 && greenBeforeStreak
-                    ? {
-                        firstBadCandidates: [
-                            ...unjudgedBeforeStreak.map(entry => entry.run.head_sha.slice(0, 10)),
-                            firstBad.run.head_sha.slice(0, 10),
-                        ],
-                        lastGood: greenBeforeStreak.run.head_sha.slice(0, 10),
-                    }
-                    : {};
+                const streakRange =
+                    inherited && unjudgedBeforeStreak.length > 0 && greenBeforeStreak
+                        ? {
+                              firstBadCandidates: [
+                                  ...unjudgedBeforeStreak.map((entry) => entry.run.head_sha.slice(0, 10)),
+                                  firstBad.run.head_sha.slice(0, 10),
+                              ],
+                              lastGood: greenBeforeStreak.run.head_sha.slice(0, 10),
+                          }
+                        : {};
                 // Runs after the last verdict that never judged this job.
-                const unjudged = lastVerdict
-                    ? earlier.slice(earlier.indexOf(lastVerdict.entry) + 1)
-                    : earlier;
+                const unjudged = lastVerdict ? earlier.slice(earlier.indexOf(lastVerdict.entry) + 1) : earlier;
                 const undetermined = !inherited && unjudged.length > 0;
 
                 return {
-                    attribution: inherited
-                        ? 'INHERITED'
-                        : undetermined
-                            ? 'UNDETERMINED'
-                            : 'NEW',
+                    attribution: inherited ? 'INHERITED' : undetermined ? 'UNDETERMINED' : 'NEW',
                     ...(undetermined
                         ? {
-                            candidates: [
-                                ...unjudged.map(entry => entry.run.head_sha.slice(0, 10)),
-                                target.run.head_sha.slice(0, 10),
-                            ],
-                            lastGood: lastVerdict ? lastVerdict.entry.run.head_sha.slice(0, 10) : null,
-                        }
+                              candidates: [...unjudged.map((entry) => entry.run.head_sha.slice(0, 10)), target.run.head_sha.slice(0, 10)],
+                              lastGood: lastVerdict ? lastVerdict.entry.run.head_sha.slice(0, 10) : null,
+                          }
                         : streakRange),
                     conclusion: job.conclusion,
                     firstBad: {
@@ -568,37 +515,37 @@ export function formatShaReport(tiers, sha) {
             lines.push(`  ${tier.tier} (${tier.workflow}): no run for this commit`);
             continue;
         }
-        const state = tier.run.status === 'completed' ? tier.run.conclusion ?? 'unknown' : tier.run.status;
+        const state = tier.run.status === 'completed' ? (tier.run.conclusion ?? 'unknown') : tier.run.status;
         const superseded = state === 'cancelled' ? ' (superseded, not a verdict)' : '';
         lines.push(`  ${tier.tier} (${tier.workflow}) run ${tier.run.id}: ${state}${superseded}`);
-        const failed = tier.jobs.filter(job => job.conclusion === 'failure');
+        const failed = tier.jobs.filter((job) => job.conclusion === 'failure');
         for (const job of failed) {
             if (job.attribution === 'UNDETERMINED') {
                 undeterminedFailures.push(job.name);
                 const candidates = job.candidates ?? [];
                 lines.push(
-                    `    UNDETERMINED ${job.name}: last green ${job.lastGood ?? 'not in the inspected window'}; `
-                    + `${candidates.length - 1} run(s) in between gave no verdict for it; `
-                    + `the break is in one of ${candidates.join(', ')}`,
+                    `    UNDETERMINED ${job.name}: last green ${job.lastGood ?? 'not in the inspected window'}; ` +
+                        `${candidates.length - 1} run(s) in between gave no verdict for it; ` +
+                        `the break is in one of ${candidates.join(', ')}`,
                 );
                 continue;
             }
             (job.attribution === 'NEW' ? newFailures : inheritedFailures).push(job.name);
             if (job.firstBadCandidates) {
                 lines.push(
-                    `    ${job.attribution} ${job.name}: broke in one of ${job.firstBadCandidates.join(', ')} `
-                    + `(last green ${job.lastGood}; the runs before the first red run `
-                    + `#${job.firstBad?.runNumber} were superseded)`,
+                    `    ${job.attribution} ${job.name}: broke in one of ${job.firstBadCandidates.join(', ')} ` +
+                        `(last green ${job.lastGood}; the runs before the first red run ` +
+                        `#${job.firstBad?.runNumber} were superseded)`,
                 );
                 continue;
             }
             const since = job.olderThanWindow ? 'first bad at or before' : 'first bad';
             lines.push(
-                `    ${job.attribution} ${job.name}: ${since} ${job.firstBad?.sha} `
-                + `(run #${job.firstBad?.runNumber}, ${job.firstBad?.date}) ${job.firstBad?.subject}`,
+                `    ${job.attribution} ${job.name}: ${since} ${job.firstBad?.sha} ` +
+                    `(run #${job.firstBad?.runNumber}, ${job.firstBad?.date}) ${job.firstBad?.subject}`,
             );
         }
-        const passed = tier.jobs.filter(job => job.conclusion === 'success').length;
+        const passed = tier.jobs.filter((job) => job.conclusion === 'success').length;
         const other = tier.jobs.length - passed - failed.length;
         lines.push(`    ${passed} passed, ${failed.length} failed, ${other} skipped or cancelled`);
     }
@@ -608,14 +555,16 @@ export function formatShaReport(tiers, sha) {
     }
     if (undeterminedFailures.length > 0) {
         lines.push(
-            `verdict: ${undeterminedFailures.join(', ')} broke somewhere in the listed range; `
-            + 'earlier runs were superseded, so bisect the candidates before blaming this commit',
+            `verdict: ${undeterminedFailures.join(', ')} broke somewhere in the listed range; ` +
+                'earlier runs were superseded, so bisect the candidates before blaming this commit',
         );
     }
     if (newFailures.length === 0 && undeterminedFailures.length === 0) {
-        lines.push(inheritedFailures.length > 0
-            ? `verdict: every failure is inherited; do not re-diagnose ${inheritedFailures.join(', ')}`
-            : 'verdict: no failing job attributable to this commit');
+        lines.push(
+            inheritedFailures.length > 0
+                ? `verdict: every failure is inherited; do not re-diagnose ${inheritedFailures.join(', ')}`
+                : 'verdict: no failing job attributable to this commit',
+        );
     }
     return `${lines.join('\n')}\n`;
 }
@@ -669,7 +618,7 @@ function hoursWithoutGreenShare(chronological, fromMs, toMs) {
     let known = 0;
     let withoutGreen = 0;
     for (let hourEnd = fromMs + HOUR_MS; hourEnd <= toMs; hourEnd += HOUR_MS) {
-        const latest = chronological.filter(verdict => verdict.finishedMs <= hourEnd).at(-1);
+        const latest = chronological.filter((verdict) => verdict.finishedMs <= hourEnd).at(-1);
         if (!latest) {
             continue;
         }
@@ -701,8 +650,8 @@ function summarizeVerdictWindow(chronological, fromMs, toMs, cancelled) {
         }
     }
     const candidates = [...firstBySha.values()];
-    const minutes = candidates.map(verdict => verdict.minutes);
-    const reds = candidates.filter(verdict => verdict.red).length;
+    const minutes = candidates.map((verdict) => verdict.minutes);
+    const reds = candidates.filter((verdict) => verdict.red).length;
 
     let longestRedStreak = 0;
     let currentStreak = 0;
@@ -734,39 +683,30 @@ function summarizeVerdictWindow(chronological, fromMs, toMs, cancelled) {
  * @param {{days: number, now: number}} scope
  * @returns {{current: IVerdictWindow, previous: IVerdictWindow}}
  */
-export function summarizeVerdictTimes(runs, {
-    days, now,
-}) {
+export function summarizeVerdictTimes(runs, {days, now}) {
     const windowMs = days * 24 * HOUR_MS;
     const currentFromMs = now - windowMs;
     const previousFromMs = currentFromMs - windowMs;
     const chronological = runs
         .map(toVerdict)
-        .filter(verdict => verdict !== null)
+        .filter((verdict) => verdict !== null)
         .sort((left, right) => left.finishedMs - right.finishedMs);
     /** @param {number} fromMs @param {number} toMs */
-    const cancelledIn = (fromMs, toMs) => runs.filter((run) => {
-        const startedMs = Date.parse(run.created_at);
-        return run.status === 'completed'
-            && run.conclusion === 'cancelled'
-            && Number.isFinite(startedMs)
-            && startedMs >= fromMs
-            && startedMs < toMs;
-    }).length;
+    const cancelledIn = (fromMs, toMs) =>
+        runs.filter((run) => {
+            const startedMs = Date.parse(run.created_at);
+            return (
+                run.status === 'completed' &&
+                run.conclusion === 'cancelled' &&
+                Number.isFinite(startedMs) &&
+                startedMs >= fromMs &&
+                startedMs < toMs
+            );
+        }).length;
 
     return {
-        current: summarizeVerdictWindow(
-            chronological,
-            currentFromMs,
-            now,
-            cancelledIn(currentFromMs, now),
-        ),
-        previous: summarizeVerdictWindow(
-            chronological,
-            previousFromMs,
-            currentFromMs,
-            cancelledIn(previousFromMs, currentFromMs),
-        ),
+        current: summarizeVerdictWindow(chronological, currentFromMs, now, cancelledIn(currentFromMs, now)),
+        previous: summarizeVerdictWindow(chronological, previousFromMs, currentFromMs, cancelledIn(previousFromMs, currentFromMs)),
     };
 }
 
@@ -791,9 +731,7 @@ export function formatVerdictTimesReport(windows, scope) {
             label: 'previous',
             window: windows.previous,
         },
-    ].map(({
-        label, window,
-    }) => ({
+    ].map(({label, window}) => ({
         cells: [
             String(window.candidates).padStart(4),
             formatMetric(window.medianMinutes, 'm').padStart(7),
@@ -805,11 +743,11 @@ export function formatVerdictTimesReport(windows, scope) {
         ],
         scope: `${label.padEnd(8)} ${window.from}..${window.to}`,
     }));
-    const scopeWidth = Math.max(6, ...rows.map(row => row.scope.length));
+    const scopeWidth = Math.max(6, ...rows.map((row) => row.scope.length));
     const lines = [
         `Verdict times: ${scope.workflow} push runs on ${scope.branch}`,
         `  ${'window'.padEnd(scopeWidth)}  cand   median      p90    red  no-green  streak  no-verdict`,
-        ...rows.map(row => `  ${row.scope.padEnd(scopeWidth)}  ${row.cells.join('  ')}`),
+        ...rows.map((row) => `  ${row.scope.padEnd(scopeWidth)}  ${row.cells.join('  ')}`),
         '  median and p90 are minutes from push to the completed required verdict; no-green is the share',
         '  of hours whose newest verdict was red; no-verdict counts cancelled runs, which prove nothing.',
     ];
@@ -818,12 +756,8 @@ export function formatVerdictTimesReport(windows, scope) {
 
 /** @param {IRawAttribution[]} attribution @returns {IAttribution[]} */
 function loadAttributionEvidence(attribution) {
-    return attribution.map(entry => {
-        const {
-            firstRedJobId,
-            firstRedRunId,
-            ...reportEntry
-        } = entry;
+    return attribution.map((entry) => {
+        const {firstRedJobId, firstRedRunId, ...reportEntry} = entry;
         return {
             ...reportEntry,
             evidence: failureEvidence(firstRedRunId, firstRedJobId),
@@ -839,17 +773,14 @@ function percent(part, whole) {
 /** @param {ReturnType<typeof summarizeRuns>} runs @param {ReturnType<typeof summarizeJobs>} jobs @param {{branch: string, days: number, workflow: string}} scope @param {IAttribution[]} [attribution] */
 function formatReport(runs, jobs, scope, attribution = []) {
     const lines = [`CI health: ${scope.workflow} push runs on ${scope.branch} since ${sinceDate(scope.days)}: ${runs.total} runs`];
-    const conclusions = Object.entries(runs.byConclusion).map(([
-        conclusion,
-        count,
-    ]) => {
+    const conclusions = Object.entries(runs.byConclusion).map(([conclusion, count]) => {
         const note = conclusion === 'cancelled' ? ' (cancelled without a verdict, not a failure)' : '';
         return `  ${conclusion} ${count} (${percent(count, runs.total)})${note}`;
     });
     lines.push(...conclusions);
     lines.push(
-        `  reruns: ${runs.rerunShas.length} commits ran more than once; `
-        + `${runs.flippedShas.length} flipped between failure and success (flake signal)`,
+        `  reruns: ${runs.rerunShas.length} commits ran more than once; ` +
+            `${runs.flippedShas.length} flipped between failure and success (flake signal)`,
     );
     for (const sha of runs.flippedShas.slice(0, 10)) {
         lines.push(`    flipped: ${sha.slice(0, 10)}`);
@@ -859,7 +790,7 @@ function formatReport(runs, jobs, scope, attribution = []) {
         lines.push('  none');
     }
     for (const job of jobs.failingJobs) {
-        const steps = job.steps.map(step => `${step.step} ${step.count}`).join(', ');
+        const steps = job.steps.map((step) => `${step.step} ${step.count}`).join(', ');
         lines.push(`  ${job.count.toString().padStart(3)}  ${job.name}${steps ? `  [${steps}]` : ''}`);
     }
     lines.push('Attribution:');
@@ -867,15 +798,16 @@ function formatReport(runs, jobs, scope, attribution = []) {
         lines.push('  none');
     }
     for (const entry of attribution) {
-        const counts = entry.state === 'flapping'
-            ? `${entry.redRuns} red, ${entry.greenRuns} green`
-            : `${entry.redRuns} red verdict${entry.redRuns === 1 ? '' : 's'}`;
+        const counts =
+            entry.state === 'flapping'
+                ? `${entry.redRuns} red, ${entry.greenRuns} green`
+                : `${entry.redRuns} red verdict${entry.redRuns === 1 ? '' : 's'}`;
         const since = entry.olderThanWindow ? 'since at least' : 'since';
         lines.push(
-            `  ${entry.name}: ${entry.state} ${since} ${entry.firstRed.sha} `
-            + `(run #${entry.firstRed.runNumber}, ${entry.firstRed.date}, ${counts}): `
-            + entry.firstRed.subject
-            + (entry.olderThanWindow ? ' [oldest inspected run; widen --jobs to find the start]' : ''),
+            `  ${entry.name}: ${entry.state} ${since} ${entry.firstRed.sha} ` +
+                `(run #${entry.firstRed.runNumber}, ${entry.firstRed.date}, ${counts}): ` +
+                entry.firstRed.subject +
+                (entry.olderThanWindow ? ' [oldest inspected run; widen --jobs to find the start]' : ''),
         );
         if (entry.evidence.unavailable) {
             lines.push('    log: unavailable');
@@ -901,8 +833,8 @@ function formatReport(runs, jobs, scope, attribution = []) {
 /** @param {string} workflow @param {number} days @param {number} limit @param {boolean} [quiet=false] @returns {IRun[]} */
 function listPushRuns(workflow, days, limit, quiet = false) {
     return ghLines(
-        `repos/{owner}/{repo}/actions/workflows/${workflow}/runs?branch=${options.branch}`
-        + `&event=push&per_page=100&created=>=${sinceDate(days)}`,
+        `repos/{owner}/{repo}/actions/workflows/${workflow}/runs?branch=${options.branch}` +
+            `&event=push&per_page=100&created=>=${sinceDate(days)}`,
         '.workflow_runs[] | {id, run_number, run_attempt, head_sha, status, conclusion, created_at, updated_at, html_url}',
         quiet,
     ).slice(0, limit);
@@ -911,10 +843,12 @@ function listPushRuns(workflow, days, limit, quiet = false) {
 /** @param {IRun} run @returns {{run: IRun, jobs: IJob[]}} */
 function withJobs(run) {
     return {
-        jobs: /** @type {IJob[]} */ (ghLines(
-            `repos/{owner}/{repo}/actions/runs/${run.id}/jobs?per_page=100`,
-            '.jobs[] | {id, name, conclusion, started_at, completed_at, steps: [.steps[] | {name, conclusion}]}',
-        )),
+        jobs: /** @type {IJob[]} */ (
+            ghLines(
+                `repos/{owner}/{repo}/actions/runs/${run.id}/jobs?per_page=100`,
+                '.jobs[] | {id, name, conclusion, started_at, completed_at, steps: [.steps[] | {name, conclusion}]}',
+            )
+        ),
         run,
     };
 }
@@ -922,16 +856,9 @@ function withJobs(run) {
 /** @param {string} rev @returns {string} */
 function resolveRevision(rev) {
     try {
-        return execFileSync('git', [
-            'rev-parse',
-            rev,
-        ], {
+        return execFileSync('git', ['rev-parse', rev], {
             encoding: 'utf8',
-            stdio: [
-                'ignore',
-                'pipe',
-                'ignore',
-            ],
+            stdio: ['ignore', 'pipe', 'ignore'],
         }).trim();
     } catch {
         // Already a SHA, or a revision this checkout does not know. The run
@@ -946,9 +873,7 @@ function reportSha() {
     const jobsToInspect = Number(options.jobs);
     const sha = resolveRevision(options.sha || `${options.branch === 'main' ? 'origin/main' : options.branch}`);
     /** @type {IShaTier[]} */
-    const tiers = TIER_WORKFLOWS.map(({
-        tier, workflow,
-    }) => {
+    const tiers = TIER_WORKFLOWS.map(({tier, workflow}) => {
         // A tier whose workflow file does not exist on the branch being asked
         // about reports nothing rather than aborting the other tier's answer.
         // Anything else, a network error above all, has to surface: silently
@@ -970,9 +895,12 @@ function reportSha() {
             };
         }
         const newestFirst = runs
-            .filter(run => run.status === 'completed')
+            .filter((run) => run.status === 'completed')
             .sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at) || right.id - left.id);
-        const targetPosition = Math.max(0, newestFirst.findIndex(run => run.head_sha.startsWith(sha)));
+        const targetPosition = Math.max(
+            0,
+            newestFirst.findIndex((run) => run.head_sha.startsWith(sha)),
+        );
         const window = newestFirst.slice(targetPosition, targetPosition + jobsToInspect).map(withJobs);
         return {
             ...classifyShaJobs(window, sha),
@@ -982,20 +910,24 @@ function reportSha() {
     });
 
     if (options.json) {
-        process.stdout.write(`${JSON.stringify({
-            sha,
-            subject: gitSubject(sha),
-            tiers,
-            newFailures: tiers.flatMap(tier => tier.jobs
-                .filter(job => job.attribution === 'NEW')
-                .map(job => job.name)),
-            inheritedFailures: tiers.flatMap(tier => tier.jobs
-                .filter(job => job.attribution === 'INHERITED')
-                .map(job => job.name)),
-            undeterminedFailures: tiers.flatMap(tier => tier.jobs
-                .filter(job => job.attribution === 'UNDETERMINED')
-                .map(job => job.name)),
-        }, null, 2)}\n`);
+        process.stdout.write(
+            `${JSON.stringify(
+                {
+                    sha,
+                    subject: gitSubject(sha),
+                    tiers,
+                    newFailures: tiers.flatMap((tier) => tier.jobs.filter((job) => job.attribution === 'NEW').map((job) => job.name)),
+                    inheritedFailures: tiers.flatMap((tier) =>
+                        tier.jobs.filter((job) => job.attribution === 'INHERITED').map((job) => job.name),
+                    ),
+                    undeterminedFailures: tiers.flatMap((tier) =>
+                        tier.jobs.filter((job) => job.attribution === 'UNDETERMINED').map((job) => job.name),
+                    ),
+                },
+                null,
+                2,
+            )}\n`,
+        );
         return;
     }
     process.stdout.write(formatShaReport(tiers, sha));
@@ -1011,18 +943,26 @@ function reportVerdictTimes() {
         now: Date.now(),
     });
     if (options.json) {
-        process.stdout.write(`${JSON.stringify({
-            branch: options.branch,
-            days,
-            workflow: options.workflow,
-            ...windows,
-        }, null, 2)}\n`);
+        process.stdout.write(
+            `${JSON.stringify(
+                {
+                    branch: options.branch,
+                    days,
+                    workflow: options.workflow,
+                    ...windows,
+                },
+                null,
+                2,
+            )}\n`,
+        );
         return;
     }
-    process.stdout.write(formatVerdictTimesReport(windows, {
-        branch: options.branch,
-        workflow: options.workflow,
-    }));
+    process.stdout.write(
+        formatVerdictTimesReport(windows, {
+            branch: options.branch,
+            workflow: options.workflow,
+        }),
+    );
 }
 
 function main() {
@@ -1039,7 +979,7 @@ function main() {
     const jobsToInspect = Number(options.jobs);
     const runs = listPushRuns(options.workflow, days, limit);
     const inspected = runs
-        .filter(run => run.status === 'completed' && run.conclusion !== 'cancelled')
+        .filter((run) => run.status === 'completed' && run.conclusion !== 'cancelled')
         .sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at) || right.id - left.id)
         .slice(0, jobsToInspect)
         .map(withJobs);
@@ -1047,18 +987,31 @@ function main() {
     const jobSummary = summarizeJobs(inspected);
     const attribution = loadAttributionEvidence(summarizeAttribution(inspected));
     if (options.json) {
-        process.stdout.write(`${JSON.stringify({
-            attribution,
-            jobs: jobSummary,
-            runs: runSummary,
-        }, null, 2)}\n`);
+        process.stdout.write(
+            `${JSON.stringify(
+                {
+                    attribution,
+                    jobs: jobSummary,
+                    runs: runSummary,
+                },
+                null,
+                2,
+            )}\n`,
+        );
         return;
     }
-    process.stdout.write(formatReport(runSummary, jobSummary, {
-        branch: options.branch,
-        days,
-        workflow: options.workflow,
-    }, attribution));
+    process.stdout.write(
+        formatReport(
+            runSummary,
+            jobSummary,
+            {
+                branch: options.branch,
+                days,
+                workflow: options.workflow,
+            },
+            attribution,
+        ),
+    );
 }
 
 // The classification helpers are unit tested against recorded API shapes, so
@@ -1069,9 +1022,11 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     } catch (error) {
         // An agent reads this output to decide what to do next; one line it can
         // act on beats a stack trace through the API wrapper.
-        process.stderr.write(isNetworkFailure(error)
-            ? `ci-health: the GitHub API was unreachable after ${NETWORK_ATTEMPTS} attempts; nothing was read. Run it again.\n`
-            : `ci-health: ${describeGhFailure(error)}\n`);
+        process.stderr.write(
+            isNetworkFailure(error)
+                ? `ci-health: the GitHub API was unreachable after ${NETWORK_ATTEMPTS} attempts; nothing was read. Run it again.\n`
+                : `ci-health: ${describeGhFailure(error)}\n`,
+        );
         process.exitCode = 2;
     }
 }

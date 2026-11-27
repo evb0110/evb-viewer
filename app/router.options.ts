@@ -1,10 +1,7 @@
-import type { RouterConfig } from '@nuxt/schema';
-import type {
-    HistoryState,
-    RouterHistory,
-} from 'vue-router';
-import { BROWSER_EXTENSION_VIEWER_PAGE } from '@contracts/browserExtensionLaunch';
-import { isBrowserExtensionPage } from '@app/utils/isBrowserExtensionPage';
+import type {RouterConfig} from '@nuxt/schema';
+import type {HistoryState, RouterHistory} from 'vue-router';
+import {BROWSER_EXTENSION_VIEWER_PAGE} from '@contracts/browserExtensionLaunch';
+import {isBrowserExtensionPage} from '@app/utils/isBrowserExtensionPage';
 
 const EXTENSION_VIEWER_PATH = `/${BROWSER_EXTENSION_VIEWER_PAGE}`;
 
@@ -23,27 +20,15 @@ interface IExtensionRouterStateFields {
 
 type TExtensionHistoryState = HistoryState & IExtensionRouterStateFields;
 
-const ROUTER_HISTORY_STATE_KEYS = new Set([
-    'back',
-    'current',
-    'forward',
-    'position',
-    'replaced',
-    'scroll',
-]);
+const ROUTER_HISTORY_STATE_KEYS = new Set(['back', 'current', 'forward', 'position', 'replaced', 'scroll']);
 
 function readHistoryStateRecord(state: unknown = window.history.state): HistoryState {
-    return typeof state === 'object' && state !== null
-        ? { ...(state as HistoryState) }
-        : {};
+    return typeof state === 'object' && state !== null ? {...(state as HistoryState)} : {};
 }
 
 function readForeignHistoryState(state: unknown = window.history.state): HistoryState {
     const foreign: HistoryState = {};
-    for (const [
-        key,
-        value,
-    ] of Object.entries(readHistoryStateRecord(state))) {
+    for (const [key, value] of Object.entries(readHistoryStateRecord(state))) {
         if (!ROUTER_HISTORY_STATE_KEYS.has(key)) {
             foreign[key] = value;
         }
@@ -114,20 +99,14 @@ function parseExtensionFragmentRedirect(hash: string) {
     const query: Record<string, string | string[]> = {};
     if (queryIndex >= 0) {
         const searchParams = new URLSearchParams(beforeHash.slice(queryIndex + 1));
-        for (const [
-            key,
-            value,
-        ] of searchParams.entries()) {
+        for (const [key, value] of searchParams.entries()) {
             const existing = query[key];
             if (existing === undefined) {
                 query[key] = value;
             } else if (Array.isArray(existing)) {
                 existing.push(value);
             } else {
-                query[key] = [
-                    existing,
-                    value,
-                ];
+                query[key] = [existing, value];
             }
         }
     }
@@ -140,9 +119,7 @@ function parseExtensionFragmentRedirect(hash: string) {
 
 function formatExtensionUrl(to: TExtensionHistoryLocation, search = ''): string {
     const normalized = normalizeRouteLocation(to);
-    return normalized === '/'
-        ? `${EXTENSION_VIEWER_PATH}${search}`
-        : `${EXTENSION_VIEWER_PATH}${search}#${normalized}`;
+    return normalized === '/' ? `${EXTENSION_VIEWER_PATH}${search}` : `${EXTENSION_VIEWER_PATH}${search}#${normalized}`;
 }
 
 /**
@@ -154,21 +131,15 @@ function formatExtensionUrl(to: TExtensionHistoryLocation, search = ''): string 
  * packaged HTML shell, and reads those `#/` fragments on startup.
  */
 function createBrowserExtensionHistory(base = '/'): RouterHistory {
-    const currentLocation = { value: resolveExtensionFragmentLocation(window.location.hash) };
+    const currentLocation = {value: resolveExtensionFragmentLocation(window.location.hash)};
     const existingState = readHistoryStateRecord();
     const initialState: TExtensionHistoryState = isRouterHistoryState(existingState)
         ? existingState
         : {
-            ...existingState,
-            ...buildRouterHistoryState(
-                null,
-                currentLocation.value,
-                null,
-                true,
-                Math.max(0, window.history.length - 1),
-            ),
-        };
-    const historyState = { value: initialState };
+              ...existingState,
+              ...buildRouterHistoryState(null, currentLocation.value, null, true, Math.max(0, window.history.length - 1)),
+          };
+    const historyState = {value: initialState};
     let listeners: TExtensionNavigationCallback[] = [];
     let pauseState: TExtensionHistoryLocation | null = null;
 
@@ -190,13 +161,7 @@ function createBrowserExtensionHistory(base = '/'): RouterHistory {
         const normalized = normalizeRouteLocation(to);
         const nextState: TExtensionHistoryState = {
             ...readHistoryStateRecord(),
-            ...buildRouterHistoryState(
-                historyState.value.back,
-                normalized,
-                historyState.value.forward,
-                true,
-                historyState.value.position,
-            ),
+            ...buildRouterHistoryState(historyState.value.back, normalized, historyState.value.forward, true, historyState.value.position),
             ...data,
             position: historyState.value.position,
         };
@@ -220,20 +185,14 @@ function createBrowserExtensionHistory(base = '/'): RouterHistory {
         const foreignState = readForeignHistoryState();
         const nextState: TExtensionHistoryState = {
             ...foreignState,
-            ...buildRouterHistoryState(
-                currentLocation.value,
-                normalized,
-                null,
-                false,
-                currentState.position + 1,
-            ),
+            ...buildRouterHistoryState(currentLocation.value, normalized, null, false, currentState.position + 1),
             ...data,
         };
         changeLocation(normalized, nextState, false);
         currentLocation.value = normalized;
     }
 
-    const popStateHandler = ({ state }: PopStateEvent) => {
+    const popStateHandler = ({state}: PopStateEvent) => {
         const to = resolveExtensionFragmentLocation(window.location.hash);
         const from = currentLocation.value;
         const fromState = historyState.value;
@@ -255,11 +214,7 @@ function createBrowserExtensionHistory(base = '/'): RouterHistory {
             }
         }
 
-        const direction = (
-            delta
-                ? delta > 0 ? 'forward' : 'back'
-                : ''
-        ) as TExtensionNavigationInfo['direction'];
+        const direction = (delta ? (delta > 0 ? 'forward' : 'back') : '') as TExtensionNavigationInfo['direction'];
         for (const listener of listeners) {
             listener(currentLocation.value, from, {
                 delta,
@@ -274,10 +229,13 @@ function createBrowserExtensionHistory(base = '/'): RouterHistory {
             return;
         }
         try {
-            window.history.replaceState({
-                ...readHistoryStateRecord(),
-                scroll: computeScrollPosition(),
-            }, '');
+            window.history.replaceState(
+                {
+                    ...readHistoryStateRecord(),
+                    scroll: computeScrollPosition(),
+                },
+                '',
+            );
         } catch {
             // Ignore restricted history mutations during page teardown.
         }
@@ -288,7 +246,7 @@ function createBrowserExtensionHistory(base = '/'): RouterHistory {
 
     const routerHistory: RouterHistory = {
         base,
-        createHref: to => formatExtensionUrl(to),
+        createHref: (to) => formatExtensionUrl(to),
         destroy() {
             listeners = [];
             window.removeEventListener('popstate', popStateHandler);
@@ -333,14 +291,12 @@ export function resolveAppRouterOptions(): RouterConfig {
     }
 
     return {
-        history: base => createBrowserExtensionHistory(base),
-        routes: scannedRoutes => [
+        history: (base) => createBrowserExtensionHistory(base),
+        routes: (scannedRoutes) => [
             ...scannedRoutes,
             {
                 path: EXTENSION_VIEWER_PATH,
-                redirect: to => parseExtensionFragmentRedirect(
-                    window.location.hash.startsWith('#/') ? window.location.hash : to.hash,
-                ),
+                redirect: (to) => parseExtensionFragmentRedirect(window.location.hash.startsWith('#/') ? window.location.hash : to.hash),
             },
         ],
     };

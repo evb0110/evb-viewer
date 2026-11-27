@@ -1,9 +1,6 @@
 import type {IPdfPageLayoutMetrics} from '@app/modules/document-viewer/public';
 
-export function getTrailingSpacerHeightForPage(
-    layout: IPdfPageLayoutMetrics,
-    lastVisiblePage: number,
-) {
+export function getTrailingSpacerHeightForPage(layout: IPdfPageLayoutMetrics, lastVisiblePage: number) {
     if (!Number.isFinite(lastVisiblePage) || lastVisiblePage < 1) {
         return 0;
     }
@@ -16,8 +13,9 @@ export function getTrailingSpacerHeightForPage(
 
     const hiddenRows = Math.max(0, layout.base.rowHeights.length - rowIndex - 1);
     return (
-        (layout.base.rowHeightPrefixSums[layout.base.rowHeightPrefixSums.length - 1] ?? 0)
-        - (layout.base.rowHeightPrefixSums[rowIndex] ?? 0)
-    ) * layout.scale
-        + Math.max(0, hiddenRows - 1) * layout.gap;
+        ((layout.base.rowHeightPrefixSums[layout.base.rowHeightPrefixSums.length - 1] ?? 0) -
+            (layout.base.rowHeightPrefixSums[rowIndex] ?? 0)) *
+            layout.scale +
+        Math.max(0, hiddenRows - 1) * layout.gap
+    );
 }

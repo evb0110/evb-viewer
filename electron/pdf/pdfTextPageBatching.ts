@@ -1,7 +1,7 @@
 export function groupContiguousPages(pages: readonly number[]) {
     const ranges: Array<{
         firstPage: number;
-        lastPage: number
+        lastPage: number;
     }> = [];
     for (const page of pages) {
         const lastRange = ranges.at(-1);
@@ -22,7 +22,7 @@ export function splitPdfTextOutput(output: string, expectedCount?: number) {
     let pages = output.split('\f');
     if (typeof expectedCount === 'number' && expectedCount > 0) {
         if (pages.length < expectedCount) {
-            pages = pages.concat(Array.from({ length: expectedCount - pages.length }, () => ''));
+            pages = pages.concat(Array.from({length: expectedCount - pages.length}, () => ''));
         } else if (pages.length > expectedCount) {
             pages = pages.slice(0, expectedCount);
         }

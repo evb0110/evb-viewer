@@ -1,35 +1,26 @@
 import type * as TViMockOriginalModule from '@electron/utils/syncFileHandleForDurability';
 
-import { EventEmitter } from 'node:events';
-import {
-    mkdtemp,
-    readFile,
-    readdir,
-    rename,
-    rm,
-} from 'node:fs/promises';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
-import type { WebContents } from 'electron';
+import {EventEmitter} from 'node:events';
+import {mkdtemp, readFile, readdir, rename, rm} from 'node:fs/promises';
+import {join} from 'node:path';
+import {tmpdir} from 'node:os';
+import type {WebContents} from 'electron';
 import type * as AtomicReplaceModule from '@electron/utils/atomicReplace';
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { allowDocxWritePath } from '@electron/file-access/docxExportPaths';
-import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsContexts';
+import {describe, expect, it, vi} from 'vitest';
+import {allowDocxWritePath} from '@electron/file-access/docxExportPaths';
+import type {IDocumentsSenderIdContext} from '@electron/features/documents/documentsContexts';
 
 const mocks = vi.hoisted(() => ({
-    atomicReplace: vi.fn(async (
-        _sourcePath: string,
-        _destinationPath: string,
-        _options?: {
-            durable?: boolean;
-            markMutationCommitStarted?: boolean
-        },
-    ) => undefined),
+    atomicReplace: vi.fn(
+        async (
+            _sourcePath: string,
+            _destinationPath: string,
+            _options?: {
+                durable?: boolean;
+                markMutationCommitStarted?: boolean;
+            },
+        ) => undefined,
+    ),
     syncFileHandleForDurability: vi.fn(async (..._args: unknown[]) => undefined),
 }));
 
@@ -45,12 +36,8 @@ vi.mock('@electron/utils/syncFileHandleForDurability', async (importOriginal) =>
     syncFileHandleForDurability: (...args: unknown[]) => mocks.syncFileHandleForDurability(...args),
 }));
 
-const {
-    beginDocxExportStream,
-    cancelDocxExportStream,
-    commitDocxExportStream,
-    writeDocxExportStreamChunk,
-} = await import('@electron/features/documents/main/docxExportStream');
+const {beginDocxExportStream, cancelDocxExportStream, commitDocxExportStream, writeDocxExportStreamChunk} =
+    await import('@electron/features/documents/main/docxExportStream');
 
 class FakeWebContents extends EventEmitter {
     readonly id = 84;
@@ -129,11 +116,7 @@ describe('DOCX export stream commit cancellation race', () => {
 
             releaseReplacement.resolve(undefined);
             await expect(commitPromise).resolves.toBe(true);
-            await expect(readFile(targetPath)).resolves.toEqual(Buffer.from([
-                4,
-                5,
-                6,
-            ]));
+            await expect(readFile(targetPath)).resolves.toEqual(Buffer.from([4, 5, 6]));
             await expect(readdir(directory)).resolves.toEqual(['export.docx']);
         } finally {
             await rm(directory, {

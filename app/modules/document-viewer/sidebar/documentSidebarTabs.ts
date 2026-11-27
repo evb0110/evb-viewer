@@ -14,22 +14,18 @@ export const DOCUMENT_SIDEBAR_TAB_ORDER = [
     'search',
 ] as const satisfies readonly TDocumentSidebarTab[];
 
-export function resolveDocumentSidebarTabs(
-    capabilities: IDocumentSidebarCapabilities,
-): TDocumentSidebarTab[] {
-    return DOCUMENT_SIDEBAR_TAB_ORDER.filter((tab) => ({
-        annotations: capabilities.annotations,
-        thumbnails: capabilities.pages,
-        bookmarks: capabilities.bookmarks,
-        search: capabilities.search,
-    })[tab]);
+export function resolveDocumentSidebarTabs(capabilities: IDocumentSidebarCapabilities): TDocumentSidebarTab[] {
+    return DOCUMENT_SIDEBAR_TAB_ORDER.filter(
+        (tab) =>
+            ({
+                annotations: capabilities.annotations,
+                thumbnails: capabilities.pages,
+                bookmarks: capabilities.bookmarks,
+                search: capabilities.search,
+            })[tab],
+    );
 }
 
-export function reconcileDocumentSidebarTab(
-    current: TDocumentSidebarTab,
-    available: readonly TDocumentSidebarTab[],
-) {
-    return available.includes(current)
-        ? current
-        : available.includes('thumbnails') ? 'thumbnails' : available[0] ?? null;
+export function reconcileDocumentSidebarTab(current: TDocumentSidebarTab, available: readonly TDocumentSidebarTab[]) {
+    return available.includes(current) ? current : available.includes('thumbnails') ? 'thumbnails' : (available[0] ?? null);
 }

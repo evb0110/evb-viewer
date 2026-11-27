@@ -1,21 +1,10 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {describe, expect, it, vi} from 'vitest';
 import {createStagedRasterWindow} from '@evb/scan-cleanup/core/createStagedRasterWindow';
-import {
-    mkdtemp, readFile, readdir, rm, writeFile,
-} from 'node:fs/promises';
+import {mkdtemp, readFile, readdir, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 
-function createRecordingWindow(
-    pages: readonly number[],
-    window: number,
-    overrides: {stage?: (pageNumber: number) => Promise<void>} = {},
-) {
+function createRecordingWindow(pages: readonly number[], window: number, overrides: {stage?: (pageNumber: number) => Promise<void>} = {}) {
     const resident = new Set<number>();
     const staged: number[] = [];
     const unstaged: number[] = [];
@@ -52,34 +41,22 @@ describe('createStagedRasterWindow', () => {
         let refuseUnlink = true;
         let peakFiles = 0;
         const controller = createStagedRasterWindow({
-            pages: [
-                1,
-                2,
-                3,
-                4,
-                5,
-            ],
+            pages: [1, 2, 3, 4, 5],
             window: 1,
-            stage: async pageNumber => {
+            stage: async (pageNumber) => {
                 await writeFile(join(root, `${pageNumber}.ppm`), `raster-${pageNumber}`);
                 peakFiles = Math.max(peakFiles, (await readdir(root)).length);
             },
-            unstage: async pageNumber => {
+            unstage: async (pageNumber) => {
                 if (refuseUnlink) {
                     throw Object.assign(new Error('raster unlink denied'), {code: 'EACCES'});
                 }
                 await rm(join(root, `${pageNumber}.ppm`));
             },
-            isStaged: async pageNumber => (await readdir(root)).includes(`${pageNumber}.ppm`),
+            isStaged: async (pageNumber) => (await readdir(root)).includes(`${pageNumber}.ppm`),
         });
         try {
-            for (const pageNumber of [
-                1,
-                2,
-                3,
-                4,
-                5,
-            ]) {
+            for (const pageNumber of [1, 2, 3, 4, 5]) {
                 try {
                     await controller.acquire(pageNumber);
                 } catch (error) {
@@ -122,10 +99,10 @@ describe('createStagedRasterWindow', () => {
                 }
                 resident.add(pageNumber);
             },
-            unstage: async pageNumber => {
+            unstage: async (pageNumber) => {
                 resident.delete(pageNumber);
             },
-            isStaged: async pageNumber => resident.has(pageNumber),
+            isStaged: async (pageNumber) => resident.has(pageNumber),
         });
 
         await controller.prime();
@@ -166,12 +143,7 @@ describe('createStagedRasterWindow', () => {
     });
 
     it('waits for a released slot instead of growing residency when all pages are leased', async () => {
-        const harness = createRecordingWindow([
-            1,
-            2,
-            3,
-            4,
-        ], 2);
+        const harness = createRecordingWindow([1, 2, 3, 4], 2);
         await harness.controller.acquire(1);
         await harness.controller.acquire(2);
         const thirdPage = harness.controller.acquire(3);
@@ -194,12 +166,7 @@ describe('createStagedRasterWindow', () => {
     });
 
     it('drops a released page before filling the next forward slot', async () => {
-        const harness = createRecordingWindow([
-            1,
-            2,
-            3,
-            4,
-        ], 2);
+        const harness = createRecordingWindow([1, 2, 3, 4], 2);
         await harness.controller.acquire(1);
         harness.controller.release(1);
         await vi.waitFor(() => expect(harness.resident.has(2)).toBe(true));
@@ -215,7 +182,10 @@ describe('createStagedRasterWindow', () => {
     });
 
     it('keeps a prefetched page readable when another in-window lease advances', async () => {
-        const harness = createRecordingWindow(Array.from({length: 8}, (_, index) => index + 1), 3);
+        const harness = createRecordingWindow(
+            Array.from({length: 8}, (_, index) => index + 1),
+            3,
+        );
         await harness.controller.prime();
         await vi.waitFor(() => expect(harness.resident.size).toBe(3));
         await harness.controller.acquire(1);
@@ -230,10 +200,7 @@ describe('createStagedRasterWindow', () => {
     });
 
     it('re-renders a released page instead of consuming it', async () => {
-        const harness = createRecordingWindow([
-            1,
-            2,
-        ], 1);
+        const harness = createRecordingWindow([1, 2], 1);
         await harness.controller.acquire(1);
         harness.controller.release(1);
         await harness.controller.acquire(2);
@@ -253,19 +220,18 @@ describe('createStagedRasterWindow', () => {
         harness.resident.delete(1);
         await harness.controller.acquire(1);
         expect(harness.resident.has(1)).toBe(true);
-        expect(harness.staged).toEqual([
-            1,
-            1,
-        ]);
+        expect(harness.staged).toEqual([1, 1]);
         await harness.controller.dispose();
     });
 
     it('holds concurrent leases inside the window under parallel demand', async () => {
         const readerCount = 4;
         const pages = Array.from({length: 40}, (_, index) => index + 1);
-        const harness = createRecordingWindow(pages, readerCount, {stage: async () => {
-            await new Promise(resolve => setTimeout(resolve, 1));
-        }});
+        const harness = createRecordingWindow(pages, readerCount, {
+            stage: async () => {
+                await new Promise((resolve) => setTimeout(resolve, 1));
+            },
+        });
         await harness.controller.prime();
         // A barrier rather than a sleep: every reader holds its first lease
         // until all four have one, so the concurrency this measures is a fact
@@ -276,7 +242,9 @@ describe('createStagedRasterWindow', () => {
         const allLeased = Promise.withResolvers<undefined>();
         const holdUntilAllLeased = async () => {
             arrived += 1;
-            if (arrived === readerCount) {allLeased.resolve(undefined);}
+            if (arrived === readerCount) {
+                allLeased.resolve(undefined);
+            }
             await allLeased.promise;
         };
         // Recorded rather than asserted inside the readers: an assertion that
@@ -296,10 +264,12 @@ describe('createStagedRasterWindow', () => {
                 await harness.controller.acquire(pageNumber);
                 leases += 1;
                 peakLeases = Math.max(peakLeases, leases);
-                if (!harness.resident.has(pageNumber)) {unreadablePages.push(pageNumber);}
+                if (!harness.resident.has(pageNumber)) {
+                    unreadablePages.push(pageNumber);
+                }
                 residentAtLease.push(harness.resident.size);
                 if (leasedBefore) {
-                    await new Promise(resolve => setTimeout(resolve, 1));
+                    await new Promise((resolve) => setTimeout(resolve, 1));
                 } else {
                     leasedBefore = true;
                     firstLeaseByReader[reader] = pageNumber;
@@ -317,12 +287,7 @@ describe('createStagedRasterWindow', () => {
         expect(peakLeases).toBe(readerCount);
         // Each reader's first lease is one of the pages priming staged, so the
         // barrier they all wait on can never ask the window for a fifth slot.
-        expect(firstLeaseByReader).toEqual([
-            1,
-            2,
-            3,
-            4,
-        ]);
+        expect(firstLeaseByReader).toEqual([1, 2, 3, 4]);
         expect(unreadablePages).toEqual([]);
         expect(Math.max(...residentAtLease)).toBeGreaterThan(1);
         expect(Math.max(...residentAtLease)).toBeLessThanOrEqual(readerCount);
@@ -333,27 +298,16 @@ describe('createStagedRasterWindow', () => {
     });
 
     it('drops every staged raster when the run is abandoned', async () => {
-        const harness = createRecordingWindow([
-            1,
-            2,
-            3,
-        ], 3);
+        const harness = createRecordingWindow([1, 2, 3], 3);
         await harness.controller.prime();
         await vi.waitFor(() => expect(harness.resident.size).toBe(3));
         await harness.controller.dispose();
         expect(harness.resident.size).toBe(0);
-        expect(new Set(harness.unstaged)).toEqual(new Set([
-            1,
-            2,
-            3,
-        ]));
+        expect(new Set(harness.unstaged)).toEqual(new Set([1, 2, 3]));
     });
 
     it('hands the rasters still resident to the cache when the run succeeded', async () => {
-        const harness = createRecordingWindow([
-            1,
-            2,
-        ], 2);
+        const harness = createRecordingWindow([1, 2], 2);
         await harness.controller.prime();
         await vi.waitFor(() => expect(harness.resident.size).toBe(2));
         await harness.controller.dispose({retainStaged: true});
@@ -367,16 +321,15 @@ describe('createStagedRasterWindow', () => {
         const log = vi.fn();
         const resident = new Set<number>();
         const controller = createStagedRasterWindow({
-            pages: [
-                1,
-                2,
-            ],
+            pages: [1, 2],
             window: 1,
             async stage(pageNumber) {
                 resident.add(pageNumber);
             },
             async unstage(pageNumber) {
-                if (!disposing) {throw new Error(`unstage refused for page ${pageNumber}`);}
+                if (!disposing) {
+                    throw new Error(`unstage refused for page ${pageNumber}`);
+                }
                 resident.delete(pageNumber);
             },
             async isStaged(pageNumber) {
@@ -412,11 +365,7 @@ describe('createStagedRasterWindow', () => {
         const resident = new Set<number>();
         let peakResident = 0;
         const controller = createStagedRasterWindow({
-            pages: [
-                1,
-                2,
-                3,
-            ],
+            pages: [1, 2, 3],
             window: 1,
             async stage(pageNumber) {
                 resident.add(pageNumber);
@@ -437,7 +386,7 @@ describe('createStagedRasterWindow', () => {
             await expect(controller.dispose()).resolves.toBeUndefined();
             // Node reports an unhandled rejection on a later turn than the one
             // that created it, so give it one before reading the record.
-            await new Promise(resolve => setTimeout(resolve, 10));
+            await new Promise((resolve) => setTimeout(resolve, 10));
         } finally {
             process.off('unhandledRejection', onUnhandled);
         }
@@ -448,12 +397,14 @@ describe('createStagedRasterWindow', () => {
     it('stops read-ahead at a page it could not stage so that page can still be leased', async () => {
         const pages = Array.from({length: 6}, (_, index) => index + 1);
         let failPageThree = true;
-        const harness = createRecordingWindow(pages, 2, {stage: async pageNumber => {
-            if (pageNumber === 3 && failPageThree) {
-                failPageThree = false;
-                throw new Error('render failed for page 3');
-            }
-        }});
+        const harness = createRecordingWindow(pages, 2, {
+            stage: async (pageNumber) => {
+                if (pageNumber === 3 && failPageThree) {
+                    failPageThree = false;
+                    throw new Error('render failed for page 3');
+                }
+            },
+        });
         await harness.controller.prime();
         // One sequential reader that lets read-ahead settle between pages, as
         // the sidecar does while it analyses one: nothing else will release a
@@ -471,18 +422,11 @@ describe('createStagedRasterWindow', () => {
     });
 
     it('surfaces an on-demand staging failure and swallows a prefetch failure', async () => {
-        const failures = new Set([
-            2,
-            3,
-        ]);
+        const failures = new Set([2, 3]);
         const log = vi.fn();
         const resident = new Set<number>();
         const controller = createStagedRasterWindow({
-            pages: [
-                1,
-                2,
-                3,
-            ],
+            pages: [1, 2, 3],
             window: 2,
             async stage(pageNumber) {
                 if (failures.has(pageNumber)) {
@@ -502,10 +446,7 @@ describe('createStagedRasterWindow', () => {
         // Releasing prefetches page 2, whose failure must not fail the run.
         controller.release(1);
         await vi.waitFor(() => {
-            expect(log.mock.calls.some(([
-                level,
-                message,
-            ]) => level === 'debug' && message.includes('page 2'))).toBe(true);
+            expect(log.mock.calls.some(([level, message]) => level === 'debug' && message.includes('page 2'))).toBe(true);
         });
 
         await expect(controller.acquire(2)).rejects.toThrow('render failed for page 2');

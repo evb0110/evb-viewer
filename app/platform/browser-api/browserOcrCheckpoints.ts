@@ -22,11 +22,7 @@ export interface IBrowserOcrCheckpointStore {
     readonly directory: string;
     stagePage(page: IOcrRecognizedPage): Promise<void>;
     getPageCount(): number;
-    iterateChunks(options?: {
-        maxPages?: number;
-        maxBytes?: number;
-        signal?: AbortSignal;
-    }): AsyncGenerator<IBrowserOcrCheckpointChunk>;
+    iterateChunks(options?: {maxPages?: number; maxBytes?: number; signal?: AbortSignal}): AsyncGenerator<IBrowserOcrCheckpointChunk>;
     cleanup(): Promise<void>;
 }
 
@@ -59,24 +55,25 @@ function extractRecord(page: IOcrRecognizedPage): TBrowserOcrCheckpointRecord {
  * Removes orphaned browser OCR checkpoint directories left behind by crashed or
  * abruptly closed tabs once their `meta.json` timestamp exceeds the TTL.
  */
-export async function sweepStaleBrowserOcrCheckpoints(
-    port: Pick<IStorePort, 'list' | 'read' | 'remove'>,
-    now = Date.now(),
-) {
+export async function sweepStaleBrowserOcrCheckpoints(port: Pick<IStorePort, 'list' | 'read' | 'remove'>, now = Date.now()) {
     const entries = await port.list(OCR_CHECKPOINT_ROOT).catch(() => []);
-    await Promise.all(entries.map(async (name) => {
-        const dir = `${OCR_CHECKPOINT_ROOT}/${name}`;
-        if (activeCheckpointDirs.has(dir)) {return;}
-        try {
-            const raw = await port.read(`${dir}/meta.json`);
-            const parsed = JSON.parse(decoder.decode(raw)) as {createdAt?: unknown};
-            if (typeof parsed.createdAt === 'number' && now - parsed.createdAt > STALE_CHECKPOINT_TTL_MS) {
-                await port.remove(dir).catch(() => undefined);
+    await Promise.all(
+        entries.map(async (name) => {
+            const dir = `${OCR_CHECKPOINT_ROOT}/${name}`;
+            if (activeCheckpointDirs.has(dir)) {
+                return;
             }
-        } catch {
-            // Leave unreadable or freshly-initializing directories untouched unless meta is stale.
-        }
-    }));
+            try {
+                const raw = await port.read(`${dir}/meta.json`);
+                const parsed = JSON.parse(decoder.decode(raw)) as {createdAt?: unknown};
+                if (typeof parsed.createdAt === 'number' && now - parsed.createdAt > STALE_CHECKPOINT_TTL_MS) {
+                    await port.remove(dir).catch(() => undefined);
+                }
+            } catch {
+                // Leave unreadable or freshly-initializing directories untouched unless meta is stale.
+            }
+        }),
+    );
 }
 
 /**
@@ -96,10 +93,7 @@ export async function createBrowserOcrCheckpointStore(
     if (durablePort) {
         activeCheckpointDirs.add(dir);
         try {
-            await durablePort.writeAtomic(
-                `${dir}/meta.json`,
-                encoder.encode(JSON.stringify({createdAt: Date.now()})),
-            );
+            await durablePort.writeAtomic(`${dir}/meta.json`, encoder.encode(JSON.stringify({createdAt: Date.now()})));
             hasOpfsDirectory = true;
             void sweepStaleBrowserOcrCheckpoints(durablePort);
         } catch {
@@ -119,16 +113,14 @@ export async function createBrowserOcrCheckpointStore(
 
     const readPage = async (pageNumber: number): Promise<{record: TBrowserOcrCheckpointRecord; pdf: Uint8Array}> => {
         const inMemory = memoryFallback.get(pageNumber);
-        if (inMemory) {return inMemory;}
-        if (!durablePort) {throw new Error(`OCR checkpoint missing for page ${pageNumber}`);}
+        if (inMemory) {
+            return inMemory;
+        }
+        if (!durablePort) {
+            throw new Error(`OCR checkpoint missing for page ${pageNumber}`);
+        }
         const paths = pagePaths(dir, pageNumber);
-        const [
-            pdf,
-            metaBytes,
-        ] = await Promise.all([
-            durablePort.read(paths.pdf),
-            durablePort.read(paths.meta),
-        ]);
+        const [pdf, metaBytes] = await Promise.all([durablePort.read(paths.pdf), durablePort.read(paths.meta)]);
         const record = JSON.parse(decoder.decode(metaBytes)) as TBrowserOcrCheckpointRecord;
         return {record, pdf};
     };
@@ -139,7 +131,9 @@ export async function createBrowserOcrCheckpointStore(
         },
         directory: dir,
         async stagePage(page) {
-            if (cleanedUp) {throw new Error('OCR checkpoint store was already cleaned up');}
+            if (cleanedUp) {
+                throw new Error('OCR checkpoint store was already cleaned up');
+            }
             const record = extractRecord(page);
             const metaBytes = encoder.encode(JSON.stringify(record));
             const totalBytes = page.pdf.byteLength + metaBytes.byteLength;
@@ -152,14 +146,13 @@ export async function createBrowserOcrCheckpointStore(
                     stagedBytesByPage.set(page.pageNumber, totalBytes);
                     return;
                 } catch (error) {
-                    if (!isQuotaError(error)) {throw error;}
+                    if (!isQuotaError(error)) {
+                        throw error;
+                    }
                     // Quota exhausted mid-job: latch writes to memory while keeping `durablePort`
                     // intact for reading already-staged pages and cleaning up on completion/abort.
                     opfsWritesExhausted = true;
-                    await Promise.all([
-                        durablePort.remove(paths.pdf),
-                        durablePort.remove(paths.meta),
-                    ]).catch(() => undefined);
+                    await Promise.all([durablePort.remove(paths.pdf), durablePort.remove(paths.meta)]).catch(() => undefined);
                 }
             }
             memoryFallback.set(page.pageNumber, {record, pdf: page.pdf});
@@ -181,7 +174,9 @@ export async function createBrowserOcrCheckpointStore(
                 while (cursor < sortedPages.length && batchPageNumbers.length < maxPages) {
                     const pageNumber = sortedPages[cursor]!;
                     const pageBytes = stagedBytesByPage.get(pageNumber) ?? 0;
-                    if (batchPageNumbers.length > 0 && batchBytes + pageBytes > maxBytes) {break;}
+                    if (batchPageNumbers.length > 0 && batchBytes + pageBytes > maxBytes) {
+                        break;
+                    }
                     batchPageNumbers.push(pageNumber);
                     batchBytes += pageBytes;
                     cursor += 1;
@@ -198,7 +193,9 @@ export async function createBrowserOcrCheckpointStore(
             }
         },
         async cleanup() {
-            if (cleanedUp) {return;}
+            if (cleanedUp) {
+                return;
+            }
             cleanedUp = true;
             stagedBytesByPage.clear();
             memoryFallback.clear();

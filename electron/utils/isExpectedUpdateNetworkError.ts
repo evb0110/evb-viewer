@@ -22,7 +22,7 @@ function getErrorCode(error: unknown) {
     }
     const errorLike = error as {
         cause?: unknown;
-        code?: unknown
+        code?: unknown;
     };
     if (typeof errorLike.code === 'string') {
         return errorLike.code;

@@ -1,20 +1,11 @@
 import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {
-    parentPort,
-    workerData,
-} from 'node:worker_threads';
+import {parentPort, workerData} from 'node:worker_threads';
 import {decode as decodePng} from 'fast-png';
 import {encodePnm} from '@ocr-core/ppmRaster';
-import {
-    createTesseractEngine,
-    type TTesseractModuleFactory,
-} from '@ocr-core/tesseractEngine';
-import type {
-    IOcrEngineLaneReply,
-    IOcrEngineLaneRequest,
-} from '@electron/features/ocr/main/ocrEngineHostProtocol';
+import {createTesseractEngine, type TTesseractModuleFactory} from '@ocr-core/tesseractEngine';
+import type {IOcrEngineLaneReply, IOcrEngineLaneRequest} from '@electron/features/ocr/main/ocrEngineHostProtocol';
 
 /** Where the engine and the installed models are; the pool passes it to each worker. */
 export interface IOcrEngineWorkerData {
@@ -22,9 +13,7 @@ export interface IOcrEngineWorkerData {
     tessdataDir: string;
 }
 
-const {
-    engineDir, tessdataDir,
-} = workerData as IOcrEngineWorkerData;
+const {engineDir, tessdataDir} = workerData as IOcrEngineWorkerData;
 
 async function readBytes(path: string) {
     const buffer = await readFile(path);
@@ -46,37 +35,33 @@ async function readRasterAsPnm(path: string) {
 /** Desktop's host for the browser's engine: the same module and models, read from disk. */
 const recognize = createTesseractEngine({
     loadEngine: async () => {
-        const [
-            imported,
-            module,
-        ] = await Promise.all([
+        const [imported, module] = await Promise.all([
             import(pathToFileURL(join(engineDir, 'evb-tesseract.mjs')).href) as Promise<{default: TTesseractModuleFactory}>,
-            readBytes(join(engineDir, 'evb-tesseract.wasm')).then(bytes => WebAssembly.compile(bytes)),
+            readBytes(join(engineDir, 'evb-tesseract.wasm')).then((bytes) => WebAssembly.compile(bytes)),
         ]);
         return {
             factory: imported.default,
             module,
         };
     },
-    loadModel: code => readBytes(join(tessdataDir, `${code}.traineddata`)),
+    loadModel: (code) => readBytes(join(tessdataDir, `${code}.traineddata`)),
 });
 
-parentPort!.on('message', async ({
-    id, request,
-}: IOcrEngineLaneRequest) => {
+parentPort!.on('message', async ({id, request}: IOcrEngineLaneRequest) => {
     try {
-        const image = request.image instanceof Uint8Array
-            ? request.image
-            : await readRasterAsPnm(request.image.path);
+        const image = request.image instanceof Uint8Array ? request.image : await readRasterAsPnm(request.image.path);
         const result = await recognize({
             ...request,
             image,
         });
-        parentPort!.postMessage({
-            id,
-            ok: true,
-            result,
-        } satisfies IOcrEngineLaneReply, result.passes.flatMap(pass => pass.outputs.map(output => output.buffer as ArrayBuffer)));
+        parentPort!.postMessage(
+            {
+                id,
+                ok: true,
+                result,
+            } satisfies IOcrEngineLaneReply,
+            result.passes.flatMap((pass) => pass.outputs.map((output) => output.buffer as ArrayBuffer)),
+        );
     } catch (error) {
         parentPort!.postMessage({
             id,

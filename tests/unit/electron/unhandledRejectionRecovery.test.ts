@@ -1,15 +1,10 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {describe, expect, it, vi} from 'vitest';
 import {
     classifyUnhandledRejectionSubsystem,
     createUnhandledRejectionRecovery,
     decideUnhandledRejection,
 } from '@electron/unhandledRejectionRecovery';
-import { createAbortError } from '@electron/utils/abort';
+import {createAbortError} from '@electron/utils/abort';
 
 describe('unhandled rejection recovery', () => {
     it('classifies subsystem failures from stack and message evidence', () => {
@@ -102,8 +97,6 @@ describe('unhandled rejection recovery', () => {
     });
 
     it('reports an unknown unhandled rejection instead of shutting down the app', () => {
-        expect(
-            decideUnhandledRejection(new Error('Unexpected persistence invariant failure')),
-        ).toEqual({action: 'report'});
+        expect(decideUnhandledRejection(new Error('Unexpected persistence invariant failure'))).toEqual({action: 'report'});
     });
 });

@@ -19,10 +19,13 @@
             square
             :aria-label="tooltip"
             :aria-pressed="active"
-            :ui="{ leadingIcon: resolvedIconClass }"
+            :ui="{leadingIcon: resolvedIconClass}"
             @click="handleClick"
         >
-            <span v-if="hasDefaultSlot && !loading" :class="resolvedIconClass">
+            <span
+                v-if="hasDefaultSlot && !loading"
+                :class="resolvedIconClass"
+            >
                 <slot />
             </span>
         </UButton>
@@ -63,14 +66,12 @@ const {
     iconClass?: string;
 }>();
 
-const emit = defineEmits<{ click: [] }>();
+const emit = defineEmits<{click: []}>();
 
 const slots = useSlots();
 const shortcutLabel = computed(() => shortcut.trim());
 const hasDefaultSlot = computed(() => slots.default != null);
-const resolvedIconClass = computed(() => (
-    iconClass ?? (variant === 'segmented' ? 'size-[var(--app-toolbar-icon-size)]' : 'size-5')
-));
+const resolvedIconClass = computed(() => iconClass ?? (variant === 'segmented' ? 'size-[var(--app-toolbar-icon-size)]' : 'size-5'));
 
 function handleClick() {
     emit('click');

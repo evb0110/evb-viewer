@@ -1,11 +1,7 @@
 import type {IFailurePresentation} from '@app/composables/useFailureToast';
 import {BrowserLogger} from '@app/utils/browserLogger';
 
-export type TRendererBootstrapFailureKey =
-    | 'app-bootstrap'
-    | 'electron-platform-contract'
-    | 'electron-preload-bridge'
-    | 'workspace-startup';
+export type TRendererBootstrapFailureKey = 'app-bootstrap' | 'electron-platform-contract' | 'electron-preload-bridge' | 'workspace-startup';
 
 export interface IRendererBootstrapFailureOptions {
     error: unknown;
@@ -18,9 +14,7 @@ export interface IRendererBootstrapFailureOptions {
 
 const rendererBootstrapFailures = new Map<TRendererBootstrapFailureKey, IFailurePresentation>();
 
-export function getOrCaptureRendererBootstrapFailure(
-    options: IRendererBootstrapFailureOptions,
-): IFailurePresentation {
+export function getOrCaptureRendererBootstrapFailure(options: IRendererBootstrapFailureOptions): IFailurePresentation {
     const existing = rendererBootstrapFailures.get(options.key);
     if (existing) {
         return existing;

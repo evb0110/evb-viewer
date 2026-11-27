@@ -1,29 +1,14 @@
-import {
-    beforeAll,
-    beforeEach,
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    mkdirSync,
-    writeFileSync,
-} from 'node:fs';
-import {
-    dirname,
-    resolve,
-} from 'node:path';
-import { delay } from 'es-toolkit/promise';
-import type { Page } from 'puppeteer-core';
-import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
-import { createLargeScannedFixturePdf } from '@tests/e2e/electron/helpers/fixtures';
-import { openPdfInApp } from '@tests/e2e/electron/helpers/viewerCore';
-import {
-    getWorkspaceToolbarSnapshot,
-    requireWorkspaceCommand,
-} from '@tests/e2e/electron/helpers/workspaceExpose';
-import { startTrustedWheelFling } from '@tests/e2e/electron/helpers/startTrustedWheelFling';
-import { assertViewerInvariants } from '@tests/e2e/electron/helpers/viewerInvariants';
+import {beforeAll, beforeEach, describe, expect, it} from 'vitest';
+import {mkdirSync, writeFileSync} from 'node:fs';
+import {dirname, resolve} from 'node:path';
+import {delay} from 'es-toolkit/promise';
+import type {Page} from 'puppeteer-core';
+import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
+import {createLargeScannedFixturePdf} from '@tests/e2e/electron/helpers/fixtures';
+import {openPdfInApp} from '@tests/e2e/electron/helpers/viewerCore';
+import {getWorkspaceToolbarSnapshot, requireWorkspaceCommand} from '@tests/e2e/electron/helpers/workspaceExpose';
+import {startTrustedWheelFling} from '@tests/e2e/electron/helpers/startTrustedWheelFling';
+import {assertViewerInvariants} from '@tests/e2e/electron/helpers/viewerInvariants';
 import {
     installViewportPageSampler,
     isToolbarPageVisible,
@@ -31,8 +16,8 @@ import {
     VISIBLE_PAGE_MIN_COVERAGE_RATIO,
     waitForViewportQuiet,
 } from '@tests/e2e/electron/helpers/viewportPageObservation';
-import { waitForVisibleMountedPdfCanvases } from '@tests/e2e/electron/helpers/viewerVirtualizationContract';
-import type { IViewportPageSample } from '@tests/e2e/electron/helpers/viewportPageObservation';
+import {waitForVisibleMountedPdfCanvases} from '@tests/e2e/electron/helpers/viewerVirtualizationContract';
+import type {IViewportPageSample} from '@tests/e2e/electron/helpers/viewportPageObservation';
 import {
     dismissRuntimeErrorReports,
     isRendererErrorReportClean,
@@ -40,7 +25,7 @@ import {
     readRuntimeErrorReportDetails,
     readVisibleErrorSurfaces,
 } from '@tests/e2e/electron/helpers/rendererErrorObservation';
-import type { IRendererErrorObserver } from '@tests/e2e/electron/helpers/rendererErrorObservation';
+import type {IRendererErrorObserver} from '@tests/e2e/electron/helpers/rendererErrorObservation';
 
 // A fast trackpad fling on macOS keeps sending wheel events for one to three
 // seconds after the fingers leave the glass. The reported defect is what a
@@ -104,19 +89,17 @@ function writeArtifact(name: string, payload: unknown) {
 
 async function resolveViewportCentre(page: Page) {
     const point = await page.evaluate(() => {
-        const host = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
-        ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const viewport = host?.querySelector<HTMLElement>(
-            '[data-document-viewer-chassis-viewport], #pdf-viewer',
-        ) ?? null;
+        const host =
+            document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]') ??
+            document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const viewport = host?.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport], #pdf-viewer') ?? null;
         if (!viewport) {
             return null;
         }
         const rect = viewport.getBoundingClientRect();
         return {
-            x: Math.round(rect.left + (rect.width / 2)),
-            y: Math.round(rect.top + (rect.height / 2)),
+            x: Math.round(rect.left + rect.width / 2),
+            y: Math.round(rect.top + rect.height / 2),
         };
     });
     if (!point) {
@@ -126,45 +109,44 @@ async function resolveViewportCentre(page: Page) {
 }
 
 async function resolveClickablePoint(page: Page, selector: string, ariaLabel?: string) {
-    const point = await page.evaluate((input: {
-        ariaLabel: string | null;
-        selector: string;
-    }) => {
-        const candidate = Array.from(document.querySelectorAll<HTMLElement>(input.selector))
-            .find((element) => {
+    const point = await page.evaluate(
+        (input: {ariaLabel: string | null; selector: string}) => {
+            const candidate = Array.from(document.querySelectorAll<HTMLElement>(input.selector)).find((element) => {
                 const label = element.getAttribute('aria-label')?.trim() ?? '';
                 const rect = element.getBoundingClientRect();
                 const style = window.getComputedStyle(element);
-                const labelMatches = input.ariaLabel === null
-                    || label === input.ariaLabel
-                    || label.startsWith(`${input.ariaLabel} (`);
-                return labelMatches
-                    && !(element as HTMLButtonElement).disabled
-                    && element.getAttribute('aria-disabled') !== 'true'
-                    && rect.width > 8
-                    && rect.height > 8
-                    && style.display !== 'none'
-                    && style.visibility !== 'hidden'
-                    && Number(style.opacity || '1') > 0;
+                const labelMatches = input.ariaLabel === null || label === input.ariaLabel || label.startsWith(`${input.ariaLabel} (`);
+                return (
+                    labelMatches &&
+                    !(element as HTMLButtonElement).disabled &&
+                    element.getAttribute('aria-disabled') !== 'true' &&
+                    rect.width > 8 &&
+                    rect.height > 8 &&
+                    style.display !== 'none' &&
+                    style.visibility !== 'hidden' &&
+                    Number(style.opacity || '1') > 0
+                );
             });
-        if (!candidate) {
-            return null;
-        }
-        const rect = candidate.getBoundingClientRect();
-        const x = Math.round(rect.left + (rect.width / 2));
-        const y = Math.round(rect.top + (rect.height / 2));
-        // A trusted click lands on whatever owns that point, so refuse a
-        // control that something else covers.
-        return document.elementFromPoint(x, y)?.closest(input.selector) === candidate
-            ? {
-                x,
-                y,
+            if (!candidate) {
+                return null;
             }
-            : null;
-    }, {
-        ariaLabel: ariaLabel ?? null,
-        selector,
-    });
+            const rect = candidate.getBoundingClientRect();
+            const x = Math.round(rect.left + rect.width / 2);
+            const y = Math.round(rect.top + rect.height / 2);
+            // A trusted click lands on whatever owns that point, so refuse a
+            // control that something else covers.
+            return document.elementFromPoint(x, y)?.closest(input.selector) === candidate
+                ? {
+                      x,
+                      y,
+                  }
+                : null;
+        },
+        {
+            ariaLabel: ariaLabel ?? null,
+            selector,
+        },
+    );
     if (!point) {
         throw new Error(`No hittable element for ${selector}${ariaLabel ? ` [${ariaLabel}]` : ''}`);
     }
@@ -175,11 +157,15 @@ async function resolveClickablePoint(page: Page, selector: string, ariaLabel?: s
  * Runs a decaying wheel burst and delivers one trusted click part-way through
  * it, without pausing the burst.
  */
-async function flingAndClickDuringTail(page: Page, target: IPoint, options: {
-    clickAfterMs?: number;
-    durationMs?: number;
-    holdAfterBurstMs?: number;
-} = {}) {
+async function flingAndClickDuringTail(
+    page: Page,
+    target: IPoint,
+    options: {
+        clickAfterMs?: number;
+        durationMs?: number;
+        holdAfterBurstMs?: number;
+    } = {},
+) {
     const durationMs = options.durationMs ?? FLING_DURATION_MS;
     const clickAfterMs = options.clickAfterMs ?? CLICK_AFTER_MS;
     const holdAfterBurstMs = options.holdAfterBurstMs ?? HOLD_AFTER_BURST_MS;
@@ -231,9 +217,7 @@ async function runFollowUpWheelGesture(page: Page, centre: IPoint) {
     return {
         before,
         dispatchedWheelEvents,
-        firstMovement: samples.find(
-            sample => sample.scrollTop >= before.scrollTop + FOLLOW_UP_MIN_SCROLL_PX,
-        ) ?? null,
+        firstMovement: samples.find((sample) => sample.scrollTop >= before.scrollTop + FOLLOW_UP_MIN_SCROLL_PX) ?? null,
         samples,
     };
 }
@@ -245,14 +229,14 @@ function summarizeSamples(samples: IViewportPageSample[]) {
         last: samples.at(-1) ?? null,
         pageTimeline: samples
             .filter((sample, index) => index === 0 || sample.viewportPage !== samples[index - 1]?.viewportPage)
-            .map(sample => ({
+            .map((sample) => ({
                 elapsedMs: sample.elapsedMs,
                 toolbarText: sample.toolbarText,
                 viewportPage: sample.viewportPage,
             })),
         toolbarTimeline: samples
             .filter((sample, index) => index === 0 || sample.toolbarText !== samples[index - 1]?.toolbarText)
-            .map(sample => ({
+            .map((sample) => ({
                 elapsedMs: sample.elapsedMs,
                 toolbarText: sample.toolbarText,
             })),
@@ -270,11 +254,9 @@ function isPageVisible(sample: IViewportPageSample | undefined, pageNumber: numb
     if (!sample) {
         return false;
     }
-    const coverage = sample.pages.find(page => page.page === pageNumber);
+    const coverage = sample.pages.find((page) => page.page === pageNumber);
     return Boolean(
-        coverage
-        && coverage.coveredHeight
-            >= VISIBLE_PAGE_MIN_COVERAGE_RATIO * Math.min(coverage.height, sample.viewportHeight),
+        coverage && coverage.coveredHeight >= VISIBLE_PAGE_MIN_COVERAGE_RATIO * Math.min(coverage.height, sample.viewportHeight),
     );
 }
 
@@ -290,12 +272,10 @@ async function runPipelinedFacingFlingWithFirstPageClick(
 ): Promise<IPipelinedFacingFlingRun> {
     const client = await page.createCDPSession();
     const initialScrollTop = await page.evaluate(() => {
-        const host = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
-        ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const viewport = host?.querySelector<HTMLElement>(
-            '[data-document-viewer-chassis-viewport], #pdf-viewer',
-        );
+        const host =
+            document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]') ??
+            document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const viewport = host?.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport], #pdf-viewer');
         return viewport?.scrollTop ?? -1;
     });
     const startedAt = Date.now();
@@ -322,31 +302,36 @@ async function runPipelinedFacingFlingWithFirstPageClick(
                 try {
                     if (packetIndex === FACING_FLING_CLICK_PACKET_INDEX) {
                         clickElapsedMs = Date.now() - startedAt;
-                        enqueue(client.send('Input.dispatchMouseEvent', {
-                            type: 'mousePressed',
-                            x: firstPagePoint.x,
-                            y: firstPagePoint.y,
-                            button: 'left',
-                            clickCount: 1,
-                        }));
-                        enqueue(client.send('Input.dispatchMouseEvent', {
-                            type: 'mouseReleased',
-                            x: firstPagePoint.x,
-                            y: firstPagePoint.y,
-                            button: 'left',
-                            clickCount: 1,
-                        }));
+                        enqueue(
+                            client.send('Input.dispatchMouseEvent', {
+                                type: 'mousePressed',
+                                x: firstPagePoint.x,
+                                y: firstPagePoint.y,
+                                button: 'left',
+                                clickCount: 1,
+                            }),
+                        );
+                        enqueue(
+                            client.send('Input.dispatchMouseEvent', {
+                                type: 'mouseReleased',
+                                x: firstPagePoint.x,
+                                y: firstPagePoint.y,
+                                button: 'left',
+                                clickCount: 1,
+                            }),
+                        );
                     }
 
-                    enqueue(client.send('Input.dispatchMouseEvent', {
-                        type: 'mouseWheel',
-                        x: wheelPoint.x,
-                        y: wheelPoint.y,
-                        deltaX: 0,
-                        deltaY: FACING_FLING_INITIAL_DELTA_Y
-                            * Math.exp(-packetIndex / FACING_FLING_DECAY_TICKS),
-                        pointerType: 'mouse',
-                    }));
+                    enqueue(
+                        client.send('Input.dispatchMouseEvent', {
+                            type: 'mouseWheel',
+                            x: wheelPoint.x,
+                            y: wheelPoint.y,
+                            deltaX: 0,
+                            deltaY: FACING_FLING_INITIAL_DELTA_Y * Math.exp(-packetIndex / FACING_FLING_DECAY_TICKS),
+                            pointerType: 'mouse',
+                        }),
+                    );
                     dispatchedWheelEvents += 1;
                     packetIndex += 1;
                     if (packetIndex >= FACING_FLING_EVENT_COUNT) {
@@ -404,11 +389,7 @@ describe('Electron E2E - navigation and tab close during a trackpad fling', () =
 
     beforeAll(async () => {
         const session = sessionFixture.getSession();
-        pdfPath = await createLargeScannedFixturePdf(
-            `fling-navigation-source-${Date.now()}.pdf`,
-            FIXTURE_PAGE_COUNT,
-            0,
-        );
+        pdfPath = await createLargeScannedFixturePdf(`fling-navigation-source-${Date.now()}.pdf`, FIXTURE_PAGE_COUNT, 0);
         await openPdfInApp(session.page, pdfPath, 90_000);
 
         // Continuous single-page mode is the mode the reported defect used and
@@ -419,14 +400,23 @@ describe('Electron E2E - navigation and tab close during a trackpad fling', () =
             await requireWorkspaceCommand(session.page, 'handleToggleContinuousScroll');
         }
         await requireWorkspaceCommand(session.page, 'handleFitWidth');
-        await session.page.waitForFunction(() => {
-            const api = (window as Window & {__evbTestApi?: {getActiveToolbarSnapshot?: () => {
-                continuousScroll?: boolean;
-                zoomMode?: string;
-            } | null;};}).__evbTestApi;
-            const snapshot = api?.getActiveToolbarSnapshot?.();
-            return snapshot?.continuousScroll === true && snapshot.zoomMode === 'fit-width';
-        }, {timeout: 20_000});
+        await session.page.waitForFunction(
+            () => {
+                const api = (
+                    window as Window & {
+                        __evbTestApi?: {
+                            getActiveToolbarSnapshot?: () => {
+                                continuousScroll?: boolean;
+                                zoomMode?: string;
+                            } | null;
+                        };
+                    }
+                ).__evbTestApi;
+                const snapshot = api?.getActiveToolbarSnapshot?.();
+                return snapshot?.continuousScroll === true && snapshot.zoomMode === 'fit-width';
+            },
+            {timeout: 20_000},
+        );
         totalPages = (await getWorkspaceToolbarSnapshot(session.page))?.totalPages ?? 0;
         expect(totalPages).toBe(FIXTURE_PAGE_COUNT);
         // The lanes that run this suite do not build every native tool, so a
@@ -444,7 +434,7 @@ describe('Electron E2E - navigation and tab close during a trackpad fling', () =
 
     const collectSuiteErrorEvidence = async (page: Page) => ({
         openErrorSurfaces,
-        report: await suiteErrors?.collect() ?? null,
+        report: (await suiteErrors?.collect()) ?? null,
         runtimeErrorReports: await readRuntimeErrorReportDetails(page),
     });
 
@@ -485,99 +475,78 @@ describe('Electron E2E - navigation and tab close during a trackpad fling', () =
         expect(isToolbarPageVisible(settled), artifact).toBe(true);
     }, 180_000);
 
-    it.each(FACING_FLING_MODES)(
-        'keeps First Page visible after a pipelined continuous $mode fling',
-        async ({
-            command,
-            mode,
-            viewMode,
-        }) => {
-            const session = sessionFixture.getSession();
-            await requireWorkspaceCommand(session.page, command);
-            await session.page.waitForFunction((expectedMode: string) => {
-                const snapshot = (window as Window & {__evbTestApi?: {getActiveToolbarSnapshot?: () => {viewMode?: string;} | null;};}).__evbTestApi?.getActiveToolbarSnapshot?.();
+    it.each(FACING_FLING_MODES)('keeps First Page visible after a pipelined continuous $mode fling', async ({command, mode, viewMode}) => {
+        const session = sessionFixture.getSession();
+        await requireWorkspaceCommand(session.page, command);
+        await session.page.waitForFunction(
+            (expectedMode: string) => {
+                const snapshot = (
+                    window as Window & {__evbTestApi?: {getActiveToolbarSnapshot?: () => {viewMode?: string} | null}}
+                ).__evbTestApi?.getActiveToolbarSnapshot?.();
                 return snapshot?.viewMode === expectedMode;
-            }, {timeout: 20_000}, viewMode);
-            await goToPageForSetup(session.page, FLING_START_PAGE);
+            },
+            {timeout: 20_000},
+            viewMode,
+        );
+        await goToPageForSetup(session.page, FLING_START_PAGE);
 
-            const before = await readViewportPageObservation(session.page);
-            const wheelPoint = await resolveViewportCentre(session.page);
-            // Resolve the enabled visible control once before the producer
-            // starts. Querying during the burst can pause the producer long
-            // enough to create a different browser gesture.
-            const firstPagePoint = await resolveClickablePoint(
-                session.page,
-                '.page-controls button[aria-label]',
-                'First Page',
-            );
-            const sampler = await installViewportPageSampler(session.page);
-            let run: IPipelinedFacingFlingRun | null = null;
-            let samples: IViewportPageSample[] = [];
-            try {
-                run = await runPipelinedFacingFlingWithFirstPageClick(
-                    session.page,
-                    wheelPoint,
-                    firstPagePoint,
-                );
-                await waitForViewportQuiet(session.page);
-                samples = await sampler.read();
-            } finally {
-                await sampler.stop();
-            }
-            if (!run) {
-                throw new Error('The pipelined facing fling did not complete');
-            }
-            const settled = await readViewportPageObservation(session.page);
-            const tailSample = samples.at(-1);
-            const preClickSamples = samples.filter(sample => (
-                sample.elapsedMs <= run.clickElapsedMs - FACING_FLING_SAMPLE_MARGIN_MS
-            ));
-            const maxPreClickScrollTop = Math.max(
-                before.scrollTop,
-                ...preClickSamples.map(sample => sample.scrollTop),
-            );
-            const targetAfterClick = samples.find(sample => (
-                sample.elapsedMs >= run.clickElapsedMs - FACING_FLING_SAMPLE_MARGIN_MS
-                && isPageVisible(sample, 1)
-            ));
-            await waitForVisibleMountedPdfCanvases(session.page, 10_000);
-            const invariantCheckpoint = await assertViewerInvariants(session.page, {
-                checkpoint: `pipelined-${mode}-first-page`,
-                requirePresent: {pageIndicator: true},
-                requireRan: ['R1-toolbar-page-visible'],
-            });
-            const artifact = writeArtifact(`facing-${mode}-first-page-pipelined.json`, {
-                before,
-                errorEvidence: await collectSuiteErrorEvidence(session.page),
-                invariantReport: invariantCheckpoint.report,
-                maxPreClickScrollTop,
-                mode,
-                run,
-                settled,
-                summary: summarizeSamples(samples),
-                tailSample,
-                targetAfterClick,
-            });
+        const before = await readViewportPageObservation(session.page);
+        const wheelPoint = await resolveViewportCentre(session.page);
+        // Resolve the enabled visible control once before the producer
+        // starts. Querying during the burst can pause the producer long
+        // enough to create a different browser gesture.
+        const firstPagePoint = await resolveClickablePoint(session.page, '.page-controls button[aria-label]', 'First Page');
+        const sampler = await installViewportPageSampler(session.page);
+        let run: IPipelinedFacingFlingRun | null = null;
+        let samples: IViewportPageSample[] = [];
+        try {
+            run = await runPipelinedFacingFlingWithFirstPageClick(session.page, wheelPoint, firstPagePoint);
+            await waitForViewportQuiet(session.page);
+            samples = await sampler.read();
+        } finally {
+            await sampler.stop();
+        }
+        if (!run) {
+            throw new Error('The pipelined facing fling did not complete');
+        }
+        const settled = await readViewportPageObservation(session.page);
+        const tailSample = samples.at(-1);
+        const preClickSamples = samples.filter((sample) => sample.elapsedMs <= run.clickElapsedMs - FACING_FLING_SAMPLE_MARGIN_MS);
+        const maxPreClickScrollTop = Math.max(before.scrollTop, ...preClickSamples.map((sample) => sample.scrollTop));
+        const targetAfterClick = samples.find(
+            (sample) => sample.elapsedMs >= run.clickElapsedMs - FACING_FLING_SAMPLE_MARGIN_MS && isPageVisible(sample, 1),
+        );
+        await waitForVisibleMountedPdfCanvases(session.page, 10_000);
+        const invariantCheckpoint = await assertViewerInvariants(session.page, {
+            checkpoint: `pipelined-${mode}-first-page`,
+            requirePresent: {pageIndicator: true},
+            requireRan: ['R1-toolbar-page-visible'],
+        });
+        const artifact = writeArtifact(`facing-${mode}-first-page-pipelined.json`, {
+            before,
+            errorEvidence: await collectSuiteErrorEvidence(session.page),
+            invariantReport: invariantCheckpoint.report,
+            maxPreClickScrollTop,
+            mode,
+            run,
+            settled,
+            summary: summarizeSamples(samples),
+            tailSample,
+            targetAfterClick,
+        });
 
-            expect(run.dispatchedWheelEvents, artifact).toBe(FACING_FLING_EVENT_COUNT);
-            expect(run.initialScrollTop, artifact).toBeGreaterThanOrEqual(0);
-            expect(run.clickElapsedMs, artifact).toBeGreaterThan(0);
-            expect(run.clickElapsedMs, artifact).toBeLessThan(run.wheelDurationMs);
-            expect(
-                maxPreClickScrollTop,
-                artifact,
-            ).toBeGreaterThanOrEqual(
-                run.initialScrollTop + Math.max(
-                    FACING_FLING_MIN_PRECLICK_SCROLL_PX,
-                    before.viewportHeight * 0.5,
-                ),
-            );
-            expect(targetAfterClick, artifact).toBeDefined();
-            expect(isPageVisible(tailSample, 1), artifact).toBe(true);
-            expect(isPageVisible(settled, 1), artifact).toBe(true);
-            expect(isToolbarPageVisible(settled), artifact).toBe(true);
-        },
-    );
+        expect(run.dispatchedWheelEvents, artifact).toBe(FACING_FLING_EVENT_COUNT);
+        expect(run.initialScrollTop, artifact).toBeGreaterThanOrEqual(0);
+        expect(run.clickElapsedMs, artifact).toBeGreaterThan(0);
+        expect(run.clickElapsedMs, artifact).toBeLessThan(run.wheelDurationMs);
+        expect(maxPreClickScrollTop, artifact).toBeGreaterThanOrEqual(
+            run.initialScrollTop + Math.max(FACING_FLING_MIN_PRECLICK_SCROLL_PX, before.viewportHeight * 0.5),
+        );
+        expect(targetAfterClick, artifact).toBeDefined();
+        expect(isPageVisible(tailSample, 1), artifact).toBe(true);
+        expect(isPageVisible(settled, 1), artifact).toBe(true);
+        expect(isToolbarPageVisible(settled), artifact).toBe(true);
+    });
 
     // P1 and P2. The click is delivered by page.mouse.click on the real toolbar
     // control while the wheel burst is still running, and the burst is never
@@ -585,24 +554,18 @@ describe('Electron E2E - navigation and tab close during a trackpad fling', () =
     it('lets a navigation click win over the rest of the fling', async () => {
         const session = sessionFixture.getSession();
         await goToPageForSetup(session.page, FLING_START_PAGE);
-        const firstPagePoint = await resolveClickablePoint(
-            session.page,
-            '.page-controls button[aria-label]',
-            'First Page',
-        );
+        const firstPagePoint = await resolveClickablePoint(session.page, '.page-controls button[aria-label]', 'First Page');
 
         const run = await flingAndClickDuringTail(session.page, firstPagePoint);
         await waitForViewportQuiet(session.page);
         const settled = await readViewportPageObservation(session.page);
 
-        const afterClick = run.samples.filter(sample => sample.elapsedMs >= run.clickElapsedMs);
-        const arrival = afterClick.find(sample => sample.viewportPage === 1);
+        const afterClick = run.samples.filter((sample) => sample.elapsedMs >= run.clickElapsedMs);
+        const arrival = afterClick.find((sample) => sample.viewportPage === 1);
         const departures = arrival
-            ? afterClick.filter(sample => (
-                sample.elapsedMs > arrival.elapsedMs
-                && sample.viewportPage !== null
-                && sample.viewportPage !== 1
-            ))
+            ? afterClick.filter(
+                  (sample) => sample.elapsedMs > arrival.elapsedMs && sample.viewportPage !== null && sample.viewportPage !== 1,
+              )
             : [];
         const artifact = writeArtifact('fling-navigation-click.json', {
             arrival,
@@ -621,10 +584,13 @@ describe('Electron E2E - navigation and tab close during a trackpad fling', () =
         expect(arrival!.elapsedMs - run.clickElapsedMs, artifact).toBeLessThanOrEqual(NAVIGATION_DEADLINE_MS);
         // P2: nothing the superseded scroll finishes later moves the window off
         // the page the navigation chose.
-        expect(departures.map(sample => ({
-            elapsedMs: sample.elapsedMs,
-            viewportPage: sample.viewportPage,
-        })), artifact).toEqual([]);
+        expect(
+            departures.map((sample) => ({
+                elapsedMs: sample.elapsedMs,
+                viewportPage: sample.viewportPage,
+            })),
+            artifact,
+        ).toEqual([]);
         expect(settled.viewportPage, artifact).toBe(1);
         // P3 again. Requiring the toolbar to name a page the window actually
         // shows, rather than the requested page, is what catches the reported
@@ -642,11 +608,7 @@ describe('Electron E2E - navigation and tab close during a trackpad fling', () =
     it('keeps the next wheel gesture working after a navigation lands during a fling', async () => {
         const session = sessionFixture.getSession();
         await goToPageForSetup(session.page, FLING_START_PAGE);
-        const firstPagePoint = await resolveClickablePoint(
-            session.page,
-            '.page-controls button[aria-label]',
-            'First Page',
-        );
+        const firstPagePoint = await resolveClickablePoint(session.page, '.page-controls button[aria-label]', 'First Page');
 
         const run = await flingAndClickDuringTail(session.page, firstPagePoint, {holdAfterBurstMs: 0});
         const immediate = await runFollowUpWheelGesture(session.page, run.centre);
@@ -687,9 +649,9 @@ describe('Electron E2E - navigation and tab close during a trackpad fling', () =
     it('closes the tab mid-fling without an error surface', async () => {
         const session = sessionFixture.getSession();
         await goToPageForSetup(session.page, FLING_START_PAGE);
-        const closingTabLabel = await session.page.evaluate(() => (
-            document.querySelector<HTMLElement>('.tab.is-active')?.innerText.trim() ?? ''
-        ));
+        const closingTabLabel = await session.page.evaluate(
+            () => document.querySelector<HTMLElement>('.tab.is-active')?.innerText.trim() ?? '',
+        );
         expect(closingTabLabel).not.toBe('');
         const closePoint = await resolveClickablePoint(session.page, '.tab.is-active .tab-close');
         // Anything an earlier phase reported is dismissed first, the way a
@@ -707,10 +669,7 @@ describe('Electron E2E - navigation and tab close during a trackpad fling', () =
             // observable outcome is that this document's tab is gone and no
             // viewer surface is left behind.
             const closedState = await session.page.evaluate((label: string) => {
-                const centre = document.elementFromPoint(
-                    Math.round(window.innerWidth / 2),
-                    Math.round(window.innerHeight / 2),
-                );
+                const centre = document.elementFromPoint(Math.round(window.innerWidth / 2), Math.round(window.innerHeight / 2));
                 return {
                     bodyText: document.body.innerText.slice(0, 2_000),
                     // What the middle of the window shows. A closed document
@@ -718,8 +677,8 @@ describe('Electron E2E - navigation and tab close during a trackpad fling', () =
                     centreShowsViewer: Boolean(centre?.closest('#pdf-viewer')),
                     mountedViewerCount: document.querySelectorAll('#pdf-viewer').length,
                     surviving: Array.from(document.querySelectorAll<HTMLElement>('.tab'))
-                        .map(tab => tab.innerText.trim())
-                        .filter(text => text === label),
+                        .map((tab) => tab.innerText.trim())
+                        .filter((text) => text === label),
                     title: document.title,
                 };
             }, closingTabLabel);

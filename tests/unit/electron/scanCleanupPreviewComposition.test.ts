@@ -1,16 +1,10 @@
-import {
-    describe, it, expect, afterEach, vi,
-} from 'vitest';
-import {
-    mkdtemp, readFile, rm, writeFile, readdir, stat,
-} from 'fs/promises';
+import {describe, it, expect, afterEach, vi} from 'vitest';
+import {mkdtemp, readFile, rm, writeFile, readdir, stat} from 'fs/promises';
 import {tmpdir} from 'os';
 import {join} from 'path';
 import {existsSync} from 'node:fs';
 import {isPathWithinRoot} from '@tests/helpers/isPathWithinRoot';
-import {
-    defaultDependencies, scanCleanupPreviewLifecycle,
-} from '@electron/features/scan-cleanup/scanCleanupPreviewLifecycle';
+import {defaultDependencies, scanCleanupPreviewLifecycle} from '@electron/features/scan-cleanup/scanCleanupPreviewLifecycle';
 import type {IPdfPageSizeStore} from '@electron/pdf/pdfPageSizes';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {requireRequestId} from '@contracts/shared';
@@ -36,28 +30,23 @@ import {
     sender,
     waitForRelease,
 } from '@tests/unit/electron/scanCleanupPreviewHarness';
-import {
-    getActiveJobBrokerLease,
-    mainJobBroker,
-    type IJobBrokerRunContext,
-} from '@electron/resources/jobBroker';
+import {getActiveJobBrokerLease, mainJobBroker, type IJobBrokerRunContext} from '@electron/resources/jobBroker';
 import {cancelMainOperationsForClosingWorkingCopy} from '@electron/operation-lifecycle/mainOperationLifecycle';
-import {
-    clearWorkingCopyQuarantinesForTests,
-    isWorkingCopyQuarantined,
-} from '@electron/file-access/workingCopyQuarantine';
+import {clearWorkingCopyQuarantinesForTests, isWorkingCopyQuarantined} from '@electron/file-access/workingCopyQuarantine';
 import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
 import {createArrayBackedPdfPageSizeStore} from '@evb/scan-cleanup/core/pdfPageSizes';
 
 const HOST_RAM_BYTES = 16 * 1024 * 1024 * 1024;
-vi.mock('@electron/resources/hostResourceProfile', () => ({getHostResourceProfileSnapshot: () => ({
-    logicalCpus: 8,
-    totalRamBytes: 16 * 1024 * 1024 * 1024,
-    safeMode: false,
-    detectedTier: 'medium',
-    performanceMode: 'auto',
-    tier: 'medium',
-})}));
+vi.mock('@electron/resources/hostResourceProfile', () => ({
+    getHostResourceProfileSnapshot: () => ({
+        logicalCpus: 8,
+        totalRamBytes: 16 * 1024 * 1024 * 1024,
+        safeMode: false,
+        detectedTier: 'medium',
+        performanceMode: 'auto',
+        tier: 'medium',
+    }),
+}));
 
 // pdftoppm rasterizes the same pixels whichever container it is asked for, so
 // the fake renderers write one deterministic pattern in either format.
@@ -71,43 +60,49 @@ const dependenciesOverride = {
         _options: unknown,
         _rasterMaxPixels: number | undefined,
         work: (brokerRun?: IJobBrokerRunContext) => Promise<T>,
-    ) => mainJobBroker.run({
-        ownerId,
-        kind: 'scan-cleanup-preview',
-        priority: visibility === 'prefetch' ? 'background' as const : 'visible' as const,
-        resources: {
-            cpuTokens: 1,
-            estimatedResidentBytes: scanCleanupPreviewRasterSlotResidentBytes,
-            nativeProcesses: 1,
-            ioWeight: 1,
-        },
-        signal,
-    }, brokerRun => work(brokerRun)),
+    ) =>
+        mainJobBroker.run(
+            {
+                ownerId,
+                kind: 'scan-cleanup-preview',
+                priority: visibility === 'prefetch' ? ('background' as const) : ('visible' as const),
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: scanCleanupPreviewRasterSlotResidentBytes,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
+                signal,
+            },
+            (brokerRun) => work(brokerRun),
+        ),
     runWithDetectionLease: <T>(
         ownerId: string,
         signal: AbortSignal,
-        policy: {rasterConcurrency: number;},
+        policy: {rasterConcurrency: number},
         _options: unknown,
         work: (brokerRun?: IJobBrokerRunContext) => Promise<T>,
-    ) => mainJobBroker.run({
-        ownerId,
-        kind: 'scan-cleanup-detect-all',
-        priority: 'user' as const,
-        resources: {
-            cpuTokens: policy.rasterConcurrency,
-            estimatedResidentBytes: policy.rasterConcurrency * scanCleanupPreviewRasterSlotResidentBytes,
-            nativeProcesses: policy.rasterConcurrency,
-            ioWeight: 2,
-        },
-        perOwnerLimit: 1,
-        signal,
-    }, brokerRun => work(brokerRun)),
+    ) =>
+        mainJobBroker.run(
+            {
+                ownerId,
+                kind: 'scan-cleanup-detect-all',
+                priority: 'user' as const,
+                resources: {
+                    cpuTokens: policy.rasterConcurrency,
+                    estimatedResidentBytes: policy.rasterConcurrency * scanCleanupPreviewRasterSlotResidentBytes,
+                    nativeProcesses: policy.rasterConcurrency,
+                    ioWeight: 2,
+                },
+                perOwnerLimit: 1,
+                signal,
+            },
+            (brokerRun) => work(brokerRun),
+        ),
 };
 
 async function previewFixture() {
-    const {
-        dir, deps,
-    } = await createScanCleanupPreviewTestContext(dirs, dependenciesOverride);
+    const {dir, deps} = await createScanCleanupPreviewTestContext(dirs, dependenciesOverride);
     const service = scanCleanupPreviewLifecycle(deps);
     return {
         dir,
@@ -122,73 +117,83 @@ async function previewDependencies() {
 
 afterEach(async () => {
     clearWorkingCopyQuarantinesForTests();
-    await Promise.all(dirs.splice(0).map(dir => rm(dir, {
-        recursive: true,
-        force: true,
-    })));
+    await Promise.all(
+        dirs.splice(0).map((dir) =>
+            rm(dir, {
+                recursive: true,
+                force: true,
+            }),
+        ),
+    );
 });
 
-it.each([
-    'close',
-    'cancel',
-    'render-process-gone',
-] as const)('preserves preview inputs when %s cannot prove native termination', async action => {
-    const {
-        dir, deps,
-    } = await previewDependencies();
-    const entered = Promise.withResolvers<string>();
-    deps.runSidecar = async (_binary, manifestPath, signal) => {
-        const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{inputPath: string}>};
-        entered.resolve(manifest.pages[0]!.inputPath);
-        await new Promise<never>((_resolve, reject) => {
-            signal.addEventListener('abort', () => reject(markUnprovenNativeTermination(
-                new DOMException('Preview reader may still be alive', 'AbortError'),
-                'Preview native tree was not proven stopped',
-            )), {once: true});
-        });
-    };
-    const service = scanCleanupPreviewLifecycle(deps);
-    const owner = lifecycleSender(731);
-    const previewRequest = {
-        ...request,
-        sourcePdfPath: join(dir, 'source.pdf'),
-        options: {
-            ...request.options,
-            matchPageSize: false,
-        },
-    };
-    const pending = service.preview(owner, previewRequest).catch((error: unknown) => error);
-    try {
-        const inputPath = await entered.promise;
-        const inputBytes = await readFile(inputPath);
-        if (action === 'close') {
-            const operations = cancelMainOperationsForClosingWorkingCopy(
-                previewRequest.sourcePdfPath,
-                'Document closed during preview',
-                {isRegistrationCurrent: () => true},
-            );
-            expect(operations).toHaveLength(1);
-            await Promise.all(operations!.map(operation => operation.settled));
-        } else if (action === 'cancel') {
-            expect(service.cancel(owner, previewRequest)).toBe(true);
-        } else {
-            owner.emit(action);
+it.each(['close', 'cancel', 'render-process-gone'] as const)(
+    'preserves preview inputs when %s cannot prove native termination',
+    async (action) => {
+        const {dir, deps} = await previewDependencies();
+        const entered = Promise.withResolvers<string>();
+        deps.runSidecar = async (_binary, manifestPath, signal) => {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{inputPath: string}>};
+            entered.resolve(manifest.pages[0]!.inputPath);
+            await new Promise<never>((_resolve, reject) => {
+                signal.addEventListener(
+                    'abort',
+                    () =>
+                        reject(
+                            markUnprovenNativeTermination(
+                                new DOMException('Preview reader may still be alive', 'AbortError'),
+                                'Preview native tree was not proven stopped',
+                            ),
+                        ),
+                    {once: true},
+                );
+            });
+        };
+        const service = scanCleanupPreviewLifecycle(deps);
+        const owner = lifecycleSender(731);
+        const previewRequest = {
+            ...request,
+            sourcePdfPath: join(dir, 'source.pdf'),
+            options: {
+                ...request.options,
+                matchPageSize: false,
+            },
+        };
+        const pending = service.preview(owner, previewRequest).catch((error: unknown) => error);
+        try {
+            const inputPath = await entered.promise;
+            const inputBytes = await readFile(inputPath);
+            if (action === 'close') {
+                const operations = cancelMainOperationsForClosingWorkingCopy(
+                    previewRequest.sourcePdfPath,
+                    'Document closed during preview',
+                    {isRegistrationCurrent: () => true},
+                );
+                expect(operations).toHaveLength(1);
+                await Promise.all(operations!.map((operation) => operation.settled));
+            } else if (action === 'cancel') {
+                expect(service.cancel(owner, previewRequest)).toBe(true);
+            } else {
+                owner.emit(action);
+            }
+            await pending;
+
+            expect
+                .soft(isWorkingCopyQuarantined(previewRequest.sourcePdfPath), 'close must preserve a source with an unproven native reader')
+                .toBe(true);
+            expect.soft(existsSync(inputPath), 'the unproven reader must retain its raster input').toBe(true);
+            if (existsSync(inputPath)) {
+                await expect(readFile(inputPath)).resolves.toEqual(inputBytes);
+            }
+        } finally {
+            await service.dispose();
+            await pending;
         }
-        await pending;
-
-        expect.soft(isWorkingCopyQuarantined(previewRequest.sourcePdfPath), 'close must preserve a source with an unproven native reader').toBe(true);
-        expect.soft(existsSync(inputPath), 'the unproven reader must retain its raster input').toBe(true);
-        if (existsSync(inputPath)) {await expect(readFile(inputPath)).resolves.toEqual(inputBytes);}
-    } finally {
-        await service.dispose();
-        await pending;
-    }
-});
+    },
+);
 
 it('retires document geometry after close requested while detection still holds the document', async () => {
-    const {
-        dir, deps,
-    } = await previewDependencies();
+    const {dir, deps} = await previewDependencies();
     const geometry = createArrayBackedPdfPageSizeStore(DOCUMENT_PAGE_SIZES);
     deps.getPageSizeStore = async () => geometry;
     const entered = Promise.withResolvers<undefined>();
@@ -214,18 +219,21 @@ it('retires document geometry after close requested while detection still holds 
         // retirement, rather than discard the close intent.
         service.cancel(owner, detection);
         await expect(geometry.getPage(1)).resolves.toMatchObject({pageNumber: 1});
-        const operations = cancelMainOperationsForClosingWorkingCopy(
-            detection.sourcePdfPath,
-            'Document closed during detection',
-            {isRegistrationCurrent: () => true},
-        );
+        const operations = cancelMainOperationsForClosingWorkingCopy(detection.sourcePdfPath, 'Document closed during detection', {
+            isRegistrationCurrent: () => true,
+        });
         expect(operations).toHaveLength(1);
-        await Promise.all(operations!.map(operation => operation.settled));
+        await Promise.all(operations!.map((operation) => operation.settled));
 
         expect(service.getDetectionJobState(owner, started.jobId, detection)?.status).toBe('canceled');
-        await expect.soft(Promise.resolve().then(() => geometry.getPage(1)), 'closed documents must release their geometry reader').rejects.toThrow(/closed/iu);
-        const rasterRoots = (await readdir(dir)).filter(name => name.startsWith('scan-cleanup-rasters-'));
-        const retainedDocuments = (await Promise.all(rasterRoots.map(root => readdir(join(dir, root))))).flat();
+        await expect
+            .soft(
+                Promise.resolve().then(() => geometry.getPage(1)),
+                'closed documents must release their geometry reader',
+            )
+            .rejects.toThrow(/closed/iu);
+        const rasterRoots = (await readdir(dir)).filter((name) => name.startsWith('scan-cleanup-rasters-'));
+        const retainedDocuments = (await Promise.all(rasterRoots.map((root) => readdir(join(dir, root))))).flat();
         expect(retainedDocuments, 'document close must retire the document directory once detection releases it').toEqual([]);
     } finally {
         await service.dispose();
@@ -237,36 +245,34 @@ async function runTrustedMrcPreview(outputMode: 'auto' | 'bw', outputModeRecomme
     // Reuse is proven as conversion requires: page 1's 1000x1400 px, 150 DPI
     // image fills its zero-origin page, and the extracted 300 DPI foreground
     // covers the same 480x672 pt.
-    const provenPages = DOCUMENT_PAGE_SIZES.map(page => page.pageNumber !== 1 ? page : {
-        ...page,
-        widthPoints: 480,
-        heightPoints: 672,
-        mediaXPoints: 0,
-        mediaYPoints: 0,
-        mediaWidthPoints: 480,
-        mediaHeightPoints: 672,
-        allImagesPageAligned: true,
-        dominantImageWidthPx: 1_000,
-        dominantImageHeightPx: 1_400,
-        dominantImageWidthPoints: 480,
-        dominantImageHeightPoints: 672,
-    });
+    const provenPages = DOCUMENT_PAGE_SIZES.map((page) =>
+        page.pageNumber !== 1
+            ? page
+            : {
+                  ...page,
+                  widthPoints: 480,
+                  heightPoints: 672,
+                  mediaXPoints: 0,
+                  mediaYPoints: 0,
+                  mediaWidthPoints: 480,
+                  mediaHeightPoints: 672,
+                  allImagesPageAligned: true,
+                  dominantImageWidthPx: 1_000,
+                  dominantImageHeightPx: 1_400,
+                  dominantImageWidthPoints: 480,
+                  dominantImageHeightPoints: 672,
+              },
+    );
     deps.getPageSizes = vi.fn(async () => provenPages);
     deps.getPageSizeStore = vi.fn(async () => createArrayBackedPdfPageSizeStore(provenPages));
-    deps.detectRasterPages = vi.fn(async () => createScanCleanupPageRasterSource({
-        pages: [1],
-        bilevelLayerPages: [1],
-        backgroundDpiByPage: new Map([[
-            1,
-            100,
-        ]]),
-    }));
-    deps.extractMrcLayers = vi.fn(async (
-        _sourcePdfPath,
-        _pageNumber,
-        selectionMaskOutputPath,
-        backgroundOutputPath,
-    ) => {
+    deps.detectRasterPages = vi.fn(async () =>
+        createScanCleanupPageRasterSource({
+            pages: [1],
+            bilevelLayerPages: [1],
+            backgroundDpiByPage: new Map([[1, 100]]),
+        }),
+    );
+    deps.extractMrcLayers = vi.fn(async (_sourcePdfPath, _pageNumber, selectionMaskOutputPath, backgroundOutputPath) => {
         const foregroundPath = `${backgroundOutputPath}.foreground.jp2`;
         await Promise.all([
             writeFile(selectionMaskOutputPath, PNG),
@@ -287,13 +293,15 @@ async function runTrustedMrcPreview(outputMode: 'auto' | 'bw', outputModeRecomme
     const originalSidecar = deps.runSidecar;
     let trustedPaths: {
         trustedForegroundMaskPath?: string;
-        trustedMrcBackgroundPath?: string
+        trustedMrcBackgroundPath?: string;
     } | null = null;
     deps.runSidecar = vi.fn(async (binary, manifestPath, signal, log, onProgress) => {
-        const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
-            trustedForegroundMaskPath?: string;
-            trustedMrcBackgroundPath?: string
-        }>};
+        const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+            pages: Array<{
+                trustedForegroundMaskPath?: string;
+                trustedMrcBackgroundPath?: string;
+            }>;
+        };
         trustedPaths = manifest.pages[0] ?? null;
         await originalSidecar(binary, manifestPath, signal, log, onProgress);
     });
@@ -304,9 +312,7 @@ async function runTrustedMrcPreview(outputMode: 'auto' | 'bw', outputModeRecomme
             ...request.options,
             outputMode,
         },
-        ...(outputModeRecommendation === undefined
-            ? {}
-            : {outputModeRecommendation}),
+        ...(outputModeRecommendation === undefined ? {} : {outputModeRecommendation}),
     });
 
     expect(deps.extractMrcLayers).toHaveBeenCalledTimes(1);
@@ -322,7 +328,7 @@ async function runCanvasCacheOrderPreview(lossless: boolean): Promise<void> {
     const originalSidecar = deps.runSidecar;
     const previewManifests: Array<{
         canvasScope: string;
-        documentCanvas?: unknown
+        documentCanvas?: unknown;
     }> = [];
     deps.runSidecar = vi.fn(async (binary, manifestPath, signal, log, onProgress) => {
         const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
@@ -330,14 +336,14 @@ async function runCanvasCacheOrderPreview(lossless: boolean): Promise<void> {
             canvasScope: string;
             documentCanvas?: {
                 widthPoints: number;
-                heightPoints: number
+                heightPoints: number;
             };
             pages: Array<{
                 sourcePageIndex: number;
                 pageMetadataPath: string;
                 outputs: Array<{
                     outputPath: string;
-                    metadataPath: string
+                    metadataPath: string;
                 }>;
             }>;
         };
@@ -352,30 +358,35 @@ async function runCanvasCacheOrderPreview(lossless: boolean): Promise<void> {
                     widthPx,
                     heightPx,
                 };
-                await writeFile(page.pageMetadataPath, JSON.stringify({
-                    canvasScope: 'page',
-                    layoutClassification: 'single-uncut-page',
-                    layoutConfidence: 0.9,
-                    cutterXPx: null,
-                    rotationDegrees: 0,
-                    excluded: false,
-                    blankOutputsSkipped: 0,
-                    outputCount: 1,
-                    outputs: [{
-                        half: 'full',
-                        sourceRegion,
-                        contentBox: null,
-                        cropRect: sourceRegion,
-                        appliedMargins: {
-                            leftPx: 0,
-                            topPx: 0,
-                            rightPx: 0,
-                            bottomPx: 0,
-                        },
-                        inputWidthPx: widthPx,
-                        inputHeightPx: heightPx,
-                    }],
-                }));
+                await writeFile(
+                    page.pageMetadataPath,
+                    JSON.stringify({
+                        canvasScope: 'page',
+                        layoutClassification: 'single-uncut-page',
+                        layoutConfidence: 0.9,
+                        cutterXPx: null,
+                        rotationDegrees: 0,
+                        excluded: false,
+                        blankOutputsSkipped: 0,
+                        outputCount: 1,
+                        outputs: [
+                            {
+                                half: 'full',
+                                sourceRegion,
+                                contentBox: null,
+                                cropRect: sourceRegion,
+                                appliedMargins: {
+                                    leftPx: 0,
+                                    topPx: 0,
+                                    rightPx: 0,
+                                    bottomPx: 0,
+                                },
+                                inputWidthPx: widthPx,
+                                inputHeightPx: heightPx,
+                            },
+                        ],
+                    }),
+                );
                 await onProgress({
                     stage: 'page-complete',
                     completedPages: pageNumber,
@@ -395,55 +406,63 @@ async function runCanvasCacheOrderPreview(lossless: boolean): Promise<void> {
         const intrinsicWidth = page.sourcePageIndex === 0 ? 60 : 100;
         const intrinsicHeight = page.sourcePageIndex === 0 ? 120 : 140;
         if (lossless) {
-            await writeFile(page.pageMetadataPath, JSON.stringify({
-                canvasScope: 'page',
-                layoutClassification: 'single-uncut-page',
-                layoutConfidence: 0.9,
-                cutterXPx: null,
-                rotationDegrees: 0,
-                excluded: false,
-                blankOutputsSkipped: 0,
-                outputCount: 1,
-                outputs: [{
-                    half: 'full',
-                    sourceRegion: {
-                        xPx: 0,
-                        yPx: 0,
-                        widthPx: intrinsicWidth,
-                        heightPx: intrinsicHeight,
-                    },
-                    contentBox: null,
-                    cropRect: {
-                        xPx: 0,
-                        yPx: 0,
-                        widthPx: intrinsicWidth,
-                        heightPx: intrinsicHeight,
-                    },
-                    appliedMargins: {
-                        leftPx: 0,
-                        topPx: 0,
-                        rightPx: 0,
-                        bottomPx: 0,
-                    },
-                    inputWidthPx: intrinsicWidth,
-                    inputHeightPx: intrinsicHeight,
-                }],
-            }));
+            await writeFile(
+                page.pageMetadataPath,
+                JSON.stringify({
+                    canvasScope: 'page',
+                    layoutClassification: 'single-uncut-page',
+                    layoutConfidence: 0.9,
+                    cutterXPx: null,
+                    rotationDegrees: 0,
+                    excluded: false,
+                    blankOutputsSkipped: 0,
+                    outputCount: 1,
+                    outputs: [
+                        {
+                            half: 'full',
+                            sourceRegion: {
+                                xPx: 0,
+                                yPx: 0,
+                                widthPx: intrinsicWidth,
+                                heightPx: intrinsicHeight,
+                            },
+                            contentBox: null,
+                            cropRect: {
+                                xPx: 0,
+                                yPx: 0,
+                                widthPx: intrinsicWidth,
+                                heightPx: intrinsicHeight,
+                            },
+                            appliedMargins: {
+                                leftPx: 0,
+                                topPx: 0,
+                                rightPx: 0,
+                                bottomPx: 0,
+                            },
+                            inputWidthPx: intrinsicWidth,
+                            inputHeightPx: intrinsicHeight,
+                        },
+                    ],
+                }),
+            );
             return;
         }
         await originalSidecar(binary, manifestPath, signal, log, onProgress);
         const output = page.outputs[0]!;
         const metadata = JSON.parse(await readFile(output.metadataPath, 'utf8'));
-        await writeFile(output.metadataPath, JSON.stringify({
-            ...metadata,
-            outputWidthPx: intrinsicWidth,
-            outputHeightPx: intrinsicHeight,
-            canvasWidthPx: 100,
-            canvasHeightPx: 140,
-            matchedCanvasTargetWidthPx: 100,
-            matchedCanvasTargetHeightPx: 140,
-            canvasPolicy: 'strict-maximum',
-        }));
+        await writeFile(
+            output.metadataPath,
+            JSON.stringify({
+                ...metadata,
+                outputWidthPx: intrinsicWidth,
+                outputHeightPx: intrinsicHeight,
+                canvasWidthPx: 100,
+                canvasHeightPx: 140,
+                matchedCanvasTargetWidthPx: 100,
+                matchedCanvasTargetHeightPx: 140,
+                canvasPolicy: 'strict-maximum',
+            }),
+        );
     });
     const service = scanCleanupPreviewLifecycle(deps);
     const owner = sender();
@@ -455,11 +474,7 @@ async function runCanvasCacheOrderPreview(lossless: boolean): Promise<void> {
         },
     };
     const started = await service.detectAll(owner, detectRequest);
-    await vi.waitFor(() => expect(service.getDetectionJobState(
-        owner,
-        started.jobId,
-        detectRequest,
-    )?.status).toBe('completed'));
+    await vi.waitFor(() => expect(service.getDetectionJobState(owner, started.jobId, detectRequest)?.status).toBe('completed'));
 
     const second = await previewOf(service, owner, {
         ...request,
@@ -478,13 +493,10 @@ async function runCanvasCacheOrderPreview(lossless: boolean): Promise<void> {
     const matchedCanvas = lossless
         ? {}
         : {
-            canvasWidthPx: 100,
-            canvasHeightPx: 140,
-        };
-    expect([
-        first.outputs[0]?.metadata,
-        second.outputs[0]?.metadata,
-    ]).toEqual([
+              canvasWidthPx: 100,
+              canvasHeightPx: 140,
+          };
+    expect([first.outputs[0]?.metadata, second.outputs[0]?.metadata]).toEqual([
         expect.objectContaining({
             ...matchedCanvas,
             canvasScope: 'page',
@@ -507,10 +519,7 @@ async function runCanvasCacheOrderPreview(lossless: boolean): Promise<void> {
 }
 
 async function runRendererCancellation(eventName: 'destroyed' | 'render-process-gone'): Promise<void> {
-    const {
-        dir,
-        deps,
-    } = await previewDependencies();
+    const {dir, deps} = await previewDependencies();
     const entered = Promise.withResolvers<undefined>();
     const releaseLease = vi.fn(() => true);
     deps.runWithPreviewLease = vi.fn(async (_ownerId, _visibility, _signal, _options, _rasterMaxPixels, work) => {
@@ -545,17 +554,14 @@ async function runRendererCancellation(eventName: 'destroyed' | 'render-process-
     expect(owner.listenerCount('render-process-gone')).toBe(0);
     await vi.waitFor(async () => {
         const entries = await readdir(dir, {recursive: true});
-        expect(entries.filter(entry => entry.endsWith('.png'))).toHaveLength(0);
+        expect(entries.filter((entry) => entry.endsWith('.png'))).toHaveLength(0);
     });
     await service.dispose();
     await expect(readdir(dir)).resolves.toHaveLength(0);
 }
 
 export async function scenarioReleasesPreviewArtifactsAfterExplicitCancellation(retainRawCache = false): Promise<void> {
-    const {
-        dir,
-        deps,
-    } = await previewDependencies();
+    const {dir, deps} = await previewDependencies();
     const entered = Promise.withResolvers<undefined>();
     deps.runSidecar = vi.fn(async (_binary, _manifestPath, signal) => {
         entered.resolve(undefined);
@@ -572,26 +578,28 @@ export async function scenarioReleasesPreviewArtifactsAfterExplicitCancellation(
     const pending = previewOf(service, owner, request);
     await entered.promise;
 
-    expect(service.cancel(owner, {
-        ...request,
-        invalidateRawCache: !retainRawCache,
-    })).toBe(true);
+    expect(
+        service.cancel(owner, {
+            ...request,
+            invalidateRawCache: !retainRawCache,
+        }),
+    ).toBe(true);
     await expect(pending).rejects.toMatchObject({name: 'AbortError'});
     await vi.waitFor(async () => {
         const entries = await readdir(dir, {recursive: true});
-        if (retainRawCache) {expect(entries.some(entry => entry.endsWith('.png'))).toBe(true);}
-        else {expect(entries.filter(entry => entry.endsWith('.png'))).toHaveLength(0);}
-        expect(entries.some(entry => entry.includes('scan-cleanup-preview-'))).toBe(false);
+        if (retainRawCache) {
+            expect(entries.some((entry) => entry.endsWith('.png'))).toBe(true);
+        } else {
+            expect(entries.filter((entry) => entry.endsWith('.png'))).toHaveLength(0);
+        }
+        expect(entries.some((entry) => entry.includes('scan-cleanup-preview-'))).toBe(false);
     });
     await service.dispose();
     await expect(readdir(dir)).resolves.toHaveLength(0);
 }
 
 export async function scenarioReleasesPreviewArtifactsWhenItsWorkingCopyCloses(): Promise<void> {
-    const {
-        dir,
-        deps,
-    } = await previewDependencies();
+    const {dir, deps} = await previewDependencies();
     const entered = Promise.withResolvers<undefined>();
     deps.runSidecar = vi.fn(async (_binary, _manifestPath, signal) => {
         entered.resolve(undefined);
@@ -608,25 +616,22 @@ export async function scenarioReleasesPreviewArtifactsWhenItsWorkingCopyCloses()
     const pending = previewOf(service, owner, request);
     await entered.promise;
 
-    const canceled = cancelMainOperationsForClosingWorkingCopy(
-        request.sourcePdfPath,
-        'Scan cleanup working copy closed',
-        {isRegistrationCurrent: () => true},
-    );
+    const canceled = cancelMainOperationsForClosingWorkingCopy(request.sourcePdfPath, 'Scan cleanup working copy closed', {
+        isRegistrationCurrent: () => true,
+    });
     expect(canceled).toHaveLength(1);
     await expect(pending).rejects.toMatchObject({name: 'AbortError'});
     await expect(canceled?.[0]?.settled).resolves.toBeUndefined();
     await vi.waitFor(async () => {
         const entries = await readdir(dir, {recursive: true});
-        expect(entries.filter(entry => entry.endsWith('.png'))).toHaveLength(0);
-        expect(entries.some(entry => entry.includes('scan-cleanup-preview-'))).toBe(false);
+        expect(entries.filter((entry) => entry.endsWith('.png'))).toHaveLength(0);
+        expect(entries.some((entry) => entry.includes('scan-cleanup-preview-'))).toBe(false);
     });
     await service.dispose();
     await expect(readdir(dir)).resolves.toHaveLength(0);
 }
 
 export async function scenarioLetsAVisibleRequestRunBesideTheAdjacentPrefetchInsteadOfAbortingIt(): Promise<void> {
-
     const {deps} = await previewDependencies();
     const entered = Promise.withResolvers<undefined>();
     const releasePrefetch = Promise.withResolvers<undefined>();
@@ -659,11 +664,9 @@ export async function scenarioLetsAVisibleRequestRunBesideTheAdjacentPrefetchIns
     await expect(visible).resolves.toMatchObject({pageNumber: 1});
     releasePrefetch.resolve(undefined);
     await expect(prefetch).resolves.toMatchObject({pageNumber: 2});
-
 }
 
 export async function scenarioAdoptsAnIdenticalInFlightPreviewInsteadOfRenderingThePageASecondTime(): Promise<void> {
-
     const {deps} = await previewDependencies();
     const entered = Promise.withResolvers<undefined>();
     const release = Promise.withResolvers<undefined>();
@@ -688,11 +691,9 @@ export async function scenarioAdoptsAnIdenticalInFlightPreviewInsteadOfRendering
     release.resolve(undefined);
     await expect(prefetch).resolves.toMatchObject({pageNumber: 2});
     await expect(navigatedTo).resolves.toMatchObject({pageNumber: 2});
-
 }
 
 export async function scenarioSupersedesAnInFlightAutoPreviewWhenDetectionResolvesAnotherOutputMode(): Promise<void> {
-
     const {deps} = await previewDependencies();
     const entered = Promise.withResolvers<undefined>();
     const originalRenderPage = deps.renderPage;
@@ -731,11 +732,9 @@ export async function scenarioSupersedesAnInFlightAutoPreviewWhenDetectionResolv
         pageNumber: 1,
         outputs: [{metadata: {outputMode: 'color'}}],
     });
-
 }
 
 export async function scenarioSupersedesAStaleOptionsGenerationForThePageItIsRendering(): Promise<void> {
-
     const {deps} = await previewDependencies();
     const entered = Promise.withResolvers<undefined>();
     const originalRenderPage = deps.renderPage;
@@ -763,11 +762,9 @@ export async function scenarioSupersedesAStaleOptionsGenerationForThePageItIsRen
 
     await expect(stale).rejects.toMatchObject({name: 'AbortError'});
     await expect(current).resolves.toMatchObject({pageNumber: 1});
-
 }
 
 export async function scenarioCancelsOnlyThePreviewPagesANavigationNoLongerWants(): Promise<void> {
-
     const {deps} = await previewDependencies();
     const entered: Array<Promise<undefined>> = [];
     const enteredPages = new Map<number, PromiseWithResolvers<undefined>>();
@@ -775,49 +772,45 @@ export async function scenarioCancelsOnlyThePreviewPagesANavigationNoLongerWants
         enteredPages.get(pageNumber)?.resolve(undefined);
         await waitForRelease(Promise.withResolvers<never>().promise, signal!);
     });
-    for (const pageNumber of [
-        1,
-        2,
-        3,
-    ]) {
+    for (const pageNumber of [1, 2, 3]) {
         const resolvers = Promise.withResolvers<undefined>();
         enteredPages.set(pageNumber, resolvers);
         entered.push(resolvers.promise);
     }
     const service = scanCleanupPreviewLifecycle(deps);
     const previewSender = sender();
-    const pages = [
-        1,
-        2,
-        3,
-    ].map(pageNumber => previewOf(service, previewSender, {
-        ...request,
-        pageNumber: requirePageNumber(pageNumber),
-    }));
+    const pages = [1, 2, 3].map((pageNumber) =>
+        previewOf(service, previewSender, {
+            ...request,
+            pageNumber: requirePageNumber(pageNumber),
+        }),
+    );
     await Promise.all(entered);
 
-    expect(service.cancel(previewSender, {
-        ...request,
-        invalidateRawCache: false,
-        retainPages: [
-            2,
-            3,
-        ],
-    })).toBe(true);
+    expect(
+        service.cancel(previewSender, {
+            ...request,
+            invalidateRawCache: false,
+            retainPages: [2, 3],
+        }),
+    ).toBe(true);
 
     await expect(pages[0]).rejects.toMatchObject({name: 'AbortError'});
-    expect(await Promise.race([
-        pages[1]!.then(() => 'settled', () => 'settled'),
-        Promise.resolve('pending'),
-    ])).toBe('pending');
+    expect(
+        await Promise.race([
+            pages[1]!.then(
+                () => 'settled',
+                () => 'settled',
+            ),
+            Promise.resolve('pending'),
+        ]),
+    ).toBe('pending');
     expect(service.cancel(previewSender, request)).toBe(true);
     await expect(pages[1]).rejects.toMatchObject({name: 'AbortError'});
     await expect(pages[2]).rejects.toMatchObject({name: 'AbortError'});
-
 }
 
 export async function scenarioLeavesTheRasterOfARetainedNavigationAloneAndRetiresItOnAFullCancellation(): Promise<void> {
-
     const {deps} = await previewDependencies();
     const entered = Promise.withResolvers<undefined>();
     deps.renderPage = vi.fn(async (_paths, _log, _page, _source, _outputPath, _dpi, _env, signal) => {
@@ -837,18 +830,21 @@ export async function scenarioLeavesTheRasterOfARetainedNavigationAloneAndRetire
         invalidateRawCache: false,
         retainPages: [1],
     });
-    expect(await Promise.race([
-        raw.then(() => 'settled', () => 'settled'),
-        Promise.resolve('pending'),
-    ])).toBe('pending');
+    expect(
+        await Promise.race([
+            raw.then(
+                () => 'settled',
+                () => 'settled',
+            ),
+            Promise.resolve('pending'),
+        ]),
+    ).toBe('pending');
 
     expect(service.cancel(previewSender, request)).toBe(true);
     await expect(raw).rejects.toMatchObject({name: 'AbortError'});
-
 }
 
 export async function scenarioRunsDetailTilesInASeparateLaneThatNeverCancelsTheVisibleBasePreview(): Promise<void> {
-
     const {deps} = await previewDependencies();
     deps.detectSourceDpi = vi.fn(async () => 300);
     const baseRenderEntered = Promise.withResolvers<undefined>();
@@ -890,13 +886,15 @@ export async function scenarioRunsDetailTilesInASeparateLaneThatNeverCancelsTheV
     const detail = previewOf(service, previewSender, {
         ...request,
         detail: {
-            viewports: {full: {
-                xNormalized: 0.25,
-                yNormalized: 0.2,
-                widthNormalized: 0.5,
-                heightNormalized: 0.45,
-                rotationDegrees: 0,
-            }},
+            viewports: {
+                full: {
+                    xNormalized: 0.25,
+                    yNormalized: 0.2,
+                    widthNormalized: 0.5,
+                    heightNormalized: 0.45,
+                    rotationDegrees: 0,
+                },
+            },
             outputMode: 'bw',
         },
     });
@@ -905,11 +903,9 @@ export async function scenarioRunsDetailTilesInASeparateLaneThatNeverCancelsTheV
     expect(pendingBaseSignals[0]?.aborted).toBe(false);
     releaseBaseRender.resolve(undefined);
     await expect(pendingBase).resolves.toMatchObject({pageNumber: 1});
-
 }
 
 export async function scenarioDoesNotRepublishAnInvalidatedRawRasterAfterItsRendererIgnoresCancellation(): Promise<void> {
-
     const {deps} = await previewDependencies();
     const originalRenderPage = deps.renderPage;
     const rasterEntered = Promise.withResolvers<undefined>();
@@ -932,11 +928,9 @@ export async function scenarioDoesNotRepublishAnInvalidatedRawRasterAfterItsRend
     releaseRaster.resolve(undefined);
     await expect(pending).rejects.toMatchObject({name: 'AbortError'});
     await expect(previewOf(service, previewSender, request)).resolves.toMatchObject({pageNumber: 1});
-
 }
 
 export async function scenarioDoesNotRepublishInvalidatedBaseGeometryAfterItsSidecarIgnoresCancellation(): Promise<void> {
-
     const {deps} = await previewDependencies();
     const originalSidecar = deps.runSidecar;
     const sidecarEntered = Promise.withResolvers<undefined>();
@@ -954,24 +948,26 @@ export async function scenarioDoesNotRepublishInvalidatedBaseGeometryAfterItsSid
     expect(service.cancel(previewSender, request)).toBe(true);
     releaseSidecar.resolve(undefined);
     await expect(pending).rejects.toMatchObject({name: 'AbortError'});
-    await expect(previewOf(service, previewSender, {
-        ...request,
-        detail: {
-            viewports: {full: {
-                xNormalized: 0,
-                yNormalized: 0,
-                widthNormalized: 1,
-                heightNormalized: 1,
-                rotationDegrees: 0,
-            }},
-            outputMode: 'bw',
-        },
-    })).rejects.toThrow('detail geometry is unavailable');
-
+    await expect(
+        previewOf(service, previewSender, {
+            ...request,
+            detail: {
+                viewports: {
+                    full: {
+                        xNormalized: 0,
+                        yNormalized: 0,
+                        widthNormalized: 1,
+                        heightNormalized: 1,
+                        rotationDegrees: 0,
+                    },
+                },
+                outputMode: 'bw',
+            },
+        }),
+    ).rejects.toThrow('detail geometry is unavailable');
 }
 
 export async function scenarioAbortsACleanedRequestWhenTheSameOwnerMovesToAnotherSourcePath(): Promise<void> {
-
     const {deps} = await previewDependencies();
     const originalRenderPage = deps.renderPage;
     const staleEntered = Promise.withResolvers<undefined>();
@@ -1006,11 +1002,9 @@ export async function scenarioAbortsACleanedRequestWhenTheSameOwnerMovesToAnothe
     expect(currentSignals[0]?.aborted).toBe(false);
     releaseCurrent.resolve(undefined);
     await expect(current).resolves.toMatchObject({pageNumber: 1});
-
 }
 
 export async function scenarioAbortsAnInFlightRequestWhenTheSameOwnerMovesToAnotherDocumentRevision(): Promise<void> {
-
     const {deps} = await previewDependencies();
     const originalRenderPage = deps.renderPage;
     const staleEntered = Promise.withResolvers<undefined>();
@@ -1035,11 +1029,9 @@ export async function scenarioAbortsAnInFlightRequestWhenTheSameOwnerMovesToAnot
 
     await expect(stale).rejects.toMatchObject({name: 'AbortError'});
     await expect(current).resolves.toMatchObject({pageNumber: 1});
-
 }
 
 export async function scenarioReusesTheRawPageRasterAcrossOptionChangesUntilTheDialogSessionIsInvalidated(): Promise<void> {
-
     const {service} = await previewFixture();
     const previewSender = sender();
 
@@ -1048,27 +1040,29 @@ export async function scenarioReusesTheRawPageRasterAcrossOptionChangesUntilTheD
         ...request,
         invalidateRawCache: false,
     });
-    await expect(previewOf(service, previewSender, {
-        ...request,
-        options: {
-            ...request.options,
-            thickness: 1,
-        },
-    })).resolves.toMatchObject({pageNumber: 1});
+    await expect(
+        previewOf(service, previewSender, {
+            ...request,
+            options: {
+                ...request.options,
+                thickness: 1,
+            },
+        }),
+    ).resolves.toMatchObject({pageNumber: 1});
 
     service.cancel(previewSender, request);
-    await expect(previewOf(service, previewSender, {
-        ...request,
-        options: {
-            ...request.options,
-            thickness: 2,
-        },
-    })).resolves.toMatchObject({pageNumber: 1});
+    await expect(
+        previewOf(service, previewSender, {
+            ...request,
+            options: {
+                ...request.options,
+                thickness: 2,
+            },
+        }),
+    ).resolves.toMatchObject({pageNumber: 1});
     const rawEvents = previewSender.send.mock.calls
         .filter(([channel]) => channel === SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onPreviewRaw)
-        .map(([
-            , event,
-        ]) => event);
+        .map(([, event]) => event);
     expect(rawEvents).toEqual([
         expect.objectContaining({
             pageNumber: 1,
@@ -1089,11 +1083,9 @@ export async function scenarioReusesTheRawPageRasterAcrossOptionChangesUntilTheD
             rawHeightPx: 1,
         }),
     ]);
-
 }
 
 export async function scenarioHasAlreadyPublishedTheRawPageWhenCleanedRenderingFails(): Promise<void> {
-
     const {deps} = await previewDependencies();
     deps.runSidecar = vi.fn(async () => {
         throw new Error('invalid cleaned preview');
@@ -1101,10 +1093,12 @@ export async function scenarioHasAlreadyPublishedTheRawPageWhenCleanedRenderingF
     const service = scanCleanupPreviewLifecycle(deps);
     const previewSender = sender();
 
-    await expect(previewOf(service, previewSender, {
-        ...request,
-        visible: true,
-    })).rejects.toThrow('invalid cleaned preview');
+    await expect(
+        previewOf(service, previewSender, {
+            ...request,
+            visible: true,
+        }),
+    ).rejects.toThrow('invalid cleaned preview');
     expect(previewSender.send).toHaveBeenCalledWith(
         SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onPreviewRaw,
         expect.objectContaining({
@@ -1114,29 +1108,23 @@ export async function scenarioHasAlreadyPublishedTheRawPageWhenCleanedRenderingF
             rawHeightPx: 1,
         }),
     );
-
 }
 
 export async function scenarioInvalidatesAStaleRawRasterWhenTheDocumentRevisionChanges(): Promise<void> {
-
     const {service} = await previewFixture();
 
     await expect(previewOf(service, sender(), request)).resolves.toMatchObject({pageNumber: 1});
-    await expect(previewOf(service, sender(), {
-        ...request,
-        documentRevision: 'revision-2',
-    })).resolves.toMatchObject({pageNumber: 1});
-
+    await expect(
+        previewOf(service, sender(), {
+            ...request,
+            documentRevision: 'revision-2',
+        }),
+    ).resolves.toMatchObject({pageNumber: 1});
 }
 
 export async function scenarioInvalidatesAStaleRawRasterWhenTheSourceBytesChangeUnderAnUnchangedRevision(): Promise<void> {
-
     const {deps} = await previewDependencies();
-    const statIdentities = [
-        '100:1000',
-        '100:1000',
-        '100:2000',
-    ];
+    const statIdentities = ['100:1000', '100:1000', '100:2000'];
     deps.getSourceStatIdentity = vi.fn(async () => statIdentities.shift() ?? '100:2000');
     const service = scanCleanupPreviewLifecycle(deps);
 
@@ -1145,14 +1133,12 @@ export async function scenarioInvalidatesAStaleRawRasterWhenTheSourceBytesChange
     await expect(previewOf(service, previewSender, request)).resolves.toMatchObject({pageNumber: 1});
 
     await expect(previewOf(service, previewSender, request)).resolves.toMatchObject({pageNumber: 1});
-    expect(previewSender.send.mock.calls.filter(([channel]) => (
-        channel === SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onPreviewRaw
-    ))).toHaveLength(3);
-
+    expect(
+        previewSender.send.mock.calls.filter(([channel]) => channel === SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onPreviewRaw),
+    ).toHaveLength(3);
 }
 
 export async function scenarioDoesNotCrossCancelPreviewsFromTwoWindowsOnTheSameDocument(): Promise<void> {
-
     const {deps} = await previewDependencies();
     const originalRenderPage = deps.renderPage;
     const firstEntered = Promise.withResolvers<undefined>();
@@ -1185,11 +1171,9 @@ export async function scenarioDoesNotCrossCancelPreviewsFromTwoWindowsOnTheSameD
     await expect(first).rejects.toMatchObject({name: 'AbortError'});
     releaseSecond.resolve(undefined);
     await expect(second).resolves.toMatchObject({pageNumber: 1});
-
 }
 
 export async function scenarioKeepsALiveReplacementReachableWhenAnOlderGenerationRetiresLate(): Promise<void> {
-
     const {deps} = await previewDependencies();
     const originalRenderPage = deps.renderPage;
     const gate = Promise.withResolvers<undefined>();
@@ -1201,13 +1185,14 @@ export async function scenarioKeepsALiveReplacementReachableWhenAnOlderGeneratio
     });
     const service = scanCleanupPreviewLifecycle(deps);
     const owner = sender();
-    const previewWith = (thickness: number) => previewOf(service, owner, {
-        ...request,
-        options: {
-            ...request.options,
-            thickness,
-        },
-    });
+    const previewWith = (thickness: number) =>
+        previewOf(service, owner, {
+            ...request,
+            options: {
+                ...request.options,
+                thickness,
+            },
+        });
 
     // Three lingering keys for the same page, each superseding the ones
     // before it, and then a replacement that reuses the second key. The
@@ -1231,11 +1216,9 @@ export async function scenarioKeepsALiveReplacementReachableWhenAnOlderGeneratio
     await expect(replacement).resolves.toMatchObject({pageNumber: 1});
     await expect(adopting).resolves.toMatchObject({pageNumber: 1});
     expect(renders).toBe(1);
-
 }
 
 export async function scenarioReadmitsAnAdoptedPrefetchAsTheVisiblePageAndDropsOneNothingCanAdmit(): Promise<void> {
-
     const {deps} = await previewDependencies();
     deps.prefetchLeaseTimeoutMs = 30_000;
     const admissions: Array<{
@@ -1254,11 +1237,11 @@ export async function scenarioReadmitsAnAdoptedPrefetchAsTheVisiblePageAndDropsO
         admissions.push(admission);
         if (visibility === 'prefetch') {
             return await new Promise<never>((_resolve, reject) => {
-                signal.addEventListener('abort', () => reject(
-                    signal.reason instanceof Error
-                        ? signal.reason
-                        : new DOMException('aborted', 'AbortError'),
-                ), {once: true});
+                signal.addEventListener(
+                    'abort',
+                    () => reject(signal.reason instanceof Error ? signal.reason : new DOMException('aborted', 'AbortError')),
+                    {once: true},
+                );
             });
         }
         admission.granted = true;
@@ -1290,26 +1273,20 @@ export async function scenarioReadmitsAnAdoptedPrefetchAsTheVisiblePageAndDropsO
 
     await expect(prefetch).resolves.toMatchObject({pageNumber: 2});
     await expect(navigated).resolves.toMatchObject({pageNumber: 2});
-    expect(admissions.map(admission => admission.visibility)).toEqual([
-        'visible',
-        'prefetch',
-        'visible',
-    ]);
-
+    expect(admissions.map((admission) => admission.visibility)).toEqual(['visible', 'prefetch', 'visible']);
 }
 
 export async function scenarioDropsAPrefetchNothingAdmitsInsteadOfLeavingThePageCommittedToIt(): Promise<void> {
-
     const {deps} = await previewDependencies();
     deps.prefetchLeaseTimeoutMs = 20;
     deps.runWithPreviewLease = vi.fn((_ownerId, visibility, signal, _options, _rasterMaxPixels, work) => {
         if (visibility === 'prefetch') {
             return new Promise<never>((_resolve, reject) => {
-                signal.addEventListener('abort', () => reject(
-                    signal.reason instanceof Error
-                        ? signal.reason
-                        : new DOMException('aborted', 'AbortError'),
-                ), {once: true});
+                signal.addEventListener(
+                    'abort',
+                    () => reject(signal.reason instanceof Error ? signal.reason : new DOMException('aborted', 'AbortError')),
+                    {once: true},
+                );
             });
         }
         return work();
@@ -1329,16 +1306,16 @@ export async function scenarioDropsAPrefetchNothingAdmitsInsteadOfLeavingThePage
     await expect(prefetch).resolves.toEqual({canceled: true});
     // The dropped run is not adopted by the page turn that follows it: the
     // visible request renders page 2 for itself.
-    await expect(previewOf(service, owner, {
-        ...request,
-        pageNumber: requirePageNumber(2),
-        visible: true,
-    })).resolves.toMatchObject({pageNumber: 2});
-
+    await expect(
+        previewOf(service, owner, {
+            ...request,
+            pageNumber: requirePageNumber(2),
+            visible: true,
+        }),
+    ).resolves.toMatchObject({pageNumber: 2});
 }
 
 export async function scenarioDoesNotQueueForAPreviewLeaseWhenTheRunIsCanceledWhileItsWorkingCopyMaterializes(): Promise<void> {
-
     const {deps} = await previewDependencies();
     const materializing = Promise.withResolvers<undefined>();
     const finishMaterializing = Promise.withResolvers<undefined>();
@@ -1369,11 +1346,9 @@ export async function scenarioDoesNotQueueForAPreviewLeaseWhenTheRunIsCanceledWh
 
     await expect(pending).resolves.toEqual({canceled: true});
     expect(runWithPreviewLease).not.toHaveBeenCalled();
-
 }
 
 export async function scenarioSettlesACanceledPreviewWhenItsWorkingCopyRegistrationDisappearsDuringMaterialization(): Promise<void> {
-
     const {deps} = await previewDependencies();
     const materializing = Promise.withResolvers<undefined>();
     const finishMaterializing = Promise.withResolvers<undefined>();
@@ -1394,18 +1369,18 @@ export async function scenarioSettlesACanceledPreviewWhenItsWorkingCopyRegistrat
     finishMaterializing.resolve(undefined);
 
     await expect(pending).resolves.toEqual({canceled: true});
-
 }
 
 export async function scenarioSchedulesAPageSwitchDuringDetectionInsteadOfPilingNativeProcessesOntoTheHost(): Promise<void> {
-
     const {deps} = await previewDependencies();
     const {capacity} = mainJobBroker.getSnapshot();
     deps.getPageCount = vi.fn(async () => 8);
-    deps.getPageSizes = vi.fn(async () => Array.from({length: 8}, (_, index) => ({
-        ...DOCUMENT_PAGE_SIZES[0]!,
-        pageNumber: index + 1,
-    })));
+    deps.getPageSizes = vi.fn(async () =>
+        Array.from({length: 8}, (_, index) => ({
+            ...DOCUMENT_PAGE_SIZES[0]!,
+            pageNumber: index + 1,
+        })),
+    );
     let liveNatives = 0;
     let peakNatives = 0;
     const trackNative = async <T>(run: () => Promise<T>) => {
@@ -1417,81 +1392,72 @@ export async function scenarioSchedulesAPageSwitchDuringDetectionInsteadOfPiling
             liveNatives -= 1;
         }
     };
-        // Detection parks on the pages the previews never ask for, so its lease
-        // is held by exactly `rasterConcurrency` live rasterisers while the page
-        // switch arrives.
+    // Detection parks on the pages the previews never ask for, so its lease
+    // is held by exactly `rasterConcurrency` live rasterisers while the page
+    // switch arrives.
     const heldDetectionRasters = Promise.withResolvers<undefined>();
     const originalRenderPage = deps.renderPage;
-    deps.renderPage = vi.fn((...args) => trackNative(async () => {
-        if (args[2] > 3) {await heldDetectionRasters.promise;}
-        await originalRenderPage(
-            args[0],
-            args[1],
-            args[2],
-            args[3],
-            args[4],
-            args[5],
-            args[6],
-            args[7],
-        );
-    }));
+    deps.renderPage = vi.fn((...args) =>
+        trackNative(async () => {
+            if (args[2] > 3) {
+                await heldDetectionRasters.promise;
+            }
+            await originalRenderPage(args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7]);
+        }),
+    );
     const originalRunSidecar = deps.runSidecar;
     const heldPreviewSidecars = Promise.withResolvers<undefined>();
     let previewSidecars = 0;
-    deps.runSidecar = vi.fn((...args) => trackNative(async () => {
-        const manifestPath = args[1];
-        const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
-            operation: string;
-            pages: unknown[];
-        };
-        if (manifest.operation !== 'analyze') {
-            previewSidecars += 1;
-            await heldPreviewSidecars.promise;
-            await originalRunSidecar(
-                args[0],
-                args[1],
-                args[2],
-                args[3],
-                args[4],
-            );
-            return;
-        }
-        await writeDetectionMetadata(manifestPath);
-        for (let pageNumber = 1; pageNumber <= manifest.pages.length; pageNumber += 1) {
-            args[4]({
-                stage: 'page-complete',
-                completedPages: pageNumber,
-                totalPages: manifest.pages.length,
-                pageNumber,
-                classification: 'single-uncut-page',
-                confidence: 0.9,
-            });
-        }
-    }));
+    deps.runSidecar = vi.fn((...args) =>
+        trackNative(async () => {
+            const manifestPath = args[1];
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+                operation: string;
+                pages: unknown[];
+            };
+            if (manifest.operation !== 'analyze') {
+                previewSidecars += 1;
+                await heldPreviewSidecars.promise;
+                await originalRunSidecar(args[0], args[1], args[2], args[3], args[4]);
+                return;
+            }
+            await writeDetectionMetadata(manifestPath);
+            for (let pageNumber = 1; pageNumber <= manifest.pages.length; pageNumber += 1) {
+                args[4]({
+                    stage: 'page-complete',
+                    completedPages: pageNumber,
+                    totalPages: manifest.pages.length,
+                    pageNumber,
+                    classification: 'single-uncut-page',
+                    confidence: 0.9,
+                });
+            }
+        }),
+    );
     const service = scanCleanupPreviewLifecycle(deps);
     const owner = sender();
     const started = await service.detectAll(owner, detectionRequest);
     await vi.waitFor(() => expect(liveNatives).toBe(capacity.nativeProcesses - 1));
 
-    const previewPage = (pageNumber: number, visible = false) => previewOf(service, owner, {
-        ...request,
-        pageNumber: requirePageNumber(pageNumber),
-        ...(visible ? {visible: true} : {}),
-    });
+    const previewPage = (pageNumber: number, visible = false) =>
+        previewOf(service, owner, {
+            ...request,
+            pageNumber: requirePageNumber(pageNumber),
+            ...(visible ? {visible: true} : {}),
+        });
     const visiblePreview = previewPage(1, true);
     // The page the user navigates onto is served while detection still holds
     // its lease: its raw raster reaches the renderer without waiting for the
     // job, and a whole sidecar run before the cleaned outputs.
-    await vi.waitFor(() => expect(owner.send).toHaveBeenCalledWith(
-        SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onPreviewRaw,
-        expect.objectContaining({pageNumber: 1}),
-    ));
-    const prefetched = [
-        previewPage(2),
-        previewPage(3),
-    ];
-        // The visible page reaches its sidecar; the two prefetches are scheduled
-        // behind the machine rather than added to it.
+    await vi.waitFor(() =>
+        expect(owner.send).toHaveBeenCalledWith(
+            SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onPreviewRaw,
+            expect.objectContaining({pageNumber: 1}),
+        ),
+    );
+    const prefetched = [previewPage(2), previewPage(3)];
+    // The visible page reaches its sidecar; the two prefetches are scheduled
+    // behind the machine rather than added to it.
     // Detection's own analysis may already be running: it starts as soon as
     // its first page image exists rather than after a whole batch.
     await vi.waitFor(() => expect(previewSidecars).toBe(1));
@@ -1503,21 +1469,12 @@ export async function scenarioSchedulesAPageSwitchDuringDetectionInsteadOfPiling
     expect((await visiblePreview).pageNumber).toBe(1);
     expect(service.getDetectionJobState(owner, started.jobId, request)?.status).toBe('running');
     heldDetectionRasters.resolve(undefined);
-    await vi.waitFor(() => expect(service.getDetectionJobState(
-        owner,
-        started.jobId,
-        request,
-    )?.status).toBe('completed'));
-    expect((await Promise.all(prefetched)).map(result => result.pageNumber)).toEqual([
-        2,
-        3,
-    ]);
+    await vi.waitFor(() => expect(service.getDetectionJobState(owner, started.jobId, request)?.status).toBe('completed'));
+    expect((await Promise.all(prefetched)).map((result) => result.pageNumber)).toEqual([2, 3]);
     expect(peakNatives).toBe(capacity.nativeProcesses);
-
 }
 
 export async function scenarioLeasesAVisiblePreviewAheadOfAPrefetchOfTheSameDocument(): Promise<void> {
-
     const {deps} = await previewDependencies();
     const acquire = vi.spyOn(mainJobBroker, 'acquire');
     try {
@@ -1560,7 +1517,6 @@ export async function scenarioLeasesAVisiblePreviewAheadOfAPrefetchOfTheSameDocu
     } finally {
         acquire.mockRestore();
     }
-
 }
 
 export async function scenarioTrustedMrcAutomaticBwPreview(): Promise<void> {
@@ -1588,16 +1544,13 @@ export async function scenarioRenderProcessGoneInFlightCancellation(): Promise<v
 }
 
 export async function scenarioPreservesComposedResourcesAcrossTwoOwnersAndDisposesThem(): Promise<void> {
-    const {
-        dir,
-        deps,
-    } = await previewDependencies();
+    const {dir, deps} = await previewDependencies();
     const owner1 = lifecycleSender(101);
     const owner2 = lifecycleSender(202);
     const stores: Array<{
         store: IPdfPageSizeStore;
         closed: boolean;
-        reads: number
+        reads: number;
     }> = [];
     const handles = new Set<{close: () => Promise<void>}>();
     let activeLeases = 0;
@@ -1623,11 +1576,13 @@ export async function scenarioPreservesComposedResourcesAcrossTwoOwnersAndDispos
         const closed = {value: false};
         let reads = 0;
         const assertOpen = () => {
-            if (closed.value) {throw new Error('page-size store is closed');}
+            if (closed.value) {
+                throw new Error('page-size store is closed');
+            }
         };
         const store: IPdfPageSizeStore = {
             pageCount: DOCUMENT_PAGE_SIZES.length,
-            getPage: async pageNumber => {
+            getPage: async (pageNumber) => {
                 assertOpen();
                 reads += 1;
                 return DOCUMENT_PAGE_SIZES[pageNumber - 1]!;
@@ -1637,7 +1592,7 @@ export async function scenarioPreservesComposedResourcesAcrossTwoOwnersAndDispos
                 reads += 1;
                 return DOCUMENT_PAGE_SIZES.slice(first - 1, last - 1);
             },
-            forEachChunk: async onChunk => {
+            forEachChunk: async (onChunk) => {
                 assertOpen();
                 reads += 1;
                 await onChunk({
@@ -1655,8 +1610,12 @@ export async function scenarioPreservesComposedResourcesAcrossTwoOwnersAndDispos
         };
         stores.push({
             store,
-            get closed() { return closed.value; },
-            get reads() { return reads; },
+            get closed() {
+                return closed.value;
+            },
+            get reads() {
+                return reads;
+            },
         });
         return store;
     };
@@ -1717,11 +1676,7 @@ export async function scenarioPreservesComposedResourcesAcrossTwoOwnersAndDispos
             await waitForRelease(ownerOneRelease.promise, signal);
         } else if (page.detailRenderPlan !== undefined) {
             const plan = page.detailRenderPlan;
-            for (const path of [
-                plan.baseMetadataPath,
-                plan.baseRasterPath,
-                plan.baseCleanedRasterPath,
-            ]) {
+            for (const path of [plan.baseMetadataPath, plan.baseRasterPath, plan.baseCleanedRasterPath]) {
                 if (path !== undefined) {
                     expect(isPathWithinRoot(path, dir)).toBe(true);
                 }
@@ -1749,13 +1704,15 @@ export async function scenarioPreservesComposedResourcesAcrossTwoOwnersAndDispos
         ...composedRequest,
         requestId: requireRequestId('preview-detail-request'),
         detail: {
-            viewports: {full: {
-                xNormalized: 0.25,
-                yNormalized: 0.2,
-                widthNormalized: 0.5,
-                heightNormalized: 0.45,
-                rotationDegrees: 0,
-            }},
+            viewports: {
+                full: {
+                    xNormalized: 0.25,
+                    yNormalized: 0.2,
+                    widthNormalized: 0.5,
+                    heightNormalized: 0.45,
+                    rotationDegrees: 0,
+                },
+            },
             outputMode: 'bw',
         },
     });
@@ -1767,11 +1724,13 @@ export async function scenarioPreservesComposedResourcesAcrossTwoOwnersAndDispos
         pageNumber: requirePageNumber(2),
     });
     await ownerOneEntered.promise;
-    expect(service.cancel(owner1, {
-        ownerId: 'owner-1',
-        documentRevision: request.documentRevision,
-        sourcePdfPath: request.sourcePdfPath,
-    })).toBe(true);
+    expect(
+        service.cancel(owner1, {
+            ownerId: 'owner-1',
+            documentRevision: request.documentRevision,
+            sourcePdfPath: request.sourcePdfPath,
+        }),
+    ).toBe(true);
     await expect(ownerOnePreview).rejects.toMatchObject({name: 'AbortError'});
     const detection = await service.detectAll(owner2, detectionRequest);
     await detectionEntered.promise;
@@ -1781,17 +1740,17 @@ export async function scenarioPreservesComposedResourcesAcrossTwoOwnersAndDispos
     await expect(stat(detailMetadataPath!)).resolves.toBeDefined();
     await expect(stat(detailRasterPath!)).resolves.toBeDefined();
     await expect(stat(detailBasePath!)).resolves.toBeDefined();
-    const resultStorePaths = (await readdir(dir)).filter(name => name.startsWith('scan-cleanup-results-'));
+    const resultStorePaths = (await readdir(dir)).filter((name) => name.startsWith('scan-cleanup-results-'));
     expect(resultStorePaths).not.toHaveLength(0);
-    expect(stores.some(entry => entry.reads > 0)).toBe(true);
-    expect(stores.some(entry => !entry.closed)).toBe(true);
+    expect(stores.some((entry) => entry.reads > 0)).toBe(true);
+    expect(stores.some((entry) => !entry.closed)).toBe(true);
     expect(service.getDetectionJobState(owner2, detection.jobId, detectionRequest)?.status).toBe('running');
     detailRelease.resolve(undefined);
     await expect(detail).resolves.toMatchObject({pageNumber: 1});
     await service.dispose();
     expect(activeLeases).toBe(0);
     expect(handles.size).toBe(0);
-    expect(stores.every(entry => entry.closed)).toBe(true);
+    expect(stores.every((entry) => entry.closed)).toBe(true);
     expect(owner1.listenerCount('destroyed')).toBe(0);
     expect(owner1.listenerCount('render-process-gone')).toBe(0);
     expect(owner2.listenerCount('destroyed')).toBe(0);
@@ -1812,7 +1771,7 @@ describe('scanCleanupPreviewCompositionTest', () => {
             const sourcePath = join(scratch, 'source.pdf');
             await writeFile(sourcePath, 'fixture');
             const entries = await defaultDependencies.fileSystem!.readdir(scratch, {withFileTypes: true});
-            expect(entries.map(entry => entry.name)).toEqual(['source.pdf']);
+            expect(entries.map((entry) => entry.name)).toEqual(['source.pdf']);
             await expect(defaultDependencies.getSourceStatIdentity!(sourcePath)).resolves.toMatch(/^\d+:\d+$/u);
             expect(defaultDependencies.getPageSizeStore).toBeDefined();
             const rasterPolicy = defaultDependencies.resolveRasterAdmissionPolicy();
@@ -1820,30 +1779,32 @@ describe('scanCleanupPreviewCompositionTest', () => {
             // Native detection sizes its page workers from host memory.
             expect(rasterPolicy.totalRamBytes).toBe(HOST_RAM_BYTES);
             const signal = new AbortController().signal;
-            await expect(defaultDependencies.runWithDetectionLease!(
-                'scan-cleanup-defaults-test',
-                signal,
-                rasterPolicy,
-                undefined,
-                async brokerRun => {
-                    expect(getActiveJobBrokerLease(brokerRun)).toBeDefined();
-                    return 'detection-ok';
-                },
-            )).resolves.toBe('detection-ok');
-            await expect(defaultDependencies.runWithPreviewLease!(
-                'scan-cleanup-defaults-test',
-                'visible',
-                signal,
-                undefined,
-                undefined,
-                async brokerRun => {
-                    expect(getActiveJobBrokerLease(brokerRun)).toBeDefined();
-                    return 'preview-ok';
-                },
-            )).resolves.toBe('preview-ok');
-            expect(defaultDependencies.resolvePageOpsBinary()).toSatisfy(
-                value => value === null || typeof value === 'string',
-            );
+            await expect(
+                defaultDependencies.runWithDetectionLease!(
+                    'scan-cleanup-defaults-test',
+                    signal,
+                    rasterPolicy,
+                    undefined,
+                    async (brokerRun) => {
+                        expect(getActiveJobBrokerLease(brokerRun)).toBeDefined();
+                        return 'detection-ok';
+                    },
+                ),
+            ).resolves.toBe('detection-ok');
+            await expect(
+                defaultDependencies.runWithPreviewLease!(
+                    'scan-cleanup-defaults-test',
+                    'visible',
+                    signal,
+                    undefined,
+                    undefined,
+                    async (brokerRun) => {
+                        expect(getActiveJobBrokerLease(brokerRun)).toBeDefined();
+                        return 'preview-ok';
+                    },
+                ),
+            ).resolves.toBe('preview-ok');
+            expect(defaultDependencies.resolvePageOpsBinary()).toSatisfy((value) => value === null || typeof value === 'string');
             expect(defaultDependencies.getPdftoppmBinary()).toEqual(expect.any(String));
             expect(defaultDependencies.isRasterDetectionAvailable!()).toBeTypeOf('boolean');
             await expect(readFile(sourcePath, 'utf8')).resolves.toBe('fixture');
@@ -1861,33 +1822,39 @@ describe('scanCleanupPreviewCompositionTest', () => {
             pageOverrides: {},
         };
         expect(resolveScanCleanupPreviewRasterSlotResidentBytes(bilevel)).toBe(640_000_000);
-        expect(resolveScanCleanupPreviewRasterSlotResidentBytes({
-            ...bilevel,
-            outputMode: 'color',
-        }))
-            .toBe(320_000_000);
-        expect(resolveScanCleanupPreviewRasterSlotResidentBytes({
-            ...bilevel,
-            preserveOriginalQuality: true,
-        }))
-            .toBe(320_000_000);
-        expect(resolveScanCleanupPreviewRasterSlotResidentBytes({
-            ...bilevel,
-            outputMode: 'auto',
-        }))
-            .toBe(640_000_000);
-        expect(resolveScanCleanupPreviewRasterSlotResidentBytes({
-            ...bilevel,
-            outputMode: 'color',
-            pageOverrides: {'1': {
-                rotationDegrees: 0,
-                layoutOverride: 'auto',
-                excluded: false,
-                manualSplit: null,
-                outputModeOverride: 'bw',
-            }},
-        }))
-            .toBe(640_000_000);
+        expect(
+            resolveScanCleanupPreviewRasterSlotResidentBytes({
+                ...bilevel,
+                outputMode: 'color',
+            }),
+        ).toBe(320_000_000);
+        expect(
+            resolveScanCleanupPreviewRasterSlotResidentBytes({
+                ...bilevel,
+                preserveOriginalQuality: true,
+            }),
+        ).toBe(320_000_000);
+        expect(
+            resolveScanCleanupPreviewRasterSlotResidentBytes({
+                ...bilevel,
+                outputMode: 'auto',
+            }),
+        ).toBe(640_000_000);
+        expect(
+            resolveScanCleanupPreviewRasterSlotResidentBytes({
+                ...bilevel,
+                outputMode: 'color',
+                pageOverrides: {
+                    '1': {
+                        rotationDegrees: 0,
+                        layoutOverride: 'auto',
+                        excluded: false,
+                        manualSplit: null,
+                        outputModeOverride: 'bw',
+                    },
+                },
+            }),
+        ).toBe(640_000_000);
     });
     it('caps the admitted raster budget to a low-memory broker capacity', () => {
         const capacity = {
@@ -1896,20 +1863,14 @@ describe('scanCleanupPreviewCompositionTest', () => {
             nativeProcesses: 2,
             ioWeight: 4,
         };
-        const policy = resolveScanCleanupPreviewRasterAdmissionPolicy(
-            capacity,
-            {
-                preserveOriginalQuality: false,
-                outputMode: 'color',
-                pageOverrides: {},
-            },
-        );
+        const policy = resolveScanCleanupPreviewRasterAdmissionPolicy(capacity, {
+            preserveOriginalQuality: false,
+            outputMode: 'color',
+            pageOverrides: {},
+        });
         expect(policy.rasterConcurrency).toBe(1);
         expect(policy.rasterMaxPixels).toBe(67_108_864);
-        expect(resolveScanCleanupPreviewRasterSlotResidentBytes(
-            undefined,
-            policy.rasterMaxPixels,
-        )).toBe(capacity.estimatedResidentBytes);
+        expect(resolveScanCleanupPreviewRasterSlotResidentBytes(undefined, policy.rasterMaxPixels)).toBe(capacity.estimatedResidentBytes);
     });
     it('admits a low-memory preview lease with its reduced raster reservation', async () => {
         const previousCapacity = mainJobBroker.getSnapshot().capacity;
@@ -1923,27 +1884,31 @@ describe('scanCleanupPreviewCompositionTest', () => {
         try {
             const signal = new AbortController().signal;
             const rasterPolicy = defaultDependencies.resolveRasterAdmissionPolicy!();
-            await expect(defaultDependencies.runWithDetectionLease!(
-                'scan-cleanup-low-memory-test',
-                signal,
-                rasterPolicy,
-                undefined,
-                async brokerRun => {
-                    expect(getActiveJobBrokerLease(brokerRun)).toBeDefined();
-                    return 'detection-ok';
-                },
-            )).resolves.toBe('detection-ok');
-            await expect(defaultDependencies.runWithPreviewLease!(
-                'scan-cleanup-low-memory-test',
-                'visible',
-                signal,
-                undefined,
-                undefined,
-                async brokerRun => {
-                    expect(getActiveJobBrokerLease(brokerRun)).toBeDefined();
-                    return 'preview-ok';
-                },
-            )).resolves.toBe('preview-ok');
+            await expect(
+                defaultDependencies.runWithDetectionLease!(
+                    'scan-cleanup-low-memory-test',
+                    signal,
+                    rasterPolicy,
+                    undefined,
+                    async (brokerRun) => {
+                        expect(getActiveJobBrokerLease(brokerRun)).toBeDefined();
+                        return 'detection-ok';
+                    },
+                ),
+            ).resolves.toBe('detection-ok');
+            await expect(
+                defaultDependencies.runWithPreviewLease!(
+                    'scan-cleanup-low-memory-test',
+                    'visible',
+                    signal,
+                    undefined,
+                    undefined,
+                    async (brokerRun) => {
+                        expect(getActiveJobBrokerLease(brokerRun)).toBeDefined();
+                        return 'preview-ok';
+                    },
+                ),
+            ).resolves.toBe('preview-ok');
         } finally {
             mainJobBroker.reconfigureCapacity(previousCapacity);
         }
@@ -1979,24 +1944,28 @@ describe('scanCleanupPreviewCompositionTest', () => {
                 if (getActiveJobBrokerLease(brokerRun) !== undefined) {
                     return work();
                 }
-                return mainJobBroker.run({
-                    ownerId: 'native-command:test',
-                    kind: 'native-command',
-                    priority: 'user',
-                    admissionClass: 'leaf',
-                    resources: {
-                        cpuTokens: 1,
-                        estimatedResidentBytes: 128 * 1024 * 1024,
-                        nativeProcesses: 1,
-                        ioWeight: 1,
+                return mainJobBroker.run(
+                    {
+                        ownerId: 'native-command:test',
+                        kind: 'native-command',
+                        priority: 'user',
+                        admissionClass: 'leaf',
+                        resources: {
+                            cpuTokens: 1,
+                            estimatedResidentBytes: 128 * 1024 * 1024,
+                            nativeProcesses: 1,
+                            ioWeight: 1,
+                        },
                     },
-                }, work);
+                    work,
+                );
             };
-            deps.renderPageBatch = vi.fn(async input => runUnderBrokerLikeNativeCommand(
-                input.brokerRun,
-                async () => {
+            deps.renderPageBatch = vi.fn(async (input) =>
+                runUnderBrokerLikeNativeCommand(input.brokerRun, async () => {
                     const held = getActiveJobBrokerLease(input.brokerRun);
-                    if (held) {observedLeaseTokens.detectionBatch.push(held.token);}
+                    if (held) {
+                        observedLeaseTokens.detectionBatch.push(held.token);
+                    }
                     const results = [];
                     for (const target of input.targets) {
                         await writeFile(target.outputPath, PNG);
@@ -2008,19 +1977,19 @@ describe('scanCleanupPreviewCompositionTest', () => {
                         });
                     }
                     return results;
-                },
-            ));
-            deps.renderPage = vi.fn(async (...args: Parameters<typeof originalRenderPage>) => runUnderBrokerLikeNativeCommand(
-                args[13],
-                async () => {
+                }),
+            );
+            deps.renderPage = vi.fn(async (...args: Parameters<typeof originalRenderPage>) =>
+                runUnderBrokerLikeNativeCommand(args[13], async () => {
                     const held = getActiveJobBrokerLease(args[13]);
-                    if (held) {observedLeaseTokens.previewRender.push(held.token);}
+                    if (held) {
+                        observedLeaseTokens.previewRender.push(held.token);
+                    }
                     await originalRenderPage(...args);
-                },
-            ));
-            deps.runSidecar = vi.fn(async (binary, manifestPath, signal, log, onProgress, options) => runUnderBrokerLikeNativeCommand(
-                options?.brokerRun,
-                async () => {
+                }),
+            );
+            deps.runSidecar = vi.fn(async (binary, manifestPath, signal, log, onProgress, options) =>
+                runUnderBrokerLikeNativeCommand(options?.brokerRun, async () => {
                     const held = getActiveJobBrokerLease(options?.brokerRun);
                     const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
                         operation?: string;
@@ -2030,13 +1999,17 @@ describe('scanCleanupPreviewCompositionTest', () => {
                         }>;
                     };
                     if (manifest.operation !== 'analyze') {
-                        if (held) {observedLeaseTokens.previewSidecar.push(held.token);}
+                        if (held) {
+                            observedLeaseTokens.previewSidecar.push(held.token);
+                        }
                         previewEntered.resolve(undefined);
                         await releasePreview.promise;
                         await originalSidecar(binary, manifestPath, signal, log, onProgress, options);
                         return;
                     }
-                    if (held) {observedLeaseTokens.detectionSidecar.push(held.token);}
+                    if (held) {
+                        observedLeaseTokens.detectionSidecar.push(held.token);
+                    }
                     // Wait until preview also holds its bulk slot so bulk capacity is 100% full,
                     // then demand pages 2 and 3 while the detection sidecar stays running.
                     await previewEntered.promise;
@@ -2067,8 +2040,8 @@ describe('scanCleanupPreviewCompositionTest', () => {
                             confidence: 0.9,
                         });
                     }
-                },
-            ));
+                }),
+            );
             const service = scanCleanupPreviewLifecycle(deps);
             const owner = sender();
             try {
@@ -2077,11 +2050,9 @@ describe('scanCleanupPreviewCompositionTest', () => {
                     visible: true,
                 });
                 const started = await service.detectAll(owner, detectionRequest);
-                await vi.waitFor(() => expect(service.getDetectionJobState(
-                    owner,
-                    started.jobId,
-                    detectionRequest,
-                )?.status).toBe('completed'));
+                await vi.waitFor(() =>
+                    expect(service.getDetectionJobState(owner, started.jobId, detectionRequest)?.status).toBe('completed'),
+                );
                 releasePreview.resolve(undefined);
                 await expect(previewPromise).resolves.toMatchObject({pageNumber: 1});
             } finally {
@@ -2089,16 +2060,11 @@ describe('scanCleanupPreviewCompositionTest', () => {
             }
             expect(observedLeaseTokens.detectionSidecar).toHaveLength(1);
             expect(observedLeaseTokens.detectionBatch.length).toBeGreaterThanOrEqual(2);
-            expect(new Set([
-                ...observedLeaseTokens.detectionSidecar,
-                ...observedLeaseTokens.detectionBatch,
-            ]).size).toBe(1);
+            expect(new Set([...observedLeaseTokens.detectionSidecar, ...observedLeaseTokens.detectionBatch]).size).toBe(1);
             expect(observedLeaseTokens.previewSidecar).toHaveLength(1);
             expect(observedLeaseTokens.previewSidecar[0]).not.toBe(observedLeaseTokens.detectionSidecar[0]);
             expect(observedLeaseTokens.previewRender.length).toBeGreaterThan(0);
-            expect(observedLeaseTokens.previewRender.every(
-                token => token === observedLeaseTokens.previewSidecar[0],
-            )).toBe(true);
+            expect(observedLeaseTokens.previewRender.every((token) => token === observedLeaseTokens.previewSidecar[0])).toBe(true);
             expect(mainJobBroker.getSnapshot()).toMatchObject({
                 active: 0,
                 queued: 0,
@@ -2115,65 +2081,72 @@ describe('scanCleanupPreviewCompositionTest', () => {
         const localBatchProofs: Array<Promise<boolean>> = [];
         const proof = Promise.resolve(true);
 
-        await mainJobBroker.run({
-            ownerId: 'nested-bind-test',
-            kind: 'scan-cleanup-preview',
-            priority: 'visible',
-            resources: {
-                cpuTokens: 1,
-                estimatedResidentBytes: 128 * 1024 * 1024,
-                nativeProcesses: 1,
-                ioWeight: 1,
+        await mainJobBroker.run(
+            {
+                ownerId: 'nested-bind-test',
+                kind: 'scan-cleanup-preview',
+                priority: 'visible',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 128 * 1024 * 1024,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
             },
-        }, async brokerRun => {
-            const trackedBrokerRun: IJobBrokerRunContext = {
-                ...brokerRun,
-                onTerminationProof: p => {
-                    ownerProofs.push(p);
-                    brokerRun.onTerminationProof(p);
-                },
-            };
-            const baseDeps = {
-                getTempDir: () => '/tmp',
-                renderPage: vi.fn(async () => undefined),
-                renderPagePpm: vi.fn(async () => undefined),
-                renderPageBatch: vi.fn(async input => {
-                    input.brokerRun?.onTerminationProof(proof);
-                    return [];
-                }),
-                runSidecar: vi.fn(async (_b, _m, _s, _l, _p, options) => {
-                    options?.brokerRun?.onTerminationProof(proof);
-                }),
-            };
-            const boundOnce = bindScanCleanupTerminationProof(baseDeps, trackedBrokerRun);
-            const boundTwice = bindScanCleanupTerminationProof(boundOnce, trackedBrokerRun);
+            async (brokerRun) => {
+                const trackedBrokerRun: IJobBrokerRunContext = {
+                    ...brokerRun,
+                    onTerminationProof: (p) => {
+                        ownerProofs.push(p);
+                        brokerRun.onTerminationProof(p);
+                    },
+                };
+                const baseDeps = {
+                    getTempDir: () => '/tmp',
+                    renderPage: vi.fn(async () => undefined),
+                    renderPagePpm: vi.fn(async () => undefined),
+                    renderPageBatch: vi.fn(async (input) => {
+                        input.brokerRun?.onTerminationProof(proof);
+                        return [];
+                    }),
+                    runSidecar: vi.fn(async (_b, _m, _s, _l, _p, options) => {
+                        options?.brokerRun?.onTerminationProof(proof);
+                    }),
+                };
+                const boundOnce = bindScanCleanupTerminationProof(baseDeps, trackedBrokerRun);
+                const boundTwice = bindScanCleanupTerminationProof(boundOnce, trackedBrokerRun);
 
-            const signal = new AbortController().signal;
-            await boundTwice.runSidecar('/bin/sidecar', '/tmp/m.json', signal, () => undefined, () => undefined, {
-                allowedPathRoot: '/tmp',
-                onTerminationProof: (p: Promise<boolean>) => {
-                    localSidecarProofs.push(p);
-                },
-            });
-            await boundTwice.renderPageBatch!({
-                dpi: 150,
-                log: () => undefined,
-                pdftoppmBinary: '/bin/pdftoppm',
-                signal,
-                sourcePdfPath: '/tmp/source.pdf',
-                targets: [],
-                onTerminationProof: (p: Promise<boolean>) => {
-                    localBatchProofs.push(p);
-                },
-            });
-        });
+                const signal = new AbortController().signal;
+                await boundTwice.runSidecar(
+                    '/bin/sidecar',
+                    '/tmp/m.json',
+                    signal,
+                    () => undefined,
+                    () => undefined,
+                    {
+                        allowedPathRoot: '/tmp',
+                        onTerminationProof: (p: Promise<boolean>) => {
+                            localSidecarProofs.push(p);
+                        },
+                    },
+                );
+                await boundTwice.renderPageBatch!({
+                    dpi: 150,
+                    log: () => undefined,
+                    pdftoppmBinary: '/bin/pdftoppm',
+                    signal,
+                    sourcePdfPath: '/tmp/source.pdf',
+                    targets: [],
+                    onTerminationProof: (p: Promise<boolean>) => {
+                        localBatchProofs.push(p);
+                    },
+                });
+            },
+        );
 
         expect(localSidecarProofs).toEqual([proof]);
         expect(localBatchProofs).toEqual([proof]);
-        expect(ownerProofs).toEqual([
-            proof,
-            proof,
-        ]);
+        expect(ownerProofs).toEqual([proof, proof]);
     });
 
     it('forwards the owning brokerRun lease into shared detectRasterPages probes', async () => {
@@ -2185,22 +2158,23 @@ describe('scanCleanupPreviewCompositionTest', () => {
         deps.isRasterDetectionAvailable = () => true;
         deps.detectRasterPages = vi.fn(async (_sourcePdfPath, _signal, pageNumbers: readonly number[] = [], brokerRun) => {
             const activeLease = getActiveJobBrokerLease(brokerRun, mainJobBroker);
-            if (activeLease) {observedProbeLeases.push(activeLease.token);}
+            if (activeLease) {
+                observedProbeLeases.push(activeLease.token);
+            }
             return createScanCleanupPageRasterSource({
                 pages: pageNumbers,
-                sourceDpiByPage: new Map(pageNumbers.map((pageNumber: number) => [
-                    pageNumber,
-                    300,
-                ] as const)),
+                sourceDpiByPage: new Map(pageNumbers.map((pageNumber: number) => [pageNumber, 300] as const)),
             });
         });
         const service = scanCleanupPreviewLifecycle(deps);
         const owner = sender();
         try {
-            await expect(previewOf(service, owner, {
-                ...request,
-                visible: true,
-            })).resolves.toMatchObject({pageNumber: 1});
+            await expect(
+                previewOf(service, owner, {
+                    ...request,
+                    visible: true,
+                }),
+            ).resolves.toMatchObject({pageNumber: 1});
         } finally {
             await service.dispose();
         }
@@ -2209,9 +2183,7 @@ describe('scanCleanupPreviewCompositionTest', () => {
 
     it('serves both a sibling preview and an immediate replacement cleanly when the starting preview cancels during sourceDpi', async () => {
         const {scanCleanupRasterRetention} = await import('@electron/features/scan-cleanup/scanCleanupRasterRetention');
-        const {
-            dir, deps,
-        } = await createScanCleanupPreviewTestContext(dirs);
+        const {dir, deps} = await createScanCleanupPreviewTestContext(dirs);
         const firstProbeStarted = Promise.withResolvers<AbortSignal>();
         const finishFirstProbeTermination = Promise.withResolvers<void>();
         let callCount = 0;
@@ -2236,32 +2208,35 @@ describe('scanCleanupPreviewCompositionTest', () => {
         const replacementController = new AbortController();
 
         try {
-            await mainJobBroker.run({
-                ownerId: 'preview-1',
-                kind: 'scan-cleanup-preview',
-                priority: 'visible',
-                resources: {
-                    cpuTokens: 1,
-                    estimatedResidentBytes: 128 * 1024 * 1024,
-                    nativeProcesses: 1,
-                    ioWeight: 1,
+            await mainJobBroker.run(
+                {
+                    ownerId: 'preview-1',
+                    kind: 'scan-cleanup-preview',
+                    priority: 'visible',
+                    resources: {
+                        cpuTokens: 1,
+                        estimatedResidentBytes: 128 * 1024 * 1024,
+                        nativeProcesses: 1,
+                        ioWeight: 1,
+                    },
                 },
-            }, async run1 => {
-                const firstRead = retention.sourceDpi(doc, 1, firstController.signal, run1);
-                const probeSignal = await firstProbeStarted.promise;
-                const siblingRead = retention.sourceDpi(doc, 1, siblingController.signal, run1);
+                async (run1) => {
+                    const firstRead = retention.sourceDpi(doc, 1, firstController.signal, run1);
+                    const probeSignal = await firstProbeStarted.promise;
+                    const siblingRead = retention.sourceDpi(doc, 1, siblingController.signal, run1);
 
-                firstController.abort(new DOMException('First canceled', 'AbortError'));
-                await expect(firstRead).rejects.toMatchObject({name: 'AbortError'});
-                expect(probeSignal.aborted).toBe(true);
+                    firstController.abort(new DOMException('First canceled', 'AbortError'));
+                    await expect(firstRead).rejects.toMatchObject({name: 'AbortError'});
+                    expect(probeSignal.aborted).toBe(true);
 
-                // Replacement arrives BEFORE the canceled probe has finished terminating.
-                const replacementRead = retention.sourceDpi(doc, 1, replacementController.signal, run1);
-                await expect(replacementRead).resolves.toBe(300);
+                    // Replacement arrives BEFORE the canceled probe has finished terminating.
+                    const replacementRead = retention.sourceDpi(doc, 1, replacementController.signal, run1);
+                    await expect(replacementRead).resolves.toBe(300);
 
-                finishFirstProbeTermination.resolve();
-                await expect(siblingRead).resolves.toBe(300);
-            });
+                    finishFirstProbeTermination.resolve();
+                    await expect(siblingRead).resolves.toBe(300);
+                },
+            );
         } finally {
             await retention.release(doc);
             await retention.dispose();
@@ -2270,9 +2245,7 @@ describe('scanCleanupPreviewCompositionTest', () => {
 
     it('retains only one owning lease when a shared sourceDpi probe fails with unproven termination', async () => {
         const {scanCleanupRasterRetention} = await import('@electron/features/scan-cleanup/scanCleanupRasterRetention');
-        const {
-            dir, deps,
-        } = await createScanCleanupPreviewTestContext(dirs);
+        const {dir, deps} = await createScanCleanupPreviewTestContext(dirs);
         const probeStarted = Promise.withResolvers<IJobBrokerRunContext | undefined>();
         const releaseUnproven = Promise.withResolvers<void>();
         const unprovenProof = Promise.withResolvers<boolean>();
@@ -2295,29 +2268,39 @@ describe('scanCleanupPreviewCompositionTest', () => {
             ioWeight: 4,
         });
         try {
-            const firstDone = mainJobBroker.run({
-                ownerId: 'preview-owner-1',
-                kind: 'scan-cleanup-preview',
-                priority: 'visible',
-                resources: {
-                    cpuTokens: 1,
-                    estimatedResidentBytes: 128 * 1024 * 1024,
-                    nativeProcesses: 1,
-                    ioWeight: 1,
-                },
-            }, run1 => retention.sourceDpi(doc, 1, new AbortController().signal, run1)).catch(() => 'failed-1');
+            const firstDone = mainJobBroker
+                .run(
+                    {
+                        ownerId: 'preview-owner-1',
+                        kind: 'scan-cleanup-preview',
+                        priority: 'visible',
+                        resources: {
+                            cpuTokens: 1,
+                            estimatedResidentBytes: 128 * 1024 * 1024,
+                            nativeProcesses: 1,
+                            ioWeight: 1,
+                        },
+                    },
+                    (run1) => retention.sourceDpi(doc, 1, new AbortController().signal, run1),
+                )
+                .catch(() => 'failed-1');
             await probeStarted.promise;
-            const secondDone = mainJobBroker.run({
-                ownerId: 'preview-owner-2',
-                kind: 'scan-cleanup-preview',
-                priority: 'visible',
-                resources: {
-                    cpuTokens: 1,
-                    estimatedResidentBytes: 128 * 1024 * 1024,
-                    nativeProcesses: 1,
-                    ioWeight: 1,
-                },
-            }, run2 => retention.sourceDpi(doc, 1, new AbortController().signal, run2)).catch(() => 'failed-2');
+            const secondDone = mainJobBroker
+                .run(
+                    {
+                        ownerId: 'preview-owner-2',
+                        kind: 'scan-cleanup-preview',
+                        priority: 'visible',
+                        resources: {
+                            cpuTokens: 1,
+                            estimatedResidentBytes: 128 * 1024 * 1024,
+                            nativeProcesses: 1,
+                            ioWeight: 1,
+                        },
+                    },
+                    (run2) => retention.sourceDpi(doc, 1, new AbortController().signal, run2),
+                )
+                .catch(() => 'failed-2');
             releaseUnproven.resolve();
             await expect(firstDone).resolves.toBe('failed-1');
             await expect(secondDone).resolves.toBe('failed-2');
@@ -2357,41 +2340,41 @@ describe('scanCleanupPreviewCompositionTest', () => {
             };
         });
         try {
-            await mainJobBroker.run({
-                ownerId: 'single-slot-probe',
-                kind: 'scan-cleanup-preview',
-                priority: 'visible',
-                resources: {
-                    cpuTokens: 1,
-                    estimatedResidentBytes: 128 * 1024 * 1024,
-                    nativeProcesses: 1,
-                    ioWeight: 1,
+            await mainJobBroker.run(
+                {
+                    ownerId: 'single-slot-probe',
+                    kind: 'scan-cleanup-preview',
+                    priority: 'visible',
+                    resources: {
+                        cpuTokens: 1,
+                        estimatedResidentBytes: 128 * 1024 * 1024,
+                        nativeProcesses: 1,
+                        ioWeight: 1,
+                    },
                 },
-            }, async brokerRun => {
-                // Non-contiguous pages [1, 3] produce two probe ranges; a 1-slot lease must serialize them.
-                const probePromise = detectSourceDpiDetails(
-                    '/tmp/source.pdf',
-                    '/bin/pdfimages',
-                    () => undefined,
-                    undefined,
-                    new AbortController().signal,
-                    [
-                        1,
-                        3,
-                    ],
-                    undefined,
-                    undefined,
-                    brokerRun,
-                );
-                await firstEntered.promise;
-                for (let tick = 0; tick < 5; tick += 1) {
-                    await Promise.resolve();
-                }
-                expect(inFlight).toBe(1);
-                expect(maxInFlight).toBe(1);
-                releaseFirst.resolve();
-                await probePromise;
-            });
+                async (brokerRun) => {
+                    // Non-contiguous pages [1, 3] produce two probe ranges; a 1-slot lease must serialize them.
+                    const probePromise = detectSourceDpiDetails(
+                        '/tmp/source.pdf',
+                        '/bin/pdfimages',
+                        () => undefined,
+                        undefined,
+                        new AbortController().signal,
+                        [1, 3],
+                        undefined,
+                        undefined,
+                        brokerRun,
+                    );
+                    await firstEntered.promise;
+                    for (let tick = 0; tick < 5; tick += 1) {
+                        await Promise.resolve();
+                    }
+                    expect(inFlight).toBe(1);
+                    expect(maxInFlight).toBe(1);
+                    releaseFirst.resolve();
+                    await probePromise;
+                },
+            );
             expect(spy).toHaveBeenCalledTimes(2);
             expect(maxInFlight).toBe(1);
 
@@ -2399,114 +2382,65 @@ describe('scanCleanupPreviewCompositionTest', () => {
             spy.mockReset();
             const unproven = markUnprovenNativeTermination(new Error('range 1 hung'), 'pdfimages still alive');
             spy.mockRejectedValueOnce(unproven);
-            await mainJobBroker.run({
-                ownerId: 'single-slot-unproven-probe',
-                kind: 'scan-cleanup-preview',
-                priority: 'visible',
-                resources: {
-                    cpuTokens: 1,
-                    estimatedResidentBytes: 128 * 1024 * 1024,
-                    nativeProcesses: 1,
-                    ioWeight: 1,
+            await mainJobBroker.run(
+                {
+                    ownerId: 'single-slot-unproven-probe',
+                    kind: 'scan-cleanup-preview',
+                    priority: 'visible',
+                    resources: {
+                        cpuTokens: 1,
+                        estimatedResidentBytes: 128 * 1024 * 1024,
+                        nativeProcesses: 1,
+                        ioWeight: 1,
+                    },
                 },
-            }, async brokerRun => {
-                await expect(detectSourceDpiDetails(
-                    '/tmp/source.pdf',
-                    '/bin/pdfimages',
-                    () => undefined,
-                    undefined,
-                    new AbortController().signal,
-                    [
-                        1,
-                        3,
-                    ],
-                    undefined,
-                    undefined,
-                    brokerRun,
-                )).rejects.toBe(unproven);
-            });
+                async (brokerRun) => {
+                    await expect(
+                        detectSourceDpiDetails(
+                            '/tmp/source.pdf',
+                            '/bin/pdfimages',
+                            () => undefined,
+                            undefined,
+                            new AbortController().signal,
+                            [1, 3],
+                            undefined,
+                            undefined,
+                            brokerRun,
+                        ),
+                    ).rejects.toBe(unproven);
+                },
+            );
             expect(spy).toHaveBeenCalledTimes(1);
         } finally {
             spy.mockRestore();
         }
     });
     const scenarios = [
-        [
-            'visible beside adjacent prefetch',
-            scenarioLetsAVisibleRequestRunBesideTheAdjacentPrefetchInsteadOfAbortingIt,
-        ],
-        [
-            'adopt identical in-flight preview',
-            scenarioAdoptsAnIdenticalInFlightPreviewInsteadOfRenderingThePageASecondTime,
-        ],
-        [
-            'supersede Auto preview after detection',
-            scenarioSupersedesAnInFlightAutoPreviewWhenDetectionResolvesAnotherOutputMode,
-        ],
-        [
-            'supersede stale options generation',
-            scenarioSupersedesAStaleOptionsGenerationForThePageItIsRendering,
-        ],
-        [
-            'cancel pages outside navigation window',
-            scenarioCancelsOnlyThePreviewPagesANavigationNoLongerWants,
-        ],
+        ['visible beside adjacent prefetch', scenarioLetsAVisibleRequestRunBesideTheAdjacentPrefetchInsteadOfAbortingIt],
+        ['adopt identical in-flight preview', scenarioAdoptsAnIdenticalInFlightPreviewInsteadOfRenderingThePageASecondTime],
+        ['supersede Auto preview after detection', scenarioSupersedesAnInFlightAutoPreviewWhenDetectionResolvesAnotherOutputMode],
+        ['supersede stale options generation', scenarioSupersedesAStaleOptionsGenerationForThePageItIsRendering],
+        ['cancel pages outside navigation window', scenarioCancelsOnlyThePreviewPagesANavigationNoLongerWants],
         [
             'retain navigation raster until full cancellation',
             scenarioLeavesTheRasterOfARetainedNavigationAloneAndRetiresItOnAFullCancellation,
         ],
-        [
-            'keep detail in its own lane',
-            scenarioRunsDetailTilesInASeparateLaneThatNeverCancelsTheVisibleBasePreview,
-        ],
-        [
-            'fence invalidated raw raster publication',
-            scenarioDoesNotRepublishAnInvalidatedRawRasterAfterItsRendererIgnoresCancellation,
-        ],
-        [
-            'fence invalidated base geometry publication',
-            scenarioDoesNotRepublishInvalidatedBaseGeometryAfterItsSidecarIgnoresCancellation,
-        ],
-        [
-            'abort when the source path changes',
-            scenarioAbortsACleanedRequestWhenTheSameOwnerMovesToAnotherSourcePath,
-        ],
-        [
-            'abort when the revision changes',
-            scenarioAbortsAnInFlightRequestWhenTheSameOwnerMovesToAnotherDocumentRevision,
-        ],
+        ['keep detail in its own lane', scenarioRunsDetailTilesInASeparateLaneThatNeverCancelsTheVisibleBasePreview],
+        ['fence invalidated raw raster publication', scenarioDoesNotRepublishAnInvalidatedRawRasterAfterItsRendererIgnoresCancellation],
+        ['fence invalidated base geometry publication', scenarioDoesNotRepublishInvalidatedBaseGeometryAfterItsSidecarIgnoresCancellation],
+        ['abort when the source path changes', scenarioAbortsACleanedRequestWhenTheSameOwnerMovesToAnotherSourcePath],
+        ['abort when the revision changes', scenarioAbortsAnInFlightRequestWhenTheSameOwnerMovesToAnotherDocumentRevision],
         [
             'reuse raw raster until session invalidation',
             scenarioReusesTheRawPageRasterAcrossOptionChangesUntilTheDialogSessionIsInvalidated,
         ],
-        [
-            'publish raw raster before cleaned failure',
-            scenarioHasAlreadyPublishedTheRawPageWhenCleanedRenderingFails,
-        ],
-        [
-            'invalidate stale raster on revision change',
-            scenarioInvalidatesAStaleRawRasterWhenTheDocumentRevisionChanges,
-        ],
-        [
-            'invalidate stale raster on source change',
-            scenarioInvalidatesAStaleRawRasterWhenTheSourceBytesChangeUnderAnUnchangedRevision,
-        ],
-        [
-            'isolate two windows on one document',
-            scenarioDoesNotCrossCancelPreviewsFromTwoWindowsOnTheSameDocument,
-        ],
-        [
-            'keep a late replacement reachable',
-            scenarioKeepsALiveReplacementReachableWhenAnOlderGenerationRetiresLate,
-        ],
-        [
-            'readmit adopted prefetch',
-            scenarioReadmitsAnAdoptedPrefetchAsTheVisiblePageAndDropsOneNothingCanAdmit,
-        ],
-        [
-            'drop a prefetch that cannot be admitted',
-            scenarioDropsAPrefetchNothingAdmitsInsteadOfLeavingThePageCommittedToIt,
-        ],
+        ['publish raw raster before cleaned failure', scenarioHasAlreadyPublishedTheRawPageWhenCleanedRenderingFails],
+        ['invalidate stale raster on revision change', scenarioInvalidatesAStaleRawRasterWhenTheDocumentRevisionChanges],
+        ['invalidate stale raster on source change', scenarioInvalidatesAStaleRawRasterWhenTheSourceBytesChangeUnderAnUnchangedRevision],
+        ['isolate two windows on one document', scenarioDoesNotCrossCancelPreviewsFromTwoWindowsOnTheSameDocument],
+        ['keep a late replacement reachable', scenarioKeepsALiveReplacementReachableWhenAnOlderGenerationRetiresLate],
+        ['readmit adopted prefetch', scenarioReadmitsAnAdoptedPrefetchAsTheVisiblePageAndDropsOneNothingCanAdmit],
+        ['drop a prefetch that cannot be admitted', scenarioDropsAPrefetchNothingAdmitsInsteadOfLeavingThePageCommittedToIt],
         [
             'cancel during working-copy materialization',
             scenarioDoesNotQueueForAPreviewLeaseWhenTheRunIsCanceledWhileItsWorkingCopyMaterializes,
@@ -2515,18 +2449,9 @@ describe('scanCleanupPreviewCompositionTest', () => {
             'settle after working-copy retirement',
             scenarioSettlesACanceledPreviewWhenItsWorkingCopyRegistrationDisappearsDuringMaterialization,
         ],
-        [
-            'schedule a page switch during detection',
-            scenarioSchedulesAPageSwitchDuringDetectionInsteadOfPilingNativeProcessesOntoTheHost,
-        ],
-        [
-            'admit visible preview ahead of prefetch',
-            scenarioLeasesAVisiblePreviewAheadOfAPrefetchOfTheSameDocument,
-        ],
-        [
-            'preserve two-owner resources through cancellation',
-            scenarioPreservesComposedResourcesAcrossTwoOwnersAndDisposesThem,
-        ],
+        ['schedule a page switch during detection', scenarioSchedulesAPageSwitchDuringDetectionInsteadOfPilingNativeProcessesOntoTheHost],
+        ['admit visible preview ahead of prefetch', scenarioLeasesAVisiblePreviewAheadOfAPrefetchOfTheSameDocument],
+        ['preserve two-owner resources through cancellation', scenarioPreservesComposedResourcesAcrossTwoOwnersAndDisposesThem],
     ] as const;
     it.each(scenarios)('%s', async (_name, scenario) => {
         await scenario();
@@ -2535,42 +2460,15 @@ describe('scanCleanupPreviewCompositionTest', () => {
 
 describe('parameterized fixture executions', () => {
     const scenarios = [
-        [
-            'forward trusted MRC layers for automatic B/W',
-            scenarioTrustedMrcAutomaticBwPreview,
-        ],
-        [
-            'forward trusted MRC layers for explicit B/W',
-            scenarioTrustedMrcExplicitBwPreview,
-        ],
-        [
-            'keep raster canvas cache order independent',
-            scenarioRasterCanvasCacheOrderIndependence,
-        ],
-        [
-            'keep lossless canvas cache order independent',
-            scenarioLosslessCanvasCacheOrderIndependence,
-        ],
-        [
-            'cancel active work on destroyed',
-            scenarioDestroyedInFlightCancellation,
-        ],
-        [
-            'cancel active work on render-process-gone',
-            scenarioRenderProcessGoneInFlightCancellation,
-        ],
-        [
-            'release artifacts after explicit cancellation',
-            () => scenarioReleasesPreviewArtifactsAfterExplicitCancellation(),
-        ],
-        [
-            'retain raw pixels after navigation cancellation',
-            () => scenarioReleasesPreviewArtifactsAfterExplicitCancellation(true),
-        ],
-        [
-            'release artifacts when working copy closes',
-            scenarioReleasesPreviewArtifactsWhenItsWorkingCopyCloses,
-        ],
+        ['forward trusted MRC layers for automatic B/W', scenarioTrustedMrcAutomaticBwPreview],
+        ['forward trusted MRC layers for explicit B/W', scenarioTrustedMrcExplicitBwPreview],
+        ['keep raster canvas cache order independent', scenarioRasterCanvasCacheOrderIndependence],
+        ['keep lossless canvas cache order independent', scenarioLosslessCanvasCacheOrderIndependence],
+        ['cancel active work on destroyed', scenarioDestroyedInFlightCancellation],
+        ['cancel active work on render-process-gone', scenarioRenderProcessGoneInFlightCancellation],
+        ['release artifacts after explicit cancellation', () => scenarioReleasesPreviewArtifactsAfterExplicitCancellation()],
+        ['retain raw pixels after navigation cancellation', () => scenarioReleasesPreviewArtifactsAfterExplicitCancellation(true)],
+        ['release artifacts when working copy closes', scenarioReleasesPreviewArtifactsWhenItsWorkingCopyCloses],
     ] as const;
     it.each(scenarios)('%s', async (_name, scenario) => {
         await scenario();

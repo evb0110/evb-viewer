@@ -1,18 +1,7 @@
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    computed,
-    effectScope,
-    nextTick,
-    ref,
-} from 'vue';
-import { useDocumentViewportLayoutLifecycle } from '@app/modules/document-viewer/lifecycle/useDocumentViewportLayoutLifecycle';
-import { DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS } from '@app/modules/document-viewer/input/documentWheelInteraction';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {computed, effectScope, nextTick, ref} from 'vue';
+import {useDocumentViewportLayoutLifecycle} from '@app/modules/document-viewer/lifecycle/useDocumentViewportLayoutLifecycle';
+import {DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS} from '@app/modules/document-viewer/input/documentWheelInteraction';
 
 function createViewport(scrollTop: number) {
     return {
@@ -57,21 +46,25 @@ describe('useDocumentViewportLayoutLifecycle', () => {
             },
         ]);
         const writes: number[] = [];
-        const lifecycle = scope.run(() => useDocumentViewportLayoutLifecycle({
-            viewerContainer,
-            pageLayouts,
-            capturePageIndex: () => 2,
-            captureRestoreEpoch: () => 1,
-            canRestore: epoch => epoch === 1,
-            applyRestoredScroll: (restored, onApplied) => {
-                viewport.scrollLeft = restored.left;
-                viewport.scrollTop = restored.top;
-                writes.push(restored.top);
-                onApplied?.();
-                return true;
-            },
-        }));
-        if (!lifecycle) {throw new Error('Failed to create viewport layout lifecycle');}
+        const lifecycle = scope.run(() =>
+            useDocumentViewportLayoutLifecycle({
+                viewerContainer,
+                pageLayouts,
+                capturePageIndex: () => 2,
+                captureRestoreEpoch: () => 1,
+                canRestore: (epoch) => epoch === 1,
+                applyRestoredScroll: (restored, onApplied) => {
+                    viewport.scrollLeft = restored.left;
+                    viewport.scrollTop = restored.top;
+                    writes.push(restored.top);
+                    onApplied?.();
+                    return true;
+                },
+            }),
+        );
+        if (!lifecycle) {
+            throw new Error('Failed to create viewport layout lifecycle');
+        }
 
         const transaction = {};
         lifecycle.beginLayoutTransaction(transaction);
@@ -149,19 +142,23 @@ describe('useDocumentViewportLayoutLifecycle', () => {
                 height: pageHeight,
             }));
         });
-        const lifecycle = scope.run(() => useDocumentViewportLayoutLifecycle({
-            viewerContainer: ref<HTMLElement | null>(viewport),
-            pageLayouts,
-            captureRestoreEpoch: () => 1,
-            canRestore: () => true,
-            applyRestoredScroll: (restored, onApplied) => {
-                viewport.scrollLeft = restored.left;
-                viewport.scrollTop = restored.top;
-                onApplied?.();
-                return true;
-            },
-        }));
-        if (!lifecycle) {throw new Error('Failed to create viewport layout lifecycle');}
+        const lifecycle = scope.run(() =>
+            useDocumentViewportLayoutLifecycle({
+                viewerContainer: ref<HTMLElement | null>(viewport),
+                pageLayouts,
+                captureRestoreEpoch: () => 1,
+                canRestore: () => true,
+                applyRestoredScroll: (restored, onApplied) => {
+                    viewport.scrollLeft = restored.left;
+                    viewport.scrollTop = restored.top;
+                    onApplied?.();
+                    return true;
+                },
+            }),
+        );
+        if (!lifecycle) {
+            throw new Error('Failed to create viewport layout lifecycle');
+        }
 
         // The mode watcher captures page 251 from the previous fit-width
         // geometry and projects it before the DOM adopts the new layout.
@@ -176,7 +173,7 @@ describe('useDocumentViewportLayoutLifecycle', () => {
             metricRevision.value += 1;
         });
         expect(viewport.scrollTop).toBeCloseTo(132_398.9, 1);
-        frames.splice(0).forEach(callback => callback(0));
+        frames.splice(0).forEach((callback) => callback(0));
 
         expect(viewport.scrollTop).toBeCloseTo(132_398.9, 1);
         scope.stop();
@@ -207,19 +204,23 @@ describe('useDocumentViewportLayoutLifecycle', () => {
                 height: pageHeight,
             }));
         });
-        const lifecycle = scope.run(() => useDocumentViewportLayoutLifecycle({
-            viewerContainer: ref<HTMLElement | null>(viewport),
-            pageLayouts,
-            captureRestoreEpoch: () => 1,
-            canRestore: () => true,
-            applyRestoredScroll: (restored, onApplied) => {
-                viewport.scrollLeft = restored.left;
-                viewport.scrollTop = restored.top;
-                onApplied?.();
-                return true;
-            },
-        }));
-        if (!lifecycle) {throw new Error('Failed to create viewport layout lifecycle');}
+        const lifecycle = scope.run(() =>
+            useDocumentViewportLayoutLifecycle({
+                viewerContainer: ref<HTMLElement | null>(viewport),
+                pageLayouts,
+                captureRestoreEpoch: () => 1,
+                canRestore: () => true,
+                applyRestoredScroll: (restored, onApplied) => {
+                    viewport.scrollLeft = restored.left;
+                    viewport.scrollTop = restored.top;
+                    onApplied?.();
+                    return true;
+                },
+            }),
+        );
+        if (!lifecycle) {
+            throw new Error('Failed to create viewport layout lifecycle');
+        }
 
         void pageLayouts.value;
         mode.value = 'custom';
@@ -231,7 +232,7 @@ describe('useDocumentViewportLayoutLifecycle', () => {
         Object.defineProperty(viewport, 'scrollHeight', {value: 71_663});
         viewport.scrollTop = Math.min(viewport.scrollTop, viewport.scrollHeight - viewport.clientHeight);
         lifecycle.cancelPendingRestore();
-        frames.splice(0).forEach(callback => callback(0));
+        frames.splice(0).forEach((callback) => callback(0));
 
         expect(viewport.scrollTop).toBeCloseTo(35_532.1, 1);
         scope.stop();
@@ -262,19 +263,23 @@ describe('useDocumentViewportLayoutLifecycle', () => {
                 height: 100,
             },
         ]);
-        const lifecycle = scope.run(() => useDocumentViewportLayoutLifecycle({
-            viewerContainer,
-            pageLayouts,
-            captureRestoreEpoch: () => 1,
-            canRestore: () => true,
-            applyRestoredScroll: (restored, onApplied) => {
-                viewport.scrollLeft = restored.left;
-                viewport.scrollTop = restored.top;
-                onApplied?.();
-                return true;
-            },
-        }));
-        if (!lifecycle) {throw new Error('Failed to create viewport layout lifecycle');}
+        const lifecycle = scope.run(() =>
+            useDocumentViewportLayoutLifecycle({
+                viewerContainer,
+                pageLayouts,
+                captureRestoreEpoch: () => 1,
+                canRestore: () => true,
+                applyRestoredScroll: (restored, onApplied) => {
+                    viewport.scrollLeft = restored.left;
+                    viewport.scrollTop = restored.top;
+                    onApplied?.();
+                    return true;
+                },
+            }),
+        );
+        if (!lifecycle) {
+            throw new Error('Failed to create viewport layout lifecycle');
+        }
 
         const transaction = {};
         lifecycle.beginLayoutTransaction(transaction);
@@ -327,19 +332,23 @@ describe('useDocumentViewportLayoutLifecycle', () => {
             },
         ]);
         const writes: number[] = [];
-        const lifecycle = scope.run(() => useDocumentViewportLayoutLifecycle({
-            viewerContainer,
-            pageLayouts,
-            captureRestoreEpoch: () => 2,
-            canRestore: epoch => epoch === 2,
-            applyRestoredScroll: (restored, onApplied) => {
-                viewport.scrollTop = restored.top;
-                writes.push(restored.top);
-                onApplied?.();
-                return true;
-            },
-        }));
-        if (!lifecycle) {throw new Error('Failed to create viewport layout lifecycle');}
+        const lifecycle = scope.run(() =>
+            useDocumentViewportLayoutLifecycle({
+                viewerContainer,
+                pageLayouts,
+                captureRestoreEpoch: () => 2,
+                canRestore: (epoch) => epoch === 2,
+                applyRestoredScroll: (restored, onApplied) => {
+                    viewport.scrollTop = restored.top;
+                    writes.push(restored.top);
+                    onApplied?.();
+                    return true;
+                },
+            }),
+        );
+        if (!lifecycle) {
+            throw new Error('Failed to create viewport layout lifecycle');
+        }
 
         const predecessor = {};
         lifecycle.beginLayoutTransaction(predecessor);
@@ -351,7 +360,7 @@ describe('useDocumentViewportLayoutLifecycle', () => {
 
         const endSuccessor = lifecycle.endLayoutTransaction(successor, true);
         await vi.waitFor(() => expect(frames).toHaveLength(1));
-        frames.splice(0).forEach(callback => callback(0));
+        frames.splice(0).forEach((callback) => callback(0));
         await endSuccessor;
         expect(writes).not.toContain(120);
         scope.stop();
@@ -377,18 +386,22 @@ describe('useDocumentViewportLayoutLifecycle', () => {
                 height: 100,
             },
         ]);
-        const lifecycle = scope.run(() => useDocumentViewportLayoutLifecycle({
-            viewerContainer: ref<HTMLElement | null>(viewport),
-            pageLayouts,
-            captureRestoreEpoch: () => 1,
-            canRestore: () => true,
-            applyRestoredScroll: (restored, onApplied) => {
-                viewport.scrollTop = restored.top;
-                onApplied?.();
-                return true;
-            },
-        }));
-        if (!lifecycle) {throw new Error('Failed to create viewport layout lifecycle');}
+        const lifecycle = scope.run(() =>
+            useDocumentViewportLayoutLifecycle({
+                viewerContainer: ref<HTMLElement | null>(viewport),
+                pageLayouts,
+                captureRestoreEpoch: () => 1,
+                canRestore: () => true,
+                applyRestoredScroll: (restored, onApplied) => {
+                    viewport.scrollTop = restored.top;
+                    onApplied?.();
+                    return true;
+                },
+            }),
+        );
+        if (!lifecycle) {
+            throw new Error('Failed to create viewport layout lifecycle');
+        }
 
         pageLayouts.value = [
             {
@@ -406,7 +419,7 @@ describe('useDocumentViewportLayoutLifecycle', () => {
         await vi.waitFor(() => expect(frames).toHaveLength(1));
         lifecycle.cancelPendingRestore();
         viewport.scrollTop = 4_200;
-        frames.splice(0).forEach(callback => callback(0));
+        frames.splice(0).forEach((callback) => callback(0));
 
         expect(viewport.scrollTop).toBe(4_200);
         scope.stop();
@@ -436,25 +449,31 @@ describe('useDocumentViewportLayoutLifecycle', () => {
             clientHeight: {value: 400},
             clientWidth: {value: 500},
         });
-        const pageLayouts = ref([{
-            left: 300,
-            top: 16,
-            width: 400,
-            height: 1_000,
-        }]);
-        const lifecycle = scope.run(() => useDocumentViewportLayoutLifecycle({
-            viewerContainer: ref<HTMLElement | null>(viewport),
-            pageLayouts,
-            captureRestoreEpoch: () => 1,
-            canRestore: () => true,
-            applyRestoredScroll: (restored, onApplied) => {
-                viewport.scrollLeft = restored.left;
-                viewport.scrollTop = restored.top;
-                onApplied?.();
-                return true;
+        const pageLayouts = ref([
+            {
+                left: 300,
+                top: 16,
+                width: 400,
+                height: 1_000,
             },
-        }));
-        if (!lifecycle) {throw new Error('Failed to create viewport layout lifecycle');}
+        ]);
+        const lifecycle = scope.run(() =>
+            useDocumentViewportLayoutLifecycle({
+                viewerContainer: ref<HTMLElement | null>(viewport),
+                pageLayouts,
+                captureRestoreEpoch: () => 1,
+                canRestore: () => true,
+                applyRestoredScroll: (restored, onApplied) => {
+                    viewport.scrollLeft = restored.left;
+                    viewport.scrollTop = restored.top;
+                    onApplied?.();
+                    return true;
+                },
+            }),
+        );
+        if (!lifecycle) {
+            throw new Error('Failed to create viewport layout lifecycle');
+        }
 
         const transaction = {};
         lifecycle.beginLayoutTransaction(transaction);
@@ -462,24 +481,28 @@ describe('useDocumentViewportLayoutLifecycle', () => {
             clientX: 150,
             clientY: 200,
         });
-        pageLayouts.value = [{
-            left: 600,
-            top: 16,
-            width: 800,
-            height: 2_000,
-        }];
+        pageLayouts.value = [
+            {
+                left: 600,
+                top: 16,
+                width: 800,
+                height: 2_000,
+            },
+        ];
         await nextTick();
         await nextTick();
 
         expect(viewport.scrollLeft).toBe(1_100);
         expect(viewport.scrollTop).toBe(1_284);
         await vi.advanceTimersByTimeAsync(200);
-        pageLayouts.value = [{
-            left: 900,
-            top: 16,
-            width: 1_200,
-            height: 3_000,
-        }];
+        pageLayouts.value = [
+            {
+                left: 900,
+                top: 16,
+                width: 1_200,
+                height: 3_000,
+            },
+        ];
         await nextTick();
         await nextTick();
         expect(viewport.scrollLeft).toBe(1_700);
@@ -488,10 +511,7 @@ describe('useDocumentViewportLayoutLifecycle', () => {
         scope.stop();
     });
 
-    it.each([
-        'commit',
-        'complete',
-    ] as const)('centres a resize after a pointer zoom settles via %s', async (retention) => {
+    it.each(['commit', 'complete'] as const)('centres a resize after a pointer zoom settles via %s', async (retention) => {
         vi.useFakeTimers();
         vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
             callback(0);
@@ -512,49 +532,63 @@ describe('useDocumentViewportLayoutLifecycle', () => {
             offsetHeight: {value: 700},
         });
         viewport.scrollLeft = 100;
-        viewport.getBoundingClientRect = () => ({
-            left: 0,
-            top: 0,
-        } as DOMRect);
-        const pageLayouts = ref([{
-            left: 16,
-            top: 16,
-            width: 1200,
-            height: 2000,
-        }]);
-        const lifecycle = scope.run(() => useDocumentViewportLayoutLifecycle({
-            viewerContainer: ref<HTMLElement | null>(viewport),
-            pageLayouts,
-            captureRestoreEpoch: () => 1,
-            canRestore: () => true,
-            applyRestoredScroll: (restored, onApplied) => {
-                viewport.scrollLeft = restored.left;
-                viewport.scrollTop = restored.top;
-                onApplied?.();
-                return true;
+        viewport.getBoundingClientRect = () =>
+            ({
+                left: 0,
+                top: 0,
+            }) as DOMRect;
+        const pageLayouts = ref([
+            {
+                left: 16,
+                top: 16,
+                width: 1200,
+                height: 2000,
             },
-        }));
-        if (!lifecycle) {throw new Error('Failed to create viewport layout lifecycle');}
+        ]);
+        const lifecycle = scope.run(() =>
+            useDocumentViewportLayoutLifecycle({
+                viewerContainer: ref<HTMLElement | null>(viewport),
+                pageLayouts,
+                captureRestoreEpoch: () => 1,
+                canRestore: () => true,
+                applyRestoredScroll: (restored, onApplied) => {
+                    viewport.scrollLeft = restored.left;
+                    viewport.scrollTop = restored.top;
+                    onApplied?.();
+                    return true;
+                },
+            }),
+        );
+        if (!lifecycle) {
+            throw new Error('Failed to create viewport layout lifecycle');
+        }
         try {
             const transaction = retention === 'complete' ? {} : null;
-            if (transaction) {lifecycle.beginLayoutTransaction(transaction);}
+            if (transaction) {
+                lifecycle.beginLayoutTransaction(transaction);
+            }
             lifecycle.capturePointerAnchor({
                 clientX: 100,
                 clientY: 100,
             });
-            pageLayouts.value = [{
-                left: 16,
-                top: 16,
-                width: 1800,
-                height: 3000,
-            }];
+            pageLayouts.value = [
+                {
+                    left: 16,
+                    top: 16,
+                    width: 1800,
+                    height: 3000,
+                },
+            ];
             await nextTick();
             await nextTick();
             // The zoom still keeps the original page point under the pointer.
             expect(viewport.scrollLeft).toBe(192);
             expect(viewport.scrollTop).toBe(492);
-            if (transaction === null) {lifecycle.commitReadingPoint();}
-            else {await lifecycle.endLayoutTransaction(transaction);}
+            if (transaction === null) {
+                lifecycle.commitReadingPoint();
+            } else {
+                await lifecycle.endLayoutTransaction(transaction);
+            }
             await vi.advanceTimersByTimeAsync(200);
             const centreX = viewport.scrollLeft + viewport.clientWidth / 2;
             const centreY = viewport.scrollTop + viewport.clientHeight / 2;
@@ -562,7 +596,7 @@ describe('useDocumentViewportLayoutLifecycle', () => {
                 clientWidth: {value: 760},
                 offsetWidth: {value: 760},
             });
-            pageLayouts.value = pageLayouts.value.map(layout => ({...layout}));
+            pageLayouts.value = pageLayouts.value.map((layout) => ({...layout}));
             await nextTick();
             await nextTick();
             expect(viewport.scrollLeft + viewport.clientWidth / 2).toBeCloseTo(centreX, 5);
@@ -596,25 +630,31 @@ describe('useDocumentViewportLayoutLifecycle', () => {
             clientHeight: {value: 400},
             clientWidth: {value: 500},
         });
-        const pageLayouts = ref([{
-            left: 300,
-            top: 16,
-            width: 400,
-            height: 1_000,
-        }]);
-        const lifecycle = scope.run(() => useDocumentViewportLayoutLifecycle({
-            viewerContainer: ref<HTMLElement | null>(viewport),
-            pageLayouts,
-            captureRestoreEpoch: () => 1,
-            canRestore: () => true,
-            applyRestoredScroll: (restored, onApplied) => {
-                viewport.scrollLeft = restored.left;
-                viewport.scrollTop = restored.top;
-                onApplied?.();
-                return true;
+        const pageLayouts = ref([
+            {
+                left: 300,
+                top: 16,
+                width: 400,
+                height: 1_000,
             },
-        }));
-        if (!lifecycle) {throw new Error('Failed to create viewport layout lifecycle');}
+        ]);
+        const lifecycle = scope.run(() =>
+            useDocumentViewportLayoutLifecycle({
+                viewerContainer: ref<HTMLElement | null>(viewport),
+                pageLayouts,
+                captureRestoreEpoch: () => 1,
+                canRestore: () => true,
+                applyRestoredScroll: (restored, onApplied) => {
+                    viewport.scrollLeft = restored.left;
+                    viewport.scrollTop = restored.top;
+                    onApplied?.();
+                    return true;
+                },
+            }),
+        );
+        if (!lifecycle) {
+            throw new Error('Failed to create viewport layout lifecycle');
+        }
 
         const transaction = {};
         lifecycle.beginLayoutTransaction(transaction);
@@ -623,12 +663,14 @@ describe('useDocumentViewportLayoutLifecycle', () => {
             clientY: 200,
         });
         lifecycle.preserveLayoutMutation(() => {
-            pageLayouts.value = [{
-                left: 600,
-                top: 16,
-                width: 800,
-                height: 2_000,
-            }];
+            pageLayouts.value = [
+                {
+                    left: 600,
+                    top: 16,
+                    width: 800,
+                    height: 2_000,
+                },
+            ];
         });
         expect(viewport.scrollLeft).toBe(1_100);
         expect(viewport.scrollTop).toBe(1_284);
@@ -640,28 +682,36 @@ describe('useDocumentViewportLayoutLifecycle', () => {
             clientY: 450,
         });
         lifecycle.preserveLayoutMutation(() => {
-            pageLayouts.value = [{
-                left: 900,
-                top: 16,
-                width: 1_200,
-                height: 3_000,
-            }];
+            pageLayouts.value = [
+                {
+                    left: 900,
+                    top: 16,
+                    width: 1_200,
+                    height: 3_000,
+                },
+            ];
         });
         expect(viewport.scrollLeft).toBe(1_700);
         expect(viewport.scrollTop).toBe(1_968);
 
         vi.advanceTimersByTime(50);
-        lifecycle.capturePointerAnchor({
-            clientX: 450,
-            clientY: 450,
-        }, 150, true);
+        lifecycle.capturePointerAnchor(
+            {
+                clientX: 450,
+                clientY: 450,
+            },
+            150,
+            true,
+        );
         lifecycle.preserveLayoutMutation(() => {
-            pageLayouts.value = [{
-                left: 1_800,
-                top: 16,
-                width: 2_400,
-                height: 6_000,
-            }];
+            pageLayouts.value = [
+                {
+                    left: 1_800,
+                    top: 16,
+                    width: 2_400,
+                    height: 6_000,
+                },
+            ];
         });
         expect(viewport.scrollLeft).toBe(3_800);
         expect(viewport.scrollTop).toBe(4_270);
@@ -677,29 +727,33 @@ describe('useDocumentViewportLayoutLifecycle', () => {
         });
         const scope = effectScope();
         const viewport = createViewport(120);
-        const lifecycle = scope.run(() => useDocumentViewportLayoutLifecycle({
-            viewerContainer: ref<HTMLElement | null>(viewport),
-            pageLayouts: ref([
-                {
-                    top: 0,
-                    width: 100,
-                    height: 100,
+        const lifecycle = scope.run(() =>
+            useDocumentViewportLayoutLifecycle({
+                viewerContainer: ref<HTMLElement | null>(viewport),
+                pageLayouts: ref([
+                    {
+                        top: 0,
+                        width: 100,
+                        height: 100,
+                    },
+                    {
+                        top: 120,
+                        width: 100,
+                        height: 100,
+                    },
+                ]),
+                captureRestoreEpoch: () => 1,
+                canRestore: () => true,
+                applyRestoredScroll: (restored, onApplied) => {
+                    viewport.scrollTop = restored.top;
+                    onApplied?.();
+                    return true;
                 },
-                {
-                    top: 120,
-                    width: 100,
-                    height: 100,
-                },
-            ]),
-            captureRestoreEpoch: () => 1,
-            canRestore: () => true,
-            applyRestoredScroll: (restored, onApplied) => {
-                viewport.scrollTop = restored.top;
-                onApplied?.();
-                return true;
-            },
-        }));
-        if (!lifecycle) {throw new Error('Failed to create viewport layout lifecycle');}
+            }),
+        );
+        if (!lifecycle) {
+            throw new Error('Failed to create viewport layout lifecycle');
+        }
 
         const transaction = {};
         lifecycle.beginLayoutTransaction(transaction);
@@ -707,7 +761,7 @@ describe('useDocumentViewportLayoutLifecycle', () => {
         await vi.waitFor(() => expect(frames).toHaveLength(1));
         lifecycle.cancelPendingRestore();
         viewport.scrollTop = 4_200;
-        frames.splice(0).forEach(callback => callback(0));
+        frames.splice(0).forEach((callback) => callback(0));
         await ending;
 
         expect(viewport.scrollTop).toBe(4_200);
@@ -733,41 +787,52 @@ describe('useDocumentViewportLayoutLifecycle', () => {
             y: 0,
             toJSON: () => ({}),
         });
-        const pageLayouts = ref([{
-            top: 16,
-            width: 400,
-            height: 1_000,
-        }]);
-        const appliedScrolls: number[] = [];
-        const lifecycle = scope.run(() => useDocumentViewportLayoutLifecycle({
-            viewerContainer: ref<HTMLElement | null>(viewport),
-            pageLayouts,
-            captureRestoreEpoch: () => 1,
-            canRestore: () => true,
-            applyRestoredScroll: (restored, onApplied) => {
-                appliedScrolls.push(restored.top);
-                viewport.scrollTop = restored.top;
-                onApplied?.();
-                return true;
+        const pageLayouts = ref([
+            {
+                top: 16,
+                width: 400,
+                height: 1_000,
             },
-        }));
-        if (!lifecycle) {throw new Error('Failed to create viewport layout lifecycle');}
+        ]);
+        const appliedScrolls: number[] = [];
+        const lifecycle = scope.run(() =>
+            useDocumentViewportLayoutLifecycle({
+                viewerContainer: ref<HTMLElement | null>(viewport),
+                pageLayouts,
+                captureRestoreEpoch: () => 1,
+                canRestore: () => true,
+                applyRestoredScroll: (restored, onApplied) => {
+                    appliedScrolls.push(restored.top);
+                    viewport.scrollTop = restored.top;
+                    onApplied?.();
+                    return true;
+                },
+            }),
+        );
+        if (!lifecycle) {
+            throw new Error('Failed to create viewport layout lifecycle');
+        }
 
         const transaction = {};
         lifecycle.beginLayoutTransaction(transaction);
-        lifecycle.capturePointerAnchor({
-            clientX: 50,
-            clientY: 50,
-        }, 100);
-        pageLayouts.value = [{
-            top: 16,
-            width: 800,
-            height: 2_000,
-        }];
+        lifecycle.capturePointerAnchor(
+            {
+                clientX: 50,
+                clientY: 50,
+            },
+            100,
+        );
+        pageLayouts.value = [
+            {
+                top: 16,
+                width: 800,
+                height: 2_000,
+            },
+        ];
         await nextTick();
         lifecycle.cancelPendingRestore();
         await lifecycle.endLayoutTransaction(transaction);
-        frames.splice(0).forEach(callback => callback(0));
+        frames.splice(0).forEach((callback) => callback(0));
         viewport.scrollTop = 900;
         await nextTick();
 
@@ -800,36 +865,44 @@ describe('useDocumentViewportLayoutLifecycle', () => {
             clientHeight: {value: 400},
             clientWidth: {value: 500},
         });
-        const pageLayouts = ref([{
-            left: 300,
-            top: 16,
-            width: 400,
-            height: 1_000,
-        }]);
-        const lifecycle = scope.run(() => useDocumentViewportLayoutLifecycle({
-            viewerContainer: ref<HTMLElement | null>(viewport),
-            pageLayouts,
-            captureRestoreEpoch: () => 1,
-            canRestore: () => true,
-            applyRestoredScroll: (restored, onApplied) => {
-                viewport.scrollLeft = restored.left;
-                viewport.scrollTop = restored.top;
-                onApplied?.();
-                return true;
+        const pageLayouts = ref([
+            {
+                left: 300,
+                top: 16,
+                width: 400,
+                height: 1_000,
             },
-        }));
-        if (!lifecycle) {throw new Error('Failed to create viewport layout lifecycle');}
+        ]);
+        const lifecycle = scope.run(() =>
+            useDocumentViewportLayoutLifecycle({
+                viewerContainer: ref<HTMLElement | null>(viewport),
+                pageLayouts,
+                captureRestoreEpoch: () => 1,
+                canRestore: () => true,
+                applyRestoredScroll: (restored, onApplied) => {
+                    viewport.scrollLeft = restored.left;
+                    viewport.scrollTop = restored.top;
+                    onApplied?.();
+                    return true;
+                },
+            }),
+        );
+        if (!lifecycle) {
+            throw new Error('Failed to create viewport layout lifecycle');
+        }
 
         lifecycle.capturePointerAnchor({
             clientX: 150,
             clientY: 200,
         });
-        pageLayouts.value = [{
-            left: 600,
-            top: 16,
-            width: 800,
-            height: 2_000,
-        }];
+        pageLayouts.value = [
+            {
+                left: 600,
+                top: 16,
+                width: 800,
+                height: 2_000,
+            },
+        ];
         await nextTick();
         await nextTick();
         expect(frames).toHaveLength(1);
@@ -837,7 +910,7 @@ describe('useDocumentViewportLayoutLifecycle', () => {
         viewport.scrollLeft = 0;
         viewport.scrollTop = 0;
         expect(lifecycle.hasPendingPointerRestore()).toBe(true);
-        frames.splice(0).forEach(callback => callback(0));
+        frames.splice(0).forEach((callback) => callback(0));
 
         expect(viewport.scrollLeft).toBe(1_100);
         expect(viewport.scrollTop).toBe(1_284);
@@ -869,52 +942,65 @@ describe('useDocumentViewportLayoutLifecycle', () => {
             clientHeight: {value: 400},
             clientWidth: {value: 500},
         });
-        const pageLayouts = ref([{
-            left: 300,
-            top: 16,
-            width: 400,
-            height: 1_000,
-        }]);
-        const lifecycle = scope.run(() => useDocumentViewportLayoutLifecycle({
-            viewerContainer: ref<HTMLElement | null>(viewport),
-            pageLayouts,
-            captureRestoreEpoch: () => 1,
-            canRestore: () => true,
-            applyRestoredScroll: (restored, onApplied) => {
-                viewport.scrollLeft = restored.left;
-                viewport.scrollTop = restored.top;
-                onApplied?.();
-                return true;
+        const pageLayouts = ref([
+            {
+                left: 300,
+                top: 16,
+                width: 400,
+                height: 1_000,
             },
-        }));
-        if (!lifecycle) {throw new Error('Failed to create viewport layout lifecycle');}
+        ]);
+        const lifecycle = scope.run(() =>
+            useDocumentViewportLayoutLifecycle({
+                viewerContainer: ref<HTMLElement | null>(viewport),
+                pageLayouts,
+                captureRestoreEpoch: () => 1,
+                canRestore: () => true,
+                applyRestoredScroll: (restored, onApplied) => {
+                    viewport.scrollLeft = restored.left;
+                    viewport.scrollTop = restored.top;
+                    onApplied?.();
+                    return true;
+                },
+            }),
+        );
+        if (!lifecycle) {
+            throw new Error('Failed to create viewport layout lifecycle');
+        }
 
-        lifecycle.capturePointerAnchor({
-            clientX: 150,
-            clientY: 200,
-        }, 100);
-        pageLayouts.value = [{
-            left: 600,
-            top: 16,
-            width: 800,
-            height: 2_000,
-        }];
+        lifecycle.capturePointerAnchor(
+            {
+                clientX: 150,
+                clientY: 200,
+            },
+            100,
+        );
+        pageLayouts.value = [
+            {
+                left: 600,
+                top: 16,
+                width: 800,
+                height: 2_000,
+            },
+        ];
         await nextTick();
         await nextTick();
         expect(frames).toHaveLength(1);
 
         vi.advanceTimersByTime(180);
-        pageLayouts.value = [{
-            left: 900,
-            top: 16,
-            width: 1_200,
-            height: 3_000,
-        }];
+        pageLayouts.value = [
+            {
+                left: 900,
+                top: 16,
+                width: 1_200,
+                height: 3_000,
+            },
+        ];
         await nextTick();
         viewport.scrollLeft = 0;
         viewport.scrollTop = 0;
         expect(lifecycle.hasPendingPointerRestore()).toBe(true);
-        frames.splice(0).forEach(callback => callback(0));
+        frames.splice(0).forEach((callback) => callback(0));
 
         expect(viewport.scrollLeft).toBe(1_700);
         expect(viewport.scrollTop).toBe(1_968);
@@ -929,38 +1015,36 @@ describe('useDocumentViewportLayoutLifecycle', () => {
         const scope = effectScope();
         const viewport = createViewport(240);
         const isResizing = ref(false);
-        const pageLayouts = ref([
-            0,
-            120,
-            240,
-        ].map(top => ({
-            top,
-            width: 100,
-            height: 100,
-        })));
-        const lifecycle = scope.run(() => useDocumentViewportLayoutLifecycle({
-            viewerContainer: ref<HTMLElement | null>(viewport),
-            pageLayouts,
-            isResizing,
-            captureRestoreEpoch: () => 1,
-            canRestore: () => true,
-            applyRestoredScroll: (restored, onApplied) => {
-                viewport.scrollTop = restored.top;
-                onApplied?.();
-                return true;
-            },
-        }));
-        if (!lifecycle) {throw new Error('Failed to create viewport layout lifecycle');}
+        const pageLayouts = ref(
+            [0, 120, 240].map((top) => ({
+                top,
+                width: 100,
+                height: 100,
+            })),
+        );
+        const lifecycle = scope.run(() =>
+            useDocumentViewportLayoutLifecycle({
+                viewerContainer: ref<HTMLElement | null>(viewport),
+                pageLayouts,
+                isResizing,
+                captureRestoreEpoch: () => 1,
+                canRestore: () => true,
+                applyRestoredScroll: (restored, onApplied) => {
+                    viewport.scrollTop = restored.top;
+                    onApplied?.();
+                    return true;
+                },
+            }),
+        );
+        if (!lifecycle) {
+            throw new Error('Failed to create viewport layout lifecycle');
+        }
 
         isResizing.value = true;
         lifecycle.cancelPendingRestore();
         // Moving the pane into its split slot resets the DOM scroll offset.
         viewport.scrollTop = 0;
-        pageLayouts.value = [
-            0,
-            60,
-            120,
-        ].map(top => ({
+        pageLayouts.value = [0, 60, 120].map((top) => ({
             top,
             width: 50,
             height: 50,
@@ -978,12 +1062,13 @@ describe('useDocumentViewportLayoutLifecycle reading point', () => {
         vi.unstubAllGlobals();
     });
 
-    const pageLayoutsAt = (scale: number) => Array.from({length: 6}, (_, index) => ({
-        left: 0,
-        top: index * (100 * scale + 20),
-        width: 100 * scale,
-        height: 100 * scale,
-    }));
+    const pageLayoutsAt = (scale: number) =>
+        Array.from({length: 6}, (_, index) => ({
+            left: 0,
+            top: index * (100 * scale + 20),
+            width: 100 * scale,
+            height: 100 * scale,
+        }));
 
     /**
      * A page-source view as its runtime drives the lifecycle: writes land and
@@ -998,15 +1083,17 @@ describe('useDocumentViewportLayoutLifecycle reading point', () => {
         });
         const scope = effectScope();
         const viewport = createViewport(0);
-        const setClientHeight = (value: number) => Object.defineProperty(viewport, 'clientHeight', {
-            configurable: true,
-            value,
-        });
+        const setClientHeight = (value: number) =>
+            Object.defineProperty(viewport, 'clientHeight', {
+                configurable: true,
+                value,
+            });
         setClientHeight(options.clientHeight ?? 100);
-        viewport.getBoundingClientRect = () => ({
-            left: 0,
-            top: 0,
-        } as DOMRect);
+        viewport.getBoundingClientRect = () =>
+            ({
+                left: 0,
+                top: 0,
+            }) as DOMRect;
         const pageLayouts = ref(pageLayoutsAt(1));
         const state = {
             // The physical segment's origin: logical offset = origin + scrollTop.
@@ -1016,28 +1103,32 @@ describe('useDocumentViewportLayoutLifecycle reading point', () => {
         };
         const writes: number[] = [];
         const readLogicalTop = () => state.origin + viewport.scrollTop;
-        const lifecycle = scope.run(() => useDocumentViewportLayoutLifecycle({
-            viewerContainer: ref<HTMLElement | null>(viewport),
-            pageLayouts,
-            readViewport: container => ({
-                clientHeight: container.clientHeight,
-                clientWidth: container.clientWidth,
-                scrollHeight: container.scrollHeight,
-                scrollLeft: container.scrollLeft,
-                scrollTop: state.origin + container.scrollTop,
-                scrollWidth: container.scrollWidth,
+        const lifecycle = scope.run(() =>
+            useDocumentViewportLayoutLifecycle({
+                viewerContainer: ref<HTMLElement | null>(viewport),
+                pageLayouts,
+                readViewport: (container) => ({
+                    clientHeight: container.clientHeight,
+                    clientWidth: container.clientWidth,
+                    scrollHeight: container.scrollHeight,
+                    scrollLeft: container.scrollLeft,
+                    scrollTop: state.origin + container.scrollTop,
+                    scrollWidth: container.scrollWidth,
+                }),
+                captureRestoreEpoch: () => 1,
+                canRestore: () => viewport.clientHeight > 0,
+                applyRestoredScroll: (restored, onApplied) => {
+                    viewport.scrollLeft = restored.left;
+                    viewport.scrollTop = Math.min(restored.top, state.maxScrollTop) - state.origin;
+                    writes.push(readLogicalTop());
+                    onApplied?.();
+                    return true;
+                },
             }),
-            captureRestoreEpoch: () => 1,
-            canRestore: () => viewport.clientHeight > 0,
-            applyRestoredScroll: (restored, onApplied) => {
-                viewport.scrollLeft = restored.left;
-                viewport.scrollTop = Math.min(restored.top, state.maxScrollTop) - state.origin;
-                writes.push(readLogicalTop());
-                onApplied?.();
-                return true;
-            },
-        }));
-        if (!lifecycle) {throw new Error('Failed to create viewport layout lifecycle');}
+        );
+        if (!lifecycle) {
+            throw new Error('Failed to create viewport layout lifecycle');
+        }
         return {
             lifecycle,
             pageLayouts,
@@ -1050,7 +1141,7 @@ describe('useDocumentViewportLayoutLifecycle reading point', () => {
                 await nextTick();
                 await nextTick();
                 while (frames.length > 0) {
-                    frames.splice(0).forEach(callback => callback(0));
+                    frames.splice(0).forEach((callback) => callback(0));
                     await nextTick();
                 }
             },
@@ -1065,7 +1156,9 @@ describe('useDocumentViewportLayoutLifecycle reading point', () => {
             },
             /** A tab switch resets the wheel session first; a tab move does not. */
             hide({tabSwitch = true} = {}) {
-                if (tabSwitch) {lifecycle.cancelPendingRestore();}
+                if (tabSwitch) {
+                    lifecycle.cancelPendingRestore();
+                }
                 lifecycle.suspend();
                 setClientHeight(0);
                 viewport.scrollTop = 0;
@@ -1339,10 +1432,7 @@ describe('useDocumentViewportLayoutLifecycle reading point', () => {
         const reader = createReader();
         reader.navigate(240);
         reader.userScroll(275);
-        for (const scale of [
-            1.5,
-            2.25,
-        ]) {
+        for (const scale of [1.5, 2.25]) {
             reader.pageLayouts.value = pageLayoutsAt(scale);
             await reader.flush();
             const zoomed = {

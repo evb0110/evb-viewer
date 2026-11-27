@@ -1,16 +1,6 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    READER_COMMANDS,
-    READER_COMMAND_DESCRIPTORS,
-} from '@contracts/readerCommands';
-import {
-    getReaderCommandMenuIcon,
-    getReaderCommandToolbarIcon,
-} from '@app/utils/readerCommandIcons';
+import {describe, expect, it} from 'vitest';
+import {READER_COMMANDS, READER_COMMAND_DESCRIPTORS} from '@contracts/readerCommands';
+import {getReaderCommandMenuIcon, getReaderCommandToolbarIcon} from '@app/utils/readerCommandIcons';
 
 describe('readerCommandIcons', () => {
     it('keeps command descriptors in the toolbar icon namespace', () => {

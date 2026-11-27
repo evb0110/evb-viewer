@@ -24,16 +24,19 @@
             role="status"
             aria-live="polite"
         >
-            <UIcon name="i-ph-arrows-clockwise" class="settings-performance-restart-icon" />
+            <UIcon
+                name="i-ph-arrows-clockwise"
+                class="settings-performance-restart-icon"
+            />
             <span>{{ t('settings.performanceRestartNotice') }}</span>
         </p>
     </fieldset>
 </template>
 
 <script setup lang="ts">
-import type { ISettingsData } from '@contracts/shared';
-import type { TPerformanceMode } from '@contracts/hostResourceProfile';
-import { getPerformanceProfile } from '@app/utils/performanceProfile';
+import type {ISettingsData} from '@contracts/shared';
+import type {TPerformanceMode} from '@contracts/hostResourceProfile';
+import {getPerformanceProfile} from '@app/utils/performanceProfile';
 
 const PERFORMANCE_MODE_OPTION_DEFINITIONS = [
     {
@@ -57,11 +60,11 @@ const PERFORMANCE_MODE_OPTION_DEFINITIONS = [
     labelKey: string;
 }>;
 
-const { settings } = defineProps<{settings: ISettingsData;}>();
+const {settings} = defineProps<{settings: ISettingsData}>();
 
-const emit = defineEmits<{'update:performance-mode': [value: string | { value: string }];}>();
+const emit = defineEmits<{'update:performance-mode': [value: string | {value: string}]}>();
 
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 
 const showRestartNotice = computed(() => settings.performanceMode !== getPerformanceProfile().performanceMode);
 
@@ -70,10 +73,12 @@ const settingsFormFieldUi = {
     help: 'settings-field-hint mt-1',
 };
 
-const performanceModeItems = computed(() => PERFORMANCE_MODE_OPTION_DEFINITIONS.map(option => ({
-    value: option.value,
-    label: t(option.labelKey),
-})));
+const performanceModeItems = computed(() =>
+    PERFORMANCE_MODE_OPTION_DEFINITIONS.map((option) => ({
+        value: option.value,
+        label: t(option.labelKey),
+    })),
+);
 </script>
 
 <style lang="scss" scoped>

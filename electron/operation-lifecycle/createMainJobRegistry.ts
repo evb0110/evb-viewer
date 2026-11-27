@@ -1,6 +1,6 @@
-import { getErrorMessage } from '@electron/utils/error';
-import { getAppTempDir } from '@electron/utils/appTempDir';
-import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
+import {getErrorMessage} from '@electron/utils/error';
+import {getAppTempDir} from '@electron/utils/appTempDir';
+import {onSenderLifetimeEnd} from '@electron/utils/onSenderLifetimeEnd';
 import {randomUUID} from 'node:crypto';
 import type {WebContents} from 'electron';
 import type {TDocumentInstanceId} from '@contracts/documentInstanceId';
@@ -12,14 +12,8 @@ import {
     type IMainOperationOwnerLifecyclePolicy as IMainOperationLifecyclePolicy,
     type TMainOperationKind,
 } from '@electron/operation-lifecycle/mainOperationLifecycle';
-import {
-    createIpcProgressPump,
-    type IProgressPumpTarget,
-} from '@electron/utils/createIpcProgressPump';
-import {
-    type TManagedScratchPrefix,
-    usingManagedScratchScope,
-} from '@electron/utils/managedScratchTemp';
+import {createIpcProgressPump, type IProgressPumpTarget} from '@electron/utils/createIpcProgressPump';
+import {type TManagedScratchPrefix, usingManagedScratchScope} from '@electron/utils/managedScratchTemp';
 
 export const RENDERER_DESTROYED_CANCELLATION_REASON = 'Renderer destroyed';
 export const RENDER_PROCESS_GONE_CANCELLATION_REASON = 'Renderer process gone';
@@ -56,27 +50,32 @@ interface IMainJobSnapshotBase<TProgress> {
     updatedAtMs: number;
 }
 export type TMainJobSnapshot<TProgress, TResult, TError extends ISerializableErrorEnvelope> =
-    | IMainJobSnapshotBase<TProgress> & {status: 'queued' | 'running' | 'canceling' | 'committing'}
-    | IMainJobSnapshotBase<TProgress> & {
-        status: 'handoff';
-        handoffResult: TResult
-    }
-    | IMainJobSnapshotBase<TProgress> & {
-        status: 'completed';
-        result: TResult;
-        handoffResult?: TResult
-    }
-    | IMainJobSnapshotBase<TProgress> & {
-        status: 'canceled' | 'failed';
-        error: TError
-    };
-export type TMainJobTerminalSnapshot<TProgress, TResult, TError extends ISerializableErrorEnvelope> = Extract<TMainJobSnapshot<TProgress, TResult, TError>, {status: 'completed' | 'canceled' | 'failed'}>;
+    | (IMainJobSnapshotBase<TProgress> & {status: 'queued' | 'running' | 'canceling' | 'committing'})
+    | (IMainJobSnapshotBase<TProgress> & {
+          status: 'handoff';
+          handoffResult: TResult;
+      })
+    | (IMainJobSnapshotBase<TProgress> & {
+          status: 'completed';
+          result: TResult;
+          handoffResult?: TResult;
+      })
+    | (IMainJobSnapshotBase<TProgress> & {
+          status: 'canceled' | 'failed';
+          error: TError;
+      });
+export type TMainJobTerminalSnapshot<TProgress, TResult, TError extends ISerializableErrorEnvelope> = Extract<
+    TMainJobSnapshot<TProgress, TResult, TError>,
+    {status: 'completed' | 'canceled' | 'failed'}
+>;
 export type TMainJobErrorKind = 'canceled' | 'failed' | 'duplicate-job-id' | 'not-found-or-unauthorized';
 /** Why the registry ended a subscription; a subscriber's own unsubscribe has none. */
 export type TMainJobSubscriptionClosure = 'retired' | 'disconnected';
 type TMainJobOwnerEndAction = IMainOperationLifecyclePolicy['destroyed'];
 type IMainJobOwnerLifecyclePolicy = IMainOperationLifecyclePolicy;
-export interface IMainJobScratch {using<T>(prefix: TManagedScratchPrefix, run: (scratchPath: string) => Promise<T>): Promise<T>;}
+export interface IMainJobScratch {
+    using<T>(prefix: TManagedScratchPrefix, run: (scratchPath: string) => Promise<T>): Promise<T>;
+}
 interface IMainJobTerminalController<TProgress, TResult, _TError extends ISerializableErrorEnvelope> {
     complete(result: TResult, progress?: TProgress): boolean;
     cancel(cause?: unknown, progress?: TProgress): boolean;
@@ -129,19 +128,19 @@ export interface IMainJobRegistryOptions<
     retention: {
         eventReplayTtlMs: number;
         terminalRecordTtlMs: number;
-        maxTerminalRecords?: number
+        maxTerminalRecords?: number;
     };
     progress?: {
         channel: string;
         intervalMs?: number;
         getEventKey(progress: TProgress): string | null;
-        send?(sender: TSender, channel: string, progress: TProgress): void
+        send?(sender: TSender, channel: string, progress: TProgress): void;
     };
     toError(cause: unknown, kind: TMainJobErrorKind): TError;
     terminalProgress: {
         completed(latest: TProgress, result: TResult): TProgress;
         canceled(latest: TProgress, error: TError): TProgress;
-        failed(latest: TProgress, error: TError): TProgress
+        failed(latest: TProgress, error: TError): TProgress;
     };
     scratch?: IMainJobScratch;
     unbindOnSettlement?: boolean;
@@ -181,9 +180,7 @@ export function createMainJobRegistry<
     TResult,
     TError extends ISerializableErrorEnvelope = ISerializableErrorEnvelope,
     TSender extends IMainJobSender = WebContents,
->(
-    options: IMainJobRegistryOptions<TProgress, TResult, TError, TSender>,
-): IMainJobRegistry<TProgress, TResult, TError, TSender> {
+>(options: IMainJobRegistryOptions<TProgress, TResult, TError, TSender>): IMainJobRegistry<TProgress, TResult, TError, TSender> {
     type TSnapshot = TMainJobSnapshot<TProgress, TResult, TError>;
     type TTerminal = TMainJobTerminalSnapshot<TProgress, TResult, TError>;
     type THandle = IMainJobHandle<TProgress, TResult, TError>;
@@ -213,15 +210,18 @@ export function createMainJobRegistry<
         stop: () => void;
     }
     const now = options.now ?? Date.now;
-    const records = new Map<string, IRecord>(); const bindings = new Map<number, IBinding>();
+    const records = new Map<string, IRecord>();
+    const bindings = new Map<number, IBinding>();
     const cancelHooks = new WeakMap<IRecord, IMainJobStartOptions<TProgress, TResult, TError, TSender>['onCancel']>();
-    let deliveryTarget: IProgressPumpTarget<TProgress> | null = null; let publishingTerminal = false;
-    const ownerKeyOf = (actor: IMainJobActor<TSender> | IMainJobOwnerKey) => JSON.stringify([
-        'sender' in actor ? actor.sender.id : actor.webContentsId,
-        actor.ownerId,
-        actor.documentInstanceId,
-        actor.documentRevision,
-    ]);
+    let deliveryTarget: IProgressPumpTarget<TProgress> | null = null;
+    let publishingTerminal = false;
+    const ownerKeyOf = (actor: IMainJobActor<TSender> | IMainJobOwnerKey) =>
+        JSON.stringify([
+            'sender' in actor ? actor.sender.id : actor.webContentsId,
+            actor.ownerId,
+            actor.documentInstanceId,
+            actor.documentRevision,
+        ]);
     const ownerOf = (actor: IMainJobActor<TSender>): IMainJobOwnerKey => ({
         webContentsId: actor.sender.id,
         ...(actor.ownerId === undefined ? {} : {ownerId: actor.ownerId}),
@@ -229,24 +229,40 @@ export function createMainJobRegistry<
         ...(actor.documentRevision === undefined ? {} : {documentRevision: actor.documentRevision}),
     });
     const throwable = (error: TError) => Object.assign(new Error(error.message), error);
-    const pump = options.progress ? createIpcProgressPump<TProgress>({
-        channel: options.progress.channel,
-        getTarget: () => deliveryTarget,
-        getKey: progress => options.progress?.getEventKey(progress) ?? '',
-        isTerminal: () => publishingTerminal,
-        ...(options.progress.intervalMs === undefined ? {} : {intervalMs: options.progress.intervalMs}),
-        replayMode: {
-            kind: 'external',
-            getReplayPayloads: target => {
-                const currentTime = now();
-                return [...records.values()].filter(record => record.ownerKey === target.key && (record.terminalAtMs === null
-                || currentTime - record.terminalAtMs < options.retention.eventReplayTtlMs)
-                && options.progress?.getEventKey(record.snapshot.progress) !== null).map(record => record.snapshot.progress);
-            },
-        },
-    }) : null;
-    function notify(record: IRecord) { for (const subscription of record.subscribers) {subscription.listener(record.snapshot);} }
-    function closeSubscriptions(record: IRecord, closure: TMainJobSubscriptionClosure) { for (const subscription of [...record.subscribers]) {subscription.close(closure);} }
+    const pump = options.progress
+        ? createIpcProgressPump<TProgress>({
+              channel: options.progress.channel,
+              getTarget: () => deliveryTarget,
+              getKey: (progress) => options.progress?.getEventKey(progress) ?? '',
+              isTerminal: () => publishingTerminal,
+              ...(options.progress.intervalMs === undefined ? {} : {intervalMs: options.progress.intervalMs}),
+              replayMode: {
+                  kind: 'external',
+                  getReplayPayloads: (target) => {
+                      const currentTime = now();
+                      return [...records.values()]
+                          .filter(
+                              (record) =>
+                                  record.ownerKey === target.key &&
+                                  (record.terminalAtMs === null ||
+                                      currentTime - record.terminalAtMs < options.retention.eventReplayTtlMs) &&
+                                  options.progress?.getEventKey(record.snapshot.progress) !== null,
+                          )
+                          .map((record) => record.snapshot.progress);
+                  },
+              },
+          })
+        : null;
+    function notify(record: IRecord) {
+        for (const subscription of record.subscribers) {
+            subscription.listener(record.snapshot);
+        }
+    }
+    function closeSubscriptions(record: IRecord, closure: TMainJobSubscriptionClosure) {
+        for (const subscription of [...record.subscribers]) {
+            subscription.close(closure);
+        }
+    }
     function emit(record: IRecord, terminal = false, flushKey?: string) {
         if (!pump || options.progress?.getEventKey(record.snapshot.progress) === null) {
             return;
@@ -254,73 +270,116 @@ export function createMainJobRegistry<
         deliveryTarget = {
             key: record.ownerKey,
             isDestroyed: () => record.actor.sender.isDestroyed(),
-            send: (channel, progress) => options.progress?.send
-                ? options.progress.send(record.actor.sender, channel, progress)
-                : record.actor.sender.send(channel, progress),
+            send: (channel, progress) =>
+                options.progress?.send
+                    ? options.progress.send(record.actor.sender, channel, progress)
+                    : record.actor.sender.send(channel, progress),
         };
         publishingTerminal = terminal;
-        if (flushKey) {pump.flush(flushKey);}
+        if (flushKey) {
+            pump.flush(flushKey);
+        }
         pump.enqueue(record.snapshot.progress, deliveryTarget);
-        publishingTerminal = false; deliveryTarget = null;
+        publishingTerminal = false;
+        deliveryTarget = null;
     }
     function unbind(record: IRecord) {
-        const binding = bindings.get(record.owner.webContentsId); if (!binding || !binding.records.delete(record) || binding.records.size > 0) {
+        const binding = bindings.get(record.owner.webContentsId);
+        if (!binding || !binding.records.delete(record) || binding.records.size > 0) {
             return;
         }
-        binding.stop(); bindings.delete(record.owner.webContentsId);
+        binding.stop();
+        bindings.delete(record.owner.webContentsId);
     }
-    function remove(record: IRecord) { if (records.get(record.snapshot.jobId) !== record) {
-        return;
-    } if (record.retentionTimer) {clearTimeout(record.retentionTimer);} records.delete(record.snapshot.jobId); closeSubscriptions(record, 'retired'); unbind(record);
-    if (record.terminalAtMs !== null) {options.onEvict?.(record.snapshot as TTerminal);} }
+    function remove(record: IRecord) {
+        if (records.get(record.snapshot.jobId) !== record) {
+            return;
+        }
+        if (record.retentionTimer) {
+            clearTimeout(record.retentionTimer);
+        }
+        records.delete(record.snapshot.jobId);
+        closeSubscriptions(record, 'retired');
+        unbind(record);
+        if (record.terminalAtMs !== null) {
+            options.onEvict?.(record.snapshot as TTerminal);
+        }
+    }
     function prune() {
         const cap = options.retention.maxTerminalRecords;
         if (cap === undefined) {
             return;
         }
-        const terminal = [...records.values()].filter(record => record.terminalAtMs !== null && record.settled).sort((left, right) => (left.terminalAtMs ?? 0) - (right.terminalAtMs ?? 0));
-        for (const record of terminal.slice(0, Math.max(0, terminal.length - cap))) {remove(record);}
+        const terminal = [...records.values()]
+            .filter((record) => record.terminalAtMs !== null && record.settled)
+            .sort((left, right) => (left.terminalAtMs ?? 0) - (right.terminalAtMs ?? 0));
+        for (const record of terminal.slice(0, Math.max(0, terminal.length - cap))) {
+            remove(record);
+        }
     }
-    function update(record: IRecord, patch: object) { record.snapshot = {
-        ...record.snapshot,
-        ...patch,
-        updatedAtMs: now(),
-    }; notify(record); }
+    function update(record: IRecord, patch: object) {
+        record.snapshot = {
+            ...record.snapshot,
+            ...patch,
+            updatedAtMs: now(),
+        };
+        notify(record);
+    }
     function finish(record: IRecord, status: 'completed' | 'canceled' | 'failed', value: TResult | unknown, progress?: TProgress) {
         if (record.terminalAtMs !== null) {
             return false;
         }
         const effective = record.snapshot.status === 'canceling' ? 'canceled' : status;
-        const cause: unknown = effective === 'canceled' && record.operation.signal.aborted
-            ? record.operation.signal.reason
-            : value;
-        const error = effective === 'completed' ? null : options.toError(cause, effective); const latest = progress ?? record.snapshot.progress;
-        const terminalProgress = effective === 'completed' ? options.terminalProgress.completed(latest, value as TResult)
-            : effective === 'canceled'
-                ? options.terminalProgress.canceled(latest, error as TError)
-                : options.terminalProgress.failed(latest, error as TError);
-        record.terminalAtMs = now(); update(record, effective === 'completed' ? {
-            status: effective,
-            result: value as TResult,
-            progress: terminalProgress,
-        }
-            : {
-                status: effective,
-                error,
-                progress: terminalProgress,
-            });
-        emit(record, true); record.resolveTerminal(record.snapshot as TTerminal);
-        record.retentionTimer = setTimeout(() => { if (record.settled) {remove(record);} }, Math.max(0, options.retention.terminalRecordTtlMs));
-        record.retentionTimer.unref(); prune();
+        const cause: unknown = effective === 'canceled' && record.operation.signal.aborted ? record.operation.signal.reason : value;
+        const error = effective === 'completed' ? null : options.toError(cause, effective);
+        const latest = progress ?? record.snapshot.progress;
+        const terminalProgress =
+            effective === 'completed'
+                ? options.terminalProgress.completed(latest, value as TResult)
+                : effective === 'canceled'
+                  ? options.terminalProgress.canceled(latest, error as TError)
+                  : options.terminalProgress.failed(latest, error as TError);
+        record.terminalAtMs = now();
+        update(
+            record,
+            effective === 'completed'
+                ? {
+                      status: effective,
+                      result: value as TResult,
+                      progress: terminalProgress,
+                  }
+                : {
+                      status: effective,
+                      error,
+                      progress: terminalProgress,
+                  },
+        );
+        emit(record, true);
+        record.resolveTerminal(record.snapshot as TTerminal);
+        record.retentionTimer = setTimeout(
+            () => {
+                if (record.settled) {
+                    remove(record);
+                }
+            },
+            Math.max(0, options.retention.terminalRecordTtlMs),
+        );
+        record.retentionTimer.unref();
+        prune();
         return true;
     }
     function requestCancel(record: IRecord, reason = 'Operation canceled') {
-        if (record.terminalAtMs !== null || record.snapshot.status === 'canceling'
-            || (record.snapshot.operationKind === 'critical-write' && record.snapshot.status === 'committing')) {
+        if (
+            record.terminalAtMs !== null ||
+            record.snapshot.status === 'canceling' ||
+            (record.snapshot.operationKind === 'critical-write' && record.snapshot.status === 'committing')
+        ) {
             return false;
         }
-        update(record, {status: 'canceling'}); record.operation.abort(reason);
-        record.cancelPromise = Promise.resolve().then(() => cancelHooks.get(record)?.(reason, record.operation.signal))
+        update(record, {status: 'canceling'});
+        record.operation.abort(reason);
+        record.cancelPromise = Promise.resolve()
+            .then(() => cancelHooks.get(record)?.(reason, record.operation.signal))
             .catch(() => undefined);
         return true;
     }
@@ -329,26 +388,42 @@ export function createMainJobRegistry<
         if (action === 'cancel') {
             requestCancel(record, reason);
             unbind(record);
-        } else if (action === 'detach') {unbind(record);}
+        } else if (action === 'detach') {
+            unbind(record);
+        }
     }
     function bind(record: IRecord) {
         let binding = bindings.get(record.owner.webContentsId);
         if (!binding) {
             const sender = record.actor.sender;
-            const dispatch = (field: keyof IMainJobOwnerLifecyclePolicy, reason: string) => { for (const owned of [...(bindings.get(sender.id)?.records ?? [])]) {ownerEnd(owned, owned.lifecycle[field], reason);} };
+            const dispatch = (field: keyof IMainJobOwnerLifecyclePolicy, reason: string) => {
+                for (const owned of [...(bindings.get(sender.id)?.records ?? [])]) {
+                    ownerEnd(owned, owned.lifecycle[field], reason);
+                }
+            };
             binding = {
                 sender,
                 records: new Set(),
-                stop: onSenderLifetimeEnd(sender, (end) => {
-                    if (end === 'destroyed') {dispatch('destroyed', RENDERER_DESTROYED_CANCELLATION_REASON);}
-                    else if (end === 'render-process-gone') {dispatch('renderProcessGone', RENDER_PROCESS_GONE_CANCELLATION_REASON);}
-                    else {dispatch('mainFrameNavigation', 'Renderer main frame navigated');}
-                }, {navigation: true}),
+                stop: onSenderLifetimeEnd(
+                    sender,
+                    (end) => {
+                        if (end === 'destroyed') {
+                            dispatch('destroyed', RENDERER_DESTROYED_CANCELLATION_REASON);
+                        } else if (end === 'render-process-gone') {
+                            dispatch('renderProcessGone', RENDER_PROCESS_GONE_CANCELLATION_REASON);
+                        } else {
+                            dispatch('mainFrameNavigation', 'Renderer main frame navigated');
+                        }
+                    },
+                    {navigation: true},
+                ),
             };
             bindings.set(sender.id, binding);
         }
         binding.records.add(record);
-        if (record.actor.sender.isDestroyed()) {ownerEnd(record, record.lifecycle.destroyed, RENDERER_DESTROYED_CANCELLATION_REASON);}
+        if (record.actor.sender.isDestroyed()) {
+            ownerEnd(record, record.lifecycle.destroyed, RENDERER_DESTROYED_CANCELLATION_REASON);
+        }
     }
     function start(startOptions: IMainJobStartOptions<TProgress, TResult, TError, TSender>): THandle {
         const jobId = startOptions.jobId ?? randomUUID();
@@ -367,16 +442,23 @@ export function createMainJobRegistry<
             cancel: () => undefined,
             ownerLifecycle: startOptions.ownerLifecycle,
         });
-        const {signal} = operation; let resolveTerminal!: (snapshot: TTerminal) => void; let resolveSettled!: () => void;
-        const terminal = new Promise<TTerminal>(resolve => { resolveTerminal = resolve; });
-        const settled = new Promise<void>(resolve => { resolveSettled = resolve; });
-        const createdAtMs = now(); const owner = ownerOf(startOptions.owner);
+        const {signal} = operation;
+        let resolveTerminal!: (snapshot: TTerminal) => void;
+        let resolveSettled!: () => void;
+        const terminal = new Promise<TTerminal>((resolve) => {
+            resolveTerminal = resolve;
+        });
+        const settled = new Promise<void>((resolve) => {
+            resolveSettled = resolve;
+        });
+        const createdAtMs = now();
+        const owner = ownerOf(startOptions.owner);
         const handle: THandle = {
             jobId,
             signal,
             terminal,
             settled,
-            cancel: reason => requestCancel(record, reason),
+            cancel: (reason) => requestCancel(record, reason),
         };
         const record: IRecord = {
             actor: startOptions.owner,
@@ -404,15 +486,17 @@ export function createMainJobRegistry<
             settled: false,
         };
         records.set(jobId, record);
-        cancelHooks.set(record, startOptions.onCancel); bind(record); emit(record);
-        for (const source of [
-            signal,
-            ...(startOptions.signals ?? []),
-        ]) {
-            const abort = () => requestCancel(record, source.reason instanceof Error ? getErrorMessage(source.reason) : 'Operation canceled');
-            if (source.aborted) {abort();}
-            else {
-                source.addEventListener('abort', abort, {once: true}); record.cleanupSignals.push(() => source.removeEventListener('abort', abort));
+        cancelHooks.set(record, startOptions.onCancel);
+        bind(record);
+        emit(record);
+        for (const source of [signal, ...(startOptions.signals ?? [])]) {
+            const abort = () =>
+                requestCancel(record, source.reason instanceof Error ? getErrorMessage(source.reason) : 'Operation canceled');
+            if (source.aborted) {
+                abort();
+            } else {
+                source.addEventListener('abort', abort, {once: true});
+                record.cleanupSignals.push(() => source.removeEventListener('abort', abort));
             }
         }
         // Sampled here, while start() is still on the stack: only a signal that
@@ -425,29 +509,35 @@ export function createMainJobRegistry<
             jobId,
             signal,
             scratch: options.scratch ?? {using: (prefix, run) => usingManagedScratchScope(prefix, getAppTempDir(), run)},
-            publish: progress => { if (record.terminalAtMs === null) {
-                const previousKey = options.progress?.getEventKey(record.snapshot.progress);
-                const nextKey = options.progress?.getEventKey(progress);
-                const flushKey = previousKey && nextKey && previousKey !== nextKey
-                    ? previousKey
-                    : undefined;
-                update(record, {
-                    progress,
-                    ...(record.snapshot.status === 'queued' ? {status: 'running'} : {}),
-                }); emit(record, false, flushKey);
-            } },
-            handoff: (result, progress) => {
-                if (record.terminalAtMs === null && record.snapshot.status !== 'canceling') {update(record, {
-                    status: 'handoff',
-                    handoffResult: result,
-                    ...(progress === undefined ? {} : {progress}),
-                });}
+            publish: (progress) => {
+                if (record.terminalAtMs === null) {
+                    const previousKey = options.progress?.getEventKey(record.snapshot.progress);
+                    const nextKey = options.progress?.getEventKey(progress);
+                    const flushKey = previousKey && nextKey && previousKey !== nextKey ? previousKey : undefined;
+                    update(record, {
+                        progress,
+                        ...(record.snapshot.status === 'queued' ? {status: 'running'} : {}),
+                    });
+                    emit(record, false, flushKey);
+                }
             },
-            markCommitStarted: progress => {
-                if (record.terminalAtMs === null && record.snapshot.operationKind === 'critical-write') { operation.markCommitStarted(); update(record, {
-                    status: 'committing',
-                    ...(progress === undefined ? {} : {progress}),
-                }); }
+            handoff: (result, progress) => {
+                if (record.terminalAtMs === null && record.snapshot.status !== 'canceling') {
+                    update(record, {
+                        status: 'handoff',
+                        handoffResult: result,
+                        ...(progress === undefined ? {} : {progress}),
+                    });
+                }
+            },
+            markCommitStarted: (progress) => {
+                if (record.terminalAtMs === null && record.snapshot.operationKind === 'critical-write') {
+                    operation.markCommitStarted();
+                    update(record, {
+                        status: 'committing',
+                        ...(progress === undefined ? {} : {progress}),
+                    });
+                }
             },
             terminal: {
                 complete: (result, progress) => finish(record, 'completed', result, progress),
@@ -455,20 +545,23 @@ export function createMainJobRegistry<
                 fail: (cause, progress) => finish(record, 'failed', cause, progress),
             },
         };
-        void Promise.resolve().then(() => {
-            // The catch below maps this to the same outcome as a cancellation
-            // that lands mid-run.
-            if (abortedBeforeRun) {
-                throw signal.reason;
-            }
-            return startOptions.run(context);
-        })
-            .then(result => finish(record, 'completed', result))
-            .catch(error => finish(record, signal.aborted ? 'canceled' : 'failed', error))
+        void Promise.resolve()
+            .then(() => {
+                // The catch below maps this to the same outcome as a cancellation
+                // that lands mid-run.
+                if (abortedBeforeRun) {
+                    throw signal.reason;
+                }
+                return startOptions.run(context);
+            })
+            .then((result) => finish(record, 'completed', result))
+            .catch((error) => finish(record, signal.aborted ? 'canceled' : 'failed', error))
             .finally(async () => {
                 try {
                     await record.cancelPromise;
-                    for (const cleanup of record.cleanupSignals.splice(0)) {cleanup();}
+                    for (const cleanup of record.cleanupSignals.splice(0)) {
+                        cleanup();
+                    }
                 } finally {
                     try {
                         operation.complete();
@@ -481,7 +574,9 @@ export function createMainJobRegistry<
                         // instance no longer needs renderer listeners at settle.
                         unbind(record);
                     }
-                    if (record.terminalAtMs !== null && now() - record.terminalAtMs >= options.retention.terminalRecordTtlMs) {remove(record);}
+                    if (record.terminalAtMs !== null && now() - record.terminalAtMs >= options.retention.terminalRecordTtlMs) {
+                        remove(record);
+                    }
                     prune();
                 }
             })
@@ -489,20 +584,22 @@ export function createMainJobRegistry<
         return record.handle;
     }
     const authorized = (jobId: string, actor: IMainJobActor<TSender>) => {
-        const record = records.get(jobId); return record?.ownerKey === ownerKeyOf(actor) ? record : null;
+        const record = records.get(jobId);
+        return record?.ownerKey === ownerKeyOf(actor) ? record : null;
     };
     return {
         start,
         get: (jobId, actor) => authorized(jobId, actor)?.snapshot ?? null,
         subscribe: (jobId, actor, listener, onClose) => {
-            const record = authorized(jobId, actor); if (!record) {
+            const record = authorized(jobId, actor);
+            if (!record) {
                 return null;
             }
             bind(record);
             let active = true;
             const subscription: ISubscription = {
                 listener,
-                close: closure => {
+                close: (closure) => {
                     if (!active) {
                         return;
                     }
@@ -511,31 +608,41 @@ export function createMainJobRegistry<
                     onClose?.(closure);
                 },
             };
-            record.subscribers.add(subscription); listener(record.snapshot);
+            record.subscribers.add(subscription);
+            listener(record.snapshot);
             return () => subscription.close();
         },
-        subscribeOwner: actor => {
+        subscribeOwner: (actor) => {
             pump?.replay({
                 key: ownerKeyOf(actor),
                 isDestroyed: () => actor.sender.isDestroyed(),
-                send: (channel, progress) => options.progress?.send ? options.progress.send(actor.sender, channel, progress)
-                    : actor.sender.send(channel, progress),
+                send: (channel, progress) =>
+                    options.progress?.send ? options.progress.send(actor.sender, channel, progress) : actor.sender.send(channel, progress),
             });
         },
         cancel: (jobId, actor, reason) => {
-            const record = authorized(jobId, actor); return record ? requestCancel(record, reason) : false;
+            const record = authorized(jobId, actor);
+            return record ? requestCancel(record, reason) : false;
         },
-        list: () => [...records.values()].map(record => record.snapshot),
-        cancelWhere: (predicate, reason) => [...records.values()]
-            .filter(record => predicate(record.snapshot) && requestCancel(record, reason)).length,
+        list: () => [...records.values()].map((record) => record.snapshot),
+        cancelWhere: (predicate, reason) =>
+            [...records.values()].filter((record) => predicate(record.snapshot) && requestCancel(record, reason)).length,
         await: async (jobId, actor) => {
-            const record = authorized(jobId, actor); if (!record) {throw throwable(options.toError(new Error('Job not found or unauthorized'), 'not-found-or-unauthorized'));}
+            const record = authorized(jobId, actor);
+            if (!record) {
+                throw throwable(options.toError(new Error('Job not found or unauthorized'), 'not-found-or-unauthorized'));
+            }
             return record.handle.terminal;
         },
         dispose: async () => {
-            for (const record of records.values()) {requestCancel(record, 'Registry reset');}
-            await Promise.allSettled([...records.values()].map(record => record.handle.settled));
-            for (const record of [...records.values()]) {remove(record);} pump?.dispose();
+            for (const record of records.values()) {
+                requestCancel(record, 'Registry reset');
+            }
+            await Promise.allSettled([...records.values()].map((record) => record.handle.settled));
+            for (const record of [...records.values()]) {
+                remove(record);
+            }
+            pump?.dispose();
         },
     };
 }

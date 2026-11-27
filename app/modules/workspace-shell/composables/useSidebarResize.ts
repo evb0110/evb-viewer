@@ -1,32 +1,22 @@
-import type { Ref } from 'vue';
-import { useEventListener } from '@vueuse/core';
-import { clamp } from 'es-toolkit/math';
-import { SIDEBAR } from '@app/constants/pdfLayout';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { createRafCoalescedCallback } from '@app/utils/createRafCoalescedCallback';
+import type {Ref} from 'vue';
+import {useEventListener} from '@vueuse/core';
+import {clamp} from 'es-toolkit/math';
+import {SIDEBAR} from '@app/constants/pdfLayout';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {createRafCoalescedCallback} from '@app/utils/createRafCoalescedCallback';
 
 export function resolveSidebarEffectiveMaxWidth(containerWidth: number) {
     if (!Number.isFinite(containerWidth)) {
         return SIDEBAR.MAX_WIDTH;
     }
 
-    return Math.max(
-        SIDEBAR.MIN_WIDTH,
-        Math.min(SIDEBAR.MAX_WIDTH, containerWidth - SIDEBAR.MIN_VIEWER_WIDTH),
-    );
+    return Math.max(SIDEBAR.MIN_WIDTH, Math.min(SIDEBAR.MAX_WIDTH, containerWidth - SIDEBAR.MIN_VIEWER_WIDTH));
 }
 
-export const useSidebarResize = (deps: {
-    showSidebar: Ref<boolean>;
-    initialWidth?: number | undefined;
-}) => {
-    const { showSidebar } = deps;
+export const useSidebarResize = (deps: {showSidebar: Ref<boolean>; initialWidth?: number | undefined}) => {
+    const {showSidebar} = deps;
 
-    const initialWidth = clamp(
-        deps.initialWidth ?? SIDEBAR.DEFAULT_WIDTH,
-        SIDEBAR.MIN_WIDTH,
-        SIDEBAR.MAX_WIDTH,
-    );
+    const initialWidth = clamp(deps.initialWidth ?? SIDEBAR.DEFAULT_WIDTH, SIDEBAR.MIN_WIDTH, SIDEBAR.MAX_WIDTH);
     // The requested width is the tab's preference; geometry only constrains how
     // wide the sidebar is presented, so a hidden or narrow pane never rewrites it.
     const sidebarWidth = ref(initialWidth);
@@ -69,12 +59,16 @@ export const useSidebarResize = (deps: {
         if (Math.round(clampedWidth) === Math.round(sidebarContentWidth.value)) {
             return;
         }
-        BrowserLogger.diagnostic('pdf-nav', `[sidebar-resize] width ${Math.round(sidebarContentWidth.value)}->${Math.round(clampedWidth)}`, {
-            previousWidth: Math.round(sidebarContentWidth.value),
-            nextWidth: Math.round(clampedWidth),
-            deltaX: Math.round(deltaX),
-            pointerX: Math.round(event.clientX),
-        });
+        BrowserLogger.diagnostic(
+            'pdf-nav',
+            `[sidebar-resize] width ${Math.round(sidebarContentWidth.value)}->${Math.round(clampedWidth)}`,
+            {
+                previousWidth: Math.round(sidebarContentWidth.value),
+                nextWidth: Math.round(clampedWidth),
+                deltaX: Math.round(deltaX),
+                pointerX: Math.round(event.clientX),
+            },
+        );
         sidebarWidth.value = clampedWidth;
     }
 

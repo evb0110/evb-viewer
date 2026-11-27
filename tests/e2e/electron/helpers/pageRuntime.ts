@@ -1,13 +1,7 @@
-import type { Page } from 'puppeteer-core';
+import type {Page} from 'puppeteer-core';
 
 type TSerializableValue =
-    | boolean
-    | number
-    | string
-    | null
-    | TSerializableValue[]
-    | { [key: string]: TSerializableValue | undefined }
-    | undefined;
+    boolean | number | string | null | TSerializableValue[] | {[key: string]: TSerializableValue | undefined} | undefined;
 
 type TPageFunction<TResult, TArgs extends TSerializableValue[]> = (...args: TArgs) => TResult;
 
@@ -71,10 +65,7 @@ function serializeForPage(value: TSerializableValue) {
     return JSON.stringify(value);
 }
 
-function buildPageInvocation<TResult, TArgs extends TSerializableValue[]>(
-    pageFunction: TPageFunction<TResult, TArgs>,
-    args: TArgs,
-) {
+function buildPageInvocation<TResult, TArgs extends TSerializableValue[]>(pageFunction: TPageFunction<TResult, TArgs>, args: TArgs) {
     const serializedArgs = args.map(serializeForPage).join(', ');
     return `(() => {
         const __name = (fn) => fn;
@@ -103,8 +94,5 @@ export async function waitForFunctionInPage<TResult, TArgs extends TSerializable
     options?: Parameters<Page['waitForFunction']>[1],
     ...args: TArgs
 ) {
-    return page.waitForFunction(
-        buildPageInvocation(pageFunction, args),
-        options,
-    );
+    return page.waitForFunction(buildPageInvocation(pageFunction, args), options);
 }

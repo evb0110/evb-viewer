@@ -2,15 +2,19 @@
     <button
         type="button"
         class="document-search-result flex flex-col gap-1"
-        :class="{ 'is-active': isActive }"
+        :class="{'is-active': isActive}"
         :aria-current="isActive ? 'true' : undefined"
         @click="activate"
         @keydown.enter.prevent="activate"
         @keydown.space.prevent="activate"
     >
         <div class="document-search-result-meta">
-            <span v-if="showPageLabel" class="document-search-result-page">{{ t('searchResults.page', { page: pageIndicator }) }}</span>
-            <span class="document-search-result-match">{{ t('searchResults.match', { index: matchIndicator }) }}</span>
+            <span
+                v-if="showPageLabel"
+                class="document-search-result-page"
+                >{{ t('searchResults.page', {page: pageIndicator}) }}</span
+            >
+            <span class="document-search-result-match">{{ t('searchResults.match', {index: matchIndicator}) }}</span>
         </div>
         <div
             v-if="result.excerpt"
@@ -32,7 +36,7 @@ import {
     type TDocumentPageLabelLookup,
 } from '@app/modules/document-viewer/public';
 
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 
 interface IProps {
     result: IDocumentSearchMatch;
@@ -41,12 +45,8 @@ interface IProps {
     showPageLabel?: boolean | undefined;
 }
 
-const {
-    pageLabels = undefined,
-    result,
-    showPageLabel: showPageLabelProp = true,
-} = defineProps<IProps>();
-const emit = defineEmits<{activate: [];}>();
+const {pageLabels = undefined, result, showPageLabel: showPageLabelProp = true} = defineProps<IProps>();
+const emit = defineEmits<{activate: []}>();
 
 const showPageLabel = computed(() => showPageLabelProp);
 const pageIndicator = computed(() => formatPageIndicatorWithOptions(result.pageIndex + 1, pageLabels ?? null));

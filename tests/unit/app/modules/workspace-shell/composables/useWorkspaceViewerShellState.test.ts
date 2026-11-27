@@ -1,23 +1,14 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    computed,
-    effectScope,
-    nextTick,
-    ref,
-} from 'vue';
-import { DEFAULT_SETTINGS } from '@contracts/settings';
-import type { ISettingsData } from '@contracts/shared';
-import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
-import { useWorkspaceViewerDefaults } from '@app/modules/workspace-shell/composables/useWorkspaceViewerDefaults';
-import { resolveDocumentPageDisplayLayoutsBounded } from '@app/modules/document-viewer/page-source-renderer/useDocumentPageSourceRuntime';
-import { createRangePageSelection } from '@contracts/pageNumbers';
-import { pageSelectionCount } from '@app/utils/pdfPageSelection';
-import { useWorkspaceViewerShellState } from '@app/modules/workspace-shell/composables/useWorkspaceViewerShellState';
-import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/public';
+import {describe, expect, it} from 'vitest';
+import {computed, effectScope, nextTick, ref} from 'vue';
+import {DEFAULT_SETTINGS} from '@contracts/settings';
+import type {ISettingsData} from '@contracts/shared';
+import {DEFAULT_ANNOTATION_SETTINGS} from '@app/constants/annotationDefaults';
+import {useWorkspaceViewerDefaults} from '@app/modules/workspace-shell/composables/useWorkspaceViewerDefaults';
+import {resolveDocumentPageDisplayLayoutsBounded} from '@app/modules/document-viewer/page-source-renderer/useDocumentPageSourceRuntime';
+import {createRangePageSelection} from '@contracts/pageNumbers';
+import {pageSelectionCount} from '@app/utils/pdfPageSelection';
+import {useWorkspaceViewerShellState} from '@app/modules/workspace-shell/composables/useWorkspaceViewerShellState';
+import {createDocumentOpenSurfaceSession} from '@app/modules/document-viewer/public';
 
 // The chassis a view mounts, reporting the page count of what it shows.
 function mountViewerWithPageCount(state: ReturnType<typeof useWorkspaceViewerShellState>, pageCount: number) {
@@ -33,22 +24,29 @@ function mountViewerWithPageCount(state: ReturnType<typeof useWorkspaceViewerShe
 describe('workspace viewer shell state', () => {
     it('derives compatibility modes from one authoritative discriminated state', () => {
         const surface = createDocumentOpenSurfaceSession();
-        surface.begin({
-            documentId: 'scan.pdf',
-            documentRevision: 'revision-1',
-        }, null, 1);
-        const state = useWorkspaceViewerShellState({
-            surfaceMode: 'reader',
-            currentPage: 42,
-            zoom: 1.5,
-            zoomMode: 'fit-width',
-            fitMode: 'height',
-            viewMode: 'single',
-            showSidebar: false,
-            sidebarTab: 'search',
-            sidebarWidth: 396,
-            continuousScroll: true,
-        }, surface);
+        surface.begin(
+            {
+                documentId: 'scan.pdf',
+                documentRevision: 'revision-1',
+            },
+            null,
+            1,
+        );
+        const state = useWorkspaceViewerShellState(
+            {
+                surfaceMode: 'reader',
+                currentPage: 42,
+                zoom: 1.5,
+                zoomMode: 'fit-width',
+                fitMode: 'height',
+                viewMode: 'single',
+                showSidebar: false,
+                sidebarTab: 'search',
+                sidebarWidth: 396,
+                continuousScroll: true,
+            },
+            surface,
+        );
         // The view's page is the page its surface reports.
         surface.observeViewportPage(42);
 
@@ -78,27 +76,37 @@ describe('workspace viewer shell state', () => {
         const scope = effectScope();
         try {
             const setup = scope.run(() => {
-                const state = useWorkspaceViewerShellState({
-                    surfaceMode: 'reader',
-                    currentPage: 1,
-                    zoom: 1,
-                    zoomMode: 'fit-width',
-                    fitMode: 'width',
-                    viewMode: 'single',
-                    showSidebar: false,
-                    sidebarTab: 'thumbnails',
-                    sidebarWidth: 272,
-                    continuousScroll: true,
-                }, createDocumentOpenSurfaceSession());
+                const state = useWorkspaceViewerShellState(
+                    {
+                        surfaceMode: 'reader',
+                        currentPage: 1,
+                        zoom: 1,
+                        zoomMode: 'fit-width',
+                        fitMode: 'width',
+                        viewMode: 'single',
+                        showSidebar: false,
+                        sidebarTab: 'thumbnails',
+                        sidebarWidth: 272,
+                        continuousScroll: true,
+                    },
+                    createDocumentOpenSurfaceSession(),
+                );
                 const viewportWidth = ref(100);
-                const layouts = computed(() => resolveDocumentPageDisplayLayoutsBounded(
-                    [{
-                        widthPoints: 10,
-                        heightPoints: 20,
-                        rotation: 0,
-                    }],
-                    100, viewportWidth.value, state.zoom.value, state.zoomMode.value,
-                ));
+                const layouts = computed(() =>
+                    resolveDocumentPageDisplayLayoutsBounded(
+                        [
+                            {
+                                widthPoints: 10,
+                                heightPoints: 20,
+                                rotation: 0,
+                            },
+                        ],
+                        100,
+                        viewportWidth.value,
+                        state.zoom.value,
+                        state.zoomMode.value,
+                    ),
+                );
                 const runtime = {
                     getViewerContainer: () => null,
                     scrollToPage: () => {},
@@ -180,18 +188,12 @@ describe('workspace viewer shell state', () => {
     it('keeps the last bounded legacy mirror for an oversized compact selection', () => {
         const state = useWorkspaceViewerShellState(null, createDocumentOpenSurfaceSession());
         mountViewerWithPageCount(state, 200_000);
-        state.setSelectedThumbnailPages([
-            2,
-            4,
-        ]);
+        state.setSelectedThumbnailPages([2, 4]);
         const selection = createRangePageSelection(200_000, 2, 100_002);
 
         state.setSelectedPageSelection(selection);
 
         expect(state.selectedPageSelection.value).toEqual(selection);
-        expect(state.selectedThumbnailPages.value).toEqual([
-            2,
-            4,
-        ]);
+        expect(state.selectedThumbnailPages.value).toEqual([2, 4]);
     });
 });

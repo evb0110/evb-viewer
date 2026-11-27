@@ -1,11 +1,5 @@
-import {
-    useEventListener,
-    useMutationObserver,
-} from '@vueuse/core';
-import {
-    BASE_ROOT_FONT_SIZE_PX,
-    readRootFontSizePx,
-} from '@app/utils/rootFontSize';
+import {useEventListener, useMutationObserver} from '@vueuse/core';
+import {BASE_ROOT_FONT_SIZE_PX, readRootFontSizePx} from '@app/utils/rootFontSize';
 
 /**
  * Reactive pixel size of one rem.
@@ -18,9 +12,7 @@ import {
  */
 export const useRootFontSize = () => {
     const rootFontSizePx = ref(BASE_ROOT_FONT_SIZE_PX);
-    const documentElement = computed(() => (
-        typeof document === 'undefined' ? null : document.documentElement
-    ));
+    const documentElement = computed(() => (typeof document === 'undefined' ? null : document.documentElement));
 
     function measureRootFontSize() {
         rootFontSizePx.value = readRootFontSizePx();

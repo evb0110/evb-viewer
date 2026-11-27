@@ -1,9 +1,6 @@
-import {
-    dirname,
-    join,
-} from 'path';
-import { resolveNativeResourcesBase } from '@electron/native-tools/resolveNativeResourcesBase';
-import { resolvePlatformArchTag } from '@electron/utils/platformArch';
+import {dirname, join} from 'path';
+import {resolveNativeResourcesBase} from '@electron/native-tools/resolveNativeResourcesBase';
+import {resolvePlatformArchTag} from '@electron/utils/platformArch';
 
 interface IResolveNativeToolsBaseOptions {
     platform?: NodeJS.Platform;
@@ -19,11 +16,7 @@ const RUST_TARGET_BY_PLATFORM_ARCH: Record<string, string> = {
     'win32-x64': 'x86_64-pc-windows-msvc',
 };
 
-export function resolveNativeToolsBase(
-    moduleDir: string,
-    isPackaged: boolean,
-    options: IResolveNativeToolsBaseOptions = {},
-) {
+export function resolveNativeToolsBase(moduleDir: string, isPackaged: boolean, options: IResolveNativeToolsBaseOptions = {}) {
     const resourcesBase = options.resourcesBase ?? resolveNativeResourcesBase(moduleDir, isPackaged);
     const platform = options.platform ?? process.platform;
 
@@ -66,5 +59,5 @@ export function resolveNativeProcessSupervisorPath(
         }
         candidates.push(join(projectRoot, 'native', 'target', 'release', binaryName));
     }
-    return candidates.find(candidate => pathExists(candidate)) ?? null;
+    return candidates.find((candidate) => pathExists(candidate)) ?? null;
 }

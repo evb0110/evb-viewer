@@ -1,8 +1,4 @@
-import type {
-    IScanCleanupOptions,
-    IScanCleanupPageOverride,
-    TScanCleanupOutputMode,
-} from '@contracts/scan-cleanup/domain';
+import type {IScanCleanupOptions, IScanCleanupPageOverride, TScanCleanupOutputMode} from '@contracts/scan-cleanup/domain';
 
 export interface IResolveScanCleanupEffectiveOutputModeInput {
     options: Pick<IScanCleanupOptions, 'outputMode' | 'preserveOriginalQuality'>;

@@ -1,16 +1,6 @@
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    parseRecentFilesCookieSnapshot,
-    readBrowserRecentFilesSnapshot,
-    RECENT_FILES_COOKIE_KEY,
-} from '@app/utils/recentFilesPersistence';
-import { BROWSER_RECENT_FILES_STORAGE_KEY } from '@app/utils/browserRuntimePersistence';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {parseRecentFilesCookieSnapshot, readBrowserRecentFilesSnapshot, RECENT_FILES_COOKIE_KEY} from '@app/utils/recentFilesPersistence';
+import {BROWSER_RECENT_FILES_STORAGE_KEY} from '@app/utils/browserRuntimePersistence';
 
 function expectedLegacyRecentFilesCookieExpiry(secure = false) {
     return `${RECENT_FILES_COOKIE_KEY}=; Path=/; Max-Age=0; SameSite=Lax${secure ? '; Secure' : ''}`;
@@ -25,40 +15,41 @@ function stubBrowserStorage(options: {
     const storage = options.storage ?? {};
     const cookieWrites: string[] = [];
     vi.stubGlobal('document', {
-        get cookie() { return options.cookie ?? ''; },
-        set cookie(value: string) { cookieWrites.push(value); },
+        get cookie() {
+            return options.cookie ?? '';
+        },
+        set cookie(value: string) {
+            cookieWrites.push(value);
+        },
     });
     vi.stubGlobal('location', {protocol: options.protocol ?? 'http:'});
-    vi.stubGlobal('window', {localStorage: {
-        getItem: (key: string) => storage[key] ?? null,
-        setItem: (key: string, value: string) => {
-            if (options.throwOnSet) {
-                throw new Error('storage unavailable');
-            }
-            storage[key] = value;
+    vi.stubGlobal('window', {
+        localStorage: {
+            getItem: (key: string) => storage[key] ?? null,
+            setItem: (key: string, value: string) => {
+                if (options.throwOnSet) {
+                    throw new Error('storage unavailable');
+                }
+                storage[key] = value;
+            },
         },
-    }});
+    });
     return {
         cookieWrites,
         storage,
     };
 }
 
-function compactPayload(options: {
-    truncated?: boolean;
-    path?: string
-} = {}) {
+function compactPayload(
+    options: {
+        truncated?: boolean;
+        path?: string;
+    } = {},
+) {
     return JSON.stringify({
         v: 1,
         t: options.truncated ?? false,
-        f: [[
-            options.path ?? 'browser://documents/example',
-            'example.pdf',
-            123,
-            456,
-            'browser',
-            789,
-        ]],
+        f: [[options.path ?? 'browser://documents/example', 'example.pdf', 123, 456, 'browser', 789]],
     });
 }
 
@@ -71,47 +62,50 @@ describe('recentFilesPersistence', () => {
         const snapshot = parseRecentFilesCookieSnapshot(compactPayload({path: '/tmp/example.pdf'}));
 
         expect(snapshot).toEqual({
-            recentFiles: [{
-                originalPath: '/tmp/example.pdf',
-                backend: 'browser',
-                fileName: 'example.pdf',
-                timestamp: 123,
-                fileSize: 456,
-                modifiedAt: 789,
-            }],
+            recentFiles: [
+                {
+                    originalPath: '/tmp/example.pdf',
+                    backend: 'browser',
+                    fileName: 'example.pdf',
+                    timestamp: 123,
+                    fileSize: 456,
+                    modifiedAt: 789,
+                },
+            ],
             hasSnapshot: true,
             truncated: false,
         });
     });
 
     it('keeps legacy compact tuples without a modified-time token compatible', () => {
-        const snapshot = parseRecentFilesCookieSnapshot(JSON.stringify({
-            v: 1,
-            t: false,
-            f: [[
-                '/tmp/legacy.pdf',
-                'legacy.pdf',
-                123,
-                456,
-            ]],
-        }));
+        const snapshot = parseRecentFilesCookieSnapshot(
+            JSON.stringify({
+                v: 1,
+                t: false,
+                f: [['/tmp/legacy.pdf', 'legacy.pdf', 123, 456]],
+            }),
+        );
 
-        expect(snapshot.recentFiles).toEqual([{
-            originalPath: '/tmp/legacy.pdf',
-            backend: 'electron',
-            fileName: 'legacy.pdf',
-            timestamp: 123,
-            fileSize: 456,
-        }]);
+        expect(snapshot.recentFiles).toEqual([
+            {
+                originalPath: '/tmp/legacy.pdf',
+                backend: 'electron',
+                fileName: 'legacy.pdf',
+                timestamp: 123,
+                fileSize: 456,
+            },
+        ]);
     });
 
     it('prefers a valid legacy cookie over divergent local storage and replaces storage', () => {
-        const localFiles = [{
-            originalPath: 'browser://documents/storage',
-            fileName: 'storage.pdf',
-            timestamp: 3,
-            fileSize: 4,
-        }];
+        const localFiles = [
+            {
+                originalPath: 'browser://documents/storage',
+                fileName: 'storage.pdf',
+                timestamp: 3,
+                fileSize: 4,
+            },
+        ];
         const browser = stubBrowserStorage({
             cookie: `${RECENT_FILES_COOKIE_KEY}=${encodeURIComponent(compactPayload())}`,
             storage: {[BROWSER_RECENT_FILES_STORAGE_KEY]: JSON.stringify(localFiles)},
@@ -119,8 +113,7 @@ describe('recentFilesPersistence', () => {
 
         const snapshot = readBrowserRecentFilesSnapshot();
         expect(snapshot.recentFiles[0]?.originalPath).toBe('browser://documents/example');
-        expect(JSON.parse(browser.storage[BROWSER_RECENT_FILES_STORAGE_KEY] ?? 'null'))
-            .toEqual(snapshot.recentFiles);
+        expect(JSON.parse(browser.storage[BROWSER_RECENT_FILES_STORAGE_KEY] ?? 'null')).toEqual(snapshot.recentFiles);
         expect(browser.cookieWrites).toEqual([expectedLegacyRecentFilesCookieExpiry()]);
     });
 
@@ -162,11 +155,10 @@ describe('recentFilesPersistence', () => {
         expect(snapshot.hasSnapshot).toBe(true);
         expect(snapshot.truncated).toBe(true);
         expect(snapshot.recentFiles).toHaveLength(1);
-        expect(JSON.parse(browser.storage[BROWSER_RECENT_FILES_STORAGE_KEY] ?? 'null'))
-            .toMatchObject({
-                truncated: true,
-                files: snapshot.recentFiles,
-            });
+        expect(JSON.parse(browser.storage[BROWSER_RECENT_FILES_STORAGE_KEY] ?? 'null')).toMatchObject({
+            truncated: true,
+            files: snapshot.recentFiles,
+        });
         expect(browser.cookieWrites).toEqual([expectedLegacyRecentFilesCookieExpiry()]);
     });
 
@@ -181,56 +173,46 @@ describe('recentFilesPersistence', () => {
     });
 
     it('keeps only the newest entry for each recent file path', () => {
-        const snapshot = parseRecentFilesCookieSnapshot(JSON.stringify({
-            v: 1,
-            t: false,
-            f: [
-                [
-                    '/tmp/example.pdf',
-                    'example-new.pdf',
-                    3,
-                    456,
+        const snapshot = parseRecentFilesCookieSnapshot(
+            JSON.stringify({
+                v: 1,
+                t: false,
+                f: [
+                    ['/tmp/example.pdf', 'example-new.pdf', 3, 456],
+                    ['/tmp/other.pdf', 'other.pdf', 2, 123],
+                    ['/tmp/example.pdf', 'example-old.pdf', 1, 456],
                 ],
-                [
-                    '/tmp/other.pdf',
-                    'other.pdf',
-                    2,
-                    123,
-                ],
-                [
-                    '/tmp/example.pdf',
-                    'example-old.pdf',
-                    1,
-                    456,
-                ],
-            ],
-        }));
+            }),
+        );
 
-        expect(snapshot.recentFiles.map(file => file.fileName)).toEqual([
-            'example-new.pdf',
-            'other.pdf',
-        ]);
+        expect(snapshot.recentFiles.map((file) => file.fileName)).toEqual(['example-new.pdf', 'other.pdf']);
     });
 
     it('drops legacy recent files whose backend cannot be inferred', () => {
-        const snapshot = parseRecentFilesCookieSnapshot(JSON.stringify({files: [
-            {
-                originalPath: 'relative.pdf',
-                fileName: 'relative.pdf',
-                timestamp: 1,
-            },
+        const snapshot = parseRecentFilesCookieSnapshot(
+            JSON.stringify({
+                files: [
+                    {
+                        originalPath: 'relative.pdf',
+                        fileName: 'relative.pdf',
+                        timestamp: 1,
+                    },
+                    {
+                        originalPath: 'browser://documents/known',
+                        fileName: 'known.pdf',
+                        timestamp: 2,
+                    },
+                ],
+            }),
+        );
+
+        expect(snapshot.recentFiles).toEqual([
             {
                 originalPath: 'browser://documents/known',
+                backend: 'browser',
                 fileName: 'known.pdf',
                 timestamp: 2,
             },
-        ]}));
-
-        expect(snapshot.recentFiles).toEqual([{
-            originalPath: 'browser://documents/known',
-            backend: 'browser',
-            fileName: 'known.pdf',
-            timestamp: 2,
-        }]);
+        ]);
     });
 });

@@ -4,8 +4,8 @@ import {
     type IDocumentNavigationTicket,
     type TDocumentNavigationOutcome,
 } from '@app/modules/document-viewer/navigation/documentNavigationRequest';
-import type { WatchStopHandle } from 'vue';
-import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
+import type {WatchStopHandle} from 'vue';
+import {logPdfRenderTrace} from '@app/utils/pdfRenderTrace';
 import type {
     IDocumentOpenSurfaceIdentity,
     IDocumentOpenSurfaceRenderFence,
@@ -51,13 +51,14 @@ export type {
     IDocumentOpenSurfacePageGeometry,
     TDocumentOpenSurfacePresentation,
 } from '@app/modules/document-viewer/runtime/retargetDocumentOpeningShell';
-export { shouldProjectDocumentViewportScroll } from '@app/modules/document-viewer/runtime/shouldProjectDocumentViewportScroll';
+export {shouldProjectDocumentViewportScroll} from '@app/modules/document-viewer/runtime/shouldProjectDocumentViewportScroll';
 
 export function resolveDocumentOpenSurfaceViewportPolicy(snapshot: IDocumentOpenSurfaceSnapshot) {
-    const isTransitioning = snapshot.phase === 'pending'
-        || snapshot.phase === 'geometry-committed'
-        || snapshot.phase === 'canvas-committed'
-        || snapshot.phase === 'viewport-committed';
+    const isTransitioning =
+        snapshot.phase === 'pending' ||
+        snapshot.phase === 'geometry-committed' ||
+        snapshot.phase === 'canvas-committed' ||
+        snapshot.phase === 'viewport-committed';
     return {
         overflow: isTransitioning ? 'hidden' : 'auto',
         scrollbarGutter: 'stable',
@@ -77,22 +78,17 @@ function isFinitePositive(value: number) {
     return Number.isFinite(value) && value > 0;
 }
 
-function normalizeOpeningPageGeometry(
-    geometry: IDocumentOpenSurfacePageGeometry | null | undefined,
-) {
+function normalizeOpeningPageGeometry(geometry: IDocumentOpenSurfacePageGeometry | null | undefined) {
     if (
-        !geometry
-        || geometry.documentId.length === 0
-        || !Number.isSafeInteger(geometry.pageNumber) || geometry.pageNumber < 1
-        || !Number.isSafeInteger(geometry.pageCount) || geometry.pageCount < geometry.pageNumber
-        || !isFinitePositive(geometry.width)
-        || !isFinitePositive(geometry.height)
-        || ![
-            0,
-            90,
-            180,
-            270,
-        ].includes(geometry.rotation)
+        !geometry ||
+        geometry.documentId.length === 0 ||
+        !Number.isSafeInteger(geometry.pageNumber) ||
+        geometry.pageNumber < 1 ||
+        !Number.isSafeInteger(geometry.pageCount) ||
+        geometry.pageCount < geometry.pageNumber ||
+        !isFinitePositive(geometry.width) ||
+        !isFinitePositive(geometry.height) ||
+        ![0, 90, 180, 270].includes(geometry.rotation)
     ) {
         return null;
     }
@@ -100,47 +96,44 @@ function normalizeOpeningPageGeometry(
 }
 
 function fencesMatch(left: IDocumentOpenSurfaceRenderFence, right: IDocumentOpenSurfaceRenderFence) {
-    return left.generation === right.generation
-        && left.documentRevision === right.documentRevision
-        && left.viewportIntentId === right.viewportIntentId
-        && left.renderVersion === right.renderVersion
-        && left.requestId === right.requestId
-        && left.pageNumber === right.pageNumber;
+    return (
+        left.generation === right.generation &&
+        left.documentRevision === right.documentRevision &&
+        left.viewportIntentId === right.viewportIntentId &&
+        left.renderVersion === right.renderVersion &&
+        left.requestId === right.requestId &&
+        left.pageNumber === right.pageNumber
+    );
 }
 
-function viewportRenderFenceMatches(
-    fence: IDocumentOpenSurfaceRenderFence,
-    viewportFence: IDocumentViewportSessionState['renderFence'],
-) {
-    return viewportFence !== null
-        && viewportFence.revision === fence.documentRevision
-        && viewportFence.viewportIntentId === fence.viewportIntentId
-        && viewportFence.renderVersion === fence.renderVersion
-        && viewportFence.requestId === fence.requestId
-        && viewportFence.pageNumber === fence.pageNumber;
+function viewportRenderFenceMatches(fence: IDocumentOpenSurfaceRenderFence, viewportFence: IDocumentViewportSessionState['renderFence']) {
+    return (
+        viewportFence !== null &&
+        viewportFence.revision === fence.documentRevision &&
+        viewportFence.viewportIntentId === fence.viewportIntentId &&
+        viewportFence.renderVersion === fence.renderVersion &&
+        viewportFence.requestId === fence.requestId &&
+        viewportFence.pageNumber === fence.pageNumber
+    );
 }
 
 function isTransitionPhase(phase: TDocumentOpenSurfacePhase) {
-    return phase === 'pending'
-        || phase === 'geometry-committed'
-        || phase === 'canvas-committed'
-        || phase === 'viewport-committed';
+    return phase === 'pending' || phase === 'geometry-committed' || phase === 'canvas-committed' || phase === 'viewport-committed';
 }
 
 export function hasCommittedDocumentOpeningLayout(snapshot: IDocumentOpenSurfaceSnapshot) {
-    return isTransitionPhase(snapshot.phase)
-        && snapshot.openingPageGeometry !== null
-        && snapshot.openingPageFrame !== null
-        && snapshot.openingPageFrame.generation === snapshot.generation
-        && snapshot.openingPageFrame.pageNumber === snapshot.openingPageGeometry.pageNumber;
+    return (
+        isTransitionPhase(snapshot.phase) &&
+        snapshot.openingPageGeometry !== null &&
+        snapshot.openingPageFrame !== null &&
+        snapshot.openingPageFrame.generation === snapshot.generation &&
+        snapshot.openingPageFrame.pageNumber === snapshot.openingPageGeometry.pageNumber
+    );
 }
 
-function resolveOpeningPresentation(
-    snapshot: IDocumentOpenSurfaceSnapshot,
-): TDocumentOpenSurfaceVisualPresentation {
-    const hasMeasuredOwnedFrame = isTransitionPhase(snapshot.phase)
-        && snapshot.geometry !== null
-        && snapshot.openingPageFrame?.generation === snapshot.generation;
+function resolveOpeningPresentation(snapshot: IDocumentOpenSurfaceSnapshot): TDocumentOpenSurfaceVisualPresentation {
+    const hasMeasuredOwnedFrame =
+        isTransitionPhase(snapshot.phase) && snapshot.geometry !== null && snapshot.openingPageFrame?.generation === snapshot.generation;
     if (hasCommittedDocumentOpeningLayout(snapshot) || hasMeasuredOwnedFrame) {
         return 'page-shell';
     }
@@ -160,12 +153,14 @@ export async function whenDocumentOpeningPlaced(
 ) {
     const ticket = surface.viewportSession.value.lifecycle === 'opening' ? surface.navigationTicket.value : null;
     const isSettled = () => !isLive() || surface.snapshot.value.committedViewport?.viewportIntentId === ticket?.id;
-    if (!ticket || isSettled()) {return;}
+    if (!ticket || isSettled()) {
+        return;
+    }
     let stop: WatchStopHandle | undefined;
     await Promise.race([
         ticket.finished,
         new Promise<void>((resolve) => {
-            stop = watch(isSettled, settled => settled && resolve(), {flush: 'sync'});
+            stop = watch(isSettled, (settled) => settled && resolve(), {flush: 'sync'});
         }),
     ]);
     stop?.();
@@ -184,57 +179,56 @@ function projectDocumentOpenSurfaceSnapshot(
     viewport: IDocumentViewportSessionState,
     revisionSwapPending: boolean,
 ): IDocumentOpenSurfaceSnapshot {
-    const identity = viewport.identity === null
-        ? null
-        : {
-            documentId: viewport.identity.documentId,
-            documentRevision: viewport.identity.revision,
-            ...(viewport.identity.provisional ? {provisional: true} : {}),
-        };
+    const identity =
+        viewport.identity === null
+            ? null
+            : {
+                  documentId: viewport.identity.documentId,
+                  documentRevision: viewport.identity.revision,
+                  ...(viewport.identity.provisional ? {provisional: true} : {}),
+              };
     const projectedRenderFence = viewport.stagedRenderFence ?? viewport.committedRenderFence;
-    const committedRender = projectedRenderFence === null
-        ? null
-        : {
-            generation: viewport.generation,
-            documentRevision: projectedRenderFence.revision,
-            viewportIntentId: projectedRenderFence.viewportIntentId,
-            renderVersion: projectedRenderFence.renderVersion,
-            requestId: projectedRenderFence.requestId,
-            pageNumber: projectedRenderFence.pageNumber,
-        };
+    const committedRender =
+        projectedRenderFence === null
+            ? null
+            : {
+                  generation: viewport.generation,
+                  documentRevision: projectedRenderFence.revision,
+                  viewportIntentId: projectedRenderFence.viewportIntentId,
+                  renderVersion: projectedRenderFence.renderVersion,
+                  requestId: projectedRenderFence.requestId,
+                  pageNumber: projectedRenderFence.pageNumber,
+              };
     const viewportFence = viewport.stagedViewportFence ?? viewport.committedViewportFence;
     const position = visual.committedViewportPosition;
-    const committedViewport = viewportFence !== null
-        && position?.viewportIntentId === viewportFence.viewportIntentId
-        ? {
-            generation: viewport.generation,
-            documentRevision: viewportFence.revision,
-            viewportIntentId: viewportFence.viewportIntentId,
-            documentGeometryRevision: viewportFence.geometryRevision,
-            interactionEpoch: viewportFence.interactionEpoch,
-            pageNumber: viewportFence.pageNumber,
-            left: position.left,
-            top: position.top,
-        }
-        : null;
-    const phase: TDocumentOpenSurfacePhase = viewport.lifecycle === 'empty'
-        ? 'idle'
-        : viewport.lifecycle === 'failed'
-            ? 'failed'
-            : visual.presentation === 'committed'
+    const committedViewport =
+        viewportFence !== null && position?.viewportIntentId === viewportFence.viewportIntentId
+            ? {
+                  generation: viewport.generation,
+                  documentRevision: viewportFence.revision,
+                  viewportIntentId: viewportFence.viewportIntentId,
+                  documentGeometryRevision: viewportFence.geometryRevision,
+                  interactionEpoch: viewportFence.interactionEpoch,
+                  pageNumber: viewportFence.pageNumber,
+                  left: position.left,
+                  top: position.top,
+              }
+            : null;
+    const phase: TDocumentOpenSurfacePhase =
+        viewport.lifecycle === 'empty'
+            ? 'idle'
+            : viewport.lifecycle === 'failed'
+              ? 'failed'
+              : visual.presentation === 'committed'
                 ? 'ready'
                 : committedRender !== null && committedViewport !== null
-                    ? 'viewport-committed'
-                    : committedRender !== null
-                        ? 'canvas-committed'
-                        : visual.geometry !== null
-                            ? 'geometry-committed'
-                            : 'pending';
-    const presentation: TDocumentOpenSurfacePresentation = phase === 'idle'
-        ? 'idle'
-        : phase === 'failed'
-            ? 'failed'
-            : visual.presentation;
+                  ? 'viewport-committed'
+                  : committedRender !== null
+                    ? 'canvas-committed'
+                    : visual.geometry !== null
+                      ? 'geometry-committed'
+                      : 'pending';
+    const presentation: TDocumentOpenSurfacePresentation = phase === 'idle' ? 'idle' : phase === 'failed' ? 'failed' : visual.presentation;
     return {
         generation: viewport.generation,
         identity,
@@ -261,14 +255,19 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         invalidatedPages: readonly number[];
     } | null>(null);
     const navigationTicket = computed(() => sessionState.value.ticket);
-    const receipts = new WeakMap<AbortSignal, {
-        controller: AbortController;
-        finish: (outcome: TDocumentNavigationOutcome) => void;
-    }>();
+    const receipts = new WeakMap<
+        AbortSignal,
+        {
+            controller: AbortController;
+            finish: (outcome: TDocumentNavigationOutcome) => void;
+        }
+    >();
     function makeTicket(request: IDocumentNavigationRequest, generation: number, documentRevision: string, id: string) {
         const controller = new AbortController();
         let finish!: (outcome: TDocumentNavigationOutcome) => void;
-        const finished = new Promise<TDocumentNavigationOutcome>(resolve => { finish = resolve; });
+        const finished = new Promise<TDocumentNavigationOutcome>((resolve) => {
+            finish = resolve;
+        });
         const ticket: IDocumentNavigationTicket = Object.freeze({
             generation,
             documentRevision,
@@ -287,9 +286,13 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         return ticket;
     }
     function retire(ticket: IDocumentNavigationTicket | null, outcome: TDocumentNavigationOutcome) {
-        if (!ticket) {return;}
+        if (!ticket) {
+            return;
+        }
         const receipt = receipts.get(ticket.signal);
-        if (!receipt) {return;}
+        if (!receipt) {
+            return;
+        }
         receipts.delete(ticket.signal);
         receipt.finish(outcome);
         receipt.controller.abort(outcome);
@@ -297,18 +300,18 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
     function isNavigationCurrent(ticket: IDocumentNavigationTicket) {
         const current = sessionState.value;
         const activeTicket = current.ticket;
-        return !ticket.signal.aborted
-            && activeTicket?.signal === ticket.signal
-            && activeTicket.generation === ticket.generation
-            && current.viewport.generation === activeTicket.generation
-            && current.viewport.identity?.revision === activeTicket.documentRevision;
+        return (
+            !ticket.signal.aborted &&
+            activeTicket?.signal === ticket.signal &&
+            activeTicket.generation === ticket.generation &&
+            current.viewport.generation === activeTicket.generation &&
+            current.viewport.identity?.revision === activeTicket.documentRevision
+        );
     }
     const viewportSession = computed(() => sessionState.value.viewport);
-    const snapshot = computed(() => projectDocumentOpenSurfaceSnapshot(
-        sessionState.value.visual,
-        sessionState.value.viewport,
-        revisionSwap.value !== null,
-    ));
+    const snapshot = computed(() =>
+        projectDocumentOpenSurfaceSnapshot(sessionState.value.visual, sessionState.value.viewport, revisionSwap.value !== null),
+    );
     let nextViewportIntent = 0;
     // The renderer that paints this surface now; a claim supersedes the last.
     let renderOwner: IDocumentOpenSurfaceRenderOwner | null = null;
@@ -335,12 +338,15 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             viewport = transition.state;
         }
         const previousTicket = sessionState.value.ticket;
-        let publishedTicket = viewport.lifecycle === 'failed' ? null
-            : nextTicket === undefined ? previousTicket : nextTicket;
+        let publishedTicket = viewport.lifecycle === 'failed' ? null : nextTicket === undefined ? previousTicket : nextTicket;
         // Metadata may bound a restore requested before the page count existed.
         // Refinement keeps the receipt and ordering identity; it is not another command.
-        if (publishedTicket && viewport.pageCount !== null && publishedTicket.request.target.kind !== 'named-dest'
-            && publishedTicket.request.target.page > viewport.pageCount) {
+        if (
+            publishedTicket &&
+            viewport.pageCount !== null &&
+            publishedTicket.request.target.kind !== 'named-dest' &&
+            publishedTicket.request.target.page > viewport.pageCount
+        ) {
             publishedTicket = Object.freeze({
                 ...publishedTicket,
                 request: Object.freeze({
@@ -358,18 +364,24 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             visual: updateVisual?.(sessionState.value.visual, viewport) ?? sessionState.value.visual,
         };
         if (previousTicket?.signal !== publishedTicket?.signal) {
-            retire(previousTicket, viewport.lifecycle === 'failed'
-                ? {
-                    kind: 'failed',
-                    reason: viewport.failure ?? 'render-failed',
-                }
-                : viewport.identity === null || viewport.generation !== previousTicket?.generation
-                    ? {kind: 'document-ended'} : {
-                        kind: 'superseded',
-                        by: 'command',
-                    });
+            retire(
+                previousTicket,
+                viewport.lifecycle === 'failed'
+                    ? {
+                          kind: 'failed',
+                          reason: viewport.failure ?? 'render-failed',
+                      }
+                    : viewport.identity === null || viewport.generation !== previousTicket?.generation
+                      ? {kind: 'document-ended'}
+                      : {
+                            kind: 'superseded',
+                            by: 'command',
+                        },
+            );
         }
-        for (const event of events) {diagnostics.record(event.type, true);}
+        for (const event of events) {
+            diagnostics.record(event.type, true);
+        }
         return true;
     }
 
@@ -384,9 +396,7 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         return transitionViewport([event], updateVisual, nextTicket);
     }
 
-    function commitVisual(
-        update: (current: IDocumentOpenSurfaceVisualState) => IDocumentOpenSurfaceVisualState,
-    ) {
+    function commitVisual(update: (current: IDocumentOpenSurfaceVisualState) => IDocumentOpenSurfaceVisualState) {
         sessionState.value = {
             ...sessionState.value,
             viewport: sessionState.value.viewport,
@@ -410,18 +420,26 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
     ) {
         revisionSwap.value = null;
         const id = createViewportIntentId('open');
-        const ticket = makeTicket(createPageNavigationRequest(initialPage, 'restore'),
-            sessionState.value.viewport.generation + 1, identity.documentRevision, id);
-        const opened = dispatchViewport({
-            type: 'open-requested',
-            identity: {
-                documentId: identity.documentId,
-                revision: identity.documentRevision,
-                ...(identity.provisional ? {provisional: true} : {}),
+        const ticket = makeTicket(
+            createPageNavigationRequest(initialPage, 'restore'),
+            sessionState.value.viewport.generation + 1,
+            identity.documentRevision,
+            id,
+        );
+        const opened = dispatchViewport(
+            {
+                type: 'open-requested',
+                identity: {
+                    documentId: identity.documentId,
+                    revision: identity.documentRevision,
+                    ...(identity.provisional ? {provisional: true} : {}),
+                },
+                viewportIntentId: id,
+                initialPage: Math.max(1, Math.trunc(initialPage)),
             },
-            viewportIntentId: id,
-            initialPage: Math.max(1, Math.trunc(initialPage)),
-        }, updateVisual, ticket);
+            updateVisual,
+            ticket,
+        );
         logPdfRenderTrace('viewport-session-open-requested', {
             documentId: identity.documentId,
             opened,
@@ -432,46 +450,54 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
 
     function navigate(request: IDocumentNavigationRequest) {
         const state = sessionState.value.viewport;
-        if (!state.identity || state.lifecycle === 'closing'
-            || state.lifecycle === 'failed' && state.visual.kind !== 'page') {return null;}
+        if (!state.identity || state.lifecycle === 'closing' || (state.lifecycle === 'failed' && state.visual.kind !== 'page')) {
+            return null;
+        }
         const page = request.target.kind === 'named-dest' ? null : request.target.page;
-        if (page !== null && (!Number.isSafeInteger(page) || page < 1)) {return null;}
+        if (page !== null && (!Number.isSafeInteger(page) || page < 1)) {
+            return null;
+        }
         const id = createViewportIntentId('navigation');
         const ticket = makeTicket(request, state.generation, state.identity.revision, id);
-        const accepted = dispatchViewport({
-            type: 'navigation-requested',
-            pageNumber: page,
-            viewportIntentId: id,
-            deferSkeleton: sessionState.value.ticket === null,
-        }, page !== null && shouldRetargetOwnedOpeningPageShell(page)
-            ? visual => retargetDocumentOpeningShell(visual, page) : undefined, ticket);
-        if (!accepted) {retire(ticket, {
-            kind: 'failed',
-            reason: 'navigation-rejected',
-        });}
-        return accepted ? sessionState.value.ticket?.signal === ticket.signal ? sessionState.value.ticket : ticket : null;
+        const accepted = dispatchViewport(
+            {
+                type: 'navigation-requested',
+                pageNumber: page,
+                viewportIntentId: id,
+                deferSkeleton: sessionState.value.ticket === null,
+            },
+            page !== null && shouldRetargetOwnedOpeningPageShell(page) ? (visual) => retargetDocumentOpeningShell(visual, page) : undefined,
+            ticket,
+        );
+        if (!accepted) {
+            retire(ticket, {
+                kind: 'failed',
+                reason: 'navigation-rejected',
+            });
+        }
+        return accepted ? (sessionState.value.ticket?.signal === ticket.signal ? sessionState.value.ticket : ticket) : null;
     }
 
     function isCurrentFence(fence: IDocumentOpenSurfaceRenderFence) {
         const current = snapshot.value;
-        return current.identity !== null
-            && current.generation === fence.generation
-            && current.identity.documentRevision === fence.documentRevision
-            && (canAcceptSameGenerationVisualCommit(current) || current.phase === 'ready');
+        return (
+            current.identity !== null &&
+            current.generation === fence.generation &&
+            current.identity.documentRevision === fence.documentRevision &&
+            (canAcceptSameGenerationVisualCommit(current) || current.phase === 'ready')
+        );
     }
 
-    function createRenderFence(
-        input: Omit<IDocumentOpenSurfaceRenderFence, 'viewportIntentId'>,
-    ): IDocumentOpenSurfaceRenderFence | null {
+    function createRenderFence(input: Omit<IDocumentOpenSurfaceRenderFence, 'viewportIntentId'>): IDocumentOpenSurfaceRenderFence | null {
         const current = snapshot.value;
         const viewportState = sessionState.value.viewport;
         const viewportIntentId = viewportState.viewportIntent?.id;
         if (
-            current.identity === null
-            || !canAcceptSameGenerationVisualCommit(current) && current.phase !== 'ready'
-            || input.generation !== current.generation
-            || input.documentRevision !== current.identity.documentRevision
-            || viewportIntentId === undefined
+            current.identity === null ||
+            (!canAcceptSameGenerationVisualCommit(current) && current.phase !== 'ready') ||
+            input.generation !== current.generation ||
+            input.documentRevision !== current.identity.documentRevision ||
+            viewportIntentId === undefined
         ) {
             return null;
         }
@@ -498,11 +524,11 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         const geometry = current.openingPageGeometry;
         const frame = current.openingPageFrame;
         if (
-            !isTransitionPhase(current.phase)
-            || geometry === null
-            || frame === null
-            || frame.generation !== current.generation
-            || geometry.pageNumber === pageNumber
+            !isTransitionPhase(current.phase) ||
+            geometry === null ||
+            frame === null ||
+            frame.generation !== current.generation ||
+            geometry.pageNumber === pageNumber
         ) {
             return false;
         }
@@ -513,21 +539,17 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         const viewportState = sessionState.value.viewport;
         if (viewportState.lifecycle === 'ready') {
             const committed = snapshot.value.committedRender;
-            return committed !== null && fencesMatch(committed, fence)
-                && viewportState.committedPage === fence.pageNumber;
+            return committed !== null && fencesMatch(committed, fence) && viewportState.committedPage === fence.pageNumber;
         }
         const committed = snapshot.value.committedRender;
         const viewport = snapshot.value.committedViewport;
         if (
-            ![
-                'opening',
-                'transitioning',
-            ].includes(viewportState.lifecycle)
-            || !committed
-            || !viewport
-            || !isCurrentFence(fence)
-            || !fencesMatch(committed, fence)
-            || viewport.pageNumber !== fence.pageNumber
+            !['opening', 'transitioning'].includes(viewportState.lifecycle) ||
+            !committed ||
+            !viewport ||
+            !isCurrentFence(fence) ||
+            !fencesMatch(committed, fence) ||
+            viewport.pageNumber !== fence.pageNumber
         ) {
             diagnostics.reportRejected('mark-ready', 'render-or-viewport-fence-mismatch', {
                 fence,
@@ -536,21 +558,24 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             });
             return false;
         }
-        const markedReady = dispatchViewport({
-            type: 'visual-ready',
-            fence: {
-                generation: viewportState.generation,
-                revision: fence.documentRevision,
-                pageNumber: fence.pageNumber,
-                viewportIntentId: fence.viewportIntentId,
-                renderVersion: fence.renderVersion,
-                requestId: fence.requestId,
+        const markedReady = dispatchViewport(
+            {
+                type: 'visual-ready',
+                fence: {
+                    generation: viewportState.generation,
+                    revision: fence.documentRevision,
+                    pageNumber: fence.pageNumber,
+                    viewportIntentId: fence.viewportIntentId,
+                    renderVersion: fence.renderVersion,
+                    requestId: fence.requestId,
+                },
             },
-        }, visual => ({
-            ...visual,
-            openingPageFrame: null,
-            presentation: 'committed',
-        }));
+            (visual) => ({
+                ...visual,
+                openingPageFrame: null,
+                presentation: 'committed',
+            }),
+        );
         return markedReady;
     }
 
@@ -559,50 +584,67 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         navigate,
         isNavigationCurrent,
         reportNavigation(ticket, report) {
-            if (!isNavigationCurrent(ticket)) {return false;}
+            if (!isNavigationCurrent(ticket)) {
+                return false;
+            }
             const state = sessionState.value.viewport;
             const activeTicket = sessionState.value.ticket;
-            if (!activeTicket || activeTicket.signal !== ticket.signal) {return false;}
-            if (report.kind === 'resolved') {return dispatchViewport({
-                type: 'navigation-resolved',
-                generation: activeTicket.generation,
-                viewportIntentId: activeTicket.id,
-                pageNumber: report.page,
-            });}
-            if (report.kind === 'placed') {return this.commitViewport({
-                generation: activeTicket.generation,
-                documentRevision: activeTicket.documentRevision,
-                viewportIntentId: activeTicket.id,
-                pageNumber: report.page,
-                documentGeometryRevision: report.geometryRevision,
-                interactionEpoch: report.interactionEpoch,
-                left: report.left,
-                top: report.top,
-            }) && isNavigationCurrent(ticket);}
+            if (!activeTicket || activeTicket.signal !== ticket.signal) {
+                return false;
+            }
+            if (report.kind === 'resolved') {
+                return dispatchViewport({
+                    type: 'navigation-resolved',
+                    generation: activeTicket.generation,
+                    viewportIntentId: activeTicket.id,
+                    pageNumber: report.page,
+                });
+            }
+            if (report.kind === 'placed') {
+                return (
+                    this.commitViewport({
+                        generation: activeTicket.generation,
+                        documentRevision: activeTicket.documentRevision,
+                        viewportIntentId: activeTicket.id,
+                        pageNumber: report.page,
+                        documentGeometryRevision: report.geometryRevision,
+                        interactionEpoch: report.interactionEpoch,
+                        left: report.left,
+                        top: report.top,
+                    }) && isNavigationCurrent(ticket)
+                );
+            }
             if (report.kind === 'arrived') {
                 const placement = state.stagedViewportFence ?? state.committedViewportFence;
-                if (state.requestedPage !== report.page || placement?.viewportIntentId !== ticket.id
-                    || placement.pageNumber !== report.page) {return false;}
-                const openingPlacementReady = (state.lifecycle === 'opening'
-                    || state.lifecycle === 'transitioning')
-                    && (state.stagedRenderFence?.pageNumber === report.page
-                        || state.committedRenderFence?.pageNumber === report.page);
                 if (
-                    ticket.request.readiness !== 'metrics'
-                    && state.lifecycle !== 'ready'
-                    && !openingPlacementReady
-                ) {return false;}
+                    state.requestedPage !== report.page ||
+                    placement?.viewportIntentId !== ticket.id ||
+                    placement.pageNumber !== report.page
+                ) {
+                    return false;
+                }
+                const openingPlacementReady =
+                    (state.lifecycle === 'opening' || state.lifecycle === 'transitioning') &&
+                    (state.stagedRenderFence?.pageNumber === report.page || state.committedRenderFence?.pageNumber === report.page);
+                if (ticket.request.readiness !== 'metrics' && state.lifecycle !== 'ready' && !openingPlacementReady) {
+                    return false;
+                }
             }
-            if (report.kind === 'failed') {this.failPageTransition(state.requestedPage, report.reason);}
+            if (report.kind === 'failed') {
+                this.failPageTransition(state.requestedPage, report.reason);
+            }
             if (report.kind === 'abandoned') {
-                dispatchViewport({
-                    type: 'navigation-superseded-by-user',
-                    generation: ticket.generation,
-                    pageNumber: resolveDocumentViewportCurrentPage(state),
-                }, visual => ({
-                    ...visual,
-                    presentation: 'committed',
-                }));
+                dispatchViewport(
+                    {
+                        type: 'navigation-superseded-by-user',
+                        generation: ticket.generation,
+                        pageNumber: resolveDocumentViewportCurrentPage(state),
+                    },
+                    (visual) => ({
+                        ...visual,
+                        presentation: 'committed',
+                    }),
+                );
             }
             // Publication can synchronously issue another command; retire only our receipt.
             if (sessionState.value.ticket?.signal === ticket.signal) {
@@ -611,11 +653,17 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                     ticket: null,
                 };
             }
-            retire(ticket, report.kind === 'arrived' ? report
-                : report.kind === 'failed' ? report : {
-                    kind: 'superseded',
-                    by: report.by,
-                });
+            retire(
+                ticket,
+                report.kind === 'arrived'
+                    ? report
+                    : report.kind === 'failed'
+                      ? report
+                      : {
+                            kind: 'superseded',
+                            by: report.by,
+                        },
+            );
             return true;
         },
         snapshot: readonly(snapshot),
@@ -623,27 +671,27 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         getDiagnosticHistory: diagnostics.getHistory,
         begin(identity, openingPageGeometry = null, initialPage) {
             const normalizedOpeningPageGeometry = normalizeOpeningPageGeometry(openingPageGeometry);
-            const identityOwnedOpeningPageGeometry = normalizedOpeningPageGeometry?.documentId === identity.documentId
-                ? normalizedOpeningPageGeometry
-                : null;
-            const normalizedInitialPage = initialPage === undefined
-                ? identityOwnedOpeningPageGeometry?.pageNumber ?? 1
-                : Math.max(1, Math.trunc(initialPage));
-            const ownedOpeningPageGeometry = (
-                identityOwnedOpeningPageGeometry?.pageNumber === normalizedInitialPage
-            )
-                ? identityOwnedOpeningPageGeometry
-                : null;
-            beginViewportSession(identity, ownedOpeningPageGeometry, () => ({
-                // The transaction phase transfers center-surface ownership away
-                // from the empty placeholder immediately. Presentation remains
-                // idle until real page geometry can establish the page shell.
-                presentation: 'idle',
-                geometry: null,
-                openingPageGeometry: ownedOpeningPageGeometry,
-                openingPageFrame: null,
-                committedViewportPosition: null,
-            }), normalizedInitialPage);
+            const identityOwnedOpeningPageGeometry =
+                normalizedOpeningPageGeometry?.documentId === identity.documentId ? normalizedOpeningPageGeometry : null;
+            const normalizedInitialPage =
+                initialPage === undefined ? (identityOwnedOpeningPageGeometry?.pageNumber ?? 1) : Math.max(1, Math.trunc(initialPage));
+            const ownedOpeningPageGeometry =
+                identityOwnedOpeningPageGeometry?.pageNumber === normalizedInitialPage ? identityOwnedOpeningPageGeometry : null;
+            beginViewportSession(
+                identity,
+                ownedOpeningPageGeometry,
+                () => ({
+                    // The transaction phase transfers center-surface ownership away
+                    // from the empty placeholder immediately. Presentation remains
+                    // idle until real page geometry can establish the page shell.
+                    presentation: 'idle',
+                    geometry: null,
+                    openingPageGeometry: ownedOpeningPageGeometry,
+                    openingPageFrame: null,
+                    committedViewportPosition: null,
+                }),
+                normalizedInitialPage,
+            );
             return sessionState.value.viewport.generation;
         },
         commitOpeningPageGeometry(generation, geometry) {
@@ -652,64 +700,68 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             // As at begin, the opening geometry is that of the page the open
             // presents: another page's shape is not known to be this one's.
             if (
-                current.generation !== generation
-                || !isTransitionPhase(current.phase)
-                || normalizedGeometry === null
-                || normalizedGeometry.documentId !== current.identity?.documentId
-                || normalizedGeometry.pageNumber !== sessionState.value.viewport.requestedPage
+                current.generation !== generation ||
+                !isTransitionPhase(current.phase) ||
+                normalizedGeometry === null ||
+                normalizedGeometry.documentId !== current.identity?.documentId ||
+                normalizedGeometry.pageNumber !== sessionState.value.viewport.requestedPage
             ) {
                 return false;
             }
-            return dispatchViewport({
-                type: 'metadata-ready',
-                generation: sessionState.value.viewport.generation,
-                pageCount: normalizedGeometry.pageCount,
-            }, visual => ({
-                ...visual,
-                openingPageGeometry: normalizedGeometry,
-                presentation: resolveOpeningPresentation({
-                    ...current,
+            return dispatchViewport(
+                {
+                    type: 'metadata-ready',
+                    generation: sessionState.value.viewport.generation,
+                    pageCount: normalizedGeometry.pageCount,
+                },
+                (visual) => ({
+                    ...visual,
                     openingPageGeometry: normalizedGeometry,
+                    presentation: resolveOpeningPresentation({
+                        ...current,
+                        openingPageGeometry: normalizedGeometry,
+                    }),
                 }),
-            }));
+            );
         },
         prepareRevisionSwap(identity, pageNumber, invalidatedPages) {
             const current = snapshot.value;
             if (
-                current.phase !== 'ready'
-                || current.geometry === null
-                || current.identity?.documentId !== identity.documentId
-                || identity.documentRevision.length === 0
-                || !Number.isSafeInteger(pageNumber)
-                || pageNumber < 1
-                || invalidatedPages.length === 0
+                current.phase !== 'ready' ||
+                current.geometry === null ||
+                current.identity?.documentId !== identity.documentId ||
+                identity.documentRevision.length === 0 ||
+                !Number.isSafeInteger(pageNumber) ||
+                pageNumber < 1 ||
+                invalidatedPages.length === 0
             ) {
                 return false;
             }
-            const normalizedPage = Math.min(
-                pageNumber,
-                sessionState.value.viewport.pageCount ?? Number.MAX_SAFE_INTEGER,
-            );
+            const normalizedPage = Math.min(pageNumber, sessionState.value.viewport.pageCount ?? Number.MAX_SAFE_INTEGER);
             const intentId = createViewportIntentId('revision-swap');
-            const accepted = dispatchViewport({
-                type: 'revision-swapped',
-                generation: current.generation,
-                identity: {
-                    documentId: identity.documentId,
-                    revision: identity.documentRevision,
+            const accepted = dispatchViewport(
+                {
+                    type: 'revision-swapped',
+                    generation: current.generation,
+                    identity: {
+                        documentId: identity.documentId,
+                        revision: identity.documentRevision,
+                    },
+                    pageNumber: normalizedPage,
+                    viewportIntentId: intentId,
                 },
-                pageNumber: normalizedPage,
-                viewportIntentId: intentId,
-            }, (visual, viewport) => ({
-                ...visual,
-                committedViewportPosition: visual.committedViewportPosition === null
-                    ? null
-                    : Object.freeze({
-                        ...visual.committedViewportPosition,
-                        viewportIntentId: viewport.viewportIntent?.id
-                            ?? visual.committedViewportPosition.viewportIntentId,
-                    }),
-            }), null);
+                (visual, viewport) => ({
+                    ...visual,
+                    committedViewportPosition:
+                        visual.committedViewportPosition === null
+                            ? null
+                            : Object.freeze({
+                                  ...visual.committedViewportPosition,
+                                  viewportIntentId: viewport.viewportIntent?.id ?? visual.committedViewportPosition.viewportIntentId,
+                              }),
+                }),
+                null,
+            );
             if (!accepted) {
                 return false;
             }
@@ -722,10 +774,10 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         },
         completeRevisionSwap(generation, documentRevision) {
             if (
-                revisionSwap.value?.generation !== generation
-                || revisionSwap.value.documentRevision !== documentRevision
-                || snapshot.value.generation !== generation
-                || snapshot.value.identity?.documentRevision !== documentRevision
+                revisionSwap.value?.generation !== generation ||
+                revisionSwap.value.documentRevision !== documentRevision ||
+                snapshot.value.generation !== generation ||
+                snapshot.value.identity?.documentRevision !== documentRevision
             ) {
                 return false;
             }
@@ -733,10 +785,7 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             return true;
         },
         cancelRevisionSwap(generation, documentRevision) {
-            if (
-                revisionSwap.value?.generation !== generation
-                || revisionSwap.value.documentRevision !== documentRevision
-            ) {
+            if (revisionSwap.value?.generation !== generation || revisionSwap.value.documentRevision !== documentRevision) {
                 return false;
             }
             revisionSwap.value = null;
@@ -744,13 +793,19 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         },
         acquireSource(identity, expectedGeneration) {
             const current = snapshot.value;
-            if (current.generation !== expectedGeneration) {return null;}
-            if (current.identity === null) {return this.begin(identity);}
-            if (current.identity.documentId !== identity.documentId) {return null;}
+            if (current.generation !== expectedGeneration) {
+                return null;
+            }
+            if (current.identity === null) {
+                return this.begin(identity);
+            }
+            if (current.identity.documentId !== identity.documentId) {
+                return null;
+            }
             if (current.identity.documentRevision === identity.documentRevision) {
                 if (
-                    revisionSwap.value?.generation === current.generation
-                    && revisionSwap.value.documentRevision === identity.documentRevision
+                    revisionSwap.value?.generation === current.generation &&
+                    revisionSwap.value.documentRevision === identity.documentRevision
                 ) {
                     return current.generation;
                 }
@@ -779,23 +834,29 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                 // Provisional fences remain invalid because identity matching
                 // switches atomically here.
                 if (
-                    sameDocument
-                    && currentIdentity.provisional === true
-                    && current.committedRender === null
-                    && current.committedViewport === null
+                    sameDocument &&
+                    currentIdentity.provisional === true &&
+                    current.committedRender === null &&
+                    current.committedViewport === null
                 ) {
                     const ticket = sessionState.value.ticket;
-                    const refined = dispatchViewport({
-                        type: 'identity-refined',
-                        generation: sessionState.value.viewport.generation,
-                        identity: {
-                            documentId: identity.documentId,
-                            revision: identity.documentRevision,
+                    const refined = dispatchViewport(
+                        {
+                            type: 'identity-refined',
+                            generation: sessionState.value.viewport.generation,
+                            identity: {
+                                documentId: identity.documentId,
+                                revision: identity.documentRevision,
+                            },
                         },
-                    }, visual => visual, ticket ? Object.freeze({
-                        ...ticket,
-                        documentRevision: identity.documentRevision,
-                    }) : null);
+                        (visual) => visual,
+                        ticket
+                            ? Object.freeze({
+                                  ...ticket,
+                                  documentRevision: identity.documentRevision,
+                              })
+                            : null,
+                    );
                     return refined ? snapshot.value.generation : null;
                 }
             }
@@ -804,15 +865,14 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         commitOpeningPageFrame(generation, frame) {
             const current = snapshot.value;
             if (
-                current.generation !== generation
-                || frame.generation !== generation
-                || frame.ownerId.length === 0
-                || !isTransitionPhase(current.phase)
-                || !Number.isSafeInteger(frame.pageNumber)
-                || frame.pageNumber < 1
-                || frame.intentKey.length === 0
-                || current.openingPageFrame !== null
-                    && current.openingPageFrame.ownerId !== frame.ownerId
+                current.generation !== generation ||
+                frame.generation !== generation ||
+                frame.ownerId.length === 0 ||
+                !isTransitionPhase(current.phase) ||
+                !Number.isSafeInteger(frame.pageNumber) ||
+                frame.pageNumber < 1 ||
+                frame.intentKey.length === 0 ||
+                (current.openingPageFrame !== null && current.openingPageFrame.ownerId !== frame.ownerId)
             ) {
                 return false;
             }
@@ -837,21 +897,19 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             // that failed on its page and is painting that page on retry.
             const current = snapshot.value;
             if (
-                current.generation !== generation
-                || current.phase !== 'pending' && (current.phase !== 'failed' || current.geometry !== null
-                    || sessionState.value.viewport.visual.kind !== 'page')
-                || !isFinitePositive(geometry.width)
-                || !isFinitePositive(geometry.height)
-                || !Number.isFinite(geometry.margin)
-                || geometry.margin < 0
+                current.generation !== generation ||
+                (current.phase !== 'pending' &&
+                    (current.phase !== 'failed' || current.geometry !== null || sessionState.value.viewport.visual.kind !== 'page')) ||
+                !isFinitePositive(geometry.width) ||
+                !isFinitePositive(geometry.height) ||
+                !Number.isFinite(geometry.margin) ||
+                geometry.margin < 0
             ) {
                 return false;
             }
-            commitVisual(visual => ({
+            commitVisual((visual) => ({
                 ...visual,
-                presentation: snapshot.value.openingPageFrame === null
-                    ? visual.presentation
-                    : 'page-shell',
+                presentation: snapshot.value.openingPageFrame === null ? visual.presentation : 'page-shell',
                 geometry: Object.freeze({...geometry}),
             }));
             return true;
@@ -896,11 +954,9 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             // the resident canvas a navigation returns to.
             const previous = current.committedRender;
             if (
-                previous?.pageNumber === fence.pageNumber
-                && (
-                    fence.renderVersion < previous.renderVersion
-                    || fence.renderVersion === previous.renderVersion && fence.requestId < previous.requestId
-                )
+                previous?.pageNumber === fence.pageNumber &&
+                (fence.renderVersion < previous.renderVersion ||
+                    (fence.renderVersion === previous.renderVersion && fence.requestId < previous.requestId))
             ) {
                 diagnostics.reportRejected('commit-canvas', 'render-fence-older-than-committed', {
                     fence,
@@ -927,44 +983,48 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         },
         commitViewport(commit) {
             const current = snapshot.value;
-            const rejectionReason = current.identity === null
-                ? 'missing-identity'
-                : !canAcceptSameGenerationVisualCommit(current) && current.phase !== 'ready'
-                    ? 'surface-not-accepting-visual-commit'
-                    : commit.generation !== current.generation
+            const rejectionReason =
+                current.identity === null
+                    ? 'missing-identity'
+                    : !canAcceptSameGenerationVisualCommit(current) && current.phase !== 'ready'
+                      ? 'surface-not-accepting-visual-commit'
+                      : commit.generation !== current.generation
                         ? 'generation-mismatch'
                         : commit.documentRevision !== current.identity.documentRevision
-                            ? 'revision-mismatch'
-                            : commit.viewportIntentId.length === 0
-                                ? 'missing-viewport-intent'
-                                : !Number.isFinite(commit.documentGeometryRevision)
-                                    || !Number.isFinite(commit.interactionEpoch)
-                                    || !Number.isFinite(commit.left)
-                                    || !Number.isFinite(commit.top)
-                                    ? 'invalid-viewport-coordinates'
-                                    : null;
+                          ? 'revision-mismatch'
+                          : commit.viewportIntentId.length === 0
+                            ? 'missing-viewport-intent'
+                            : !Number.isFinite(commit.documentGeometryRevision) ||
+                                !Number.isFinite(commit.interactionEpoch) ||
+                                !Number.isFinite(commit.left) ||
+                                !Number.isFinite(commit.top)
+                              ? 'invalid-viewport-coordinates'
+                              : null;
             if (rejectionReason !== null) {
                 diagnostics.reportRejected('commit-viewport', rejectionReason, {commit});
                 return false;
             }
-            const accepted = dispatchViewport({
-                type: 'viewport-committed',
-                fence: {
-                    generation: sessionState.value.viewport.generation,
-                    revision: commit.documentRevision,
-                    pageNumber: commit.pageNumber,
-                    viewportIntentId: commit.viewportIntentId,
-                    geometryRevision: commit.documentGeometryRevision,
-                    interactionEpoch: commit.interactionEpoch,
+            const accepted = dispatchViewport(
+                {
+                    type: 'viewport-committed',
+                    fence: {
+                        generation: sessionState.value.viewport.generation,
+                        revision: commit.documentRevision,
+                        pageNumber: commit.pageNumber,
+                        viewportIntentId: commit.viewportIntentId,
+                        geometryRevision: commit.documentGeometryRevision,
+                        interactionEpoch: commit.interactionEpoch,
+                    },
                 },
-            }, visual => ({
-                ...visual,
-                committedViewportPosition: Object.freeze({
-                    viewportIntentId: commit.viewportIntentId,
-                    left: commit.left,
-                    top: commit.top,
+                (visual) => ({
+                    ...visual,
+                    committedViewportPosition: Object.freeze({
+                        viewportIntentId: commit.viewportIntentId,
+                        left: commit.left,
+                        top: commit.top,
+                    }),
                 }),
-            }));
+            );
             if (!accepted) {
                 diagnostics.reportRejected('commit-viewport', 'viewport-reducer-rejected', {commit});
             }
@@ -976,9 +1036,10 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                 return false;
             }
             const viewportState = sessionState.value.viewport;
-            const rejectsCurrentViewportIntent = viewportRenderFenceMatches(fence, viewportState.renderFence)
-                && viewportState.requestedPage === fence.pageNumber
-                && viewportState.lifecycle !== 'ready';
+            const rejectsCurrentViewportIntent =
+                viewportRenderFenceMatches(fence, viewportState.renderFence) &&
+                viewportState.requestedPage === fence.pageNumber &&
+                viewportState.lifecycle !== 'ready';
             const committed = snapshot.value.committedRender;
             if (!rejectsCurrentViewportIntent && committed && !fencesMatch(committed, fence)) {
                 return false;
@@ -989,23 +1050,22 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             if (!viewportState.renderFence) {
                 return false;
             }
-            return dispatchViewport({
-                type: 'page-failed',
-                fence: viewportState.renderFence,
-                error: reason,
-            }, visual => ({
-                ...visual,
-                openingPageFrame: null,
-            }));
+            return dispatchViewport(
+                {
+                    type: 'page-failed',
+                    fence: viewportState.renderFence,
+                    error: reason,
+                },
+                (visual) => ({
+                    ...visual,
+                    openingPageFrame: null,
+                }),
+            );
         },
         failPageTransition(pageNumber, reason) {
             const viewport = sessionState.value.viewport;
             const intent = viewport.viewportIntent;
-            if (
-                !intent
-                || viewport.requestedPage !== pageNumber
-                || viewport.lifecycle === 'ready'
-            ) {
+            if (!intent || viewport.requestedPage !== pageNumber || viewport.lifecycle === 'ready') {
                 return false;
             }
             return dispatchViewport({
@@ -1018,21 +1078,20 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         },
         fail(generation, reason) {
             const current = snapshot.value;
-            if (
-                current.generation !== generation
-                || current.phase === 'idle'
-                || current.committedRender !== null
-            ) {
+            if (current.generation !== generation || current.phase === 'idle' || current.committedRender !== null) {
                 return false;
             }
-            const failed = dispatchViewport({
-                type: 'open-failed',
-                generation: sessionState.value.viewport.generation,
-                error: reason,
-            }, visual => ({
-                ...visual,
-                openingPageFrame: null,
-            }));
+            const failed = dispatchViewport(
+                {
+                    type: 'open-failed',
+                    generation: sessionState.value.viewport.generation,
+                    error: reason,
+                },
+                (visual) => ({
+                    ...visual,
+                    openingPageFrame: null,
+                }),
+            );
             if (failed) {
                 revisionSwap.value = null;
             }
@@ -1041,33 +1100,41 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         reset() {
             revisionSwap.value = null;
             const closingGeneration = sessionState.value.viewport.generation;
-            if (!transitionViewport([
-                {type: 'close-requested'},
-                {
-                    type: 'close-committed',
-                    generation: closingGeneration,
-                },
-            ], () => idleVisualState(), null)) {
+            if (
+                !transitionViewport(
+                    [
+                        {type: 'close-requested'},
+                        {
+                            type: 'close-committed',
+                            generation: closingGeneration,
+                        },
+                    ],
+                    () => idleVisualState(),
+                    null,
+                )
+            ) {
                 commitVisual(() => idleVisualState());
             }
         },
         metadataReady(pageCount) {
             const current = sessionState.value.viewport;
-            const invalidatesCommittedVisual = current.lifecycle === 'ready'
-                && current.committedPage !== null
-                && current.committedPage > pageCount;
-            const accepted = dispatchViewport({
-                type: 'metadata-ready',
-                generation: sessionState.value.viewport.generation,
-                pageCount,
-            }, invalidatesCommittedVisual
-                ? visual => ({
-                    ...visual,
-                    presentation: 'page-shell',
-                    openingPageFrame: null,
-                    committedViewportPosition: null,
-                })
-                : undefined);
+            const invalidatesCommittedVisual =
+                current.lifecycle === 'ready' && current.committedPage !== null && current.committedPage > pageCount;
+            const accepted = dispatchViewport(
+                {
+                    type: 'metadata-ready',
+                    generation: sessionState.value.viewport.generation,
+                    pageCount,
+                },
+                invalidatesCommittedVisual
+                    ? (visual) => ({
+                          ...visual,
+                          presentation: 'page-shell',
+                          openingPageFrame: null,
+                          committedViewportPosition: null,
+                      })
+                    : undefined,
+            );
             if (!accepted) {
                 return false;
             }
@@ -1077,14 +1144,14 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             const normalized = Math.max(1, Math.trunc(pageNumber));
             const viewport = sessionState.value.viewport;
             if (
-                !Number.isSafeInteger(normalized)
-                || viewport.lifecycle !== 'ready'
-                || viewport.requestedPage !== normalized
-                || viewport.committedPage !== normalized
-                || viewport.observedPage !== null && viewport.observedPage !== normalized
-                || viewport.visual.kind !== 'page'
-                || viewport.visual.pageNumber !== normalized
-                || viewport.visual.presentation !== 'canvas'
+                !Number.isSafeInteger(normalized) ||
+                viewport.lifecycle !== 'ready' ||
+                viewport.requestedPage !== normalized ||
+                viewport.committedPage !== normalized ||
+                (viewport.observedPage !== null && viewport.observedPage !== normalized) ||
+                viewport.visual.kind !== 'page' ||
+                viewport.visual.pageNumber !== normalized ||
+                viewport.visual.presentation !== 'canvas'
             ) {
                 return false;
             }
@@ -1104,19 +1171,21 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             if (!Number.isSafeInteger(normalized) || current.identity === null) {
                 return resolveDocumentViewportCurrentPage(current);
             }
-            const supersede = options.supersedeNavigation === true
-                && current.lifecycle === 'transitioning';
+            const supersede = options.supersedeNavigation === true && current.lifecycle === 'transitioning';
             if (supersede) {
                 const ticket = sessionState.value.ticket;
                 if (ticket) {
-                    dispatchViewport({
-                        type: 'navigation-superseded-by-user',
-                        generation: ticket.generation,
-                        pageNumber: resolveDocumentViewportCurrentPage(current),
-                    }, visual => ({
-                        ...visual,
-                        presentation: 'committed',
-                    }));
+                    dispatchViewport(
+                        {
+                            type: 'navigation-superseded-by-user',
+                            generation: ticket.generation,
+                            pageNumber: resolveDocumentViewportCurrentPage(current),
+                        },
+                        (visual) => ({
+                            ...visual,
+                            presentation: 'committed',
+                        }),
+                    );
                     if (sessionState.value.ticket?.signal === ticket.signal) {
                         sessionState.value = {
                             ...sessionState.value,
@@ -1129,9 +1198,7 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                     });
                 }
             }
-            const observedPage = current.pageCount === null
-                ? normalized
-                : Math.min(current.pageCount, normalized);
+            const observedPage = current.pageCount === null ? normalized : Math.min(current.pageCount, normalized);
             if (!supersede && current.observedPage === observedPage) {
                 return resolveDocumentViewportCurrentPage(current);
             }
@@ -1144,9 +1211,7 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         },
     };
 }
-export const documentOpenSurfaceSessionKey = Symbol('document-open-surface-session') as InjectionKey<
-    IDocumentOpenSurfaceSession
->;
+export const documentOpenSurfaceSessionKey = Symbol('document-open-surface-session') as InjectionKey<IDocumentOpenSurfaceSession>;
 export function injectDocumentOpenSurfaceSession() {
     return inject(documentOpenSurfaceSessionKey, null);
 }

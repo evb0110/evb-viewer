@@ -1,15 +1,17 @@
-import type { IDocumentTextPageLayout } from '@contracts/documentTextCatalog';
-import { yieldToBrowser } from '@app/utils/yieldToBrowser';
+import type {IDocumentTextPageLayout} from '@contracts/documentTextCatalog';
+import {yieldToBrowser} from '@app/utils/yieldToBrowser';
 
 function throwIfAborted(signal?: AbortSignal) {
     signal?.throwIfAborted();
 }
 
 /** A page of text: its lines, or how its OCR layout sets them in regions and columns. */
-export type TDocxTextPage = string | {
-    readonly text: string;
-    readonly layout?: IDocumentTextPageLayout;
-};
+export type TDocxTextPage =
+    | string
+    | {
+          readonly text: string;
+          readonly layout?: IDocumentTextPageLayout;
+      };
 
 /** Text pages are kept separate so callers do not need to merge a catalog first. */
 export type TDocxTextPageSource = Iterable<TDocxTextPage> | AsyncIterable<TDocxTextPage>;
@@ -41,20 +43,18 @@ export function resolveDocxParagraphDirection(text: string, fallbackRtl = false)
     return firstRtl < firstLtr;
 }
 
-const ZIP32_MAX_VALUE = 0xFFFFFFFF;
+const ZIP32_MAX_VALUE = 0xffffffff;
 // A count or offset at or past these is written as ZIP64, which desktop's
 // folder export never needs and ordinary archives never reach.
-const ZIP_MAX_ENTRY_COUNT = 0xFFFF;
-const ZIP_MAX_FILE_NAME_BYTES = 0xFFFF;
+const ZIP_MAX_ENTRY_COUNT = 0xffff;
+const ZIP_MAX_FILE_NAME_BYTES = 0xffff;
 
 const CRC_TABLE = (() => {
     const table = new Uint32Array(256);
     for (let index = 0; index < table.length; index += 1) {
         let value = index;
         for (let bit = 0; bit < 8; bit += 1) {
-            value = (value & 1) === 1
-                ? 0xEDB88320 ^ (value >>> 1)
-                : value >>> 1;
+            value = (value & 1) === 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
         }
         table[index] = value >>> 0;
     }
@@ -68,13 +68,13 @@ export function encodeUtf8(value: string) {
 function updateCrc32(crc: number, data: Uint8Array) {
     let next = crc;
     for (const byte of data) {
-        next = (CRC_TABLE[(next ^ byte) & 0xFF] ?? 0) ^ (next >>> 8);
+        next = (CRC_TABLE[(next ^ byte) & 0xff] ?? 0) ^ (next >>> 8);
     }
     return next;
 }
 
 export function crc32(data: Uint8Array) {
-    return (updateCrc32(0xFFFFFFFF, data) ^ 0xFFFFFFFF) >>> 0;
+    return (updateCrc32(0xffffffff, data) ^ 0xffffffff) >>> 0;
 }
 
 function assertZip32Value(value: number, label: string) {
@@ -100,12 +100,7 @@ interface IZipEntryLayout {
     readonly usesDataDescriptor?: boolean;
 }
 
-export function makeLocalHeader(
-    fileName: Uint8Array,
-    crc: number,
-    size: number,
-    layout: IZipEntryLayout = {},
-) {
+export function makeLocalHeader(fileName: Uint8Array, crc: number, size: number, layout: IZipEntryLayout = {}) {
     if (fileName.byteLength > ZIP_MAX_FILE_NAME_BYTES) {
         throw new RangeError('DOCX ZIP file name exceeds the ZIP safety limit');
     }
@@ -115,7 +110,7 @@ export function makeLocalHeader(
     assertZip32Value(size, 'entry size');
     const header = new Uint8Array(30 + fileName.byteLength);
     const view = new DataView(header.buffer);
-    view.setUint32(0, 0x04034B50, true);
+    view.setUint32(0, 0x04034b50, true);
     view.setUint16(4, 20, true);
     view.setUint16(6, layout.usesDataDescriptor ? ZIP_DATA_DESCRIPTOR_FLAG : 0, true);
     view.setUint16(8, layout.method ?? ZIP_METHOD_STORED, true);
@@ -136,7 +131,7 @@ function makeDataDescriptor(crc: number, compressedSize: number, size: number) {
     assertZip32Value(size, 'entry size');
     const descriptor = new Uint8Array(16);
     const view = new DataView(descriptor.buffer);
-    view.setUint32(0, 0x08074B50, true);
+    view.setUint32(0, 0x08074b50, true);
     view.setUint32(4, crc, true);
     view.setUint32(8, compressedSize, true);
     view.setUint32(12, size, true);
@@ -144,13 +139,7 @@ function makeDataDescriptor(crc: number, compressedSize: number, size: number) {
 }
 
 /** The central record carries the method and general-purpose flags of the entry's local header. */
-export function makeCentralHeader(
-    fileName: Uint8Array,
-    crc: number,
-    size: number,
-    offset: number,
-    layout: IZipEntryLayout = {},
-) {
+export function makeCentralHeader(fileName: Uint8Array, crc: number, size: number, offset: number, layout: IZipEntryLayout = {}) {
     if (fileName.byteLength > ZIP_MAX_FILE_NAME_BYTES) {
         throw new RangeError('DOCX ZIP file name exceeds the ZIP safety limit');
     }
@@ -158,12 +147,14 @@ export function makeCentralHeader(
     assertZip32Value(crc, 'CRC');
     assertZip32Value(compressedSize, 'entry size');
     assertZip32Value(size, 'entry size');
-    if (!Number.isSafeInteger(offset) || offset < 0) {throw new RangeError('DOCX ZIP entry offset is invalid');}
+    if (!Number.isSafeInteger(offset) || offset < 0) {
+        throw new RangeError('DOCX ZIP entry offset is invalid');
+    }
     const zip64 = offset >= ZIP32_MAX_VALUE;
     const extraLength = zip64 ? 12 : 0;
     const header = new Uint8Array(46 + fileName.byteLength + extraLength);
     const view = new DataView(header.buffer);
-    view.setUint32(0, 0x02014B50, true);
+    view.setUint32(0, 0x02014b50, true);
     view.setUint16(4, zip64 ? 45 : 20, true);
     view.setUint16(6, zip64 ? 45 : 20, true);
     view.setUint16(8, layout.usesDataDescriptor ? ZIP_DATA_DESCRIPTOR_FLAG : 0, true);
@@ -192,11 +183,7 @@ export function makeCentralHeader(
 }
 
 export function makeEndOfCentralDirectory(entryCount: number, centralSize: number, centralOffset: number) {
-    if (![
-        entryCount,
-        centralSize,
-        centralOffset,
-    ].every(value => Number.isSafeInteger(value) && value >= 0)) {
+    if (![entryCount, centralSize, centralOffset].every((value) => Number.isSafeInteger(value) && value >= 0)) {
         throw new RangeError('DOCX ZIP central directory is invalid');
     }
     const zip64 = entryCount >= ZIP_MAX_ENTRY_COUNT || centralSize >= ZIP32_MAX_VALUE || centralOffset >= ZIP32_MAX_VALUE;
@@ -205,7 +192,7 @@ export function makeEndOfCentralDirectory(entryCount: number, centralSize: numbe
     let end = 0;
     if (zip64) {
         // The ZIP64 end of central directory record, then its locator.
-        view.setUint32(0, 0x06064B50, true);
+        view.setUint32(0, 0x06064b50, true);
         view.setBigUint64(4, 44n, true);
         view.setUint16(12, 45, true);
         view.setUint16(14, 45, true);
@@ -213,12 +200,12 @@ export function makeEndOfCentralDirectory(entryCount: number, centralSize: numbe
         view.setBigUint64(32, BigInt(entryCount), true);
         view.setBigUint64(40, BigInt(centralSize), true);
         view.setBigUint64(48, BigInt(centralOffset), true);
-        view.setUint32(56, 0x07064B50, true);
+        view.setUint32(56, 0x07064b50, true);
         view.setBigUint64(64, BigInt(centralOffset + centralSize), true);
         view.setUint32(72, 1, true);
         end = 76;
     }
-    view.setUint32(end, 0x06054B50, true);
+    view.setUint32(end, 0x06054b50, true);
     view.setUint16(end + 8, Math.min(entryCount, ZIP_MAX_ENTRY_COUNT), true);
     view.setUint16(end + 10, Math.min(entryCount, ZIP_MAX_ENTRY_COUNT), true);
     view.setUint32(end + 12, Math.min(centralSize, ZIP32_MAX_VALUE), true);
@@ -243,10 +230,10 @@ export function escapeXml(text: string) {
 function* iterateLines(text: string): Generator<string> {
     let start = 0;
     for (let index = 0; index < text.length; index += 1) {
-        if (text.charCodeAt(index) !== 0x0A) {
+        if (text.charCodeAt(index) !== 0x0a) {
             continue;
         }
-        const end = text.charCodeAt(index - 1) === 0x0D ? index - 1 : index;
+        const end = text.charCodeAt(index - 1) === 0x0d ? index - 1 : index;
         yield text.slice(start, end);
         start = index + 1;
     }
@@ -257,7 +244,7 @@ function takeTextRun(text: string, start: number) {
     let end = Math.min(start + DOCX_MAX_TEXT_RUN_CHARACTERS, text.length);
     if (end < text.length) {
         const previous = text.charCodeAt(end - 1);
-        if (previous >= 0xD800 && previous <= 0xDBFF) {
+        if (previous >= 0xd800 && previous <= 0xdbff) {
             end -= 1;
         }
     }
@@ -265,27 +252,25 @@ function takeTextRun(text: string, start: number) {
 }
 
 function paragraphPrefix(isRtl: boolean) {
-    return isRtl
-        ? '<w:p><w:pPr><w:bidi/></w:pPr>'
-        : '<w:p>';
+    return isRtl ? '<w:p><w:pPr><w:bidi/></w:pPr>' : '<w:p>';
 }
 
 function runPrefix(isRtl: boolean) {
-    return isRtl
-        ? '<w:r><w:rPr><w:rtl/></w:rPr><w:t xml:space="preserve">'
-        : '<w:r><w:t xml:space="preserve">';
+    return isRtl ? '<w:r><w:rPr><w:rtl/></w:rPr><w:t xml:space="preserve">' : '<w:r><w:t xml:space="preserve">';
 }
 
 function paragraphSuffix() {
     return '</w:r></w:p>';
 }
 
-export const DOCUMENT_XML_PREFIX = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+export const DOCUMENT_XML_PREFIX =
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
     '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>';
 const DOCUMENT_PAGE_BREAK = '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
-const DOCUMENT_SECTION_PROPERTIES = '<w:sectPr><w:pgSz w:w="12240" w:h="15840"/>'
-    + '<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/>'
-    + '</w:sectPr>';
+const DOCUMENT_SECTION_PROPERTIES =
+    '<w:sectPr><w:pgSz w:w="12240" w:h="15840"/>' +
+    '<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/>' +
+    '</w:sectPr>';
 // Columns sit in a borderless table that spans the text width, a gutter of
 // a quarter inch (360 twips) after each but the last.
 const COLUMN_GUTTER_TWIPS = 360;
@@ -294,35 +279,30 @@ const TEXT_WIDTH_TWIPS = 9360;
 const FULL_WIDTH_PERCENT_FIFTIETHS = 5000;
 
 function columnsTableStart(columns: number, rtl: boolean) {
-    const borders = [
-        'top',
-        'left',
-        'bottom',
-        'right',
-        'insideH',
-        'insideV',
-    ].map(edge => `<w:${edge} w:val="nil"/>`).join('');
-    return '<w:tbl><w:tblPr>'
-        + (rtl ? '<w:bidiVisual/>' : '')
-        + `<w:tblW w:w="${FULL_WIDTH_PERCENT_FIFTIETHS}" w:type="pct"/><w:tblLayout w:type="fixed"/>`
-        + `<w:tblBorders>${borders}</w:tblBorders>`
-        + `<w:tblCellMar><w:left w:w="0" w:type="dxa"/><w:right w:w="${COLUMN_GUTTER_TWIPS}" w:type="dxa"/></w:tblCellMar>`
-        + '</w:tblPr><w:tblGrid>'
-        + `<w:gridCol w:w="${Math.floor(TEXT_WIDTH_TWIPS / columns)}"/>`.repeat(columns)
-        + '</w:tblGrid><w:tr>';
+    const borders = ['top', 'left', 'bottom', 'right', 'insideH', 'insideV'].map((edge) => `<w:${edge} w:val="nil"/>`).join('');
+    return (
+        '<w:tbl><w:tblPr>' +
+        (rtl ? '<w:bidiVisual/>' : '') +
+        `<w:tblW w:w="${FULL_WIDTH_PERCENT_FIFTIETHS}" w:type="pct"/><w:tblLayout w:type="fixed"/>` +
+        `<w:tblBorders>${borders}</w:tblBorders>` +
+        `<w:tblCellMar><w:left w:w="0" w:type="dxa"/><w:right w:w="${COLUMN_GUTTER_TWIPS}" w:type="dxa"/></w:tblCellMar>` +
+        '</w:tblPr><w:tblGrid>' +
+        `<w:gridCol w:w="${Math.floor(TEXT_WIDTH_TWIPS / columns)}"/>`.repeat(columns) +
+        '</w:tblGrid><w:tr>'
+    );
 }
 
 /** What the document body holds, in order: markup, or a paragraph of text. */
 export type TDocxBodyPart =
     | {
-        readonly kind: 'markup';
-        readonly xml: string
-    }
+          readonly kind: 'markup';
+          readonly xml: string;
+      }
     | {
-        readonly kind: 'paragraph';
-        readonly text: string;
-        readonly rtl: boolean
-    };
+          readonly kind: 'paragraph';
+          readonly text: string;
+          readonly rtl: boolean;
+      };
 
 /**
  * Lays pages out as the document body, each page on a new page. A page whose
@@ -339,12 +319,10 @@ export class DocxBodyWriter {
     constructor(private readonly direction: TDocxParagraphDirection) {}
 
     private isRtl(text: string) {
-        return typeof this.direction === 'function'
-            ? this.direction(text)
-            : resolveDocxParagraphDirection(text, this.direction);
+        return typeof this.direction === 'function' ? this.direction(text) : resolveDocxParagraphDirection(text, this.direction);
     }
 
-    private* paragraphs(texts: Iterable<string>): Generator<TDocxBodyPart> {
+    private *paragraphs(texts: Iterable<string>): Generator<TDocxBodyPart> {
         for (const text of texts) {
             yield {
                 kind: 'paragraph',
@@ -355,7 +333,7 @@ export class DocxBodyWriter {
         }
     }
 
-    * page(page: TDocxTextPage): Generator<TDocxBodyPart> {
+    *page(page: TDocxTextPage): Generator<TDocxBodyPart> {
         if (this.hasContent) {
             yield {
                 kind: 'markup',
@@ -364,9 +342,7 @@ export class DocxBodyWriter {
         }
         this.hasContent = true;
         const text = typeof page === 'string' ? page : page.text;
-        const regions = typeof page === 'string' || !page.layout || page.layout.regions.length === 0
-            ? null
-            : page.layout.regions;
+        const regions = typeof page === 'string' || !page.layout || page.layout.regions.length === 0 ? null : page.layout.regions;
         if (!regions) {
             yield* this.paragraphs(iterateLines(text));
             return;
@@ -411,17 +387,20 @@ export class DocxBodyWriter {
     }
 }
 
-const CONTENT_TYPES_XML = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+const CONTENT_TYPES_XML =
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
     '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
     '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
     '<Default Extension="xml" ContentType="application/xml"/>' +
     '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>' +
     '</Types>';
-const RELS_XML = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+const RELS_XML =
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
     '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
     '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>' +
     '</Relationships>';
-const DOCUMENT_RELS_XML = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+const DOCUMENT_RELS_XML =
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
     '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>';
 
 interface ICentralDirectoryEntry extends IZipEntryLayout {
@@ -567,13 +546,15 @@ export async function* createDocxFromTextChunks(
     const documentName = encodeUtf8('word/document.xml');
     const documentOffset = archiveOffset;
     throwIfAborted(signal);
-    yield* emit(makeLocalHeader(documentName, 0, 0, {
-        method: ZIP_METHOD_DEFLATE,
-        usesDataDescriptor: true,
-    }));
+    yield* emit(
+        makeLocalHeader(documentName, 0, 0, {
+            method: ZIP_METHOD_DEFLATE,
+            usesDataDescriptor: true,
+        }),
+    );
 
     const deflate = createDeflateEncoder();
-    let documentCrc = 0xFFFFFFFF;
+    let documentCrc = 0xffffffff;
     let documentSize = 0;
     let documentCompressedSize = 0;
     // Uncompressed bytes wait here until a transport chunk's worth is ready to deflate.
@@ -645,8 +626,11 @@ export async function* createDocxFromTextChunks(
             }
             for (const part of body.page(page)) {
                 throwIfAborted(signal);
-                if (part.kind === 'markup') {yield* emitDocumentText(part.xml);}
-                else {yield* emitParagraph(part.text, part.rtl);}
+                if (part.kind === 'markup') {
+                    yield* emitDocumentText(part.xml);
+                } else {
+                    yield* emitParagraph(part.text, part.rtl);
+                }
             }
         }
 
@@ -661,7 +645,7 @@ export async function* createDocxFromTextChunks(
         }
     }
     yield* emitCompressed();
-    const finalDocumentCrc = (documentCrc ^ 0xFFFFFFFF) >>> 0;
+    const finalDocumentCrc = (documentCrc ^ 0xffffffff) >>> 0;
     yield* emit(makeDataDescriptor(finalDocumentCrc, documentCompressedSize, documentSize));
     centralDirectory.push({
         name: documentName,

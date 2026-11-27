@@ -1,27 +1,10 @@
-import { spawnSync } from 'node:child_process';
-import {
-    appendFileSync,
-    cpSync,
-    mkdtempSync,
-    readFileSync,
-} from 'node:fs';
-import {
-    mkdir,
-    mkdtemp,
-    readFile,
-    writeFile,
-} from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import path, { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
-import {
-    afterAll,
-    beforeAll,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {spawnSync} from 'node:child_process';
+import {appendFileSync, cpSync, mkdtempSync, readFileSync} from 'node:fs';
+import {mkdir, mkdtemp, readFile, writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import path, {join} from 'node:path';
+import {pathToFileURL} from 'node:url';
+import {afterAll, beforeAll, describe, expect, it, vi} from 'vitest';
 import {removeTemporaryDirectory} from '@tests/helpers/removeTemporaryDirectory';
 
 interface IViolation {
@@ -38,43 +21,46 @@ interface IPrePushWork {
 interface IPublicationPolicyModule {
     collectPrePushWork: (input: string, remoteTargets: string[], cwd?: string) => IPrePushWork;
     collectPushedRangeCommits: (beforeOid: string, headOid: string, cwd?: string) => string[];
-    findPushPolicyViolations: (
-        commits: string[],
-        cwd?: string,
-        work?: Partial<IPrePushWork>,
-    ) => IViolation[];
+    findPushPolicyViolations: (commits: string[], cwd?: string, work?: Partial<IPrePushWork>) => IViolation[];
     findStagedArtifactViolations: (cwd?: string) => string[];
     main: (arguments_?: string[], cwd?: string) => void;
-    parseDiffTreeRecords: (output: string, requestedCommits: string[]) => Array<{
+    parseDiffTreeRecords: (
+        output: string,
+        requestedCommits: string[],
+    ) => Array<{
         commit: string;
         paths: string[];
     }>;
 }
 
-const checker = await import(
+const checker = (await import(
     pathToFileURL(path.resolve(process.cwd(), 'scripts/check-publication-policy.mjs')).href
-) as IPublicationPolicyModule;
+)) as IPublicationPolicyModule;
 
 interface IAddedChecksModule {
     findAddedChecks: (
         entries: Array<{
-            path: string,
-            status: string
+            path: string;
+            status: string;
         }>,
         readAddedLines: (path: string) => string[],
     ) => string[];
-    readCommitMetadata: (commits: string[], cwd: string) => Map<string, {
-        body: string;
-        committedAt: number;
-        oid: string;
-        parents: string[];
-        subject: string;
-    }>;
+    readCommitMetadata: (
+        commits: string[],
+        cwd: string,
+    ) => Map<
+        string,
+        {
+            body: string;
+            committedAt: number;
+            oid: string;
+            parents: string[];
+            subject: string;
+        }
+    >;
 }
 
-const addedChecks = await import(
-    pathToFileURL(path.resolve(process.cwd(), 'scripts/lib/added-checks.mjs')).href
-) as IAddedChecksModule;
+const addedChecks = (await import(pathToFileURL(path.resolve(process.cwd(), 'scripts/lib/added-checks.mjs')).href)) as IAddedChecksModule;
 
 const ZERO_OID = '0'.repeat(40);
 const UNREACHABLE_OID = 'f'.repeat(40);
@@ -100,14 +86,13 @@ beforeAll(() => {
 });
 
 afterAll(async () => {
-    await Promise.all([
-        repositoryTemplate,
-        bareRepositoryTemplate,
-    ].map(async repository => {
-        if (repository) {
-            await removeRepository(repository);
-        }
-    }));
+    await Promise.all(
+        [repositoryTemplate, bareRepositoryTemplate].map(async (repository) => {
+            if (repository) {
+                await removeRepository(repository);
+            }
+        }),
+    );
 });
 
 function createRepository(prefix: string, extraArguments: string[] = []) {
@@ -117,14 +102,11 @@ function createRepository(prefix: string, extraArguments: string[] = []) {
         cpSync(template, repository, {recursive: true});
         return repository;
     }
-    runGit(repository, [
-        'init',
-        '--initial-branch=main',
-        ...extraArguments,
-        '.',
-    ]);
-    appendFileSync(join(repository, extraArguments.includes('--bare') ? 'config' : '.git/config'),
-        '\n[user]\n\tname = Test User\n\temail = test@example.test\n');
+    runGit(repository, ['init', '--initial-branch=main', ...extraArguments, '.']);
+    appendFileSync(
+        join(repository, extraArguments.includes('--bare') ? 'config' : '.git/config'),
+        '\n[user]\n\tname = Test User\n\temail = test@example.test\n',
+    );
     return repository;
 }
 
@@ -136,10 +118,7 @@ function getAbsoluteOsTemporaryDirectory() {
 
     if (process.platform === 'win32') {
         const systemRoot = process.env.SystemRoot;
-        return join(
-            systemRoot && path.isAbsolute(systemRoot) ? systemRoot : 'C:\\Windows',
-            'Temp',
-        );
+        return join(systemRoot && path.isAbsolute(systemRoot) ? systemRoot : 'C:\\Windows', 'Temp');
     }
 
     return '/tmp';
@@ -150,10 +129,7 @@ async function removeRepository(repository: string) {
 }
 
 async function writeFiles(repository: string, files: Record<string, string>) {
-    for (const [
-        filePath,
-        contents,
-    ] of Object.entries(files)) {
+    for (const [filePath, contents] of Object.entries(files)) {
         const absolutePath = join(repository, filePath);
         await mkdir(path.dirname(absolutePath), {recursive: true});
         await writeFile(absolutePath, contents, 'utf8');
@@ -162,16 +138,8 @@ async function writeFiles(repository: string, files: Record<string, string>) {
 
 async function commit(repository: string, message: string, files: Record<string, string> = {}) {
     await writeFiles(repository, files);
-    runGit(repository, [
-        'add',
-        '--all',
-    ]);
-    runGit(repository, [
-        'commit',
-        '--allow-empty',
-        '-m',
-        message,
-    ]);
+    runGit(repository, ['add', '--all']);
+    runGit(repository, ['commit', '--allow-empty', '-m', message]);
     const headRef = readFileSync(join(repository, '.git/HEAD'), 'utf8').trim().slice('ref: '.length);
     return readFileSync(join(repository, '.git', headRef), 'utf8').trim();
 }
@@ -197,24 +165,14 @@ function runMain(arguments_: string[], cwd?: string) {
 
 function repositoryState(repository: string) {
     return [
-        runGit(repository, [
-            'rev-parse',
-            '--is-inside-work-tree',
-            '--is-bare-repository',
-            'HEAD',
-        ]),
-        runGit(repository, [
-            'status',
-            '--porcelain=v1',
-            '--branch',
-        ]),
+        runGit(repository, ['rev-parse', '--is-inside-work-tree', '--is-bare-repository', 'HEAD']),
+        runGit(repository, ['status', '--porcelain=v1', '--branch']),
     ];
 }
 
 function isWithinDirectory(directory: string, candidate: string) {
     const relativePath = path.relative(directory, candidate);
-    return relativePath === ''
-        || (!relativePath.startsWith('..') && !path.isAbsolute(relativePath));
+    return relativePath === '' || (!relativePath.startsWith('..') && !path.isAbsolute(relativePath));
 }
 
 describe('publication policy', () => {
@@ -228,10 +186,12 @@ describe('publication policy', () => {
             const commits = checker.collectPushedRangeCommits(base, head, repository);
 
             expect(commits).toHaveLength(2);
-            expect(checker.findPushPolicyViolations(commits, repository)).toEqual([{
-                matches: ['agent instruction file AGENTS.md at docs/AGENTS.md'],
-                subject: middle,
-            }]);
+            expect(checker.findPushPolicyViolations(commits, repository)).toEqual([
+                {
+                    matches: ['agent instruction file AGENTS.md at docs/AGENTS.md'],
+                    subject: middle,
+                },
+            ]);
         } finally {
             await removeRepository(repository);
         }
@@ -248,29 +208,12 @@ describe('publication policy', () => {
 
         try {
             await mkdir(primary);
-            runGit(fixtureDirectory, [
-                'init',
-                '--initial-branch=main',
-                primary,
-            ]);
-            appendFileSync(join(primary, '.git/config'),
-                '\n[user]\n\tname = Test User\n\temail = test@example.test\n');
+            runGit(fixtureDirectory, ['init', '--initial-branch=main', primary]);
+            appendFileSync(join(primary, '.git/config'), '\n[user]\n\tname = Test User\n\temail = test@example.test\n');
             await writeFiles(primary, {'README.md': 'fixture host\n'});
-            runGit(primary, [
-                'add',
-                '--all',
-            ]);
-            runGit(primary, [
-                'commit',
-                '--message',
-                'Create fixture host',
-            ]);
-            runGit(primary, [
-                'worktree',
-                'add',
-                linked,
-                'HEAD',
-            ]);
+            runGit(primary, ['add', '--all']);
+            runGit(primary, ['commit', '--message', 'Create fixture host']);
+            runGit(primary, ['worktree', 'add', linked, 'HEAD']);
 
             const primaryState = repositoryState(primary);
             const linkedState = repositoryState(linked);
@@ -289,7 +232,6 @@ describe('publication policy', () => {
             expect(isWithinDirectory(linked, linkedFixture)).toBe(false);
             expect(repositoryState(primary)).toEqual(primaryState);
             expect(repositoryState(linked)).toEqual(linkedState);
-
         } finally {
             if (originalTmpdir === undefined) {
                 delete process.env.TMPDIR;
@@ -311,178 +253,117 @@ describe('publication policy', () => {
     // invocation, or kept it in the wrong mode, disables the gate silently: the
     // commit or push simply succeeds. Assert the exact wiring per hook.
     it.each([
-        [
-            'pre-commit',
-            '--staged',
-        ],
-        [
-            'pre-push',
-            '--pre-push',
-        ],
-        [
-            'commit-msg',
-            '--message-file',
-        ],
+        ['pre-commit', '--staged'],
+        ['pre-push', '--pre-push'],
+        ['commit-msg', '--message-file'],
     ])('wires the %s hook to the publication check with %s', async (hook, mode) => {
         const script = await readFile(path.join(process.cwd(), '.husky', hook), 'utf8');
         const invocations = script
             .split(/\r?\n/u)
-            .map(line => line.trim())
-            .filter(line => line.includes('check-publication-policy.mjs'));
+            .map((line) => line.trim())
+            .filter((line) => line.includes('check-publication-policy.mjs'));
 
         expect(invocations).toHaveLength(1);
-        expect(invocations[0]).toMatch(
-            new RegExp(`^node scripts/check-publication-policy\\.mjs ${mode}(\\s|$)`, 'u'),
-        );
+        expect(invocations[0]).toMatch(new RegExp(`^node scripts/check-publication-policy\\.mjs ${mode}(\\s|$)`, 'u'));
     });
 });
 
 describe('added check and flake tolerance detection', () => {
     function findInAddedLines(filePath: string, addedLines: string[]) {
-        return addedChecks.findAddedChecks([{
-            path: filePath,
-            status: 'M',
-        }], () => addedLines);
+        return addedChecks.findAddedChecks(
+            [
+                {
+                    path: filePath,
+                    status: 'M',
+                },
+            ],
+            () => addedLines,
+        );
     }
 
     it.each([
-        [
-            'tests/unit/a.test.ts',
-            'await new Promise(resolve => setTimeout(resolve, 500));',
-            'wall-clock sleep in a test',
-        ],
-        [
-            'tests/unit/a.test.ts',
-            '    await sleep(250);',
-            'wall-clock sleep in a test',
-        ],
-        [
-            'tests/unit/a.test.ts',
-            'it(\'x\', {retry: 3}, async () => {',
-            'test retry',
-        ],
-        [
-            'tests/e2e/electron/b.e2e.test.ts',
-            '    }, 120_000);',
-            'test timeout override',
-        ],
-        [
-            'tests/helpers/session.ts',
-            'throw new Error(\'[INFRA] session boot failed\');',
-            'infrastructure retry marker',
-        ],
-        [
-            'vitest.shared.config.ts',
-            '            retry: 2,',
-            'test retry',
-        ],
-        [
-            'vitest.shared.config.ts',
-            '            testTimeout: 180_000,',
-            'test timeout raised',
-        ],
-        [
-            '.github/workflows/ci.yml',
-            '        continue-on-error: true',
-            'step allowed to fail',
-        ],
-        [
-            '.github/workflows/ci.yml',
-            '          bash scripts/release/run-with-retries.sh 3 20 "Packaging" \\',
-            'retried step',
-        ],
-        [
-            '.github/workflows/ci.yml',
-            '    timeout-minutes: 90',
-            'job timeout changed',
-        ],
+        ['tests/unit/a.test.ts', 'await new Promise(resolve => setTimeout(resolve, 500));', 'wall-clock sleep in a test'],
+        ['tests/unit/a.test.ts', '    await sleep(250);', 'wall-clock sleep in a test'],
+        ['tests/unit/a.test.ts', "it('x', {retry: 3}, async () => {", 'test retry'],
+        ['tests/e2e/electron/b.e2e.test.ts', '    }, 120_000);', 'test timeout override'],
+        ['tests/helpers/session.ts', "throw new Error('[INFRA] session boot failed');", 'infrastructure retry marker'],
+        ['vitest.shared.config.ts', '            retry: 2,', 'test retry'],
+        ['vitest.shared.config.ts', '            testTimeout: 180_000,', 'test timeout raised'],
+        ['.github/workflows/ci.yml', '        continue-on-error: true', 'step allowed to fail'],
+        ['.github/workflows/ci.yml', '          bash scripts/release/run-with-retries.sh 3 20 "Packaging" \\', 'retried step'],
+        ['.github/workflows/ci.yml', '    timeout-minutes: 90', 'job timeout changed'],
     ])('flags %s line %j as %s', (filePath, line, label) => {
         expect(findInAddedLines(filePath, [line])).toEqual([`${label}: ${filePath} (${line.trim()})`]);
     });
 
     it('ignores ordinary assertions, zero retries, and removed lines', () => {
-        expect(findInAddedLines('tests/unit/a.test.ts', [
-            '    expect(await run()).toBe(3);',
-            '    }, 3);',
-            '    await expect.poll(() => count(), {timeout: 5_000}).toBe(1);',
-        ])).toEqual([]);
+        expect(
+            findInAddedLines('tests/unit/a.test.ts', [
+                '    expect(await run()).toBe(3);',
+                '    }, 3);',
+                '    await expect.poll(() => count(), {timeout: 5_000}).toBe(1);',
+            ]),
+        ).toEqual([]);
         expect(findInAddedLines('vitest.shared.config.ts', ['            retry: 0,'])).toEqual([]);
         expect(findInAddedLines('.github/workflows/ci.yml', ['        continue-on-error: false'])).toEqual([]);
-        expect(addedChecks.findAddedChecks(
-            [{
-                path: 'tests/unit/a.test.ts',
-                status: 'D',
-            }],
-            () => ['await new Promise(resolve => setTimeout(resolve, 500));'],
-        )).toEqual([]);
+        expect(
+            addedChecks.findAddedChecks(
+                [
+                    {
+                        path: 'tests/unit/a.test.ts',
+                        status: 'D',
+                    },
+                ],
+                () => ['await new Promise(resolve => setTimeout(resolve, 500));'],
+            ),
+        ).toEqual([]);
     });
     describe('infrastructure vs test files', () => {
         it('allows new test files and native tests without a trailer when they add no flake tolerance', () => {
-            expect(addedChecks.findAddedChecks([
-                {
-                    path: 'tests/unit/newBehavior.test.ts',
-                    status: 'A',
-                },
-                {
-                    path: 'tests/e2e/electron/smoke/regression.e2e.test.ts',
-                    status: 'A',
-                },
-                {
-                    path: 'native/pdf-page-ops/tests/regression.rs',
-                    status: 'A',
-                },
-            ], () => [
-                'it(\'keeps notes\', async () => {',
-                '    expect(await readNotes()).toHaveLength(1);',
-                '});',
-            ])).toEqual([]);
+            expect(
+                addedChecks.findAddedChecks(
+                    [
+                        {
+                            path: 'tests/unit/newBehavior.test.ts',
+                            status: 'A',
+                        },
+                        {
+                            path: 'tests/e2e/electron/smoke/regression.e2e.test.ts',
+                            status: 'A',
+                        },
+                        {
+                            path: 'native/pdf-page-ops/tests/regression.rs',
+                            status: 'A',
+                        },
+                    ],
+                    () => ["it('keeps notes', async () => {", '    expect(await readNotes()).toHaveLength(1);', '});'],
+                ),
+            ).toEqual([]);
         });
 
         it('still flags flake tolerance inside newly added test files', () => {
-            expect(addedChecks.findAddedChecks([{
-                path: 'tests/unit/flaky.test.ts',
-                status: 'A',
-            }], () => [
-                'it(\'keeps notes\', async () => {',
-                '    await sleep(250);',
-                '}, 120_000);',
-            ])).toEqual([
+            expect(
+                addedChecks.findAddedChecks(
+                    [
+                        {
+                            path: 'tests/unit/flaky.test.ts',
+                            status: 'A',
+                        },
+                    ],
+                    () => ["it('keeps notes', async () => {", '    await sleep(250);', '}, 120_000);'],
+                ),
+            ).toEqual([
                 'wall-clock sleep in a test: tests/unit/flaky.test.ts (await sleep(250);)',
                 'test timeout override: tests/unit/flaky.test.ts (}, 120_000);)',
             ]);
         });
 
         it.each([
-            [
-                '.github/workflows/extra.yml',
-                'A',
-                [],
-                'new workflow or action: .github/workflows/extra.yml',
-            ],
-            [
-                '.github/actions/extra/action.yml',
-                'A',
-                [],
-                'new workflow or action: .github/actions/extra/action.yml',
-            ],
-            [
-                '.husky/post-commit',
-                'A',
-                [],
-                'new git hook: .husky/post-commit',
-            ],
-            [
-                'scripts/ci/extra.sh',
-                'A',
-                [],
-                'new CI script: scripts/ci/extra.sh',
-            ],
-            [
-                '.github/workflows/ci.yml',
-                'M',
-                ['  extra_job:'],
-                'new workflow job or trigger: .github/workflows/ci.yml (extra_job:)',
-            ],
+            ['.github/workflows/extra.yml', 'A', [], 'new workflow or action: .github/workflows/extra.yml'],
+            ['.github/actions/extra/action.yml', 'A', [], 'new workflow or action: .github/actions/extra/action.yml'],
+            ['.husky/post-commit', 'A', [], 'new git hook: .husky/post-commit'],
+            ['scripts/ci/extra.sh', 'A', [], 'new CI script: scripts/ci/extra.sh'],
+            ['.github/workflows/ci.yml', 'M', ['  extra_job:'], 'new workflow job or trigger: .github/workflows/ci.yml (extra_job:)'],
             [
                 'package.json',
                 'M',
@@ -492,32 +373,34 @@ describe('added check and flake tolerance detection', () => {
             [
                 'vitest.config.ts',
                 'M',
-                ['createExtraTestProject({name: \'extra\'})'],
-                'new vitest project: vitest.config.ts (createExtraTestProject({name: \'extra\'}))',
+                ["createExtraTestProject({name: 'extra'})"],
+                "new vitest project: vitest.config.ts (createExtraTestProject({name: 'extra'}))",
             ],
             [
                 'oxlint-plugin-invariants.mjs',
                 'M',
-                ['    \'no-extra\': noExtraRule,'],
-                'new custom lint rule: oxlint-plugin-invariants.mjs (\'no-extra\': noExtraRule,)',
+                ["    'no-extra': noExtraRule,"],
+                "new custom lint rule: oxlint-plugin-invariants.mjs ('no-extra': noExtraRule,)",
             ],
-            [
-                '.oxlintrc.json',
-                'M',
-                ['    "no-console": "error",'],
-                'newly enabled lint rule: .oxlintrc.json ("no-console": "error",)',
-            ],
+            ['.oxlintrc.json', 'M', ['    "no-console": "error",'], 'newly enabled lint rule: .oxlintrc.json ("no-console": "error",)'],
             [
                 'scripts/release/policy.mjs',
                 'M',
-                ['            id: \'extra\','],
-                'new gate policy entry: scripts/release/policy.mjs (id: \'extra\',)',
+                ["            id: 'extra',"],
+                "new gate policy entry: scripts/release/policy.mjs (id: 'extra',)",
             ],
         ])('flags check infrastructure addition %s (%s)', (filePath, status, lines, expected) => {
-            expect(addedChecks.findAddedChecks([{
-                path: filePath,
-                status,
-            }], () => lines)).toEqual([expected]);
+            expect(
+                addedChecks.findAddedChecks(
+                    [
+                        {
+                            path: filePath,
+                            status,
+                        },
+                    ],
+                    () => lines,
+                ),
+            ).toEqual([expected]);
         });
 
         it('enforces infrastructure, new Electron E2E lanes, quoted paths, and flake-tolerance rules through committed history', async () => {
@@ -553,11 +436,7 @@ describe('added check and flake tolerance detection', () => {
                 expect(metadata.get(authorizedCiScript)?.body).toContain('Adds-Checks: owner asked for this helper');
 
                 const violations = checker.findPushPolicyViolations(commits, repository);
-                expect(violationSubjects(violations)).toEqual([
-                    newLane,
-                    flakyTest,
-                    newCiScript,
-                ]);
+                expect(violationSubjects(violations)).toEqual([newLane, flakyTest, newCiScript]);
                 expect(violations[0]?.matches.join('\n')).toContain('new Electron E2E lane: tests/e2e/electron/brand-new');
                 expect(violations[1]?.matches.join('\n')).toContain('wall-clock sleep in a test: tests/unit/flaky.test.ts');
                 expect(violations[2]?.matches.join('\n')).toContain('new CI script: scripts/ci/helper.sh');
@@ -566,73 +445,57 @@ describe('added check and flake tolerance detection', () => {
             }
         });
 
-        it.skipIf(process.platform === 'win32')('detects flake tolerance in C-quoted filenames with tabs, emoji, and newlines, plus nightly and replaced-file lanes', async () => {
-            const repository = createRepository('evb-added-checks-quoted-');
-            try {
-                await commit(repository, 'Clean base', {
-                    'app/index.ts': 'export const app = true;\n',
-                    'tests/e2e/electron/nightly/existing/existing.e2e.test.ts': 'export const existing = true;\n',
-                    'tests/e2e/electron/replaced': 'placeholder file\n',
-                });
-                const emojiTabFlaky = await commit(repository, 'Add flaky test with emoji and tab', {
-                    'tests/unit/emoji😀\tname.test.ts': 'await sleep(250);\n',
-                });
-                const newNightlyLane = await commit(repository, 'Add new nightly lane', {
-                    'tests/e2e/electron/nightly/new-nightly/first.e2e.test.ts': 'export const ok = true;\n',
-                });
-                runGit(repository, [
-                    'rm',
-                    '-q',
-                    'tests/e2e/electron/replaced',
-                ]);
-                const replacedFileLane = await commit(repository, 'Replace tracked file with lane directory', {
-                    'tests/e2e/electron/replaced/first.e2e.test.ts': 'export const ok = true;\n',
-                });
+        it.skipIf(process.platform === 'win32')(
+            'detects flake tolerance in C-quoted filenames with tabs, emoji, and newlines, plus nightly and replaced-file lanes',
+            async () => {
+                const repository = createRepository('evb-added-checks-quoted-');
+                try {
+                    await commit(repository, 'Clean base', {
+                        'app/index.ts': 'export const app = true;\n',
+                        'tests/e2e/electron/nightly/existing/existing.e2e.test.ts': 'export const existing = true;\n',
+                        'tests/e2e/electron/replaced': 'placeholder file\n',
+                    });
+                    const emojiTabFlaky = await commit(repository, 'Add flaky test with emoji and tab', {
+                        'tests/unit/emoji😀\tname.test.ts': 'await sleep(250);\n',
+                    });
+                    const newNightlyLane = await commit(repository, 'Add new nightly lane', {
+                        'tests/e2e/electron/nightly/new-nightly/first.e2e.test.ts': 'export const ok = true;\n',
+                    });
+                    runGit(repository, ['rm', '-q', 'tests/e2e/electron/replaced']);
+                    const replacedFileLane = await commit(repository, 'Replace tracked file with lane directory', {
+                        'tests/e2e/electron/replaced/first.e2e.test.ts': 'export const ok = true;\n',
+                    });
 
-                // Commit a test file with a newline in its name directly into a Git tree.
-                const blob = runGit(repository, [
-                    'hash-object',
-                    '-w',
-                    '--stdin',
-                ], 'await sleep(250);\n');
-                const unitTree = runGit(repository, [
-                    'hash-object',
-                    '-t',
-                    'tree',
-                    '-w',
-                    '--stdin',
-                    '--literally',
-                ], Buffer.concat([
-                    Buffer.from('100644 line\nname.test.ts\0'),
-                    Buffer.from(blob, 'hex'),
-                ]));
-                const testsTree = runGit(repository, ['mktree'], `040000 tree ${unitTree}\tunit\n`);
-                const rootTree = runGit(repository, ['mktree'], `040000 tree ${testsTree}\ttests\n`);
-                const newlineFlaky = runGit(repository, [
-                    'commit-tree',
-                    rootTree,
-                    '-p',
-                    replacedFileLane,
-                    '-m',
-                    'Add flaky test with newline in filename',
-                ]);
+                    // Commit a test file with a newline in its name directly into a Git tree.
+                    const blob = runGit(repository, ['hash-object', '-w', '--stdin'], 'await sleep(250);\n');
+                    const unitTree = runGit(
+                        repository,
+                        ['hash-object', '-t', 'tree', '-w', '--stdin', '--literally'],
+                        Buffer.concat([Buffer.from('100644 line\nname.test.ts\0'), Buffer.from(blob, 'hex')]),
+                    );
+                    const testsTree = runGit(repository, ['mktree'], `040000 tree ${unitTree}\tunit\n`);
+                    const rootTree = runGit(repository, ['mktree'], `040000 tree ${testsTree}\ttests\n`);
+                    const newlineFlaky = runGit(repository, [
+                        'commit-tree',
+                        rootTree,
+                        '-p',
+                        replacedFileLane,
+                        '-m',
+                        'Add flaky test with newline in filename',
+                    ]);
 
-                const commits = [
-                    emojiTabFlaky,
-                    newNightlyLane,
-                    replacedFileLane,
-                    newlineFlaky,
-                ];
-                const violations = checker.findPushPolicyViolations(commits, repository);
-                expect(violationSubjects(violations)).toEqual(commits);
-                expect(violations[0]?.matches.join('\n')).toContain('wall-clock sleep in a test: tests/unit/emoji😀\tname.test.ts');
-                expect(violations[1]?.matches.join('\n')).toContain('new Electron E2E lane: tests/e2e/electron/nightly/new-nightly');
-                expect(violations[2]?.matches.join('\n')).toContain('new Electron E2E lane: tests/e2e/electron/replaced');
-                expect(violations[3]?.matches.join('\n')).toContain('wall-clock sleep in a test: tests/unit/line\nname.test.ts');
-            } finally {
-                await removeRepository(repository);
-            }
-        });
+                    const commits = [emojiTabFlaky, newNightlyLane, replacedFileLane, newlineFlaky];
+                    const violations = checker.findPushPolicyViolations(commits, repository);
+                    expect(violationSubjects(violations)).toEqual(commits);
+                    expect(violations[0]?.matches.join('\n')).toContain('wall-clock sleep in a test: tests/unit/emoji😀\tname.test.ts');
+                    expect(violations[1]?.matches.join('\n')).toContain('new Electron E2E lane: tests/e2e/electron/nightly/new-nightly');
+                    expect(violations[2]?.matches.join('\n')).toContain('new Electron E2E lane: tests/e2e/electron/replaced');
+                    expect(violations[3]?.matches.join('\n')).toContain('wall-clock sleep in a test: tests/unit/line\nname.test.ts');
+                } finally {
+                    await removeRepository(repository);
+                }
+            },
+        );
     });
 });
 
@@ -647,17 +510,14 @@ describe('forbidden artifact detection in history', () => {
 
             // Reproduces the evasion: git quotes the path unless asked for NUL
             // separated output, so basename matching sees `AGENTS.md"`.
-            expect(runGit(repository, [
-                'show',
-                '--name-only',
-                '--format=',
-                introducing,
-            ])).toContain('\\321');
+            expect(runGit(repository, ['show', '--name-only', '--format=', introducing])).toContain('\\321');
 
-            expect(checker.findPushPolicyViolations([introducing], repository)).toEqual([{
-                matches: ['agent instruction file AGENTS.md at docs/тест/AGENTS.md'],
-                subject: introducing,
-            }]);
+            expect(checker.findPushPolicyViolations([introducing], repository)).toEqual([
+                {
+                    matches: ['agent instruction file AGENTS.md at docs/тест/AGENTS.md'],
+                    subject: introducing,
+                },
+            ]);
         } finally {
             await removeRepository(repository);
         }
@@ -667,55 +527,33 @@ describe('forbidden artifact detection in history', () => {
         const repository = createRepository('evb-artifact-newline-');
         try {
             // Store the unusual name in a Git tree; Windows cannot create it on disk.
-            const blob = runGit(repository, [
-                'hash-object',
-                '-w',
-                '--stdin',
-            ], '# local rules\n');
+            const blob = runGit(repository, ['hash-object', '-w', '--stdin'], '# local rules\n');
             const subtree = runGit(repository, ['mktree'], `100644 blob ${blob}\tCLAUDE.md\n`);
             // Git for Windows rejects control characters in its index too. A tree
             // object still represents commits created on POSIX without checking them out.
-            const tree = runGit(repository, [
-                'hash-object',
-                '-t',
-                'tree',
-                '-w',
-                '--stdin',
-                '--literally',
-            ], Buffer.concat([
-                Buffer.from('40000 notes\nlocal\0'),
-                Buffer.from(subtree, 'hex'),
-            ]));
-            const introducing = runGit(repository, [
-                'commit-tree',
-                tree,
-                '-m',
-                'Add oddly named harness notes',
-            ]);
+            const tree = runGit(
+                repository,
+                ['hash-object', '-t', 'tree', '-w', '--stdin', '--literally'],
+                Buffer.concat([Buffer.from('40000 notes\nlocal\0'), Buffer.from(subtree, 'hex')]),
+            );
+            const introducing = runGit(repository, ['commit-tree', tree, '-m', 'Add oddly named harness notes']);
 
-            expect(checker.findPushPolicyViolations([introducing], repository)).toEqual([{
-                matches: ['agent instruction file CLAUDE.md at notes\nlocal/CLAUDE.md'],
-                subject: introducing,
-            }]);
+            expect(checker.findPushPolicyViolations([introducing], repository)).toEqual([
+                {
+                    matches: ['agent instruction file CLAUDE.md at notes\nlocal/CLAUDE.md'],
+                    subject: introducing,
+                },
+            ]);
         } finally {
             await removeRepository(repository);
         }
     });
 
     it('groups paths per commit even when a batch spans several commits', () => {
-        const records = checker.parseDiffTreeRecords(
-            [
-                'aaaa',
-                'app/one.ts',
-                'bbbb',
-                'AGENTS.md',
-                'docs/two.md',
-            ].join('\0'),
-            [
-                'aaaa',
-                'bbbb',
-            ],
-        );
+        const records = checker.parseDiffTreeRecords(['aaaa', 'app/one.ts', 'bbbb', 'AGENTS.md', 'docs/two.md'].join('\0'), [
+            'aaaa',
+            'bbbb',
+        ]);
 
         expect(records).toEqual([
             {
@@ -724,10 +562,7 @@ describe('forbidden artifact detection in history', () => {
             },
             {
                 commit: 'bbbb',
-                paths: [
-                    'AGENTS.md',
-                    'docs/two.md',
-                ],
+                paths: ['AGENTS.md', 'docs/two.md'],
             },
         ]);
     });
@@ -737,8 +572,7 @@ describe('forbidden artifact detection in history', () => {
         try {
             const root = await commit(repository, 'Initial harness setup', {'.claude/settings.json': '{}\n'});
 
-            expect(violationSubjects(checker.findPushPolicyViolations([root], repository)))
-                .toEqual([root]);
+            expect(violationSubjects(checker.findPushPolicyViolations([root], repository))).toEqual([root]);
         } finally {
             await removeRepository(repository);
         }
@@ -748,48 +582,23 @@ describe('forbidden artifact detection in history', () => {
         const repository = createRepository('evb-artifact-merge-');
         try {
             await commit(repository, 'Clean base', {'app/index.ts': 'export const app = true;\n'});
-            runGit(repository, [
-                'checkout',
-                '-q',
-                '-b',
-                'side',
-            ]);
+            runGit(repository, ['checkout', '-q', '-b', 'side']);
             const side = await commit(repository, 'Clean side work', {'app/side.ts': 'export const side = 1;\n'});
-            runGit(repository, [
-                'checkout',
-                '-q',
-                'main',
-            ]);
-            runGit(repository, [
-                'merge',
-                '--no-ff',
-                '--no-commit',
-                side,
-            ]);
+            runGit(repository, ['checkout', '-q', 'main']);
+            runGit(repository, ['merge', '--no-ff', '--no-commit', side]);
             const merge = await commit(repository, 'Merge side work');
             await writeFiles(repository, {'docs/AGENTS.md': '# local rules\n'});
-            runGit(repository, [
-                'add',
-                '--all',
-            ]);
-            runGit(repository, [
-                'commit',
-                '--amend',
-                '--no-edit',
-            ]);
-            const evilMerge = runGit(repository, [
-                'rev-parse',
-                'HEAD',
-            ]);
+            runGit(repository, ['add', '--all']);
+            runGit(repository, ['commit', '--amend', '--no-edit']);
+            const evilMerge = runGit(repository, ['rev-parse', 'HEAD']);
 
             expect(merge).not.toBe(evilMerge);
-            expect(checker.findPushPolicyViolations([
-                side,
-                evilMerge,
-            ], repository)).toEqual([{
-                matches: ['agent instruction file AGENTS.md at docs/AGENTS.md'],
-                subject: evilMerge,
-            }]);
+            expect(checker.findPushPolicyViolations([side, evilMerge], repository)).toEqual([
+                {
+                    matches: ['agent instruction file AGENTS.md at docs/AGENTS.md'],
+                    subject: evilMerge,
+                },
+            ]);
         } finally {
             await removeRepository(repository);
         }
@@ -802,11 +611,7 @@ describe('forbidden artifact detection in history', () => {
                 'docs/AGENTS.md': '# local rules\n',
                 'app/index.ts': 'export const app = true;\n',
             });
-            runGit(repository, [
-                'rm',
-                '--quiet',
-                'docs/AGENTS.md',
-            ]);
+            runGit(repository, ['rm', '--quiet', 'docs/AGENTS.md']);
             const purge = await commit(repository, 'Remove local harness notes');
 
             expect(checker.findPushPolicyViolations([purge], repository)).toEqual([]);
@@ -824,20 +629,12 @@ describe('forbidden artifact detection in history', () => {
                 'docs/agents-overview.md': '# Agents\n',
                 'landing/CLAUDE.md': '# local rules\n',
             });
-            runGit(repository, [
-                'add',
-                '--all',
-            ]);
+            runGit(repository, ['add', '--all']);
 
-            expect(checker.findStagedArtifactViolations(repository))
-                .toEqual(['agent instruction file CLAUDE.md at landing/CLAUDE.md']);
+            expect(checker.findStagedArtifactViolations(repository)).toEqual(['agent instruction file CLAUDE.md at landing/CLAUDE.md']);
             expect(runMain(['--staged'], repository)).toBe(1);
 
-            runGit(repository, [
-                'restore',
-                '--staged',
-                'landing/CLAUDE.md',
-            ]);
+            runGit(repository, ['restore', '--staged', 'landing/CLAUDE.md']);
             expect(checker.findStagedArtifactViolations(repository)).toEqual([]);
             expect(runMain(['--staged'], repository)).toBeUndefined();
         } finally {
@@ -857,14 +654,11 @@ describe('forbidden artifact detection in history', () => {
                 '.devkit/plans/ledger.md': '# ledger\n',
                 'docs/devkit-notes.md': '# notes\n',
             });
-            runGit(repository, [
-                'add',
-                '--force',
-                '--all',
-            ]);
+            runGit(repository, ['add', '--force', '--all']);
 
-            expect(checker.findStagedArtifactViolations(repository))
-                .toEqual(['local working directory .devkit/ at .devkit/plans/ledger.md']);
+            expect(checker.findStagedArtifactViolations(repository)).toEqual([
+                'local working directory .devkit/ at .devkit/plans/ledger.md',
+            ]);
             expect(runMain(['--staged'], repository)).toBe(1);
         } finally {
             await removeRepository(repository);
@@ -881,14 +675,9 @@ describe('forbidden artifact detection in history', () => {
                 'docs/AGENTS.md': '# local rules\n',
                 'app/index.ts': 'export const app = true;\n',
             });
-            runGit(repository, [
-                'add',
-                '--force',
-                '--all',
-            ]);
+            runGit(repository, ['add', '--force', '--all']);
 
-            expect(checker.findStagedArtifactViolations(repository))
-                .toEqual(['agent instruction file AGENTS.md at docs/AGENTS.md']);
+            expect(checker.findStagedArtifactViolations(repository)).toEqual(['agent instruction file AGENTS.md at docs/AGENTS.md']);
             expect(runMain(['--staged'], repository)).toBe(1);
         } finally {
             await removeRepository(repository);
@@ -900,12 +689,7 @@ describe('pre-push publication scope', () => {
     async function createRemoteAndWorkspace() {
         const remote = createRepository('evb-push-remote-', ['--bare']);
         const workspace = createRepository('evb-push-work-');
-        runGit(workspace, [
-            'remote',
-            'add',
-            'origin',
-            remote,
-        ]);
+        runGit(workspace, ['remote', 'add', 'origin', remote]);
         return {
             remote,
             workspace,
@@ -913,52 +697,28 @@ describe('pre-push publication scope', () => {
     }
 
     it('scans history the remote no longer advertises, ignoring stale tracking refs', async () => {
-        const {
-            remote,
-            workspace,
-        } = await createRemoteAndWorkspace();
+        const {remote, workspace} = await createRemoteAndWorkspace();
         try {
             const root = await commit(workspace, 'Legacy harness setup', {'.codex/config.toml': 'x = 1\n'});
             const tip = await commit(workspace, 'Legacy work', {'app/index.ts': 'export const app = true;\n'});
-            runGit(workspace, [
-                'push',
-                '--quiet',
-                'origin',
-                'main:refs/heads/legacy',
-            ]);
-            runGit(workspace, [
-                'fetch',
-                '--quiet',
-                'origin',
-            ]);
+            runGit(workspace, ['push', '--quiet', 'origin', 'main:refs/heads/legacy']);
+            runGit(workspace, ['fetch', '--quiet', 'origin']);
             // Purge the branch on the remote without letting the client prune
             // its tracking ref, exactly as a force history rewrite leaves it.
-            runGit(remote, [
-                'update-ref',
-                '-d',
-                'refs/heads/legacy',
-            ]);
+            runGit(remote, ['update-ref', '-d', 'refs/heads/legacy']);
 
             // The stale tracking ref still names the purged history.
-            expect(runGit(workspace, [
-                'rev-parse',
-                'refs/remotes/origin/legacy',
-            ])).toBe(tip);
+            expect(runGit(workspace, ['rev-parse', 'refs/remotes/origin/legacy'])).toBe(tip);
 
-            const work = checker.collectPrePushWork(
-                updateLine('refs/heads/resurrected', tip),
-                [remote],
-                workspace,
-            );
+            const work = checker.collectPrePushWork(updateLine('refs/heads/resurrected', tip), [remote], workspace);
 
-            expect(work.commits).toEqual([
-                root,
-                tip,
+            expect(work.commits).toEqual([root, tip]);
+            expect(checker.findPushPolicyViolations(work.commits, workspace, work)).toEqual([
+                {
+                    matches: ['agent harness directory .codex/ at .codex/config.toml'],
+                    subject: root,
+                },
             ]);
-            expect(checker.findPushPolicyViolations(work.commits, workspace, work)).toEqual([{
-                matches: ['agent harness directory .codex/ at .codex/config.toml'],
-                subject: root,
-            }]);
         } finally {
             await removeRepository(remote);
             await removeRepository(workspace);
@@ -966,25 +726,13 @@ describe('pre-push publication scope', () => {
     });
 
     it('skips commits the remote already advertises', async () => {
-        const {
-            remote,
-            workspace,
-        } = await createRemoteAndWorkspace();
+        const {remote, workspace} = await createRemoteAndWorkspace();
         try {
             const base = await commit(workspace, 'Clean base', {'app/index.ts': 'export const app = true;\n'});
-            runGit(workspace, [
-                'push',
-                '--quiet',
-                'origin',
-                'main',
-            ]);
+            runGit(workspace, ['push', '--quiet', 'origin', 'main']);
             const head = await commit(workspace, 'Clean follow-up', {'app/next.ts': 'export const next = 1;\n'});
 
-            const work = checker.collectPrePushWork(
-                updateLine('refs/heads/main', head, base),
-                [remote],
-                workspace,
-            );
+            const work = checker.collectPrePushWork(updateLine('refs/heads/main', head, base), [remote], workspace);
 
             expect(work.commits).toEqual([head]);
             expect(checker.findPushPolicyViolations(work.commits, workspace, work)).toEqual([]);
@@ -998,46 +746,19 @@ describe('pre-push publication scope', () => {
     // repeating the exclusion, so the second advertised head came back as a
     // positive tip and dragged its already-public history into the scan.
     it('excludes every advertised head when the remote advertises disjoint histories', async () => {
-        const {
-            remote,
-            workspace,
-        } = await createRemoteAndWorkspace();
+        const {remote, workspace} = await createRemoteAndWorkspace();
         try {
             await commit(workspace, 'Clean base', {'app/index.ts': 'export const app = true;\n'});
-            runGit(workspace, [
-                'checkout',
-                '-q',
-                '--orphan',
-                'detached-history',
-            ]);
-            runGit(workspace, [
-                'rm',
-                '-rq',
-                '--cached',
-                '.',
-            ]);
+            runGit(workspace, ['checkout', '-q', '--orphan', 'detached-history']);
+            runGit(workspace, ['rm', '-rq', '--cached', '.']);
             // Published on an unrelated root, so it shares no ancestry with the
             // branch being pushed and can only be excluded by name.
             const publicOrphan = await commit(workspace, 'Published orphan work', {'app/orphan.ts': 'export const orphan = 1;\n'});
-            runGit(workspace, [
-                'push',
-                '--quiet',
-                'origin',
-                'main',
-                'detached-history',
-            ]);
-            runGit(workspace, [
-                'checkout',
-                '-q',
-                'main',
-            ]);
+            runGit(workspace, ['push', '--quiet', 'origin', 'main', 'detached-history']);
+            runGit(workspace, ['checkout', '-q', 'main']);
             const head = await commit(workspace, 'Clean follow-up', {'app/next.ts': 'export const next = 1;\n'});
 
-            const advertised = checker.collectPrePushWork(
-                updateLine('refs/heads/feature', head),
-                [remote],
-                workspace,
-            );
+            const advertised = checker.collectPrePushWork(updateLine('refs/heads/feature', head), [remote], workspace);
 
             expect(advertised.commits).toEqual([head]);
             expect(advertised.commits).not.toContain(publicOrphan);
@@ -1052,35 +773,28 @@ describe('pre-push publication scope', () => {
         try {
             const head = await commit(workspace, 'Clean base');
 
-            expect(() => checker.collectPrePushWork(
-                updateLine('refs/heads/main', head),
-                [join(workspace, 'missing-remote.git')],
-                workspace,
-            )).toThrow(/remote ref advertisement/u);
+            expect(() =>
+                checker.collectPrePushWork(updateLine('refs/heads/main', head), [join(workspace, 'missing-remote.git')], workspace),
+            ).toThrow(/remote ref advertisement/u);
         } finally {
             await removeRepository(workspace);
         }
     });
 
     it('rejects destinations outside refs/heads and refs/tags', async () => {
-        const {
-            remote,
-            workspace,
-        } = await createRemoteAndWorkspace();
+        const {remote, workspace} = await createRemoteAndWorkspace();
         try {
             const head = await commit(workspace, 'Clean base');
 
-            const work = checker.collectPrePushWork(
-                updateLine('refs/notes/commits', head),
-                [remote],
-                workspace,
-            );
+            const work = checker.collectPrePushWork(updateLine('refs/notes/commits', head), [remote], workspace);
 
             expect(work.commits).toEqual([]);
-            expect(checker.findPushPolicyViolations(work.commits, workspace, work)).toEqual([{
-                matches: ['destination outside refs/heads/* and refs/tags/*'],
-                subject: 'refs/notes/commits',
-            }]);
+            expect(checker.findPushPolicyViolations(work.commits, workspace, work)).toEqual([
+                {
+                    matches: ['destination outside refs/heads/* and refs/tags/*'],
+                    subject: 'refs/notes/commits',
+                },
+            ]);
         } finally {
             await removeRepository(remote);
             await removeRepository(workspace);
@@ -1113,49 +827,23 @@ describe('pre-push publication scope', () => {
     // the inner objects would go unscanned. Reject it rather than walking a
     // chain that only an evasion would produce.
     it('rejects a tag that points at another tag instead of scanning past it', async () => {
-        const {
-            remote,
-            workspace,
-        } = await createRemoteAndWorkspace();
+        const {remote, workspace} = await createRemoteAndWorkspace();
         try {
             await commit(workspace, 'Clean base');
-            runGit(workspace, [
-                'push',
-                '--quiet',
-                'origin',
-                'main',
-            ]);
-            runGit(workspace, [
-                'tag',
-                '--annotate',
-                'inner',
-                '-m',
-                'Inner tag',
-            ]);
-            runGit(workspace, [
-                'tag',
-                '--annotate',
-                'outer',
-                'inner',
-                '-m',
-                'Outer tag',
-            ]);
-            const outerOid = runGit(workspace, [
-                'rev-parse',
-                'refs/tags/outer',
-            ]);
+            runGit(workspace, ['push', '--quiet', 'origin', 'main']);
+            runGit(workspace, ['tag', '--annotate', 'inner', '-m', 'Inner tag']);
+            runGit(workspace, ['tag', '--annotate', 'outer', 'inner', '-m', 'Outer tag']);
+            const outerOid = runGit(workspace, ['rev-parse', 'refs/tags/outer']);
 
-            const work = checker.collectPrePushWork(
-                updateLine('refs/tags/outer', outerOid),
-                [remote],
-                workspace,
-            );
+            const work = checker.collectPrePushWork(updateLine('refs/tags/outer', outerOid), [remote], workspace);
 
             expect(work.nestedTagRefs).toEqual(['refs/tags/outer']);
-            expect(checker.findPushPolicyViolations(work.commits, workspace, work)).toEqual([{
-                matches: ['tag object points at another tag; this project publishes tags of commits only'],
-                subject: 'refs/tags/outer',
-            }]);
+            expect(checker.findPushPolicyViolations(work.commits, workspace, work)).toEqual([
+                {
+                    matches: ['tag object points at another tag; this project publishes tags of commits only'],
+                    subject: 'refs/tags/outer',
+                },
+            ]);
         } finally {
             await removeRepository(remote);
             await removeRepository(workspace);
@@ -1163,28 +851,13 @@ describe('pre-push publication scope', () => {
     });
 
     it('publishes no tag object text for a lightweight tag', async () => {
-        const {
-            remote,
-            workspace,
-        } = await createRemoteAndWorkspace();
+        const {remote, workspace} = await createRemoteAndWorkspace();
         try {
             const head = await commit(workspace, 'Clean base');
-            runGit(workspace, [
-                'push',
-                '--quiet',
-                'origin',
-                'main',
-            ]);
-            runGit(workspace, [
-                'tag',
-                'v1.0.0',
-            ]);
+            runGit(workspace, ['push', '--quiet', 'origin', 'main']);
+            runGit(workspace, ['tag', 'v1.0.0']);
 
-            const work = checker.collectPrePushWork(
-                updateLine('refs/tags/v1.0.0', head),
-                [remote],
-                workspace,
-            );
+            const work = checker.collectPrePushWork(updateLine('refs/tags/v1.0.0', head), [remote], workspace);
 
             expect(work.nestedTagRefs).toEqual([]);
             expect(checker.findPushPolicyViolations(work.commits, workspace, work)).toEqual([]);
@@ -1195,55 +868,25 @@ describe('pre-push publication scope', () => {
     });
 
     it('scans an updated annotated tag and the commits it newly publishes', async () => {
-        const {
-            remote,
-            workspace,
-        } = await createRemoteAndWorkspace();
+        const {remote, workspace} = await createRemoteAndWorkspace();
         try {
             await commit(workspace, 'Clean base');
-            runGit(workspace, [
-                'tag',
-                '--annotate',
-                'v1.0.0',
-                '-m',
-                'Release 1.0.0',
-            ]);
-            runGit(workspace, [
-                'push',
-                '--quiet',
-                'origin',
-                'main',
-                'refs/tags/v1.0.0',
-            ]);
-            const publishedTagOid = runGit(workspace, [
-                'rev-parse',
-                'refs/tags/v1.0.0',
-            ]);
+            runGit(workspace, ['tag', '--annotate', 'v1.0.0', '-m', 'Release 1.0.0']);
+            runGit(workspace, ['push', '--quiet', 'origin', 'main', 'refs/tags/v1.0.0']);
+            const publishedTagOid = runGit(workspace, ['rev-parse', 'refs/tags/v1.0.0']);
             const retagged = await commit(workspace, 'Add harness notes', {'docs/AGENTS.md': '# local rules\n'});
-            runGit(workspace, [
-                'tag',
-                '--annotate',
-                '--force',
-                'v1.0.0',
-                '-m',
-                'Release 1.0.0 rebuilt',
-            ]);
-            const movedTagOid = runGit(workspace, [
-                'rev-parse',
-                'refs/tags/v1.0.0',
-            ]);
+            runGit(workspace, ['tag', '--annotate', '--force', 'v1.0.0', '-m', 'Release 1.0.0 rebuilt']);
+            const movedTagOid = runGit(workspace, ['rev-parse', 'refs/tags/v1.0.0']);
 
-            const work = checker.collectPrePushWork(
-                updateLine('refs/tags/v1.0.0', movedTagOid, publishedTagOid),
-                [remote],
-                workspace,
-            );
+            const work = checker.collectPrePushWork(updateLine('refs/tags/v1.0.0', movedTagOid, publishedTagOid), [remote], workspace);
 
             expect(work.commits).toEqual([retagged]);
-            expect(checker.findPushPolicyViolations(work.commits, workspace, work)).toEqual([{
-                matches: ['agent instruction file AGENTS.md at docs/AGENTS.md'],
-                subject: retagged,
-            }]);
+            expect(checker.findPushPolicyViolations(work.commits, workspace, work)).toEqual([
+                {
+                    matches: ['agent instruction file AGENTS.md at docs/AGENTS.md'],
+                    subject: retagged,
+                },
+            ]);
         } finally {
             await removeRepository(remote);
             await removeRepository(workspace);
@@ -1253,14 +896,8 @@ describe('pre-push publication scope', () => {
 
 describe('pushed range resolution for CI', () => {
     it.each([
-        [
-            'an unreachable before SHA left by a force history rewrite',
-            UNREACHABLE_OID,
-        ],
-        [
-            'an empty before SHA',
-            '',
-        ],
+        ['an unreachable before SHA left by a force history rewrite', UNREACHABLE_OID],
+        ['an empty before SHA', ''],
     ])('falls back to the complete head history for %s', async (_label, beforeOid) => {
         vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const repository = createRepository('evb-pushed-range-rewrite-');
@@ -1268,15 +905,8 @@ describe('pushed range resolution for CI', () => {
             const root = await commit(repository, 'Rewritten root', {'docs/AGENTS.md': '# local rules\n'});
             const head = await commit(repository, 'Rewritten tip', {'app/index.ts': 'export const app = true;\n'});
 
-            expect(checker.collectPushedRangeCommits(beforeOid, head, repository)).toEqual([
-                root,
-                head,
-            ]);
-            expect(runMain([
-                '--pushed-range',
-                beforeOid,
-                head,
-            ], repository)).toBe(1);
+            expect(checker.collectPushedRangeCommits(beforeOid, head, repository)).toEqual([root, head]);
+            expect(runMain(['--pushed-range', beforeOid, head], repository)).toBe(1);
         } finally {
             await removeRepository(repository);
         }
@@ -1286,18 +916,10 @@ describe('pushed range resolution for CI', () => {
         const repository = createRepository('evb-pushed-range-new-branch-');
         try {
             const main = await commit(repository, 'Published main fix', {'app/index.ts': 'export const app = true;\n'});
-            runGit(repository, [
-                'update-ref',
-                'refs/remotes/origin/main',
-                main,
-            ]);
+            runGit(repository, ['update-ref', 'refs/remotes/origin/main', main]);
 
             expect(checker.collectPushedRangeCommits(ZERO_OID, main, repository)).toEqual([]);
-            expect(runMain([
-                '--pushed-range',
-                ZERO_OID,
-                main,
-            ], repository)).toBeUndefined();
+            expect(runMain(['--pushed-range', ZERO_OID, main], repository)).toBeUndefined();
 
             const head = await commit(repository, 'Add unpublished change', {'docs/agents-overview.md': '# Agents\n'});
             expect(checker.collectPushedRangeCommits(ZERO_OID, head, repository)).toEqual([head]);
@@ -1311,34 +933,14 @@ describe('pushed range resolution for CI', () => {
         const repository = createRepository('evb-pushed-range-unrelated-');
         try {
             await commit(repository, 'Old root', {'app/old.ts': 'export const old = true;\n'});
-            const unrelated = runGit(repository, [
-                'rev-parse',
-                'HEAD',
-            ]);
-            runGit(repository, [
-                'checkout',
-                '-q',
-                '--orphan',
-                'rewritten',
-            ]);
-            runGit(repository, [
-                'rm',
-                '-rq',
-                '--cached',
-                '.',
-            ]);
+            const unrelated = runGit(repository, ['rev-parse', 'HEAD']);
+            runGit(repository, ['checkout', '-q', '--orphan', 'rewritten']);
+            runGit(repository, ['rm', '-rq', '--cached', '.']);
             const root = await commit(repository, 'Rewritten root', {'.claude/settings.json': '{}\n'});
             const head = await commit(repository, 'Rewritten tip', {'app/index.ts': 'export const app = true;\n'});
 
-            expect(checker.collectPushedRangeCommits(unrelated, head, repository)).toEqual([
-                root,
-                head,
-            ]);
-            expect(runMain([
-                '--pushed-range',
-                unrelated,
-                head,
-            ], repository)).toBe(1);
+            expect(checker.collectPushedRangeCommits(unrelated, head, repository)).toEqual([root, head]);
+            expect(runMain(['--pushed-range', unrelated, head], repository)).toBe(1);
         } finally {
             await removeRepository(repository);
         }
@@ -1357,11 +959,7 @@ describe('pushed range resolution for CI', () => {
                 'electron/features/agent/agentSession.ts': 'export const session = 1;\n',
             });
 
-            expect(runMain([
-                '--pushed-range',
-                UNREACHABLE_OID,
-                head,
-            ], repository)).toBeUndefined();
+            expect(runMain(['--pushed-range', UNREACHABLE_OID, head], repository)).toBeUndefined();
         } finally {
             await removeRepository(repository);
         }
@@ -1369,21 +967,21 @@ describe('pushed range resolution for CI', () => {
 });
 
 describe('fix chains', () => {
-    function repositoryWithThreeFixes(tail: (body: string) => Array<{
-        message: string;
-        files: Record<string, string>;
-    }>) {
+    function repositoryWithThreeFixes(
+        tail: (body: string) => Array<{
+            message: string;
+            files: Record<string, string>;
+        }>,
+    ) {
         const repository = createRepository('evb-fix-chain-');
         let body = 'export const state = 0;\n';
-        const history = [{
-            message: 'Add viewport state',
-            files: {'app/viewport.ts': body},
-        }];
-        for (const index of [
-            1,
-            2,
-            3,
-        ]) {
+        const history = [
+            {
+                message: 'Add viewport state',
+                files: {'app/viewport.ts': body},
+            },
+        ];
+        for (const index of [1, 2, 3]) {
             body += `export const fence${index} = ${index};\n`;
             history.push({
                 message: `fix(viewer): fence stale viewport write ${index}`,
@@ -1393,58 +991,50 @@ describe('fix chains', () => {
         // This check reads committed trees, not an index or working tree. One
         // import replaces repeated checkout writes and add/commit processes.
         const date = Math.floor(Date.now() / 1_000);
-        const stream = [
-            ...history,
-            ...tail(body),
-        ].map(({
-            message, files,
-        }) => [
-            'commit refs/heads/main',
-            `committer Policy Test <policy-test@example.test> ${date} +0000`,
-            `data ${Buffer.byteLength(message)}`,
-            message,
-            ...Object.entries(files).flatMap(([
-                filePath,
-                contents,
-            ]) => [
-                `M 100644 inline ${filePath}`,
-                `data ${Buffer.byteLength(contents)}`,
-                contents,
-            ]),
-            '',
-        ].join('\n')).join('\n');
+        const stream = [...history, ...tail(body)]
+            .map(({message, files}) =>
+                [
+                    'commit refs/heads/main',
+                    `committer Policy Test <policy-test@example.test> ${date} +0000`,
+                    `data ${Buffer.byteLength(message)}`,
+                    message,
+                    ...Object.entries(files).flatMap(([filePath, contents]) => [
+                        `M 100644 inline ${filePath}`,
+                        `data ${Buffer.byteLength(contents)}`,
+                        contents,
+                    ]),
+                    '',
+                ].join('\n'),
+            )
+            .join('\n');
         // Durability across a power cut is irrelevant to disposable Git history.
-        runGit(repository, [
-            '-c',
-            'core.fsync=none',
-            'fast-import',
-            '--quiet',
-        ], `${stream}done\n`);
+        runGit(repository, ['-c', 'core.fsync=none', 'fast-import', '--quiet'], `${stream}done\n`);
         return {
             repository,
-            commits: runGit(repository, [
-                'log',
-                '--format=%H',
-                '--reverse',
-            ]).split('\n').slice(4),
+            commits: runGit(repository, ['log', '--format=%H', '--reverse']).split('\n').slice(4),
         };
     }
 
     it('blocks a fourth fix that grows a file fixed three times this week', async () => {
         const {
-            repository, commits: [head],
-        } = repositoryWithThreeFixes(body => [{
-            message: 'fix(viewer): add one more fence',
-            files: {
-                'app/viewport.ts': `${body}export const fence4 = 4;\n`,
-                'tests/unit/viewport.test.ts': 'export {};\n',
+            repository,
+            commits: [head],
+        } = repositoryWithThreeFixes((body) => [
+            {
+                message: 'fix(viewer): add one more fence',
+                files: {
+                    'app/viewport.ts': `${body}export const fence4 = 4;\n`,
+                    'tests/unit/viewport.test.ts': 'export {};\n',
+                },
             },
-        }]);
+        ]);
         try {
             const violations = checker.findPushPolicyViolations([head!], repository);
 
             expect(violationSubjects(violations)).toEqual([head]);
-            expect(violations[0]?.matches.join('\n')).toContain('app/viewport.ts grows (+1 lines, +20 non-whitespace characters) after 3 fix commits');
+            expect(violations[0]?.matches.join('\n')).toContain(
+                'app/viewport.ts grows (+1 lines, +20 non-whitespace characters) after 3 fix commits',
+            );
         } finally {
             await removeRepository(repository);
         }
@@ -1452,30 +1042,35 @@ describe('fix chains', () => {
 
     it('blocks a fix that crams new code onto fewer lines', async () => {
         const {
-            repository, commits: [head],
-        } = repositoryWithThreeFixes(() => [{
-            message: 'fix(viewer): fold the fences together',
-            files: {'app/viewport.ts': [
-                'export const state = 0;',
-                'export const fence1 = 1;',
-                'export const fence2 = 2; export const fence3 = 3; export const fence4 = 4;',
-                '',
-            ].join('\n')},
-        }]);
+            repository,
+            commits: [head],
+        } = repositoryWithThreeFixes(() => [
+            {
+                message: 'fix(viewer): fold the fences together',
+                files: {
+                    'app/viewport.ts': [
+                        'export const state = 0;',
+                        'export const fence1 = 1;',
+                        'export const fence2 = 2; export const fence3 = 3; export const fence4 = 4;',
+                        '',
+                    ].join('\n'),
+                },
+            },
+        ]);
         try {
             const violations = checker.findPushPolicyViolations([head!], repository);
 
             expect(violationSubjects(violations)).toEqual([head]);
-            expect(violations[0]?.matches.join('\n')).toContain('app/viewport.ts grows (-1 lines, +20 non-whitespace characters) after 3 fix commits');
+            expect(violations[0]?.matches.join('\n')).toContain(
+                'app/viewport.ts grows (-1 lines, +20 non-whitespace characters) after 3 fix commits',
+            );
         } finally {
             await removeRepository(repository);
         }
     });
 
     it('accepts a fix that shrinks the file, a revert, a non-fix change, a rejoined line, and an owner override', async () => {
-        const {
-            repository, commits,
-        } = repositoryWithThreeFixes(body => [
+        const {repository, commits} = repositoryWithThreeFixes((body) => [
             {
                 message: 'fix(viewer): delete the redundant fences',
                 files: {'app/viewport.ts': 'export const state = 0;\n'},

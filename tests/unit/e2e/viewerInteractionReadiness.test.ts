@@ -1,16 +1,7 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    isViewerInteractionReady,
-    type IViewerInteractionReadinessSnapshot,
-} from '@tests/e2e/electron/helpers/isViewerInteractionReady';
+import {describe, expect, it} from 'vitest';
+import {isViewerInteractionReady, type IViewerInteractionReadinessSnapshot} from '@tests/e2e/electron/helpers/isViewerInteractionReady';
 
-function createSnapshot(
-    overrides: Partial<IViewerInteractionReadinessSnapshot> = {},
-): IViewerInteractionReadinessSnapshot {
+function createSnapshot(overrides: Partial<IViewerInteractionReadinessSnapshot> = {}): IViewerInteractionReadinessSnapshot {
     return {
         mode: 'chassis',
         hasPageTrack: true,
@@ -42,10 +33,14 @@ describe('viewer interaction readiness', () => {
     });
 
     it('retains the legacy non-chassis PDF viewer contract', () => {
-        expect(isViewerInteractionReady(createSnapshot({
-            mode: 'legacy',
-            openSurfacePhase: null,
-            openSurfacePresentation: null,
-        }))).toBe(true);
+        expect(
+            isViewerInteractionReady(
+                createSnapshot({
+                    mode: 'legacy',
+                    openSurfacePhase: null,
+                    openSurfacePresentation: null,
+                }),
+            ),
+        ).toBe(true);
     });
 });

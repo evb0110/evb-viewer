@@ -1,32 +1,15 @@
-import { clamp } from 'es-toolkit/math';
-import {
-    useEventListener,
-    useMutationObserver,
-    useResizeObserver,
-} from '@vueuse/core';
-import type { IAnnotationNotePosition } from '@app/types/annotationNoteWindow';
-import { isTextMarkupSubtype } from '@app/services/pdf/annotationSubtype';
-import {
-    normalizeMarkerRect,
-    escapeCssAttr,
-} from '@app/modules/pdf-viewer/public';
-import {
-    NOTE_WINDOW,
-    resolveNoteWindowAnchorZIndex,
-} from '@app/constants/pdfLayout';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { createRafBurstScheduler } from '@app/modules/workspace-shell/scheduling/createRafBurstScheduler';
-import type { IAnnotationNoteWindowEntry } from '@app/modules/workspace-shell/annotations/annotationNoteWindowEntry';
+import {clamp} from 'es-toolkit/math';
+import {useEventListener, useMutationObserver, useResizeObserver} from '@vueuse/core';
+import type {IAnnotationNotePosition} from '@app/types/annotationNoteWindow';
+import {isTextMarkupSubtype} from '@app/services/pdf/annotationSubtype';
+import {normalizeMarkerRect, escapeCssAttr} from '@app/modules/pdf-viewer/public';
+import {NOTE_WINDOW, resolveNoteWindowAnchorZIndex} from '@app/constants/pdfLayout';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {createRafBurstScheduler} from '@app/modules/workspace-shell/scheduling/createRafBurstScheduler';
+import type {IAnnotationNoteWindowEntry} from '@app/modules/workspace-shell/annotations/annotationNoteWindowEntry';
 
-const INLINE_NOTE_SUBTYPES = new Set([
-    'text',
-    'note-linked',
-    'note-inline',
-]);
-const FREE_TEXT_NOTE_SUBTYPES = new Set([
-    'freetext',
-    'typewriter',
-]);
+const INLINE_NOTE_SUBTYPES = new Set(['text', 'note-linked', 'note-inline']);
+const FREE_TEXT_NOTE_SUBTYPES = new Set(['freetext', 'typewriter']);
 const INLINE_MARKER_PROXIMITY = 0.08;
 
 interface IInlineTriggerIdentity {
@@ -40,10 +23,13 @@ interface IInlineTriggerIdentity {
 
 interface IViewportDomSnapshot {
     bounds: DOMRect;
-    pageContainers: Map<number, {
-        element: HTMLElement;
-        rect: DOMRect | null;
-    }>;
+    pageContainers: Map<
+        number,
+        {
+            element: HTMLElement;
+            rect: DOMRect | null;
+        }
+    >;
 }
 
 interface IConnectorLine {
@@ -110,10 +96,13 @@ function collectViewportDomSnapshot(viewportRoot: HTMLElement | null): IViewport
         return null;
     }
 
-    const pageContainers = new Map<number, {
-        element: HTMLElement;
-        rect: DOMRect | null;
-    }>();
+    const pageContainers = new Map<
+        number,
+        {
+            element: HTMLElement;
+            rect: DOMRect | null;
+        }
+    >();
     viewportRoot.querySelectorAll<HTMLElement>('.page_container').forEach((pageContainer) => {
         const pageNumberRaw = Number(pageContainer.dataset.page ?? '');
         if (!Number.isFinite(pageNumberRaw) || pageNumberRaw <= 0) {
@@ -129,9 +118,10 @@ function collectViewportDomSnapshot(viewportRoot: HTMLElement | null): IViewport
     const bounds = viewportRoot.getBoundingClientRect();
     const viewportWindow = viewportRoot.ownerDocument.defaultView;
     return {
-        bounds: bounds.width > 0 && bounds.height > 0
-            ? bounds
-            : new DOMRect(0, 0, viewportWindow?.innerWidth ?? 0, viewportWindow?.innerHeight ?? 0),
+        bounds:
+            bounds.width > 0 && bounds.height > 0
+                ? bounds
+                : new DOMRect(0, 0, viewportWindow?.innerWidth ?? 0, viewportWindow?.innerHeight ?? 0),
         pageContainers,
     };
 }
@@ -145,44 +135,30 @@ function collectRenderedInlineAnchorIdentity(snapshot: IViewportDomSnapshot | nu
         return identity;
     }
 
-    snapshot.pageContainers.forEach(({
-        element: pageContainer,
-        rect: pageRect,
-    }, pageNumber) => {
-        pageContainer
-            .querySelectorAll<HTMLElement>('.pdf-annotation-editor-note[data-annotation-id]')
-            .forEach((noteElement) => {
-                const annotationId = noteElement.dataset.annotationId;
-                if (annotationId) {
-                    identity.annotationIds.add(annotationId);
-                }
+    snapshot.pageContainers.forEach(({element: pageContainer, rect: pageRect}, pageNumber) => {
+        pageContainer.querySelectorAll<HTMLElement>('.pdf-annotation-editor-note[data-annotation-id]').forEach((noteElement) => {
+            const annotationId = noteElement.dataset.annotationId;
+            if (annotationId) {
+                identity.annotationIds.add(annotationId);
+            }
 
-                const noteRect = noteElement.getBoundingClientRect();
-                if (
-                    !pageRect
-                    || pageRect.width <= 0
-                    || pageRect.height <= 0
-                    || noteRect.width <= 0
-                    || noteRect.height <= 0
-                ) {
-                    return;
-                }
+            const noteRect = noteElement.getBoundingClientRect();
+            if (!pageRect || pageRect.width <= 0 || pageRect.height <= 0 || noteRect.width <= 0 || noteRect.height <= 0) {
+                return;
+            }
 
-                identity.notePoints.push({
-                    pageNumber,
-                    x: clamp((noteRect.left + noteRect.width / 2 - pageRect.left) / pageRect.width, 0, 1),
-                    y: clamp((noteRect.top + noteRect.height / 2 - pageRect.top) / pageRect.height, 0, 1),
-                });
+            identity.notePoints.push({
+                pageNumber,
+                x: clamp((noteRect.left + noteRect.width / 2 - pageRect.left) / pageRect.width, 0, 1),
+                y: clamp((noteRect.top + noteRect.height / 2 - pageRect.top) / pageRect.height, 0, 1),
             });
+        });
     });
 
     return identity;
 }
 
-function inlineIdentityMatchesNote(
-    inlineIdentity: IInlineTriggerIdentity,
-    note: IAnnotationNoteWindowEntry,
-) {
+function inlineIdentityMatchesNote(inlineIdentity: IInlineTriggerIdentity, note: IAnnotationNoteWindowEntry) {
     if (inlineIdentity.annotationIds.has(note.annotationId)) {
         return true;
     }
@@ -192,29 +168,21 @@ function inlineIdentityMatchesNote(
     }
     const noteAnchorX = clamp(markerRect.left + markerRect.width, 0, 1);
     const noteAnchorY = clamp(markerRect.top, 0, 1);
-    return inlineIdentity.notePoints.some(point => (
-        point.pageNumber === note.pageNumber
-        && Math.hypot(point.x - noteAnchorX, point.y - noteAnchorY) <= INLINE_MARKER_PROXIMITY
-    ));
+    return inlineIdentity.notePoints.some(
+        (point) =>
+            point.pageNumber === note.pageNumber && Math.hypot(point.x - noteAnchorX, point.y - noteAnchorY) <= INLINE_MARKER_PROXIMITY,
+    );
 }
 
 function rectsIntersect(rect: TViewportBounds, bounds: TViewportBounds) {
-    return (
-        rect.right >= bounds.left
-        && rect.left <= bounds.right
-        && rect.bottom >= bounds.top
-        && rect.top <= bounds.bottom
-    );
+    return rect.right >= bounds.left && rect.left <= bounds.right && rect.bottom >= bounds.top && rect.top <= bounds.bottom;
 }
 
 function pointInRect(x: number, y: number, rect: TViewportBounds) {
     return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
 }
 
-function getNotePointFromElement(
-    noteElement: HTMLElement,
-    viewportBounds: TViewportBounds,
-): IConnectorMarkerPoint | null {
+function getNotePointFromElement(noteElement: HTMLElement, viewportBounds: TViewportBounds): IConnectorMarkerPoint | null {
     const noteRect = noteElement.getBoundingClientRect();
     if (noteRect.width <= 0 || noteRect.height <= 0 || !rectsIntersect(noteRect, viewportBounds)) {
         return null;
@@ -226,11 +194,7 @@ function getNotePointFromElement(
     };
 }
 
-function getRenderedNoteCenter(
-    pageContainer: HTMLElement,
-    annotationId: string,
-    viewportBounds: TViewportBounds,
-) {
+function getRenderedNoteCenter(pageContainer: HTMLElement, annotationId: string, viewportBounds: TViewportBounds) {
     const escapedId = escapeCssAttr(annotationId);
     const noteSelectors = [
         `.pdf-annotation-editor-note[data-annotation-id="${escapedId}"]`,
@@ -249,11 +213,7 @@ function getRenderedNoteCenter(
     return null;
 }
 
-function getMarkerAnchorInPage(
-    pageRect: DOMRect | null,
-    note: IAnnotationNoteWindowEntry,
-    viewportBounds: TViewportBounds,
-) {
+function getMarkerAnchorInPage(pageRect: DOMRect | null, note: IAnnotationNoteWindowEntry, viewportBounds: TViewportBounds) {
     const markerRect = getNoteMarkerRect(note);
     if (!markerRect) {
         return null;
@@ -261,8 +221,8 @@ function getMarkerAnchorInPage(
     if (!pageRect || pageRect.width <= 0 || pageRect.height <= 0 || !rectsIntersect(pageRect, viewportBounds)) {
         return null;
     }
-    const cx = pageRect.left + (clamp(markerRect.left + markerRect.width, 0, 1) * pageRect.width);
-    const cy = pageRect.top + (clamp(markerRect.top, 0, 1) * pageRect.height);
+    const cx = pageRect.left + clamp(markerRect.left + markerRect.width, 0, 1) * pageRect.width;
+    const cy = pageRect.top + clamp(markerRect.top, 0, 1) * pageRect.height;
     if (!pointInRect(cx, cy, viewportBounds)) {
         return null;
     }
@@ -273,16 +233,11 @@ function getMarkerAnchorInPage(
     };
 }
 
-function getRenderedNoteRect(
-    overlayRoot: HTMLElement | null,
-    annotationId: string,
-): INoteViewportRect | null {
+function getRenderedNoteRect(overlayRoot: HTMLElement | null, annotationId: string): INoteViewportRect | null {
     if (!overlayRoot) {
         return null;
     }
-    const noteElement = overlayRoot.querySelector<HTMLElement>(
-        `.note-window[data-annotation-id="${escapeCssAttr(annotationId)}"]`,
-    );
+    const noteElement = overlayRoot.querySelector<HTMLElement>(`.note-window[data-annotation-id="${escapeCssAttr(annotationId)}"]`);
     const rect = noteElement?.getBoundingClientRect() ?? null;
     if (!rect || rect.width <= 0 || rect.height <= 0) {
         return null;
@@ -295,24 +250,19 @@ function getRenderedNoteRect(
     };
 }
 
-function getNoteViewportRect(
-    overlayRoot: HTMLElement | null,
-    annotationId: string,
-    position: IAnnotationNotePosition,
-): INoteViewportRect {
-    return getRenderedNoteRect(overlayRoot, annotationId) ?? {
-        left: position.x,
-        top: position.y,
-        width: position.width ?? NOTE_WINDOW.DEFAULT_WIDTH,
-        height: position.height ?? NOTE_WINDOW.DEFAULT_HEIGHT,
-    };
+function getNoteViewportRect(overlayRoot: HTMLElement | null, annotationId: string, position: IAnnotationNotePosition): INoteViewportRect {
+    return (
+        getRenderedNoteRect(overlayRoot, annotationId) ?? {
+            left: position.x,
+            top: position.y,
+            width: position.width ?? NOTE_WINDOW.DEFAULT_WIDTH,
+            height: position.height ?? NOTE_WINDOW.DEFAULT_HEIGHT,
+        }
+    );
 }
 
 function getNoteConnectorAnchor(noteRect: INoteViewportRect, marker: IConnectorMarkerPoint) {
-    const {
-        left,
-        top,
-    } = noteRect;
+    const {left, top} = noteRect;
     const right = left + noteRect.width;
     const bottom = top + noteRect.height;
     const centerX = left + noteRect.width / 2;
@@ -326,8 +276,8 @@ function getNoteConnectorAnchor(noteRect: INoteViewportRect, marker: IConnectorM
         };
     }
 
-    const scaleToVerticalEdge = dx === 0 ? Number.POSITIVE_INFINITY : (noteRect.width / 2) / Math.abs(dx);
-    const scaleToHorizontalEdge = dy === 0 ? Number.POSITIVE_INFINITY : (noteRect.height / 2) / Math.abs(dy);
+    const scaleToVerticalEdge = dx === 0 ? Number.POSITIVE_INFINITY : noteRect.width / 2 / Math.abs(dx);
+    const scaleToHorizontalEdge = dy === 0 ? Number.POSITIVE_INFINITY : noteRect.height / 2 / Math.abs(dy);
     if (scaleToVerticalEdge < scaleToHorizontalEdge) {
         return {
             x: dx < 0 ? left : right,
@@ -377,10 +327,7 @@ function getNoteRenderSignature(note: IAnnotationNoteWindowEntry) {
     ].join(':');
 }
 
-function mapNotesToPageTargets(
-    notes: readonly IAnnotationNoteWindowEntry[],
-    snapshot: IViewportDomSnapshot | null,
-) {
+function mapNotesToPageTargets(notes: readonly IAnnotationNoteWindowEntry[], snapshot: IViewportDomSnapshot | null) {
     if (!snapshot) {
         return {};
     }
@@ -413,32 +360,26 @@ export function createAnnotationOverlayRuntime(options: IAnnotationOverlayRuntim
         void indicatorDomTick.value;
         return collectViewportDomSnapshot(options.getViewportRoot());
     });
-    const renderedInlineAnchorIdentity = computed(() =>
-        collectRenderedInlineAnchorIdentity(viewportDomSnapshot.value));
+    const renderedInlineAnchorIdentity = computed(() => collectRenderedInlineAnchorIdentity(viewportDomSnapshot.value));
     // A page waiting for its re-read paints neither the inline marker nor a fallback for it.
-    const hasInlineMarker = (note: IAnnotationNoteWindowEntry) => !options.paintsPage(note.pageIndex)
-        || inlineIdentityMatchesNote(renderedInlineAnchorIdentity.value, note);
+    const hasInlineMarker = (note: IAnnotationNoteWindowEntry) =>
+        !options.paintsPage(note.pageIndex) || inlineIdentityMatchesNote(renderedInlineAnchorIdentity.value, note);
 
-    const visibleAnnotationNoteWindows = computed(() =>
-        options.getNoteWindows().filter(note => !note.isMinimized));
-    const openNoteAnchors = computed(() => visibleAnnotationNoteWindows.value.filter(note => (
-        isFloatingIndicatorEligible(note) && Boolean(getNoteMarkerRect(note))
-    )));
-    const openAnchorHiddenKeys = computed(() => new Set(
-        openNoteAnchors.value
-            .filter(hasInlineMarker)
-            .map(note => note.annotationId),
-    ));
-    const anchoredAnnotationNoteWindows = computed(() => options.getNoteWindows().filter(note => (
-        note.isMinimized
-        && isFloatingIndicatorEligible(note)
-        && Boolean(getNoteMarkerRect(note))
-        && !hasInlineMarker(note)
-    )));
-    const minimizedIndicatorTargets = computed(() =>
-        mapNotesToPageTargets(anchoredAnnotationNoteWindows.value, viewportDomSnapshot.value));
-    const openNoteAnchorTargets = computed(() =>
-        mapNotesToPageTargets(openNoteAnchors.value, viewportDomSnapshot.value));
+    const visibleAnnotationNoteWindows = computed(() => options.getNoteWindows().filter((note) => !note.isMinimized));
+    const openNoteAnchors = computed(() =>
+        visibleAnnotationNoteWindows.value.filter((note) => isFloatingIndicatorEligible(note) && Boolean(getNoteMarkerRect(note))),
+    );
+    const openAnchorHiddenKeys = computed(() => new Set(openNoteAnchors.value.filter(hasInlineMarker).map((note) => note.annotationId)));
+    const anchoredAnnotationNoteWindows = computed(() =>
+        options
+            .getNoteWindows()
+            .filter(
+                (note) =>
+                    note.isMinimized && isFloatingIndicatorEligible(note) && Boolean(getNoteMarkerRect(note)) && !hasInlineMarker(note),
+            ),
+    );
+    const minimizedIndicatorTargets = computed(() => mapNotesToPageTargets(anchoredAnnotationNoteWindows.value, viewportDomSnapshot.value));
+    const openNoteAnchorTargets = computed(() => mapNotesToPageTargets(openNoteAnchors.value, viewportDomSnapshot.value));
 
     function computeConnectorLines(): IConnectorLine[] {
         const snapshot = viewportDomSnapshot.value;
@@ -453,21 +394,21 @@ export function createAnnotationOverlayRuntime(options: IAnnotationOverlayRuntim
             if (!position || !page) {
                 return [];
             }
-            const marker = getRenderedNoteCenter(page.element, note.annotationId, viewportBounds)
-                ?? getMarkerAnchorInPage(page.rect, note, viewportBounds);
+            const marker =
+                getRenderedNoteCenter(page.element, note.annotationId, viewportBounds) ??
+                getMarkerAnchorInPage(page.rect, note, viewportBounds);
             if (!marker) {
                 return [];
             }
-            const noteAnchor = getNoteConnectorAnchor(
-                getNoteViewportRect(options.getWorkspaceRoot(), note.annotationId, position),
-                marker,
-            );
+            const noteAnchor = getNoteConnectorAnchor(getNoteViewportRect(options.getWorkspaceRoot(), note.annotationId, position), marker);
             const markerStart = getConnectorStart(marker, noteAnchor);
-            return [{
-                annotationId: note.annotationId,
-                color: note.color ?? null,
-                path: `M ${markerStart.x} ${markerStart.y} L ${noteAnchor.x} ${noteAnchor.y}`,
-            }];
+            return [
+                {
+                    annotationId: note.annotationId,
+                    color: note.color ?? null,
+                    path: `M ${markerStart.x} ${markerStart.y} L ${noteAnchor.x} ${noteAnchor.y}`,
+                },
+            ];
         });
     }
 
@@ -483,7 +424,7 @@ export function createAnnotationOverlayRuntime(options: IAnnotationOverlayRuntim
         () => {
             connectorLines.value = computeConnectorLines();
         },
-        { flush: 'post' },
+        {flush: 'post'},
     );
 
     function getMinimizedIndicatorStyle(note: IAnnotationNoteWindowEntry) {
@@ -523,16 +464,16 @@ export function createAnnotationOverlayRuntime(options: IAnnotationOverlayRuntim
         connectorLines.value = [];
     });
 
-    useEventListener(viewportRootElement, 'scroll', refreshViewportDom, { passive: true });
-    useEventListener(import.meta.client ? window : undefined, 'resize', refreshViewportDom, { passive: true });
+    useEventListener(viewportRootElement, 'scroll', refreshViewportDom, {passive: true});
+    useEventListener(import.meta.client ? window : undefined, 'resize', refreshViewportDom, {passive: true});
     const resizeTargets = computed<HTMLElement[]>((previous) => {
         const root = viewportRootElement.value;
         const targets = root
             ? [
-                root.ownerDocument.documentElement,
-                root,
-                ...Array.from(viewportDomSnapshot.value?.pageContainers.values() ?? [], page => page.element),
-            ]
+                  root.ownerDocument.documentElement,
+                  root,
+                  ...Array.from(viewportDomSnapshot.value?.pageContainers.values() ?? [], (page) => page.element),
+              ]
             : [];
         return previous && targets.length === previous.length && targets.every((target, index) => target === previous[index])
             ? previous

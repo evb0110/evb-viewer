@@ -1,20 +1,10 @@
-import {
-    RECENT_FILES_LIMIT,
-    type IRecentFile,
-} from '@contracts/shared';
-import { take } from 'es-toolkit/array';
-import {
-    inferDocumentRefBackend,
-    parseDocumentRef,
-    type TDocumentBackend,
-} from '@contracts/documentRef';
-import { parseEpochMs } from '@contracts/timestamps';
+import {RECENT_FILES_LIMIT, type IRecentFile} from '@contracts/shared';
+import {take} from 'es-toolkit/array';
+import {inferDocumentRefBackend, parseDocumentRef, type TDocumentBackend} from '@contracts/documentRef';
+import {parseEpochMs} from '@contracts/timestamps';
 import {isRecord} from '@contracts/runtimeGuards';
-import {
-    safeGetLocalStorageItem,
-    safeSetLocalStorageItem,
-} from '@app/utils/localStorage';
-import { BROWSER_RECENT_FILES_STORAGE_KEY } from '@app/utils/browserRuntimePersistence';
+import {safeGetLocalStorageItem, safeSetLocalStorageItem} from '@app/utils/localStorage';
+import {BROWSER_RECENT_FILES_STORAGE_KEY} from '@app/utils/browserRuntimePersistence';
 import * as v from 'valibot';
 
 export const RECENT_FILES_COOKIE_KEY = 'evb_viewer_recent_files';
@@ -53,26 +43,25 @@ const recentFileRecordSchema = v.pipe(
         modifiedAt: v.optional(v.unknown()),
     }),
     // Document references, backend inference and legacy optional values need domain normalization.
-    v.transform(value => {
+    v.transform((value) => {
         const originalPath = typeof value.originalPath === 'string' ? value.originalPath : null;
         const fileName = typeof value.fileName === 'string' ? value.fileName : null;
-        const timestamp = typeof value.timestamp === 'number' && Number.isFinite(value.timestamp)
-            ? value.timestamp
-            : null;
+        const timestamp = typeof value.timestamp === 'number' && Number.isFinite(value.timestamp) ? value.timestamp : null;
         const backend = normalizeRecentFileBackend(value.backend, originalPath);
         const documentRef = parseDocumentRef(originalPath);
         const parsedTimestamp = parseEpochMs(timestamp);
-        const modifiedAt = typeof value.modifiedAt === 'number' && Number.isFinite(value.modifiedAt)
-            ? value.modifiedAt
-            : null;
+        const modifiedAt = typeof value.modifiedAt === 'number' && Number.isFinite(value.modifiedAt) ? value.modifiedAt : null;
         const parsedModifiedAt = modifiedAt === null ? null : parseEpochMs(modifiedAt);
-        if (!documentRef || !fileName || parsedTimestamp === null || backend === null
-            || (parsedModifiedAt === null && modifiedAt !== null)) {
+        if (
+            !documentRef ||
+            !fileName ||
+            parsedTimestamp === null ||
+            backend === null ||
+            (parsedModifiedAt === null && modifiedAt !== null)
+        ) {
             return null;
         }
-        const fileSize = typeof value.fileSize === 'number' && Number.isFinite(value.fileSize)
-            ? value.fileSize
-            : null;
+        const fileSize = typeof value.fileSize === 'number' && Number.isFinite(value.fileSize) ? value.fileSize : null;
         return {
             originalPath: documentRef,
             backend,
@@ -82,13 +71,13 @@ const recentFileRecordSchema = v.pipe(
             ...(parsedModifiedAt === null ? {} : {modifiedAt: parsedModifiedAt}),
         };
     }),
-    v.check(value => value !== null),
-    v.transform(value => value as NonNullable<typeof value>),
+    v.check((value) => value !== null),
+    v.transform((value) => value as NonNullable<typeof value>),
 );
 
 const recentFileTupleSchema = v.pipe(
     v.array(v.unknown()),
-    v.transform(tuple => {
+    v.transform((tuple) => {
         const originalPath = tuple[0];
         const fileName = tuple[1];
         const timestamp = tuple[2];
@@ -97,11 +86,14 @@ const recentFileTupleSchema = v.pipe(
         const modifiedAt = tuple[5];
         const documentRef = parseDocumentRef(originalPath);
         const parsedTimestamp = parseEpochMs(timestamp);
-        const parsedModifiedAt = modifiedAt === undefined || modifiedAt === null
-            ? undefined
-            : parseEpochMs(modifiedAt);
-        if (documentRef === null || typeof fileName !== 'string' || parsedTimestamp === null
-            || backend === null || parsedModifiedAt === null) {
+        const parsedModifiedAt = modifiedAt === undefined || modifiedAt === null ? undefined : parseEpochMs(modifiedAt);
+        if (
+            documentRef === null ||
+            typeof fileName !== 'string' ||
+            parsedTimestamp === null ||
+            backend === null ||
+            parsedModifiedAt === null
+        ) {
             return null;
         }
         return {
@@ -113,14 +105,11 @@ const recentFileTupleSchema = v.pipe(
             ...(parsedModifiedAt === undefined ? {} : {modifiedAt: parsedModifiedAt}),
         };
     }),
-    v.check(value => value !== null),
-    v.transform(value => value as NonNullable<typeof value>),
+    v.check((value) => value !== null),
+    v.transform((value) => value as NonNullable<typeof value>),
 );
 
-const recentFileCandidateSchema = v.union([
-    recentFileRecordSchema,
-    recentFileTupleSchema,
-]);
+const recentFileCandidateSchema = v.union([recentFileRecordSchema, recentFileTupleSchema]);
 const recentFilesSchema = v.array(recentFileCandidateSchema);
 const legacyRecentFilesCookieSchema = v.object({
     v: v.literal(1),
@@ -181,10 +170,7 @@ function parseJsonValue(raw: string | null | undefined): unknown {
     }
 }
 
-function parseStrictRecentFilesSnapshot(
-    collection: unknown,
-    truncated: boolean,
-): IRecentFilesCookieSnapshot {
+function parseStrictRecentFilesSnapshot(collection: unknown, truncated: boolean): IRecentFilesCookieSnapshot {
     const parsed = v.safeParse(recentFilesSchema, collection, {abortEarly: true});
     if (!parsed.success) {
         return {
@@ -264,9 +250,9 @@ export function parseRecentFilesPayload(raw: string | null | undefined) {
         }
 
         const envelope = v.safeParse(recentFilesCookieEnvelopeSchema, parsed, {abortEarly: true});
-        return normalizeRecentFilesCollection(envelope.success
-            ? Array.isArray(envelope.output.f) ? envelope.output.f : envelope.output.files
-            : undefined);
+        return normalizeRecentFilesCollection(
+            envelope.success ? (Array.isArray(envelope.output.f) ? envelope.output.f : envelope.output.files) : undefined,
+        );
     } catch {
         return [];
     }
@@ -308,11 +294,7 @@ export function parseRecentFilesCookieSnapshot(raw: string | null | undefined): 
             };
         }
         return {
-            recentFiles: normalizeRecentFilesCollection(
-                Array.isArray(envelope.output.f)
-                    ? envelope.output.f
-                    : envelope.output.files,
-            ),
+            recentFiles: normalizeRecentFilesCollection(Array.isArray(envelope.output.f) ? envelope.output.f : envelope.output.files),
             hasSnapshot: true,
             truncated: envelope.output.t === true || envelope.output.truncated === true,
         };
@@ -333,8 +315,8 @@ function readCookieValue(key: string) {
     const prefix = `${key}=`;
     const cookie = document.cookie
         .split(';')
-        .map(part => part.trim())
-        .find(part => part.startsWith(prefix));
+        .map((part) => part.trim())
+        .find((part) => part.startsWith(prefix));
     if (!cookie) {
         return null;
     }
@@ -350,24 +332,20 @@ export function expireLegacyRecentFilesCookie() {
     if (typeof document === 'undefined') {
         return;
     }
-    const secureAttribute = typeof location !== 'undefined' && location.protocol === 'https:'
-        ? '; Secure'
-        : '';
+    const secureAttribute = typeof location !== 'undefined' && location.protocol === 'https:' ? '; Secure' : '';
     document.cookie = `${RECENT_FILES_COOKIE_KEY}=; Path=/; Max-Age=0; SameSite=Lax${secureAttribute}`;
 }
 
 export function readBrowserRecentFilesSnapshot(): IRecentFilesCookieSnapshot {
-    const legacySnapshot = parseLegacyRecentFilesCookieSnapshot(
-        readCookieValue(RECENT_FILES_COOKIE_KEY),
-    );
+    const legacySnapshot = parseLegacyRecentFilesCookieSnapshot(readCookieValue(RECENT_FILES_COOKIE_KEY));
     if (legacySnapshot.hasSnapshot) {
         const committed = safeSetLocalStorageItem(
             BROWSER_RECENT_FILES_STORAGE_KEY,
             legacySnapshot.truncated
                 ? JSON.stringify({
-                    files: legacySnapshot.recentFiles,
-                    truncated: true,
-                })
+                      files: legacySnapshot.recentFiles,
+                      truncated: true,
+                  })
                 : serializeRecentFilesPayload(legacySnapshot.recentFiles),
         );
         if (committed) {

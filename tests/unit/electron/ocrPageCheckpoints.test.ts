@@ -1,9 +1,4 @@
-import {
-    mkdtemp,
-    readFile,
-    rm,
-    writeFile,
-} from 'node:fs/promises';
+import {mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {existsSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -14,12 +9,7 @@ import {
     restoreOcrPageCheckpoint,
 } from '@electron/features/ocr/pipeline/ocrPageCheckpoints';
 import type {IOcrRecognizedPage} from '@ocr-core/recognizeOcrPages';
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {afterEach, describe, expect, it} from 'vitest';
 
 const tempDirs: string[] = [];
 
@@ -39,29 +29,37 @@ function makeRecognizedPage(overrides: Partial<IOcrRecognizedPage> = {}): IOcrRe
         wordGeometry: {
             rasterWidthPx: 100,
             rasterHeightPx: 200,
-            words: [{
-                text: 'Hello',
-                x: 10,
-                y: 20,
-                width: 40,
-                height: 20,
-            }],
+            words: [
+                {
+                    text: 'Hello',
+                    x: 10,
+                    y: 20,
+                    width: 40,
+                    height: 20,
+                },
+            ],
         },
-        diagnostics: [{
-            code: 'OCR_SOURCE_DPI_LIMITED',
-            severity: 'warning',
-            message: 'Source DPI capped',
-            pageNumber: requirePageNumber(1),
-        }],
+        diagnostics: [
+            {
+                code: 'OCR_SOURCE_DPI_LIMITED',
+                severity: 'warning',
+                message: 'Source DPI capped',
+                pageNumber: requirePageNumber(1),
+            },
+        ],
         ...overrides,
     };
 }
 
 afterEach(async () => {
-    await Promise.all(tempDirs.splice(0).map(dir => rm(dir, {
-        recursive: true,
-        force: true,
-    })));
+    await Promise.all(
+        tempDirs.splice(0).map((dir) =>
+            rm(dir, {
+                recursive: true,
+                force: true,
+            }),
+        ),
+    );
 });
 
 describe('ocrPageCheckpoints', () => {

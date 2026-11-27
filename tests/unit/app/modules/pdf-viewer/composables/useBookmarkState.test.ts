@@ -1,24 +1,23 @@
-import { requirePageIndex } from '@contracts/pageNumbers';
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { useBookmarkState } from '@app/modules/pdf-viewer/runtime/composables/pdf/useBookmarkState';
+import {requirePageIndex} from '@contracts/pageNumbers';
+import {describe, expect, it, vi} from 'vitest';
+import {useBookmarkState} from '@app/modules/pdf-viewer/runtime/composables/pdf/useBookmarkState';
 
 describe('useBookmarkState', () => {
     it.each([
         {items: []},
-        {items: [{
-            title: 'Recovered child',
-            pageIndex: requirePageIndex(2),
-            namedDest: null,
-            bold: false,
-            italic: false,
-            color: null,
-            items: [],
-        }]},
+        {
+            items: [
+                {
+                    title: 'Recovered child',
+                    pageIndex: requirePageIndex(2),
+                    namedDest: null,
+                    bold: false,
+                    italic: false,
+                    color: null,
+                    items: [],
+                },
+            ],
+        },
     ])('preserves an unsaved bookmark replacement, including deletion, through recovery', ({items}) => {
         const source = useBookmarkState({markDirty: vi.fn()});
         source.handleBookmarksChange({
@@ -45,15 +44,17 @@ describe('useBookmarkState', () => {
         });
 
         state.handleBookmarksChange({
-            bookmarks: [{
-                title: 'Intro',
-                pageIndex: requirePageIndex(0),
-                namedDest: null,
-                bold: false,
-                italic: false,
-                color: null,
-                items: [],
-            }],
+            bookmarks: [
+                {
+                    title: 'Intro',
+                    pageIndex: requirePageIndex(0),
+                    namedDest: null,
+                    bold: false,
+                    italic: false,
+                    color: null,
+                    items: [],
+                },
+            ],
             dirty: true,
         });
 

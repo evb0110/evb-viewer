@@ -1,7 +1,7 @@
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import type { Ref } from 'vue';
-import { tryOnScopeDispose } from '@vueuse/core';
-import { isEqual } from 'es-toolkit/predicate';
+import type {Ref} from 'vue';
+import {tryOnScopeDispose} from '@vueuse/core';
+import {isEqual} from 'es-toolkit/predicate';
 import type {IPdfPageLabelRange} from '@app/types/pdfContracts';
 import type {IWorkspaceMetadataRecovery} from '@contracts/workspaceCheckpoint';
 import {
@@ -13,12 +13,12 @@ import {
     PAGE_LABEL_DENSE_READ_MAX_PAGES,
     PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES,
 } from '@app/modules/document-viewer/public';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { runGuardedTask } from '@app/utils/asyncGuard';
-import { readPdfDocumentLoadedRevision } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentLoadedRevision';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {runGuardedTask} from '@app/utils/asyncGuard';
+import {readPdfDocumentLoadedRevision} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentLoadedRevision';
 import type {TDocumentRef} from '@contracts/documentRef';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
-import { isRecord } from '@contracts/runtimeGuards';
+import {isRecord} from '@contracts/runtimeGuards';
 
 export const usePageLabelState = (deps: {
     pdfDocument: Readonly<Ref<IPdfDocument | null>>;
@@ -89,28 +89,17 @@ export const usePageLabelState = (deps: {
         return (workingCopyPath?.value ?? null) !== null && (documentRevisionToken?.value ?? null) !== null;
     }
 
-    function updatePageLabelModel(
-        totalPagesValue: number,
-        ranges: readonly IPdfPageLabelRange[],
-        labels: readonly string[] | null = null,
-    ) {
+    function updatePageLabelModel(totalPagesValue: number, ranges: readonly IPdfPageLabelRange[], labels: readonly string[] | null = null) {
         acceptPageLabelRanges(totalPagesValue, normalizePageLabelRanges(ranges, totalPagesValue), labels);
     }
 
-    function acceptPageLabelRanges(
-        totalPagesValue: number,
-        ranges: IPdfPageLabelRange[],
-        labels: readonly string[] | null = null,
-    ) {
+    function acceptPageLabelRanges(totalPagesValue: number, ranges: IPdfPageLabelRange[], labels: readonly string[] | null = null) {
         pageLabelRanges.value = ranges;
         acceptedPageCount.value = totalPagesValue;
-        pageLabels.value = totalPagesValue <= PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES
-            ? materializePageLabelsForCompatibility(
-                totalPagesValue,
-                ranges,
-                labels,
-            )
-            : null;
+        pageLabels.value =
+            totalPagesValue <= PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES
+                ? materializePageLabelsForCompatibility(totalPagesValue, ranges, labels)
+                : null;
     }
 
     async function syncPageLabelsFromDocument(doc: IPdfDocument | null) {
@@ -118,13 +107,12 @@ export const usePageLabelState = (deps: {
         const sourcePath = workingCopyPath?.value ?? null;
         const sourceRevision = documentRevisionToken?.value ?? null;
         const sourceBytes = documentBytesOf(doc);
-        const isCurrentSync = () => (
-            !disposed
-            && pageLabelSyncGeneration === syncGeneration
-            && documentBytesOf(pdfDocument.value) === sourceBytes
-            && (workingCopyPath === undefined || workingCopyPath.value === sourcePath)
-            && (documentRevisionToken === undefined || documentRevisionToken.value === sourceRevision)
-        );
+        const isCurrentSync = () =>
+            !disposed &&
+            pageLabelSyncGeneration === syncGeneration &&
+            documentBytesOf(pdfDocument.value) === sourceBytes &&
+            (workingCopyPath === undefined || workingCopyPath.value === sourcePath) &&
+            (documentRevisionToken === undefined || documentRevisionToken.value === sourceRevision);
 
         if (!isCurrentSync() || (pageLabelsResolved.value && deps.preservesSourceReload?.())) {
             return;
@@ -142,10 +130,11 @@ export const usePageLabelState = (deps: {
         // A new revision of the same working copy with the same page count
         // (a rotation, for example) keeps showing its labels until the reread
         // lands; any other document change must not show the previous labels.
-        const isSameShapeRevision = lastResolvedDocument !== null
-            && sourcePath !== null
-            && lastResolvedPath === sourcePath
-            && lastResolvedDocument.numPages === doc.numPages;
+        const isSameShapeRevision =
+            lastResolvedDocument !== null &&
+            sourcePath !== null &&
+            lastResolvedPath === sourcePath &&
+            lastResolvedDocument.numPages === doc.numPages;
         if (lastResolvedDocument !== null && lastResolvedDocument !== doc && !isSameShapeRevision) {
             updatePageLabelModel(totalPages.value, []);
         }
@@ -160,7 +149,7 @@ export const usePageLabelState = (deps: {
                 compactRanges = await readPageLabelRanges();
             } else if (doc.numPages <= PAGE_LABEL_DENSE_READ_MAX_PAGES) {
                 labels = await doc.getPageLabels();
-                if (labels && (labels.length !== doc.numPages || labels.some(label => typeof label !== 'string'))) {
+                if (labels && (labels.length !== doc.numPages || labels.some((label) => typeof label !== 'string'))) {
                     BrowserLogger.debug('page-labels', 'Received invalid page labels from PDF document', {pageCount: doc.numPages});
                     return;
                 }
@@ -172,8 +161,7 @@ export const usePageLabelState = (deps: {
             if (!isCurrentSync()) {
                 return;
             }
-            const nextRanges = compactRanges
-                ?? derivePageLabelRangesFromLabels(labels, doc.numPages);
+            const nextRanges = compactRanges ?? derivePageLabelRangesFromLabels(labels, doc.numPages);
             updatePageLabelModel(doc.numPages, nextRanges, labels);
             pageLabelsDirty.value = false;
             pageLabelRevision += 1;
@@ -182,9 +170,14 @@ export const usePageLabelState = (deps: {
             resolvedDocumentBytes = sourceBytes;
             resolvedThisSync = true;
         } catch (error) {
-            if (!isCurrentSync()) {return;}
-            const gone = isRecord(error) && (error.name === 'NotFoundError' || error.code === 'ENOENT'
-                || /FileReader.*could not be found/iu.test(String(error.message)));
+            if (!isCurrentSync()) {
+                return;
+            }
+            const gone =
+                isRecord(error) &&
+                (error.name === 'NotFoundError' ||
+                    error.code === 'ENOENT' ||
+                    /FileReader.*could not be found/iu.test(String(error.message)));
             BrowserLogger[gone ? 'debug' : 'warn']('page-labels', 'Failed to read page labels', error);
         } finally {
             if (isCurrentSync() && resolvedThisSync) {
@@ -206,15 +199,13 @@ export const usePageLabelState = (deps: {
         }
 
         const normalized = normalizePageLabelRanges(ranges, totalPages.value);
-        const currentNormalized = normalizePageLabelRanges(
-            pageLabelRanges.value,
-            totalPages.value,
-        );
+        const currentNormalized = normalizePageLabelRanges(pageLabelRanges.value, totalPages.value);
         const unchanged = isEqual(normalized, currentNormalized);
         if (unchanged) {
-            const expectedLabels = totalPages.value <= PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES
-                ? materializePageLabelsForCompatibility(totalPages.value, normalized)
-                : null;
+            const expectedLabels =
+                totalPages.value <= PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES
+                    ? materializePageLabelsForCompatibility(totalPages.value, normalized)
+                    : null;
             if (!isEqual(pageLabels.value, expectedLabels)) {
                 updatePageLabelModel(totalPages.value, normalized);
             }
@@ -229,17 +220,18 @@ export const usePageLabelState = (deps: {
 
     /** `differsFromBytes`: the ranges differ from the working bytes even where they match the saved file. */
     function captureRecovery(differsFromBytes = false): IWorkspaceMetadataRecovery['pageLabels'] {
-        return pageLabelsDirty.value || differsFromBytes ? {
-            revision: pageLabelRevision,
-            dirty: true,
-            ranges: pageLabelRanges.value,
-        } : undefined;
+        return pageLabelsDirty.value || differsFromBytes
+            ? {
+                  revision: pageLabelRevision,
+                  dirty: true,
+                  ranges: pageLabelRanges.value,
+              }
+            : undefined;
     }
 
     function retainAcceptedRevision(revision = documentRevisionToken?.value) {
         const path = workingCopyPath?.value;
-        noticedDocumentBytes = resolvedDocumentBytes = path && revision
-            ? `${path}\n${revision}` : documentBytesOf(pdfDocument.value);
+        noticedDocumentBytes = resolvedDocumentBytes = path && revision ? `${path}\n${revision}` : documentBytesOf(pdfDocument.value);
     }
 
     function applyAcceptedPageLabels(ranges: readonly IPdfPageLabelRange[], revision = pageLabelRevision + 1) {
@@ -262,12 +254,7 @@ export const usePageLabelState = (deps: {
     }
 
     function getPageLabelWindowForState(startPage: number, endPageOrCount?: number) {
-        return getPageLabelWindow(
-            pageLabelModel.value.totalPages,
-            pageLabelModel.value.ranges,
-            startPage,
-            endPageOrCount,
-        );
+        return getPageLabelWindow(pageLabelModel.value.totalPages, pageLabelModel.value.ranges, startPage, endPageOrCount);
     }
 
     // The latest read a document change started; a page mutation waits for it
@@ -293,14 +280,8 @@ export const usePageLabelState = (deps: {
     }
 
     watch(
-        () => [
-            pdfDocument.value,
-            documentRevisionToken?.value,
-        ] as const,
-        ([
-            doc,
-            revision,
-        ]) => {
+        () => [pdfDocument.value, documentRevisionToken?.value] as const,
+        ([doc, revision]) => {
             // A view switch does not change the bytes: the labels read from
             // them, and any edit made since, stay. A view still presenting
             // the document, or a document of older bytes, shows the same
@@ -326,7 +307,7 @@ export const usePageLabelState = (deps: {
             }
             scheduleSyncPageLabelsFromDocument(doc);
         },
-        { immediate: true },
+        {immediate: true},
     );
 
     watch(totalPages, (nextTotalPages) => {
@@ -363,7 +344,8 @@ export const usePageLabelState = (deps: {
         getPageLabelsRevision,
         handlePageLabelRangesUpdate,
         captureRecovery,
-        restoreRecovery: (recovery: NonNullable<IWorkspaceMetadataRecovery['pageLabels']>) => applyAcceptedPageLabels(recovery.ranges, recovery.revision),
+        restoreRecovery: (recovery: NonNullable<IWorkspaceMetadataRecovery['pageLabels']>) =>
+            applyAcceptedPageLabels(recovery.ranges, recovery.revision),
         /** Undo and redo put back recorded ranges as they were, at the current page count. */
         restorePageLabelRanges: (ranges: IPdfPageLabelRange[]) => acceptPageLabelRanges(totalPages.value, ranges),
     };

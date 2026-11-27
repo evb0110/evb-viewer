@@ -1,20 +1,7 @@
-import {
-    mkdtempSync,
-    readFileSync,
-    readdirSync,
-    rmSync,
-    writeFileSync,
-} from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 
 const mocks = vi.hoisted(() => ({userDataPath: ''}));
 vi.mock('electron', () => ({app: {getPath: () => mocks.userDataPath}}));
@@ -51,13 +38,16 @@ describe('updateHealthMarker', () => {
 
     it('reads a persisted marker into the startup result and strips unknown fields', async () => {
         const markerPath = join(mocks.userDataPath, 'update-health.json');
-        writeFileSync(markerPath, JSON.stringify({
-            version: 1,
-            pendingVersion: '2.0.0',
-            installRequestedAt: 1234,
-            startupAttempts: 2,
-            futureField: 'ignored',
-        }));
+        writeFileSync(
+            markerPath,
+            JSON.stringify({
+                version: 1,
+                pendingVersion: '2.0.0',
+                installRequestedAt: 1234,
+                startupAttempts: 2,
+                futureField: 'ignored',
+            }),
+        );
         const marker = await import('@electron/updateHealthMarker');
 
         await expect(marker.recordPendingUpdateStartup('1.0.0')).resolves.toEqual({
@@ -104,8 +94,7 @@ describe('updateHealthMarker', () => {
         const marker = await import('@electron/updateHealthMarker');
 
         await marker.markUpdateInstallPending('2.0.0');
-        await expect(marker.recordPendingUpdateStartup(`2.0.0+${'a'.repeat(40)}`)).resolves
-            .toMatchObject({installationApplied: true});
+        await expect(marker.recordPendingUpdateStartup(`2.0.0+${'a'.repeat(40)}`)).resolves.toMatchObject({installationApplied: true});
     });
 
     it('does not suppress the running pending version when its marker uses a release tag', async () => {

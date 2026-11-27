@@ -1,33 +1,10 @@
-import {
-    mkdir,
-    mkdtemp,
-    readFile,
-    rm,
-} from 'node:fs/promises';
-import {
-    createServer,
-    type Server,
-} from 'node:http';
-import {
-    join,
-    resolve,
-} from 'node:path';
+import {mkdir, mkdtemp, readFile, rm} from 'node:fs/promises';
+import {createServer, type Server} from 'node:http';
+import {join, resolve} from 'node:path';
 import {build} from 'esbuild';
-import {
-    chromium,
-    type Page,
-} from 'playwright';
-import {
-    afterAll,
-    beforeAll,
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    closeChromiumBrowser,
-    connectOrLaunchChromium,
-} from './browserIntegrationChromium';
+import {chromium, type Page} from 'playwright';
+import {afterAll, beforeAll, describe, expect, it} from 'vitest';
+import {closeChromiumBrowser, connectOrLaunchChromium} from './browserIntegrationChromium';
 
 let server: Server;
 let origin = '';
@@ -43,22 +20,25 @@ const SERVED = {
 beforeAll(async () => {
     await mkdir(join(process.cwd(), '.devkit'), {recursive: true});
     temporaryDirectory = await mkdtemp(join(process.cwd(), '.devkit/browser-page-ops-'));
-    const bundle = (entry: string, outfile: string) => build({
-        bundle: true,
-        entryPoints: [resolve(process.cwd(), entry)],
-        format: 'esm',
-        outfile: join(temporaryDirectory, outfile),
-        platform: 'browser',
-        sourcemap: false,
-        tsconfig: resolve(process.cwd(), 'tsconfig.json'),
-    });
+    const bundle = (entry: string, outfile: string) =>
+        build({
+            bundle: true,
+            entryPoints: [resolve(process.cwd(), entry)],
+            format: 'esm',
+            outfile: join(temporaryDirectory, outfile),
+            platform: 'browser',
+            sourcemap: false,
+            tsconfig: resolve(process.cwd(), 'tsconfig.json'),
+        });
     await Promise.all([
         bundle('tests/integration/browser/browserPageOpsAcceptanceEntry.ts', SERVED['/entry.js']),
         bundle('app/platform/browser-api/browserPageOps.worker.ts', SERVED['/browserPageOps.worker.ts']),
         bundle('app/platform/browser/opfsStore.worker.ts', SERVED['/opfsStore.worker.ts']),
     ]);
     const files: Record<string, {path: string; type: string}> = {
-        ...Object.fromEntries(Object.entries(SERVED).map(([url, name]) => [url, {path: join(temporaryDirectory, name), type: 'text/javascript'}])),
+        ...Object.fromEntries(
+            Object.entries(SERVED).map(([url, name]) => [url, {path: join(temporaryDirectory, name), type: 'text/javascript'}]),
+        ),
         '/wasm/evb-pdf-page-ops.wasm': {path: resolve(process.cwd(), 'public/wasm/evb-pdf-page-ops.wasm'), type: 'application/wasm'},
         '/pdf.worker.mjs': {path: resolve(process.cwd(), 'node_modules/pdfjs-dist/build/pdf.worker.mjs'), type: 'text/javascript'},
     };
@@ -87,7 +67,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
     if (server) {
-        await new Promise<void>(resolveClose => server.close(() => resolveClose()));
+        await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
     }
     await rm(temporaryDirectory, {
         force: true,
@@ -118,10 +98,7 @@ describe('browser page-ops capability acceptance in Chromium', () => {
                     operation: 'delete',
                     resurrectionRegression: false,
                     pageCount: 2,
-                    labels: [
-                        '1',
-                        'II',
-                    ],
+                    labels: ['1', 'II'],
                     outlineDestinationPage: 2,
                     outlineDestinationWasDeleted: false,
                 },
@@ -129,11 +106,7 @@ describe('browser page-ops capability acceptance in Chromium', () => {
                     operation: 'reorder',
                     resurrectionRegression: false,
                     pageCount: 3,
-                    labels: [
-                        'II',
-                        '1',
-                        'I',
-                    ],
+                    labels: ['II', '1', 'I'],
                     outlineDestinationPage: 1,
                     outlineDestinationWasDeleted: false,
                 },
@@ -142,12 +115,7 @@ describe('browser page-ops capability acceptance in Chromium', () => {
                     operation: 'insert',
                     resurrectionRegression: false,
                     pageCount: 4,
-                    labels: [
-                        '1',
-                        '2',
-                        'I',
-                        'II',
-                    ],
+                    labels: ['1', '2', 'I', 'II'],
                     outlineDestinationPage: 4,
                     outlineDestinationWasDeleted: false,
                 },
@@ -155,31 +123,31 @@ describe('browser page-ops capability acceptance in Chromium', () => {
                     operation: 'delete',
                     resurrectionRegression: true,
                     pageCount: 2,
-                    labels: [
-                        '1',
-                        'II',
-                    ],
+                    labels: ['1', 'II'],
                     outlineDestinationPage: 0,
                     outlineDestinationWasDeleted: true,
                 },
             ]);
             const bookmarks = await page.evaluate(async () => {
                 const run = Reflect.get(globalThis, '__evbRunBrowserBookmarkSaveAcceptance');
-                if (typeof run !== 'function') {throw new Error('Browser bookmark save entry point was not installed');}
+                if (typeof run !== 'function') {
+                    throw new Error('Browser bookmark save entry point was not installed');
+                }
                 return run();
             });
-            expect(bookmarks).toEqual([
-                3,
-                10_000,
-            ].map(count => ({
-                count,
-                reopenedCount: count,
-                renamedTitle: 'Large web saved',
-                unchangedTitles: true,
-            })));
+            expect(bookmarks).toEqual(
+                [3, 10_000].map((count) => ({
+                    count,
+                    reopenedCount: count,
+                    renamedTitle: 'Large web saved',
+                    unchangedTitles: true,
+                })),
+            );
             const geometry = await page.evaluate(async () => {
                 const run = Reflect.get(globalThis, '__evbRunBrowserIncrementalGeometryAcceptance');
-                if (typeof run !== 'function') {throw new Error('Browser incremental geometry entry point was not installed');}
+                if (typeof run !== 'function') {
+                    throw new Error('Browser incremental geometry entry point was not installed');
+                }
                 return run();
             });
             expect(geometry).toEqual({
@@ -238,20 +206,50 @@ describe('browser page-ops capability acceptance in Chromium', () => {
             let page = await context.newPage();
             await openHarness(page);
             type TLarge = Record<string, (...args: unknown[]) => Promise<unknown>>;
-            const call = (target: Page, name: string, ...args: unknown[]) => target.evaluate(([scenario, values]) => {
-                const scenarios = Reflect.get(globalThis, '__evbLargePageOps') as TLarge;
-                return scenarios[scenario as string]!(...values as unknown[]);
-            }, [name, args] as const);
+            const call = (target: Page, name: string, ...args: unknown[]) =>
+                target.evaluate(
+                    ([scenario, values]) => {
+                        const scenarios = Reflect.get(globalThis, '__evbLargePageOps') as TLarge;
+                        return scenarios[scenario as string]!(...(values as unknown[]));
+                    },
+                    [name, args] as const,
+                );
             const pageCount = 24;
-            const size = await call(page, 'createFixture', 'large.pdf', pageCount, 25 * 1024 * 1024) as number;
+            const size = (await call(page, 'createFixture', 'large.pdf', pageCount, 25 * 1024 * 1024)) as number;
             expect(size).toBeGreaterThan(512 * 1024 * 1024);
             const widths = Array.from({length: pageCount}, (_, index) => 100 + index);
-            const roman = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII', 'XIII', 'XIV', 'XV', 'XVI', 'XVII', 'XVIII', 'XIX', 'XX', 'XXI', 'XXII'];
-            const small = await call(page, 'storeSmallPdf', 'insert.pdf') as string;
+            const roman = [
+                'I',
+                'II',
+                'III',
+                'IV',
+                'V',
+                'VI',
+                'VII',
+                'VIII',
+                'IX',
+                'X',
+                'XI',
+                'XII',
+                'XIII',
+                'XIV',
+                'XV',
+                'XVI',
+                'XVII',
+                'XVIII',
+                'XIX',
+                'XX',
+                'XXI',
+                'XXII',
+            ];
+            const small = (await call(page, 'storeSmallPdf', 'insert.pdf')) as string;
             const results: Record<string, unknown> = {};
             for (const operation of ['delete', 'reorder', 'insert', 'merge', 'extract'] as const) {
-                const ref = await call(page, 'open', 'large.pdf') as string;
-                const run = await call(page, 'run', operation, ref, pageCount, operation === 'extract' ? 'extract-out' : small) as {result: unknown; error?: unknown};
+                const ref = (await call(page, 'open', 'large.pdf')) as string;
+                const run = (await call(page, 'run', operation, ref, pageCount, operation === 'extract' ? 'extract-out' : small)) as {
+                    result: unknown;
+                    error?: unknown;
+                };
                 expect(run.error).toBeUndefined();
                 results[operation] = {ref, result: run.result};
             }
@@ -261,7 +259,7 @@ describe('browser page-ops capability acceptance in Chromium', () => {
             await openHarness(page);
             const inspect = (operation: string) => {
                 const {ref, result} = results[operation] as {ref: string; result: {destPath?: string} | string};
-                const target = operation === 'merge' ? result as string : operation === 'extract' ? 'extract-out.pdf' : ref;
+                const target = operation === 'merge' ? (result as string) : operation === 'extract' ? 'extract-out.pdf' : ref;
                 return call(page, 'inspect', target);
             };
             expect(await inspect('delete')).toMatchObject({

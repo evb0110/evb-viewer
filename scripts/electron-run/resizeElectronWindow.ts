@@ -1,9 +1,6 @@
-import type { Page } from 'puppeteer-core';
-import type {
-    IHostCapability,
-    IHostWindowState,
-} from '@contracts/hostPlatformFeature';
-import { delay } from 'es-toolkit/promise';
+import type {Page} from 'puppeteer-core';
+import type {IHostCapability, IHostWindowState} from '@contracts/hostPlatformFeature';
+import {delay} from 'es-toolkit/promise';
 
 // Viewport emulation changes the numbers the renderer reports and leaves the
 // native window alone, so it cannot reproduce a layout defect that only a real
@@ -62,13 +59,12 @@ export async function resizeElectronWindowContentArea(
     contentSize: IElectronWindowSize,
     settleTimeoutMs: number,
 ): Promise<IResizeElectronWindowResult> {
-    const hasContentSize = (metrics: IElectronWindowMetrics) => (
-        metrics.contentSize.width === contentSize.width && metrics.contentSize.height === contentSize.height
-    );
+    const hasContentSize = (metrics: IElectronWindowMetrics) =>
+        metrics.contentSize.width === contentSize.width && metrics.contentSize.height === contentSize.height;
 
     const before = await readElectronWindowMetrics(page);
     const windowState = await page.evaluate((requested: IElectronWindowSize) => {
-        const host = (window as Window & {electronAPI?: {host?: IHostCapability;};}).electronAPI?.host;
+        const host = (window as Window & {electronAPI?: {host?: IHostCapability}}).electronAPI?.host;
         if (!host) {
             throw new Error('electronAPI.host is unavailable');
         }
@@ -76,9 +72,9 @@ export async function resizeElectronWindowContentArea(
     }, contentSize);
     if (!windowState.supported || windowState.fullScreen || windowState.maximized) {
         throw new Error(
-            'The window did not leave its native placement before the resize '
-            + `(supported=${String(windowState.supported)}, fullScreen=${String(windowState.fullScreen)}, `
-            + `maximized=${String(windowState.maximized)}), so the window manager would keep overriding its size.`,
+            'The window did not leave its native placement before the resize ' +
+                `(supported=${String(windowState.supported)}, fullScreen=${String(windowState.fullScreen)}, ` +
+                `maximized=${String(windowState.maximized)}), so the window manager would keep overriding its size.`,
         );
     }
 

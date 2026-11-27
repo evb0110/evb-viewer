@@ -1,10 +1,5 @@
 import {createPdfCombineProgressHandler} from '@evb/scan-cleanup/core/createPdfCombineProgressHandler';
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {describe, expect, it, vi} from 'vitest';
 
 describe('createPdfCombineProgressHandler', () => {
     it('parses chunked NDJSON progress frames using the shared combine progress contract', () => {
@@ -13,7 +8,7 @@ describe('createPdfCombineProgressHandler', () => {
         const onStdout = createPdfCombineProgressHandler(
             4,
             (processed, total) => processedCalls.push([processed, total]),
-            line => malformedLines.push(line),
+            (line) => malformedLines.push(line),
         );
 
         onStdout('{"type":"progress","processed":1,"total":4,"percent":25,');
@@ -29,10 +24,7 @@ describe('createPdfCombineProgressHandler', () => {
 
     it('preserves the total === 0 fallback and clamps processed to total', () => {
         const processedCalls: Array<[number, number]> = [];
-        const onStdout = createPdfCombineProgressHandler(
-            5,
-            (processed, total) => processedCalls.push([processed, total]),
-        );
+        const onStdout = createPdfCombineProgressHandler(5, (processed, total) => processedCalls.push([processed, total]));
 
         onStdout('{"type":"progress","processed":3,"total":0,"percent":60,"elapsedMs":10}\n');
         onStdout('{"type":"progress","processed":9,"total":0,"percent":100,"elapsedMs":20}\n');
@@ -43,10 +35,7 @@ describe('createPdfCombineProgressHandler', () => {
         ]);
 
         const zeroPageCalls: Array<[number, number]> = [];
-        const onZeroPages = createPdfCombineProgressHandler(
-            0,
-            (processed, total) => zeroPageCalls.push([processed, total]),
-        );
+        const onZeroPages = createPdfCombineProgressHandler(0, (processed, total) => zeroPageCalls.push([processed, total]));
         onZeroPages('{"type":"progress","processed":2,"total":0,"percent":100,"elapsedMs":1}\n');
         expect(zeroPageCalls).toEqual([[1, 1]]);
     });
@@ -54,11 +43,7 @@ describe('createPdfCombineProgressHandler', () => {
     it('reports invalid JSON and schema-invalid payloads to onMalformedLine without calling onProcessed', () => {
         const onProcessed = vi.fn();
         const malformedLines: string[] = [];
-        const onStdout = createPdfCombineProgressHandler(
-            4,
-            onProcessed,
-            line => malformedLines.push(line),
-        );
+        const onStdout = createPdfCombineProgressHandler(4, onProcessed, (line) => malformedLines.push(line));
 
         const badLines = [
             '{not-json',

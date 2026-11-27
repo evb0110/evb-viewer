@@ -1,12 +1,9 @@
 import {PDF_BOOKMARK_ORIGINAL_DESTINATION_SCHEMA} from '@contracts/pdfBookmarkEntry';
 import * as v from 'valibot';
-import type {
-    IBookmarkItem,
-    TBookmarkDisplayMode,
-} from '@app/types/pdfOutline';
-import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
-import { requirePageIndex } from '@contracts/pageNumbers';
-import { clamp } from 'es-toolkit/math';
+import type {IBookmarkItem, TBookmarkDisplayMode} from '@app/types/pdfOutline';
+import type {IPdfBookmarkEntry} from '@app/types/pdfContracts';
+import {requirePageIndex} from '@contracts/pageNumbers';
+import {clamp} from 'es-toolkit/math';
 import {
     collectBookmarkIds,
     findBookmarkLocation,
@@ -32,7 +29,7 @@ export const usePdfOutlineEditing = (
     emitBookmarksChange: () => void,
     createDraftBookmarkId: () => string,
 ) => {
-    const { t } = useTypedI18n();
+    const {t} = useTypedI18n();
     const editingItemId = ref<string | null>(null);
 
     function createDraftBookmark(): IBookmarkItem {
@@ -82,10 +79,7 @@ export const usePdfOutlineEditing = (
         editingItemId.value = null;
     }
 
-    function renameBookmark(payload: {
-        id: string;
-        title: string 
-    }) {
+    function renameBookmark(payload: {id: string; title: string}) {
         const location = findBookmarkLocation(bookmarks.value, payload.id);
         editingItemId.value = null;
         if (!location) {
@@ -191,9 +185,9 @@ export const usePdfOutlineEditing = (
             }
         }
 
-        return [...roots].sort((left, right) => (
-            (order.get(left) ?? Number.MAX_SAFE_INTEGER) - (order.get(right) ?? Number.MAX_SAFE_INTEGER)
-        ));
+        return [...roots].sort(
+            (left, right) => (order.get(left) ?? Number.MAX_SAFE_INTEGER) - (order.get(right) ?? Number.MAX_SAFE_INTEGER),
+        );
     }
 
     function resolveBookmarkRemovalTargetIds(id: string) {
@@ -207,33 +201,29 @@ export const usePdfOutlineEditing = (
         return resolveRootBookmarkIds([id]);
     }
 
-    function removeBookmarkRoots(
-        items: readonly IBookmarkItem[],
-        rootIds: ReadonlySet<string>,
-        removedIds: Set<string>,
-    ): IBookmarkItem[] {
+    function removeBookmarkRoots(items: readonly IBookmarkItem[], rootIds: ReadonlySet<string>, removedIds: Set<string>): IBookmarkItem[] {
         return items.flatMap((item) => {
             if (rootIds.has(item.id)) {
                 collectBookmarkIds(item, removedIds);
                 return [];
             }
 
-            return [{
-                ...item,
-                items: removeBookmarkRoots(item.items, rootIds, removedIds),
-            }];
+            return [
+                {
+                    ...item,
+                    items: removeBookmarkRoots(item.items, rootIds, removedIds),
+                },
+            ];
         });
     }
 
-    function resolveNextActiveAfterRemoval(
-        flatBeforeRemoval: IBookmarkItem[],
-        removedIds: Set<string>,
-    ) {
-        const validIds = new Set(flattenBookmarks(bookmarks.value).map(item => item.id));
-        const activeIndex = activeItemId.value && removedIds.has(activeItemId.value)
-            ? flatBeforeRemoval.findIndex(item => item.id === activeItemId.value)
-            : -1;
-        const firstRemovedIndex = flatBeforeRemoval.findIndex(item => removedIds.has(item.id));
+    function resolveNextActiveAfterRemoval(flatBeforeRemoval: IBookmarkItem[], removedIds: Set<string>) {
+        const validIds = new Set(flattenBookmarks(bookmarks.value).map((item) => item.id));
+        const activeIndex =
+            activeItemId.value && removedIds.has(activeItemId.value)
+                ? flatBeforeRemoval.findIndex((item) => item.id === activeItemId.value)
+                : -1;
+        const firstRemovedIndex = flatBeforeRemoval.findIndex((item) => removedIds.has(item.id));
         const startIndex = activeIndex >= 0 ? activeIndex : firstRemovedIndex;
 
         if (startIndex < 0) {
@@ -257,10 +247,7 @@ export const usePdfOutlineEditing = (
         return null;
     }
 
-    function updateActiveAfterBookmarksRemoval(
-        flatBeforeRemoval: IBookmarkItem[],
-        removedIds: Set<string>,
-    ) {
+    function updateActiveAfterBookmarksRemoval(flatBeforeRemoval: IBookmarkItem[], removedIds: Set<string>) {
         if (!activeItemId.value || !removedIds.has(activeItemId.value)) {
             return;
         }
@@ -306,52 +293,37 @@ export const usePdfOutlineEditing = (
      * selected id is a target of its own.
      */
     function resolveBookmarkStyleTargets(id: string) {
-        const ids = selectedBookmarkIds.value.has(id)
-            ? selectedBookmarkIds.value
-            : new Set([id]);
+        const ids = selectedBookmarkIds.value.has(id) ? selectedBookmarkIds.value : new Set([id]);
         // One walk in tree order finds and orders every target; a lookup per
         // selected id made a select-all restyle quadratic in the outline.
-        return flattenBookmarks(bookmarks.value).filter(item => ids.has(item.id));
+        return flattenBookmarks(bookmarks.value).filter((item) => ids.has(item.id));
     }
 
     function resolveBookmarkStyleTargetIds(id: string) {
-        return resolveBookmarkStyleTargets(id).map(item => item.id);
+        return resolveBookmarkStyleTargets(id).map((item) => item.id);
     }
 
     function resolveBookmarkStyleSummary(id: string) {
         return summarizeBookmarkStyles(resolveBookmarkStyleTargets(id));
     }
 
-    function resolveBookmarkStyle(
-        item: IBookmarkItem,
-        updates: Partial<Pick<IBookmarkItem, 'bold' | 'italic' | 'color'>>,
-    ) {
+    function resolveBookmarkStyle(item: IBookmarkItem, updates: Partial<Pick<IBookmarkItem, 'bold' | 'italic' | 'color'>>) {
         return {
             bold: typeof updates.bold === 'boolean' ? updates.bold : item.bold,
             italic: typeof updates.italic === 'boolean' ? updates.italic : item.italic,
-            color: updates.color === undefined
-                ? item.color
-                : normalizeBookmarkColor(updates.color),
+            color: updates.color === undefined ? item.color : normalizeBookmarkColor(updates.color),
         };
     }
 
-    function hasBookmarkStyleChanged(
-        item: IBookmarkItem,
-        nextStyle: Pick<IBookmarkItem, 'bold' | 'italic' | 'color'>,
-    ) {
-        return item.bold !== nextStyle.bold
-            || item.italic !== nextStyle.italic
-            || item.color !== nextStyle.color;
+    function hasBookmarkStyleChanged(item: IBookmarkItem, nextStyle: Pick<IBookmarkItem, 'bold' | 'italic' | 'color'>) {
+        return item.bold !== nextStyle.bold || item.italic !== nextStyle.italic || item.color !== nextStyle.color;
     }
 
     /**
      * Applies one style patch to the context bookmark's style targets in a
      * single bookmarks change, so a multi-selection restyle is one undo step.
      */
-    function updateBookmarkStyle(
-        id: string,
-        updates: Partial<Pick<IBookmarkItem, 'bold' | 'italic' | 'color'>>,
-    ) {
+    function updateBookmarkStyle(id: string, updates: Partial<Pick<IBookmarkItem, 'bold' | 'italic' | 'color'>>) {
         let changed = false;
         for (const item of resolveBookmarkStyleTargets(id)) {
             const nextStyle = resolveBookmarkStyle(item, updates);
@@ -381,8 +353,8 @@ export const usePdfOutlineEditing = (
             return;
         }
 
-        const nextValue = !targets.every(item => item[flag]);
-        updateBookmarkStyle(id, { [flag]: nextValue });
+        const nextValue = !targets.every((item) => item[flag]);
+        updateBookmarkStyle(id, {[flag]: nextValue});
     }
 
     function toggleBookmarkBold(id: string) {
@@ -394,7 +366,7 @@ export const usePdfOutlineEditing = (
     }
 
     function setBookmarkColor(id: string, color: string | null) {
-        updateBookmarkStyle(id, { color });
+        updateBookmarkStyle(id, {color});
     }
 
     function getValidBookmarkIds() {
@@ -462,17 +434,21 @@ export const usePdfOutlineEditing = (
     function mapBookmarksForPersistence(items: IBookmarkItem[]): IPdfBookmarkEntry[] {
         return items.map((item) => {
             const title = item.title.trim();
-            const destination = Array.isArray(item.dest) && item.dest.length <= 6 ? v.safeParse(PDF_BOOKMARK_ORIGINAL_DESTINATION_SCHEMA, {
-                sourceTarget: item.dest[0],
-                kind: typeof item.dest[1] === 'object' && item.dest[1] !== null && 'name' in item.dest[1] ? item.dest[1].name : undefined,
-                coordinates: item.dest.slice(2),
-            }) : null;
+            const destination =
+                Array.isArray(item.dest) && item.dest.length <= 6
+                    ? v.safeParse(PDF_BOOKMARK_ORIGINAL_DESTINATION_SCHEMA, {
+                          sourceTarget: item.dest[0],
+                          kind:
+                              typeof item.dest[1] === 'object' && item.dest[1] !== null && 'name' in item.dest[1]
+                                  ? item.dest[1].name
+                                  : undefined,
+                          coordinates: item.dest.slice(2),
+                      })
+                    : null;
             return {
                 title: title.length > 0 ? title : t('bookmarks.untitled'),
                 pageIndex: typeof item.pageIndex === 'number' ? item.pageIndex : null,
-                pageYRatio: typeof item.pageYRatio === 'number' && Number.isFinite(item.pageYRatio)
-                    ? clamp(item.pageYRatio, 0, 1)
-                    : null,
+                pageYRatio: typeof item.pageYRatio === 'number' && Number.isFinite(item.pageYRatio) ? clamp(item.pageYRatio, 0, 1) : null,
                 ...(destination?.success ? {originalDestination: destination.output} : {}),
                 // The reactive item wraps the action in a proxy, which the
                 // metadata history cannot structuredClone.

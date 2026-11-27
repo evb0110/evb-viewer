@@ -1,38 +1,10 @@
-const PDF_INSERT_EXTENSIONS = [
-    '.pdf',
-    '.png',
-    '.jpg',
-    '.jpeg',
-    '.jp2',
-    '.tif',
-    '.tiff',
-    '.bmp',
-    '.webp',
-    '.gif',
-] as const;
+const PDF_INSERT_EXTENSIONS = ['.pdf', '.png', '.jpg', '.jpeg', '.jp2', '.tif', '.tiff', '.bmp', '.webp', '.gif'] as const;
 
-const WORKSPACE_DOCUMENT_EXTENSIONS = [
-    '.djvu',
-    '.djv',
-    ...PDF_INSERT_EXTENSIONS,
-] as const;
+const WORKSPACE_DOCUMENT_EXTENSIONS = ['.djvu', '.djv', ...PDF_INSERT_EXTENSIONS] as const;
 
-const DJVU_DOCUMENT_EXTENSIONS = [
-    '.djvu',
-    '.djv',
-] as const;
+const DJVU_DOCUMENT_EXTENSIONS = ['.djvu', '.djv'] as const;
 
-const IMAGE_DOCUMENT_EXTENSIONS = [
-    '.png',
-    '.jpg',
-    '.jpeg',
-    '.jp2',
-    '.tif',
-    '.tiff',
-    '.bmp',
-    '.webp',
-    '.gif',
-] as const;
+const IMAGE_DOCUMENT_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.jp2', '.tif', '.tiff', '.bmp', '.webp', '.gif'] as const;
 
 function getDocumentExtension(filePath: string) {
     const normalizedPath = filePath.toLocaleLowerCase();
@@ -40,10 +12,7 @@ function getDocumentExtension(filePath: string) {
     return extension;
 }
 
-function hasSupportedDocumentExtension(
-    filePath: string,
-    extensions: readonly string[],
-) {
+function hasSupportedDocumentExtension(filePath: string, extensions: readonly string[]) {
     const extension = getDocumentExtension(filePath);
     return extensions.includes(extension);
 }

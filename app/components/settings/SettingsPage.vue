@@ -18,7 +18,7 @@
 import AppToolPageShell from '@app/components/AppToolPageShell.vue';
 import SettingsContent from '@app/components/settings/SettingsContent.vue';
 
-const emit = defineEmits<{ 'close': [] }>();
+const emit = defineEmits<{close: []}>();
 
 const {
     showBack = true,
@@ -30,7 +30,7 @@ const {
     showHeader?: boolean;
 }>();
 
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 </script>
 
 <style scoped>

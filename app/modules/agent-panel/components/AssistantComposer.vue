@@ -1,15 +1,62 @@
 <template>
-    <form class="assistant-composer" @submit.prevent="emit('submit')">
-        <div v-if="images.length" class="composer-images" :aria-label="t('assistant.imageAttachments')">
-            <div v-for="image in images" :key="image.id" class="composer-image">
-                <button type="button" :aria-label="t('assistant.previewImage', { name: image.name })" @click="emit('preview', images, image.id)"><img :src="getAssistantImagePreviewUrl(image)" :alt="image.name"></button>
-                <UButton class="remove-image" :aria-label="t('assistant.removeImageAttachment', { name: image.name })" icon="i-ph-x" size="xs" color="neutral" variant="solid" @click="emit('removeImage', image.id)" />
+    <form
+        class="assistant-composer"
+        @submit.prevent="emit('submit')"
+    >
+        <div
+            v-if="images.length"
+            class="composer-images"
+            :aria-label="t('assistant.imageAttachments')"
+        >
+            <div
+                v-for="image in images"
+                :key="image.id"
+                class="composer-image"
+            >
+                <button
+                    type="button"
+                    :aria-label="t('assistant.previewImage', {name: image.name})"
+                    @click="emit('preview', images, image.id)"
+                    ><img
+                        :src="getAssistantImagePreviewUrl(image)"
+                        :alt="image.name"
+                /></button>
+                <UButton
+                    class="remove-image"
+                    :aria-label="t('assistant.removeImageAttachment', {name: image.name})"
+                    icon="i-ph-x"
+                    size="xs"
+                    color="neutral"
+                    variant="solid"
+                    @click="emit('removeImage', image.id)"
+                />
             </div>
         </div>
-        <textarea ref="input" :value="modelValue" :aria-label="t('assistant.documentPlaceholder')" :placeholder="inputPlaceholder" rows="3" :class="{ 'is-scrollable': scrollable }" class="composer-input app-scrollbar" @input="handleInput" @keydown="handleKeydown" @paste="emit('paste', $event)" />
-        <p v-if="error" class="composer-error" role="alert">{{ error }}</p>
+        <textarea
+            ref="input"
+            :value="modelValue"
+            :aria-label="t('assistant.documentPlaceholder')"
+            :placeholder="inputPlaceholder"
+            rows="3"
+            :class="{'is-scrollable': scrollable}"
+            class="composer-input app-scrollbar"
+            @input="handleInput"
+            @keydown="handleKeydown"
+            @paste="emit('paste', $event)"
+        />
+        <p
+            v-if="error"
+            class="composer-error"
+            role="alert"
+            >{{ error }}</p
+        >
         <div class="composer-footer">
-            <AssistantProviderModelPicker ref="picker" :instances="instances" :selection="selection" @select="emit('select', $event)" />
+            <AssistantProviderModelPicker
+                ref="picker"
+                :instances="instances"
+                :selection="selection"
+                @select="emit('select', $event)"
+            />
             <AppTooltip :text="primaryAction.label">
                 <UButton
                     class="composer-send"
@@ -27,28 +74,12 @@
 </template>
 
 <script setup lang="ts">
-import {
-    useTextareaAutosize,
-} from '@vueuse/core';
-import type {
-    IAssistantInstanceStatus, IAssistantSelection,
-} from '@contracts/assistant';
-import {
-    getAssistantImagePreviewUrl, type TAssistantComposerImage,
-} from '@app/modules/agent-panel/utils/assistantImageAttachments';
+import {useTextareaAutosize} from '@vueuse/core';
+import type {IAssistantInstanceStatus, IAssistantSelection} from '@contracts/assistant';
+import {getAssistantImagePreviewUrl, type TAssistantComposerImage} from '@app/modules/agent-panel/utils/assistantImageAttachments';
 import AssistantProviderModelPicker from '@app/modules/agent-panel/components/AssistantProviderModelPicker.vue';
-import { useTypedI18n } from '@app/composables/useTypedI18n';
-const {
-    modelValue,
-    images,
-    instances,
-    selection,
-    sendDisabledReason,
-    running,
-    interrupting,
-    hasDocument,
-    error,
-} = defineProps<{
+import {useTypedI18n} from '@app/composables/useTypedI18n';
+const {modelValue, images, instances, selection, sendDisabledReason, running, interrupting, hasDocument, error} = defineProps<{
     modelValue: string;
     images: TAssistantComposerImage[];
     instances: IAssistantInstanceStatus[];
@@ -68,10 +99,10 @@ const emit = defineEmits<{
     preview: [images: TAssistantComposerImage[], id: string];
     select: [selection: IAssistantSelection];
 }>();
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 // The prompt grows with its text and scrolls only once it reaches its maximum height.
 const scrollable = ref(false);
-const { textarea: input } = useTextareaAutosize({
+const {textarea: input} = useTextareaAutosize({
     input: computed(() => modelValue),
     onResize: () => {
         scrollable.value = Boolean(input.value && input.value.scrollHeight > input.value.clientHeight);
@@ -79,23 +110,23 @@ const { textarea: input } = useTextareaAutosize({
 });
 const showStop = computed(() => running && !modelValue.trim() && !images.length);
 const inputPlaceholder = computed(() => t(hasDocument ? 'assistant.documentPlaceholder' : 'assistant.workspacePlaceholder'));
-const primaryAction = computed(() => (
+const primaryAction = computed(() =>
     showStop.value
         ? {
-            label: t('assistant.stop'),
-            icon: 'i-ph-stop',
-            color: 'error' as const,
-            disabled: interrupting,
-            loading: interrupting,
-        }
+              label: t('assistant.stop'),
+              icon: 'i-ph-stop',
+              color: 'error' as const,
+              disabled: interrupting,
+              loading: interrupting,
+          }
         : {
-            label: sendDisabledReason || t(running ? 'assistant.sendSteer' : 'assistant.send'),
-            icon: 'i-ph-arrow-up',
-            color: 'primary' as const,
-            disabled: Boolean(sendDisabledReason),
-            loading: false,
-        }
-));
+              label: sendDisabledReason || t(running ? 'assistant.sendSteer' : 'assistant.send'),
+              icon: 'i-ph-arrow-up',
+              color: 'primary' as const,
+              disabled: Boolean(sendDisabledReason),
+              loading: false,
+          },
+);
 function handleInput(event: Event) {
     emit('update:modelValue', (event.target as HTMLTextAreaElement).value);
 }
@@ -109,25 +140,26 @@ function handlePrimaryAction() {
 function handleKeydown(event: KeyboardEvent) {
     // Safari may clear isComposing before the final IME Enter.
     const legacyCode: unknown = Reflect.get(event, 'keyCode');
-    if (event.key !== 'Enter' || event.shiftKey || event.altKey || event.isComposing || legacyCode === 229 || event.repeat) {return;}
+    if (event.key !== 'Enter' || event.shiftKey || event.altKey || event.isComposing || legacyCode === 229 || event.repeat) {
+        return;
+    }
     event.preventDefault();
-    if (!sendDisabledReason) {emit('submit');}
+    if (!sendDisabledReason) {
+        emit('submit');
+    }
 }
-function focus() { input.value?.focus({ preventScroll: true }); }
-const picker = ref<{ open: () => void } | null>(null);
-onMounted(() => { if (hasDocument) {focus();} });
+function focus() {
+    input.value?.focus({preventScroll: true});
+}
+const picker = ref<{open: () => void} | null>(null);
+onMounted(() => {
+    if (hasDocument) {
+        focus();
+    }
+});
 watch(
-    () => [
-        hasDocument,
-        images.length,
-    ] as const,
-    async ([
-        available,
-        count,
-    ], [
-        wasAvailable,
-        previousCount,
-    ]) => {
+    () => [hasDocument, images.length] as const,
+    async ([available, count], [wasAvailable, previousCount]) => {
         if ((!wasAvailable && available) || count > previousCount) {
             await nextTick();
             focus();

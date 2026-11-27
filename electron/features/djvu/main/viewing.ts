@@ -1,42 +1,22 @@
-import {
-    app,
-    type WebContents,
-} from 'electron';
-import {
-    open,
-    unlink,
-} from 'fs/promises';
+import {app, type WebContents} from 'electron';
+import {open, unlink} from 'fs/promises';
 import {resolve} from 'path';
-import { getDjvuPageCount } from '@electron/features/djvu/main/metadata';
-import { getDjvuPageSourceInfoForViewing } from '@electron/features/djvu/main/pagePreview';
-import {
-    readDjvuSourceRevision,
-    type IDjvuSourceRevision,
-} from '@electron/features/djvu/main/djvuPageSourceInfoCache';
-import { isAllowedDjvuTempPdfPath } from '@electron/features/djvu/main/isAllowedDjvuTempPdfPath';
-import {
-    abortErrorFromSignal,
-    isAbortError,
-} from '@electron/utils/abort';
-import { runtimeConfig } from '@electron/runtimeConfig';
-import { createLogger } from '@electron/utils/createLogger';
-import { getErrorMessage } from '@electron/utils/error';
-import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
-import { isErrnoException } from '@contracts/runtimeGuards';
-import type { TOpenPath } from '@electron/file-access/openPathCapabilities';
-import type { IPlatformMainSenderContext } from '@contracts/platformFeature';
-import type {
-    IDjvuOpenResult,
-    IDjvuOpenSource,
-} from '@contracts/electronApiDjvu';
+import {getDjvuPageCount} from '@electron/features/djvu/main/metadata';
+import {getDjvuPageSourceInfoForViewing} from '@electron/features/djvu/main/pagePreview';
+import {readDjvuSourceRevision, type IDjvuSourceRevision} from '@electron/features/djvu/main/djvuPageSourceInfoCache';
+import {isAllowedDjvuTempPdfPath} from '@electron/features/djvu/main/isAllowedDjvuTempPdfPath';
+import {abortErrorFromSignal, isAbortError} from '@electron/utils/abort';
+import {runtimeConfig} from '@electron/runtimeConfig';
+import {createLogger} from '@electron/utils/createLogger';
+import {getErrorMessage} from '@electron/utils/error';
+import {onSenderLifetimeEnd} from '@electron/utils/onSenderLifetimeEnd';
+import {isErrnoException} from '@contracts/runtimeGuards';
+import type {TOpenPath} from '@electron/file-access/openPathCapabilities';
+import type {IPlatformMainSenderContext} from '@contracts/platformFeature';
+import type {IDjvuOpenResult, IDjvuOpenSource} from '@contracts/electronApiDjvu';
 import {isEqual} from 'es-toolkit/predicate';
-import type {
-    TDocumentOpenErrorCode,
-    TDocumentOpenErrorEnvelope,
-} from '@contracts/documentOpenErrors';
-import {
-    detectDocumentFormat, DOCUMENT_HEADER_BYTES,
-} from '@pdf-core/documentOpenFileTypes';
+import type {TDocumentOpenErrorCode, TDocumentOpenErrorEnvelope} from '@contracts/documentOpenErrors';
+import {detectDocumentFormat, DOCUMENT_HEADER_BYTES} from '@pdf-core/documentOpenFileTypes';
 
 const logger = createLogger('djvu-viewing');
 interface IDjvuOperationContext extends IPlatformMainSenderContext<WebContents> {}
@@ -107,10 +87,7 @@ export async function cleanupDjvuTempPdfPath(tempPdfPath: string) {
 }
 
 function registerSenderCleanup(context: IDjvuOperationContext) {
-    const {
-        sender,
-        senderId,
-    } = context;
+    const {sender, senderId} = context;
     if (senderCleanupRegistered.has(senderId)) {
         return;
     }
@@ -121,22 +98,24 @@ function registerSenderCleanup(context: IDjvuOperationContext) {
     };
 
     senderCleanupRegistered.add(senderId);
-    const stop = onSenderLifetimeEnd(sender, () => {
-        stop();
-        cleanup();
-    }, {navigation: true});
+    const stop = onSenderLifetimeEnd(
+        sender,
+        () => {
+            stop();
+            cleanup();
+        },
+        {navigation: true},
+    );
 }
 
 function readSourceOf(revision: Partial<Pick<IDjvuSourceRevision, 'sourceModifiedAt' | 'sourceSize'>> | undefined): IDjvuOpenSource | null {
-    const {
-        sourceModifiedAt, sourceSize,
-    } = revision ?? {};
+    const {sourceModifiedAt, sourceSize} = revision ?? {};
     return sourceModifiedAt === undefined || sourceSize === undefined
         ? null
         : {
-            sourceModifiedAt,
-            sourceSize,
-        };
+              sourceModifiedAt,
+              sourceSize,
+          };
 }
 
 // Live opens of one path that read different bytes leave no single source a
@@ -148,7 +127,7 @@ export function adoptDjvuViewingPath(context: IDjvuOperationContext, djvuPath: s
     }
 
     registerSenderCleanup(context);
-    const { senderId } = context;
+    const {senderId} = context;
     const allowedPaths = allowedDjvuViewingPathsBySender.get(senderId) ?? new Map<string, IDjvuViewingGrant>();
     const live = allowedPaths.get(normalizedPath);
     allowedPaths.set(normalizedPath, {
@@ -164,7 +143,7 @@ export function releaseDjvuViewingPath(context: IDjvuOperationContext, djvuPath:
         return;
     }
 
-    const { senderId } = context;
+    const {senderId} = context;
     const allowedPaths = allowedDjvuViewingPathsBySender.get(senderId);
     if (!allowedPaths) {
         return;
@@ -209,18 +188,16 @@ export function isAllowedDjvuViewingPath(djvuPath: string, senderId?: number) {
  */
 export async function getAdmittedDjvuViewingSource(djvuPath: string, senderId: number) {
     const normalizedPath = normalizeDjvuViewingPath(djvuPath);
-    const admitted = normalizedPath
-        ? allowedDjvuViewingPathsBySender.get(senderId)?.get(normalizedPath)?.source
-        : null;
+    const admitted = normalizedPath ? allowedDjvuViewingPathsBySender.get(senderId)?.get(normalizedPath)?.source : null;
     if (!normalizedPath || !admitted) {
         return null;
     }
     const current = await readDjvuSourceRevision(normalizedPath).catch(() => null);
     return current?.sourceSize === admitted.sourceSize && current.sourceModifiedAt === admitted.sourceModifiedAt
         ? {
-            originalPath: normalizedPath,
-            ...admitted,
-        }
+              originalPath: normalizedPath,
+              ...admitted,
+          }
         : null;
 }
 
@@ -261,7 +238,7 @@ async function waitForTestDjvuOpenHold(signal: AbortSignal | undefined) {
             clearTimeout(timer);
             rejectHold(abortErrorFromSignal(signal!));
         };
-        signal?.addEventListener('abort', onAbort, { once: true });
+        signal?.addEventListener('abort', onAbort, {once: true});
     });
 }
 
@@ -274,9 +251,13 @@ export async function handleDjvuOpenForViewing(
     const probeOptions = signal ? {signal} : {};
     let format: ReturnType<typeof detectDocumentFormat> | null = null;
     try {
-        if (signal?.aborted) {throw abortErrorFromSignal(signal);}
+        if (signal?.aborted) {
+            throw abortErrorFromSignal(signal);
+        }
         format = await readDjvuInputFormat(djvuPath);
-        if (signal?.aborted) {throw abortErrorFromSignal(signal);}
+        if (signal?.aborted) {
+            throw abortErrorFromSignal(signal);
+        }
         if (format !== 'djvu' && format !== 'invalid-djvu') {
             return failDjvuOpen(new Error(`This file is not a DjVu document (${format})`), 'not-djvu', format);
         }
@@ -286,13 +267,12 @@ export async function handleDjvuOpenForViewing(
         // below is reported as a damaged document.
         // The page-source probe can fail on a file the plain page count still
         // reads, so a genuine probe failure falls back; cancellation does not.
-        const pageSourceInfo = await getDjvuPageSourceInfoForViewing(djvuPath, 1, probeOptions)
-            .catch((error: unknown) => {
-                if (isDjvuOpenCanceled(error, signal)) {
-                    throw error;
-                }
-                return null;
-            });
+        const pageSourceInfo = await getDjvuPageSourceInfoForViewing(djvuPath, 1, probeOptions).catch((error: unknown) => {
+            if (isDjvuOpenCanceled(error, signal)) {
+                throw error;
+            }
+            return null;
+        });
         let pageCount = pageSourceInfo?.pageCount;
         let source = readSourceOf(pageSourceInfo ?? undefined);
         if (pageCount === undefined) {
@@ -330,14 +310,20 @@ export async function handleDjvuOpenForViewing(
                 },
             };
         }
-        if (isErrnoException(error) && error.code === 'ENOENT') {return failDjvuOpen(error, 'not-found');}
+        if (isErrnoException(error) && error.code === 'ENOENT') {
+            return failDjvuOpen(error, 'not-found');
+        }
         return failDjvuOpen(error, format === 'invalid-djvu' ? 'invalid-djvu' : null);
     }
 }
 
 // The message stays diagnostic; the renderer localizes the code and shows the
 // message only as technical details next to the logged failure receipt.
-function failDjvuOpen(error: unknown, code: TDocumentOpenErrorCode | null, detectedFormat?: TDocumentOpenErrorEnvelope['detectedFormat']): IDjvuOpenResult {
+function failDjvuOpen(
+    error: unknown,
+    code: TDocumentOpenErrorCode | null,
+    detectedFormat?: TDocumentOpenErrorEnvelope['detectedFormat'],
+): IDjvuOpenResult {
     const message = getErrorMessage(error);
     const failure = logger.error(`DjVu open failed: ${message}`, {
         code: 'MAIN_DJVU_VIEWING_FAILED',
@@ -346,11 +332,15 @@ function failDjvuOpen(error: unknown, code: TDocumentOpenErrorCode | null, detec
     return {
         success: false,
         error: message,
-        ...(code === null ? {} : {errorEnvelope: {
-            code,
-            message,
-            ...(detectedFormat ? {detectedFormat} : {}),
-        }}),
+        ...(code === null
+            ? {}
+            : {
+                  errorEnvelope: {
+                      code,
+                      message,
+                      ...(detectedFormat ? {detectedFormat} : {}),
+                  },
+              }),
         ...(failure === undefined ? {} : {failure}),
     };
 }

@@ -65,14 +65,14 @@
 </template>
 
 <script setup lang="ts">
-import { PRIVACY_MESSAGES } from '@i18n-core';
+import {PRIVACY_MESSAGES} from '@i18n-core';
 
-const { locale } = useTypedI18n();
+const {locale} = useTypedI18n();
 const privacy = computed(() => PRIVACY_MESSAGES[locale.value]);
 
 useLandingPageSeo({
-    title: () => privacy.value.seo.title,
-    description: () => privacy.value.seo.description,
+  title: () => privacy.value.seo.title,
+  description: () => privacy.value.seo.description,
 });
 </script>
 

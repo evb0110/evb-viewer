@@ -1,20 +1,12 @@
 import {IPC_INVOKE_REQUEST_ID_FIELD} from '@electron/platform-ipc/coreContract';
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import type { IpcRenderer } from 'electron';
+import {describe, expect, it, vi} from 'vitest';
+import type {IpcRenderer} from 'electron';
 import {requireEpochMs} from '@contracts/timestamps';
 import {requireRequestId} from '@contracts/shared';
 import type {TRequestId} from '@contracts/shared';
-import { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
-import { createPlatformFeaturePreloadClient } from '@electron/preload/ipcClient';
-import {
-    findSearchErrorEnvelope,
-    type ISearchErrorEnvelope,
-} from '@contracts/search';
+import {SEARCH_PLATFORM_FEATURE} from '@contracts/searchPlatformFeature';
+import {createPlatformFeaturePreloadClient} from '@electron/preload/ipcClient';
+import {findSearchErrorEnvelope, type ISearchErrorEnvelope} from '@contracts/search';
 import {encodeSerializableErrorEnvelope} from '@contracts/serializableError';
 
 const SEARCH_CHANNELS = SEARCH_PLATFORM_FEATURE.invokeChannels;
@@ -68,8 +60,9 @@ describe('derived Search preload client', () => {
         } satisfies TTestIpcRenderer;
         const client = createPlatformFeaturePreloadClient(ipcRenderer, SEARCH_PLATFORM_FEATURE);
 
-        expect(() => client.run('/tmp/work.pdf', 'needle', {requestId: invalidRequestId}))
-            .toThrow('requestId exceeds maximum length (128)');
+        expect(() => client.run('/tmp/work.pdf', 'needle', {requestId: invalidRequestId})).toThrow(
+            'requestId exceeds maximum length (128)',
+        );
         expect(ipcRenderer.invoke).not.toHaveBeenCalled();
     });
 
@@ -80,9 +73,7 @@ describe('derived Search preload client', () => {
             retryable: false,
             details: {timestamp: requireEpochMs(123)},
         };
-        const cause = new Error(
-            `Error invoking remote method '${SEARCH_CHANNELS.run}': ${encodeSerializableErrorEnvelope(envelope)}`,
-        );
+        const cause = new Error(`Error invoking remote method '${SEARCH_CHANNELS.run}': ${encodeSerializableErrorEnvelope(envelope)}`);
         const ipcRenderer = {
             invoke: vi.fn(async () => {
                 throw cause;
@@ -114,5 +105,4 @@ describe('derived Search preload client', () => {
         expect(findSearchErrorEnvelope({errorEnvelope: envelope})).toEqual(envelope);
         expect(findSearchErrorEnvelope(new Error(JSON.stringify(envelope)))).toBeNull();
     });
-
 });

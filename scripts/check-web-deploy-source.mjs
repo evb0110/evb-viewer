@@ -1,16 +1,9 @@
-import {
-    existsSync,
-    readFileSync,
-} from 'node:fs';
-import { getCliErrorMessage } from './lib/cli-error.mjs';
-import {
-    lstat,
-    readdir,
-    readFile,
-} from 'node:fs/promises';
+import {existsSync, readFileSync} from 'node:fs';
+import {getCliErrorMessage} from './lib/cli-error.mjs';
+import {lstat, readdir, readFile} from 'node:fs/promises';
 import {execFileSync} from 'node:child_process';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import {fileURLToPath} from 'node:url';
 import {
     AGENT_INSTRUCTION_FILE_NAMES,
     findAgentInstructionFileName,
@@ -85,9 +78,9 @@ export const WEB_DEPLOY_SOURCE_EXCLUDED_FILE_PATTERNS = [/\.(?:tgz|tar\.gz)$/iu]
 export const WEB_DEPLOY_SOURCE_ROOT_ONLY_FILE_NAMES = [...ROOT_ONLY_LOCAL_ARTIFACT_FILE_NAMES];
 
 export const REQUIRED_VERCELIGNORE_ENTRIES = [
-    ...WEB_DEPLOY_SOURCE_EXCLUDED_DIRECTORY_NAMES.map(name => `${name}/`),
+    ...WEB_DEPLOY_SOURCE_EXCLUDED_DIRECTORY_NAMES.map((name) => `${name}/`),
     ...WEB_DEPLOY_SOURCE_EXCLUDED_FILE_NAMES,
-    ...WEB_DEPLOY_SOURCE_ROOT_ONLY_FILE_NAMES.map(name => `**/${name}`),
+    ...WEB_DEPLOY_SOURCE_ROOT_ONLY_FILE_NAMES.map((name) => `**/${name}`),
     '*.log',
 ];
 
@@ -114,13 +107,13 @@ export function parseVercelIgnoreEntries(content) {
         content
             .split(/\r?\n/u)
             .map(normalizeEntry)
-            .filter(entry => entry !== null),
+            .filter((entry) => entry !== null),
     );
 }
 
 export function validateVercelIgnoreEntries(content, requiredEntries = REQUIRED_VERCELIGNORE_ENTRIES) {
     const entries = parseVercelIgnoreEntries(content);
-    const missingEntries = requiredEntries.filter(entry => !entries.has(entry));
+    const missingEntries = requiredEntries.filter((entry) => !entries.has(entry));
 
     if (missingEntries.length > 0) {
         throw new Error(`.vercelignore is missing web deploy exclusions: ${missingEntries.join(', ')}`);
@@ -150,10 +143,12 @@ export function isExcludedWebDeploySourceDirectoryName(directoryName) {
  * unless they are an example template.
  */
 export function isExcludedWebDeploySourceFileName(fileName) {
-    return findAgentInstructionFileName(fileName) !== null
-        || WEB_DEPLOY_SOURCE_EXCLUDED_FILE_NAMES.includes(fileName)
-        || WEB_DEPLOY_SOURCE_EXCLUDED_FILE_PATTERNS.some(pattern => pattern.test(fileName))
-        || isExcludedEnvFileName(fileName);
+    return (
+        findAgentInstructionFileName(fileName) !== null ||
+        WEB_DEPLOY_SOURCE_EXCLUDED_FILE_NAMES.includes(fileName) ||
+        WEB_DEPLOY_SOURCE_EXCLUDED_FILE_PATTERNS.some((pattern) => pattern.test(fileName)) ||
+        isExcludedEnvFileName(fileName)
+    );
 }
 
 export function isExcludedWebDeploySourcePath(fileName, relativeDirectory = '') {
@@ -180,26 +175,28 @@ export function isRootVendorPath(relativePath) {
 // A file: dependency is a build input even when vendor archives are otherwise excluded.
 export function getWebDeployVendorDependencies(projectRoot = defaultProjectRoot) {
     const manifestPath = path.join(projectRoot, 'package.json');
-    if (!existsSync(manifestPath)) {return new Set();}
+    if (!existsSync(manifestPath)) {
+        return new Set();
+    }
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
     const dependencies = {
         ...manifest.dependencies,
         ...manifest.devDependencies,
         ...manifest.optionalDependencies,
     };
-    return new Set(Object.values(dependencies)
-        .filter(value => typeof value === 'string' && value.startsWith('file:vendor/'))
-        .map(value => value.slice('file:'.length))
-        .filter(relativePath => !relativePath.split('/').includes('..')
-            && !relativePath.includes('\\')
-            && /\.(?:tgz|tar\.gz)$/u.test(relativePath)));
+    return new Set(
+        Object.values(dependencies)
+            .filter((value) => typeof value === 'string' && value.startsWith('file:vendor/'))
+            .map((value) => value.slice('file:'.length))
+            .filter(
+                (relativePath) =>
+                    !relativePath.split('/').includes('..') && !relativePath.includes('\\') && /\.(?:tgz|tar\.gz)$/u.test(relativePath),
+            ),
+    );
 }
 
 export function getTrackedWebDeploySourcePaths(projectRoot = defaultProjectRoot) {
-    const output = execFileSync('git', [
-        'ls-files',
-        '-z',
-    ], {
+    const output = execFileSync('git', ['ls-files', '-z'], {
         cwd: projectRoot,
         encoding: 'buffer',
     });
@@ -207,18 +204,12 @@ export function getTrackedWebDeploySourcePaths(projectRoot = defaultProjectRoot)
 }
 
 export function assertCleanTrackedWebDeploySource(projectRoot = defaultProjectRoot) {
-    const output = execFileSync('git', [
-        'status',
-        '--porcelain=v1',
-        '--untracked-files=all',
-    ], {
+    const output = execFileSync('git', ['status', '--porcelain=v1', '--untracked-files=all'], {
         cwd: projectRoot,
         encoding: 'utf8',
     }).trim();
     if (output) {
-        throw new Error(
-            `Web deploy source must be a clean tracked Git snapshot; uncommitted paths were found:\n${output}`,
-        );
+        throw new Error(`Web deploy source must be a clean tracked Git snapshot; uncommitted paths were found:\n${output}`);
     }
 }
 
@@ -228,16 +219,10 @@ function shouldIncludeTrackedPath(relativePath) {
     if (isRootVendorPath(normalizedPath) || segments.slice(0, -1).some(isExcludedWebDeploySourceDirectoryName)) {
         return false;
     }
-    return !isExcludedWebDeploySourcePath(
-        segments.at(-1),
-        segments.slice(0, -1).join('/'),
-    );
+    return !isExcludedWebDeploySourcePath(segments.at(-1), segments.slice(0, -1).join('/'));
 }
 
-export async function collectWebDeploySourceStats({
-    projectRoot = defaultProjectRoot,
-    trackedOnly = true,
-} = {}) {
+export async function collectWebDeploySourceStats({projectRoot = defaultProjectRoot, trackedOnly = true} = {}) {
     const vendorDependencies = getWebDeployVendorDependencies(projectRoot);
     const stats = {
         byteLength: 0,
@@ -267,8 +252,9 @@ export async function collectWebDeploySourceStats({
 
         for (const dirent of entries) {
             const relativePath = path.posix.join(relativeDirectory, dirent.name);
-            const dependencyInput = [...vendorDependencies].some(dependency => dependency === relativePath
-                || dependency.startsWith(`${relativePath}/`));
+            const dependencyInput = [...vendorDependencies].some(
+                (dependency) => dependency === relativePath || dependency.startsWith(`${relativePath}/`),
+            );
             if (!dependencyInput && (isRootVendorPath(relativePath) || shouldSkipSourcePath(dirent, relativeDirectory))) {
                 continue;
             }
@@ -334,8 +320,7 @@ export async function validateWebDeploySource({
     return stats;
 }
 
-const isDirectCliRun = process.argv[1]
-    && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
+const isDirectCliRun = process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
 
 // Local gates run against an uncommitted worktree; the tracked-file measurement
 // is the same either way, so only the deploy path insists on a clean snapshot.

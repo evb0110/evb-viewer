@@ -5,10 +5,7 @@ import {
     type IBrowserOcrEnginePass,
     type IBrowserOcrEngineResult,
 } from '@contracts/browserOcrEngine';
-import {
-    type TOcrModelCode,
-    withOcrModelSublanguages,
-} from '@contracts/ocrLanguages';
+import {type TOcrModelCode, withOcrModelSublanguages} from '@contracts/ocrLanguages';
 
 /** The part of the Emscripten module a pass uses (`scripts/build-tesseract-wasm.sh`). */
 interface ITesseractModule {
@@ -95,16 +92,13 @@ export function createTesseractEngine(source: ITesseractEngineSource) {
         modelBytes: ReadonlyMap<TOcrModelCode, Uint8Array>,
         pass: IBrowserOcrEnginePass,
     ) => {
-        const key = JSON.stringify([
-            pass.args.slice(2),
-            [...modelBytes.keys()],
-        ]);
+        const key = JSON.stringify([pass.args.slice(2), [...modelBytes.keys()]]);
         if (activeInstance?.key !== key) {
             activeInstance = null;
             const log = {stderr: ''};
             const module = await engine.factory({
                 instantiateWasm(imports, receive) {
-                    void WebAssembly.instantiate(engine.module, imports).then(created => receive(created, engine.module));
+                    void WebAssembly.instantiate(engine.module, imports).then((created) => receive(created, engine.module));
                     return {};
                 },
                 print: () => {},
@@ -115,10 +109,7 @@ export function createTesseractEngine(source: ITesseractEngineSource) {
                 },
             });
             module.FS.mkdirTree('/work');
-            for (const [
-                code,
-                bytes,
-            ] of modelBytes) {
+            for (const [code, bytes] of modelBytes) {
                 module.FS.writeFile(`${BROWSER_OCR_ENGINE_TESSDATA_PATH}/${code}.traineddata`, bytes, {canOwn: true});
             }
             activeInstance = {
@@ -127,9 +118,7 @@ export function createTesseractEngine(source: ITesseractEngineSource) {
                 log,
             };
         }
-        const {
-            module: instance, log,
-        } = activeInstance;
+        const {module: instance, log} = activeInstance;
         log.stderr = '';
         // This input can serve several early-print passes, so MEMFS borrows it.
         instance.FS.writeFile(BROWSER_OCR_ENGINE_IMAGE_PATH, image, {canOwn: true});
@@ -144,10 +133,9 @@ export function createTesseractEngine(source: ITesseractEngineSource) {
                 throw new Error(`Tesseract did not write ${path}: ${log.stderr.trim()}`);
             }
         });
-        for (const path of [
-            BROWSER_OCR_ENGINE_IMAGE_PATH,
-            ...pass.outputs,
-        ]) {instance.FS.unlink(path);}
+        for (const path of [BROWSER_OCR_ENGINE_IMAGE_PATH, ...pass.outputs]) {
+            instance.FS.unlink(path);
+        }
         return {
             stderr: log.stderr,
             outputs,
@@ -159,17 +147,8 @@ export function createTesseractEngine(source: ITesseractEngineSource) {
         try {
             // Tesseract finds the sub-languages a model's config loads beside it.
             const codes = withOcrModelSublanguages(request.models);
-            const [
-                engine,
-                ...loaded
-            ] = await Promise.all([
-                loadEngine(),
-                ...codes.map(loadModel),
-            ]);
-            const modelBytes = new Map(codes.map((code, index) => [
-                code,
-                loaded[index]!,
-            ]));
+            const [engine, ...loaded] = await Promise.all([loadEngine(), ...codes.map(loadModel)]);
+            const modelBytes = new Map(codes.map((code, index) => [code, loaded[index]!]));
             const passes: IOcrEngineResult['passes'] = [];
             for (const pass of request.passes) {
                 passes.push(await runPass(engine, request.image, modelBytes, pass));

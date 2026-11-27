@@ -1,31 +1,9 @@
-import {
-    access,
-    copyFile,
-    mkdir,
-    mkdtemp,
-    readFile,
-    readdir,
-    rm,
-    symlink,
-    utimes,
-    writeFile,
-} from 'node:fs/promises';
-import {
-    execFileSync,
-    spawn,
-} from 'node:child_process';
+import {access, copyFile, mkdir, mkdtemp, readFile, readdir, rm, symlink, utimes, writeFile} from 'node:fs/promises';
+import {execFileSync, spawn} from 'node:child_process';
 import {once} from 'node:events';
 import {tmpdir} from 'node:os';
-import {
-    dirname, join,
-} from 'node:path';
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {dirname, join} from 'node:path';
+import {afterEach, describe, expect, it, vi} from 'vitest';
 import {
     SCAN_CLEANUP_PID_ROOT_PREFIX,
     SCAN_CLEANUP_RUN_PREFIX,
@@ -39,12 +17,9 @@ import {
     MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX,
     type IManagedProcessRegistryEntry,
 } from '@electron/native-tools/managedProcessRegistry';
-import {
-    getOwnStartTime,
-    type IProcessIdentity,
-} from '@electron/utils/processIdentity';
-import { terminateProcessTree } from '@electron/utils/processTree';
-import { createManagedScratchTempDir } from '@electron/utils/managedScratchTemp';
+import {getOwnStartTime, type IProcessIdentity} from '@electron/utils/processIdentity';
+import {terminateProcessTree} from '@electron/utils/processTree';
+import {createManagedScratchTempDir} from '@electron/utils/managedScratchTemp';
 
 const temporaryDirectories: string[] = [];
 const itPosix = process.platform === 'win32' ? it.skip : it;
@@ -56,10 +31,14 @@ async function createTemporaryDirectory() {
 }
 
 afterEach(async () => {
-    await Promise.all(temporaryDirectories.splice(0).map(directory => rm(directory, {
-        force: true,
-        recursive: true,
-    })));
+    await Promise.all(
+        temporaryDirectories.splice(0).map((directory) =>
+            rm(directory, {
+                force: true,
+                recursive: true,
+            }),
+        ),
+    );
 });
 
 describe('scan-cleanup durability', () => {
@@ -81,30 +60,35 @@ describe('scan-cleanup durability', () => {
         await utimes(unrelatedPath, staleTime, staleTime);
 
         const log = vi.fn();
-        await expect(sweepStaleScanCleanupScratchDirs(parentPath, {
-            log,
-            maxAgeMs: 60_000,
-            now: () => now,
-        })).resolves.toBe(1);
+        await expect(
+            sweepStaleScanCleanupScratchDirs(parentPath, {
+                log,
+                maxAgeMs: 60_000,
+                now: () => now,
+            }),
+        ).resolves.toBe(1);
 
         await expect(readFile(join(outsidePath, 'keep.txt'), 'utf8')).resolves.toBe('keep');
         await expect(access(stalePath)).rejects.toMatchObject({code: 'ENOENT'});
-        await expect(rm(freshPath, {
-            force: true,
-            recursive: true,
-        })).resolves.toBeUndefined();
-        await expect(rm(unrelatedPath, {
-            force: true,
-            recursive: true,
-        })).resolves.toBeUndefined();
-        await expect(rm(linkPath, {
-            force: true,
-            recursive: true,
-        })).resolves.toBeUndefined();
-        expect(log).toHaveBeenCalledWith(
-            'debug',
-            `Removed stale scan-cleanup scratch directory "${stalePath}"`,
-        );
+        await expect(
+            rm(freshPath, {
+                force: true,
+                recursive: true,
+            }),
+        ).resolves.toBeUndefined();
+        await expect(
+            rm(unrelatedPath, {
+                force: true,
+                recursive: true,
+            }),
+        ).resolves.toBeUndefined();
+        await expect(
+            rm(linkPath, {
+                force: true,
+                recursive: true,
+            }),
+        ).resolves.toBeUndefined();
+        expect(log).toHaveBeenCalledWith('debug', `Removed stale scan-cleanup scratch directory "${stalePath}"`);
     });
 
     it('tolerates parent and per-entry sweep errors', async () => {
@@ -112,24 +96,32 @@ describe('scan-cleanup durability', () => {
         const permissionError = Object.assign(new Error('permission denied'), {code: 'EPERM'});
         const log = vi.fn();
 
-        await expect(sweepStaleScanCleanupScratchDirs(parentPath, {
-            fileSystem: {readdir: async () => {
-                throw permissionError;
-            }},
-            log,
-        })).resolves.toBe(0);
-        await expect(sweepStaleScanCleanupScratchDirs(parentPath, {
-            fileSystem: {
-                readdir: async () => [{
-                    isDirectory: () => true,
-                    name: `${SCAN_CLEANUP_SCRATCH_PREFIX}entry-error`,
-                }],
-                lstat: async () => {
-                    throw permissionError;
+        await expect(
+            sweepStaleScanCleanupScratchDirs(parentPath, {
+                fileSystem: {
+                    readdir: async () => {
+                        throw permissionError;
+                    },
                 },
-            },
-            log,
-        })).resolves.toBe(0);
+                log,
+            }),
+        ).resolves.toBe(0);
+        await expect(
+            sweepStaleScanCleanupScratchDirs(parentPath, {
+                fileSystem: {
+                    readdir: async () => [
+                        {
+                            isDirectory: () => true,
+                            name: `${SCAN_CLEANUP_SCRATCH_PREFIX}entry-error`,
+                        },
+                    ],
+                    lstat: async () => {
+                        throw permissionError;
+                    },
+                },
+                log,
+            }),
+        ).resolves.toBe(0);
 
         expect(log).toHaveBeenCalledWith('warn', expect.stringContaining('permission denied'));
     });
@@ -145,11 +137,13 @@ describe('scan-cleanup durability', () => {
         await utimes(livePath, staleTime, staleTime);
         await utimes(deadPath, staleTime, staleTime);
 
-        await expect(sweepStaleScanCleanupScratchDirs(parentPath, {
-            isProcessAlive: pid => pid === 4242,
-            maxAgeMs: 60_000,
-            now: () => now,
-        })).resolves.toBe(1);
+        await expect(
+            sweepStaleScanCleanupScratchDirs(parentPath, {
+                isProcessAlive: (pid) => pid === 4242,
+                maxAgeMs: 60_000,
+                now: () => now,
+            }),
+        ).resolves.toBe(1);
 
         await expect(access(livePath)).resolves.toBeUndefined();
         await expect(access(deadPath)).rejects.toMatchObject({code: 'ENOENT'});
@@ -166,11 +160,13 @@ describe('scan-cleanup durability', () => {
         await utimes(conversionPath, staleTime, staleTime);
         await utimes(detectionPath, staleTime, staleTime);
 
-        await expect(sweepStaleScanCleanupScratchDirs(parentPath, {
-            isProcessAlive: pid => pid === 482913,
-            maxAgeMs: 60_000,
-            now: () => now,
-        })).resolves.toBe(2);
+        await expect(
+            sweepStaleScanCleanupScratchDirs(parentPath, {
+                isProcessAlive: (pid) => pid === 482913,
+                maxAgeMs: 60_000,
+                now: () => now,
+            }),
+        ).resolves.toBe(2);
 
         await expect(access(conversionPath)).rejects.toMatchObject({code: 'ENOENT'});
         await expect(access(detectionPath)).rejects.toMatchObject({code: 'ENOENT'});
@@ -187,11 +183,13 @@ describe('scan-cleanup durability', () => {
         await utimes(livePath, staleTime, staleTime);
         await utimes(deadPath, staleTime, staleTime);
 
-        await expect(sweepStaleScanCleanupScratchDirs(parentPath, {
-            isProcessAlive: pid => pid === 4242,
-            maxAgeMs: 60_000,
-            now: () => now,
-        })).resolves.toBe(1);
+        await expect(
+            sweepStaleScanCleanupScratchDirs(parentPath, {
+                isProcessAlive: (pid) => pid === 4242,
+                maxAgeMs: 60_000,
+                now: () => now,
+            }),
+        ).resolves.toBe(1);
 
         await expect(access(livePath)).resolves.toBeUndefined();
         await expect(access(deadPath)).rejects.toMatchObject({code: 'ENOENT'});
@@ -212,31 +210,24 @@ describe('scan-cleanup durability', () => {
             processStartTime: 'child-start',
             ownerStartTime: 'owner-start',
         };
-        const entryPath = join(
-            registryDirectory,
-            `${MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX}test.json`,
-        );
+        const entryPath = join(registryDirectory, `${MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX}test.json`);
         await writeFile(entryPath, JSON.stringify(entry), 'utf8');
         const identity = (pid: number): IProcessIdentity => ({
             executablePath: pid === 4242 ? '/native/evb-scan-cleanup' : '/electron',
-            arguments: pid === 4242
-                ? [
-                    'evb-scan-cleanup',
-                    '--manifest',
-                    '/scratch/manifest.json',
-                ]
-                : ['electron'],
+            arguments: pid === 4242 ? ['evb-scan-cleanup', '--manifest', '/scratch/manifest.json'] : ['electron'],
             startTime: pid === 4242 ? 'child-start' : 'owner-start',
         });
         const terminate = vi.fn(async () => true);
         const readIdentity = vi.fn(async (pid: number) => identity(pid));
 
-        await expect(reapOrphanedManagedProcesses(namespacePath, {
-            isProcessAlive: pid => pid === 4242,
-            readProcessIdentity: readIdentity,
-            terminateProcessTree: terminate,
-            platform: 'linux',
-        })).resolves.toBe(1);
+        await expect(
+            reapOrphanedManagedProcesses(namespacePath, {
+                isProcessAlive: (pid) => pid === 4242,
+                readProcessIdentity: readIdentity,
+                terminateProcessTree: terminate,
+                platform: 'linux',
+            }),
+        ).resolves.toBe(1);
 
         expect(terminate).toHaveBeenCalledWith(4242, expect.objectContaining({preferProcessGroup: true}));
         expect(readIdentity).not.toHaveBeenCalledWith(4241);
@@ -244,28 +235,21 @@ describe('scan-cleanup durability', () => {
         await expect(access(scratchPath)).rejects.toMatchObject({code: 'ENOENT'});
     });
 
-    it('reaps a tool an older build recorded once that build\'s run has ended', async () => {
+    it("reaps a tool an older build recorded once that build's run has ended", async () => {
         const namespacePath = await createTemporaryDirectory();
         const scratchPath = await createManagedScratchTempDir('native-command-', namespacePath);
         const manifestPath = join(scratchPath, 'manifest.json');
         const scratchBytes = 'native command still owns these bytes';
         await writeFile(manifestPath, scratchBytes, 'utf8');
-        const binaryPath = process.platform === 'darwin'
-            ? join(namespacePath, 'EVB Viewer.app', 'Contents', 'MacOS', 'node')
-            : process.execPath;
+        const binaryPath =
+            process.platform === 'darwin' ? join(namespacePath, 'EVB Viewer.app', 'Contents', 'MacOS', 'node') : process.execPath;
         if (binaryPath !== process.execPath) {
             await mkdir(dirname(binaryPath), {recursive: true});
             await copyFile(process.execPath, binaryPath);
         }
         // runNativeCommand starts a tool in its own process group, with its
         // temporary folder at its scratch.
-        const child = spawn(binaryPath, [
-            '-e',
-            'console.log("ready"); setInterval(() => {}, 1000)',
-            '--',
-            '--manifest',
-            manifestPath,
-        ], {
+        const child = spawn(binaryPath, ['-e', 'console.log("ready"); setInterval(() => {}, 1000)', '--', '--manifest', manifestPath], {
             detached: process.platform !== 'win32',
             env: {
                 ...process.env,
@@ -273,18 +257,11 @@ describe('scan-cleanup durability', () => {
                 TMP: scratchPath,
                 TEMP: scratchPath,
             },
-            stdio: [
-                'ignore',
-                'pipe',
-                'ignore',
-            ],
+            stdio: ['ignore', 'pipe', 'ignore'],
             windowsHide: true,
         });
         const childClosed = once(child, 'close');
-        const endedOwner = spawn(process.execPath, [
-            '-e',
-            '',
-        ], {stdio: 'ignore'});
+        const endedOwner = spawn(process.execPath, ['-e', ''], {stdio: 'ignore'});
         const ownerClosed = once(endedOwner, 'close');
         try {
             await once(child.stdout, 'data');
@@ -322,28 +299,30 @@ describe('scan-cleanup durability', () => {
             // What an older build recorded instead of the exact creation time:
             // bare Linux ticks, the macOS ps start to the second, a Windows
             // clock estimate to the millisecond. The recorded owner has ended.
-            const olderStartTime = (exact: string, pid: number) => process.platform === 'linux'
-                ? exact.split(':')[1]!
-                : process.platform === 'darwin'
-                    ? execFileSync('/bin/ps', [
-                        '-o',
-                        'lstart=',
-                        '-p',
-                        String(pid),
-                    ], {
-                        encoding: 'utf8',
-                        env: {
-                            ...process.env,
-                            LC_ALL: 'C',
-                        },
-                    }).trim().replace(/\s+/gu, ' ')
-                    : new Date(Date.parse(exact)).toISOString();
-            await writeFile(registration!.entryPath, JSON.stringify({
-                ...entry,
-                ownerPid: endedOwner.pid,
-                processStartTime: olderStartTime(entry.processStartTime!, child.pid!),
-                ownerStartTime: undefined,
-            }), 'utf8');
+            const olderStartTime = (exact: string, pid: number) =>
+                process.platform === 'linux'
+                    ? exact.split(':')[1]!
+                    : process.platform === 'darwin'
+                      ? execFileSync('/bin/ps', ['-o', 'lstart=', '-p', String(pid)], {
+                            encoding: 'utf8',
+                            env: {
+                                ...process.env,
+                                LC_ALL: 'C',
+                            },
+                        })
+                            .trim()
+                            .replace(/\s+/gu, ' ')
+                      : new Date(Date.parse(exact)).toISOString();
+            await writeFile(
+                registration!.entryPath,
+                JSON.stringify({
+                    ...entry,
+                    ownerPid: endedOwner.pid,
+                    processStartTime: olderStartTime(entry.processStartTime!, child.pid!),
+                    ownerStartTime: undefined,
+                }),
+                'utf8',
+            );
             const exited = once(child, 'exit');
 
             await expect(reapOrphanedManagedProcesses(namespacePath)).resolves.toBe(1);
@@ -352,12 +331,13 @@ describe('scan-cleanup durability', () => {
             await expect(access(registration!.entryPath)).rejects.toMatchObject({code: 'ENOENT'});
             await expect(access(scratchPath)).rejects.toMatchObject({code: 'ENOENT'});
         } finally {
-            if (child.exitCode === null && child.signalCode === null) {child.kill('SIGKILL');}
-            if (endedOwner.exitCode === null && endedOwner.signalCode === null) {endedOwner.kill('SIGKILL');}
-            await Promise.all([
-                childClosed,
-                ownerClosed,
-            ]);
+            if (child.exitCode === null && child.signalCode === null) {
+                child.kill('SIGKILL');
+            }
+            if (endedOwner.exitCode === null && endedOwner.signalCode === null) {
+                endedOwner.kill('SIGKILL');
+            }
+            await Promise.all([childClosed, ownerClosed]);
         }
     });
 
@@ -377,21 +357,18 @@ describe('scan-cleanup durability', () => {
         await writeFile(entryPath, JSON.stringify(entry), 'utf8');
         const terminate = vi.fn(async () => true);
 
-        await expect(reapOrphanedManagedProcesses(namespacePath, {
-            isProcessAlive: pid => pid === 4242,
-            readProcessIdentity: async pid => ({
-                executablePath: pid === 4242 ? '/native/tesseract' : '/electron',
-                arguments: pid === 4242
-                    ? [
-                        '/native/tesseract',
-                        '/tmp/page.png',
-                    ]
-                    : ['electron'],
-                startTime: pid === 4242 ? 'child-start' : 'owner-start',
+        await expect(
+            reapOrphanedManagedProcesses(namespacePath, {
+                isProcessAlive: (pid) => pid === 4242,
+                readProcessIdentity: async (pid) => ({
+                    executablePath: pid === 4242 ? '/native/tesseract' : '/electron',
+                    arguments: pid === 4242 ? ['/native/tesseract', '/tmp/page.png'] : ['electron'],
+                    startTime: pid === 4242 ? 'child-start' : 'owner-start',
+                }),
+                terminateProcessTree: terminate,
+                platform: 'linux',
             }),
-            terminateProcessTree: terminate,
-            platform: 'linux',
-        })).resolves.toBe(1);
+        ).resolves.toBe(1);
 
         expect(terminate).toHaveBeenCalledWith(4242, expect.objectContaining({preferProcessGroup: true}));
         await expect(access(entryPath)).rejects.toMatchObject({code: 'ENOENT'});
@@ -404,30 +381,36 @@ describe('scan-cleanup durability', () => {
         const writeEntry = async (pid: number) => {
             const entryPath = join(registryDirectory, `${MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX}${String(pid)}.json`);
             // Builds before the boot id recorded only the ticks since boot.
-            await writeFile(entryPath, JSON.stringify({
-                version: 1,
-                pid,
-                ownerPid: 4241,
-                binaryPath: '/native/tesseract',
-                processStartTime: '180000000',
-                ownerStartTime: '170000000',
-            }), 'utf8');
+            await writeFile(
+                entryPath,
+                JSON.stringify({
+                    version: 1,
+                    pid,
+                    ownerPid: 4241,
+                    binaryPath: '/native/tesseract',
+                    processStartTime: '180000000',
+                    ownerStartTime: '170000000',
+                }),
+                'utf8',
+            );
             return entryPath;
         };
         const orphanEntryPath = await writeEntry(4242);
         const reusedEntryPath = await writeEntry(4343);
         const terminate = vi.fn(async () => true);
 
-        await expect(reapOrphanedManagedProcesses(namespacePath, {
-            isProcessAlive: pid => pid !== 4241,
-            readProcessIdentity: async pid => ({
-                executablePath: '/native/tesseract',
-                arguments: ['/native/tesseract'],
-                startTime: `70d4911d-53e3-441e-b385-a64a34cae556:${pid === 4242 ? '180000000' : '180000001'}`,
+        await expect(
+            reapOrphanedManagedProcesses(namespacePath, {
+                isProcessAlive: (pid) => pid !== 4241,
+                readProcessIdentity: async (pid) => ({
+                    executablePath: '/native/tesseract',
+                    arguments: ['/native/tesseract'],
+                    startTime: `70d4911d-53e3-441e-b385-a64a34cae556:${pid === 4242 ? '180000000' : '180000001'}`,
+                }),
+                terminateProcessTree: terminate,
+                platform: 'linux',
             }),
-            terminateProcessTree: terminate,
-            platform: 'linux',
-        })).resolves.toBe(1);
+        ).resolves.toBe(1);
 
         expect(terminate).toHaveBeenCalledOnce();
         expect(terminate).toHaveBeenCalledWith(4242, expect.anything());
@@ -457,17 +440,19 @@ describe('scan-cleanup durability', () => {
         const reusedEntryPath = await writeEntry(4343);
         const terminate = vi.fn(async () => true);
 
-        await expect(reapOrphanedManagedProcesses(namespacePath, {
-            isProcessAlive: pid => pid !== 4241,
-            readProcessIdentity: async pid => ({
-                executablePath: '/native/QPDF.EXE',
-                arguments: ['/native/qpdf.exe'],
-                // pid 4343 now belongs to a process created 100 ns later.
-                startTime: pid === 4242 ? '2026-10-01T09:59:59.8123456Z' : '2026-10-01T09:59:59.8123457Z',
+        await expect(
+            reapOrphanedManagedProcesses(namespacePath, {
+                isProcessAlive: (pid) => pid !== 4241,
+                readProcessIdentity: async (pid) => ({
+                    executablePath: '/native/QPDF.EXE',
+                    arguments: ['/native/qpdf.exe'],
+                    // pid 4343 now belongs to a process created 100 ns later.
+                    startTime: pid === 4242 ? '2026-10-01T09:59:59.8123456Z' : '2026-10-01T09:59:59.8123457Z',
+                }),
+                terminateProcessTree: terminate,
+                platform: 'win32',
             }),
-            terminateProcessTree: terminate,
-            platform: 'win32',
-        })).resolves.toBe(1);
+        ).resolves.toBe(1);
 
         expect(terminate).toHaveBeenCalledOnce();
         expect(terminate).toHaveBeenCalledWith(4242, expect.objectContaining({preferProcessGroup: false}));
@@ -478,10 +463,7 @@ describe('scan-cleanup durability', () => {
     itPosix('keeps native scratch while a process group has a live descendant', async () => {
         const namespacePath = await createTemporaryDirectory();
         const registryDirectory = getManagedProcessRegistryDirectory(namespacePath);
-        const child = spawn('sh', [
-            '-c',
-            'sleep 30 & exit 0',
-        ], {
+        const child = spawn('sh', ['-c', 'sleep 30 & exit 0'], {
             detached: true,
             stdio: 'ignore',
         });
@@ -489,7 +471,7 @@ describe('scan-cleanup durability', () => {
         if (typeof pid !== 'number') {
             throw new Error('Expected a process id for the detached group');
         }
-        await new Promise<void>(resolve => child.once('close', () => resolve()));
+        await new Promise<void>((resolve) => child.once('close', () => resolve()));
 
         const scratchPath = await createManagedScratchTempDir('native-command-', namespacePath);
         const entryPath = join(registryDirectory, `${MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX}descendant.json`);
@@ -513,11 +495,13 @@ describe('scan-cleanup durability', () => {
             await expect(access(scratchPath)).resolves.toBeUndefined();
             await expect(access(entryPath)).resolves.toBeUndefined();
 
-            await expect(terminateProcessTree(pid, {
-                graceMs: 1_000,
-                platform: 'linux',
-                preferProcessGroup: true,
-            })).resolves.toBe(true);
+            await expect(
+                terminateProcessTree(pid, {
+                    graceMs: 1_000,
+                    platform: 'linux',
+                    preferProcessGroup: true,
+                }),
+            ).resolves.toBe(true);
             await reapOrphanedManagedProcesses(namespacePath, options);
 
             await expect(access(scratchPath)).rejects.toMatchObject({code: 'ENOENT'});
@@ -537,30 +521,34 @@ describe('scan-cleanup durability', () => {
         const finishedScratch = await createManagedScratchTempDir('native-command-', firstNamespace);
         const liveScratch = await createManagedScratchTempDir('native-command-', firstNamespace);
         const otherProfileScratch = await createManagedScratchTempDir('native-command-', secondNamespace);
-        const finishedEntryPath = join(getManagedProcessRegistryDirectory(firstNamespace), `${MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX}finished.json`);
-        const liveEntryPath = join(getManagedProcessRegistryDirectory(firstNamespace), `${MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX}live.json`);
-        const otherProfileEntryPath = join(getManagedProcessRegistryDirectory(secondNamespace), `${MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX}other-profile.json`);
-        for (const directory of [
+        const finishedEntryPath = join(
             getManagedProcessRegistryDirectory(firstNamespace),
+            `${MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX}finished.json`,
+        );
+        const liveEntryPath = join(getManagedProcessRegistryDirectory(firstNamespace), `${MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX}live.json`);
+        const otherProfileEntryPath = join(
             getManagedProcessRegistryDirectory(secondNamespace),
-        ]) {
+            `${MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX}other-profile.json`,
+        );
+        for (const directory of [getManagedProcessRegistryDirectory(firstNamespace), getManagedProcessRegistryDirectory(secondNamespace)]) {
             await mkdir(directory);
         }
         const ownStartTime = await getOwnStartTime();
-        const writeEntry = (pid: number, ownerPid: number, scratchPath: string) => writeFile(
-            pid === 2_147_483_644 ? liveEntryPath : pid === 2_147_483_643 ? otherProfileEntryPath : finishedEntryPath,
-            JSON.stringify({
-                version: 1,
-                pid,
-                ownerPid,
-                binaryPath: '/native/tool',
-                processStartTime: `process-${pid}`,
-                // A live owner records its own creation time.
-                ownerStartTime: ownerPid === process.pid ? ownStartTime! : 'dead-owner',
-                scratchPath,
-            } satisfies IManagedProcessRegistryEntry),
-            'utf8',
-        );
+        const writeEntry = (pid: number, ownerPid: number, scratchPath: string) =>
+            writeFile(
+                pid === 2_147_483_644 ? liveEntryPath : pid === 2_147_483_643 ? otherProfileEntryPath : finishedEntryPath,
+                JSON.stringify({
+                    version: 1,
+                    pid,
+                    ownerPid,
+                    binaryPath: '/native/tool',
+                    processStartTime: `process-${pid}`,
+                    // A live owner records its own creation time.
+                    ownerStartTime: ownerPid === process.pid ? ownStartTime! : 'dead-owner',
+                    scratchPath,
+                } satisfies IManagedProcessRegistryEntry),
+                'utf8',
+            );
         await writeEntry(2_147_483_645, 2_147_483_647, finishedScratch);
         await writeEntry(2_147_483_644, process.pid, liveScratch);
         await writeEntry(2_147_483_643, 2_147_483_646, otherProfileScratch);
@@ -594,14 +582,8 @@ describe('scan-cleanup durability', () => {
             // This build's exact shape: a different value is another process.
             {processStartTime: '70d4911d-53e3-441e-b385-a64a34cae556:101'},
         ],
-        [
-            'binary path',
-            {binaryPath: '/native/other-scan-cleanup'},
-        ],
-        [
-            'manifest path',
-            {manifestPath: '/scratch/other-manifest.json'},
-        ],
+        ['binary path', {binaryPath: '/native/other-scan-cleanup'}],
+        ['manifest path', {manifestPath: '/scratch/other-manifest.json'}],
     ] as const)('retains an orphan marker when the live process identity mismatches by %s', async (_label, change) => {
         const namespacePath = await createTemporaryDirectory();
         const registryDirectory = getManagedProcessRegistryDirectory(namespacePath);
@@ -616,27 +598,22 @@ describe('scan-cleanup durability', () => {
             ownerStartTime: 'owner-start',
             ...change,
         };
-        const entryPath = join(
-            registryDirectory,
-            `${MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX}${_label.replaceAll(' ', '-')}.json`,
-        );
+        const entryPath = join(registryDirectory, `${MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX}${_label.replaceAll(' ', '-')}.json`);
         await writeFile(entryPath, JSON.stringify(entry), 'utf8');
         const terminate = vi.fn(async () => true);
 
-        await expect(reapOrphanedManagedProcesses(namespacePath, {
-            isProcessAlive: pid => pid === 4242,
-            readProcessIdentity: async () => ({
-                executablePath: '/native/evb-scan-cleanup',
-                arguments: [
-                    'evb-scan-cleanup',
-                    '--manifest',
-                    '/scratch/manifest.json',
-                ],
-                startTime: '70d4911d-53e3-441e-b385-a64a34cae556:100',
+        await expect(
+            reapOrphanedManagedProcesses(namespacePath, {
+                isProcessAlive: (pid) => pid === 4242,
+                readProcessIdentity: async () => ({
+                    executablePath: '/native/evb-scan-cleanup',
+                    arguments: ['evb-scan-cleanup', '--manifest', '/scratch/manifest.json'],
+                    startTime: '70d4911d-53e3-441e-b385-a64a34cae556:100',
+                }),
+                terminateProcessTree: terminate,
+                platform: 'linux',
             }),
-            terminateProcessTree: terminate,
-            platform: 'linux',
-        })).resolves.toBe(0);
+        ).resolves.toBe(0);
 
         expect(terminate).not.toHaveBeenCalled();
         await expect(access(entryPath)).resolves.toBeUndefined();
@@ -661,17 +638,16 @@ describe('scan-cleanup durability', () => {
 
     it('records no marker for a child that exited before its registration read', async () => {
         const namespacePath = await createTemporaryDirectory();
-        const child = spawn(process.execPath, [
-            '-e',
-            '',
-        ], {stdio: 'ignore'});
+        const child = spawn(process.execPath, ['-e', ''], {stdio: 'ignore'});
         await once(child, 'exit');
 
-        await expect(registerManagedProcess(namespacePath, {
-            pid: child.pid!,
-            hasExited: () => child.exitCode !== null || child.signalCode !== null,
-            binaryPath: process.execPath,
-        })).resolves.toBeNull();
+        await expect(
+            registerManagedProcess(namespacePath, {
+                pid: child.pid!,
+                hasExited: () => child.exitCode !== null || child.signalCode !== null,
+                binaryPath: process.execPath,
+            }),
+        ).resolves.toBeNull();
         await expect(readdir(getManagedProcessRegistryDirectory(namespacePath))).rejects.toMatchObject({code: 'ENOENT'});
     });
 
@@ -680,14 +656,9 @@ describe('scan-cleanup durability', () => {
         // Node's spawn returns once exec has closed the child's descriptors,
         // before the kernel has set up its arguments, so /proc shows no command
         // line for a moment. Emptying the title holds that state for the test.
-        const child = spawn(process.execPath, [
-            '-e',
-            'process.title = ""; console.log("ready"); setInterval(() => {}, 1_000)',
-        ], {stdio: [
-            'ignore',
-            'pipe',
-            'ignore',
-        ]});
+        const child = spawn(process.execPath, ['-e', 'process.title = ""; console.log("ready"); setInterval(() => {}, 1_000)'], {
+            stdio: ['ignore', 'pipe', 'ignore'],
+        });
         try {
             await once(child.stdout, 'data');
             const commandLine = await readFile(`/proc/${String(child.pid)}/cmdline`, 'utf8');
@@ -713,41 +684,36 @@ describe('scan-cleanup durability', () => {
         // Stop the shell before killing its child so SIGCHLD cannot make it
         // reap the child. An immediate exit can be reaped before exec sleep.
         // Resuming the shell in finally lets wait reap the zombie and exit.
-        const parent = spawn('sh', [
-            '-c',
-            'sleep 30 & child=$!; echo "$child"; kill -STOP $$; wait "$child"',
-        ], {
+        const parent = spawn('sh', ['-c', 'sleep 30 & child=$!; echo "$child"; kill -STOP $$; wait "$child"'], {
             detached: true,
-            stdio: [
-                'ignore',
-                'pipe',
-                'ignore',
-            ],
+            stdio: ['ignore', 'pipe', 'ignore'],
         });
         const parentClosed = once(parent, 'close', {signal: AbortSignal.timeout(4_000)});
         let pid: number | undefined;
         try {
-            const [pidText] = await once(parent.stdout, 'data', {signal: AbortSignal.timeout(1_000)}) as [Buffer];
+            const [pidText] = (await once(parent.stdout, 'data', {signal: AbortSignal.timeout(1_000)})) as [Buffer];
             const childPid = Number(pidText.toString().trim());
             expect(Number.isSafeInteger(childPid) && childPid > 0).toBe(true);
             pid = childPid;
-            await vi.waitFor(() => {
-                expect(execFileSync('ps', [
-                    '-o',
-                    'stat=',
-                    '-p',
-                    String(parent.pid),
-                ], {encoding: 'utf8'}).trim(), 'fixture parent must stop before its child exits').toMatch(/^T/u);
-            }, {timeout: 1_000});
+            await vi.waitFor(
+                () => {
+                    expect(
+                        execFileSync('ps', ['-o', 'stat=', '-p', String(parent.pid)], {encoding: 'utf8'}).trim(),
+                        'fixture parent must stop before its child exits',
+                    ).toMatch(/^T/u);
+                },
+                {timeout: 1_000},
+            );
             process.kill(pid, 'SIGKILL');
-            await vi.waitFor(() => {
-                expect(execFileSync('ps', [
-                    '-o',
-                    'stat=',
-                    '-p',
-                    String(pid),
-                ], {encoding: 'utf8'}).trim(), 'fixture child must remain an unreaped zombie').toMatch(/^Z/u);
-            }, {timeout: 1_000});
+            await vi.waitFor(
+                () => {
+                    expect(
+                        execFileSync('ps', ['-o', 'stat=', '-p', String(pid)], {encoding: 'utf8'}).trim(),
+                        'fixture child must remain an unreaped zombie',
+                    ).toMatch(/^Z/u);
+                },
+                {timeout: 1_000},
+            );
 
             const registration = await registerManagedProcess(namespacePath, {
                 pid,
@@ -762,7 +728,11 @@ describe('scan-cleanup durability', () => {
         } finally {
             if (pid !== undefined) {
                 // Also release a still-running child if a fixture assertion failed.
-                try { process.kill(pid, 'SIGKILL'); } catch { /* Already reaped. */ }
+                try {
+                    process.kill(pid, 'SIGKILL');
+                } catch {
+                    /* Already reaped. */
+                }
                 parent.kill('SIGCONT');
             } else {
                 process.kill(-parent.pid!, 'SIGKILL');
@@ -784,8 +754,11 @@ describe('scan-cleanup durability', () => {
             await expect(access(registration!.entryPath)).resolves.toBeUndefined();
             await registration!.unregister();
         } finally {
-            if (previousTimeLocale === undefined) {delete process.env.LC_TIME;}
-            else {process.env.LC_TIME = previousTimeLocale;}
+            if (previousTimeLocale === undefined) {
+                delete process.env.LC_TIME;
+            } else {
+                process.env.LC_TIME = previousTimeLocale;
+            }
         }
     });
 
@@ -802,62 +775,65 @@ describe('scan-cleanup durability', () => {
             processStartTime: 'child-start',
             ownerStartTime: 'owner-start',
         };
-        const entryPath = join(
-            registryDirectory,
-            `${MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX}live.json`,
-        );
+        const entryPath = join(registryDirectory, `${MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX}live.json`);
         await writeFile(entryPath, JSON.stringify(entry), 'utf8');
         const terminate = vi.fn(async () => true);
 
-        await expect(reapOrphanedManagedProcesses(namespacePath, {
-            isProcessAlive: () => true,
-            readProcessIdentity: async () => ({
-                executablePath: '/electron',
-                arguments: ['electron'],
-                startTime: 'owner-start',
+        await expect(
+            reapOrphanedManagedProcesses(namespacePath, {
+                isProcessAlive: () => true,
+                readProcessIdentity: async () => ({
+                    executablePath: '/electron',
+                    arguments: ['electron'],
+                    startTime: 'owner-start',
+                }),
+                terminateProcessTree: terminate,
+                platform: 'linux',
             }),
-            terminateProcessTree: terminate,
-            platform: 'linux',
-        })).resolves.toBe(0);
+        ).resolves.toBe(0);
 
         expect(terminate).not.toHaveBeenCalled();
         await expect(access(entryPath)).resolves.toBeUndefined();
     });
 
-    it.each([
-        'dead-root',
-        'failed-taskkill-root-exit',
-    ] as const)('retains Windows registry and scratch with unproven descendants: %s', async mode => {
-        const namespace = await createTemporaryDirectory();
-        const registry = getManagedProcessRegistryDirectory(namespace);
-        await mkdir(registry);
-        const scratchPath = await createManagedScratchTempDir('native-command-', namespace);
-        const ownedFile = join(scratchPath, 'input.pdf');
-        await writeFile(ownedFile, 'still owned by a possible descendant');
-        const entryPath = join(registry, `${MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX}windows.json`);
-        const entry: IManagedProcessRegistryEntry = {
-            version: 1,
-            pid: 4242,
-            ownerPid: 4241,
-            binaryPath: '/native/qpdf.exe',
-            processStartTime: '2026-10-01T09:59:59.8123456Z',
-            ownerStartTime: 'owner-start',
-            scratchPath,
-        };
-        await writeFile(entryPath, JSON.stringify(entry));
-        let rootAlive = mode !== 'dead-root';
-        await expect(reapOrphanedManagedProcesses(namespace, {
-            platform: 'win32',
-            isProcessAlive: pid => pid === entry.pid && rootAlive,
-            readProcessIdentity: async () => ({
-                executablePath: entry.binaryPath,
-                arguments: [entry.binaryPath],
-                startTime: entry.processStartTime!,
-            }),
-            terminateProcessTree: async () => { rootAlive = false; return false; },
-        })).resolves.toBe(0);
-        expect(JSON.parse(await readFile(entryPath, 'utf8'))).toEqual(entry);
-        expect(await readFile(ownedFile, 'utf8')).toBe('still owned by a possible descendant');
-    });
-
+    it.each(['dead-root', 'failed-taskkill-root-exit'] as const)(
+        'retains Windows registry and scratch with unproven descendants: %s',
+        async (mode) => {
+            const namespace = await createTemporaryDirectory();
+            const registry = getManagedProcessRegistryDirectory(namespace);
+            await mkdir(registry);
+            const scratchPath = await createManagedScratchTempDir('native-command-', namespace);
+            const ownedFile = join(scratchPath, 'input.pdf');
+            await writeFile(ownedFile, 'still owned by a possible descendant');
+            const entryPath = join(registry, `${MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX}windows.json`);
+            const entry: IManagedProcessRegistryEntry = {
+                version: 1,
+                pid: 4242,
+                ownerPid: 4241,
+                binaryPath: '/native/qpdf.exe',
+                processStartTime: '2026-10-01T09:59:59.8123456Z',
+                ownerStartTime: 'owner-start',
+                scratchPath,
+            };
+            await writeFile(entryPath, JSON.stringify(entry));
+            let rootAlive = mode !== 'dead-root';
+            await expect(
+                reapOrphanedManagedProcesses(namespace, {
+                    platform: 'win32',
+                    isProcessAlive: (pid) => pid === entry.pid && rootAlive,
+                    readProcessIdentity: async () => ({
+                        executablePath: entry.binaryPath,
+                        arguments: [entry.binaryPath],
+                        startTime: entry.processStartTime!,
+                    }),
+                    terminateProcessTree: async () => {
+                        rootAlive = false;
+                        return false;
+                    },
+                }),
+            ).resolves.toBe(0);
+            expect(JSON.parse(await readFile(entryPath, 'utf8'))).toEqual(entry);
+            expect(await readFile(ownedFile, 'utf8')).toBe('still owned by a possible descendant');
+        },
+    );
 });

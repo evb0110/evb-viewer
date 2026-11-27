@@ -8,19 +8,10 @@ import type {
 import type {TDocumentRef} from '@contracts/documentRef';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import type {IScanCleanupConversionEvidence} from '@app/modules/scan-cleanup/composables/useScanCleanupDetectionSession';
-import type {
-    ComputedRef,
-    Ref,
-} from 'vue';
+import type {ComputedRef, Ref} from 'vue';
 import type {TScanCleanupPlacementAnchorsByPage} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
-import {
-    attachScanCleanupPageOverrideDefaults,
-    getScanCleanupPageOverride,
-} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
-import {
-    collectScanCleanupSheetInkTops,
-    usesScanCleanupInkAlignment,
-} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
+import {attachScanCleanupPageOverrideDefaults, getScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import {collectScanCleanupSheetInkTops, usesScanCleanupInkAlignment} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 import {
     beginScanCleanupAttempt,
     cancelScanCleanup,
@@ -38,17 +29,11 @@ import {
     startScanCleanup,
     type TScanCleanupRendererStartResult,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator';
-import {
-    formatScanCleanupErrorByCode,
-    formatScanCleanupErrorMessage,
-} from '@app/modules/scan-cleanup/runtime/formatScanCleanupErrorMessage';
+import {formatScanCleanupErrorByCode, formatScanCleanupErrorMessage} from '@app/modules/scan-cleanup/runtime/formatScanCleanupErrorMessage';
 import {toPlainScanCleanupOptions} from '@contracts/scan-cleanup/scanCleanupSettings';
 import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
 import {resolveScanCleanupSupport} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
-import {
-    SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES,
-    SCAN_CLEANUP_STREAMING_BATCH_PAGES,
-} from '@contracts/scan-cleanup/inputLimits';
+import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES, SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
 import {formatFailurePresentationDescription} from '@app/composables/useFailureToast';
 
 // Large detection jobs hand their complete result store to main through an
@@ -101,35 +86,24 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
     const i18n = useTypedI18n();
     const {t} = i18n;
 
-    function formatStartFailure(
-        result: Extract<TScanCleanupRendererStartResult, {started: false}>,
-    ) {
+    function formatStartFailure(result: Extract<TScanCleanupRendererStartResult, {started: false}>) {
         if (result.fallback === 'already-running') {
             return t('scanCleanup.errors.alreadyRunning');
         }
         if (result.fallback === 'unavailable') {
             return t('scanCleanup.runDisabled.unavailable');
         }
-        return formatScanCleanupErrorByCode(
-            i18n,
-            result.errorCode,
-            result.error,
-            result.scratchShortfall,
-        );
+        return formatScanCleanupErrorByCode(i18n, result.errorCode, result.error, result.scratchShortfall);
     }
 
     function formatReconciliationFailure(error: ScanCleanupRunReconciliationError) {
         return formatScanCleanupErrorMessage(
-            t(error.failure === 'recovery'
-                ? 'scanCleanup.errors.runRecoveryFailed'
-                : 'scanCleanup.errors.runSubscriptionFailed'),
+            t(error.failure === 'recovery' ? 'scanCleanup.errors.runRecoveryFailed' : 'scanCleanup.errors.runSubscriptionFailed'),
             error.technicalDetail,
         );
     }
 
-    const transition = ref<
-        'idle' | 'waiting-for-detection' | 'starting-cleanup'
-    >('idle');
+    const transition = ref<'idle' | 'waiting-for-detection' | 'starting-cleanup'>('idle');
     // The user asked to stop an attempt that has no job to cancel yet: cleanup
     // is still waiting for detection, or its start is still crossing the
     // bridge. The ask outlives that window, so the attempt either never starts
@@ -141,99 +115,88 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
     // — is work the user must be able to stop.
     // This workspace's run, not the window's: another document's job is
     // admission's business, and its Cancel belongs to that document.
-    const isRunning = computed(() => (isScanCleanupRunning.value && scanCleanupRun.ownerId === options.ownerId)
-        || transition.value !== 'idle');
-    const otherDocumentRunning = computed(() => isScanCleanupRunning.value
-        && scanCleanupRun.ownerId !== options.ownerId);
+    const isRunning = computed(
+        () => (isScanCleanupRunning.value && scanCleanupRun.ownerId === options.ownerId) || transition.value !== 'idle',
+    );
+    const otherDocumentRunning = computed(() => isScanCleanupRunning.value && scanCleanupRun.ownerId !== options.ownerId);
     let interruptPendingTransition: (() => void) | null = null;
     const cancelRefusal = ref('');
-    const finishing = computed(() => scanCleanupRun.ownerId === options.ownerId
-        && scanCleanupRun.jobState?.status === 'committing');
-    const cancelStatusText = computed(() => finishing.value
-        ? t('scanCleanup.cancelFinishing')
-        : cancelRefusal.value);
-    const cancelRequested = computed(() => (stopRequested.value && isRunning.value)
-        || (scanCleanupRun.ownerId === options.ownerId
-            && scanCleanupRun.jobState?.status === 'canceling'));
+    const finishing = computed(() => scanCleanupRun.ownerId === options.ownerId && scanCleanupRun.jobState?.status === 'committing');
+    const cancelStatusText = computed(() => (finishing.value ? t('scanCleanup.cancelFinishing') : cancelRefusal.value));
+    const cancelRequested = computed(
+        () =>
+            (stopRequested.value && isRunning.value) ||
+            (scanCleanupRun.ownerId === options.ownerId && scanCleanupRun.jobState?.status === 'canceling'),
+    );
     // The run this workspace reads its outcome under.
-    const runIdentity = () => [
-        options.ownerId,
-        options.sourcePath.value,
-        options.documentRevision.value,
-    ] as const;
+    const runIdentity = () => [options.ownerId, options.sourcePath.value, options.documentRevision.value] as const;
     const error = computed(() => {
         const description = getScanCleanupRunError(...runIdentity());
         const failure = getScanCleanupRunFailure(...runIdentity());
         return description && failure
-            ? formatFailurePresentationDescription({
-                failure,
-                title: '',
-                description,
-            }, t)
+            ? formatFailurePresentationDescription(
+                  {
+                      failure,
+                      title: '',
+                      description,
+                  },
+                  t,
+              )
             : description;
     });
     const errorCode = computed(() => getScanCleanupRunErrorCode(...runIdentity()));
-    const runPageCount = computed(() => options.sourcePageNumbers.value?.length
-        ?? Math.max(1, Math.trunc(options.totalPages.value)));
+    const runPageCount = computed(() => options.sourcePageNumbers.value?.length ?? Math.max(1, Math.trunc(options.totalPages.value)));
     const hasIncludedPage = computed(() => {
         const selected = options.sourcePageNumbers.value;
         if (selected !== null) {
-            return selected.some(page => !getScanCleanupPageOverride(
-                options.settings.pageOverrides,
-                requirePageNumber(page, Math.max(1, options.totalPages.value)),
-            ).excluded);
+            return selected.some(
+                (page) =>
+                    !getScanCleanupPageOverride(
+                        options.settings.pageOverrides,
+                        requirePageNumber(page, Math.max(1, options.totalPages.value)),
+                    ).excluded,
+            );
         }
         const totalPages = runPageCount.value;
         const defaultExcluded = options.settings.pageOverrideDefaults?.excluded === true;
         let includedPages = defaultExcluded ? 0 : totalPages;
-        for (const [
-            key,
-            override,
-        ] of Object.entries(options.settings.pageOverrides)) {
+        for (const [key, override] of Object.entries(options.settings.pageOverrides)) {
             const pageNumber = Number(key);
-            if (
-                Number.isSafeInteger(pageNumber)
-                && pageNumber >= 1
-                && pageNumber <= totalPages
-            ) {
-                includedPages += (override.excluded === true ? 0 : 1)
-                    - (defaultExcluded ? 0 : 1);
+            if (Number.isSafeInteger(pageNumber) && pageNumber >= 1 && pageNumber <= totalPages) {
+                includedPages += (override.excluded === true ? 0 : 1) - (defaultExcluded ? 0 : 1);
             }
         }
         return includedPages > 0;
     });
-    const marginsAreValid = computed(() => Object.values(options.settings.marginsMm).every(margin => (
-        Number.isFinite(margin)
-        && margin >= 0
-        && margin <= 25
-    )));
+    const marginsAreValid = computed(() =>
+        Object.values(options.settings.marginsMm).every((margin) => Number.isFinite(margin) && margin >= 0 && margin <= 25),
+    );
     const inkPlacementCapacityExceeded = computed(() => {
         const resolvedOptions = options.resolvedOptions?.value ?? options.settings;
         // Ink placement is document-wide: the top edge and each snapped
         // position depend on every included page. An xlarge detection keeps
         // only a bounded renderer window, so a small selected batch cannot
         // safely reuse the partial map and pretend its anchors are global.
-        return options.totalPages.value > SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES
-            && usesScanCleanupInkAlignment(resolvedOptions)
-            && options.detectionResultStoreId?.value !== null
-            && options.detectionResultStoreId?.value !== undefined
-            && (options.placementAnchorSummary?.value ?? null) === null;
+        return (
+            options.totalPages.value > SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES &&
+            usesScanCleanupInkAlignment(resolvedOptions) &&
+            options.detectionResultStoreId?.value !== null &&
+            options.detectionResultStoreId?.value !== undefined &&
+            (options.placementAnchorSummary?.value ?? null) === null
+        );
     });
-    const placementAnchorCalibrationPending = computed(() => options.detectionStatus.value === 'completed'
-        && options.placementAnchorCalibrationPending?.value === true);
-    const placementAnchorCalibrationError = computed(() => options.detectionStatus.value === 'completed'
-        ? options.placementAnchorCalibrationError?.value ?? ''
-        : '');
+    const placementAnchorCalibrationPending = computed(
+        () => options.detectionStatus.value === 'completed' && options.placementAnchorCalibrationPending?.value === true,
+    );
+    const placementAnchorCalibrationError = computed(() =>
+        options.detectionStatus.value === 'completed' ? (options.placementAnchorCalibrationError?.value ?? '') : '',
+    );
     const missingInkPlacementAnchorPage = computed(() => {
         const resolvedOptions = options.resolvedOptions?.value ?? options.settings;
-        if (
-            options.detectionStatus.value !== 'completed'
-            || !usesScanCleanupInkAlignment(resolvedOptions)
-        ) {
+        if (options.detectionStatus.value !== 'completed' || !usesScanCleanupInkAlignment(resolvedOptions)) {
             return null;
         }
-        if (options.placementAnchorSummary?.value !== null
-            && options.placementAnchorSummary?.value !== undefined) {
+        if (options.placementAnchorSummary?.value !== null && options.placementAnchorSummary?.value !== undefined) {
             return null;
         }
         const requested = options.sourcePageNumbers.value;
@@ -266,51 +229,65 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             // The outputs the anchor map has to cover are the ones the shared
             // collector places, so a box kept on a discarded half asks for none.
             const anchors = options.placementAnchorsByPage.value.get(pageNumber);
-            const inkTops = collectScanCleanupSheetInkTops(resolvedOptions, {
-                pageNumber,
-                layoutClassification: evidence.layoutClassification,
-                evidence,
-                metadata: undefined,
-            }, 0);
-            if (Object.keys(inkTops).some(half => anchors?.[half as TScanCleanupOutputHalf] === undefined)) {
+            const inkTops = collectScanCleanupSheetInkTops(
+                resolvedOptions,
+                {
+                    pageNumber,
+                    layoutClassification: evidence.layoutClassification,
+                    evidence,
+                    metadata: undefined,
+                },
+                0,
+            );
+            if (Object.keys(inkTops).some((half) => anchors?.[half as TScanCleanupOutputHalf] === undefined)) {
                 return pageNumber;
             }
         }
         return null;
     });
     const isInkPlacementAnchorMissing = () => missingInkPlacementAnchorPage.value !== null;
-    const progress = computed(() => scanCleanupRun.jobState?.progress ?? {
-        stage: 'queued' as const,
-        completedUnits: 0,
-        totalUnits: runPageCount.value,
-        percent: 0,
-        completedPageNumbers: [],
-    });
-    const processedPages = computed(() => resolveScanCleanupProcessedPages(
-        scanCleanupRun.jobState,
-        scanCleanupRun.ownerDocumentRef,
-        options.sourcePath.value,
-        options.previewTotalPages(),
-    ));
-    const activePages = computed(() => resolveScanCleanupActivePages(
-        scanCleanupRun.jobState,
-        scanCleanupRun.ownerDocumentRef,
-        scanCleanupRun.ownerDocumentRevision,
-        options.sourcePath.value,
-        options.documentRevision.value,
-        options.previewTotalPages(),
-    ));
-    const canRun = computed(() => Boolean(options.sourcePath.value)
-        && options.documentSettingsReady.value
-        && !isRunning.value
-        && !otherDocumentRunning.value
-        && hasIncludedPage.value
-        && marginsAreValid.value
-        && !placementAnchorCalibrationPending.value
-        && placementAnchorCalibrationError.value === ''
-        && !inkPlacementCapacityExceeded.value
-        && missingInkPlacementAnchorPage.value === null
-        && resolveScanCleanupSupport(getScanCleanupCapability()).conversion);
+    const progress = computed(
+        () =>
+            scanCleanupRun.jobState?.progress ?? {
+                stage: 'queued' as const,
+                completedUnits: 0,
+                totalUnits: runPageCount.value,
+                percent: 0,
+                completedPageNumbers: [],
+            },
+    );
+    const processedPages = computed(() =>
+        resolveScanCleanupProcessedPages(
+            scanCleanupRun.jobState,
+            scanCleanupRun.ownerDocumentRef,
+            options.sourcePath.value,
+            options.previewTotalPages(),
+        ),
+    );
+    const activePages = computed(() =>
+        resolveScanCleanupActivePages(
+            scanCleanupRun.jobState,
+            scanCleanupRun.ownerDocumentRef,
+            scanCleanupRun.ownerDocumentRevision,
+            options.sourcePath.value,
+            options.documentRevision.value,
+            options.previewTotalPages(),
+        ),
+    );
+    const canRun = computed(
+        () =>
+            Boolean(options.sourcePath.value) &&
+            options.documentSettingsReady.value &&
+            !isRunning.value &&
+            !otherDocumentRunning.value &&
+            hasIncludedPage.value &&
+            marginsAreValid.value &&
+            !placementAnchorCalibrationPending.value &&
+            placementAnchorCalibrationError.value === '' &&
+            !inkPlacementCapacityExceeded.value &&
+            missingInkPlacementAnchorPage.value === null &&
+            resolveScanCleanupSupport(getScanCleanupCapability()).conversion,
+    );
     // Only ever read on the run affordance, which an engaged run replaces with
     // the cancel affordance, so the transition explains itself in the meter
     // rather than here.
@@ -347,11 +324,13 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         }
         return '';
     });
-    const runLabel = computed(() => options.sourcePageNumbers.value === null
-        ? t('scanCleanup.cleanUp')
-        : options.sourcePageNumbers.value.length === 1
-            ? t('scanCleanup.cleanUpPage', {page: options.sourcePageNumbers.value[0] ?? 1})
-            : t('scanCleanup.cleanUpPages', {count: options.sourcePageNumbers.value.length}));
+    const runLabel = computed(() =>
+        options.sourcePageNumbers.value === null
+            ? t('scanCleanup.cleanUp')
+            : options.sourcePageNumbers.value.length === 1
+              ? t('scanCleanup.cleanUpPage', {page: options.sourcePageNumbers.value[0] ?? 1})
+              : t('scanCleanup.cleanUpPages', {count: options.sourcePageNumbers.value.length}),
+    );
 
     async function run() {
         if (!options.sourcePath.value) {
@@ -400,53 +379,39 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         const requestedPageNumbers = options.sourcePageNumbers.value;
         const requestSourcePdfPath = options.sourcePath.value;
         const requestDocumentRevision = options.documentRevision.value;
-        const requestOptions = options.resolvedOptions?.value
-            ?? toPlainScanCleanupOptions(options.settings);
-        const requestedSourcePageNumbers = options.sourcePageNumbers.value === null
-            ? null
-            : [...options.sourcePageNumbers.value];
+        const requestOptions = options.resolvedOptions?.value ?? toPlainScanCleanupOptions(options.settings);
+        const requestedSourcePageNumbers = options.sourcePageNumbers.value === null ? null : [...options.sourcePageNumbers.value];
         const buildRequest = () => {
             // Detection may finish while the run waits for its terminal state.
             // Read the opaque handoff id at request-build time so a large result
             // store takes the descriptor path instead of falling back to maps.
             const detectionResultStoreId = options.detectionResultStoreId?.value ?? null;
             const placementAnchorSummary = options.placementAnchorSummary?.value ?? null;
-            const legacyDetectionFields = detectionResultStoreId === null
-                && runPageCount.value <= DETECTION_RESULT_ARRAY_COMPATIBILITY_LIMIT
-                ? options.resolveConversionEvidence(requestedPageNumbers, {includeLegacyRequestFields: true}).legacyRequestFields ?? {}
-                : {};
+            const legacyDetectionFields =
+                detectionResultStoreId === null && runPageCount.value <= DETECTION_RESULT_ARRAY_COMPATIBILITY_LIMIT
+                    ? (options.resolveConversionEvidence(requestedPageNumbers, {includeLegacyRequestFields: true}).legacyRequestFields ??
+                      {})
+                    : {};
             // Clustered over the whole document, then narrowed to the pages
             // this run produces: a partial run has to place its pages where a
             // full run would have. For xlarge ink runs the bounded summary is
             // authoritative, so do not duplicate it with the renderer's
             // retained-page anchor window in the IPC request. The conversion
             // resolves each batch from the summary instead.
-            const placementAnchors: Array<readonly [string, NonNullable<
-                ReturnType<typeof options.placementAnchorsByPage.value.get>
-            >]> = [];
-            const usesBoundedPlacementAnchorSummary = placementAnchorSummary !== null
-                && detectionResultStoreId !== null;
+            const placementAnchors: Array<readonly [string, NonNullable<ReturnType<typeof options.placementAnchorsByPage.value.get>>]> = [];
+            const usesBoundedPlacementAnchorSummary = placementAnchorSummary !== null && detectionResultStoreId !== null;
             if (!usesBoundedPlacementAnchorSummary) {
                 if (requestedPageNumbers === null) {
-                    for (const [
-                        pageNumber,
-                        anchors,
-                    ] of options.placementAnchorsByPage.value) {
+                    for (const [pageNumber, anchors] of options.placementAnchorsByPage.value) {
                         if (Object.keys(anchors).length > 0) {
-                            placementAnchors.push([
-                                String(pageNumber),
-                                anchors,
-                            ]);
+                            placementAnchors.push([String(pageNumber), anchors]);
                         }
                     }
                 } else {
                     for (const pageNumber of requestedPageNumbers) {
                         const anchors = options.placementAnchorsByPage.value.get(pageNumber);
                         if (anchors !== undefined && Object.keys(anchors).length > 0) {
-                            placementAnchors.push([
-                                String(pageNumber),
-                                anchors,
-                            ]);
+                            placementAnchors.push([String(pageNumber), anchors]);
                         }
                     }
                 }
@@ -456,24 +421,16 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 ownerId: options.ownerId,
                 documentRevision: requestDocumentRevision,
                 options: requestOptions,
-                ...(requestedSourcePageNumbers === null
-                    ? {}
-                    : {sourcePageNumbers: requestedSourcePageNumbers}),
-                ...(detectionResultStoreId === null
-                    ? {}
-                    : {detectionResultStoreId}),
-                ...(placementAnchorSummary === null
-                    ? {}
-                    : {placementAnchorSummary}),
+                ...(requestedSourcePageNumbers === null ? {} : {sourcePageNumbers: requestedSourcePageNumbers}),
+                ...(detectionResultStoreId === null ? {} : {detectionResultStoreId}),
+                ...(placementAnchorSummary === null ? {} : {placementAnchorSummary}),
                 ...legacyDetectionFields,
-                ...(placementAnchors.length === 0
-                    ? {}
-                    : {placementAnchorsByPage: Object.fromEntries(placementAnchors)}),
+                ...(placementAnchors.length === 0 ? {} : {placementAnchorsByPage: Object.fromEntries(placementAnchors)}),
             };
         };
         stopRequested.value = false;
         cancelRefusal.value = '';
-        const stopWait = new Promise<void>(resolve => {
+        const stopWait = new Promise<void>((resolve) => {
             interruptPendingTransition = resolve;
         });
         // The attempt belongs to the document the click captured. Every wait
@@ -481,11 +438,10 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         // asking again; a replaced document retires the attempt.
         let attemptRetired = false;
         const retireIfDocumentChanged = () => {
-            if (attemptRetired) {return true;}
-            if (
-                requestSourcePdfPath === options.sourcePath.value
-                && requestDocumentRevision === options.documentRevision.value
-            ) {
+            if (attemptRetired) {
+                return true;
+            }
+            if (requestSourcePdfPath === options.sourcePath.value && requestDocumentRevision === options.documentRevision.value) {
                 return false;
             }
             attemptRetired = true;
@@ -511,10 +467,10 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         const startCleanupWithDetectionRecovery = async () => {
             let result = await startScanCleanup(buildRequest());
             if (
-                !result.started
-                && result.errorCode === 'detection-results-unavailable'
-                && await refreshDetectionOnce()
-                && !retireIfDocumentChanged()
+                !result.started &&
+                result.errorCode === 'detection-results-unavailable' &&
+                (await refreshDetectionOnce()) &&
+                !retireIfDocumentChanged()
             ) {
                 result = await startScanCleanup(buildRequest());
             }
@@ -527,21 +483,19 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             // and proceeds only after that pass reaches a terminal state.
             if (options.detectionPending.value || options.detectionStatus.value === null) {
                 transition.value = 'waiting-for-detection';
-                await Promise.race([
-                    options.waitForDetectionBeforeRun(),
-                    stopWait,
-                ]);
+                await Promise.race([options.waitForDetectionBeforeRun(), stopWait]);
             }
             if (isStopRequested() || retireIfDocumentChanged()) {
                 return;
             }
             const detectionStatus = options.detectionStatus.value;
             if (detectionStatus !== 'completed') {
-                const errorCode = detectionStatus === 'failed'
-                    ? options.detectionErrorCode.value ?? 'internal'
-                    : detectionStatus === 'canceled'
-                        ? 'canceled'
-                        : options.detectionErrorCode.value ?? 'internal';
+                const errorCode =
+                    detectionStatus === 'failed'
+                        ? (options.detectionErrorCode.value ?? 'internal')
+                        : detectionStatus === 'canceled'
+                          ? 'canceled'
+                          : (options.detectionErrorCode.value ?? 'internal');
                 reportScanCleanupRunError(
                     options.ownerId,
                     (detectionStatus === 'failed' || detectionStatus === null) && options.detectionError.value
@@ -554,10 +508,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 return;
             }
             const detectionResultStoreId = () => options.detectionResultStoreId?.value ?? null;
-            if (
-                runPageCount.value > DETECTION_RESULT_ARRAY_COMPATIBILITY_LIMIT
-                && detectionResultStoreId() === null
-            ) {
+            if (runPageCount.value > DETECTION_RESULT_ARRAY_COMPATIBILITY_LIMIT && detectionResultStoreId() === null) {
                 await refreshDetectionOnce();
                 if (detectionResultStoreId() === null) {
                     reportScanCleanupRunError(
@@ -584,11 +535,12 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             if (!hasAuthoritativeDetectionStore) {
                 const evidence = options.resolveConversionEvidence(requestedPageNumbers);
                 const detectionEvidenceComplete = options.detectionEvidenceComplete?.value;
-                const pagePlanEvidenceMissing = requestedPageNumbers === null
-                    ? detectionEvidenceComplete === undefined
-                        ? evidence.pagePlanEvidenceCount < runPageCount.value
-                        : !detectionEvidenceComplete
-                    : requestedPageNumbers.some(pageNumber => !evidence.pagePlanEvidenceByPage.has(pageNumber));
+                const pagePlanEvidenceMissing =
+                    requestedPageNumbers === null
+                        ? detectionEvidenceComplete === undefined
+                            ? evidence.pagePlanEvidenceCount < runPageCount.value
+                            : !detectionEvidenceComplete
+                        : requestedPageNumbers.some((pageNumber) => !evidence.pagePlanEvidenceByPage.has(pageNumber));
                 if (pagePlanEvidenceMissing) {
                     reportScanCleanupRunError(
                         options.ownerId,
@@ -604,17 +556,20 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 // million-page allocation this session deliberately avoids. Small
                 // compatibility callers without that scalar still use their
                 // complete page map as the proof of coverage.
-                const missingAutomaticModeDecisions = requestedPageNumbers === null
-                    ? !(detectionEvidenceComplete ?? evidence.recommendedOutputModeCount >= runPageCount.value)
-                    : requestedPageNumbers.some(pageNumber => {
-                        const pageOverride = getScanCleanupPageOverride(
-                            requestOptions.pageOverrides,
-                            requirePageNumber(pageNumber, Math.max(1, options.totalPages.value)),
-                        );
-                        return !pageOverride.excluded
-                            && (pageOverride.outputModeOverride ?? requestOptions.outputMode) === 'auto'
-                            && !evidence.recommendedOutputModeByPage.has(pageNumber);
-                    });
+                const missingAutomaticModeDecisions =
+                    requestedPageNumbers === null
+                        ? !(detectionEvidenceComplete ?? evidence.recommendedOutputModeCount >= runPageCount.value)
+                        : requestedPageNumbers.some((pageNumber) => {
+                              const pageOverride = getScanCleanupPageOverride(
+                                  requestOptions.pageOverrides,
+                                  requirePageNumber(pageNumber, Math.max(1, options.totalPages.value)),
+                              );
+                              return (
+                                  !pageOverride.excluded &&
+                                  (pageOverride.outputModeOverride ?? requestOptions.outputMode) === 'auto' &&
+                                  !evidence.recommendedOutputModeByPage.has(pageNumber)
+                              );
+                          });
                 if (missingAutomaticModeDecisions) {
                     reportScanCleanupRunError(
                         options.ownerId,
@@ -636,10 +591,14 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             if (isStopRequested()) {
                 // The stop arrived while the start was in flight. The job it
                 // came back with is the one the user already asked to stop.
-                if (result.started) {await requestActiveJobCancellation(result.jobId);}
+                if (result.started) {
+                    await requestActiveJobCancellation(result.jobId);
+                }
                 return;
             }
-            if (attemptRetired) {return;}
+            if (attemptRetired) {
+                return;
+            }
             if (!result.started) {
                 reportScanCleanupRunError(
                     options.ownerId,
@@ -656,9 +615,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                     ? formatReconciliationFailure(caught)
                     : formatScanCleanupErrorByCode(i18n, 'internal', caught),
                 requestSourcePdfPath,
-                caught instanceof ScanCleanupRunReconciliationError
-                    ? caught.errorCode
-                    : 'internal',
+                caught instanceof ScanCleanupRunReconciliationError ? caught.errorCode : 'internal',
                 requestDocumentRevision,
             );
         } finally {
@@ -729,9 +686,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         progress,
         // The job's progress once it exists; the click that precedes it is
         // described by the transition instead of a placeholder count.
-        jobProgress: computed(() => scanCleanupRun.ownerId === options.ownerId
-            ? scanCleanupRun.jobState?.progress ?? null
-            : null),
+        jobProgress: computed(() => (scanCleanupRun.ownerId === options.ownerId ? (scanCleanupRun.jobState?.progress ?? null) : null)),
         runLabel,
         runDisabledReason,
         run,

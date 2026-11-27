@@ -1,15 +1,7 @@
 import type {IPdfDocument} from '@app/modules/pdf-viewer/public';
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    ref,
-    shallowRef,
-} from 'vue';
-import { useMetadataSession } from '@app/modules/workspace-shell/composables/useMetadataSession';
+import {describe, expect, it, vi} from 'vitest';
+import {ref, shallowRef} from 'vue';
+import {useMetadataSession} from '@app/modules/workspace-shell/composables/useMetadataSession';
 import type {IPdfBookmarkEntry} from '@app/types/pdfContracts';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {requireDocumentRef} from '@contracts/documentRef';
@@ -60,12 +52,14 @@ describe('useMetadataSession', () => {
             bookmarks: [bookmark],
             dirty: true,
         });
-        session.pageLabelState.handlePageLabelRangesUpdate([{
-            startPage: 1,
-            style: 'D',
-            prefix: 'Accepted-',
-            startNumber: 1,
-        }]);
+        session.pageLabelState.handlePageLabelRangesUpdate([
+            {
+                startPage: 1,
+                style: 'D',
+                prefix: 'Accepted-',
+                startNumber: 1,
+            },
+        ]);
         const loadOriginalMetadata = async () => {
             session.bookmarkState.handleBookmarksChange({
                 bookmarks: [],
@@ -74,17 +68,20 @@ describe('useMetadataSession', () => {
             await session.pageLabelState.syncPageLabelsFromDocument(null);
             return true;
         };
-        await session.runWithPreservedMetadataReload(async () => {
-            await loadOriginalMetadata();
-            session.workspaceCommandSink.register({
-                source: 'file',
-                undo: loadOriginalMetadata,
-                cmd: loadOriginalMetadata,
-            });
-        }, () => ({
-            promise: Promise.resolve(),
-            cancel: () => {},
-        }));
+        await session.runWithPreservedMetadataReload(
+            async () => {
+                await loadOriginalMetadata();
+                session.workspaceCommandSink.register({
+                    source: 'file',
+                    undo: loadOriginalMetadata,
+                    cmd: loadOriginalMetadata,
+                });
+            },
+            () => ({
+                promise: Promise.resolve(),
+                cancel: () => {},
+            }),
+        );
         expect(session.bookmarkState.bookmarkItems.value).toEqual([bookmark]);
         expect(session.pageLabelState.labelAt(1)).toBe('Accepted-1');
         expect(session.bookmarkState.bookmarksDirty.value).toBe(true);
@@ -149,22 +146,27 @@ describe('useMetadataSession', () => {
             bookmarks: [createBookmark('Accepted')],
             dirty: true,
         });
-        session.pageLabelState.handlePageLabelRangesUpdate([{
-            startPage: 1,
-            style: 'D',
-            prefix: 'Accepted-',
-            startNumber: 1,
-        }]);
-        await session.runWithPreservedMetadataReload(async () => {
-            session.workspaceCommandSink.register({
-                source: 'file',
-                undo: () => true,
-                cmd: () => true,
-            });
-        }, () => ({
-            promise: Promise.resolve(),
-            cancel: () => {},
-        }));
+        session.pageLabelState.handlePageLabelRangesUpdate([
+            {
+                startPage: 1,
+                style: 'D',
+                prefix: 'Accepted-',
+                startNumber: 1,
+            },
+        ]);
+        await session.runWithPreservedMetadataReload(
+            async () => {
+                session.workspaceCommandSink.register({
+                    source: 'file',
+                    undo: () => true,
+                    cmd: () => true,
+                });
+            },
+            () => ({
+                promise: Promise.resolve(),
+                cancel: () => {},
+            }),
+        );
         session.bookmarkState.markBookmarksSaved();
         session.pageLabelState.markPageLabelsSaved();
         expect(session.bookmarkState.bookmarksDirty.value).toBe(false);
@@ -192,75 +194,82 @@ describe('useMetadataSession', () => {
             bookmarks: [imported],
             dirty: false,
         });
-        await session.runWithPreservedMetadataReload(async () => {
-            session.workspaceCommandSink.register({
-                source: 'file',
-                undo: () => true,
-                cmd: () => true,
-            });
-        }, () => ({
-            promise: Promise.resolve(),
-            cancel: () => {},
-        }));
+        await session.runWithPreservedMetadataReload(
+            async () => {
+                session.workspaceCommandSink.register({
+                    source: 'file',
+                    undo: () => true,
+                    cmd: () => true,
+                });
+            },
+            () => ({
+                promise: Promise.resolve(),
+                cancel: () => {},
+            }),
+        );
         session.bookmarkState.markBookmarksSaved();
         expect(await session.workspaceUndoTimeline.undoTimeline()).toBe(true);
         expect(session.bookmarkState.bookmarkItems.value).toEqual([imported]);
         expect(session.bookmarkState.bookmarksDirty.value).toBe(false);
     });
 
-    it.each([
-        false,
-        true,
-    ])('recovers metadata against the admitted saved baseline without manufacturing undo history (recovered labels: %s)', async (recoverLabels) => {
-        const source = createSession();
-        source.bookmarkState.handleBookmarksChange({
-            bookmarks: [createBookmark('Base')],
-            dirty: false,
-        });
-        source.bookmarkState.handleBookmarksChange({
-            bookmarks: [createBookmark('Recovered')],
-            dirty: true,
-        });
-        if (recoverLabels) {
-            source.pageLabelState.handlePageLabelRangesUpdate([{
-                startPage: 1,
-                style: 'r',
-                prefix: 'Recovered ',
-                startNumber: 1,
-            }]);
-        }
-        const recovery = source.captureRecovery();
-        const labels = Promise.withResolvers<IPdfPageLabelRange[]>();
-        vi.spyOn(getDocumentFilesCapability(), 'readPdfPageLabelRanges').mockReturnValue(labels.promise);
-        const pdfDocument = shallowRef<IPdfDocument | null>(cast<IPdfDocument>({numPages: 1}));
-        const restored = createSession(pdfDocument);
-        restored.bookmarkState.handleBookmarksChange({
-            bookmarks: [createBookmark('Base')],
-            dirty: false,
-        });
-        const labelRead = restored.pageLabelState.syncPageLabelsFromDocument(pdfDocument.value);
-        restored.restoreRecovery(recovery);
-        labels.resolve([{
-            startPage: 1,
-            style: 'D',
-            prefix: 'File ',
-            startNumber: 1,
-        }]);
-        await labelRead;
-        expect(restored.bookmarkState.bookmarkItems.value).toEqual([createBookmark('Recovered')]);
-        expect(restored.pageLabelState.labelAt(1)).toBe(recoverLabels ? 'Recovered i' : 'File 1');
-        expect(restored.bookmarkState.bookmarksDirty.value).toBe(true);
-        expect(restored.pageLabelState.pageLabelsDirty.value).toBe(recoverLabels);
-        expect(restored.captureRecovery().bookmarks?.items).toEqual([createBookmark('Recovered')]);
-        expect(await restored.workspaceUndoTimeline.undoTimeline()).toBe(false);
-        restored.bookmarkState.handleBookmarksChange({
-            bookmarks: [createBookmark('Later')],
-            dirty: true,
-        });
-        expect(await restored.workspaceUndoTimeline.undoTimeline()).toBe(true);
-        expect(restored.bookmarkState.bookmarkItems.value).toEqual([createBookmark('Recovered')]);
-        expect(restored.bookmarkState.bookmarksDirty.value).toBe(true);
-    });
+    it.each([false, true])(
+        'recovers metadata against the admitted saved baseline without manufacturing undo history (recovered labels: %s)',
+        async (recoverLabels) => {
+            const source = createSession();
+            source.bookmarkState.handleBookmarksChange({
+                bookmarks: [createBookmark('Base')],
+                dirty: false,
+            });
+            source.bookmarkState.handleBookmarksChange({
+                bookmarks: [createBookmark('Recovered')],
+                dirty: true,
+            });
+            if (recoverLabels) {
+                source.pageLabelState.handlePageLabelRangesUpdate([
+                    {
+                        startPage: 1,
+                        style: 'r',
+                        prefix: 'Recovered ',
+                        startNumber: 1,
+                    },
+                ]);
+            }
+            const recovery = source.captureRecovery();
+            const labels = Promise.withResolvers<IPdfPageLabelRange[]>();
+            vi.spyOn(getDocumentFilesCapability(), 'readPdfPageLabelRanges').mockReturnValue(labels.promise);
+            const pdfDocument = shallowRef<IPdfDocument | null>(cast<IPdfDocument>({numPages: 1}));
+            const restored = createSession(pdfDocument);
+            restored.bookmarkState.handleBookmarksChange({
+                bookmarks: [createBookmark('Base')],
+                dirty: false,
+            });
+            const labelRead = restored.pageLabelState.syncPageLabelsFromDocument(pdfDocument.value);
+            restored.restoreRecovery(recovery);
+            labels.resolve([
+                {
+                    startPage: 1,
+                    style: 'D',
+                    prefix: 'File ',
+                    startNumber: 1,
+                },
+            ]);
+            await labelRead;
+            expect(restored.bookmarkState.bookmarkItems.value).toEqual([createBookmark('Recovered')]);
+            expect(restored.pageLabelState.labelAt(1)).toBe(recoverLabels ? 'Recovered i' : 'File 1');
+            expect(restored.bookmarkState.bookmarksDirty.value).toBe(true);
+            expect(restored.pageLabelState.pageLabelsDirty.value).toBe(recoverLabels);
+            expect(restored.captureRecovery().bookmarks?.items).toEqual([createBookmark('Recovered')]);
+            expect(await restored.workspaceUndoTimeline.undoTimeline()).toBe(false);
+            restored.bookmarkState.handleBookmarksChange({
+                bookmarks: [createBookmark('Later')],
+                dirty: true,
+            });
+            expect(await restored.workspaceUndoTimeline.undoTimeline()).toBe(true);
+            expect(restored.bookmarkState.bookmarkItems.value).toEqual([createBookmark('Recovered')]);
+            expect(restored.bookmarkState.bookmarksDirty.value).toBe(true);
+        },
+    );
 
     it('keeps bookmark edits undoable when the edit returns to the clean state', async () => {
         const session = createSession();
@@ -314,18 +323,21 @@ describe('useMetadataSession', () => {
             dirty: true,
             history: 'record',
         });
-        await session.runWithPreservedMetadataReload(async () => {
-            session.bookmarkState.handleBookmarksChange({
-                bookmarks: [],
-                dirty: false,
-            });
-            expect(session.consumePreservedSourceReloadMetadata()).toBe(true);
-            expect(session.bookmarkState.bookmarkItems.value).toEqual([bookmark]);
-            expect(session.bookmarkState.bookmarksDirty.value).toBe(true);
-        }, () => ({
-            promise: Promise.resolve(),
-            cancel: () => {},
-        }));
+        await session.runWithPreservedMetadataReload(
+            async () => {
+                session.bookmarkState.handleBookmarksChange({
+                    bookmarks: [],
+                    dirty: false,
+                });
+                expect(session.consumePreservedSourceReloadMetadata()).toBe(true);
+                expect(session.bookmarkState.bookmarkItems.value).toEqual([bookmark]);
+                expect(session.bookmarkState.bookmarksDirty.value).toBe(true);
+            },
+            () => ({
+                promise: Promise.resolve(),
+                cancel: () => {},
+            }),
+        );
 
         session.bookmarkState.markBookmarksSaved();
 

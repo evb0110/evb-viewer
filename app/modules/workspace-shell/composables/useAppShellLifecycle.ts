@@ -1,7 +1,7 @@
-import type { IWindowTabIncomingTransfer } from '@contracts/windowTabs';
-import { traceRendererStartup } from '@app/utils/traceRendererStartup';
-import { getWindowTabsCapability } from '@app/utils/platformWindowTabs';
-import { BrowserLogger } from '@app/utils/browserLogger';
+import type {IWindowTabIncomingTransfer} from '@contracts/windowTabs';
+import {traceRendererStartup} from '@app/utils/traceRendererStartup';
+import {getWindowTabsCapability} from '@app/utils/platformWindowTabs';
+import {BrowserLogger} from '@app/utils/browserLogger';
 
 interface IUseAppShellLifecycleOptions {
     cleanupEmptyPanes: () => void;
@@ -12,13 +12,8 @@ interface IUseAppShellLifecycleOptions {
 }
 
 export const useAppShellLifecycle = (options: IUseAppShellLifecycleOptions) => {
-    const {
-        cleanupEmptyPanes,
-        ensureUpdatesInitialized,
-        handleIncomingTabTransfer,
-        cleanupDirectionalTabs,
-        cleanupExternalFileDrop,
-    } = options;
+    const {cleanupEmptyPanes, ensureUpdatesInitialized, handleIncomingTabTransfer, cleanupDirectionalTabs, cleanupExternalFileDrop} =
+        options;
 
     let incomingTabTransferCleanup: (() => void) | null = null;
 
@@ -31,10 +26,15 @@ export const useAppShellLifecycle = (options: IUseAppShellLifecycleOptions) => {
 
         incomingTabTransferCleanup = getWindowTabsCapability().onIncomingTransfer((transfer) => {
             void handleIncomingTabTransfer(transfer).catch((error: unknown) => {
-                BrowserLogger.error('tabs', 'Incoming tab transfer handler rejected', {
-                    transferId: transfer.transferId,
-                    error: error instanceof Error ? error : String(error),
-                }, {code: 'RENDERER_TAB_TRANSFER_OPERATION_FAILED'});
+                BrowserLogger.error(
+                    'tabs',
+                    'Incoming tab transfer handler rejected',
+                    {
+                        transferId: transfer.transferId,
+                        error: error instanceof Error ? error : String(error),
+                    },
+                    {code: 'RENDERER_TAB_TRANSFER_OPERATION_FAILED'},
+                );
             });
         });
         traceRendererStartup('index.vue onMounted finished', {durationMs: Math.round(performance.now() - start)});

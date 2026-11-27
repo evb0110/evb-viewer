@@ -31,10 +31,7 @@ import {
 } from '@evb/scan-cleanup/core/policy/effectiveOptions';
 
 export interface IScanCleanupPreservedSource {
-    reason:
-        | 'auto-color-compact-layered-no-raster-change'
-        | 'auto-mixed-trusted-mrc-tone-preserved'
-        | 'mixed-layer-validation-fallback';
+    reason: 'auto-color-compact-layered-no-raster-change' | 'auto-mixed-trusted-mrc-tone-preserved' | 'mixed-layer-validation-fallback';
     sourcePageIndex: number;
     rotationQuarterTurns: number;
     cropRect: INativeScanCleanupPdfPlacementV3['cropRect'];
@@ -75,31 +72,24 @@ export function sourceMrcForegroundPdfMatrix<TPlane>(
     const metadata = output.metadata;
     const matrix = metadata.forwardTransform?.matrix;
     if (
-        matrix === undefined
-        || metadata.inputWidthPx === undefined
-        || metadata.inputHeightPx === undefined
-        || metadata.outputWidthPx <= 0
-        || metadata.outputHeightPx <= 0
-        || (metadata.intrinsicRasterWidthPx !== undefined && metadata.intrinsicRasterWidthPx <= 0)
-        || (metadata.intrinsicRasterHeightPx !== undefined && metadata.intrinsicRasterHeightPx <= 0)
-        || metadata.rotationDegrees !== 0
-        || metadata.dewarpMapping != null
+        matrix === undefined ||
+        metadata.inputWidthPx === undefined ||
+        metadata.inputHeightPx === undefined ||
+        metadata.outputWidthPx <= 0 ||
+        metadata.outputHeightPx <= 0 ||
+        (metadata.intrinsicRasterWidthPx !== undefined && metadata.intrinsicRasterWidthPx <= 0) ||
+        (metadata.intrinsicRasterHeightPx !== undefined && metadata.intrinsicRasterHeightPx <= 0) ||
+        metadata.rotationDegrees !== 0 ||
+        metadata.dewarpMapping != null
     ) {
         throw new Error(
-            `Page ${String(output.sourcePageNumber)} cannot preserve its source MRC foreground `
-            + 'because its cleanup geometry is not affine in the source orientation',
+            `Page ${String(output.sourcePageNumber)} cannot preserve its source MRC foreground ` +
+                'because its cleanup geometry is not affine in the source orientation',
         );
     }
-    const pdfMatrix = buildScanCleanupSourceMrcForegroundPdfMatrix(
-        metadata,
-        layers,
-        pageWidthPoints,
-        pageHeightPoints,
-    );
+    const pdfMatrix = buildScanCleanupSourceMrcForegroundPdfMatrix(metadata, layers, pageWidthPoints, pageHeightPoints);
     if (!pdfMatrix.every(Number.isFinite)) {
-        throw new Error(
-            `Page ${String(output.sourcePageNumber)} produced a non-finite source MRC transform`,
-        );
+        throw new Error(`Page ${String(output.sourcePageNumber)} produced a non-finite source MRC transform`);
     }
     return pdfMatrix;
 }
@@ -126,37 +116,34 @@ export function resolveCompactSourcePreservation<TPlane>(
     // generated-PDF verifier.
     const configuredMode = pageOverride.outputModeOverride ?? request.options.outputMode;
     const manualZones = pageOverride.manualZones;
-    const preservesTrustedMrcTone = output.resolvedOutputMode === 'mixed'
-        && output.metadata.trustedMrcBackgroundPreserved === true;
+    const preservesTrustedMrcTone = output.resolvedOutputMode === 'mixed' && output.metadata.trustedMrcBackgroundPreserved === true;
     if (
-        configuredMode !== 'auto'
-        || (output.resolvedOutputMode !== 'color' && !preservesTrustedMrcTone)
-        || sourceRaster?.hasBilevelLayer !== true
-        || sourceRaster.backgroundDpi === undefined
-        || !Number.isFinite(sourceRaster.backgroundDpi)
-        || sourceRaster.backgroundDpi <= 0
-        || pageSize === undefined
-        || pageSize.rotation !== 0
-        || pageOverride.rotationDegrees !== 0
-        || pageMetadata.layoutClassification !== 'single-uncut-page'
-        || pageMetadata.outputCount !== 1
-        || output.metadata.half !== 'full'
-        || output.metadata.skewApplied
-        || output.metadata.dewarpModel != null
-        || (!preservesTrustedMrcTone && output.metadata.illuminationNormalized === true)
-        || (!preservesTrustedMrcTone && output.metadata.textToneDiagnostics?.applied === true)
-        || (!preservesTrustedMrcTone && output.metadata.binarizationMode != null)
-        || pageOverride.manualSkewDegrees !== undefined
-        || (manualZones?.picture.length ?? 0) > 0
-        || (manualZones?.fill.length ?? 0) > 0
-        || output.metadata.sourcePdfPlacement?.contentTransform === undefined
+        configuredMode !== 'auto' ||
+        (output.resolvedOutputMode !== 'color' && !preservesTrustedMrcTone) ||
+        sourceRaster?.hasBilevelLayer !== true ||
+        sourceRaster.backgroundDpi === undefined ||
+        !Number.isFinite(sourceRaster.backgroundDpi) ||
+        sourceRaster.backgroundDpi <= 0 ||
+        pageSize === undefined ||
+        pageSize.rotation !== 0 ||
+        pageOverride.rotationDegrees !== 0 ||
+        pageMetadata.layoutClassification !== 'single-uncut-page' ||
+        pageMetadata.outputCount !== 1 ||
+        output.metadata.half !== 'full' ||
+        output.metadata.skewApplied ||
+        output.metadata.dewarpModel != null ||
+        (!preservesTrustedMrcTone && output.metadata.illuminationNormalized === true) ||
+        (!preservesTrustedMrcTone && output.metadata.textToneDiagnostics?.applied === true) ||
+        (!preservesTrustedMrcTone && output.metadata.binarizationMode != null) ||
+        pageOverride.manualSkewDegrees !== undefined ||
+        (manualZones?.picture.length ?? 0) > 0 ||
+        (manualZones?.fill.length ?? 0) > 0 ||
+        output.metadata.sourcePdfPlacement?.contentTransform === undefined
     ) {
         return undefined;
     }
     return {
-        reason: preservesTrustedMrcTone
-            ? 'auto-mixed-trusted-mrc-tone-preserved'
-            : 'auto-color-compact-layered-no-raster-change',
+        reason: preservesTrustedMrcTone ? 'auto-mixed-trusted-mrc-tone-preserved' : 'auto-color-compact-layered-no-raster-change',
         sourcePageIndex: sourcePageNumber - 1,
         rotationQuarterTurns: 0,
         cropRect: output.metadata.sourcePdfPlacement.cropRect,
@@ -169,13 +156,13 @@ export function resolveFullSourcePagePreservation(
     pageSize: IPdfPageSize | undefined,
 ): IScanCleanupPreservedSource | undefined {
     if (
-        pageSize === undefined
-        || !Number.isFinite(pageSize.xPoints)
-        || !Number.isFinite(pageSize.yPoints)
-        || !Number.isFinite(pageSize.widthPoints)
-        || pageSize.widthPoints <= 0
-        || !Number.isFinite(pageSize.heightPoints)
-        || pageSize.heightPoints <= 0
+        pageSize === undefined ||
+        !Number.isFinite(pageSize.xPoints) ||
+        !Number.isFinite(pageSize.yPoints) ||
+        !Number.isFinite(pageSize.widthPoints) ||
+        pageSize.widthPoints <= 0 ||
+        !Number.isFinite(pageSize.heightPoints) ||
+        pageSize.heightPoints <= 0
     ) {
         return undefined;
     }
@@ -212,38 +199,41 @@ export function resolveScanCleanupMixedLayerExpectation(
     pageNumber: number,
 ) {
     const backgroundDpi = metadata.layeredBackgroundDpi;
-    const foregroundDpi = metadata.layeredForegroundKind === 'soft-alpha'
-        ? metadata.layeredForegroundDpi
-        : renderDpi;
+    const foregroundDpi = metadata.layeredForegroundKind === 'soft-alpha' ? metadata.layeredForegroundDpi : renderDpi;
     if (
-        !Number.isFinite(renderDpi)
-        || renderDpi <= 0
-        || backgroundDpi === undefined
-        || !Number.isFinite(backgroundDpi)
-        || backgroundDpi <= 0
-        || foregroundDpi === undefined
-        || !Number.isFinite(foregroundDpi)
-        || foregroundDpi <= 0
+        !Number.isFinite(renderDpi) ||
+        renderDpi <= 0 ||
+        backgroundDpi === undefined ||
+        !Number.isFinite(backgroundDpi) ||
+        backgroundDpi <= 0 ||
+        foregroundDpi === undefined ||
+        !Number.isFinite(foregroundDpi) ||
+        foregroundDpi <= 0
     ) {
         throw new Error(`Page ${pageNumber} mixed layer DPI metadata is invalid`);
     }
-    const matchedTarget = (points: number | null | undefined) => (
-        points !== null && points !== undefined && Number.isFinite(points) && points > 0 ? points : undefined
-    );
+    const matchedTarget = (points: number | null | undefined) =>
+        points !== null && points !== undefined && Number.isFinite(points) && points > 0 ? points : undefined;
     const targetWidthPoints = matchedTarget(metadata.matchedCanvasTargetWidthPoints);
     const targetHeightPoints = matchedTarget(metadata.matchedCanvasTargetHeightPoints);
     return {
         background: {
-            width: Math.max(1, targetWidthPoints === undefined
-                ? Math.round(metadata.canvasWidthPx * backgroundDpi / renderDpi)
-                : Math.round(targetWidthPoints / 72 * backgroundDpi)),
-            height: Math.max(1, targetHeightPoints === undefined
-                ? Math.round(metadata.canvasHeightPx * backgroundDpi / renderDpi)
-                : Math.round(targetHeightPoints / 72 * backgroundDpi)),
+            width: Math.max(
+                1,
+                targetWidthPoints === undefined
+                    ? Math.round((metadata.canvasWidthPx * backgroundDpi) / renderDpi)
+                    : Math.round((targetWidthPoints / 72) * backgroundDpi),
+            ),
+            height: Math.max(
+                1,
+                targetHeightPoints === undefined
+                    ? Math.round((metadata.canvasHeightPx * backgroundDpi) / renderDpi)
+                    : Math.round((targetHeightPoints / 72) * backgroundDpi),
+            ),
         },
         foreground: {
-            width: Math.max(1, Math.round(metadata.canvasWidthPx * foregroundDpi / renderDpi)),
-            height: Math.max(1, Math.round(metadata.canvasHeightPx * foregroundDpi / renderDpi)),
+            width: Math.max(1, Math.round((metadata.canvasWidthPx * foregroundDpi) / renderDpi)),
+            height: Math.max(1, Math.round((metadata.canvasHeightPx * foregroundDpi) / renderDpi)),
         },
     };
 }
@@ -255,17 +245,19 @@ export function describeScanCleanupMixedLayerMismatch(
     foreground: IRasterDimensions,
 ) {
     if (
-        foreground.width === expected.foreground.width
-        && foreground.height === expected.foreground.height
-        && background.width === expected.background.width
-        && background.height === expected.background.height
+        foreground.width === expected.foreground.width &&
+        foreground.height === expected.foreground.height &&
+        background.width === expected.background.width &&
+        background.height === expected.background.height
     ) {
         return null;
     }
-    return `(background ${background.width}x${background.height}, `
-        + `expected ${expected.background.width}x${expected.background.height}; `
-        + `foreground ${foreground.width}x${foreground.height}, `
-        + `expected ${expected.foreground.width}x${expected.foreground.height})`;
+    return (
+        `(background ${background.width}x${background.height}, ` +
+        `expected ${expected.background.width}x${expected.background.height}; ` +
+        `foreground ${foreground.width}x${foreground.height}, ` +
+        `expected ${expected.foreground.width}x${expected.foreground.height})`
+    );
 }
 
 export function resolveBlankOutputHalves<TPlane>(
@@ -281,17 +273,11 @@ export function resolveBlankOutputHalves<TPlane>(
     }
     const producedHalves = new Set(
         pageOutputPages
-            .map(output => output.metadata.half)
+            .map((output) => output.metadata.half)
             .filter((half): half is 'left' | 'right' => half === 'left' || half === 'right'),
     );
-    const unproducedHalves = ([
-        'left',
-        'right',
-    ] as const).filter(half => !producedHalves.has(half));
-    return Array.from(
-        {length: missingOutputCount},
-        (_, index) => unproducedHalves[index] ?? 'full',
-    );
+    const unproducedHalves = (['left', 'right'] as const).filter((half) => !producedHalves.has(half));
+    return Array.from({length: missingOutputCount}, (_, index) => unproducedHalves[index] ?? 'full');
 }
 
 /**
@@ -299,18 +285,21 @@ export function resolveBlankOutputHalves<TPlane>(
  * produce. Mutates the caller's empty-output mappings, as desktop and browser
  * both accumulate one run-level list.
  */
-export function collectScanCleanupPageOutputs<TPlane>(
-    {
-        request, sourcePageNumber, pageMetadata, pageOutputPages, intentionallyBlankOutputCount, emptyOutputMappings,
-    }: {
-        request: IRunScanCleanupPipelineRequest;
-        sourcePageNumber: number;
-        pageMetadata: INativeScanCleanupPageMetadataV3;
-        pageOutputPages: IScanCleanupRenderedOutput<TPlane>[];
-        intentionallyBlankOutputCount: number;
-        emptyOutputMappings: IScanCleanupOutputMapping[];
-    },
-) {
+export function collectScanCleanupPageOutputs<TPlane>({
+    request,
+    sourcePageNumber,
+    pageMetadata,
+    pageOutputPages,
+    intentionallyBlankOutputCount,
+    emptyOutputMappings,
+}: {
+    request: IRunScanCleanupPipelineRequest;
+    sourcePageNumber: number;
+    pageMetadata: INativeScanCleanupPageMetadataV3;
+    pageOutputPages: IScanCleanupRenderedOutput<TPlane>[];
+    intentionallyBlankOutputCount: number;
+    emptyOutputMappings: IScanCleanupOutputMapping[];
+}) {
     if (request.options.readingOrder === 'rtl' && pageMetadata.layoutClassification === 'two-page-spread') {
         pageOutputPages.reverse();
     }
@@ -338,21 +327,16 @@ export function validatePdfImagePlacement(
     pageHeightPoints: number,
     pageNumber: number,
 ) {
-    const values = [
-        placement.xPoints,
-        placement.yPoints,
-        placement.widthPoints,
-        placement.heightPoints,
-    ];
+    const values = [placement.xPoints, placement.yPoints, placement.widthPoints, placement.heightPoints];
     const tolerancePoints = 0.0001;
     if (
-        !values.every(Number.isFinite)
-        || placement.xPoints < 0
-        || placement.yPoints < 0
-        || placement.widthPoints <= 0
-        || placement.heightPoints <= 0
-        || placement.xPoints + placement.widthPoints > pageWidthPoints + tolerancePoints
-        || placement.yPoints + placement.heightPoints > pageHeightPoints + tolerancePoints
+        !values.every(Number.isFinite) ||
+        placement.xPoints < 0 ||
+        placement.yPoints < 0 ||
+        placement.widthPoints <= 0 ||
+        placement.heightPoints <= 0 ||
+        placement.xPoints + placement.widthPoints > pageWidthPoints + tolerancePoints ||
+        placement.yPoints + placement.heightPoints > pageHeightPoints + tolerancePoints
     ) {
         throw new Error(`Page ${String(pageNumber)} PDF image placement is outside its MediaBox`);
     }
@@ -363,47 +347,47 @@ type TPageSize = readonly [widthPoints: number, heightPoints: number];
 
 export type TScanCleanupCombinePage<TPlane> =
     | {
-        kind: 'image-bilevel';
-        pageSize: TPageSize;
-        bilevel: TPlane
-    }
+          kind: 'image-bilevel';
+          pageSize: TPageSize;
+          bilevel: TPlane;
+      }
     | {
-        kind: 'soft-layered-jpeg';
-        pageSize: TPageSize;
-        quality: number;
-        background: TPlane;
-        foregroundAlpha: TPlane
-    }
+          kind: 'soft-layered-jpeg';
+          pageSize: TPageSize;
+          quality: number;
+          background: TPlane;
+          foregroundAlpha: TPlane;
+      }
     | {
-        kind: 'affine-masked-layered-jpeg';
-        pageSize: TPageSize;
-        quality: number;
-        background: TPlane;
-        foreground: TPlane;
-        selectionMask: TPlane;
-        matrix: readonly number[];
-        selectionMaskDecode: 'default' | 'inverted';
-    }
+          kind: 'affine-masked-layered-jpeg';
+          pageSize: TPageSize;
+          quality: number;
+          background: TPlane;
+          foreground: TPlane;
+          selectionMask: TPlane;
+          matrix: readonly number[];
+          selectionMaskDecode: 'default' | 'inverted';
+      }
     | {
-        kind: 'layered-jpeg';
-        pageSize: TPageSize;
-        quality: number;
-        background: TPlane;
-        foregroundMask: TPlane
-    }
+          kind: 'layered-jpeg';
+          pageSize: TPageSize;
+          quality: number;
+          background: TPlane;
+          foregroundMask: TPlane;
+      }
     | {
-        kind: 'image';
-        pageSize: TPageSize;
-        composite: TPlane;
-        placement?: readonly number[]
-    }
+          kind: 'image';
+          pageSize: TPageSize;
+          composite: TPlane;
+          placement?: readonly number[];
+      }
     | {
-        kind: 'image-jpeg';
-        pageSize: TPageSize;
-        quality: number;
-        composite: TPlane;
-        placement?: readonly number[]
-    };
+          kind: 'image-jpeg';
+          pageSize: TPageSize;
+          quality: number;
+          composite: TPlane;
+          placement?: readonly number[];
+      };
 
 /**
  * The composition one rendered output becomes: the page size it occupies,
@@ -414,23 +398,12 @@ export function planScanCleanupCombinePage<TPlane>(
     output: IScanCleanupRenderedOutput<TPlane>,
     sourceMrcLayers: IScanCleanupSourceMrcLayers<TPlane> | undefined,
 ): TScanCleanupCombinePage<TPlane> {
-    const pageWidthPoints = output.metadata.matchedCanvasTargetWidthPoints
-        ?? output.metadata.canvasWidthPx / output.dpi * 72;
-    const pageHeightPoints = output.metadata.matchedCanvasTargetHeightPoints
-        ?? output.metadata.canvasHeightPx / output.dpi * 72;
-    const pageSize = [
-        pageWidthPoints,
-        pageHeightPoints,
-    ] as const;
+    const pageWidthPoints = output.metadata.matchedCanvasTargetWidthPoints ?? (output.metadata.canvasWidthPx / output.dpi) * 72;
+    const pageHeightPoints = output.metadata.matchedCanvasTargetHeightPoints ?? (output.metadata.canvasHeightPx / output.dpi) * 72;
+    const pageSize = [pageWidthPoints, pageHeightPoints] as const;
     const imagePlacement = output.metadata.pdfImagePlacement;
-    if (
-        imagePlacement !== undefined
-        && (output.bilevelPath !== undefined || output.backgroundPath !== undefined)
-    ) {
-        throw new Error(
-            `Page ${String(output.sourcePageNumber)} attached continuous-tone placement `
-            + 'to a bilevel or layered page',
-        );
+    if (imagePlacement !== undefined && (output.bilevelPath !== undefined || output.backgroundPath !== undefined)) {
+        throw new Error(`Page ${String(output.sourcePageNumber)} attached continuous-tone placement ` + 'to a bilevel or layered page');
     }
     if (output.bilevelPath !== undefined) {
         return {
@@ -439,9 +412,7 @@ export function planScanCleanupCombinePage<TPlane>(
             bilevel: output.bilevelPath,
         };
     }
-    const layeredQuality = output.backgroundIsColor
-        ? SCAN_CLEANUP_COLOR_JPEG_QUALITY
-        : SCAN_CLEANUP_GRAYSCALE_JPEG_QUALITY;
+    const layeredQuality = output.backgroundIsColor ? SCAN_CLEANUP_COLOR_JPEG_QUALITY : SCAN_CLEANUP_GRAYSCALE_JPEG_QUALITY;
     if (output.backgroundPath !== undefined && output.foregroundAlphaPath !== undefined) {
         return {
             kind: 'soft-layered-jpeg',
@@ -455,8 +426,7 @@ export function planScanCleanupCombinePage<TPlane>(
         if (output.metadata.layeredForegroundKind === 'source-mrc') {
             if (sourceMrcLayers === undefined) {
                 throw new Error(
-                    `Page ${String(output.sourcePageNumber)} published source-MRC metadata `
-                    + 'without its extracted source layers',
+                    `Page ${String(output.sourcePageNumber)} published source-MRC metadata ` + 'without its extracted source layers',
                 );
             }
             return {
@@ -478,45 +448,36 @@ export function planScanCleanupCombinePage<TPlane>(
             foregroundMask: output.foregroundMaskPath,
         };
     }
-    const placement = imagePlacement === undefined
-        ? undefined
-        : validatePdfImagePlacement(imagePlacement, pageWidthPoints, pageHeightPoints, output.sourcePageNumber);
+    const placement =
+        imagePlacement === undefined
+            ? undefined
+            : validatePdfImagePlacement(imagePlacement, pageWidthPoints, pageHeightPoints, output.sourcePageNumber);
     const jpegQuality = resolveTonalJpegQuality(output.resolvedOutputMode);
     return jpegQuality === undefined
         ? {
-            kind: 'image',
-            pageSize,
-            composite: output.path,
-            ...(placement === undefined ? {} : {placement}),
-        }
+              kind: 'image',
+              pageSize,
+              composite: output.path,
+              ...(placement === undefined ? {} : {placement}),
+          }
         : {
-            kind: 'image-jpeg',
-            pageSize,
-            quality: jpegQuality,
-            composite: output.path,
-            ...(placement === undefined ? {} : {placement}),
-        };
+              kind: 'image-jpeg',
+              pageSize,
+              quality: jpegQuality,
+              composite: output.path,
+              ...(placement === undefined ? {} : {placement}),
+          };
 }
 
 /** The desktop combine manifest line for one planned page. */
 export function serializeScanCleanupCombinePage(page: TScanCleanupCombinePage<string>) {
-    const pageSize = page.pageSize.map(value => value.toFixed(6));
-    const placement = (values: readonly number[] | undefined) => values?.map(value => value.toFixed(6)) ?? [];
+    const pageSize = page.pageSize.map((value) => value.toFixed(6));
+    const placement = (values: readonly number[] | undefined) => values?.map((value) => value.toFixed(6)) ?? [];
     switch (page.kind) {
         case 'image-bilevel':
-            return [
-                page.kind,
-                ...pageSize,
-                page.bilevel,
-            ].join('\t');
+            return [page.kind, ...pageSize, page.bilevel].join('\t');
         case 'soft-layered-jpeg':
-            return [
-                page.kind,
-                ...pageSize,
-                page.quality,
-                page.background,
-                page.foregroundAlpha,
-            ].join('\t');
+            return [page.kind, ...pageSize, page.quality, page.background, page.foregroundAlpha].join('\t');
         case 'affine-masked-layered-jpeg':
             return [
                 page.kind,
@@ -525,32 +486,15 @@ export function serializeScanCleanupCombinePage(page: TScanCleanupCombinePage<st
                 page.background,
                 page.foreground,
                 page.selectionMask,
-                ...page.matrix.map(value => value.toFixed(10)),
+                ...page.matrix.map((value) => value.toFixed(10)),
                 page.selectionMaskDecode,
             ].join('\t');
         case 'layered-jpeg':
-            return [
-                page.kind,
-                ...pageSize,
-                page.quality,
-                page.background,
-                page.foregroundMask,
-            ].join('\t');
+            return [page.kind, ...pageSize, page.quality, page.background, page.foregroundMask].join('\t');
         case 'image':
-            return [
-                page.kind,
-                ...pageSize,
-                page.composite,
-                ...placement(page.placement),
-            ].join('\t');
+            return [page.kind, ...pageSize, page.composite, ...placement(page.placement)].join('\t');
         case 'image-jpeg':
-            return [
-                page.kind,
-                ...pageSize,
-                page.quality,
-                page.composite,
-                ...placement(page.placement),
-            ].join('\t');
+            return [page.kind, ...pageSize, page.quality, page.composite, ...placement(page.placement)].join('\t');
     }
 }
 
@@ -576,7 +520,9 @@ export function buildScanCleanupRepresentationPage<TPlane>(
     output: IScanCleanupRenderedOutput<TPlane>,
     outputIndex: number,
     {
-        sourceDpi, sourceRaster, streamBytes,
+        sourceDpi,
+        sourceRaster,
+        streamBytes,
     }: {
         sourceDpi: number;
         sourceRaster: IDetectedPageRaster | undefined;
@@ -589,11 +535,12 @@ export function buildScanCleanupRepresentationPage<TPlane>(
         outputOrdinal: outputIndex + 1,
         sourcePageNumber: output.sourcePageNumber,
         semanticMode: output.resolvedOutputMode,
-        representation: output.preservedSource !== undefined
-            ? 'preserved-compact-source'
-            : output.bilevelPath !== undefined
-                ? 'bilevel'
-                : output.backgroundPath !== undefined
+        representation:
+            output.preservedSource !== undefined
+                ? 'preserved-compact-source'
+                : output.bilevelPath !== undefined
+                  ? 'bilevel'
+                  : output.backgroundPath !== undefined
                     ? 'mixed'
                     : output.resolvedOutputMode,
         preservationReason: output.preservedSource?.reason ?? null,
@@ -618,12 +565,8 @@ export function buildScanCleanupRepresentationPage<TPlane>(
             forwardTransform: metadata.forwardTransform,
             inputHeightPx: metadata.inputHeightPx,
             inputWidthPx: metadata.inputWidthPx,
-            ...(metadata.intrinsicRasterHeightPx === undefined
-                ? {}
-                : {intrinsicRasterHeightPx: metadata.intrinsicRasterHeightPx}),
-            ...(metadata.intrinsicRasterWidthPx === undefined
-                ? {}
-                : {intrinsicRasterWidthPx: metadata.intrinsicRasterWidthPx}),
+            ...(metadata.intrinsicRasterHeightPx === undefined ? {} : {intrinsicRasterHeightPx: metadata.intrinsicRasterHeightPx}),
+            ...(metadata.intrinsicRasterWidthPx === undefined ? {} : {intrinsicRasterWidthPx: metadata.intrinsicRasterWidthPx}),
             matchedCanvasContentHeightPx: metadata.matchedCanvasContentHeightPx,
             matchedCanvasContentWidthPx: metadata.matchedCanvasContentWidthPx,
             ...(metadata.matchedCanvasIntrinsicOverflowLeftPx === undefined
@@ -660,11 +603,15 @@ export function reportScanCleanupNativeWarnings(
             fittedMarginBoxPages.add(pageNumber);
             continue;
         }
-        reportScanCleanupSummaryWarningEvent(summary, {
-            event,
-            pageNumber: requirePageNumber(pageNumber),
-            ...(metadata.half === undefined ? {} : {half: metadata.half}),
-        }, report);
+        reportScanCleanupSummaryWarningEvent(
+            summary,
+            {
+                event,
+                pageNumber: requirePageNumber(pageNumber),
+                ...(metadata.half === undefined ? {} : {half: metadata.half}),
+            },
+            report,
+        );
     }
     // Diagnostics the engine carries no structure for.
     for (const warning of metadata.warnings ?? []) {

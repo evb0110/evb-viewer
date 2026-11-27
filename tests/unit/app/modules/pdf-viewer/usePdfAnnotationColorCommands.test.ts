@@ -1,9 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {describe, expect, it, vi} from 'vitest';
 import type {IAnnotationCommentSummary} from '@app/types/annotations';
 import {AnnotationApplication} from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
@@ -78,12 +73,14 @@ function createHarness() {
         author: null,
         subtype: 'Underline',
         contents: '',
-        quadPoints: [{
-            left: 0.1,
-            top: 0.2,
-            width: 0.3,
-            height: 0.04,
-        }],
+        quadPoints: [
+            {
+                left: 0.1,
+                top: 0.2,
+                width: 0.3,
+                height: 0.04,
+            },
+        ],
         color: '#ef4444',
         opacity: 0.8,
     });

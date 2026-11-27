@@ -2,15 +2,9 @@ import {loadSettings} from '@electron/settings';
 import {isEqual} from 'es-toolkit/predicate';
 import type {IRecentReadingView} from '@contracts/recentReadingView';
 import {parseDocumentRef} from '@contracts/documentRef';
-import {
-    getBaselineFileVersion,
-    getWorkingCopyOriginalPath,
-} from '@electron/file-access/documentStore';
+import {getBaselineFileVersion, getWorkingCopyOriginalPath} from '@electron/file-access/documentStore';
 import {getAdmittedDjvuViewingSource} from '@electron/features/djvu/public';
-import {
-    mutateRecentFiles,
-    readRecentFilesData,
-} from '@electron/recentFiles';
+import {mutateRecentFiles, readRecentFilesData} from '@electron/recentFiles';
 
 /** A file version as a reading view names it: its size, and its modification time in fractional milliseconds. */
 export function readingViewSourceOf(version: {size: bigint; mtimeNs: bigint}) {
@@ -24,15 +18,17 @@ async function readAdmittedSource(documentPath: string, senderWebContentsId: num
     const mapped = getWorkingCopyOriginalPath(documentPath, senderWebContentsId);
     const version = getBaselineFileVersion(documentPath, senderWebContentsId);
     const originalPath = mapped ? parseDocumentRef(mapped.originalPath) : null;
-    if (originalPath && version) {return {originalPath, ...readingViewSourceOf(version)};}
+    if (originalPath && version) {
+        return {originalPath, ...readingViewSourceOf(version)};
+    }
     const djvu = await getAdmittedDjvuViewingSource(documentPath, senderWebContentsId);
     const djvuPath = djvu ? parseDocumentRef(djvu.originalPath) : null;
     return djvu && djvuPath
         ? {
-            originalPath: djvuPath,
-            sourceSize: djvu.sourceSize,
-            sourceModifiedAtMs: djvu.sourceModifiedAt,
-        }
+              originalPath: djvuPath,
+              sourceSize: djvu.sourceSize,
+              sourceModifiedAtMs: djvu.sourceModifiedAt,
+          }
         : null;
 }
 
@@ -42,11 +38,9 @@ export async function rememberRecentReadingView(documentPath: string, view: IRec
     if (!source) {
         return;
     }
-    const {
-        originalPath, ...witness
-    } = source;
+    const {originalPath, ...witness} = source;
     await mutateRecentFiles((data) => {
-        const entry = data.files.find(file => file.originalPath === originalPath);
+        const entry = data.files.find((file) => file.originalPath === originalPath);
         const readingView = {
             ...view,
             ...witness,
@@ -78,15 +72,11 @@ export async function readRecentReadingViewOf(source: {
     if (!(await loadSettings()).rememberDocumentView) {
         return null;
     }
-    const stored = (await readRecentFilesData()).files.find(file => file.originalPath === source.originalPath)?.readingView;
+    const stored = (await readRecentFilesData()).files.find((file) => file.originalPath === source.originalPath)?.readingView;
     if (stored?.sourceSize !== source.sourceSize || stored.sourceModifiedAtMs !== source.sourceModifiedAtMs) {
         return null;
     }
-    const {
-        sourceSize: _sourceSize,
-        sourceModifiedAtMs: _sourceModifiedAtMs,
-        ...view
-    } = stored;
+    const {sourceSize: _sourceSize, sourceModifiedAtMs: _sourceModifiedAtMs, ...view} = stored;
     return view;
 }
 

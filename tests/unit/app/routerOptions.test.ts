@@ -1,35 +1,29 @@
 // @vitest-environment happy-dom
 
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { createRouter } from 'vue-router';
-import { resolveAppRouterOptions } from '@app/router.options';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {createRouter} from 'vue-router';
+import {resolveAppRouterOptions} from '@app/router.options';
 
 const TEST_ROUTES = [
     {
         name: 'index',
         path: '/',
-        component: { template: '<div />' },
+        component: {template: '<div />'},
     },
     {
         name: 'about',
         path: '/about',
-        component: { template: '<div />' },
+        component: {template: '<div />'},
     },
     {
         name: 'privacy',
         path: '/privacy',
-        component: { template: '<div />' },
+        component: {template: '<div />'},
     },
 ];
 
 function setHappyDomUrl(url: string) {
-    const happyDom = (window as Window & { happyDOM?: { setURL: (nextUrl: string) => void } }).happyDOM;
+    const happyDom = (window as Window & {happyDOM?: {setURL: (nextUrl: string) => void}}).happyDOM;
     if (!happyDom) {
         throw new Error('Expected happy-dom window.happyDOM');
     }
@@ -72,10 +66,7 @@ describe('resolveAppRouterOptions', () => {
     it('uses browser-backed history with hash-free viewer URLs, index.html#/ secondary links, preserved query/state, and working Back', async () => {
         const launchQuery = '?file=https://math.phys.msu.ru/data/28/Lecture_1.pdf?token=abc%23page=7';
         const extensionUrl = `chrome-extension://emheppcmboellngecbpoclbkhoonkaem/index.html${launchQuery}`;
-        const {
-            router,
-            routerHistory,
-        } = await createExtensionRouter(extensionUrl, { evbExtensionDocument: 'doc:launch-1' });
+        const {router, routerHistory} = await createExtensionRouter(extensionUrl, {evbExtensionDocument: 'doc:launch-1'});
 
         try {
             // Simulate Nuxt's initial router.replace on /index.html?file=...
@@ -101,7 +92,7 @@ describe('resolveAppRouterOptions', () => {
 
             // Simulate Chrome Back returning to the viewer's browser history entry.
             history.replaceState(viewerState, '', extensionUrl);
-            window.dispatchEvent(new PopStateEvent('popstate', { state: viewerState }));
+            window.dispatchEvent(new PopStateEvent('popstate', {state: viewerState}));
             await vi.waitFor(() => {
                 expect(router.currentRoute.value.path).toBe('/');
             });
@@ -129,17 +120,14 @@ describe('resolveAppRouterOptions', () => {
     it('preserves encoded query parameters inside #/ fragments across Nuxt initial replace', async () => {
         const origin = 'chrome-extension://emheppcmboellngecbpoclbkhoonkaem';
         const entryPath = '/index.html#/privacy?key=a%26b%3Dc';
-        const {
-            router,
-            routerHistory,
-        } = await createExtensionRouter(`${origin}${entryPath}`);
+        const {router, routerHistory} = await createExtensionRouter(`${origin}${entryPath}`);
 
         try {
             expect(router.currentRoute.value.path).toBe('/privacy');
-            expect(router.currentRoute.value.query).toEqual({ key: 'a&b=c' });
+            expect(router.currentRoute.value.query).toEqual({key: 'a&b=c'});
             await router.replace(entryPath);
             expect(router.currentRoute.value.path).toBe('/privacy');
-            expect(router.currentRoute.value.query).toEqual({ key: 'a&b=c' });
+            expect(router.currentRoute.value.query).toEqual({key: 'a&b=c'});
             expect(location.hash).toBe('#/privacy?key=a%26b%3Dc');
         } finally {
             routerHistory.destroy();
@@ -147,27 +135,12 @@ describe('resolveAppRouterOptions', () => {
     });
 
     it.each([
-        [
-            '/index.html#/privacy',
-            '/privacy',
-            '#/privacy',
-        ],
-        [
-            '/index.html#/about',
-            '/about',
-            '#/about',
-        ],
-        [
-            '/index.html#/',
-            '/',
-            '',
-        ],
+        ['/index.html#/privacy', '/privacy', '#/privacy'],
+        ['/index.html#/about', '/about', '#/about'],
+        ['/index.html#/', '/', ''],
     ])('reads %s on startup and resolves to %s across Nuxt initial replace', async (entryPath, expectedPath, expectedHash) => {
         const origin = 'chrome-extension://emheppcmboellngecbpoclbkhoonkaem';
-        const {
-            router,
-            routerHistory,
-        } = await createExtensionRouter(`${origin}${entryPath}`);
+        const {router, routerHistory} = await createExtensionRouter(`${origin}${entryPath}`);
 
         try {
             expect(router.currentRoute.value.path).toBe(expectedPath);

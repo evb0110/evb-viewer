@@ -1,19 +1,28 @@
 <template>
     <footer class="status-bar">
         <div class="status-bar-file">
-            <AppTooltip :text="showInFolderTooltip" :delay-duration="800">
+            <AppTooltip
+                :text="showInFolderTooltip"
+                :delay-duration="800"
+            >
                 <button
                     type="button"
                     class="status-folder-button"
-                    :class="{ 'is-actionable': canShowInFolder }"
+                    :class="{'is-actionable': canShowInFolder}"
                     :disabled="!canShowInFolder"
                     :aria-label="showInFolderAriaLabel"
                     @click="onShowInFolder"
                 >
-                    <UIcon name="i-ph-folder-open" class="status-folder-icon" />
+                    <UIcon
+                        name="i-ph-folder-open"
+                        class="status-folder-icon"
+                    />
                 </button>
             </AppTooltip>
-            <AppTooltip :text="filePath" :delay-duration="800">
+            <AppTooltip
+                :text="filePath"
+                :delay-duration="800"
+            >
                 <div class="status-bar-path">
                     {{ filePath }}
                 </div>
@@ -32,13 +41,24 @@
                 />
                 <span>{{ materializationLabel }}</span>
             </span>
-            <span v-if="fileSizeLabel" class="status-bar-item">{{ fileSizeLabel }}</span>
-            <span v-if="zoomLabel" class="status-bar-item">{{ zoomLabel }}</span>
-            <AppTooltip :text="saveDotTooltip" :delay-duration="800">
+            <span
+                v-if="fileSizeLabel"
+                class="status-bar-item"
+                >{{ fileSizeLabel }}</span
+            >
+            <span
+                v-if="zoomLabel"
+                class="status-bar-item"
+                >{{ zoomLabel }}</span
+            >
+            <AppTooltip
+                :text="saveDotTooltip"
+                :delay-duration="800"
+            >
                 <button
                     type="button"
                     class="status-save-dot-button"
-                    :class="[saveDotClass, { 'is-actionable': canSave }]"
+                    :class="[saveDotClass, {'is-actionable': canSave}]"
                     :disabled="!canSave"
                     :aria-label="saveDotAriaLabel"
                     @click="onSave"
@@ -126,7 +146,7 @@ function onSave() {
 }
 
 .status-bar-metrics > * + *::before {
-    content: "";
+    content: '';
     position: absolute;
     left: var(--app-statusbar-divider-offset);
     top: 50%;

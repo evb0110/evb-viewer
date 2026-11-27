@@ -32,7 +32,7 @@
 </template>
 
 <script setup lang="ts">
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 
 const emit = defineEmits<{
     convert: [];

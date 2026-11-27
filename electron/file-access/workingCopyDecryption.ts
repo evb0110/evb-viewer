@@ -1,23 +1,14 @@
-import {
-    readFile,
-    rm,
-    stat,
-    writeFile,
-} from 'fs/promises';
-import { join } from 'path';
-import {
-    isPdfDecryptPassword,
-    PDF_DECRYPT_PASSWORD_MAX_BYTES,
-    type TPdfDecryptFailureOutcome,
-} from '@contracts/pdfDecryptSchemas';
-import { hasNativeErrorCode } from '@contracts/nativeErrors';
+import {readFile, rm, stat, writeFile} from 'fs/promises';
+import {join} from 'path';
+import {isPdfDecryptPassword, PDF_DECRYPT_PASSWORD_MAX_BYTES, type TPdfDecryptFailureOutcome} from '@contracts/pdfDecryptSchemas';
+import {hasNativeErrorCode} from '@contracts/nativeErrors';
 import {atomicReplace} from '@electron/utils/atomicReplace';
 import {createManagedScratchTempDir} from '@electron/utils/managedScratchTemp';
 import {getAppTempDir} from '@electron/utils/appTempDir';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
-import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
-import { getErrorMessage } from '@electron/utils/error';
-import { createLogger } from '@electron/utils/createLogger';
+import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
+import {getErrorMessage} from '@electron/utils/error';
+import {createLogger} from '@electron/utils/createLogger';
 import {
     PDF_DECRYPT_OUTCOME_FORMAT,
     PDF_DECRYPT_OUTCOME_SCHEMA_VERSION,
@@ -30,33 +21,30 @@ const logger = createLogger('working-copy-decryption');
 
 export type TWorkingCopyDecryptionResult =
     | {
-        outcome: 'plain';
-        wasEncrypted: false;
-        revision: null;
-    }
+          outcome: 'plain';
+          wasEncrypted: false;
+          revision: null;
+      }
     | {
-        outcome: 'decrypted';
-        wasEncrypted: true;
-        revision: number | null;
-    }
+          outcome: 'decrypted';
+          wasEncrypted: true;
+          revision: number | null;
+      }
     | {
-        outcome: 'needs-password';
-        wasEncrypted: true;
-        revision: null;
-    }
+          outcome: 'needs-password';
+          wasEncrypted: true;
+          revision: null;
+      }
     | {
-        outcome: 'unsupported';
-        wasEncrypted: true;
-        revision: null;
-    };
+          outcome: 'unsupported';
+          wasEncrypted: true;
+          revision: null;
+      };
 
 const decryptOutcomeBaseSchema = v.object({
     format: v.literal(PDF_DECRYPT_OUTCOME_FORMAT),
     schemaVersion: v.literal(PDF_DECRYPT_OUTCOME_SCHEMA_VERSION),
-    outcome: v.picklist([
-        'opened',
-        'rewritten',
-    ]),
+    outcome: v.picklist(['opened', 'rewritten']),
     wasEncrypted: v.boolean(),
     revision: v.nullable(v.pipe(v.number(), v.safeInteger(), v.minValue(1))),
 });
@@ -105,9 +93,11 @@ function parseOutcomeSidecar(value: unknown): IDecryptOutcomeSidecar {
     }
     const parsed = v.safeParse(decryptOutcomeSchema, value, {abortEarly: true});
     if (!parsed.success) {
-        throw new Error(base.output.outcome === 'opened'
-            ? 'Native PDF decrypt returned an inconsistent plain outcome'
-            : 'Native PDF decrypt returned an inconsistent rewritten outcome');
+        throw new Error(
+            base.output.outcome === 'opened'
+                ? 'Native PDF decrypt returned an inconsistent plain outcome'
+                : 'Native PDF decrypt returned an inconsistent rewritten outcome',
+        );
     }
     return parsed.output;
 }
@@ -170,10 +160,7 @@ export async function decryptWorkingCopyWithWriter(
             workingPath,
             '--output',
             outputPath,
-            ...(passwordPath === undefined ? [] : [
-                '--password-file',
-                passwordPath,
-            ]),
+            ...(passwordPath === undefined ? [] : ['--password-file', passwordPath]),
         ];
         try {
             await runNativeToolCommand(binaryPath, args, {
@@ -216,14 +203,12 @@ export async function decryptWorkingCopyWithWriter(
         if (outcome) {
             throw new PdfDecryptAttemptError(outcome);
         }
-        throw error instanceof Error
-            ? error
-            : new Error(`Native PDF decrypt failed: ${getErrorMessage(error)}`);
+        throw error instanceof Error ? error : new Error(`Native PDF decrypt failed: ${getErrorMessage(error)}`);
     } finally {
         await rm(scratchPath, {
             recursive: true,
             force: true,
-        }).catch(error => {
+        }).catch((error) => {
             logger.warn(`Failed to cleanup PDF decrypt scratch directory "${scratchPath}": ${getErrorMessage(error)}`);
         });
     }

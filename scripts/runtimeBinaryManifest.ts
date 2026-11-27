@@ -1,8 +1,4 @@
-import type {
-    IRuntimeBinaryDataManifestEntry,
-    IRuntimeBinaryManifest,
-    IRuntimeBinaryManifestEntry,
-} from '@scripts/runtimeBinaryArchive';
+import type {IRuntimeBinaryDataManifestEntry, IRuntimeBinaryManifest, IRuntimeBinaryManifestEntry} from '@scripts/runtimeBinaryArchive';
 import {parseNativeResourcePlatformArch} from '@scripts/nativeResourceManifest';
 
 const RUNTIME_ASSET_BASE_URL = 'https://github.com/evb0110/evb-viewer/releases/download';
@@ -64,17 +60,11 @@ function createRuntimeEntry(
     } satisfies IRuntimeBinaryManifestEntry;
 }
 
-export const RUNTIME_BINARY_MANIFEST_ENTRIES: readonly IRuntimeBinaryManifestEntry[] = [...([
-    'darwin-arm64',
-    'linux-x64',
-    'linux-arm64',
-    'win32-x64',
-    'win32-arm64',
-] as const).map(target => createRuntimeEntry(
-    'poppler',
-    target,
-    target.startsWith('win32') ? 'pdftoppm.exe' : 'pdftoppm',
-))];
+export const RUNTIME_BINARY_MANIFEST_ENTRIES: readonly IRuntimeBinaryManifestEntry[] = [
+    ...(['darwin-arm64', 'linux-x64', 'linux-arm64', 'win32-x64', 'win32-arm64'] as const).map((target) =>
+        createRuntimeEntry('poppler', target, target.startsWith('win32') ? 'pdftoppm.exe' : 'pdftoppm'),
+    ),
+];
 
 export const TESSDATA_RUNTIME_DATA_ENTRY: IRuntimeBinaryDataManifestEntry = {
     archiveKind: 'tar.gz',

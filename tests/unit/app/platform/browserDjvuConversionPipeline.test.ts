@@ -1,9 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {describe, expect, it, vi} from 'vitest';
 
 import {
     assertBrowserDjvuSource,
@@ -19,12 +14,9 @@ import {runJob} from '@app/utils/jobs/runJob';
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {requireDocumentRef} from '@contracts/documentRef';
-import {
-    createRequestId,
-    requireJobId,
-} from '@contracts/shared';
+import {createRequestId, requireJobId} from '@contracts/shared';
 import {requireEpochMs} from '@contracts/timestamps';
-import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
+import {createElectronPlatformApiFixture} from '@tests/helpers/createElectronPlatformApiFixture';
 import {SerializableError} from '@contracts/serializableError';
 
 const mocks = vi.hoisted(() => ({
@@ -55,11 +47,13 @@ vi.mock('@app/platform/browser-api/createDjvuWorkerFromPath', () => ({
     createDjvuWorkerFromPath: mocks.createWorker,
     getDjvuWorkerPageSizes: mocks.getPageSizes,
 }));
-vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
-    error: mocks.loggerError,
-    info: mocks.loggerInfo,
-    warn: mocks.loggerWarn,
-}}));
+vi.mock('@app/utils/browserLogger', () => ({
+    BrowserLogger: {
+        error: mocks.loggerError,
+        info: mocks.loggerInfo,
+        warn: mocks.loggerWarn,
+    },
+}));
 vi.mock('@app/platform/browser-api/browserPdfCombineWorkerClient', () => ({runBrowserPdfCombineWorkerRequest: mocks.combineWorker}));
 vi.mock('@app/platform/browser-api/browserPageOpsWorkerClient', () => ({runBrowserPageOpsWorkerRequest: mocks.pageOps}));
 vi.mock('@app/platform/browser-api/buildBrowserDjvuCompactPage', () => ({buildBrowserDjvuCompactPage: mocks.buildCompactPage}));
@@ -104,20 +98,18 @@ describe('browserDjvuConversionPipeline', () => {
         const readFile = vi.fn();
         const readFileRange = vi.fn();
         const statFile = vi.fn();
-        const electronApi = createElectronPlatformApiFixture({documentFiles: {
-            readFile,
-            readFileRange,
-            statFile,
-        }});
+        const electronApi = createElectronPlatformApiFixture({
+            documentFiles: {
+                readFile,
+                readFileRange,
+                statFile,
+            },
+        });
         Reflect.deleteProperty(electronApi.djvu, 'getInfo');
         vi.stubGlobal('window', {electronAPI: electronApi});
         mocks.createWorker.mockRejectedValue(new Error('browser DjVu worker must not be created'));
 
-        await expect(withBrowserDjvuWorker(
-            requireDocumentRef('/tmp/native.djvu'),
-            async () => undefined,
-            'info',
-        )).rejects.toMatchObject({
+        await expect(withBrowserDjvuWorker(requireDocumentRef('/tmp/native.djvu'), async () => undefined, 'info')).rejects.toMatchObject({
             code: 'native-unavailable',
             operation: 'djvu-info',
         });
@@ -133,19 +125,23 @@ describe('browserDjvuConversionPipeline', () => {
     });
 
     it('keeps direct raster exports at the requested source detail', () => {
-        expect(resolveBrowserDjvuPdfRenderSettings({
-            pdfStrategy: 'direct',
-            subsample: 1,
-        })).toEqual({
+        expect(
+            resolveBrowserDjvuPdfRenderSettings({
+                pdfStrategy: 'direct',
+                subsample: 1,
+            }),
+        ).toEqual({
             strategy: 'direct',
             subsample: 1,
             jpegQuality: 0.92,
         });
 
-        expect(resolveBrowserDjvuPdfRenderSettings({
-            pdfStrategy: 'auto',
-            subsample: 4,
-        })).toEqual({
+        expect(
+            resolveBrowserDjvuPdfRenderSettings({
+                pdfStrategy: 'auto',
+                subsample: 4,
+            }),
+        ).toEqual({
             strategy: 'direct',
             subsample: 4,
             jpegQuality: 0.92,
@@ -153,19 +149,23 @@ describe('browserDjvuConversionPipeline', () => {
     });
 
     it('uses the photo quality of the compact preset each subsample selects', () => {
-        expect(resolveBrowserDjvuPdfRenderSettings({
-            pdfStrategy: 'compact-djvu-aware',
-            subsample: 1,
-        })).toEqual({
+        expect(
+            resolveBrowserDjvuPdfRenderSettings({
+                pdfStrategy: 'compact-djvu-aware',
+                subsample: 1,
+            }),
+        ).toEqual({
             strategy: 'compact-djvu-aware',
             subsample: 1,
             jpegQuality: 95,
         });
 
-        expect(resolveBrowserDjvuPdfRenderSettings({
-            pdfStrategy: 'compact-djvu-aware',
-            subsample: 4,
-        })).toEqual({
+        expect(
+            resolveBrowserDjvuPdfRenderSettings({
+                pdfStrategy: 'compact-djvu-aware',
+                subsample: 4,
+            }),
+        ).toEqual({
             strategy: 'compact-djvu-aware',
             subsample: 4,
             jpegQuality: 75,
@@ -173,7 +173,7 @@ describe('browserDjvuConversionPipeline', () => {
     });
 
     it('caps browser DjVu page rendering concurrency by cores and page size', () => {
-        const ordinaryPages = Array.from({ length: 10 }, () => ({
+        const ordinaryPages = Array.from({length: 10}, () => ({
             width: 2_400,
             height: 3_200,
         }));
@@ -181,52 +181,49 @@ describe('browserDjvuConversionPipeline', () => {
         expect(resolveBrowserDjvuPdfRenderConcurrency(ordinaryPages, 8)).toBe(3);
         expect(resolveBrowserDjvuPdfRenderConcurrency(ordinaryPages, 2)).toBe(1);
         expect(resolveBrowserDjvuPdfRenderConcurrency([ordinaryPages[0]!], 8)).toBe(1);
-        expect(resolveBrowserDjvuPdfRenderConcurrency([
-            {
-                width: 4_500,
-                height: 4_000,
-            },
-            {
-                width: 4_500,
-                height: 4_000,
-            },
-        ], 8)).toBe(2);
-        expect(resolveBrowserDjvuPdfRenderConcurrency([
-            {
-                width: 6_000,
-                height: 6_000,
-            },
-            {
-                width: 6_000,
-                height: 6_000,
-            },
-        ], 8)).toBe(1);
+        expect(
+            resolveBrowserDjvuPdfRenderConcurrency(
+                [
+                    {
+                        width: 4_500,
+                        height: 4_000,
+                    },
+                    {
+                        width: 4_500,
+                        height: 4_000,
+                    },
+                ],
+                8,
+            ),
+        ).toBe(2);
+        expect(
+            resolveBrowserDjvuPdfRenderConcurrency(
+                [
+                    {
+                        width: 6_000,
+                        height: 6_000,
+                    },
+                    {
+                        width: 6_000,
+                        height: 6_000,
+                    },
+                ],
+                8,
+            ),
+        ).toBe(1);
     });
 
     it.each([
-        [
-            'low',
-            1,
-        ],
-        [
-            'medium',
-            3,
-        ],
-        [
-            'high',
-            3,
-        ],
+        ['low', 1],
+        ['medium', 3],
+        ['high', 3],
     ] as const)('clamps %s-tier browser DjVu conversion concurrency to %i', (tier, expectedConcurrency) => {
         const ordinaryPages = Array.from({length: 10}, () => ({
             width: 2_400,
             height: 3_200,
         }));
 
-        expect(resolveBrowserDjvuPdfRenderConcurrency(
-            ordinaryPages,
-            8,
-            tier,
-        )).toBe(expectedConcurrency);
+        expect(resolveBrowserDjvuPdfRenderConcurrency(ordinaryPages, 8, tier)).toBe(expectedConcurrency);
     });
 
     it('falls back to direct JPEG combine when the compact request exceeds the WASM boundary', async () => {
@@ -234,13 +231,17 @@ describe('browserDjvuConversionPipeline', () => {
             size: 1,
             modifiedAt: 1,
         });
-        const getSaveTarget = vi.spyOn(browserDocumentStore, 'getSaveTarget').mockRejectedValue(new Error('direct export output requested'));
+        const getSaveTarget = vi
+            .spyOn(browserDocumentStore, 'getSaveTarget')
+            .mockRejectedValue(new Error('direct export output requested'));
         mocks.createWorker.mockResolvedValueOnce({terminate: vi.fn()});
-        mocks.getPageSizes.mockResolvedValueOnce([{
-            width: 100,
-            height: 100,
-            dpi: 300,
-        }]);
+        mocks.getPageSizes.mockResolvedValueOnce([
+            {
+                width: 100,
+                height: 100,
+                dpi: 300,
+            },
+        ]);
         mocks.buildCompactPage.mockResolvedValueOnce({
             route: 'photo',
             spec: {
@@ -251,46 +252,37 @@ describe('browserDjvuConversionPipeline', () => {
                 },
                 image: {
                     fileName: 'page.ppm',
-                    data: new Uint8Array([
-                        0x50,
-                        0x36,
-                    ]),
+                    data: new Uint8Array([0x50, 0x36]),
                 },
             },
         });
         mocks.renderDjvuPage.mockResolvedValueOnce({
-            bytes: new Uint8Array([
-                0xff,
-                0xd8,
-                0xff,
-                0xd9,
-            ]),
+            bytes: new Uint8Array([0xff, 0xd8, 0xff, 0xd9]),
             width: 100,
             height: 100,
             dpi: 300,
         });
         mocks.combineWorker
-            .mockRejectedValueOnce(new SerializableError({
-                code: 'too-large',
-                message: 'Image combine WASM request exceeds the admission ceiling',
-            }))
-            .mockResolvedValueOnce({data: new Uint8Array([
-                0x25,
-                0x50,
-                0x44,
-                0x46,
-            ])});
+            .mockRejectedValueOnce(
+                new SerializableError({
+                    code: 'too-large',
+                    message: 'Image combine WASM request exceeds the admission ceiling',
+                }),
+            )
+            .mockResolvedValueOnce({data: new Uint8Array([0x25, 0x50, 0x44, 0x46])});
 
         try {
-            await expect(runBrowserDjvuConversion(
-                requireDocumentRef('browser://documents/book.djvu'),
-                requireDocumentRef('browser://documents/output.pdf'),
-                {
-                    jobId: requireJobId('djvu-compact-boundary'),
-                    pdfStrategy: 'compact-djvu-aware',
-                    preserveBookmarks: false,
-                },
-            )).resolves.toMatchObject({
+            await expect(
+                runBrowserDjvuConversion(
+                    requireDocumentRef('browser://documents/book.djvu'),
+                    requireDocumentRef('browser://documents/output.pdf'),
+                    {
+                        jobId: requireJobId('djvu-compact-boundary'),
+                        pdfStrategy: 'compact-djvu-aware',
+                        preserveBookmarks: false,
+                    },
+                ),
+            ).resolves.toMatchObject({
                 success: false,
                 error: 'direct export output requested',
             });
@@ -298,14 +290,18 @@ describe('browserDjvuConversionPipeline', () => {
             expect(mocks.combineWorker).toHaveBeenCalledTimes(2);
             expect(mocks.combineWorker.mock.calls[1]?.[1]).toMatchObject({
                 inputs: [],
-                wasmImagePreprocessing: {pageSpecs: [{
-                    kind: 'image',
-                    pageSize: {
-                        widthPoints: 24,
-                        heightPoints: 24,
-                    },
-                    image: {fileName: 'page-00001.jpg'},
-                }]},
+                wasmImagePreprocessing: {
+                    pageSpecs: [
+                        {
+                            kind: 'image',
+                            pageSize: {
+                                widthPoints: 24,
+                                heightPoints: 24,
+                            },
+                            image: {fileName: 'page-00001.jpg'},
+                        },
+                    ],
+                },
             });
             expect(getSaveTarget).toHaveBeenCalledOnce();
         } finally {
@@ -321,7 +317,9 @@ describe('browserDjvuConversionPipeline', () => {
             size: 1,
             modifiedAt: 1,
         });
-        const getSaveTarget = vi.spyOn(browserDocumentStore, 'getSaveTarget').mockRejectedValue(new Error('direct export output requested'));
+        const getSaveTarget = vi
+            .spyOn(browserDocumentStore, 'getSaveTarget')
+            .mockRejectedValue(new Error('direct export output requested'));
         vi.stubGlobal('navigator', {hardwareConcurrency: 8});
         const page = {
             width: 100,
@@ -329,72 +327,61 @@ describe('browserDjvuConversionPipeline', () => {
             dpi: 300,
         };
         mocks.createWorker.mockResolvedValue({terminate: vi.fn()});
-        mocks.getPageSizes.mockResolvedValueOnce([
-            page,
-            page,
-        ]);
+        mocks.getPageSizes.mockResolvedValueOnce([page, page]);
         // Page 1 is still decoding when page 2 is refused; it stops as a
         // canceled DjVu page does, with an error of its own.
-        mocks.buildCompactPage.mockImplementation((_worker: unknown, pageNumber: number, _metrics: unknown, _preset: unknown, signal: AbortSignal) => (pageNumber === 1
-            ? new Promise((_resolve, reject) => {
-                signal.addEventListener('abort', () => reject(new Error('DjVu conversion canceled')), {once: true});
-            })
-            : Promise.resolve({
-                route: 'photo',
-                spec: {
-                    kind: 'image',
-                    pageSize: {
-                        widthPoints: 72,
-                        heightPoints: 72,
-                    },
-                    image: {
-                        fileName: 'page.ppm',
-                        data: new Uint8Array([2]),
-                    },
-                },
-            })));
+        mocks.buildCompactPage.mockImplementation(
+            (_worker: unknown, pageNumber: number, _metrics: unknown, _preset: unknown, signal: AbortSignal) =>
+                pageNumber === 1
+                    ? new Promise((_resolve, reject) => {
+                          signal.addEventListener('abort', () => reject(new Error('DjVu conversion canceled')), {once: true});
+                      })
+                    : Promise.resolve({
+                          route: 'photo',
+                          spec: {
+                              kind: 'image',
+                              pageSize: {
+                                  widthPoints: 72,
+                                  heightPoints: 72,
+                              },
+                              image: {
+                                  fileName: 'page.ppm',
+                                  data: new Uint8Array([2]),
+                              },
+                          },
+                      }),
+        );
         mocks.renderDjvuPage.mockResolvedValue({
-            bytes: new Uint8Array([
-                0xff,
-                0xd8,
-                0xff,
-                0xd9,
-            ]),
+            bytes: new Uint8Array([0xff, 0xd8, 0xff, 0xd9]),
             width: 100,
             height: 100,
             dpi: 300,
         });
         mocks.combineWorker
-            .mockRejectedValueOnce(new SerializableError({
-                code: 'too-large',
-                message: 'Image dimensions are too large to combine safely: 10000x8001',
-            }))
-            .mockResolvedValue({data: new Uint8Array([
-                0x25,
-                0x50,
-                0x44,
-                0x46,
-            ])});
+            .mockRejectedValueOnce(
+                new SerializableError({
+                    code: 'too-large',
+                    message: 'Image dimensions are too large to combine safely: 10000x8001',
+                }),
+            )
+            .mockResolvedValue({data: new Uint8Array([0x25, 0x50, 0x44, 0x46])});
         mocks.pageOps.mockResolvedValueOnce({
             status: 'written',
-            data: new Uint8Array([
-                0x25,
-                0x50,
-                0x44,
-                0x46,
-            ]),
+            data: new Uint8Array([0x25, 0x50, 0x44, 0x46]),
         });
 
         try {
-            await expect(runBrowserDjvuConversion(
-                requireDocumentRef('browser://documents/book.djvu'),
-                requireDocumentRef('browser://documents/output.pdf'),
-                {
-                    jobId: requireJobId('djvu-compact-page-boundary'),
-                    pdfStrategy: 'compact-djvu-aware',
-                    preserveBookmarks: false,
-                },
-            )).resolves.toMatchObject({
+            await expect(
+                runBrowserDjvuConversion(
+                    requireDocumentRef('browser://documents/book.djvu'),
+                    requireDocumentRef('browser://documents/output.pdf'),
+                    {
+                        jobId: requireJobId('djvu-compact-page-boundary'),
+                        pdfStrategy: 'compact-djvu-aware',
+                        preserveBookmarks: false,
+                    },
+                ),
+            ).resolves.toMatchObject({
                 success: false,
                 error: 'direct export output requested',
             });
@@ -417,17 +404,16 @@ describe('browserDjvuConversionPipeline', () => {
             size: 1,
             modifiedAt: 1,
         });
-        const getSaveTarget = vi.spyOn(browserDocumentStore, 'getSaveTarget').mockRejectedValue(new Error('direct export output requested'));
+        const getSaveTarget = vi
+            .spyOn(browserDocumentStore, 'getSaveTarget')
+            .mockRejectedValue(new Error('direct export output requested'));
         const page = {
             width: 100,
             height: 100,
             dpi: 300,
         };
         mocks.createWorker.mockResolvedValue({terminate: vi.fn()});
-        mocks.getPageSizes.mockResolvedValueOnce([
-            page,
-            page,
-        ]);
+        mocks.getPageSizes.mockResolvedValueOnce([page, page]);
         mocks.buildCompactPage.mockResolvedValue({
             route: 'photo',
             spec: {
@@ -443,43 +429,35 @@ describe('browserDjvuConversionPipeline', () => {
             },
         });
         mocks.renderDjvuPage.mockResolvedValue({
-            bytes: new Uint8Array([
-                0xff,
-                0xd8,
-                0xff,
-                0xd9,
-            ]),
+            bytes: new Uint8Array([0xff, 0xd8, 0xff, 0xd9]),
             width: 100,
             height: 100,
             dpi: 300,
         });
         // Compact pages encode to 4 bytes each (8 > 6); direct JPEG pages encode to 2 bytes each (4 <= 6).
-        mocks.combineWorker.mockImplementation(async (_type: string, payload: {wasmImagePreprocessing: {pageSpecs: Array<{image: {fileName: string}}>}}) => ({
-            data: payload.wasmImagePreprocessing.pageSpecs[0]!.image.fileName.endsWith('.jpg')
-                ? new Uint8Array(2)
-                : new Uint8Array(4),
-        }));
+        mocks.combineWorker.mockImplementation(
+            async (_type: string, payload: {wasmImagePreprocessing: {pageSpecs: Array<{image: {fileName: string}}>}}) => ({
+                data: payload.wasmImagePreprocessing.pageSpecs[0]!.image.fileName.endsWith('.jpg') ? new Uint8Array(2) : new Uint8Array(4),
+            }),
+        );
         mocks.pageOps.mockResolvedValueOnce({
             status: 'written',
-            data: new Uint8Array([
-                0x25,
-                0x50,
-                0x44,
-                0x46,
-            ]),
+            data: new Uint8Array([0x25, 0x50, 0x44, 0x46]),
         });
         mocks.pageOpsMaxRequestBytes = 6;
 
         try {
-            await expect(runBrowserDjvuConversion(
-                requireDocumentRef('browser://documents/book.djvu'),
-                requireDocumentRef('browser://documents/output.pdf'),
-                {
-                    jobId: requireJobId('djvu-compact-joined-boundary'),
-                    pdfStrategy: 'compact-djvu-aware',
-                    preserveBookmarks: false,
-                },
-            )).resolves.toMatchObject({
+            await expect(
+                runBrowserDjvuConversion(
+                    requireDocumentRef('browser://documents/book.djvu'),
+                    requireDocumentRef('browser://documents/output.pdf'),
+                    {
+                        jobId: requireJobId('djvu-compact-joined-boundary'),
+                        pdfStrategy: 'compact-djvu-aware',
+                        preserveBookmarks: false,
+                    },
+                ),
+            ).resolves.toMatchObject({
                 success: false,
                 error: 'direct export output requested',
             });
@@ -502,17 +480,16 @@ describe('browserDjvuConversionPipeline', () => {
             size: 1,
             modifiedAt: 1,
         });
-        const getSaveTarget = vi.spyOn(browserDocumentStore, 'getSaveTarget').mockRejectedValue(new Error('direct export output requested'));
+        const getSaveTarget = vi
+            .spyOn(browserDocumentStore, 'getSaveTarget')
+            .mockRejectedValue(new Error('direct export output requested'));
         const page = {
             width: 100,
             height: 100,
             dpi: 300,
         };
         mocks.createWorker.mockResolvedValue({terminate: vi.fn()});
-        mocks.getPageSizes.mockResolvedValueOnce([
-            page,
-            page,
-        ]);
+        mocks.getPageSizes.mockResolvedValueOnce([page, page]);
         mocks.buildCompactPage.mockResolvedValue({
             route: 'photo',
             spec: {
@@ -528,12 +505,7 @@ describe('browserDjvuConversionPipeline', () => {
             },
         });
         mocks.renderDjvuPage.mockResolvedValue({
-            bytes: new Uint8Array([
-                0xff,
-                0xd8,
-                0xff,
-                0xd9,
-            ]),
+            bytes: new Uint8Array([0xff, 0xd8, 0xff, 0xd9]),
             width: 100,
             height: 100,
             dpi: 300,
@@ -549,24 +521,21 @@ describe('browserDjvuConversionPipeline', () => {
             })
             .mockResolvedValueOnce({
                 status: 'written',
-                data: new Uint8Array([
-                    0x25,
-                    0x50,
-                    0x44,
-                    0x46,
-                ]),
+                data: new Uint8Array([0x25, 0x50, 0x44, 0x46]),
             });
 
         try {
-            await expect(runBrowserDjvuConversion(
-                requireDocumentRef('browser://documents/book.djvu'),
-                requireDocumentRef('browser://documents/output.pdf'),
-                {
-                    jobId: requireJobId('djvu-compact-merge-refused'),
-                    pdfStrategy: 'compact-djvu-aware',
-                    preserveBookmarks: false,
-                },
-            )).resolves.toMatchObject({
+            await expect(
+                runBrowserDjvuConversion(
+                    requireDocumentRef('browser://documents/book.djvu'),
+                    requireDocumentRef('browser://documents/output.pdf'),
+                    {
+                        jobId: requireJobId('djvu-compact-merge-refused'),
+                        pdfStrategy: 'compact-djvu-aware',
+                        preserveBookmarks: false,
+                    },
+                ),
+            ).resolves.toMatchObject({
                 success: false,
                 error: 'direct export output requested',
             });
@@ -594,11 +563,13 @@ describe('browserDjvuConversionPipeline', () => {
             },
             terminate: vi.fn(),
         });
-        mocks.getPageSizes.mockResolvedValueOnce([{
-            width: 100,
-            height: 100,
-            dpi: 300,
-        }]);
+        mocks.getPageSizes.mockResolvedValueOnce([
+            {
+                width: 100,
+                height: 100,
+                dpi: 300,
+            },
+        ]);
         mocks.buildCompactPage.mockResolvedValueOnce({
             route: 'photo',
             spec: {
@@ -609,30 +580,24 @@ describe('browserDjvuConversionPipeline', () => {
                 },
                 image: {
                     fileName: 'page.ppm',
-                    data: new Uint8Array([
-                        0x50,
-                        0x36,
-                    ]),
+                    data: new Uint8Array([0x50, 0x36]),
                 },
             },
         });
-        mocks.combineWorker.mockResolvedValueOnce({data: new Uint8Array([
-            0x25,
-            0x50,
-            0x44,
-            0x46,
-        ])});
+        mocks.combineWorker.mockResolvedValueOnce({data: new Uint8Array([0x25, 0x50, 0x44, 0x46])});
 
         try {
-            await expect(runBrowserDjvuConversion(
-                requireDocumentRef('browser://documents/book.djvu'),
-                requireDocumentRef('browser://documents/output.pdf'),
-                {
-                    jobId: requireJobId('djvu-outline-unreadable'),
-                    pdfStrategy: 'compact-djvu-aware',
-                    preserveBookmarks: true,
-                },
-            )).resolves.toMatchObject({
+            await expect(
+                runBrowserDjvuConversion(
+                    requireDocumentRef('browser://documents/book.djvu'),
+                    requireDocumentRef('browser://documents/output.pdf'),
+                    {
+                        jobId: requireJobId('djvu-outline-unreadable'),
+                        pdfStrategy: 'compact-djvu-aware',
+                        preserveBookmarks: true,
+                    },
+                ),
+            ).resolves.toMatchObject({
                 success: false,
                 error: expect.stringContaining('NAVM'),
             });
@@ -643,22 +608,18 @@ describe('browserDjvuConversionPipeline', () => {
 
     it('reports text that only an unsampled middle page carries', async () => {
         // First, middle and last pages of five are 1, 3 and 5; only page 2 has text.
-        const pageTexts = [
-            '',
-            'Only page two has a text layer',
-            '',
-            '',
-            '',
-        ];
+        const pageTexts = ['', 'Only page two has a text layer', '', '', ''];
         vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({
             size: 1,
             modifiedAt: 7,
         });
-        mocks.getPageSizes.mockResolvedValue(pageTexts.map(() => ({
-            width: 100,
-            height: 100,
-            dpi: 300,
-        })));
+        mocks.getPageSizes.mockResolvedValue(
+            pageTexts.map(() => ({
+                width: 100,
+                height: 100,
+                dpi: 300,
+            })),
+        );
         mocks.createWorker.mockResolvedValue({
             getOutline: async () => [],
             getMetadata: async () => ({}),
@@ -681,11 +642,11 @@ describe('browserDjvuConversionPipeline', () => {
     it('classifies invalid browser output as an expected outcome without capturing', async () => {
         mocks.loggerError.mockClear();
 
-        await expect(runBrowserDjvuConversion(
-            requireDocumentRef('browser://documents/book.djvu'),
-            requireDocumentRef('/tmp/output.pdf'),
-            {jobId: requireJobId('djvu-convert-invalid-output')},
-        )).resolves.toMatchObject({
+        await expect(
+            runBrowserDjvuConversion(requireDocumentRef('browser://documents/book.djvu'), requireDocumentRef('/tmp/output.pdf'), {
+                jobId: requireJobId('djvu-convert-invalid-output'),
+            }),
+        ).resolves.toMatchObject({
             success: false,
             expected: {
                 kind: 'expected',
@@ -705,11 +666,13 @@ describe('browserDjvuConversionPipeline', () => {
         mocks.loggerError.mockClear();
 
         try {
-            await expect(runBrowserDjvuConversion(
-                requireDocumentRef('browser://documents/book.djvu'),
-                requireDocumentRef('browser://documents/output.pdf'),
-                {jobId: requireJobId('djvu-convert-worker-failure')},
-            )).resolves.toMatchObject({
+            await expect(
+                runBrowserDjvuConversion(
+                    requireDocumentRef('browser://documents/book.djvu'),
+                    requireDocumentRef('browser://documents/output.pdf'),
+                    {jobId: requireJobId('djvu-convert-worker-failure')},
+                ),
+            ).resolves.toMatchObject({
                 success: false,
                 error: 'DjVu decoder failed',
                 failure: browserFailure,
@@ -730,11 +693,13 @@ describe('browserDjvuConversionPipeline', () => {
         mocks.loggerError.mockClear();
 
         try {
-            await expect(runBrowserDjvuConversion(
-                requireDocumentRef('browser://documents/book.djvu'),
-                requireDocumentRef('browser://documents/output.pdf'),
-                {jobId: requireJobId('djvu-convert-abort-wording-failure')},
-            )).resolves.toMatchObject({
+            await expect(
+                runBrowserDjvuConversion(
+                    requireDocumentRef('browser://documents/book.djvu'),
+                    requireDocumentRef('browser://documents/output.pdf'),
+                    {jobId: requireJobId('djvu-convert-abort-wording-failure')},
+                ),
+            ).resolves.toMatchObject({
                 success: false,
                 error: 'Failed to abort PDF output cleanup',
                 failure: browserFailure,
@@ -752,20 +717,28 @@ describe('browserDjvuConversionPipeline', () => {
         });
         const getSaveTarget = vi.spyOn(browserDocumentStore, 'getSaveTarget');
         const worker = {
-            doc: {getPagesSizes: () => ({run: async () => [{
-                width: 100,
-                height: 100,
-                dpi: 300,
-            }]})},
+            doc: {
+                getPagesSizes: () => ({
+                    run: async () => [
+                        {
+                            width: 100,
+                            height: 100,
+                            dpi: 300,
+                        },
+                    ],
+                }),
+            },
             terminate: vi.fn(),
         };
         const admission = Promise.withResolvers<{data: Uint8Array}>();
         mocks.createWorker.mockResolvedValueOnce(worker);
-        mocks.getPageSizes.mockResolvedValueOnce([{
-            width: 100,
-            height: 100,
-            dpi: 300,
-        }]);
+        mocks.getPageSizes.mockResolvedValueOnce([
+            {
+                width: 100,
+                height: 100,
+                dpi: 300,
+            },
+        ]);
         mocks.buildCompactPage.mockResolvedValueOnce({
             route: 'photo',
             spec: {
@@ -776,20 +749,12 @@ describe('browserDjvuConversionPipeline', () => {
                 },
                 image: {
                     fileName: 'page.ppm',
-                    data: new Uint8Array([
-                        0x50,
-                        0x36,
-                    ]),
+                    data: new Uint8Array([0x50, 0x36]),
                 },
             },
         });
         mocks.combineWorker.mockImplementationOnce((_inputs, _options, signal?: AbortSignal) => {
-            signal?.addEventListener('abort', () => admission.resolve({data: new Uint8Array([
-                0x25,
-                0x50,
-                0x44,
-                0x46,
-            ])}), {once: true});
+            signal?.addEventListener('abort', () => admission.resolve({data: new Uint8Array([0x25, 0x50, 0x44, 0x46])}), {once: true});
             return admission.promise;
         });
 
@@ -832,20 +797,20 @@ describe('browserDjvuConversionPipeline', () => {
             code: 'unsupported-input',
             message: 'Browser compact DjVu export does not support this page data',
         },
-    ])('preserves the compact $code refusal without writing a fallback PDF', async ({
-        error, code, message,
-    }) => {
+    ])('preserves the compact $code refusal without writing a fallback PDF', async ({error, code, message}) => {
         const stat = vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({
             size: 1,
             modifiedAt: 1,
         });
         const getSaveTarget = vi.spyOn(browserDocumentStore, 'getSaveTarget');
         mocks.createWorker.mockResolvedValueOnce({terminate: vi.fn()});
-        mocks.getPageSizes.mockResolvedValueOnce([{
-            width: 100,
-            height: 100,
-            dpi: 300,
-        }]);
+        mocks.getPageSizes.mockResolvedValueOnce([
+            {
+                width: 100,
+                height: 100,
+                dpi: 300,
+            },
+        ]);
         mocks.buildCompactPage.mockResolvedValueOnce({
             route: 'photo',
             spec: {
@@ -856,10 +821,7 @@ describe('browserDjvuConversionPipeline', () => {
                 },
                 image: {
                     fileName: 'page.ppm',
-                    data: new Uint8Array([
-                        0x50,
-                        0x36,
-                    ]),
+                    data: new Uint8Array([0x50, 0x36]),
                 },
             },
         });
@@ -867,15 +829,17 @@ describe('browserDjvuConversionPipeline', () => {
         mocks.loggerError.mockClear();
 
         try {
-            await expect(runBrowserDjvuConversion(
-                requireDocumentRef('browser://documents/book.djvu'),
-                requireDocumentRef('browser://documents/output.pdf'),
-                {
-                    jobId: requireJobId('djvu-compact-worker-refusal'),
-                    pdfStrategy: 'compact-djvu-aware',
-                    preserveBookmarks: false,
-                },
-            )).resolves.toMatchObject({
+            await expect(
+                runBrowserDjvuConversion(
+                    requireDocumentRef('browser://documents/book.djvu'),
+                    requireDocumentRef('browser://documents/output.pdf'),
+                    {
+                        jobId: requireJobId('djvu-compact-worker-refusal'),
+                        pdfStrategy: 'compact-djvu-aware',
+                        preserveBookmarks: false,
+                    },
+                ),
+            ).resolves.toMatchObject({
                 success: false,
                 error: message,
                 expected: {
@@ -900,13 +864,15 @@ describe('browserDjvuConversionPipeline', () => {
         const getSaveTarget = vi.spyOn(browserDocumentStore, 'getSaveTarget').mockResolvedValue({
             saveName: 'output.pdf',
             saveKind: 'pdf',
-            saveHandle: {createWritable: async () => ({
-                write: async (chunk: ArrayBuffer) => {
-                    written.push(new Uint8Array(chunk));
-                },
-                close: async () => {},
-                abort: async () => {},
-            })} as unknown as FileSystemFileHandle,
+            saveHandle: {
+                createWritable: async () => ({
+                    write: async (chunk: ArrayBuffer) => {
+                        written.push(new Uint8Array(chunk));
+                    },
+                    close: async () => {},
+                    abort: async () => {},
+                }),
+            } as unknown as FileSystemFileHandle,
         });
         const replace = vi.spyOn(browserDocumentStore, 'replaceWithHandleBackedDocument').mockResolvedValue(undefined as never);
         const setRetention = vi.spyOn(browserDocumentStore, 'setRetention').mockResolvedValue(undefined as never);
@@ -917,10 +883,7 @@ describe('browserDjvuConversionPipeline', () => {
             dpi: 300,
         };
         mocks.createWorker.mockResolvedValue({terminate: vi.fn()});
-        mocks.getPageSizes.mockResolvedValueOnce([
-            page,
-            page,
-        ]);
+        mocks.getPageSizes.mockResolvedValueOnce([page, page]);
         mocks.buildCompactPage.mockImplementation(async (_worker: unknown, pageNumber: number) => ({
             route: 'photo',
             spec: {
@@ -938,51 +901,52 @@ describe('browserDjvuConversionPipeline', () => {
         // Page 1 encodes only after page 2 has finished, on a device with lanes for both.
         vi.stubGlobal('navigator', {hardwareConcurrency: 8});
         const pageTwoEncoded = Promise.withResolvers<void>();
-        mocks.combineWorker.mockImplementation(async (_type: string, payload: {wasmImagePreprocessing: {pageSpecs: Array<{image: {fileName: string}}>}}) => {
-            const fileName = payload.wasmImagePreprocessing.pageSpecs[0]!.image.fileName;
-            if (fileName === 'page-1.ppm') {await pageTwoEncoded.promise;}
-            else {pageTwoEncoded.resolve();}
-            return {data: new TextEncoder().encode(`[${fileName}]`)};
-        });
+        mocks.combineWorker.mockImplementation(
+            async (_type: string, payload: {wasmImagePreprocessing: {pageSpecs: Array<{image: {fileName: string}}>}}) => {
+                const fileName = payload.wasmImagePreprocessing.pageSpecs[0]!.image.fileName;
+                if (fileName === 'page-1.ppm') {
+                    await pageTwoEncoded.promise;
+                } else {
+                    pageTwoEncoded.resolve();
+                }
+                return {data: new TextEncoder().encode(`[${fileName}]`)};
+            },
+        );
         mocks.pageOps.mockImplementation(async (_type: string, payload: {sources: Blob[]}) => ({
             status: 'written',
-            data: new TextEncoder().encode((await Promise.all(payload.sources.map(source => source.text()))).join('')),
+            data: new TextEncoder().encode((await Promise.all(payload.sources.map((source) => source.text()))).join('')),
         }));
         const requestId = createRequestId('djvu-convert');
         const shown: string[] = [];
         const conversion = Promise.withResolvers<unknown>();
-        const run = runJob({
-            onProgress: onBrowserDjvuConversionProgress,
-            onComplete: () => () => {},
-            cancel: async () => null,
-        }, {
-            requestId,
-            onProgress: progress => shown.push(`${progress.phase} ${progress.percent}%`),
-            start: async () => {
-                void runBrowserDjvuConversion(
-                    requireDocumentRef('browser://documents/book.djvu'),
-                    requireDocumentRef('browser://documents/output.pdf'),
-                    {
-                        jobId: requireJobId('djvu-progress'),
-                        requestId,
-                        pdfStrategy: 'compact-djvu-aware',
-                        preserveBookmarks: false,
-                    },
-                ).then(conversion.resolve, conversion.reject);
+        const run = runJob(
+            {
+                onProgress: onBrowserDjvuConversionProgress,
+                onComplete: () => () => {},
+                cancel: async () => null,
             },
-        });
+            {
+                requestId,
+                onProgress: (progress) => shown.push(`${progress.phase} ${progress.percent}%`),
+                start: async () => {
+                    void runBrowserDjvuConversion(
+                        requireDocumentRef('browser://documents/book.djvu'),
+                        requireDocumentRef('browser://documents/output.pdf'),
+                        {
+                            jobId: requireJobId('djvu-progress'),
+                            requestId,
+                            pdfStrategy: 'compact-djvu-aware',
+                            preserveBookmarks: false,
+                        },
+                    ).then(conversion.resolve, conversion.reject);
+                },
+            },
+        );
 
         try {
             await expect(conversion.promise).resolves.toMatchObject({success: true});
-            expect(new TextDecoder().decode(Uint8Array.from(written.flatMap(chunk => [...chunk])))).toBe('[page-1.ppm][page-2.ppm]');
-            expect(shown).toEqual([
-                'loading 0%',
-                'converting 0%',
-                'converting 45%',
-                'converting 90%',
-                'assembling 90%',
-                'bookmarks 100%',
-            ]);
+            expect(new TextDecoder().decode(Uint8Array.from(written.flatMap((chunk) => [...chunk])))).toBe('[page-1.ppm][page-2.ppm]');
+            expect(shown).toEqual(['loading 0%', 'converting 0%', 'converting 45%', 'converting 90%', 'assembling 90%', 'bookmarks 100%']);
         } finally {
             void run.cancel();
             vi.unstubAllGlobals();
@@ -1006,11 +970,13 @@ describe('browserDjvuConversionPipeline', () => {
         const getSaveTarget = vi.spyOn(browserDocumentStore, 'getSaveTarget').mockResolvedValue({
             saveName: 'output.pdf',
             saveKind: 'pdf',
-            saveHandle: {createWritable: async () => ({
-                write: async () => {},
-                close: async () => {},
-                abort: async () => {},
-            })} as unknown as FileSystemFileHandle,
+            saveHandle: {
+                createWritable: async () => ({
+                    write: async () => {},
+                    close: async () => {},
+                    abort: async () => {},
+                }),
+            } as unknown as FileSystemFileHandle,
         });
         const replace = vi.spyOn(browserDocumentStore, 'replaceWithHandleBackedDocument').mockResolvedValue(undefined as never);
         const setRetention = vi.spyOn(browserDocumentStore, 'setRetention').mockResolvedValue(undefined as never);
@@ -1042,11 +1008,13 @@ describe('browserDjvuConversionPipeline', () => {
             getPageNumberByUrl: async (url: string) => Number(url.slice(1)),
             terminate: vi.fn(),
         });
-        mocks.getPageSizes.mockResolvedValueOnce(Array.from({length: totalPages}, () => ({
-            width: 100,
-            height: 100,
-            dpi: 300,
-        })));
+        mocks.getPageSizes.mockResolvedValueOnce(
+            Array.from({length: totalPages}, () => ({
+                width: 100,
+                height: 100,
+                dpi: 300,
+            })),
+        );
         mocks.buildCompactPage.mockImplementation(async (_worker: unknown, pageNumber: number) => ({
             route: 'photo',
             spec: {
@@ -1064,12 +1032,7 @@ describe('browserDjvuConversionPipeline', () => {
         mocks.combineWorker.mockResolvedValue({data: new Uint8Array([1])});
         mocks.pageOps.mockResolvedValue({
             status: 'written',
-            data: new Uint8Array([
-                0x25,
-                0x50,
-                0x44,
-                0x46,
-            ]),
+            data: new Uint8Array([0x25, 0x50, 0x44, 0x46]),
         });
         let capturedBookmarks: ReadonlyArray<{
             readonly title: string;

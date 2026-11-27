@@ -1,4 +1,4 @@
-import { sameWitness } from './contentWitness';
+import {sameWitness} from './contentWitness';
 
 export const DOCUMENTS_DIR = 'documents';
 export const MANIFEST_NAME = 'manifest.json';
@@ -82,55 +82,87 @@ export function decodeJson(bytes: Uint8Array): unknown {
 
 const isCount = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 const isOptionalString = (value: unknown) => value === undefined || typeof value === 'string';
-const isOptionalForeign = (value: unknown): value is TForeignRevisionState | undefined => value === undefined || value === 'staged' || value === 'committed';
+const isOptionalForeign = (value: unknown): value is TForeignRevisionState | undefined =>
+    value === undefined || value === 'staged' || value === 'committed';
 const isOptionalOpenOnly = (value: unknown): value is true | undefined => value === undefined || value === true;
 
 function isRevision(value: unknown): value is IRevision {
-    return isRecord(value) && isCount(value.id) && typeof value.file === 'string' && REVISION_FILE_PATTERN.test(value.file)
-        && isCount(value.length) && isOptionalString(value.witness) && isOptionalForeign(value.foreign)
-        && isOptionalOpenOnly(value.openOnly);
+    return (
+        isRecord(value) &&
+        isCount(value.id) &&
+        typeof value.file === 'string' &&
+        REVISION_FILE_PATTERN.test(value.file) &&
+        isCount(value.length) &&
+        isOptionalString(value.witness) &&
+        isOptionalForeign(value.foreign) &&
+        isOptionalOpenOnly(value.openOnly)
+    );
 }
 
-const isDestinationRevision = (value: unknown) => isRecord(value) && value.id === 1 && typeof value.witness === 'string' && !('file' in value);
-const isPendingPublish = (value: unknown) => isRecord(value) && typeof value.destination === 'string' && isOptionalString(value.witness)
-    && isOptionalString(value.temp) && isOptionalString(value.baseline);
+const isDestinationRevision = (value: unknown) =>
+    isRecord(value) && value.id === 1 && typeof value.witness === 'string' && !('file' in value);
+const isPendingPublish = (value: unknown) =>
+    isRecord(value) &&
+    typeof value.destination === 'string' &&
+    isOptionalString(value.witness) &&
+    isOptionalString(value.temp) &&
+    isOptionalString(value.baseline);
 
 function isManifest(value: unknown): value is IManifest {
-    return isRecord(value) && value.version === 1 && typeof value.ext === 'string' && EXT_PATTERN.test(value.ext)
-        && isOptionalString(value.name) && isCount(value.next) && Array.isArray(value.history)
-        && value.history.every(revision => isRevision(revision) || isDestinationRevision(revision))
-        && (value.current === undefined || isRevision(value.current))
-        && isOptionalString(value.destination) && isOptionalString(value.baseline)
-        && (value.drafts === undefined || (typeof value.drafts === 'string' && DRAFTS_FILE_PATTERN.test(value.drafts)))
-        && (value.pendingPublish === undefined || isPendingPublish(value.pendingPublish))
-        && (value.unsettled === undefined || (Array.isArray(value.unsettled) && value.unsettled.every(isPendingPublish)));
+    return (
+        isRecord(value) &&
+        value.version === 1 &&
+        typeof value.ext === 'string' &&
+        EXT_PATTERN.test(value.ext) &&
+        isOptionalString(value.name) &&
+        isCount(value.next) &&
+        Array.isArray(value.history) &&
+        value.history.every((revision) => isRevision(revision) || isDestinationRevision(revision)) &&
+        (value.current === undefined || isRevision(value.current)) &&
+        isOptionalString(value.destination) &&
+        isOptionalString(value.baseline) &&
+        (value.drafts === undefined || (typeof value.drafts === 'string' && DRAFTS_FILE_PATTERN.test(value.drafts))) &&
+        (value.pendingPublish === undefined || isPendingPublish(value.pendingPublish)) &&
+        (value.unsettled === undefined || (Array.isArray(value.unsettled) && value.unsettled.every(isPendingPublish)))
+    );
 }
 
 export function decodeManifest(bytes: Uint8Array): IManifest {
     const value = decodeJson(bytes);
-    if (!isManifest(value)) {throw new Error('Unreadable document manifest');}
+    if (!isManifest(value)) {
+        throw new Error('Unreadable document manifest');
+    }
     return value;
 }
 
 /** Dirty: drafts exist, a publish is unresolved, or the current bytes are not known to equal the baseline. */
 export function isDirty(manifest: IManifest) {
-    const { current } = manifest;
-    return manifest.drafts !== undefined || manifest.pendingPublish !== undefined || manifest.unsettled !== undefined
-        || (current !== undefined && !sameWitness(current.witness, manifest.baseline));
+    const {current} = manifest;
+    return (
+        manifest.drafts !== undefined ||
+        manifest.pendingPublish !== undefined ||
+        manifest.unsettled !== undefined ||
+        (current !== undefined && !sameWitness(current.witness, manifest.baseline))
+    );
 }
 
-const isUnchangedBaselineCopy = (revision: IRevision, manifest: IManifest) => revision.id === 1
-    && revision.foreign === undefined
-    && revision.witness !== undefined
-    && sameWitness(revision.witness, manifest.baseline);
+const isUnchangedBaselineCopy = (revision: IRevision, manifest: IManifest) =>
+    revision.id === 1 &&
+    revision.foreign === undefined &&
+    revision.witness !== undefined &&
+    sameWitness(revision.witness, manifest.baseline);
 
 /** Whether `manifest` has no user edits yet, so an open-time rewrite may still carry `openOnly: true`. */
 export function hasNoUserEdits(manifest: IManifest) {
-    return manifest.drafts === undefined
-        && manifest.pendingPublish === undefined
-        && manifest.unsettled === undefined
-        && (manifest.current === undefined || manifest.current.openOnly === true || isUnchangedBaselineCopy(manifest.current, manifest))
-        && manifest.history.every(revision => !hasFile(revision) || revision.openOnly === true || isUnchangedBaselineCopy(revision, manifest));
+    return (
+        manifest.drafts === undefined &&
+        manifest.pendingPublish === undefined &&
+        manifest.unsettled === undefined &&
+        (manifest.current === undefined || manifest.current.openOnly === true || isUnchangedBaselineCopy(manifest.current, manifest)) &&
+        manifest.history.every(
+            (revision) => !hasFile(revision) || revision.openOnly === true || isUnchangedBaselineCopy(revision, manifest),
+        )
+    );
 }
 
 /**
@@ -144,6 +176,6 @@ export function isOpenOnlyManifest(manifest: IManifest) {
 }
 
 export function namedFiles(manifest: IManifest) {
-    const files = [manifest.current, ...manifest.history].flatMap(revision => revision && hasFile(revision) ? [revision.file] : []);
+    const files = [manifest.current, ...manifest.history].flatMap((revision) => (revision && hasFile(revision) ? [revision.file] : []));
     return new Set(manifest.drafts === undefined ? files : [...files, manifest.drafts]);
 }

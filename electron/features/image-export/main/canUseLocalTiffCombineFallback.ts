@@ -1,10 +1,6 @@
 import {stat} from 'fs/promises';
 
-export async function canUseLocalTiffCombineFallback(
-    pagePaths: string[],
-    maxPages: number,
-    maxTotalBytes: number,
-) {
+export async function canUseLocalTiffCombineFallback(pagePaths: string[], maxPages: number, maxTotalBytes: number) {
     if (pagePaths.length > maxPages) {
         return false;
     }

@@ -12,9 +12,7 @@ interface IClearPdfSelectionForLayerTeardownOptions {
 }
 
 function getSelectionDocument() {
-    return typeof document === 'undefined'
-        ? null
-        : document;
+    return typeof document === 'undefined' ? null : document;
 }
 
 function getElementFromNode(node: Node | null | undefined) {
@@ -54,28 +52,21 @@ function getRangeAt(selection: Selection, index: number) {
 }
 
 function getSelectionNodes(selection: Selection) {
-    const nodes: Array<Node | null> = [
-        selection.anchorNode,
-        selection.focusNode,
-    ];
+    const nodes: Array<Node | null> = [selection.anchorNode, selection.focusNode];
 
     for (let index = 0; index < selection.rangeCount; index += 1) {
         const range = getRangeAt(selection, index);
         if (!range) {
             continue;
         }
-        nodes.push(
-            range.commonAncestorContainer,
-            range.startContainer,
-            range.endContainer,
-        );
+        nodes.push(range.commonAncestorContainer, range.startContainer, range.endContainer);
     }
 
     return nodes;
 }
 
 function selectionTouchesElement(selection: Selection, element: HTMLElement) {
-    return getSelectionNodes(selection).some(node => elementContainsNode(element, node));
+    return getSelectionNodes(selection).some((node) => elementContainsNode(element, node));
 }
 
 function selectionHasDisconnectedNode(selection: Selection) {
@@ -90,26 +81,19 @@ function selectionTouchesPdfTextLayer(selection: Selection, root?: HTMLElement |
     });
 }
 
-export function clearPdfSelectionForLayerTeardown(
-    options: IClearPdfSelectionForLayerTeardownOptions = {},
-) {
+export function clearPdfSelectionForLayerTeardown(options: IClearPdfSelectionForLayerTeardownOptions = {}) {
     const doc = getSelectionDocument();
     const selection = doc?.getSelection();
     if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
         return false;
     }
 
-    const {
-        target = null,
-        root = null,
-        includeDetached = false,
-        includeAnyPdfTextSelection = false,
-    } = options;
+    const {target = null, root = null, includeDetached = false, includeAnyPdfTextSelection = false} = options;
 
     const shouldClear =
-        (target ? selectionTouchesElement(selection, target) : false)
-        || (includeAnyPdfTextSelection ? selectionTouchesPdfTextLayer(selection, root) : false)
-        || (includeDetached ? selectionHasDisconnectedNode(selection) : false);
+        (target ? selectionTouchesElement(selection, target) : false) ||
+        (includeAnyPdfTextSelection ? selectionTouchesPdfTextLayer(selection, root) : false) ||
+        (includeDetached ? selectionHasDisconnectedNode(selection) : false);
 
     if (!shouldClear) {
         return false;

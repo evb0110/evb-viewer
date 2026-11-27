@@ -1,14 +1,7 @@
-import {
-    mkdtemp,
-    rename,
-    rm,
-} from 'node:fs/promises';
+import {mkdtemp, rename, rm} from 'node:fs/promises';
 import {join} from 'node:path';
 import {randomUUID} from 'node:crypto';
-import type {
-    IScanCleanupDetectionRetention,
-    IScanCleanupRetainedRaster,
-} from '@evb/scan-cleanup/core/detection';
+import type {IScanCleanupDetectionRetention, IScanCleanupRetainedRaster} from '@evb/scan-cleanup/core/detection';
 import type {IScanCleanupPageRasterSource} from '@evb/scan-cleanup/core/types';
 import type {IPdfPageSizeStore} from '@evb/scan-cleanup/core/pdfPageSizes';
 
@@ -18,11 +11,7 @@ export interface IScanCleanupCliDocument {
     sourcePdfPath: string;
 }
 
-function cliStagedRasterPath(
-    document: IScanCleanupCliDocument,
-    pageNumber: number,
-    dpi: number,
-) {
+function cliStagedRasterPath(document: IScanCleanupCliDocument, pageNumber: number, dpi: number) {
     return join(document.directory, `page-${String(pageNumber)}-${String(dpi)}.png`);
 }
 
@@ -59,10 +48,7 @@ export function createCliRetention(
         // staged path only once the render finished, so the sidecar never sees
         // a half-written raster at an input path it is waiting for.
         rasterScratchPath(document, pageNumber, dpi) {
-            return Promise.resolve(join(
-                document.directory,
-                `page-${String(pageNumber)}-${String(dpi)}.${randomUUID()}.part.png`,
-            ));
+            return Promise.resolve(join(document.directory, `page-${String(pageNumber)}-${String(dpi)}.${randomUUID()}.part.png`));
         },
         stagedRasterPath(document, pageNumber, dpi) {
             return Promise.resolve(cliStagedRasterPath(document, pageNumber, dpi));

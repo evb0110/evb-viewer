@@ -1,14 +1,8 @@
-import {
-    mkdirSync,
-    writeFileSync,
-} from 'node:fs';
-import {
-    dirname,
-    resolve,
-} from 'node:path';
-import { sumBy } from 'es-toolkit/math';
-import { sendCommand } from '@scripts/electron-run/sendCommand';
-import { setCurrentSessionName } from '@scripts/electron-run/electronRunSessionPaths';
+import {mkdirSync, writeFileSync} from 'node:fs';
+import {dirname, resolve} from 'node:path';
+import {sumBy} from 'es-toolkit/math';
+import {sendCommand} from '@scripts/electron-run/sendCommand';
+import {setCurrentSessionName} from '@scripts/electron-run/electronRunSessionPaths';
 
 interface IPdfTabPressureOptions {
     fixture: string;
@@ -125,7 +119,10 @@ function readOptions(argv = process.argv.slice(2)): IPdfTabPressureOptions {
             options.fixture = next;
             index += 1;
         } else if (arg === '--fixtures' && next) {
-            options.fixtures = next.split(',').map(item => item.trim()).filter(Boolean);
+            options.fixtures = next
+                .split(',')
+                .map((item) => item.trim())
+                .filter(Boolean);
             index += 1;
         } else if (arg === '--tabs' && next) {
             options.tabs = parsePositiveInt(next, options.tabs);
@@ -179,18 +176,23 @@ async function collectGarbageIfRequested(collectGc: boolean) {
         return;
     }
 
-    await sendCommand('run', [`
+    await sendCommand('run', [
+        `
         const client = await page.target().createCDPSession();
         try {
             await client.send('HeapProfiler.collectGarbage');
         } finally {
             await client.detach();
         }
-    `]);
+    `,
+    ]);
 }
 
 async function openFixtureInActiveTab(fixture: string) {
-    await sendCommand('run', [`
+    await sendCommand(
+        'run',
+        [
+            `
         const fixturePath = ${JSON.stringify(fixture)};
         await page.evaluate(async (path) => {
             const automationGrant = window.__allowRendererFileOpenForAutomation;
@@ -204,17 +206,22 @@ async function openFixtureInActiveTab(fixture: string) {
             }
             await openFileDirect(path);
         }, fixturePath);
-    `], 150_000);
+    `,
+        ],
+        150_000,
+    );
 }
 
 async function createTabAndOpenFixture(fixture: string) {
-    await sendCommand('run', [`
+    await sendCommand('run', [
+        `
         const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
         await page.keyboard.down(modifier);
         await page.keyboard.press('KeyT');
         await page.keyboard.up(modifier);
         await sleep(250);
-    `]);
+    `,
+    ]);
     await openFixtureInActiveTab(fixture);
 }
 
@@ -223,18 +230,21 @@ function resolveFixtureForTab(fixtures: string[], index: number) {
 }
 
 async function activateTabByIndex(index: number) {
-    await sendCommand('run', [`
+    await sendCommand('run', [
+        `
         const tabs = await page.$$('.tab-bar [role="tab"], [data-tab-id], .tab-bar__tab');
         const target = tabs[${JSON.stringify(index)}];
         if (target) {
             await target.click();
         }
         await sleep(250);
-    `]);
+    `,
+    ]);
 }
 
 async function collectDomPressure(): Promise<IDomPressureSnapshot> {
-    return await sendCommand('eval', [`
+    return (await sendCommand('eval', [
+        `
         (() => {
             const isVisible = (element) => {
                 const rect = element.getBoundingClientRect();
@@ -277,19 +287,20 @@ async function collectDomPressure(): Promise<IDomPressureSnapshot> {
                 hosts,
             };
         })()
-    `]) as IDomPressureSnapshot;
+    `,
+    ])) as IDomPressureSnapshot;
 }
 
 function buildSnapshotWarnings(dom: IDomPressureSnapshot) {
     const warnings: string[] = [];
-    const inactiveHostsWithCanvases = dom.hosts.filter(host => !host.active && host.canvases > 0);
+    const inactiveHostsWithCanvases = dom.hosts.filter((host) => !host.active && host.canvases > 0);
     if (inactiveHostsWithCanvases.length > 0) {
-        warnings.push(`Inactive hosts still have ${sumBy(inactiveHostsWithCanvases, host => host.canvases)} canvas element(s).`);
+        warnings.push(`Inactive hosts still have ${sumBy(inactiveHostsWithCanvases, (host) => host.canvases)} canvas element(s).`);
     }
 
-    const inactiveHostsWithRenderedPages = dom.hosts.filter(host => !host.active && host.renderedPages > 0);
+    const inactiveHostsWithRenderedPages = dom.hosts.filter((host) => !host.active && host.renderedPages > 0);
     if (inactiveHostsWithRenderedPages.length > 0) {
-        warnings.push(`Inactive hosts still have ${sumBy(inactiveHostsWithRenderedPages, host => host.renderedPages)} rendered page(s).`);
+        warnings.push(`Inactive hosts still have ${sumBy(inactiveHostsWithRenderedPages, (host) => host.renderedPages)} rendered page(s).`);
     }
 
     return warnings;
@@ -297,14 +308,17 @@ function buildSnapshotWarnings(dom: IDomPressureSnapshot) {
 
 function buildSnapshotFailures(
     dom: IDomPressureSnapshot,
-    options: Pick<IPdfTabPressureOptions, 'maxInactiveCanvases' | 'maxInactiveRenderedPages' | 'maxInactiveDjvuImages' | 'maxInactiveCanvasPixels'>,
+    options: Pick<
+        IPdfTabPressureOptions,
+        'maxInactiveCanvases' | 'maxInactiveRenderedPages' | 'maxInactiveDjvuImages' | 'maxInactiveCanvasPixels'
+    >,
 ) {
     const failures: string[] = [];
-    const inactiveHosts = dom.hosts.filter(host => !host.active);
-    const inactiveCanvases = sumBy(inactiveHosts, host => host.canvases);
-    const inactiveRenderedPages = sumBy(inactiveHosts, host => host.renderedPages);
-    const inactiveDjvuImages = sumBy(inactiveHosts, host => host.djvuImages);
-    const inactiveCanvasPixels = sumBy(inactiveHosts, host => host.canvasPixels);
+    const inactiveHosts = dom.hosts.filter((host) => !host.active);
+    const inactiveCanvases = sumBy(inactiveHosts, (host) => host.canvases);
+    const inactiveRenderedPages = sumBy(inactiveHosts, (host) => host.renderedPages);
+    const inactiveDjvuImages = sumBy(inactiveHosts, (host) => host.djvuImages);
+    const inactiveCanvasPixels = sumBy(inactiveHosts, (host) => host.canvasPixels);
 
     if (inactiveCanvases > options.maxInactiveCanvases) {
         failures.push(`Inactive canvas count ${inactiveCanvases} exceeded threshold ${options.maxInactiveCanvases}.`);
@@ -327,7 +341,8 @@ async function collectHeapSample(sampleHeap: boolean): Promise<IHeapSample | nul
         return null;
     }
 
-    return await sendCommand('eval', [`
+    return (await sendCommand('eval', [
+        `
         (() => {
             const memory = performance.memory;
             if (!memory) {
@@ -343,12 +358,14 @@ async function collectHeapSample(sampleHeap: boolean): Promise<IHeapSample | nul
                 jsHeapSizeLimit: Number.isFinite(memory.jsHeapSizeLimit) ? memory.jsHeapSizeLimit : null,
             };
         })()
-    `]) as IHeapSample;
+    `,
+    ])) as IHeapSample;
 }
 
 async function collectSnapshot(
     label: string,
-    options: Pick<IPdfTabPressureOptions,
+    options: Pick<
+        IPdfTabPressureOptions,
         | 'collectGc'
         | 'sampleHeap'
         | 'maxInactiveCanvases'
@@ -358,11 +375,7 @@ async function collectSnapshot(
     >,
 ): Promise<IDiagnosticSnapshot> {
     await collectGarbageIfRequested(options.collectGc);
-    const [
-        metricsPayload,
-        dom,
-        heap,
-    ] = await Promise.all([
+    const [metricsPayload, dom, heap] = await Promise.all([
         sendCommand('devtools', ['metrics']) as Promise<IPageMetricsPayload>,
         collectDomPressure(),
         collectHeapSample(options.sampleHeap),
@@ -387,10 +400,12 @@ function buildHeapFailures(snapshots: IDiagnosticSnapshot[], maxHeapGrowthMb: nu
     const samples = snapshots.flatMap((snapshot) => {
         const used = snapshot.heap?.usedJSHeapSize;
         return typeof used === 'number'
-            ? [{
-                label: snapshot.label,
-                used,
-            }]
+            ? [
+                  {
+                      label: snapshot.label,
+                      used,
+                  },
+              ]
             : [];
     });
     const baseline = samples[0];
@@ -408,7 +423,7 @@ function buildHeapFailures(snapshots: IDiagnosticSnapshot[], maxHeapGrowthMb: nu
 
 async function runDiagnostics(options: IPdfTabPressureOptions) {
     setCurrentSessionName(options.session);
-    const fixtures = (options.fixtures.length > 0 ? options.fixtures : [options.fixture]).map(fixture => resolve(fixture));
+    const fixtures = (options.fixtures.length > 0 ? options.fixtures : [options.fixture]).map((fixture) => resolve(fixture));
     const snapshots: IDiagnosticSnapshot[] = [];
 
     snapshots.push(await collectSnapshot('baseline', options));
@@ -430,14 +445,10 @@ async function runDiagnostics(options: IPdfTabPressureOptions) {
         }
     }
 
-    const warnings = snapshots.flatMap(snapshot => snapshot.warnings.map(warning => `${snapshot.label}: ${warning}`));
-    const thresholdFailures = snapshots.flatMap(snapshot => snapshot.failures.map(failure => `${snapshot.label}: ${failure}`));
+    const warnings = snapshots.flatMap((snapshot) => snapshot.warnings.map((warning) => `${snapshot.label}: ${warning}`));
+    const thresholdFailures = snapshots.flatMap((snapshot) => snapshot.failures.map((failure) => `${snapshot.label}: ${failure}`));
     const heapFailures = buildHeapFailures(snapshots, options.maxHeapGrowthMb);
-    const failures = [
-        ...thresholdFailures,
-        ...heapFailures,
-        ...(options.failOnWarning ? warnings : []),
-    ];
+    const failures = [...thresholdFailures, ...heapFailures, ...(options.failOnWarning ? warnings : [])];
 
     return {
         fixtures,
@@ -465,7 +476,7 @@ const output = JSON.stringify(result, null, 2);
 
 if (options.out) {
     const outPath = resolve(options.out);
-    mkdirSync(dirname(outPath), { recursive: true });
+    mkdirSync(dirname(outPath), {recursive: true});
     writeFileSync(outPath, `${output}\n`);
     console.log(`Wrote PDF tab pressure diagnostics to ${outPath}`);
     if (result.warnings.length > 0) {

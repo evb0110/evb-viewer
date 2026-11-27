@@ -1,21 +1,12 @@
-import { omit } from 'es-toolkit/object';
-import {
-    assertSupportedSettingsSchema,
-    DEFAULT_SETTINGS,
-    migrateSettings,
-    UnsupportedSettingsSchemaError,
-} from '@contracts/settings';
-import { isRecord } from '@contracts/runtimeGuards';
-import type {
-    ISettingsData,
-    TAppLocale,
-    TAppTheme,
-} from '@contracts/shared';
-import type { TPerformanceMode } from '@contracts/hostResourceProfile';
-import { LOCALE_CODES } from '@i18n-core';
-import { safeDecodeURIComponent } from '@app/utils/browserSafe';
-import { readLocalStorageItem } from '@app/utils/localStorage';
-import { BROWSER_SETTINGS_STORAGE_KEY } from '@app/utils/browserRuntimePersistence';
+import {omit} from 'es-toolkit/object';
+import {assertSupportedSettingsSchema, DEFAULT_SETTINGS, migrateSettings, UnsupportedSettingsSchemaError} from '@contracts/settings';
+import {isRecord} from '@contracts/runtimeGuards';
+import type {ISettingsData, TAppLocale, TAppTheme} from '@contracts/shared';
+import type {TPerformanceMode} from '@contracts/hostResourceProfile';
+import {LOCALE_CODES} from '@i18n-core';
+import {safeDecodeURIComponent} from '@app/utils/browserSafe';
+import {readLocalStorageItem} from '@app/utils/localStorage';
+import {BROWSER_SETTINGS_STORAGE_KEY} from '@app/utils/browserRuntimePersistence';
 import * as v from 'valibot';
 
 export const BROWSER_SETTINGS_COOKIE_KEY = 'evb_viewer_settings';
@@ -50,7 +41,7 @@ function parseRawBrowserSettingsPayload(raw: unknown): Record<PropertyKey, unkno
 const settingsShapeFields = {
     version: v.pipe(
         v.number(),
-        v.check(value => Number.isInteger(value)),
+        v.check((value) => Number.isInteger(value)),
         v.minValue(1),
         v.maxValue(DEFAULT_SETTINGS.version),
     ),
@@ -73,10 +64,7 @@ const legacyBrowserSettingsSchema = v.object(settingsShapeFields);
 const browserSettingsStorageSchema = v.object({
     ...settingsShapeFields,
     locale: v.custom<TAppLocale>(isAppLocale),
-    theme: v.picklist([
-        'light',
-        'dark',
-    ]),
+    theme: v.picklist(['light', 'dark']),
 });
 
 export function isValidLegacyBrowserSettingsPayload(raw: unknown) {
@@ -123,30 +111,23 @@ function isAppTheme(value: unknown): value is TAppTheme {
 
 function omitCookieBackedSettingsFields<T extends Record<PropertyKey, unknown> | null>(
     settings: T,
-) : Omit<NonNullable<T>, 'clientDiagnosticsPreference' | 'theme' | 'locale'> | null {
+): Omit<NonNullable<T>, 'clientDiagnosticsPreference' | 'theme' | 'locale'> | null {
     if (!settings) {
         return null;
     }
 
-    return omit(settings, [
-        'theme',
-        'locale',
-        'clientDiagnosticsPreference',
-    ]);
+    return omit(settings, ['theme', 'locale', 'clientDiagnosticsPreference']);
 }
 
 function parseStoredBrowserSettingsSnapshot(raw: string | null) {
     return raw === null ? null : parseBrowserSettingsStoragePayload(raw);
 }
 
-export function parseBrowserSettingsPayload(
-    raw: unknown,
-    fallback: Partial<ISettingsData> | null = null,
-) {
+export function parseBrowserSettingsPayload(raw: unknown, fallback: Partial<ISettingsData> | null = null) {
     const rawSettings = parseRawBrowserSettingsPayload(raw);
     assertSupportedSettingsSchema(rawSettings);
     const parsed = omitCookieBackedSettingsFields(rawSettings);
-    const normalizedFallback = fallback ? { ...fallback } : null;
+    const normalizedFallback = fallback ? {...fallback} : null;
     if (normalizedFallback && !isAppLocale(normalizedFallback.locale)) {
         delete normalizedFallback.locale;
     }
@@ -191,9 +172,7 @@ export function expireLegacyBrowserSettingsCookie() {
     if (typeof document === 'undefined') {
         return;
     }
-    const secureAttribute = typeof location !== 'undefined' && location.protocol === 'https:'
-        ? '; Secure'
-        : '';
+    const secureAttribute = typeof location !== 'undefined' && location.protocol === 'https:' ? '; Secure' : '';
     document.cookie = `${BROWSER_SETTINGS_COOKIE_KEY}=; Path=/; Max-Age=0; SameSite=Lax${secureAttribute}`;
 }
 
@@ -250,7 +229,9 @@ export function readBrowserPerformanceModeSnapshot(): TPerformanceMode {
         return DEFAULT_SETTINGS.performanceMode;
     }
     const stored = parseStoredBrowserSettingsSnapshot(storageSnapshot);
-    if (stored) {return stored.performanceMode;}
+    if (stored) {
+        return stored.performanceMode;
+    }
     if (legacyCookie !== null && isValidLegacyBrowserSettingsPayload(legacyCookie)) {
         return parseBrowserSettingsPayload(legacyCookie, cookieSnapshot?.fallbackSettings).performanceMode;
     }

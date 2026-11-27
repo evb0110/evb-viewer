@@ -1,6 +1,4 @@
-import type {
-    IAgentAssistantChatScope,
-} from '@contracts/agent';
+import type {IAgentAssistantChatScope} from '@contracts/agent';
 
 export function cloneAssistantScope(scope: IAgentAssistantChatScope): IAgentAssistantChatScope {
     return {
@@ -18,7 +16,5 @@ export function cloneAssistantScope(scope: IAgentAssistantChatScope): IAgentAssi
 }
 
 export function getAgentAssistantScopeRevisionToken(scope: IAgentAssistantChatScope | null | undefined) {
-    return scope?.commandTarget?.documentRevisionToken
-        ?? scope?.documentIdentity?.token
-        ?? null;
+    return scope?.commandTarget?.documentRevisionToken ?? scope?.documentIdentity?.token ?? null;
 }

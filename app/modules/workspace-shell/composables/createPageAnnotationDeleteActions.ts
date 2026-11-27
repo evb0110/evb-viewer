@@ -1,13 +1,12 @@
-import type { Ref } from 'vue';
-import type { IAnnotationCommentSummary } from '@app/types/annotations';
+import type {Ref} from 'vue';
+import type {IAnnotationCommentSummary} from '@app/types/annotations';
 import type * as WorkspaceOrchestration from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import * as pdfAnnotationRefs from '@app/utils/pdfAnnotationRefs';
-import { BrowserLogger } from '@app/utils/browserLogger';
+import {BrowserLogger} from '@app/utils/browserLogger';
 
-type TPageAnnotationDeleteViewer = Pick<WorkspaceOrchestration.IPdfViewerExpose,
-    'deleteAnnotationComment'
-    | 'deleteReopenedEditorAnnotation'
-    | 'deleteEmbeddedAnnotationDeferred'
+type TPageAnnotationDeleteViewer = Pick<
+    WorkspaceOrchestration.IPdfViewerExpose,
+    'deleteAnnotationComment' | 'deleteReopenedEditorAnnotation' | 'deleteEmbeddedAnnotationDeferred'
 >;
 
 interface IPageAnnotationDeleteActionsOptions<TViewer extends TPageAnnotationDeleteViewer = TPageAnnotationDeleteViewer> {
@@ -49,8 +48,7 @@ export const createPageAnnotationDeleteActions = <TViewer extends TPageAnnotatio
     }
 
     function shouldUseEmbeddedDeletePath(comment: IAnnotationCommentSummary) {
-        return comment.source !== 'shape'
-            && (comment.source === 'pdf' || Boolean(resolveEmbeddedPdfAnnotationId(comment)));
+        return comment.source !== 'shape' && (comment.source === 'pdf' || Boolean(resolveEmbeddedPdfAnnotationId(comment)));
     }
 
     function shouldRemoveLiveEditorBeforeEmbeddedDelete(comment: IAnnotationCommentSummary) {
@@ -62,10 +60,7 @@ export const createPageAnnotationDeleteActions = <TViewer extends TPageAnnotatio
         return !deleted && shouldUseEmbeddedDeletePath(comment);
     }
 
-    async function deleteLiveEditorBeforeEmbeddedDelete(
-        viewer: TViewer,
-        comment: IAnnotationCommentSummary,
-    ) {
+    async function deleteLiveEditorBeforeEmbeddedDelete(viewer: TViewer, comment: IAnnotationCommentSummary) {
         const deleteEditor = viewer.deleteReopenedEditorAnnotation;
         if (!deleteEditor) {
             return {
@@ -74,7 +69,7 @@ export const createPageAnnotationDeleteActions = <TViewer extends TPageAnnotatio
             };
         }
         return {
-            deleted: await deleteEditor(comment) === true,
+            deleted: (await deleteEditor(comment)) === true,
             canonicalDeleteHandled: true,
         };
     }
@@ -85,12 +80,13 @@ export const createPageAnnotationDeleteActions = <TViewer extends TPageAnnotatio
             return false;
         }
         const embeddedAnnotationId = resolveEmbeddedPdfAnnotationId(comment);
-        const deletionComment: IAnnotationCommentSummary = embeddedAnnotationId && embeddedAnnotationId !== comment.annotationId
-            ? {
-                ...comment,
-                annotationId: embeddedAnnotationId,
-            }
-            : comment;
+        const deletionComment: IAnnotationCommentSummary =
+            embeddedAnnotationId && embeddedAnnotationId !== comment.annotationId
+                ? {
+                      ...comment,
+                      annotationId: embeddedAnnotationId,
+                  }
+                : comment;
 
         if (viewer.deleteEmbeddedAnnotationDeferred?.(deletionComment) !== true) {
             return false;
@@ -140,11 +136,7 @@ export const createPageAnnotationDeleteActions = <TViewer extends TPageAnnotatio
                     deleted = deletion.deleted;
                     canonicalDeleteHandled = deletion.canonicalDeleteHandled;
                 } catch (error) {
-                    BrowserLogger.debug(
-                        'annotations',
-                        'Atomic reopened FreeText deletion failed',
-                        error,
-                    );
+                    BrowserLogger.debug('annotations', 'Atomic reopened FreeText deletion failed', error);
                 }
                 if (!deleted) {
                     handleAnnotationDeleteFailure(comment);
@@ -181,11 +173,9 @@ export const createPageAnnotationDeleteActions = <TViewer extends TPageAnnotatio
     }
 
     async function handleDeleteAnnotationComment(comment: IAnnotationCommentSummary) {
-        annotationDeleteQueue = annotationDeleteQueue
-            .catch(() => undefined)
-            .then(() => performDeleteAnnotationComment(comment));
+        annotationDeleteQueue = annotationDeleteQueue.catch(() => undefined).then(() => performDeleteAnnotationComment(comment));
         await annotationDeleteQueue;
     }
 
-    return { handleDeleteAnnotationComment };
+    return {handleDeleteAnnotationComment};
 };

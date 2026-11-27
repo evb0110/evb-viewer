@@ -1,20 +1,10 @@
 import {existsSync} from 'node:fs';
 import {readFile} from 'node:fs/promises';
 import {totalmem} from 'node:os';
-import {
-    dirname,
-    join,
-} from 'node:path';
+import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {
-    getCheckedWasmMemoryView,
-    WASM_REQUEST_ALLOCATION_ABI_VERSION,
-} from '@contracts/getCheckedWasmMemoryView';
-import {
-    NATIVE_ERROR_ENVELOPE_SCHEMA,
-    type INativeErrorEnvelope,
-    type TNativeErrorCode,
-} from '@contracts/nativeErrors';
+import {getCheckedWasmMemoryView, WASM_REQUEST_ALLOCATION_ABI_VERSION} from '@contracts/getCheckedWasmMemoryView';
+import {NATIVE_ERROR_ENVELOPE_SCHEMA, type INativeErrorEnvelope, type TNativeErrorCode} from '@contracts/nativeErrors';
 import {
     PDF_SEARCH_WASM_EXPORT_PREFIX,
     PDF_SEARCH_WASM_MAX_OUTPUT_BYTES,
@@ -68,21 +58,18 @@ function readExports(exports: WebAssembly.Exports): IPdfSearchWasmExports {
     const errorPtr = exports[`${prefix}_error_ptr`];
     const errorLen = exports[`${prefix}_error_len`];
     if (
-        !(memory instanceof WebAssembly.Memory)
-        || !isWasmFn(abiVersion)
-        || abiVersion() !== WASM_REQUEST_ALLOCATION_ABI_VERSION
-        || !isWasmFn(alloc)
-        || !isWasmFn(free)
-        || !isWasmFn(run)
-        || !isWasmFn(outputPtr)
-        || !isWasmFn(outputLen)
-        || !isWasmFn(errorPtr)
-        || !isWasmFn(errorLen)
+        !(memory instanceof WebAssembly.Memory) ||
+        !isWasmFn(abiVersion) ||
+        abiVersion() !== WASM_REQUEST_ALLOCATION_ABI_VERSION ||
+        !isWasmFn(alloc) ||
+        !isWasmFn(free) ||
+        !isWasmFn(run) ||
+        !isWasmFn(outputPtr) ||
+        !isWasmFn(outputLen) ||
+        !isWasmFn(errorPtr) ||
+        !isWasmFn(errorLen)
     ) {
-        throw new PdfSearchNativeError(
-            'native-failure',
-            'evb-pdf-search.wasm does not match this version of the app',
-        );
+        throw new PdfSearchNativeError('native-failure', 'evb-pdf-search.wasm does not match this version of the app');
     }
     return {
         memory,
@@ -98,15 +85,14 @@ function readExports(exports: WebAssembly.Exports): IPdfSearchWasmExports {
 
 function readErrorEnvelope(tool: IPdfSearchWasmExports, resultCode: number): INativeErrorEnvelope {
     const length = tool.errorLen();
-    const encoded = length === 0
-        ? null
-        : textDecoder.decode(
-            getCheckedWasmMemoryView(tool.memory, tool.errorPtr(), length, 'evb-pdf-search').slice(),
-        );
-    return decodeSerializableErrorEnvelope(encoded, NATIVE_ERROR_ENVELOPE_SCHEMA, {allowBareJsonString: true}) ?? {
-        code: 'native-failure',
-        message: encoded ?? `evb-pdf-search failed with result code ${resultCode}`,
-    };
+    const encoded =
+        length === 0 ? null : textDecoder.decode(getCheckedWasmMemoryView(tool.memory, tool.errorPtr(), length, 'evb-pdf-search').slice());
+    return (
+        decodeSerializableErrorEnvelope(encoded, NATIVE_ERROR_ENVELOPE_SCHEMA, {allowBareJsonString: true}) ?? {
+            code: 'native-failure',
+            message: encoded ?? `evb-pdf-search failed with result code ${resultCode}`,
+        }
+    );
 }
 
 /**
@@ -114,10 +100,7 @@ function readErrorEnvelope(tool: IPdfSearchWasmExports, resultCode: number): INa
  * module. Drops its instance whenever linear memory grows past the high-water
  * mark or after a trap/panic so V8 can reclaim linear memory.
  */
-export function createPdfSearchWasmRunner(
-    wasmModule: WebAssembly.Module,
-    options: {highWaterBytes?: number} = {},
-) {
+export function createPdfSearchWasmRunner(wasmModule: WebAssembly.Module, options: {highWaterBytes?: number} = {}) {
     const highWaterBytes = options.highWaterBytes ?? defaultDesktopWasmHighWaterBytes();
     let tool: IPdfSearchWasmExports | null = null;
 
@@ -133,19 +116,13 @@ export function createPdfSearchWasmRunner(
     function run(request: Uint8Array): Uint8Array<ArrayBuffer> {
         const byteLength = request.byteLength;
         if (byteLength === 0 || byteLength > PDF_SEARCH_WASM_MAX_REQUEST_BYTES) {
-            throw new PdfSearchNativeError(
-                'too-large',
-                'evb-pdf-search request exceeds the admission ceiling',
-            );
+            throw new PdfSearchNativeError('too-large', 'evb-pdf-search request exceeds the admission ceiling');
         }
         const active = getTool();
         const pointer = active.alloc(byteLength);
         if (pointer === 0) {
             dispose();
-            throw new PdfSearchNativeError(
-                'too-large',
-                'evb-pdf-search could not allocate request memory',
-            );
+            throw new PdfSearchNativeError('too-large', 'evb-pdf-search could not allocate request memory');
         }
         let resultCode: number;
         try {
@@ -186,10 +163,7 @@ export function createPdfSearchWasmRunner(
             }
         }
 
-        if (
-            (envelope !== null && envelope.code === 'panic')
-            || active.memory.buffer.byteLength > highWaterBytes
-        ) {
+        if ((envelope !== null && envelope.code === 'panic') || active.memory.buffer.byteLength > highWaterBytes) {
             dispose();
         }
         if (envelope !== null) {
@@ -207,11 +181,13 @@ export function createPdfSearchWasmRunner(
 
 let cachedModulePromise: Promise<WebAssembly.Module> | null = null;
 
-export function resolvePdfSearchWasmPath(options: {
-    currentDir?: string;
-    isPackaged?: boolean;
-    resourcesPath?: string;
-} = {}) {
+export function resolvePdfSearchWasmPath(
+    options: {
+        currentDir?: string;
+        isPackaged?: boolean;
+        resourcesPath?: string;
+    } = {},
+) {
     const currentDir = options.currentDir ?? __dirname;
     const isPackaged = options.isPackaged ?? currentDir.includes('app.asar');
     if (isPackaged) {
@@ -227,20 +203,20 @@ export function resolvePdfSearchWasmPath(options: {
         join(currentDir, '..', '..', '..', 'public', 'wasm', 'evb-pdf-search.wasm'),
         join(process.cwd(), 'public', 'wasm', 'evb-pdf-search.wasm'),
     ];
-    return candidates.find(candidate => existsSync(candidate)) ?? candidates.at(-1)!;
+    return candidates.find((candidate) => existsSync(candidate)) ?? candidates.at(-1)!;
 }
 
 export function loadPdfSearchWasmModule(wasmPath?: string): Promise<WebAssembly.Module> {
     if (wasmPath !== undefined) {
-        return readFile(wasmPath).then(bytes => WebAssembly.compile(bytes));
+        return readFile(wasmPath).then((bytes) => WebAssembly.compile(bytes));
     }
-    const pending = cachedModulePromise ??= readFile(resolvePdfSearchWasmPath())
-        .then(bytes => WebAssembly.compile(bytes))
+    const pending = (cachedModulePromise ??= readFile(resolvePdfSearchWasmPath())
+        .then((bytes) => WebAssembly.compile(bytes))
         .catch((error: unknown) => {
             if (cachedModulePromise === pending) {
                 cachedModulePromise = null;
             }
             throw error;
-        });
+        }));
     return pending;
 }

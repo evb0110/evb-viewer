@@ -1,18 +1,12 @@
-import { readFileSync } from 'node:fs';
-import { assertPackagedToolSmoke } from './native-tool-smoke-policy.mjs';
-import { getCliErrorMessage } from '../lib/cli-error.mjs';
+import {readFileSync} from 'node:fs';
+import {assertPackagedToolSmoke} from './native-tool-smoke-policy.mjs';
+import {getCliErrorMessage} from '../lib/cli-error.mjs';
 
 function main() {
-    const [
-        toolName,
-        exitCodeRaw,
-        outputFile,
-    ] = process.argv.slice(2);
+    const [toolName, exitCodeRaw, outputFile] = process.argv.slice(2);
 
     if (!toolName || !exitCodeRaw || !outputFile) {
-        throw new Error(
-            'Usage: node scripts/release/assert-packaged-tool-smoke.mjs <tool-name> <exit-code> <output-file>',
-        );
+        throw new Error('Usage: node scripts/release/assert-packaged-tool-smoke.mjs <tool-name> <exit-code> <output-file>');
     }
 
     const exitCode = Number.parseInt(exitCodeRaw, 10);

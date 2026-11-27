@@ -1,8 +1,5 @@
-import type {
-    CDPSession,
-    Page,
-} from 'puppeteer-core';
-import { delay } from 'es-toolkit/promise';
+import type {CDPSession, Page} from 'puppeteer-core';
+import {delay} from 'es-toolkit/promise';
 
 // macOS keeps delivering wheel events for one to three seconds after the
 // fingers leave the trackpad, with deltas that decay towards zero, and it
@@ -58,19 +55,12 @@ async function detachQuietly(client: CDPSession) {
  * Starts a decaying wheel burst and returns immediately, so the caller can
  * deliver other trusted input while the burst is still running.
  */
-export async function startTrustedWheelFling(
-    page: Page,
-    options: ITrustedWheelFlingOptions,
-): Promise<ITrustedWheelFlingRun> {
+export async function startTrustedWheelFling(page: Page, options: ITrustedWheelFlingOptions): Promise<ITrustedWheelFlingRun> {
     // A dedicated CDP session keeps the burst off the page's own input queue,
     // so a concurrent page.mouse.click is not serialized behind it.
     const client = await page.createCDPSession();
     const intervalMs = options.intervalMs ?? DEFAULT_INTERVAL_MS;
-    const {
-        decayPerMs,
-        initialMagnitude,
-        sign,
-    } = resolveBurstShape(options);
+    const {decayPerMs, initialMagnitude, sign} = resolveBurstShape(options);
     const startedAt = Date.now();
     let stopped = false;
 
@@ -91,7 +81,7 @@ export async function startTrustedWheelFling(
                     pointerType: 'mouse',
                 });
                 dispatched += 1;
-                const remainingMs = startedAt + ((tick + 1) * intervalMs) - Date.now();
+                const remainingMs = startedAt + (tick + 1) * intervalMs - Date.now();
                 if (remainingMs > 0) {
                     await delay(remainingMs);
                 }

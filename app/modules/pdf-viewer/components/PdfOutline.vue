@@ -17,7 +17,10 @@
                 v-if="isLoadingIndicatorVisible"
                 class="pdf-bookmarks-loading"
             >
-                <AppSpinner size="md" tone="muted" />
+                <AppSpinner
+                    size="md"
+                    tone="muted"
+                />
                 <span>{{ t('bookmarks.loading') }}</span>
             </div>
         </template>
@@ -33,7 +36,10 @@
             icon="i-ph-book-open"
             :title="t('bookmarks.noBookmarks')"
         >
-            <template v-if="isEditMode" #action>
+            <template
+                v-if="isEditMode"
+                #action
+            >
                 <UButton
                     type="button"
                     icon="i-ph-plus"
@@ -83,10 +89,13 @@
             @drop-bookmark="handleBookmarkDrop"
             @drag-end="handleBookmarkDragEnd"
         >
-            <template v-if="isEditMode" #after>
+            <template
+                v-if="isEditMode"
+                #after
+            >
                 <div
                     class="pdf-bookmarks-drop-end"
-                    :class="{ 'is-active': dragDrop.isRootAppendDropTarget.value }"
+                    :class="{'is-active': dragDrop.isRootAppendDropTarget.value}"
                     @dragover.prevent="handleTreeEndDragOver"
                     @drop.prevent="handleTreeEndDrop"
                 />
@@ -113,30 +122,21 @@
 </template>
 
 <script setup lang="ts">
-import { useTimeoutFn } from '@vueuse/core';
+import {useTimeoutFn} from '@vueuse/core';
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import {
-    BOOKMARK_INITIAL_SELECTION_BUDGET_MS,
-    BOOKMARK_LOADING_INDICATOR_DELAY_MS,
-} from '@app/constants/timeouts';
+import {BOOKMARK_INITIAL_SELECTION_BUDGET_MS, BOOKMARK_LOADING_INDICATOR_DELAY_MS} from '@app/constants/timeouts';
 
-
-import type {
-    IBookmarkItem,
-    IBookmarkDropPayload,
-    IBookmarkIdentityInput,
-    TBookmarkDisplayMode,
-} from '@app/types/pdfOutline';
+import type {IBookmarkItem, IBookmarkDropPayload, IBookmarkIdentityInput, TBookmarkDisplayMode} from '@app/types/pdfOutline';
 import type {IPdfBookmarkEntry} from '@app/types/pdfContracts';
-import type { IPdfBookmarkChangePayload } from '@app/types/pdfUi';
+import type {IPdfBookmarkChangePayload} from '@app/types/pdfUi';
 import type {
     IDocumentBookmarkTreeItem,
     TDocumentBookmarkPersistenceRefusal,
     TDocumentBookmarkStatus,
 } from '@app/modules/document-viewer/public';
-import { isDocumentBookmarkExpanded } from '@app/modules/document-viewer/public';
-import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
-import { isPdfDocumentUsable } from '@app/utils/isPdfDocumentUsable';
+import {isDocumentBookmarkExpanded} from '@app/modules/document-viewer/public';
+import type {IScrollToPageOptions} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
+import {isPdfDocumentUsable} from '@app/utils/isPdfDocumentUsable';
 import {
     buildOutlineFromBookmarkEntries,
     flattenBookmarks,
@@ -145,23 +145,23 @@ import {
     resolveBookmarkPageTargets,
     resolveMaxBookmarkDepth,
 } from '@app/utils/pdfOutlineHelpers';
-import { usePdfOutlineSelection } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineSelection';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { usePdfOutlineDragDrop } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineDragDrop';
-import { usePdfOutlineEditing } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineEditing';
-import { usePdfOutlineContextMenu } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineContextMenu';
+import {usePdfOutlineSelection} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineSelection';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {usePdfOutlineDragDrop} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineDragDrop';
+import {usePdfOutlineEditing} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineEditing';
+import {usePdfOutlineContextMenu} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineContextMenu';
 import AppSpinner from '@app/components/AppSpinner.vue';
 import PdfOutlineContextMenu from '@app/modules/pdf-viewer/components/PdfOutlineContextMenu.vue';
 import DocumentPanelEmptyState from '@app/components/document-viewer/DocumentPanelEmptyState.vue';
 import DocumentBookmarkToolbar from '@app/components/document-viewer/DocumentBookmarkToolbar.vue';
 import DocumentBookmarkTree from '@app/components/document-viewer/DocumentBookmarkTree.vue';
-import { navigateToBookmarkDestination } from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/navigateToBookmarkDestination';
-import { createBookmarkIdentityFactory } from '@app/modules/pdf-viewer/engine/pdf-outline-identity/createBookmarkIdentityFactory';
-import { areBookmarkEntriesEqual } from '@app/modules/pdf-viewer/engine/pdf-outline-tree/areBookmarkEntriesEqual';
-import { requirePageIndex } from '@contracts/pageNumbers';
-import { PDF_NATIVE_MUTATION_LIMITS } from '@contracts/nativePdfMutations';
-import type { TDocumentRef } from '@contracts/documentRef';
-import { getPageOpsCapability } from '@app/utils/platformDocuments';
+import {navigateToBookmarkDestination} from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/navigateToBookmarkDestination';
+import {createBookmarkIdentityFactory} from '@app/modules/pdf-viewer/engine/pdf-outline-identity/createBookmarkIdentityFactory';
+import {areBookmarkEntriesEqual} from '@app/modules/pdf-viewer/engine/pdf-outline-tree/areBookmarkEntriesEqual';
+import {requirePageIndex} from '@contracts/pageNumbers';
+import {PDF_NATIVE_MUTATION_LIMITS} from '@contracts/nativePdfMutations';
+import type {TDocumentRef} from '@contracts/documentRef';
+import {getPageOpsCapability} from '@app/utils/platformDocuments';
 
 interface IProps {
     pdfDocument: IPdfDocument | null;
@@ -173,14 +173,7 @@ interface IProps {
     bookmarksDirty?: boolean | undefined;
 }
 
-const {
-    pdfDocument,
-    documentRef,
-    currentPage,
-    isEditMode: isEditModeProp,
-    bookmarkItems,
-    bookmarksDirty,
-} = defineProps<IProps>();
+const {pdfDocument, documentRef, currentPage, isEditMode: isEditModeProp, bookmarkItems, bookmarksDirty} = defineProps<IProps>();
 
 const emit = defineEmits<{
     goToPage: [page: number, options?: IScrollToPageOptions];
@@ -192,7 +185,7 @@ function toggleEditMode() {
     isEditMode.value = !isEditMode.value;
 }
 
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 
 const bookmarkTreeRef = useTemplateRef<InstanceType<typeof DocumentBookmarkTree>>('bookmarkTreeRef');
 const bookmarks = ref<IBookmarkItem[]>([]);
@@ -243,17 +236,19 @@ const bookmarkStatus = computed<TDocumentBookmarkStatus>(() => {
     }
     return bookmarks.value.length === 0 ? 'empty' : 'ready';
 });
-const isBookmarkToolbarVisible = computed(() => (
-    bookmarkStatus.value === 'ready'
-        || bookmarkStatus.value === 'empty'
-        || bookmarkStatus.value === 'unpersistable'
-));
+const isBookmarkToolbarVisible = computed(
+    () => bookmarkStatus.value === 'ready' || bookmarkStatus.value === 'empty' || bookmarkStatus.value === 'unpersistable',
+);
 
-watch(outlinePersistenceBlocked, blocked => {
-    if (blocked && isEditModeProp) {
-        emit('update:isEditMode', false);
-    }
-}, {flush: 'post'});
+watch(
+    outlinePersistenceBlocked,
+    (blocked) => {
+        if (blocked && isEditModeProp) {
+            emit('update:isEditMode', false);
+        }
+    },
+    {flush: 'post'},
+);
 
 const isEditMode = computed({
     get: () => isEditModeProp && !outlinePersistenceBlocked.value,
@@ -312,14 +307,15 @@ function createBookmarkIdentity() {
 
 let bookmarkIdentity = createBookmarkIdentity();
 
-const {
-    start: startLoadingIndicatorDelay,
-    stop: cancelLoadingIndicatorDelay,
-} = useTimeoutFn(() => {
-    if (isLoading.value) {
-        isLoadingIndicatorVisible.value = true;
-    }
-}, BOOKMARK_LOADING_INDICATOR_DELAY_MS, {immediate: false});
+const {start: startLoadingIndicatorDelay, stop: cancelLoadingIndicatorDelay} = useTimeoutFn(
+    () => {
+        if (isLoading.value) {
+            isLoadingIndicatorVisible.value = true;
+        }
+    },
+    BOOKMARK_LOADING_INDICATOR_DELAY_MS,
+    {immediate: false},
+);
 
 function stopOutlineLoading() {
     cancelLoadingIndicatorDelay();
@@ -362,7 +358,7 @@ function isBookmarkGrowthRefused() {
 
 const sharedBookmarkItems = computed<IDocumentBookmarkTreeItem[]>(() => {
     function mapItems(items: readonly IBookmarkItem[]): IDocumentBookmarkTreeItem[] {
-        return items.map(item => ({
+        return items.map((item) => ({
             id: item.id,
             title: item.title,
             pageNumber: item.pageIndex === null ? null : item.pageIndex + 1,
@@ -378,38 +374,20 @@ const sharedBookmarkItems = computed<IDocumentBookmarkTreeItem[]>(() => {
 
 const bookmarkOrderIndexMap = computed(() => {
     const map = new Map<string, number>();
-    for (const [
-        index,
-        item,
-    ] of flatBookmarks.value.entries()) {
+    for (const [index, item] of flatBookmarks.value.entries()) {
         map.set(item.id, index);
     }
     return map;
 });
 
-const selection = usePdfOutlineSelection(
-    bookmarks,
-    activeItemId,
-    displayMode,
-    expandedBookmarkIds,
-    activePathBookmarkIds,
-);
+const selection = usePdfOutlineSelection(bookmarks, activeItemId, displayMode, expandedBookmarkIds, activePathBookmarkIds);
 
-const contextMenuApi = usePdfOutlineContextMenu(
-    bookmarks,
-    isEditMode,
-    () => {
-        editing.cancelEditingBookmark();
-        dragDrop.resetDragState();
-    },
-);
+const contextMenuApi = usePdfOutlineContextMenu(bookmarks, isEditMode, () => {
+    editing.cancelEditingBookmark();
+    dragDrop.resetDragState();
+});
 
-const {
-    bookmarkContextMenu,
-    selectedContextBookmark,
-    openBookmarkContextMenu,
-    closeBookmarkContextMenu,
-} = contextMenuApi;
+const {bookmarkContextMenu, selectedContextBookmark, openBookmarkContextMenu, closeBookmarkContextMenu} = contextMenuApi;
 
 const dragDrop = usePdfOutlineDragDrop(
     bookmarks,
@@ -447,10 +425,7 @@ function addRootBookmark() {
     editing.addRootBookmark();
 }
 
-function renameBookmark(payload: {
-    id: string;
-    title: string;
-}) {
+function renameBookmark(payload: {id: string; title: string}) {
     editing.renameBookmark(payload);
 }
 
@@ -458,7 +433,7 @@ function cancelEditingBookmark() {
     editing.cancelEditingBookmark();
 }
 
-function handleBookmarkDragStart(payload: { id: string }) {
+function handleBookmarkDragStart(payload: {id: string}) {
     dragDrop.handleBookmarkDragStart(payload);
 }
 
@@ -497,8 +472,12 @@ function addChildBookmark(id: string) {
         return;
     }
     let depth = 0;
-    for (let parent = parentBookmarkIdMap.value.get(id); parent; parent = parentBookmarkIdMap.value.get(parent)) {depth += 1;}
-    if (depth + 1 < nativeBookmarkDepthLimit) {editing.addChildBookmark(id);}
+    for (let parent = parentBookmarkIdMap.value.get(id); parent; parent = parentBookmarkIdMap.value.get(parent)) {
+        depth += 1;
+    }
+    if (depth + 1 < nativeBookmarkDepthLimit) {
+        editing.addChildBookmark(id);
+    }
 }
 
 function toggleBookmarkBold(id: string) {
@@ -509,10 +488,7 @@ function toggleBookmarkItalic(id: string) {
     editing.toggleBookmarkItalic(id);
 }
 
-function setBookmarkColor(payload: {
-    id: string;
-    color: string | null;
-}) {
+function setBookmarkColor(payload: {id: string; color: string | null}) {
     editing.setBookmarkColor(payload.id, payload.color);
 }
 
@@ -527,13 +503,9 @@ async function removeBookmark(id?: string) {
     await bookmarkTreeRef.value?.focusActiveRow();
 }
 
-const selectedBookmarkDeleteCount = computed(() => (
-    editing.resolveRootBookmarkIds(selection.selectedBookmarkIds.value).length
-));
+const selectedBookmarkDeleteCount = computed(() => editing.resolveRootBookmarkIds(selection.selectedBookmarkIds.value).length);
 
-const contextStyleSummary = computed(() => (
-    editing.resolveBookmarkStyleSummary(selectedContextBookmark.value?.id ?? '')
-));
+const contextStyleSummary = computed(() => editing.resolveBookmarkStyleSummary(selectedContextBookmark.value?.id ?? ''));
 
 const contextRemoveBookmarkLabel = computed(() => {
     const contextBookmark = selectedContextBookmark.value;
@@ -546,7 +518,7 @@ const contextRemoveBookmarkLabel = computed(() => {
         return t('bookmarks.removeBookmark');
     }
 
-    return t('bookmarks.removeSelectedBookmarks', { count });
+    return t('bookmarks.removeSelectedBookmarks', {count});
 });
 
 let outlineRunId = 0;
@@ -598,21 +570,28 @@ async function updateActiveItemFromCurrentPage() {
             bookmarkPageRefCache,
             controller.signal,
         );
-        if (!targets) {return;}
+        if (!targets) {
+            return;
+        }
     } catch (error) {
-        if (controller.signal.aborted) {return;}
+        if (controller.signal.aborted) {
+            return;
+        }
         throw error;
     }
-    if (!targets) {return;}
-    if (controller.signal.aborted || currentPage !== targetCurrentPage || pdfDocument !== targetPdfDocument) {return;}
+    if (!targets) {
+        return;
+    }
+    if (controller.signal.aborted || currentPage !== targetCurrentPage || pdfDocument !== targetPdfDocument) {
+        return;
+    }
     activeItemResolution = null;
     // The vertical anchor is saved with the page; without it an unrelated edit
     // would rewrite the bookmark to the top of its page.
-    for (const [
-        item,
-        target,
-    ] of targets) {
-        if (!target) {continue;}
+    for (const [item, target] of targets) {
+        if (!target) {
+            continue;
+        }
         item.pageIndex ??= requirePageIndex(target.pageIndex);
         item.pageYRatio ??= target.pageYRatio;
     }
@@ -620,7 +599,7 @@ async function updateActiveItemFromCurrentPage() {
         items,
         targetCurrentPage,
         activeItemId.value,
-        item => targets.get(item)?.pageIndex ?? null,
+        (item) => targets.get(item)?.pageIndex ?? null,
     );
     activeItemId.value = active?.id ?? null;
     if (!isEditMode.value) {
@@ -642,13 +621,12 @@ function syncBookmarkBaselineFromCurrentItems() {
     initialBookmarkEntries.value = editing.mapBookmarksForPersistence(bookmarks.value);
 }
 
-function applyPendingBookmarkItems(
-    entries: IPdfBookmarkEntry[],
-    options: { syncBaseline?: boolean } = {},
-) {
+function applyPendingBookmarkItems(entries: IPdfBookmarkEntry[], options: {syncBaseline?: boolean} = {}) {
     outlineError.value = false;
     if (areBookmarkEntriesEqual(entries, editing.mapBookmarksForPersistence(bookmarks.value))) {
-        if (options.syncBaseline) {syncBookmarkBaselineFromCurrentItems();}
+        if (options.syncBaseline) {
+            syncBookmarkBaselineFromCurrentItems();
+        }
         return;
     }
 
@@ -661,7 +639,9 @@ function applyPendingBookmarkItems(
     expandedBookmarkIds.value = new Set();
     activeItemId.value = null;
     void updateActiveItemFromCurrentPage();
-    if (options.syncBaseline) {syncBookmarkBaselineFromCurrentItems();}
+    if (options.syncBaseline) {
+        syncBookmarkBaselineFromCurrentItems();
+    }
 }
 
 function applyDocumentBookmarkItems() {
@@ -698,11 +678,7 @@ function clearLoadedOutline() {
 }
 
 function isStaleOutlineRun(runId: number, expectedPdfDocument: IPdfDocument) {
-    return (
-        runId !== outlineRunId ||
-        pdfDocument !== expectedPdfDocument ||
-        !isPdfDocumentUsable(expectedPdfDocument)
-    );
+    return runId !== outlineRunId || pdfDocument !== expectedPdfDocument || !isPdfDocumentUsable(expectedPdfDocument);
 }
 
 // The native catalog reader owns the outline: it keeps a source name as the
@@ -739,11 +715,7 @@ async function applyLoadedBookmarks(resolved: IBookmarkItem[]) {
     }
 }
 
-function handleOutlineLoadError(
-    error: unknown,
-    runId: number,
-    pdfDocument: IPdfDocument,
-) {
+function handleOutlineLoadError(error: unknown, runId: number, pdfDocument: IPdfDocument) {
     if (isStaleOutlineRun(runId, pdfDocument)) {
         return;
     }
@@ -814,7 +786,7 @@ function setDisplayMode(mode: TBookmarkDisplayMode) {
 }
 
 function activateSharedBookmark(id: string, event?: MouseEvent | KeyboardEvent) {
-    const item = flatBookmarks.value.find(candidate => candidate.id === id);
+    const item = flatBookmarks.value.find((candidate) => candidate.id === id);
     if (!item) {
         return;
     }
@@ -878,26 +850,13 @@ function handleTreeEndDrop() {
     dragDrop.handleTreeEndDrop(activeItemId, emitBookmarksChange);
 }
 
-watch(
-    [
-        () => pdfDocument,
-        () => documentRef,
-    ],
-    () => loadOutline(),
-    { immediate: true },
-);
+watch([() => pdfDocument, () => documentRef], () => loadOutline(), {immediate: true});
 
 watch(
-    [
-        () => bookmarksDirty,
-        () => bookmarkItems,
-    ],
-    ([
-        isDirty,
-        externalItems,
-    ]) => {
+    [() => bookmarksDirty, () => bookmarkItems],
+    ([isDirty, externalItems]) => {
         if (externalItems) {
-            applyPendingBookmarkItems(externalItems, { syncBaseline: !isDirty });
+            applyPendingBookmarkItems(externalItems, {syncBaseline: !isDirty});
         }
     },
     {immediate: true},
@@ -965,5 +924,4 @@ onBeforeUnmount(() => {
     background: color-mix(in srgb, var(--ui-primary) 12%, transparent 88%);
     box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--ui-primary) 72%, transparent 28%);
 }
-
 </style>

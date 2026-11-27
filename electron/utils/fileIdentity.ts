@@ -1,7 +1,4 @@
-import {
-    lstat,
-    stat,
-} from 'fs/promises';
+import {lstat, stat} from 'fs/promises';
 import {isErrnoException} from '@contracts/runtimeGuards';
 import * as v from 'valibot';
 
@@ -21,7 +18,10 @@ export const fileIdentitySchema = v.union([
         size: v.string(),
         mtimeNs: v.string(),
     }),
-    v.pipe(v.object({mtimeMs: v.number()}), v.transform(() => null)),
+    v.pipe(
+        v.object({mtimeMs: v.number()}),
+        v.transform(() => null),
+    ),
 ]);
 
 // Null when nothing is at the path. A rename keeps this identity, so a file
@@ -48,15 +48,17 @@ export async function readFileIdentity(filePath: string): Promise<IFileIdentity 
 // bigints: NTFS IDs exceed 2^53, so a Number can join two different files.
 export async function isSameFile(path: string, otherPath: string) {
     const first = await stat(path, {bigint: true}).catch(() => null);
-    const second = first && await stat(otherPath, {bigint: true}).catch(() => null);
+    const second = first && (await stat(otherPath, {bigint: true}).catch(() => null));
     return first !== null && first.dev === second?.dev && first.ino === second.ino;
 }
 
 export function isSameFileIdentity(first: IFileIdentity | null, second: IFileIdentity | null) {
-    return first !== null
-        && second !== null
-        && first.dev === second.dev
-        && first.ino === second.ino
-        && first.size === second.size
-        && first.mtimeNs === second.mtimeNs;
+    return (
+        first !== null &&
+        second !== null &&
+        first.dev === second.dev &&
+        first.ino === second.ino &&
+        first.size === second.size &&
+        first.mtimeNs === second.mtimeNs
+    );
 }

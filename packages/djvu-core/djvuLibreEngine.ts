@@ -1,8 +1,5 @@
-import {
-    DJVU_COMPACT_FOREGROUND_SUBSAMPLE,
-    DJVU_COMPACT_REAL_MASK_MIN_BYTES,
-} from '@contracts/djvuConversionPolicy';
-import { DJVU_SEARCH_MAX_PAGE_ZONES } from '@contracts/djvuResourceLimits';
+import {DJVU_COMPACT_FOREGROUND_SUBSAMPLE, DJVU_COMPACT_REAL_MASK_MIN_BYTES} from '@contracts/djvuConversionPolicy';
+import {DJVU_SEARCH_MAX_PAGE_ZONES} from '@contracts/djvuResourceLimits';
 import type {
     IDjvuComponentDirectory,
     IDjvuDocInfo,
@@ -19,20 +16,10 @@ import type {
     TDjvuRenderMode,
 } from '@djvu-core/djvuLibreTypes';
 
-export type {
-    IDjvuPageLayerSummary,
-    TDjvuLibreModuleFactory,
-};
-import { DJVU_OUTLINE_MAX_BYTES } from '@djvu-core/djvuOutline';
-import {
-    DJVU_MAX_COMPONENT_BYTES,
-    DJVU_MAX_LEGACY_BUNDLED_BYTES,
-} from '@djvu-core/djvuSourceLayout';
-import {
-    analyzeForegroundColorRaster,
-    encodePbmP4,
-    encodePpmP6,
-} from '@djvu-core/djvuPnm';
+export type {IDjvuPageLayerSummary, TDjvuLibreModuleFactory};
+import {DJVU_OUTLINE_MAX_BYTES} from '@djvu-core/djvuOutline';
+import {DJVU_MAX_COMPONENT_BYTES, DJVU_MAX_LEGACY_BUNDLED_BYTES} from '@djvu-core/djvuSourceLayout';
+import {analyzeForegroundColorRaster, encodePbmP4, encodePpmP6} from '@djvu-core/djvuPnm';
 
 const EVB_DJVU_OK = 0;
 const EVB_DJVU_NEED_COMPONENT = 1;
@@ -95,16 +82,22 @@ export interface IDjvuLibreDocument {
         height: number;
         rgb: Uint8Array;
     } | null>;
-    renderPagePpm(pageNumber: number, options?: Omit<IDjvuRenderPageOptions, 'pixelFormat'>): Promise<{
+    renderPagePpm(
+        pageNumber: number,
+        options?: Omit<IDjvuRenderPageOptions, 'pixelFormat'>,
+    ): Promise<{
         width: number;
         height: number;
         ppm: Uint8Array;
     } | null>;
     getOutline(): Promise<IDjvuOutlineRawItem[]>;
-    getPageText(pageNumber: number, options?: {
-        includeZones?: boolean;
-        maxZones?: number;
-    }): Promise<IDjvuPageTextRaw>;
+    getPageText(
+        pageNumber: number,
+        options?: {
+            includeZones?: boolean;
+            maxZones?: number;
+        },
+    ): Promise<IDjvuPageTextRaw>;
     pageHasText(pageNumber: number): Promise<boolean>;
     hasText(maxPages?: number): Promise<boolean>;
     getMetadata(): Promise<Record<string, string>>;
@@ -161,8 +154,8 @@ export function createDjvuLibreEngine(source: IDjvuLibreEngineSource): IDjvuLibr
                     engine.factory({
                         instantiateWasm(imports, receive) {
                             WebAssembly.instantiate(engine.module, imports).then(
-                                created => receive(created, engine.module),
-                                error => rejectInstantiate(error),
+                                (created) => receive(created, engine.module),
+                                (error) => rejectInstantiate(error),
                             );
                             return {};
                         },
@@ -224,9 +217,7 @@ export function createDjvuLibreEngine(source: IDjvuLibreEngineSource): IDjvuLibr
 
     const provideComponent = (mod: IDjvuLibreEmscriptenModule, handle: number, name: string, bytes: Uint8Array) => {
         if (bytes.byteLength > DJVU_MAX_COMPONENT_BYTES) {
-            throw new RangeError(
-                `DjVu component ${name} (${bytes.byteLength} bytes) exceeds the ${DJVU_MAX_COMPONENT_BYTES}-byte limit`,
-            );
+            throw new RangeError(`DjVu component ${name} (${bytes.byteLength} bytes) exceeds the ${DJVU_MAX_COMPONENT_BYTES}-byte limit`);
         }
         const nameByteLength = mod.lengthBytesUTF8(name);
         const namePtr = mod._malloc(nameByteLength + 1);
@@ -279,12 +270,7 @@ export function createDjvuLibreEngine(source: IDjvuLibreEngineSource): IDjvuLibr
                 if (options.initBytes.byteLength > 0) {
                     mod.HEAPU8.set(options.initBytes, initPtr);
                 }
-                handle = mod._evb_djvu_open(
-                    docId,
-                    initPtr,
-                    options.initBytes.byteLength,
-                    options.cacheBytes ?? DEFAULT_CACHE_BYTES,
-                );
+                handle = mod._evb_djvu_open(docId, initPtr, options.initBytes.byteLength, options.cacheBytes ?? DEFAULT_CACHE_BYTES);
             } finally {
                 mod._free(initPtr);
             }
@@ -347,8 +333,8 @@ export function createDjvuLibreEngine(source: IDjvuLibreEngineSource): IDjvuLibr
                         return null;
                     }
                     return {
-                        names: info.files.map(file => file.id || file.name),
-                        flags: info.files.map(file => DIRM_TYPE_FLAGS[file.type] ?? 0),
+                        names: info.files.map((file) => file.id || file.name),
+                        flags: info.files.map((file) => DIRM_TYPE_FLAGS[file.type] ?? 0),
                     };
                 },
                 getPageInfo(pageNumber) {
@@ -365,7 +351,7 @@ export function createDjvuLibreEngine(source: IDjvuLibreEngineSource): IDjvuLibr
                 },
                 async getPageLayerSummary(pageNumber, defaultForegroundSubsample = DJVU_COMPACT_FOREGROUND_SUBSAMPLE) {
                     const structure = await doc.getPageStructure(pageNumber);
-                    const info = structure.info ?? await doc.getPageInfo(pageNumber);
+                    const info = structure.info ?? (await doc.getPageInfo(pageNumber));
                     const width = info.width;
                     const height = info.height;
                     const dpi = info.dpi;
@@ -376,17 +362,10 @@ export function createDjvuLibreEngine(source: IDjvuLibreEngineSource): IDjvuLibr
                     const backgroundHeight = structure.background?.height ?? null;
 
                     let foreground = null;
-                    if (
-                        maskChunkBytes !== null
-                        && maskChunkBytes >= DJVU_COMPACT_REAL_MASK_MIN_BYTES
-                        && structure.foreground?.present
-                    ) {
-                        const fgSubsample = deriveLayerSubsample(
-                            width,
-                            height,
-                            structure.foreground.width,
-                            structure.foreground.height,
-                        ) ?? Math.max(1, Math.trunc(defaultForegroundSubsample));
+                    if (maskChunkBytes !== null && maskChunkBytes >= DJVU_COMPACT_REAL_MASK_MIN_BYTES && structure.foreground?.present) {
+                        const fgSubsample =
+                            deriveLayerSubsample(width, height, structure.foreground.width, structure.foreground.height) ??
+                            Math.max(1, Math.trunc(defaultForegroundSubsample));
                         const targetWidth = Math.max(1, Math.ceil(width / fgSubsample));
                         const targetHeight = Math.max(1, Math.ceil(height / fgSubsample));
                         const rendered = await doc.renderPage(pageNumber, {
@@ -396,12 +375,7 @@ export function createDjvuLibreEngine(source: IDjvuLibreEngineSource): IDjvuLibr
                             targetHeight,
                         });
                         if (rendered.present && rendered.bytes.byteLength > 0) {
-                            foreground = analyzeForegroundColorRaster(
-                                rendered.bytes,
-                                rendered.width,
-                                rendered.height,
-                                3,
-                            );
+                            foreground = analyzeForegroundColorRaster(rendered.bytes, rendered.width, rendered.height, 3);
                         }
                     }
 
@@ -424,18 +398,20 @@ export function createDjvuLibreEngine(source: IDjvuLibreEngineSource): IDjvuLibr
                         const fullW = renderOptions.targetWidth ?? 0;
                         const fullH = renderOptions.targetHeight ?? 0;
                         const rect = renderOptions.rect;
-                        await callWithComponentRetry(() => mod._evb_djvu_render_page(
-                            handle,
-                            pageNumber - 1,
-                            RENDER_MODE_CODES[mode],
-                            PIXEL_FORMAT_CODES[pixelFormat],
-                            fullW,
-                            fullH,
-                            rect?.x ?? 0,
-                            rect?.y ?? 0,
-                            rect?.width ?? fullW,
-                            rect?.height ?? fullH,
-                        ));
+                        await callWithComponentRetry(() =>
+                            mod._evb_djvu_render_page(
+                                handle,
+                                pageNumber - 1,
+                                RENDER_MODE_CODES[mode],
+                                PIXEL_FORMAT_CODES[pixelFormat],
+                                fullW,
+                                fullH,
+                                rect?.x ?? 0,
+                                rect?.y ?? 0,
+                                rect?.width ?? fullW,
+                                rect?.height ?? fullH,
+                            ),
+                        );
                         const width = mod._evb_djvu_render_width();
                         const height = mod._evb_djvu_render_height();
                         const present = mod._evb_djvu_render_present() !== 0;
@@ -464,13 +440,9 @@ export function createDjvuLibreEngine(source: IDjvuLibreEngineSource): IDjvuLibr
                     if (!structure.background?.present) {
                         return null;
                     }
-                    const pageInfo = structure.info ?? await doc.getPageInfo(pageNumber);
-                    const bgSubsample = deriveLayerSubsample(
-                        pageInfo.width,
-                        pageInfo.height,
-                        structure.background.width,
-                        structure.background.height,
-                    ) ?? 1;
+                    const pageInfo = structure.info ?? (await doc.getPageInfo(pageNumber));
+                    const bgSubsample =
+                        deriveLayerSubsample(pageInfo.width, pageInfo.height, structure.background.width, structure.background.height) ?? 1;
                     const targetWidth = Math.max(1, Math.ceil(pageInfo.width / bgSubsample));
                     const targetHeight = Math.max(1, Math.ceil(pageInfo.height / bgSubsample));
                     const rendered = await doc.renderPage(pageNumber, {
@@ -517,12 +489,9 @@ export function createDjvuLibreEngine(source: IDjvuLibreEngineSource): IDjvuLibr
                     return withModuleLock(async () => {
                         const includeZones = textOptions.includeZones ?? true;
                         const maxZones = textOptions.maxZones ?? DJVU_SEARCH_MAX_PAGE_ZONES;
-                        await callWithComponentRetry(() => mod._evb_djvu_get_page_text(
-                            handle,
-                            pageNumber - 1,
-                            includeZones ? 1 : 0,
-                            maxZones,
-                        ));
+                        await callWithComponentRetry(() =>
+                            mod._evb_djvu_get_page_text(handle, pageNumber - 1, includeZones ? 1 : 0, maxZones),
+                        );
                         return JSON.parse(takeOutputText(mod)) as IDjvuPageTextRaw;
                     });
                 },

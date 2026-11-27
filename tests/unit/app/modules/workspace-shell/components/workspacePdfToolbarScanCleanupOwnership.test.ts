@@ -1,20 +1,7 @@
 // @vitest-environment happy-dom
 
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    createApp,
-    defineComponent,
-    h,
-    nextTick,
-    ref,
-    type App,
-} from 'vue';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {createApp, defineComponent, h, nextTick, ref, type App} from 'vue';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requireJobId} from '@contracts/shared';
 import {requireEpochMs} from '@contracts/timestamps';
@@ -24,10 +11,15 @@ import WorkspacePdfToolbarView from '@app/modules/workspace-shell/components/Wor
 
 // Exercise the real reader toolbar's scan-cleanup slot, including its real
 // progress formatter and coordinator state, without mounting unrelated menus.
-vi.mock('@app/modules/pdf-viewer/public/component-exports/pdfToolbar', () => ({PdfToolbar: defineComponent({
-    inheritAttrs: false,
-    setup: (_props, {slots}) => () => h('nav', slots['scan-cleanup']?.()),
-})}));
+vi.mock('@app/modules/pdf-viewer/public/component-exports/pdfToolbar', () => ({
+    PdfToolbar: defineComponent({
+        inheritAttrs: false,
+        setup:
+            (_props, {slots}) =>
+            () =>
+                h('nav', slots['scan-cleanup']?.()),
+    }),
+}));
 
 const sourceA = requireDocumentRef('/docs/a-working-copy.pdf');
 const sourceB = requireDocumentRef('/docs/b-working-copy.pdf');
@@ -35,8 +27,8 @@ const apps: App[] = [];
 const hosts: HTMLElement[] = [];
 
 afterEach(() => {
-    apps.splice(0).forEach(app => app.unmount());
-    hosts.splice(0).forEach(host => host.remove());
+    apps.splice(0).forEach((app) => app.unmount());
+    hosts.splice(0).forEach((host) => host.remove());
     scanCleanupRun.activeJobId = null;
     scanCleanupRun.inFlight = false;
     scanCleanupRun.jobState = null;
@@ -55,23 +47,40 @@ function mountToolbar(documentRef: typeof sourceA) {
         hasPdf: true,
         totalPages: documentRef === sourceA ? 8 : 3,
     };
-    const app = createApp({render: () => h(WorkspacePdfToolbarView, {
-        snapshot,
-        canUseOcr: true,
-        isDesktopRuntime: true,
-        isFullscreen: false,
-        fullscreenSupported: true,
-        isOpeningDocument: false,
-        ocrWorkingCopyPath: documentRef,
-        ocrPopupOpen: false,
-        zoomDropdownOpen: false,
-        pageDropdownOpen: false,
-    })});
-    app.component('AppTooltip', defineComponent({
-        inheritAttrs: false,
-        setup: (_props, {slots}) => () => slots.default?.(),
-    }));
-    app.component('UButton', defineComponent({setup: (_props, {slots}) => () => h('button', slots.default?.())}));
+    const app = createApp({
+        render: () =>
+            h(WorkspacePdfToolbarView, {
+                snapshot,
+                canUseOcr: true,
+                isDesktopRuntime: true,
+                isFullscreen: false,
+                fullscreenSupported: true,
+                isOpeningDocument: false,
+                ocrWorkingCopyPath: documentRef,
+                ocrPopupOpen: false,
+                zoomDropdownOpen: false,
+                pageDropdownOpen: false,
+            }),
+    });
+    app.component(
+        'AppTooltip',
+        defineComponent({
+            inheritAttrs: false,
+            setup:
+                (_props, {slots}) =>
+                () =>
+                    slots.default?.(),
+        }),
+    );
+    app.component(
+        'UButton',
+        defineComponent({
+            setup:
+                (_props, {slots}) =>
+                () =>
+                    h('button', slots.default?.()),
+        }),
+    );
     app.component('UIcon', defineComponent({setup: () => () => h('span')}));
     apps.push(app);
     app.mount(host);

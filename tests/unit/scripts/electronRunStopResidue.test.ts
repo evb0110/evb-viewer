@@ -1,20 +1,7 @@
 import {spawn} from 'node:child_process';
-import {
-    existsSync,
-    mkdirSync,
-    rmSync,
-    utimesSync,
-    writeFileSync,
-} from 'node:fs';
-import {
-    dirname,
-    join,
-} from 'node:path';
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {existsSync, mkdirSync, rmSync, utimesSync, writeFileSync} from 'node:fs';
+import {dirname, join} from 'node:path';
+import {describe, expect, it} from 'vitest';
 import {isProcessAlive} from '@scripts/electron-run/electronRunProcessTree';
 import {
     electronAppTempDirPath,
@@ -52,24 +39,24 @@ async function forceKillAndWait(child: ReturnType<typeof spawn>) {
 // shape of an Electron that outlived a restart with a fresh port.
 function spawnStraySessionElectron(sessionName: string, cdpPort = STRAY_CDP_PORT) {
     const automationAppEntry = join(sessionDir(sessionName), 'automation-electron-app-entry', 'automation-app');
-    const child = spawn(process.execPath, [
-        '-e',
-        'setInterval(() => {}, 1000); process.stdout.write("ready\\n");',
-        '--',
-        automationAppEntry,
-        `--user-data-dir=${electronUserDataPath(sessionName)}`,
-        `--remote-debugging-port=${String(cdpPort)}`,
-    ], {stdio: [
-        'ignore',
-        'pipe',
-        'ignore',
-    ]});
+    const child = spawn(
+        process.execPath,
+        [
+            '-e',
+            'setInterval(() => {}, 1000); process.stdout.write("ready\\n");',
+            '--',
+            automationAppEntry,
+            `--user-data-dir=${electronUserDataPath(sessionName)}`,
+            `--remote-debugging-port=${String(cdpPort)}`,
+        ],
+        {stdio: ['ignore', 'pipe', 'ignore']},
+    );
     const ready = new Promise<void>((resolve, reject) => {
         child.stdout?.once('data', () => resolve());
         child.once('error', reject);
-        child.once('exit', (code, signal) => reject(new Error(
-            `stray child exited before readiness (code ${String(code)}, signal ${String(signal)})`,
-        )));
+        child.once('exit', (code, signal) =>
+            reject(new Error(`stray child exited before readiness (code ${String(code)}, signal ${String(signal)})`)),
+        );
     });
     return {
         child,
@@ -85,14 +72,17 @@ describe('Electron automation stop residue', () => {
         writeFileSync(join(appTempPath, 'pdf-work-orphan', 'document.pdf'), 'stale');
         try {
             mkdirSync(sessionDir(sessionName), {recursive: true});
-            writeFileSync(sessionFilePath(sessionName), JSON.stringify({
-                port: 45_001,
-                pid: UNUSED_PID,
-                cdpPort: 45_002,
-                electronPid: null,
-                nuxtPid: null,
-                nuxtPort: 45_003,
-            }));
+            writeFileSync(
+                sessionFilePath(sessionName),
+                JSON.stringify({
+                    port: 45_001,
+                    pid: UNUSED_PID,
+                    cdpPort: 45_002,
+                    electronPid: null,
+                    nuxtPid: null,
+                    nuxtPort: 45_003,
+                }),
+            );
 
             await expect(stopSingleSession(sessionName)).resolves.toBeUndefined();
 
@@ -115,16 +105,19 @@ describe('Electron automation stop residue', () => {
         mkdirSync(join(appTempPath, 'pdf-work-abandoned-start'), {recursive: true});
         try {
             mkdirSync(sessionDir(sessionName), {recursive: true});
-            writeFileSync(sessionStartingFilePath(sessionName), JSON.stringify({
-                pid: UNUSED_PID,
-                startedAt: 1,
-                electronPids: [],
-                cdpPorts: [],
-                electronUserDataDir: electronUserDataPath(sessionName),
-                nuxtPid: null,
-                nuxtPort: null,
-                runId: null,
-            }));
+            writeFileSync(
+                sessionStartingFilePath(sessionName),
+                JSON.stringify({
+                    pid: UNUSED_PID,
+                    startedAt: 1,
+                    electronPids: [],
+                    cdpPorts: [],
+                    electronUserDataDir: electronUserDataPath(sessionName),
+                    nuxtPid: null,
+                    nuxtPort: null,
+                    runId: null,
+                }),
+            );
 
             await cleanupStaleSessionArtifacts(sessionName);
 
@@ -152,25 +145,25 @@ describe('Electron automation stop residue', () => {
                 appTempPaths.push(appTempPath);
                 sessionDirs.push(sessionDir(sessionName));
                 mkdirSync(join(appTempPath, `pdf-work-${String(index)}`), {recursive: true});
-                writeFileSync(
-                    join(appTempPath, `pdf-work-${String(index)}`, 'document.pdf'),
-                    'small representative working copy',
-                );
+                writeFileSync(join(appTempPath, `pdf-work-${String(index)}`, 'document.pdf'), 'small representative working copy');
                 mkdirSync(sessionDir(sessionName), {recursive: true});
-                writeFileSync(sessionFilePath(sessionName), JSON.stringify({
-                    port: 45_101 + index,
-                    pid: UNUSED_PID,
-                    cdpPort: 45_201 + index,
-                    electronPid: null,
-                    nuxtPid: null,
-                    nuxtPort: 45_301 + index,
-                }));
+                writeFileSync(
+                    sessionFilePath(sessionName),
+                    JSON.stringify({
+                        port: 45_101 + index,
+                        pid: UNUSED_PID,
+                        cdpPort: 45_201 + index,
+                        electronPid: null,
+                        nuxtPid: null,
+                        nuxtPort: 45_301 + index,
+                    }),
+                );
 
                 await expect(stopSingleSession(sessionName)).resolves.toBeUndefined();
                 expect(existsSync(appTempPath)).toBe(false);
             }
 
-            expect(appTempPaths.filter(path => existsSync(path))).toHaveLength(0);
+            expect(appTempPaths.filter((path) => existsSync(path))).toHaveLength(0);
         } finally {
             for (const path of sessionDirs) {
                 rmSync(path, {
@@ -195,21 +188,22 @@ describe('Electron automation stop residue', () => {
         writeFileSync(join(appTempPath, 'pdf-work-recovery', 'document.pdf'), 'recover me');
         try {
             mkdirSync(sessionDir(sessionName), {recursive: true});
-            writeFileSync(sessionFilePath(sessionName), JSON.stringify({
-                port: 45_401,
-                pid: UNUSED_PID,
-                cdpPort: 45_402,
-                electronPid: null,
-                nuxtPid: null,
-                nuxtPort: 45_403,
-            }));
+            writeFileSync(
+                sessionFilePath(sessionName),
+                JSON.stringify({
+                    port: 45_401,
+                    pid: UNUSED_PID,
+                    cdpPort: 45_402,
+                    electronPid: null,
+                    nuxtPid: null,
+                    nuxtPort: 45_403,
+                }),
+            );
             mkdirSync(electronUserDataPath(sessionName), {recursive: true});
             mkdirSync(dirname(checkpointPath), {recursive: true});
             writeFileSync(checkpointPath, '{"checkpoint":true}');
 
-            await expect(
-                stopSingleSession(sessionName, {preserveWorkspaceCheckpoint: true}),
-            ).resolves.toBeUndefined();
+            await expect(stopSingleSession(sessionName, {preserveWorkspaceCheckpoint: true})).resolves.toBeUndefined();
 
             expect(existsSync(appTempPath), 'recovery working copy is retained').toBe(true);
             expect(existsSync(checkpointPath), 'recovery checkpoint is retained').toBe(true);
@@ -235,14 +229,17 @@ describe('Electron automation stop residue', () => {
             try {
                 await stray.ready;
                 mkdirSync(sessionDir(sessionName), {recursive: true});
-                writeFileSync(sessionFilePath(sessionName), JSON.stringify({
-                    port: 1,
-                    pid: UNUSED_PID,
-                    cdpPort: RECORDED_CDP_PORT,
-                    electronPid: null,
-                    nuxtPid: null,
-                    nuxtPort: 3_999,
-                }));
+                writeFileSync(
+                    sessionFilePath(sessionName),
+                    JSON.stringify({
+                        port: 1,
+                        pid: UNUSED_PID,
+                        cdpPort: RECORDED_CDP_PORT,
+                        electronPid: null,
+                        nuxtPid: null,
+                        nuxtPort: 3_999,
+                    }),
+                );
 
                 const failure = await stopSingleSession(sessionName).catch((error: unknown) => error);
 
@@ -279,10 +276,7 @@ describe('Electron automation stop residue', () => {
             const orphan = spawnStraySessionElectron(orphanName, STRAY_CDP_PORT + 1);
             const active = spawnStraySessionElectron(activeName, STRAY_CDP_PORT + 2);
             try {
-                await Promise.all([
-                    orphan.ready,
-                    active.ready,
-                ]);
+                await Promise.all([orphan.ready, active.ready]);
 
                 await expect(stopSingleSession(orphanName)).resolves.toBeUndefined();
 
@@ -321,7 +315,7 @@ describe('Electron automation stop residue', () => {
             const activeName = `e2e-active-profile-${String(process.pid)}-${String(Date.now())}`;
             const staleTempPath = electronAppTempDirPath(staleName);
             const activeTempPath = electronAppTempDirPath(activeName);
-            const staleDate = new Date(Date.now() - (48 * 60 * 60 * 1000));
+            const staleDate = new Date(Date.now() - 48 * 60 * 60 * 1000);
             mkdirSync(join(staleTempPath, 'pdf-work-orphan'), {recursive: true});
             mkdirSync(join(activeTempPath, 'pdf-work-active'), {recursive: true});
             mkdirSync(sessionDir(staleName), {recursive: true});
@@ -330,17 +324,16 @@ describe('Electron automation stop residue', () => {
             const stale = spawnStraySessionElectron(staleName, STRAY_CDP_PORT + 3);
             const active = spawnStraySessionElectron(activeName, STRAY_CDP_PORT + 4);
             try {
-                await Promise.all([
-                    stale.ready,
-                    active.ready,
-                ]);
+                await Promise.all([stale.ready, active.ready]);
 
                 const result = await pruneStaleE2ESessions({
-                    candidates: [{
-                        name: staleName,
-                        path: sessionDir(staleName),
-                        mtimeMs: staleDate.getTime(),
-                    }],
+                    candidates: [
+                        {
+                            name: staleName,
+                            path: sessionDir(staleName),
+                            mtimeMs: staleDate.getTime(),
+                        },
+                    ],
                     maxAgeMs: 60_000,
                 });
 
@@ -379,7 +372,7 @@ describe('Electron automation stop residue', () => {
         const sessionName = `e2e-preserve-checkpoint-${String(process.pid)}-${String(Date.now())}`;
         const appTempPath = electronAppTempDirPath(sessionName);
         const checkpointPath = workspaceCrashCheckpointPath(sessionName);
-        const staleDate = new Date(Date.now() - (48 * 60 * 60 * 1000));
+        const staleDate = new Date(Date.now() - 48 * 60 * 60 * 1000);
         mkdirSync(join(appTempPath, 'pdf-work-recovery'), {recursive: true});
         mkdirSync(sessionDir(sessionName), {recursive: true});
         utimesSync(sessionDir(sessionName), staleDate, staleDate);
@@ -388,20 +381,24 @@ describe('Electron automation stop residue', () => {
         writeFileSync(checkpointPath, '{"checkpoint":true}');
         try {
             const result = await pruneStaleE2ESessions({
-                candidates: [{
-                    name: sessionName,
-                    path: sessionDir(sessionName),
-                    mtimeMs: staleDate.getTime(),
-                }],
+                candidates: [
+                    {
+                        name: sessionName,
+                        path: sessionDir(sessionName),
+                        mtimeMs: staleDate.getTime(),
+                    },
+                ],
                 maxAgeMs: 60_000,
             });
 
             expect(result.stale).toEqual([sessionName]);
             expect(result.removed).toEqual([]);
-            expect(result.refused).toEqual([{
-                name: sessionName,
-                reason: 'workspace recovery evidence is present; retained for later recovery',
-            }]);
+            expect(result.refused).toEqual([
+                {
+                    name: sessionName,
+                    reason: 'workspace recovery evidence is present; retained for later recovery',
+                },
+            ]);
             expect(existsSync(appTempPath), 'checkpointed working copy remains').toBe(true);
             expect(existsSync(checkpointPath), 'checkpoint remains').toBe(true);
         } finally {

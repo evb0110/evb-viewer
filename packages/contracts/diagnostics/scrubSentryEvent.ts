@@ -9,39 +9,14 @@
 
 type TRecord = Record<string, unknown>;
 
-const KEPT_EVENT_KEYS = [
-    'event_id',
-    'timestamp',
-    'level',
-    'platform',
-    'release',
-    'dist',
-    'environment',
-    'sdk',
-] as const;
+const KEPT_EVENT_KEYS = ['event_id', 'timestamp', 'level', 'platform', 'release', 'dist', 'environment', 'sdk'] as const;
 const KEPT_CONTEXT_KEYS: Record<string, readonly string[]> = {
     app: ['app_version'],
-    browser: [
-        'name',
-        'version',
-    ],
-    os: [
-        'name',
-        'version',
-    ],
-    runtime: [
-        'name',
-        'version',
-    ],
+    browser: ['name', 'version'],
+    os: ['name', 'version'],
+    runtime: ['name', 'version'],
 };
-const KEPT_FRAME_KEYS = [
-    'function',
-    'lineno',
-    'colno',
-    'in_app',
-    'platform',
-    'instruction_addr',
-] as const;
+const KEPT_FRAME_KEYS = ['function', 'lineno', 'colno', 'in_app', 'platform', 'instruction_addr'] as const;
 const APP_PATH_MARKER = /(?:^|[\\/])((?:app\.asar|dist-electron|nuxt-output|_nuxt)[\\/].*)$/u;
 const APP_ORIGIN_PREFIX = /^(?:evb-viewer:\/\/app|app:\/\/[^/]*)\//u;
 function isRecord(value: unknown): value is TRecord {
@@ -76,10 +51,7 @@ function scrubFrame(frame: unknown) {
         return {};
     }
     const result = pick(frame, KEPT_FRAME_KEYS);
-    for (const key of [
-        'filename',
-        'abs_path',
-    ] as const) {
+    for (const key of ['filename', 'abs_path'] as const) {
         const path = frame[key];
         if (typeof path === 'string') {
             result[key] = scrubSentryFramePath(path);
@@ -98,10 +70,7 @@ function scrubException(value: unknown) {
         result.value = 'Application error';
     }
     if (isRecord(value.mechanism)) {
-        result.mechanism = pick(value.mechanism, [
-            'type',
-            'handled',
-        ]);
+        result.mechanism = pick(value.mechanism, ['type', 'handled']);
     }
     const frames = isRecord(value.stacktrace) ? value.stacktrace.frames : undefined;
     if (Array.isArray(frames)) {
@@ -112,10 +81,7 @@ function scrubException(value: unknown) {
 
 function scrubContexts(contexts: TRecord) {
     const result: TRecord = {};
-    for (const [
-        name,
-        keys,
-    ] of Object.entries(KEPT_CONTEXT_KEYS)) {
+    for (const [name, keys] of Object.entries(KEPT_CONTEXT_KEYS)) {
         const context = contexts[name];
         if (isRecord(context)) {
             result[name] = pick(context, keys);
@@ -128,18 +94,8 @@ function scrubDebugImage(image: unknown) {
     if (!isRecord(image)) {
         return {};
     }
-    const result = pick(image, [
-        'type',
-        'debug_id',
-        'code_id',
-        'image_addr',
-        'image_size',
-        'arch',
-    ]);
-    for (const key of [
-        'code_file',
-        'debug_file',
-    ] as const) {
+    const result = pick(image, ['type', 'debug_id', 'code_id', 'image_addr', 'image_size', 'arch']);
+    for (const key of ['code_file', 'debug_file'] as const) {
         const path = image[key];
         if (typeof path === 'string') {
             result[key] = scrubSentryFramePath(path);
@@ -152,22 +108,19 @@ export function scrubSentryEvent<T extends object>(event: T): T {
     const source = event as TRecord;
     const result = pick(source, KEPT_EVENT_KEYS);
     if (isRecord(source.tags)) {
-        const tags = Object.fromEntries(Object.entries(source.tags).filter(([
-            key,
-            value,
-        ]) =>
-            key === 'diagnostic_code' && typeof value === 'string' && /^[A-Z][A-Z0-9_]{0,63}$/u.test(value)
-            || key === 'event.process' && (value === 'browser' || value === 'main'),
-        ));
+        const tags = Object.fromEntries(
+            Object.entries(source.tags).filter(
+                ([key, value]) =>
+                    (key === 'diagnostic_code' && typeof value === 'string' && /^[A-Z][A-Z0-9_]{0,63}$/u.test(value)) ||
+                    (key === 'event.process' && (value === 'browser' || value === 'main')),
+            ),
+        );
         if (Object.keys(tags).length > 0) {
             result.tags = tags;
         }
         const code = tags.diagnostic_code;
         if (typeof code === 'string') {
-            result.fingerprint = [
-                '{{ default }}',
-                code,
-            ];
+            result.fingerprint = ['{{ default }}', code];
         }
     }
     const message = isRecord(source.message) ? source.message.formatted : source.message;

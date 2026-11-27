@@ -1,7 +1,7 @@
-import type { Ref } from 'vue';
-import type { TAnnotationTool } from '@app/types/annotations';
-import type { TDocumentSidebarTab } from '@app/modules/document-viewer/public';
-import type { IWorkspacePdfViewerAnnotationToolsPort } from '@app/modules/workspace-shell/types/workspacePdfViewerPorts.types';
+import type {Ref} from 'vue';
+import type {TAnnotationTool} from '@app/types/annotations';
+import type {TDocumentSidebarTab} from '@app/modules/document-viewer/public';
+import type {IWorkspacePdfViewerAnnotationToolsPort} from '@app/modules/workspace-shell/types/workspacePdfViewerPorts.types';
 
 /**
  * The annotation tool one view has picked. Each view of a document has its
@@ -23,14 +23,19 @@ export const useViewAnnotationTool = (deps: {
      * finished, it sets the tool, the hand (which leaves the text selection)
      * and the sidebar tab to show; without one the sidebar stays as it was.
      */
-    function handleAnnotationToolChange(tool: TAnnotationTool, interaction: {
-        dragMode?: boolean;
-        sidebarTab?: TDocumentSidebarTab;
-    } = {}) {
+    function handleAnnotationToolChange(
+        tool: TAnnotationTool,
+        interaction: {
+            dragMode?: boolean;
+            sidebarTab?: TDocumentSidebarTab;
+        } = {},
+    ) {
         const apply = () => {
             annotationTool.value = tool;
             deps.dragMode.value = interaction.dragMode === true;
-            if (interaction.dragMode) {window.getSelection()?.removeAllRanges();}
+            if (interaction.dragMode) {
+                window.getSelection()?.removeAllRanges();
+            }
             if (interaction.sidebarTab) {
                 deps.showSidebar.value = true;
                 deps.sidebarTab.value = interaction.sidebarTab;

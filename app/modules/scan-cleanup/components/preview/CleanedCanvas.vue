@@ -1,13 +1,20 @@
 <template>
-    <div class="cleaned-outputs" :class="{'is-spread': outputs.length > 1}">
-        <div v-for="output in outputs" :key="output.metadata.half" class="output-column">
+    <div
+        class="cleaned-outputs"
+        :class="{'is-spread': outputs.length > 1}"
+    >
+        <div
+            v-for="output in outputs"
+            :key="output.metadata.half"
+            class="output-column"
+        >
             <div
-                :ref="element => emit('set-fit-area', output.metadata.half, element)"
+                :ref="(element) => emit('set-fit-area', output.metadata.half, element)"
                 class="output-fit-area"
                 :data-output-half="output.metadata.half"
             >
                 <div
-                    :ref="element => emit('set-canvas', output.metadata.half, element)"
+                    :ref="(element) => emit('set-canvas', output.metadata.half, element)"
                     class="uniform-canvas"
                     :class="{'has-uniform-canvas': matchPageSize}"
                     :style="output.canvasStyle"
@@ -29,14 +36,17 @@
                         :data-source-region-width="output.metadata.sourceRegion.widthPx"
                         :data-input-width="output.metadata.inputWidthPx"
                     >
-                        <div class="fold-clipped-pixels" :style="output.sourceCropStyle">
+                        <div
+                            class="fold-clipped-pixels"
+                            :style="output.sourceCropStyle"
+                        >
                             <img
                                 v-if="output.pixelSwap.outgoingUrl"
                                 :key="output.pixelSwap.outgoingUrl"
                                 class="cleaned-image preview-pixel is-outgoing"
                                 :src="output.pixelSwap.outgoingUrl"
                                 alt=""
-                            >
+                            />
                             <img
                                 v-if="output.pixelSwap.currentUrl"
                                 :key="output.pixelSwap.currentUrl"
@@ -46,7 +56,7 @@
                                 :alt="altByHalf[output.metadata.half] ?? ''"
                                 @transitionend="emit('complete', output.metadata.half, output.pixelSwap.currentUrl)"
                                 @transitioncancel="emit('complete', output.metadata.half, output.pixelSwap.currentUrl)"
-                            >
+                            />
                             <img
                                 v-if="output.pixelSwap.incomingUrl"
                                 :key="output.pixelSwap.incomingUrl"
@@ -54,7 +64,7 @@
                                 :src="output.pixelSwap.incomingUrl"
                                 alt=""
                                 @load="emit('load', output.metadata.half, output.pixelSwap.incomingUrl)"
-                            >
+                            />
                             <img
                                 v-if="detailUrls[output.metadata.half]"
                                 class="cleaned-image preview-detail-pixel"
@@ -62,7 +72,7 @@
                                 :style="detailStyles?.[output.metadata.half] ?? {inset: '0'}"
                                 alt=""
                                 aria-hidden="true"
-                            >
+                            />
                         </div>
                     </div>
                     <span
@@ -71,7 +81,10 @@
                         :style="output.marginBoundaryStyle"
                         aria-hidden="true"
                     />
-                    <slot name="paper-overlay" :output="output" />
+                    <slot
+                        name="paper-overlay"
+                        :output="output"
+                    />
                 </div>
             </div>
         </div>
@@ -79,10 +92,7 @@
 </template>
 
 <script setup lang="ts">
-import type {
-    ComponentPublicInstance,
-    CSSProperties,
-} from 'vue';
+import type {ComponentPublicInstance, CSSProperties} from 'vue';
 import type {TScanCleanupOutputHalf} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {IRenderedScanCleanupOutput} from '@app/modules/scan-cleanup/runtime/scanCleanupPreviewPresentation';
 

@@ -1,13 +1,6 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import type {TBrand} from '@contracts/brand';
-import {
-    requireDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
+import {requireDocumentRef, type TDocumentRef} from '@contracts/documentRef';
 import {
     decodeDocumentRevisionChangedEvent,
     isDocumentRevisionInfo,
@@ -38,20 +31,24 @@ describe('documentRevision contracts', () => {
             mintedAt: requireEpochMs(1_700_000_000_000),
         };
         expect(isDocumentRevisionInfo(info)).toBe(true);
-        expect(decodeDocumentRevisionChangedEvent({
-            ...info,
-            previousToken: '  rev-9  ',
-            reason: 'write',
-        })).toEqual({
+        expect(
+            decodeDocumentRevisionChangedEvent({
+                ...info,
+                previousToken: '  rev-9  ',
+                reason: 'write',
+            }),
+        ).toEqual({
             ...info,
             previousToken: 'rev-9',
             reason: 'write',
         });
-        expect(decodeDocumentRevisionChangedEvent({
-            ...info,
-            previousToken: '   ',
-            reason: 'write',
-        })).toBeNull();
+        expect(
+            decodeDocumentRevisionChangedEvent({
+                ...info,
+                previousToken: '   ',
+                reason: 'write',
+            }),
+        ).toBeNull();
     });
 
     it('keeps TDocumentRevisionToken nominally isolated via TBrand', () => {

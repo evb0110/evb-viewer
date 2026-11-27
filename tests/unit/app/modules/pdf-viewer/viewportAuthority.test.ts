@@ -1,17 +1,9 @@
 import {createViewportAuthority} from '@app/modules/pdf-viewer/runtime/viewport/createViewportAuthority';
 import {createPageNavigationRequest} from '@app/modules/document-viewer/public';
 import {createDocumentOpenSurfaceSession} from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
-import type {
-    IDocumentNavigationTicket,
-    IPdfSemanticAnchor,
-} from '@app/modules/document-viewer/public';
+import type {IDocumentNavigationTicket, IPdfSemanticAnchor} from '@app/modules/document-viewer/public';
 import type {IPdfViewportIntent} from '@app/modules/pdf-viewer/runtime/viewport/createViewportAuthority';
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {describe, expect, it, vi} from 'vitest';
 import {watch} from 'vue';
 
 const anchor = {
@@ -59,16 +51,17 @@ describe('ViewportAuthority', () => {
             getDocumentRevision: () => 1,
             getInteractionEpoch: () => 0,
             getGeometryRevision: () => 1,
-            resolve: async request => ({
+            resolve: async (request) => ({
                 anchor: request.anchor ?? anchor,
                 left: 0,
                 top: 900,
             }),
             awaitMetrics: async () => {},
             apply: () => {},
-            awaitVisual: () => new Promise<void>((resolve) => {
-                releaseVisual = resolve;
-            }),
+            awaitVisual: () =>
+                new Promise<void>((resolve) => {
+                    releaseVisual = resolve;
+                }),
         });
 
         const pending = authority.submit({
@@ -105,9 +98,10 @@ describe('ViewportAuthority', () => {
             }),
             awaitMetrics: async () => {},
             apply: () => {},
-            awaitVisual: () => new Promise<void>((resolve) => {
-                releaseVisual = resolve;
-            }),
+            awaitVisual: () =>
+                new Promise<void>((resolve) => {
+                    releaseVisual = resolve;
+                }),
         });
 
         const flip = authority.submit({
@@ -131,15 +125,17 @@ describe('ViewportAuthority', () => {
         authority.observeUserScroll(anchor);
         await expect(next).resolves.toMatchObject({outcome: 'cancelled'});
         // A settled position records the epoch current when it lands.
-        expect(authority.commitSettledPosition({
-            intentId: 'relayout-1',
-            intentKind: 'relayout',
-            documentRevision: 1,
-            geometryRevision: 1,
-            page: 1,
-            left: 0,
-            top: 0,
-        })).toMatchObject({interactionEpoch: 5});
+        expect(
+            authority.commitSettledPosition({
+                intentId: 'relayout-1',
+                intentKind: 'relayout',
+                documentRevision: 1,
+                geometryRevision: 1,
+                page: 1,
+                left: 0,
+                top: 0,
+            }),
+        ).toMatchObject({interactionEpoch: 5});
     });
 
     it('bounds terminal outcomes while retaining the newest intent result', async () => {
@@ -147,7 +143,7 @@ describe('ViewportAuthority', () => {
             getDocumentRevision: () => 1,
             getInteractionEpoch: () => 0,
             getGeometryRevision: () => 1,
-            resolve: async request => ({
+            resolve: async (request) => ({
                 anchor: {
                     ...anchor,
                     page: request.navigation!.target.kind === 'page' ? request.navigation!.target.page : 1,
@@ -217,7 +213,7 @@ describe('ViewportAuthority', () => {
             getDocumentRevision: () => 1,
             getInteractionEpoch: () => 0,
             getGeometryRevision: () => 1,
-            resolve: async request => ({
+            resolve: async (request) => ({
                 anchor: {
                     ...anchor,
                     page: request.navigation!.target.kind === 'page' ? request.navigation!.target.page : 1,
@@ -225,13 +221,20 @@ describe('ViewportAuthority', () => {
                 left: 0,
                 top: 900,
             }),
-            awaitMetrics: async () => { events.push('metrics'); },
-            awaitVisual: () => new Promise<void>((resolve) => {
-                events.push('visual-requested');
-                releaseVisual = resolve;
-            }),
-            beforeApply: async () => { events.push('before-apply'); },
-            apply: () => { events.push('applied'); },
+            awaitMetrics: async () => {
+                events.push('metrics');
+            },
+            awaitVisual: () =>
+                new Promise<void>((resolve) => {
+                    events.push('visual-requested');
+                    releaseVisual = resolve;
+                }),
+            beforeApply: async () => {
+                events.push('before-apply');
+            },
+            apply: () => {
+                events.push('applied');
+            },
         });
 
         const pending = authority.submit(intent('visual', 2));
@@ -240,12 +243,7 @@ describe('ViewportAuthority', () => {
         expect(authority.currentPage.value).toBe(1);
         releaseVisual();
         await expect(pending).resolves.toMatchObject({outcome: 'settled'});
-        expect(events).toEqual([
-            'metrics',
-            'visual-requested',
-            'before-apply',
-            'applied',
-        ]);
+        expect(events).toEqual(['metrics', 'visual-requested', 'before-apply', 'applied']);
         expect(authority.currentPage.value).toBe(2);
         expect(authority.pendingTargetPage.value).toBeNull();
     });
@@ -257,7 +255,7 @@ describe('ViewportAuthority', () => {
             getDocumentRevision: () => 1,
             getInteractionEpoch: () => 0,
             getGeometryRevision: () => 1,
-            resolve: async request => ({
+            resolve: async (request) => ({
                 anchor: {
                     ...anchor,
                     page: request.navigation!.target.kind === 'page' ? request.navigation!.target.page : 1,
@@ -267,11 +265,14 @@ describe('ViewportAuthority', () => {
             }),
             awaitMetrics: async () => {},
             awaitVisual: async () => {},
-            beforeApply: () => new Promise<void>((resolve) => {
-                events.push('before-apply');
-                releaseBeforeApply = resolve;
-            }),
-            apply: () => { events.push('applied'); },
+            beforeApply: () =>
+                new Promise<void>((resolve) => {
+                    events.push('before-apply');
+                    releaseBeforeApply = resolve;
+                }),
+            apply: () => {
+                events.push('applied');
+            },
         });
 
         const pending = authority.submit(intent('suspended-before-apply', 2));
@@ -288,14 +289,14 @@ describe('ViewportAuthority', () => {
     it('completes cancellation while a dependency ignores the abort signal', async () => {
         let releaseVisual!: () => void;
         let completed = false;
-        const heldVisual = new Promise<void>(resolve => {
+        const heldVisual = new Promise<void>((resolve) => {
             releaseVisual = resolve;
         });
         const authority = createViewportAuthority({
             getDocumentRevision: () => 1,
             getInteractionEpoch: () => 0,
             getGeometryRevision: () => 1,
-            resolve: async request => ({
+            resolve: async (request) => ({
                 anchor: request.anchor ?? anchor,
                 left: 0,
                 top: 900,
@@ -339,7 +340,7 @@ describe('ViewportAuthority', () => {
             getDocumentRevision: () => 1,
             getInteractionEpoch: () => 0,
             getGeometryRevision: () => 1,
-            resolve: async request => ({
+            resolve: async (request) => ({
                 anchor: {
                     ...anchor,
                     page: request.navigation!.target.kind === 'page' ? request.navigation!.target.page : 1,
@@ -351,12 +352,12 @@ describe('ViewportAuthority', () => {
             awaitVisual: async () => {
                 throw new DOMException('PDF navigation readiness not reached', 'AbortError');
             },
-            apply: request => { writes.push(request.id); },
+            apply: (request) => {
+                writes.push(request.id);
+            },
         });
 
-        await expect(authority.submit(intent('readiness-fallback', 2)))
-            .resolves
-            .toMatchObject({outcome: 'settled'});
+        await expect(authority.submit(intent('readiness-fallback', 2))).resolves.toMatchObject({outcome: 'settled'});
         expect(writes).toEqual(['readiness-fallback']);
         expect(authority.currentPage.value).toBe(2);
     });
@@ -367,7 +368,7 @@ describe('ViewportAuthority', () => {
             getDocumentRevision: () => 1,
             getInteractionEpoch: () => 0,
             getGeometryRevision: () => 1,
-            resolve: async request => ({
+            resolve: async (request) => ({
                 anchor: {
                     ...anchor,
                     page: request.navigation!.target.kind === 'page' ? request.navigation!.target.page : 1,
@@ -376,12 +377,21 @@ describe('ViewportAuthority', () => {
                 top: 900,
             }),
             awaitMetrics: async () => {},
-            awaitVisual: (request, signal) => request.id === 'stale-visual'
-                ? new Promise<void>((_resolve, reject) => signal.addEventListener('abort', () => {
-                    reject(new DOMException('superseded', 'AbortError'));
-                }, {once: true}))
-                : Promise.resolve(),
-            apply: request => { writes.push(request.id); },
+            awaitVisual: (request, signal) =>
+                request.id === 'stale-visual'
+                    ? new Promise<void>((_resolve, reject) =>
+                          signal.addEventListener(
+                              'abort',
+                              () => {
+                                  reject(new DOMException('superseded', 'AbortError'));
+                              },
+                              {once: true},
+                          ),
+                      )
+                    : Promise.resolve(),
+            apply: (request) => {
+                writes.push(request.id);
+            },
         });
 
         const stale = authority.submit(intent('stale-visual', 2));
@@ -400,7 +410,7 @@ describe('ViewportAuthority', () => {
             getDocumentRevision: () => 1,
             getInteractionEpoch: () => 0,
             getGeometryRevision: () => 1,
-            resolve: async request => ({
+            resolve: async (request) => ({
                 anchor: {
                     ...anchor,
                     page: request.navigation!.target.kind === 'page' ? request.navigation!.target.page : 1,
@@ -409,7 +419,9 @@ describe('ViewportAuthority', () => {
                 top: 900,
             }),
             awaitMetrics: async () => {},
-            apply: (_request, commit) => { writes.push(commit.top); },
+            apply: (_request, commit) => {
+                writes.push(commit.top);
+            },
             awaitVisual: async () => {},
             refine: async (_request, commit) => ({
                 ...commit,
@@ -417,76 +429,69 @@ describe('ViewportAuthority', () => {
             }),
         });
 
-        await expect(authority.submit(intent('refined', 2)))
-            .resolves
-            .toMatchObject({outcome: 'settled'});
+        await expect(authority.submit(intent('refined', 2))).resolves.toMatchObject({outcome: 'settled'});
         expect(writes).toEqual([920]);
         expect(authority.currentPage.value).toBe(2);
     });
 
-    it.each([
-        false,
-        true,
-    ])('refines a staged navigation after visual readiness before its only viewport write (ticket: %s)', async withTicket => {
-        const writes: number[] = [];
-        const events: string[] = [];
-        const authority = createViewportAuthority({
-            getDocumentRevision: () => 1,
-            getInteractionEpoch: () => 0,
-            getGeometryRevision: () => 1,
-            shouldStageNavigationVisual: () => true,
-            resolve: async () => ({
-                anchor: {
-                    ...anchor,
-                    page: 2,
+    it.each([false, true])(
+        'refines a staged navigation after visual readiness before its only viewport write (ticket: %s)',
+        async (withTicket) => {
+            const writes: number[] = [];
+            const events: string[] = [];
+            const authority = createViewportAuthority({
+                getDocumentRevision: () => 1,
+                getInteractionEpoch: () => 0,
+                getGeometryRevision: () => 1,
+                shouldStageNavigationVisual: () => true,
+                resolve: async () => ({
+                    anchor: {
+                        ...anchor,
+                        page: 2,
+                    },
+                    left: 0,
+                    top: 100,
+                }),
+                awaitMetrics: async () => {},
+                awaitVisual: async () => {
+                    events.push('visual');
                 },
-                left: 0,
-                top: 100,
-            }),
-            awaitMetrics: async () => {},
-            awaitVisual: async () => {
-                events.push('visual');
-            },
-            refineAfterVisual: async (_request, commit) => {
-                events.push('refine-after-visual');
-                return {
-                    ...commit,
-                    top: 920,
-                };
-            },
-            apply: (_request, commit) => {
-                events.push('apply');
-                writes.push(commit.top);
-            },
-        });
-        const navigationTicket: IDocumentNavigationTicket = {
-            generation: 1,
-            documentRevision: 'revision-1',
-            id: 'after-visual-refine',
-            request: createPageNavigationRequest(2, 'search'),
-            signal: new AbortController().signal,
-            finished: Promise.resolve({
-                kind: 'arrived',
-                page: 2,
-            }),
-        };
+                refineAfterVisual: async (_request, commit) => {
+                    events.push('refine-after-visual');
+                    return {
+                        ...commit,
+                        top: 920,
+                    };
+                },
+                apply: (_request, commit) => {
+                    events.push('apply');
+                    writes.push(commit.top);
+                },
+            });
+            const navigationTicket: IDocumentNavigationTicket = {
+                generation: 1,
+                documentRevision: 'revision-1',
+                id: 'after-visual-refine',
+                request: createPageNavigationRequest(2, 'search'),
+                signal: new AbortController().signal,
+                finished: Promise.resolve({
+                    kind: 'arrived',
+                    page: 2,
+                }),
+            };
 
-        await expect(authority.submit({
-            ...intent('after-visual-refine', 2),
-            ...(withTicket ? {navigationTicket} : {}),
-        }))
-            .resolves
-            .toMatchObject({outcome: 'settled'});
+            await expect(
+                authority.submit({
+                    ...intent('after-visual-refine', 2),
+                    ...(withTicket ? {navigationTicket} : {}),
+                }),
+            ).resolves.toMatchObject({outcome: 'settled'});
 
-        // A ticket still waits for its visible neighbors after placement.
-        expect(events).toEqual([
-            'visual',
-            'refine-after-visual',
-            'apply',
-            ...(withTicket ? ['visual'] : []),
-        ]);
-        expect(writes).toEqual([920]);
-    });
+            // A ticket still waits for its visible neighbors after placement.
+            expect(events).toEqual(['visual', 'refine-after-visual', 'apply', ...(withTicket ? ['visual'] : [])]);
+            expect(writes).toEqual([920]);
+        },
+    );
 
     it('returns the final commit after the placement is refined once its raster is ready', async () => {
         const writes: number[] = [];
@@ -513,18 +518,12 @@ describe('ViewportAuthority', () => {
             apply: (_request, commit) => {
                 writes.push(commit.top);
             },
-            onPositionCommitted: commit => committed.push(commit.top),
+            onPositionCommitted: (commit) => committed.push(commit.top),
         });
         const result = await authority.submit(ticketedIntent('refined-after-visual', 2));
 
-        expect(writes).toEqual([
-            900,
-            930,
-        ]);
-        expect(committed).toEqual([
-            900,
-            930,
-        ]);
+        expect(writes).toEqual([900, 930]);
+        expect(committed).toEqual([900, 930]);
         expect(result).toMatchObject({
             outcome: 'settled',
             positionCommit: {
@@ -554,9 +553,10 @@ describe('ViewportAuthority', () => {
                 top: 3_000,
             }),
             awaitMetrics: async () => {},
-            awaitVisual: () => new Promise<void>((resolve) => {
-                releaseVisual = resolve;
-            }),
+            awaitVisual: () =>
+                new Promise<void>((resolve) => {
+                    releaseVisual = resolve;
+                }),
             apply: (request, commit) => {
                 writes.push({
                     id: request.id,
@@ -629,7 +629,7 @@ describe('ViewportAuthority', () => {
                 left: commit.left,
                 top: commit.top,
             }),
-            onPositionCommitted: commit => events.push(`commit ${String(commit.top)}`),
+            onPositionCommitted: (commit) => events.push(`commit ${String(commit.top)}`),
             // The outgoing page above, laid out at the current scale once
             // released, moves the page-top destination 120 px down.
             settleHandoff: async (_request, placement) => {
@@ -645,20 +645,20 @@ describe('ViewportAuthority', () => {
                 return true;
             },
         });
-        const stop = watch(authority.activeIntent, (active) => {
-            if (!active) {events.push('settled');}
-        }, {flush: 'sync'});
+        const stop = watch(
+            authority.activeIntent,
+            (active) => {
+                if (!active) {
+                    events.push('settled');
+                }
+            },
+            {flush: 'sync'},
+        );
 
         const result = await authority.submit(ticketedIntent('page-top', 3));
         stop();
 
-        expect(events).toEqual([
-            'commit 1800',
-            'released null page-top',
-            'commit 1920',
-            'arrived',
-            'settled',
-        ]);
+        expect(events).toEqual(['commit 1800', 'released null page-top', 'commit 1920', 'arrived', 'settled']);
         expect(result).toMatchObject({
             outcome: 'settled',
             positionCommit: {
@@ -685,24 +685,30 @@ describe('ViewportAuthority', () => {
                 top: 900,
             }),
             awaitMetrics: async () => {},
-            awaitVisual: () => new Promise<void>((resolve) => {
-                releaseVisual = resolve;
-            }),
-            apply: (_request, commit) => (refuse ? null : {
-                left: commit.left,
-                top: commit.top,
-            }),
-            onPositionCommitted: commit => committed.push(commit.top),
+            awaitVisual: () =>
+                new Promise<void>((resolve) => {
+                    releaseVisual = resolve;
+                }),
+            apply: (_request, commit) =>
+                refuse
+                    ? null
+                    : {
+                          left: commit.left,
+                          top: commit.top,
+                      },
+            onPositionCommitted: (commit) => committed.push(commit.top),
         });
 
         const pending = authority.submit(ticketedIntent('refused-refine', 2));
         await vi.waitFor(() => expect(committed).toEqual([900]));
         refuse = true;
-        expect(authority.refineLayout(placed => ({
-            anchor: placed,
-            left: 0,
-            top: 700,
-        }))).toEqual({outcome: 'cancelled'});
+        expect(
+            authority.refineLayout((placed) => ({
+                anchor: placed,
+                left: 0,
+                top: 700,
+            })),
+        ).toEqual({outcome: 'cancelled'});
         expect(committed).toEqual([900]);
         releaseVisual();
         await expect(pending).resolves.toMatchObject({outcome: 'settled'});
@@ -730,9 +736,10 @@ describe('ViewportAuthority', () => {
                 left: 0,
                 top: 5_000,
             }),
-            awaitMetrics: () => new Promise<void>((resolve) => {
-                releaseMetrics = resolve;
-            }),
+            awaitMetrics: () =>
+                new Promise<void>((resolve) => {
+                    releaseMetrics = resolve;
+                }),
             awaitVisual: async () => {},
             apply: (_request, commit) => {
                 writes.push(commit.top);
@@ -763,7 +770,7 @@ describe('ViewportAuthority', () => {
             getDocumentRevision: () => 1,
             getInteractionEpoch: () => 0,
             getGeometryRevision: () => 1,
-            resolve: async request => ({
+            resolve: async (request) => ({
                 anchor: {
                     ...anchor,
                     page: request.navigation!.target.kind === 'page' ? request.navigation!.target.page : 1,
@@ -771,10 +778,15 @@ describe('ViewportAuthority', () => {
                 left: 0,
                 top: 10,
             }),
-            awaitMetrics: (request, signal) => request.id === 'A'
-                ? new Promise<void>((_resolve, reject) => signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), {once: true}))
-                : Promise.resolve(),
-            apply: request => { writes.push(request.id); },
+            awaitMetrics: (request, signal) =>
+                request.id === 'A'
+                    ? new Promise<void>((_resolve, reject) =>
+                          signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), {once: true}),
+                      )
+                    : Promise.resolve(),
+            apply: (request) => {
+                writes.push(request.id);
+            },
             awaitVisual: async () => {},
         });
 
@@ -801,8 +813,13 @@ describe('ViewportAuthority', () => {
                 left: 0,
                 top: 10,
             }),
-            awaitMetrics: () => new Promise<void>(resolve => { release = resolve; }),
-            apply: request => { writes.push(request.id); },
+            awaitMetrics: () =>
+                new Promise<void>((resolve) => {
+                    release = resolve;
+                }),
+            apply: (request) => {
+                writes.push(request.id);
+            },
             awaitVisual: async () => {},
         });
         const pending = authority.submit(intent('restore', 8));
@@ -844,8 +861,7 @@ describe('ViewportAuthority', () => {
             },
         });
 
-        await expect(authority.submit(intent('first-page', 1)))
-            .resolves.toMatchObject({ outcome: 'cancelled' });
+        await expect(authority.submit(intent('first-page', 1))).resolves.toMatchObject({outcome: 'cancelled'});
         expect(authority.currentPage.value).toBe(380);
     });
 
@@ -855,7 +871,7 @@ describe('ViewportAuthority', () => {
             getDocumentRevision: () => 1,
             getInteractionEpoch: () => 0,
             getGeometryRevision: () => 1,
-            resolve: async request => ({
+            resolve: async (request) => ({
                 anchor: {
                     ...anchor,
                     page: request.id === 'successor' ? 2 : 1,
@@ -868,16 +884,19 @@ describe('ViewportAuthority', () => {
             apply: () => {},
         });
         let successor!: ReturnType<typeof authority.submit>;
-        const stop = watch(authority.activeIntent, active => {
-            if (active?.id === 'first' && !reentered) {
-                reentered = true;
-                successor = authority.submit(intent('successor', 2));
-            }
-        }, {flush: 'sync'});
+        const stop = watch(
+            authority.activeIntent,
+            (active) => {
+                if (active?.id === 'first' && !reentered) {
+                    reentered = true;
+                    successor = authority.submit(intent('successor', 2));
+                }
+            },
+            {flush: 'sync'},
+        );
 
         try {
-            await expect(authority.submit(intent('first', 1)))
-                .resolves.toMatchObject({outcome: 'cancelled'});
+            await expect(authority.submit(intent('first', 1))).resolves.toMatchObject({outcome: 'cancelled'});
             await expect(successor).resolves.toMatchObject({outcome: 'settled'});
             expect(authority.currentPage.value).toBe(2);
         } finally {
@@ -898,8 +917,13 @@ describe('ViewportAuthority', () => {
                 left: 0,
                 top: 10,
             }),
-            awaitMetrics: () => new Promise<void>((resolve) => { release = resolve; }),
-            apply: request => { writes.push(request.id); },
+            awaitMetrics: () =>
+                new Promise<void>((resolve) => {
+                    release = resolve;
+                }),
+            apply: (request) => {
+                writes.push(request.id);
+            },
             awaitVisual: async () => {},
         });
 
@@ -931,13 +955,17 @@ describe('ViewportAuthority', () => {
             }),
             awaitMetrics: async () => {},
             apply: () => {},
-            awaitVisual: async () => {throw new DOMException('Superseded raster layout', 'AbortError');},
+            awaitVisual: async () => {
+                throw new DOMException('Superseded raster layout', 'AbortError');
+            },
             reportNavigation: (current, report) => surface.reportNavigation(current, report),
         });
-        await expect(authority.submit({
-            ...intent('rotation', 1),
-            navigationTicket: ticket,
-        })).resolves.toMatchObject({outcome: 'cancelled'});
+        await expect(
+            authority.submit({
+                ...intent('rotation', 1),
+                navigationTicket: ticket,
+            }),
+        ).resolves.toMatchObject({outcome: 'cancelled'});
         expect(surface.viewportSession.value.visual).toMatchObject({presentation: 'skeleton'});
         expect(surface.navigationTicket.value).toBe(ticket);
         surface.reset();
@@ -981,12 +1009,10 @@ describe('ViewportAuthority', () => {
             navigationTicket,
         };
 
-        await expect(authority.submit(replayableIntent))
-            .resolves.toMatchObject({outcome: 'cancelled'});
+        await expect(authority.submit(replayableIntent)).resolves.toMatchObject({outcome: 'cancelled'});
         expect(authority.getTerminalOutcome('ticket-replay')).toBe('cancelled');
 
-        await expect(authority.submit(replayableIntent))
-            .resolves.toMatchObject({outcome: 'settled'});
+        await expect(authority.submit(replayableIntent)).resolves.toMatchObject({outcome: 'settled'});
         expect(authority.currentPage.value).toBe(2);
         expect(authority.getTerminalOutcome('ticket-replay')).toBe('settled');
     });

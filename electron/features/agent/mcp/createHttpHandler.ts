@@ -1,19 +1,9 @@
-import type {
-    IncomingMessage,
-    ServerResponse,
-} from 'http';
+import type {IncomingMessage, ServerResponse} from 'http';
 import {timingSafeEqual} from 'node:crypto';
 import {createAbortError} from '@contracts/isAbortError';
-import { getErrorMessage } from '@electron/utils/error';
-import {
-    createHealthResponse,
-    processMcpRequest,
-    type IProcessMcpRequestOptions,
-} from '@electron/features/agent/mcp/mcpServerCore';
-import {
-    createErrorResponse,
-    type IJsonRpcResponse,
-} from '@electron/features/agent/mcp/mcpJsonRpc';
+import {getErrorMessage} from '@electron/utils/error';
+import {createHealthResponse, processMcpRequest, type IProcessMcpRequestOptions} from '@electron/features/agent/mcp/mcpServerCore';
+import {createErrorResponse, type IJsonRpcResponse} from '@electron/features/agent/mcp/mcpJsonRpc';
 
 const MAX_JSON_RPC_BODY_BYTES = 1024 * 1024;
 const MAX_JSON_RPC_BATCH_ITEMS = 32;
@@ -35,10 +25,7 @@ function createRequestAbortController(request: IncomingMessage, response: Server
         }
     };
     const abortFromTransportOrCancel = (fallbackMessage: string) => {
-        const transportError = request.errored
-            ?? response.errored
-            ?? request.socket?.errored
-            ?? response.socket?.errored;
+        const transportError = request.errored ?? response.errored ?? request.socket?.errored ?? response.socket?.errored;
         if (transportError !== null && transportError !== undefined) {
             abort(transportError instanceof Error ? transportError : new Error(getErrorMessage(transportError)));
             return;
@@ -65,15 +52,10 @@ function throwIfRequestAborted(signal: AbortSignal) {
     if (!signal.aborted) {
         return;
     }
-    throw signal.reason instanceof Error
-        ? signal.reason
-        : createAbortError('MCP HTTP request was aborted.');
+    throw signal.reason instanceof Error ? signal.reason : createAbortError('MCP HTTP request was aborted.');
 }
 
-function withRequestAbortSignal(
-    options: IProcessMcpRequestOptions,
-    signal: AbortSignal,
-): IProcessMcpRequestOptions {
+function withRequestAbortSignal(options: IProcessMcpRequestOptions, signal: AbortSignal): IProcessMcpRequestOptions {
     const requestOptions: IProcessMcpRequestOptions = {
         ...options,
         getWorkspaceSnapshot: async (windowId) => {
@@ -123,9 +105,8 @@ function readRequestBody(request: IncomingMessage, signal: AbortSignal) {
     return new Promise<string>((resolve, reject) => {
         const chunks: Buffer[] = [];
         let bodyBytes = 0;
-        const handleAbort = () => reject(signal.reason instanceof Error
-            ? signal.reason
-            : createAbortError('MCP HTTP request was aborted.'));
+        const handleAbort = () =>
+            reject(signal.reason instanceof Error ? signal.reason : createAbortError('MCP HTTP request was aborted.'));
 
         request.on('data', (chunk: Buffer) => {
             if (bodyBytes + chunk.length > MAX_JSON_RPC_BODY_BYTES) {
@@ -171,15 +152,14 @@ function isAuthorizedMcpRequest(request: IncomingMessage, options: IHttpHandlerO
 }
 
 function isBrowserOriginMcpRequest(request: IncomingMessage) {
-    return typeof request.headers.origin === 'string'
-        || typeof request.headers.referer === 'string'
-        || typeof request.headers['sec-fetch-site'] === 'string';
+    return (
+        typeof request.headers.origin === 'string' ||
+        typeof request.headers.referer === 'string' ||
+        typeof request.headers['sec-fetch-site'] === 'string'
+    );
 }
 
-export function createHttpHandler(
-    options: IProcessMcpRequestOptions,
-    httpOptions: IHttpHandlerOptions = {},
-) {
+export function createHttpHandler(options: IProcessMcpRequestOptions, httpOptions: IHttpHandlerOptions = {}) {
     return async (request: IncomingMessage, response: ServerResponse) => {
         const requestAbortController = createRequestAbortController(request, response);
         const requestContext = httpOptions.getRequestContext?.();
@@ -194,13 +174,13 @@ export function createHttpHandler(
             requestAbortController.signal,
         );
         if (httpOptions.allowBrowserOrigins !== true && isBrowserOriginMcpRequest(request)) {
-            writeJson(response, 403, { error: 'Browser-origin MCP requests are not allowed.' });
+            writeJson(response, 403, {error: 'Browser-origin MCP requests are not allowed.'});
             return;
         }
 
         if (request.method === 'GET' && request.url === '/health') {
             if (!isAuthorizedMcpRequest(request, httpOptions)) {
-                writeJson(response, 401, { error: 'Unauthorized.' });
+                writeJson(response, 401, {error: 'Unauthorized.'});
                 return;
             }
             writeJson(response, 200, createHealthResponse(options.identity));
@@ -208,12 +188,12 @@ export function createHttpHandler(
         }
 
         if (request.method !== 'POST') {
-            writeJson(response, 405, { error: 'Only POST JSON-RPC requests are supported.' });
+            writeJson(response, 405, {error: 'Only POST JSON-RPC requests are supported.'});
             return;
         }
 
         if (!isAuthorizedMcpRequest(request, httpOptions)) {
-            writeJson(response, 401, { error: 'Unauthorized.' });
+            writeJson(response, 401, {error: 'Unauthorized.'});
             return;
         }
 
@@ -254,9 +234,7 @@ export function createHttpHandler(
             if (response.destroyed) {
                 return;
             }
-            const message = error instanceof SyntaxError
-                ? 'Invalid JSON-RPC request body.'
-                : getErrorMessage(error);
+            const message = error instanceof SyntaxError ? 'Invalid JSON-RPC request body.' : getErrorMessage(error);
             writeJson(response, 400, createErrorResponse(null, -32700, message));
         }
     };

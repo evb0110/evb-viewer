@@ -1,21 +1,17 @@
 import type {TPerformanceMode} from '@contracts/hostResourceProfile';
 import {DEFAULT_SETTINGS} from '@contracts/settings';
-import {
-    BROWSER_SETTINGS_COOKIE_KEY,
-    serializeBrowserSettingsPayload,
-} from '@app/utils/browserSettingsPersistence';
-import {
-    startElectronE2ESession,
-    waitForRendererReady,
-} from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import {BROWSER_SETTINGS_COOKIE_KEY, serializeBrowserSettingsPayload} from '@app/utils/browserSettingsPersistence';
+import {startElectronE2ESession, waitForRendererReady} from '@tests/e2e/electron/helpers/startElectronE2ESession';
 
 // The emulation lives on the page's own session so it survives the reload
 // below; one set on a separate CDP session ends when that session detaches.
 async function setReducedMotionPreference(page: Parameters<typeof waitForRendererReady>[0]) {
-    await page.emulateMediaFeatures([{
-        name: 'prefers-reduced-motion',
-        value: 'no-preference',
-    }]);
+    await page.emulateMediaFeatures([
+        {
+            name: 'prefers-reduced-motion',
+            value: 'no-preference',
+        },
+    ]);
 }
 
 export async function startConfiguredElectronE2ESession(
@@ -34,18 +30,18 @@ export async function startConfiguredElectronE2ESession(
             EVB_TEST_PERFORMANCE_MODE: performanceMode,
         },
     });
-    await session.page.evaluate((payload: {
-        cookieKey: string;
-        settingsPayload: string;
-    }) => {
-        document.cookie = `${payload.cookieKey}=${encodeURIComponent(payload.settingsPayload)}; path=/`;
-    }, {
-        cookieKey: BROWSER_SETTINGS_COOKIE_KEY,
-        settingsPayload: serializeBrowserSettingsPayload({
-            ...DEFAULT_SETTINGS,
-            performanceMode,
-        }),
-    });
+    await session.page.evaluate(
+        (payload: {cookieKey: string; settingsPayload: string}) => {
+            document.cookie = `${payload.cookieKey}=${encodeURIComponent(payload.settingsPayload)}; path=/`;
+        },
+        {
+            cookieKey: BROWSER_SETTINGS_COOKIE_KEY,
+            settingsPayload: serializeBrowserSettingsPayload({
+                ...DEFAULT_SETTINGS,
+                performanceMode,
+            }),
+        },
+    );
     // Apply the neutral media baseline before the configured reload. The
     // performance-profile plugin reads matchMedia during module startup, so
     // changing the emulation after reload leaves the initial root class stale

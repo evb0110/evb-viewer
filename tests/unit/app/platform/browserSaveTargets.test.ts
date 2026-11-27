@@ -1,28 +1,18 @@
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {SavePublicationError} from '@document-store/saveDocument';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requireEpochMs} from '@contracts/timestamps';
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
-import {
-    createBrowserStoreStagedArtifact,
-    sha256Hex,
-} from '@app/platform/browser/browserStagedArtifact';
+import {createBrowserStoreStagedArtifact, sha256Hex} from '@app/platform/browser/browserStagedArtifact';
 import {BrowserFileWriteOutcomeError} from '@app/platform/browser-api/browserFilePickerAdapter';
 import type * as BrowserQpdfEngineClient from '@app/platform/browser-api/browserQpdfEngineClient';
 import {cast} from '@tests/helpers/cast';
 
 const qpdfMock = vi.hoisted(() => ({runBrowserQpdfCommand: vi.fn()}));
 
-vi.mock('@app/platform/browser-api/browserQpdfEngineClient', async importOriginal => ({
-    ...await importOriginal<typeof BrowserQpdfEngineClient>(),
+vi.mock('@app/platform/browser-api/browserQpdfEngineClient', async (importOriginal) => ({
+    ...(await importOriginal<typeof BrowserQpdfEngineClient>()),
     runBrowserQpdfCommand: (...args: unknown[]) => qpdfMock.runBrowserQpdfCommand(...args),
 }));
 
@@ -44,7 +34,9 @@ describe('finishBrowserPdfCandidate', () => {
     function answerQpdf(rewrite: unknown, checkExitCode = 0) {
         qpdfMock.runBrowserQpdfCommand.mockImplementation(async (command: string) => {
             if (command === 'lossless-rewrite') {
-                if (rewrite instanceof Error) {throw rewrite;}
+                if (rewrite instanceof Error) {
+                    throw rewrite;
+                }
                 return rewrite;
             }
             return checkResult(checkExitCode);
@@ -65,61 +57,18 @@ describe('finishBrowserPdfCandidate', () => {
         const rewriteInput = qpdfMock.runBrowserQpdfCommand.mock.calls[0]?.[1] as Uint8Array;
         expect(rewriteInput).not.toBe(source);
         expect(rewriteInput.buffer).not.toBe(source.buffer);
-        expect([...source]).toEqual([
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            9,
-            10,
-        ]);
-        expect(qpdfMock.runBrowserQpdfCommand.mock.calls.map(([command]) => command))
-            .toEqual([
-                'lossless-rewrite',
-                'check',
-            ]);
+        expect([...source]).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+        expect(qpdfMock.runBrowserQpdfCommand.mock.calls.map(([command]) => command)).toEqual(['lossless-rewrite', 'check']);
     });
 
     it.each([
-        [
-            'an equal-size rewrite',
-            rewriteResult(new Uint8Array(10)),
-            0,
-        ],
-        [
-            'a larger rewrite',
-            rewriteResult(new Uint8Array(11)),
-            0,
-        ],
-        [
-            'an empty rewrite',
-            rewriteResult(new Uint8Array()),
-            0,
-        ],
-        [
-            'no rewrite output',
-            rewriteResult(null),
-            0,
-        ],
-        [
-            'a failed rewrite exit',
-            rewriteResult(Uint8Array.of(1), 2),
-            0,
-        ],
-        [
-            'a rewrite that throws',
-            new Error('engine ran out of memory'),
-            0,
-        ],
-        [
-            'a candidate that fails its full check',
-            rewriteResult(Uint8Array.of(1)),
-            2,
-        ],
+        ['an equal-size rewrite', rewriteResult(new Uint8Array(10)), 0],
+        ['a larger rewrite', rewriteResult(new Uint8Array(11)), 0],
+        ['an empty rewrite', rewriteResult(new Uint8Array()), 0],
+        ['no rewrite output', rewriteResult(null), 0],
+        ['a failed rewrite exit', rewriteResult(Uint8Array.of(1), 2), 0],
+        ['a rewrite that throws', new Error('engine ran out of memory'), 0],
+        ['a candidate that fails its full check', rewriteResult(Uint8Array.of(1)), 2],
     ])('retains the input after %s', async (_label, rewrite, checkExitCode) => {
         answerQpdf(rewrite, checkExitCode);
         const {finishBrowserPdfCandidate} = await import('@app/platform/browser-api/browserSaveTargets');
@@ -135,21 +84,23 @@ describe('finishBrowserPdfCandidate', () => {
         });
         const {finishBrowserPdfCandidate} = await import('@app/platform/browser-api/browserSaveTargets');
 
-        await expect(finishBrowserPdfCandidate(source, {
-            fileName: 'kept.pdf',
-            signal: controller.signal,
-        }))
-            .rejects.toMatchObject({name: 'AbortError'});
+        await expect(
+            finishBrowserPdfCandidate(source, {
+                fileName: 'kept.pdf',
+                signal: controller.signal,
+            }),
+        ).rejects.toMatchObject({name: 'AbortError'});
     });
 
     it('does not start qpdf after an abort', async () => {
         const {finishBrowserPdfCandidate} = await import('@app/platform/browser-api/browserSaveTargets');
 
-        await expect(finishBrowserPdfCandidate(source, {
-            fileName: 'kept.pdf',
-            signal: AbortSignal.abort(),
-        }))
-            .rejects.toMatchObject({name: 'AbortError'});
+        await expect(
+            finishBrowserPdfCandidate(source, {
+                fileName: 'kept.pdf',
+                signal: AbortSignal.abort(),
+            }),
+        ).rejects.toMatchObject({name: 'AbortError'});
         expect(qpdfMock.runBrowserQpdfCommand).not.toHaveBeenCalled();
     });
 });
@@ -167,17 +118,19 @@ describe('browser save target publication facts', () => {
     };
 
     function stubDownloadBackedWorkingEntry() {
-        vi.spyOn(browserDocumentStore, 'requireEntry').mockResolvedValue(cast({
-            ref: workingRef,
-            sourceRef,
-            saveName: 'paper.pdf',
-            doc: {
-                state: () => ({
-                    destination: 'download:paper.pdf',
-                    baseline: 'content-v2:baseline',
-                }),
-            },
-        }));
+        vi.spyOn(browserDocumentStore, 'requireEntry').mockResolvedValue(
+            cast({
+                ref: workingRef,
+                sourceRef,
+                saveName: 'paper.pdf',
+                doc: {
+                    state: () => ({
+                        destination: 'download:paper.pdf',
+                        baseline: 'content-v2:baseline',
+                    }),
+                },
+            }),
+        );
         vi.spyOn(browserDocumentStore, 'ensureEntry').mockResolvedValue(null);
         vi.spyOn(browserDocumentStore, 'touchRecentFile').mockResolvedValue(undefined);
         vi.spyOn(browserDocumentStore, 'getDocumentRevision').mockResolvedValue(revision);
@@ -215,11 +168,13 @@ describe('browser save target publication facts', () => {
 
     it('returns ok=true with externalWriteCommitted=true and refresh-failed warning when post-publish source copy refresh fails', async () => {
         stubDownloadBackedWorkingEntry();
-        vi.spyOn(browserDocumentStore, 'ensureEntry').mockResolvedValue(cast({
-            ref: sourceRef,
-            doc: {},
-            saveHandle: null,
-        }));
+        vi.spyOn(browserDocumentStore, 'ensureEntry').mockResolvedValue(
+            cast({
+                ref: sourceRef,
+                doc: {},
+                saveHandle: null,
+            }),
+        );
         vi.spyOn(browserDocumentStore, 'replaceContent').mockRejectedValue(new Error('Recent copy quota full'));
         vi.spyOn(browserDocumentStore, 'unload').mockImplementation(() => undefined);
         vi.spyOn(browserDocumentStore, 'save').mockResolvedValue({
@@ -244,7 +199,13 @@ describe('browser save target publication facts', () => {
     });
 
     it.each([
-        ['SavePublicationError(null)', new SavePublicationError(new Error('handle close outcome unknown'), {externalWriteCommitted: null, pendingPublish: {destination: 'handle:doc', witness: 'content-v2:staged'}})],
+        [
+            'SavePublicationError(null)',
+            new SavePublicationError(new Error('handle close outcome unknown'), {
+                externalWriteCommitted: null,
+                pendingPublish: {destination: 'handle:doc', witness: 'content-v2:staged'},
+            }),
+        ],
         ['BrowserFileWriteOutcomeError(null)', new BrowserFileWriteOutcomeError(new Error('close failed without abort'), null)],
     ])('preserves externalWriteCommitted=null on unverified write (%s)', async (_label, thrown) => {
         stubDownloadBackedWorkingEntry();
@@ -340,7 +301,9 @@ describe('browser save target publication facts', () => {
         expect(caught).toBeInstanceOf(BrowserFileWriteOutcomeError);
         expect(caught).toMatchObject({
             externalWriteCommitted: true,
-            message: expect.stringContaining('Saved copy "saved-copy.pdf" was written, but browser document adoption failed: OPFS adoption failed'),
+            message: expect.stringContaining(
+                'Saved copy "saved-copy.pdf" was written, but browser document adoption failed: OPFS adoption failed',
+            ),
         });
     });
 });

@@ -1,28 +1,15 @@
-import {
-    mkdirSync,
-    readFileSync,
-} from 'node:fs';
-import { resolve } from 'node:path';
-import { decode } from 'fast-png';
-import { chromium } from 'playwright';
-import type { Page as ElectronPage } from 'puppeteer-core';
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { delay } from 'es-toolkit/promise';
-import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
-import {
-    createManagedInkStrokeFixturePdf,
-    readPdfAnnotationSummary,
-} from '@tests/e2e/electron/helpers/fixtures';
-import {
-    openPdfInApp,
-    waitForPdfLoaded,
-} from '@tests/e2e/electron/helpers/viewerCore';
+import {mkdirSync, readFileSync} from 'node:fs';
+import {resolve} from 'node:path';
+import {decode} from 'fast-png';
+import {chromium} from 'playwright';
+import type {Page as ElectronPage} from 'puppeteer-core';
+import {describe, expect, it} from 'vitest';
+import {delay} from 'es-toolkit/promise';
+import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
+import {createManagedInkStrokeFixturePdf, readPdfAnnotationSummary} from '@tests/e2e/electron/helpers/fixtures';
+import {openPdfInApp, waitForPdfLoaded} from '@tests/e2e/electron/helpers/viewerCore';
 import {requireWorkspaceCommand} from '@tests/e2e/electron/helpers/workspaceExpose';
-import { serveBuiltWebApp } from '@tests/e2e/electron/helpers/serveBuiltWebApp';
+import {serveBuiltWebApp} from '@tests/e2e/electron/helpers/serveBuiltWebApp';
 
 const MATCHED_DISPLAY_ZOOM = 2;
 const ARTIFACT_DIR = resolve(process.cwd(), '.devkit', 'test', 'annotation-stroke-parity');
@@ -78,32 +65,31 @@ interface IInteriorPixel {
 }
 
 function readStrokePaintMetrics(): IStrokePaintMetrics {
-    const pageContainer = document.querySelector<HTMLElement>(
-        '.editor-pane.is-active .page_container[data-page="1"]',
-    );
-    const shapes = pageContainer?.querySelectorAll<SVGGElement>(
-        '.pdf-annotation-editor-layer g[data-annotation-kind="shape"][data-annotation-id]',
-    ) ?? [];
-    const visual = pageContainer?.querySelector<SVGGeometryElement>([
-        '.pdf-annotation-editor-layer g[data-annotation-kind="shape"][data-annotation-id] polyline',
-        '.pdf-annotation-editor-layer g[data-annotation-kind="shape"][data-annotation-id] path',
-        '.pdf-annotation-editor-layer g[data-annotation-kind="shape"][data-annotation-id] line',
-    ].join(',')) ?? null;
+    const pageContainer = document.querySelector<HTMLElement>('.editor-pane.is-active .page_container[data-page="1"]');
+    const shapes =
+        pageContainer?.querySelectorAll<SVGGElement>('.pdf-annotation-editor-layer g[data-annotation-kind="shape"][data-annotation-id]') ??
+        [];
+    const visual =
+        pageContainer?.querySelector<SVGGeometryElement>(
+            [
+                '.pdf-annotation-editor-layer g[data-annotation-kind="shape"][data-annotation-id] polyline',
+                '.pdf-annotation-editor-layer g[data-annotation-kind="shape"][data-annotation-id] path',
+                '.pdf-annotation-editor-layer g[data-annotation-kind="shape"][data-annotation-id] line',
+            ].join(','),
+        ) ?? null;
     const pageStyle = pageContainer ? window.getComputedStyle(pageContainer) : null;
     const parseStyleNumber = (property: string) => {
         const value = pageStyle?.getPropertyValue(property) ?? '';
         const parsed = Number.parseFloat(value);
         return Number.isFinite(parsed) ? parsed : null;
     };
-    const renderedStrokeWidth = visual
-        ? Number.parseFloat(window.getComputedStyle(visual).strokeWidth)
-        : Number.NaN;
+    const renderedStrokeWidth = visual ? Number.parseFloat(window.getComputedStyle(visual).strokeWidth) : Number.NaN;
     const scaleFactor = parseStyleNumber('--scale-factor');
     const userUnit = parseStyleNumber('--user-unit');
     const canvas = pageContainer?.querySelector<HTMLCanvasElement>('.page_canvas canvas') ?? null;
     let canvasInkPixelCount = 0;
     if (canvas && canvas.width > 0 && canvas.height > 0) {
-        const context = canvas.getContext('2d', { willReadFrequently: true });
+        const context = canvas.getContext('2d', {willReadFrequently: true});
         const centerX = Math.round(canvas.width * 0.35);
         const centerY = Math.round(canvas.height * 0.34);
         const radius = 16;
@@ -132,25 +118,21 @@ function readStrokePaintMetrics(): IStrokePaintMetrics {
         renderedStrokeWidth: Number.isFinite(renderedStrokeWidth) ? renderedStrokeWidth : null,
         scaleFactor,
         strokeWidthAttribute: visual?.getAttribute('stroke-width') ?? null,
-        totalScaleFactor: scaleFactor !== null && userUnit !== null
-            ? scaleFactor * userUnit
-            : null,
+        totalScaleFactor: scaleFactor !== null && userUnit !== null ? scaleFactor * userUnit : null,
         userUnit,
         viewportWidth: window.innerWidth,
         // The annotation layer stays transparent until the page is rendered.
         visibleShapeCount: pageContainer?.classList.contains('page_container--rendered')
             ? [...shapes].filter((shape) => {
-                const shapeVisual = shape.querySelector('[data-annotation-visual]');
-                return shapeVisual !== null && window.getComputedStyle(shapeVisual).visibility === 'visible';
-            }).length
+                  const shapeVisual = shape.querySelector('[data-annotation-visual]');
+                  return shapeVisual !== null && window.getComputedStyle(shapeVisual).visibility === 'visible';
+              }).length
             : 0,
     };
 }
 
 function readPageSurfaceOrigin(): IPageSurfaceOrigin {
-    const pageContainer = document.querySelector<HTMLElement>(
-        '.editor-pane.is-active .page_container[data-page="1"]',
-    );
+    const pageContainer = document.querySelector<HTMLElement>('.editor-pane.is-active .page_container[data-page="1"]');
     if (!pageContainer) {
         throw new Error('Stroke parity page container is not mounted');
     }
@@ -166,9 +148,7 @@ async function viewerLayoutSettledInPage() {
     const readLayout = () => {
         const pane = document.querySelector<HTMLElement>('.workspace-viewer-host');
         const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
-        const page = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .page_container[data-page="1"]',
-        );
+        const page = document.querySelector<HTMLElement>('.editor-pane.is-active .page_container[data-page="1"]');
         if (!pane || !viewport || !page) {
             return null;
         }
@@ -176,36 +156,39 @@ async function viewerLayoutSettledInPage() {
         const viewportBounds = viewport.getBoundingClientRect();
         const pageBounds = page.getBoundingClientRect();
         return {
-            fillsPane: Math.abs(paneBounds.top - viewportBounds.top) <= 1
-                && Math.abs(paneBounds.bottom - viewportBounds.bottom) <= 1
-                && Math.abs(paneBounds.left - viewportBounds.left) <= 1
-                && Math.abs(paneBounds.right - viewportBounds.right) <= 1,
+            fillsPane:
+                Math.abs(paneBounds.top - viewportBounds.top) <= 1 &&
+                Math.abs(paneBounds.bottom - viewportBounds.bottom) <= 1 &&
+                Math.abs(paneBounds.left - viewportBounds.left) <= 1 &&
+                Math.abs(paneBounds.right - viewportBounds.right) <= 1,
             pageLeft: pageBounds.left,
             pageTop: pageBounds.top,
         };
     };
     const previous = readLayout();
-    await new Promise<void>(resolveFrame => requestAnimationFrame(() => resolveFrame()));
+    await new Promise<void>((resolveFrame) => requestAnimationFrame(() => resolveFrame()));
     const current = readLayout();
-    return previous !== null
-        && current !== null
-        && current.fillsPane
-        && previous.pageLeft === current.pageLeft
-        && previous.pageTop === current.pageTop;
+    return (
+        previous !== null &&
+        current !== null &&
+        current.fillsPane &&
+        previous.pageLeft === current.pageLeft &&
+        previous.pageTop === current.pageTop
+    );
 }
 
 function readInteriorSamplePoints(): IInteriorSamplePoint[] {
-    const pageContainer = document.querySelector<HTMLElement>(
-        '.editor-pane.is-active .page_container[data-page="1"]',
-    );
+    const pageContainer = document.querySelector<HTMLElement>('.editor-pane.is-active .page_container[data-page="1"]');
     const pageOrigin = pageContainer?.getBoundingClientRect();
     if (!pageOrigin) {
         throw new Error('Interior parity page container is not mounted');
     }
-    const visualShapes = Array.from(document.querySelectorAll<SVGGElement>(
-        '.editor-pane.is-active .page_container[data-page="1"] '
-        + '.pdf-annotation-editor-shape[data-annotation-id] [data-annotation-visual]',
-    ));
+    const visualShapes = Array.from(
+        document.querySelectorAll<SVGGElement>(
+            '.editor-pane.is-active .page_container[data-page="1"] ' +
+                '.pdf-annotation-editor-shape[data-annotation-id] [data-annotation-visual]',
+        ),
+    );
     const samples: IInteriorSamplePoint[] = [];
     const devicePixelInset = 1 / Math.max(window.devicePixelRatio, 1);
     for (const visualShape of visualShapes) {
@@ -220,8 +203,8 @@ function readInteriorSamplePoints(): IInteriorSamplePoint[] {
                 for (let column = 1; column <= 5; column += 1) {
                     samples.push({
                         kind: 'fill',
-                        x: rect.left - pageOrigin.left + inset + (rect.width - inset * 2) * column / 6,
-                        y: rect.top - pageOrigin.top + inset + (rect.height - inset * 2) * row / 6,
+                        x: rect.left - pageOrigin.left + inset + ((rect.width - inset * 2) * column) / 6,
+                        y: rect.top - pageOrigin.top + inset + ((rect.height - inset * 2) * row) / 6,
                     });
                 }
             }
@@ -230,10 +213,8 @@ function readInteriorSamplePoints(): IInteriorSamplePoint[] {
         const path = geometry;
         const totalLength = path.getTotalLength();
         for (let index = 1; index <= 24; index += 1) {
-            const point = path.getPointAtLength(totalLength * index / 25);
-            const screenPoint = new DOMPoint(point.x, point.y).matrixTransform(
-                path.getScreenCTM() ?? new DOMMatrix(),
-            );
+            const point = path.getPointAtLength((totalLength * index) / 25);
+            const screenPoint = new DOMPoint(point.x, point.y).matrixTransform(path.getScreenCTM() ?? new DOMMatrix());
             samples.push({
                 kind: 'stroke',
                 x: screenPoint.x - pageOrigin.left,
@@ -244,16 +225,14 @@ function readInteriorSamplePoints(): IInteriorSamplePoint[] {
     return samples;
 }
 
-async function waitForStrokeMetrics(
-    readMetrics: () => Promise<IStrokePaintMetrics>,
-    timeoutMs = 30_000,
-) {
+async function waitForStrokeMetrics(readMetrics: () => Promise<IStrokePaintMetrics>, timeoutMs = 30_000) {
     // Until the page's current raster leaves out the managed annotations, the
     // original appearance owns them and the EVB visuals stay hidden.
-    const isReady = (value: IStrokePaintMetrics) => value.managedShapeCount === 2
-        && value.renderedStrokeWidth !== null
-        && value.pageRaster === 'current'
-        && value.visibleShapeCount === 2;
+    const isReady = (value: IStrokePaintMetrics) =>
+        value.managedShapeCount === 2 &&
+        value.renderedStrokeWidth !== null &&
+        value.pageRaster === 'current' &&
+        value.visibleShapeCount === 2;
     const startedAt = Date.now();
     let metrics = await readMetrics();
     while (!isReady(metrics) && Date.now() - startedAt < timeoutMs) {
@@ -270,10 +249,7 @@ async function setElectronZoom(page: ElectronPage) {
     await requireWorkspaceCommand(page, 'setCustomZoomFromDisplay', [MATCHED_DISPLAY_ZOOM]);
 }
 
-async function readBlueStrokePixelMetrics(
-    path: string,
-    pageOrigin: IPageSurfaceOrigin,
-): Promise<IBlueStrokePixelMetrics> {
+async function readBlueStrokePixelMetrics(path: string, pageOrigin: IPageSurfaceOrigin): Promise<IBlueStrokePixelMetrics> {
     const image = decode(readFileSync(path));
     const pixels = image.data;
     const channels = pixels.length / (image.width * image.height);
@@ -306,38 +282,28 @@ async function readBlueStrokePixelMetrics(
     }
     const ratio = pageOrigin.devicePixelRatio > 0 ? pageOrigin.devicePixelRatio : 1;
     return {
-        bounds: count > 0 ? {
-            bottom: bottom / ratio - pageOrigin.top,
-            left: left / ratio - pageOrigin.left,
-            right: right / ratio - pageOrigin.left,
-            top: top / ratio - pageOrigin.top,
-        } : null,
+        bounds:
+            count > 0
+                ? {
+                      bottom: bottom / ratio - pageOrigin.top,
+                      left: left / ratio - pageOrigin.left,
+                      right: right / ratio - pageOrigin.left,
+                      top: top / ratio - pageOrigin.top,
+                  }
+                : null,
         count,
     };
 }
 
-function readInteriorPixels(
-    path: string,
-    samples: IInteriorSamplePoint[],
-    pageOrigin: IPageSurfaceOrigin,
-): IInteriorPixel[] {
+function readInteriorPixels(path: string, samples: IInteriorSamplePoint[], pageOrigin: IPageSurfaceOrigin): IInteriorPixel[] {
     const image = decode(readFileSync(path));
     const channels = image.data.length / (image.width * image.height);
-    return samples.map(({
-        x,
-        y,
-    }) => {
-        const pixelX = Math.max(0, Math.min(
-            image.width - 1,
-            Math.round((x + pageOrigin.left) * pageOrigin.devicePixelRatio),
-        ));
-        const pixelY = Math.max(0, Math.min(
-            image.height - 1,
-            Math.round((y + pageOrigin.top) * pageOrigin.devicePixelRatio),
-        ));
+    return samples.map(({x, y}) => {
+        const pixelX = Math.max(0, Math.min(image.width - 1, Math.round((x + pageOrigin.left) * pageOrigin.devicePixelRatio)));
+        const pixelY = Math.max(0, Math.min(image.height - 1, Math.round((y + pageOrigin.top) * pageOrigin.devicePixelRatio)));
         const index = (pixelY * image.width + pixelX) * channels;
         return {
-            alpha: channels === 4 ? image.data[index + 3] ?? 255 : 255,
+            alpha: channels === 4 ? (image.data[index + 3] ?? 255) : 255,
             blue: image.data[index + 2] ?? 0,
             green: image.data[index + 1] ?? 0,
             red: image.data[index] ?? 0,
@@ -370,7 +336,7 @@ describe('Electron and Playwright annotation opacity parity', () => {
     it('renders canonical stroke and fill opacity identically in both runtimes', async () => {
         const session = sessionFixture.getSession();
 
-        mkdirSync(ARTIFACT_DIR, { recursive: true });
+        mkdirSync(ARTIFACT_DIR, {recursive: true});
         await session.page.setViewport({
             deviceScaleFactor: 2,
             height: 900,
@@ -386,9 +352,7 @@ describe('Electron and Playwright annotation opacity parity', () => {
         console.info('STROKE_PARITY_STEP electron-measure:start');
         await setElectronZoom(session.page);
         console.info('STROKE_PARITY_STEP electron-zoom:complete');
-        const electronMetrics = await waitForStrokeMetrics(
-            () => session.page.evaluate(readStrokePaintMetrics),
-        );
+        const electronMetrics = await waitForStrokeMetrics(() => session.page.evaluate(readStrokePaintMetrics));
         await session.page.setViewport({
             deviceScaleFactor: 2,
             height: 700,
@@ -429,22 +393,22 @@ describe('Electron and Playwright annotation opacity parity', () => {
                 },
             });
             const webPage = await context.newPage();
-            await webPage.goto(`${webApp.origin}/`, { waitUntil: 'domcontentloaded' });
+            await webPage.goto(`${webApp.origin}/`, {waitUntil: 'domcontentloaded'});
             // The prerendered Open File button takes clicks before hydration
             // attaches its handler; the app says when it is ready for input.
             await webPage.waitForFunction(() => Reflect.get(window, '__appReady') === true);
             await webPage.evaluate(() => {
-                window.sessionStorage.setItem(
-                    'evb-viewer:browser:open-picker-mode',
-                    'input',
-                );
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
             });
 
             const fileChooserPromise = webPage.waitForEvent('filechooser');
-            await webPage.getByRole('button', {
-                name: 'Open File',
-                exact: true,
-            }).first().click();
+            await webPage
+                .getByRole('button', {
+                    name: 'Open File',
+                    exact: true,
+                })
+                .first()
+                .click();
             const fileChooser = await fileChooserPromise;
             await fileChooser.setFiles(fixturePath);
             await webPage.locator('.page_container--rendered canvas').first().waitFor({
@@ -456,13 +420,11 @@ describe('Electron and Playwright annotation opacity parity', () => {
             const customZoomInput = webPage.locator('.zoom-chip-custom-input:visible');
             await customZoomInput.fill(String(MATCHED_DISPLAY_ZOOM * 100));
             await customZoomInput.press('Enter');
-            await expect.poll(async () => (
-                webPage.locator('.zoom-controls-display-value:visible').textContent()
-            )).toContain(`${String(MATCHED_DISPLAY_ZOOM * 100)}%`);
+            await expect
+                .poll(async () => webPage.locator('.zoom-controls-display-value:visible').textContent())
+                .toContain(`${String(MATCHED_DISPLAY_ZOOM * 100)}%`);
 
-            const webMetrics = await waitForStrokeMetrics(
-                () => webPage.evaluate(readStrokePaintMetrics),
-            );
+            const webMetrics = await waitForStrokeMetrics(() => webPage.evaluate(readStrokePaintMetrics));
             await webPage.setViewportSize({
                 height: 700,
                 width: 1_000,
@@ -481,10 +443,12 @@ describe('Electron and Playwright annotation opacity parity', () => {
             const webScreenshotMetrics = await webPage.evaluate(readStrokePaintMetrics);
             console.info(`STROKE_PARITY_STEP playwright-measure:complete ${JSON.stringify(webMetrics)}`);
 
-            console.info(`ANNOTATION_STROKE_PARITY ${JSON.stringify({
-                electron: electronMetrics,
-                playwright: webMetrics,
-            })}`);
+            console.info(
+                `ANNOTATION_STROKE_PARITY ${JSON.stringify({
+                    electron: electronMetrics,
+                    playwright: webMetrics,
+                })}`,
+            );
 
             expect(electronMetrics.managedShapeCount).toBe(2);
             expect(webMetrics.managedShapeCount).toBe(2);
@@ -498,18 +462,9 @@ describe('Electron and Playwright annotation opacity parity', () => {
             expect(electronMetrics.strokeWidthAttribute).toBe(webMetrics.strokeWidthAttribute);
             expect(electronMetrics.scaleFactor).toBeCloseTo(webMetrics.scaleFactor ?? 0, 5);
             expect(electronMetrics.userUnit).toBeCloseTo(webMetrics.userUnit ?? 0, 5);
-            expect(electronMetrics.renderedStrokeWidth).toBeCloseTo(
-                webMetrics.renderedStrokeWidth ?? 0,
-                5,
-            );
-            const electronBluePixels = await readBlueStrokePixelMetrics(
-                ELECTRON_SCREENSHOT_PATH,
-                electronPageOrigin,
-            );
-            const playwrightBluePixels = await readBlueStrokePixelMetrics(
-                PLAYWRIGHT_SCREENSHOT_PATH,
-                playwrightPageOrigin,
-            );
+            expect(electronMetrics.renderedStrokeWidth).toBeCloseTo(webMetrics.renderedStrokeWidth ?? 0, 5);
+            const electronBluePixels = await readBlueStrokePixelMetrics(ELECTRON_SCREENSHOT_PATH, electronPageOrigin);
+            const playwrightBluePixels = await readBlueStrokePixelMetrics(PLAYWRIGHT_SCREENSHOT_PATH, playwrightPageOrigin);
             expect(electronBluePixels.count).toBeGreaterThan(0);
             expect(playwrightBluePixels.count).toBeGreaterThan(0);
             // Keep the content's location and extent strict while allowing
@@ -518,12 +473,7 @@ describe('Electron and Playwright annotation opacity parity', () => {
             const playwrightBounds = playwrightBluePixels.bounds;
             expect(electronBounds).not.toBeNull();
             expect(playwrightBounds).not.toBeNull();
-            for (const edge of [
-                'bottom',
-                'left',
-                'right',
-                'top',
-            ] as const) {
+            for (const edge of ['bottom', 'left', 'right', 'top'] as const) {
                 expect(
                     Math.abs(electronBounds![edge] - playwrightBounds![edge]),
                     `${edge}: ${JSON.stringify({
@@ -532,38 +482,33 @@ describe('Electron and Playwright annotation opacity parity', () => {
                     })}`,
                 ).toBeLessThanOrEqual(1);
             }
-            console.info(`ANNOTATION_EDGE_DIAGNOSTIC ${JSON.stringify({
-                electron: electronBluePixels,
-                playwright: playwrightBluePixels,
-            })}`);
+            console.info(
+                `ANNOTATION_EDGE_DIAGNOSTIC ${JSON.stringify({
+                    electron: electronBluePixels,
+                    playwright: playwrightBluePixels,
+                })}`,
+            );
 
             const electronInteriorSamples = await session.page.evaluate(readInteriorSamplePoints);
             const playwrightInteriorSamples = await webPage.evaluate(readInteriorSamplePoints);
-            expect(electronInteriorSamples.filter(sample => sample.kind === 'fill')).toHaveLength(25);
-            expect(electronInteriorSamples.filter(sample => sample.kind === 'stroke')).toHaveLength(24);
+            expect(electronInteriorSamples.filter((sample) => sample.kind === 'fill')).toHaveLength(25);
+            expect(electronInteriorSamples.filter((sample) => sample.kind === 'stroke')).toHaveLength(24);
             expect(playwrightInteriorSamples).toHaveLength(electronInteriorSamples.length);
-            const electronInteriorPixels = readInteriorPixels(
-                ELECTRON_SCREENSHOT_PATH,
-                electronInteriorSamples,
-                electronPageOrigin,
-            );
+            const electronInteriorPixels = readInteriorPixels(ELECTRON_SCREENSHOT_PATH, electronInteriorSamples, electronPageOrigin);
             const playwrightInteriorPixels = readInteriorPixels(
                 PLAYWRIGHT_SCREENSHOT_PATH,
                 playwrightInteriorSamples,
                 playwrightPageOrigin,
             );
-            const interiorMismatchLimit = Math.ceil(
-                electronInteriorPixels.length * INTERIOR_PIXEL_MISMATCH_RATIO,
+            const interiorMismatchLimit = Math.ceil(electronInteriorPixels.length * INTERIOR_PIXEL_MISMATCH_RATIO);
+            const interiorMismatchCount = countInteriorMismatches(electronInteriorPixels, playwrightInteriorPixels);
+            console.info(
+                `ANNOTATION_INTERIOR_PARITY ${JSON.stringify({
+                    mismatchCount: interiorMismatchCount,
+                    mismatchLimit: interiorMismatchLimit,
+                    sampleCount: electronInteriorPixels.length,
+                })}`,
             );
-            const interiorMismatchCount = countInteriorMismatches(
-                electronInteriorPixels,
-                playwrightInteriorPixels,
-            );
-            console.info(`ANNOTATION_INTERIOR_PARITY ${JSON.stringify({
-                mismatchCount: interiorMismatchCount,
-                mismatchLimit: interiorMismatchLimit,
-                sampleCount: electronInteriorPixels.length,
-            })}`);
             // Compare only shape interiors. One device pixel is excluded at each
             // boundary, where the two screenshot surfaces legitimately antialias.
             // The measured ICC conversion differs by at most 10 channels in the
@@ -572,8 +517,8 @@ describe('Electron and Playwright annotation opacity parity', () => {
 
             await webPage.evaluate(() => {
                 const visual = document.querySelector<SVGGElement>(
-                    '.editor-pane.is-active .page_container[data-page="1"] '
-                    + '.pdf-annotation-editor-shape[data-annotation-id] [data-annotation-visual]',
+                    '.editor-pane.is-active .page_container[data-page="1"] ' +
+                        '.pdf-annotation-editor-shape[data-annotation-id] [data-annotation-visual]',
                 );
                 if (!visual) {
                     throw new Error('Missing fill visual for opacity negative control');
@@ -589,14 +534,13 @@ describe('Electron and Playwright annotation opacity parity', () => {
                 playwrightInteriorSamples,
                 playwrightPageOrigin,
             );
-            const wrongOpacityMismatchCount = countInteriorMismatches(
-                electronInteriorPixels,
-                wrongOpacityPixels,
+            const wrongOpacityMismatchCount = countInteriorMismatches(electronInteriorPixels, wrongOpacityPixels);
+            console.info(
+                `ANNOTATION_INTERIOR_NEGATIVE_CONTROL ${JSON.stringify({
+                    mismatchCount: wrongOpacityMismatchCount,
+                    mismatchLimit: interiorMismatchLimit,
+                })}`,
             );
-            console.info(`ANNOTATION_INTERIOR_NEGATIVE_CONTROL ${JSON.stringify({
-                mismatchCount: wrongOpacityMismatchCount,
-                mismatchLimit: interiorMismatchLimit,
-            })}`);
             expect(wrongOpacityMismatchCount).toBeGreaterThan(interiorMismatchLimit);
         } finally {
             await browser.close();

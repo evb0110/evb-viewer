@@ -1,23 +1,19 @@
-import type { Ref } from 'vue';
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { toTransferableUint8Array } from '@app/platform/browser-api/public';
-import { readDocumentBytes } from '@app/utils/documentBytes';
-import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
-import { isNativeDocumentRef } from '@app/utils/documentRef';
-import { NativePdfSaveRequiredError } from '@app/modules/pdf-viewer/runtime/save/nativePdfSaveRequiredError';
+import type {Ref} from 'vue';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {TDocumentRevisionToken} from '@contracts/documentRevision';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {toTransferableUint8Array} from '@app/platform/browser-api/public';
+import {readDocumentBytes} from '@app/utils/documentBytes';
+import {getDocumentFilesCapability} from '@app/utils/platformDocuments';
+import {isNativeDocumentRef} from '@app/utils/documentRef';
+import {NativePdfSaveRequiredError} from '@app/modules/pdf-viewer/runtime/save/nativePdfSaveRequiredError';
 
 export function createPdfSourceDataReader(deps: {
     pdfData: Ref<Uint8Array | null>;
     workingCopyPath: Ref<TDocumentRef | null>;
     documentRevisionToken?: Ref<TDocumentRevisionToken | null>;
 }) {
-    const {
-        pdfData,
-        workingCopyPath,
-        documentRevisionToken,
-    } = deps;
+    const {pdfData, workingCopyPath, documentRevisionToken} = deps;
     return async function getSourcePdfData() {
         if (pdfData.value) {
             return toTransferableUint8Array(pdfData.value);

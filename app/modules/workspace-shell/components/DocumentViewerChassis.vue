@@ -19,8 +19,16 @@
         :data-viewport-staged-render-page="chassisAuthority.openSurface.viewportSession.value.stagedRenderFence?.pageNumber ?? ''"
         :data-viewport-staged-viewport-page="chassisAuthority.openSurface.viewportSession.value.stagedViewportFence?.pageNumber ?? ''"
         :data-viewport-visual-kind="chassisAuthority.openSurface.viewportSession.value.visual.kind"
-        :data-viewport-visual-page="chassisAuthority.openSurface.viewportSession.value.visual.kind === 'page' ? chassisAuthority.openSurface.viewportSession.value.visual.pageNumber : ''"
-        :data-viewport-visual-presentation="chassisAuthority.openSurface.viewportSession.value.visual.kind === 'page' ? chassisAuthority.openSurface.viewportSession.value.visual.presentation : ''"
+        :data-viewport-visual-page="
+            chassisAuthority.openSurface.viewportSession.value.visual.kind === 'page'
+                ? chassisAuthority.openSurface.viewportSession.value.visual.pageNumber
+                : ''
+        "
+        :data-viewport-visual-presentation="
+            chassisAuthority.openSurface.viewportSession.value.visual.kind === 'page'
+                ? chassisAuthority.openSurface.viewportSession.value.visual.presentation
+                : ''
+        "
         :data-chassis-current-page="chassisAuthority.currentPage.value"
         :data-chassis-resizing="isResizing === true"
         :aria-busy="isOpening ? 'true' : undefined"
@@ -60,16 +68,11 @@
 </template>
 
 <script setup lang="ts">
-import type { Component } from 'vue';
-import { useResizeObserver } from '@vueuse/core';
-import {
-    DETACHED_ZOOM_ACCESS,
-    getZoomMode,
-    type IZoomStateAccess,
-    type TPdfViewRotation,
-} from '@contracts/shared';
-import { getHostCapability } from '@app/utils/getHostCapability';
-import { createDocumentViewerExposeForwarder } from '@app/modules/workspace-shell/viewers/createDocumentViewerExposeForwarder';
+import type {Component} from 'vue';
+import {useResizeObserver} from '@vueuse/core';
+import {DETACHED_ZOOM_ACCESS, getZoomMode, type IZoomStateAccess, type TPdfViewRotation} from '@contracts/shared';
+import {getHostCapability} from '@app/utils/getHostCapability';
+import {createDocumentViewerExposeForwarder} from '@app/modules/workspace-shell/viewers/createDocumentViewerExposeForwarder';
 import {
     createDocumentViewerRuntime,
     documentViewerRuntimeKey,
@@ -80,16 +83,13 @@ import {
     createDocumentOpeningPageFrame,
     observeDocumentViewportWheelInteraction,
 } from '@app/modules/document-viewer/public';
-import type {
-    TDocumentPageSourceKind,
-    IDocumentWheelInteraction,
-} from '@app/modules/document-viewer/public';
-import { workspaceViewerFeatureChunkLoaders } from '@app/modules/workspace-shell/viewers/workspaceViewerFeatureChunkLoaders';
+import type {TDocumentPageSourceKind, IDocumentWheelInteraction} from '@app/modules/document-viewer/public';
+import {workspaceViewerFeatureChunkLoaders} from '@app/modules/workspace-shell/viewers/workspaceViewerFeatureChunkLoaders';
 import DocumentViewerFlingBackdrop from '@app/modules/workspace-shell/components/DocumentViewerFlingBackdrop.vue';
-import { createPdfPageNavigationRequest } from '@app/modules/pdf-viewer/public';
-import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
+import {createPdfPageNavigationRequest} from '@app/modules/pdf-viewer/public';
+import type {IScrollToPageOptions} from '@app/modules/pdf-viewer/public';
 
-defineOptions({ inheritAttrs: false });
+defineOptions({inheritAttrs: false});
 
 type TDocumentViewerRendererKind = 'pdfjs' | 'page-source';
 
@@ -107,13 +107,11 @@ const {
 const sourceKindRef = computed(() => sourceKind);
 const attrs = useAttrs();
 
-const PdfFeaturePack = defineAsyncComponent(
-    () => workspaceViewerFeatureChunkLoaders.pdfjs()
-        .then(componentModule => componentModule.PdfViewer),
+const PdfFeaturePack = defineAsyncComponent(() =>
+    workspaceViewerFeatureChunkLoaders.pdfjs().then((componentModule) => componentModule.PdfViewer),
 ) as Component;
-const DocumentPageSourceFeaturePack = defineAsyncComponent(
-    () => workspaceViewerFeatureChunkLoaders['page-source']()
-        .then(componentModule => componentModule.default),
+const DocumentPageSourceFeaturePack = defineAsyncComponent(() =>
+    workspaceViewerFeatureChunkLoaders['page-source']().then((componentModule) => componentModule.default),
 ) as Component;
 const featurePacks: Record<TDocumentViewerRendererKind, Component> = {
     pdfjs: PdfFeaturePack,
@@ -158,14 +156,14 @@ function handleViewportInteraction(type: 'mousedown', event: Event) {
 }
 function readStringAttr<T extends string>(name: string, values: readonly T[], fallback: T) {
     const value = attrs[name];
-    return typeof value === 'string' && values.includes(value as T) ? value as T : fallback;
+    return typeof value === 'string' && values.includes(value as T) ? (value as T) : fallback;
 }
 // The view's zoom owner, passed through to the feature pack as it is.
-const readZoom = () => attrs.zoom as IZoomStateAccess | undefined ?? DETACHED_ZOOM_ACCESS;
+const readZoom = () => (attrs.zoom as IZoomStateAccess | undefined) ?? DETACHED_ZOOM_ACCESS;
 function readZoomPolicy() {
     const {state} = readZoom();
     return {
-        fitMode: state.kind === 'fit' ? state.axis : 'width' as const,
+        fitMode: state.kind === 'fit' ? state.axis : ('width' as const),
         zoom: state.kind === 'custom' ? state.scale : 1,
         zoomMode: getZoomMode(state),
     };
@@ -193,11 +191,7 @@ const openingPageFrameAuthority = createDocumentOpeningPageFrame({
     readLayoutRevision: () => openingFrameLayoutRevision.value,
     readPolicy: () => ({
         ...readZoomPolicy(),
-        viewMode: readStringAttr('viewMode', [
-            'single',
-            'facing',
-            'facing-first-single',
-        ] as const, 'single'),
+        viewMode: readStringAttr('viewMode', ['single', 'facing', 'facing-first-single'] as const, 'single'),
         continuousScroll: attrs.continuousScroll !== false,
         viewRotation: attrs.viewRotation as TPdfViewRotation | undefined,
     }),
@@ -211,10 +205,7 @@ const openingFrameResizeTargets = computed(() => {
         return [];
     }
     const layoutHost = viewport.closest<HTMLElement>('.workspace-viewer-host');
-    return layoutHost ? [
-        viewport,
-        layoutHost,
-    ] : [viewport];
+    return layoutHost ? [viewport, layoutHost] : [viewport];
 });
 useResizeObserver(openingFrameResizeTargets, () => {
     openingFrameLayoutRevision.value += 1;
@@ -277,13 +268,9 @@ const chassisViewportStyle = computed(() => {
             // renderer owns axis overflow (including fit-width scrollbar lock).
             // Residue of a superseded wheel gesture must not move the viewport.
             // The stable gutter keeps this from changing the layout width.
-            overflow: policy.overflow === 'hidden' || chassisAuthority.viewportWritePort.userScrollSuppressed.value
-                ? 'hidden'
-                : undefined,
+            overflow: policy.overflow === 'hidden' || chassisAuthority.viewportWritePort.userScrollSuppressed.value ? 'hidden' : undefined,
             scrollbarGutter: policy.scrollbarGutter,
-            '--document-open-surface-margin': policy.committedMargin === null
-                ? undefined
-                : `${String(policy.committedMargin)}px`,
+            '--document-open-surface-margin': policy.committedMargin === null ? undefined : `${String(policy.committedMargin)}px`,
         },
     ];
 });
@@ -304,17 +291,20 @@ function handleTotalPagesUpdate(pageCount: number) {
 // must also project that request into the viewport; recording the requested
 // page alone does not create or commit a scroll intent. The shell reads the
 // source feature packs bind here, and their page count, live.
-defineExpose(createDocumentViewerExposeForwarder(activeFeaturePackRef, {
-    getPageSource: () => chassisAuthority.source.value,
-    getPageCount: () => chassisAuthority.pageCount.value,
-    getCurrentPage: () => chassisAuthority.currentPage.value,
-    getReaderInteractionEpoch: () => chassisAuthority.viewportWritePort.getInteractionEpoch(),
-    observeReaderCommand: () => chassisAuthority.viewportWritePort.observeUserInteraction(chassisAuthority.viewportElement.value ?? undefined),
-    scrollToPage: (pageNumber: number, options?: IScrollToPageOptions) => {
-        const request = createPdfPageNavigationRequest(pageNumber, options);
-        chassisAuthority.navigate(request);
-    },
-}));
+defineExpose(
+    createDocumentViewerExposeForwarder(activeFeaturePackRef, {
+        getPageSource: () => chassisAuthority.source.value,
+        getPageCount: () => chassisAuthority.pageCount.value,
+        getCurrentPage: () => chassisAuthority.currentPage.value,
+        getReaderInteractionEpoch: () => chassisAuthority.viewportWritePort.getInteractionEpoch(),
+        observeReaderCommand: () =>
+            chassisAuthority.viewportWritePort.observeUserInteraction(chassisAuthority.viewportElement.value ?? undefined),
+        scrollToPage: (pageNumber: number, options?: IScrollToPageOptions) => {
+            const request = createPdfPageNavigationRequest(pageNumber, options);
+            chassisAuthority.navigate(request);
+        },
+    }),
+);
 </script>
 
 <style scoped>

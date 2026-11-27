@@ -1,8 +1,11 @@
+import {describe, expect, it} from 'vitest';
 import {
-    describe, expect, it,
-} from 'vitest';
-import {
-    bumpReleaseVersion, main, parseCutReleaseArgs, planRelease, releaseVersionParts, selectReleaseCandidate,
+    bumpReleaseVersion,
+    main,
+    parseCutReleaseArgs,
+    planRelease,
+    releaseVersionParts,
+    selectReleaseCandidate,
 } from '@scripts/release/cut-release.mjs';
 
 describe('tag release cutter', () => {
@@ -15,17 +18,11 @@ describe('tag release cutter', () => {
             level: 'minor',
             preflight: false,
         });
-        expect(parseCutReleaseArgs([
-            '--',
-            'patch',
-        ])).toEqual({
+        expect(parseCutReleaseArgs(['--', 'patch'])).toEqual({
             level: 'patch',
             preflight: false,
         });
-        expect(parseCutReleaseArgs([
-            'patch',
-            '--preflight',
-        ])).toEqual({
+        expect(parseCutReleaseArgs(['patch', '--preflight'])).toEqual({
             level: 'patch',
             preflight: true,
         });
@@ -35,15 +32,12 @@ describe('tag release cutter', () => {
     it('runs candidate selection in preflight mode without pushing a tag', async () => {
         const commands: string[][] = [];
         let selectedLevel = '';
-        await main([
-            'patch',
-            '--preflight',
-        ], {
+        await main(['patch', '--preflight'], {
             runCommand: (_command, args) => {
                 commands.push(args);
                 return '';
             },
-            planReleaseFn: level => {
+            planReleaseFn: (level) => {
                 selectedLevel = level;
                 return {
                     candidateCiRunId: 42,
@@ -60,26 +54,10 @@ describe('tag release cutter', () => {
     });
 
     it('derives versions from the newest stable tag', () => {
-        expect(releaseVersionParts('v1.2.3')).toEqual([
-            1,
-            2,
-            3,
-        ]);
-        expect(bumpReleaseVersion([
-            1,
-            2,
-            3,
-        ], 'patch')).toBe('1.2.4');
-        expect(bumpReleaseVersion([
-            1,
-            2,
-            3,
-        ], 'minor')).toBe('1.3.0');
-        expect(bumpReleaseVersion([
-            1,
-            2,
-            3,
-        ], 'major')).toBe('2.0.0');
+        expect(releaseVersionParts('v1.2.3')).toEqual([1, 2, 3]);
+        expect(bumpReleaseVersion([1, 2, 3], 'patch')).toBe('1.2.4');
+        expect(bumpReleaseVersion([1, 2, 3], 'minor')).toBe('1.3.0');
+        expect(bumpReleaseVersion([1, 2, 3], 'major')).toBe('2.0.0');
         expect(() => releaseVersionParts('v1.2.3-drill.42')).toThrow('Invalid stable release tag');
     });
 
@@ -88,9 +66,15 @@ describe('tag release cutter', () => {
         const result = selectReleaseCandidate({
             runCommand: (_command, args) => {
                 commands.push(args);
-                if (args[0] === 'tag') {return 'v1.2.3';}
-                if (args[0] === 'rev-parse') {return args[1] === 'origin/main' ? 'main' : 'tag-sha';}
-                if (args[0] === 'merge-base') {return '';}
+                if (args[0] === 'tag') {
+                    return 'v1.2.3';
+                }
+                if (args[0] === 'rev-parse') {
+                    return args[1] === 'origin/main' ? 'main' : 'tag-sha';
+                }
+                if (args[0] === 'merge-base') {
+                    return '';
+                }
                 return '';
             },
             findRun: () => null,
@@ -105,30 +89,24 @@ describe('tag release cutter', () => {
                     head_sha: 'old',
                 },
             ],
-            gates: id => id === 7 ? 'success' : 'failure',
+            gates: (id) => (id === 7 ? 'success' : 'failure'),
         });
         expect(result).toMatchObject({
             sha: 'new',
             lastTag: 'v1.2.3',
         });
-        expect(commands).toContainEqual([
-            'merge-base',
-            '--is-ancestor',
-            'new',
-            'main',
-        ]);
-        expect(commands).toContainEqual([
-            'merge-base',
-            '--is-ancestor',
-            'tag-sha',
-            'new',
-        ]);
+        expect(commands).toContainEqual(['merge-base', '--is-ancestor', 'new', 'main']);
+        expect(commands).toContainEqual(['merge-base', '--is-ancestor', 'tag-sha', 'new']);
     });
 
     it('releases the tip of main from its exact-SHA run while the run list still lags', () => {
         const runCommand = (_command: string, args: string[]) => {
-            if (args[0] === 'tag') {return 'v1.2.3';}
-            if (args[0] === 'rev-parse') {return args[1] === 'origin/main' ? 'tip' : 'tag-sha';}
+            if (args[0] === 'tag') {
+                return 'v1.2.3';
+            }
+            if (args[0] === 'rev-parse') {
+                return args[1] === 'origin/main' ? 'tip' : 'tag-sha';
+            }
             return '';
         };
         const olderRun = {
@@ -142,21 +120,25 @@ describe('tag release cutter', () => {
             html_url: 'https://ci/tip',
         });
 
-        expect(selectReleaseCandidate({
-            runCommand,
-            findRun: sha => (sha === 'tip' ? tipRun('success') : null),
-            listRuns: () => [olderRun],
-            gates: () => 'success',
-        })).toMatchObject({
+        expect(
+            selectReleaseCandidate({
+                runCommand,
+                findRun: (sha) => (sha === 'tip' ? tipRun('success') : null),
+                listRuns: () => [olderRun],
+                gates: () => 'success',
+            }),
+        ).toMatchObject({
             sha: 'tip',
             run: {id: 9},
         });
-        expect(selectReleaseCandidate({
-            runCommand,
-            findRun: () => tipRun('failure'),
-            listRuns: () => [olderRun],
-            gates: () => 'success',
-        })).toMatchObject({sha: 'older'});
+        expect(
+            selectReleaseCandidate({
+                runCommand,
+                findRun: () => tipRun('failure'),
+                listRuns: () => [olderRun],
+                gates: () => 'success',
+            }),
+        ).toMatchObject({sha: 'older'});
     });
 
     it('fetches the release tag set and plans without changing package.json', () => {
@@ -164,40 +146,49 @@ describe('tag release cutter', () => {
         const result = planRelease('patch', {
             runCommand: (_command, args) => {
                 commands.push(args);
-                if (args[0] === 'tag') {return 'v1.2.3';}
-                if (args[0] === 'rev-parse') {return args[1] === 'origin/main' ? 'main' : 'tag-sha';}
-                if (args[0] === 'merge-base') {return '';}
+                if (args[0] === 'tag') {
+                    return 'v1.2.3';
+                }
+                if (args[0] === 'rev-parse') {
+                    return args[1] === 'origin/main' ? 'main' : 'tag-sha';
+                }
+                if (args[0] === 'merge-base') {
+                    return '';
+                }
                 return '';
             },
             findRun: () => null,
-            listRuns: () => [{
-                id: 10,
-                head_sha: 'candidate',
-                html_url: 'https://ci/candidate',
-            }],
+            listRuns: () => [
+                {
+                    id: 10,
+                    head_sha: 'candidate',
+                    html_url: 'https://ci/candidate',
+                },
+            ],
             gates: () => 'success',
         });
-        expect(commands[0]).toEqual([
-            'fetch',
-            '--tags',
-            'origin',
-            'main',
-        ]);
+        expect(commands[0]).toEqual(['fetch', '--tags', 'origin', 'main']);
         expect(result.tag).toBe('v1.2.4');
     });
 
     it('requires an existing stable tag as the version baseline', () => {
-        expect(() => planRelease('patch', {
-            runCommand: (_command, args) => {
-                if (args[0] === 'rev-parse') {return 'main';}
-                return '';
-            },
-            findRun: () => null,
-            listRuns: () => [{
-                id: 11,
-                head_sha: 'candidate',
-            }],
-            gates: () => 'success',
-        })).toThrow('No stable release tag exists');
+        expect(() =>
+            planRelease('patch', {
+                runCommand: (_command, args) => {
+                    if (args[0] === 'rev-parse') {
+                        return 'main';
+                    }
+                    return '';
+                },
+                findRun: () => null,
+                listRuns: () => [
+                    {
+                        id: 11,
+                        head_sha: 'candidate',
+                    },
+                ],
+                gates: () => 'success',
+            }),
+        ).toThrow('No stable release tag exists');
     });
 });

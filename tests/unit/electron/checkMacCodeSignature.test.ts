@@ -1,14 +1,7 @@
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { NativeProcessError } from '@electron/native-tools/processResult';
-import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
-import { checkMacCodeSignature } from '@electron/updates/checkMacCodeSignature';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {NativeProcessError} from '@electron/native-tools/processResult';
+import {runNativeCommand} from '@electron/native-tools/runNativeCommand';
+import {checkMacCodeSignature} from '@electron/updates/checkMacCodeSignature';
 
 vi.mock('@electron/native-tools/runNativeCommand', () => ({runNativeCommand: vi.fn()}));
 
@@ -50,14 +43,14 @@ describe('checkMacCodeSignature', () => {
         await expect(checkMacCodeSignature()).resolves.toBe(true);
     });
 
-    it.each([
-        'Signature=adhoc\nTeamIdentifier=ABCDE12345',
-        'Authority=Developer ID Application: Fixture\nTeamIdentifier=',
-    ])('rejects a verified signature with incomplete Developer ID details (%s)', async (details) => {
-        codesignFixture(details);
+    it.each(['Signature=adhoc\nTeamIdentifier=ABCDE12345', 'Authority=Developer ID Application: Fixture\nTeamIdentifier='])(
+        'rejects a verified signature with incomplete Developer ID details (%s)',
+        async (details) => {
+            codesignFixture(details);
 
-        await expect(checkMacCodeSignature()).resolves.toBe(false);
-    });
+            await expect(checkMacCodeSignature()).resolves.toBe(false);
+        },
+    );
 
     it.each(['--verify', '-d'])('reports an invalid signature when %s fails', async (stage) => {
         codesignFixture(developerId, {

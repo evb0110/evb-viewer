@@ -1,4 +1,4 @@
-import { basename } from 'node:path';
+import {basename} from 'node:path';
 
 // Poppler decodes font and content streams without a size limit, so a small
 // crafted PDF can make it allocate many gigabytes (#1255). Each Poppler process
@@ -7,12 +7,7 @@ import { basename } from 'node:path';
 // - Windows: Job Object `JOB_OBJECT_LIMIT_PROCESS_MEMORY | JOB_OBJECT_LIMIT_JOB_MEMORY`
 // - Linux: `RLIMIT_DATA` in `pre_exec` plus zero-spawn `/proc` group accounting
 // - macOS: zero-spawn `proc_pid_rusage` (`ri_phys_footprint`) in the `kqueue` loop
-const POPPLER_TOOL_NAMES = new Set([
-    'pdfimages',
-    'pdfinfo',
-    'pdftoppm',
-    'pdftotext',
-]);
+const POPPLER_TOOL_NAMES = new Set(['pdfimages', 'pdfinfo', 'pdftoppm', 'pdftotext']);
 
 export const POPPLER_MEMORY_LIMIT_BYTES = 4 * 1024 ** 3;
 

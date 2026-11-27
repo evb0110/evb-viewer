@@ -1,21 +1,15 @@
-import type {
-    TLocale,
-    TTranslateFn,
-} from '@i18n-app';
+import type {TLocale, TTranslateFn} from '@i18n-app';
 import EN_MESSAGE_SCHEMA from '@i18n-app/messages/en';
 import {flattenObject} from 'es-toolkit/object';
 import {ref} from 'vue';
-import {
-    beforeEach,
-    vi,
-} from 'vitest';
-import { setBrowserPlatformApi } from '@app/utils/platform';
-import { createPlatformApiFixture } from '@tests/helpers/createPlatformApiFixture';
+import {beforeEach, vi} from 'vitest';
+import {setBrowserPlatformApi} from '@app/utils/platform';
+import {createPlatformApiFixture} from '@tests/helpers/createPlatformApiFixture';
 
 const EN_TRANSLATION_KEYS = new Set(
     Object.entries(flattenObject(EN_MESSAGE_SCHEMA))
-        .filter(entry => typeof entry[1] === 'string')
-        .map(entry => entry[0]),
+        .filter((entry) => typeof entry[1] === 'string')
+        .map((entry) => entry[0]),
 );
 
 const translate: TTranslateFn = (key, ...args) => {
@@ -41,11 +35,13 @@ const i18nComposer = {
 
 vi.mock('vue-i18n', () => ({useI18n: () => i18nComposer}));
 
-vi.stubGlobal('useRuntimeConfig', () => ({public: {
-    analyticsEnabled: false,
-    landingUrl: '',
-    siteUrl: '',
-}}));
+vi.stubGlobal('useRuntimeConfig', () => ({
+    public: {
+        analyticsEnabled: false,
+        landingUrl: '',
+        siteUrl: '',
+    },
+}));
 
 vi.stubGlobal('useRoute', () => ({path: '/'}));
 

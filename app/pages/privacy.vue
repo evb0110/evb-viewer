@@ -59,21 +59,25 @@
 </template>
 
 <script setup lang="ts">
-import { PRIVACY_MESSAGES } from '@i18n-core';
+import {PRIVACY_MESSAGES} from '@i18n-core';
 
-const { locale } = useTypedI18n();
+const {locale} = useTypedI18n();
 const privacyCopy = computed(() => PRIVACY_MESSAGES[locale.value]);
 
 useHead(() => ({
     title: `${privacyCopy.value.seo.title} | EVB Viewer`,
-    meta: [{
-        name: 'description',
-        content: privacyCopy.value.seo.description,
-    }],
-    link: [{
-        rel: 'canonical',
-        href: 'https://web.evb-viewer.com/privacy',
-    }],
+    meta: [
+        {
+            name: 'description',
+            content: privacyCopy.value.seo.description,
+        },
+    ],
+    link: [
+        {
+            rel: 'canonical',
+            href: 'https://web.evb-viewer.com/privacy',
+        },
+    ],
 }));
 </script>
 

@@ -1,33 +1,23 @@
-import { isRecord } from '@contracts/runtimeGuards';
+import {isRecord} from '@contracts/runtimeGuards';
 
-export { isRecord };
+export {isRecord};
 
-export function getOptionalString(
-    value: unknown,
-    key: PropertyKey,
-) {
+export function getOptionalString(value: unknown, key: PropertyKey) {
     if (!isRecord(value)) {
         return null;
     }
 
     const candidate = (value as Record<PropertyKey, unknown>)[key];
-    return typeof candidate === 'string'
-        ? candidate
-        : null;
+    return typeof candidate === 'string' ? candidate : null;
 }
 
-export function getOptionalObject(
-    value: unknown,
-    key: PropertyKey,
-): Record<PropertyKey, unknown> | null {
+export function getOptionalObject(value: unknown, key: PropertyKey): Record<PropertyKey, unknown> | null {
     if (!isRecord(value)) {
         return null;
     }
 
     const candidate = (value as Record<PropertyKey, unknown>)[key];
-    return isRecord(candidate)
-        ? candidate
-        : null;
+    return isRecord(candidate) ? candidate : null;
 }
 
 /**
@@ -46,7 +36,5 @@ export function getOptionalFunction<TArgs extends unknown[] = unknown[], TResult
     }
 
     const candidate = (value as Record<PropertyKey, unknown>)[key];
-    return typeof candidate === 'function'
-        ? candidate as (...args: TArgs) => TResult
-        : null;
+    return typeof candidate === 'function' ? (candidate as (...args: TArgs) => TResult) : null;
 }

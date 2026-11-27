@@ -11,12 +11,7 @@ const headerSchema = v.strictObject({
     format: v.literal('evb-pdf-annotation-parse'),
     schemaVersion: v.literal(1),
     pageCount: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
-    chunkBytes: v.pipe(
-        v.number(),
-        v.safeInteger(),
-        v.minValue(64),
-        v.maxValue(PDF_ANNOTATION_PARSE_MAX_LINE_BYTES),
-    ),
+    chunkBytes: v.pipe(v.number(), v.safeInteger(), v.minValue(64), v.maxValue(PDF_ANNOTATION_PARSE_MAX_LINE_BYTES)),
 });
 
 const chunkSchema = v.strictObject({
@@ -59,10 +54,7 @@ function decodeChunk(value: unknown, expectedChunkIndex: number, lineNumber: num
  * session chunk by chunk, so the output's total size is not a limit. Each line
  * and the entry count keep the shared parse limits.
  */
-export function decodeBrowserPdfAnnotationsOutput(data: Uint8Array): Pick<
-    IPdfAnnotationParseResult,
-    'pageCount' | 'entities' | 'foreign'
-> {
+export function decodeBrowserPdfAnnotationsOutput(data: Uint8Array): Pick<IPdfAnnotationParseResult, 'pageCount' | 'entities' | 'foreign'> {
     if (!(data instanceof Uint8Array) || data.byteLength === 0) {
         throw new Error('PDF annotation parse WASM output is empty');
     }
@@ -75,9 +67,7 @@ export function decodeBrowserPdfAnnotationsOutput(data: Uint8Array): Pick<
         const newline = data.indexOf(0x0a, start);
         const end = newline === -1 ? data.byteLength : newline;
         if (end + 1 - start > PDF_ANNOTATION_PARSE_MAX_LINE_BYTES) {
-            throw new Error(
-                `PDF annotation parse WASM output line ${lineNumber} exceeds ${PDF_ANNOTATION_PARSE_MAX_LINE_BYTES} bytes`,
-            );
+            throw new Error(`PDF annotation parse WASM output line ${lineNumber} exceeds ${PDF_ANNOTATION_PARSE_MAX_LINE_BYTES} bytes`);
         }
         let line: string;
         try {
@@ -93,9 +83,7 @@ export function decodeBrowserPdfAnnotationsOutput(data: Uint8Array): Pick<
         }
         const entries = decodeChunk(value, lineNumber - 2, lineNumber);
         if (entities.length + foreign.length + entries.length > PDF_ANNOTATION_PARSE_MAX_ENTRIES) {
-            throw new Error(
-                `PDF annotation parse WASM output contains more than ${PDF_ANNOTATION_PARSE_MAX_ENTRIES} entries`,
-            );
+            throw new Error(`PDF annotation parse WASM output contains more than ${PDF_ANNOTATION_PARSE_MAX_ENTRIES} entries`);
         }
         for (const entry of entries) {
             if (entry.kind === 'foreign') {

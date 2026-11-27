@@ -98,10 +98,7 @@
                 <span class="inline-flex items-center justify-center gap-2">
                     <UIcon
                         :name="isPreparing ? 'i-ph-circle-notch' : 'i-ph-printer'"
-                        :class="[
-                            'size-4 shrink-0',
-                            isPreparing ? 'animate-spin' : '',
-                        ]"
+                        :class="['size-4 shrink-0', isPreparing ? 'animate-spin' : '']"
                         aria-hidden="true"
                     />
                     <span>{{ t('print.action') }}</span>
@@ -112,21 +109,15 @@
 </template>
 
 <script setup lang="ts">
-import { whenever } from '@vueuse/core';
+import {whenever} from '@vueuse/core';
 import PdfPageScopeRadioGroup from '@app/modules/pdf-viewer/components/PdfPageScopeRadioGroup.vue';
-import type { TPdfViewMode } from '@contracts/shared';
-import {
-    parsePrintPageRangeSelectionInput,
-    type TPrintOrientation,
-} from '@app/utils/pdfPrintShared';
-import {
-    usePdfPageScopeSelection,
-    type TPdfPageScope,
-} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfPageScopeSelection';
-import type { TPageSelection } from '@pdf-core/pdfPageSelection';
-import { pageSelectionCount } from '@pdf-core/pdfPageSelection';
+import type {TPdfViewMode} from '@contracts/shared';
+import {parsePrintPageRangeSelectionInput, type TPrintOrientation} from '@app/utils/pdfPrintShared';
+import {usePdfPageScopeSelection, type TPdfPageScope} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfPageScopeSelection';
+import type {TPageSelection} from '@pdf-core/pdfPageSelection';
+import {pageSelectionCount} from '@pdf-core/pdfPageSelection';
 
-const open = defineModel<boolean>('open', { required: true });
+const open = defineModel<boolean>('open', {required: true});
 
 const {
     currentPage,
@@ -149,13 +140,17 @@ const {
     supportsFirstPageSinglePrintLayout?: boolean;
 }>();
 
-const emit = defineEmits<{submit: [payload: {
-    pageSelection?: TPageSelection;
-    viewMode: TPdfViewMode;
-    orientation: TPrintOrientation;
-}];}>();
+const emit = defineEmits<{
+    submit: [
+        payload: {
+            pageSelection?: TPageSelection;
+            viewMode: TPdfViewMode;
+            orientation: TPrintOrientation;
+        },
+    ];
+}>();
 
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 
 const summaryId = useId();
 
@@ -178,20 +173,14 @@ const viewMode = ref<TPdfViewMode>('single');
 const orientation = ref<TPrintOrientation>('auto');
 
 const rangeSelection = computed(() => parsePrintPageRangeSelectionInput(rangeInput.value, totalPages));
-const {
-    rangeInput,
-    normalizedSelectedPageSelection,
-    rangeTouched,
-    resolveScopedPageSelection,
-    resetScopeForOpen,
-    scope,
-} = usePdfPageScopeSelection({
-    currentPage: () => currentPage,
-    resolveRangeSelection: () => rangeSelection.value,
-    selectedPageSelection: () => selectedPageSelection ?? null,
-    selectedPages: () => selectedPages,
-    totalPages: () => totalPages,
-});
+const {rangeInput, normalizedSelectedPageSelection, rangeTouched, resolveScopedPageSelection, resetScopeForOpen, scope} =
+    usePdfPageScopeSelection({
+        currentPage: () => currentPage,
+        resolveRangeSelection: () => rangeSelection.value,
+        selectedPageSelection: () => selectedPageSelection ?? null,
+        selectedPages: () => selectedPages,
+        totalPages: () => totalPages,
+    });
 
 const scopeOptions = computed(() => {
     const options: Array<{
@@ -200,18 +189,18 @@ const scopeOptions = computed(() => {
     }> = [
         {
             value: 'all',
-            label: t('print.scopeAll', { count: totalPages }),
+            label: t('print.scopeAll', {count: totalPages}),
         },
         {
             value: 'current',
-            label: t('print.scopeCurrent', { page: currentPage }),
+            label: t('print.scopeCurrent', {page: currentPage}),
         },
     ];
 
     if (pageSelectionCount(normalizedSelectedPageSelection.value) > 0) {
         options.push({
             value: 'selected',
-            label: t('print.scopeSelected', { count: pageSelectionCount(normalizedSelectedPageSelection.value) }),
+            label: t('print.scopeSelected', {count: pageSelectionCount(normalizedSelectedPageSelection.value)}),
         });
     }
 
@@ -223,14 +212,11 @@ const scopeOptions = computed(() => {
     return options;
 });
 
-const rangeError = computed(() => (
-    scope.value === 'range'
-    && rangeTouched.value
-    && rangeInput.value.trim().length > 0
-    && rangeSelection.value === null
+const rangeError = computed(() =>
+    scope.value === 'range' && rangeTouched.value && rangeInput.value.trim().length > 0 && rangeSelection.value === null
         ? t('print.invalidRange')
-        : null
-));
+        : null,
+);
 
 const printPageCount = computed(() => {
     if (scope.value === 'all') {
@@ -245,10 +231,12 @@ const printPageCount = computed(() => {
     return rangeSelection.value ? pageSelectionCount(rangeSelection.value) : 0;
 });
 
-const layoutOptions = computed<Array<{
-    value: TPdfViewMode;
-    label: string;
-}>>(() => {
+const layoutOptions = computed<
+    Array<{
+        value: TPdfViewMode;
+        label: string;
+    }>
+>(() => {
     const options: Array<{
         value: TPdfViewMode;
         label: string;
@@ -267,16 +255,15 @@ const layoutOptions = computed<Array<{
         },
     ];
 
-    return options.filter(option => (
-        option.value !== 'facing-first-single'
-        || supportsFirstPageSinglePrintLayout
-    ));
+    return options.filter((option) => option.value !== 'facing-first-single' || supportsFirstPageSinglePrintLayout);
 });
 
-const orientationOptions = computed<Array<{
-    value: TPrintOrientation;
-    label: string;
-}>>(() => [
+const orientationOptions = computed<
+    Array<{
+        value: TPrintOrientation;
+        label: string;
+    }>
+>(() => [
     {
         value: 'auto',
         label: t('print.orientationAuto'),
@@ -308,7 +295,7 @@ const advancedOptionGroups = computed<IPrintOptionGroup[]>(() => [
         id: 'layout',
         label: t('print.layoutLabel'),
         columnClass: 'sm:col-span-2',
-        options: layoutOptions.value.map(option => ({
+        options: layoutOptions.value.map((option) => ({
             value: option.value,
             label: option.label,
             selected: viewMode.value === option.value,
@@ -321,7 +308,7 @@ const advancedOptionGroups = computed<IPrintOptionGroup[]>(() => [
         id: 'orientation',
         label: t('print.orientationLabel'),
         columnClass: '',
-        options: orientationOptions.value.map(option => ({
+        options: orientationOptions.value.map((option) => ({
             value: option.value,
             label: option.label,
             selected: orientation.value === option.value,
@@ -332,17 +319,15 @@ const advancedOptionGroups = computed<IPrintOptionGroup[]>(() => [
     },
 ]);
 
-const printSummary = computed(() => t('print.summary', {
-    count: printPageCount.value,
-    layout: layoutOptions.value.find(option => option.value === viewMode.value)?.label ?? t('print.layoutSingle'),
-    orientation: orientationOptions.value.find(option => option.value === orientation.value)?.label ?? t('print.orientationAuto'),
-}));
+const printSummary = computed(() =>
+    t('print.summary', {
+        count: printPageCount.value,
+        layout: layoutOptions.value.find((option) => option.value === viewMode.value)?.label ?? t('print.layoutSingle'),
+        orientation: orientationOptions.value.find((option) => option.value === orientation.value)?.label ?? t('print.orientationAuto'),
+    }),
+);
 
-const canSubmit = computed(() => (
-    totalPages > 0
-    && !isPreparing
-    && (scope.value !== 'range' || rangeSelection.value !== null)
-));
+const canSubmit = computed(() => totalPages > 0 && !isPreparing && (scope.value !== 'range' || rangeSelection.value !== null));
 
 function handleSubmit() {
     const pageSelection = resolveScopedPageSelection();
@@ -352,7 +337,7 @@ function handleSubmit() {
     }
 
     emit('submit', {
-        ...(pageSelection !== undefined ? { pageSelection } : {}),
+        ...(pageSelection !== undefined ? {pageSelection} : {}),
         viewMode: viewMode.value,
         orientation: orientation.value,
     });
@@ -360,10 +345,10 @@ function handleSubmit() {
 
 whenever(open, () => {
     resetScopeForOpen();
-    viewMode.value = supportsAdvancedPrintOptions === false
-        || (defaultViewMode === 'facing-first-single' && !supportsFirstPageSinglePrintLayout)
-        ? 'single'
-        : defaultViewMode;
+    viewMode.value =
+        supportsAdvancedPrintOptions === false || (defaultViewMode === 'facing-first-single' && !supportsFirstPageSinglePrintLayout)
+            ? 'single'
+            : defaultViewMode;
     orientation.value = 'auto';
 });
 </script>

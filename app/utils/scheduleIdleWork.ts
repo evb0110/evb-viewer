@@ -1,11 +1,10 @@
-export interface IScheduleIdleWorkOptions {timeoutMs?: number;}
+export interface IScheduleIdleWorkOptions {
+    timeoutMs?: number;
+}
 
 export type TCancelIdleWork = () => void;
 
-export function scheduleIdleWork(
-    work: () => void | Promise<void>,
-    options: IScheduleIdleWorkOptions = {},
-): TCancelIdleWork {
+export function scheduleIdleWork(work: () => void | Promise<void>, options: IScheduleIdleWorkOptions = {}): TCancelIdleWork {
     let started = false;
     const run = () => {
         if (started) {

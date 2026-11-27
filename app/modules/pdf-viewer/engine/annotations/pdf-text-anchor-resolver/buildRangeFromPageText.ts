@@ -16,43 +16,50 @@ interface ISourceCharacter {
 // character it came from even where folding changes the length. A lone
 // capital sigma lowers to σ, so the word-final ς folds to σ as well.
 function fold(value: string, caseSensitive: boolean) {
-    return caseSensitive ? value : Array.from(value, character => character.toLocaleLowerCase().replace('ς', 'σ')).join('');
+    return caseSensitive ? value : Array.from(value, (character) => character.toLocaleLowerCase().replace('ς', 'σ')).join('');
 }
 
-export function buildRangeFromPageText(
-    pageContainer: HTMLElement,
-    options: IBuildRangeFromPageTextOptions,
-) {
+export function buildRangeFromPageText(pageContainer: HTMLElement, options: IBuildRangeFromPageTextOptions) {
     const caseSensitive = options.caseSensitive === true;
-    const spans = Array.from(pageContainer.querySelectorAll<HTMLElement>('.text-layer span, .textLayer span'))
-        .filter(span => !span.parentElement?.closest('span'));
+    const spans = Array.from(pageContainer.querySelectorAll<HTMLElement>('.text-layer span, .textLayer span')).filter(
+        (span) => !span.parentElement?.closest('span'),
+    );
     // `positions[i]` is the source of `haystack[i]`. Search highlighting
     // wraps matches in nested spans, so every text node of a span is read.
     const positions: ISourceCharacter[] = [];
     let haystack = '';
     const append = (value: string, source: ISourceCharacter) => {
         haystack += value;
-        for (let unit = 0; unit < value.length; unit += 1) {positions.push(source);}
+        for (let unit = 0; unit < value.length; unit += 1) {
+            positions.push(source);
+        }
     };
     const separate = (node: Text, offset: number) => {
-        if (haystack && !haystack.endsWith(' ')) {append(' ', {
-            node,
-            start: offset,
-            end: offset,
-        });}
+        if (haystack && !haystack.endsWith(' ')) {
+            append(' ', {
+                node,
+                start: offset,
+                end: offset,
+            });
+        }
     };
     for (const span of spans) {
         const walker = document.createTreeWalker(span, NodeFilter.SHOW_TEXT);
         for (let node = walker.nextNode() as Text | null, first = true; node; node = walker.nextNode() as Text | null, first = false) {
-            if (first) {separate(node, 0);}
+            if (first) {
+                separate(node, 0);
+            }
             let offset = 0;
             for (const character of node.data) {
-                if (/\s/u.test(character)) {separate(node, offset);}
-                else {append(fold(character, caseSensitive), {
-                    node,
-                    start: offset,
-                    end: offset + character.length,
-                });}
+                if (/\s/u.test(character)) {
+                    separate(node, offset);
+                } else {
+                    append(fold(character, caseSensitive), {
+                        node,
+                        start: offset,
+                        end: offset + character.length,
+                    });
+                }
                 offset += character.length;
             }
         }
@@ -84,11 +91,10 @@ export function buildRangeFromPageText(
                 range.setStart(start.node, start.start);
                 range.setEnd(end.node, end.end);
                 let matchedText = '';
-                for (const [
-                    index,
-                    source,
-                ] of positions.slice(startOffset, endOffset).entries()) {
-                    if (source === positions[startOffset + index - 1] && index > 0) {continue;}
+                for (const [index, source] of positions.slice(startOffset, endOffset).entries()) {
+                    if (source === positions[startOffset + index - 1] && index > 0) {
+                        continue;
+                    }
                     matchedText += source.start === source.end ? ' ' : source.node.data.slice(source.start, source.end);
                 }
                 return {

@@ -1,11 +1,8 @@
-import { parsePageNumber } from '@contracts/pageNumbers';
-import type { TPageNumber } from '@contracts/pageNumbers';
+import {parsePageNumber} from '@contracts/pageNumbers';
+import type {TPageNumber} from '@contracts/pageNumbers';
 
-import type { TPdfViewMode } from '@contracts/shared';
-import {
-    getPageRowBoundsForViewMode,
-    type TDocumentViewportVisualOwner,
-} from '@app/modules/document-viewer/public';
+import type {TPdfViewMode} from '@contracts/shared';
+import {getPageRowBoundsForViewMode, type TDocumentViewportVisualOwner} from '@app/modules/document-viewer/public';
 
 interface IPdfViewportVisualPage {
     pageNumber: TPageNumber;
@@ -21,13 +18,14 @@ function viewportVisualOwnsPage(options: IPdfViewportVisualPage) {
         return false;
     }
     const visualPageNumber = parsePageNumber(visual.pageNumber, options.totalPages);
-    const visualRow = visualPageNumber !== null
-        ? getPageRowBoundsForViewMode({
-            pageNumber: visualPageNumber,
-            totalPages: options.totalPages,
-            viewMode: options.viewMode,
-        })
-        : null;
+    const visualRow =
+        visualPageNumber !== null
+            ? getPageRowBoundsForViewMode({
+                  pageNumber: visualPageNumber,
+                  totalPages: options.totalPages,
+                  viewMode: options.viewMode,
+              })
+            : null;
     return visualRow === null
         ? visual.pageNumber === options.pageNumber
         : options.pageNumber >= visualRow.start && options.pageNumber <= visualRow.end;
@@ -35,9 +33,7 @@ function viewportVisualOwnsPage(options: IPdfViewportVisualPage) {
 
 /** True when the viewport's page visual owns this page and reports its render failed. */
 export function isPdfViewportPageError(options: IPdfViewportVisualPage) {
-    return options.visual.kind === 'page'
-        && options.visual.presentation === 'error'
-        && viewportVisualOwnsPage(options);
+    return options.visual.kind === 'page' && options.visual.presentation === 'error' && viewportVisualOwnsPage(options);
 }
 
 export function shouldShowPdfViewportPageSkeleton(options: {

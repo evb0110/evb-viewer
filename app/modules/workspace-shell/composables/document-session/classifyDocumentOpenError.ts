@@ -1,12 +1,6 @@
-import type {
-    TTranslateFn,
-    TTranslationKey,
-} from '@i18n-app';
-import type { TDocumentRef } from '@contracts/documentRef';
-import {
-    DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA,
-    type TDocumentOpenErrorEnvelope,
-} from '@contracts/documentOpenErrors';
+import type {TTranslateFn, TTranslationKey} from '@i18n-app';
+import type {TDocumentRef} from '@contracts/documentRef';
+import {DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA, type TDocumentOpenErrorEnvelope} from '@contracts/documentOpenErrors';
 import {getFailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {isRecord} from '@contracts/runtimeGuards';
 import {findSerializableErrorEnvelope} from '@contracts/serializableError';
@@ -22,7 +16,12 @@ import {BrowserLogger} from '@app/utils/browserLogger';
 export function describeBrowserEngineLimit(error: unknown, t: TTranslateFn) {
     const openError = findSerializableErrorEnvelope(error, DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA);
     if (isBrowserFullReadTooLargeError(error) || openError?.code === 'browser-byte-limit') {
-        return t('errors.browser.documentTooLarge', {limitMiB: Math.round((openError?.maxBytes ?? (isBrowserFullReadTooLargeError(error) ? error.maxBytes : undefined) ?? 16 * 1024 * 1024) / (1024 * 1024))});
+        return t('errors.browser.documentTooLarge', {
+            limitMiB: Math.round(
+                (openError?.maxBytes ?? (isBrowserFullReadTooLargeError(error) ? error.maxBytes : undefined) ?? 16 * 1024 * 1024) /
+                    (1024 * 1024),
+            ),
+        });
     }
     if ((error instanceof Error && error.name === 'BrowserPageOpsWorkerUnavailableError') || isBrowserQpdfEngineUnavailableError(error)) {
         return t('errors.browser.documentToolsUnavailable');
@@ -49,7 +48,12 @@ function findStructuredOpenErrorKind(error: unknown): TStructuredOpenErrorKind |
             return null;
         }
         seen.add(candidate);
-        const name = candidate instanceof Error ? candidate.name : (isRecord(candidate) && typeof candidate.name === 'string' ? candidate.name : undefined);
+        const name =
+            candidate instanceof Error
+                ? candidate.name
+                : isRecord(candidate) && typeof candidate.name === 'string'
+                  ? candidate.name
+                  : undefined;
         const code = isRecord(candidate) && typeof candidate.code === 'string' ? candidate.code : undefined;
         if (name === 'NotAllowedError' || name === 'SecurityError' || name === 'NotReadableError') {
             return 'permission-denied';
@@ -68,11 +72,7 @@ function findStructuredOpenErrorKind(error: unknown): TStructuredOpenErrorKind |
     return null;
 }
 
-export function classifyDocumentOpenError(
-    error: unknown,
-    path: TDocumentRef | null,
-    t: TTranslateFn,
-) {
+export function classifyDocumentOpenError(error: unknown, path: TDocumentRef | null, t: TTranslateFn) {
     if (isBrowserFilePickerSetupDeniedError(error)) {
         return t('errors.browser.filePickerSetupDenied');
     }
@@ -80,27 +80,40 @@ export function classifyDocumentOpenError(
     if (engineLimit) {
         return engineLimit;
     }
-    const fallbackFileName = path ? getDocumentRefBaseName(path) ?? String(path) : '';
+    const fallbackFileName = path ? (getDocumentRefBaseName(path) ?? String(path)) : '';
     const openError = findSerializableErrorEnvelope(error, DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA);
     if (openError) {
         switch (openError.code) {
-            case 'not-found': return t('errors.file.openNotFound', {name: openError.fileName ?? fallbackFileName});
-            case 'not-djvu': return t(NOT_DJVU_MESSAGE_KEYS[openError.detectedFormat ?? 'unknown']);
-            case 'invalid-djvu': return t('errors.file.invalidDjvu');
-            case 'djvu-components-required': return t('errors.file.djvuComponentsRequired');
-            case 'source-changed': return t('errors.file.changedWhileOpening');
-            case 'djvu-raster-limit': return t('errors.file.djvuRasterLimit');
-            case 'empty-pdf': return t('errors.file.emptyPdf');
+            case 'not-found':
+                return t('errors.file.openNotFound', {name: openError.fileName ?? fallbackFileName});
+            case 'not-djvu':
+                return t(NOT_DJVU_MESSAGE_KEYS[openError.detectedFormat ?? 'unknown']);
+            case 'invalid-djvu':
+                return t('errors.file.invalidDjvu');
+            case 'djvu-components-required':
+                return t('errors.file.djvuComponentsRequired');
+            case 'source-changed':
+                return t('errors.file.changedWhileOpening');
+            case 'djvu-raster-limit':
+                return t('errors.file.djvuRasterLimit');
+            case 'empty-pdf':
+                return t('errors.file.emptyPdf');
             case 'invalid-pdf':
-            case 'browser-byte-limit': return t('errors.file.invalid');
+            case 'browser-byte-limit':
+                return t('errors.file.invalid');
         }
     }
     switch (findStructuredOpenErrorKind(error)) {
-        case 'permission-denied': return t('errors.browser.filePermissionDenied');
-        case 'storage-full': return t('errors.browser.storageFull');
-        case 'invalid': return t('errors.file.invalid');
-        case 'not-found': return t('errors.file.openNotFound', {name: fallbackFileName});
-        case null: return t('errors.file.openDescription');
+        case 'permission-denied':
+            return t('errors.browser.filePermissionDenied');
+        case 'storage-full':
+            return t('errors.browser.storageFull');
+        case 'invalid':
+            return t('errors.file.invalid');
+        case 'not-found':
+            return t('errors.file.openNotFound', {name: fallbackFileName});
+        case null:
+            return t('errors.file.openDescription');
     }
 }
 

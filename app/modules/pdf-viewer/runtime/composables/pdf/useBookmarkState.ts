@@ -1,6 +1,6 @@
-import { isEqual } from 'es-toolkit/predicate';
-import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
-import type { IPdfBookmarkChangePayload } from '@app/types/pdfUi';
+import {isEqual} from 'es-toolkit/predicate';
+import type {IPdfBookmarkEntry} from '@app/types/pdfContracts';
+import type {IPdfBookmarkChangePayload} from '@app/types/pdfUi';
 import type {IWorkspaceMetadataRecovery} from '@contracts/workspaceCheckpoint';
 
 export const useBookmarkState = (deps: {
@@ -10,11 +10,7 @@ export const useBookmarkState = (deps: {
     onBookmarksDirty?: () => void;
     onBookmarksSaved?: (written?: IPdfBookmarkEntry[]) => void;
 }) => {
-    const {
-        onBookmarksSynchronized,
-        onBookmarksDirty,
-        onBookmarksSaved,
-    } = deps;
+    const {onBookmarksSynchronized, onBookmarksDirty, onBookmarksSaved} = deps;
 
     // Replaced wholesale, never mutated in place, and posted to the
     // serialization worker: deep reactivity would hand out a Proxy that
@@ -33,7 +29,9 @@ export const useBookmarkState = (deps: {
 
     function handleBookmarksChange(payload: IPdfBookmarkChangePayload) {
         const historyMode = payload.history ?? (payload.dirty ? 'record' : 'reset');
-        if (historyMode === 'reset' && bookmarksResolved.value && deps.preservesSourceReload?.()) {return;}
+        if (historyMode === 'reset' && bookmarksResolved.value && deps.preservesSourceReload?.()) {
+            return;
+        }
         bookmarksResolved.value = true;
         bookmarkItems.value = payload.bookmarks;
         bookmarkRevision += 1;
@@ -54,11 +52,13 @@ export const useBookmarkState = (deps: {
 
     /** `differsFromBytes`: the outline differs from the working bytes even where it matches the saved file. */
     function captureRecovery(differsFromBytes = false): IWorkspaceMetadataRecovery['bookmarks'] {
-        return bookmarksDirty.value || differsFromBytes ? {
-            revision: bookmarkRevision,
-            dirty: true,
-            items: bookmarkItems.value,
-        } : undefined;
+        return bookmarksDirty.value || differsFromBytes
+            ? {
+                  revision: bookmarkRevision,
+                  dirty: true,
+                  items: bookmarkItems.value,
+              }
+            : undefined;
     }
 
     function restoreRecovery(recovery: NonNullable<IWorkspaceMetadataRecovery['bookmarks']>) {

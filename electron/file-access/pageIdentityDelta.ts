@@ -7,10 +7,7 @@ import type {
     TPageIdentityDeltaPage,
     TPageIdentityRangeOperation,
 } from '@contracts/electronApiPageOps';
-import type {
-    IPageMoveRangeSegment,
-    IPageMoveRanges,
-} from '@contracts/pageNumbers';
+import type {IPageMoveRangeSegment, IPageMoveRanges} from '@contracts/pageNumbers';
 
 const PAGE_IDENTITY_INLINE_PAGE_COUNT = 4_096;
 const PAGE_IDENTITY_MAX_RANGE_OPERATIONS = 100_000;
@@ -61,23 +58,18 @@ function createLegacyOrRangeDelta(
     };
 }
 
-function appendMapping(
-    ranges: TMutablePageIdentityRangeOperation[],
-    fromPageNumber: number,
-    toPageNumber: number,
-    count: number,
-) {
+function appendMapping(ranges: TMutablePageIdentityRangeOperation[], fromPageNumber: number, toPageNumber: number, count: number) {
     if (count <= 0) {
         return;
     }
     const kind: IPageIdentityRangeMapping['kind'] = fromPageNumber === toPageNumber ? 'retain' : 'move';
     const previous = ranges.at(-1);
     if (
-        previous
-        && (previous.kind === 'retain' || previous.kind === 'move')
-        && previous.kind === kind
-        && previous.fromPageNumber + previous.count === fromPageNumber
-        && previous.toPageNumber + previous.count === toPageNumber
+        previous &&
+        (previous.kind === 'retain' || previous.kind === 'move') &&
+        previous.kind === kind &&
+        previous.fromPageNumber + previous.count === fromPageNumber &&
+        previous.toPageNumber + previous.count === toPageNumber
     ) {
         previous.count += count;
         return;
@@ -90,11 +82,7 @@ function appendMapping(
     });
 }
 
-function appendDelete(
-    ranges: TMutablePageIdentityRangeOperation[],
-    fromPageNumber: number,
-    count: number,
-) {
+function appendDelete(ranges: TMutablePageIdentityRangeOperation[], fromPageNumber: number, count: number) {
     if (count <= 0) {
         return;
     }
@@ -125,17 +113,13 @@ function appendTouch(
 function sortedUniquePages(pageNumbers: readonly number[], pageCount: number) {
     const pages = [...new Set(pageNumbers)];
     pages.sort((left, right) => left - right);
-    if (pages.some(page => !Number.isSafeInteger(page) || page < 1 || page > pageCount)) {
+    if (pages.some((page) => !Number.isSafeInteger(page) || page < 1 || page > pageCount)) {
         throw new Error('Page identity delta contains an out-of-range page');
     }
     return pages;
 }
 
-function createLargeIdentityDelta(
-    pageCount: number,
-    touchedPages: readonly number[] = [],
-    reason?: IPageIdentityRangeTouch['reason'],
-) {
+function createLargeIdentityDelta(pageCount: number, touchedPages: readonly number[] = [], reason?: IPageIdentityRangeTouch['reason']) {
     const ranges: TMutablePageIdentityRangeOperation[] = [];
     const touched = reason === undefined ? [] : sortedUniquePages(touchedPages, pageCount);
     let oldPage = 1;
@@ -181,11 +165,7 @@ function createIdentityDelta(pageCount: number): IPageIdentityDelta {
     return createLargeIdentityDelta(pageCount);
 }
 
-function createPageTouchIdentityDelta(
-    pageCount: number,
-    pages: readonly number[],
-    reason: IPageIdentityRangeTouch['reason'],
-) {
+function createPageTouchIdentityDelta(pageCount: number, pages: readonly number[], reason: IPageIdentityRangeTouch['reason']) {
     assertPageCount(pageCount, 'pageCount');
     if (pageCount <= PAGE_IDENTITY_INLINE_PAGE_COUNT) {
         return createIdentityDelta(pageCount);
@@ -204,11 +184,7 @@ function createPageRangeTouchIdentityDelta(
     for (const range of pageRanges) {
         assertPositivePageNumber(range.startPage, 'startPage');
         assertPositivePageNumber(range.endPage, 'endPage');
-        if (
-            range.startPage <= previousEnd
-            || range.endPage < range.startPage
-            || range.endPage > pageCount
-        ) {
+        if (range.startPage <= previousEnd || range.endPage < range.startPage || range.endPage > pageCount) {
             throw new Error('Page touch ranges must be sorted, disjoint, and within the document');
         }
         selectedPageCount += range.endPage - range.startPage + 1;
@@ -218,10 +194,9 @@ function createPageRangeTouchIdentityDelta(
         throw new Error('Page touch ranges must select at least one page');
     }
     if (pageCount <= PAGE_IDENTITY_INLINE_PAGE_COUNT) {
-        const pages = pageRanges.flatMap(range => Array.from(
-            {length: range.endPage - range.startPage + 1},
-            (_value, index) => range.startPage + index,
-        ));
+        const pages = pageRanges.flatMap((range) =>
+            Array.from({length: range.endPage - range.startPage + 1}, (_value, index) => range.startPage + index),
+        );
         return createPageTouchIdentityDelta(pageCount, pages, reason);
     }
     if (pageRanges.length + 1 > PAGE_IDENTITY_MAX_RANGE_OPERATIONS) {
@@ -237,7 +212,7 @@ function createPageRangeTouchIdentityDelta(
                 toPageNumber: 1,
                 count: pageCount,
             },
-            ...pageRanges.map(range => ({
+            ...pageRanges.map((range) => ({
                 kind: 'touch' as const,
                 toPageNumber: range.startPage,
                 count: range.endPage - range.startPage + 1,
@@ -247,35 +222,23 @@ function createPageRangeTouchIdentityDelta(
     } satisfies IPageIdentityDelta;
 }
 
-export const createRotateIdentityDelta = (
-    pageCount: number,
-    pages: readonly number[],
-) => createPageTouchIdentityDelta(pageCount, pages, 'rotate');
+export const createRotateIdentityDelta = (pageCount: number, pages: readonly number[]) =>
+    createPageTouchIdentityDelta(pageCount, pages, 'rotate');
 
-export const createCropIdentityDelta = (
-    pageCount: number,
-    pages: readonly number[],
-) => createPageTouchIdentityDelta(pageCount, pages, 'crop');
+export const createCropIdentityDelta = (pageCount: number, pages: readonly number[]) =>
+    createPageTouchIdentityDelta(pageCount, pages, 'crop');
 
-export const createRemoveCropIdentityDelta = (
-    pageCount: number,
-    pages: readonly number[],
-) => createPageTouchIdentityDelta(pageCount, pages, 'remove-crop');
+export const createRemoveCropIdentityDelta = (pageCount: number, pages: readonly number[]) =>
+    createPageTouchIdentityDelta(pageCount, pages, 'remove-crop');
 
-export const createRotateRangesIdentityDelta = (
-    pageCount: number,
-    ranges: readonly IPageMoveRangeSegment[],
-) => createPageRangeTouchIdentityDelta(pageCount, ranges, 'rotate');
+export const createRotateRangesIdentityDelta = (pageCount: number, ranges: readonly IPageMoveRangeSegment[]) =>
+    createPageRangeTouchIdentityDelta(pageCount, ranges, 'rotate');
 
-export const createCropRangesIdentityDelta = (
-    pageCount: number,
-    ranges: readonly IPageMoveRangeSegment[],
-) => createPageRangeTouchIdentityDelta(pageCount, ranges, 'crop');
+export const createCropRangesIdentityDelta = (pageCount: number, ranges: readonly IPageMoveRangeSegment[]) =>
+    createPageRangeTouchIdentityDelta(pageCount, ranges, 'crop');
 
-export const createRemoveCropRangesIdentityDelta = (
-    pageCount: number,
-    ranges: readonly IPageMoveRangeSegment[],
-) => createPageRangeTouchIdentityDelta(pageCount, ranges, 'remove-crop');
+export const createRemoveCropRangesIdentityDelta = (pageCount: number, ranges: readonly IPageMoveRangeSegment[]) =>
+    createPageRangeTouchIdentityDelta(pageCount, ranges, 'remove-crop');
 
 export function createDeleteIdentityDelta(pageCount: number, deletedPages: readonly number[]): IPageIdentityDelta {
     assertPageCount(pageCount, 'pageCount');
@@ -286,8 +249,8 @@ export function createDeleteIdentityDelta(pageCount: number, deletedPages: reado
         return {
             previousPageCount: pageCount,
             pages: Array.from({length: pageCount}, (_value, index) => index + 1)
-                .filter(pageNumber => !deletedSet.has(pageNumber))
-                .map(fromPageNumber => ({fromPageNumber})),
+                .filter((pageNumber) => !deletedSet.has(pageNumber))
+                .map((fromPageNumber) => ({fromPageNumber})),
         };
     }
     const ranges: TMutablePageIdentityRangeOperation[] = [];
@@ -310,16 +273,13 @@ export function createDeleteIdentityDelta(pageCount: number, deletedPages: reado
         oldPage = deletedEnd + 1;
         index += 1;
     }
-    if (oldPage <= pageCount) {appendMapping(ranges, oldPage, newPage, pageCount - oldPage + 1);}
+    if (oldPage <= pageCount) {
+        appendMapping(ranges, oldPage, newPage, pageCount - oldPage + 1);
+    }
     return createLegacyOrRangeDelta(pageCount, [], ranges, nextPageCount);
 }
 
-export function createMoveIdentityDelta(
-    pageCount: number,
-    fromPageNumber: number,
-    toPageNumber: number,
-    count = 1,
-): IPageIdentityDelta {
+export function createMoveIdentityDelta(pageCount: number, fromPageNumber: number, toPageNumber: number, count = 1): IPageIdentityDelta {
     assertPageCount(pageCount, 'pageCount');
     assertPositivePageNumber(fromPageNumber, 'fromPageNumber');
     assertPositivePageNumber(toPageNumber, 'toPageNumber');
@@ -346,11 +306,14 @@ export function createMoveIdentityDelta(
         appendMapping(ranges, fromPageNumber, toPageNumber, count);
         appendMapping(ranges, toPageNumber + count, toPageNumber + count, pageCount - (toPageNumber + count) + 1);
     }
-    const pages = pageCount <= PAGE_IDENTITY_INLINE_PAGE_COUNT
-        ? ranges.flatMap(range => (range.kind === 'retain' || range.kind === 'move'
-            ? Array.from({length: range.count}, (_value, index) => ({fromPageNumber: range.fromPageNumber + index}))
-            : []))
-        : [];
+    const pages =
+        pageCount <= PAGE_IDENTITY_INLINE_PAGE_COUNT
+            ? ranges.flatMap((range) =>
+                  range.kind === 'retain' || range.kind === 'move'
+                      ? Array.from({length: range.count}, (_value, index) => ({fromPageNumber: range.fromPageNumber + index}))
+                      : [],
+              )
+            : [];
     return createLegacyOrRangeDelta(pageCount, pages, ranges, pageCount);
 }
 
@@ -359,14 +322,8 @@ export function createMoveIdentityDelta(
  * source runs as one block. The insertion slot uses the original zero-based
  * page order, while each output mapping uses its final one-based destination.
  */
-export function createPageMoveRangesIdentityDelta(
-    move: IPageMoveRanges,
-): IPageIdentityDelta {
-    const {
-        pageCount,
-        ranges: sourceRanges,
-        insertAt,
-    } = move;
+export function createPageMoveRangesIdentityDelta(move: IPageMoveRanges): IPageIdentityDelta {
+    const {pageCount, ranges: sourceRanges, insertAt} = move;
     assertPageCount(pageCount, 'pageCount');
     if (!Number.isSafeInteger(insertAt) || insertAt < 0 || insertAt > pageCount) {
         throw new Error(`Page move insertAt must be a safe integer in 0-${pageCount}`);
@@ -382,17 +339,14 @@ export function createPageMoveRangesIdentityDelta(
     let selectedCount = 0;
     let selectedThroughInsert = 0;
     for (const sourceRange of sourceRanges) {
-        const {
-            startPage,
-            endPage,
-        } = sourceRange;
+        const {startPage, endPage} = sourceRange;
         if (
-            !Number.isSafeInteger(startPage)
-            || !Number.isSafeInteger(endPage)
-            || startPage < 1
-            || endPage < startPage
-            || endPage > pageCount
-            || startPage <= previousEnd
+            !Number.isSafeInteger(startPage) ||
+            !Number.isSafeInteger(endPage) ||
+            startPage < 1 ||
+            endPage < startPage ||
+            endPage > pageCount ||
+            startPage <= previousEnd
         ) {
             throw new Error('Page move ranges must be sorted, disjoint, and within the document');
         }
@@ -406,11 +360,11 @@ export function createPageMoveRangesIdentityDelta(
     const restInsertIndex = insertAt - selectedThroughInsert;
     const before: Array<{
         fromPageNumber: number;
-        count: number
+        count: number;
     }> = [];
     const after: Array<{
         fromPageNumber: number;
-        count: number
+        count: number;
     }> = [];
     const appendGap = (startPage: number, endPage: number) => {
         if (startPage > endPage) {
@@ -448,12 +402,7 @@ export function createPageMoveRangesIdentityDelta(
         destinationPage += sourceRange.count;
     }
     for (const sourceRange of sourceRanges) {
-        appendMapping(
-            outputRanges,
-            sourceRange.startPage,
-            destinationPage,
-            sourceRange.endPage - sourceRange.startPage + 1,
-        );
+        appendMapping(outputRanges, sourceRange.startPage, destinationPage, sourceRange.endPage - sourceRange.startPage + 1);
         destinationPage += sourceRange.endPage - sourceRange.startPage + 1;
     }
     for (const sourceRange of after) {
@@ -463,25 +412,23 @@ export function createPageMoveRangesIdentityDelta(
     if (destinationPage !== pageCount + 1 || selectedCount > pageCount) {
         throw new Error('Page move ranges do not cover the document');
     }
-    const pages = pageCount <= PAGE_IDENTITY_INLINE_PAGE_COUNT
-        ? outputRanges.flatMap(range => (range.kind === 'retain' || range.kind === 'move'
-            ? Array.from({length: range.count}, (_value, index) => ({fromPageNumber: range.fromPageNumber + index}))
-            : []))
-        : [];
+    const pages =
+        pageCount <= PAGE_IDENTITY_INLINE_PAGE_COUNT
+            ? outputRanges.flatMap((range) =>
+                  range.kind === 'retain' || range.kind === 'move'
+                      ? Array.from({length: range.count}, (_value, index) => ({fromPageNumber: range.fromPageNumber + index}))
+                      : [],
+              )
+            : [];
     return createLegacyOrRangeDelta(pageCount, pages, outputRanges, pageCount);
 }
-
-
 
 /**
  * Creates a sparse identity mapping for deleting sorted, disjoint page runs.
  * The ranges are kept as the only page-sized input, so deleting all but one
  * page from a very large document does not allocate a page-number array.
  */
-export function createDeleteRangesIdentityDelta(
-    pageCount: number,
-    deletedRanges: readonly IPageMoveRangeSegment[],
-) {
+export function createDeleteRangesIdentityDelta(pageCount: number, deletedRanges: readonly IPageMoveRangeSegment[]) {
     assertPageCount(pageCount, 'pageCount');
     if (deletedRanges.length === 0) {
         return createIdentityDelta(pageCount);
@@ -490,17 +437,14 @@ export function createDeleteRangesIdentityDelta(
     let previousEnd = 0;
     let deletedCount = 0;
     for (const deletedRange of deletedRanges) {
-        const {
-            startPage,
-            endPage,
-        } = deletedRange;
+        const {startPage, endPage} = deletedRange;
         if (
-            !Number.isSafeInteger(startPage)
-            || !Number.isSafeInteger(endPage)
-            || startPage < 1
-            || endPage < startPage
-            || endPage > pageCount
-            || startPage <= previousEnd
+            !Number.isSafeInteger(startPage) ||
+            !Number.isSafeInteger(endPage) ||
+            startPage < 1 ||
+            endPage < startPage ||
+            endPage > pageCount ||
+            startPage <= previousEnd
         ) {
             throw new Error('Page identity delete ranges must be sorted, disjoint, and within the document');
         }
@@ -547,7 +491,7 @@ export function createReorderIdentityDelta(pageCount: number, order: readonly nu
     if (pageCount <= PAGE_IDENTITY_INLINE_PAGE_COUNT) {
         return {
             previousPageCount: pageCount,
-            pages: order.map(fromPageNumber => ({fromPageNumber})),
+            pages: order.map((fromPageNumber) => ({fromPageNumber})),
         };
     }
     const seen = new Set<number>();
@@ -572,7 +516,9 @@ export function createReorderIdentityDelta(pageCount: number, order: readonly nu
         index += count;
         outputPage += count;
     }
-    if (seen.size !== pageCount) {throw new Error('Page identity reorder is not a permutation');}
+    if (seen.size !== pageCount) {
+        throw new Error('Page identity reorder is not a permutation');
+    }
     return createLegacyOrRangeDelta(pageCount, [], ranges, pageCount);
 }
 
@@ -597,11 +543,7 @@ export function createInsertIdentityDelta(pageCount: number, afterPage: number, 
         const after = Array.from({length: pageCount - afterPage}, (_value, index) => ({fromPageNumber: afterPage + index + 1}));
         return {
             previousPageCount: pageCount,
-            pages: [
-                ...before,
-                ...inserted,
-                ...after,
-            ],
+            pages: [...before, ...inserted, ...after],
         };
     }
     const identitySeed = randomUUID();

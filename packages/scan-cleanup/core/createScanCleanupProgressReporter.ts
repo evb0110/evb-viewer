@@ -53,10 +53,7 @@ export function createScanCleanupActivePageTracker() {
         }
         latestStage = undefined;
         latestStagePage = undefined;
-        for (const [
-            pageNumber,
-            stage,
-        ] of stageByPage) {
+        for (const [pageNumber, stage] of stageByPage) {
             if (activePages.has(pageNumber)) {
                 latestStage = stage;
                 latestStagePage = pageNumber;
@@ -86,7 +83,9 @@ export function createScanCleanupActivePageTracker() {
         finish(pageNumber: number) {
             const removed = activePages.delete(pageNumber);
             stageByPage.delete(pageNumber);
-            if (removed) {refreshLatestStage();}
+            if (removed) {
+                refreshLatestStage();
+            }
             return removed;
         },
         clear() {
@@ -193,91 +192,41 @@ export function reportScanCleanupSummaryWarningEvent(
 // The raster handoff is materialized before native rendering starts, so each
 // phase keeps its own progress band.
 const RASTER_STAGE_WEIGHTS = [
-    [
-        'normalizing',
-        1,
-    ],
-    [
-        'probing',
-        4,
-    ],
-    [
-        'extracting',
-        4,
-    ],
-    [
-        'rasterizing',
-        17,
-    ],
-    [
-        'rendering',
-        58,
-    ],
-    [
-        'collecting',
-        2,
-    ],
-    [
-        'assembling',
-        12,
-    ],
-    [
-        'handoff',
-        2,
-    ],
+    ['normalizing', 1],
+    ['probing', 4],
+    ['extracting', 4],
+    ['rasterizing', 17],
+    ['rendering', 58],
+    ['collecting', 2],
+    ['assembling', 12],
+    ['handoff', 2],
 ] as const satisfies TStageWeights;
 
 const LOSSLESS_STAGE_WEIGHTS = [
-    [
-        'normalizing',
-        3,
-    ],
-    [
-        'probing',
-        4,
-    ],
-    [
-        'extracting',
-        0,
-    ],
-    [
-        'rasterizing',
-        40,
-    ],
-    [
-        'classifying',
-        33,
-    ],
-    [
-        'collecting',
-        5,
-    ],
-    [
-        'assembling',
-        13,
-    ],
-    [
-        'handoff',
-        2,
-    ],
+    ['normalizing', 3],
+    ['probing', 4],
+    ['extracting', 0],
+    ['rasterizing', 40],
+    ['classifying', 33],
+    ['collecting', 5],
+    ['assembling', 13],
+    ['handoff', 2],
 ] as const satisfies TStageWeights;
 
 function resolveBands(weights: TStageWeights) {
-    const totalWeight = weights.reduce((sum, [
-        , weight,
-    ]) => sum + weight, 0);
-    const bands = new Map<TScanCleanupProgressStage, {
-        start: number;
-        span: number
-    }>();
+    const totalWeight = weights.reduce((sum, [, weight]) => sum + weight, 0);
+    const bands = new Map<
+        TScanCleanupProgressStage,
+        {
+            start: number;
+            span: number;
+        }
+    >();
     let consumedWeight = 0;
-    for (const [
-        stage,
-        weight,
-    ] of weights) {
+    for (const [stage, weight] of weights) {
         bands.set(stage, {
-            start: consumedWeight / totalWeight * 100,
-            span: weight / totalWeight * 100,
+            start: (consumedWeight / totalWeight) * 100,
+            span: (weight / totalWeight) * 100,
         });
         consumedWeight += weight;
     }
@@ -292,12 +241,9 @@ const LOSSLESS_BANDS = resolveBands(LOSSLESS_STAGE_WEIGHTS);
 const ETA_MIN_COMPLETED_UNITS = 5;
 const ETA_MIN_STAGE_ELAPSED_MS = 10_000;
 
-export interface IScanCleanupProgressEtaEstimator {update: (
-    stage: TScanCleanupProgressStage,
-    completedUnits: number,
-    totalUnits: number,
-    reportedAt: number,
-) => number | undefined;}
+export interface IScanCleanupProgressEtaEstimator {
+    update: (stage: TScanCleanupProgressStage, completedUnits: number, totalUnits: number, reportedAt: number) => number | undefined;
+}
 
 /**
  * Estimate the work remaining in the current progress stage. Both conversion
@@ -309,30 +255,25 @@ export function createScanCleanupProgressEtaEstimator(): IScanCleanupProgressEta
     let stageStartedAt = 0;
     let completedAtStageStart = 0;
 
-    return {update(stage, completedUnits, totalUnits, reportedAt) {
-        if (activeStage !== stage || completedUnits < completedAtStageStart) {
-            activeStage = stage;
-            stageStartedAt = reportedAt;
-            completedAtStageStart = completedUnits;
-        }
-        const completedWithinStage = completedUnits - completedAtStageStart;
-        const elapsedSinceStageStart = reportedAt - stageStartedAt;
-        if (
-            completedWithinStage < ETA_MIN_COMPLETED_UNITS
-                || elapsedSinceStageStart < ETA_MIN_STAGE_ELAPSED_MS
-                || totalUnits <= 0
-        ) {
-            return undefined;
-        }
-        const averageMsPerUnit = elapsedSinceStageStart / completedWithinStage;
-        if (!Number.isFinite(averageMsPerUnit) || averageMsPerUnit < 0) {
-            return undefined;
-        }
-        return Math.max(
-            0,
-            Math.ceil(Math.max(0, totalUnits - completedUnits) * averageMsPerUnit / 1000),
-        );
-    }};
+    return {
+        update(stage, completedUnits, totalUnits, reportedAt) {
+            if (activeStage !== stage || completedUnits < completedAtStageStart) {
+                activeStage = stage;
+                stageStartedAt = reportedAt;
+                completedAtStageStart = completedUnits;
+            }
+            const completedWithinStage = completedUnits - completedAtStageStart;
+            const elapsedSinceStageStart = reportedAt - stageStartedAt;
+            if (completedWithinStage < ETA_MIN_COMPLETED_UNITS || elapsedSinceStageStart < ETA_MIN_STAGE_ELAPSED_MS || totalUnits <= 0) {
+                return undefined;
+            }
+            const averageMsPerUnit = elapsedSinceStageStart / completedWithinStage;
+            if (!Number.isFinite(averageMsPerUnit) || averageMsPerUnit < 0) {
+                return undefined;
+            }
+            return Math.max(0, Math.ceil((Math.max(0, totalUnits - completedUnits) * averageMsPerUnit) / 1000));
+        },
+    };
 }
 
 /**
@@ -374,74 +315,72 @@ export function createScanCleanupProgressReporter(
             return undefined;
         }
         if (
-            completedPagesVersion !== undefined
-            && cachedCompletedPages !== null
-            && cachedCompletedPages.source === completedPageNumbers
-            && cachedCompletedPages.version === completedPagesVersion
+            completedPagesVersion !== undefined &&
+            cachedCompletedPages !== null &&
+            cachedCompletedPages.source === completedPageNumbers &&
+            cachedCompletedPages.version === completedPagesVersion
         ) {
             return cachedCompletedPages.snapshot;
         }
         const snapshot = materializeCompletedPageNumbers(completedPageNumbers);
-        cachedCompletedPages = completedPagesVersion === undefined
-            ? null
-            : {
-                source: completedPageNumbers,
-                version: completedPagesVersion,
-                snapshot,
-            };
+        cachedCompletedPages =
+            completedPagesVersion === undefined
+                ? null
+                : {
+                      source: completedPageNumbers,
+                      version: completedPagesVersion,
+                      snapshot,
+                  };
         return snapshot;
     };
     return (stage, completedUnits, totalUnits, completedPageNumbers, progressOptions) => {
         const reportedAt = now();
         const profile = isLossless()
             ? {
-                bands: LOSSLESS_BANDS,
-                weights: LOSSLESS_STAGE_WEIGHTS,
-            }
+                  bands: LOSSLESS_BANDS,
+                  weights: LOSSLESS_STAGE_WEIGHTS,
+              }
             : {
-                bands: RASTER_BANDS,
-                weights: RASTER_STAGE_WEIGHTS,
-            };
+                  bands: RASTER_BANDS,
+                  weights: RASTER_STAGE_WEIGHTS,
+              };
         const stageIndex = profile.weights.findIndex(([profileStage]) => profileStage === stage) + 1;
         const bands = profile.bands;
         const band = bands.get(stage);
         const fraction = totalUnits > 0 ? Math.min(1, completedUnits / totalUnits) : 0;
-        const percent = band === undefined ? lastPercent : band.start + (band.span * fraction);
+        const percent = band === undefined ? lastPercent : band.start + band.span * fraction;
         lastPercent = Math.min(100, Math.max(lastPercent, percent));
         // A run has no ETA for an unweighted stage. Detection uses the same
         // estimator directly because its progress bands are intentionally
         // separate from conversion's weighted percentage profile.
-        const etaSeconds = band === undefined
-            ? undefined
-            : etaEstimator.update(stage, completedUnits, totalUnits, reportedAt);
-        const completedPageSnapshot = resolveCompletedPageSnapshot(
-            completedPageNumbers,
-            progressOptions?.completedPagesVersion,
-        );
-        const rasterizedUnits = progressOptions?.rasterizedUnits === undefined
-            ? undefined
-            : Math.min(totalUnits, Math.max(0, Math.trunc(progressOptions.rasterizedUnits)));
-        const activePageNumbers = progressOptions?.activePageNumbers === undefined
-            ? undefined
-            : materializeUniquePageNumbers(progressOptions.activePageNumbers);
+        const etaSeconds = band === undefined ? undefined : etaEstimator.update(stage, completedUnits, totalUnits, reportedAt);
+        const completedPageSnapshot = resolveCompletedPageSnapshot(completedPageNumbers, progressOptions?.completedPagesVersion);
+        const rasterizedUnits =
+            progressOptions?.rasterizedUnits === undefined
+                ? undefined
+                : Math.min(totalUnits, Math.max(0, Math.trunc(progressOptions.rasterizedUnits)));
+        const activePageNumbers =
+            progressOptions?.activePageNumbers === undefined ? undefined : materializeUniquePageNumbers(progressOptions.activePageNumbers);
         const activeSubPageStage = progressOptions?.activeSubPageStage;
         callback({
             stage,
             completedUnits,
             totalUnits,
             percent: lastPercent,
-            ...(stageIndex === 0 ? {} : {
-                stageIndex,
-                stageCount: profile.weights.length,
-            }),
+            ...(stageIndex === 0
+                ? {}
+                : {
+                      stageIndex,
+                      stageCount: profile.weights.length,
+                  }),
             ...(etaSeconds === undefined ? {} : {etaSeconds}),
             ...(rasterizedUnits === undefined ? {} : {rasterizedUnits}),
             ...(completedPageSnapshot === undefined
                 ? {}
                 : {
-                    completedPageNumbers: completedPageSnapshot.pageNumbers,
-                    ...(completedPageSnapshot.truncated ? {completedPageNumbersTruncated: true} : {}),
-                }),
+                      completedPageNumbers: completedPageSnapshot.pageNumbers,
+                      ...(completedPageSnapshot.truncated ? {completedPageNumbersTruncated: true} : {}),
+                  }),
             ...(activePageNumbers === undefined || activePageNumbers.length === 0 ? {} : {activePageNumbers}),
             ...(activeSubPageStage === undefined ? {} : {activeSubPageStage}),
         });

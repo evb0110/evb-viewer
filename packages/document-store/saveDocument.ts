@@ -1,12 +1,5 @@
-import { sameWitness } from './contentWitness';
-import type {
-    DocumentDirectory,
-    IPendingPublish,
-    IRevision,
-    TPublishResult,
-    TMutation,
-    TStaleRevision,
-} from './documentDirectory';
+import {sameWitness} from './contentWitness';
+import type {DocumentDirectory, IPendingPublish, IRevision, TPublishResult, TMutation, TStaleRevision} from './documentDirectory';
 
 export interface ISaveOptions {
     /** The revision the caller's edits are based on; `null` when the document has no bytes of its own. */
@@ -17,28 +10,29 @@ export interface ISaveOptions {
     saveAs?: string;
 }
 
-export type TSaveResult = {
-    status: 'saved';
-    revision: IRevision | null;
-    keptOriginal?: string;
-    /** Confirmed true when the destination write succeeded, even if final manifest acknowledgement failed. */
-    externalWriteCommitted?: true;
-    /** Present when the destination write succeeded, but final manifest acknowledgement failed. */
-    acknowledgmentError?: unknown;
-    /** Surviving pending publish witness left on disk for recovery when acknowledgement failed. */
-    pendingPublish?: IPendingPublish;
-}
+export type TSaveResult =
+    | {
+          status: 'saved';
+          revision: IRevision | null;
+          keptOriginal?: string;
+          /** Confirmed true when the destination write succeeded, even if final manifest acknowledgement failed. */
+          externalWriteCommitted?: true;
+          /** Present when the destination write succeeded, but final manifest acknowledgement failed. */
+          acknowledgmentError?: unknown;
+          /** Surviving pending publish witness left on disk for recovery when acknowledgement failed. */
+          pendingPublish?: IPendingPublish;
+      }
     | TStaleRevision
     /** The destination changed since it was last read or written: offer Save As. */
     | {
-        status: 'conflict';
-        keptOriginal?: string;
-        /** Present when staging cleanup could not clear the manifest; pendingPublish survives for recovery. */
-        acknowledgmentError?: unknown;
-        pendingPublish?: IPendingPublish;
-    }
+          status: 'conflict';
+          keptOriginal?: string;
+          /** Present when staging cleanup could not clear the manifest; pendingPublish survives for recovery. */
+          acknowledgmentError?: unknown;
+          pendingPublish?: IPendingPublish;
+      }
     /** There is no destination a plain Save can check: a new document, or one only ever downloaded. */
-    | { status: 'needs-save-as' };
+    | {status: 'needs-save-as'};
 
 /**
  * Publication failure carrying what the publication owner knows about the destination:
@@ -58,7 +52,7 @@ export class SavePublicationError extends Error {
             pendingPublish?: IPendingPublish | undefined;
         },
     ) {
-        super(cause instanceof Error ? cause.message : String(cause), { cause });
+        super(cause instanceof Error ? cause.message : String(cause), {cause});
         this.name = 'SavePublicationError';
         this.externalWriteCommitted = options.externalWriteCommitted;
         this.pendingPublish = options.pendingPublish;
@@ -77,10 +71,14 @@ export function saveDocument(doc: DocumentDirectory, options: ISaveOptions) {
     return doc.run(async (): Promise<TSaveResult> => {
         if (options.commit) {
             const committed = await doc.applyMutation(options.expected, options.commit);
-            if (committed.status !== 'committed') {return committed;}
+            if (committed.status !== 'committed') {
+                return committed;
+            }
         } else {
             const stale = doc.staleRevision(options.expected);
-            if (stale) {return stale;}
+            if (stale) {
+                return stale;
+            }
         }
         // A pending publish for another destination comes from an unacknowledged Save As that reported
         // adoption failure to the workspace. Move it to `unsettled` so recovery settles any temp/displaced
@@ -88,28 +86,37 @@ export function saveDocument(doc: DocumentDirectory, options: ISaveOptions) {
         const prePending = doc.snapshot().pendingPublish;
         if (prePending && prePending.destination !== doc.snapshot().destination) {
             const manifest = doc.snapshot();
-            const clearStagedWitness = manifest.current !== undefined
-                && prePending.witness !== undefined
-                && sameWitness(manifest.current.witness, prePending.witness)
-                && !sameWitness(prePending.witness, manifest.baseline);
+            const clearStagedWitness =
+                manifest.current !== undefined &&
+                prePending.witness !== undefined &&
+                sameWitness(manifest.current.witness, prePending.witness) &&
+                !sameWitness(prePending.witness, manifest.baseline);
             await doc.commit({
                 ...manifest,
-                current: clearStagedWitness ? { ...manifest.current!, witness: undefined } : manifest.current,
+                current: clearStagedWitness ? {...manifest.current!, witness: undefined} : manifest.current,
                 pendingPublish: undefined,
-                unsettled: [...manifest.unsettled ?? [], { ...prePending, baseline: undefined }],
+                unsettled: [...(manifest.unsettled ?? []), {...prePending, baseline: undefined}],
             });
         }
         await doc.resolvePending();
-        const { saveAs } = options;
-        const { destination: saved, baseline } = doc.snapshot();
+        const {saveAs} = options;
+        const {destination: saved, baseline} = doc.snapshot();
         const destination = saveAs ?? saved;
-        if (destination === undefined || (saveAs === undefined && baseline === undefined)) {return { status: 'needs-save-as' };}
+        if (destination === undefined || (saveAs === undefined && baseline === undefined)) {
+            return {status: 'needs-save-as'};
+        }
         // Without bytes of its own the document still is its destination: a plain Save has nothing to write.
-        if (saveAs === undefined && !doc.snapshot().current) {return { status: 'saved', revision: null };}
+        if (saveAs === undefined && !doc.snapshot().current) {
+            return {status: 'saved', revision: null};
+        }
         // Save As publishes a destination another program changed as it is now; a plain Save refuses it below.
         const current = await doc.ensureCurrent(saveAs !== undefined);
-        if (!current) {return { status: 'conflict' };}
-        if (saveAs === undefined && sameWitness(current.witness, baseline)) {return { status: 'saved', revision: current };}
+        if (!current) {
+            return {status: 'conflict'};
+        }
+        if (saveAs === undefined && sameWitness(current.witness, baseline)) {
+            return {status: 'saved', revision: current};
+        }
         await doc.keepDestinationRevision();
 
         // This publish's record: first the file it stages beside the destination, then the witness it stages. The
@@ -126,7 +133,7 @@ export function saveDocument(doc: DocumentDirectory, options: ISaveOptions) {
                 ...manifest,
                 current: revision,
                 pendingPublish: next,
-                unsettled: earlier ? [...manifest.unsettled ?? [], { ...earlier, baseline: manifest.baseline }] : manifest.unsettled,
+                unsettled: earlier ? [...(manifest.unsettled ?? []), {...earlier, baseline: manifest.baseline}] : manifest.unsettled,
             });
             own = next;
         };
@@ -134,27 +141,25 @@ export function saveDocument(doc: DocumentDirectory, options: ISaveOptions) {
         try {
             published = await doc.store.publication.publish(
                 destination,
-                { path: doc.path(current.file), length: current.length, file: doc.currentFile(), witness: current.witness },
-                saveAs === undefined ? baseline ?? null : null,
+                {path: doc.path(current.file), length: current.length, file: doc.currentFile(), witness: current.witness},
+                saveAs === undefined ? (baseline ?? null) : null,
                 async (witness) => {
-                    await record({ ...own, destination, witness }, { ...current, witness });
+                    await record({...own, destination, witness}, {...current, witness});
                     staged = true;
                 },
-                temp => record({ destination, temp }),
+                (temp) => record({destination, temp}),
             );
         } catch (error) {
             if (!staged) {
                 // A publish that failed before staging its bytes left the destination as it was.
                 if (own && own.witness === undefined && doc.snapshot().pendingPublish === own) {
-                    await doc.commit({ ...doc.snapshot(), pendingPublish: undefined }).catch(() => undefined);
+                    await doc.commit({...doc.snapshot(), pendingPublish: undefined}).catch(() => undefined);
                 }
                 const surviving = doc.snapshot().pendingPublish;
-                const pendingPublish = surviving !== undefined && (surviving === own || surviving === attempted)
-                    ? surviving
-                    : undefined;
+                const pendingPublish = surviving !== undefined && (surviving === own || surviving === attempted) ? surviving : undefined;
                 throw new SavePublicationError(error, {
                     externalWriteCommitted: false,
-                    ...(pendingPublish === undefined ? {} : { pendingPublish }),
+                    ...(pendingPublish === undefined ? {} : {pendingPublish}),
                 });
             }
             throw new SavePublicationError(error, {
@@ -162,32 +167,32 @@ export function saveDocument(doc: DocumentDirectory, options: ISaveOptions) {
                 pendingPublish: doc.snapshot().pendingPublish ?? own,
             });
         }
-        const kept = published.keptOriginal === undefined ? {} : { keptOriginal: published.keptOriginal };
+        const kept = published.keptOriginal === undefined ? {} : {keptOriginal: published.keptOriginal};
         if (published.status === 'conflict') {
             // The staged witness named a file the destination did not end up holding: `current` gets its own back.
             if (staged) {
                 try {
-                    await doc.commit({ ...doc.snapshot(), current, pendingPublish: undefined });
+                    await doc.commit({...doc.snapshot(), current, pendingPublish: undefined});
                 } catch (acknowledgmentError) {
                     const pendingPublish = doc.snapshot().pendingPublish;
                     return {
                         status: 'conflict',
                         ...kept,
                         acknowledgmentError,
-                        ...(pendingPublish === undefined ? {} : { pendingPublish }),
+                        ...(pendingPublish === undefined ? {} : {pendingPublish}),
                     };
                 }
             }
-            return { status: 'conflict', ...kept };
+            return {status: 'conflict', ...kept};
         }
         // The current bytes are now the destination's: both carry its witness.
         const revision = {
             ...current,
             witness: published.witness,
-            ...(current.foreign === 'staged' ? { foreign: 'committed' as const } : {}),
+            ...(current.foreign === 'staged' ? {foreign: 'committed' as const} : {}),
         };
         try {
-            await doc.commit({ ...doc.snapshot(), current: revision, destination, baseline: published.witness, pendingPublish: undefined });
+            await doc.commit({...doc.snapshot(), current: revision, destination, baseline: published.witness, pendingPublish: undefined});
         } catch (acknowledgmentError) {
             const pendingPublish = doc.snapshot().pendingPublish;
             // For Save As, returning `saved` while the manifest still names an earlier destination would let the UI
@@ -196,7 +201,7 @@ export function saveDocument(doc: DocumentDirectory, options: ISaveOptions) {
             if (saveAs !== undefined && doc.snapshot().destination !== destination) {
                 throw new SavePublicationError(acknowledgmentError, {
                     externalWriteCommitted: true,
-                    ...(pendingPublish === undefined ? {} : { pendingPublish }),
+                    ...(pendingPublish === undefined ? {} : {pendingPublish}),
                 });
             }
             return {
@@ -205,9 +210,9 @@ export function saveDocument(doc: DocumentDirectory, options: ISaveOptions) {
                 ...kept,
                 externalWriteCommitted: true,
                 acknowledgmentError,
-                ...(pendingPublish === undefined ? {} : { pendingPublish }),
+                ...(pendingPublish === undefined ? {} : {pendingPublish}),
             };
         }
-        return { status: 'saved', revision, ...kept };
+        return {status: 'saved', revision, ...kept};
     });
 }

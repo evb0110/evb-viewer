@@ -1,27 +1,27 @@
-import type { TOpenFileResult } from '@contracts/electronApiDocuments';
-import type { TPdfSourceJobOutcome } from '@app/types/pdfUi';
-import type { IWorkspaceOpenFailure } from '@app/types/workspaceExpose';
+import type {TOpenFileResult} from '@contracts/electronApiDocuments';
+import type {TPdfSourceJobOutcome} from '@app/types/pdfUi';
+import type {IWorkspaceOpenFailure} from '@app/types/workspaceExpose';
 
 export type TDocumentOpenOutcome =
     | {
-        status: 'prepared';
-        result: TOpenFileResult;
-    }
+          status: 'prepared';
+          result: TOpenFileResult;
+      }
     | {
-        status: 'opened';
-        result: TOpenFileResult;
-        /** How the views take the published source: its PDF source job's end; null for a page source. */
-        presentation: Promise<TPdfSourceJobOutcome> | null;
-    }
-    | { status: 'cancelled' }
+          status: 'opened';
+          result: TOpenFileResult;
+          /** How the views take the published source: its PDF source job's end; null for a page source. */
+          presentation: Promise<TPdfSourceJobOutcome> | null;
+      }
+    | {status: 'cancelled'}
     | {
-        status: 'failed';
-        error: string;
-    }
+          status: 'failed';
+          error: string;
+      }
     | {
-        status: 'stale';
-        result: TOpenFileResult;
-    };
+          status: 'stale';
+          result: TOpenFileResult;
+      };
 
 export type TWorkspaceOpenFinish =
     | {status: 'presented' | 'accepted-without-visual' | 'cancelled' | 'superseded'}
@@ -59,7 +59,16 @@ export async function didFinishOpen(operation: IWorkspaceOpenOperation) {
 }
 
 /** What an open's file work admitted: an opened document, whose views end its source job. */
-export function admitOpenedDocument(outcome: TDocumentOpenOutcome, readFailure = (): IWorkspaceOpenFailure | null => null): IWorkspaceOpenAdmission | null {
-    return outcome.status === 'opened' ? {presentation: outcome.presentation?.then(({status}): TWorkspaceOpenFinish => (
-        status === 'failed' ? {status, failure: readFailure()} : {status: status === 'presented' ? status : 'superseded'})) ?? null} : null;
+export function admitOpenedDocument(
+    outcome: TDocumentOpenOutcome,
+    readFailure = (): IWorkspaceOpenFailure | null => null,
+): IWorkspaceOpenAdmission | null {
+    return outcome.status === 'opened'
+        ? {
+              presentation:
+                  outcome.presentation?.then(({status}): TWorkspaceOpenFinish =>
+                      status === 'failed' ? {status, failure: readFailure()} : {status: status === 'presented' ? status : 'superseded'},
+                  ) ?? null,
+          }
+        : null;
 }

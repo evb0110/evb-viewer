@@ -1,20 +1,10 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { requireDocumentRef } from '@contracts/documentRef';
-import {
-    decodeRendererStartupPhase,
-    WINDOW_TABS_PLATFORM_FEATURE,
-} from '@contracts/windowTabsPlatformFeature';
+import {describe, expect, it} from 'vitest';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {decodeRendererStartupPhase, WINDOW_TABS_PLATFORM_FEATURE} from '@contracts/windowTabsPlatformFeature';
 import type {IWorkspaceCheckpoint} from '@contracts/workspaceCheckpoint';
 import type {IWindowTabTransferRequest} from '@contracts/windowTabs';
 import {requireEpochMs} from '@contracts/timestamps';
-import {
-    decodeWindowTabIncomingTransfer,
-    decodeWindowTabPaneDirection,
-} from '@contracts/windowTabsValidation';
+import {decodeWindowTabIncomingTransfer, decodeWindowTabPaneDirection} from '@contracts/windowTabsValidation';
 
 const transferRequest: IWindowTabTransferRequest = {
     target: {
@@ -74,33 +64,38 @@ describe('window tabs platform feature schemas', () => {
     });
 
     it('owns all request/response and renderer event members but not renderer readiness', () => {
-
         expect(WINDOW_TABS_PLATFORM_FEATURE.platformDescriptors.methods).toHaveLength(17);
-        expect(WINDOW_TABS_PLATFORM_FEATURE.platformDescriptors.methods)
-            .not.toContainEqual(expect.objectContaining({path: [
-                'windowTabs',
-                'notifyRendererReady',
-            ]}));
+        expect(WINDOW_TABS_PLATFORM_FEATURE.platformDescriptors.methods).not.toContainEqual(
+            expect.objectContaining({path: ['windowTabs', 'notifyRendererReady']}),
+        );
     });
 
     it('round-trips transfer, checkpoint, target-window, and external-open values', () => {
         expect(codecs[channels.transfer]!.decodeArgs([transferRequest])).toEqual([transferRequest]);
-        expect(codecs[channels.transfer]!.decodeArgs([{
-            ...transferRequest,
-            payload: {
-                ...transferRequest.payload,
-                viewState: {
-                    ...(transferRequest.payload.kind === 'pdfSnapshot' ? transferRequest.payload.viewState : {}),
-                    effectiveZoom: 10,
+        expect(
+            codecs[channels.transfer]!.decodeArgs([
+                {
+                    ...transferRequest,
+                    payload: {
+                        ...transferRequest.payload,
+                        viewState: {
+                            ...(transferRequest.payload.kind === 'pdfSnapshot' ? transferRequest.payload.viewState : {}),
+                            effectiveZoom: 10,
+                        },
+                    },
                 },
-            },
-        }])).toEqual([transferRequest]);
+            ]),
+        ).toEqual([transferRequest]);
         expect(codecs[channels.transfer]!.decodeResult(transferResult)).toEqual(transferResult);
         expect(codecs[channels.saveWorkspaceCheckpoint]!.decodeArgs([checkpoint])).toEqual([checkpoint]);
         expect(codecs[channels.saveWorkspaceCheckpoint]!.decodeResult(true)).toBe(true);
         expect(codecs[channels.saveWorkspaceCheckpoint]!.decodeResult(false)).toBe(false);
         expect(() => codecs[channels.saveWorkspaceCheckpoint]!.decodeResult(undefined)).toThrow();
-        expect(WINDOW_TABS_PLATFORM_FEATURE.platformDescriptors.methods.find(descriptor => descriptor.path.at(-1) === 'saveWorkspaceCheckpoint')).toMatchObject({
+        expect(
+            WINDOW_TABS_PLATFORM_FEATURE.platformDescriptors.methods.find(
+                (descriptor) => descriptor.path.at(-1) === 'saveWorkspaceCheckpoint',
+            ),
+        ).toMatchObject({
             optionalWhenImplemented: true,
             required: {
                 browser: false,
@@ -114,8 +109,7 @@ describe('window tabs platform feature schemas', () => {
         expect(codecs[channels.claimWorkspaceCheckpoint]!.decodeResult(checkpoint)).toEqual(checkpoint);
         expect(codecs[channels.claimWorkspaceCheckpoint]!.decodeResult(null)).toBeNull();
         expect(codecs[channels.acknowledgeWorkspaceCheckpoint]!.decodeArgs([])).toEqual([]);
-        expect(codecs[channels.acknowledgePendingExternalOpenPaths]!.decodeArgs([['/tmp/a.pdf']]))
-            .toEqual([['/tmp/a.pdf']]);
+        expect(codecs[channels.acknowledgePendingExternalOpenPaths]!.decodeArgs([['/tmp/a.pdf']])).toEqual([['/tmp/a.pdf']]);
     });
 
     it('preserves generated and ordinary dirty PDF payloads through transfer decoding', () => {
@@ -158,24 +152,29 @@ describe('window tabs platform feature schemas', () => {
             transferId: 'transfer-ordinary',
             payload: ordinaryDirtyPayload,
         };
-        expect(decodeWindowTabIncomingTransfer(generatedIncoming)?.payload)
-            .toEqual(generatedPayload);
-        expect(decodeWindowTabIncomingTransfer(ordinaryIncoming)?.payload)
-            .toEqual(ordinaryDirtyPayload);
+        expect(decodeWindowTabIncomingTransfer(generatedIncoming)?.payload).toEqual(generatedPayload);
+        expect(decodeWindowTabIncomingTransfer(ordinaryIncoming)?.payload).toEqual(ordinaryDirtyPayload);
     });
 
     it('decodes event payloads and rejects malformed boundary values', () => {
         expect(decodeWindowTabPaneDirection('right')).toBe('right');
-        expect(() => codecs[channels.transferAck]!.decodeArgs([{
-            transferId: '',
-            success: true,
-        }])).toThrow('invalid window tab transfer acknowledgement');
-        expect(() => codecs[channels.listTargetWindows]!.decodeResult([{
-            windowId: 0,
-            label: 'Invalid',
-        }])).toThrow('invalid window tab target windows');
-        expect(() => codecs[channels.saveWorkspaceCheckpoint]!.decodeArgs([null]))
-            .toThrow('invalid workspace checkpoint');
+        expect(() =>
+            codecs[channels.transferAck]!.decodeArgs([
+                {
+                    transferId: '',
+                    success: true,
+                },
+            ]),
+        ).toThrow('invalid window tab transfer acknowledgement');
+        expect(() =>
+            codecs[channels.listTargetWindows]!.decodeResult([
+                {
+                    windowId: 0,
+                    label: 'Invalid',
+                },
+            ]),
+        ).toThrow('invalid window tab target windows');
+        expect(() => codecs[channels.saveWorkspaceCheckpoint]!.decodeArgs([null])).toThrow('invalid workspace checkpoint');
         expect(decodeWindowTabPaneDirection('diagonal')).toBeNull();
     });
 });

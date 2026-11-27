@@ -34,8 +34,10 @@ export type {
     TPdfAnnotationParseEntity,
 };
 
-export interface IPdfSidecarChunkOptions {chunkBytes?: number;}
-export type IPdfAnnotationParseOptions = IPdfAnnotationParseOptionsWire & {signal?: AbortSignal;};
+export interface IPdfSidecarChunkOptions {
+    chunkBytes?: number;
+}
+export type IPdfAnnotationParseOptions = IPdfAnnotationParseOptionsWire & {signal?: AbortSignal};
 export interface IPdfAnnotationParseChunkOptions extends IPdfSidecarChunkOptions {}
 
 export interface IPdfAnnotationParseSession {
@@ -57,10 +59,7 @@ export interface IPdfAnnotationParseChunk {
     entries: IPdfAnnotationParseEntry[];
 }
 
-export type TPdfAnnotationParseBegin = (
-    path: TDocumentRef,
-    options: IPdfAnnotationParseOptions,
-) => Promise<IPdfAnnotationParseSession>;
+export type TPdfAnnotationParseBegin = (path: TDocumentRef, options: IPdfAnnotationParseOptions) => Promise<IPdfAnnotationParseSession>;
 export type TPdfAnnotationParseReadChunk = (
     sessionId: string,
     offset: number,
@@ -68,7 +67,4 @@ export type TPdfAnnotationParseReadChunk = (
 ) => Promise<IPdfAnnotationParseChunk>;
 export type TPdfAnnotationParseRelease = (sessionId: string) => Promise<boolean>;
 export type TPdfAnnotationParseCancel = (sessionId: string) => Promise<{canceled: boolean}>;
-export type TPdfAnnotationParse = (
-    path: TDocumentRef,
-    options: IPdfAnnotationParseOptions,
-) => Promise<IPdfAnnotationParseResult>;
+export type TPdfAnnotationParse = (path: TDocumentRef, options: IPdfAnnotationParseOptions) => Promise<IPdfAnnotationParseResult>;

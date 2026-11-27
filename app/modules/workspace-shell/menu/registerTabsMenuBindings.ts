@@ -1,178 +1,53 @@
-import { useEventListener } from '@vueuse/core';
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { Ref } from 'vue';
-import type { TPaneDirection } from '@contracts/editorPanes';
-import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
-import type { TWindowTabsAction } from '@contracts/windowTabs';
-import type { IDocumentsMenuCapability } from '@contracts/electronApiDocuments';
-import type { ISettingsCapability } from '@contracts/settingsPlatformFeature';
-import type { IUpdatesCapability } from '@contracts/updatesPlatformFeature';
-import type { IDjvuCapability } from '@contracts/djvuPlatformFeature';
-import type { IWindowTabsCapability } from '@contracts/windowTabsPlatformFeature';
-import { isMacClientPlatform } from '@app/utils/clientPlatform';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { readShortcutKey } from '@app/utils/shortcutKey';
-import { subscribeBrowserMenuEvent } from '@app/platform/browserMenuBar';
+import {useEventListener} from '@vueuse/core';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {Ref} from 'vue';
+import type {TPaneDirection} from '@contracts/editorPanes';
+import type {IWorkspaceExpose} from '@app/types/workspaceExpose';
+import type {TWindowTabsAction} from '@contracts/windowTabs';
+import type {IDocumentsMenuCapability} from '@contracts/electronApiDocuments';
+import type {ISettingsCapability} from '@contracts/settingsPlatformFeature';
+import type {IUpdatesCapability} from '@contracts/updatesPlatformFeature';
+import type {IDjvuCapability} from '@contracts/djvuPlatformFeature';
+import type {IWindowTabsCapability} from '@contracts/windowTabsPlatformFeature';
+import {isMacClientPlatform} from '@app/utils/clientPlatform';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {readShortcutKey} from '@app/utils/shortcutKey';
+import {subscribeBrowserMenuEvent} from '@app/platform/browserMenuBar';
 
 // Menu items that run a command on the active tab's workspace:
 // [menu registration, command, action name, capability].
 const WORKSPACE_MENU_COMMANDS: ReadonlyArray<readonly [string, keyof IWorkspaceExpose, string, ('documentMenu' | 'djvu')?]> = [
-    [
-        'onMenuSave',
-        'handleSave',
-        'save',
-    ],
-    [
-        'onMenuRepairSave',
-        'handleRepairSave',
-        'repair-save',
-    ],
-    [
-        'onMenuOptimizePdfForInteraction',
-        'handleOptimizePdfForInteraction',
-        'optimize-pdf-for-interaction',
-    ],
-    [
-        'onMenuSaveAs',
-        'handleSaveAs',
-        'save-as',
-    ],
-    [
-        'onMenuPrint',
-        'handlePrint',
-        'print',
-    ],
-    [
-        'onMenuPrintCurrentPage',
-        'handlePrintCurrentPage',
-        'print-current-page',
-    ],
-    [
-        'onMenuUndo',
-        'handleUndo',
-        'undo',
-    ],
-    [
-        'onMenuRedo',
-        'handleRedo',
-        'redo',
-    ],
-    [
-        'onMenuExportDocx',
-        'handleExportDocx',
-        'export-docx',
-    ],
-    [
-        'onMenuExportImages',
-        'handleExportImages',
-        'export-images',
-    ],
-    [
-        'onMenuExportMultiPageTiff',
-        'handleExportMultiPageTiff',
-        'export-multi-page-tiff',
-    ],
-    [
-        'onMenuZoomIn',
-        'handleZoomIn',
-        'zoom-in',
-    ],
-    [
-        'onMenuZoomOut',
-        'handleZoomOut',
-        'zoom-out',
-    ],
-    [
-        'onMenuFitWidth',
-        'handleFitWidth',
-        'fit-width',
-    ],
-    [
-        'onMenuFitHeight',
-        'handleFitHeight',
-        'fit-height',
-    ],
-    [
-        'onMenuActualSize',
-        'handleActualSize',
-        'actual-size',
-    ],
-    [
-        'onMenuToggleContinuousScroll',
-        'handleToggleContinuousScroll',
-        'toggle-continuous-scroll',
-    ],
-    [
-        'onMenuFind',
-        'handleOpenSearch',
-        'find',
-    ],
-    [
-        'onMenuInsertImageFromFile',
-        'handleInsertImageFromFile',
-        'insert-image-from-file',
-    ],
-    [
-        'onMenuPasteImageFromClipboard',
-        'handlePasteImageFromClipboard',
-        'paste-image-from-clipboard',
-    ],
-    [
-        'onMenuViewModeSingle',
-        'handleViewModeSingle',
-        'view-mode-single',
-    ],
-    [
-        'onMenuViewModeFacing',
-        'handleViewModeFacing',
-        'view-mode-facing',
-    ],
-    [
-        'onMenuViewModeFacingFirstSingle',
-        'handleViewModeFacingFirstSingle',
-        'view-mode-facing-first-single',
-    ],
-    [
-        'onMenuViewRotationCw',
-        'handleViewRotationCw',
-        'view-rotation-cw',
-    ],
-    [
-        'onMenuViewRotationCcw',
-        'handleViewRotationCcw',
-        'view-rotation-ccw',
-    ],
-    [
-        'onMenuDeletePages',
-        'handleDeletePages',
-        'delete-pages',
-    ],
-    [
-        'onMenuExtractPages',
-        'handleExtractPages',
-        'extract-pages',
-    ],
-    [
-        'onMenuRotateCw',
-        'handleRotateCw',
-        'rotate-cw',
-    ],
-    [
-        'onMenuRotateCcw',
-        'handleRotateCcw',
-        'rotate-ccw',
-    ],
-    [
-        'onMenuInsertPages',
-        'handleInsertPages',
-        'insert-pages',
-    ],
-    [
-        'onMenuConvertToPdf',
-        'handleConvertToPdf',
-        'convert-to-pdf',
-        'djvu',
-    ],
+    ['onMenuSave', 'handleSave', 'save'],
+    ['onMenuRepairSave', 'handleRepairSave', 'repair-save'],
+    ['onMenuOptimizePdfForInteraction', 'handleOptimizePdfForInteraction', 'optimize-pdf-for-interaction'],
+    ['onMenuSaveAs', 'handleSaveAs', 'save-as'],
+    ['onMenuPrint', 'handlePrint', 'print'],
+    ['onMenuPrintCurrentPage', 'handlePrintCurrentPage', 'print-current-page'],
+    ['onMenuUndo', 'handleUndo', 'undo'],
+    ['onMenuRedo', 'handleRedo', 'redo'],
+    ['onMenuExportDocx', 'handleExportDocx', 'export-docx'],
+    ['onMenuExportImages', 'handleExportImages', 'export-images'],
+    ['onMenuExportMultiPageTiff', 'handleExportMultiPageTiff', 'export-multi-page-tiff'],
+    ['onMenuZoomIn', 'handleZoomIn', 'zoom-in'],
+    ['onMenuZoomOut', 'handleZoomOut', 'zoom-out'],
+    ['onMenuFitWidth', 'handleFitWidth', 'fit-width'],
+    ['onMenuFitHeight', 'handleFitHeight', 'fit-height'],
+    ['onMenuActualSize', 'handleActualSize', 'actual-size'],
+    ['onMenuToggleContinuousScroll', 'handleToggleContinuousScroll', 'toggle-continuous-scroll'],
+    ['onMenuFind', 'handleOpenSearch', 'find'],
+    ['onMenuInsertImageFromFile', 'handleInsertImageFromFile', 'insert-image-from-file'],
+    ['onMenuPasteImageFromClipboard', 'handlePasteImageFromClipboard', 'paste-image-from-clipboard'],
+    ['onMenuViewModeSingle', 'handleViewModeSingle', 'view-mode-single'],
+    ['onMenuViewModeFacing', 'handleViewModeFacing', 'view-mode-facing'],
+    ['onMenuViewModeFacingFirstSingle', 'handleViewModeFacingFirstSingle', 'view-mode-facing-first-single'],
+    ['onMenuViewRotationCw', 'handleViewRotationCw', 'view-rotation-cw'],
+    ['onMenuViewRotationCcw', 'handleViewRotationCcw', 'view-rotation-ccw'],
+    ['onMenuDeletePages', 'handleDeletePages', 'delete-pages'],
+    ['onMenuExtractPages', 'handleExtractPages', 'extract-pages'],
+    ['onMenuRotateCw', 'handleRotateCw', 'rotate-cw'],
+    ['onMenuRotateCcw', 'handleRotateCcw', 'rotate-ccw'],
+    ['onMenuInsertPages', 'handleInsertPages', 'insert-pages'],
+    ['onMenuConvertToPdf', 'handleConvertToPdf', 'convert-to-pdf', 'djvu'],
 ];
 
 export interface ITabsMenuBindingApi {
@@ -187,7 +62,7 @@ export interface ITabsMenuBindingDeps {
     isActive: Readonly<Ref<boolean>>;
     activeWorkspace: Ref<IWorkspaceExpose | null>;
     activeTabId: Ref<string | null>;
-    createTab: () => { id: string };
+    createTab: () => {id: string};
     handleCloseTab: (tabId: string) => Promise<void>;
     handleFallbackToolbarOpenFile: () => Promise<void>;
     /** A Recent file: shows the tab that shows it, otherwise opens it. */
@@ -215,21 +90,15 @@ type TStalePreloadMenuApi = {
 };
 
 function toCleanup(value: unknown): TCleanup | null {
-    return typeof value === 'function' ? value as TCleanup : null;
+    return typeof value === 'function' ? (value as TCleanup) : null;
 }
 
-function getNoArgDocumentMenuRegister(
-    menuApi: TWorkspaceMenuApi | undefined,
-    key: string,
-): TNoArgMenuRegister | null {
+function getNoArgDocumentMenuRegister(menuApi: TWorkspaceMenuApi | undefined, key: string): TNoArgMenuRegister | null {
     const register = (menuApi as Record<string, unknown> | undefined)?.[key];
-    return typeof register === 'function' ? register as TNoArgMenuRegister : null;
+    return typeof register === 'function' ? (register as TNoArgMenuRegister) : null;
 }
 
-function resolveWorkspaceMenuApi(
-    menuApi: TStalePreloadMenuApi,
-    source: 'documentMenu' | 'djvu' | undefined,
-) {
+function resolveWorkspaceMenuApi(menuApi: TStalePreloadMenuApi, source: 'documentMenu' | 'djvu' | undefined) {
     const menuApis: Record<'documentMenu' | 'djvu', TWorkspaceMenuApi | undefined> = {
         documentMenu: menuApi.documentMenu,
         djvu: menuApi.djvu,
@@ -237,30 +106,20 @@ function resolveWorkspaceMenuApi(
     return menuApis[source ?? 'documentMenu'];
 }
 
-function runWorkspaceMenuCommand(
-    deps: ITabsMenuBindingDeps,
-    commandName: keyof IWorkspaceExpose,
-) {
+function runWorkspaceMenuCommand(deps: ITabsMenuBindingDeps, commandName: keyof IWorkspaceExpose) {
     const command = deps.activeWorkspace.value?.[commandName] as (() => unknown) | undefined;
     return command?.();
 }
 
-function registerWorkspaceMenuActions(
-    menuApi: TStalePreloadMenuApi,
-    deps: ITabsMenuBindingDeps,
-    runMenuAction: TMenuRunAction,
-) {
+function registerWorkspaceMenuActions(menuApi: TStalePreloadMenuApi, deps: ITabsMenuBindingDeps, runMenuAction: TMenuRunAction) {
     const cleanups: TCleanup[] = [];
-    for (const [
-        registerName,
-        commandName,
-        actionName,
-        source,
-    ] of WORKSPACE_MENU_COMMANDS) {
+    for (const [registerName, commandName, actionName, source] of WORKSPACE_MENU_COMMANDS) {
         const register = getNoArgDocumentMenuRegister(resolveWorkspaceMenuApi(menuApi, source), registerName);
-        const cleanup = toCleanup(register?.(() => {
-            runMenuAction(actionName, () => runWorkspaceMenuCommand(deps, commandName));
-        }));
+        const cleanup = toCleanup(
+            register?.(() => {
+                runMenuAction(actionName, () => runWorkspaceMenuCommand(deps, commandName));
+            }),
+        );
         if (cleanup) {
             cleanups.push(cleanup);
         }
@@ -274,10 +133,7 @@ function registerWorkspaceMenuActions(
  * Uses optional chaining on each binding so a stale preload (dev mode version
  * mismatch) degrades gracefully rather than crashing the renderer.
  */
-export function registerTabsMenuBindings(
-    menuApi: ITabsMenuBindingApi,
-    deps: ITabsMenuBindingDeps,
-) {
+export function registerTabsMenuBindings(menuApi: ITabsMenuBindingApi, deps: ITabsMenuBindingDeps) {
     const api: TStalePreloadMenuApi = menuApi;
     const documentMenu = api.documentMenu;
     let documentOpenQueue: Promise<void> = Promise.resolve();
@@ -299,10 +155,7 @@ export function registerTabsMenuBindings(
         }
     };
 
-    const enqueueDocumentOpenAction = (
-        actionName: string,
-        action: () => Promise<unknown>,
-    ) => {
+    const enqueueDocumentOpenAction = (actionName: string, action: () => Promise<unknown>) => {
         if (disposed) {
             return;
         }
@@ -326,25 +179,33 @@ export function registerTabsMenuBindings(
 
     const selectAll = () => {
         const element = document.activeElement;
-        const annotationFocused = element instanceof HTMLElement
-            && !element.isContentEditable
-            && !(element instanceof HTMLInputElement)
-            && !(element instanceof HTMLTextAreaElement)
-            && !(element instanceof HTMLSelectElement)
-            && Boolean(element.closest('.pdf-annotation-editor-layer'));
+        const annotationFocused =
+            element instanceof HTMLElement &&
+            !element.isContentEditable &&
+            !(element instanceof HTMLInputElement) &&
+            !(element instanceof HTMLTextAreaElement) &&
+            !(element instanceof HTMLSelectElement) &&
+            Boolean(element.closest('.pdf-annotation-editor-layer'));
         if (annotationFocused) {
             runMenuAction('select-all', () => runWorkspaceMenuCommand(deps, 'handleSelectAll'));
         } else if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
             element.select();
         } else {
-            const editable = element instanceof HTMLElement && element.isContentEditable
-                ? element.closest<HTMLElement>('[contenteditable="true"], [contenteditable=""]') ?? element
-                : document.body;
+            const editable =
+                element instanceof HTMLElement && element.isContentEditable
+                    ? (element.closest<HTMLElement>('[contenteditable="true"], [contenteditable=""]') ?? element)
+                    : document.body;
             window.getSelection()?.selectAllChildren(editable);
         }
     };
     const handleSelectAllKeyDown = (event: KeyboardEvent) => {
-        if (!deps.isActive.value || !(isMacClientPlatform() ? event.metaKey : event.ctrlKey) || event.altKey || event.shiftKey || readShortcutKey(event) !== 'a') {
+        if (
+            !deps.isActive.value ||
+            !(isMacClientPlatform() ? event.metaKey : event.ctrlKey) ||
+            event.altKey ||
+            event.shiftKey ||
+            readShortcutKey(event) !== 'a'
+        ) {
             return;
         }
         event.preventDefault();
@@ -353,21 +214,20 @@ export function registerTabsMenuBindings(
     };
 
     const cleanups = [
-        useEventListener(
-            typeof window === 'undefined' ? undefined : window,
-            'keydown',
-            handleSelectAllKeyDown,
-            { capture: true },
-        ),
+        useEventListener(typeof window === 'undefined' ? undefined : window, 'keydown', handleSelectAllKeyDown, {capture: true}),
         subscribeBrowserMenuEvent('onMenuSelectAll')(() => {
-            if (deps.isActive.value) {selectAll();}
+            if (deps.isActive.value) {
+                selectAll();
+            }
         }),
         documentMenu?.onMenuOpenPdf?.(() => {
             runMenuAction('open-pdf', () => deps.handleFallbackToolbarOpenFile());
         }),
         ...registerWorkspaceMenuActions(api, deps, runMenuAction),
         documentMenu?.onMenuOpenRecentFile?.((path) => {
-            runMenuAction('open-recent-file', () => enqueueDocumentOpenAction('open-recent-file', () => deps.openRecentInAppropriateTab(path)));
+            runMenuAction('open-recent-file', () =>
+                enqueueDocumentOpenAction('open-recent-file', () => deps.openRecentInAppropriateTab(path)),
+            );
         }),
         documentMenu?.onMenuOpenExternalPaths?.((paths) => {
             enqueueDocumentOpenAction('open-external-paths', () => deps.openPathsInAppropriateTab(paths));
@@ -401,7 +261,7 @@ export function registerTabsMenuBindings(
         api.windowTabs?.onWindowAction?.((action) => {
             runMenuAction('window-action', () => deps.handleWindowTabsAction(action));
         }),
-    ].flatMap(cleanup => typeof cleanup === 'function' ? [cleanup] : []);
+    ].flatMap((cleanup) => (typeof cleanup === 'function' ? [cleanup] : []));
 
     return [
         ...cleanups,

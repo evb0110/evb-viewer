@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import {createHash} from 'node:crypto';
+import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import {
     MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES,
     MAX_DOCUMENT_TEXT_CATALOG_WINDOW_TOTAL_TEXT_LENGTH,
@@ -8,11 +8,9 @@ import {
     type IDocumentTextCatalogWindow,
     type IDocumentTextSnapshot,
 } from '@contracts/documentTextCatalog';
-import { requirePageNumber } from '@contracts/pageNumbers';
-import { streamPdfPageTexts } from '@electron/features/search/public';
-import {
-    assertWorkingCopyRevisionCurrent,
-} from '@electron/file-access/documentStore';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import {streamPdfPageTexts} from '@electron/features/search/public';
+import {assertWorkingCopyRevisionCurrent} from '@electron/file-access/documentStore';
 
 // The PDF text layer is the document's only text; OCR writes into it.
 
@@ -29,10 +27,15 @@ function digest(parts: readonly string[]) {
  * page arrives, so a document over it stops extraction at the page that
  * crosses it instead of after reading every page.
  */
-async function readTextPages(pdfPath: string, range: {
-    firstPage?: number;
-    lastPage?: number
-}, maxTextLength: number, signal?: AbortSignal) {
+async function readTextPages(
+    pdfPath: string,
+    range: {
+        firstPage?: number;
+        lastPage?: number;
+    },
+    maxTextLength: number,
+    signal?: AbortSignal,
+) {
     let pageCount = 0;
     let textLength = 0;
     const pages: IDocumentTextCatalogPage[] = [];
@@ -44,8 +47,10 @@ async function readTextPages(pdfPath: string, range: {
         if (!page.text.trim()) {
             continue;
         }
-        textLength += page.text.length
-            + (page.layout?.regions.flatMap(region => region.columns.flat()).reduce((length, paragraph) => length + paragraph.length, 0) ?? 0);
+        textLength +=
+            page.text.length +
+            (page.layout?.regions.flatMap((region) => region.columns.flat()).reduce((length, paragraph) => length + paragraph.length, 0) ??
+                0);
         if (textLength > maxTextLength) {
             throw new RangeError(`Document text exceeds ${maxTextLength} characters; export it in page windows`);
         }
@@ -54,10 +59,7 @@ async function readTextPages(pdfPath: string, range: {
             text: page.text,
             source: 'pdf-native',
             ...(page.layout === undefined ? {} : {layout: page.layout}),
-            contentDigest: digest([
-                String(page.pageNumber),
-                page.text,
-            ]),
+            contentDigest: digest([String(page.pageNumber), page.text]),
         });
     }
     return {
@@ -74,10 +76,7 @@ export async function readDocumentTextSnapshot(
     signal?: AbortSignal,
 ): Promise<IDocumentTextSnapshot> {
     await assertWorkingCopyRevisionCurrent(workingCopyPath, documentRevision);
-    const {
-        pageCount: readPageCount,
-        pages,
-    } = await readTextPages(
+    const {pageCount: readPageCount, pages} = await readTextPages(
         pdfPath,
         pageCount === undefined ? {} : {lastPage: pageCount},
         MAX_DOCUMENT_TEXT_SNAPSHOT_TOTAL_TEXT_LENGTH,
@@ -87,7 +86,7 @@ export async function readDocumentTextSnapshot(
         documentRevision,
         pageCount: pageCount ?? readPageCount,
         pages,
-        contentDigest: digest(pages.map(page => page.contentDigest)),
+        contentDigest: digest(pages.map((page) => page.contentDigest)),
     };
 }
 
@@ -98,7 +97,7 @@ export async function readDocumentTextWindow(
     window: {
         firstPage: number;
         lastPage: number;
-        pageCount?: number | undefined
+        pageCount?: number | undefined;
     },
     signal?: AbortSignal,
 ): Promise<IDocumentTextCatalogWindow> {
@@ -108,16 +107,21 @@ export async function readDocumentTextWindow(
         throw new RangeError(`Document text windows hold 1-${MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES} pages`);
     }
     await assertWorkingCopyRevisionCurrent(workingCopyPath, documentRevision);
-    const {pages} = await readTextPages(pdfPath, {
-        firstPage: window.firstPage,
-        lastPage,
-    }, MAX_DOCUMENT_TEXT_CATALOG_WINDOW_TOTAL_TEXT_LENGTH, signal);
+    const {pages} = await readTextPages(
+        pdfPath,
+        {
+            firstPage: window.firstPage,
+            lastPage,
+        },
+        MAX_DOCUMENT_TEXT_CATALOG_WINDOW_TOTAL_TEXT_LENGTH,
+        signal,
+    );
     return {
         documentRevision,
         pageCount,
         firstPage: window.firstPage,
         lastPage,
         pages,
-        contentDigest: digest(pages.map(page => page.contentDigest)),
+        contentDigest: digest(pages.map((page) => page.contentDigest)),
     };
 }

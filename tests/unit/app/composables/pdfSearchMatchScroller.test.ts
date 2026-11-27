@@ -1,10 +1,5 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { createPdfSearchMatchScroller } from '@app/modules/pdf-viewer/engine/pdf-search-match-scroller/createPdfSearchMatchScroller';
+import {describe, expect, it, vi} from 'vitest';
+import {createPdfSearchMatchScroller} from '@app/modules/pdf-viewer/engine/pdf-search-match-scroller/createPdfSearchMatchScroller';
 import {requirePageIndex} from '@contracts/pageNumbers';
 
 describe('createPdfSearchMatchScroller', () => {
@@ -15,12 +10,14 @@ describe('createPdfSearchMatchScroller', () => {
                 pageIndex: requirePageIndex(2),
                 pageWidth: 200,
                 pageHeight: 400,
-                words: [{
-                    x: 20,
-                    y: 80,
-                    width: 40,
-                    height: 20,
-                }],
+                words: [
+                    {
+                        x: 20,
+                        y: 80,
+                        width: 40,
+                        height: 20,
+                    },
+                ],
             }),
             revealSearchNavigationTarget,
         });
@@ -52,15 +49,17 @@ describe('createPdfSearchMatchScroller', () => {
             revealSearchNavigationTarget,
         });
         scroller.requestScrollToMatch(0);
-        expect(revealSearchNavigationTarget).toHaveBeenCalledWith(1, {textAnchor: {
-            text: '本語',
-            prefix: '日',
-            suffix: '文',
-            searchRange: {
-                startOffset: 1,
-                endOffset: 3,
+        expect(revealSearchNavigationTarget).toHaveBeenCalledWith(1, {
+            textAnchor: {
+                text: '本語',
+                prefix: '日',
+                suffix: '文',
+                searchRange: {
+                    startOffset: 1,
+                    endOffset: 3,
+                },
             },
-        }});
+        });
         expect(revealSearchNavigationTarget.mock.calls[0]?.[1]).not.toHaveProperty('markerRect');
     });
 
@@ -72,12 +71,14 @@ describe('createPdfSearchMatchScroller', () => {
                 pageWidth: 200,
                 pageHeight: 400,
                 rotation: 90,
-                words: [{
-                    x: 20,
-                    y: 80,
-                    width: 40,
-                    height: 20,
-                }],
+                words: [
+                    {
+                        x: 20,
+                        y: 80,
+                        width: 40,
+                        height: 20,
+                    },
+                ],
             }),
             revealSearchNavigationTarget,
         });
@@ -121,15 +122,17 @@ describe('createPdfSearchMatchScroller', () => {
 
         scroller.requestScrollToMatch(4);
 
-        expect(revealSearchNavigationTarget).toHaveBeenCalledWith(5, {textAnchor: {
-            text: 'needle',
-            prefix: 'before ',
-            suffix: ' after',
-            searchRange: {
-                startOffset: 42,
-                endOffset: 48,
+        expect(revealSearchNavigationTarget).toHaveBeenCalledWith(5, {
+            textAnchor: {
+                text: 'needle',
+                prefix: 'before ',
+                suffix: ' after',
+                searchRange: {
+                    startOffset: 42,
+                    endOffset: 48,
+                },
             },
-        }});
+        });
     });
 
     it('carries page-local identity and search semantics for an index fallback', () => {
@@ -156,11 +159,7 @@ describe('createPdfSearchMatchScroller', () => {
                     wholeWord: true,
                     useRegex: false,
                 },
-                matches: [
-                    {start: 100},
-                    {start: 200},
-                    {start: 300},
-                ],
+                matches: [{start: 100}, {start: 200}, {start: 300}],
             }),
             revealSearchNavigationTarget,
         });
@@ -168,13 +167,15 @@ describe('createPdfSearchMatchScroller', () => {
         scroller.requestScrollToMatch(4);
 
         expect(revealSearchNavigationTarget).toHaveBeenCalledTimes(1);
-        expect(revealSearchNavigationTarget.mock.calls[0]?.[1]).toMatchObject({textAnchor: {
-            pageMatchIndex: 2,
-            matchIndex: 12,
-            searchQuery: 'needle',
-            searchOptions: {wholeWord: true},
-            expectedPageMatchCount: 3,
-        }});
+        expect(revealSearchNavigationTarget.mock.calls[0]?.[1]).toMatchObject({
+            textAnchor: {
+                pageMatchIndex: 2,
+                matchIndex: 12,
+                searchQuery: 'needle',
+                searchOptions: {wholeWord: true},
+                expectedPageMatchCount: 3,
+            },
+        });
     });
 
     it('omits expected page match count for reversed native ranges', () => {
@@ -196,10 +197,7 @@ describe('createPdfSearchMatchScroller', () => {
             }),
             getCurrentSearchPageMatches: () => ({
                 searchQuery: 'needle',
-                matches: [
-                    {start: 100},
-                    {start: 20},
-                ],
+                matches: [{start: 100}, {start: 20}],
             }),
             revealSearchNavigationTarget,
         });

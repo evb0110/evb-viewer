@@ -1,12 +1,5 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import type {
-    IAnnotationCommentSummary,
-    IShapeAnnotation,
-} from '@app/types/annotations';
+import {describe, expect, it} from 'vitest';
+import type {IAnnotationCommentSummary, IShapeAnnotation} from '@app/types/annotations';
 import type {
     IShapeEntity,
     INoteEntity,
@@ -15,18 +8,15 @@ import type {
     ITextBoxEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {AnnotationApplication} from '@app/modules/pdf-viewer/annotations/annotationApplication';
-import {
-    asAnnotationId,
-    toLegacyShapeAnnotation,
-} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {asAnnotationId, toLegacyShapeAnnotation} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {buildSerializationPlan} from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
 import {
     buildNativeFreeTextNotesForSave,
     isReplayableEditorOnlyFreeTextNote,
     toNativeFreeTextNote,
 } from '@app/modules/pdf-viewer/annotations/persistence/nativeFreeTextNoteProjection';
-import { buildNativeNoteTextUpdatesForSave } from '@app/modules/pdf-viewer/annotations/persistence/nativeNoteTextUpdateProjection';
-import { projectNativeAnnotationDeletes } from '@app/modules/pdf-viewer/annotations/persistence/nativeAnnotationDeleteProjection';
+import {buildNativeNoteTextUpdatesForSave} from '@app/modules/pdf-viewer/annotations/persistence/nativeNoteTextUpdateProjection';
+import {projectNativeAnnotationDeletes} from '@app/modules/pdf-viewer/annotations/persistence/nativeAnnotationDeleteProjection';
 import {
     buildNativeShapesMutationForSave,
     isNativeShapeEligible,
@@ -37,7 +27,7 @@ import {
     committedAffectedPageIndices,
     type IPdfSaveRouteCapabilities,
 } from '@app/modules/pdf-viewer/runtime/save/nativeMutationProjection';
-import { nativeNoteGeometryProjection } from '@app/modules/pdf-viewer/annotations/persistence/nativeNoteGeometryProjection';
+import {nativeNoteGeometryProjection} from '@app/modules/pdf-viewer/annotations/persistence/nativeNoteGeometryProjection';
 import {normalizePdfNativeMutationSet} from '@contracts/nativePdfMutations';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {requireEpochMs} from '@contracts/timestamps';
@@ -112,9 +102,7 @@ function createShapeEntity(overrides: Partial<IShapeEntity> = {}): IShapeEntity 
     };
 }
 
-function createNativeRouteCapabilities(
-    overrides: Partial<IPdfSaveRouteCapabilities> = {},
-): IPdfSaveRouteCapabilities {
+function createNativeRouteCapabilities(overrides: Partial<IPdfSaveRouteCapabilities> = {}): IPdfSaveRouteCapabilities {
     return {
         saveFlowMode: 'save',
         availableBackends: ['native-append'],
@@ -147,11 +135,13 @@ function createNativeRouteCapabilities(
     };
 }
 
-function createMutationProjectionInput(overrides: Partial<{
-    canonicalComments: IAnnotationCommentSummary[];
-    pendingTexts: Map<string, string>;
-    pendingDeletes: IAnnotationCommentSummary[];
-}> = {}) {
+function createMutationProjectionInput(
+    overrides: Partial<{
+        canonicalComments: IAnnotationCommentSummary[];
+        pendingTexts: Map<string, string>;
+        pendingDeletes: IAnnotationCommentSummary[];
+    }> = {},
+) {
     return {
         pendingTexts: new Map(),
         pendingDeletes: [],
@@ -184,10 +174,9 @@ describe('native FreeText note builders', () => {
     it('deduplicates native FreeText notes by stable key', () => {
         const comment = createEditorFreeTextComment();
 
-        const notes = buildNativeFreeTextNotesForSave(createMutationProjectionInput({canonicalComments: [
-            comment,
-            createEditorFreeTextComment(),
-        ]}));
+        const notes = buildNativeFreeTextNotesForSave(
+            createMutationProjectionInput({canonicalComments: [comment, createEditorFreeTextComment()]}),
+        );
 
         expect(notes.value).toEqual([expect.objectContaining({stableKey: comment.stableKey})]);
         expect(notes.skipEvents).toEqual([]);
@@ -230,57 +219,60 @@ describe('native imported note geometry builders', () => {
             },
         });
 
-        expect(nativeNoteGeometryProjection([comment]).value).toEqual([expect.objectContaining({
-            color: '#336699',
-            open: true,
-        })]);
+        expect(nativeNoteGeometryProjection([comment]).value).toEqual([
+            expect.objectContaining({
+                color: '#336699',
+                open: true,
+            }),
+        ]);
     });
 });
 
 describe('native note text and delete builders', () => {
     it('builds native text updates for PDF-sourced note refs', () => {
-        const pendingTexts = new Map([[
-            'ann:0:12R0',
-            'Updated note',
-        ]]);
+        const pendingTexts = new Map([['ann:0:12R0', 'Updated note']]);
 
-        const updates = buildNativeNoteTextUpdatesForSave(createMutationProjectionInput({
-            pendingTexts,
-            canonicalComments: [createComment()],
-        }));
+        const updates = buildNativeNoteTextUpdatesForSave(
+            createMutationProjectionInput({
+                pendingTexts,
+                canonicalComments: [createComment()],
+            }),
+        );
 
-        expect(updates.value).toEqual([{
-            objectNumber: 12,
-            generationNumber: 0,
-            text: 'Updated note',
-        }]);
+        expect(updates.value).toEqual([
+            {
+                objectNumber: 12,
+                generationNumber: 0,
+                text: 'Updated note',
+            },
+        ]);
         expect(updates.skipEvents).toEqual([]);
     });
 
     it('builds native text updates for PDF-backed FreeText notes', () => {
-        const pendingTexts = new Map([[
-            'ann:0:12R0',
-            'Updated note',
-        ]]);
+        const pendingTexts = new Map([['ann:0:12R0', 'Updated note']]);
 
-        const updates = buildNativeNoteTextUpdatesForSave(createMutationProjectionInput({
-            pendingTexts,
-            canonicalComments: [createComment({subtype: 'FreeText'})],
-        }));
+        const updates = buildNativeNoteTextUpdatesForSave(
+            createMutationProjectionInput({
+                pendingTexts,
+                canonicalComments: [createComment({subtype: 'FreeText'})],
+            }),
+        );
 
-        expect(updates.value).toEqual([{
-            objectNumber: 12,
-            generationNumber: 0,
-            text: 'Updated note',
-        }]);
+        expect(updates.value).toEqual([
+            {
+                objectNumber: 12,
+                generationNumber: 0,
+                text: 'Updated note',
+            },
+        ]);
         expect(updates.skipEvents).toEqual([]);
     });
 
     it('builds native deletes for PDF refs and editor-only FreeText stable keys', () => {
-        const deletes = projectNativeAnnotationDeletes(createMutationProjectionInput({pendingDeletes: [
-            createComment(),
-            createEditorFreeTextComment(),
-        ]}));
+        const deletes = projectNativeAnnotationDeletes(
+            createMutationProjectionInput({pendingDeletes: [createComment(), createEditorFreeTextComment()]}),
+        );
 
         expect(deletes.value).toEqual([
             {
@@ -318,12 +310,14 @@ describe('native shape builders', () => {
         expect(isNativeShapeEligible(shape, 2)).toBe(true);
         const nativeShape = toNativeShapeAnnotation(shape);
 
-        expect(nativeShape).toEqual(expect.objectContaining({
-            type: 'polyline',
-            annotationId: '22R',
-            stableKey: 'ann:0:22R0',
-            pdfSubtype: 'PolyLine',
-        }));
+        expect(nativeShape).toEqual(
+            expect.objectContaining({
+                type: 'polyline',
+                annotationId: '22R',
+                stableKey: 'ann:0:22R0',
+                pdfSubtype: 'PolyLine',
+            }),
+        );
         expect(nativeShape).not.toHaveProperty('id');
         expect(nativeShape.points).toEqual(shape.points);
         expect(nativeShape.points).not.toBe(shape.points);
@@ -367,20 +361,22 @@ describe('native shape builders', () => {
             shapeStateDirty: true,
             rewriteShapeState: true,
             totalPageCount: 1,
-            shapes: [createShape({
-                type: 'polyline',
-                pdfSubtype: 'Ink',
-                points: [
-                    {
-                        x: 0.1,
-                        y: 0.2,
-                    },
-                    {
-                        x: 0.3,
-                        y: 0.4,
-                    },
-                ],
-            })],
+            shapes: [
+                createShape({
+                    type: 'polyline',
+                    pdfSubtype: 'Ink',
+                    points: [
+                        {
+                            x: 0.1,
+                            y: 0.2,
+                        },
+                        {
+                            x: 0.3,
+                            y: 0.4,
+                        },
+                    ],
+                }),
+            ],
             deletedAnnotationIds: ['22R0'],
             deletedStableKeys: ['ann:0:22R0'],
         });
@@ -388,11 +384,13 @@ describe('native shape builders', () => {
         expect(mutation).toMatchObject({
             deletedAnnotationIds: ['22R0'],
             deletedStableKeys: ['ann:0:22R0'],
-            shapes: [expect.objectContaining({
-                annotationId: null,
-                stableKey: null,
-                pdfSubtype: 'Ink',
-            })],
+            shapes: [
+                expect.objectContaining({
+                    annotationId: null,
+                    stableKey: null,
+                    pdfSubtype: 'Ink',
+                }),
+            ],
         });
     });
 });
@@ -436,29 +434,27 @@ describe('native PDF save route', () => {
             ...draft,
             identity: {id: asAnnotationId('survivor')},
         });
-        const result = buildNativePdfMutationProjection(app.beginSave().plan, createNativeRouteCapabilities({
-            shapes: [],
-            nativeTextBoxes: [{
-                pageIndex: requirePageIndex(0),
-                stableKey: 'survivor',
-                text: 'draft',
-                rect: [
-                    20,
-                    70,
-                    60,
-                    90,
+        const result = buildNativePdfMutationProjection(
+            app.beginSave().plan,
+            createNativeRouteCapabilities({
+                shapes: [],
+                nativeTextBoxes: [
+                    {
+                        pageIndex: requirePageIndex(0),
+                        stableKey: 'survivor',
+                        text: 'draft',
+                        rect: [20, 70, 60, 90],
+                        rotation: 0,
+                        fontSize: 12,
+                        color: [0, 0, 0],
+                    },
                 ],
-                rotation: 0,
-                fontSize: 12,
-                color: [
-                    0,
-                    0,
-                    0,
-                ],
-            }],
-        }));
+            }),
+        );
         expect(result.route).toBe('native-append');
-        if (result.route !== 'native-append') {throw new Error(`Expected native save: ${result.nativeRejection}`);}
+        if (result.route !== 'native-append') {
+            throw new Error(`Expected native save: ${result.nativeRejection}`);
+        }
         const mutations = result.nativeMutationProjection.mutations;
         expect(mutations.textBoxes).toHaveLength(1);
         expect(mutations.textBoxes?.[0]?.stableKey).toBe('survivor');
@@ -494,31 +490,29 @@ describe('native PDF save route', () => {
             color: '#000000',
         });
         app.store.updateTextBox(asAnnotationId('bordered-handwritten'), {color: '#f59e0b'});
-        const result = buildNativePdfMutationProjection(app.beginSave().plan, createNativeRouteCapabilities({
-            shapes: [],
-            nativeTextBoxes: [{
-                pageIndex: requirePageIndex(0),
-                stableKey: 'bordered-handwritten',
-                annotationId: '6R',
-                text: 'Hand-written label',
-                rect: [
-                    100,
-                    600,
-                    360,
-                    650,
+        const result = buildNativePdfMutationProjection(
+            app.beginSave().plan,
+            createNativeRouteCapabilities({
+                shapes: [],
+                nativeTextBoxes: [
+                    {
+                        pageIndex: requirePageIndex(0),
+                        stableKey: 'bordered-handwritten',
+                        annotationId: '6R',
+                        text: 'Hand-written label',
+                        rect: [100, 600, 360, 650],
+                        rotation: 0,
+                        fontSize: 14,
+                        color: [245, 158, 11],
+                    },
                 ],
-                rotation: 0,
-                fontSize: 14,
-                color: [
-                    245,
-                    158,
-                    11,
-                ],
-            }],
-        }));
-        if (result.route !== 'native-append') {throw new Error(`Expected native save: ${result.nativeRejection}`);}
+            }),
+        );
+        if (result.route !== 'native-append') {
+            throw new Error(`Expected native save: ${result.nativeRejection}`);
+        }
         const mutations = result.nativeMutationProjection.mutations;
-        expect(mutations.textBoxes?.map(textBox => textBox.annotationId)).toEqual(['6R']);
+        expect(mutations.textBoxes?.map((textBox) => textBox.annotationId)).toEqual(['6R']);
         expect(mutations.geometryUpdates).toBeUndefined();
         expect(mutations.freeTextNotes ?? []).toEqual([]);
     });
@@ -526,14 +520,17 @@ describe('native PDF save route', () => {
     function projectRecovery(entity: INoteEntity | IPlacedImageEntity) {
         const app = new AnnotationApplication('recovery');
         app.store.import(entity);
-        const decision = buildNativePdfMutationProjection(app.beginSave().plan, createNativeRouteCapabilities({
-            dirtyState: {
-                annotationDirty: true,
-                hasAnnotationChanges: true,
-                shapeStateDirty: false,
-            },
-            shapes: [],
-        }));
+        const decision = buildNativePdfMutationProjection(
+            app.beginSave().plan,
+            createNativeRouteCapabilities({
+                dirtyState: {
+                    annotationDirty: true,
+                    hasAnnotationChanges: true,
+                    shapeStateDirty: false,
+                },
+                shapes: [],
+            }),
+        );
         if (decision.route !== 'native-append') {
             throw new Error(`Expected native append, got ${decision.nativeRejection}`);
         }
@@ -569,17 +566,19 @@ describe('native PDF save route', () => {
 
     it('restores an unbound stamp from its retained image without reviving the retired annotation reference', () => {
         const entity = recoveryImage();
-        expect(projectRecovery(entity).placedImageGeometryUpdates).toEqual([{
-            pageIndex: 0,
-            stableKey: 'restored-stamp',
-            author: entity.author,
-            sourceImage: entity.image,
-            x: 0.2,
-            y: 0.2,
-            width: 0.3,
-            height: 0.3,
-            rotationDegrees: 25,
-        }]);
+        expect(projectRecovery(entity).placedImageGeometryUpdates).toEqual([
+            {
+                pageIndex: 0,
+                stableKey: 'restored-stamp',
+                author: entity.author,
+                sourceImage: entity.image,
+                x: 0.2,
+                y: 0.2,
+                width: 0.3,
+                height: 0.3,
+                rotationDegrees: 25,
+            },
+        ]);
     });
 
     it('projects an authored raster as native image creation and replacement', () => {
@@ -597,20 +596,22 @@ describe('native PDF save route', () => {
         };
         const created = projectRecovery(entity);
         expect(created.placedImageGeometryUpdates).toBeUndefined();
-        expect(created.placedImages).toEqual([{
-            pageIndex: 0,
-            stableKey: 'restored-stamp',
-            author: entity.author,
-            x: 0.2,
-            y: 0.2,
-            width: 0.3,
-            height: 0.3,
-            rotationDegrees: 25,
-            mimeType: 'image/png',
-            bytesBase64: 'cG5n',
-            byteLength: 3,
-            sha256: 'b'.repeat(64),
-        }]);
+        expect(created.placedImages).toEqual([
+            {
+                pageIndex: 0,
+                stableKey: 'restored-stamp',
+                author: entity.author,
+                x: 0.2,
+                y: 0.2,
+                width: 0.3,
+                height: 0.3,
+                rotationDegrees: 25,
+                mimeType: 'image/png',
+                bytesBase64: 'cG5n',
+                byteLength: 3,
+                sha256: 'b'.repeat(64),
+            },
+        ]);
         const replaced = projectRecovery({
             ...entity,
             identity: {
@@ -659,13 +660,12 @@ describe('native PDF save route', () => {
         app.store.import(saved);
         app.store.createNote(note);
         const session = app.beginSave();
-        const plan = buildSerializationPlan(session.frontier, [
-            saved,
-            note,
-        ], app.store.list());
+        const plan = buildSerializationPlan(session.frontier, [saved, note], app.store.list());
         const result = buildNativePdfMutationProjection(plan, createNativeRouteCapabilities({shapes: []}));
         expect(result.route).toBe('native-append');
-        if (result.route !== 'native-append') {throw new Error('Expected native save');}
+        if (result.route !== 'native-append') {
+            throw new Error('Expected native save');
+        }
         expect(result.nativeMutationProjection.mutations.placedImages).toBeUndefined();
         expect(result.nativeMutationProjection.mutations.freeTextNotes).toHaveLength(1);
     });
@@ -708,23 +708,19 @@ describe('native PDF save route', () => {
                 documentRevisionToken: null,
                 epoch: 1,
                 entityBaselineHash: 'shape-baseline',
-                revisions: new Map([[
-                    shape.identity.id,
-                    shape.persistedRevision,
-                ]]),
+                revisions: new Map([[shape.identity.id, shape.persistedRevision]]),
             },
             [shape],
             [shape],
-            {routeConstraints: {
-                allowedBackends: ['native-append'],
-                preserveLoadedSource: true,
-            }},
+            {
+                routeConstraints: {
+                    allowedBackends: ['native-append'],
+                    preserveLoadedSource: true,
+                },
+            },
         );
 
-        const decision = buildNativePdfMutationProjection(
-            plan,
-            createNativeRouteCapabilities({shapes: [nativeShape]}),
-        );
+        const decision = buildNativePdfMutationProjection(plan, createNativeRouteCapabilities({shapes: [nativeShape]}));
 
         expect(decision.route).toBe('native-append');
         if (decision.route !== 'native-append') {
@@ -732,11 +728,13 @@ describe('native PDF save route', () => {
         }
         expect(decision.nativeMutationProjection.mutations.shapes).toMatchObject({
             rewriteShapeState: false,
-            shapes: [expect.objectContaining({
-                annotationId: '22R',
-                stableKey: toLegacyShapeAnnotation(shape).stableKey,
-                type: 'rectangle',
-            })],
+            shapes: [
+                expect.objectContaining({
+                    annotationId: '22R',
+                    stableKey: toLegacyShapeAnnotation(shape).stableKey,
+                    type: 'rectangle',
+                }),
+            ],
         });
     });
 
@@ -776,9 +774,7 @@ describe('native PDF save route', () => {
         app.store.setNoteText(asAnnotationId('imported-note'), 'Typed during re-read');
         app.store.updateTextMarkup(asAnnotationId('imported-highlight'), {contents: 'Comment typed during re-read'});
         // The working bytes hold the rotated page and the old texts.
-        expect(app.store.replaceFromDocument(
-            [importedNote(rotated), importedHighlight(rotated)], [], undefined, [], [], true,
-        )).toBe(true);
+        expect(app.store.replaceFromDocument([importedNote(rotated), importedHighlight(rotated)], [], undefined, [], [], true)).toBe(true);
         expect(app.listCommentSummaries()).toEqual([
             expect.objectContaining({stableKey: 'ann:0:11 0 R', source: 'pdf', text: 'Typed during re-read', markerRect: rotated}),
             expect.objectContaining({stableKey: 'ann:0:12 0 R', source: 'pdf', text: 'Comment typed during re-read', markerRect: rotated}),
@@ -787,29 +783,27 @@ describe('native PDF save route', () => {
         const result = buildNativePdfMutationProjection(app.beginSave().plan, createNativeRouteCapabilities({shapes: []}));
 
         expect(result.route).toBe('native-append');
-        if (result.route !== 'native-append') {throw new Error(`Expected native save: ${result.nativeRejection}`);}
+        if (result.route !== 'native-append') {
+            throw new Error(`Expected native save: ${result.nativeRejection}`);
+        }
         const {mutations} = result.nativeMutationProjection;
         expect(mutations.updates).toEqual([{objectNumber: 11, generationNumber: 0, text: 'Typed during re-read'}]);
         expect(mutations.geometryUpdates).toEqual([expect.objectContaining({objectNumber: 11, markerRect: rotated})]);
-        expect(mutations.markup?.hints).toEqual([expect.objectContaining({
-            annotationId: '12 0 R',
-            source: 'pdf',
-            contents: 'Comment typed during re-read',
-            markupGeometry: [rotated],
-        })]);
+        expect(mutations.markup?.hints).toEqual([
+            expect.objectContaining({
+                annotationId: '12 0 R',
+                source: 'pdf',
+                contents: 'Comment typed during re-read',
+                markupGeometry: [rotated],
+            }),
+        ]);
         expect(mutations.freeTextNotes).toBeUndefined();
     });
 });
 
-
 describe('additive shape projection and affected-page scope', () => {
     it('scopes new images and persisted moves, and keeps recovery and deletion whole', () => {
-        for (const mode of [
-            'create',
-            'move',
-            'recover',
-            'delete',
-        ] as const) {
+        for (const mode of ['create', 'move', 'recover', 'delete'] as const) {
             const application = new AnnotationApplication(`image-${mode}`);
             const image: IPlacedImageEntity = {
                 ...createShapeEntity(),
@@ -826,40 +820,51 @@ describe('additive shape projection and affected-page scope', () => {
                     height: 0.1,
                 },
                 rotation: 0,
-                image: mode === 'create'
-                    ? {
-                        kind: 'raster',
-                        mimeType: 'image/png',
-                        dataBase64: 'cG5n',
-                        byteLength: 3,
-                        sha256: 'a'.repeat(64),
-                        width: 1,
-                        height: 1,
-                    }
-                    : {
-                        objectNumber: 42,
-                        generationNumber: 0,
-                        byteLength: 20,
-                        sha256: 'b'.repeat(64),
-                    },
+                image:
+                    mode === 'create'
+                        ? {
+                              kind: 'raster',
+                              mimeType: 'image/png',
+                              dataBase64: 'cG5n',
+                              byteLength: 3,
+                              sha256: 'a'.repeat(64),
+                              width: 1,
+                              height: 1,
+                          }
+                        : {
+                              objectNumber: 42,
+                              generationNumber: 0,
+                              byteLength: 20,
+                              sha256: 'b'.repeat(64),
+                          },
             };
             application.store.import(image);
-            if (mode === 'move') {application.store.updatePlacedImage(image.identity.id, {rotation: 25});}
-            if (mode === 'delete') {application.store.delete(image.identity.id);}
+            if (mode === 'move') {
+                application.store.updatePlacedImage(image.identity.id, {rotation: 25});
+            }
+            if (mode === 'delete') {
+                application.store.delete(image.identity.id);
+            }
             const session = application.beginSave();
             expect(session.affectedPageIndices).toEqual(mode !== 'recover' ? [0] : null);
-            const route = buildNativePdfMutationProjection(session.plan, createNativeRouteCapabilities({
-                shapes: [],
-                dirtyState: {
-                    annotationDirty: true,
-                    hasAnnotationChanges: true,
-                    shapeStateDirty: false,
-                },
-            }));
+            const route = buildNativePdfMutationProjection(
+                session.plan,
+                createNativeRouteCapabilities({
+                    shapes: [],
+                    dirtyState: {
+                        annotationDirty: true,
+                        hasAnnotationChanges: true,
+                        shapeStateDirty: false,
+                    },
+                }),
+            );
             expect(route.route).toBe('native-append');
-            if (route.route !== 'native-append') {throw new Error('Expected image native append');}
-            expect(committedAffectedPageIndices([0], route.nativeMutationProjection))
-                .toEqual(mode === 'create' || mode === 'move' ? [0] : undefined);
+            if (route.route !== 'native-append') {
+                throw new Error('Expected image native append');
+            }
+            expect(committedAffectedPageIndices([0], route.nativeMutationProjection)).toEqual(
+                mode === 'create' || mode === 'move' ? [0] : undefined,
+            );
         }
     });
 
@@ -881,51 +886,48 @@ describe('additive shape projection and affected-page scope', () => {
         application.store.replaceFromDocument([saved], []);
         application.store.delete(saved.identity.id);
         const session = application.beginSave();
-        const route = buildNativePdfMutationProjection(session.plan, createNativeRouteCapabilities({
-            shapes: [],
-            dirtyState: {
-                annotationDirty: true,
-                hasAnnotationChanges: true,
-                shapeStateDirty: false,
-            },
-        }));
+        const route = buildNativePdfMutationProjection(
+            session.plan,
+            createNativeRouteCapabilities({
+                shapes: [],
+                dirtyState: {
+                    annotationDirty: true,
+                    hasAnnotationChanges: true,
+                    shapeStateDirty: false,
+                },
+            }),
+        );
         expect(route.route).toBe('native-append');
-        if (route.route !== 'native-append') {throw new Error('Expected native deletion');}
+        if (route.route !== 'native-append') {
+            throw new Error('Expected native deletion');
+        }
         const projection = route.nativeMutationProjection;
         expect(committedAffectedPageIndices(session.affectedPageIndices, projection)).toBeUndefined();
-        expect(committedAffectedPageIndices(session.affectedPageIndices, projection, {
-            affectedPageIndices: [
-                0,
-                2,
-                7,
-            ],
-            deletedReplyRefs: ['50 0 R'],
-        })).toEqual([
-            0,
-            2,
-            7,
-        ]);
-        expect(committedAffectedPageIndices([1], projection, {
-            affectedPageIndices: [
-                0,
-                2,
-            ],
-            deletedReplyRefs: [],
-        })).toEqual([
-            0,
-            1,
-            2,
-        ]);
-        expect(committedAffectedPageIndices([0], {
-            ...projection,
-            hasMetadataMutations: true,
-        }, {
-            affectedPageIndices: [
-                0,
-                2,
-            ],
-            deletedReplyRefs: [],
-        })).toBeUndefined();
+        expect(
+            committedAffectedPageIndices(session.affectedPageIndices, projection, {
+                affectedPageIndices: [0, 2, 7],
+                deletedReplyRefs: ['50 0 R'],
+            }),
+        ).toEqual([0, 2, 7]);
+        expect(
+            committedAffectedPageIndices([1], projection, {
+                affectedPageIndices: [0, 2],
+                deletedReplyRefs: [],
+            }),
+        ).toEqual([0, 1, 2]);
+        expect(
+            committedAffectedPageIndices(
+                [0],
+                {
+                    ...projection,
+                    hasMetadataMutations: true,
+                },
+                {
+                    affectedPageIndices: [0, 2],
+                    deletedReplyRefs: [],
+                },
+            ),
+        ).toBeUndefined();
     });
 
     it('publishes only new shapes beside an already saved shape without a state rewrite', () => {
@@ -940,12 +942,14 @@ describe('additive shape projection and affected-page scope', () => {
         application.store.createShape(fresh);
         const session = application.beginSave();
         expect(session.affectedPageIndices).toEqual([0]);
-        const route = buildNativePdfMutationProjection(session.plan, createNativeRouteCapabilities({shapes: [
-            toLegacyShapeAnnotation(saved),
-            toLegacyShapeAnnotation(fresh),
-        ]}));
+        const route = buildNativePdfMutationProjection(
+            session.plan,
+            createNativeRouteCapabilities({shapes: [toLegacyShapeAnnotation(saved), toLegacyShapeAnnotation(fresh)]}),
+        );
         expect(route.route).toBe('native-append');
-        if (route.route !== 'native-append') {throw new Error('Expected an additive shape route');}
+        if (route.route !== 'native-append') {
+            throw new Error('Expected an additive shape route');
+        }
         const projection = route.nativeMutationProjection;
         expect(projection.mutations.shapes).toMatchObject({
             rewriteShapeState: false,
@@ -953,30 +957,44 @@ describe('additive shape projection and affected-page scope', () => {
         });
         expect(projection.mutations.shapes?.shapes).toHaveLength(1);
         expect(committedAffectedPageIndices(session.affectedPageIndices, projection)).toEqual([0]);
-        expect(committedAffectedPageIndices(Array.from({length: 4096}, (_, index) => index), projection)).toHaveLength(4096);
-        expect(committedAffectedPageIndices(Array.from({length: 4097}, (_, index) => index), projection)).toBeUndefined();
+        expect(
+            committedAffectedPageIndices(
+                Array.from({length: 4096}, (_, index) => index),
+                projection,
+            ),
+        ).toHaveLength(4096);
+        expect(
+            committedAffectedPageIndices(
+                Array.from({length: 4097}, (_, index) => index),
+                projection,
+            ),
+        ).toBeUndefined();
         expect(committedAffectedPageIndices(null, projection)).toBeUndefined();
         expect(committedAffectedPageIndices([], projection)).toBeUndefined();
-        expect(committedAffectedPageIndices([0], {
-            ...projection,
-            mutations: {
-                ...projection.mutations,
-                shapes: {
-                    ...projection.mutations.shapes!,
-                    rewriteShapeState: true,
+        expect(
+            committedAffectedPageIndices([0], {
+                ...projection,
+                mutations: {
+                    ...projection.mutations,
+                    shapes: {
+                        ...projection.mutations.shapes!,
+                        rewriteShapeState: true,
+                    },
                 },
-            },
-        })).toBeUndefined();
-        expect(committedAffectedPageIndices([0], {
-            ...projection,
-            mutations: {
-                ...projection.mutations,
-                shapes: {
-                    ...projection.mutations.shapes!,
-                    deletedStableKeys: ['retired'],
+            }),
+        ).toBeUndefined();
+        expect(
+            committedAffectedPageIndices([0], {
+                ...projection,
+                mutations: {
+                    ...projection.mutations,
+                    shapes: {
+                        ...projection.mutations.shapes!,
+                        deletedStableKeys: ['retired'],
+                    },
                 },
-            },
-        })).toBeUndefined();
+            }),
+        ).toBeUndefined();
     });
 
     it('publishes only a changed live shape beside an untouched arrow, tombstone and reconciled entry', () => {
@@ -1008,31 +1026,35 @@ describe('additive shape projection and affected-page scope', () => {
             revision: 3,
             persistedRevision: 3,
         });
-        const entries = [
-            edited,
-            arrow,
-            deleted,
-            reconciled,
-        ];
-        const plan = buildSerializationPlan({
-            documentRevisionToken: null,
-            epoch: 1,
-            entityBaselineHash: 'frontier',
-            revisions: new Map(entries.map(entity => [
-                entity.identity.id,
-                entity.persistedRevision,
-            ])),
-        }, entries, entries, {routeConstraints: {
-            allowedBackends: ['native-append'],
-            preserveLoadedSource: true,
-        }});
-        const route = buildNativePdfMutationProjection(plan, createNativeRouteCapabilities({
-            shapes: entries.map(toLegacyShapeAnnotation),
-            deletedEmbeddedShapeAnnotationIds: ['24R0'],
-            deletedEmbeddedShapeStableKeys: ['evb-shape:deleted'],
-        }));
+        const entries = [edited, arrow, deleted, reconciled];
+        const plan = buildSerializationPlan(
+            {
+                documentRevisionToken: null,
+                epoch: 1,
+                entityBaselineHash: 'frontier',
+                revisions: new Map(entries.map((entity) => [entity.identity.id, entity.persistedRevision])),
+            },
+            entries,
+            entries,
+            {
+                routeConstraints: {
+                    allowedBackends: ['native-append'],
+                    preserveLoadedSource: true,
+                },
+            },
+        );
+        const route = buildNativePdfMutationProjection(
+            plan,
+            createNativeRouteCapabilities({
+                shapes: entries.map(toLegacyShapeAnnotation),
+                deletedEmbeddedShapeAnnotationIds: ['24R0'],
+                deletedEmbeddedShapeStableKeys: ['evb-shape:deleted'],
+            }),
+        );
         expect(route.route).toBe('native-append');
-        if (route.route !== 'native-append') {throw new Error('Expected native shape route');}
+        if (route.route !== 'native-append') {
+            throw new Error('Expected native shape route');
+        }
         const mutations = normalizePdfNativeMutationSet(route.nativeMutationProjection.mutations, 'changed live shapes');
         expect(mutations.shapes).toMatchObject({
             rewriteShapeState: false,
@@ -1050,23 +1072,28 @@ describe('additive shape projection and affected-page scope', () => {
         application.store.updateShape(saved.identity.id, {strokeWidth: 3});
         const session = application.beginSave();
         expect(session.affectedPageIndices).toEqual([0]);
-        const route = buildNativePdfMutationProjection(session.plan, createNativeRouteCapabilities({shapes: [toLegacyShapeAnnotation({
-            ...saved,
-            strokeWidth: 3,
-        })]}));
+        const route = buildNativePdfMutationProjection(
+            session.plan,
+            createNativeRouteCapabilities({
+                shapes: [
+                    toLegacyShapeAnnotation({
+                        ...saved,
+                        strokeWidth: 3,
+                    }),
+                ],
+            }),
+        );
         expect(route.route).toBe('native-append');
-        if (route.route !== 'native-append') {throw new Error('Expected native shape edit');}
+        if (route.route !== 'native-append') {
+            throw new Error('Expected native shape edit');
+        }
         expect(committedAffectedPageIndices([0], route.nativeMutationProjection)).toBeUndefined();
-        expect(committedAffectedPageIndices([0], route.nativeMutationProjection, {
-            affectedPageIndices: [
-                0,
-                2,
-            ],
-            deletedReplyRefs: [],
-        })).toEqual([
-            0,
-            2,
-        ]);
+        expect(
+            committedAffectedPageIndices([0], route.nativeMutationProjection, {
+                affectedPageIndices: [0, 2],
+                deletedReplyRefs: [],
+            }),
+        ).toEqual([0, 2]);
     });
 
     it('matches canonical text-box identity aliases and scales across 1,000 text boxes without quadratic lookups', () => {
@@ -1095,63 +1122,61 @@ describe('additive shape projection and affected-page scope', () => {
             fontSize: 12,
             color: '#112233',
         }));
-        const plan = buildSerializationPlan({
-            documentRevisionToken: null,
-            epoch: 1,
-            entityBaselineHash: 'tb-scale',
-            revisions: new Map(entities.map(entity => [
-                entity.identity.id,
-                entity.revision,
-            ])),
-        }, entities, entities);
+        const plan = buildSerializationPlan(
+            {
+                documentRevisionToken: null,
+                epoch: 1,
+                entityBaselineHash: 'tb-scale',
+                revisions: new Map(entities.map((entity) => [entity.identity.id, entity.revision])),
+            },
+            entities,
+            entities,
+        );
         const nativeTextBoxes = entities.map((entity, index) => ({
             pageIndex: entity.pageIndex,
             // Exercise normalized PDF ref alias matching ('12 0 R' vs '12R') on index 0.
             stableKey: index === 0 ? 'different-stable-key' : entity.identity.id,
             ...(index === 0 ? {annotationId: '12R'} : {}),
             text: entity.text,
-            rect: [
-                10,
-                10,
-                100,
-                50,
-            ] as [number, number, number, number],
+            rect: [10, 10, 100, 50] as [number, number, number, number],
             rotation: 0 as const,
             fontSize: 12,
-            color: [
-                0,
-                0,
-                0,
-            ] as [number, number, number],
+            color: [0, 0, 0] as [number, number, number],
             author: 'Tester',
             createdAt: entity.createdAt,
             modifiedAt: entity.modifiedAt,
         }));
 
         const startedAt = performance.now();
-        const coveredRoute = buildNativePdfMutationProjection(plan, createNativeRouteCapabilities({
-            dirtyState: {
-                annotationDirty: true,
-                hasAnnotationChanges: true,
-                shapeStateDirty: false,
-            },
-            shapes: [],
-            nativeTextBoxes,
-        }));
+        const coveredRoute = buildNativePdfMutationProjection(
+            plan,
+            createNativeRouteCapabilities({
+                dirtyState: {
+                    annotationDirty: true,
+                    hasAnnotationChanges: true,
+                    shapeStateDirty: false,
+                },
+                shapes: [],
+                nativeTextBoxes,
+            }),
+        );
         const elapsedMs = performance.now() - startedAt;
 
         expect(coveredRoute.route).toBe('native-append');
         expect(elapsedMs).toBeLessThan(400);
 
-        const uncoveredRoute = buildNativePdfMutationProjection(plan, createNativeRouteCapabilities({
-            dirtyState: {
-                annotationDirty: true,
-                hasAnnotationChanges: true,
-                shapeStateDirty: false,
-            },
-            shapes: [],
-            nativeTextBoxes: nativeTextBoxes.slice(1),
-        }));
+        const uncoveredRoute = buildNativePdfMutationProjection(
+            plan,
+            createNativeRouteCapabilities({
+                dirtyState: {
+                    annotationDirty: true,
+                    hasAnnotationChanges: true,
+                    shapeStateDirty: false,
+                },
+                shapes: [],
+                nativeTextBoxes: nativeTextBoxes.slice(1),
+            }),
+        );
         expect(uncoveredRoute.route).not.toBe('native-append');
         if (uncoveredRoute.route === 'native-append') {
             throw new Error('Expected uncovered canonical text box to reject native-append');

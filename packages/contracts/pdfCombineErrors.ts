@@ -1,9 +1,6 @@
-const _PDF_COMBINE_CAPABILITY_ERROR_CODES = [
-    'native-unavailable',
-    'native-failure',
-] as const;
+const _PDF_COMBINE_CAPABILITY_ERROR_CODES = ['native-unavailable', 'native-failure'] as const;
 
-export type TPdfCombineCapabilityErrorCode = typeof _PDF_COMBINE_CAPABILITY_ERROR_CODES[number];
+export type TPdfCombineCapabilityErrorCode = (typeof _PDF_COMBINE_CAPABILITY_ERROR_CODES)[number];
 
 export interface IPdfCombineCapabilityErrorOptions {
     cause?: unknown;

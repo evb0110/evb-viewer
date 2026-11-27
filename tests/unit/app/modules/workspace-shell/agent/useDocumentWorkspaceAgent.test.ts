@@ -1,51 +1,36 @@
 import {createAgentOptions} from '@tests/unit/app/modules/workspace-shell/agent/createAgentOptions';
-import { ref } from 'vue';
+import {ref} from 'vue';
 import {cast} from '@tests/helpers/cast';
 import {annotationIdForSummary} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 import {useBookmarkState} from '@app/modules/pdf-viewer/runtime/composables/pdf/useBookmarkState';
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    requireDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
-import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
-import {
-    PAGE_LABEL_MAX_NATIVE_START_NUMBER,
-    type IPdfPageLabelRange,
-} from '@contracts/pdfPageLabels';
-import type { TPdfViewMode } from '@contracts/shared';
-import {
-    createRangePageSelection,
-    requirePageIndex,
-} from '@contracts/pageNumbers';
-import { requireEpochMs } from '@contracts/timestamps';
-import { isRecord } from '@contracts/runtimeGuards';
-import { AGENT_CAPABILITY_TEMPLATES } from '@electron/features/agent/mcp/agentCapabilityTemplates';
-import { validateJsonObjectAgainstSchema } from '@electron/features/agent/mcp/mcpToolDefinitions';
-import type {
-    IAnnotationCommentSummary,
-    TAnnotationTool,
-} from '@app/types/annotations';
-import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
-import type { IAnnotationNoteWindowViewModel } from '@app/types/annotationNoteWindow';
-import type { IWorkspacePdfViewerAgentPort } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
+import {describe, expect, it, vi} from 'vitest';
+import {requireDocumentRef, type TDocumentRef} from '@contracts/documentRef';
+import type {IDocumentRevisionInfo} from '@contracts/documentRevision';
+import {PAGE_LABEL_MAX_NATIVE_START_NUMBER, type IPdfPageLabelRange} from '@contracts/pdfPageLabels';
+import type {TPdfViewMode} from '@contracts/shared';
+import {createRangePageSelection, requirePageIndex} from '@contracts/pageNumbers';
+import {requireEpochMs} from '@contracts/timestamps';
+import {isRecord} from '@contracts/runtimeGuards';
+import {AGENT_CAPABILITY_TEMPLATES} from '@electron/features/agent/mcp/agentCapabilityTemplates';
+import {validateJsonObjectAgainstSchema} from '@electron/features/agent/mcp/mcpToolDefinitions';
+import type {IAnnotationCommentSummary, TAnnotationTool} from '@app/types/annotations';
+import type {IPdfBookmarkEntry} from '@app/types/pdfContracts';
+import type {IAnnotationNoteWindowViewModel} from '@app/types/annotationNoteWindow';
+import type {IWorkspacePdfViewerAgentPort} from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import {
     DOCUMENT_WORKSPACE_AGENT_ACTION_IDS,
     DOCUMENT_WORKSPACE_AGENT_ALIAS_ACTION_IDS,
     DOCUMENT_WORKSPACE_AGENT_PRIMARY_ACTION_IDS,
     createDocumentWorkspaceAgent,
 } from '@app/modules/workspace-shell/agent/useDocumentWorkspaceAgent';
-import { createDefaultWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
-import { createPageLabelModel } from '@app/modules/document-viewer/pageLabels';
+import {createDefaultWorkspaceViewerCapabilities} from '@app/types/workspaceExpose';
+import {createPageLabelModel} from '@app/modules/document-viewer/pageLabels';
 import {requireDocumentInstanceId} from '@contracts/documentInstanceId';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 
-interface IAgentViewerPortFixture extends IWorkspacePdfViewerAgentPort {updateTextMarkupAnnotationColor?: (comment: IAnnotationCommentSummary, color: string) => boolean;}
+interface IAgentViewerPortFixture extends IWorkspacePdfViewerAgentPort {
+    updateTextMarkupAnnotationColor?: (comment: IAnnotationCommentSummary, color: string) => boolean;
+}
 
 function createAgentViewerPort(overrides: Partial<IAgentViewerPortFixture> = {}): IAgentViewerPortFixture {
     const port = {
@@ -109,9 +94,7 @@ function createBookmark(title: string, items: IPdfBookmarkEntry[] = []): IPdfBoo
     };
 }
 
-function createAnnotationComment(
-    overrides: Partial<IAnnotationCommentSummary> = {},
-): IAnnotationCommentSummary {
+function createAnnotationComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
     return {
         id: 'annotation-1',
         stableKey: 'ann:0:annotation-stable-1',
@@ -131,10 +114,7 @@ function createAnnotationComment(
     };
 }
 
-function createDocumentIdentity(
-    token = 'revision-1',
-    contentRevision = 1,
-): IDocumentRevisionInfo {
+function createDocumentIdentity(token = 'revision-1', contentRevision = 1): IDocumentRevisionInfo {
     return {
         version: 1,
         token: requireDocumentRevisionToken(token),
@@ -145,7 +125,6 @@ function createDocumentIdentity(
     };
 }
 
-
 describe('createDocumentWorkspaceAgent', () => {
     it('uses a nested bookmark read depth to style the same outline level', async () => {
         const bookmarkItems = ref<IPdfBookmarkEntry[]>([
@@ -153,38 +132,49 @@ describe('createDocumentWorkspaceAgent', () => {
             createBookmark('Other root'),
         ]);
         const options = createAgentOptions({bookmarkItems});
-        options.handleBookmarksChange = ({bookmarks}) => {bookmarkItems.value = bookmarks;};
+        options.handleBookmarksChange = ({bookmarks}) => {
+            bookmarkItems.value = bookmarks;
+        };
         const agent = createDocumentWorkspaceAgent(options);
         const read = await agent.runAgentAction('bookmarks.read');
         const roots = read.bookmarks as Array<{depth: number}>;
 
-        await expect(agent.runAgentAction('bookmarks.set_style', {
-            depth: roots[0]?.depth,
-            bold: true,
-        })).resolves.toMatchObject({
+        await expect(
+            agent.runAgentAction('bookmarks.set_style', {
+                depth: roots[0]?.depth,
+                bold: true,
+            }),
+        ).resolves.toMatchObject({
             ok: true,
             targetCount: 2,
             changedCount: 2,
         });
-        expect(bookmarkItems.value.map(entry => entry.bold)).toEqual([
-            true,
-            true,
-        ]);
+        expect(bookmarkItems.value.map((entry) => entry.bold)).toEqual([true, true]);
         expect(bookmarkItems.value[0]?.items[0]?.bold).toBe(false);
         expect(bookmarkItems.value[0]?.items[0]?.items[0]?.bold).toBe(false);
     });
 
     it('executes schema-validated query aliases and gives text precedence when both are supplied', async () => {
-        const template = AGENT_CAPABILITY_TEMPLATES.find(candidate => candidate.id === 'annotation.create_text_markup');
-        if (!template) {throw new Error('annotation.create_text_markup template is missing');}
-        const agent = createDocumentWorkspaceAgent(createAgentOptions({pdfViewerRef: ref(createAgentViewerPort({createTextMarkupFromText: async options => ({
-            created: true,
-            pageNumber: options.pageNumber,
-            requestedText: options.text,
-            matchedText: options.text,
-            occurrence: options.occurrence ?? 1,
-            subtype: 'Highlight',
-        })}))}));
+        const template = AGENT_CAPABILITY_TEMPLATES.find((candidate) => candidate.id === 'annotation.create_text_markup');
+        if (!template) {
+            throw new Error('annotation.create_text_markup template is missing');
+        }
+        const agent = createDocumentWorkspaceAgent(
+            createAgentOptions({
+                pdfViewerRef: ref(
+                    createAgentViewerPort({
+                        createTextMarkupFromText: async (options) => ({
+                            created: true,
+                            pageNumber: options.pageNumber,
+                            requestedText: options.text,
+                            matchedText: options.text,
+                            occurrence: options.occurrence ?? 1,
+                            subtype: 'Highlight',
+                        }),
+                    }),
+                ),
+            }),
+        );
         for (const input of [
             {query: 'Alias heading'},
             {
@@ -193,7 +183,9 @@ describe('createDocumentWorkspaceAgent', () => {
             },
         ]) {
             const validated = validateJsonObjectAgainstSchema(template.id, input, template.inputSchema);
-            if (!isRecord(validated)) {throw new Error('Expected validated text markup input to be an object');}
+            if (!isRecord(validated)) {
+                throw new Error('Expected validated text markup input to be an object');
+            }
             await expect(agent.runAgentAction(template.id, validated)).resolves.toMatchObject({
                 ok: true,
                 created: true,
@@ -204,16 +196,26 @@ describe('createDocumentWorkspaceAgent', () => {
     });
 
     it('executes schema-validated tool aliases and gives shape precedence when both are supplied', async () => {
-        const template = AGENT_CAPABILITY_TEMPLATES.find(candidate => candidate.id === 'annotation.create_shape');
-        if (!template) {throw new Error('annotation.create_shape template is missing');}
-        const agent = createDocumentWorkspaceAgent(createAgentOptions({pdfViewerRef: ref(createAgentViewerPort({createShapeAnnotation: async options => ({
-            created: true,
-            pageNumber: options.pageNumber,
-            shape: createAnnotationComment({
-                subtype: options.tool,
-                kindLabel: options.tool,
+        const template = AGENT_CAPABILITY_TEMPLATES.find((candidate) => candidate.id === 'annotation.create_shape');
+        if (!template) {
+            throw new Error('annotation.create_shape template is missing');
+        }
+        const agent = createDocumentWorkspaceAgent(
+            createAgentOptions({
+                pdfViewerRef: ref(
+                    createAgentViewerPort({
+                        createShapeAnnotation: async (options) => ({
+                            created: true,
+                            pageNumber: options.pageNumber,
+                            shape: createAnnotationComment({
+                                subtype: options.tool,
+                                kindLabel: options.tool,
+                            }),
+                        }),
+                    }),
+                ),
             }),
-        })}))}));
+        );
         for (const selectors of [
             {tool: 'rectangle'},
             {
@@ -229,7 +231,9 @@ describe('createDocumentWorkspaceAgent', () => {
                 height: 0.4,
             };
             const validated = validateJsonObjectAgainstSchema(template.id, input, template.inputSchema);
-            if (!isRecord(validated)) {throw new Error('Expected validated shape input to be an object');}
+            if (!isRecord(validated)) {
+                throw new Error('Expected validated shape input to be an object');
+            }
             await expect(agent.runAgentAction(template.id, validated)).resolves.toMatchObject({
                 ok: true,
                 created: true,
@@ -239,26 +243,11 @@ describe('createDocumentWorkspaceAgent', () => {
     });
 
     it.each([
-        [
-            'annotation.open_note',
-            {},
-        ],
-        [
-            'annotation.focus',
-            {},
-        ],
-        [
-            'annotation.delete',
-            {},
-        ],
-        [
-            'annotation.update_note',
-            {text: ''},
-        ],
-        [
-            'annotation.update_text_markup_color',
-            {color: '#ffd54f'},
-        ],
+        ['annotation.open_note', {}],
+        ['annotation.focus', {}],
+        ['annotation.delete', {}],
+        ['annotation.update_note', {text: ''}],
+        ['annotation.update_text_markup_color', {color: '#ffd54f'}],
     ])('requires a non-blank annotation reference before previewing %s', async (id, extra) => {
         const agent = createDocumentWorkspaceAgent(createAgentOptions());
         for (const ref of [
@@ -270,59 +259,61 @@ describe('createDocumentWorkspaceAgent', () => {
                 id: '\u2003\ufeff',
             },
         ]) {
-            await expect(agent.runAgentAction(id, {
-                ...ref,
-                ...extra,
-            }, {dryRun: true}))
-                .rejects.toThrow(/requires at least one non-blank/u);
+            await expect(
+                agent.runAgentAction(
+                    id,
+                    {
+                        ...ref,
+                        ...extra,
+                    },
+                    {dryRun: true},
+                ),
+            ).rejects.toThrow(/requires at least one non-blank/u);
         }
     });
 
-    it.each([
-        'stableKey',
-        'annotationId',
-        'id',
-    ] as const)('resolves a padded %s in annotation navigation and note updates', async (key) => {
+    it.each(['stableKey', 'annotationId', 'id'] as const)('resolves a padded %s in annotation navigation and note updates', async (key) => {
         const comment = createAnnotationComment({
             text: 'Original note',
             hasNote: true,
         });
-        const agent = createDocumentWorkspaceAgent(createAgentOptions({
-            annotationComments: ref([comment]),
-            pdfViewerRef: ref(createAgentViewerPort()),
-        }));
+        const agent = createDocumentWorkspaceAgent(
+            createAgentOptions({
+                annotationComments: ref([comment]),
+                pdfViewerRef: ref(createAgentViewerPort()),
+            }),
+        );
         const input = {
             stableKey: ' ',
             annotationId: '',
             id: '\t',
             [key]: ` ${comment[key]} `,
         };
-        for (const action of [
-            'annotation.open_note',
-            'annotation.focus',
-        ]) {
+        for (const action of ['annotation.open_note', 'annotation.focus']) {
             await expect(agent.runAgentAction(action, input)).resolves.toMatchObject({
                 ok: true,
                 comment: {stableKey: comment.stableKey},
             });
         }
-        await expect(agent.runAgentAction('annotation.update_note', {
-            ...input,
-            text: '',
-        }))
-            .resolves.toMatchObject({
-                updated: true,
-                comment: {
-                    stableKey: comment.stableKey,
-                    text: '',
-                },
-            });
+        await expect(
+            agent.runAgentAction('annotation.update_note', {
+                ...input,
+                text: '',
+            }),
+        ).resolves.toMatchObject({
+            updated: true,
+            comment: {
+                stableKey: comment.stableKey,
+                text: '',
+            },
+        });
     });
 
     it('keeps annotation existence checks in the renderer after reference validation', async () => {
         const agent = createDocumentWorkspaceAgent(createAgentOptions());
-        await expect(agent.runAgentAction('annotation.open_note', {stableKey: 'missing-annotation'}))
-            .rejects.toThrow('Annotation comment was not found.');
+        await expect(agent.runAgentAction('annotation.open_note', {stableKey: 'missing-annotation'})).rejects.toThrow(
+            'Annotation comment was not found.',
+        );
     });
 
     it('keeps explicit note placement actions armed across repeated calls', async () => {
@@ -330,10 +321,12 @@ describe('createDocumentWorkspaceAgent', () => {
         const handleQuickNoteAction = vi.fn(async () => {
             annotationTool.value = annotationTool.value === 'note' ? 'select' : 'note';
         });
-        const agent = createDocumentWorkspaceAgent(createAgentOptions({
-            annotationTool,
-            handleQuickNoteAction,
-        }));
+        const agent = createDocumentWorkspaceAgent(
+            createAgentOptions({
+                annotationTool,
+                handleQuickNoteAction,
+            }),
+        );
 
         await agent.runAgentAction('annotation.create_note', {});
         expect(annotationTool.value).toBe('note');
@@ -373,9 +366,7 @@ describe('createDocumentWorkspaceAgent', () => {
             startNumber: 1e21,
             admitted: PAGE_LABEL_MAX_NATIVE_START_NUMBER,
         },
-    ])('admits the same numbering through apply_range and apply_plan: $style $startNumber', async ({
-        style, startNumber, admitted,
-    }) => {
+    ])('admits the same numbering through apply_range and apply_plan: $style $startNumber', async ({style, startNumber, admitted}) => {
         const options = createAgentOptions();
         const agent = createDocumentWorkspaceAgent(options);
         const input = {
@@ -385,51 +376,53 @@ describe('createDocumentWorkspaceAgent', () => {
             startNumber,
         };
         await agent.runAgentAction('page_labels.apply_range', input);
-        const applied = options.pageLabelRanges.value.map(range => ({...range}));
+        const applied = options.pageLabelRanges.value.map((range) => ({...range}));
         expect(applied[0]?.startNumber).toBe(admitted);
         await agent.runAgentAction('page_labels.apply_plan', {segments: [input]});
         expect(options.pageLabelRanges.value).toEqual(applied);
     });
 
-    it.each([
-        'page_labels.apply_range',
-        'page_labels.apply_plan',
-        'page_labels.set_ranges',
-    ])('keeps an explicit null style as a literal label through %s', async (actionId) => {
-        const options = createAgentOptions();
-        const agent = createDocumentWorkspaceAgent(options);
-        const range = {
-            startPage: 1,
-            endPage: 1,
-            style: null,
-            prefix: 'Cover',
-        };
-        await agent.runAgentAction(actionId, actionId === 'page_labels.apply_range'
-            ? range
-            : actionId === 'page_labels.apply_plan' ? {segments: [range]} : {ranges: [range]});
+    it.each(['page_labels.apply_range', 'page_labels.apply_plan', 'page_labels.set_ranges'])(
+        'keeps an explicit null style as a literal label through %s',
+        async (actionId) => {
+            const options = createAgentOptions();
+            const agent = createDocumentWorkspaceAgent(options);
+            const range = {
+                startPage: 1,
+                endPage: 1,
+                style: null,
+                prefix: 'Cover',
+            };
+            await agent.runAgentAction(
+                actionId,
+                actionId === 'page_labels.apply_range'
+                    ? range
+                    : actionId === 'page_labels.apply_plan'
+                      ? {segments: [range]}
+                      : {ranges: [range]},
+            );
 
-        expect(options.pageLabelRanges.value[0]).toMatchObject({
-            startPage: 1,
-            style: null,
-            prefix: 'Cover',
-        });
-    });
+            expect(options.pageLabelRanges.value[0]).toMatchObject({
+                startPage: 1,
+                style: null,
+                prefix: 'Cover',
+            });
+        },
+    );
 
     it('keeps primary renderer action handlers aligned with advertised capabilities', () => {
-        const advertisedRendererActionIds = AGENT_CAPABILITY_TEMPLATES
-            .map(template => template.id)
-            .filter(id => !COMMAND_ONLY_CAPABILITY_IDS.has(id));
-
-        expect(sortIds(DOCUMENT_WORKSPACE_AGENT_PRIMARY_ACTION_IDS)).toEqual(
-            sortIds(advertisedRendererActionIds),
+        const advertisedRendererActionIds = AGENT_CAPABILITY_TEMPLATES.map((template) => template.id).filter(
+            (id) => !COMMAND_ONLY_CAPABILITY_IDS.has(id),
         );
+
+        expect(sortIds(DOCUMENT_WORKSPACE_AGENT_PRIMARY_ACTION_IDS)).toEqual(sortIds(advertisedRendererActionIds));
     });
 
     it('keeps compatibility aliases separate from public primary capability ids', () => {
         const primaryIds = new Set<string>(DOCUMENT_WORKSPACE_AGENT_PRIMARY_ACTION_IDS);
 
         expect(new Set(DOCUMENT_WORKSPACE_AGENT_ACTION_IDS).size).toBe(DOCUMENT_WORKSPACE_AGENT_ACTION_IDS.length);
-        expect(DOCUMENT_WORKSPACE_AGENT_ALIAS_ACTION_IDS.every(id => !primaryIds.has(id))).toBe(true);
+        expect(DOCUMENT_WORKSPACE_AGENT_ALIAS_ACTION_IDS.every((id) => !primaryIds.has(id))).toBe(true);
     });
 
     it('validates action id and required input before reporting a dry-run would run', async () => {
@@ -438,71 +431,67 @@ describe('createDocumentWorkspaceAgent', () => {
         const before = [createBookmark('Parent', [createBookmark('Child')])];
         const bookmarkItems = ref<IPdfBookmarkEntry[]>(before);
         const bookmarksDirty = ref(false);
-        const agent = createDocumentWorkspaceAgent(createAgentOptions({
-            showSidebar,
-            sidebarTab,
-            bookmarkItems,
-            bookmarksDirty,
-            handleBookmarksChange: ({
-                bookmarks, dirty,
-            }) => {
-                bookmarkItems.value = bookmarks;
-                bookmarksDirty.value = dirty;
-            },
-        }));
+        const agent = createDocumentWorkspaceAgent(
+            createAgentOptions({
+                showSidebar,
+                sidebarTab,
+                bookmarkItems,
+                bookmarksDirty,
+                handleBookmarksChange: ({bookmarks, dirty}) => {
+                    bookmarkItems.value = bookmarks;
+                    bookmarksDirty.value = dirty;
+                },
+            }),
+        );
 
-        await expect(agent.runAgentAction('missing.action', {}, {dryRun: true}))
-            .rejects.toThrow('Unsupported EVB agent action: missing.action');
-        await expect(agent.runAgentAction('ui.open_sidebar_tab', {tab: 'layers'}, {dryRun: true}))
-            .rejects.toThrow('ui.open_sidebar_tab requires input.tab');
-        await expect(agent.runAgentAction('view.set_mode', {mode: 'scroll'}, {dryRun: true}))
-            .rejects.toThrow('view.set_mode requires input.mode');
-        await expect(agent.runAgentAction('annotation.create_note_at_point', {}, {dryRun: true}))
-            .rejects.toThrow('annotation.create_note_at_point requires input.pageX and input.pageY');
-        await expect(agent.runAgentAction('page_labels.apply_range', {}, {dryRun: true}))
-            .rejects.toThrow('page_labels.apply_range requires a valid one-based page number');
-        await expect(agent.runAgentAction('bookmarks.add_batch', {}, {dryRun: true}))
-            .rejects.toThrow('bookmarks.add_batch requires input.bookmarks or input.items');
-        await expect(agent.runAgentAction('bookmarks.delete_batch', {}, {dryRun: true}))
-            .rejects.toThrow('bookmarks.delete_batch requires input.paths, input.items with path, or input.path');
+        await expect(agent.runAgentAction('missing.action', {}, {dryRun: true})).rejects.toThrow(
+            'Unsupported EVB agent action: missing.action',
+        );
+        await expect(agent.runAgentAction('ui.open_sidebar_tab', {tab: 'layers'}, {dryRun: true})).rejects.toThrow(
+            'ui.open_sidebar_tab requires input.tab',
+        );
+        await expect(agent.runAgentAction('view.set_mode', {mode: 'scroll'}, {dryRun: true})).rejects.toThrow(
+            'view.set_mode requires input.mode',
+        );
+        await expect(agent.runAgentAction('annotation.create_note_at_point', {}, {dryRun: true})).rejects.toThrow(
+            'annotation.create_note_at_point requires input.pageX and input.pageY',
+        );
+        await expect(agent.runAgentAction('page_labels.apply_range', {}, {dryRun: true})).rejects.toThrow(
+            'page_labels.apply_range requires a valid one-based page number',
+        );
+        await expect(agent.runAgentAction('bookmarks.add_batch', {}, {dryRun: true})).rejects.toThrow(
+            'bookmarks.add_batch requires input.bookmarks or input.items',
+        );
+        await expect(agent.runAgentAction('bookmarks.delete_batch', {}, {dryRun: true})).rejects.toThrow(
+            'bookmarks.delete_batch requires input.paths, input.items with path, or input.path',
+        );
 
-        await expect(agent.runAgentAction('ui.open_sidebar_tab', {tab: 'bookmarks'}, {dryRun: true}))
-            .resolves.toMatchObject({
-                ok: true,
-                actionId: 'ui.open_sidebar_tab',
-                dryRun: true,
-                wouldRun: true,
-            });
+        await expect(agent.runAgentAction('ui.open_sidebar_tab', {tab: 'bookmarks'}, {dryRun: true})).resolves.toMatchObject({
+            ok: true,
+            actionId: 'ui.open_sidebar_tab',
+            dryRun: true,
+            wouldRun: true,
+        });
         expect(showSidebar.value).toBe(false);
         expect(sidebarTab.value).toBe('annotations');
 
-        for (const [
-            id,
-            input,
-        ] of [
-                [
-                    'bookmarks.set_tree',
-                    {bookmarks: []},
-                ],
-                [
-                    'bookmarks.apply_plan',
-                    {entries: []},
-                ],
-                [
-                    'bookmarks.update',
-                    {
-                        path: [0],
-                        children: [],
-                    },
-                ],
-            ] as const) {
-            await expect(agent.runAgentAction(id, input, {dryRun: true}))
-                .resolves.toMatchObject({
-                    ok: true,
-                    actionId: id,
-                    dryRun: true,
-                    wouldRun: true,
-                });
+        for (const [id, input] of [
+            ['bookmarks.set_tree', {bookmarks: []}],
+            ['bookmarks.apply_plan', {entries: []}],
+            [
+                'bookmarks.update',
+                {
+                    path: [0],
+                    children: [],
+                },
+            ],
+        ] as const) {
+            await expect(agent.runAgentAction(id, input, {dryRun: true})).resolves.toMatchObject({
+                ok: true,
+                actionId: id,
+                dryRun: true,
+                wouldRun: true,
+            });
             expect(bookmarkItems.value).toEqual(before);
             expect(bookmarksDirty.value).toBe(false);
         }
@@ -515,11 +504,13 @@ describe('createDocumentWorkspaceAgent', () => {
     it('does not create phantom view state when the active viewer lacks a capability', async () => {
         const continuousScroll = ref(false);
         const viewMode = ref<TPdfViewMode>('single');
-        const agent = createDocumentWorkspaceAgent(createAgentOptions({
-            continuousScroll,
-            viewMode,
-            viewerCapabilities: ref(createDefaultWorkspaceViewerCapabilities()),
-        }));
+        const agent = createDocumentWorkspaceAgent(
+            createAgentOptions({
+                continuousScroll,
+                viewMode,
+                viewerCapabilities: ref(createDefaultWorkspaceViewerCapabilities()),
+            }),
+        );
 
         await expect(agent.runAgentAction('view.toggle_continuous_scroll')).resolves.toMatchObject({
             ok: false,
@@ -541,12 +532,19 @@ describe('createDocumentWorkspaceAgent', () => {
         const assertCurrentDocument = vi.fn();
         const agent = createDocumentWorkspaceAgent(createAgentOptions());
 
-        await expect(agent.runAgentAction('ui.open_sidebar_tab', {tab: 'bookmarks'}, {}, {
-            signal: abortController.signal,
-            documentIdentity: null,
-            documentInstanceId: null,
-            assertCurrentDocument,
-        })).rejects.toThrow('Agent command was aborted.');
+        await expect(
+            agent.runAgentAction(
+                'ui.open_sidebar_tab',
+                {tab: 'bookmarks'},
+                {},
+                {
+                    signal: abortController.signal,
+                    documentIdentity: null,
+                    documentInstanceId: null,
+                    assertCurrentDocument,
+                },
+            ),
+        ).rejects.toThrow('Agent command was aborted.');
         expect(assertCurrentDocument).not.toHaveBeenCalled();
     });
 
@@ -557,22 +555,35 @@ describe('createDocumentWorkspaceAgent', () => {
         const waitForDocumentOpenSettled = vi.fn(async () => {
             documentIdentity.value = createDocumentIdentity('revision-2', 2);
         });
-        const agent = createDocumentWorkspaceAgent(createAgentOptions({
-            documentIdentity,
-            handleBookmarksChange,
-            waitForDocumentOpenSettled,
-        }));
+        const agent = createDocumentWorkspaceAgent(
+            createAgentOptions({
+                documentIdentity,
+                handleBookmarksChange,
+                waitForDocumentOpenSettled,
+            }),
+        );
 
-        await expect(agent.runAgentAction('bookmarks.apply_plan', {entries: [{
-            level: 1,
-            title: 'Chapter',
-            page: 1,
-        }]}, {}, {
-            signal: new AbortController().signal,
-            documentIdentity: firstIdentity,
-            documentInstanceId: requireDocumentInstanceId('instance-a'),
-            assertCurrentDocument: vi.fn(),
-        })).rejects.toThrow('Agent command target document changed.');
+        await expect(
+            agent.runAgentAction(
+                'bookmarks.apply_plan',
+                {
+                    entries: [
+                        {
+                            level: 1,
+                            title: 'Chapter',
+                            page: 1,
+                        },
+                    ],
+                },
+                {},
+                {
+                    signal: new AbortController().signal,
+                    documentIdentity: firstIdentity,
+                    documentInstanceId: requireDocumentInstanceId('instance-a'),
+                    assertCurrentDocument: vi.fn(),
+                },
+            ),
+        ).rejects.toThrow('Agent command target document changed.');
         expect(waitForDocumentOpenSettled).toHaveBeenCalledOnce();
         expect(handleBookmarksChange).not.toHaveBeenCalled();
     });
@@ -580,21 +591,22 @@ describe('createDocumentWorkspaceAgent', () => {
     it('preserves execution semantics for a representative handler', async () => {
         const showSidebar = ref(false);
         const sidebarTab = ref<'annotations' | 'bookmarks' | 'thumbnails' | 'search'>('annotations');
-        const agent = createDocumentWorkspaceAgent(createAgentOptions({
-            showSidebar,
-            sidebarTab,
-        }));
+        const agent = createDocumentWorkspaceAgent(
+            createAgentOptions({
+                showSidebar,
+                sidebarTab,
+            }),
+        );
 
-        await expect(agent.runAgentAction('ui.open_sidebar_tab', {sidebarTab: 'bookmarks'}))
-            .resolves.toMatchObject({
-                ok: true,
-                actionId: 'ui.open_sidebar_tab',
-                tabId: 'tab-1',
-                currentPage: 1,
-                totalPages: 3,
-                showSidebar: true,
-                sidebarTab: 'bookmarks',
-            });
+        await expect(agent.runAgentAction('ui.open_sidebar_tab', {sidebarTab: 'bookmarks'})).resolves.toMatchObject({
+            ok: true,
+            actionId: 'ui.open_sidebar_tab',
+            tabId: 'tab-1',
+            currentPage: 1,
+            totalPages: 3,
+            showSidebar: true,
+            sidebarTab: 'bookmarks',
+        });
         expect(showSidebar.value).toBe(true);
         expect(sidebarTab.value).toBe('bookmarks');
     });
@@ -602,12 +614,16 @@ describe('createDocumentWorkspaceAgent', () => {
     it('returns structured-cloneable page-label mutation results', async () => {
         const agent = createDocumentWorkspaceAgent(createAgentOptions());
 
-        const result = await agent.runAgentAction('page_labels.apply_plan', {ranges: [{
-            startPage: 1,
-            style: 'D',
-            prefix: '',
-            startNumber: 3,
-        }]});
+        const result = await agent.runAgentAction('page_labels.apply_plan', {
+            ranges: [
+                {
+                    startPage: 1,
+                    style: 'D',
+                    prefix: '',
+                    startNumber: 3,
+                },
+            ],
+        });
 
         expect(() => structuredClone(result)).not.toThrow();
         expect(result).toMatchObject({
@@ -621,23 +637,25 @@ describe('createDocumentWorkspaceAgent', () => {
     });
 
     it('reports when page-label metadata is missing from the viewer controls', async () => {
-        const agent = createDocumentWorkspaceAgent(createAgentOptions({
-            pageLabelRanges: ref([
-                {
-                    startPage: 1,
-                    style: null,
-                    prefix: 'Cover',
-                    startNumber: 1,
-                },
-                {
-                    startPage: 2,
-                    style: 'D',
-                    prefix: '',
-                    startNumber: 1,
-                },
-            ]),
-            pageLabels: ref(null),
-        }));
+        const agent = createDocumentWorkspaceAgent(
+            createAgentOptions({
+                pageLabelRanges: ref([
+                    {
+                        startPage: 1,
+                        style: null,
+                        prefix: 'Cover',
+                        startNumber: 1,
+                    },
+                    {
+                        startPage: 2,
+                        style: 'D',
+                        prefix: '',
+                        startNumber: 1,
+                    },
+                ]),
+                pageLabels: ref(null),
+            }),
+        );
 
         await expect(agent.runAgentAction('page_labels.read', {})).resolves.toMatchObject({
             viewerState: {
@@ -671,12 +689,14 @@ describe('createDocumentWorkspaceAgent', () => {
                 startNumber: 1,
             },
         ];
-        const agent = createDocumentWorkspaceAgent(createAgentOptions({
-            pageLabelRanges: ref(ranges),
-            pageLabelModel: ref(createPageLabelModel(273, ranges)),
-            pageLabels: ref(null),
-            totalPages: ref(273),
-        }));
+        const agent = createDocumentWorkspaceAgent(
+            createAgentOptions({
+                pageLabelRanges: ref(ranges),
+                pageLabelModel: ref(createPageLabelModel(273, ranges)),
+                pageLabels: ref(null),
+                totalPages: ref(273),
+            }),
+        );
 
         await expect(agent.runAgentAction('page_labels.read', {})).resolves.toMatchObject({
             viewerState: {
@@ -706,12 +726,14 @@ describe('createDocumentWorkspaceAgent', () => {
     });
 
     it('reports a stale compact viewer lookup when metadata changes without changing page count', async () => {
-        const oldRanges: IPdfPageLabelRange[] = [{
-            startPage: 1,
-            style: 'D',
-            prefix: '',
-            startNumber: 1,
-        }];
+        const oldRanges: IPdfPageLabelRange[] = [
+            {
+                startPage: 1,
+                style: 'D',
+                prefix: '',
+                startNumber: 1,
+            },
+        ];
         const currentRanges: IPdfPageLabelRange[] = [
             {
                 startPage: 1,
@@ -726,12 +748,14 @@ describe('createDocumentWorkspaceAgent', () => {
                 startNumber: 1,
             },
         ];
-        const agent = createDocumentWorkspaceAgent(createAgentOptions({
-            pageLabelRanges: ref(currentRanges),
-            pageLabelModel: ref(createPageLabelModel(273, oldRanges)),
-            pageLabels: ref(null),
-            totalPages: ref(273),
-        }));
+        const agent = createDocumentWorkspaceAgent(
+            createAgentOptions({
+                pageLabelRanges: ref(currentRanges),
+                pageLabelModel: ref(createPageLabelModel(273, oldRanges)),
+                pageLabels: ref(null),
+                totalPages: ref(273),
+            }),
+        );
 
         await expect(agent.runAgentAction('page_labels.read', {})).resolves.toMatchObject({
             viewerState: {
@@ -770,18 +794,22 @@ describe('createDocumentWorkspaceAgent', () => {
                 startNumber: 1,
             },
         ];
-        const agent = createDocumentWorkspaceAgent(createAgentOptions({
-            pageLabelRanges: ref(ranges),
-            pageLabelModel: ref(createPageLabelModel(3, ranges)),
-            pageLabels: ref(null),
-        }));
+        const agent = createDocumentWorkspaceAgent(
+            createAgentOptions({
+                pageLabelRanges: ref(ranges),
+                pageLabelModel: ref(createPageLabelModel(3, ranges)),
+                pageLabels: ref(null),
+            }),
+        );
 
-        await expect(agent.runAgentAction('page_labels.preview', {ranges})).resolves.toMatchObject({currentViewerState: {
-            displayMode: 'pdf-labels',
-            matchesMetadata: true,
-            lookup: 'range-model',
-            resolved: true,
-        }});
+        await expect(agent.runAgentAction('page_labels.preview', {ranges})).resolves.toMatchObject({
+            currentViewerState: {
+                displayMode: 'pdf-labels',
+                matchesMetadata: true,
+                lookup: 'range-model',
+                resolved: true,
+            },
+        });
     });
 
     it('waits for document open to settle before validating bookmark plan page numbers', async () => {
@@ -793,28 +821,38 @@ describe('createDocumentWorkspaceAgent', () => {
             bookmarkItems.value = bookmarks;
         });
         const bookmarkItems = ref<IPdfBookmarkEntry[]>([]);
-        const agent = createDocumentWorkspaceAgent(createAgentOptions({
-            bookmarkItems,
-            handleBookmarksChange,
-            totalPages,
-            waitForDocumentOpenSettled,
-        }));
+        const agent = createDocumentWorkspaceAgent(
+            createAgentOptions({
+                bookmarkItems,
+                handleBookmarksChange,
+                totalPages,
+                waitForDocumentOpenSettled,
+            }),
+        );
 
-        await expect(agent.runAgentAction('bookmarks.apply_plan', {entries: [{
-            level: 1,
-            title: 'Chapter',
-            page: 3,
-        }]})).resolves.toMatchObject({
+        await expect(
+            agent.runAgentAction('bookmarks.apply_plan', {
+                entries: [
+                    {
+                        level: 1,
+                        title: 'Chapter',
+                        page: 3,
+                    },
+                ],
+            }),
+        ).resolves.toMatchObject({
             ok: true,
             actionId: 'bookmarks.apply_plan',
             bookmarks: [expect.objectContaining({title: 'Chapter'})],
         });
         expect(waitForDocumentOpenSettled).toHaveBeenCalledOnce();
         expect(handleBookmarksChange).toHaveBeenCalledOnce();
-        expect(handleBookmarksChange).toHaveBeenCalledWith(expect.objectContaining({
-            dirty: true,
-            history: 'record',
-        }));
+        expect(handleBookmarksChange).toHaveBeenCalledWith(
+            expect.objectContaining({
+                dirty: true,
+                history: 'record',
+            }),
+        );
     });
 
     it('keeps the source destination through rename and clears it for a complete explicit page target', async () => {
@@ -826,18 +864,22 @@ describe('createDocumentWorkspaceAgent', () => {
             },
             coordinates: [null],
         };
-        const bookmarkItems = ref<IPdfBookmarkEntry[]>([{
-            title: 'Original',
-            pageIndex: null,
-            namedDest: null,
-            originalDestination,
-            bold: false,
-            italic: false,
-            color: null,
-            items: [],
-        }]);
+        const bookmarkItems = ref<IPdfBookmarkEntry[]>([
+            {
+                title: 'Original',
+                pageIndex: null,
+                namedDest: null,
+                originalDestination,
+                bold: false,
+                italic: false,
+                color: null,
+                items: [],
+            },
+        ]);
         const options = createAgentOptions({bookmarkItems});
-        options.handleBookmarksChange = ({bookmarks}) => {bookmarkItems.value = bookmarks;};
+        options.handleBookmarksChange = ({bookmarks}) => {
+            bookmarkItems.value = bookmarks;
+        };
         const agent = createDocumentWorkspaceAgent(options);
         await agent.runAgentAction('bookmarks.update', {
             path: [0],
@@ -863,14 +905,18 @@ describe('createDocumentWorkspaceAgent', () => {
     });
 
     it('replaces a resolved named target with an explicitly accepted page position', async () => {
-        const bookmarkItems = ref<IPdfBookmarkEntry[]>([{
-            ...createBookmark('Named'),
-            pageIndex: requirePageIndex(0),
-            pageYRatio: 0.25,
-            namedDest: 'chapter-two',
-        }]);
+        const bookmarkItems = ref<IPdfBookmarkEntry[]>([
+            {
+                ...createBookmark('Named'),
+                pageIndex: requirePageIndex(0),
+                pageYRatio: 0.25,
+                namedDest: 'chapter-two',
+            },
+        ]);
         const options = createAgentOptions({bookmarkItems});
-        options.handleBookmarksChange = ({bookmarks}) => {bookmarkItems.value = bookmarks;};
+        options.handleBookmarksChange = ({bookmarks}) => {
+            bookmarkItems.value = bookmarks;
+        };
         const agent = createDocumentWorkspaceAgent(options);
         await agent.runAgentAction('bookmarks.update', {
             path: [0],
@@ -883,22 +929,23 @@ describe('createDocumentWorkspaceAgent', () => {
         });
     });
 
-    it.each([
-        'namedDest',
-        'dest',
-    ])('replaces a resolved imported target with %s and removes its page projection', async (key) => {
-        const bookmarkItems = ref<IPdfBookmarkEntry[]>([{
-            ...createBookmark('Imported'),
-            pageIndex: requirePageIndex(0),
-            pageYRatio: 0.25,
-            originalDestination: {
-                kind: 'FitH',
-                sourceTarget: 0,
-                coordinates: [null],
+    it.each(['namedDest', 'dest'])('replaces a resolved imported target with %s and removes its page projection', async (key) => {
+        const bookmarkItems = ref<IPdfBookmarkEntry[]>([
+            {
+                ...createBookmark('Imported'),
+                pageIndex: requirePageIndex(0),
+                pageYRatio: 0.25,
+                originalDestination: {
+                    kind: 'FitH',
+                    sourceTarget: 0,
+                    coordinates: [null],
+                },
             },
-        }]);
+        ]);
         const options = createAgentOptions({bookmarkItems});
-        options.handleBookmarksChange = ({bookmarks}) => {bookmarkItems.value = bookmarks;};
+        options.handleBookmarksChange = ({bookmarks}) => {
+            bookmarkItems.value = bookmarks;
+        };
         const agent = createDocumentWorkspaceAgent(options);
         await agent.runAgentAction('bookmarks.update', {
             path: [0],
@@ -927,23 +974,29 @@ describe('createDocumentWorkspaceAgent', () => {
         const handleBookmarksChange = vi.fn(({bookmarks}) => {
             bookmarkItems.value = bookmarks;
         });
-        const agent = createDocumentWorkspaceAgent(createAgentOptions({
-            bookmarkItems,
-            handleBookmarksChange,
-            totalPages: ref(20),
-        }));
+        const agent = createDocumentWorkspaceAgent(
+            createAgentOptions({
+                bookmarkItems,
+                handleBookmarksChange,
+                totalPages: ref(20),
+            }),
+        );
 
-        await expect(agent.runAgentAction('bookmarks.add', {
-            parentPath: [0],
-            title: '10 Adjectival Pattern',
-            page: 12,
-            pageYRatio: 0.4,
-            children: [{
-                title: '10a Note',
+        await expect(
+            agent.runAgentAction('bookmarks.add', {
+                parentPath: [0],
+                title: '10 Adjectival Pattern',
                 page: 12,
-                pageYRatio: 0.7,
-            }],
-        })).resolves.toMatchObject({
+                pageYRatio: 0.4,
+                children: [
+                    {
+                        title: '10a Note',
+                        page: 12,
+                        pageYRatio: 0.7,
+                    },
+                ],
+            }),
+        ).resolves.toMatchObject({
             ok: true,
             actionId: 'bookmarks.add',
         });
@@ -952,43 +1005,51 @@ describe('createDocumentWorkspaceAgent', () => {
             title: '10 Adjectival Pattern',
             pageIndex: 11,
             pageYRatio: 0.4,
-            items: [expect.objectContaining({
-                title: '10a Note',
-                pageIndex: 11,
-                pageYRatio: 0.7,
-            })],
+            items: [
+                expect.objectContaining({
+                    title: '10a Note',
+                    pageIndex: 11,
+                    pageYRatio: 0.7,
+                }),
+            ],
         });
     });
 
     it('adds child bookmarks on the parent page when pageYRatio anchors distinguish them', async () => {
-        const bookmarkItems = ref<IPdfBookmarkEntry[]>([{
-            ...createBookmark('Lesson 5'),
-            pageIndex: requirePageIndex(9),
-        }]);
+        const bookmarkItems = ref<IPdfBookmarkEntry[]>([
+            {
+                ...createBookmark('Lesson 5'),
+                pageIndex: requirePageIndex(9),
+            },
+        ]);
         const handleBookmarksChange = vi.fn(({bookmarks}) => {
             bookmarkItems.value = bookmarks;
         });
-        const agent = createDocumentWorkspaceAgent(createAgentOptions({
-            bookmarkItems,
-            handleBookmarksChange,
-            totalPages: ref(20),
-        }));
+        const agent = createDocumentWorkspaceAgent(
+            createAgentOptions({
+                bookmarkItems,
+                handleBookmarksChange,
+                totalPages: ref(20),
+            }),
+        );
 
-        await expect(agent.runAgentAction('bookmarks.add_batch', {
-            parentPath: [0],
-            bookmarks: [
-                {
-                    title: '10 Paragraph',
-                    page: 10,
-                    pageYRatio: 0.2,
-                },
-                {
-                    title: '11 Paragraph',
-                    page: 10,
-                    pageYRatio: 0.6,
-                },
-            ],
-        })).resolves.toMatchObject({
+        await expect(
+            agent.runAgentAction('bookmarks.add_batch', {
+                parentPath: [0],
+                bookmarks: [
+                    {
+                        title: '10 Paragraph',
+                        page: 10,
+                        pageYRatio: 0.2,
+                    },
+                    {
+                        title: '11 Paragraph',
+                        page: 10,
+                        pageYRatio: 0.6,
+                    },
+                ],
+            }),
+        ).resolves.toMatchObject({
             ok: true,
             actionId: 'bookmarks.add_batch',
         });
@@ -1008,33 +1069,39 @@ describe('createDocumentWorkspaceAgent', () => {
     });
 
     it('refuses newly unsafe child bookmarks that all reuse the parent destination', async () => {
-        const bookmarkItems = ref<IPdfBookmarkEntry[]>([{
-            ...createBookmark('Lesson 5'),
-            pageIndex: requirePageIndex(9),
-        }]);
+        const bookmarkItems = ref<IPdfBookmarkEntry[]>([
+            {
+                ...createBookmark('Lesson 5'),
+                pageIndex: requirePageIndex(9),
+            },
+        ]);
         const handleBookmarksChange = vi.fn(({bookmarks}) => {
             bookmarkItems.value = bookmarks;
         });
-        const agent = createDocumentWorkspaceAgent(createAgentOptions({
-            bookmarkItems,
-            handleBookmarksChange,
-            totalPages: ref(20),
-        }));
+        const agent = createDocumentWorkspaceAgent(
+            createAgentOptions({
+                bookmarkItems,
+                handleBookmarksChange,
+                totalPages: ref(20),
+            }),
+        );
 
-        await expect(agent.runAgentAction('bookmarks.add_batch', {
-            parentPath: [0],
-            allowSamePageChildDestinations: true,
-            bookmarks: [
-                {
-                    title: '10 Paragraph',
-                    page: 10,
-                },
-                {
-                    title: '11 Paragraph',
-                    page: 10,
-                },
-            ],
-        })).rejects.toThrow('refused to apply unsafe bookmark destinations');
+        await expect(
+            agent.runAgentAction('bookmarks.add_batch', {
+                parentPath: [0],
+                allowSamePageChildDestinations: true,
+                bookmarks: [
+                    {
+                        title: '10 Paragraph',
+                        page: 10,
+                    },
+                    {
+                        title: '11 Paragraph',
+                        page: 10,
+                    },
+                ],
+            }),
+        ).rejects.toThrow('refused to apply unsafe bookmark destinations');
 
         expect(handleBookmarksChange).not.toHaveBeenCalled();
     });
@@ -1048,19 +1115,14 @@ describe('createDocumentWorkspaceAgent', () => {
         const handleBookmarksChange = vi.fn(({bookmarks}) => {
             bookmarkItems.value = bookmarks;
         });
-        const agent = createDocumentWorkspaceAgent(createAgentOptions({
-            bookmarkItems,
-            handleBookmarksChange,
-        }));
+        const agent = createDocumentWorkspaceAgent(
+            createAgentOptions({
+                bookmarkItems,
+                handleBookmarksChange,
+            }),
+        );
 
-        await expect(agent.runAgentAction('bookmarks.delete_batch', {paths: [
-            [0],
-            [
-                0,
-                0,
-            ],
-            [2],
-        ]})).resolves.toMatchObject({
+        await expect(agent.runAgentAction('bookmarks.delete_batch', {paths: [[0], [0, 0], [2]]})).resolves.toMatchObject({
             ok: true,
             actionId: 'bookmarks.delete_batch',
             bookmarks: [expect.objectContaining({title: 'Chapter 2'})],
@@ -1068,10 +1130,12 @@ describe('createDocumentWorkspaceAgent', () => {
 
         expect(bookmarkItems.value).toEqual([createBookmark('Chapter 2')]);
         expect(handleBookmarksChange).toHaveBeenCalledOnce();
-        expect(handleBookmarksChange).toHaveBeenCalledWith(expect.objectContaining({
-            dirty: true,
-            history: 'record',
-        }));
+        expect(handleBookmarksChange).toHaveBeenCalledWith(
+            expect.objectContaining({
+                dirty: true,
+                history: 'record',
+            }),
+        );
     });
 
     it('styles explicit bookmarks with bold and color while leaving other fields untouched', async () => {
@@ -1083,27 +1147,25 @@ describe('createDocumentWorkspaceAgent', () => {
         const handleBookmarksChange = vi.fn(({bookmarks}) => {
             bookmarkItems.value = bookmarks;
         });
-        const agent = createDocumentWorkspaceAgent(createAgentOptions({
-            bookmarkItems,
-            handleBookmarksChange,
-        }));
+        const agent = createDocumentWorkspaceAgent(
+            createAgentOptions({
+                bookmarkItems,
+                handleBookmarksChange,
+            }),
+        );
 
-        await expect(agent.runAgentAction('bookmarks.set_style', {
-            paths: [
-                [0],
-                [2],
-            ],
-            bold: true,
-            color: '#336699',
-        })).resolves.toMatchObject({
+        await expect(
+            agent.runAgentAction('bookmarks.set_style', {
+                paths: [[0], [2]],
+                bold: true,
+                color: '#336699',
+            }),
+        ).resolves.toMatchObject({
             ok: true,
             actionId: 'bookmarks.set_style',
             targetCount: 2,
             changedCount: 2,
-            targetPaths: [
-                [0],
-                [2],
-            ],
+            targetPaths: [[0], [2]],
             targetPathsTruncated: false,
         });
 
@@ -1119,10 +1181,12 @@ describe('createDocumentWorkspaceAgent', () => {
             color: '#336699',
         });
         expect(handleBookmarksChange).toHaveBeenCalledOnce();
-        expect(handleBookmarksChange).toHaveBeenCalledWith(expect.objectContaining({
-            dirty: true,
-            history: 'record',
-        }));
+        expect(handleBookmarksChange).toHaveBeenCalledWith(
+            expect.objectContaining({
+                dirty: true,
+                history: 'record',
+            }),
+        );
     });
 
     it('styles an inclusive sibling range regardless of endpoint order', async () => {
@@ -1134,91 +1198,79 @@ describe('createDocumentWorkspaceAgent', () => {
         const handleBookmarksChange = vi.fn(({bookmarks}) => {
             bookmarkItems.value = bookmarks;
         });
-        const agent = createDocumentWorkspaceAgent(createAgentOptions({
-            bookmarkItems,
-            handleBookmarksChange,
-        }));
+        const agent = createDocumentWorkspaceAgent(
+            createAgentOptions({
+                bookmarkItems,
+                handleBookmarksChange,
+            }),
+        );
 
-        await expect(agent.runAgentAction('bookmarks.set_style', {
-            range: {
-                from: [2],
-                to: [0],
-            },
-            italic: true,
-        })).resolves.toMatchObject({
+        await expect(
+            agent.runAgentAction('bookmarks.set_style', {
+                range: {
+                    from: [2],
+                    to: [0],
+                },
+                italic: true,
+            }),
+        ).resolves.toMatchObject({
             ok: true,
             actionId: 'bookmarks.set_style',
             targetCount: 3,
             changedCount: 3,
         });
 
-        expect(bookmarkItems.value.map(bookmark => bookmark.italic)).toEqual([
-            true,
-            true,
-            true,
-        ]);
-        expect(bookmarkItems.value[0]?.items.every(child => !child.italic)).toBe(true);
+        expect(bookmarkItems.value.map((bookmark) => bookmark.italic)).toEqual([true, true, true]);
+        expect(bookmarkItems.value[0]?.items.every((child) => !child.italic)).toBe(true);
     });
 
     it('styles depth-selected bookmarks under a parent scope and levels across roots', async () => {
         const bookmarkItems = ref<IPdfBookmarkEntry[]>([
-            createBookmark('Chapter 1', [
-                createBookmark('Section 1.1'),
-                createBookmark('Section 1.2'),
-            ]),
+            createBookmark('Chapter 1', [createBookmark('Section 1.1'), createBookmark('Section 1.2')]),
             createBookmark('Chapter 2'),
         ]);
         const handleBookmarksChange = vi.fn(({bookmarks}) => {
             bookmarkItems.value = bookmarks;
         });
-        const agent = createDocumentWorkspaceAgent(createAgentOptions({
-            bookmarkItems,
-            handleBookmarksChange,
-        }));
+        const agent = createDocumentWorkspaceAgent(
+            createAgentOptions({
+                bookmarkItems,
+                handleBookmarksChange,
+            }),
+        );
 
-        await expect(agent.runAgentAction('bookmarks.set_style', {
-            depth: 1,
-            parentPath: [0],
-            italic: true,
-        })).resolves.toMatchObject({
+        await expect(
+            agent.runAgentAction('bookmarks.set_style', {
+                depth: 1,
+                parentPath: [0],
+                italic: true,
+            }),
+        ).resolves.toMatchObject({
             ok: true,
             actionId: 'bookmarks.set_style',
             targetCount: 2,
             changedCount: 2,
             targetPaths: [
-                [
-                    0,
-                    0,
-                ],
-                [
-                    0,
-                    1,
-                ],
+                [0, 0],
+                [0, 1],
             ],
         });
-        expect(bookmarkItems.value[0]?.items.map(child => child.italic)).toEqual([
-            true,
-            true,
-        ]);
-        expect(bookmarkItems.value.map(bookmark => bookmark.italic)).toEqual([
-            false,
-            false,
-        ]);
+        expect(bookmarkItems.value[0]?.items.map((child) => child.italic)).toEqual([true, true]);
+        expect(bookmarkItems.value.map((bookmark) => bookmark.italic)).toEqual([false, false]);
 
-        await expect(agent.runAgentAction('bookmarks.set_style', {
-            level: 1,
-            bold: true,
-        })).resolves.toMatchObject({
+        await expect(
+            agent.runAgentAction('bookmarks.set_style', {
+                level: 1,
+                bold: true,
+            }),
+        ).resolves.toMatchObject({
             ok: true,
             actionId: 'bookmarks.set_style',
             targetCount: 2,
             changedCount: 2,
         });
-        expect(bookmarkItems.value.map(bookmark => bookmark.bold)).toEqual([
-            true,
-            true,
-        ]);
-        expect(bookmarkItems.value[0]?.items.every(child => !child.bold)).toBe(true);
+        expect(bookmarkItems.value.map((bookmark) => bookmark.bold)).toEqual([true, true]);
+        expect(bookmarkItems.value[0]?.items.every((child) => !child.bold)).toBe(true);
     });
 
     it('extends styling to descendants when includeDescendants is requested', async () => {
@@ -1229,32 +1281,25 @@ describe('createDocumentWorkspaceAgent', () => {
         const handleBookmarksChange = vi.fn(({bookmarks}) => {
             bookmarkItems.value = bookmarks;
         });
-        const agent = createDocumentWorkspaceAgent(createAgentOptions({
-            bookmarkItems,
-            handleBookmarksChange,
-        }));
+        const agent = createDocumentWorkspaceAgent(
+            createAgentOptions({
+                bookmarkItems,
+                handleBookmarksChange,
+            }),
+        );
 
-        await expect(agent.runAgentAction('bookmarks.set_style', {
-            path: [0],
-            includeDescendants: true,
-            color: '#336699',
-        })).resolves.toMatchObject({
+        await expect(
+            agent.runAgentAction('bookmarks.set_style', {
+                path: [0],
+                includeDescendants: true,
+                color: '#336699',
+            }),
+        ).resolves.toMatchObject({
             ok: true,
             actionId: 'bookmarks.set_style',
             targetCount: 3,
             changedCount: 3,
-            targetPaths: [
-                [0],
-                [
-                    0,
-                    0,
-                ],
-                [
-                    0,
-                    0,
-                    0,
-                ],
-            ],
+            targetPaths: [[0], [0, 0], [0, 0, 0]],
         });
 
         expect(bookmarkItems.value[0]?.color).toBe('#336699');
@@ -1264,22 +1309,28 @@ describe('createDocumentWorkspaceAgent', () => {
     });
 
     it('skips the undo entry when styling would not change any bookmark', async () => {
-        const bookmarkItems = ref<IPdfBookmarkEntry[]>([{
-            ...createBookmark('Chapter 1'),
-            bold: true,
-        }]);
+        const bookmarkItems = ref<IPdfBookmarkEntry[]>([
+            {
+                ...createBookmark('Chapter 1'),
+                bold: true,
+            },
+        ]);
         const handleBookmarksChange = vi.fn(({bookmarks}) => {
             bookmarkItems.value = bookmarks;
         });
-        const agent = createDocumentWorkspaceAgent(createAgentOptions({
-            bookmarkItems,
-            handleBookmarksChange,
-        }));
+        const agent = createDocumentWorkspaceAgent(
+            createAgentOptions({
+                bookmarkItems,
+                handleBookmarksChange,
+            }),
+        );
 
-        await expect(agent.runAgentAction('bookmarks.set_style', {
-            path: [0],
-            bold: true,
-        })).resolves.toMatchObject({
+        await expect(
+            agent.runAgentAction('bookmarks.set_style', {
+                path: [0],
+                bold: true,
+            }),
+        ).resolves.toMatchObject({
             ok: true,
             actionId: 'bookmarks.set_style',
             targetCount: 1,
@@ -1297,69 +1348,82 @@ describe('createDocumentWorkspaceAgent', () => {
         const handleBookmarksChange = vi.fn(({bookmarks}) => {
             bookmarkItems.value = bookmarks;
         });
-        const agent = createDocumentWorkspaceAgent(createAgentOptions({
-            bookmarkItems,
-            handleBookmarksChange,
-        }));
+        const agent = createDocumentWorkspaceAgent(
+            createAgentOptions({
+                bookmarkItems,
+                handleBookmarksChange,
+            }),
+        );
 
         const initialBookmarks = JSON.parse(JSON.stringify(bookmarkItems.value)) as IPdfBookmarkEntry[];
 
-        await expect(agent.runAgentAction('bookmarks.set_style', {bold: true}))
-            .rejects.toThrow('bookmarks.set_style requires input.paths, input.path, input.items, input.range, input.depth, or input.level.');
-        await expect(agent.runAgentAction('bookmarks.set_style', {
-            path: [0],
-            bold: 'yes',
-        })).rejects.toThrow('bookmarks.set_style bold must be a boolean.');
-        await expect(agent.runAgentAction('bookmarks.set_style', {
-            path: [99],
-            includeDescendants: true,
-            bold: true,
-        })).rejects.toThrow('bookmarks.set_style bookmark path was not found.');
-        await expect(agent.runAgentAction('bookmarks.set_style', {paths: [[0]]}))
-            .rejects.toThrow('bookmarks.set_style requires at least one of input.bold, input.italic, or input.color.');
-        await expect(agent.runAgentAction('bookmarks.set_style', {
-            range: {
-                from: [0],
-                to: [
-                    0,
-                    0,
-                ],
-            },
-            bold: true,
-        })).rejects.toThrow('bookmarks.set_style range endpoints must be siblings under the same parent.');
-        await expect(agent.runAgentAction('bookmarks.set_style', {
-            range: [0],
-            bold: true,
-        })).rejects.toThrow('bookmarks.set_style range requires from and to bookmark paths.');
-        await expect(agent.runAgentAction('bookmarks.set_style', {
-            range: {
-                from: [
-                    0,
-                    0,
-                ],
-                to: [
-                    0,
-                    9,
-                ],
-            },
-            bold: true,
-        })).rejects.toThrow('bookmarks.set_style range endpoint [0,9] is outside its parent.');
-        await expect(agent.runAgentAction('bookmarks.set_style', {
-            depth: 4,
-            bold: true,
-        })).rejects.toThrow('bookmarks.set_style did not match any bookmarks.');
-        await expect(agent.runAgentAction('bookmarks.set_style', {
-            path: [7],
-            bold: true,
-        })).rejects.toThrow('bookmarks.set_style bookmark path was not found.');
-        await expect(agent.runAgentAction('bookmarks.set_style', {
-            path: [0],
-            color: 'red',
-        })).rejects.toThrow('bookmarks.set_style color must be a hex color such as #336699 or null.');
-        await expect(agent.runAgentAction('bookmarks.set_style', {
-            path: [0],
-            color: 336699,
-        })).rejects.toThrow('bookmarks.set_style color must be a hex color such as #336699 or null.');
+        await expect(agent.runAgentAction('bookmarks.set_style', {bold: true})).rejects.toThrow(
+            'bookmarks.set_style requires input.paths, input.path, input.items, input.range, input.depth, or input.level.',
+        );
+        await expect(
+            agent.runAgentAction('bookmarks.set_style', {
+                path: [0],
+                bold: 'yes',
+            }),
+        ).rejects.toThrow('bookmarks.set_style bold must be a boolean.');
+        await expect(
+            agent.runAgentAction('bookmarks.set_style', {
+                path: [99],
+                includeDescendants: true,
+                bold: true,
+            }),
+        ).rejects.toThrow('bookmarks.set_style bookmark path was not found.');
+        await expect(agent.runAgentAction('bookmarks.set_style', {paths: [[0]]})).rejects.toThrow(
+            'bookmarks.set_style requires at least one of input.bold, input.italic, or input.color.',
+        );
+        await expect(
+            agent.runAgentAction('bookmarks.set_style', {
+                range: {
+                    from: [0],
+                    to: [0, 0],
+                },
+                bold: true,
+            }),
+        ).rejects.toThrow('bookmarks.set_style range endpoints must be siblings under the same parent.');
+        await expect(
+            agent.runAgentAction('bookmarks.set_style', {
+                range: [0],
+                bold: true,
+            }),
+        ).rejects.toThrow('bookmarks.set_style range requires from and to bookmark paths.');
+        await expect(
+            agent.runAgentAction('bookmarks.set_style', {
+                range: {
+                    from: [0, 0],
+                    to: [0, 9],
+                },
+                bold: true,
+            }),
+        ).rejects.toThrow('bookmarks.set_style range endpoint [0,9] is outside its parent.');
+        await expect(
+            agent.runAgentAction('bookmarks.set_style', {
+                depth: 4,
+                bold: true,
+            }),
+        ).rejects.toThrow('bookmarks.set_style did not match any bookmarks.');
+        await expect(
+            agent.runAgentAction('bookmarks.set_style', {
+                path: [7],
+                bold: true,
+            }),
+        ).rejects.toThrow('bookmarks.set_style bookmark path was not found.');
+        await expect(
+            agent.runAgentAction('bookmarks.set_style', {
+                path: [0],
+                color: 'red',
+            }),
+        ).rejects.toThrow('bookmarks.set_style color must be a hex color such as #336699 or null.');
+        await expect(
+            agent.runAgentAction('bookmarks.set_style', {
+                path: [0],
+                color: 336699,
+            }),
+        ).rejects.toThrow('bookmarks.set_style color must be a hex color such as #336699 or null.');
 
         expect(bookmarkItems.value).toEqual(initialBookmarks);
         expect(handleBookmarksChange).not.toHaveBeenCalled();
@@ -1370,15 +1434,19 @@ describe('createDocumentWorkspaceAgent', () => {
         const handleBookmarksChange = vi.fn(({bookmarks}) => {
             bookmarkItems.value = bookmarks;
         });
-        const agent = createDocumentWorkspaceAgent(createAgentOptions({
-            bookmarkItems,
-            handleBookmarksChange,
-        }));
+        const agent = createDocumentWorkspaceAgent(
+            createAgentOptions({
+                bookmarkItems,
+                handleBookmarksChange,
+            }),
+        );
 
-        await expect(agent.runAgentAction('toc.set_style', {
-            path: [0],
-            italic: true,
-        })).resolves.toMatchObject({
+        await expect(
+            agent.runAgentAction('toc.set_style', {
+                path: [0],
+                italic: true,
+            }),
+        ).resolves.toMatchObject({
             ok: true,
             actionId: 'toc.set_style',
             targetCount: 1,
@@ -1388,39 +1456,43 @@ describe('createDocumentWorkspaceAgent', () => {
     });
 
     it('enforces the advertised bookmarks.set_style schema on capability input', () => {
-        const template = AGENT_CAPABILITY_TEMPLATES.find(candidate => candidate.id === 'bookmarks.set_style');
+        const template = AGENT_CAPABILITY_TEMPLATES.find((candidate) => candidate.id === 'bookmarks.set_style');
         if (!template) {
             throw new Error('bookmarks.set_style template is missing');
         }
-        expect(() => validateJsonObjectAgainstSchema(
-            'bookmarks.set_style',
-            {paths: [[0]]},
-            template.inputSchema,
-        )).toThrow(/did not match its advertised schema/u);
-        expect(() => validateJsonObjectAgainstSchema(
-            'bookmarks.set_style',
-            {
-                depth: 0,
-                bold: true,
-            },
-            template.inputSchema,
-        )).not.toThrow();
-        expect(() => validateJsonObjectAgainstSchema(
-            'bookmarks.set_style',
-            {
-                paths: [[-1]],
-                bold: true,
-            },
-            template.inputSchema,
-        )).toThrow(/did not match its advertised schema/u);
-        expect(() => validateJsonObjectAgainstSchema(
-            'bookmarks.set_style',
-            {
-                path: [0.5],
-                bold: true,
-            },
-            template.inputSchema,
-        )).toThrow(/did not match its advertised schema/u);
+        expect(() => validateJsonObjectAgainstSchema('bookmarks.set_style', {paths: [[0]]}, template.inputSchema)).toThrow(
+            /did not match its advertised schema/u,
+        );
+        expect(() =>
+            validateJsonObjectAgainstSchema(
+                'bookmarks.set_style',
+                {
+                    depth: 0,
+                    bold: true,
+                },
+                template.inputSchema,
+            ),
+        ).not.toThrow();
+        expect(() =>
+            validateJsonObjectAgainstSchema(
+                'bookmarks.set_style',
+                {
+                    paths: [[-1]],
+                    bold: true,
+                },
+                template.inputSchema,
+            ),
+        ).toThrow(/did not match its advertised schema/u);
+        expect(() =>
+            validateJsonObjectAgainstSchema(
+                'bookmarks.set_style',
+                {
+                    path: [0.5],
+                    bold: true,
+                },
+                template.inputSchema,
+            ),
+        ).toThrow(/did not match its advertised schema/u);
     });
 
     it('refuses a bookmark write by path once the reader has changed the outline since it was read', async () => {
@@ -1436,39 +1508,36 @@ describe('createDocumentWorkspaceAgent', () => {
             items: [],
         });
         bookmarkState.handleBookmarksChange({
-            bookmarks: [
-                entry('A', 0),
-                entry('B', 1),
-                entry('C', 2),
-            ],
+            bookmarks: [entry('A', 0), entry('B', 1), entry('C', 2)],
             dirty: false,
         });
-        const agent = createDocumentWorkspaceAgent(createAgentOptions({
-            ...bookmarkState,
-            totalPages: ref(3),
-        }));
-        const read = await agent.runAgentAction('bookmarks.read', {}) as {revision: number};
+        const agent = createDocumentWorkspaceAgent(
+            createAgentOptions({
+                ...bookmarkState,
+                totalPages: ref(3),
+            }),
+        );
+        const read = (await agent.runAgentAction('bookmarks.read', {})) as {revision: number};
 
         // The reader deletes A in the sidebar; path [1] now names C.
         bookmarkState.handleBookmarksChange({
             bookmarks: bookmarkState.bookmarkItems.value.slice(1),
             dirty: true,
         });
-        await expect(agent.runAgentAction('bookmarks.delete', {
-            path: [1],
-            revision: read.revision,
-        })).rejects.toThrow(/changed since revision/u);
-        expect(bookmarkState.bookmarkItems.value.map(bookmark => bookmark.title)).toEqual([
-            'B',
-            'C',
-        ]);
+        await expect(
+            agent.runAgentAction('bookmarks.delete', {
+                path: [1],
+                revision: read.revision,
+            }),
+        ).rejects.toThrow(/changed since revision/u);
+        expect(bookmarkState.bookmarkItems.value.map((bookmark) => bookmark.title)).toEqual(['B', 'C']);
 
-        const reread = await agent.runAgentAction('bookmarks.read', {}) as {revision: number};
-        const deleted = await agent.runAgentAction('bookmarks.delete', {
+        const reread = (await agent.runAgentAction('bookmarks.read', {})) as {revision: number};
+        const deleted = (await agent.runAgentAction('bookmarks.delete', {
             path: [1],
             revision: reread.revision,
-        }) as {revision: number};
-        expect(bookmarkState.bookmarkItems.value.map(bookmark => bookmark.title)).toEqual(['B']);
+        })) as {revision: number};
+        expect(bookmarkState.bookmarkItems.value.map((bookmark) => bookmark.title)).toEqual(['B']);
         expect(deleted.revision, 'the write returns the revision after it').toBeGreaterThan(reread.revision);
     });
 
@@ -1485,56 +1554,48 @@ describe('createDocumentWorkspaceAgent', () => {
             items: [],
         });
         bookmarkState.handleBookmarksChange({
-            bookmarks: [
-                entry('A', 0),
-                entry('B', 1),
-                entry('C', 2),
-            ],
+            bookmarks: [entry('A', 0), entry('B', 1), entry('C', 2)],
             dirty: false,
         });
-        const agent = createDocumentWorkspaceAgent(createAgentOptions({
-            ...bookmarkState,
-            totalPages: ref(3),
-        }));
-        const plan = await agent.runAgentAction('bookmarks.preview_tree', {bookmarks: bookmarkState.bookmarkItems.value}) as {
+        const agent = createDocumentWorkspaceAgent(
+            createAgentOptions({
+                ...bookmarkState,
+                totalPages: ref(3),
+            }),
+        );
+        const plan = (await agent.runAgentAction('bookmarks.preview_tree', {bookmarks: bookmarkState.bookmarkItems.value})) as {
             revision: number;
-            bookmarks: IPdfBookmarkEntry[]
+            bookmarks: IPdfBookmarkEntry[];
         };
         bookmarkState.handleBookmarksChange({
             bookmarks: bookmarkState.bookmarkItems.value.slice(1),
             dirty: true,
         });
-        await expect(agent.runAgentAction('bookmarks.apply_plan', {
-            bookmarks: plan.bookmarks,
-            revision: plan.revision,
-        }))
-            .rejects.toThrow(/changed since revision/u);
-        expect(bookmarkState.bookmarkItems.value.map(bookmark => bookmark.title)).toEqual([
-            'B',
-            'C',
-        ]);
-        const current = await agent.runAgentAction('bookmarks.preview_tree', {bookmarks: bookmarkState.bookmarkItems.value}) as {
+        await expect(
+            agent.runAgentAction('bookmarks.apply_plan', {
+                bookmarks: plan.bookmarks,
+                revision: plan.revision,
+            }),
+        ).rejects.toThrow(/changed since revision/u);
+        expect(bookmarkState.bookmarkItems.value.map((bookmark) => bookmark.title)).toEqual(['B', 'C']);
+        const current = (await agent.runAgentAction('bookmarks.preview_tree', {bookmarks: bookmarkState.bookmarkItems.value})) as {
             revision: number;
-            bookmarks: IPdfBookmarkEntry[]
+            bookmarks: IPdfBookmarkEntry[];
         };
-        await expect(agent.runAgentAction('bookmarks.apply_plan', {
-            bookmarks: current.bookmarks,
-            revision: current.revision,
-        })).resolves.toBeDefined();
-        expect(bookmarkState.bookmarkItems.value.map(bookmark => bookmark.title)).toEqual([
-            'B',
-            'C',
-        ]);
+        await expect(
+            agent.runAgentAction('bookmarks.apply_plan', {
+                bookmarks: current.bookmarks,
+                revision: current.revision,
+            }),
+        ).resolves.toBeDefined();
+        expect(bookmarkState.bookmarkItems.value.map((bookmark) => bookmark.title)).toEqual(['B', 'C']);
     });
 
     it('lets file.save observe save readiness after an immediate bookmark action', async () => {
         const bookmarkItems = ref<IPdfBookmarkEntry[]>([]);
         const bookmarksDirty = ref(false);
         const canSave = ref(false);
-        const handleBookmarksChange = vi.fn(({
-            bookmarks,
-            dirty,
-        }) => {
+        const handleBookmarksChange = vi.fn(({bookmarks, dirty}) => {
             bookmarkItems.value = bookmarks;
             bookmarksDirty.value = dirty;
             canSave.value = dirty;
@@ -1544,19 +1605,25 @@ describe('createDocumentWorkspaceAgent', () => {
             canSave.value = false;
             return true;
         });
-        const agent = createDocumentWorkspaceAgent(createAgentOptions({
-            bookmarkItems,
-            bookmarksDirty,
-            canSave,
-            handleBookmarksChange,
-            handleSave,
-        }));
+        const agent = createDocumentWorkspaceAgent(
+            createAgentOptions({
+                bookmarkItems,
+                bookmarksDirty,
+                canSave,
+                handleBookmarksChange,
+                handleSave,
+            }),
+        );
 
-        await agent.runAgentAction('bookmarks.apply_plan', {entries: [{
-            level: 1,
-            title: 'Chapter',
-            page: 1,
-        }]});
+        await agent.runAgentAction('bookmarks.apply_plan', {
+            entries: [
+                {
+                    level: 1,
+                    title: 'Chapter',
+                    page: 1,
+                },
+            ],
+        });
 
         await expect(agent.runAgentAction('file.save')).resolves.toMatchObject({
             ok: true,
@@ -1570,32 +1637,43 @@ describe('createDocumentWorkspaceAgent', () => {
     it('delivers the committed save revision to its command context', async () => {
         const committed = requireDocumentRevisionToken('agent-own-save');
         const receipts: Array<typeof committed> = [];
-        const agent = createDocumentWorkspaceAgent(createAgentOptions({
-            canSave: ref(true),
-            handleSave: async onCommitted => {
-                onCommitted?.(committed);
-                return true;
-            },
-        }));
+        const agent = createDocumentWorkspaceAgent(
+            createAgentOptions({
+                canSave: ref(true),
+                handleSave: async (onCommitted) => {
+                    onCommitted?.(committed);
+                    return true;
+                },
+            }),
+        );
 
-        await expect(agent.runAgentAction('file.save', {}, {}, {
-            signal: new AbortController().signal,
-            documentIdentity: null,
-            documentInstanceId: null,
-            assertCurrentDocument: () => undefined,
-            recordDocumentCommit: revision => receipts.push(revision),
-        })).resolves.toMatchObject({saved: true});
+        await expect(
+            agent.runAgentAction(
+                'file.save',
+                {},
+                {},
+                {
+                    signal: new AbortController().signal,
+                    documentIdentity: null,
+                    documentInstanceId: null,
+                    assertCurrentDocument: () => undefined,
+                    recordDocumentCommit: (revision) => receipts.push(revision),
+                },
+            ),
+        ).resolves.toMatchObject({saved: true});
         expect(receipts).toEqual([committed]);
     });
 
     it('does not serialize the document when file.save has no pending changes', async () => {
         const handleSave = vi.fn(async () => true);
-        const agent = createDocumentWorkspaceAgent(createAgentOptions({
-            canSave: ref(false),
-            handleSave,
-            workingCopyPath: ref<TDocumentRef | null>(requireDocumentRef('/tmp/working.pdf')),
-            originalPath: ref<TDocumentRef | null>(requireDocumentRef('/tmp/original.pdf')),
-        }));
+        const agent = createDocumentWorkspaceAgent(
+            createAgentOptions({
+                canSave: ref(false),
+                handleSave,
+                workingCopyPath: ref<TDocumentRef | null>(requireDocumentRef('/tmp/working.pdf')),
+                originalPath: ref<TDocumentRef | null>(requireDocumentRef('/tmp/original.pdf')),
+            }),
+        );
 
         await expect(agent.runAgentAction('file.save')).resolves.toMatchObject({
             ok: true,
@@ -1611,10 +1689,12 @@ describe('createDocumentWorkspaceAgent', () => {
     it('reports new pending changes without treating an earlier successful save as failed', async () => {
         const canSave = ref(true);
         const handleSave = vi.fn(async () => true);
-        const agent = createDocumentWorkspaceAgent(createAgentOptions({
-            canSave,
-            handleSave,
-        }));
+        const agent = createDocumentWorkspaceAgent(
+            createAgentOptions({
+                canSave,
+                handleSave,
+            }),
+        );
 
         await expect(agent.runAgentAction('file.save')).resolves.toMatchObject({
             ok: true,
@@ -1629,12 +1709,14 @@ describe('createDocumentWorkspaceAgent', () => {
     it('runs repair-save and optimize-for-interaction through semantic file actions', async () => {
         const handleRepairSave = vi.fn(async () => true);
         const handleOptimizePdfForInteraction = vi.fn(async () => true);
-        const agent = createDocumentWorkspaceAgent(createAgentOptions({
-            handleRepairSave,
-            handleOptimizePdfForInteraction,
-            workingCopyPath: ref<TDocumentRef | null>(requireDocumentRef('/tmp/working.pdf')),
-            originalPath: ref<TDocumentRef | null>(requireDocumentRef('/tmp/original.pdf')),
-        }));
+        const agent = createDocumentWorkspaceAgent(
+            createAgentOptions({
+                handleRepairSave,
+                handleOptimizePdfForInteraction,
+                workingCopyPath: ref<TDocumentRef | null>(requireDocumentRef('/tmp/working.pdf')),
+                originalPath: ref<TDocumentRef | null>(requireDocumentRef('/tmp/original.pdf')),
+            }),
+        );
 
         await expect(agent.runAgentAction('file.repair_save')).resolves.toMatchObject({
             ok: true,
@@ -1655,31 +1737,28 @@ describe('createDocumentWorkspaceAgent', () => {
     it('runs structured crop and remove-crop page operations', async () => {
         const handleCropPages = vi.fn(async () => true);
         const handleRemoveCrop = vi.fn(async () => true);
-        const agent = createDocumentWorkspaceAgent(createAgentOptions({
-            handleCropPages,
-            handleRemoveCrop,
-            totalPages: ref(4),
-        }));
+        const agent = createDocumentWorkspaceAgent(
+            createAgentOptions({
+                handleCropPages,
+                handleRemoveCrop,
+                totalPages: ref(4),
+            }),
+        );
 
-        await expect(agent.runAgentAction('page_ops.crop', {
-            pages: [
-                2,
-                2,
-                4,
-            ],
-            margins: {
-                top: 12,
-                right: 6,
-                bottom: 8,
-                left: 6,
-            },
-        })).resolves.toMatchObject({
+        await expect(
+            agent.runAgentAction('page_ops.crop', {
+                pages: [2, 2, 4],
+                margins: {
+                    top: 12,
+                    right: 6,
+                    bottom: 8,
+                    left: 6,
+                },
+            }),
+        ).resolves.toMatchObject({
             ok: true,
             actionId: 'page_ops.crop',
-            pages: [
-                2,
-                4,
-            ],
+            pages: [2, 4],
             margins: {
                 top: 12,
                 right: 6,
@@ -1694,10 +1773,7 @@ describe('createDocumentWorkspaceAgent', () => {
             pages: [4],
             cropRemoved: true,
         });
-        expect(handleCropPages).toHaveBeenCalledWith([
-            2,
-            4,
-        ], {
+        expect(handleCropPages).toHaveBeenCalledWith([2, 4], {
             top: 12,
             right: 6,
             bottom: 8,
@@ -1714,12 +1790,14 @@ describe('createDocumentWorkspaceAgent', () => {
             canUndo.value = true;
             canRedo.value = false;
         });
-        const agent = createDocumentWorkspaceAgent(createAgentOptions({
-            canUndo,
-            canRedo,
-            handleUndo,
-            handleRedo,
-        }));
+        const agent = createDocumentWorkspaceAgent(
+            createAgentOptions({
+                canUndo,
+                canRedo,
+                handleUndo,
+                handleRedo,
+            }),
+        );
 
         await expect(agent.runAgentAction('history.undo')).rejects.toThrow('Undo is not currently available.');
         await expect(agent.runAgentAction('history.redo')).resolves.toMatchObject({
@@ -1736,16 +1814,20 @@ describe('createDocumentWorkspaceAgent', () => {
         const comment = createAnnotationComment();
         const updateTextMarkupColorWithHistory = vi.fn(() => true);
         const rawViewerColorUpdate = vi.fn(() => true);
-        const agent = createDocumentWorkspaceAgent(createAgentOptions({
-            annotationComments: ref([comment]),
-            updateTextMarkupColorWithHistory,
-            pdfViewerRef: ref(createAgentViewerPort({updateTextMarkupAnnotationColor: rawViewerColorUpdate})),
-        }));
+        const agent = createDocumentWorkspaceAgent(
+            createAgentOptions({
+                annotationComments: ref([comment]),
+                updateTextMarkupColorWithHistory,
+                pdfViewerRef: ref(createAgentViewerPort({updateTextMarkupAnnotationColor: rawViewerColorUpdate})),
+            }),
+        );
 
-        await expect(agent.runAgentAction('annotation.update_text_markup_color', {
-            stableKey: comment.stableKey,
-            color: '#00ff00',
-        })).resolves.toMatchObject({
+        await expect(
+            agent.runAgentAction('annotation.update_text_markup_color', {
+                stableKey: comment.stableKey,
+                color: '#00ff00',
+            }),
+        ).resolves.toMatchObject({
             ok: true,
             actionId: 'annotation.update_text_markup_color',
             updated: true,
@@ -1775,12 +1857,16 @@ describe('createDocumentWorkspaceAgent', () => {
             // retrying on `created: false` mints a duplicate.
             pendingEditor: true,
         }));
-        const agent = createDocumentWorkspaceAgent(createAgentOptions({pdfViewerRef: ref(createAgentViewerPort({createTextMarkupFromText}))}));
+        const agent = createDocumentWorkspaceAgent(
+            createAgentOptions({pdfViewerRef: ref(createAgentViewerPort({createTextMarkupFromText}))}),
+        );
 
-        await expect(agent.runAgentAction('annotation.create_text_markup', {
-            pageNumber: 2,
-            text: 'chapter one',
-        })).resolves.toMatchObject({
+        await expect(
+            agent.runAgentAction('annotation.create_text_markup', {
+                pageNumber: 2,
+                text: 'chapter one',
+            }),
+        ).resolves.toMatchObject({
             ok: true,
             actionId: 'annotation.create_text_markup',
             created: false,
@@ -1801,24 +1887,27 @@ describe('createDocumentWorkspaceAgent', () => {
             undo: () => void;
         }> = [];
         const updateAnnotationComment = vi.fn(() => true);
-        const registerAnnotationHistoryCommand = vi.fn((command: {
-            cmd: () => void;
-            undo: () => void;
-        }) => {
+        const registerAnnotationHistoryCommand = vi.fn((command: {cmd: () => void; undo: () => void}) => {
             historyCommands.push(command);
         });
-        const agent = createDocumentWorkspaceAgent(createAgentOptions({
-            annotationComments: ref([comment]),
-            pdfViewerRef: ref(createAgentViewerPort({
-                updateAnnotationComment,
-                registerAnnotationHistoryCommand,
-            })),
-        }));
+        const agent = createDocumentWorkspaceAgent(
+            createAgentOptions({
+                annotationComments: ref([comment]),
+                pdfViewerRef: ref(
+                    createAgentViewerPort({
+                        updateAnnotationComment,
+                        registerAnnotationHistoryCommand,
+                    }),
+                ),
+            }),
+        );
 
-        await expect(agent.runAgentAction('annotation.update_note', {
-            stableKey: comment.stableKey,
-            text: 'Updated note',
-        })).resolves.toMatchObject({
+        await expect(
+            agent.runAgentAction('annotation.update_note', {
+                stableKey: comment.stableKey,
+                text: 'Updated note',
+            }),
+        ).resolves.toMatchObject({
             ok: true,
             actionId: 'annotation.update_note',
             updated: true,
@@ -1841,10 +1930,13 @@ describe('createDocumentWorkspaceAgent', () => {
         expect(updateAnnotationComment).toHaveBeenLastCalledWith(comment, 'Original note');
 
         command.cmd();
-        expect(updateAnnotationComment).toHaveBeenLastCalledWith(expect.objectContaining({
-            stableKey: comment.stableKey,
-            text: 'Updated note',
-        }), 'Updated note');
+        expect(updateAnnotationComment).toHaveBeenLastCalledWith(
+            expect.objectContaining({
+                stableKey: comment.stableKey,
+                text: 'Updated note',
+            }),
+            'Updated note',
+        );
     });
 
     it('undoes an assistant note edit back to the open, unsaved draft', async () => {
@@ -1856,32 +1948,41 @@ describe('createDocumentWorkspaceAgent', () => {
         });
         const annotationId = annotationIdForSummary(comment);
         // The reader typed into the open note; the debounce has not saved it.
-        const noteWindows = ref([cast<IAnnotationNoteWindowViewModel>({
-            annotationId,
-            draftText: 'Reader draft',
-            dirty: true,
-        })]);
+        const noteWindows = ref([
+            cast<IAnnotationNoteWindowViewModel>({
+                annotationId,
+                draftText: 'Reader draft',
+                dirty: true,
+            }),
+        ]);
         const updateAnnotationNoteText = vi.fn((id: string, text: string) => {
-            noteWindows.value = noteWindows.value.map(note => note.annotationId === id ? {
-                ...note,
-                draftText: text,
-            } : note);
+            noteWindows.value = noteWindows.value.map((note) =>
+                note.annotationId === id
+                    ? {
+                          ...note,
+                          draftText: text,
+                      }
+                    : note,
+            );
         });
         const historyCommands: Array<{
             cmd: () => void;
             undo: () => void;
         }> = [];
-        const agent = createDocumentWorkspaceAgent(createAgentOptions({
-            annotationComments: ref([comment]),
-            sortedAnnotationNoteWindows: noteWindows,
-            updateAnnotationNoteText,
-            pdfViewerRef: ref(createAgentViewerPort({registerAnnotationHistoryCommand: vi.fn((command: {
-                cmd: () => void;
-                undo: () => void;
-            }) => {
-                historyCommands.push(command);
-            })})),
-        }));
+        const agent = createDocumentWorkspaceAgent(
+            createAgentOptions({
+                annotationComments: ref([comment]),
+                sortedAnnotationNoteWindows: noteWindows,
+                updateAnnotationNoteText,
+                pdfViewerRef: ref(
+                    createAgentViewerPort({
+                        registerAnnotationHistoryCommand: vi.fn((command: {cmd: () => void; undo: () => void}) => {
+                            historyCommands.push(command);
+                        }),
+                    }),
+                ),
+            }),
+        );
 
         // Back to the stored text: still a change from what the reader sees.
         await agent.runAgentAction('annotation.update_note', {
@@ -1902,43 +2003,53 @@ describe('createDocumentWorkspaceAgent', () => {
             kindLabel: 'Note',
             subtype: 'Text',
         });
-        const noteWindows = ref([cast<IAnnotationNoteWindowViewModel>({
-            annotationId: annotationIdForSummary(comment),
-            draftText: 'Original note',
-            dirty: false,
-        })]);
+        const noteWindows = ref([
+            cast<IAnnotationNoteWindowViewModel>({
+                annotationId: annotationIdForSummary(comment),
+                draftText: 'Original note',
+                dirty: false,
+            }),
+        ]);
         const originalHistory: unknown[] = [];
         const replacementHistory: unknown[] = [];
         const originalIdentity = createDocumentIdentity('revision-1', 1);
         const documentIdentity = ref<IDocumentRevisionInfo | null>(originalIdentity);
-        const pdfViewerRef = ref(createAgentViewerPort({registerAnnotationHistoryCommand: command => originalHistory.push(command)}));
+        const pdfViewerRef = ref(createAgentViewerPort({registerAnnotationHistoryCommand: (command) => originalHistory.push(command)}));
         let finishPersist: (saved: boolean) => void = () => undefined;
-        const agent = createDocumentWorkspaceAgent(createAgentOptions({
-            annotationComments: ref([comment]),
-            sortedAnnotationNoteWindows: noteWindows,
-            documentIdentity,
-            pdfViewerRef,
-            persistAnnotationNote: () => new Promise<boolean>(resolve => {
-                finishPersist = resolve;
+        const agent = createDocumentWorkspaceAgent(
+            createAgentOptions({
+                annotationComments: ref([comment]),
+                sortedAnnotationNoteWindows: noteWindows,
+                documentIdentity,
+                pdfViewerRef,
+                persistAnnotationNote: () =>
+                    new Promise<boolean>((resolve) => {
+                        finishPersist = resolve;
+                    }),
             }),
-        }));
+        );
 
-        const update = agent.runAgentAction('annotation.update_note', {
-            stableKey: comment.stableKey,
-            text: 'Updated note',
-        }, {}, {
-            signal: new AbortController().signal,
-            documentIdentity: originalIdentity,
-            documentInstanceId: requireDocumentInstanceId('instance-a'),
-            assertCurrentDocument: () => undefined,
-        });
+        const update = agent.runAgentAction(
+            'annotation.update_note',
+            {
+                stableKey: comment.stableKey,
+                text: 'Updated note',
+            },
+            {},
+            {
+                signal: new AbortController().signal,
+                documentIdentity: originalIdentity,
+                documentInstanceId: requireDocumentInstanceId('instance-a'),
+                assertCurrentDocument: () => undefined,
+            },
+        );
         await Promise.resolve();
         // Another document takes the workspace before the note commit settles.
         documentIdentity.value = {
             ...createDocumentIdentity('revision-b', 1),
             documentRef: requireDocumentRef('/tmp/replacement.pdf'),
         };
-        pdfViewerRef.value = createAgentViewerPort({registerAnnotationHistoryCommand: command => replacementHistory.push(command)});
+        pdfViewerRef.value = createAgentViewerPort({registerAnnotationHistoryCommand: (command) => replacementHistory.push(command)});
         finishPersist(true);
 
         await expect(update).rejects.toThrow('Agent command target document changed.');
@@ -1949,12 +2060,14 @@ describe('createDocumentWorkspaceAgent', () => {
     it('passes an exact compact selection to page-operation actions', async () => {
         const selection = createRangePageSelection(1_000_000, 2, 100_002);
         const pageOpsDelete = vi.fn(async () => true);
-        const agent = createDocumentWorkspaceAgent(createAgentOptions({
-            totalPages: ref(1_000_000),
-            selectedThumbnailPages: ref([]),
-            selectedPageSelection: ref(selection),
-            pageOpsDelete,
-        }));
+        const agent = createDocumentWorkspaceAgent(
+            createAgentOptions({
+                totalPages: ref(1_000_000),
+                selectedThumbnailPages: ref([]),
+                selectedPageSelection: ref(selection),
+                pageOpsDelete,
+            }),
+        );
 
         await expect(agent.runAgentAction('page_ops.delete_selected', {})).resolves.toMatchObject({
             selectedPageCount: 100_001,
@@ -1965,22 +2078,21 @@ describe('createDocumentWorkspaceAgent', () => {
 
     it('reports a refused page operation and a canceled Save As as failures', async () => {
         // Deleting a document's only page is refused; the dialog of Save As is canceled.
-        const agent = createDocumentWorkspaceAgent(createAgentOptions({
-            totalPages: ref(1),
-            selectedThumbnailPages: ref([1]),
-            pageOpsDelete: vi.fn(async () => false),
-            handleSaveAs: vi.fn(async () => false),
-        }));
+        const agent = createDocumentWorkspaceAgent(
+            createAgentOptions({
+                totalPages: ref(1),
+                selectedThumbnailPages: ref([1]),
+                pageOpsDelete: vi.fn(async () => false),
+                handleSaveAs: vi.fn(async () => false),
+            }),
+        );
 
         await expect(agent.runAgentAction('page_ops.delete_selected', {})).rejects.toThrow('did not complete');
         await expect(agent.runAgentAction('file.save_as', {})).rejects.toThrow('did not complete');
     });
 
     it('blocks PDF page-operation actions in DjVu mode while keeping convert-to-PDF available', async () => {
-        const selectedThumbnailPages = ref([
-            1,
-            2,
-        ]);
+        const selectedThumbnailPages = ref([1, 2]);
         const showConvertDialog = ref(false);
         const pageOpsDelete = vi.fn(async () => true);
         const pageOpsExtract = vi.fn(async () => true);
@@ -1989,38 +2101,25 @@ describe('createDocumentWorkspaceAgent', () => {
         const openConvertDialog = vi.fn(() => {
             showConvertDialog.value = true;
         });
-        const agent = createDocumentWorkspaceAgent(createAgentOptions({
-            handlePageRotate,
-            isDjvuMode: ref(true),
-            openConvertDialog,
-            pageOpsDelete,
-            pageOpsExtract,
-            pageOpsInsert,
-            selectedThumbnailPages,
-            showConvertDialog,
-        }));
+        const agent = createDocumentWorkspaceAgent(
+            createAgentOptions({
+                handlePageRotate,
+                isDjvuMode: ref(true),
+                openConvertDialog,
+                pageOpsDelete,
+                pageOpsExtract,
+                pageOpsInsert,
+                selectedThumbnailPages,
+                showConvertDialog,
+            }),
+        );
 
         const blockedActions: Array<[string, Record<string, unknown>]> = [
-            [
-                'page_ops.delete_selected',
-                {},
-            ],
-            [
-                'page_ops.extract_selected',
-                {},
-            ],
-            [
-                'page_ops.rotate_cw_selected',
-                {},
-            ],
-            [
-                'page_ops.rotate_ccw_selected',
-                {},
-            ],
-            [
-                'page_ops.insert_pages',
-                { afterPage: 2 },
-            ],
+            ['page_ops.delete_selected', {}],
+            ['page_ops.extract_selected', {}],
+            ['page_ops.rotate_cw_selected', {}],
+            ['page_ops.rotate_ccw_selected', {}],
+            ['page_ops.insert_pages', {afterPage: 2}],
             [
                 'page_ops.crop',
                 {
@@ -2033,16 +2132,10 @@ describe('createDocumentWorkspaceAgent', () => {
                     },
                 },
             ],
-            [
-                'page_ops.remove_crop',
-                { pages: [1] },
-            ],
+            ['page_ops.remove_crop', {pages: [1]}],
         ];
 
-        for (const [
-            actionId,
-            input,
-        ] of blockedActions) {
+        for (const [actionId, input] of blockedActions) {
             await expect(agent.runAgentAction(actionId, input)).resolves.toMatchObject({
                 ok: false,
                 actionId,
@@ -2064,5 +2157,4 @@ describe('createDocumentWorkspaceAgent', () => {
         });
         expect(openConvertDialog).toHaveBeenCalledOnce();
     });
-
 });

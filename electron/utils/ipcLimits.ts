@@ -2,11 +2,7 @@ const IPC_DEFAULT_STRING_MAX_LENGTH = 512;
 export const IPC_FILENAME_MAX_LENGTH = 255;
 const IPC_REQUEST_ID_MAX_LENGTH = 128;
 
-export function normalizeBoundedString(
-    value: unknown,
-    fieldName: string,
-    maxLength = IPC_DEFAULT_STRING_MAX_LENGTH,
-) {
+export function normalizeBoundedString(value: unknown, fieldName: string, maxLength = IPC_DEFAULT_STRING_MAX_LENGTH) {
     if (typeof value !== 'string') {
         throw new Error(`${fieldName} must be a string`);
     }

@@ -22,15 +22,9 @@ import {
     type IDocumentTextCatalogWindow,
     type IDocumentTextSnapshot,
 } from '@contracts/documentTextCatalog';
-import {
-    parseDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
+import {parseDocumentRef, type TDocumentRef} from '@contracts/documentRef';
 import {requirePageNumber} from '@contracts/pageNumbers';
-import {
-    parseDocumentRevisionToken,
-    type TDocumentRevisionToken,
-} from '@contracts/documentRevision';
+import {parseDocumentRevisionToken, type TDocumentRevisionToken} from '@contracts/documentRevision';
 import {isLikelyAbsolutePath} from '@contracts/ipcAssertions';
 import {
     definePlatformFeature,
@@ -42,11 +36,7 @@ import {
     type TPlatformResultSpec,
 } from '@contracts/platformFeature';
 import {isRecord} from '@contracts/runtimeGuards';
-import {
-    parseRequestId,
-    type IOcrLanguage,
-    type TRequestId,
-} from '@contracts/shared';
+import {parseRequestId, type IOcrLanguage, type TRequestId} from '@contracts/shared';
 import * as v from 'valibot';
 
 const MAX_COLLECTION_ITEMS = 100_000;
@@ -57,12 +47,7 @@ const OMITTED_BROWSER_METHOD = {
     reason: 'not-implemented',
 } as const;
 
-function decodeSafeIntegerArg(
-    args: readonly unknown[],
-    index: number,
-    fieldName: string,
-    min = 0,
-) {
+function decodeSafeIntegerArg(args: readonly unknown[], index: number, fieldName: string, min = 0) {
     const value = args[index];
     if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < min) {
         throw new Error(fieldName + ' must be a safe integer >= ' + min);
@@ -72,7 +57,7 @@ function decodeSafeIntegerArg(
 
 function decodeStringArrayArg(args: readonly unknown[], index: number, fieldName: string) {
     const value = args[index];
-    if (!Array.isArray(value) || value.some(item => typeof item !== 'string')) {
+    if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
         throw new Error(fieldName + ' must be an array of strings');
     }
     return value.filter((item): item is string => typeof item === 'string');
@@ -116,8 +101,7 @@ function decodeSearchablePdfPages(value: unknown): TOcrSearchablePdfPages {
         throw new Error('OCR searchable PDF selection kind must be all, range, ranges, or pages');
     }
     const languages = decodeStringArrayArg([value.languages], 0, 'languages');
-    const decodePageNumber = (candidate: unknown, fieldName: string, min = 1) =>
-        decodeSafeIntegerArg([candidate], 0, fieldName, min);
+    const decodePageNumber = (candidate: unknown, fieldName: string, min = 1) => decodeSafeIntegerArg([candidate], 0, fieldName, min);
     if (kind === 'all') {
         return {
             kind: 'all',
@@ -163,46 +147,39 @@ function decodeSearchablePdfPages(value: unknown): TOcrSearchablePdfPages {
     };
 }
 
-const searchablePdfPagesSchema = v.pipe(
-    v.unknown(),
-    v.transform(decodeSearchablePdfPages),
-);
-const safeIntegerSchema = (fieldName: string, min = 0) => v.message(
+const searchablePdfPagesSchema = v.pipe(v.unknown(), v.transform(decodeSearchablePdfPages));
+const safeIntegerSchema = (fieldName: string, min = 0) =>
+    v.message(v.pipe(v.number(), v.finite(), v.safeInteger(), v.minValue(min)), fieldName + ' must be a safe integer >= ' + min);
+const absolutePathSchema = (fieldName: string) =>
     v.pipe(
-        v.number(),
-        v.finite(),
-        v.safeInteger(),
-        v.minValue(min),
-    ),
-    fieldName + ' must be a safe integer >= ' + min,
-);
-const absolutePathSchema = (fieldName: string) => v.pipe(
-    v.string(),
-    v.check(value => value.trim().length > 0, fieldName + ' must not be empty'),
-    v.maxLength(4_096, fieldName + ' exceeds maximum length (4096)'),
-    v.check(value => !value.includes('\0'), fieldName + ' must not contain NUL bytes'),
-    v.check(isLikelyAbsolutePath, fieldName + ' must be an absolute path'),
-    v.custom<TDocumentRef>(value => parseDocumentRef(value) !== null, fieldName + ' must be a supported document reference'),
-);
-const optionalAbsolutePathSchema = (fieldName: string) => v.pipe(
-    v.nullish(v.union([
-        v.literal(''),
-        absolutePathSchema(fieldName),
-    ])),
-    v.transform(value => value === '' || value === null || value === undefined ? undefined : value),
-);
-const requestIdSchema = (fieldName: string) => v.pipe(
-    v.string(),
-    v.transform(value => value.trim()),
-    v.minLength(1, fieldName + ' must not be empty'),
-    v.maxLength(OCR_REQUEST_ID_MAX_LENGTH, fieldName + ' exceeds maximum length (' + OCR_REQUEST_ID_MAX_LENGTH + ')'),
-    v.check(value => !value.includes('\0'), fieldName + ' must not contain NUL bytes'),
-    v.custom<TRequestId>(value => parseRequestId(value) !== null, fieldName + ' must be a valid request ID'),
-);
+        v.string(),
+        v.check((value) => value.trim().length > 0, fieldName + ' must not be empty'),
+        v.maxLength(4_096, fieldName + ' exceeds maximum length (4096)'),
+        v.check((value) => !value.includes('\0'), fieldName + ' must not contain NUL bytes'),
+        v.check(isLikelyAbsolutePath, fieldName + ' must be an absolute path'),
+        v.custom<TDocumentRef>((value) => parseDocumentRef(value) !== null, fieldName + ' must be a supported document reference'),
+    );
+const optionalAbsolutePathSchema = (fieldName: string) =>
+    v.pipe(
+        v.nullish(v.union([v.literal(''), absolutePathSchema(fieldName)])),
+        v.transform((value) => (value === '' || value === null || value === undefined ? undefined : value)),
+    );
+const requestIdSchema = (fieldName: string) =>
+    v.pipe(
+        v.string(),
+        v.transform((value) => value.trim()),
+        v.minLength(1, fieldName + ' must not be empty'),
+        v.maxLength(OCR_REQUEST_ID_MAX_LENGTH, fieldName + ' exceeds maximum length (' + OCR_REQUEST_ID_MAX_LENGTH + ')'),
+        v.check((value) => !value.includes('\0'), fieldName + ' must not contain NUL bytes'),
+        v.custom<TRequestId>((value) => parseRequestId(value) !== null, fieldName + ' must be a valid request ID'),
+    );
 const documentRevisionSchema = v.pipe(
     v.string(),
-    v.transform(value => value.trim()),
-    v.custom<TDocumentRevisionToken>(value => parseDocumentRevisionToken(value) !== null, 'documentRevision must be a valid revision token'),
+    v.transform((value) => value.trim()),
+    v.custom<TDocumentRevisionToken>(
+        (value) => parseDocumentRevisionToken(value) !== null,
+        'documentRevision must be a valid revision token',
+    ),
 );
 const pageCountSchema = safeIntegerSchema('pageCount', 0);
 const requestIdArgs = v.strictTuple([requestIdSchema('requestId')]);
@@ -214,49 +191,28 @@ const acknowledgeResultFileArgs = v.pipe(
         v.optional(optionalAbsolutePathSchema('ocrAcknowledgeResultFile.documentRef')),
         v.optional(documentRevisionSchema),
     ]),
-    v.check(([
-        , , documentRef,
-        sourceDocumentRevisionToken,
-    ]) =>
-        documentRef === undefined || sourceDocumentRevisionToken !== undefined,
-    'ocrAcknowledgeResultFile.sourceDocumentRevisionToken is required with documentRef'),
-    v.check(([
-        , pdfPath,
-        documentRef,
-    ]) =>
-        documentRef === undefined || pdfPath !== undefined,
-    'ocrAcknowledgeResultFile.pdfPath is required with documentRef'),
-    v.check(([
-        , , documentRef,
-        sourceDocumentRevisionToken,
-    ]) =>
-        documentRef !== undefined || sourceDocumentRevisionToken === undefined,
-    'ocrAcknowledgeResultFile.documentRef is required with sourceDocumentRevisionToken'),
-    v.transform(([
-        requestId,
-        pdfPath,
-        documentRef,
-        sourceDocumentRevisionToken,
-    ]) => {
+    v.check(
+        ([, , documentRef, sourceDocumentRevisionToken]) => documentRef === undefined || sourceDocumentRevisionToken !== undefined,
+        'ocrAcknowledgeResultFile.sourceDocumentRevisionToken is required with documentRef',
+    ),
+    v.check(
+        ([, pdfPath, documentRef]) => documentRef === undefined || pdfPath !== undefined,
+        'ocrAcknowledgeResultFile.pdfPath is required with documentRef',
+    ),
+    v.check(
+        ([, , documentRef, sourceDocumentRevisionToken]) => documentRef !== undefined || sourceDocumentRevisionToken === undefined,
+        'ocrAcknowledgeResultFile.documentRef is required with sourceDocumentRevisionToken',
+    ),
+    v.transform(([requestId, pdfPath, documentRef, sourceDocumentRevisionToken]) => {
         if (documentRef !== undefined && sourceDocumentRevisionToken !== undefined && pdfPath !== undefined) {
-            return [
-                requestId,
-                pdfPath,
-                documentRef,
-                sourceDocumentRevisionToken,
-            ] as [
+            return [requestId, pdfPath, documentRef, sourceDocumentRevisionToken] as [
                 TRequestId,
                 TDocumentRef,
                 TDocumentRef,
                 TDocumentRevisionToken,
             ];
         }
-        return pdfPath === undefined
-            ? [requestId] as [TRequestId]
-            : [
-                requestId,
-                pdfPath,
-            ] as [TRequestId, TDocumentRef];
+        return pdfPath === undefined ? ([requestId] as [TRequestId]) : ([requestId, pdfPath] as [TRequestId, TDocumentRef]);
     }),
 );
 const createSearchablePdfArgs = v.pipe(
@@ -264,45 +220,22 @@ const createSearchablePdfArgs = v.pipe(
         absolutePathSchema('ocrCreateSearchablePdf.sourcePdfPath'),
         searchablePdfPagesSchema,
         requestIdSchema('ocrCreateSearchablePdf.requestId'),
-        v.optional(v.union([
-            safeIntegerSchema('renderDpi', 1),
-            OCR_SEARCHABLE_PDF_OPTIONS_SCHEMA,
-        ])),
+        v.optional(v.union([safeIntegerSchema('renderDpi', 1), OCR_SEARCHABLE_PDF_OPTIONS_SCHEMA])),
     ]),
-    v.transform(([
-        sourcePdfPath,
-        pages,
-        requestId,
-        renderDpiOrOptions,
-    ]) =>
+    v.transform(([sourcePdfPath, pages, requestId, renderDpiOrOptions]) =>
         renderDpiOrOptions === undefined
-            ? [
-                sourcePdfPath,
-                pages,
-                requestId,
-            ] as [TDocumentRef, TOcrSearchablePdfPages, TRequestId]
-            : [
-                sourcePdfPath,
-                pages,
-                requestId,
-                renderDpiOrOptions,
-            ] as [
-                TDocumentRef,
-                TOcrSearchablePdfPages,
-                TRequestId,
-                number | IOcrSearchablePdfOptions,
-            ]),
+            ? ([sourcePdfPath, pages, requestId] as [TDocumentRef, TOcrSearchablePdfPages, TRequestId])
+            : ([sourcePdfPath, pages, requestId, renderDpiOrOptions] as [
+                  TDocumentRef,
+                  TOcrSearchablePdfPages,
+                  TRequestId,
+                  number | IOcrSearchablePdfOptions,
+              ]),
+    ),
 );
 const resolveDocumentTextCatalogArgs = v.union([
-    v.strictTuple([
-        absolutePathSchema('resolveDocumentTextCatalog.workingCopyPath'),
-        documentRevisionSchema,
-    ]),
-    v.strictTuple([
-        absolutePathSchema('resolveDocumentTextCatalog.workingCopyPath'),
-        documentRevisionSchema,
-        pageCountSchema,
-    ]),
+    v.strictTuple([absolutePathSchema('resolveDocumentTextCatalog.workingCopyPath'), documentRevisionSchema]),
+    v.strictTuple([absolutePathSchema('resolveDocumentTextCatalog.workingCopyPath'), documentRevisionSchema, pageCountSchema]),
     v.strictTuple([
         absolutePathSchema('resolveDocumentTextCatalog.workingCopyPath'),
         documentRevisionSchema,
@@ -324,15 +257,11 @@ const resolveDocumentTextCatalogWindowArgs = v.union([
             safeIntegerSchema('firstPage', 1),
             safeIntegerSchema('lastPage', 1),
         ]),
-        v.check(([
-            , , firstPage,
-            lastPage,
-        ]) => lastPage >= firstPage, 'lastPage must be greater than or equal to firstPage'),
-        v.check(([
-            , , firstPage,
-            lastPage,
-        ]) => lastPage - firstPage + 1 <= MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES,
-        'document text catalog windows may contain at most ' + MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES + ' pages'),
+        v.check(([, , firstPage, lastPage]) => lastPage >= firstPage, 'lastPage must be greater than or equal to firstPage'),
+        v.check(
+            ([, , firstPage, lastPage]) => lastPage - firstPage + 1 <= MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES,
+            'document text catalog windows may contain at most ' + MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES + ' pages',
+        ),
     ),
     v.pipe(
         v.strictTuple([
@@ -342,19 +271,12 @@ const resolveDocumentTextCatalogWindowArgs = v.union([
             safeIntegerSchema('lastPage', 1),
             pageCountSchema,
         ]),
-        v.check(([
-            , , firstPage,
-            lastPage,
-        ]) => lastPage >= firstPage, 'lastPage must be greater than or equal to firstPage'),
-        v.check(([
-            , , firstPage,
-            lastPage,
-        ]) => lastPage - firstPage + 1 <= MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES,
-        'document text catalog windows may contain at most ' + MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES + ' pages'),
-        v.check(([
-            , , , lastPage,
-            pageCount,
-        ]) => pageCount >= lastPage, 'pageCount must be greater than or equal to lastPage'),
+        v.check(([, , firstPage, lastPage]) => lastPage >= firstPage, 'lastPage must be greater than or equal to firstPage'),
+        v.check(
+            ([, , firstPage, lastPage]) => lastPage - firstPage + 1 <= MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES,
+            'document text catalog windows may contain at most ' + MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES + ' pages',
+        ),
+        v.check(([, , , lastPage, pageCount]) => pageCount >= lastPage, 'pageCount must be greater than or equal to lastPage'),
     ),
     v.pipe(
         v.strictTuple([
@@ -365,15 +287,11 @@ const resolveDocumentTextCatalogWindowArgs = v.union([
             v.undefined(),
             requestIdSchema('resolveDocumentTextCatalogWindow.requestId'),
         ]),
-        v.check(([
-            , , firstPage,
-            lastPage,
-        ]) => lastPage >= firstPage, 'lastPage must be greater than or equal to firstPage'),
-        v.check(([
-            , , firstPage,
-            lastPage,
-        ]) => lastPage - firstPage + 1 <= MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES,
-        'document text catalog windows may contain at most ' + MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES + ' pages'),
+        v.check(([, , firstPage, lastPage]) => lastPage >= firstPage, 'lastPage must be greater than or equal to firstPage'),
+        v.check(
+            ([, , firstPage, lastPage]) => lastPage - firstPage + 1 <= MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES,
+            'document text catalog windows may contain at most ' + MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES + ' pages',
+        ),
     ),
     v.pipe(
         v.strictTuple([
@@ -384,19 +302,12 @@ const resolveDocumentTextCatalogWindowArgs = v.union([
             pageCountSchema,
             requestIdSchema('resolveDocumentTextCatalogWindow.requestId'),
         ]),
-        v.check(([
-            , , firstPage,
-            lastPage,
-        ]) => lastPage >= firstPage, 'lastPage must be greater than or equal to firstPage'),
-        v.check(([
-            , , firstPage,
-            lastPage,
-        ]) => lastPage - firstPage + 1 <= MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES,
-        'document text catalog windows may contain at most ' + MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES + ' pages'),
-        v.check(([
-            , , , lastPage,
-            pageCount,
-        ]) => pageCount >= lastPage, 'pageCount must be greater than or equal to lastPage'),
+        v.check(([, , firstPage, lastPage]) => lastPage >= firstPage, 'lastPage must be greater than or equal to firstPage'),
+        v.check(
+            ([, , firstPage, lastPage]) => lastPage - firstPage + 1 <= MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES,
+            'document text catalog windows may contain at most ' + MAX_DOCUMENT_TEXT_CATALOG_WINDOW_PAGES + ' pages',
+        ),
+        v.check(([, , , lastPage, pageCount]) => pageCount >= lastPage, 'pageCount must be greater than or equal to lastPage'),
     ),
 ]);
 const resolveDocumentOcrAvailabilityArgs = v.strictTuple([
@@ -414,14 +325,7 @@ function defineOcrMethod<
     const TChannel extends string,
     const TArgs extends TPlatformFeatureSchema<unknown[]>,
     const TResult extends TPlatformResultSpec,
->(definition: {
-    name: TName;
-    channel: TChannel;
-    args: TArgs;
-    result: TResult;
-    timeout?: boolean;
-    optionalWhenImplemented?: boolean;
-}) {
+>(definition: {name: TName; channel: TChannel; args: TArgs; result: TResult; timeout?: boolean; optionalWhenImplemented?: boolean}) {
     return {
         kind: 'async',
         channel: definition.channel,
@@ -434,17 +338,15 @@ function defineOcrMethod<
             method: definition.name,
             context: 'sender',
         },
-        browser: definition.optionalWhenImplemented
-            ? OMITTED_BROWSER_METHOD
-            : {method: definition.name},
+        browser: definition.optionalWhenImplemented ? OMITTED_BROWSER_METHOD : {method: definition.name},
         ...(definition.optionalWhenImplemented
             ? {
-                optionalWhenImplemented: true,
-                required: {
-                    browser: false,
-                    electron: false,
-                },
-            }
+                  optionalWhenImplemented: true,
+                  required: {
+                      browser: false,
+                      electron: false,
+                  },
+              }
             : {}),
         lazy: 'forwarded',
     } as const;
@@ -459,10 +361,7 @@ const progressReplay = {
     owner: 'ipc-progress-pump',
     mode: 'latest-per-key',
     key: (payload: IOcrProgress) => payload.requestId,
-    terminal: (payload: IOcrProgress) =>
-        payload.status === 'success'
-        || payload.status === 'canceled'
-        || payload.status === 'failed',
+    terminal: (payload: IOcrProgress) => payload.status === 'success' || payload.status === 'canceled' || payload.status === 'failed',
     intervalMs: 50,
     terminalRetentionMs: 30_000,
 } as const;
@@ -560,8 +459,6 @@ export const OCR_PLATFORM_FEATURE = definePlatformFeature({
 type TOcrFeatureCapability = TFeatureCapability<typeof OCR_PLATFORM_FEATURE>;
 type TOcrHotReloadMethod = 'resolveDocumentOcrAvailability' | 'resolveDocumentOcrPage';
 
-export type IOcrCapability =
-    Omit<TOcrFeatureCapability, TOcrHotReloadMethod>
-    & Partial<Pick<TOcrFeatureCapability, TOcrHotReloadMethod>>;
+export type IOcrCapability = Omit<TOcrFeatureCapability, TOcrHotReloadMethod> & Partial<Pick<TOcrFeatureCapability, TOcrHotReloadMethod>>;
 export type IOcrInvokeMap = TFeatureInvokeMap<typeof OCR_PLATFORM_FEATURE>;
 export type IOcrEventMap = TFeatureEventMap<typeof OCR_PLATFORM_FEATURE>;

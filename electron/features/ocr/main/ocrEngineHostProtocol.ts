@@ -1,8 +1,5 @@
 import * as v from 'valibot';
-import {
-    BROWSER_OCR_ENGINE_MAX_STDERR_CHARACTERS,
-    BROWSER_OCR_ENGINE_RESULT_SCHEMA,
-} from '@contracts/browserOcrEngine';
+import {BROWSER_OCR_ENGINE_MAX_STDERR_CHARACTERS, BROWSER_OCR_ENGINE_RESULT_SCHEMA} from '@contracts/browserOcrEngine';
 import type {IOcrEngineRequest} from '@ocr-core/tesseractEngine';
 import type {IOcrEngineWorkerData} from '@electron/features/ocr/main/ocrEngineWorker';
 
@@ -22,15 +19,17 @@ export function isOcrEngineImageFile(value: unknown): value is IOcrEngineImageFi
         return false;
     }
     const candidate = value as Partial<IOcrEngineImageFile>;
-    return candidate.kind === 'file'
-        && typeof candidate.path === 'string'
-        && candidate.path.length > 0
-        && typeof candidate.width === 'number'
-        && Number.isSafeInteger(candidate.width)
-        && candidate.width > 0
-        && typeof candidate.height === 'number'
-        && Number.isSafeInteger(candidate.height)
-        && candidate.height > 0;
+    return (
+        candidate.kind === 'file' &&
+        typeof candidate.path === 'string' &&
+        candidate.path.length > 0 &&
+        typeof candidate.width === 'number' &&
+        Number.isSafeInteger(candidate.width) &&
+        candidate.width > 0 &&
+        typeof candidate.height === 'number' &&
+        Number.isSafeInteger(candidate.height) &&
+        candidate.height > 0
+    );
 }
 
 /** One page's passes, sent to an engine lane. */
@@ -45,20 +44,20 @@ export interface IOcrEngineLaneRequest {
  */
 export type TOcrEngineHostRequest =
     | {
-        type: 'start';
-        lane: number;
-        workerPath: string;
-        workerData: IOcrEngineWorkerData;
-    }
+          type: 'start';
+          lane: number;
+          workerPath: string;
+          workerData: IOcrEngineWorkerData;
+      }
     | {
-        type: 'run';
-        lane: number;
-        message: IOcrEngineLaneRequest;
-    }
+          type: 'run';
+          lane: number;
+          message: IOcrEngineLaneRequest;
+      }
     | {
-        type: 'end';
-        lane: number;
-    }
+          type: 'end';
+          lane: number;
+      }
     | {type: 'shutdown'};
 
 const laneSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
@@ -93,7 +92,7 @@ const hostRequestSchema = v.variant('type', [
         lane: laneSchema,
         message: v.object({
             id: laneSchema,
-            request: v.custom<TDesktopOcrEngineRequest>(value => {
+            request: v.custom<TDesktopOcrEngineRequest>((value) => {
                 if (typeof value !== 'object' || value === null) {
                     return false;
                 }

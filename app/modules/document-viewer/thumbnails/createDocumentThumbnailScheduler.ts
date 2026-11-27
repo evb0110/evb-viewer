@@ -1,4 +1,4 @@
-import { isAbortError } from '@contracts/isAbortError';
+import {isAbortError} from '@contracts/isAbortError';
 import type {
     IDocumentPageRenderRequest,
     IDocumentRenderLease,
@@ -36,7 +36,9 @@ interface IDocumentThumbnailSchedulerOptions {
     onError?: ((error: unknown, demand: IDocumentThumbnailDemand) => void) | undefined;
 }
 
-interface IReleaseOnce {release: () => void;}
+interface IReleaseOnce {
+    release: () => void;
+}
 
 interface ICommittedEntry extends IDocumentThumbnailCommittedState {
     lease: IDocumentRenderLease;
@@ -53,13 +55,15 @@ const DEFAULT_DOCUMENT_THUMBNAIL_RENDER_TIMEOUT_MS = 30_000;
 
 function createReleaseOnce(lease: IDocumentRenderLease): IReleaseOnce {
     let released = false;
-    return {release() {
-        if (released) {
-            return;
-        }
-        released = true;
-        lease.release();
-    }};
+    return {
+        release() {
+            if (released) {
+                return;
+            }
+            released = true;
+            lease.release();
+        },
+    };
 }
 
 function normalizeDemand(demand: IDocumentThumbnailDemand): IDocumentThumbnailDemand {
@@ -87,10 +91,7 @@ function isCommittedDemandSatisfied(entry: ICommittedEntry, demand: IDocumentThu
 
 export function createDocumentThumbnailScheduler(options: IDocumentThumbnailSchedulerOptions) {
     const maxConcurrency = Math.max(1, Math.trunc(options.maxConcurrency));
-    const renderTimeoutMs = Math.max(
-        0,
-        Math.trunc(options.renderTimeoutMs ?? DEFAULT_DOCUMENT_THUMBNAIL_RENDER_TIMEOUT_MS),
-    );
+    const renderTimeoutMs = Math.max(0, Math.trunc(options.renderTimeoutMs ?? DEFAULT_DOCUMENT_THUMBNAIL_RENDER_TIMEOUT_MS));
     const active = new Map<number, IActiveEntry>();
     const committed = new Map<number, ICommittedEntry>();
     const desired = new Map<number, IDocumentThumbnailDemand>();
@@ -103,7 +104,9 @@ export function createDocumentThumbnailScheduler(options: IDocumentThumbnailSche
         if (activeCount !== 0 || queued.size !== 0) {
             return;
         }
-        for (const resolve of idleWaiters) {resolve();}
+        for (const resolve of idleWaiters) {
+            resolve();
+        }
         idleWaiters.clear();
     }
 
@@ -131,21 +134,19 @@ export function createDocumentThumbnailScheduler(options: IDocumentThumbnailSche
         }
         queued.set(demand.pageNumber, demand);
         const inFlight = active.get(demand.pageNumber);
-        if (inFlight && inFlight.key !== demandKey(demand)) {inFlight.controller.abort();}
+        if (inFlight && inFlight.key !== demandKey(demand)) {
+            inFlight.controller.abort();
+        }
     }
 
     function nextQueuedDemand() {
         let next: IDocumentThumbnailDemand | null = null;
         for (const demand of queued.values()) {
             if (
-                !next
-                || demand.rank < next.rank
-                || (demand.rank === next.rank && demand.distance < next.distance)
-                || (
-                    demand.rank === next.rank
-                    && demand.distance === next.distance
-                    && demand.pageNumber < next.pageNumber
-                )
+                !next ||
+                demand.rank < next.rank ||
+                (demand.rank === next.rank && demand.distance < next.distance) ||
+                (demand.rank === next.rank && demand.distance === next.distance && demand.pageNumber < next.pageNumber)
             ) {
                 next = demand;
             }
@@ -188,11 +189,14 @@ export function createDocumentThumbnailScheduler(options: IDocumentThumbnailSche
                 priority: demand.priority,
                 signal: controller.signal,
             });
-            void renderPromise.then((lease) => {
-                if (renderTimedOut) {
-                    lease.release();
-                }
-            }, () => undefined);
+            void renderPromise.then(
+                (lease) => {
+                    if (renderTimedOut) {
+                        lease.release();
+                    }
+                },
+                () => undefined,
+            );
             const timeoutPromise = new Promise<never>((_resolve, reject) => {
                 renderTimer = setTimeout(() => {
                     renderTimedOut = true;
@@ -201,10 +205,7 @@ export function createDocumentThumbnailScheduler(options: IDocumentThumbnailSche
                     controller.abort(error);
                 }, renderTimeoutMs);
             });
-            const lease = await Promise.race([
-                renderPromise,
-                timeoutPromise,
-            ]);
+            const lease = await Promise.race([renderPromise, timeoutPromise]);
             pendingLease = {
                 lease,
                 releaseOnce: createReleaseOnce(lease),
@@ -213,11 +214,7 @@ export function createDocumentThumbnailScheduler(options: IDocumentThumbnailSche
             await options.prepareSurface(lease, controller.signal);
             controller.signal.throwIfAborted();
             const latestDemand = desired.get(pageNumber);
-            if (
-                disposed
-                || !latestDemand
-                || demandKey(latestDemand) !== key
-            ) {
+            if (disposed || !latestDemand || demandKey(latestDemand) !== key) {
                 return;
             }
 
@@ -251,22 +248,31 @@ export function createDocumentThumbnailScheduler(options: IDocumentThumbnailSche
                 previous.releaseOnce.release();
             }
         } catch (error) {
-            if (renderTimedOut && controller.signal.reason === error) {options.onError?.(error, demand);}
-            else if (!controller.signal.aborted && isAbortError(error)) {
+            if (renderTimedOut && controller.signal.reason === error) {
+                options.onError?.(error, demand);
+            } else if (!controller.signal.aborted && isAbortError(error)) {
                 // The source refused the page, as a closing document does;
                 // asking again at once would spin, so the next reconcile asks.
-                if (desired.get(pageNumber) === demand) {desired.delete(pageNumber);}
-            } else if (!controller.signal.aborted) {options.onError?.(error, demand);}
+                if (desired.get(pageNumber) === demand) {
+                    desired.delete(pageNumber);
+                }
+            } else if (!controller.signal.aborted) {
+                options.onError?.(error, demand);
+            }
         } finally {
             if (renderTimer !== null) {
                 clearTimeout(renderTimer);
                 renderTimer = null;
             }
             pendingLease?.releaseOnce.release();
-            if (active.get(pageNumber) === activeEntry) {active.delete(pageNumber);}
+            if (active.get(pageNumber) === activeEntry) {
+                active.delete(pageNumber);
+            }
             activeCount -= 1;
             const latestDemand = desired.get(pageNumber);
-            if (latestDemand) {enqueueIfNeeded(latestDemand);}
+            if (latestDemand) {
+                enqueueIfNeeded(latestDemand);
+            }
             pumpQueue();
             notifyIdle();
         }
@@ -278,13 +284,21 @@ export function createDocumentThumbnailScheduler(options: IDocumentThumbnailSche
         }
         while (activeCount < maxConcurrency && queued.size > 0) {
             const demand = nextQueuedDemand();
-            if (!demand) {break;}
+            if (!demand) {
+                break;
+            }
             queued.delete(demand.pageNumber);
-            if (active.has(demand.pageNumber)) {continue;}
+            if (active.has(demand.pageNumber)) {
+                continue;
+            }
             const latest = desired.get(demand.pageNumber);
-            if (!latest || demandKey(latest) !== demandKey(demand)) {continue;}
+            if (!latest || demandKey(latest) !== demandKey(demand)) {
+                continue;
+            }
             const existing = committed.get(demand.pageNumber);
-            if (existing && isCommittedDemandSatisfied(existing, latest)) {continue;}
+            if (existing && isCommittedDemandSatisfied(existing, latest)) {
+                continue;
+            }
             void startRender(latest);
         }
         notifyIdle();
@@ -294,43 +308,44 @@ export function createDocumentThumbnailScheduler(options: IDocumentThumbnailSche
         if (disposed) {
             return;
         }
-        const normalized = new Map(nextDemands.map((demand) => {
-            const value = normalizeDemand(demand);
-            return [
-                value.pageNumber,
-                value,
-            ] as const;
-        }));
+        const normalized = new Map(
+            nextDemands.map((demand) => {
+                const value = normalizeDemand(demand);
+                return [value.pageNumber, value] as const;
+            }),
+        );
         desired.clear();
         normalized.forEach((demand, pageNumber) => desired.set(pageNumber, demand));
 
         for (const pageNumber of [...queued.keys()]) {
-            if (!desired.has(pageNumber)) {queued.delete(pageNumber);}
+            if (!desired.has(pageNumber)) {
+                queued.delete(pageNumber);
+            }
         }
-        for (const [
-            pageNumber,
-            entry,
-        ] of [...active.entries()]) {
-            if (!desired.has(pageNumber)) {entry.controller.abort();}
+        for (const [pageNumber, entry] of [...active.entries()]) {
+            if (!desired.has(pageNumber)) {
+                entry.controller.abort();
+            }
         }
         // Departure cancels work, not completed pixels. The existing surface
         // budget can reclaim demoted entries through their lease invalidation.
         // Promote every visible lease before a new render can admit surfaces.
-        for (const [
-            pageNumber,
-            entry,
-        ] of committed) {
+        for (const [pageNumber, entry] of committed) {
             entry.lease.setPriority?.(desired.get(pageNumber)?.priority ?? 'prefetch');
         }
-        for (const demand of desired.values()) {enqueueIfNeeded(demand);}
+        for (const demand of desired.values()) {
+            enqueueIfNeeded(demand);
+        }
         pumpQueue();
     }
 
     function reset() {
         desired.clear();
         queued.clear();
-        active.forEach(entry => entry.controller.abort());
-        for (const pageNumber of [...committed.keys()]) {releaseCommitted(pageNumber);}
+        active.forEach((entry) => entry.controller.abort());
+        for (const pageNumber of [...committed.keys()]) {
+            releaseCommitted(pageNumber);
+        }
         notifyIdle();
     }
 
@@ -356,7 +371,7 @@ export function createDocumentThumbnailScheduler(options: IDocumentThumbnailSche
             if (activeCount === 0 && queued.size === 0) {
                 return Promise.resolve();
             }
-            return new Promise<void>(resolve => idleWaiters.add(resolve));
+            return new Promise<void>((resolve) => idleWaiters.add(resolve));
         },
     };
 }

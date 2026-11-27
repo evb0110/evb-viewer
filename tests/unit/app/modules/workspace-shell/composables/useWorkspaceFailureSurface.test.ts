@@ -1,35 +1,22 @@
-import {
-    afterAll,
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
-import { requirePageNumber } from '@contracts/pageNumbers';
+import {afterAll, afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import type {IAnnotationCreationFailureReport} from '@app/modules/pdf-viewer/public';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { SerializableError } from '@contracts/serializableError';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {SerializableError} from '@contracts/serializableError';
 import {formatFailurePresentationCopy} from '@app/composables/useFailureToast';
-import { toastDescriptionContaining } from '@tests/helpers/toastDescription';
+import {toastDescriptionContaining} from '@tests/helpers/toastDescription';
 import {formatTranslationLeaf} from '@i18n-core';
 import {LOCALE_CODES} from '@i18n-core/localeCodes';
 import {LOCALE_MESSAGES} from '@i18n-app';
 import * as v from 'valibot';
-import {
-    documentSaveResult,
-    nativeSaveResult,
-} from '@contracts/documentsPlatformFeatureSchemas';
+import {documentSaveResult, nativeSaveResult} from '@contracts/documentsPlatformFeatureSchemas';
 
 const toastAddMock = vi.fn();
 vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
 vi.stubGlobal('useToast', () => ({add: toastAddMock}));
 
-const { useWorkspaceFailureSurface } = await import(
-    '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface'
-);
+const {useWorkspaceFailureSurface} = await import('@app/modules/workspace-shell/composables/useWorkspaceFailureSurface');
 
 function expectedAnnotationReport(
     operationId: string,
@@ -42,11 +29,10 @@ function expectedAnnotationReport(
         reason,
         outcome: {
             kind: 'expected',
-            code: reason === 'selection-spans-pages'
-                || reason === 'no-selection'
-                || reason === 'selection-not-in-text-layer'
-                ? 'validation-rejected'
-                : 'temporarily-unavailable',
+            code:
+                reason === 'selection-spans-pages' || reason === 'no-selection' || reason === 'selection-not-in-text-layer'
+                    ? 'validation-rejected'
+                    : 'temporarily-unavailable',
         },
     };
 }
@@ -81,7 +67,9 @@ describe('useWorkspaceFailureSurface', () => {
 
         expect(capture).toHaveBeenCalledOnce();
         expect(surface.saveFailurePresentation.value?.failure).toBe(receipt);
-        expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({description: toastDescriptionContaining('errors.runtime.errorId: receipt')}));
+        expect(toastAddMock).toHaveBeenCalledWith(
+            expect.objectContaining({description: toastDescriptionContaining('errors.runtime.errorId: receipt')}),
+        );
     });
 
     it('keeps the note cause, receipt and retry when Save encounters the same rejected draft', () => {
@@ -104,11 +92,7 @@ describe('useWorkspaceFailureSurface', () => {
         expect(new Set(toastAddMock.mock.calls.map(([toast]) => toast.id)).size).toBe(1);
     });
 
-    it.each([
-        '',
-        '   ',
-        new Error(''),
-    ])('provides a truthful reason for an empty note failure cause %s', cause => {
+    it.each(['', '   ', new Error('')])('provides a truthful reason for an empty note failure cause %s', (cause) => {
         const note = useWorkspaceFailureSurface().reportNoteFailure({cause});
         expect(formatFailurePresentationCopy(note)).toContain('errors.annotation.noteUpdateRejected');
     });
@@ -119,10 +103,7 @@ describe('useWorkspaceFailureSurface', () => {
         expect(formatFailurePresentationCopy(note)).not.toContain('errors.annotation.noteUpdateRejected');
     });
 
-    it.each([
-        '',
-        '   ',
-    ])('provides a visible title for an empty note operation message %s', message => {
+    it.each(['', '   '])('provides a visible title for an empty note operation message %s', (message) => {
         const note = useWorkspaceFailureSurface().reportNoteFailure({message});
         expect(note.title).toBe('errors.annotation.updateNote');
     });
@@ -134,11 +115,13 @@ describe('useWorkspaceFailureSurface', () => {
         expect(surface.reportSaveFailure('save-1', 'persist-rejected')).toBe(false);
 
         expect(toastAddMock).toHaveBeenCalledOnce();
-        expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
-            color: 'error',
-            title: 'errors.file.save',
-            description: toastDescriptionContaining('errors.save.validation'),
-        }));
+        expect(toastAddMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                color: 'error',
+                title: 'errors.file.save',
+                description: toastDescriptionContaining('errors.save.validation'),
+            }),
+        );
         expect(surface.hasSaveFailure.value).toBe(true);
     });
 
@@ -185,31 +168,18 @@ describe('useWorkspaceFailureSurface', () => {
 
         expect(surface.reportSaveFailure('save-1', 'document-changed')).toBe(true);
 
-        expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({description: toastDescriptionContaining('errors.save.documentChanged')}));
+        expect(toastAddMock).toHaveBeenCalledWith(
+            expect.objectContaining({description: toastDescriptionContaining('errors.save.documentChanged')}),
+        );
         expect(surface.hasSaveFailure.value).toBe(false);
     });
 
     it.each([
-        [
-            'EACCES: permission denied',
-            'errors.save.permissionDenied',
-        ],
-        [
-            'EBUSY: resource busy or locked, rename source.pdf -> source.pdf.bak',
-            'errors.save.fileBusy',
-        ],
-        [
-            'The original file cannot be read: ENOENT: no such file or directory',
-            'errors.save.originalUnreadable',
-        ],
-        [
-            'The original file cannot be read: EBUSY: resource busy or locked',
-            'errors.save.fileBusy',
-        ],
-        [
-            'The original file cannot be read: EACCES: permission denied',
-            'errors.save.permissionDenied',
-        ],
+        ['EACCES: permission denied', 'errors.save.permissionDenied'],
+        ['EBUSY: resource busy or locked, rename source.pdf -> source.pdf.bak', 'errors.save.fileBusy'],
+        ['The original file cannot be read: ENOENT: no such file or directory', 'errors.save.originalUnreadable'],
+        ['The original file cannot be read: EBUSY: resource busy or locked', 'errors.save.fileBusy'],
+        ['The original file cannot be read: EACCES: permission denied', 'errors.save.permissionDenied'],
     ])('keeps the native bridge receipt and cause for %s in the save presentation', (message, description) => {
         const receipt = {
             code: 'UNCLASSIFIED_RENDERER_ERROR',
@@ -235,86 +205,101 @@ describe('useWorkspaceFailureSurface', () => {
         expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({id: receipt.eventId}));
     });
 
-    it.each([
-        'structured',
-        'native',
-    ] as const)('names a changed original from the decoded %s save result and offers Save As', channel => {
-        const result = channel === 'structured'
-            ? v.parse(documentSaveResult, {
-                ok: false,
-                reason: 'original-changed',
-                externalWriteCommitted: false,
-            })
-            : v.parse(nativeSaveResult, {
-                applied: false,
-                reason: 'original-changed',
-                validation: null,
-            });
-        if (!('reason' in result) || !result.reason) {throw new Error('The save refusal lost its reason');}
+    it.each(['structured', 'native'] as const)('names a changed original from the decoded %s save result and offers Save As', (channel) => {
+        const result =
+            channel === 'structured'
+                ? v.parse(documentSaveResult, {
+                      ok: false,
+                      reason: 'original-changed',
+                      externalWriteCommitted: false,
+                  })
+                : v.parse(nativeSaveResult, {
+                      applied: false,
+                      reason: 'original-changed',
+                      validation: null,
+                  });
+        if (!('reason' in result) || !result.reason) {
+            throw new Error('The save refusal lost its reason');
+        }
         const surface = useWorkspaceFailureSurface();
         let destination = '';
-        surface.reportSaveFailure('changed-original', 'persist-rejected', undefined, undefined, {
-            channel,
-            operation: 'persist',
-            phase: 'publish-original',
-            reason: result.reason,
-        }, () => {destination = 'saved-as.pdf';});
+        surface.reportSaveFailure(
+            'changed-original',
+            'persist-rejected',
+            undefined,
+            undefined,
+            {
+                channel,
+                operation: 'persist',
+                phase: 'publish-original',
+                reason: result.reason,
+            },
+            () => {
+                destination = 'saved-as.pdf';
+            },
+        );
 
         expect(surface.saveFailurePresentation.value?.description).toBe('errors.save.originalChanged');
         const toast = toastAddMock.mock.calls[0]?.[0];
-        expect(toast.actions.map((action: {label: string}) => action.label)).toEqual([
-            'toolbar.saveAs',
-            'errors.runtime.copy',
-        ]);
+        expect(toast.actions.map((action: {label: string}) => action.label)).toEqual(['toolbar.saveAs', 'errors.runtime.copy']);
         toast.actions[0].onClick();
         expect(destination).toBe('saved-as.pdf');
         expect(surface.hasSaveFailure.value).toBe(true);
     });
 
-    it.each([
-        'structured',
-        'native',
-    ] as const)('identifies a retained revision without misnaming it after a late %s conflict', channel => {
-        const keptFilePath = '/documents/report (original).pdf';
-        const message = `The original changed elsewhere. A version was kept at ${keptFilePath}.`;
-        const result = channel === 'structured'
-            ? v.parse(documentSaveResult, {
-                ok: false,
-                reason: 'original-changed',
-                externalWriteCommitted: true,
-                keptFilePath,
-                message,
-            })
-            : v.parse(nativeSaveResult, {
-                applied: false,
-                reason: 'original-changed',
-                validation: null,
-                keptFilePath,
-            });
-        if (!('reason' in result) || !result.reason || !('keptFilePath' in result)) {throw new Error('The late conflict lost its kept path');}
-        const surface = useWorkspaceFailureSurface();
-        let destination = '';
-        surface.reportSaveFailure('late-original-change', 'persist-rejected', undefined, undefined, {
-            channel,
-            operation: 'persist',
-            phase: 'publish-original',
-            reason: result.reason,
-            keptFilePath: result.keptFilePath,
-            message,
-        }, () => {destination = 'saved-as.pdf';});
+    it.each(['structured', 'native'] as const)(
+        'identifies a retained revision without misnaming it after a late %s conflict',
+        (channel) => {
+            const keptFilePath = '/documents/report (original).pdf';
+            const message = `The original changed elsewhere. A version was kept at ${keptFilePath}.`;
+            const result =
+                channel === 'structured'
+                    ? v.parse(documentSaveResult, {
+                          ok: false,
+                          reason: 'original-changed',
+                          externalWriteCommitted: true,
+                          keptFilePath,
+                          message,
+                      })
+                    : v.parse(nativeSaveResult, {
+                          applied: false,
+                          reason: 'original-changed',
+                          validation: null,
+                          keptFilePath,
+                      });
+            if (!('reason' in result) || !result.reason || !('keptFilePath' in result)) {
+                throw new Error('The late conflict lost its kept path');
+            }
+            const surface = useWorkspaceFailureSurface();
+            let destination = '';
+            surface.reportSaveFailure(
+                'late-original-change',
+                'persist-rejected',
+                undefined,
+                undefined,
+                {
+                    channel,
+                    operation: 'persist',
+                    phase: 'publish-original',
+                    reason: result.reason,
+                    keptFilePath: result.keptFilePath,
+                    message,
+                },
+                () => {
+                    destination = 'saved-as.pdf';
+                },
+            );
 
-        const description = `errors.file.originalSavedOtherKept:${JSON.stringify({path: keptFilePath})}`;
-        expect(surface.saveFailurePresentation.value?.description).toBe(description);
-        const toast = toastAddMock.mock.calls[0]?.[0];
-        expect(toast.description).toEqual(toastDescriptionContaining(description));
-        expect(toast.actions.map((action: {label: string}) => action.label)).toEqual([
-            'toolbar.saveAs',
-            'errors.runtime.copy',
-        ]);
-        toast.actions[0].onClick();
-        expect(destination).toBe('saved-as.pdf');
-        expect(formatFailurePresentationCopy(surface.saveFailurePresentation.value!)).toContain(keptFilePath);
-    });
+            const description = `errors.file.originalSavedOtherKept:${JSON.stringify({path: keptFilePath})}`;
+            expect(surface.saveFailurePresentation.value?.description).toBe(description);
+            const toast = toastAddMock.mock.calls[0]?.[0];
+            expect(toast.description).toEqual(toastDescriptionContaining(description));
+            expect(toast.actions.map((action: {label: string}) => action.label)).toEqual(['toolbar.saveAs', 'errors.runtime.copy']);
+            toast.actions[0].onClick();
+            expect(destination).toBe('saved-as.pdf');
+            expect(formatFailurePresentationCopy(surface.saveFailurePresentation.value!)).toContain(keptFilePath);
+        },
+    );
 
     it('names a PDF whose opened bytes are gone from the decoded native refusal, without a Save As that would meet it again', () => {
         const result = v.parse(nativeSaveResult, {
@@ -323,22 +308,31 @@ describe('useWorkspaceFailureSurface', () => {
             validation: null,
             error: {code: 'native-failure', message: 'The document as it was opened is no longer available'},
         });
-        if (!result.reason) {throw new Error('The save refusal lost its reason');}
+        if (!result.reason) {
+            throw new Error('The save refusal lost its reason');
+        }
         const surface = useWorkspaceFailureSurface();
-        surface.reportSaveFailure('opened-version-gone', 'persist-rejected', undefined, undefined, {
-            channel: 'native',
-            operation: 'persist',
-            phase: 'mutation',
-            reason: result.reason,
-            ...(result.error ? {message: result.error.message, cause: result.error} : {}),
-        }, () => undefined);
+        surface.reportSaveFailure(
+            'opened-version-gone',
+            'persist-rejected',
+            undefined,
+            undefined,
+            {
+                channel: 'native',
+                operation: 'persist',
+                phase: 'mutation',
+                reason: result.reason,
+                ...(result.error ? {message: result.error.message, cause: result.error} : {}),
+            },
+            () => undefined,
+        );
 
         expect(surface.saveFailurePresentation.value?.description).toBe('errors.save.openedVersionUnavailable');
         const toast = toastAddMock.mock.calls[0]?.[0];
         expect(toast.actions.map((action: {label: string}) => action.label)).toEqual(['errors.runtime.copy']);
     });
 
-    it.each(LOCALE_CODES)('tells where the earlier file was kept and how to keep the changes in %s', locale => {
+    it.each(LOCALE_CODES)('tells where the earlier file was kept and how to keep the changes in %s', (locale) => {
         const keptFilePath = '/documents/report (original).pdf';
         const messages = LOCALE_MESSAGES[locale];
         const text = formatTranslationLeaf(messages.errors.file.originalSavedOtherKept, {path: keptFilePath}, locale);
@@ -350,47 +344,50 @@ describe('useWorkspaceFailureSurface', () => {
     it.each([
         [
             'folder cannot be written',
-            'EACCES: permission denied, link \'/documents/.0f1e2d3c4b5a6978.tmp\' -> \'/documents/report.pdf\'',
+            "EACCES: permission denied, link '/documents/.0f1e2d3c4b5a6978.tmp' -> '/documents/report.pdf'",
             'errors.save.permissionDenied',
         ],
         [
             'PDF is read-only or locked',
-            'The PDF is read-only or locked: EPERM: operation not permitted, rename \'/documents/.0f1e2d3c4b5a6978.tmp\' -> \'/documents/report.pdf\'',
+            "The PDF is read-only or locked: EPERM: operation not permitted, rename '/documents/.0f1e2d3c4b5a6978.tmp' -> '/documents/report.pdf'",
             'errors.save.fileReadOnly',
         ],
         [
             'file is in use by another program',
-            'EBUSY: resource busy or locked, rename \'/documents/report.pdf.bak\' -> \'/documents/report.pdf\'',
+            "EBUSY: resource busy or locked, rename '/documents/report.pdf.bak' -> '/documents/report.pdf'",
             'errors.save.fileBusy',
         ],
     ])('says the %s and offers Save As', (_case, message, description) => {
         const surface = useWorkspaceFailureSurface();
         let destination = '';
-        surface.reportSaveFailure('refused-write', 'persist-rejected', undefined, undefined, {
-            channel: 'native',
-            operation: 'mutation',
-            phase: 'stage-working-copy',
-            reason: 'write-failed',
-            message,
-            cause: new Error(message),
-        }, () => {destination = 'saved-as.pdf';});
+        surface.reportSaveFailure(
+            'refused-write',
+            'persist-rejected',
+            undefined,
+            undefined,
+            {
+                channel: 'native',
+                operation: 'mutation',
+                phase: 'stage-working-copy',
+                reason: 'write-failed',
+                message,
+                cause: new Error(message),
+            },
+            () => {
+                destination = 'saved-as.pdf';
+            },
+        );
 
         expect(surface.saveFailurePresentation.value?.description).toBe(description);
         const toast = toastAddMock.mock.calls[0]?.[0];
-        expect(toast.actions.map((action: {label: string}) => action.label)).toEqual([
-            'toolbar.saveAs',
-            'errors.runtime.copy',
-        ]);
+        expect(toast.actions.map((action: {label: string}) => action.label)).toEqual(['toolbar.saveAs', 'errors.runtime.copy']);
         toast.actions[0].onClick();
         expect(destination).toBe('saved-as.pdf');
     });
 
-    it.each(LOCALE_CODES)('says whether the folder or the PDF refused the write and names Save As in %s', locale => {
+    it.each(LOCALE_CODES)('says whether the folder or the PDF refused the write and names Save As in %s', (locale) => {
         const messages = LOCALE_MESSAGES[locale];
-        for (const leaf of [
-            messages.errors.save.permissionDenied,
-            messages.errors.save.fileReadOnly,
-        ]) {
+        for (const leaf of [messages.errors.save.permissionDenied, messages.errors.save.fileReadOnly]) {
             const text = formatTranslationLeaf(leaf, {}, locale);
             expect(text).toContain(messages.toolbar.saveAs.replace(/(?:…|\.\.\.)$/u, ''));
             expect(text).not.toMatch(/\{\w+\}/u);
@@ -411,30 +408,12 @@ describe('useWorkspaceFailureSurface', () => {
     });
 
     it.each([
-        [
-            'mutations.shapes.shapes[0].stableKey must contain at most 2048 UTF-8 bytes',
-            true,
-        ],
-        [
-            'mutations.textBoxes.editors[0].stableKey must contain at most 512 UTF-8 bytes',
-            true,
-        ],
-        [
-            'mutations.markup.annotations[0].annotationId must contain at most 2048 UTF-8 bytes',
-            true,
-        ],
-        [
-            'mutations.notes.deletedStableKeys[0] must be a string with at most 2048 UTF-8 bytes',
-            true,
-        ],
-        [
-            'mutations.textBoxes.editors[0].text exceeds the 64 KiB UTF-8 admission ceiling',
-            false,
-        ],
-        [
-            'mutations.shapes.shapes[0].stableKey must be a non-empty string',
-            false,
-        ],
+        ['mutations.shapes.shapes[0].stableKey must contain at most 2048 UTF-8 bytes', true],
+        ['mutations.textBoxes.editors[0].stableKey must contain at most 512 UTF-8 bytes', true],
+        ['mutations.markup.annotations[0].annotationId must contain at most 2048 UTF-8 bytes', true],
+        ['mutations.notes.deletedStableKeys[0] must be a string with at most 2048 UTF-8 bytes', true],
+        ['mutations.textBoxes.editors[0].text exceeds the 64 KiB UTF-8 admission ceiling', false],
+        ['mutations.shapes.shapes[0].stableKey must be a non-empty string', false],
     ])('explains an identity refusal while retaining its receipt and technical details: %s', (message, identityRefusal) => {
         const surface = useWorkspaceFailureSurface();
         surface.reportSaveFailure('identity-refused', 'persist-rejected', undefined, undefined, {
@@ -446,9 +425,11 @@ describe('useWorkspaceFailureSurface', () => {
             cause: new Error(message),
         });
         const presentation = surface.saveFailurePresentation.value!;
-        expect(presentation.description).toBe(identityRefusal
-            ? `errors.save.annotationIdentityTooLong:${JSON.stringify({limit: message.includes('512') ? '512' : '2048'})}`
-            : 'errors.save.nativeFailure');
+        expect(presentation.description).toBe(
+            identityRefusal
+                ? `errors.save.annotationIdentityTooLong:${JSON.stringify({limit: message.includes('512') ? '512' : '2048'})}`
+                : 'errors.save.nativeFailure',
+        );
         expect(formatFailurePresentationCopy(presentation)).toContain(message);
         expect(surface.hasSaveFailure.value).toBe(true);
         expect(toastAddMock.mock.calls[0]?.[0].description).toEqual(toastDescriptionContaining(presentation.description!));
@@ -457,16 +438,15 @@ describe('useWorkspaceFailureSurface', () => {
     it('keeps a rejected annotation out of the save state', () => {
         const surface = useWorkspaceFailureSurface();
 
-        expect(surface.reportAnnotationFailure(expectedAnnotationReport(
-            'annotation-create-1',
-            'selection-spans-pages',
-        ))).toBe(true);
+        expect(surface.reportAnnotationFailure(expectedAnnotationReport('annotation-create-1', 'selection-spans-pages'))).toBe(true);
 
-        expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
-            color: 'warning',
-            title: 'errors.annotation.create',
-            description: 'errors.annotation.selectionSpansPages',
-        }));
+        expect(toastAddMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                color: 'warning',
+                title: 'errors.annotation.create',
+                description: 'errors.annotation.selectionSpansPages',
+            }),
+        );
         expect(surface.hasSaveFailure.value).toBe(false);
     });
 
@@ -482,18 +462,9 @@ describe('useWorkspaceFailureSurface', () => {
     it('stays silent for annotation reasons that are ordinary no-ops', () => {
         const surface = useWorkspaceFailureSurface();
 
-        expect(surface.reportAnnotationFailure(expectedAnnotationReport(
-            'annotation-create-1',
-            'no-selection',
-        ))).toBe(false);
-        expect(surface.reportAnnotationFailure(expectedAnnotationReport(
-            'annotation-create-2',
-            'editor-unavailable',
-        ))).toBe(false);
-        expect(surface.reportAnnotationFailure(expectedAnnotationReport(
-            'annotation-create-3',
-            'selection-not-in-text-layer',
-        ))).toBe(false);
+        expect(surface.reportAnnotationFailure(expectedAnnotationReport('annotation-create-1', 'no-selection'))).toBe(false);
+        expect(surface.reportAnnotationFailure(expectedAnnotationReport('annotation-create-2', 'editor-unavailable'))).toBe(false);
+        expect(surface.reportAnnotationFailure(expectedAnnotationReport('annotation-create-3', 'selection-not-in-text-layer'))).toBe(false);
 
         expect(toastAddMock).not.toHaveBeenCalled();
     });
@@ -508,20 +479,24 @@ describe('useWorkspaceFailureSurface', () => {
         const capture = vi.spyOn(BrowserLogger, 'error');
         const surface = useWorkspaceFailureSurface();
 
-        expect(surface.reportAnnotationFailure({
-            kind: 'fault',
-            operationId: 'annotation-create-1',
-            pageNumber: requirePageNumber(1),
-            reason: 'mode-switch-failed',
-            failure: receipt,
-        })).toBe(true);
+        expect(
+            surface.reportAnnotationFailure({
+                kind: 'fault',
+                operationId: 'annotation-create-1',
+                pageNumber: requirePageNumber(1),
+                reason: 'mode-switch-failed',
+                failure: receipt,
+            }),
+        ).toBe(true);
 
         expect(capture).not.toHaveBeenCalled();
-        expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
-            color: 'error',
-            title: 'errors.annotation.create',
-            description: toastDescriptionContaining('errors.runtime.errorId: annotati'),
-        }));
+        expect(toastAddMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                color: 'error',
+                title: 'errors.annotation.create',
+                description: toastDescriptionContaining('errors.runtime.errorId: annotati'),
+            }),
+        );
     });
 });
 
@@ -542,10 +517,13 @@ describe('useWorkspaceFailureSurface describing a failed open', () => {
             severity: 'error',
         } as FailureReceipt;
         const capture = vi.spyOn(BrowserLogger, 'error');
-        const error = Object.assign(new SerializableError({
-            code: 'djvu-raster-limit',
-            message: 'DjVu page 1 (10000x8001) exceeds the browser full-resolution raster budget',
-        }), {failure: receipt});
+        const error = Object.assign(
+            new SerializableError({
+                code: 'djvu-raster-limit',
+                message: 'DjVu page 1 (10000x8001) exceeds the browser full-resolution raster budget',
+            }),
+            {failure: receipt},
+        );
 
         expect(useWorkspaceFailureSurface().describeOpenFailure(error)).toEqual({
             failure: receipt,
@@ -558,7 +536,9 @@ describe('useWorkspaceFailureSurface describing a failed open', () => {
     });
 
     it('keeps native tool output out of the explanation of an unexplained failure', () => {
-        const presentation = useWorkspaceFailureSurface().describeOpenFailure(new Error('djvused failed with exit code 1 (DjVuDocEditor.cpp:178)'));
+        const presentation = useWorkspaceFailureSurface().describeOpenFailure(
+            new Error('djvused failed with exit code 1 (DjVuDocEditor.cpp:178)'),
+        );
 
         expect(presentation.description).toBe('errors.file.openDescription');
         expect(presentation.technicalDetails).toBe('djvused failed with exit code 1 (DjVuDocEditor.cpp:178)');
@@ -571,6 +551,6 @@ describe('useWorkspaceFailureSurface describing a failed open', () => {
         );
 
         expect(presentation.description).toBe('errors.file.pdfjsAssetMismatch');
-        expect(presentation.actions?.map(action => action.label)).toEqual(['errors.file.pdfjsAssetRepairAction']);
+        expect(presentation.actions?.map((action) => action.label)).toEqual(['errors.file.pdfjsAssetRepairAction']);
     });
 });

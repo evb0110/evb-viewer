@@ -12,17 +12,10 @@ export {
     DEFAULT_TIFF_DECODE_MAX_FRAMES,
     DEFAULT_TIFF_DECODE_MAX_PIXELS,
 } from '@pdf-core/iterateDecodedTiffFrames';
-export type { IIterateDecodedTiffFramesOptions } from '@pdf-core/iterateDecodedTiffFrames';
-export {
-    extractPdfjsWordBoxesFromOperatorList,
-    getPdfjsPageViewBox,
-} from '@pdf-core/pdfjsTextGeometry';
-export type {
-    IPdfjsOperatorListLike,
-    IPdfjsPageViewBox,
-    TPdfjsTextOps,
-} from '@pdf-core/pdfjsTextGeometry';
-export { collectSearchMatchWords } from '@pdf-core/collectSearchMatchWords';
+export type {IIterateDecodedTiffFramesOptions} from '@pdf-core/iterateDecodedTiffFrames';
+export {extractPdfjsWordBoxesFromOperatorList, getPdfjsPageViewBox} from '@pdf-core/pdfjsTextGeometry';
+export type {IPdfjsOperatorListLike, IPdfjsPageViewBox, TPdfjsTextOps} from '@pdf-core/pdfjsTextGeometry';
+export {collectSearchMatchWords} from '@pdf-core/collectSearchMatchWords';
 export type {
     INormalizedPdfSearchRequest,
     INormalizedPdfSearchWarmIndexRequest,
@@ -158,14 +151,6 @@ export type {
     IPdfNativeValidationOptions,
     TPdfNativeMutationSetNativeToolPayload,
 } from '@contracts/nativePdfMutations';
-export {
-    buildTiffImageIfd,
-    encodeTiffIfds,
-    getTiffValueCount,
-    measureTiffIfdSize,
-} from '@pdf-core/tiffEncoding';
-export type { ITiffImageDescriptor } from '@pdf-core/tiffEncoding';
-export {
-    normalizePrintPageNumbers,
-    shouldPrintPageMetricsDirectly,
-} from '@pdf-core/printPageSelection';
+export {buildTiffImageIfd, encodeTiffIfds, getTiffValueCount, measureTiffIfdSize} from '@pdf-core/tiffEncoding';
+export type {ITiffImageDescriptor} from '@pdf-core/tiffEncoding';
+export {normalizePrintPageNumbers, shouldPrintPageMetricsDirectly} from '@pdf-core/printPageSelection';

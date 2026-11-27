@@ -1,9 +1,6 @@
-import { statSync } from 'fs';
-import {
-    open as openFileHandle,
-    readFile,
-} from 'fs/promises';
-import { MAX_CHUNK } from '@electron/config/constants';
+import {statSync} from 'fs';
+import {open as openFileHandle, readFile} from 'fs/promises';
+import {MAX_CHUNK} from '@electron/config/constants';
 import type {IFileStatResult} from '@contracts/electronApiDocuments';
 import {requireEpochMs} from '@contracts/timestamps';
 import {
@@ -17,11 +14,11 @@ import {
     assertWithinIpcReadBudget,
     resolveExistingReadableDocumentOrImagePath,
 } from '@electron/features/documents/main/documentFilePathResolution';
-import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsContexts';
+import type {IDocumentsSenderIdContext} from '@electron/features/documents/documentsContexts';
 import {quarantineWorkingCopy} from '@electron/file-access/workingCopyQuarantine';
 import {registerMainOperation} from '@electron/operation-lifecycle/mainOperationLifecycle';
 import {abortErrorFromSignal} from '@electron/utils/abort';
-import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
+import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 
 const RANGE_READ_GLOBAL_IN_FLIGHT_BYTES = 32 * 1024 * 1024;
 const RANGE_READ_PER_DOCUMENT_IN_FLIGHT_BYTES = 8 * 1024 * 1024;
@@ -43,8 +40,10 @@ function getRangeReadCacheKey(filePath: string) {
 
 function canReserveRangeRead(path: string, bytes: number) {
     const cacheKey = getRangeReadCacheKey(path);
-    return rangeReadGlobalBytes + bytes <= RANGE_READ_GLOBAL_IN_FLIGHT_BYTES
-        && (rangeReadBytesByPath.get(cacheKey) ?? 0) + bytes <= RANGE_READ_PER_DOCUMENT_IN_FLIGHT_BYTES;
+    return (
+        rangeReadGlobalBytes + bytes <= RANGE_READ_GLOBAL_IN_FLIGHT_BYTES &&
+        (rangeReadBytesByPath.get(cacheKey) ?? 0) + bytes <= RANGE_READ_PER_DOCUMENT_IN_FLIGHT_BYTES
+    );
 }
 
 function reserveRangeRead(path: string, bytes: number) {
@@ -88,10 +87,7 @@ async function acquireRangeReadBudget(path: string, bytes: number, ownerWebConte
                 reject(error);
             };
             const abort = () => drop(abortErrorFromSignal(owner.signal));
-            const timer = setTimeout(
-                () => drop(new Error('Timed out waiting for PDF range read capacity')),
-                RANGE_READ_WAITER_TIMEOUT_MS,
-            );
+            const timer = setTimeout(() => drop(new Error('Timed out waiting for PDF range read capacity')), RANGE_READ_WAITER_TIMEOUT_MS);
             const waiter = {
                 path,
                 bytes,
@@ -101,8 +97,11 @@ async function acquireRangeReadBudget(path: string, bytes: number, ownerWebConte
                 },
             };
             rangeReadBudgetWaiters.push(waiter);
-            if (owner.signal.aborted) {abort();}
-            else {owner.signal.addEventListener('abort', abort, {once: true});}
+            if (owner.signal.aborted) {
+                abort();
+            } else {
+                owner.signal.addEventListener('abort', abort, {once: true});
+            }
         });
     } else {
         reserveRangeRead(path, bytes);
@@ -134,7 +133,9 @@ export async function withContentReadLease<T>(logicalRef: string, reader: () => 
         return await reader();
     } catch (error) {
         const unprovenTermination = getUnprovenNativeTerminationDetail(error);
-        if (unprovenTermination !== undefined) {quarantineWorkingCopy(logicalRef, unprovenTermination);}
+        if (unprovenTermination !== undefined) {
+            quarantineWorkingCopy(logicalRef, unprovenTermination);
+        }
         throw error;
     }
 }
@@ -151,8 +152,10 @@ export function resolveDocumentReadTransport(logicalRef: string, senderId?: numb
     const identity = statOpenDocument(entry);
     return {
         identity,
-        read: <T>(reader: (physicalPath: string) => Promise<T>) => withContentReadLease(entry.ref, () =>
-            runWithWorkingCopyReadBacking(entry.ref, reader, senderId === undefined ? {} : {ownerWebContentsId: senderId})),
+        read: <T>(reader: (physicalPath: string) => Promise<T>) =>
+            withContentReadLease(entry.ref, () =>
+                runWithWorkingCopyReadBacking(entry.ref, reader, senderId === undefined ? {} : {ownerWebContentsId: senderId}),
+            ),
     };
 }
 
@@ -177,10 +180,7 @@ export async function handleFileRead(context: IDocumentsSenderIdContext, filePat
     return new Uint8Array(buffer);
 }
 
-export async function handleFileStat(
-    context: IDocumentsSenderIdContext,
-    filePath: unknown,
-): Promise<IFileStatResult> {
+export async function handleFileStat(context: IDocumentsSenderIdContext, filePath: unknown): Promise<IFileStatResult> {
     const resolvedPath = await resolveExistingReadableDocumentOrImagePath(filePath, context.senderId);
     const entry = getWorkingCopyBackingEntry(resolvedPath, context.senderId);
     // Sync on purpose: packaged Windows Electron mishandles fs.promises
@@ -196,29 +196,19 @@ async function readFileRange(path: string, offset: number, length: number) {
     const handle = await openFileHandle(path, 'r');
     try {
         const buf = Buffer.allocUnsafe(length);
-        const { bytesRead } = await handle.read(buf, 0, length, offset);
+        const {bytesRead} = await handle.read(buf, 0, length, offset);
         return new Uint8Array(buf.subarray(0, bytesRead));
     } finally {
         await handle.close();
     }
 }
 
-export async function handleFileReadRange(
-    context: IDocumentsSenderIdContext,
-    filePath: unknown,
-    offset: unknown,
-    length: unknown,
-) {
+export async function handleFileReadRange(context: IDocumentsSenderIdContext, filePath: unknown, offset: unknown, length: unknown) {
     const resolvedPath = await resolveExistingReadableDocumentOrImagePath(filePath, context.senderId);
     const entry = getWorkingCopyBackingEntry(resolvedPath, context.senderId);
     const off = Number(offset);
     const len = Number(length);
-    if (
-        !Number.isSafeInteger(off)
-        || !Number.isSafeInteger(len)
-        || off < 0
-        || len <= 0
-    ) {
+    if (!Number.isSafeInteger(off) || !Number.isSafeInteger(len) || off < 0 || len <= 0) {
         throw new Error('Invalid range: offset must be >=0 and length must be >0');
     }
 
@@ -245,4 +235,3 @@ export async function handleFileReadRange(
         }
     });
 }
-

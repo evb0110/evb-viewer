@@ -1,35 +1,20 @@
 // @vitest-environment happy-dom
 
-import { requirePageNumber } from '@contracts/pageNumbers';
-import {
-    afterAll,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    computed,
-    nextTick,
-    ref,
-    render,
-} from 'vue';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import {afterAll, beforeEach, describe, expect, it, vi} from 'vitest';
+import {computed, nextTick, ref, render} from 'vue';
 import {
     createPdfPageResources,
     isPdfPageBusy,
     type IPdfPublicationReceipt,
     type IPdfRasterJob,
 } from '@app/modules/pdf-viewer/runtime/rendering/pdfPageResources';
-import { cast } from '@tests/helpers/cast';
-import type { TPdfViewRotation } from '@contracts/shared';
-import type {
-    IPdfLayerRenderResult,
-    IUsePdfPageRendererOptions,
-} from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
-import type { TPdfDocumentView } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
-import type { TPdfViewportSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
-import { createPdfDocumentProxy } from '@tests/helpers/createPdfDocumentProxy';
+import {cast} from '@tests/helpers/cast';
+import type {TPdfViewRotation} from '@contracts/shared';
+import type {IPdfLayerRenderResult, IUsePdfPageRendererOptions} from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
+import type {TPdfDocumentView} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
+import type {TPdfViewportSession} from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
+import {createPdfDocumentProxy} from '@tests/helpers/createPdfDocumentProxy';
 
 const rendererFixture = vi.hoisted(() => ({
     canReuseTextLayer: vi.fn(() => false),
@@ -42,7 +27,9 @@ const rendererFixture = vi.hoisted(() => ({
 }));
 const annotationLayerFixture = vi.hoisted(() => ({render: vi.fn()}));
 
-vi.mock('@app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer', () => ({usePdfTextLayerRenderer: () => rendererFixture}));
+vi.mock('@app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer', () => ({
+    usePdfTextLayerRenderer: () => rendererFixture,
+}));
 vi.mock('@app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer', () => ({
     getParsedPageAnnotations: vi.fn(async () => []),
     isLinkAnnotation: (annotation: {annotationType: number}) => annotation.annotationType === 2,
@@ -54,19 +41,19 @@ vi.mock('@app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer
         renderAnnotationLayer: annotationLayerFixture.render,
     }),
 }));
-vi.mock('@app/modules/pdf-viewer/runtime/rendering/usePdfRendererSearchController', () => ({usePdfRendererSearchController: () => ({
-    applySearchHighlights: vi.fn(),
-    invalidatePendingRequests: vi.fn(),
-})}));
+vi.mock('@app/modules/pdf-viewer/runtime/rendering/usePdfRendererSearchController', () => ({
+    usePdfRendererSearchController: () => ({
+        applySearchHighlights: vi.fn(),
+        invalidatePendingRequests: vi.fn(),
+    }),
+}));
 
 const toastAdd = vi.fn();
 vi.stubGlobal('useToast', () => ({add: toastAdd}));
 vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
 afterAll(() => vi.unstubAllGlobals());
 
-const { usePdfPageRenderer } = await import(
-    '@app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer'
-);
+const {usePdfPageRenderer} = await import('@app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer');
 
 function createDeferred() {
     let resolve!: () => void;
@@ -79,9 +66,7 @@ function createDeferred() {
     };
 }
 
-type TPdfLeasedPage = Awaited<
-    ReturnType<IUsePdfPageRendererOptions['document']['leasePage']>
->['page'];
+type TPdfLeasedPage = Awaited<ReturnType<IUsePdfPageRendererOptions['document']['leasePage']>>['page'];
 
 function createPage(): TPdfLeasedPage {
     const page = {
@@ -192,7 +177,9 @@ function createHarness() {
     };
     let committedRender = renderResult;
     return {
-        setCommittedRender: (value: typeof renderResult) => { committedRender = value; },
+        setCommittedRender: (value: typeof renderResult) => {
+            committedRender = value;
+        },
         annotationLayer,
         canvas,
         containerRef: rendererOptions.container,
@@ -229,7 +216,11 @@ function createJob(): IPdfRasterJob {
     };
 }
 
-function publication(harness: ReturnType<typeof createHarness>, layers: IPdfPublicationReceipt['layers'], render: IPdfLayerRenderResult = harness.renderResult): IPdfPublicationReceipt {
+function publication(
+    harness: ReturnType<typeof createHarness>,
+    layers: IPdfPublicationReceipt['layers'],
+    render: IPdfLayerRenderResult = harness.renderResult,
+): IPdfPublicationReceipt {
     return {
         render,
         quality: {requestedPixels: 1, grantedPixels: 1, pixelScaleFactor: 1, wasClamped: false, intent: 'settled'},
@@ -250,43 +241,45 @@ function showRaster(harness: ReturnType<typeof createHarness>) {
 }
 
 describe('usePdfPageRenderer layer hydration ownership', () => {
-    it.each([
-        false,
-        true,
-    ])('keeps failed annotation interaction readable and out of automatic promotion (text-first=%s)', async (textFirst) => {
-        annotationLayerFixture.render.mockRejectedValueOnce(new Error('annotation failure'));
-        rendererFixture.renderTextLayer.mockResolvedValue(undefined);
-        const harness = createHarness();
-        try {
-            showRaster(harness);
-            await harness.renderer.renderCommittedPageLayers({
-                pageNumber: requirePageNumber(1),
-                container: harness.pageContainer,
-                renderResult: harness.renderResult,
-                renderOptions: {prioritizeTextLayer: textFirst},
-            });
-            expect(harness.canvas.isConnected).toBe(true);
-            expect(harness.pageResources.get(page1).layers).toBe('failed');
-            expect(harness.pageResources.get(page1).text?.dataset.pdfTextLayerReady).toBe('true');
-            expect(harness.pageContainer.dataset.pageLayerReadiness).toBe('failed');
-            expect(harness.renderer.resolveLayerPromotionDemand([1])).toBeNull();
-            // A quality refinement can replace the raster while this failure
-            // remains current. Retry belongs to the document, not that old canvas.
-            const currentCanvas = document.createElement('canvas');
-            harness.canvas.replaceWith(currentCanvas);
-            harness.setCommittedRender({
-                ...harness.renderResult,
-                canvas: currentCanvas,
-            });
-            const retry = toastAdd.mock.calls[0]?.[0].actions.find((action: {label: string}) => action.label === 'common.retry');
-            expect(retry).toBeDefined();
-            retry.onClick();
-            await vi.waitFor(() => expect(harness.pageResources.get(page1).layers).toBe('ready'));
-            expect(currentCanvas.isConnected).toBe(true);
-            expect(harness.pageResources.get(page1).layers).toBe('ready');
-            expect(harness.pageContainer.dataset.pageLayerReadiness).toBe('ready');
-        } finally {harness.root.remove();}
-    });
+    it.each([false, true])(
+        'keeps failed annotation interaction readable and out of automatic promotion (text-first=%s)',
+        async (textFirst) => {
+            annotationLayerFixture.render.mockRejectedValueOnce(new Error('annotation failure'));
+            rendererFixture.renderTextLayer.mockResolvedValue(undefined);
+            const harness = createHarness();
+            try {
+                showRaster(harness);
+                await harness.renderer.renderCommittedPageLayers({
+                    pageNumber: requirePageNumber(1),
+                    container: harness.pageContainer,
+                    renderResult: harness.renderResult,
+                    renderOptions: {prioritizeTextLayer: textFirst},
+                });
+                expect(harness.canvas.isConnected).toBe(true);
+                expect(harness.pageResources.get(page1).layers).toBe('failed');
+                expect(harness.pageResources.get(page1).text?.dataset.pdfTextLayerReady).toBe('true');
+                expect(harness.pageContainer.dataset.pageLayerReadiness).toBe('failed');
+                expect(harness.renderer.resolveLayerPromotionDemand([1])).toBeNull();
+                // A quality refinement can replace the raster while this failure
+                // remains current. Retry belongs to the document, not that old canvas.
+                const currentCanvas = document.createElement('canvas');
+                harness.canvas.replaceWith(currentCanvas);
+                harness.setCommittedRender({
+                    ...harness.renderResult,
+                    canvas: currentCanvas,
+                });
+                const retry = toastAdd.mock.calls[0]?.[0].actions.find((action: {label: string}) => action.label === 'common.retry');
+                expect(retry).toBeDefined();
+                retry.onClick();
+                await vi.waitFor(() => expect(harness.pageResources.get(page1).layers).toBe('ready'));
+                expect(currentCanvas.isConnected).toBe(true);
+                expect(harness.pageResources.get(page1).layers).toBe('ready');
+                expect(harness.pageContainer.dataset.pageLayerReadiness).toBe('ready');
+            } finally {
+                harness.root.remove();
+            }
+        },
+    );
 
     it('tells a page whose raster failed for good, with a Retry that redraws it', async () => {
         const harness = createHarness();
@@ -313,58 +306,64 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
             retryAction.onClick();
             await Promise.resolve();
             expect(retry).toHaveBeenCalledOnce();
-        } finally {harness.root.remove();}
-    });
-
-    it.each([
-        'kept',
-        'reprioritized',
-        'retried',
-        'released',
-    ] as const)('delays a buffered raster failure until it is visible and still current (job %s)', async (change) => {
-        const superseded = change === 'retried' || change === 'released';
-        const harness = createHarness();
-        const visible = ref(false);
-        const retry = vi.fn(async () => undefined);
-        const pageNumber = requirePageNumber(1);
-        const job = createJob();
-        harness.pageResources.want(pageNumber, job);
-        harness.pageResources.setJobState(pageNumber, job, 'failed');
-        try {
-            harness.renderer.presentPageRenderFailure(pageNumber, new Error('buffer preparation failed'), retry, () => visible.value);
-            expect(toastAdd).not.toHaveBeenCalled();
-            if (superseded) {harness.pageResources.release(pageNumber);}
-            // Scrolling into view asks for the page at a higher priority; its failure stays.
-            if (change === 'reprioritized') {harness.pageResources.want(pageNumber, {...createJob(), rasterState: 'failed'});}
-            // A new attempt ends this failure; if it fails too, it tells its own.
-            if (change === 'retried') {
-                const attempt = createJob();
-                harness.pageResources.want(pageNumber, attempt);
-                harness.pageResources.setJobState(pageNumber, attempt, 'failed');
-            }
-            visible.value = true;
-            await nextTick();
-            if (superseded) {
-                expect(toastAdd).not.toHaveBeenCalled();
-            } else {
-                expect(toastAdd).toHaveBeenCalledOnce();
-                const toast = toastAdd.mock.calls[0]![0];
-                const description = document.createElement('div');
-                render(toast.description(), description);
-                expect(description.textContent).toContain('common.pageRenderFailed');
-                toast.actions.find((action: {label: string}) => action.label === 'common.retry').onClick();
-                await vi.waitFor(() => expect(retry).toHaveBeenCalledOnce());
-                visible.value = false;
-                await nextTick();
-                visible.value = true;
-                await nextTick();
-                expect(toastAdd).toHaveBeenCalledOnce();
-            }
         } finally {
-            for (const [dispose] of vi.mocked(harness.document.registerDisposable).mock.calls) {await dispose();}
             harness.root.remove();
         }
     });
+
+    it.each(['kept', 'reprioritized', 'retried', 'released'] as const)(
+        'delays a buffered raster failure until it is visible and still current (job %s)',
+        async (change) => {
+            const superseded = change === 'retried' || change === 'released';
+            const harness = createHarness();
+            const visible = ref(false);
+            const retry = vi.fn(async () => undefined);
+            const pageNumber = requirePageNumber(1);
+            const job = createJob();
+            harness.pageResources.want(pageNumber, job);
+            harness.pageResources.setJobState(pageNumber, job, 'failed');
+            try {
+                harness.renderer.presentPageRenderFailure(pageNumber, new Error('buffer preparation failed'), retry, () => visible.value);
+                expect(toastAdd).not.toHaveBeenCalled();
+                if (superseded) {
+                    harness.pageResources.release(pageNumber);
+                }
+                // Scrolling into view asks for the page at a higher priority; its failure stays.
+                if (change === 'reprioritized') {
+                    harness.pageResources.want(pageNumber, {...createJob(), rasterState: 'failed'});
+                }
+                // A new attempt ends this failure; if it fails too, it tells its own.
+                if (change === 'retried') {
+                    const attempt = createJob();
+                    harness.pageResources.want(pageNumber, attempt);
+                    harness.pageResources.setJobState(pageNumber, attempt, 'failed');
+                }
+                visible.value = true;
+                await nextTick();
+                if (superseded) {
+                    expect(toastAdd).not.toHaveBeenCalled();
+                } else {
+                    expect(toastAdd).toHaveBeenCalledOnce();
+                    const toast = toastAdd.mock.calls[0]![0];
+                    const description = document.createElement('div');
+                    render(toast.description(), description);
+                    expect(description.textContent).toContain('common.pageRenderFailed');
+                    toast.actions.find((action: {label: string}) => action.label === 'common.retry').onClick();
+                    await vi.waitFor(() => expect(retry).toHaveBeenCalledOnce());
+                    visible.value = false;
+                    await nextTick();
+                    visible.value = true;
+                    await nextTick();
+                    expect(toastAdd).toHaveBeenCalledOnce();
+                }
+            } finally {
+                for (const [dispose] of vi.mocked(harness.document.registerDisposable).mock.calls) {
+                    await dispose();
+                }
+                harness.root.remove();
+            }
+        },
+    );
 
     it('publishes a page layer commit with its selectable text already present', async () => {
         const text = createDeferred();
@@ -386,7 +385,7 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
             expect(harness.onPageLayersCommitted).not.toHaveBeenCalled();
             text.resolve();
             await hydration;
-            expect(harness.onPageLayersCommitted.mock.results.map(result => result.value)).toEqual(['Selectable rotation text']);
+            expect(harness.onPageLayersCommitted.mock.results.map((result) => result.value)).toEqual(['Selectable rotation text']);
         } finally {
             text.resolve();
             await hydration;
@@ -422,16 +421,21 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
                 canvas: replacementCanvas,
             };
 
-            hydration = harness.renderer.renderCommittedPageLayers({
-                pageNumber: requirePageNumber(1),
-                container: harness.pageContainer,
-                renderResult: replacementRender,
-                renderOptions: {},
-            }, (layers) => {
-                if (!harness.pageResources.publish(page1, replacement, publication(harness, layers, replacementRender))) {return false;}
-                harness.canvas.replaceWith(replacementCanvas);
-                return true;
-            });
+            hydration = harness.renderer.renderCommittedPageLayers(
+                {
+                    pageNumber: requirePageNumber(1),
+                    container: harness.pageContainer,
+                    renderResult: replacementRender,
+                    renderOptions: {},
+                },
+                (layers) => {
+                    if (!harness.pageResources.publish(page1, replacement, publication(harness, layers, replacementRender))) {
+                        return false;
+                    }
+                    harness.canvas.replaceWith(replacementCanvas);
+                    return true;
+                },
+            );
             await vi.waitFor(() => {
                 expect(rendererFixture.renderTextLayer).toHaveBeenCalledOnce();
             });
@@ -439,14 +443,17 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
             expect(harness.pageContainer.querySelector('canvas')).toBe(harness.canvas);
             expect(harness.pageContainer.querySelector('.text-layer')?.textContent).toBe('Outgoing selectable text');
             expect(harness.renderer.resolveLayerPromotionDemand([1])).toBeNull();
-            await harness.renderer.renderLayerPromotions({
-                start: 1,
-                end: 1,
-            }, {
-                contentIntent: 'layers-only-promotion',
-                rasterDemandPages: [1],
-                prioritizeTextLayer: true,
-            });
+            await harness.renderer.renderLayerPromotions(
+                {
+                    start: 1,
+                    end: 1,
+                },
+                {
+                    contentIntent: 'layers-only-promotion',
+                    rasterDemandPages: [1],
+                    prioritizeTextLayer: true,
+                },
+            );
             expect(activeSignal?.aborted).toBe(false);
 
             deferred.resolve();
@@ -482,9 +489,7 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
                 renderOptions: {prioritizeTextLayer: true},
             });
 
-            await vi.waitFor(() => expect(
-                harness.pageResources.get(page1).text?.dataset.pdfTextLayerReady,
-            ).toBe('true'));
+            await vi.waitFor(() => expect(harness.pageResources.get(page1).text?.dataset.pdfTextLayerReady).toBe('true'));
             expect(harness.pageResources.get(page1).layers).toBe('hydrating');
 
             annotation.resolve();
@@ -497,23 +502,15 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
         }
     });
 
-    it.each([
-        false,
-        true,
-    ])('keeps PDF links readable after text failure and restores text on Retry (staged=%s)', async (staged) => {
-        rendererFixture.renderTextLayer
-            .mockRejectedValueOnce(new Error('text extraction failed'))
-            .mockResolvedValue(undefined);
+    it.each([false, true])('keeps PDF links readable after text failure and restores text on Retry (staged=%s)', async (staged) => {
+        rendererFixture.renderTextLayer.mockRejectedValueOnce(new Error('text extraction failed')).mockResolvedValue(undefined);
         const harness = createHarness();
         const appearance = document.createElement('canvas');
         const renderResult = {
             ...harness.renderResult,
             annotationOutput: {
                 ...harness.renderResult.annotationOutput,
-                ownCanvases: staged ? [[
-                    'link',
-                    appearance,
-                ] as const] : [],
+                ownCanvases: staged ? [['link', appearance] as const] : [],
             },
         };
         annotationLayerFixture.render.mockImplementation(async (_page, layer: HTMLElement) => {
@@ -526,12 +523,15 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
         try {
             const job = showRaster(harness);
 
-            await harness.renderer.renderCommittedPageLayers({
-                pageNumber: requirePageNumber(1),
-                container: harness.pageContainer,
-                renderResult,
-                renderOptions: {prioritizeTextLayer: true},
-            }, staged ? layers => harness.pageResources.publish(page1, job, publication(harness, layers, renderResult)) : undefined);
+            await harness.renderer.renderCommittedPageLayers(
+                {
+                    pageNumber: requirePageNumber(1),
+                    container: harness.pageContainer,
+                    renderResult,
+                    renderOptions: {prioritizeTextLayer: true},
+                },
+                staged ? (layers) => harness.pageResources.publish(page1, job, publication(harness, layers, renderResult)) : undefined,
+            );
 
             const link = harness.pageContainer.querySelector('a');
             expect(link?.textContent).toBe('PDF link');
@@ -586,7 +586,9 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
             cancellation.abort();
             annotation.resolve();
             await hydration;
-            for (let turn = 0; turn < 20; turn += 1) {await Promise.resolve();}
+            for (let turn = 0; turn < 20; turn += 1) {
+                await Promise.resolve();
+            }
             expect(readable?.textContent).toBe('Readable selectable text');
             expect(harness.pageContainer.querySelector('.text-layer span')).toBe(readable);
         } finally {
@@ -623,14 +625,19 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
         try {
             showRaster(harness);
 
-            await expect(harness.renderer.renderLayerPromotions({
-                start: 1,
-                end: 1,
-            }, {
-                contentIntent: 'layers-only-promotion',
-                rasterDemandPages: [1],
-                prioritizeTextLayer: true,
-            })).rejects.toThrow('stale document');
+            await expect(
+                harness.renderer.renderLayerPromotions(
+                    {
+                        start: 1,
+                        end: 1,
+                    },
+                    {
+                        contentIntent: 'layers-only-promotion',
+                        rasterDemandPages: [1],
+                        prioritizeTextLayer: true,
+                    },
+                ),
+            ).rejects.toThrow('stale document');
 
             expect(harness.pageResources.get(page1).layers).toBe('canvas-only');
             expect(harness.renderer.resolveLayerPromotionDemand([1])).not.toBeNull();
@@ -638,31 +645,33 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
             harness.root.remove();
         }
     });
-    it.each([
-        'Rendering cancelled: PDF page lease became stale',
-        'Rendering cancelled: PDF page request became stale',
-    ])('settles a committed page without layers when its layer lease is cancelled: %s', async (message) => {
-        const harness = createHarness();
-        const cancelled = new Error(message);
-        cancelled.name = 'RenderingCancelledException';
-        vi.mocked(harness.document.leasePage).mockRejectedValueOnce(cancelled);
-        try {
-            showRaster(harness);
+    it.each(['Rendering cancelled: PDF page lease became stale', 'Rendering cancelled: PDF page request became stale'])(
+        'settles a committed page without layers when its layer lease is cancelled: %s',
+        async (message) => {
+            const harness = createHarness();
+            const cancelled = new Error(message);
+            cancelled.name = 'RenderingCancelledException';
+            vi.mocked(harness.document.leasePage).mockRejectedValueOnce(cancelled);
+            try {
+                showRaster(harness);
 
-            await expect(harness.renderer.renderCommittedPageLayers({
-                pageNumber: requirePageNumber(1),
-                container: harness.pageContainer,
-                renderResult: harness.renderResult,
-                renderOptions: {},
-            })).resolves.toBeUndefined();
+                await expect(
+                    harness.renderer.renderCommittedPageLayers({
+                        pageNumber: requirePageNumber(1),
+                        container: harness.pageContainer,
+                        renderResult: harness.renderResult,
+                        renderOptions: {},
+                    }),
+                ).resolves.toBeUndefined();
 
-            expect(harness.pageResources.get(page1).layers).not.toBe('hydrating');
-            expect(isPdfPageBusy(harness.pageResources.get(page1))).toBe(false);
-            expect(harness.renderer.resolveLayerPromotionDemand([1])).not.toBeNull();
-        } finally {
-            harness.root.remove();
-        }
-    });
+                expect(harness.pageResources.get(page1).layers).not.toBe('hydrating');
+                expect(isPdfPageBusy(harness.pageResources.get(page1))).toBe(false);
+                expect(harness.renderer.resolveLayerPromotionDemand([1])).not.toBeNull();
+            } finally {
+                harness.root.remove();
+            }
+        },
+    );
 
     it('still rejects committed layer hydration when the lease fails for another reason', async () => {
         const harness = createHarness();
@@ -670,12 +679,14 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
         try {
             showRaster(harness);
 
-            await expect(harness.renderer.renderCommittedPageLayers({
-                pageNumber: requirePageNumber(1),
-                container: harness.pageContainer,
-                renderResult: harness.renderResult,
-                renderOptions: {},
-            })).rejects.toThrow('page proxy destroyed');
+            await expect(
+                harness.renderer.renderCommittedPageLayers({
+                    pageNumber: requirePageNumber(1),
+                    container: harness.pageContainer,
+                    renderResult: harness.renderResult,
+                    renderOptions: {},
+                }),
+            ).rejects.toThrow('page proxy destroyed');
             expect(isPdfPageBusy(harness.pageResources.get(page1))).toBe(false);
         } finally {
             harness.root.remove();
@@ -719,16 +730,16 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
                 container: page2Container,
             });
 
-            const promotion = harness.renderer.renderLayerPromotions({
-                start: 1,
-                end: 2,
-            }, {
-                contentIntent: 'layers-only-promotion',
-                rasterDemandPages: [
-                    1,
-                    2,
-                ],
-            });
+            const promotion = harness.renderer.renderLayerPromotions(
+                {
+                    start: 1,
+                    end: 2,
+                },
+                {
+                    contentIntent: 'layers-only-promotion',
+                    rasterDemandPages: [1, 2],
+                },
+            );
 
             // Page 2 finishes hydrating even while page 1 is still deferred.
             await vi.waitFor(() => expect(harness.pageResources.get(page2).layers).toBe('ready'));
@@ -797,10 +808,12 @@ describe('usePdfPageRenderer page release', () => {
 
             expect(harness.pageContainer.dataset.pageLayerReadiness).toBeUndefined();
             expect(harness.annotationLayer.childElementCount).toBe(0);
-        } finally {harness.root.remove();}
+        } finally {
+            harness.root.remove();
+        }
     });
 
-    it('keeps a selection in another tab\'s text while releasing a page its view no longer has mounted', () => {
+    it("keeps a selection in another tab's text while releasing a page its view no longer has mounted", () => {
         const harness = createHarness();
         const otherTabText = document.createElement('div');
         otherTabText.className = 'text-layer';

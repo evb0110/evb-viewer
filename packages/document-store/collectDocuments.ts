@@ -1,18 +1,6 @@
-import type { IDocumentStore } from './documentDirectory';
-import {
-    decodeManifest,
-    DOCUMENTS_DIR,
-    isDirty,
-    isOpenOnlyManifest,
-    MANIFEST_NAME,
-    STORE_ID_PATTERN,
-} from './manifest';
-import {
-    checkpointWindowId,
-    type IUnreadableEntry,
-    readWorkspaceCheckpoints,
-    WORKSPACES_DIR,
-} from './workspaceCheckpoint';
+import type {IDocumentStore} from './documentDirectory';
+import {decodeManifest, DOCUMENTS_DIR, isDirty, isOpenOnlyManifest, MANIFEST_NAME, STORE_ID_PATTERN} from './manifest';
+import {checkpointWindowId, type IUnreadableEntry, readWorkspaceCheckpoints, WORKSPACES_DIR} from './workspaceCheckpoint';
 
 /**
  * Removes the document directories nothing needs and returns the unsaved ones no window holds, for the recovery
@@ -25,20 +13,26 @@ import {
  * might name. Temporary files of checkpoint writes that crashed are removed.
  */
 export async function collectDocuments(store: IDocumentStore, hold: (id: string) => Promise<(() => void) | null>) {
-    const { port } = store;
+    const {port} = store;
     for (const name of await port.list(WORKSPACES_DIR)) {
         // A temporary file another window still has open refuses removal; it is that window's to finish.
-        if (checkpointWindowId(name) === null) {await port.remove(`${WORKSPACES_DIR}/${name}`).catch(() => undefined);}
+        if (checkpointWindowId(name) === null) {
+            await port.remove(`${WORKSPACES_DIR}/${name}`).catch(() => undefined);
+        }
     }
     const unreadable: IUnreadableEntry[] = [];
     const checkpoints = [...(await readWorkspaceCheckpoints(port, unreadable)).values()];
-    const referenced = new Set(checkpoints.flatMap(checkpoint => checkpoint ? Object.values(checkpoint.tabs).map(tab => tab.directory) : []));
-    const referencesKnown = checkpoints.every(checkpoint => checkpoint !== null);
+    const referenced = new Set(
+        checkpoints.flatMap((checkpoint) => (checkpoint ? Object.values(checkpoint.tabs).map((tab) => tab.directory) : [])),
+    );
+    const referencesKnown = checkpoints.every((checkpoint) => checkpoint !== null);
     const removed: string[] = [];
     const unsaved: string[] = [];
     const held: string[] = [];
     for (const id of await port.list(DOCUMENTS_DIR)) {
-        if (!STORE_ID_PATTERN.test(id)) {continue;}
+        if (!STORE_ID_PATTERN.test(id)) {
+            continue;
+        }
         const release = await hold(id);
         if (!release) {
             held.push(id);
@@ -48,12 +42,17 @@ export async function collectDocuments(store: IDocumentStore, hold: (id: string)
             const dir = `${DOCUMENTS_DIR}/${id}`;
             const path = `${dir}/${MANIFEST_NAME}`;
             const manifest = (await port.list(dir)).includes(MANIFEST_NAME)
-                ? await port.read(path).then(decodeManifest).catch((error: unknown) => {
-                    unreadable.push({ path, directory: id, error });
-                    return null;
-                })
+                ? await port
+                      .read(path)
+                      .then(decodeManifest)
+                      .catch((error: unknown) => {
+                          unreadable.push({path, directory: id, error});
+                          return null;
+                      })
                 : undefined;
-            if (manifest === null) {continue;}
+            if (manifest === null) {
+                continue;
+            }
             const unnamed = referencesKnown && !referenced.has(id);
             if (manifest && isDirty(manifest) && !(unnamed && isOpenOnlyManifest(manifest))) {
                 unsaved.push(id);
@@ -65,5 +64,5 @@ export async function collectDocuments(store: IDocumentStore, hold: (id: string)
             release();
         }
     }
-    return { removed, unsaved, held, unreadable };
+    return {removed, unsaved, held, unreadable};
 }

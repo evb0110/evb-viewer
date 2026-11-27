@@ -31,18 +31,22 @@ export const PREVIEW_DPI = DETECTION_DPI;
  */
 export function resolveScanCleanupAnalysisDpi(pageSize: IPdfPageSize | undefined) {
     const sourceDpi = pageSize === undefined ? undefined : detectPageRasterFromPageSize(pageSize)?.dpi;
-    let dpi = sourceDpi !== undefined && Number.isFinite(sourceDpi) && sourceDpi >= 1
-        ? Math.min(DETECTION_DPI, Math.floor(sourceDpi))
-        : DETECTION_DPI;
+    let dpi =
+        sourceDpi !== undefined && Number.isFinite(sourceDpi) && sourceDpi >= 1
+            ? Math.min(DETECTION_DPI, Math.floor(sourceDpi))
+            : DETECTION_DPI;
     const pageArea = (pageSize?.widthPoints ?? 0) * (pageSize?.heightPoints ?? 0);
     if (pageSize === undefined || !Number.isFinite(pageArea) || pageArea <= 0) {
         return dpi;
     }
-    dpi = Math.max(1, Math.min(
-        dpi,
-        Math.floor(72 * Math.sqrt(SCAN_CLEANUP_RASTER_MAX_PIXELS / pageArea)),
-        Math.floor(72 * SCAN_CLEANUP_MAX_DIMENSION_PX / Math.max(pageSize.widthPoints, pageSize.heightPoints)),
-    ));
+    dpi = Math.max(
+        1,
+        Math.min(
+            dpi,
+            Math.floor(72 * Math.sqrt(SCAN_CLEANUP_RASTER_MAX_PIXELS / pageArea)),
+            Math.floor((72 * SCAN_CLEANUP_MAX_DIMENSION_PX) / Math.max(pageSize.widthPoints, pageSize.heightPoints)),
+        ),
+    );
     // Rendered dimensions round up, so the closed form can overshoot by a row.
     for (;;) {
         const limits = resolveScanCleanupRasterRenderLimits(pageSize, dpi);
@@ -82,10 +86,7 @@ export function resolvePreviewProcessingDpi({
     return Math.max(displayDpi, Math.floor(Math.min(sourceDpi, displayDpi * 2)));
 }
 
-export function resolvePagePreviewDpi(
-    pageSize: IPdfPageSize,
-    requestedDpi: number,
-) {
+export function resolvePagePreviewDpi(pageSize: IPdfPageSize, requestedDpi: number) {
     const pageAreaPoints = pageSize.widthPoints * pageSize.heightPoints;
     if (!Number.isFinite(pageAreaPoints) || pageAreaPoints <= 0) {
         return requestedDpi;
@@ -95,17 +96,9 @@ export function resolvePagePreviewDpi(
 }
 
 /** Resolve one page's bounded preview raster DPI without a page-sized plan. */
-export function resolveScanCleanupPagePreviewDpi(
-    pageSize: IPdfPageSize,
-    sourceDpi: number | null | undefined,
-) {
-    const normalizedSourceDpi = Number.isFinite(sourceDpi) && (sourceDpi ?? 0) > 0
-        ? sourceDpi!
-        : PREVIEW_DPI;
-    return resolvePagePreviewDpi(
-        pageSize,
-        Math.min(PREVIEW_DPI, normalizedSourceDpi),
-    );
+export function resolveScanCleanupPagePreviewDpi(pageSize: IPdfPageSize, sourceDpi: number | null | undefined) {
+    const normalizedSourceDpi = Number.isFinite(sourceDpi) && (sourceDpi ?? 0) > 0 ? sourceDpi! : PREVIEW_DPI;
+    return resolvePagePreviewDpi(pageSize, Math.min(PREVIEW_DPI, normalizedSourceDpi));
 }
 
 export function resolvePreviewRasterPlan(
@@ -121,11 +114,10 @@ export function resolvePreviewRasterPlan(
         }
     }
     let documentDpi = detected?.documentDpi ?? 0;
-    for (const [
-        pageNumber,
-        sourceDpi,
-    ] of sourceDpiByPage) {
-        if (!Number.isFinite(sourceDpi) || sourceDpi <= 0) {continue;}
+    for (const [pageNumber, sourceDpi] of sourceDpiByPage) {
+        if (!Number.isFinite(sourceDpi) || sourceDpi <= 0) {
+            continue;
+        }
         pageDpiByNumber.set(pageNumber, Math.max(pageDpiByNumber.get(pageNumber) ?? 0, sourceDpi));
         documentDpi = Math.max(documentDpi, sourceDpi);
     }
@@ -168,12 +160,8 @@ export function resolveScanCleanupRasterRenderLimits(
     }
     const swapsAxes = Math.abs(Math.round(pageSize.rotation / 90)) % 2 === 1;
     return {
-        expectedWidthPx: crop?.width ?? Math.max(1, Math.ceil(
-            (swapsAxes ? pageSize.heightPoints : pageSize.widthPoints) * dpi / 72,
-        )),
-        expectedHeightPx: crop?.height ?? Math.max(1, Math.ceil(
-            (swapsAxes ? pageSize.widthPoints : pageSize.heightPoints) * dpi / 72,
-        )),
+        expectedWidthPx: crop?.width ?? Math.max(1, Math.ceil(((swapsAxes ? pageSize.heightPoints : pageSize.widthPoints) * dpi) / 72)),
+        expectedHeightPx: crop?.height ?? Math.max(1, Math.ceil(((swapsAxes ? pageSize.widthPoints : pageSize.heightPoints) * dpi) / 72)),
         maxPixels,
         maxDimensionPx: SCAN_CLEANUP_MAX_DIMENSION_PX,
     };
@@ -199,10 +187,10 @@ export const PDF_PAGE_SIZE_STORE_MAX_READ_PAGES = 1_024;
 
 export function toCropBoxPageSize(page: IPdfPageSize): IPdfPageSize {
     if (
-        page.cropXPoints === undefined
-        || page.cropYPoints === undefined
-        || page.cropWidthPoints === undefined
-        || page.cropHeightPoints === undefined
+        page.cropXPoints === undefined ||
+        page.cropYPoints === undefined ||
+        page.cropWidthPoints === undefined ||
+        page.cropHeightPoints === undefined
     ) {
         return page;
     }
@@ -222,16 +210,18 @@ function hasMediaGeometry(page: IPdfPageSize): page is IPdfPageSize & {
     mediaWidthPoints: number;
     mediaHeightPoints: number;
 } {
-    return page.mediaXPoints !== undefined
-        && page.mediaYPoints !== undefined
-        && page.mediaWidthPoints !== undefined
-        && page.mediaHeightPoints !== undefined
-        && Number.isFinite(page.mediaXPoints)
-        && Number.isFinite(page.mediaYPoints)
-        && Number.isFinite(page.mediaWidthPoints)
-        && Number.isFinite(page.mediaHeightPoints)
-        && page.mediaWidthPoints > 0
-        && page.mediaHeightPoints > 0;
+    return (
+        page.mediaXPoints !== undefined &&
+        page.mediaYPoints !== undefined &&
+        page.mediaWidthPoints !== undefined &&
+        page.mediaHeightPoints !== undefined &&
+        Number.isFinite(page.mediaXPoints) &&
+        Number.isFinite(page.mediaYPoints) &&
+        Number.isFinite(page.mediaWidthPoints) &&
+        Number.isFinite(page.mediaHeightPoints) &&
+        page.mediaWidthPoints > 0 &&
+        page.mediaHeightPoints > 0
+    );
 }
 
 export function toMediaBoxPageSize(page: IPdfPageSize): IPdfPageSize {
@@ -256,9 +246,13 @@ export function toMediaBoxPageSize(page: IPdfPageSize): IPdfPageSize {
 export function describeScanCleanupAlternateView(view: IPdfPageSize, facts: IScanCleanupManifestPageFacts) {
     const media = toMediaBoxPageSize(view);
     if (
-        media.xPoints === view.xPoints && media.yPoints === view.yPoints
-        && media.widthPoints === view.widthPoints && media.heightPoints === view.heightPoints
-    ) {return undefined;}
+        media.xPoints === view.xPoints &&
+        media.yPoints === view.yPoints &&
+        media.widthPoints === view.widthPoints &&
+        media.heightPoints === view.heightPoints
+    ) {
+        return undefined;
+    }
     const input: IScanCleanupAlternateViewInput = {
         primaryWidthPoints: view.widthPoints,
         primaryHeightPoints: view.heightPoints,
@@ -281,14 +275,7 @@ function decodeOptionalPdfBox(page: Record<string, unknown>, prefix: 'media' | '
     const yPoints = decodePdfPageSizeFinite(page[`${prefix}YPoints`]);
     const widthPoints = decodePdfPageSizeFinite(page[`${prefix}WidthPoints`]);
     const heightPoints = decodePdfPageSizeFinite(page[`${prefix}HeightPoints`]);
-    if (
-        xPoints === null
-        || yPoints === null
-        || widthPoints === null
-        || heightPoints === null
-        || widthPoints <= 0
-        || heightPoints <= 0
-    ) {
+    if (xPoints === null || yPoints === null || widthPoints === null || heightPoints === null || widthPoints <= 0 || heightPoints <= 0) {
         return undefined;
     }
     return {
@@ -299,25 +286,18 @@ function decodeOptionalPdfBox(page: Record<string, unknown>, prefix: 'media' | '
     } as const;
 }
 
-export function decodePdfPageSizeRecord(
-    page: unknown,
-    pageCount: number,
-    recordLabel: string,
-) {
+export function decodePdfPageSizeRecord(page: unknown, pageCount: number, recordLabel: string) {
     if (!isRecord(page)) {
         throw new Error(`evb-pdf-page-ops returned no geometry for ${recordLabel}`);
     }
-    const widthPoints = decodePdfPageSizeFinite(page.widthPoints)
-        ?? (decodePdfPageSizeFinite(page.widthInches) === null ? null : decodePdfPageSizeFinite(page.widthInches)! * 72);
-    const heightPoints = decodePdfPageSizeFinite(page.heightPoints)
-        ?? (decodePdfPageSizeFinite(page.heightInches) === null ? null : decodePdfPageSizeFinite(page.heightInches)! * 72);
+    const widthPoints =
+        decodePdfPageSizeFinite(page.widthPoints) ??
+        (decodePdfPageSizeFinite(page.widthInches) === null ? null : decodePdfPageSizeFinite(page.widthInches)! * 72);
+    const heightPoints =
+        decodePdfPageSizeFinite(page.heightPoints) ??
+        (decodePdfPageSizeFinite(page.heightInches) === null ? null : decodePdfPageSizeFinite(page.heightInches)! * 72);
     const pageNumber = decodePdfPageSizeFinite(page.pageNumber);
-    if (
-        pageNumber === null
-        || !Number.isSafeInteger(pageNumber)
-        || pageNumber < 1
-        || pageNumber > pageCount
-    ) {
+    if (pageNumber === null || !Number.isSafeInteger(pageNumber) || pageNumber < 1 || pageNumber > pageCount) {
         throw invalidPdfPageNumbering(`invalid page number for ${recordLabel}`);
     }
     if (widthPoints === null || heightPoints === null || widthPoints <= 0 || heightPoints <= 0) {
@@ -336,21 +316,20 @@ export function decodePdfPageSizeRecord(
     const dominantImageHeightPx = decodePdfPageSizeFinite(page.dominantImageHeightPx);
     const dominantImageWidthPoints = decodePdfPageSizeFinite(page.dominantImageWidthPoints);
     const dominantImageHeightPoints = decodePdfPageSizeFinite(page.dominantImageHeightPoints);
-    const hasDominantImage = dominantImageWidthPx !== null
-        && dominantImageHeightPx !== null
-        && dominantImageWidthPoints !== null
-        && dominantImageHeightPoints !== null
-        && Number.isSafeInteger(dominantImageWidthPx)
-        && Number.isSafeInteger(dominantImageHeightPx)
-        && dominantImageWidthPx > 0
-        && dominantImageHeightPx > 0
-        && dominantImageWidthPoints > 0
-        && dominantImageHeightPoints > 0;
+    const hasDominantImage =
+        dominantImageWidthPx !== null &&
+        dominantImageHeightPx !== null &&
+        dominantImageWidthPoints !== null &&
+        dominantImageHeightPoints !== null &&
+        Number.isSafeInteger(dominantImageWidthPx) &&
+        Number.isSafeInteger(dominantImageHeightPx) &&
+        dominantImageWidthPx > 0 &&
+        dominantImageHeightPx > 0 &&
+        dominantImageWidthPoints > 0 &&
+        dominantImageHeightPoints > 0;
     const media = decodeOptionalPdfBox(page, 'media');
     const crop = decodeOptionalPdfBox(page, 'crop');
-    const renderBox = page.renderBox === 'cropbox' || page.renderBox === 'mediabox'
-        ? page.renderBox
-        : undefined;
+    const renderBox = page.renderBox === 'cropbox' || page.renderBox === 'mediabox' ? page.renderBox : undefined;
     return {
         pageNumber,
         xPoints: decodePdfPageSizeFinite(page.xPoints) ?? 0,
@@ -363,11 +342,13 @@ export function decodePdfPageSizeRecord(
         ...(crop ?? {}),
         ...(renderBox === undefined ? {} : {renderBox}),
         ...(typeof page.allImagesPageAligned === 'boolean' ? {allImagesPageAligned: page.allImagesPageAligned} : {}),
-        ...(hasDominantImage ? {
-            dominantImageWidthPx,
-            dominantImageHeightPx,
-            dominantImageWidthPoints,
-            dominantImageHeightPoints,
-        } : {}),
+        ...(hasDominantImage
+            ? {
+                  dominantImageWidthPx,
+                  dominantImageHeightPx,
+                  dominantImageWidthPoints,
+                  dominantImageHeightPoints,
+              }
+            : {}),
     } satisfies IPdfPageSize;
 }

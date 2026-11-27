@@ -18,11 +18,12 @@ export default function assertPdfSerializedSaveOptions(value: unknown, label: st
     }
 
     const changedObjectRefs = value.changedObjectRefs;
-    if (changedObjectRefs !== undefined && (
-        !Array.isArray(changedObjectRefs)
-        || changedObjectRefs.length > 128
-        || !changedObjectRefs.every(ref => typeof ref === 'string' && PDF_OBJECT_REF_PATTERN.test(ref))
-    )) {
+    if (
+        changedObjectRefs !== undefined &&
+        (!Array.isArray(changedObjectRefs) ||
+            changedObjectRefs.length > 128 ||
+            !changedObjectRefs.every((ref) => typeof ref === 'string' && PDF_OBJECT_REF_PATTERN.test(ref)))
+    ) {
         throw new TypeError(`${label}.changedObjectRefs must contain at most 128 canonical PDF object references`);
     }
     if (value.workingCopyOnly !== true) {
@@ -30,9 +31,7 @@ export default function assertPdfSerializedSaveOptions(value: unknown, label: st
     }
     return {
         expectedDocumentRevisionToken: parsedToken,
-        ...(Array.isArray(changedObjectRefs)
-            ? {changedObjectRefs: [...new Set(changedObjectRefs as string[])]}
-            : {}),
+        ...(Array.isArray(changedObjectRefs) ? {changedObjectRefs: [...new Set(changedObjectRefs as string[])]} : {}),
         ...(value.workingCopyOnly === true ? {workingCopyOnly: true as const} : {}),
     };
 }

@@ -1,18 +1,10 @@
-import { once } from 'node:events';
-import { createInterface } from 'node:readline';
-import { spawn } from 'node:child_process';
-import {
-    mkdtemp, rm,
-} from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {once} from 'node:events';
+import {createInterface} from 'node:readline';
+import {spawn} from 'node:child_process';
+import {mkdtemp, rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
 import {
     createDetachedChildProcessSpawnOptions,
     getNativeChildProcessMemoryLimitExceededBytes,
@@ -22,7 +14,7 @@ import {
     getNativeChildProcessTerminationProof,
     terminateDetachedChildProcess,
 } from '@electron/utils/nativeChildProcess';
-import { resolveNativeProcessSupervisorPath } from '@electron/native-tools/resolveNativeToolsBase';
+import {resolveNativeProcessSupervisorPath} from '@electron/native-tools/resolveNativeToolsBase';
 
 interface ITerminateProcessTreeOptions {
     graceMs: number;
@@ -31,10 +23,9 @@ interface ITerminateProcessTreeOptions {
     preferProcessGroup: boolean;
 }
 
-const processTreeMocks = vi.hoisted(() => ({terminateProcessTree: vi.fn(async (
-    _pid: number,
-    _options: ITerminateProcessTreeOptions,
-) => true)}));
+const processTreeMocks = vi.hoisted(() => ({
+    terminateProcessTree: vi.fn(async (_pid: number, _options: ITerminateProcessTreeOptions) => true),
+}));
 
 vi.mock('@electron/utils/processTree', () => ({terminateProcessTree: processTreeMocks.terminateProcessTree}));
 
@@ -50,21 +41,31 @@ describe('nativeChildProcess', () => {
     });
 
     it('preserves caller spawn options while applying detached policy', () => {
-        expect(createDetachedChildProcessSpawnOptions({
-            shell: false,
-            windowsHide: true,
-            stdio: 'ignore',
-        }, 'darwin')).toMatchObject({
+        expect(
+            createDetachedChildProcessSpawnOptions(
+                {
+                    shell: false,
+                    windowsHide: true,
+                    stdio: 'ignore',
+                },
+                'darwin',
+            ),
+        ).toMatchObject({
             shell: false,
             windowsHide: true,
             stdio: 'ignore',
             detached: true,
         });
 
-        expect(createDetachedChildProcessSpawnOptions({
-            shell: false,
-            stdio: 'pipe',
-        }, 'win32')).toMatchObject({
+        expect(
+            createDetachedChildProcessSpawnOptions(
+                {
+                    shell: false,
+                    stdio: 'pipe',
+                },
+                'win32',
+            ),
+        ).toMatchObject({
             shell: false,
             stdio: 'pipe',
             detached: false,
@@ -72,45 +73,36 @@ describe('nativeChildProcess', () => {
     });
 
     it.each([
-        [
-            'linux',
-            true,
-        ],
-        [
-            'darwin',
-            true,
-        ],
-        [
-            'win32',
-            false,
-        ],
-    ] satisfies Array<[NodeJS.Platform, boolean]>)('terminates the owned PID with the %s process-tree policy', async (
-        platform,
-        preferProcessGroup,
-    ) => {
-        const proc = {
-            exitCode: null as number | null,
-            kill: vi.fn(),
-            pid: 4242,
-            signalCode: null as NodeJS.Signals | null,
-        };
+        ['linux', true],
+        ['darwin', true],
+        ['win32', false],
+    ] satisfies Array<[NodeJS.Platform, boolean]>)(
+        'terminates the owned PID with the %s process-tree policy',
+        async (platform, preferProcessGroup) => {
+            const proc = {
+                exitCode: null as number | null,
+                kill: vi.fn(),
+                pid: 4242,
+                signalCode: null as NodeJS.Signals | null,
+            };
 
-        await terminateDetachedChildProcess(proc as never, 1_500, platform);
+            await terminateDetachedChildProcess(proc as never, 1_500, platform);
 
-        expect(processTreeMocks.terminateProcessTree).toHaveBeenCalledWith(4242, {
-            graceMs: 1_500,
-            isTargetAlive: expect.any(Function),
-            platform,
-            preferProcessGroup,
-        });
-        const options = processTreeMocks.terminateProcessTree.mock.calls.at(-1)?.[1];
-        expect(options?.isTargetAlive()).toBe(true);
-        proc.exitCode = 0;
-        expect(options?.isTargetAlive()).toBe(false);
-        proc.exitCode = null;
-        proc.signalCode = 'SIGTERM';
-        expect(options?.isTargetAlive()).toBe(false);
-    });
+            expect(processTreeMocks.terminateProcessTree).toHaveBeenCalledWith(4242, {
+                graceMs: 1_500,
+                isTargetAlive: expect.any(Function),
+                platform,
+                preferProcessGroup,
+            });
+            const options = processTreeMocks.terminateProcessTree.mock.calls.at(-1)?.[1];
+            expect(options?.isTargetAlive()).toBe(true);
+            proc.exitCode = 0;
+            expect(options?.isTargetAlive()).toBe(false);
+            proc.exitCode = null;
+            proc.signalCode = 'SIGTERM';
+            expect(options?.isTargetAlive()).toBe(false);
+        },
+    );
 
     it('falls back to direct child termination when spawn never assigned a PID', async () => {
         const proc = {
@@ -125,10 +117,7 @@ describe('nativeChildProcess', () => {
         expect(proc.kill).toHaveBeenCalledWith('SIGTERM');
         expect(processTreeMocks.terminateProcessTree).not.toHaveBeenCalled();
     });
-    it.each([
-        'linux',
-        'win32',
-    ] as const)('keeps a missing-PID Windows tree unproven even after direct exit (%s)', async platform => {
+    it.each(['linux', 'win32'] as const)('keeps a missing-PID Windows tree unproven even after direct exit (%s)', async (platform) => {
         const proc = {
             pid: undefined,
             exitCode: 0,
@@ -138,7 +127,6 @@ describe('nativeChildProcess', () => {
         await expect(terminateDetachedChildProcess(proc as never, 0, platform)).resolves.toBe(platform !== 'win32');
         expect(processTreeMocks.terminateProcessTree).not.toHaveBeenCalled();
     });
-
 });
 
 // These exercise real suspended creation, inherited pipes and whole-job proof.
@@ -153,18 +141,16 @@ describe.runIf(process.platform === 'win32')('Windows native Job Object ownershi
         process.stdin.once('data', () => process.exit(7));
     `;
     function alive(pid: number) {
-        try { process.kill(pid, 0); return true; } catch { return false; }
+        try {
+            process.kill(pid, 0);
+            return true;
+        } catch {
+            return false;
+        }
     }
     async function startTree() {
-        const proc = spawnNativeChildProcess(process.execPath, [
-            '-e',
-            rootSource,
-        ], {
-            stdio: [
-                'pipe',
-                'pipe',
-                'pipe',
-            ],
+        const proc = spawnNativeChildProcess(process.execPath, ['-e', rootSource], {
+            stdio: ['pipe', 'pipe', 'pipe'],
             windowsHide: true,
         });
         const lines = createInterface({input: proc.stdout});
@@ -172,7 +158,7 @@ describe.runIf(process.platform === 'win32')('Windows native Job Object ownershi
         lines.close();
         const tree = JSON.parse(String(line)) as {
             root: number;
-            child: number
+            child: number;
         };
         expect(alive(tree.root)).toBe(true);
         expect(alive(tree.child)).toBe(true);
@@ -182,19 +168,17 @@ describe.runIf(process.platform === 'win32')('Windows native Job Object ownershi
         };
     }
     it('terminates the entire job before reporting proof', async () => {
-        const {
-            proc, tree,
-        } = await startTree();
+        const {proc, tree} = await startTree();
         try {
             await expect(terminateDetachedChildProcess(proc, 1_000)).resolves.toBe(true);
             expect(alive(tree.root)).toBe(false);
             expect(alive(tree.child)).toBe(false);
-        } finally { proc.kill(); }
+        } finally {
+            proc.kill();
+        }
     });
     it('contains descendants after the root crashes', async () => {
-        const {
-            proc, tree,
-        } = await startTree();
+        const {proc, tree} = await startTree();
         try {
             const closed = once(proc, 'close');
             proc.stdin?.end('crash');
@@ -202,39 +186,32 @@ describe.runIf(process.platform === 'win32')('Windows native Job Object ownershi
             await expect(getNativeChildProcessTerminationProof(proc)).resolves.toBe(true);
             expect(alive(tree.root)).toBe(false);
             expect(alive(tree.child)).toBe(false);
-        } finally { proc.kill(); }
+        } finally {
+            proc.kill();
+        }
     });
     it('preserves argv, cwd, environment, stdout, stderr and stdin bytes', async () => {
         const cwd = await mkdtemp(join(tmpdir(), 'native-job-'));
-        const args = [
-            '',
-            'two words',
-            'שלום',
-            'quoted"value',
-            'trailing\\',
-        ];
-        const source = 'process.stdout.write(JSON.stringify({args:process.argv.slice(1),cwd:process.cwd(),env:process.env.B11_CUSTOM})); process.stdin.pipe(process.stderr)';
-        const proc = spawnNativeChildProcess(process.execPath, [
-            '-e',
-            source,
-            '--',
-            ...args,
-        ], {
+        const args = ['', 'two words', 'שלום', 'quoted"value', 'trailing\\'];
+        const source =
+            'process.stdout.write(JSON.stringify({args:process.argv.slice(1),cwd:process.cwd(),env:process.env.B11_CUSTOM})); process.stdin.pipe(process.stderr)';
+        const proc = spawnNativeChildProcess(process.execPath, ['-e', source, '--', ...args], {
             cwd,
             env: {
                 ...process.env,
                 B11_CUSTOM: 'custom-value',
             },
-            stdio: [
-                'pipe',
-                'pipe',
-                'pipe',
-            ],
+            stdio: ['pipe', 'pipe', 'pipe'],
             windowsHide: true,
         });
-        let stdout = '', stderr = '';
-        proc.stdout.setEncoding('utf8').on('data', chunk => {stdout += chunk;});
-        proc.stderr.setEncoding('utf8').on('data', chunk => {stderr += chunk;});
+        let stdout = '',
+            stderr = '';
+        proc.stdout.setEncoding('utf8').on('data', (chunk) => {
+            stdout += chunk;
+        });
+        proc.stderr.setEncoding('utf8').on('data', (chunk) => {
+            stderr += chunk;
+        });
         try {
             const closed = once(proc, 'close');
             proc.stdin?.end('input Ω');
@@ -246,38 +223,39 @@ describe.runIf(process.platform === 'win32')('Windows native Job Object ownershi
             });
             expect(stderr).toBe('input Ω');
             await expect(getNativeChildProcessTerminationProof(proc)).resolves.toBe(true);
-        } finally { proc.kill(); await rm(cwd, {
-            recursive: true,
-            force: true,
-        }); }
+        } finally {
+            proc.kill();
+            await rm(cwd, {
+                recursive: true,
+                force: true,
+            });
+        }
     });
     it('enforces Job Object memory limits and reports memory_limit diagnostics', async () => {
         const limitBytes = 64 * 1024 * 1024;
         const reported: number[] = [];
-        const proc = spawnNativeChildProcess(process.execPath, [
-            '-e',
-            'const chunks = []; while (true) { const b = Buffer.alloc(4 * 1024 * 1024, 1); chunks.push(b); }',
-        ], {
-            stdio: [
-                'ignore',
-                'pipe',
-                'pipe',
-            ],
-            windowsHide: true,
-            memoryLimitBytes: limitBytes,
-            onMemoryLimitExceeded: bytes => reported.push(bytes),
-        });
+        const proc = spawnNativeChildProcess(
+            process.execPath,
+            ['-e', 'const chunks = []; while (true) { const b = Buffer.alloc(4 * 1024 * 1024, 1); chunks.push(b); }'],
+            {
+                stdio: ['ignore', 'pipe', 'pipe'],
+                windowsHide: true,
+                memoryLimitBytes: limitBytes,
+                onMemoryLimitExceeded: (bytes) => reported.push(bytes),
+            },
+        );
         try {
             await once(proc, 'close');
             await expect(getNativeChildProcessTerminationProof(proc)).resolves.toBe(true);
             expect(reported.length).toBeGreaterThanOrEqual(1);
             expect(getNativeChildProcessMemoryLimitExceededBytes(proc)).toBeGreaterThanOrEqual(limitBytes);
-        } finally { proc.kill(); }
+        } finally {
+            proc.kill();
+        }
     });
 });
 
-const hasPosixSupervisor = process.platform !== 'win32'
-    && resolveNativeProcessSupervisorPath(import.meta.dirname) !== null;
+const hasPosixSupervisor = process.platform !== 'win32' && resolveNativeProcessSupervisorPath(import.meta.dirname) !== null;
 
 describe.runIf(hasPosixSupervisor)('POSIX kernel-bound process supervisor ownership', () => {
     const rootSource = `
@@ -289,25 +267,23 @@ describe.runIf(hasPosixSupervisor)('POSIX kernel-bound process supervisor owners
         process.stdin.once('data', () => process.exit(7));
     `;
     function alive(pid: number) {
-        try { process.kill(pid, 0); return true; } catch { return false; }
+        try {
+            process.kill(pid, 0);
+            return true;
+        } catch {
+            return false;
+        }
     }
     async function startTree() {
-        const proc = spawnNativeChildProcess(process.execPath, [
-            '-e',
-            rootSource,
-        ], {
-            stdio: [
-                'pipe',
-                'pipe',
-                'pipe',
-            ],
+        const proc = spawnNativeChildProcess(process.execPath, ['-e', rootSource], {
+            stdio: ['pipe', 'pipe', 'pipe'],
         });
         const lines = createInterface({input: proc.stdout});
         const [line] = await once(lines, 'line');
         lines.close();
         const tree = JSON.parse(String(line)) as {
             root: number;
-            child: number
+            child: number;
         };
         expect(alive(tree.root)).toBe(true);
         expect(alive(tree.child)).toBe(true);
@@ -319,20 +295,18 @@ describe.runIf(hasPosixSupervisor)('POSIX kernel-bound process supervisor owners
     }
 
     it('terminates the entire process group before reporting proof', async () => {
-        const {
-            proc, tree,
-        } = await startTree();
+        const {proc, tree} = await startTree();
         try {
             await expect(terminateDetachedChildProcess(proc, 100)).resolves.toBe(true);
             expect(alive(tree.root)).toBe(false);
             expect(alive(tree.child)).toBe(false);
-        } finally { proc.kill('SIGKILL'); }
+        } finally {
+            proc.kill('SIGKILL');
+        }
     });
 
     it('contains descendants after the root exits abnormally', async () => {
-        const {
-            proc, tree,
-        } = await startTree();
+        const {proc, tree} = await startTree();
         try {
             const closed = once(proc, 'close');
             proc.stdin?.end('crash');
@@ -340,7 +314,9 @@ describe.runIf(hasPosixSupervisor)('POSIX kernel-bound process supervisor owners
             await expect(getNativeChildProcessTerminationProof(proc)).resolves.toBe(true);
             expect(alive(tree.root)).toBe(false);
             expect(alive(tree.child)).toBe(false);
-        } finally { proc.kill('SIGKILL'); }
+        } finally {
+            proc.kill('SIGKILL');
+        }
     });
 
     it('kills the supervised child automatically when its parent process dies abruptly', async () => {
@@ -365,15 +341,8 @@ describe.runIf(hasPosixSupervisor)('POSIX kernel-bound process supervisor owners
             });
             setInterval(() => {}, 60000);
         `;
-        const intermediateParent = spawn(process.execPath, [
-            '-e',
-            parentScript,
-        ], {
-            stdio: [
-                'ignore',
-                'pipe',
-                'ignore',
-            ],
+        const intermediateParent = spawn(process.execPath, ['-e', parentScript], {
+            stdio: ['ignore', 'pipe', 'ignore'],
         });
         const lines = createInterface({input: intermediateParent.stdout});
         const [line] = await once(lines, 'line');
@@ -388,16 +357,20 @@ describe.runIf(hasPosixSupervisor)('POSIX kernel-bound process supervisor owners
             // Simulate an abrupt parent crash (SIGKILL).
             intermediateParent.kill('SIGKILL');
             await once(intermediateParent, 'exit');
-            await vi.waitFor(() => {
-                expect(alive(pids.child)).toBe(false);
-                expect(alive(pids.supervisor)).toBe(false);
-            }, {timeout: 3_000});
+            await vi.waitFor(
+                () => {
+                    expect(alive(pids.child)).toBe(false);
+                    expect(alive(pids.supervisor)).toBe(false);
+                },
+                {timeout: 3_000},
+            );
         } finally {
-            for (const pid of [
-                pids.child,
-                pids.supervisor,
-            ]) {
-                try { process.kill(pid, 'SIGKILL'); } catch { /* Already dead. */ }
+            for (const pid of [pids.child, pids.supervisor]) {
+                try {
+                    process.kill(pid, 'SIGKILL');
+                } catch {
+                    /* Already dead. */
+                }
             }
         }
     });
@@ -405,37 +378,32 @@ describe.runIf(hasPosixSupervisor)('POSIX kernel-bound process supervisor owners
     it('enforces zero-spawn memory limits on POSIX and reports memory_limit diagnostics', async () => {
         const limitBytes = 64 * 1024 * 1024;
         const reported: number[] = [];
-        const proc = spawnNativeChildProcess(process.execPath, [
-            '-e',
-            'const chunks = []; for (let i = 0; i < 5; i += 1) { chunks.push(Buffer.alloc(16 * 1024 * 1024, 1)); } setInterval(() => { void chunks.length; }, 1000);',
-        ], {
-            stdio: [
-                'ignore',
-                'pipe',
-                'pipe',
+        const proc = spawnNativeChildProcess(
+            process.execPath,
+            [
+                '-e',
+                'const chunks = []; for (let i = 0; i < 5; i += 1) { chunks.push(Buffer.alloc(16 * 1024 * 1024, 1)); } setInterval(() => { void chunks.length; }, 1000);',
             ],
-            memoryLimitBytes: limitBytes,
-            onMemoryLimitExceeded: bytes => reported.push(bytes),
-        });
+            {
+                stdio: ['ignore', 'pipe', 'pipe'],
+                memoryLimitBytes: limitBytes,
+                onMemoryLimitExceeded: (bytes) => reported.push(bytes),
+            },
+        );
         try {
             await once(proc, 'close');
             await expect(getNativeChildProcessTerminationProof(proc)).resolves.toBe(true);
             expect(reported.length).toBeGreaterThanOrEqual(1);
             expect(getNativeChildProcessMemoryLimitExceededBytes(proc)).toBeGreaterThan(limitBytes);
-        } finally { proc.kill('SIGKILL'); }
+        } finally {
+            proc.kill('SIGKILL');
+        }
     });
 
     it('preserves termination proof when terminate races with a fast-exiting child', async () => {
         for (let iteration = 0; iteration < 35; iteration += 1) {
-            const proc = spawnNativeChildProcess(process.execPath, [
-                '-e',
-                'process.stdout.write("hit\\n"); process.exit(0);',
-            ], {
-                stdio: [
-                    'ignore',
-                    'pipe',
-                    'pipe',
-                ],
+            const proc = spawnNativeChildProcess(process.execPath, ['-e', 'process.stdout.write("hit\\n"); process.exit(0);'], {
+                stdio: ['ignore', 'pipe', 'pipe'],
             });
             try {
                 let terminateProof: Promise<boolean> | null = null;

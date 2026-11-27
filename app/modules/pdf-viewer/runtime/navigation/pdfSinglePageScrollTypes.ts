@@ -1,12 +1,9 @@
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import type { TPageNumber } from '@contracts/pageNumbers';
-import type {
-    Ref,
-    ShallowRef,
-} from 'vue';
-import type { TPdfViewMode } from '@contracts/shared';
-import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/bindPdfOpenSurfaceRenderContext';
-import type { IPdfViewportWritePort } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
+import type {TPageNumber} from '@contracts/pageNumbers';
+import type {Ref, ShallowRef} from 'vue';
+import type {TPdfViewMode} from '@contracts/shared';
+import type {IRenderVisiblePagesOptions} from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/bindPdfOpenSurfaceRenderContext';
+import type {IPdfViewportWritePort} from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
 import type {IPdfPageLayoutMetrics} from '@app/modules/document-viewer/public';
 
 export interface IUsePdfSinglePageScrollOptions {
@@ -24,7 +21,7 @@ export interface IUsePdfSinglePageScrollOptions {
     renderVisiblePages: (
         range: {
             start: number;
-            end: number
+            end: number;
         },
         renderOptions?: IRenderVisiblePagesOptions,
     ) => Promise<boolean>;

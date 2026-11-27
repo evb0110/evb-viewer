@@ -1,39 +1,33 @@
-import {
-    readFile, mkdir, writeFile,
-} from 'node:fs/promises';
+import {readFile, mkdir, writeFile} from 'node:fs/promises';
 import {existsSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {join} from 'node:path';
-import {
-    PDFDocument, rgb,
-} from 'pdf-lib';
-import {
-    describe, expect, it,
-} from 'vitest';
+import {PDFDocument, rgb} from 'pdf-lib';
+import {describe, expect, it} from 'vitest';
 import type {Page} from 'playwright';
 import {buildTesseractArgs} from '@ocr-core/tesseractRecipe';
-import {
-    getOcrModelDownloadUrl, OCR_LANGUAGE_MODEL_BYTES, OCR_LANGUAGE_MODEL_SHA256,
-} from '@contracts/ocrLanguages';
-import {
-    lifecycle, openPdfFromChooser, readDownloadBytes,
-} from './documentLifecycleTestHelpers';
+import {getOcrModelDownloadUrl, OCR_LANGUAGE_MODEL_BYTES, OCR_LANGUAGE_MODEL_SHA256} from '@contracts/ocrLanguages';
+import {lifecycle, openPdfFromChooser, readDownloadBytes} from './documentLifecycleTestHelpers';
 
 async function openOcrEngineFixture(page: Page) {
     const url = `${lifecycle.origin}/__ocr-engine`;
-    await page.route(url, route => route.fulfill({
-        contentType: 'text/html',
-        body: '<!doctype html><html><body>OCR engine</body></html>',
-    }));
+    await page.route(url, (route) =>
+        route.fulfill({
+            contentType: 'text/html',
+            body: '<!doctype html><html><body>OCR engine</body></html>',
+        }),
+    );
     await page.goto(url, {waitUntil: 'domcontentloaded'});
 }
 
 describe('browser OCR progress', () => {
     it('finds Hebrew OCR words through UI search after language selection and save', async () => {
-        const page = await lifecycle.browser.newPage({viewport: {
-            width: 1440,
-            height: 900,
-        }});
+        const page = await lifecycle.browser.newPage({
+            viewport: {
+                width: 1440,
+                height: 900,
+            },
+        });
         let reopened: Page | undefined;
         try {
             // Provision the exact model before app work. A cold CI archive must
@@ -49,23 +43,25 @@ describe('browser OCR progress', () => {
             }
             expect(modelBytes.byteLength).toBe(OCR_LANGUAGE_MODEL_BYTES.heb);
             expect(createHash('sha256').update(modelBytes).digest('hex')).toBe(OCR_LANGUAGE_MODEL_SHA256.heb);
-            await page.route('**/heb.traineddata', route => route.fulfill({
-                contentType: 'application/octet-stream',
-                body: modelBytes,
-            }));
+            await page.route('**/heb.traineddata', (route) =>
+                route.fulfill({
+                    contentType: 'application/octet-stream',
+                    body: modelBytes,
+                }),
+            );
             // Fixed pixels keep niqqud recognition independent of host font rasterization.
             await openPdfFromChooser(page, {
                 name: 'hebrew-scan.png',
                 mimeType: 'image/png',
-                buffer: await readFile(join(
-                    process.cwd(), 'tests/fixtures/browser/rtl-ocr/pointed-hebrew-scan.png',
-                )),
+                buffer: await readFile(join(process.cwd(), 'tests/fixtures/browser/rtl-ocr/pointed-hebrew-scan.png')),
             });
             await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 30_000});
-            await page.getByRole('button', {
-                name: 'OCR',
-                exact: true,
-            }).click();
+            await page
+                .getByRole('button', {
+                    name: 'OCR',
+                    exact: true,
+                })
+                .click();
             const dialog = page.getByRole('dialog');
             await dialog.getByText('Hebrew', {exact: true}).click({timeout: 15_000});
             const ocrStartedAt = Date.now();
@@ -73,25 +69,32 @@ describe('browser OCR progress', () => {
             const completionText = 'OCR complete - PDF is now searchable';
             let terminalText: string;
             try {
-                await dialog.getByText(completionText, {exact: true})
-                    .or(dialog.getByRole('alert')).first().waitFor({timeout: 90_000});
+                await dialog.getByText(completionText, {exact: true}).or(dialog.getByRole('alert')).first().waitFor({timeout: 90_000});
             } finally {
                 terminalText = await dialog.innerText();
-                console.log('Hebrew OCR terminal', JSON.stringify({
-                    elapsedMs: Date.now() - ocrStartedAt,
-                    dialog: terminalText,
-                }));
+                console.log(
+                    'Hebrew OCR terminal',
+                    JSON.stringify({
+                        elapsedMs: Date.now() - ocrStartedAt,
+                        dialog: terminalText,
+                    }),
+                );
             }
             expect(terminalText).toContain(completionText);
-            await dialog.getByRole('button', {
-                name: 'Close',
-                exact: true,
-            }).last().click();
+            await dialog
+                .getByRole('button', {
+                    name: 'Close',
+                    exact: true,
+                })
+                .last()
+                .click();
             const download = page.waitForEvent('download');
-            await page.getByRole('button', {
-                name: 'Save',
-                exact: true,
-            }).click();
+            await page
+                .getByRole('button', {
+                    name: 'Save',
+                    exact: true,
+                })
+                .click();
             const saved = await readDownloadBytes(await download);
             const evidence = process.env.EVB_HEBREW_OCR_EVIDENCE_DIR;
             if (evidence) {
@@ -99,10 +102,12 @@ describe('browser OCR progress', () => {
                 await writeFile(join(evidence, 'hebrew-saved.pdf'), saved);
             }
             // A fresh page proves search reads the downloaded PDF's OCR layer.
-            reopened = await lifecycle.browser.newPage({viewport: {
-                width: 1440,
-                height: 900,
-            }});
+            reopened = await lifecycle.browser.newPage({
+                viewport: {
+                    width: 1440,
+                    height: 900,
+                },
+            });
             const searchPage = reopened;
             await openPdfFromChooser(searchPage, {
                 name: 'hebrew-saved.pdf',
@@ -114,11 +119,13 @@ describe('browser OCR progress', () => {
                 name: 'Search',
                 exact: true,
             });
-            if (!await searchTab.isVisible()) {
-                await searchPage.getByRole('button', {
-                    name: 'Toggle Sidebar',
-                    exact: true,
-                }).click();
+            if (!(await searchTab.isVisible())) {
+                await searchPage
+                    .getByRole('button', {
+                        name: 'Toggle Sidebar',
+                        exact: true,
+                    })
+                    .click();
             }
             await searchTab.click();
             const input = searchPage.locator('.document-search-bar input:visible').first();
@@ -127,7 +134,9 @@ describe('browser OCR progress', () => {
             try {
                 await expect.poll(() => searchPage.locator('.document-search-results').innerText()).toContain('1 result for “הַקְדְשָה”');
             } finally {
-                if (evidence) {await searchPage.screenshot({path: join(evidence, 'saved-hebrew-search.png')});}
+                if (evidence) {
+                    await searchPage.screenshot({path: join(evidence, 'saved-hebrew-search.png')});
+                }
             }
         } finally {
             await reopened?.context().close();
@@ -140,7 +149,7 @@ describe('browser OCR progress', () => {
         const page = await lifecycle.browser.newPage();
         const fixturePath = join(process.cwd(), 'tests/fixtures/release/packaged-core-ocr-smoke.pdf');
         const fixture = await PDFDocument.load(await readFile(fixturePath));
-        const dpi = Math.ceil(4200 / fixture.getPage(0).getWidth() * 72);
+        const dpi = Math.ceil((4200 / fixture.getPage(0).getWidth()) * 72);
         const pass = (poorScan: boolean) => ({
             args: buildTesseractArgs({
                 imagePath: '/work/page.ppm',
@@ -154,8 +163,10 @@ describe('browser OCR progress', () => {
             outputs: ['/work/out.tsv'],
         });
         try {
-            await page.route('**/eng.traineddata', route => route.fulfill({path: join(process.cwd(), 'resources/tesseract/tessdata/eng.traineddata')}));
-            await page.route('**/ocr-pixels.pdf', route => route.fulfill({path: fixturePath}));
+            await page.route('**/eng.traineddata', (route) =>
+                route.fulfill({path: join(process.cwd(), 'resources/tesseract/tessdata/eng.traineddata')}),
+            );
+            await page.route('**/ocr-pixels.pdf', (route) => route.fulfill({path: fixturePath}));
             await openOcrEngineFixture(page);
             const outputs = await page.evaluate<string[]>(`(async () => {
                 const {getPdfjsLib} = await import('/_nuxt/platform/browser-api/browserPdfjsDocumentInit.ts');
@@ -204,10 +215,7 @@ describe('browser OCR progress', () => {
         // frames. Preload the full operator list so worker I/O cannot supply
         // an incidental task boundary that hides microtask starvation.
         const fixture = await PDFDocument.create();
-        const vectorPage = fixture.addPage([
-            300,
-            150,
-        ]);
+        const vectorPage = fixture.addPage([300, 150]);
         for (let index = 0; index < 50_000; index += 1) {
             vectorPage.drawRectangle({
                 x: index % 300,
@@ -279,15 +287,21 @@ describe('browser OCR progress', () => {
     it('shows completed page counts and finishes while tab animation frames are suspended', async () => {
         // I4: long work reports its step with a count that never moves backward.
         const evidence = process.env.EVB_OCR_PROGRESS_EVIDENCE_DIR;
-        if (evidence) {await mkdir(evidence, {recursive: true});}
+        if (evidence) {
+            await mkdir(evidence, {recursive: true});
+        }
         const page = await lifecycle.browser.newPage({
-            ...(evidence ? {recordVideo: {
-                dir: evidence,
-                size: {
-                    width: 1440,
-                    height: 900,
-                },
-            }} : {}),
+            ...(evidence
+                ? {
+                      recordVideo: {
+                          dir: evidence,
+                          size: {
+                              width: 1440,
+                              height: 900,
+                          },
+                      },
+                  }
+                : {}),
             viewport: {
                 width: 1440,
                 height: 900,
@@ -295,10 +309,12 @@ describe('browser OCR progress', () => {
         });
         try {
             // Serve the bundled, hash-verified English model without a network download.
-            await page.route('**/eng.traineddata', route => route.fulfill({path: join(process.cwd(), 'resources/tesseract/tessdata/eng.traineddata')}));
-            const source = await PDFDocument.load(await readFile(join(
-                process.cwd(), 'tests/fixtures/release/packaged-core-ocr-smoke.pdf',
-            )));
+            await page.route('**/eng.traineddata', (route) =>
+                route.fulfill({path: join(process.cwd(), 'resources/tesseract/tessdata/eng.traineddata')}),
+            );
+            const source = await PDFDocument.load(
+                await readFile(join(process.cwd(), 'tests/fixtures/release/packaged-core-ocr-smoke.pdf')),
+            );
             const fixturePdf = await PDFDocument.create();
             for (let index = 0; index < 8; index += 1) {
                 const [copy] = await fixturePdf.copyPages(source, [0]);
@@ -310,10 +326,12 @@ describe('browser OCR progress', () => {
                 buffer: Buffer.from(await fixturePdf.save()),
             });
             await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 30_000});
-            await page.getByRole('button', {
-                name: 'OCR',
-                exact: true,
-            }).click();
+            await page
+                .getByRole('button', {
+                    name: 'OCR',
+                    exact: true,
+                })
+                .click();
             const dialog = page.getByRole('dialog');
             await dialog.getByText('All pages (8)', {exact: true}).click();
             await page.evaluate(() => {
@@ -321,7 +339,9 @@ describe('browser OCR progress', () => {
                 Reflect.set(window, '__ocrProgressSamples', samples);
                 const observer = new MutationObserver(() => {
                     const text = document.querySelector('[role="dialog"] .progress-text')?.textContent?.trim();
-                    if (text && samples.at(-1) !== text) {samples.push(text);}
+                    if (text && samples.at(-1) !== text) {
+                        samples.push(text);
+                    }
                 });
                 observer.observe(document.body, {
                     subtree: true,
@@ -330,8 +350,11 @@ describe('browser OCR progress', () => {
                 });
             });
             await dialog.getByRole('button', {name: /^(Download and start OCR|Start OCR)$/u}).click();
-            await page.waitForFunction(() => document.querySelector('[role="dialog"] .progress-text')
-                ?.textContent?.startsWith('Processing page'), undefined, {timeout: 90_000});
+            await page.waitForFunction(
+                () => document.querySelector('[role="dialog"] .progress-text')?.textContent?.startsWith('Processing page'),
+                undefined,
+                {timeout: 90_000},
+            );
             // Headless Chromium keeps every tab visible. Reproduce the hidden-tab
             // policy directly: animation callbacks stop, while worker messages,
             // promises and DOM updates can still run. OCR must finish before any
@@ -341,45 +364,57 @@ describe('browser OCR progress', () => {
                 const cancel = window.cancelAnimationFrame.bind(window);
                 const suspended = new Map<number, FrameRequestCallback>();
                 let frameId = 0;
-                window.requestAnimationFrame = callback => {
+                window.requestAnimationFrame = (callback) => {
                     suspended.set(--frameId, callback);
                     return frameId;
                 };
-                window.cancelAnimationFrame = id => {
-                    if (!suspended.delete(id)) {cancel(id);}
+                window.cancelAnimationFrame = (id) => {
+                    if (!suspended.delete(id)) {
+                        cancel(id);
+                    }
                 };
                 Reflect.set(window, '__resumeOcrAnimationFrames', () => {
                     window.requestAnimationFrame = request;
                     window.cancelAnimationFrame = cancel;
-                    suspended.forEach(callback => request(callback));
+                    suspended.forEach((callback) => request(callback));
                 });
             });
             if (evidence) {
                 await page.screenshot({path: join(evidence, 'processing.png')});
             }
             await dialog.getByText('OCR complete - PDF is now searchable', {exact: true}).waitFor({timeout: 90_000});
-            if (evidence) {await page.screenshot({path: join(evidence, 'complete-without-animation-frames.png')});}
+            if (evidence) {
+                await page.screenshot({path: join(evidence, 'complete-without-animation-frames.png')});
+            }
             await page.evaluate(() => Reflect.get(window, '__resumeOcrAnimationFrames')());
             const samples = await page.evaluate(() => Reflect.get(window, '__ocrProgressSamples') as string[]);
-            if (evidence) {await writeFile(join(evidence, 'samples.json'), JSON.stringify(samples, null, 2));}
-            const processing = samples.filter(text => text.startsWith('Processing page'));
+            if (evidence) {
+                await writeFile(join(evidence, 'samples.json'), JSON.stringify(samples, null, 2));
+            }
+            const processing = samples.filter((text) => text.startsWith('Processing page'));
             expect(processing.length).toBeGreaterThan(1);
-            const counts = processing.map(text => {
+            const counts = processing.map((text) => {
                 expect(text).toMatch(/^Processing pages: \d+\/8 completed$/u);
                 return Number(text.match(/: (\d+)\//u)?.[1]);
             });
             expect(counts[0]).toBe(0);
-            expect(counts.some(count => count > 0)).toBe(true);
+            expect(counts.some((count) => count > 0)).toBe(true);
             expect(counts).toEqual([...counts].sort((left, right) => left - right));
-            await dialog.getByRole('button', {
-                name: 'Close',
-                exact: true,
-            }).last().click();
-            if (await page.locator('[data-testid="document-sidebar"]:visible').count() === 0) {
-                await page.getByRole('button', {
-                    name: 'Toggle Sidebar',
+            await dialog
+                .getByRole('button', {
+                    name: 'Close',
                     exact: true,
-                }).first().click();
+                })
+                .last()
+                .click();
+            if ((await page.locator('[data-testid="document-sidebar"]:visible').count()) === 0) {
+                await page
+                    .getByRole('button', {
+                        name: 'Toggle Sidebar',
+                        exact: true,
+                    })
+                    .first()
+                    .click();
             }
             await page.locator('[data-testid="document-sidebar"] [role="tab"]:visible', {hasText: 'Search'}).first().click();
             const searchInput = page.locator('.document-search-bar input:visible').first();
@@ -387,9 +422,12 @@ describe('browser OCR progress', () => {
             await searchInput.press('Enter');
             // Each scanned page has one lantern. Searching the applied PDF
             // independently confirms recognition finished on all eight pages.
-            await expect.poll(() => page.locator('.document-search-result:visible .document-search-result-highlight').allTextContents())
+            await expect
+                .poll(() => page.locator('.document-search-result:visible .document-search-result-highlight').allTextContents())
                 .toEqual(Array.from({length: 8}, () => 'lantern'));
-            if (evidence) {await page.screenshot({path: join(evidence, 'searchable.png')});}
+            if (evidence) {
+                await page.screenshot({path: join(evidence, 'searchable.png')});
+            }
         } finally {
             await page.context().close();
         }
@@ -397,10 +435,7 @@ describe('browser OCR progress', () => {
 
     it('copies the failure records of a failed run through Copy logs', async () => {
         const context = await lifecycle.browser.newContext({
-            permissions: [
-                'clipboard-read',
-                'clipboard-write',
-            ],
+            permissions: ['clipboard-read', 'clipboard-write'],
             viewport: {
                 width: 1440,
                 height: 900,
@@ -409,28 +444,35 @@ describe('browser OCR progress', () => {
         try {
             const page = await context.newPage();
             // The model host is down, so the run fails the way a user offline sees it.
-            await page.route('**/eng.traineddata', route => route.fulfill({
-                status: 503,
-                body: 'unavailable',
-            }));
+            await page.route('**/eng.traineddata', (route) =>
+                route.fulfill({
+                    status: 503,
+                    body: 'unavailable',
+                }),
+            );
             await openPdfFromChooser(page, {
                 name: 'ocr-copy-logs.pdf',
                 mimeType: 'application/pdf',
                 buffer: await readFile(join(process.cwd(), 'tests/fixtures/release/packaged-core-ocr-smoke.pdf')),
             });
             await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 30_000});
-            await page.getByRole('button', {
-                name: 'OCR',
-                exact: true,
-            }).click();
+            await page
+                .getByRole('button', {
+                    name: 'OCR',
+                    exact: true,
+                })
+                .click();
             const dialog = page.getByRole('dialog');
             await dialog.getByRole('button', {name: /^(Download and start OCR|Start OCR)$/u}).click();
             await dialog.getByRole('alert').waitFor({timeout: 60_000});
-            await dialog.getByRole('button', {
-                name: 'Copy logs',
-                exact: true,
-            }).click();
-            await expect.poll(() => page.evaluate(() => navigator.clipboard.readText()), {timeout: 10_000})
+            await dialog
+                .getByRole('button', {
+                    name: 'Copy logs',
+                    exact: true,
+                })
+                .click();
+            await expect
+                .poll(() => page.evaluate(() => navigator.clipboard.readText()), {timeout: 10_000})
                 .toContain('--- debug:log stream ---');
             const copied = await page.evaluate(() => navigator.clipboard.readText());
             const stream = copied.slice(copied.indexOf('--- debug:log stream ---'));

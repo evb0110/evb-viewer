@@ -1,12 +1,6 @@
-import {
-    open,
-    rm,
-} from 'node:fs/promises';
+import {open, rm} from 'node:fs/promises';
 import {join} from 'node:path';
-import {
-    buildOcrTextLayerPageInstruction,
-    type IOcrRecognizedPage,
-} from '@ocr-core/recognizeOcrPages';
+import {buildOcrTextLayerPageInstruction, type IOcrRecognizedPage} from '@ocr-core/recognizeOcrPages';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 
 const STREAM_WRITE_BUFFER_CHARS = 64 * 1024;
@@ -38,7 +32,9 @@ export async function writeSearchablePdf(input: {
         try {
             let buffered = '{"pages":[';
             const flush = async () => {
-                if (buffered.length === 0) {return;}
+                if (buffered.length === 0) {
+                    return;
+                }
                 const chunk = Buffer.from(buffered, 'utf8');
                 buffered = '';
                 let offset = 0;
@@ -71,18 +67,14 @@ export async function writeSearchablePdf(input: {
         }
 
         input.signal.throwIfAborted();
-        await runNativeToolCommand(input.pdfPageOpsBinary, [
-            'ocr-text-layer',
-            '--input',
-            input.sourcePdfPath,
-            '--output',
-            outputPath,
-            '--instructions-file',
-            instructionsPath,
-        ], {
-            commandLabel: 'evb-pdf-page-ops(ocr-text-layer)',
-            signal: input.signal,
-        });
+        await runNativeToolCommand(
+            input.pdfPageOpsBinary,
+            ['ocr-text-layer', '--input', input.sourcePdfPath, '--output', outputPath, '--instructions-file', instructionsPath],
+            {
+                commandLabel: 'evb-pdf-page-ops(ocr-text-layer)',
+                signal: input.signal,
+            },
+        );
         return outputPath;
     } catch (error) {
         await rm(outputPath, {force: true}).catch(() => undefined);

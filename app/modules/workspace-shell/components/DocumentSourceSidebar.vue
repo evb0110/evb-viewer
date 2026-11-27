@@ -20,13 +20,20 @@
             />
         </DocumentSidebarPagesPanel>
 
-        <div v-show="activeTab === 'bookmarks'" class="document-source-sidebar__bookmarks">
+        <div
+            v-show="activeTab === 'bookmarks'"
+            class="document-source-sidebar__bookmarks"
+        >
             <DocumentBookmarkToolbar
                 v-if="isBookmarkToolbarVisible"
                 :display-mode="bookmarkDisplayMode"
                 @set-display-mode="setBookmarkDisplayMode"
             />
-            <p v-if="outlineStatus === 'loading'" class="document-source-sidebar__status">{{ t('documentSourceSidebar.loadingOutline') }}</p>
+            <p
+                v-if="outlineStatus === 'loading'"
+                class="document-source-sidebar__status"
+                >{{ t('documentSourceSidebar.loadingOutline') }}</p
+            >
             <DocumentPanelEmptyState
                 v-else-if="outlineStatus === 'error'"
                 icon="i-ph-warning"
@@ -60,10 +67,8 @@
 </template>
 
 <script setup lang="ts">
-import type {
-    IDocumentPageSource, IDocumentSearchSession ,TDocumentSidebarTab, 
-} from '@app/modules/document-viewer/public';
-import { useDocumentBookmarkSession } from '@app/modules/document-viewer/public';
+import type {IDocumentPageSource, IDocumentSearchSession, TDocumentSidebarTab} from '@app/modules/document-viewer/public';
+import {useDocumentBookmarkSession} from '@app/modules/document-viewer/public';
 import AppSidebarShell from '@app/components/sidebar/AppSidebarShell.vue';
 import DocumentPanelEmptyState from '@app/components/document-viewer/DocumentPanelEmptyState.vue';
 import DocumentBookmarkToolbar from '@app/components/document-viewer/DocumentBookmarkToolbar.vue';
@@ -72,17 +77,8 @@ import DocumentSearchPanel from '@app/components/document-viewer/DocumentSearchP
 import DocumentThumbnailList from '@app/components/document-viewer/DocumentThumbnailList.vue';
 import DocumentSidebarPagesPanel from '@app/components/document-viewer/DocumentSidebarPagesPanel.vue';
 
-const { t } = useTypedI18n();
-const {
-    source,
-    currentPage,
-    isActive,
-    searchSession,
-    isResizing,
-    searchFocusRequest,
-    activeTab,
-    availableTabs,
-} = defineProps<{
+const {t} = useTypedI18n();
+const {source, currentPage, isActive, searchSession, isResizing, searchFocusRequest, activeTab, availableTabs} = defineProps<{
     source: IDocumentPageSource | null;
     currentPage: number;
     isActive?: boolean;
@@ -119,30 +115,28 @@ const {
 } = bookmarkSession;
 
 /** Display modes are meaningless until there is a settled outline to arrange. */
-const isBookmarkToolbarVisible = computed(() => (
-    outlineStatus.value === 'ready' || outlineStatus.value === 'empty'
-));
+const isBookmarkToolbarVisible = computed(() => outlineStatus.value === 'ready' || outlineStatus.value === 'empty');
 
-const availableShellTabs = computed(() => availableTabs.map(tab => ({
-    value: tab,
-    label: getTabLabel(tab),
-    title: getTabLabel(tab),
-    icon: {
-        annotations: 'i-ph-chat',
-        thumbnails: 'i-ph-file',
-        bookmarks: 'i-ph-bookmark',
-        search: 'i-ph-magnifying-glass',
-    }[tab],
-})));
+const availableShellTabs = computed(() =>
+    availableTabs.map((tab) => ({
+        value: tab,
+        label: getTabLabel(tab),
+        title: getTabLabel(tab),
+        icon: {
+            annotations: 'i-ph-chat',
+            thumbnails: 'i-ph-file',
+            bookmarks: 'i-ph-bookmark',
+            search: 'i-ph-magnifying-glass',
+        }[tab],
+    })),
+);
 
 function getTabLabel(tab: TDocumentSidebarTab) {
     return t(`sidebar.${tab === 'thumbnails' ? 'pages' : tab}`);
 }
 
 function handleShellTabUpdate(value: string) {
-    const tab = /^\d+$/u.test(value)
-        ? availableTabs[Number(value)]
-        : value as TDocumentSidebarTab;
+    const tab = /^\d+$/u.test(value) ? availableTabs[Number(value)] : (value as TDocumentSidebarTab);
     if (!tab || !availableTabs.includes(tab)) {
         return;
     }
@@ -159,9 +153,10 @@ function forwardThumbnailActivation(pageNumber: number, event: MouseEvent) {
 
 function activateBookmark(id: string) {
     const pageNumber = getBookmarkPageNumber(id);
-    if (pageNumber !== null) {emit('go-to-page', pageNumber);}
+    if (pageNumber !== null) {
+        emit('go-to-page', pageNumber);
+    }
 }
-
 </script>
 
 <style scoped>
@@ -192,5 +187,4 @@ function activateBookmark(id: string) {
     color: var(--ui-text-muted);
     font-size: var(--app-sidebar-caption-font-size);
 }
-
 </style>

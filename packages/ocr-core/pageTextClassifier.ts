@@ -1,7 +1,4 @@
-import type {
-    TOcrPageTextClassification,
-    TOcrTextSupersessionPolicy,
-} from '@contracts/electronApiOcr';
+import type {TOcrPageTextClassification, TOcrTextSupersessionPolicy} from '@contracts/electronApiOcr';
 import type {IPdfOcrPageTextVisibility} from '@contracts/pdfOcrTextVisibility';
 
 const OCR_TEXT_WORD_RE = /[\p{L}\p{N}]+/gu;
@@ -29,10 +26,7 @@ const OCR_LANGUAGE_SCRIPTS: Record<string, readonly TOcrTextScript[]> = {
     hun: ['latin'],
     ind: ['latin'],
     ita: ['latin'],
-    jpn: [
-        'han',
-        'kana',
-    ],
+    jpn: ['han', 'kana'],
     kmr: ['latin'],
     kor: ['hangul'],
     lat: ['latin'],
@@ -88,8 +82,10 @@ function hasLanguageScript(text: string, languages: readonly string[] | undefine
     const scripts = getLanguageScripts(languages);
     // An unrecognized model code must not make the classifier guess Latin and
     // reject otherwise valid OCR in a script it does not know about yet.
-    if (scripts.size === 0) {return true;}
-    return [...scripts].some(script => OCR_SCRIPT_PATTERNS[script].test(text));
+    if (scripts.size === 0) {
+        return true;
+    }
+    return [...scripts].some((script) => OCR_SCRIPT_PATTERNS[script].test(text));
 }
 
 /**
@@ -99,34 +95,28 @@ function hasLanguageScript(text: string, languages: readonly string[] | undefine
  * it only to EVB-owned OCR, so native authored text is never replaced by a
  * heuristic.
  */
-function isLikelyUsableOcrText(
-    text: string,
-    languages?: readonly string[],
-) {
+function isLikelyUsableOcrText(text: string, languages?: readonly string[]) {
     const tokens = text.match(OCR_TEXT_WORD_RE) ?? [];
     if (tokens.length === 0 || !hasLanguageScript(text, languages)) {
         return false;
     }
-    const singleCharacterTokens = tokens.filter(token => Array.from(token).length <= 1).length;
-    const longTokens = tokens.filter(token => Array.from(token).length >= 3).length;
-    const numericOnly = tokens.every(token => /^\p{N}+$/u.test(token));
+    const singleCharacterTokens = tokens.filter((token) => Array.from(token).length <= 1).length;
+    const longTokens = tokens.filter((token) => Array.from(token).length >= 3).length;
+    const numericOnly = tokens.every((token) => /^\p{N}+$/u.test(token));
     if (numericOnly) {
         return true;
     }
-    const singleTokenIsMixedAlphaNumeric = tokens.length === 1
-        && /\p{L}/u.test(tokens[0])
-        && /\p{N}/u.test(tokens[0]);
-    const shortPhraseHasMeaningfulWord = tokens.length <= OCR_TEXT_SHORT_PHRASE_MAX_TOKEN_COUNT
-        && longTokens > 0;
-    return singleCharacterTokens / tokens.length < OCR_TEXT_SINGLE_CHARACTER_TOKEN_MAX_FRACTION
-        && !singleTokenIsMixedAlphaNumeric
+    const singleTokenIsMixedAlphaNumeric = tokens.length === 1 && /\p{L}/u.test(tokens[0]) && /\p{N}/u.test(tokens[0]);
+    const shortPhraseHasMeaningfulWord = tokens.length <= OCR_TEXT_SHORT_PHRASE_MAX_TOKEN_COUNT && longTokens > 0;
+    return (
+        singleCharacterTokens / tokens.length < OCR_TEXT_SINGLE_CHARACTER_TOKEN_MAX_FRACTION &&
+        !singleTokenIsMixedAlphaNumeric &&
         // A page can legitimately contain one isolated word, a short heading
         // such as “Глава 1”, or a numeric-only label. The two-long-token guard
         // is still useful for the multi-fragment garbage produced by a broken
         // OCR layer, but must not reject those valid short results.
-        && (longTokens >= OCR_TEXT_MINIMUM_LONG_TOKEN_COUNT
-            || tokens.length === 1
-            || shortPhraseHasMeaningfulWord);
+        (longTokens >= OCR_TEXT_MINIMUM_LONG_TOKEN_COUNT || tokens.length === 1 || shortPhraseHasMeaningfulWord)
+    );
 }
 
 export function classifyOcrPageText(input: {
@@ -147,15 +137,10 @@ export function classifyOcrPageText(input: {
     // Only hidden text the writer removes, and nothing else, is a foreign layer
     // OCR may replace; anything painted or unread is the document's own text.
     const visibility = input.visibility;
-    return visibility?.hiddenText && !visibility.paintedText && visibility.uncertain === null
-        ? 'foreign-hidden-ocr'
-        : 'native-text';
+    return visibility?.hiddenText && !visibility.paintedText && visibility.uncertain === null ? 'foreign-hidden-ocr' : 'native-text';
 }
 
-export function shouldOcrClassifiedPage(
-    classification: TOcrPageTextClassification,
-    policy: TOcrTextSupersessionPolicy,
-) {
+export function shouldOcrClassifiedPage(classification: TOcrPageTextClassification, policy: TOcrTextSupersessionPolicy) {
     if (classification === 'no-text') {
         return true;
     }

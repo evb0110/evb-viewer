@@ -4,15 +4,12 @@ import type {
     TAgentAssistantEffort,
     TAgentAssistantSpeedMode,
 } from '@contracts/agent';
-export { ASSISTANT_KNOWN_EFFORTS } from '@contracts/agent';
+export {ASSISTANT_KNOWN_EFFORTS} from '@contracts/agent';
 
 // Start with balanced reasoning; users can choose more depth or a slower tier.
 export const ASSISTANT_DEFAULT_EFFORT = 'medium' satisfies TAgentAssistantEffort;
 export const ASSISTANT_DEFAULT_SPEED_MODE = 'fast' satisfies TAgentAssistantSpeedMode;
-export const ASSISTANT_SPEED_MODES = [
-    'fast',
-    'standard',
-] as const satisfies readonly TAgentAssistantSpeedMode[];
+export const ASSISTANT_SPEED_MODES = ['fast', 'standard'] as const satisfies readonly TAgentAssistantSpeedMode[];
 const ASSISTANT_EFFORT_LABELS: Readonly<Record<string, string>> = {
     none: 'None',
     minimal: 'Minimal',
@@ -61,30 +58,24 @@ export function createAssistantEffortOptions(
             return [];
         }
         seen.add(id);
-        return [{
-            id,
-            label: getAssistantEffortFallbackLabel(id),
-            ...(defaultEffort === id ? { isDefault: true } : {}),
-        }];
+        return [
+            {
+                id,
+                label: getAssistantEffortFallbackLabel(id),
+                ...(defaultEffort === id ? {isDefault: true} : {}),
+            },
+        ];
     });
 }
 
-export function getAssistantDefaultModelId(
-    models: readonly IAgentAssistantModelOption[],
-    fallback = 'default',
-) {
+export function getAssistantDefaultModelId(models: readonly IAgentAssistantModelOption[], fallback = 'default') {
     return models[0]?.id ?? fallback;
 }
 
-export function getAssistantPreferredModelId(
-    models: readonly IAgentAssistantModelOption[],
-    preferredFamily: string,
-    fallback = 'default',
-) {
+export function getAssistantPreferredModelId(models: readonly IAgentAssistantModelOption[], preferredFamily: string, fallback = 'default') {
     const normalizedFamily = preferredFamily.toLowerCase();
-    return models.find(model => (
-        model.id.toLowerCase().includes(normalizedFamily)
-        || model.label.toLowerCase().includes(normalizedFamily)
-    ))?.id
-        ?? getAssistantDefaultModelId(models, fallback);
+    return (
+        models.find((model) => model.id.toLowerCase().includes(normalizedFamily) || model.label.toLowerCase().includes(normalizedFamily))
+            ?.id ?? getAssistantDefaultModelId(models, fallback)
+    );
 }

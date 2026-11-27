@@ -15,10 +15,7 @@ interface IAppSpinnerProps {
     tone?: TSpinnerTone;
 }
 
-const {
-    size = 'md',
-    tone = 'muted',
-} = defineProps<IAppSpinnerProps>();
+const {size = 'md', tone = 'muted'} = defineProps<IAppSpinnerProps>();
 
 const sizeClass = computed(() => {
     switch (size) {

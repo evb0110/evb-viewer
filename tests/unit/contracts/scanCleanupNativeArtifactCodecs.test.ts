@@ -16,15 +16,8 @@ import {
     SCAN_CLEANUP_WARNING_EVENT_CODES,
 } from '@contracts/scan-cleanup/nativeProtocolV3';
 import {requirePageNumber} from '@contracts/pageNumbers';
-import type {
-    INativeScanCleanupSplitDiagnosticsV3,
-    TScanCleanupWarningEvent,
-} from '@contracts/scan-cleanup/nativeProtocolV3';
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import type {INativeScanCleanupSplitDiagnosticsV3, TScanCleanupWarningEvent} from '@contracts/scan-cleanup/nativeProtocolV3';
+import {describe, expect, it} from 'vitest';
 
 const rect = {
     xPx: 0,
@@ -50,15 +43,17 @@ function pageMetadata() {
         excluded: false,
         blankOutputsSkipped: 0,
         outputCount: 1,
-        outputs: [{
-            half: 'full',
-            sourceRegion: rect,
-            contentBox: null,
-            cropRect: rect,
-            appliedMargins,
-            inputWidthPx: 100,
-            inputHeightPx: 200,
-        }],
+        outputs: [
+            {
+                half: 'full',
+                sourceRegion: rect,
+                contentBox: null,
+                cropRect: rect,
+                appliedMargins,
+                inputWidthPx: 100,
+                inputHeightPx: 200,
+            },
+        ],
         tier1Verdict: 'single-uncut-page',
         reconciled: false,
         clusterAgreement: 0,
@@ -180,44 +175,49 @@ describe('scan-cleanup native artifact codecs', () => {
         expect(decoded).toBe(page);
         expect(decoded.splitDiagnostics).toEqual(diagnostics);
 
-        const {
-            offcutPopulatedScore: _omitted,
-            ...missingField
-        } = diagnostics;
-        expect(() => decodeNativeScanCleanupPageMetadata({
-            ...pageMetadata(),
-            splitDiagnostics: missingField,
-        })).toThrow();
-        expect(() => decodeNativeScanCleanupPageMetadata({
-            ...pageMetadata(),
-            splitDiagnostics: {
-                ...diagnostics,
-                foldBand: {
-                    status: 'unmeasured',
-                    reason: 'unknown',
-                    nominalHalfWidthPx: 6,
+        const {offcutPopulatedScore: _omitted, ...missingField} = diagnostics;
+        expect(() =>
+            decodeNativeScanCleanupPageMetadata({
+                ...pageMetadata(),
+                splitDiagnostics: missingField,
+            }),
+        ).toThrow();
+        expect(() =>
+            decodeNativeScanCleanupPageMetadata({
+                ...pageMetadata(),
+                splitDiagnostics: {
+                    ...diagnostics,
+                    foldBand: {
+                        status: 'unmeasured',
+                        reason: 'unknown',
+                        nominalHalfWidthPx: 6,
+                    },
                 },
-            },
-        })).toThrow('splitDiagnostics.foldBand.reason');
-        expect(() => decodeNativeScanCleanupPageMetadata({
-            ...pageMetadata(),
-            splitDiagnostics: {
-                ...diagnostics,
-                foldBand: {
-                    status: 'measured',
-                    leftXPx: 1,
-                    rightXPx: 2,
-                    extra: true,
+            }),
+        ).toThrow('splitDiagnostics.foldBand.reason');
+        expect(() =>
+            decodeNativeScanCleanupPageMetadata({
+                ...pageMetadata(),
+                splitDiagnostics: {
+                    ...diagnostics,
+                    foldBand: {
+                        status: 'measured',
+                        leftXPx: 1,
+                        rightXPx: 2,
+                        extra: true,
+                    },
                 },
-            },
-        })).toThrow('splitDiagnostics.foldBand.extra is not supported');
-        expect(() => decodeNativeScanCleanupPageMetadata({
-            ...pageMetadata(),
-            splitDiagnostics: {
-                ...diagnostics,
-                foldBand: null,
-            },
-        })).toThrow('splitDiagnostics.foldBand must be an object');
+            }),
+        ).toThrow('splitDiagnostics.foldBand.extra is not supported');
+        expect(() =>
+            decodeNativeScanCleanupPageMetadata({
+                ...pageMetadata(),
+                splitDiagnostics: {
+                    ...diagnostics,
+                    foldBand: null,
+                },
+            }),
+        ).toThrow('splitDiagnostics.foldBand must be an object');
     });
 
     it('detaches split diagnostics from the caller-owned payload', () => {
@@ -249,7 +249,9 @@ describe('scan-cleanup native artifact codecs', () => {
             futurePageDiagnostic: {producer: 'vNext'},
             tier1Verdict: 'single-uncut-page',
         });
-        expect(decodeNativeScanCleanupPreviewOutputMetadataJson(JSON.stringify(output))).toMatchObject({futureOutputDiagnostic: {producer: 'vNext'}});
+        expect(decodeNativeScanCleanupPreviewOutputMetadataJson(JSON.stringify(output))).toMatchObject({
+            futureOutputDiagnostic: {producer: 'vNext'},
+        });
     });
 
     it('decodes native ink consistency diagnostics and rejects malformed values', () => {
@@ -267,33 +269,41 @@ describe('scan-cleanup native artifact codecs', () => {
         };
 
         expect(decodeNativeScanCleanupOutputMetadata(output)).toBe(output);
-        expect(() => decodeNativeScanCleanupOutputMetadata({
-            ...output,
-            inkConsistencyDiagnostics: {
-                ...diagnostics,
-                survivalAfter: 1.01,
-            },
-        })).toThrow('inkConsistencyDiagnostics.survivalAfter');
-        expect(() => decodeNativeScanCleanupOutputMetadata({
-            ...output,
-            inkConsistencyDiagnostics: {
-                ...diagnostics,
-                addedInkPixels: 1.5,
-            },
-        })).toThrow('inkConsistencyDiagnostics.addedInkPixels');
+        expect(() =>
+            decodeNativeScanCleanupOutputMetadata({
+                ...output,
+                inkConsistencyDiagnostics: {
+                    ...diagnostics,
+                    survivalAfter: 1.01,
+                },
+            }),
+        ).toThrow('inkConsistencyDiagnostics.survivalAfter');
+        expect(() =>
+            decodeNativeScanCleanupOutputMetadata({
+                ...output,
+                inkConsistencyDiagnostics: {
+                    ...diagnostics,
+                    addedInkPixels: 1.5,
+                },
+            }),
+        ).toThrow('inkConsistencyDiagnostics.addedInkPixels');
     });
 
     it('rejects malformed JSON and unsupported artifact versions as native failures', () => {
         for (const decode of [
             () => decodeNativeScanCleanupPageMetadataJson('{'),
-            () => decodeNativeScanCleanupPageMetadata({
-                ...pageMetadata(),
-                version: 4,
-            }),
-            () => decodeNativeScanCleanupOutputMetadataJson(JSON.stringify({
-                ...outputMetadata(),
-                version: 4,
-            })),
+            () =>
+                decodeNativeScanCleanupPageMetadata({
+                    ...pageMetadata(),
+                    version: 4,
+                }),
+            () =>
+                decodeNativeScanCleanupOutputMetadataJson(
+                    JSON.stringify({
+                        ...outputMetadata(),
+                        version: 4,
+                    }),
+                ),
         ]) {
             expect(decode).toThrow(InvalidScanCleanupNativeArtifactError);
             try {
@@ -305,23 +315,25 @@ describe('scan-cleanup native artifact codecs', () => {
     });
 
     it('rejects invalid discriminants, non-finite numbers, and oversized page collections', () => {
-        expect(() => decodeNativeScanCleanupPageMetadata({
-            ...pageMetadata(),
-            layoutClassification: 'future-layout',
-        })).toThrow('unknown discriminant');
-        expect(() => decodeNativeScanCleanupPageMetadata({
-            ...pageMetadata(),
-            layoutConfidence: Number.NaN,
-        })).toThrow('must be finite');
-        expect(() => decodeNativeScanCleanupPageMetadata({
-            ...pageMetadata(),
-            outputCount: 3,
-            outputs: [
-                pageMetadata().outputs[0],
-                pageMetadata().outputs[0],
-                pageMetadata().outputs[0],
-            ],
-        })).toThrow('protocol limit');
+        expect(() =>
+            decodeNativeScanCleanupPageMetadata({
+                ...pageMetadata(),
+                layoutClassification: 'future-layout',
+            }),
+        ).toThrow('unknown discriminant');
+        expect(() =>
+            decodeNativeScanCleanupPageMetadata({
+                ...pageMetadata(),
+                layoutConfidence: Number.NaN,
+            }),
+        ).toThrow('must be finite');
+        expect(() =>
+            decodeNativeScanCleanupPageMetadata({
+                ...pageMetadata(),
+                outputCount: 3,
+                outputs: [pageMetadata().outputs[0], pageMetadata().outputs[0], pageMetadata().outputs[0]],
+            }),
+        ).toThrow('protocol limit');
     });
 
     it('bounds structured warning events and rejects an artifact written without them', () => {
@@ -351,11 +363,7 @@ describe('scan-cleanup native artifact codecs', () => {
             fitted,
             {
                 code: 'matched-canvas-content-fitted-pages',
-                pages: [
-                    requirePageNumber(1),
-                    requirePageNumber(2),
-                    requirePageNumber(5),
-                ],
+                pages: [requirePageNumber(1), requirePageNumber(2), requirePageNumber(5)],
             },
             {code: 'matched-canvas-margins-reduced'},
             {code: 'matched-canvas-margins-unavailable'},
@@ -382,11 +390,7 @@ describe('scan-cleanup native artifact codecs', () => {
             },
             {
                 code: 'matched-canvas-pages-resampled',
-                pages: [
-                    requirePageNumber(3),
-                    requirePageNumber(1),
-                    requirePageNumber(SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES),
-                ],
+                pages: [requirePageNumber(3), requirePageNumber(1), requirePageNumber(SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES)],
             },
             {
                 code: 'matched-canvas-pages-scaled-in-place',
@@ -427,23 +431,21 @@ describe('scan-cleanup native artifact codecs', () => {
         };
         const atLimit = {
             ...outputMetadata(),
-            warningEvents: Array.from(
-                {length: MAX_SCAN_CLEANUP_WARNING_EVENTS},
-                () => ({code: 'matched-canvas-margins-reduced'}),
-            ),
+            warningEvents: Array.from({length: MAX_SCAN_CLEANUP_WARNING_EVENTS}, () => ({code: 'matched-canvas-margins-reduced'})),
         };
 
         expect(declared).toHaveLength(SCAN_CLEANUP_WARNING_EVENT_CODES.length);
-        expect(new Set(declared.map(event => event.code)))
-            .toEqual(new Set(SCAN_CLEANUP_WARNING_EVENT_CODES));
+        expect(new Set(declared.map((event) => event.code))).toEqual(new Set(SCAN_CLEANUP_WARNING_EVENT_CODES));
         expect(decodeNativeScanCleanupOutputMetadata(withEvents)).toBe(withEvents);
         // The ceiling is a bound the contract states, not a number this test
         // decides: one output may report exactly that many conditions.
         expect(decodeNativeScanCleanupOutputMetadata(atLimit)).toBe(atLimit);
-        expect(() => decodeNativeScanCleanupOutputMetadata({
-            ...outputMetadata(),
-            warningEvents: undefined,
-        })).toThrow(InvalidScanCleanupNativeArtifactError);
+        expect(() =>
+            decodeNativeScanCleanupOutputMetadata({
+                ...outputMetadata(),
+                warningEvents: undefined,
+            }),
+        ).toThrow(InvalidScanCleanupNativeArtifactError);
 
         // Each rejection names itself. A bare loop reports only the assertion
         // that failed, which for twenty-odd malformed payloads is not enough to
@@ -457,187 +459,224 @@ describe('scan-cleanup native artifact codecs', () => {
                 warningEvents: [{code: 'engine-said-something'}],
             },
             {
-                label: 'a parameterless code carrying another code\'s parameters',
-                warningEvents: [{
-                    ...fitted,
-                    code: 'matched-canvas-margins-reduced',
-                }],
+                label: "a parameterless code carrying another code's parameters",
+                warningEvents: [
+                    {
+                        ...fitted,
+                        code: 'matched-canvas-margins-reduced',
+                    },
+                ],
             },
             {
                 label: 'a non-finite extent',
-                warningEvents: [{
-                    ...fitted,
-                    contentWidth: Number.NaN,
-                }],
+                warningEvents: [
+                    {
+                        ...fitted,
+                        contentWidth: Number.NaN,
+                    },
+                ],
             },
             {
                 label: 'a fractional pixel extent',
-                warningEvents: [{
-                    ...fitted,
-                    contentWidth: 60.5,
-                }],
+                warningEvents: [
+                    {
+                        ...fitted,
+                        contentWidth: 60.5,
+                    },
+                ],
             },
             {
                 label: 'an overflow missing one side',
-                warningEvents: [{
-                    code: 'matched-canvas-intrinsic-overflow',
-                    leftPx: 1,
-                }],
+                warningEvents: [
+                    {
+                        code: 'matched-canvas-intrinsic-overflow',
+                        leftPx: 1,
+                    },
+                ],
             },
             {
                 label: 'a detail past the length limit',
-                warningEvents: [{
-                    code: 'matched-canvas-geometry-unmeasured',
-                    detail: 'x'.repeat(513),
-                }],
+                warningEvents: [
+                    {
+                        code: 'matched-canvas-geometry-unmeasured',
+                        detail: 'x'.repeat(513),
+                    },
+                ],
             },
             {
                 label: 'an empty page list',
-                warningEvents: [{
-                    code: 'matched-canvas-pages-resampled',
-                    pages: [],
-                }],
+                warningEvents: [
+                    {
+                        code: 'matched-canvas-pages-resampled',
+                        pages: [],
+                    },
+                ],
             },
             // A rectangle is one measurement: half of it is a payload the
             // formatter would have to guess the other half of.
             {
                 label: 'a document canvas rectangle missing its height',
-                warningEvents: [{
-                    ...fitted,
-                    documentCanvasHeight: undefined,
-                }],
+                warningEvents: [
+                    {
+                        ...fitted,
+                        documentCanvasHeight: undefined,
+                    },
+                ],
             },
             {
                 label: 'a document canvas rectangle missing its width',
-                warningEvents: [{
-                    ...fitted,
-                    documentCanvasWidth: undefined,
-                }],
+                warningEvents: [
+                    {
+                        ...fitted,
+                        documentCanvasWidth: undefined,
+                    },
+                ],
             },
             {
                 label: 'a paper rectangle missing its height',
-                warningEvents: [{
-                    ...paperDownscaled,
-                    paperHeight: undefined,
-                }],
+                warningEvents: [
+                    {
+                        ...paperDownscaled,
+                        paperHeight: undefined,
+                    },
+                ],
             },
             {
                 label: 'a paper rectangle missing its width',
-                warningEvents: [{
-                    ...paperDownscaled,
-                    paperWidth: undefined,
-                }],
+                warningEvents: [
+                    {
+                        ...paperDownscaled,
+                        paperWidth: undefined,
+                    },
+                ],
             },
             // Every numeric parameter is bounded, not merely finite.
             {
                 label: 'an extent past the bound',
-                warningEvents: [{
-                    ...fitted,
-                    contentWidth: 1_000_001,
-                }],
+                warningEvents: [
+                    {
+                        ...fitted,
+                        contentWidth: 1_000_001,
+                    },
+                ],
             },
             {
                 label: 'a scale past the bound',
-                warningEvents: [{
-                    ...paperDownscaled,
-                    scalePercentTenths: 10_001,
-                }],
+                warningEvents: [
+                    {
+                        ...paperDownscaled,
+                        scalePercentTenths: 10_001,
+                    },
+                ],
             },
             {
                 label: 'a fractional scale in fixed-point tenths',
-                warningEvents: [{
-                    ...paperDownscaled,
-                    scalePercentTenths: 50.5,
-                }],
+                warningEvents: [
+                    {
+                        ...paperDownscaled,
+                        scalePercentTenths: 50.5,
+                    },
+                ],
             },
             {
                 label: 'a count past the bound',
-                warningEvents: [{
-                    code: 'matched-canvas-intrinsic-overflow',
-                    leftPx: 1_000_001,
-                    rightPx: 0,
-                }],
+                warningEvents: [
+                    {
+                        code: 'matched-canvas-intrinsic-overflow',
+                        leftPx: 1_000_001,
+                        rightPx: 0,
+                    },
+                ],
             },
             {
                 label: 'a normalized DPI past the bound',
-                warningEvents: [{
-                    code: 'matched-canvas-document-dpi-normalized',
-                    canvasDpi: 300,
-                    finestPageDpi: 100_001,
-                }],
+                warningEvents: [
+                    {
+                        code: 'matched-canvas-document-dpi-normalized',
+                        canvasDpi: 300,
+                        finestPageDpi: 100_001,
+                    },
+                ],
             },
             {
                 label: 'a limited render DPI past the bound',
-                warningEvents: [{
-                    code: 'render-dpi-limited',
-                    appliedDpiThousandths: 100_000_001,
-                    requestedDpiThousandths: 400_000,
-                }],
+                warningEvents: [
+                    {
+                        code: 'render-dpi-limited',
+                        appliedDpiThousandths: 100_000_001,
+                        requestedDpiThousandths: 400_000,
+                    },
+                ],
             },
             {
                 label: 'a fractional limited render DPI in fixed-point thousandths',
-                warningEvents: [{
-                    code: 'render-dpi-limited',
-                    appliedDpiThousandths: 288_500.5,
-                    requestedDpiThousandths: 400_000,
-                }],
+                warningEvents: [
+                    {
+                        code: 'render-dpi-limited',
+                        appliedDpiThousandths: 288_500.5,
+                        requestedDpiThousandths: 400_000,
+                    },
+                ],
             },
             // The capped page reports the same fixed-point DPI the render limit
             // does, so a producer that rounded it in the formatter's language
             // instead of its own is rejected here rather than printed.
             {
                 label: 'a fractional capped page DPI in fixed-point thousandths',
-                warningEvents: [{
-                    code: 'matched-canvas-page-dpi-capped',
-                    pageNumber: 3,
-                    appliedDpiThousandths: 200_000.5,
-                    requestedDpiThousandths: 300_000,
-                }],
+                warningEvents: [
+                    {
+                        code: 'matched-canvas-page-dpi-capped',
+                        pageNumber: 3,
+                        appliedDpiThousandths: 200_000.5,
+                        requestedDpiThousandths: 300_000,
+                    },
+                ],
             },
             {
                 label: 'a capped page DPI below one quantum',
-                warningEvents: [{
-                    code: 'matched-canvas-page-dpi-capped',
-                    pageNumber: 3,
-                    appliedDpiThousandths: 0,
-                    requestedDpiThousandths: 300_000,
-                }],
+                warningEvents: [
+                    {
+                        code: 'matched-canvas-page-dpi-capped',
+                        pageNumber: 3,
+                        appliedDpiThousandths: 0,
+                        requestedDpiThousandths: 300_000,
+                    },
+                ],
             },
             {
                 label: 'a capped page past the page limit',
-                warningEvents: [{
-                    code: 'matched-canvas-page-dpi-capped',
-                    pageNumber: Number.MAX_SAFE_INTEGER + 1,
-                    appliedDpiThousandths: 200_000,
-                    requestedDpiThousandths: 300_000,
-                }],
+                warningEvents: [
+                    {
+                        code: 'matched-canvas-page-dpi-capped',
+                        pageNumber: Number.MAX_SAFE_INTEGER + 1,
+                        appliedDpiThousandths: 200_000,
+                        requestedDpiThousandths: 300_000,
+                    },
+                ],
             },
             {
                 label: 'a page list naming a page past the page limit',
-                warningEvents: [{
-                    code: 'matched-canvas-pages-resampled',
-                    pages: [Number.MAX_SAFE_INTEGER + 1],
-                }],
+                warningEvents: [
+                    {
+                        code: 'matched-canvas-pages-resampled',
+                        pages: [Number.MAX_SAFE_INTEGER + 1],
+                    },
+                ],
             },
             // A repeated page means the producer lost count of its own set;
             // the list is a set kept in the order the pages were found.
             {
                 label: 'a page list repeating a page',
-                warningEvents: [{
-                    code: 'matched-canvas-pages-resampled',
-                    pages: [
-                        3,
-                        1,
-                        3,
-                    ],
-                }],
+                warningEvents: [
+                    {
+                        code: 'matched-canvas-pages-resampled',
+                        pages: [3, 1, 3],
+                    },
+                ],
             },
             {
                 label: 'one condition past the protocol ceiling',
-                warningEvents: Array.from(
-                    {length: MAX_SCAN_CLEANUP_WARNING_EVENTS + 1},
-                    () => ({code: 'matched-canvas-margins-reduced'}),
-                ),
+                warningEvents: Array.from({length: MAX_SCAN_CLEANUP_WARNING_EVENTS + 1}, () => ({code: 'matched-canvas-margins-reduced'})),
             },
             {
                 label: 'a warning channel that is not an array',
@@ -646,41 +685,42 @@ describe('scan-cleanup native artifact codecs', () => {
         ];
 
         expect(new Set(rejected.map(({label}) => label)).size).toBe(rejected.length);
-        for (const {
-            label,
-            warningEvents,
-        } of rejected) {
-            expect(() => decodeNativeScanCleanupOutputMetadata({
-                ...outputMetadata(),
-                warningEvents,
-            }), label).toThrow(InvalidScanCleanupNativeArtifactError);
+        for (const {label, warningEvents} of rejected) {
+            expect(
+                () =>
+                    decodeNativeScanCleanupOutputMetadata({
+                        ...outputMetadata(),
+                        warningEvents,
+                    }),
+                label,
+            ).toThrow(InvalidScanCleanupNativeArtifactError);
         }
     });
 
     it('rejects malformed nested output geometry before a consumer can use it', () => {
-        expect(() => decodeNativeScanCleanupOutputMetadata({
-            ...outputMetadata(),
-            forwardTransform: {matrix: [[
-                1,
-                0,
-                0,
-            ]]},
-        })).toThrow('must be 3x3');
-        expect(() => decodeNativeScanCleanupOutputMetadata({
-            ...outputMetadata(),
-            dewarpMapping: {
-                columns: 2,
-                rows: 2,
-                outputOrigin: {
-                    x: 0,
-                    y: 0,
+        expect(() =>
+            decodeNativeScanCleanupOutputMetadata({
+                ...outputMetadata(),
+                forwardTransform: {matrix: [[1, 0, 0]]},
+            }),
+        ).toThrow('must be 3x3');
+        expect(() =>
+            decodeNativeScanCleanupOutputMetadata({
+                ...outputMetadata(),
+                dewarpMapping: {
+                    columns: 2,
+                    rows: 2,
+                    outputOrigin: {
+                        x: 0,
+                        y: 0,
+                    },
+                    outputWidth: 100,
+                    outputHeight: 200,
+                    outputToSource: [],
+                    sourceToOutput: [],
                 },
-                outputWidth: 100,
-                outputHeight: 200,
-                outputToSource: [],
-                sourceToOutput: [],
-            },
-        })).toThrow('length does not match its grid');
+            }),
+        ).toThrow('length does not match its grid');
     });
 
     it('validates persisted spread binarization decisions', () => {
@@ -711,16 +751,18 @@ describe('scan-cleanup native artifact codecs', () => {
         };
 
         expect(decodeNativeScanCleanupOutputMetadata(output)).toBe(output);
-        expect(() => decodeNativeScanCleanupOutputMetadata({
-            ...output,
-            binarizationDiagnostics: {
-                ...output.binarizationDiagnostics,
-                spreadPlan: {
-                    ...output.binarizationDiagnostics.spreadPlan,
-                    thresholdAnchor: 256,
+        expect(() =>
+            decodeNativeScanCleanupOutputMetadata({
+                ...output,
+                binarizationDiagnostics: {
+                    ...output.binarizationDiagnostics,
+                    spreadPlan: {
+                        ...output.binarizationDiagnostics.spreadPlan,
+                        thresholdAnchor: 256,
+                    },
                 },
-            },
-        })).toThrow('thresholdAnchor must be <= 255');
+            }),
+        ).toThrow('thresholdAnchor must be <= 255');
     });
 
     it('accepts a recorded left white-tail overhang when the optical box stays bounded', () => {
@@ -736,12 +778,7 @@ describe('scan-cleanup native artifact codecs', () => {
             matchedCanvasOpticalContentLeftPx: 300,
             matchedCanvasOpticalContentRightPx: 950,
             matchedCanvasIntrinsicOverflowLeftPx: 125,
-            softMarginsPx: [
-                200,
-                0,
-                200,
-                0,
-            ],
+            softMarginsPx: [200, 0, 200, 0],
             appliedMargins: {
                 leftPx: 100,
                 topPx: 0,
@@ -753,37 +790,47 @@ describe('scan-cleanup native artifact codecs', () => {
         };
 
         expect(decodeNativeScanCleanupOutputMetadata(output)).toBe(output);
-        expect(() => decodeNativeScanCleanupOutputMetadata({
-            ...output,
-            matchedCanvasIntrinsicOverflowLeftPx: 1001,
-        })).toThrow('intrinsic content placement exceeds its canvas');
-        expect(() => decodeNativeScanCleanupOutputMetadata({
-            ...output,
-            appliedMargins: {
-                ...output.appliedMargins,
-                leftPx: 200,
-            },
-        })).toThrow('intrinsic content placement exceeds its canvas');
+        expect(() =>
+            decodeNativeScanCleanupOutputMetadata({
+                ...output,
+                matchedCanvasIntrinsicOverflowLeftPx: 1001,
+            }),
+        ).toThrow('intrinsic content placement exceeds its canvas');
+        expect(() =>
+            decodeNativeScanCleanupOutputMetadata({
+                ...output,
+                appliedMargins: {
+                    ...output.appliedMargins,
+                    leftPx: 200,
+                },
+            }),
+        ).toThrow('intrinsic content placement exceeds its canvas');
     });
 
     it('rejects inconsistent or fully off-canvas intrinsic overflow intervals', () => {
-        expect(() => decodeNativeScanCleanupOutputMetadata({
-            ...outputMetadata(),
-            matchedCanvasContentWidthPx: 200,
-            canvasWidthPx: 100,
-            matchedCanvasIntrinsicOverflowLeftPx: 200,
-            placementOffsetXPx: 0,
-        })).toThrow('intrinsic content placement exceeds its canvas');
-        expect(() => decodeNativeScanCleanupOutputMetadata({
-            ...outputMetadata(),
-            matchedCanvasIntrinsicOverflowLeftPx: 10,
-            placementOffsetXPx: 5,
-        })).toThrow('intrinsic content placement exceeds its canvas');
-        expect(() => decodeNativeScanCleanupOutputMetadata({
-            ...outputMetadata(),
-            matchedCanvasIntrinsicOverflowTopPx: 201,
-            placementOffsetYPx: 0,
-        })).toThrow('intrinsic content placement exceeds its canvas');
+        expect(() =>
+            decodeNativeScanCleanupOutputMetadata({
+                ...outputMetadata(),
+                matchedCanvasContentWidthPx: 200,
+                canvasWidthPx: 100,
+                matchedCanvasIntrinsicOverflowLeftPx: 200,
+                placementOffsetXPx: 0,
+            }),
+        ).toThrow('intrinsic content placement exceeds its canvas');
+        expect(() =>
+            decodeNativeScanCleanupOutputMetadata({
+                ...outputMetadata(),
+                matchedCanvasIntrinsicOverflowLeftPx: 10,
+                placementOffsetXPx: 5,
+            }),
+        ).toThrow('intrinsic content placement exceeds its canvas');
+        expect(() =>
+            decodeNativeScanCleanupOutputMetadata({
+                ...outputMetadata(),
+                matchedCanvasIntrinsicOverflowTopPx: 201,
+                placementOffsetYPx: 0,
+            }),
+        ).toThrow('intrinsic content placement exceeds its canvas');
     });
 
     it('accepts a bounded top headroom trim that still intersects the canvas', () => {
@@ -797,11 +844,13 @@ describe('scan-cleanup native artifact codecs', () => {
     });
 
     it('rejects fold clipping that removes the complete placed source interval', () => {
-        expect(() => decodeNativeScanCleanupOutputMetadata({
-            ...outputMetadata(),
-            foldClipLeftPx: 40,
-            foldClipRightPx: 60,
-        })).toThrow('intrinsic content placement exceeds its canvas');
+        expect(() =>
+            decodeNativeScanCleanupOutputMetadata({
+                ...outputMetadata(),
+                foldClipLeftPx: 40,
+                foldClipRightPx: 60,
+            }),
+        ).toThrow('intrinsic content placement exceeds its canvas');
     });
 
     it('accepts omitted and numeric fold clips but rejects explicit null values', () => {
@@ -817,26 +866,27 @@ describe('scan-cleanup native artifact codecs', () => {
             foldClipLeftPx: 2,
             foldClipRightPx: 3,
         });
-        for (const key of [
-            'foldClipLeftPx',
-            'foldClipRightPx',
-        ] as const) {
-            expect(() => decodeNativeScanCleanupOutputMetadata({
-                ...outputMetadata(),
-                [key]: null,
-            })).toThrow(`${key} must be a safe integer >= 0`);
+        for (const key of ['foldClipLeftPx', 'foldClipRightPx'] as const) {
+            expect(() =>
+                decodeNativeScanCleanupOutputMetadata({
+                    ...outputMetadata(),
+                    [key]: null,
+                }),
+            ).toThrow(`${key} must be a safe integer >= 0`);
         }
     });
 
     it('enforces preview-only required metadata at the native preview boundary', () => {
         const page = pageMetadata();
-        delete (page.outputs[0] as Partial<typeof page.outputs[number]>).appliedMargins;
-        expect(() => decodeNativeScanCleanupPreviewPageMetadataJson(JSON.stringify(page)))
-            .toThrow('appliedMargins is required for preview');
+        delete (page.outputs[0] as Partial<(typeof page.outputs)[number]>).appliedMargins;
+        expect(() => decodeNativeScanCleanupPreviewPageMetadataJson(JSON.stringify(page))).toThrow(
+            'appliedMargins is required for preview',
+        );
 
         const output = outputMetadata();
         delete (output as Partial<typeof output>).sourceRegion;
-        expect(() => decodeNativeScanCleanupPreviewOutputMetadataJson(JSON.stringify(output)))
-            .toThrow('sourceRegion is required for preview');
+        expect(() => decodeNativeScanCleanupPreviewOutputMetadataJson(JSON.stringify(output))).toThrow(
+            'sourceRegion is required for preview',
+        );
     });
 });

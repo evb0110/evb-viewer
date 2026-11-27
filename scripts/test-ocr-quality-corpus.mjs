@@ -1,40 +1,13 @@
 import {execFile} from 'node:child_process';
-import {
-    access,
-    copyFile,
-    mkdir,
-    mkdtemp,
-    readFile,
-    readdir,
-    rm,
-    stat,
-    writeFile,
-} from 'node:fs/promises';
-import {
-    constants as fsConstants, existsSync,
-} from 'node:fs';
+import {access, copyFile, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile} from 'node:fs/promises';
+import {constants as fsConstants, existsSync} from 'node:fs';
 import {createHash} from 'node:crypto';
-import {
-    basename,
-    dirname,
-    join,
-} from 'node:path';
-import {
-    fileURLToPath,
-    pathToFileURL,
-} from 'node:url';
+import {basename, dirname, join} from 'node:path';
+import {fileURLToPath, pathToFileURL} from 'node:url';
 import {promisify} from 'node:util';
-import {
-    createCanvas,
-    GlobalFonts,
-} from '@napi-rs/canvas';
+import {createCanvas, GlobalFonts} from '@napi-rs/canvas';
 import {build} from 'esbuild';
-import {
-    measureOcrQuality,
-    measureUnicodeMarks,
-    retainsFaithfulCriticalToken,
-    retainsCriticalToken,
-} from './ocrQualityMetrics.mjs';
+import {measureOcrQuality, measureUnicodeMarks, retainsFaithfulCriticalToken, retainsCriticalToken} from './ocrQualityMetrics.mjs';
 import {
     DEGRADATION_PROFILES,
     encodeOcrQualityPng,
@@ -62,8 +35,7 @@ const qpdf = process.env.EVB_QPDF_PATH ?? bundledExecutable('qpdf', 'qpdf');
 const pdfPageOps = process.env.EVB_PDF_PAGE_OPS_PATH ?? join(repositoryRoot, 'public', 'wasm', 'evb-pdf-page-ops.wasm');
 const required = process.env.EVB_OCR_QUALITY_REQUIRED === '1';
 const degradedOptIn = required || process.env.EVB_OCR_QUALITY_DEGRADED === '1';
-const tessdataDirectory = process.env.EVB_TESSDATA_PATH
-    ?? join(repositoryRoot, 'resources', 'tesseract', 'tessdata');
+const tessdataDirectory = process.env.EVB_TESSDATA_PATH ?? join(repositoryRoot, 'resources', 'tesseract', 'tessdata');
 const fontPath = join(repositoryRoot, 'public', 'pdf', 'standard_fonts', 'LiberationSans-Regular.ttf');
 const scratchRoot = join(repositoryRoot, '.devkit', 'tmp');
 await mkdir(scratchRoot, {recursive: true});
@@ -93,7 +65,7 @@ function renderCorpusImage(testCase, index) {
     context.fillRect(0, 0, width, height);
     context.save();
     context.translate(width / 2, height / 2);
-    context.rotate(profile.rotationDegrees * Math.PI / 180);
+    context.rotate((profile.rotationDegrees * Math.PI) / 180);
     context.translate(-width / 2, -height / 2);
     context.fillStyle = `rgb(${profile.foreground}, ${profile.foreground}, ${profile.foreground})`;
     context.font = '50px EvbOcrCorpus';
@@ -112,10 +84,7 @@ function renderCorpusImage(testCase, index) {
         const scanLine = row % profile.scanLineEvery === 0 ? -10 : 0;
         const speckle = pixel % profile.speckleEvery === 0 ? -55 : 0;
         for (let channel = 0; channel < 3; channel += 1) {
-            image.data[offset + channel] = Math.max(
-                0,
-                Math.min(255, image.data[offset + channel] + noise + scanLine + speckle),
-            );
+            image.data[offset + channel] = Math.max(0, Math.min(255, image.data[offset + channel] + noise + scanLine + speckle));
         }
     }
     context.putImageData(image, 0, 0);
@@ -166,10 +135,12 @@ async function loadProductionPipeline() {
     });
     const pipeline = await import(`${pathToFileURL(bundlePath).href}?run=${Date.now()}`);
     // The app configures these at startup; OCR page leases need them.
-    pipeline.configureMainJobBroker(pipeline.initializeHostResourceProfile({
-        app: {getGPUFeatureStatus: () => ({})},
-        performanceMode: 'auto',
-    }));
+    pipeline.configureMainJobBroker(
+        pipeline.initializeHostResourceProfile({
+            app: {getGPUFeatureStatus: () => ({})},
+            performanceMode: 'auto',
+        }),
+    );
     return pipeline;
 }
 
@@ -180,33 +151,31 @@ async function loadProductionPipeline() {
 async function writeSinglePageTextLayer(pdfPageOpsBinary, tesseractPdfPath, directory, normalizeGreekMicroSign) {
     const outputPath = join(directory, 'searchable.pdf');
     const instructionsPath = join(directory, 'text-layer.json');
-    await writeFile(instructionsPath, JSON.stringify({pages: [{
-        pageNumber: 1,
-        source: tesseractPdfPath,
-        normalizeGreekMicroSign,
-    }]}));
-    const pageOpsArgs = [
-        'ocr-text-layer',
-        '--input',
-        tesseractPdfPath,
-        '--output',
-        outputPath,
-        '--instructions-file',
+    await writeFile(
         instructionsPath,
-    ];
+        JSON.stringify({
+            pages: [
+                {
+                    pageNumber: 1,
+                    source: tesseractPdfPath,
+                    normalizeGreekMicroSign,
+                },
+            ],
+        }),
+    );
+    const pageOpsArgs = ['ocr-text-layer', '--input', tesseractPdfPath, '--output', outputPath, '--instructions-file', instructionsPath];
     if (pdfPageOpsBinary.toLowerCase().endsWith('.wasm')) {
-        await execFileAsync(process.execPath, [
-            '--import',
-            'tsx',
-            join(repositoryRoot, 'scripts', 'runPdfPageOpsWasmCli.ts'),
-            ...pageOpsArgs,
-        ], {
-            env: {
-                ...process.env,
-                EVB_PDF_PAGE_OPS_PATH: pdfPageOpsBinary,
+        await execFileAsync(
+            process.execPath,
+            ['--import', 'tsx', join(repositoryRoot, 'scripts', 'runPdfPageOpsWasmCli.ts'), ...pageOpsArgs],
+            {
+                env: {
+                    ...process.env,
+                    EVB_PDF_PAGE_OPS_PATH: pdfPageOpsBinary,
+                },
+                timeout: 30_000,
             },
-            timeout: 30_000,
-        });
+        );
     } else {
         await execFileAsync(pdfPageOpsBinary, pageOpsArgs, {timeout: 30_000});
     }
@@ -229,14 +198,7 @@ async function loadPdfjsTextExtractor() {
 
 let pdfjsTextExtractor;
 
-async function runProductionOcrQualityDocument({
-    pipeline,
-    sourcePdfPath,
-    pages,
-    tempDirectory,
-    scanCleanupBinary,
-    pdfPageOpsBinary,
-}) {
+async function runProductionOcrQualityDocument({pipeline, sourcePdfPath, pages, tempDirectory, scanCleanupBinary, pdfPageOpsBinary}) {
     await mkdir(tempDirectory, {recursive: true});
     return pipeline.runOcrJob({
         jobId: `ocr-quality-language-${Date.now()}`,
@@ -249,7 +211,7 @@ async function runProductionOcrQualityDocument({
             contentRevision: 1,
             mintedAt: Date.UTC(2026, 8, 1),
         },
-        pages: pages.map(page => ({
+        pages: pages.map((page) => ({
             pageNumber: page.pageNumber,
             languages: [page.language],
         })),
@@ -293,7 +255,9 @@ async function collectCheckpointPageText(tempDirectory) {
     const pages = new Map();
     for (const pageFile of pageFiles) {
         const match = /^page-(\d+)\.json$/u.exec(basename(pageFile));
-        if (!match) {continue;}
+        if (!match) {
+            continue;
+        }
         const pageNumber = Number(match[1]);
         const checkpoint = JSON.parse(await readFile(pageFile, 'utf8'));
         pages.set(pageNumber, checkpoint.page?.text ?? '');
@@ -304,19 +268,18 @@ async function collectCheckpointPageText(tempDirectory) {
 async function extractPdfjsPageText(pdfPath) {
     pdfjsTextExtractor ??= await loadPdfjsTextExtractor();
     const pages = await pdfjsTextExtractor.extractTextWithPdfjs(pdfPath);
-    return pages.map(page => page.text);
+    return pages.map((page) => page.text);
 }
 
 async function extractPopplerPageText(pdfPath) {
-    const {stdout} = await execFileAsync(pdftotext, [
-        pdfPath,
-        '-',
-    ], {
+    const {stdout} = await execFileAsync(pdftotext, [pdfPath, '-'], {
         maxBuffer: 128 * 1024 * 1024,
         timeout: 30_000,
     });
     const pages = stdout.split('\f');
-    if (pages.at(-1) === '') {pages.pop();}
+    if (pages.at(-1) === '') {
+        pages.pop();
+    }
     return pages;
 }
 
@@ -344,10 +307,7 @@ function aggregateQuality(samples) {
     };
     for (const sample of samples) {
         const metrics = measureOcrQuality(sample.expected, sample.actual);
-        for (const key of [
-            'faithful',
-            'compatibility',
-        ]) {
+        for (const key of ['faithful', 'compatibility']) {
             result[key].cerNumerator += metrics[key].cer * metrics[key].denominator.cer;
             result[key].cerDenominator += metrics[key].denominator.cer;
             result[key].werNumerator += metrics[key].wer * metrics[key].denominator.wer;
@@ -359,45 +319,55 @@ function aggregateQuality(samples) {
         result.marks.missing += marks.missing;
         result.marks.extra += marks.extra;
     }
-    return Object.fromEntries([
-        'faithful',
-        'compatibility',
-    ].map(key => [
-        key,
-        {
-            cer: result[key].cerDenominator === 0 ? 0 : result[key].cerNumerator / result[key].cerDenominator,
-            wer: result[key].werDenominator === 0 ? 0 : result[key].werNumerator / result[key].werDenominator,
-            denominator: {
-                cer: result[key].cerDenominator,
-                wer: result[key].werDenominator,
-            },
-        },
-    ]).concat([[
-        'marks',
-        {
-            ...result.marks,
-            retainedRatio: result.marks.expected === 0
-                ? (result.marks.actual === 0 ? 1 : 0)
-                : Math.min(result.marks.expected, result.marks.actual) / result.marks.expected,
-        },
-    ]]));
+    return Object.fromEntries(
+        ['faithful', 'compatibility']
+            .map((key) => [
+                key,
+                {
+                    cer: result[key].cerDenominator === 0 ? 0 : result[key].cerNumerator / result[key].cerDenominator,
+                    wer: result[key].werDenominator === 0 ? 0 : result[key].werNumerator / result[key].werDenominator,
+                    denominator: {
+                        cer: result[key].cerDenominator,
+                        wer: result[key].werDenominator,
+                    },
+                },
+            ])
+            .concat([
+                [
+                    'marks',
+                    {
+                        ...result.marks,
+                        retainedRatio:
+                            result.marks.expected === 0
+                                ? result.marks.actual === 0
+                                    ? 1
+                                    : 0
+                                : Math.min(result.marks.expected, result.marks.actual) / result.marks.expected,
+                    },
+                ],
+            ]),
+    );
 }
 
 function scoreCleanLanguageSamples(manifest, rawPages, pdfjsPages, popplerPages) {
-    const byLanguage = new Map(LANGUAGE_CODES.map(code => [
-        code,
-        {
-            language: code,
-            sampleCount: 0,
-            invalidFixtureCount: 0,
-            coverageGaps: [],
-            rawOcr: [],
-            pdfjsText: [],
-            popplerText: [],
-        },
-    ]));
+    const byLanguage = new Map(
+        LANGUAGE_CODES.map((code) => [
+            code,
+            {
+                language: code,
+                sampleCount: 0,
+                invalidFixtureCount: 0,
+                coverageGaps: [],
+                rawOcr: [],
+                pdfjsText: [],
+                popplerText: [],
+            },
+        ]),
+    );
     for (const page of manifest.pages) {
-        if (page.kind !== 'language') {continue;}
+        if (page.kind !== 'language') {
+            continue;
+        }
         const language = byLanguage.get(page.language);
         if (!page.coverage.valid) {
             language.invalidFixtureCount += 1;
@@ -421,20 +391,15 @@ function scoreCleanLanguageSamples(manifest, rawPages, pdfjsPages, popplerPages)
             actual: popplerPages[page.pageNumber - 1] ?? '',
         });
     }
-    return [...byLanguage.values()].map(language => {
+    return [...byLanguage.values()].map((language) => {
         const scores = {
             rawOcr: aggregateQuality(language.rawOcr),
             pdfjsText: aggregateQuality(language.pdfjsText),
             popplerText: aggregateQuality(language.popplerText),
         };
-        const recognitionDefects = [
-            'rawOcr',
-            'pdfjsText',
-            'popplerText',
-        ].filter(extractor => (
-            language[extractor].length > 0
-            && (scores[extractor].faithful.cer > 0 || scores[extractor].faithful.wer > 0)
-        ));
+        const recognitionDefects = ['rawOcr', 'pdfjsText', 'popplerText'].filter(
+            (extractor) => language[extractor].length > 0 && (scores[extractor].faithful.cer > 0 || scores[extractor].faithful.wer > 0),
+        );
         return {
             language: language.language,
             sampleCount: language.sampleCount,
@@ -442,7 +407,7 @@ function scoreCleanLanguageSamples(manifest, rawPages, pdfjsPages, popplerPages)
             coverageGaps: language.coverageGaps,
             scores,
             recognitionDefects,
-            failures: recognitionDefects.map(extractor => `${extractor} faithful score is non-zero`),
+            failures: recognitionDefects.map((extractor) => `${extractor} faithful score is non-zero`),
         };
     });
 }
@@ -474,21 +439,27 @@ function polygonIntersectionOverUnion(first, second) {
 function tokenOverlap(first, second) {
     const firstTokens = new Set(first.toLocaleLowerCase('und').match(/[\p{L}\p{M}\p{N}]+/gu) ?? []);
     const secondTokens = new Set(second.toLocaleLowerCase('und').match(/[\p{L}\p{M}\p{N}]+/gu) ?? []);
-    if (firstTokens.size === 0 || secondTokens.size === 0) {return 0;}
+    if (firstTokens.size === 0 || secondTokens.size === 0) {
+        return 0;
+    }
     let intersection = 0;
     for (const token of firstTokens) {
-        if (secondTokens.has(token)) {intersection += 1;}
+        if (secondTokens.has(token)) {
+            intersection += 1;
+        }
     }
     return intersection / Math.max(firstTokens.size, secondTokens.size);
 }
 
 function referenceLines(page) {
-    return page.blocks.flatMap(block => block.lines.map(line => ({
-        ...line,
-        blockId: block.id,
-        language: block.language,
-        role: block.role,
-    })));
+    return page.blocks.flatMap((block) =>
+        block.lines.map((line) => ({
+            ...line,
+            blockId: block.id,
+            language: block.language,
+            role: block.role,
+        })),
+    );
 }
 
 function emittedRegions(words) {
@@ -539,16 +510,20 @@ function evaluatePageOutput(page, result, pdfjsText, searchablePdfText, transfor
     for (const predicted of predictedRegions) {
         let best = null;
         expectedLines.forEach((reference, index) => {
-            if (usedReferences.has(index)) {return;}
+            if (usedReferences.has(index)) {
+                return;
+            }
             const geometry = polygonIntersectionOverUnion(predicted.polygon, reference.polygon);
             const text = tokenOverlap(predicted.text, reference.text);
             const score = geometry * 0.65 + text * 0.35;
-            if (!best || score > best.score) {best = {
-                index,
-                geometry,
-                text,
-                score,
-            };}
+            if (!best || score > best.score) {
+                best = {
+                    index,
+                    geometry,
+                    text,
+                    score,
+                };
+            }
         });
         if (best && (best.geometry >= 0.05 || best.text >= 0.25)) {
             usedReferences.add(best.index);
@@ -561,49 +536,59 @@ function evaluatePageOutput(page, result, pdfjsText, searchablePdfText, transfor
     }
     const unmatchedReferenceRegions = expectedLines.length - matches.length;
     const extraPredictedRegions = predictedRegions.length - matches.length;
-    const orderIndexes = matches.map(match => match.referenceIndex);
+    const orderIndexes = matches.map((match) => match.referenceIndex);
     let orderFailureCount = 0;
     if (!page.readingOrderAmbiguous) {
         for (let left = 0; left < orderIndexes.length; left += 1) {
             for (let right = left + 1; right < orderIndexes.length; right += 1) {
-                if (orderIndexes[left] > orderIndexes[right]) {orderFailureCount += 1;}
+                if (orderIndexes[left] > orderIndexes[right]) {
+                    orderFailureCount += 1;
+                }
             }
         }
     }
-    const actualLines = result.text.split(/\r?\n/gu).map(line => line.trim()).filter(Boolean);
-    const availableExpectedLines = expectedLines.map(line => line.text);
+    const actualLines = result.text
+        .split(/\r?\n/gu)
+        .map((line) => line.trim())
+        .filter(Boolean);
+    const availableExpectedLines = expectedLines.map((line) => line.text);
     const usedActualLines = new Set();
     let missingLineCount = 0;
     for (const expectedLine of availableExpectedLines) {
         let bestIndex = -1;
         let bestScore = 0;
         actualLines.forEach((actualLine, index) => {
-            if (usedActualLines.has(index)) {return;}
+            if (usedActualLines.has(index)) {
+                return;
+            }
             const score = tokenOverlap(expectedLine, actualLine);
             if (score > bestScore) {
                 bestScore = score;
                 bestIndex = index;
             }
         });
-        if (bestIndex >= 0 && bestScore >= 0.25) {usedActualLines.add(bestIndex);}
-        else {missingLineCount += 1;}
+        if (bestIndex >= 0 && bestScore >= 0.25) {
+            usedActualLines.add(bestIndex);
+        } else {
+            missingLineCount += 1;
+        }
     }
     let duplicateLineCount = 0;
-    for (const [
-        index,
-        actualLine,
-    ] of actualLines.entries()) {
-        if (usedActualLines.has(index)) {continue;}
-        if (availableExpectedLines.some(expectedLine => tokenOverlap(expectedLine, actualLine) >= 0.25)) {
+    for (const [index, actualLine] of actualLines.entries()) {
+        if (usedActualLines.has(index)) {
+            continue;
+        }
+        if (availableExpectedLines.some((expectedLine) => tokenOverlap(expectedLine, actualLine) >= 0.25)) {
             duplicateLineCount += 1;
         }
     }
     const criticalTokens = page.criticalTokens ?? [];
-    const missingCriticalTokens = criticalTokens.filter(token => (
-        !retainsFaithfulCriticalToken(result.text, token)
-        || !retainsFaithfulCriticalToken(pdfjsText, token)
-        || !retainsFaithfulCriticalToken(searchablePdfText, token)
-    ));
+    const missingCriticalTokens = criticalTokens.filter(
+        (token) =>
+            !retainsFaithfulCriticalToken(result.text, token) ||
+            !retainsFaithfulCriticalToken(pdfjsText, token) ||
+            !retainsFaithfulCriticalToken(searchablePdfText, token),
+    );
     return {
         rawOcr: raw,
         pdfjsText: pdfjs,
@@ -619,9 +604,12 @@ function evaluatePageOutput(page, result, pdfjsText, searchablePdfText, transfor
             matchedRegionCount: matches.length,
             unmatchedReferenceRegions,
             extraPredictedRegions,
-            meanIntersectionOverUnion: matches.length === 0
-                ? (expectedLines.length === 0 ? 1 : 0)
-                : matches.reduce((sum, match) => sum + match.geometry, 0) / matches.length,
+            meanIntersectionOverUnion:
+                matches.length === 0
+                    ? expectedLines.length === 0
+                        ? 1
+                        : 0
+                    : matches.reduce((sum, match) => sum + match.geometry, 0) / matches.length,
         },
         order: {
             ambiguous: page.readingOrderAmbiguous,
@@ -645,16 +633,16 @@ function summarizeDegradedEntries(entries) {
         group.entries.push(entry);
         groups.set(key, group);
     }
-    return [...groups.values()].map(group => {
-        const rawEntries = group.entries.map(entry => ({
+    return [...groups.values()].map((group) => {
+        const rawEntries = group.entries.map((entry) => ({
             expected: entry.expected,
             actual: entry.rawActual,
         }));
-        const pdfEntries = group.entries.map(entry => ({
+        const pdfEntries = group.entries.map((entry) => ({
             expected: entry.expected,
             actual: entry.pdfActual,
         }));
-        const pdfjsEntries = group.entries.map(entry => ({
+        const pdfjsEntries = group.entries.map((entry) => ({
             expected: entry.expected,
             actual: entry.pdfjsActual,
         }));
@@ -678,7 +666,7 @@ function summarizeDegradedEntries(entries) {
             severity: group.severity,
             language: group.language,
             sampleCount: group.entries.length,
-            acceptanceEligible: group.entries.every(entry => entry.acceptanceEligible),
+            acceptanceEligible: group.entries.every((entry) => entry.acceptanceEligible),
             purpose: group.entries[0].purpose,
             rawOcr: {
                 macro: rawMacro,
@@ -692,18 +680,21 @@ function summarizeDegradedEntries(entries) {
                 macro: pdfMacro,
                 characterWeighted: pdfCharacterWeighted,
             },
-            marks: group.entries.reduce((summary, entry) => {
-                summary.expected += entry.evaluation.marks.expected;
-                summary.actual += entry.evaluation.marks.actual;
-                summary.missing += entry.evaluation.marks.missing;
-                summary.extra += entry.evaluation.marks.extra;
-                return summary;
-            }, {
-                expected: 0,
-                actual: 0,
-                missing: 0,
-                extra: 0,
-            }),
+            marks: group.entries.reduce(
+                (summary, entry) => {
+                    summary.expected += entry.evaluation.marks.expected;
+                    summary.actual += entry.evaluation.marks.actual;
+                    summary.missing += entry.evaluation.marks.missing;
+                    summary.extra += entry.evaluation.marks.extra;
+                    return summary;
+                },
+                {
+                    expected: 0,
+                    actual: 0,
+                    missing: 0,
+                    extra: 0,
+                },
+            ),
             criticalTokens: {
                 expected: group.entries.reduce((sum, entry) => sum + entry.evaluation.criticalTokenCount, 0),
                 missing: group.entries.reduce((sum, entry) => sum + entry.evaluation.missingCriticalTokens.length, 0),
@@ -715,21 +706,28 @@ function summarizeDegradedEntries(entries) {
             completeness: {
                 missingLines: group.entries.reduce((sum, entry) => sum + entry.evaluation.missingLineCount, 0),
                 duplicateLines: group.entries.reduce((sum, entry) => sum + entry.evaluation.duplicateLineCount, 0),
-                unmatchedReferenceRegions: group.entries.reduce((sum, entry) => sum + entry.evaluation.geometry.unmatchedReferenceRegions, 0),
+                unmatchedReferenceRegions: group.entries.reduce(
+                    (sum, entry) => sum + entry.evaluation.geometry.unmatchedReferenceRegions,
+                    0,
+                ),
                 extraPredictedRegions: group.entries.reduce((sum, entry) => sum + entry.evaluation.geometry.extraPredictedRegions, 0),
             },
-            geometry: {meanIntersectionOverUnion: group.entries.reduce((sum, entry) => sum + entry.evaluation.geometry.meanIntersectionOverUnion, 0) / group.entries.length},
+            geometry: {
+                meanIntersectionOverUnion:
+                    group.entries.reduce((sum, entry) => sum + entry.evaluation.geometry.meanIntersectionOverUnion, 0) /
+                    group.entries.length,
+            },
             order: {
-                ambiguousPages: group.entries.filter(entry => entry.evaluation.order.ambiguous).length,
+                ambiguousPages: group.entries.filter((entry) => entry.evaluation.order.ambiguous).length,
                 failures: group.entries.reduce((sum, entry) => sum + entry.evaluation.order.failureCount, 0),
             },
             resources: {
                 runtimeMs: {
                     mean: group.entries.reduce((sum, entry) => sum + entry.runtimeMs, 0) / group.entries.length,
-                    max: Math.max(...group.entries.map(entry => entry.runtimeMs)),
+                    max: Math.max(...group.entries.map((entry) => entry.runtimeMs)),
                 },
-                peakRssBytes: Math.max(...group.entries.map(entry => entry.peakRssBytes)),
-                scratchBytes: Math.max(...group.entries.map(entry => entry.scratchBytes)),
+                peakRssBytes: Math.max(...group.entries.map((entry) => entry.peakRssBytes)),
+                scratchBytes: Math.max(...group.entries.map((entry) => entry.scratchBytes)),
             },
         };
     });
@@ -747,9 +745,7 @@ async function runMeasuredDegradedCase({
     scanCleanupBinary,
     pdfPageOpsBinary,
 }) {
-    const {
-        raster, realized,
-    } = await realizeOcrQualityProfile({
+    const {raster, realized} = await realizeOcrQualityProfile({
         cleanRaster,
         profile,
     });
@@ -787,22 +783,18 @@ async function runMeasuredDegradedCase({
         productionRunner.shouldNormalizeGreekMicroSign(selectedLanguage.split('+')),
     );
     const textLayerRuntimeMs = Number(process.hrtime.bigint() - textLayerStartedAt) / 1_000_000;
-    const searchablePdfText = (await execFileAsync(pdftotext, [
-        repairedPdfPath,
-        '-',
-    ], {
-        maxBuffer: 16 * 1024 * 1024,
-        timeout: 30_000,
-    })).stdout;
+    const searchablePdfText = (
+        await execFileAsync(pdftotext, [repairedPdfPath, '-'], {
+            maxBuffer: 16 * 1024 * 1024,
+            timeout: 30_000,
+        })
+    ).stdout;
     const pdfjsText = (await extractPdfjsPageText(repairedPdfPath))[0] ?? '';
     const transformed = transformPageGeometry(page, realized.affine);
     const evaluation = evaluatePageOutput(page, result, pdfjsText, searchablePdfText, transformedPage ?? transformed);
     const scratchBytes = await directoryBytes(caseDirectory);
     const resourceUsage = process.resourceUsage();
-    const peakRssBytes = Math.max(
-        ...memorySamples,
-        resourceUsage.maxRSS * 1024,
-    );
+    const peakRssBytes = Math.max(...memorySamples, resourceUsage.maxRSS * 1024);
     return {
         pageId: page.id,
         sourceDocumentId: page.sourceDocumentId,
@@ -833,30 +825,22 @@ async function runMeasuredDegradedCase({
 }
 
 function selectDegradedPages(manifest) {
-    return manifest.pages.filter(page => (
-        (page.kind === 'language' && page.evaluationEligible && page.coverage.valid)
-        || page.kind === 'mixed' && page.evaluationEligible && page.coverage.valid
-        || page.control === 'blank'
-        || page.control === 'image-only'
-    ));
+    return manifest.pages.filter(
+        (page) =>
+            (page.kind === 'language' && page.evaluationEligible && page.coverage.valid) ||
+            (page.kind === 'mixed' && page.evaluationEligible && page.coverage.valid) ||
+            page.control === 'blank' ||
+            page.control === 'image-only',
+    );
 }
 
-async function runDegradedLanguageBenchmark({
-    fixture,
-    productionRunner,
-    scanCleanupBinary,
-    pdfPageOpsBinary,
-}) {
-    const profileById = new Map(DEGRADATION_PROFILES.map(profile => [
-        profile.id,
-        profile,
-    ]));
+async function runDegradedLanguageBenchmark({fixture, productionRunner, scanCleanupBinary, pdfPageOpsBinary}) {
+    const profileById = new Map(DEGRADATION_PROFILES.map((profile) => [profile.id, profile]));
     const cleanProfile = profileById.get('clean-300dpi');
-    if (!cleanProfile) {throw new Error('MLOCR-03 clean control profile is missing');}
-    const pageImages = new Map(fixture.pageImages.map(entry => [
-        entry.page.id,
-        entry.raster,
-    ]));
+    if (!cleanProfile) {
+        throw new Error('MLOCR-03 clean control profile is missing');
+    }
+    const pageImages = new Map(fixture.pageImages.map((entry) => [entry.page.id, entry.raster]));
     const pages = selectDegradedPages(fixture.manifest);
     const outputDirectory = join(workDirectory, 'ocr-language-quality-degraded');
     const cleanImageHashes = new Map();
@@ -865,7 +849,9 @@ async function runDegradedLanguageBenchmark({
     const selectedLanguagesByPage = new Map();
     for (const page of pages) {
         const cleanRaster = pageImages.get(page.id);
-        if (!cleanRaster) {throw new Error(`Missing clean counterpart for ${page.id}`);}
+        if (!cleanRaster) {
+            throw new Error(`Missing clean counterpart for ${page.id}`);
+        }
         const clean = await realizeOcrQualityProfile({
             cleanRaster,
             profile: cleanProfile,
@@ -875,12 +861,12 @@ async function runDegradedLanguageBenchmark({
     for (const profile of profiles) {
         for (const page of pages) {
             const cleanRaster = pageImages.get(page.id);
-            if (!cleanRaster || !page.coverage.valid) {continue;}
+            if (!cleanRaster || !page.coverage.valid) {
+                continue;
+            }
             const selectedLanguage = page.control
                 ? 'eng'
-                : (page.selectedLanguages?.length > 0
-                    ? page.selectedLanguages
-                    : [page.language]).join('+');
+                : (page.selectedLanguages?.length > 0 ? page.selectedLanguages : [page.language]).join('+');
             const priorLanguages = selectedLanguagesByPage.get(page.id);
             if (priorLanguages !== undefined && priorLanguages !== selectedLanguage) {
                 throw new Error(`Selected languages changed across profiles for ${page.id}`);
@@ -909,7 +895,9 @@ async function runDegradedLanguageBenchmark({
         pdfStage: 'native-ocr-text-layer',
         pdfWriter: {
             binary: pdfPageOpsBinary,
-            sha256: createHash('sha256').update(await readFile(pdfPageOpsBinary)).digest('hex'),
+            sha256: createHash('sha256')
+                .update(await readFile(pdfPageOpsBinary))
+                .digest('hex'),
         },
         runtimeStage: 'recognition-and-preprocessing',
         recognitionOptions,
@@ -919,14 +907,14 @@ async function runDegradedLanguageBenchmark({
         pageCount: pages.length,
         profileCount: profiles.length,
         cleanCounterparts: Object.fromEntries(cleanImageHashes),
-        imageHashes: entries.map(entry => ({
+        imageHashes: entries.map((entry) => ({
             pageId: entry.pageId,
             profileId: entry.profileId,
             cleanImageSha256: entry.cleanImageSha256,
             degradedImageSha256: entry.imageSha256,
             realized: entry.realized,
         })),
-        pages: entries.map(entry => ({
+        pages: entries.map((entry) => ({
             pageId: entry.pageId,
             sourceDocumentId: entry.sourceDocumentId,
             cohortId: entry.cohortId,
@@ -949,9 +937,7 @@ async function runDegradedLanguageBenchmark({
     };
 }
 
-async function runCleanLanguageBenchmark({
-    scanCleanupBinary, pdfPageOpsBinary,
-}) {
+async function runCleanLanguageBenchmark({scanCleanupBinary, pdfPageOpsBinary}) {
     const fixtureDirectory = join(workDirectory, 'ocr-language-quality');
     const fixture = await generateOcrLanguageQualityFixture({
         repositoryRoot,
@@ -961,15 +947,12 @@ async function runCleanLanguageBenchmark({
     await mkdir(workerTempDirectory, {recursive: true});
     const sourcePdfPath = join(workerTempDirectory, 'source.pdf');
     await copyFile(fixture.pdfPath, sourcePdfPath);
-    const sourceText = await execFileAsync(pdftotext, [
-        sourcePdfPath,
-        '-',
-    ], {timeout: 30_000});
+    const sourceText = await execFileAsync(pdftotext, [sourcePdfPath, '-'], {timeout: 30_000});
     if (sourceText.stdout.replace(/\f/gu, '').trim() !== '') {
         throw new Error('MLOCR-02 source PDF contains extractable text');
     }
     const pipeline = await loadProductionPipeline();
-    const cleanPages = fixture.manifest.pages.filter(page => page.kind === 'language');
+    const cleanPages = fixture.manifest.pages.filter((page) => page.kind === 'language');
     // Keep every page on the frozen fixture. Reusing each result as the next
     // input makes later language jobs render an accumulating PDF.
     const workerResult = await runProductionOcrQualityDocument({
@@ -992,7 +975,9 @@ async function runCleanLanguageBenchmark({
         pdfStage: 'production-pipeline-native-ocr-text-layer',
         pdfWriter: {
             binary: pdfPageOpsBinary,
-            sha256: createHash('sha256').update(await readFile(pdfPageOpsBinary)).digest('hex'),
+            sha256: createHash('sha256')
+                .update(await readFile(pdfPageOpsBinary))
+                .digest('hex'),
         },
         recognitionOptions,
         fixture: {
@@ -1002,18 +987,9 @@ async function runCleanLanguageBenchmark({
             outputPdfSha256: workerResult.resultSha256,
             sourceTextEmpty: true,
             physicalPage: fixture.manifest.physicalPage,
-            pageOrder: cleanPages.map(page => page.id),
-            rasterSha256ByPage: Object.fromEntries(cleanPages.map(page => [
-                page.id,
-                page.imageSha256,
-            ])),
-            fontSha256ById: Object.fromEntries(Object.entries(fixture.manifest.fonts).map(([
-                id,
-                font,
-            ]) => [
-                id,
-                font.sha256,
-            ])),
+            pageOrder: cleanPages.map((page) => page.id),
+            rasterSha256ByPage: Object.fromEntries(cleanPages.map((page) => [page.id, page.imageSha256])),
+            fontSha256ById: Object.fromEntries(Object.entries(fixture.manifest.fonts).map(([id, font]) => [id, font.sha256])),
             extractorPageCounts: {
                 rawOcr: rawPages.size,
                 pdfjsText: pdfjsPages.length,
@@ -1038,10 +1014,7 @@ async function resolveOptionalScanCleanup() {
 
 async function resolveOptionalPdfPageOps() {
     try {
-        await access(
-            pdfPageOps,
-            pdfPageOps.toLowerCase().endsWith('.wasm') ? fsConstants.R_OK : fsConstants.X_OK,
-        );
+        await access(pdfPageOps, pdfPageOps.toLowerCase().endsWith('.wasm') ? fsConstants.R_OK : fsConstants.X_OK);
         return pdfPageOps;
     } catch {
         return undefined;
@@ -1049,32 +1022,32 @@ async function resolveOptionalPdfPageOps() {
 }
 
 function describeProbeError(error) {
-    if (error instanceof Error) {return error.message;}
+    if (error instanceof Error) {
+        return error.message;
+    }
     return String(error);
 }
 
 async function probeNativeOcrExecutables() {
-    const probes = [
-        [
-            'pdftotext',
-            pdftotext,
-            ['-v'],
-        ],
-    ];
+    const probes = [['pdftotext', pdftotext, ['-v']]];
     const missing = [];
-    for (const [
-        name,
-        binary,
-        args,
-    ] of probes) {
+    for (const [name, binary, args] of probes) {
         try {
             const result = await execFileAsync(binary, args, {timeout: 10_000});
-            process.stdout.write(`OCR executable identity: ${JSON.stringify({
-                name,
-                binary,
-                version: `${result.stdout}\n${result.stderr}`.trim(),
-                ...(existsSync(binary) ? {sha256: createHash('sha256').update(await readFile(binary)).digest('hex')} : {}),
-            })}\n`);
+            process.stdout.write(
+                `OCR executable identity: ${JSON.stringify({
+                    name,
+                    binary,
+                    version: `${result.stdout}\n${result.stderr}`.trim(),
+                    ...(existsSync(binary)
+                        ? {
+                              sha256: createHash('sha256')
+                                  .update(await readFile(binary))
+                                  .digest('hex'),
+                          }
+                        : {}),
+                })}\n`,
+            );
         } catch (error) {
             missing.push(`${name} (${binary}): ${describeProbeError(error)}`);
         }
@@ -1083,25 +1056,24 @@ async function probeNativeOcrExecutables() {
 }
 
 async function probeOcrEngineAndModels() {
-    const requested = [...new Set([
-        ...LANGUAGE_CODES,
-        ...corpus.flatMap(testCase => testCase.language.split('+')),
-    ])];
+    const requested = [...new Set([...LANGUAGE_CODES, ...corpus.flatMap((testCase) => testCase.language.split('+'))])];
     return [
         ...['evb-tesseract.mjs', 'evb-tesseract.wasm']
-            .filter(name => !existsSync(join(engineDirectory, name)))
-            .map(name => `OCR engine file ${name} is not available in ${engineDirectory}`),
+            .filter((name) => !existsSync(join(engineDirectory, name)))
+            .map((name) => `OCR engine file ${name} is not available in ${engineDirectory}`),
         ...requested
-            .filter(language => !existsSync(join(tessdataDirectory, `${language}.traineddata`)))
-            .map(language => `model ${language} is not available in ${tessdataDirectory}`),
+            .filter((language) => !existsSync(join(tessdataDirectory, `${language}.traineddata`)))
+            .map((language) => `model ${language} is not available in ${tessdataDirectory}`),
     ];
 }
 
 function reportIncomplete(reasons) {
-    process.stdout.write(`OCR quality corpus incomplete: ${JSON.stringify({
-        status: 'incomplete',
-        reasons,
-    })}\n`);
+    process.stdout.write(
+        `OCR quality corpus incomplete: ${JSON.stringify({
+            status: 'incomplete',
+            reasons,
+        })}\n`,
+    );
     process.exitCode = 2;
 }
 
@@ -1122,11 +1094,11 @@ try {
                     factory: (await import(pathToFileURL(join(engineDirectory, 'evb-tesseract.mjs')).href)).default,
                     module: await WebAssembly.compile(await readFile(join(engineDirectory, 'evb-tesseract.wasm'))),
                 }),
-                loadModel: async code => new Uint8Array(await readFile(join(tessdataDirectory, `${code}.traineddata`))),
+                loadModel: async (code) => new Uint8Array(await readFile(join(tessdataDirectory, `${code}.traineddata`))),
             });
-            runEngine = request => recognize(request);
+            runEngine = (request) => recognize(request);
             const recognitionPresets = {
-                'defaults': productionRunner.DEFAULT_OCR_RECOGNITION_OPTIONS,
+                defaults: productionRunner.DEFAULT_OCR_RECOGNITION_OPTIONS,
                 'balanced-clean': {
                     ...productionRunner.DEFAULT_OCR_RECOGNITION_OPTIONS,
                     preprocessingMode: 'clean',
@@ -1134,15 +1106,19 @@ try {
                 'poor-scan': productionRunner.POOR_SCAN_OCR_RECOGNITION_OPTIONS,
             };
             recognitionOptions = recognitionPresets[recognitionPreset];
-            process.stdout.write(`OCR quality configuration: ${JSON.stringify({
-                recognitionPreset,
-                recognitionOptions,
-                tessdataDirectory,
-            })}\n`);
+            process.stdout.write(
+                `OCR quality configuration: ${JSON.stringify({
+                    recognitionPreset,
+                    recognitionOptions,
+                    tessdataDirectory,
+                })}\n`,
+            );
             const scanCleanupBinary = await resolveOptionalScanCleanup();
             const pdfPageOpsBinary = await resolveOptionalPdfPageOps();
             if (!recognitionOptions) {
-                reportIncomplete([`EVB_OCR_QUALITY_OPTIONS must be one of ${Object.keys(recognitionPresets).join(', ')}; got ${recognitionPreset}`]);
+                reportIncomplete([
+                    `EVB_OCR_QUALITY_OPTIONS must be one of ${Object.keys(recognitionPresets).join(', ')}; got ${recognitionPreset}`,
+                ]);
             } else if (!pdfPageOpsBinary) {
                 reportIncomplete([`required OCR text-layer writer is unavailable: ${pdfPageOps}`]);
             } else if (required && !scanCleanupBinary) {
@@ -1166,14 +1142,13 @@ try {
                     });
                     process.stdout.write(`MLOCR-03 degraded raster report: ${JSON.stringify(degradedReport)}\n`);
                 } else {
-                    process.stdout.write('MLOCR-03 degraded raster benchmark skipped; set EVB_OCR_QUALITY_DEGRADED=1 or use the required quality command\n');
+                    process.stdout.write(
+                        'MLOCR-03 degraded raster benchmark skipped; set EVB_OCR_QUALITY_DEGRADED=1 or use the required quality command\n',
+                    );
                 }
                 const failures = [];
                 const preprocessingCoverage = new Set();
-                for (const [
-                    index,
-                    testCase,
-                ] of corpus.entries()) {
+                for (const [index, testCase] of corpus.entries()) {
                     const imagePath = join(workDirectory, `${testCase.id}.png`);
                     await writeFile(imagePath, await renderCorpusImage(testCase, index));
                     const caseDirectory = join(workDirectory, testCase.id);
@@ -1196,30 +1171,28 @@ try {
                         caseDirectory,
                         productionRunner.shouldNormalizeGreekMicroSign(testCase.language.split('+')),
                     );
-                    const {stdout: searchablePdfText} = await execFileAsync(pdftotext, [
-                        repairedPdfPath,
-                        '-',
-                    ], {timeout: 30_000});
+                    const {stdout: searchablePdfText} = await execFileAsync(pdftotext, [repairedPdfPath, '-'], {timeout: 30_000});
                     const expected = testCase.lines.join('\n');
                     const metrics = measureOcrQuality(expected, result.text);
                     const pdfMetrics = measureOcrQuality(expected, searchablePdfText);
-                    const faithfulMissingTokens = testCase.criticalTokens.filter(token => (
-                        !retainsFaithfulCriticalToken(result.text, token)
-                || !retainsFaithfulCriticalToken(searchablePdfText, token)
-                    ));
-                    const compatibilityMissingTokens = testCase.criticalTokens.filter(token => (
-                        !retainsCriticalToken(result.text, token)
-                || !retainsCriticalToken(searchablePdfText, token)
-                    ));
+                    const faithfulMissingTokens = testCase.criticalTokens.filter(
+                        (token) =>
+                            !retainsFaithfulCriticalToken(result.text, token) || !retainsFaithfulCriticalToken(searchablePdfText, token),
+                    );
+                    const compatibilityMissingTokens = testCase.criticalTokens.filter(
+                        (token) => !retainsCriticalToken(result.text, token) || !retainsCriticalToken(searchablePdfText, token),
+                    );
                     process.stdout.write(
                         `${testCase.id}: faithful CER=${metrics.faithful.cer.toFixed(4)} / ${metrics.faithful.denominator.cer} Unicode scalars, WER=${metrics.faithful.wer.toFixed(4)} / ${metrics.faithful.denominator.wer} tokens (NFC, ${metrics.faithful.tokenizer}); compatibility CER=${metrics.compatibility.cer.toFixed(4)} / ${metrics.compatibility.denominator.cer} Unicode scalars, WER=${metrics.compatibility.wer.toFixed(4)} / ${metrics.compatibility.denominator.wer} tokens (${metrics.compatibility.normalization}, ${metrics.compatibility.tokenizer}); searchable PDF faithful CER=${pdfMetrics.faithful.cer.toFixed(4)} / ${pdfMetrics.faithful.denominator.cer} Unicode scalars, WER=${pdfMetrics.faithful.wer.toFixed(4)} / ${pdfMetrics.faithful.denominator.wer} tokens (NFC, ${pdfMetrics.faithful.tokenizer}); searchable PDF compatibility CER=${pdfMetrics.compatibility.cer.toFixed(4)} / ${pdfMetrics.compatibility.denominator.cer} Unicode scalars, WER=${pdfMetrics.compatibility.wer.toFixed(4)} / ${pdfMetrics.compatibility.denominator.wer} tokens (${pdfMetrics.compatibility.normalization}, ${pdfMetrics.compatibility.tokenizer}); words=${result.wordCount}; empty reference=${metrics.faithful.referenceEmpty}\n`,
                     );
-                    if (metrics.faithful.cer > testCase.maxCer
-                || metrics.faithful.wer > testCase.maxWer
-                || pdfMetrics.faithful.cer > testCase.maxCer
-                || pdfMetrics.faithful.wer > testCase.maxWer
-                || result.wordCount === 0
-                || faithfulMissingTokens.length > 0) {
+                    if (
+                        metrics.faithful.cer > testCase.maxCer ||
+                        metrics.faithful.wer > testCase.maxWer ||
+                        pdfMetrics.faithful.cer > testCase.maxCer ||
+                        pdfMetrics.faithful.wer > testCase.maxWer ||
+                        result.wordCount === 0 ||
+                        faithfulMissingTokens.length > 0
+                    ) {
                         failures.push({
                             id: testCase.id,
                             faithfulActual: metrics.faithful.normalizedActual,

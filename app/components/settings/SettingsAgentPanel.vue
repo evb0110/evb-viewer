@@ -3,16 +3,37 @@
         <legend class="settings-section-title">{{ t('settings.assistantPanel') }}</legend>
         <div class="settings-agent-card settings-agent-card-row">
             <div class="settings-agent-main">
-                <strong>{{ t(assistantPanelEnabled ? 'settings.assistantPanelStatusEnabled' : 'settings.assistantPanelStatusDisabled') }}</strong>
+                <strong>{{
+                    t(assistantPanelEnabled ? 'settings.assistantPanelStatusEnabled' : 'settings.assistantPanelStatusDisabled')
+                }}</strong>
                 <p class="settings-field-hint">{{ t('settings.assistantPanelDescription') }}</p>
             </div>
-            <USwitch :model-value="assistantPanelEnabled" :label="t('settings.assistantPanelToggle')" size="sm" @update:model-value="emit('update:assistantPanelEnabled', $event)" />
+            <USwitch
+                :model-value="assistantPanelEnabled"
+                :label="t('settings.assistantPanelToggle')"
+                size="sm"
+                @update:model-value="emit('update:assistantPanelEnabled', $event)"
+            />
         </div>
         <h3 class="settings-section-title">{{ t('assistant.providerInstances') }}</h3>
-        <p v-if="instanceError" class="instance-error" role="alert">{{ instanceError }}</p>
-        <p v-for="notice in notices" :key="notice" class="settings-field-hint" role="status">{{ notice }}</p>
+        <p
+            v-if="instanceError"
+            class="instance-error"
+            role="alert"
+            >{{ instanceError }}</p
+        >
+        <p
+            v-for="notice in notices"
+            :key="notice"
+            class="settings-field-hint"
+            role="status"
+            >{{ notice }}</p
+        >
         <!-- Edits pause while a save or refresh runs, so its reply cannot overwrite them. -->
-        <fieldset :disabled="!!activeAction" class="instance-editor">
+        <fieldset
+            :disabled="!!activeAction"
+            class="instance-editor"
+        >
             <SettingsAgentInstanceCard
                 v-for="card in instanceCards"
                 :key="card.instance.id"
@@ -29,12 +50,31 @@
             />
         </fieldset>
         <div class="instance-add">
-            <USelect v-model="newDriver" :items="drivers" :aria-label="t('assistant.driver')" />
-            <UInput v-model="newId" :placeholder="t('assistant.instanceId')" :aria-label="t('assistant.instanceId')" />
-            <UButton :label="t('assistant.addInstance')" icon="i-ph-plus" color="neutral" variant="outline" :disabled="!!activeAction" @click="addInstance" />
+            <USelect
+                v-model="newDriver"
+                :items="drivers"
+                :aria-label="t('assistant.driver')"
+            />
+            <UInput
+                v-model="newId"
+                :placeholder="t('assistant.instanceId')"
+                :aria-label="t('assistant.instanceId')"
+            />
+            <UButton
+                :label="t('assistant.addInstance')"
+                icon="i-ph-plus"
+                color="neutral"
+                variant="outline"
+                :disabled="!!activeAction"
+                @click="addInstance"
+            />
         </div>
         <div class="settings-agent-actions settings-agent-actions--assistant">
-            <UButton :label="t('assistant.saveInstances')" :disabled="!!activeAction" @click="saveInstances" />
+            <UButton
+                :label="t('assistant.saveInstances')"
+                :disabled="!!activeAction"
+                @click="saveInstances"
+            />
         </div>
     </fieldset>
 
@@ -120,7 +160,7 @@
     <UModal
         v-model:open="setupGuideOpen"
         :title="t('settings.agentMcpSetupTitle')"
-        :ui="{ footer: 'justify-end' }"
+        :ui="{footer: 'justify-end'}"
     >
         <template #description>
             <span class="sr-only">{{ t('settings.agentMcpSetupDescription') }}</span>
@@ -200,7 +240,7 @@
             </div>
         </template>
 
-        <template #footer="{ close }">
+        <template #footer="{close}">
             <UButton
                 :label="t('settings.close')"
                 color="neutral"
@@ -212,32 +252,28 @@
 </template>
 
 <script setup lang="ts">
-import {
-    useClipboard,
-    useTimeoutFn,
-} from '@vueuse/core';
+import {useClipboard, useTimeoutFn} from '@vueuse/core';
 import type {IAgentMcpIntegrationStatus} from '@contracts/agent';
+import {getSettingsAssistantStatusModel, runSettingsAssistantAction} from '@app/modules/workspace-shell/public/settingsAssistant';
 import {
-    getSettingsAssistantStatusModel,
-    runSettingsAssistantAction,
-} from '@app/modules/workspace-shell/public/settingsAssistant';
-import {
-    ASSISTANT_INSTANCE_ID_PATTERN, type IAssistantInstanceConfig, type IAssistantInstanceStatus, type IAssistantInstancesResult, type IAssistantOperationResult, type IAssistantState, type TAssistantDriver,
+    ASSISTANT_INSTANCE_ID_PATTERN,
+    type IAssistantInstanceConfig,
+    type IAssistantInstanceStatus,
+    type IAssistantInstancesResult,
+    type IAssistantOperationResult,
+    type IAssistantState,
+    type TAssistantDriver,
 } from '@contracts/assistant';
-import { getAgentCapability } from '@app/utils/getAgentCapability';
-import { useTypedI18n } from '@app/composables/useTypedI18n';
-import { BrowserLogger } from '@app/utils/browserLogger';
+import {getAgentCapability} from '@app/utils/getAgentCapability';
+import {useTypedI18n} from '@app/composables/useTypedI18n';
+import {BrowserLogger} from '@app/utils/browserLogger';
 import SettingsAgentInstanceCard, {
     type IEditableAssistantEnvironmentEntry,
     type IEditableAssistantInstanceConfig,
     type ISettingsAgentInstanceCardModel,
 } from '@app/components/settings/SettingsAgentInstanceCard.vue';
 
-const {
-    assistantPanelEnabled,
-    status,
-    isBusy,
-} = defineProps<{
+const {assistantPanelEnabled, status, isBusy} = defineProps<{
     assistantPanelEnabled: boolean;
     status: IAgentMcpIntegrationStatus | null;
     isBusy: boolean;
@@ -250,8 +286,8 @@ const emit = defineEmits<{
     openInstall: [];
 }>();
 
-const { t } = useTypedI18n();
-const { copy: copyClipboardText } = useClipboard();
+const {t} = useTypedI18n();
+const {copy: copyClipboardText} = useClipboard();
 const setupGuideOpen = ref(false);
 const instances = ref<IEditableAssistantInstanceConfig[]>([]);
 const liveState = ref<IAssistantState | null>(null);
@@ -278,38 +314,33 @@ function createEnvironmentEntryUiId() {
     nextEnvironmentEntryUiId += 1;
     return `env-${nextEnvironmentEntryUiId}`;
 }
-const liveInstancesById = computed(() => new Map(
-    (liveState.value?.instances ?? []).map(instance => [
-        instance.id,
-        instance,
-    ]),
-));
-const instanceCards = computed<ISettingsAgentInstanceCardModel[]>(() => instances.value.map(instance => {
-    const live = liveInstancesById.value.get(instance.id) ?? null;
-    const instanceStatus = getSettingsAssistantStatusModel(live);
-    const loginPending = Boolean(live?.loginPending);
-    return {
-        instance,
-        icon: instance.driver === 'codex' ? 'i-ph-terminal' : 'i-ph-brain',
-        statusLabelKey: instanceStatus.label.key,
-        statusMessage: instanceStatus.message,
-        binaryPath: live?.binaryPath || instance.binaryPath,
-        version: live?.version,
-        homePath: live?.homePath || instance.homePath,
-        loginCode: loginCodes.value[instance.id] ?? '',
-        loginUrl: loginUrls.value[instance.id] ?? '',
-        canSignIn: Boolean(live?.canSignIn) && !loginPending,
-        loginPending,
-        launchArgsHint: instance.launchArgsSecret && instance.launchArgsConfigured
-            ? t('assistant.secretConfigured')
-            : '',
-    };
-}));
+const liveInstancesById = computed(() => new Map((liveState.value?.instances ?? []).map((instance) => [instance.id, instance])));
+const instanceCards = computed<ISettingsAgentInstanceCardModel[]>(() =>
+    instances.value.map((instance) => {
+        const live = liveInstancesById.value.get(instance.id) ?? null;
+        const instanceStatus = getSettingsAssistantStatusModel(live);
+        const loginPending = Boolean(live?.loginPending);
+        return {
+            instance,
+            icon: instance.driver === 'codex' ? 'i-ph-terminal' : 'i-ph-brain',
+            statusLabelKey: instanceStatus.label.key,
+            statusMessage: instanceStatus.message,
+            binaryPath: live?.binaryPath || instance.binaryPath,
+            version: live?.version,
+            homePath: live?.homePath || instance.homePath,
+            loginCode: loginCodes.value[instance.id] ?? '',
+            loginUrl: loginUrls.value[instance.id] ?? '',
+            canSignIn: Boolean(live?.canSignIn) && !loginPending,
+            loginPending,
+            launchArgsHint: instance.launchArgsSecret && instance.launchArgsConfigured ? t('assistant.secretConfigured') : '',
+        };
+    }),
+);
 function removeInstance(id: string) {
-    instances.value = instances.value.filter(item => item.id !== id);
+    instances.value = instances.value.filter((item) => item.id !== id);
 }
 function updateInstance(id: string, patch: Partial<IEditableAssistantInstanceConfig>) {
-    const target = instances.value.find(item => item.id === id);
+    const target = instances.value.find((item) => item.id === id);
     if (target) {
         Object.assign(target, patch);
     }
@@ -327,42 +358,48 @@ function updateEnvironmentEntry(
     uiId: string,
     patch: Partial<Omit<IEditableAssistantEnvironmentEntry, 'uiId'>>,
 ) {
-    const entry = instance.environment.find(item => item.uiId === uiId);
+    const entry = instance.environment.find((item) => item.uiId === uiId);
     if (entry) {
         Object.assign(entry, patch);
     }
 }
 function removeEnvironmentEntry(instance: IEditableAssistantInstanceConfig, uiId: string) {
-    const index = instance.environment.findIndex(item => item.uiId === uiId);
+    const index = instance.environment.findIndex((item) => item.uiId === uiId);
     if (index >= 0) {
         instance.environment.splice(index, 1);
     }
 }
 function applyInstances(result: IAssistantInstancesResult) {
-    if (disposed) {return;}
+    if (disposed) {
+        return;
+    }
     notices.value = result.notices;
     instanceError.value = result.error ?? '';
-    if (result.ok) {instances.value = result.instances.map(instance => ({
-        ...instance,
-        environment: instance.environment?.map(entry => ({
-            ...entry,
-            uiId: createEnvironmentEntryUiId(),
-        })) ?? [],
-    }));}
+    if (result.ok) {
+        instances.value = result.instances.map((instance) => ({
+            ...instance,
+            environment:
+                instance.environment?.map((entry) => ({
+                    ...entry,
+                    uiId: createEnvironmentEntryUiId(),
+                })) ?? [],
+        }));
+    }
 }
 function serializeInstanceForSave(instance: IEditableAssistantInstanceConfig): IAssistantInstanceConfig {
     return {
         ...instance,
-        environment: instance.environment.map(({
-            uiId: _uiId,
-            ...entry
-        }) => ({ ...entry })),
+        environment: instance.environment.map(({uiId: _uiId, ...entry}) => ({...entry})),
     };
 }
 function applyOperation(result: IAssistantOperationResult) {
-    if (disposed) {return;}
+    if (disposed) {
+        return;
+    }
     liveState.value = result.state;
-    if (!result.ok) {instanceError.value = result.error?.message ?? '';}
+    if (!result.ok) {
+        instanceError.value = result.error?.message ?? '';
+    }
 }
 function run(action: NonNullable<typeof activeAction.value>, callback: () => Promise<void>) {
     return runSettingsAssistantAction({
@@ -377,27 +414,34 @@ async function loadInstances() {
     await run('refresh', async () => {
         // The configuration and the live status load independently: a failed
         // status read must not leave the editor without the saved instances.
-        const [
-            config,
-            state,
-        ] = await Promise.allSettled([
+        const [config, state] = await Promise.allSettled([
             getAgentCapability().getAssistantInstances(),
             getAgentCapability().getAssistantState(),
         ]);
-        if (disposed) {return;}
-        if (config.status === 'fulfilled') {applyInstances(config.value);}
+        if (disposed) {
+            return;
+        }
+        if (config.status === 'fulfilled') {
+            applyInstances(config.value);
+        }
         if (state.status === 'fulfilled') {
             liveState.value = state.value;
-            if (pendingInstances) {liveState.value.instances = pendingInstances;}
+            if (pendingInstances) {
+                liveState.value.instances = pendingInstances;
+            }
         }
         pendingInstances = null;
-        if (config.status === 'rejected') {throw config.reason;}
-        if (state.status === 'rejected') {throw state.reason;}
+        if (config.status === 'rejected') {
+            throw config.reason;
+        }
+        if (state.status === 'rejected') {
+            throw state.reason;
+        }
     });
 }
 function addInstance() {
     const id = newId.value.trim();
-    if (!ASSISTANT_INSTANCE_ID_PATTERN.test(id) || instances.value.some(instance => instance.id === id)) {
+    if (!ASSISTANT_INSTANCE_ID_PATTERN.test(id) || instances.value.some((instance) => instance.id === id)) {
         instanceError.value = t('assistant.invalidInstanceId');
         return;
     }
@@ -414,11 +458,11 @@ function addInstance() {
 function saveInstances() {
     void run('save', async () => {
         // IPC needs plain objects, not the reactive rows the editor binds to.
-        applyInstances(await getAgentCapability().saveAssistantInstances(
-            instances.value.map(serializeInstanceForSave),
-        ));
+        applyInstances(await getAgentCapability().saveAssistantInstances(instances.value.map(serializeInstanceForSave)));
         const state = await getAgentCapability().getAssistantState();
-        if (!disposed) {liveState.value = state;}
+        if (!disposed) {
+            liveState.value = state;
+        }
     });
 }
 function refreshInstance(instanceId: string) {
@@ -432,7 +476,9 @@ function refreshInstance(instanceId: string) {
             },
             probe: true,
         });
-        if (!disposed) {liveState.value = state;}
+        if (!disposed) {
+            liveState.value = state;
+        }
     });
 }
 function loginInstance(instanceId: string, mode: 'chatgpt' | 'device-code') {
@@ -442,15 +488,19 @@ function loginInstance(instanceId: string, mode: 'chatgpt' | 'device-code') {
             mode,
         });
         applyOperation(result);
-        if (disposed) {return;}
+        if (disposed) {
+            return;
+        }
         loginCodes.value[instanceId] = result.userCode ?? '';
         loginUrls.value[instanceId] = result.verificationUrl ?? result.authUrl ?? '';
     });
 }
 function cancelInstanceLogin(instanceId: string) {
     void run('cancel', async () => {
-        const state = await getAgentCapability().cancelAssistantLogin({ instanceId });
-        if (disposed) {return;}
+        const state = await getAgentCapability().cancelAssistantLogin({instanceId});
+        if (disposed) {
+            return;
+        }
         liveState.value = state;
         loginCodes.value[instanceId] = '';
         loginUrls.value[instanceId] = '';
@@ -459,32 +509,40 @@ function cancelInstanceLogin(instanceId: string) {
 let unsubscribe: (() => void) | undefined;
 let pendingInstances: IAssistantInstanceStatus[] | null = null;
 onMounted(() => {
-    unsubscribe = getAgentCapability().onAssistantEvent(event => {
-        if (disposed) {return;}
-        // Status that arrives before the first snapshot is newer than it.
-        if (!liveState.value) {
-            if (event.type === 'instances') {pendingInstances = event.instances;}
+    unsubscribe = getAgentCapability().onAssistantEvent((event) => {
+        if (disposed) {
             return;
         }
-        if (event.type === 'instances') {liveState.value.instances = event.instances;}
+        // Status that arrives before the first snapshot is newer than it.
+        if (!liveState.value) {
+            if (event.type === 'instances') {
+                pendingInstances = event.instances;
+            }
+            return;
+        }
+        if (event.type === 'instances') {
+            liveState.value.instances = event.instances;
+        }
     });
     void loadInstances();
 });
-onBeforeUnmount(() => { disposed = true; unsubscribe?.(); });
+onBeforeUnmount(() => {
+    disposed = true;
+    unsubscribe?.();
+});
 type TSetupSnippetId = 'codex' | 'claude' | 'cursor';
 const copiedSetupSnippet = ref<TSetupSnippetId | null>(null);
-const {
-    start: startCopiedSnippetReset,
-    stop: stopCopiedSnippetReset,
-} = useTimeoutFn(() => {
-    copiedSetupSnippet.value = null;
-}, 1800, { immediate: false });
+const {start: startCopiedSnippetReset, stop: stopCopiedSnippetReset} = useTimeoutFn(
+    () => {
+        copiedSetupSnippet.value = null;
+    },
+    1800,
+    {immediate: false},
+);
 
-const needsRepair = computed(() => status?.enabled === true && (
-    !status.serverRunning
-    || !status.codexConfigured
-    || status.codexRegistrationState !== 'configured'
-));
+const needsRepair = computed(
+    () => status?.enabled === true && (!status.serverRunning || !status.codexConfigured || status.codexRegistrationState !== 'configured'),
+);
 
 const primaryActionEnabled = computed(() => {
     if (needsRepair.value) {
@@ -497,35 +555,26 @@ const primaryActionLabel = computed(() => {
     if (needsRepair.value) {
         return t('settings.agentMcpRepair');
     }
-    return status?.enabled
-        ? t('settings.agentMcpDisable')
-        : t('settings.agentMcpEnable');
+    return status?.enabled ? t('settings.agentMcpDisable') : t('settings.agentMcpEnable');
 });
 
 const primaryActionIcon = computed(() => {
     if (needsRepair.value) {
         return 'i-ph-arrows-clockwise';
     }
-    return status?.enabled
-        ? 'i-ph-warning-circle'
-        : 'i-ph-check-circle';
+    return status?.enabled ? 'i-ph-warning-circle' : 'i-ph-check-circle';
 });
 
 const showInstallCodex = computed(() => status !== null && !status.codexInstalled);
 const mcpServerName = computed(() => status?.serverName ?? t('settings.agentMcpUnavailable'));
-const mcpServerUrl = computed(() => status?.serverUrl.length
-    ? status.serverUrl
-    : t('settings.agentMcpUnavailable'));
-const codexCommand = computed(() => status?.setupSnippets?.codex
-    ?? `codex mcp add ${mcpServerName.value} --url ${mcpServerUrl.value}`);
-const claudeCommand = computed(() => status?.setupSnippets?.claude
-    ?? `claude mcp add --transport http --scope user ${mcpServerName.value} ${mcpServerUrl.value}`);
-const cursorConfig = computed(() => status?.setupSnippets?.cursor
-    ?? JSON.stringify(
-        { mcpServers: { [mcpServerName.value]: { url: mcpServerUrl.value } } },
-        null,
-        2,
-    ));
+const mcpServerUrl = computed(() => (status?.serverUrl.length ? status.serverUrl : t('settings.agentMcpUnavailable')));
+const codexCommand = computed(() => status?.setupSnippets?.codex ?? `codex mcp add ${mcpServerName.value} --url ${mcpServerUrl.value}`);
+const claudeCommand = computed(
+    () => status?.setupSnippets?.claude ?? `claude mcp add --transport http --scope user ${mcpServerName.value} ${mcpServerUrl.value}`,
+);
+const cursorConfig = computed(
+    () => status?.setupSnippets?.cursor ?? JSON.stringify({mcpServers: {[mcpServerName.value]: {url: mcpServerUrl.value}}}, null, 2),
+);
 
 const statusKind = computed(() => {
     const currentStatus = status;
@@ -618,15 +667,11 @@ const codexLocationLabel = computed(() => {
 });
 
 function copyButtonLabel(snippet: TSetupSnippetId) {
-    return copiedSetupSnippet.value === snippet
-        ? t('toolbar.captureCopied')
-        : t('menu.copy');
+    return copiedSetupSnippet.value === snippet ? t('toolbar.captureCopied') : t('menu.copy');
 }
 
 function copyButtonIcon(snippet: TSetupSnippetId) {
-    return copiedSetupSnippet.value === snippet
-        ? 'i-ph-check'
-        : 'i-ph-copy';
+    return copiedSetupSnippet.value === snippet ? 'i-ph-check' : 'i-ph-copy';
 }
 
 async function copySetupSnippet(snippet: TSetupSnippetId, value: string) {
@@ -686,8 +731,6 @@ async function copySetupSnippet(snippet: TSetupSnippetId, value: string) {
     color: var(--ui-text);
 }
 
-
-
 .settings-agent-status-label {
     font-size: var(--app-text-size-body);
     font-weight: var(--app-font-weight-semibold);
@@ -704,9 +747,6 @@ async function copySetupSnippet(snippet: TSetupSnippetId, value: string) {
     flex-wrap: wrap;
     justify-content: flex-end;
 }
-
-
-
 
 .settings-agent-details {
     display: grid;
@@ -839,7 +879,6 @@ async function copySetupSnippet(snippet: TSetupSnippetId, value: string) {
         flex-wrap: wrap;
     }
 
-
     .settings-agent-copy-button {
         align-self: flex-start;
     }
@@ -861,5 +900,4 @@ async function copySetupSnippet(snippet: TSetupSnippetId, value: string) {
     flex-wrap: wrap;
     gap: var(--app-space-3xl);
 }
-
 </style>

@@ -1,18 +1,14 @@
-type TBrowserOpenFilePicker = (
-    options?: {
-        multiple?: boolean;
-        excludeAcceptAllOption?: boolean;
-        types?: IFilePickerAcceptType[];
-    },
-) => Promise<FileSystemFileHandle[]>;
+type TBrowserOpenFilePicker = (options?: {
+    multiple?: boolean;
+    excludeAcceptAllOption?: boolean;
+    types?: IFilePickerAcceptType[];
+}) => Promise<FileSystemFileHandle[]>;
 
-type TBrowserSaveFilePicker = (
-    options?: {
-        suggestedName?: string;
-        excludeAcceptAllOption?: boolean;
-        types?: IFilePickerAcceptType[];
-    },
-) => Promise<FileSystemFileHandle>;
+type TBrowserSaveFilePicker = (options?: {
+    suggestedName?: string;
+    excludeAcceptAllOption?: boolean;
+    types?: IFilePickerAcceptType[];
+}) => Promise<FileSystemFileHandle>;
 
 interface IWindowWithBrowserFilePickers extends Window {
     showOpenFilePicker?: TBrowserOpenFilePicker;
@@ -24,11 +20,7 @@ export interface IFilePickerAcceptType {
     accept: Record<string, string[]>;
 }
 
-export type TBrowserFileAccessTier =
-    | 'file-system-access'
-    | 'open-handle-only'
-    | 'save-handle-only'
-    | 'download-only';
+export type TBrowserFileAccessTier = 'file-system-access' | 'open-handle-only' | 'save-handle-only' | 'download-only';
 
 type TBrowserStorageTier = 'persistent' | 'volatile';
 export type TBrowserCapabilityTier = `${TBrowserFileAccessTier}-${TBrowserStorageTier}`;
@@ -95,15 +87,11 @@ export interface IBrowserCapabilityTier {
  * tier as policy; API calls still validate browser failures at their boundary.
  */
 export function resolveBrowserCapabilityTier(): IBrowserCapabilityTier {
-    const pickerWindow = typeof window === 'undefined'
-        ? null
-        : (window as IWindowWithBrowserFilePickers);
-    const openFilePicker = typeof pickerWindow?.showOpenFilePicker === 'function'
-        ? pickerWindow.showOpenFilePicker.bind(pickerWindow)
-        : null;
-    const saveFilePicker = typeof pickerWindow?.showSaveFilePicker === 'function'
-        ? pickerWindow.showSaveFilePicker.bind(pickerWindow)
-        : null;
+    const pickerWindow = typeof window === 'undefined' ? null : (window as IWindowWithBrowserFilePickers);
+    const openFilePicker =
+        typeof pickerWindow?.showOpenFilePicker === 'function' ? pickerWindow.showOpenFilePicker.bind(pickerWindow) : null;
+    const saveFilePicker =
+        typeof pickerWindow?.showSaveFilePicker === 'function' ? pickerWindow.showSaveFilePicker.bind(pickerWindow) : null;
     let indexedDbFactory: IDBFactory | null = null;
     try {
         indexedDbFactory = typeof indexedDB === 'undefined' ? null : indexedDB;
@@ -113,8 +101,12 @@ export function resolveBrowserCapabilityTier(): IBrowserCapabilityTier {
         indexedDbFactory = null;
     }
     const fileAccessTier: TBrowserFileAccessTier = openFilePicker
-        ? (saveFilePicker ? 'file-system-access' : 'open-handle-only')
-        : (saveFilePicker ? 'save-handle-only' : 'download-only');
+        ? saveFilePicker
+            ? 'file-system-access'
+            : 'open-handle-only'
+        : saveFilePicker
+          ? 'save-handle-only'
+          : 'download-only';
     const tier: TBrowserCapabilityTier = `${fileAccessTier}-${indexedDbFactory ? 'persistent' : 'volatile'}`;
 
     return {

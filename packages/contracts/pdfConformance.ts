@@ -1,7 +1,4 @@
-import type {
-    Except,
-    LiteralUnion,
-} from 'type-fest';
+import type {Except, LiteralUnion} from 'type-fest';
 import * as v from 'valibot';
 
 export type TPdfSaveMode = 'incremental' | 'rewrite' | 'save_as_rewrite';
@@ -21,17 +18,15 @@ export interface IPdfConformanceProfile {
     saveRestrictions: string[];
 }
 
-export interface IPdfConformanceAnalysisOptions {purpose?: 'full' | 'save-restrictions';}
+export interface IPdfConformanceAnalysisOptions {
+    purpose?: 'full' | 'save-restrictions';
+}
 
 export type TPdfConformanceProfileBase = Except<IPdfConformanceProfile, 'saveRestrictions'>;
 
 export const PDF_VALIDATION_RESULT_SCHEMA = v.object({
     isValid: v.boolean(),
-    tool: v.picklist([
-        'qpdf',
-        'browser',
-        'native',
-    ]),
+    tool: v.picklist(['qpdf', 'browser', 'native']),
     errors: v.pipe(v.array(v.string()), v.readonly()),
     warnings: v.pipe(v.array(v.string()), v.readonly()),
 });

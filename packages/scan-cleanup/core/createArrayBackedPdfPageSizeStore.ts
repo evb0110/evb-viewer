@@ -11,20 +11,22 @@ export function createArrayBackedPdfPageSizeStore(
     pageSizes: readonly IPdfPageSize[],
     documentPageCount = pageSizes.length,
 ): IPdfPageSizeStore {
-    const pageCount = Number.isSafeInteger(documentPageCount) && documentPageCount >= 0
-        ? documentPageCount
-        : pageSizes.length;
-    const fallback = pageSizes[0] ?? {
-        pageNumber: 1,
-        xPoints: 0,
-        yPoints: 0,
-        widthPoints: 612,
-        heightPoints: 792,
-        rotation: 0,
-    } satisfies IPdfPageSize;
+    const pageCount = Number.isSafeInteger(documentPageCount) && documentPageCount >= 0 ? documentPageCount : pageSizes.length;
+    const fallback =
+        pageSizes[0] ??
+        ({
+            pageNumber: 1,
+            xPoints: 0,
+            yPoints: 0,
+            widthPoints: 612,
+            heightPoints: 792,
+            rotation: 0,
+        } satisfies IPdfPageSize);
     let closed = false;
     const assertOpen = () => {
-        if (closed) {throw new Error('Page-size store is closed');}
+        if (closed) {
+            throw new Error('Page-size store is closed');
+        }
     };
     const resolvePage = (pageNumber: number) => {
         const page = pageSizes[pageNumber - 1];
@@ -53,7 +55,7 @@ export function createArrayBackedPdfPageSizeStore(
             return pageCount;
         },
         fork: () => createArrayBackedPdfPageSizeStore(pageSizes, pageCount),
-        getPage: pageNumber => {
+        getPage: (pageNumber) => {
             assertOpen();
             validatePageNumber(pageNumber);
             return Promise.resolve(resolvePage(pageNumber));
@@ -61,11 +63,11 @@ export function createArrayBackedPdfPageSizeStore(
         readRange: (firstPageNumber, lastPageNumberExclusive) => {
             assertOpen();
             if (
-                !Number.isSafeInteger(firstPageNumber)
-                || !Number.isSafeInteger(lastPageNumberExclusive)
-                || firstPageNumber < 1
-                || lastPageNumberExclusive < firstPageNumber
-                || lastPageNumberExclusive > pageCount + 1
+                !Number.isSafeInteger(firstPageNumber) ||
+                !Number.isSafeInteger(lastPageNumberExclusive) ||
+                firstPageNumber < 1 ||
+                lastPageNumberExclusive < firstPageNumber ||
+                lastPageNumberExclusive > pageCount + 1
             ) {
                 throw new RangeError('Page-size range read has invalid page bounds');
             }
@@ -75,19 +77,12 @@ export function createArrayBackedPdfPageSizeStore(
             }
             return Promise.resolve(pages);
         },
-        forEachChunk: async onChunk => {
+        forEachChunk: async (onChunk) => {
             assertOpen();
             let chunkIndex = 0;
-            for (
-                let firstPageNumber = 1;
-                firstPageNumber <= pageCount;
-                firstPageNumber += SCAN_CLEANUP_STREAMING_BATCH_PAGES
-            ) {
+            for (let firstPageNumber = 1; firstPageNumber <= pageCount; firstPageNumber += SCAN_CLEANUP_STREAMING_BATCH_PAGES) {
                 const pages: IPdfPageSize[] = [];
-                const lastPageNumberExclusive = Math.min(
-                    pageCount + 1,
-                    firstPageNumber + SCAN_CLEANUP_STREAMING_BATCH_PAGES,
-                );
+                const lastPageNumberExclusive = Math.min(pageCount + 1, firstPageNumber + SCAN_CLEANUP_STREAMING_BATCH_PAGES);
                 for (let pageNumber = firstPageNumber; pageNumber < lastPageNumberExclusive; pageNumber += 1) {
                     pages.push(resolvePage(pageNumber));
                 }

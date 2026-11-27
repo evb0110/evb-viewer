@@ -1,12 +1,9 @@
-import type { ILogger } from '@electron/utils/createLogger';
-import { withTimeout } from 'es-toolkit/promise';
-import { isTimeoutError } from '@contracts/isTimeoutError';
-import { getErrorMessage } from '@electron/utils/error';
-import {
-    SHUTDOWN_CLEANUP_TIMEOUT_MS,
-    SHUTDOWN_STEP_TIMEOUT_MS,
-} from '@electron/bootstrap/shutdown';
-import type { IShutdownContext } from '@electron/bootstrap/shutdown';
+import type {ILogger} from '@electron/utils/createLogger';
+import {withTimeout} from 'es-toolkit/promise';
+import {isTimeoutError} from '@contracts/isTimeoutError';
+import {getErrorMessage} from '@electron/utils/error';
+import {SHUTDOWN_CLEANUP_TIMEOUT_MS, SHUTDOWN_STEP_TIMEOUT_MS} from '@electron/bootstrap/shutdown';
+import type {IShutdownContext} from '@electron/bootstrap/shutdown';
 
 interface IShutdownStep {
     label: string;
@@ -26,7 +23,9 @@ interface IShutdownPhaseOptions {
     createPreservationSteps: (context: IShutdownContext) => IShutdownStep[];
 }
 
-interface IShutdownStepResult {failed: boolean;}
+interface IShutdownStepResult {
+    failed: boolean;
+}
 
 async function runStep(
     logger: ILogger,
@@ -64,27 +63,17 @@ async function runStep(
  * divided by the steps still to run, so every step keeps a turn, and a step
  * that finishes early hands its unused share to the ones after it.
  */
-async function runBoundedSteps(
-    logger: ILogger,
-    steps: IShutdownStep[],
-    deadlineAt?: number,
-    isHeld?: () => boolean,
-) {
+async function runBoundedSteps(logger: ILogger, steps: IShutdownStep[], deadlineAt?: number, isHeld?: () => boolean) {
     let failed = false;
-    for (const [
-        index,
-        step,
-    ] of steps.entries()) {
+    for (const [index, step] of steps.entries()) {
         if (isHeld?.()) {
             break;
         }
         const stepTimeoutMs = step.timeoutMs ?? SHUTDOWN_STEP_TIMEOUT_MS;
-        const timeoutMs = deadlineAt === undefined
-            ? stepTimeoutMs
-            : Math.max(0, Math.min(
-                stepTimeoutMs,
-                Math.floor((deadlineAt - Date.now()) / (steps.length - index)),
-            ));
+        const timeoutMs =
+            deadlineAt === undefined
+                ? stepTimeoutMs
+                : Math.max(0, Math.min(stepTimeoutMs, Math.floor((deadlineAt - Date.now()) / (steps.length - index))));
         const result = await runStep(logger, step, timeoutMs);
         failed ||= result.failed;
     }
@@ -99,8 +88,7 @@ async function runBoundedSteps(
  * held: they must finish preservation and cleanup.
  */
 function isQuitHeldForRetry(context: IShutdownContext) {
-    return context.retryablePreservationFailure === true
-        && (context.reason === 'graceful' || context.reason === 'recovery-relaunch');
+    return context.retryablePreservationFailure === true && (context.reason === 'graceful' || context.reason === 'recovery-relaunch');
 }
 
 /**
@@ -109,31 +97,25 @@ function isQuitHeldForRetry(context: IShutdownContext) {
  * steps, but it cannot start until preservation has structurally completed. The
  * final log flush runs after that deadline so timeout diagnostics reach disk.
  */
-export function createShutdownPhaseRunners(
-    logger: ILogger,
-    options: IShutdownPhaseOptions,
-) {
+export function createShutdownPhaseRunners(logger: ILogger, options: IShutdownPhaseOptions) {
     return {
         async runPreservationSteps(context: IShutdownContext) {
             const startedAt = Date.now();
             try {
-                const result = await runBoundedSteps(
-                    logger,
-                    options.createPreservationSteps(context),
-                    undefined,
-                    () => isQuitHeldForRetry(context),
+                const result = await runBoundedSteps(logger, options.createPreservationSteps(context), undefined, () =>
+                    isQuitHeldForRetry(context),
                 );
                 // If any preservation step itself failed, retain every recovery
                 // artifact. A partial path list is not sufficient evidence that
                 // it is safe to delete the remainder.
                 if (result.failed) {
                     context.preserveRecoveryState = true;
-                    logger.error('Shutdown preservation was incomplete; retaining workspace recovery state', {code: 'MAIN_SHUTDOWN_FAILED'});
+                    logger.error('Shutdown preservation was incomplete; retaining workspace recovery state', {
+                        code: 'MAIN_SHUTDOWN_FAILED',
+                    });
                 }
             } finally {
-                logger.info(
-                    `Shutdown preservation settled (reason=${context.reason}, durationMs=${Date.now() - startedAt})`,
-                );
+                logger.info(`Shutdown preservation settled (reason=${context.reason}, durationMs=${Date.now() - startedAt})`);
             }
         },
         async runBestEffortCleanupSteps(context: IShutdownContext) {
@@ -144,9 +126,16 @@ export function createShutdownPhaseRunners(
             const deadlineAt = Date.now() + SHUTDOWN_CLEANUP_TIMEOUT_MS;
 
             try {
-                await runBoundedSteps(logger, steps.filter(step => !step.runsAfterDeadline), deadlineAt);
+                await runBoundedSteps(
+                    logger,
+                    steps.filter((step) => !step.runsAfterDeadline),
+                    deadlineAt,
+                );
             } finally {
-                await runBoundedSteps(logger, steps.filter(step => step.runsAfterDeadline));
+                await runBoundedSteps(
+                    logger,
+                    steps.filter((step) => step.runsAfterDeadline),
+                );
             }
         },
     };

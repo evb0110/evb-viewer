@@ -1,4 +1,4 @@
-import { IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES } from '@contracts/electronApiDocuments';
+import {IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES} from '@contracts/electronApiDocuments';
 
 // fallow-ignore-next-line unused-export
 const IPC_MAX_BINARY_PAYLOAD_BYTES = IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES;
@@ -56,7 +56,7 @@ export function decodeUint8ArrayArg(
 
 export function decodeStringArrayArg(args: readonly unknown[], index: number, fieldName: string): string[] {
     const items = decodeBoundedArray(args[index], fieldName, {allowEmpty: true});
-    if (items.some(item => typeof item !== 'string' || item.trim().length === 0)) {
+    if (items.some((item) => typeof item !== 'string' || item.trim().length === 0)) {
         throw new Error(`${fieldName} must be an array of non-empty strings`);
     }
     return items as string[];

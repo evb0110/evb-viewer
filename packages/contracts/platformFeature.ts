@@ -1,8 +1,4 @@
-import type {
-    IPlatformApiDescriptor,
-    IPlatformMethodDescriptor,
-    TPlatformBackend,
-} from '@contracts/platformDescriptorTypes';
+import type {IPlatformApiDescriptor, IPlatformMethodDescriptor, TPlatformBackend} from '@contracts/platformDescriptorTypes';
 import * as v from 'valibot';
 
 export type TPlatformFeatureSchema<TOutput = unknown> = v.GenericSchema<unknown, TOutput>;
@@ -15,27 +11,23 @@ export interface IPlatformResultType<TOutput = unknown> {
     readonly kind: 'type-only-result';
     readonly '~types'?: {readonly output: TOutput};
 }
-export type TPlatformResultSpec<TOutput = unknown> =
-    | TPlatformFeatureSchema<TOutput>
-    | IPlatformResultType<TOutput>;
+export type TPlatformResultSpec<TOutput = unknown> = TPlatformFeatureSchema<TOutput> | IPlatformResultType<TOutput>;
 type TInferPlatformResult<TResult extends TPlatformResultSpec> =
-    TResult extends IPlatformResultType<infer TOutput>
-        ? TOutput
-        : TResult extends TPlatformFeatureSchema
-            ? v.InferOutput<TResult>
-            : never;
+    TResult extends IPlatformResultType<infer TOutput> ? TOutput : TResult extends TPlatformFeatureSchema ? v.InferOutput<TResult> : never;
 
 export function platformResultType<TOutput>(): IPlatformResultType<TOutput> {
     return {kind: 'type-only-result'};
 }
 /** contextBridge proxies callbacks, but cannot transfer an AbortSignal. */
-export type TPlatformIpcAbortSubscription = (onAbort: () => void) => (() => void);
+export type TPlatformIpcAbortSubscription = (onAbort: () => void) => () => void;
 type TSchemaValue = ReturnType<JSON['parse']>;
 
-type TPlatformBrowserSpec = {method: string} | {
-    unsupported: 'omitted';
-    reason: 'unsupported-backend' | 'requires-native-backend' | 'not-implemented';
-};
+type TPlatformBrowserSpec =
+    | {method: string}
+    | {
+          unsupported: 'omitted';
+          reason: 'unsupported-backend' | 'requires-native-backend' | 'not-implemented';
+      };
 
 const fail = (message: string): never => {
     throw new Error(message);
@@ -163,11 +155,7 @@ export function defineForwardedPlatformEvent<
     const TName extends string,
     const TChannel extends string,
     const TPayload extends TPlatformFeatureSchema,
->(definition: {
-    name: TName;
-    channel: TChannel;
-    payload: TPayload;
-}) {
+>(definition: {name: TName; channel: TChannel; payload: TPayload}) {
     return {
         kind: 'event',
         channel: definition.channel,
@@ -177,14 +165,10 @@ export function defineForwardedPlatformEvent<
     } as const;
 }
 
-type TReadonlyArrayInput<TInput> = TInput extends readonly unknown[]
-    ? Readonly<TInput>
-    : never;
+type TReadonlyArrayInput<TInput> = TInput extends readonly unknown[] ? Readonly<TInput> : never;
 
 type TPlatformIpcClientArgs<TArgs extends TPlatformFeatureSchema<unknown[]>> =
-    unknown extends v.InferInput<TArgs>
-        ? readonly unknown[]
-        : TReadonlyArrayInput<v.InferInput<TArgs>>;
+    unknown extends v.InferInput<TArgs> ? readonly unknown[] : TReadonlyArrayInput<v.InferInput<TArgs>>;
 
 export interface IPlatformIpcMethodSpec<
     TArgs extends TPlatformFeatureSchema<unknown[]> = TPlatformFeatureSchema<unknown[]>,
@@ -236,14 +220,9 @@ export interface IPlatformLocalMethodSpec<
     lazy: 'forwarded' | 'direct';
 }
 
-export type TPlatformMethodSpec =
-    | IPlatformIpcMethodSpec
-    | IPlatformLocalMethodSpec
-    | IPlatformSyncMethodSpec;
+export type TPlatformMethodSpec = IPlatformIpcMethodSpec | IPlatformLocalMethodSpec | IPlatformSyncMethodSpec;
 
-export interface IPlatformEventSpec<
-    TPayload extends TPlatformFeatureSchema<TSchemaValue> = TPlatformFeatureSchema<TSchemaValue>,
-> {
+export interface IPlatformEventSpec<TPayload extends TPlatformFeatureSchema<TSchemaValue> = TPlatformFeatureSchema<TSchemaValue>> {
     kind: 'event';
     channel: string;
     payload: TPayload;
@@ -281,120 +260,107 @@ interface IFeatureInput<TMethodMap extends TMethods, TEventMap extends TEvents> 
     events?: TEventMap;
 }
 
-type TPublicIpcMethodArgs<TSpec extends IPlatformIpcMethodSpec> =
-    'client' extends keyof TSpec
-        ? undefined extends TSpec['client']
-            ? [NonNullable<TSpec['client']>] extends [never]
-                ? Extract<v.InferOutput<TSpec['ipc']['args']>, unknown[]>
-                : NonNullable<TSpec['client']> extends {mapArgs: (...args: infer TArgs) => unknown}
-                    ? TArgs & TPlatformIpcClientArgs<TSpec['ipc']['args']>
-                    : Extract<v.InferOutput<TSpec['ipc']['args']>, unknown[]>
-            : TSpec['client'] extends {mapArgs: (...args: infer TArgs) => unknown}
-                ? TArgs
-                : Extract<v.InferOutput<TSpec['ipc']['args']>, unknown[]>
-        : Extract<v.InferOutput<TSpec['ipc']['args']>, unknown[]>;
+type TPublicIpcMethodArgs<TSpec extends IPlatformIpcMethodSpec> = 'client' extends keyof TSpec
+    ? undefined extends TSpec['client']
+        ? [NonNullable<TSpec['client']>] extends [never]
+            ? Extract<v.InferOutput<TSpec['ipc']['args']>, unknown[]>
+            : NonNullable<TSpec['client']> extends {mapArgs: (...args: infer TArgs) => unknown}
+              ? TArgs & TPlatformIpcClientArgs<TSpec['ipc']['args']>
+              : Extract<v.InferOutput<TSpec['ipc']['args']>, unknown[]>
+        : TSpec['client'] extends {mapArgs: (...args: infer TArgs) => unknown}
+          ? TArgs
+          : Extract<v.InferOutput<TSpec['ipc']['args']>, unknown[]>
+    : Extract<v.InferOutput<TSpec['ipc']['args']>, unknown[]>;
 
 type TPublicMethod<TSpec extends TPlatformMethodSpec> =
     TSpec extends IPlatformSyncMethodSpec<infer TArgs, infer TResult>
         ? (...args: v.InferOutput<TArgs>) => TInferPlatformResult<TResult>
         : TSpec extends IPlatformLocalMethodSpec<infer TArgs, infer TResult>
-            ? (...args: v.InferOutput<TArgs>) => TSpec['kind'] extends 'async'
-                ? Promise<TInferPlatformResult<TResult>>
-                : TInferPlatformResult<TResult>
-            : TSpec extends IPlatformIpcMethodSpec
-                ? (
-                    ...args: TPublicIpcMethodArgs<TSpec>
-                ) => TSpec['kind'] extends 'async'
-                    ? Promise<TInferPlatformResult<TSpec['ipc']['result']>>
-                    : TInferPlatformResult<TSpec['ipc']['result']>
-                : never;
-
-type TRequiredCapabilityMethods<TMethodMap extends TMethods> = {
-    [TKey in keyof TMethodMap as TMethodMap[TKey] extends {optionalWhenImplemented: true}
-        ? never
-        : TKey]: TPublicMethod<TMethodMap[TKey]>
-};
-type TOptionalCapabilityMethods<TMethodMap extends TMethods> = {
-    [TKey in keyof TMethodMap as TMethodMap[TKey] extends {optionalWhenImplemented: true}
-        ? TKey
-        : never]?: TPublicMethod<TMethodMap[TKey]>
-};
-type TRequiredCapabilityEvents<TEventMap extends TEvents> = {
-    [TKey in keyof TEventMap as TEventMap[TKey] extends {optionalWhenImplemented: true}
-        ? never
-        : TKey]:
-    (callback: (payload: v.InferOutput<TEventMap[TKey]['payload']>) => void) => (() => void)
-};
-type TOptionalCapabilityEvents<TEventMap extends TEvents> = {
-    [TKey in keyof TEventMap as TEventMap[TKey] extends {optionalWhenImplemented: true}
-        ? TKey
-        : never]?:
-    (callback: (payload: v.InferOutput<TEventMap[TKey]['payload']>) => void) => (() => void)
-};
-type TCapability<TMethodMap extends TMethods, TEventMap extends TEvents> =
-    TRequiredCapabilityMethods<TMethodMap>
-    & TOptionalCapabilityMethods<TMethodMap>
-    & TRequiredCapabilityEvents<TEventMap>
-    & TOptionalCapabilityEvents<TEventMap>;
-
-export type TFeatureCapability<T> = T extends IDefinedPlatformFeature<infer M, infer E>
-    ? TCapability<M, E>
-    : never;
-
-type TMethodInvokeMap<M extends TMethods> = {
-    [K in keyof M as M[K] extends IPlatformIpcMethodSpec
-        ? M[K]['channel']
-        : never]: M[K] extends IPlatformIpcMethodSpec ? {
-        args: Extract<v.InferOutput<M[K]['ipc']['args']>, unknown[]>;
-        result: TInferPlatformResult<M[K]['ipc']['result']>;
-    } : never
-};
-
-type TDecodedPlatformResult<TResult extends TPlatformResultSpec> =
-    TResult extends IPlatformResultType
-        ? unknown
-        : TResult extends TPlatformFeatureSchema
-            ? v.InferOutput<TResult>
+          ? (
+                ...args: v.InferOutput<TArgs>
+            ) => TSpec['kind'] extends 'async' ? Promise<TInferPlatformResult<TResult>> : TInferPlatformResult<TResult>
+          : TSpec extends IPlatformIpcMethodSpec
+            ? (
+                  ...args: TPublicIpcMethodArgs<TSpec>
+              ) => TSpec['kind'] extends 'async'
+                  ? Promise<TInferPlatformResult<TSpec['ipc']['result']>>
+                  : TInferPlatformResult<TSpec['ipc']['result']>
             : never;
 
+type TRequiredCapabilityMethods<TMethodMap extends TMethods> = {
+    [TKey in keyof TMethodMap as TMethodMap[TKey] extends {optionalWhenImplemented: true} ? never : TKey]: TPublicMethod<TMethodMap[TKey]>;
+};
+type TOptionalCapabilityMethods<TMethodMap extends TMethods> = {
+    [TKey in keyof TMethodMap as TMethodMap[TKey] extends {optionalWhenImplemented: true} ? TKey : never]?: TPublicMethod<TMethodMap[TKey]>;
+};
+type TRequiredCapabilityEvents<TEventMap extends TEvents> = {
+    [TKey in keyof TEventMap as TEventMap[TKey] extends {optionalWhenImplemented: true} ? never : TKey]: (
+        callback: (payload: v.InferOutput<TEventMap[TKey]['payload']>) => void,
+    ) => () => void;
+};
+type TOptionalCapabilityEvents<TEventMap extends TEvents> = {
+    [TKey in keyof TEventMap as TEventMap[TKey] extends {optionalWhenImplemented: true} ? TKey : never]?: (
+        callback: (payload: v.InferOutput<TEventMap[TKey]['payload']>) => void,
+    ) => () => void;
+};
+type TCapability<TMethodMap extends TMethods, TEventMap extends TEvents> = TRequiredCapabilityMethods<TMethodMap> &
+    TOptionalCapabilityMethods<TMethodMap> &
+    TRequiredCapabilityEvents<TEventMap> &
+    TOptionalCapabilityEvents<TEventMap>;
+
+export type TFeatureCapability<T> = T extends IDefinedPlatformFeature<infer M, infer E> ? TCapability<M, E> : never;
+
+type TMethodInvokeMap<M extends TMethods> = {
+    [K in keyof M as M[K] extends IPlatformIpcMethodSpec ? M[K]['channel'] : never]: M[K] extends IPlatformIpcMethodSpec
+        ? {
+              args: Extract<v.InferOutput<M[K]['ipc']['args']>, unknown[]>;
+              result: TInferPlatformResult<M[K]['ipc']['result']>;
+          }
+        : never;
+};
+
+type TDecodedPlatformResult<TResult extends TPlatformResultSpec> = TResult extends IPlatformResultType
+    ? unknown
+    : TResult extends TPlatformFeatureSchema
+      ? v.InferOutput<TResult>
+      : never;
+
 type TDecodedMethodResultMap<M extends TMethods> = {
-    [K in keyof M as M[K] extends IPlatformIpcMethodSpec
-        ? M[K]['channel']
-        : never]: M[K] extends IPlatformIpcMethodSpec
+    [K in keyof M as M[K] extends IPlatformIpcMethodSpec ? M[K]['channel'] : never]: M[K] extends IPlatformIpcMethodSpec
         ? TDecodedPlatformResult<M[K]['ipc']['result']>
-        : never
+        : never;
 };
 
 type TSubscriptionInvokeMap<E extends TEvents> = {
     [K in keyof E as E[K]['subscription'] extends {channel: infer C extends string} ? C : never]: {
         args: [];
         result: undefined;
-    }
+    };
 };
 type TFeatureCodecMap<M extends TMethods, E extends TEvents> = {
-    [TChannel in keyof (TMethodInvokeMap<M> & TSubscriptionInvokeMap<E>)]:
-    (TMethodInvokeMap<M> & TSubscriptionInvokeMap<E>)[TChannel] extends {
+    [TChannel in keyof (TMethodInvokeMap<M> & TSubscriptionInvokeMap<E>)]: (TMethodInvokeMap<M> &
+        TSubscriptionInvokeMap<E>)[TChannel] extends {
         args: infer TArgs extends unknown[];
         result: infer TResult;
-    } ? {
-            encodeArgs: (value: readonly unknown[]) => TArgs;
-            decodeArgs: (value: readonly unknown[]) => TArgs;
-            /**
-             * Contract-test-only result decoder. Production preload and renderer
-             * trust main-process responses without re-decoding them. Returns
-             * `unknown` for `platformResultType` entries that carry no runtime
-             * result schema.
-             */
-            decodeResult: (value: unknown) => TChannel extends keyof TDecodedMethodResultMap<M>
-                ? TDecodedMethodResultMap<M>[TChannel]
-                : TResult;
-        }
+    }
+        ? {
+              encodeArgs: (value: readonly unknown[]) => TArgs;
+              decodeArgs: (value: readonly unknown[]) => TArgs;
+              /**
+               * Contract-test-only result decoder. Production preload and renderer
+               * trust main-process responses without re-decoding them. Returns
+               * `unknown` for `platformResultType` entries that carry no runtime
+               * result schema.
+               */
+              decodeResult: (
+                  value: unknown,
+              ) => TChannel extends keyof TDecodedMethodResultMap<M> ? TDecodedMethodResultMap<M>[TChannel] : TResult;
+          }
         : never;
 };
 
-export type TFeatureInvokeMap<T> = T extends IDefinedPlatformFeature<infer M, infer E>
-    ? TMethodInvokeMap<M> & TSubscriptionInvokeMap<E>
-    : never;
+export type TFeatureInvokeMap<T> =
+    T extends IDefinedPlatformFeature<infer M, infer E> ? TMethodInvokeMap<M> & TSubscriptionInvokeMap<E> : never;
 
 export type TFeatureEventMap<T> = T extends {events: infer E extends TEvents}
     ? {[K in keyof E as E[K]['channel']]: v.InferOutput<E[K]['payload']>}
@@ -405,8 +371,7 @@ export interface IPlatformMainSenderContext<TSender> {
     senderId: number;
 }
 
-type TSender<TEvent> = TEvent extends {sender: infer S} ? IPlatformMainSenderContext<S>
-    : never;
+type TSender<TEvent> = TEvent extends {sender: infer S} ? IPlatformMainSenderContext<S> : never;
 
 type TMainMethod<TSpec extends IPlatformIpcMethodSpec, TEvent> = (
     ...args: TSpec['main']['context'] extends 'sender'
@@ -418,37 +383,52 @@ export type TFeatureMainBindings<T, TEvent> = T extends {
     methods: infer M extends TMethods;
     events: infer E extends TEvents;
 }
-    ? {[K in keyof M as M[K] extends IPlatformIpcMethodSpec
-        ? M[K] extends {main: {method: infer Name extends string}} ? Name : never
-        : never]: M[K] extends IPlatformIpcMethodSpec ? TMainMethod<M[K], TEvent> : never} & {
-            [K in keyof E as E[K]['subscription'] extends
-            {main: {method: infer Name extends string}} ? Name : never]:
-            (context: TSender<TEvent>) => void
-        }
+    ? {
+          [
+              K in keyof M as M[K] extends IPlatformIpcMethodSpec
+                  ? M[K] extends {main: {method: infer Name extends string}}
+                      ? Name
+                      : never
+                  : never
+          ]: M[K] extends IPlatformIpcMethodSpec ? TMainMethod<M[K], TEvent> : never;
+      } & {
+          [K in keyof E as E[K]['subscription'] extends {main: {method: infer Name extends string}} ? Name : never]: (
+              context: TSender<TEvent>,
+          ) => void;
+      }
     : never;
 
 export type TFeatureBrowserBindings<T> = TFeatureCapability<T>;
 type TRequiredDirectBindings<M extends TMethods> = {
-    [K in keyof M as M[K] extends IPlatformSyncMethodSpec | IPlatformLocalMethodSpec
-        ? M[K] extends {optionalWhenImplemented: true} ? never : K
-        : never]: TPublicMethod<M[K]>
+    [
+        K in keyof M as M[K] extends IPlatformSyncMethodSpec | IPlatformLocalMethodSpec
+            ? M[K] extends {optionalWhenImplemented: true}
+                ? never
+                : K
+            : never
+    ]: TPublicMethod<M[K]>;
 };
 type TOptionalDirectBindings<M extends TMethods> = {
-    [K in keyof M as M[K] extends IPlatformSyncMethodSpec | IPlatformLocalMethodSpec
-        ? M[K] extends {optionalWhenImplemented: true} ? K : never
-        : never]?: TPublicMethod<M[K]>
+    [
+        K in keyof M as M[K] extends IPlatformSyncMethodSpec | IPlatformLocalMethodSpec
+            ? M[K] extends {optionalWhenImplemented: true}
+                ? K
+                : never
+            : never
+    ]?: TPublicMethod<M[K]>;
 };
 export type TFeatureDirectBindings<T> = T extends {methods: infer M extends TMethods}
     ? TRequiredDirectBindings<M> & TOptionalDirectBindings<M>
     : never;
 export type TFeatureSyncBindings<T> = TFeatureDirectBindings<T>;
 
-type TFeatureInvokeChannels<M extends TMethods, E extends TEvents> =
-    {readonly [K in keyof M as M[K] extends IPlatformIpcMethodSpec ? K : never]:
-        M[K] extends IPlatformIpcMethodSpec ? M[K]['channel'] : never} & {
-            readonly [K in keyof E as E[K]['subscription'] extends
-            {main: {method: infer Name extends string}} ? Name : never]: string
-        };
+type TFeatureInvokeChannels<M extends TMethods, E extends TEvents> = {
+    readonly [K in keyof M as M[K] extends IPlatformIpcMethodSpec ? K : never]: M[K] extends IPlatformIpcMethodSpec
+        ? M[K]['channel']
+        : never;
+} & {
+    readonly [K in keyof E as E[K]['subscription'] extends {main: {method: infer Name extends string}} ? Name : never]: string;
+};
 
 type TFeatureEventChannels<E extends TEvents> = {readonly [K in keyof E]: E[K]['channel']};
 
@@ -459,8 +439,7 @@ interface IPlatformFeatureCodec {
     decodeResult: (value: unknown) => unknown;
 }
 
-export interface IDefinedPlatformFeature<M extends TMethods, E extends TEvents>
-    extends IFeatureInput<M, E> {
+export interface IDefinedPlatformFeature<M extends TMethods, E extends TEvents> extends IFeatureInput<M, E> {
     events: E;
     platformDescriptors: IPlatformApiDescriptor;
     invokeChannels: TFeatureInvokeChannels<M, E>;
@@ -471,11 +450,7 @@ export interface IDefinedPlatformFeature<M extends TMethods, E extends TEvents>
 
 export type TAnyDefinedPlatformFeature = IDefinedPlatformFeature<TMethods, TEvents>;
 
-type TIsUnion<T, TCopy = T> = T extends unknown
-    ? [TCopy] extends [T]
-        ? false
-        : true
-    : never;
+type TIsUnion<T, TCopy = T> = T extends unknown ? ([TCopy] extends [T] ? false : true) : never;
 
 type TInvalidPlatformMethodClient<TSpec> = TSpec extends {
     ipc: {args: infer TArgs extends TPlatformFeatureSchema<unknown[]>};
@@ -490,22 +465,17 @@ type TInvalidPlatformMethodClient<TSpec> = TSpec extends {
 type TCheckedPlatformMethodSpec<TSpec> = [TInvalidPlatformMethodClient<TSpec>] extends [never]
     ? TSpec
     : [TIsUnion<TSpec>] extends [false]
-        ? TInvalidPlatformMethodClient<TSpec>
-        : never;
+      ? TInvalidPlatformMethodClient<TSpec>
+      : never;
 
 type TCheckedPlatformMethodMap<M extends TMethods> = {
     [K in keyof M]: TCheckedPlatformMethodSpec<M[K]>;
 };
 
-export function definePlatformFeature<
-    const M extends TMethods & TCheckedPlatformMethodMap<M>,
-    const E extends TEvents,
->(
+export function definePlatformFeature<const M extends TMethods & TCheckedPlatformMethodMap<M>, const E extends TEvents>(
     definition: IFeatureInput<M, E>,
 ): IDefinedPlatformFeature<M, E>;
-export function definePlatformFeature(
-    definition: IFeatureInput<TMethods, TEvents>,
-): IDefinedPlatformFeature<TMethods, TEvents> {
+export function definePlatformFeature(definition: IFeatureInput<TMethods, TEvents>): IDefinedPlatformFeature<TMethods, TEvents> {
     const events = definition.events ?? {};
     const seen = new Set<string>();
     const invokeChannels: Record<string, string> = {};
@@ -528,10 +498,7 @@ export function definePlatformFeature(
         optionalWhenImplemented = false,
     ) => {
         const descriptor: IPlatformMethodDescriptor = {
-            path: [
-                ...definition.path,
-                name,
-            ],
+            path: [...definition.path, name],
             kind: spec.kind,
             required,
             ...(optionalWhenImplemented ? {optionalWhenImplemented: true} : {}),
@@ -539,48 +506,57 @@ export function definePlatformFeature(
         };
         methods.push(descriptor);
     };
-    for (const [
-        name,
-        spec,
-    ] of Object.entries(definition.methods)) {
+    for (const [name, spec] of Object.entries(definition.methods)) {
         if (spec.kind === 'sync' || 'local' in spec) {
-            addDescriptor(name, spec, {
-                ...definition.required,
-                ...spec.required,
-            }, spec.optionalWhenImplemented);
+            addDescriptor(
+                name,
+                spec,
+                {
+                    ...definition.required,
+                    ...spec.required,
+                },
+                spec.optionalWhenImplemented,
+            );
             continue;
         }
         addChannel(spec.channel);
         invokeChannels[name] = spec.channel;
         ipcCodecs[spec.channel] = {
-            encodeArgs: value => parseFeatureSchema(spec.ipc.args, value),
-            decodeArgs: value => parseFeatureSchema(spec.ipc.args, value),
-            decodeResult: value => parseFeatureResult(spec.ipc.result, value),
+            encodeArgs: (value) => parseFeatureSchema(spec.ipc.args, value),
+            decodeArgs: (value) => parseFeatureSchema(spec.ipc.args, value),
+            decodeResult: (value) => parseFeatureResult(spec.ipc.result, value),
         };
-        addDescriptor(name, spec, {
-            ...definition.required,
-            ...spec.required,
-        }, spec.optionalWhenImplemented);
+        addDescriptor(
+            name,
+            spec,
+            {
+                ...definition.required,
+                ...spec.required,
+            },
+            spec.optionalWhenImplemented,
+        );
     }
-    for (const [
-        name,
-        spec,
-    ] of Object.entries(events)) {
+    for (const [name, spec] of Object.entries(events)) {
         addChannel(spec.channel);
         eventChannels[name] = spec.channel;
-        addDescriptor(name, spec, {
-            ...definition.required,
-            ...spec.required,
-        }, spec.optionalWhenImplemented);
+        addDescriptor(
+            name,
+            spec,
+            {
+                ...definition.required,
+                ...spec.required,
+            },
+            spec.optionalWhenImplemented,
+        );
         if (spec.subscription) {
             addChannel(spec.subscription.channel);
             invokeChannels[spec.subscription.main.method] = spec.subscription.channel;
             const noArgs = v.strictTuple([]);
             const undefinedResult = v.undefined();
             ipcCodecs[spec.subscription.channel] = {
-                encodeArgs: value => parseFeatureSchema(noArgs, value),
-                decodeArgs: value => parseFeatureSchema(noArgs, value),
-                decodeResult: value => parseFeatureSchema(undefinedResult, value),
+                encodeArgs: (value) => parseFeatureSchema(noArgs, value),
+                decodeArgs: (value) => parseFeatureSchema(noArgs, value),
+                decodeResult: (value) => parseFeatureSchema(undefinedResult, value),
             };
         }
     }
@@ -588,11 +564,13 @@ export function definePlatformFeature(
         ...definition,
         events,
         platformDescriptors: {
-            capabilities: [{
-                path: definition.capabilityPath ?? definition.path,
-                required: definition.required,
-                ...(definition.manifestPath ? {manifestPath: definition.manifestPath} : {}),
-            }],
+            capabilities: [
+                {
+                    path: definition.capabilityPath ?? definition.path,
+                    required: definition.required,
+                    ...(definition.manifestPath ? {manifestPath: definition.manifestPath} : {}),
+                },
+            ],
             methods,
         },
         invokeChannels,

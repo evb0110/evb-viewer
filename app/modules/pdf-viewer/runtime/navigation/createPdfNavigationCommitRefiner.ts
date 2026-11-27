@@ -1,17 +1,14 @@
-import { requirePageNumber } from '@contracts/pageNumbers';
-import type { TPageNumber } from '@contracts/pageNumbers';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import type {TPageNumber} from '@contracts/pageNumbers';
 
 import {
     resolvePdfNavigationAnchor,
     resolveTextAnchorRect,
     type IResolvedPdfNavigationTarget,
 } from '@app/modules/pdf-viewer/runtime/viewport/pdfNavigationRequestResolver';
-import type {
-    IPdfSemanticAnchor,
-    IPdfViewportGeometry,
-} from '@app/modules/document-viewer/public';
-import type { IPdfViewportIntent } from '@app/modules/pdf-viewer/runtime/viewport/createViewportAuthority';
-import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
+import type {IPdfSemanticAnchor, IPdfViewportGeometry} from '@app/modules/document-viewer/public';
+import type {IPdfViewportIntent} from '@app/modules/pdf-viewer/runtime/viewport/createViewportAuthority';
+import {logPdfRenderTrace} from '@app/utils/pdfRenderTrace';
 
 interface IPdfViewportCommit {
     anchor: IPdfSemanticAnchor;
@@ -23,22 +20,17 @@ interface ICreatePdfNavigationCommitRefinerOptions {
     getContainer: () => HTMLElement | null;
     refreshGeometry: () => IPdfViewportGeometry | null;
     resolvedTargets: Map<string, IResolvedPdfNavigationTarget>;
-    resolveAnchorForViewport: (
-        snapshot: IPdfViewportGeometry,
-        pageNumber: TPageNumber,
-    ) => IPdfSemanticAnchor;
+    resolveAnchorForViewport: (snapshot: IPdfViewportGeometry, pageNumber: TPageNumber) => IPdfSemanticAnchor;
     resolveNavigationScrollForViewport: (
         snapshot: IPdfViewportGeometry,
         anchor: IPdfSemanticAnchor,
     ) => {
         left: number;
-        top: number
+        top: number;
     };
 }
 
-export function createPdfNavigationCommitRefiner(
-    options: ICreatePdfNavigationCommitRefinerOptions,
-) {
+export function createPdfNavigationCommitRefiner(options: ICreatePdfNavigationCommitRefinerOptions) {
     return function refineNavigationCommit<TCommit extends IPdfViewportCommit>(
         intent: IPdfViewportIntent,
         commit: TCommit,
@@ -57,9 +49,7 @@ export function createPdfNavigationCommitRefiner(
                 resolved.rect = rect;
             }
             logPdfRenderTrace('navigation-text-anchor-refined', () => {
-                const pageElement = container.querySelector<HTMLElement>(
-                    `.page_container[data-page="${textAnchor.page}"]`,
-                );
+                const pageElement = container.querySelector<HTMLElement>(`.page_container[data-page="${textAnchor.page}"]`);
                 const textLayer = pageElement?.querySelector<HTMLElement>('.text-layer, .textLayer');
                 return {
                     intentId: intent.id,
@@ -83,13 +73,17 @@ export function createPdfNavigationCommitRefiner(
         // can commit page N while leaving page N-6 in the viewport.
         const scroll = options.resolveNavigationScrollForViewport(snapshot, anchor);
         if (request.alignment === 'keep-visible') {
-            const centerAnchor = resolvePdfNavigationAnchor({
-                ...request,
-                alignment: 'rect-center',
-            }, resolved);
+            const centerAnchor = resolvePdfNavigationAnchor(
+                {
+                    ...request,
+                    alignment: 'rect-center',
+                },
+                resolved,
+            );
             const center = options.resolveNavigationScrollForViewport(snapshot, centerAnchor);
-            const visible = Math.abs(center.left - container.scrollLeft) <= container.clientWidth / 2
-                && Math.abs(center.top - container.scrollTop) <= container.clientHeight / 2;
+            const visible =
+                Math.abs(center.left - container.scrollLeft) <= container.clientWidth / 2 &&
+                Math.abs(center.top - container.scrollTop) <= container.clientHeight / 2;
             if (visible) {
                 return Promise.resolve({
                     ...commit,

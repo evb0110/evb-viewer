@@ -2,33 +2,26 @@ import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import searchConformanceCorpus from '@contracts/searchConformanceCorpus.json';
 import {encodePdfSearchPagesPayload} from '@contracts/searchIndexWire';
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, describe, expect, it, vi} from 'vitest';
 
 const wasmBytes = new Uint8Array(readFileSync(resolve(process.cwd(), 'public/wasm/evb-pdf-search.wasm')));
 
 async function loadWorker() {
     const messageHandlers: Array<(event: MessageEvent<unknown>) => Promise<void> | void> = [];
     const postMessage = vi.fn();
-    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
-        const url = typeof input === 'string'
-            ? input
-            : input instanceof URL
-                ? input.href
-                : input.url;
-        if (!url.includes('/wasm/evb-pdf-search.wasm')) {
-            return new Response('Not found', {status: 404});
-        }
-        return new Response(wasmBytes.slice(), {
-            status: 200,
-            headers: {'Content-Type': 'application/wasm'},
-        });
-    }));
+    vi.stubGlobal(
+        'fetch',
+        vi.fn(async (input: string | URL | Request) => {
+            const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+            if (!url.includes('/wasm/evb-pdf-search.wasm')) {
+                return new Response('Not found', {status: 404});
+            }
+            return new Response(wasmBytes.slice(), {
+                status: 200,
+                headers: {'Content-Type': 'application/wasm'},
+            });
+        }),
+    );
     vi.stubGlobal('location', {
         origin: 'http://localhost',
         href: 'http://localhost/',
@@ -71,10 +64,7 @@ describe('browserSearch worker (evb-pdf-search.wasm)', () => {
     // Page text comes from the renderer's PDF.js document; the worker never
     // opens one, so a document request is not part of its protocol.
     it('refuses a document text request instead of opening a PDF', async () => {
-        const {
-            dispatch,
-            postMessage,
-        } = await loadWorker();
+        const {dispatch, postMessage} = await loadWorker();
 
         await dispatch({
             id: 3,
@@ -152,9 +142,7 @@ describe('browserSearch worker (evb-pdf-search.wasm)', () => {
             type: 'matchPageText',
             ok: true,
             data: {
-                matches: fixture.expectedMatches.map(({
-                    startOffset, endOffset,
-                }, pageMatchIndex) => ({
+                matches: fixture.expectedMatches.map(({startOffset, endOffset}, pageMatchIndex) => ({
                     pageMatchIndex,
                     startOffset,
                     endOffset,
@@ -166,30 +154,12 @@ describe('browserSearch worker (evb-pdf-search.wasm)', () => {
         });
     });
 
-    it.each([
-        false,
-        true,
-    ])('returns bounded continuation and tail ordinals for regex=%s', async (useRegex) => {
+    it.each([false, true])('returns bounded continuation and tail ordinals for regex=%s', async (useRegex) => {
         const {dispatch} = await loadWorker();
-        for (const [
-            resultOffset,
-            first,
-            count,
-            truncated,
-        ] of [
-                [
-                    500,
-                    500,
-                    60,
-                    false,
-                ],
-                [
-                    'last',
-                    60,
-                    500,
-                    false,
-                ],
-            ] as const) {
+        for (const [resultOffset, first, count, truncated] of [
+            [500, 500, 60, false],
+            ['last', 60, 500, false],
+        ] as const) {
             const response = await dispatch({
                 id: 10,
                 type: 'matchPageText',
@@ -268,12 +238,14 @@ describe('browserSearch worker (evb-pdf-search.wasm)', () => {
             },
         });
         expect(unicodeNormalizedHit.ok).toBe(true);
-        expect(unicodeNormalizedHit.data.results).toEqual([expect.objectContaining({
-            pageNumber: 1,
-            startOffset: 0,
-            endOffset: 11,
-            excerpt: expect.objectContaining({match: 'Café résumé'}),
-        })]);
+        expect(unicodeNormalizedHit.data.results).toEqual([
+            expect.objectContaining({
+                pageNumber: 1,
+                startOffset: 0,
+                endOffset: 11,
+                excerpt: expect.objectContaining({match: 'Café résumé'}),
+            }),
+        ]);
 
         const stale = await dispatch({
             id: 22,
@@ -304,14 +276,7 @@ describe('browserSearch worker (evb-pdf-search.wasm)', () => {
         const {dispatch} = await loadWorker();
         vi.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000);
         let remainingMs = 250;
-        for (const [
-            id,
-            text,
-        ] of [
-                '',
-                '',
-                'Z',
-            ].entries()) {
+        for (const [id, text] of ['', '', 'Z'].entries()) {
             const response = await dispatch({
                 id,
                 type: 'matchPageText',

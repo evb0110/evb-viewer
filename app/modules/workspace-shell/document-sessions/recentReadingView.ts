@@ -1,18 +1,15 @@
-import type { IRecentReadingView } from '@contracts/recentReadingView';
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
-import {
-    createPageNavigationRequest,
-    type IDocumentOpenSurfaceSession,
-} from '@app/modules/document-viewer/public';
+import type {IRecentReadingView} from '@contracts/recentReadingView';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {IWorkspaceExpose} from '@app/types/workspaceExpose';
+import {createPageNavigationRequest, type IDocumentOpenSurfaceSession} from '@app/modules/document-viewer/public';
 import type {
     IWorkspaceDocumentController,
     IWorkspaceDocumentIdentity,
     IWorkspaceDocumentView,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import type { IWorkspaceViewerLifecycleHooks } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
-import { getDocumentRecentFilesCapability } from '@app/utils/platformDocuments';
-import { BrowserLogger } from '@app/utils/browserLogger';
+import type {IWorkspaceViewerLifecycleHooks} from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
+import {getDocumentRecentFilesCapability} from '@app/utils/platformDocuments';
+import {BrowserLogger} from '@app/utils/browserLogger';
 
 /** The reader followed from an open's start, so their moves outrank a restored place. */
 export interface IWorkspaceReaderFollow {
@@ -33,10 +30,12 @@ function readSourceRef(identity: IWorkspaceDocumentIdentity) {
 function captureReadingView(view: IWorkspaceDocumentView): IRecentReadingView | null {
     const toolbar = view.toolbarSnapshot.value;
     const workspace = view.mountedWorkspace.value;
-    const place = workspace ? toolbar : {
-        ...toolbar,
-        ...view.viewState.value,
-    };
+    const place = workspace
+        ? toolbar
+        : {
+              ...toolbar,
+              ...view.viewState.value,
+          };
     if (toolbar.totalPages < 1) {
         return null;
     }
@@ -101,11 +100,13 @@ const openingReaders = new WeakMap<IWorkspaceDocumentController, IOpeningReader>
 /** A normal open starts following its view's reader; a newer open replaces it. */
 export function followOpeningReader(controller: IWorkspaceDocumentController, openSurface: TOpeningSurface, workspace: TOpeningWorkspace) {
     const reader = workspace.followReader?.();
-    const opening = reader ? {
-        openSurface,
-        reader,
-        workspace,
-    } : null;
+    const opening = reader
+        ? {
+              openSurface,
+              reader,
+              workspace,
+          }
+        : null;
     if (opening) {
         openingReaders.set(controller, opening);
     }
@@ -120,10 +121,13 @@ export function followOpeningReader(controller: IWorkspaceDocumentController, op
 export function seedOpeningPreflight(controller: IWorkspaceDocumentController, view: IRecentReadingView) {
     const opening = openingReaders.get(controller);
     if (opening && !opening.reader.moved()) {
-        opening.reader.seed({
-            ...view,
-            currentPage: null,
-        }, null);
+        opening.reader.seed(
+            {
+                ...view,
+                currentPage: null,
+            },
+            null,
+        );
     }
 }
 
@@ -150,15 +154,20 @@ export async function seedOpeningSource(
     } catch (error) {
         BrowserLogger.warn('recent-files', 'The reading view could not be read', error);
     }
-    if (!reading) {return;}
+    if (!reading) {
+        return;
+    }
     const pageCount = await sourcePageCount();
     if (reading.pageCount !== pageCount || opening.reader.moved() || openingReaders.get(controller) !== opening) {
         return;
     }
-    opening.reader.seed({
-        ...reading,
-        currentPage: null,
-    }, sourceRef);
+    opening.reader.seed(
+        {
+            ...reading,
+            currentPage: null,
+        },
+        sourceRef,
+    );
     opening.openSurface.navigate(createPageNavigationRequest(reading.anchor?.page ?? reading.currentPage, 'restore', reading.anchor));
 }
 

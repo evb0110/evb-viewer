@@ -1,20 +1,7 @@
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import type { IpcMainEvent } from 'electron';
-import {
-    CORE_IPC_EVENT_CHANNELS,
-    CORE_IPC_SEND_CHANNELS,
-} from '@electron/platform-ipc/coreContract';
-import {
-    attachNativeWindowCloseHandshake,
-    NATIVE_WINDOW_CLOSE_HANDSHAKE_TIMEOUT_MS,
-} from '@electron/window/windowCloseHandshake';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import type {IpcMainEvent} from 'electron';
+import {CORE_IPC_EVENT_CHANNELS, CORE_IPC_SEND_CHANNELS} from '@electron/platform-ipc/coreContract';
+import {attachNativeWindowCloseHandshake, NATIVE_WINDOW_CLOSE_HANDSHAKE_TIMEOUT_MS} from '@electron/window/windowCloseHandshake';
 import {createRawIpcRegistrationAudit} from '@electron/platform-ipc/rawIpcRegistration';
 
 const resources = vi.hoisted(() => ({
@@ -29,7 +16,9 @@ vi.mock('@electron/workspaceCheckpointStore', () => ({discardWorkspaceCheckpoint
 vi.mock('@electron/file-access/documentStore', () => ({
     openDocuments: resources.copies,
     cleanupWorkingCopy: async (path: string, owner: number) => {
-        if (resources.copies.get(path)?.ownerWebContentsId === owner) {resources.copies.delete(path);}
+        if (resources.copies.get(path)?.ownerWebContentsId === owner) {
+            resources.copies.delete(path);
+        }
     },
 }));
 
@@ -43,13 +32,15 @@ interface ISharedIpcHarness {
     ipcMain: ITestIpcMain;
 }
 
-function createHarness(options: {
-    shouldBypass?: () => boolean;
-    timeoutMs?: number;
-    windowId?: number;
-    shared?: ISharedIpcHarness;
-    rawIpcRegistrationAudit?: ReturnType<typeof createRawIpcRegistrationAudit>;
-} = {}) {
+function createHarness(
+    options: {
+        shouldBypass?: () => boolean;
+        timeoutMs?: number;
+        windowId?: number;
+        shared?: ISharedIpcHarness;
+        rawIpcRegistrationAudit?: ReturnType<typeof createRawIpcRegistrationAudit>;
+    } = {},
+) {
     const windowHandlers = new Map<string, Array<(...args: unknown[]) => void>>();
     const responseHandlers = options.shared?.responseHandlers ?? new Set<TResponseHandler>();
     const webContentsHandlers = new Map<string, Set<(...args: unknown[]) => void>>();
@@ -99,7 +90,9 @@ function createHarness(options: {
         close: vi.fn(() => {
             const event = {
                 defaultPrevented: false,
-                preventDefault: vi.fn(() => { event.defaultPrevented = true; }),
+                preventDefault: vi.fn(() => {
+                    event.defaultPrevented = true;
+                }),
             };
             emitWindowEvent('close', event);
             if (!event.defaultPrevented) {
@@ -111,7 +104,10 @@ function createHarness(options: {
 
     function removeWindowHandler(event: string, handler: (...args: unknown[]) => void) {
         const handlers = windowHandlers.get(event) ?? [];
-        windowHandlers.set(event, handlers.filter(candidate => candidate !== handler));
+        windowHandlers.set(
+            event,
+            handlers.filter((candidate) => candidate !== handler),
+        );
     }
 
     function emitWindowEvent(event: string, ...args: unknown[]) {
@@ -135,20 +131,17 @@ function createHarness(options: {
     });
     const ipcMain = options.shared?.ipcMain ?? localIpcMain;
 
-    const cleanup = attachNativeWindowCloseHandshake(
-        window as never,
-        {
-            createRequestId: (() => {
-                let nextId = 0;
-                return () => `close-request-${++nextId}`;
-            })(),
-            ipcMain: ipcMain as never,
-            logger,
-            rawIpcRegistrationAudit,
-            ...(options.shouldBypass ? {shouldBypass: options.shouldBypass} : {}),
-            ...(options.timeoutMs === undefined ? {} : {timeoutMs: options.timeoutMs}),
-        },
-    );
+    const cleanup = attachNativeWindowCloseHandshake(window as never, {
+        createRequestId: (() => {
+            let nextId = 0;
+            return () => `close-request-${++nextId}`;
+        })(),
+        ipcMain: ipcMain as never,
+        logger,
+        rawIpcRegistrationAudit,
+        ...(options.shouldBypass ? {shouldBypass: options.shouldBypass} : {}),
+        ...(options.timeoutMs === undefined ? {} : {timeoutMs: options.timeoutMs}),
+    });
 
     return {
         cleanup,
@@ -174,7 +167,7 @@ describe('native window close handshake', () => {
         vi.useRealTimers();
         resources.copies.clear();
         resources.recovery.clear();
-        resources.discard.mockReset().mockImplementation(async owner => {
+        resources.discard.mockReset().mockImplementation(async (owner) => {
             resources.recovery.delete(owner);
             return `discard-${owner}`;
         });
@@ -184,10 +177,7 @@ describe('native window close handshake', () => {
         vi.useRealTimers();
     });
 
-    it.each([
-        'save',
-        'discard',
-    ] as const)('retires only the actually closed owner after %s and checkpoint retirement', async decision => {
+    it.each(['save', 'discard'] as const)('retires only the actually closed owner after %s and checkpoint retirement', async (decision) => {
         const harness = createHarness();
         resources.recovery.add(7);
         resources.recovery.add(8);
@@ -197,7 +187,7 @@ describe('native window close handshake', () => {
         resources.copies.set('transferred', {ownerWebContentsId: 7});
         harness.window.on('closed', () => resources.copies.set('transferred', {ownerWebContentsId: 8}));
         const retirement = Promise.withResolvers<string>();
-        resources.discard.mockImplementationOnce(async owner => {
+        resources.discard.mockImplementationOnce(async (owner) => {
             await retirement.promise;
             resources.recovery.delete(owner);
             return 'retired';
@@ -207,18 +197,10 @@ describe('native window close handshake', () => {
             requestId: 'close-request-1',
             decision,
         });
-        expect([...resources.copies.keys()]).toEqual([
-            'current-A',
-            'history-A',
-            'current-B',
-            'transferred',
-        ]);
+        expect([...resources.copies.keys()]).toEqual(['current-A', 'history-A', 'current-B', 'transferred']);
         expect(resources.recovery.has(7)).toBe(true);
         retirement.resolve('retired');
-        await vi.waitFor(() => expect([...resources.copies.keys()]).toEqual([
-            'current-B',
-            'transferred',
-        ]));
+        await vi.waitFor(() => expect([...resources.copies.keys()]).toEqual(['current-B', 'transferred']));
         expect([...resources.recovery]).toEqual([8]);
     });
 
@@ -232,7 +214,9 @@ describe('native window close handshake', () => {
             requestId: 'close-request-1',
             decision: 'discard',
         });
-        await vi.waitFor(() => expect(harness.logger.warn).toHaveBeenCalledWith(expect.stringContaining('Could not retire window resources')));
+        await vi.waitFor(() =>
+            expect(harness.logger.warn).toHaveBeenCalledWith(expect.stringContaining('Could not retire window resources')),
+        );
         expect([...resources.copies.keys()]).toEqual(['current-A']);
         expect(resources.recovery.has(7)).toBe(true);
     });
@@ -240,13 +224,9 @@ describe('native window close handshake', () => {
     it('records the real response listener and removes it on cleanup', () => {
         const harness = createHarness();
 
-        expect(harness.rawIpcRegistrationAudit.getRegisteredNames())
-            .toEqual(['window-close-response']);
+        expect(harness.rawIpcRegistrationAudit.getRegisteredNames()).toEqual(['window-close-response']);
         harness.cleanup();
-        expect(harness.ipcMain.removeListener).toHaveBeenCalledWith(
-            CORE_IPC_SEND_CHANNELS.windowCloseResponse,
-            expect.any(Function),
-        );
+        expect(harness.ipcMain.removeListener).toHaveBeenCalledWith(CORE_IPC_SEND_CHANNELS.windowCloseResponse, expect.any(Function));
     });
 
     it('supports two live window listeners and cleans up both scoped registrations', () => {
@@ -266,23 +246,23 @@ describe('native window close handshake', () => {
 
         first.emitWindowEvent('close', {preventDefault: vi.fn()});
         second.emitWindowEvent('close', {preventDefault: vi.fn()});
-        expect(first.webContents.send).toHaveBeenCalledWith(
-            CORE_IPC_EVENT_CHANNELS.windowCloseRequest,
-            {requestId: 'close-request-1'},
-        );
-        expect(second.webContents.send).toHaveBeenCalledWith(
-            CORE_IPC_EVENT_CHANNELS.windowCloseRequest,
-            {requestId: 'close-request-1'},
-        );
+        expect(first.webContents.send).toHaveBeenCalledWith(CORE_IPC_EVENT_CHANNELS.windowCloseRequest, {requestId: 'close-request-1'});
+        expect(second.webContents.send).toHaveBeenCalledWith(CORE_IPC_EVENT_CHANNELS.windowCloseRequest, {requestId: 'close-request-1'});
 
-        first.emitResponse({
-            requestId: 'close-request-1',
-            decision: 'save',
-        }, first.webContents);
-        second.emitResponse({
-            requestId: 'close-request-1',
-            decision: 'discard',
-        }, second.webContents);
+        first.emitResponse(
+            {
+                requestId: 'close-request-1',
+                decision: 'save',
+            },
+            first.webContents,
+        );
+        second.emitResponse(
+            {
+                requestId: 'close-request-1',
+                decision: 'discard',
+            },
+            second.webContents,
+        );
         expect(first.window.close).toHaveBeenCalledOnce();
         expect(second.window.close).toHaveBeenCalledOnce();
 
@@ -292,19 +272,13 @@ describe('native window close handshake', () => {
         expect(first.responseHandlers).toHaveLength(0);
     });
 
-    it.each([
-        'save',
-        'discard',
-    ] as const)('allows an explicit %s decision to close the window', decision => {
+    it.each(['save', 'discard'] as const)('allows an explicit %s decision to close the window', (decision) => {
         const harness = createHarness();
         const closeEvent = {preventDefault: vi.fn()};
 
         harness.emitWindowEvent('close', closeEvent);
         expect(closeEvent.preventDefault).toHaveBeenCalledOnce();
-        expect(harness.webContents.send).toHaveBeenCalledWith(
-            CORE_IPC_EVENT_CHANNELS.windowCloseRequest,
-            {requestId: 'close-request-1'},
-        );
+        expect(harness.webContents.send).toHaveBeenCalledWith(CORE_IPC_EVENT_CHANNELS.windowCloseRequest, {requestId: 'close-request-1'});
 
         harness.emitResponse({
             requestId: 'close-request-1',
@@ -312,10 +286,7 @@ describe('native window close handshake', () => {
         });
 
         expect(harness.window.close).toHaveBeenCalledOnce();
-        expect(harness.ipcMain.removeListener).toHaveBeenCalledWith(
-            CORE_IPC_SEND_CHANNELS.windowCloseResponse,
-            expect.any(Function),
-        );
+        expect(harness.ipcMain.removeListener).toHaveBeenCalledWith(CORE_IPC_SEND_CHANNELS.windowCloseResponse, expect.any(Function));
     });
 
     it('does not leave a one-shot approval armed when another listener vetoes close', () => {
@@ -336,10 +307,7 @@ describe('native window close handshake', () => {
 
         harness.emitWindowEvent('close', {preventDefault: vi.fn()});
 
-        expect(harness.webContents.send).toHaveBeenCalledWith(
-            CORE_IPC_EVENT_CHANNELS.windowCloseRequest,
-            {requestId: 'close-request-2'},
-        );
+        expect(harness.webContents.send).toHaveBeenCalledWith(CORE_IPC_EVENT_CHANNELS.windowCloseRequest, {requestId: 'close-request-2'});
         expect(resources.recovery.has(7)).toBe(true);
         expect(resources.copies.has('vetoed')).toBe(true);
         harness.cleanup();
@@ -362,10 +330,13 @@ describe('native window close handshake', () => {
         expect(resources.copies.has('cancelled')).toBe(true);
 
         harness.emitWindowEvent('close', {preventDefault: vi.fn()});
-        harness.emitResponse({
-            requestId: 'close-request-2',
-            decision: 'save',
-        }, {});
+        harness.emitResponse(
+            {
+                requestId: 'close-request-2',
+                decision: 'save',
+            },
+            {},
+        );
         harness.emitResponse({
             requestId: 'close-request-2',
             decision: 'invalid',
@@ -373,21 +344,15 @@ describe('native window close handshake', () => {
         await vi.advanceTimersByTimeAsync(25);
 
         expect(harness.window.close).not.toHaveBeenCalled();
-        expect(harness.logger.warn).toHaveBeenCalledWith(
-            expect.stringContaining('timed out after 25ms'),
-        );
+        expect(harness.logger.warn).toHaveBeenCalledWith(expect.stringContaining('timed out after 25ms'));
 
         harness.emitWindowEvent('close', {preventDefault: vi.fn()});
-        expect(harness.webContents.send).toHaveBeenLastCalledWith(
-            CORE_IPC_EVENT_CHANNELS.windowCloseRequest,
-            {requestId: 'close-request-3'},
-        );
+        expect(harness.webContents.send).toHaveBeenLastCalledWith(CORE_IPC_EVENT_CHANNELS.windowCloseRequest, {
+            requestId: 'close-request-3',
+        });
     });
 
-    it.each([
-        'save',
-        'discard',
-    ] as const)('completes an acknowledged %s that arrives after the answer deadline', async decision => {
+    it.each(['save', 'discard'] as const)('completes an acknowledged %s that arrives after the answer deadline', async (decision) => {
         vi.useFakeTimers();
         const harness = createHarness({timeoutMs: 25});
 
@@ -427,10 +392,9 @@ describe('native window close handshake', () => {
         harness.emitWindowEvent('close', {preventDefault: vi.fn()});
 
         expect(harness.window.close).not.toHaveBeenCalled();
-        expect(harness.webContents.send).toHaveBeenLastCalledWith(
-            CORE_IPC_EVENT_CHANNELS.windowCloseRequest,
-            {requestId: 'close-request-2'},
-        );
+        expect(harness.webContents.send).toHaveBeenLastCalledWith(CORE_IPC_EVENT_CHANNELS.windowCloseRequest, {
+            requestId: 'close-request-2',
+        });
     });
 
     it('never closes on an acknowledgment and ignores one from the wrong sender or request', async () => {
@@ -438,10 +402,13 @@ describe('native window close handshake', () => {
         const harness = createHarness({timeoutMs: 25});
 
         harness.emitWindowEvent('close', {preventDefault: vi.fn()});
-        harness.emitResponse({
-            requestId: 'close-request-1',
-            status: 'acknowledged',
-        }, {});
+        harness.emitResponse(
+            {
+                requestId: 'close-request-1',
+                status: 'acknowledged',
+            },
+            {},
+        );
         harness.emitResponse({
             requestId: 'close-request-other',
             status: 'acknowledged',
@@ -449,9 +416,7 @@ describe('native window close handshake', () => {
         await vi.advanceTimersByTimeAsync(25);
 
         expect(harness.window.close).not.toHaveBeenCalled();
-        expect(harness.logger.warn).toHaveBeenCalledWith(
-            expect.stringContaining('timed out after 25ms'),
-        );
+        expect(harness.logger.warn).toHaveBeenCalledWith(expect.stringContaining('timed out after 25ms'));
         harness.emitResponse({
             requestId: 'close-request-1',
             decision: 'save',
@@ -462,11 +427,13 @@ describe('native window close handshake', () => {
     it.each([
         {
             name: 'renderer process loss',
-            emit: (harness: ReturnType<typeof createHarness>) => harness.emitWebContentsEvent('render-process-gone', {}, {reason: 'crashed'}),
+            emit: (harness: ReturnType<typeof createHarness>) =>
+                harness.emitWebContentsEvent('render-process-gone', {}, {reason: 'crashed'}),
         },
         {
             name: 'main-frame replacement',
-            emit: (harness: ReturnType<typeof createHarness>) => harness.emitWebContentsEvent('did-start-navigation', {}, 'app://reload', false, true),
+            emit: (harness: ReturnType<typeof createHarness>) =>
+                harness.emitWebContentsEvent('did-start-navigation', {}, 'app://reload', false, true),
         },
     ])('settles an acknowledged request on $name without closing', ({emit}) => {
         const harness = createHarness();
@@ -488,10 +455,9 @@ describe('native window close handshake', () => {
         expect(resources.copies.has('interrupted')).toBe(true);
 
         harness.emitWindowEvent('close', {preventDefault: vi.fn()});
-        expect(harness.webContents.send).toHaveBeenLastCalledWith(
-            CORE_IPC_EVENT_CHANNELS.windowCloseRequest,
-            {requestId: 'close-request-2'},
-        );
+        expect(harness.webContents.send).toHaveBeenLastCalledWith(CORE_IPC_EVENT_CHANNELS.windowCloseRequest, {
+            requestId: 'close-request-2',
+        });
     });
 
     it('keeps an acknowledged request through in-place and subframe navigation', () => {
@@ -524,9 +490,11 @@ describe('native window close handshake', () => {
     it('removes its renderer listeners when the destroyed window refuses property reads', () => {
         const harness = createHarness();
         // Electron throws "Object has been destroyed" for getters by 'closed'.
-        Object.defineProperty(harness.window, 'webContents', {get() {
-            throw new TypeError('Object has been destroyed');
-        }});
+        Object.defineProperty(harness.window, 'webContents', {
+            get() {
+                throw new TypeError('Object has been destroyed');
+            },
+        });
 
         expect(() => harness.emitWindowEvent('closed')).not.toThrow();
         expect(harness.webContentsHandlers.get('render-process-gone')?.size ?? 0).toBe(0);
@@ -544,9 +512,7 @@ describe('native window close handshake', () => {
         });
 
         expect(harness.window.close).not.toHaveBeenCalled();
-        expect(harness.logger.warn).toHaveBeenCalledWith(
-            expect.stringContaining('multiple-handlers'),
-        );
+        expect(harness.logger.warn).toHaveBeenCalledWith(expect.stringContaining('multiple-handlers'));
     });
 
     it('fails closed when sending the request fails', () => {
@@ -560,9 +526,7 @@ describe('native window close handshake', () => {
 
         expect(closeEvent.preventDefault).toHaveBeenCalledOnce();
         expect(harness.window.close).not.toHaveBeenCalled();
-        expect(harness.logger.warn).toHaveBeenCalledWith(
-            expect.stringContaining('Failed to send close request'),
-        );
+        expect(harness.logger.warn).toHaveBeenCalledWith(expect.stringContaining('Failed to send close request'));
     });
 
     it('lets coordinated shutdown bypass the user close handshake', () => {

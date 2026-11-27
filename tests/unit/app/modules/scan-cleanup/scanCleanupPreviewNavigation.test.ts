@@ -4,25 +4,9 @@ import {FULL_SCAN_CLEANUP_SUPPORT} from '@contracts/scan-cleanup/scanCleanupPlat
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 
 import {writeFileSync} from 'node:fs';
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import type {Ref} from 'vue';
-import {
-    computed,
-    createApp,
-    defineComponent,
-    h,
-    nextTick,
-    reactive,
-    ref,
-    shallowRef,
-} from 'vue';
+import {computed, createApp, defineComponent, h, nextTick, reactive, ref, shallowRef} from 'vue';
 import type {
     IScanCleanupCapability,
     IScanCleanupDocumentPrior,
@@ -61,7 +45,7 @@ vi.mock('@app/composables/useTypedI18n', async (importOriginal_1) => ({
         locale: {value: 'en'},
     }),
 }));
-vi.mock('@app/modules/scan-cleanup/runtime/createScanCleanupPreviewCache', async importOriginal => {
+vi.mock('@app/modules/scan-cleanup/runtime/createScanCleanupPreviewCache', async (importOriginal) => {
     const actual = await importOriginal<typeof scanCleanupPreviewCacheModule>();
     return {
         ...actual,
@@ -110,12 +94,14 @@ function placementAnchorSummary(detectionSignature: string): IScanCleanupPlaceme
             detectionSignature,
             calibrationSignature: 'calibration-1',
         },
-        clusters: [{
-            startNormalized: 0.1,
-            endNormalized: 0.1,
-            valueNormalized: 0.1,
-            size: 1,
-        }],
+        clusters: [
+            {
+                startNormalized: 0.1,
+                endNormalized: 0.1,
+                valueNormalized: 0.1,
+                size: 1,
+            },
+        ],
     };
 }
 
@@ -148,64 +134,56 @@ function previewResult(pageNumber: number, requestId?: string): TScanCleanupPrev
             reconciled: false,
             clusterAgreement: 0,
         },
-        outputs: [{
-            imageData: bytes,
-            metadata: {
-                canvasScope: 'page',
-                half: 'full',
-                warnings: [],
-                forwardTransform: {matrix: [
-                    [
-                        1,
-                        0,
-                        0,
-                    ],
-                    [
-                        0,
-                        1,
-                        0,
-                    ],
-                    [
-                        0,
-                        0,
-                        1,
-                    ],
-                ]},
-                layoutClassification: 'single-uncut-page',
-                layoutConfidence: 0.9,
-                sourceRegion: pixelRect,
-                contentBox: pixelRect,
-                cropRect: pixelRect,
-                appliedMargins: {
-                    leftPx: 0,
-                    topPx: 0,
-                    rightPx: 0,
-                    bottomPx: 0,
+        outputs: [
+            {
+                imageData: bytes,
+                metadata: {
+                    canvasScope: 'page',
+                    half: 'full',
+                    warnings: [],
+                    forwardTransform: {
+                        matrix: [
+                            [1, 0, 0],
+                            [0, 1, 0],
+                            [0, 0, 1],
+                        ],
+                    },
+                    layoutClassification: 'single-uncut-page',
+                    layoutConfidence: 0.9,
+                    sourceRegion: pixelRect,
+                    contentBox: pixelRect,
+                    cropRect: pixelRect,
+                    appliedMargins: {
+                        leftPx: 0,
+                        topPx: 0,
+                        rightPx: 0,
+                        bottomPx: 0,
+                    },
+                    outputWidthPx: 883,
+                    outputHeightPx: 1335,
+                    canvasWidthPx: 883,
+                    canvasHeightPx: 1335,
+                    canvasPolicy: 'intrinsic',
+                    canvasOverflow: false,
+                    matchedCanvasTargetWidthPx: null,
+                    matchedCanvasTargetHeightPx: null,
+                    matchedCanvasTargetWidthPoints: null,
+                    matchedCanvasTargetHeightPoints: null,
+                    matchedCanvasContentWidthPx: null,
+                    matchedCanvasContentHeightPx: null,
+                    matchedCanvasOpticalContentLeftPx: null,
+                    matchedCanvasOpticalContentRightPx: null,
+                    placementOffsetXPx: 0,
+                    placementOffsetYPx: 0,
+                    cutterXPx: null,
+                    inputWidthPx: 883,
+                    inputHeightPx: 1335,
+                    rotationDegrees: 0,
+                    resamplePasses: 1,
+                    rasterScaleLimited: false,
                 },
-                outputWidthPx: 883,
-                outputHeightPx: 1335,
-                canvasWidthPx: 883,
-                canvasHeightPx: 1335,
-                canvasPolicy: 'intrinsic',
-                canvasOverflow: false,
-                matchedCanvasTargetWidthPx: null,
-                matchedCanvasTargetHeightPx: null,
-                matchedCanvasTargetWidthPoints: null,
-                matchedCanvasTargetHeightPoints: null,
-                matchedCanvasContentWidthPx: null,
-                matchedCanvasContentHeightPx: null,
-                matchedCanvasOpticalContentLeftPx: null,
-                matchedCanvasOpticalContentRightPx: null,
-                placementOffsetXPx: 0,
-                placementOffsetYPx: 0,
-                cutterXPx: null,
-                inputWidthPx: 883,
-                inputHeightPx: 1335,
-                rotationDegrees: 0,
-                resamplePasses: 1,
-                rasterScaleLimited: false,
             },
-        }],
+        ],
     };
 }
 
@@ -238,16 +216,17 @@ function previewBackend() {
     // Every full-page raster this backend puts on the wire, in order. A base
     // result carries none: the raster is the event above.
     const rasterPayloadPages: number[] = [];
-    const identityOf = (request: IScanCleanupPreviewRequest) => JSON.stringify([
-        request.pageNumber,
-        request.options,
-        request.documentPrior ?? null,
-        request.outputModeRecommendation ?? null,
-        request.detail ?? null,
-    ]);
+    const identityOf = (request: IScanCleanupPreviewRequest) =>
+        JSON.stringify([
+            request.pageNumber,
+            request.options,
+            request.documentPrior ?? null,
+            request.outputModeRecommendation ?? null,
+            request.detail ?? null,
+        ]);
     const preview = (request: IScanCleanupPreviewRequest) => {
         const identity = identityOf(request);
-        const joined = pending.find(entry => entry.identity === identity);
+        const joined = pending.find((entry) => entry.identity === identity);
         if (joined) {
             counters.joins += 1;
             return joined.promise;
@@ -295,9 +274,11 @@ function previewBackend() {
         preview: previewCalls,
         cancelPreview: vi.fn(async (request: IScanCleanupPreviewCancelRequest) => {
             const retained = new Set(request.retainPages ?? []);
-            const doomed = pending.filter(entry => !retained.has(entry.pageNumber));
-            pending = pending.filter(entry => retained.has(entry.pageNumber));
-            for (const entry of doomed) {entry.reject();}
+            const doomed = pending.filter((entry) => !retained.has(entry.pageNumber));
+            pending = pending.filter((entry) => retained.has(entry.pageNumber));
+            for (const entry of doomed) {
+                entry.reject();
+            }
             return doomed.length > 0;
         }),
         detectAll: vi.fn(),
@@ -324,16 +305,18 @@ function previewBackend() {
         previewCalls,
         rasterPayloadPages,
         get inFlightPages() {
-            return pending.map(entry => entry.pageNumber);
+            return pending.map((entry) => entry.pageNumber);
         },
-        startedAtMsFor: (pageNumber: number) => pending.find(entry => entry.pageNumber === pageNumber)?.startedAtMs,
+        startedAtMsFor: (pageNumber: number) => pending.find((entry) => entry.pageNumber === pageNumber)?.startedAtMs,
         // Retires a run the way the main process does when its generation is
         // superseded or its prefetch lease is dropped: the invoke answers
         // `canceled` without the renderer having asked for anything.
         retire(pageNumber: number) {
-            const doomed = pending.filter(entry => entry.pageNumber === pageNumber);
-            pending = pending.filter(entry => entry.pageNumber !== pageNumber);
-            for (const entry of doomed) {entry.reject();}
+            const doomed = pending.filter((entry) => entry.pageNumber === pageNumber);
+            pending = pending.filter((entry) => entry.pageNumber !== pageNumber);
+            for (const entry of doomed) {
+                entry.reject();
+            }
             return doomed.length;
         },
         // Advances the virtual clock, settling every preview whose modelled cost
@@ -341,17 +324,19 @@ function previewBackend() {
         async advanceBy(durationMs: number) {
             const until = Date.now() + durationMs;
             while (Date.now() < until) {
-                const next = pending
-                    .filter(entry => entry.readyAtMs <= until)
-                    .sort((left, right) => left.readyAtMs - right.readyAtMs)[0];
+                const next = pending.filter((entry) => entry.readyAtMs <= until).sort((left, right) => left.readyAtMs - right.readyAtMs)[0];
                 const target = Math.min(next?.readyAtMs ?? until, Date.now() + 25, until);
                 vi.advanceTimersByTime(Math.max(0, target - Date.now()));
-                for (let turn = 0; turn < 8; turn += 1) {await Promise.resolve();}
-                const due = pending.filter(entry => entry.readyAtMs <= Date.now());
-                pending = pending.filter(entry => entry.readyAtMs > Date.now());
+                for (let turn = 0; turn < 8; turn += 1) {
+                    await Promise.resolve();
+                }
+                const due = pending.filter((entry) => entry.readyAtMs <= Date.now());
+                pending = pending.filter((entry) => entry.readyAtMs > Date.now());
                 for (const entry of due) {
                     entry.resolve();
-                    for (let turn = 0; turn < 8; turn += 1) {await Promise.resolve();}
+                    for (let turn = 0; turn < 8; turn += 1) {
+                        await Promise.resolve();
+                    }
                 }
             }
         },
@@ -364,9 +349,7 @@ function mountPreviewSession(
     initialViewMode?: 'original' | 'cleaned',
     lifecycleKey?: Ref<string>,
     placementAnchorSummary?: Ref<IScanCleanupPlacementAnchorSummary | null>,
-    resolvePlacementAnchorsForPage?: (
-        pageNumber: number,
-    ) => Promise<IScanCleanupPlacementAnchorCalibration | undefined>,
+    resolvePlacementAnchorsForPage?: (pageNumber: number) => Promise<IScanCleanupPlacementAnchorCalibration | undefined>,
     initialPageAlignment: IScanCleanupOptions['pageAlignment'] = 'top-center',
     placementAnchorsByPage: TScanCleanupPlacementAnchorsByPage = new Map(),
     detectionResultStoreId: Ref<string | null> = ref(null),
@@ -378,32 +361,38 @@ function mountPreviewSession(
     });
     const host = document.createElement('div');
     document.body.append(host);
-    const app = createApp(defineComponent({setup() {
-        session = useScanCleanupPreviewSession({
-            active: () => true,
-            authoritativeLayoutByPage: computed(() => new Map()),
-            documentCanvasSignature: computed(() => ''),
-            getPreviewPageEvidence: pageNumber => {
-                const documentPrior = documentPriorByPage.get(pageNumber);
-                return documentPrior === undefined ? undefined : {documentPrior};
+    const app = createApp(
+        defineComponent({
+            setup() {
+                session = useScanCleanupPreviewSession({
+                    active: () => true,
+                    authoritativeLayoutByPage: computed(() => new Map()),
+                    documentCanvasSignature: computed(() => ''),
+                    getPreviewPageEvidence: (pageNumber) => {
+                        const documentPrior = documentPriorByPage.get(pageNumber);
+                        return documentPrior === undefined ? undefined : {documentPrior};
+                    },
+                    documentRevision: computed(() => 'revision-1'),
+                    ...(initialViewMode === undefined ? {} : {initialViewMode}),
+                    layoutDetectionComplete: computed(() => false),
+                    lifecycleDocumentKey: computed(() => requireDocumentRef(`/docs/${lifecycleKey?.value ?? 'reference.pdf'}`)),
+                    ownerId: 'owner-1',
+                    ...(placementAnchorSummary === undefined ? {} : {placementAnchorSummary}),
+                    detectionResultStoreId,
+                    placementAnchorsByPage: computed(() => placementAnchorsByPage),
+                    previewPage,
+                    ...(resolvePlacementAnchorsForPage === undefined ? {} : {resolvePlacementAnchorsForPage}),
+                    selectPage: (page) => {
+                        previewPage.value = page;
+                    },
+                    settings,
+                    sourcePath: computed(() => requireDocumentRef('/docs/reference.pdf')),
+                    totalPages: computed(() => TOTAL_PAGES),
+                });
+                return () => h('div');
             },
-            documentRevision: computed(() => 'revision-1'),
-            ...(initialViewMode === undefined ? {} : {initialViewMode}),
-            layoutDetectionComplete: computed(() => false),
-            lifecycleDocumentKey: computed(() => requireDocumentRef(`/docs/${lifecycleKey?.value ?? 'reference.pdf'}`)),
-            ownerId: 'owner-1',
-            ...(placementAnchorSummary === undefined ? {} : {placementAnchorSummary}),
-            detectionResultStoreId,
-            placementAnchorsByPage: computed(() => placementAnchorsByPage),
-            previewPage,
-            ...(resolvePlacementAnchorsForPage === undefined ? {} : {resolvePlacementAnchorsForPage}),
-            selectPage: page => { previewPage.value = page; },
-            settings,
-            sourcePath: computed(() => requireDocumentRef('/docs/reference.pdf')),
-            totalPages: computed(() => TOTAL_PAGES),
-        });
-        return () => h('div');
-    }}));
+        }),
+    );
     app.mount(host);
     return {
         session: session!,
@@ -446,97 +435,32 @@ const SCENARIOS: IScenario[] = [
     {
         name: 'flick-then-settle',
         description: 'flick 10 pages at 400 ms, then settle and step around at 4 s',
-        pages: [
-            ...Array.from({length: 10}, (_unused, index) => 100 + index),
-            108,
-            107,
-            108,
-            109,
-            110,
-        ],
+        pages: [...Array.from({length: 10}, (_unused, index) => 100 + index), 108, 107, 108, 109, 110],
         intervalMs: 400,
-        intervalsMs: [
-            ...Array.from({length: 9}, () => 400),
-            10_000,
-            4_000,
-            4_000,
-            4_000,
-            4_000,
-            4_000,
-        ],
+        intervalsMs: [...Array.from({length: 9}, () => 400), 10_000, 4_000, 4_000, 4_000, 4_000, 4_000],
     },
     {
         name: 'compare-two-pages',
         description: 'A/B between two facing pages, 3 s apart',
-        pages: [
-            200,
-            201,
-            200,
-            201,
-            200,
-            201,
-            200,
-            201,
-        ],
+        pages: [200, 201, 200, 201, 200, 201, 200, 201],
         intervalMs: 3_000,
     },
     {
         name: 'window-of-five',
         description: 'wandering inside a 5-page window, 3 s apart',
-        pages: [
-            200,
-            202,
-            201,
-            203,
-            204,
-            202,
-            200,
-            203,
-            201,
-            204,
-            202,
-            200,
-        ],
+        pages: [200, 202, 201, 203, 204, 202, 200, 203, 201, 204, 202, 200],
         intervalMs: 3_000,
     },
     {
         name: 'window-of-ten',
         description: 'wandering inside a 10-page window, 3 s apart — wider than the 8-entry cache',
-        pages: [
-            200,
-            205,
-            202,
-            208,
-            201,
-            209,
-            203,
-            206,
-            200,
-            207,
-            204,
-            205,
-            202,
-            208,
-        ],
+        pages: [200, 205, 202, 208, 201, 209, 203, 206, 200, 207, 204, 205, 202, 208],
         intervalMs: 3_000,
     },
     {
         name: 'detection-lands-midway',
         description: 'read 6 pages, detection completes and rewrites documentPrior, revisit the same 6',
-        pages: [
-            200,
-            201,
-            202,
-            203,
-            204,
-            205,
-            205,
-            204,
-            203,
-            202,
-            201,
-            200,
-        ],
+        pages: [200, 201, 202, 203, 204, 205, 205, 204, 203, 202, 201, 200],
         intervalMs: 4_000,
         detectionCompletesAfter: 6,
     },
@@ -558,12 +482,9 @@ async function runScenario(scenario: IScenario) {
         settledNavigations: 0,
         orphanedByPriorChange: 0,
     };
-    const settledFrom = scenario.intervalsMs?.findIndex(interval => interval >= 4_000) ?? -1;
+    const settledFrom = scenario.intervalsMs?.findIndex((interval) => interval >= 4_000) ?? -1;
 
-    for (const [
-        index,
-        pageNumber,
-    ] of scenario.pages.entries()) {
+    for (const [index, pageNumber] of scenario.pages.entries()) {
         if (scenario.detectionCompletesAfter === index) {
             counters.orphanedByPriorChange += cache.size;
             for (let page = 1; page <= TOTAL_PAGES; page += 1) {
@@ -578,11 +499,16 @@ async function runScenario(scenario: IScenario) {
         await nextTick();
         counters.navigations += 1;
         const hit = !mounted.session.loading.value && mounted.session.result.value?.pageNumber === pageNumber;
-        if (hit) {counters.visibleHits += 1;}
-        else {counters.visibleMisses += 1;}
+        if (hit) {
+            counters.visibleHits += 1;
+        } else {
+            counters.visibleMisses += 1;
+        }
         if (settledFrom >= 0 && index > settledFrom) {
             counters.settledNavigations += 1;
-            if (hit) {counters.settledHits += 1;}
+            if (hit) {
+                counters.settledHits += 1;
+            }
         }
         await backend.advanceBy(scenario.intervalsMs?.[index] ?? scenario.intervalMs);
     }
@@ -594,17 +520,13 @@ async function runScenario(scenario: IScenario) {
         visibleHits: counters.visibleHits,
         visibleMisses: counters.visibleMisses,
         hitRate: Number((counters.visibleHits / counters.navigations).toFixed(3)),
-        settledHitRate: counters.settledNavigations === 0
-            ? null
-            : Number((counters.settledHits / counters.settledNavigations).toFixed(3)),
+        settledHitRate: counters.settledNavigations === 0 ? null : Number((counters.settledHits / counters.settledNavigations).toFixed(3)),
         previewCalls: backend.previewCalls.mock.calls.length,
         previewSpawns: backend.counters.spawns,
         previewJoins: backend.counters.joins,
         previewCompleted: backend.counters.completed,
         previewAborted: backend.counters.aborted,
-        wasteRate: backend.counters.spawns === 0
-            ? 0
-            : Number((backend.counters.aborted / backend.counters.spawns).toFixed(3)),
+        wasteRate: backend.counters.spawns === 0 ? 0 : Number((backend.counters.aborted / backend.counters.spawns).toFixed(3)),
         orphanedByPriorChange: counters.orphanedByPriorChange,
         finalCacheEntries: cache.size,
         finalCacheBytes: cache.byteLength,
@@ -643,20 +565,26 @@ describe('scan cleanup preview navigation', () => {
 
     it('keeps navigation from destroying the preview work it just caused', async () => {
         const rows = [];
-        for (const scenario of SCENARIOS) {rows.push(await runScenario(scenario));}
+        for (const scenario of SCENARIOS) {
+            rows.push(await runScenario(scenario));
+        }
         // Opt-in so the same run that gates the thresholds also produces the
         // comparable table; unset, the suite writes nothing.
         if (process.env.SCAN_CLEANUP_NAVIGATION_REPORT) {
-            writeFileSync(process.env.SCAN_CLEANUP_NAVIGATION_REPORT, `${JSON.stringify({
-                previewMs: PREVIEW_MS,
-                pageBytes: PAGE_BYTES,
-                rows,
-            }, null, 2)}\n`);
+            writeFileSync(
+                process.env.SCAN_CLEANUP_NAVIGATION_REPORT,
+                `${JSON.stringify(
+                    {
+                        previewMs: PREVIEW_MS,
+                        pageBytes: PAGE_BYTES,
+                        rows,
+                    },
+                    null,
+                    2,
+                )}\n`,
+            );
         }
-        const byName = new Map(rows.map(row => [
-            row.name,
-            row,
-        ]));
+        const byName = new Map(rows.map((row) => [row.name, row]));
 
         // Reading forward at 4 s a page used to hit the cache never — the
         // adjacent prefetch only starts once the visible page has rendered, and
@@ -694,26 +622,34 @@ describe('scan cleanup preview navigation', () => {
         const lifecycleKey = ref('reference.pdf:0');
         const mounted = mountPreviewSession(ref(100), reactive(new Map()), undefined, lifecycleKey);
         vi.advanceTimersByTime(1);
-        for (let turn = 0; turn < 8; turn += 1) {await Promise.resolve();}
+        for (let turn = 0; turn < 8; turn += 1) {
+            await Promise.resolve();
+        }
         expect(preview).toHaveBeenCalledOnce();
         cancelPreview.mockClear();
 
         lifecycleKey.value = 'reference.pdf:1';
         await nextTick();
 
-        expect(cancelPreview).toHaveBeenCalledWith(expect.objectContaining({
-            sourcePdfPath: '/docs/reference.pdf',
-            ownerId: 'owner-1',
-            documentRevision: 'revision-1',
-            invalidateRawCache: true,
-        }));
+        expect(cancelPreview).toHaveBeenCalledWith(
+            expect.objectContaining({
+                sourcePdfPath: '/docs/reference.pdf',
+                ownerId: 'owner-1',
+                documentRevision: 'revision-1',
+                invalidateRawCache: true,
+            }),
+        );
         const retiredResult = previewResult(100);
-        if (retiredResult.canceled === true) {throw new Error('fixture unexpectedly canceled');}
+        if (retiredResult.canceled === true) {
+            throw new Error('fixture unexpectedly canceled');
+        }
         retiredPreview.resolve({
             ...retiredResult,
             rawImageData: new Uint8Array(new ArrayBuffer(PAGE_BYTES)),
         });
-        for (let turn = 0; turn < 8; turn += 1) {await Promise.resolve();}
+        for (let turn = 0; turn < 8; turn += 1) {
+            await Promise.resolve();
+        }
 
         expect(mounted.session.metadataByPage.size).toBe(0);
         expect(cacheProbe.instances[0]?.size).toBe(0);
@@ -729,13 +665,14 @@ describe('scan cleanup preview navigation', () => {
 
         await backend.advanceBy(PREVIEW_MS + 500);
         expect(mounted.session.result.value?.pageNumber).toBe(100);
-        const callsBefore = backend.previewCalls.mock.calls
-            .filter(([request]) => request.pageNumber === 100).length;
+        const callsBefore = backend.previewCalls.mock.calls.filter(([request]) => request.pageNumber === 100).length;
 
         lifecycleKey.value = 'reference.pdf:1';
         await nextTick();
         vi.advanceTimersByTime(1);
-        for (let turn = 0; turn < 8; turn += 1) {await Promise.resolve();}
+        for (let turn = 0; turn < 8; turn += 1) {
+            await Promise.resolve();
+        }
         await backend.advanceBy(PREVIEW_MS + 500);
 
         expect(backend.previewCalls.mock.calls.filter(([request]) => request.pageNumber === 100)).toHaveLength(callsBefore + 1);
@@ -743,7 +680,7 @@ describe('scan cleanup preview navigation', () => {
         mounted.unmount();
     });
 
-    it('previews a page from the run\'s map when no result store calibrates it', async () => {
+    it("previews a page from the run's map when no result store calibrates it", async () => {
         // Ink chosen after detection leaves no summary, and a document without
         // a retained result store never gets one; its run sends this map.
         const backend = previewBackend();
@@ -756,17 +693,15 @@ describe('scan cleanup preview navigation', () => {
             shallowRef<IScanCleanupPlacementAnchorSummary | null>(null),
             vi.fn(async () => undefined),
             'ink',
-            new Map([[
-                100,
-                {full: {yNormalized: 0.035}},
-            ]]),
+            new Map([[100, {full: {yNormalized: 0.035}}]]),
         );
         await backend.advanceBy(PREVIEW_MS + 500);
 
-        expect(backend.previewCalls.mock.calls.some(([request]) => (
-            request.pageNumber === 100
-            && request.placementAnchors?.full?.yNormalized === 0.035
-        ))).toBe(true);
+        expect(
+            backend.previewCalls.mock.calls.some(
+                ([request]) => request.pageNumber === 100 && request.placementAnchors?.full?.yNormalized === 0.035,
+            ),
+        ).toBe(true);
         mounted.unmount();
     });
 
@@ -784,27 +719,23 @@ describe('scan cleanup preview navigation', () => {
             shallowRef<IScanCleanupPlacementAnchorSummary | null>(null),
             vi.fn(async () => undefined),
             'ink',
-            new Map([[
-                100,
-                {full: {yNormalized: 0.1}},
-            ]]),
+            new Map([[100, {full: {yNormalized: 0.1}}]]),
             ref<string | null>('retained-store'),
         );
         await backend.advanceBy(PREVIEW_MS + 500);
 
-        expect(backend.previewCalls.mock.calls.some(([request]) => (
-            request.pageNumber === 100
-            && request.placementAnchors?.full?.yNormalized === 0.1
-        ))).toBe(false);
+        expect(
+            backend.previewCalls.mock.calls.some(
+                ([request]) => request.pageNumber === 100 && request.placementAnchors?.full?.yNormalized === 0.1,
+            ),
+        ).toBe(false);
         mounted.unmount();
     });
 
     it('rejects placement anchors returned for an older calibration identity', async () => {
         const backend = previewBackend();
         capability.value = backend.capability;
-        const summary = shallowRef<IScanCleanupPlacementAnchorSummary | null>(
-            placementAnchorSummary('detection-current'),
-        );
+        const summary = shallowRef<IScanCleanupPlacementAnchorSummary | null>(placementAnchorSummary('detection-current'));
         const oldCalibration = Promise.withResolvers<IScanCleanupPlacementAnchorCalibration>();
         const resolvePlacementAnchorsForPage = vi.fn(async () => oldCalibration.promise);
         const mounted = mountPreviewSession(
@@ -824,7 +755,9 @@ describe('scan cleanup preview navigation', () => {
             summary: placementAnchorSummary('detection-current'),
             placementAnchors: {full: {yNormalized: 0.2}},
         });
-        for (let turn = 0; turn < 8; turn += 1) {await Promise.resolve();}
+        for (let turn = 0; turn < 8; turn += 1) {
+            await Promise.resolve();
+        }
 
         expect(backend.previewCalls).not.toHaveBeenCalled();
         mounted.unmount();
@@ -963,7 +896,9 @@ describe('scan cleanup preview navigation', () => {
         previewPage.value = 101;
         await nextTick();
         vi.advanceTimersByTime(1);
-        for (let turn = 0; turn < 4; turn += 1) {await Promise.resolve();}
+        for (let turn = 0; turn < 4; turn += 1) {
+            await Promise.resolve();
+        }
         expect(mounted.session.result.value?.pageNumber).toBe(100);
         expect(mounted.session.rawResult.value?.pageNumber).toBe(101);
         await backend.advanceBy(500);
@@ -975,58 +910,59 @@ describe('scan cleanup preview navigation', () => {
         mounted.unmount();
     });
 
-    it.each([
-        'cleaned' as const,
-        'original' as const,
-    ])('spends one request and one raster on a page switch in %s view, raw first', async (viewMode) => {
-        const backend = previewBackend();
-        capability.value = backend.capability;
-        const previewPage = ref(100);
-        const mounted = mountPreviewSession(previewPage, reactive(new Map()), viewMode);
-        expect(mounted.session.viewMode.value).toBe(viewMode);
+    it.each(['cleaned' as const, 'original' as const])(
+        'spends one request and one raster on a page switch in %s view, raw first',
+        async (viewMode) => {
+            const backend = previewBackend();
+            capability.value = backend.capability;
+            const previewPage = ref(100);
+            const mounted = mountPreviewSession(previewPage, reactive(new Map()), viewMode);
+            expect(mounted.session.viewMode.value).toBe(viewMode);
 
-        await backend.advanceBy(PREVIEW_MS + 4_000);
-        expect(mounted.session.result.value?.pageNumber).toBe(100);
-        const requestsFor = (pageNumber: number) => backend.previewCalls.mock.calls
-            .filter(([request]) => request.pageNumber === pageNumber).length;
-        const rastersFor = (pageNumber: number) => backend.rasterPayloadPages
-            .filter(page => page === pageNumber).length;
-        expect(requestsFor(200)).toBe(0);
+            await backend.advanceBy(PREVIEW_MS + 4_000);
+            expect(mounted.session.result.value?.pageNumber).toBe(100);
+            const requestsFor = (pageNumber: number) =>
+                backend.previewCalls.mock.calls.filter(([request]) => request.pageNumber === pageNumber).length;
+            const rastersFor = (pageNumber: number) => backend.rasterPayloadPages.filter((page) => page === pageNumber).length;
+            expect(requestsFor(200)).toBe(0);
 
-        previewPage.value = 200;
-        await nextTick();
-        vi.advanceTimersByTime(1);
-        for (let turn = 0; turn < 8; turn += 1) {await Promise.resolve();}
+            previewPage.value = 200;
+            await nextTick();
+            vi.advanceTimersByTime(1);
+            for (let turn = 0; turn < 8; turn += 1) {
+                await Promise.resolve();
+            }
 
-        // C1: the switch costs one preview invocation, not a raw leg and then a
-        // cleaned one. C2: and the page's raster crosses once for it.
-        expect(requestsFor(200)).toBe(1);
-        expect(rastersFor(200)).toBe(1);
-        // The raw page is on screen while its cleanup runs, in either view
-        // mode, and the page being replaced is still the cleaned result.
-        expect(mounted.session.rawResult.value?.pageNumber).toBe(200);
-        expect(mounted.session.rawResult.value?.rawImageData.byteLength).toBe(PAGE_BYTES);
-        expect(mounted.session.result.value?.pageNumber).toBe(100);
-        expect(mounted.session.loading.value).toBe(true);
+            // C1: the switch costs one preview invocation, not a raw leg and then a
+            // cleaned one. C2: and the page's raster crosses once for it.
+            expect(requestsFor(200)).toBe(1);
+            expect(rastersFor(200)).toBe(1);
+            // The raw page is on screen while its cleanup runs, in either view
+            // mode, and the page being replaced is still the cleaned result.
+            expect(mounted.session.rawResult.value?.pageNumber).toBe(200);
+            expect(mounted.session.rawResult.value?.rawImageData.byteLength).toBe(PAGE_BYTES);
+            expect(mounted.session.result.value?.pageNumber).toBe(100);
+            expect(mounted.session.loading.value).toBe(true);
 
-        await backend.advanceBy(PREVIEW_MS + 100);
+            await backend.advanceBy(PREVIEW_MS + 100);
 
-        // The cleaned result supersedes it and keeps the raster it was shown
-        // with, so the entry cached for this page can still answer Original.
-        expect(mounted.session.result.value?.pageNumber).toBe(200);
-        expect(mounted.session.result.value?.rawImageData.byteLength).toBe(PAGE_BYTES);
-        expect(requestsFor(200)).toBe(1);
-        expect(rastersFor(200)).toBe(1);
+            // The cleaned result supersedes it and keeps the raster it was shown
+            // with, so the entry cached for this page can still answer Original.
+            expect(mounted.session.result.value?.pageNumber).toBe(200);
+            expect(mounted.session.result.value?.rawImageData.byteLength).toBe(PAGE_BYTES);
+            expect(requestsFor(200)).toBe(1);
+            expect(rastersFor(200)).toBe(1);
 
-        previewPage.value = 100;
-        await nextTick();
-        expect(mounted.session.result.value?.pageNumber).toBe(100);
-        expect(mounted.session.rawResult.value?.rawImageData.byteLength).toBe(PAGE_BYTES);
-        expect(requestsFor(100)).toBe(1);
-        expect(rastersFor(100)).toBe(1);
-        mounted.unmount();
-        capability.value = null;
-    });
+            previewPage.value = 100;
+            await nextTick();
+            expect(mounted.session.result.value?.pageNumber).toBe(100);
+            expect(mounted.session.rawResult.value?.rawImageData.byteLength).toBe(PAGE_BYTES);
+            expect(requestsFor(100)).toBe(1);
+            expect(rastersFor(100)).toBe(1);
+            mounted.unmount();
+            capability.value = null;
+        },
+    );
 
     it('stops loading when a page is canceled and re-requests it on the next visit', async () => {
         const backend = previewBackend();
@@ -1040,10 +976,12 @@ describe('scan cleanup preview navigation', () => {
         previewPage.value = 400;
         await nextTick();
         vi.advanceTimersByTime(1);
-        for (let turn = 0; turn < 8; turn += 1) {await Promise.resolve();}
+        for (let turn = 0; turn < 8; turn += 1) {
+            await Promise.resolve();
+        }
         expect(mounted.session.loading.value).toBe(true);
-        const requestsFor = (pageNumber: number) => backend.previewCalls.mock.calls
-            .filter(([request]) => request.pageNumber === pageNumber).length;
+        const requestsFor = (pageNumber: number) =>
+            backend.previewCalls.mock.calls.filter(([request]) => request.pageNumber === pageNumber).length;
         expect(requestsFor(400)).toBe(1);
 
         // The whole document is canceled underneath the page being rendered,
@@ -1082,9 +1020,11 @@ describe('scan cleanup preview navigation', () => {
         previewPage.value = 300;
         await nextTick();
         vi.advanceTimersByTime(1);
-        for (let turn = 0; turn < 8; turn += 1) {await Promise.resolve();}
-        const requestsFor = (pageNumber: number) => backend.previewCalls.mock.calls
-            .filter(([request]) => request.pageNumber === pageNumber).length;
+        for (let turn = 0; turn < 8; turn += 1) {
+            await Promise.resolve();
+        }
+        const requestsFor = (pageNumber: number) =>
+            backend.previewCalls.mock.calls.filter(([request]) => request.pageNumber === pageNumber).length;
         expect(requestsFor(300)).toBe(1);
 
         // The main process answers canceled while this page is still selected.
@@ -1138,7 +1078,9 @@ describe('scan cleanup preview navigation', () => {
         const previewPage = ref(100);
         const mounted = mountPreviewSession(previewPage, reactive(new Map()));
         vi.advanceTimersByTime(1);
-        for (let turn = 0; turn < 8; turn += 1) {await Promise.resolve();}
+        for (let turn = 0; turn < 8; turn += 1) {
+            await Promise.resolve();
+        }
         expect(mounted.session.rawResult.value?.pageNumber).toBe(100);
         const [request] = backend.previewCalls.mock.calls.at(-1)!;
 
@@ -1175,7 +1117,9 @@ describe('scan cleanup preview navigation', () => {
         previewPage.value = 300;
         await nextTick();
         vi.advanceTimersByTime(1);
-        for (let turn = 0; turn < 8; turn += 1) {await Promise.resolve();}
+        for (let turn = 0; turn < 8; turn += 1) {
+            await Promise.resolve();
+        }
 
         previewPage.value = 200;
         await nextTick();
@@ -1201,9 +1145,11 @@ describe('scan cleanup preview navigation', () => {
         previewPage.value = 300;
         await nextTick();
         vi.advanceTimersByTime(1);
-        for (let turn = 0; turn < 8; turn += 1) {await Promise.resolve();}
-        const requestsFor = (pageNumber: number) => backend.previewCalls.mock.calls
-            .filter(([request]) => request.pageNumber === pageNumber).length;
+        for (let turn = 0; turn < 8; turn += 1) {
+            await Promise.resolve();
+        }
+        const requestsFor = (pageNumber: number) =>
+            backend.previewCalls.mock.calls.filter(([request]) => request.pageNumber === pageNumber).length;
         expect(backend.retire(300)).toBe(1);
         await backend.advanceBy(PREVIEW_MS + 500);
         expect(requestsFor(300)).toBe(1);
@@ -1236,7 +1182,9 @@ describe('scan cleanup preview navigation', () => {
         previewPage.value = 150;
         await nextTick();
         vi.advanceTimersByTime(1);
-        for (let turn = 0; turn < 8; turn += 1) {await Promise.resolve();}
+        for (let turn = 0; turn < 8; turn += 1) {
+            await Promise.resolve();
+        }
 
         expect(backend.previewCalls.mock.calls.length).toBeGreaterThan(callsBefore);
         mounted.unmount();

@@ -1,16 +1,7 @@
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    computed,
-    effectScope,
-    ref,
-    shallowRef,
-} from 'vue';
-import { usePdfViewerLoadingState } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerLoadingState';
+import {describe, expect, it} from 'vitest';
+import {computed, effectScope, ref, shallowRef} from 'vue';
+import {usePdfViewerLoadingState} from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerLoadingState';
 import {
     createDocumentOpenSurfaceSession,
     type IDocumentOpenSurfaceRenderFence,
@@ -22,13 +13,15 @@ function createHarness() {
     const pdfDocument = shallowRef<IPdfDocument | null>({} as IPdfDocument);
     const holdOverlayVisible = ref(false);
     const openSurface = createDocumentOpenSurfaceSession();
-    const state = scope.run(() => usePdfViewerLoadingState({
-        src: computed(() => src.value),
-        isLoading,
-        pdfDocument,
-        openSurface,
-        holdOverlayVisible,
-    }));
+    const state = scope.run(() =>
+        usePdfViewerLoadingState({
+            src: computed(() => src.value),
+            isLoading,
+            pdfDocument,
+            openSurface,
+            holdOverlayVisible,
+        }),
+    );
     if (!state) {
         throw new Error('Failed to create PDF viewer loading state');
     }
@@ -43,15 +36,15 @@ function createHarness() {
     };
 }
 
-function beginSurface(
-    harness: ReturnType<typeof createHarness>,
-    revision: string,
-    pageNumber = 1,
-) {
-    const generation = harness.openSurface.begin({
-        documentId: 'scan.pdf',
-        documentRevision: revision,
-    }, null, pageNumber);
+function beginSurface(harness: ReturnType<typeof createHarness>, revision: string, pageNumber = 1) {
+    const generation = harness.openSurface.begin(
+        {
+            documentId: 'scan.pdf',
+            documentRevision: revision,
+        },
+        null,
+        pageNumber,
+    );
     harness.openSurface.commitGeometry(generation, {
         width: 612,
         height: 792,
@@ -60,13 +53,7 @@ function beginSurface(
     return generation;
 }
 
-function commitPage(
-    harness: ReturnType<typeof createHarness>,
-    generation: number,
-    revision: string,
-    pageNumber: number,
-    requestId = 1,
-) {
+function commitPage(harness: ReturnType<typeof createHarness>, generation: number, revision: string, pageNumber: number, requestId = 1) {
     const fence = harness.openSurface.createRenderFence({
         generation,
         documentRevision: revision,
@@ -78,23 +65,22 @@ function commitPage(
         throw new Error('Failed to create render fence');
     }
     expect(harness.openSurface.commitCanvas(fence)).toBe(true);
-    expect(harness.openSurface.commitViewport({
-        generation,
-        documentRevision: revision,
-        viewportIntentId: fence.viewportIntentId,
-        documentGeometryRevision: 1,
-        interactionEpoch: 0,
-        pageNumber,
-        left: 0,
-        top: 0,
-    })).toBe(true);
+    expect(
+        harness.openSurface.commitViewport({
+            generation,
+            documentRevision: revision,
+            viewportIntentId: fence.viewportIntentId,
+            documentGeometryRevision: 1,
+            interactionEpoch: 0,
+            pageNumber,
+            left: 0,
+            top: 0,
+        }),
+    ).toBe(true);
     return fence;
 }
 
-function markReady(
-    harness: ReturnType<typeof createHarness>,
-    fence: IDocumentOpenSurfaceRenderFence,
-) {
+function markReady(harness: ReturnType<typeof createHarness>, fence: IDocumentOpenSurfaceRenderFence) {
     expect(harness.openSurface.markReady(fence)).toBe(true);
 }
 
@@ -127,13 +113,15 @@ describe('usePdfViewerLoadingState', () => {
         const generation = beginSurface(harness, 'load:1');
         expect(harness.openSurface.requestNavigation(2)).not.toBeNull();
 
-        expect(harness.openSurface.createRenderFence({
-            generation,
-            documentRevision: 'load:1',
-            renderVersion: 1,
-            requestId: 1,
-            pageNumber: 1,
-        })).toBeNull();
+        expect(
+            harness.openSurface.createRenderFence({
+                generation,
+                documentRevision: 'load:1',
+                renderVersion: 1,
+                requestId: 1,
+                pageNumber: 1,
+            }),
+        ).toBeNull();
         expect(harness.state.isViewerLoadingOverlayVisible.value).toBe(true);
 
         const currentFence = commitPage(harness, generation, 'load:1', 2, 2);

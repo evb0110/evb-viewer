@@ -3,35 +3,33 @@
 </template>
 
 <script setup lang="ts">
-import {
-    Lexer, type Token, type Tokens,
-} from 'marked';
-import { decodeHTMLStrict } from 'entities';
-import type { VNodeChild } from 'vue';
+import {Lexer, type Token, type Tokens} from 'marked';
+import {decodeHTMLStrict} from 'entities';
+import type {VNodeChild} from 'vue';
 import AssistantHighlightedCode from '@app/modules/agent-panel/components/AssistantHighlightedCode.vue';
-import { useTypedI18n } from '@app/composables/useTypedI18n';
+import {useTypedI18n} from '@app/composables/useTypedI18n';
 
-const { text } = defineProps<{ text: string }>();
-const emit = defineEmits<{ copy: [id: string, text: string] }>();
-const { t } = useTypedI18n();
+const {text} = defineProps<{text: string}>();
+const emit = defineEmits<{copy: [id: string, text: string]}>();
+const {t} = useTypedI18n();
 const UButton = resolveComponent('UButton');
 // GFM tokens rendered as Vue nodes: no HTML string ever reaches the DOM, raw HTML stays
 // literal text, links keep only safe schemes and images show their alt text instead of
 // loading. Semantic tables and recursive lists follow T3 Code's ChatMarkdown and
 // MarkdownTable (apps/web/src/components@0b6f482dc5, MIT, T3 Tools Inc.).
-const tokens = computed(() => Lexer.lex(text, {
-    gfm: true,
-    breaks: true,
-}));
+const tokens = computed(() =>
+    Lexer.lex(text, {
+        gfm: true,
+        breaks: true,
+    }),
+);
 
 function safeHref(href: string) {
-    if (/^(?:#|\/(?!\/)|\.\.?\/)/u.test(href)) {return href;}
+    if (/^(?:#|\/(?!\/)|\.\.?\/)/u.test(href)) {
+        return href;
+    }
     try {
-        return [
-            'http:',
-            'https:',
-            'mailto:',
-        ].includes(new URL(href).protocol) ? href : null;
+        return ['http:', 'https:', 'mailto:'].includes(new URL(href).protocol) ? href : null;
     } catch {
         return null;
     }
@@ -40,49 +38,77 @@ function safeHref(href: string) {
 function renderInline(list: Token[] | undefined): VNodeChild[] {
     return (list ?? []).map((token) => {
         switch (token.type) {
-            case 'strong': return h('strong', renderInline(token.tokens));
-            case 'em': return h('em', renderInline(token.tokens));
-            case 'del': return h('del', renderInline(token.tokens));
-            case 'codespan': return h('code', token.text);
-            case 'br': return h('br');
-            case 'checkbox': return h('input', {
-                type: 'checkbox',
-                checked: token.checked,
-                disabled: true,
-            });
+            case 'strong':
+                return h('strong', renderInline(token.tokens));
+            case 'em':
+                return h('em', renderInline(token.tokens));
+            case 'del':
+                return h('del', renderInline(token.tokens));
+            case 'codespan':
+                return h('code', token.text);
+            case 'br':
+                return h('br');
+            case 'checkbox':
+                return h('input', {
+                    type: 'checkbox',
+                    checked: token.checked,
+                    disabled: true,
+                });
             case 'link': {
                 const href = safeHref(decodeHTMLStrict(token.href));
-                return href ? h('a', {
-                    href,
-                    target: '_blank',
-                    rel: 'noopener noreferrer',
-                }, renderInline(token.tokens)) : renderInline(token.tokens);
+                return href
+                    ? h(
+                          'a',
+                          {
+                              href,
+                              target: '_blank',
+                              rel: 'noopener noreferrer',
+                          },
+                          renderInline(token.tokens),
+                      )
+                    : renderInline(token.tokens);
             }
-            case 'image': return token.text;
-            case 'html': return token.raw;
-            case 'text': return token.tokens ? renderInline(token.tokens) : token.escaped ? token.text : decodeHTMLStrict(token.text);
-            default: return 'text' in token && typeof token.text === 'string' ? token.text : token.raw;
+            case 'image':
+                return token.text;
+            case 'html':
+                return token.raw;
+            case 'text':
+                return token.tokens ? renderInline(token.tokens) : token.escaped ? token.text : decodeHTMLStrict(token.text);
+            default:
+                return 'text' in token && typeof token.text === 'string' ? token.text : token.raw;
         }
     });
 }
 
-function renderBlocks(list: Token[], code: { count: number }): VNodeChild[] {
+function renderBlocks(list: Token[], code: {count: number}): VNodeChild[] {
     return list.map((token) => {
         switch (token.type) {
             case 'space':
-            case 'def': return null;
-            case 'paragraph': return h('p', renderInline(token.tokens));
-            case 'heading': return h(`h${token.depth}`, renderInline(token.tokens));
-            case 'hr': return h('hr');
-            case 'blockquote': return h('blockquote', renderBlocks(token.tokens ?? [], code));
-            case 'html': return h('p', token.raw);
-            case 'list': return h(token.ordered ? 'ol' : 'ul', { start: token.ordered && token.start !== 1 ? token.start : undefined }, (token as Tokens.List).items.map(item => h('li', { class: { 'is-task': item.task } }, renderBlocks(item.tokens, code))));
-            case 'table': return renderTable(token as Tokens.Table);
+            case 'def':
+                return null;
+            case 'paragraph':
+                return h('p', renderInline(token.tokens));
+            case 'heading':
+                return h(`h${token.depth}`, renderInline(token.tokens));
+            case 'hr':
+                return h('hr');
+            case 'blockquote':
+                return h('blockquote', renderBlocks(token.tokens ?? [], code));
+            case 'html':
+                return h('p', token.raw);
+            case 'list':
+                return h(
+                    token.ordered ? 'ol' : 'ul',
+                    {start: token.ordered && token.start !== 1 ? token.start : undefined},
+                    (token as Tokens.List).items.map((item) => h('li', {class: {'is-task': item.task}}, renderBlocks(item.tokens, code))),
+                );
+            case 'table':
+                return renderTable(token as Tokens.Table);
             case 'code': {
                 const id = `code-${code.count++}`;
                 const language = token.lang?.split(/\s/u)[0] || null;
-                return h('div', { class: 'markdown-code' }, [
-                    h('div', { class: 'markdown-code-header' }, [
+                return h('div', {class: 'markdown-code'}, [
+                    h('div', {class: 'markdown-code-header'}, [
                         h('span', language ?? ''),
                         h(UButton, {
                             'aria-label': t('assistant.copyCode'),
@@ -93,26 +119,50 @@ function renderBlocks(list: Token[], code: { count: number }): VNodeChild[] {
                             onClick: () => emit('copy', id, token.text),
                         }),
                     ]),
-                    h('pre', { class: 'app-scrollbar' }, h(AssistantHighlightedCode, {
-                        code: token.text,
-                        language,
-                    })),
+                    h(
+                        'pre',
+                        {class: 'app-scrollbar'},
+                        h(AssistantHighlightedCode, {
+                            code: token.text,
+                            language,
+                        }),
+                    ),
                 ]);
             }
-            default: return renderInline([token]);
+            default:
+                return renderInline([token]);
         }
     });
 }
 
 function renderTable(token: Tokens.Table) {
-    const cell = (tag: 'th' | 'td', value: Tokens.TableCell) => h(tag, { style: value.align ? { textAlign: value.align } : undefined }, renderInline(value.tokens));
-    return h('div', { class: 'markdown-table app-scrollbar' }, h('table', [
-        h('thead', h('tr', token.header.map(value => cell('th', value)))),
-        h('tbody', token.rows.map(row => h('tr', row.map(value => cell('td', value))))),
-    ]));
+    const cell = (tag: 'th' | 'td', value: Tokens.TableCell) =>
+        h(tag, {style: value.align ? {textAlign: value.align} : undefined}, renderInline(value.tokens));
+    return h(
+        'div',
+        {class: 'markdown-table app-scrollbar'},
+        h('table', [
+            h(
+                'thead',
+                h(
+                    'tr',
+                    token.header.map((value) => cell('th', value)),
+                ),
+            ),
+            h(
+                'tbody',
+                token.rows.map((row) =>
+                    h(
+                        'tr',
+                        row.map((value) => cell('td', value)),
+                    ),
+                ),
+            ),
+        ]),
+    );
 }
 
-const RenderedMarkdown = () => renderBlocks(tokens.value, { count: 0 });
+const RenderedMarkdown = () => renderBlocks(tokens.value, {count: 0});
 </script>
 
 <style scoped>

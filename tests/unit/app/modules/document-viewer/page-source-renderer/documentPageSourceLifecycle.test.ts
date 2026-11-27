@@ -1,27 +1,15 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    effectScope,
-    nextTick,
-    ref,
-} from 'vue';
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import {describe, expect, it, vi} from 'vitest';
+import {effectScope, nextTick, ref} from 'vue';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import {
     createDocumentPageSourceLifecycle,
     openDocumentPageSource,
     type IDocumentPageSourceTransition,
 } from '@app/modules/document-viewer/page-source-renderer/documentPageSourceFeaturePackState';
-import type {
-    IDocumentPageSource,
-    IDocumentSourceCapabilities,
-} from '@app/modules/document-viewer/source/documentPageSource';
-import { createDocumentPageSourceSearchBackend } from '@app/modules/document-viewer/search/createDocumentPageSourceSearchBackend';
-import { cast } from '@tests/helpers/cast';
+import type {IDocumentPageSource, IDocumentSourceCapabilities} from '@app/modules/document-viewer/source/documentPageSource';
+import {createDocumentPageSourceSearchBackend} from '@app/modules/document-viewer/search/createDocumentPageSourceSearchBackend';
+import {cast} from '@tests/helpers/cast';
 
 const createPreview = vi.hoisted(() => vi.fn());
 vi.mock('@app/platform/browser-api/public', () => ({createDjvuPagePreviewSourceFromPath: createPreview}));
@@ -35,15 +23,17 @@ function createHarness() {
     const isActive = ref(true);
     const policyRevision = ref(0);
     const scope = effectScope();
-    const lifecycle = scope.run(() => createDocumentPageSourceLifecycle({
-        chassisAuthority: null,
-        readIsActive: () => isActive.value,
-        readRevisionToken: () => documentRevision.value,
-        readSrc: () => {
-            void policyRevision.value;
-            return src.value;
-        },
-    }))!;
+    const lifecycle = scope.run(() =>
+        createDocumentPageSourceLifecycle({
+            chassisAuthority: null,
+            readIsActive: () => isActive.value,
+            readRevisionToken: () => documentRevision.value,
+            readSrc: () => {
+                void policyRevision.value;
+                return src.value;
+            },
+        }),
+    )!;
     return {
         documentRevision,
         isActive,
@@ -55,15 +45,14 @@ function createHarness() {
 }
 
 describe('document page-source lifecycle', () => {
-    it.each([
-        false,
-        true,
-    ])('advertises only executable search with indexed provider=%s', async (indexed) => {
+    it.each([false, true])('advertises only executable search with indexed provider=%s', async (indexed) => {
         createPreview.mockResolvedValue({
-            getPageSizes: async () => [{
-                width: 600,
-                height: 800,
-            }],
+            getPageSizes: async () => [
+                {
+                    width: 600,
+                    height: 800,
+                },
+            ],
             getPageText: async () => 'Searchable text',
             ...(indexed ? {searchText: vi.fn()} : {}),
             terminate: vi.fn(),
@@ -71,28 +60,33 @@ describe('document page-source lifecycle', () => {
         let current = true;
         let source: IDocumentPageSource | null = null;
         let capabilities: IDocumentSourceCapabilities | null = null;
-        await openDocumentPageSource({
-            kind: 'open',
-            fence: {
-                src: documentRef,
-                loadGeneration: 1,
-                openSurfaceGeneration: null,
-                documentRevision: 'revision-a',
+        await openDocumentPageSource(
+            {
+                kind: 'open',
+                fence: {
+                    src: documentRef,
+                    loadGeneration: 1,
+                    openSurfaceGeneration: null,
+                    documentRevision: 'revision-a',
+                },
+                isCurrent: () => current,
             },
-            isCurrent: () => current,
-        }, cast<Parameters<typeof openDocumentPageSource>[1]>({
-            chassisAuthority: null,
-            readCurrentPage: () => 1,
-            setSource: (next: IDocumentPageSource) => {source = next;},
-            emit: (event: string, value: IDocumentSourceCapabilities) => {
-                if (event === 'update:sourceCapabilities') {
-                    capabilities = value;
-                    current = false;
-                }
-            },
-            surfaceBudget: {releaseScope: vi.fn()},
-            loadController: new AbortController(),
-        }));
+            cast<Parameters<typeof openDocumentPageSource>[1]>({
+                chassisAuthority: null,
+                readCurrentPage: () => 1,
+                setSource: (next: IDocumentPageSource) => {
+                    source = next;
+                },
+                emit: (event: string, value: IDocumentSourceCapabilities) => {
+                    if (event === 'update:sourceCapabilities') {
+                        capabilities = value;
+                        current = false;
+                    }
+                },
+                surfaceBudget: {releaseScope: vi.fn()},
+                loadController: new AbortController(),
+            }),
+        );
         expect(capabilities).toMatchObject({
             text: true,
             search: indexed,
@@ -120,10 +114,7 @@ describe('document page-source lifecycle', () => {
         await vi.waitFor(() => expect(transitions).toHaveLength(2));
 
         const second = transitions[1]!;
-        expect(transitions.map(transition => transition.kind)).toEqual([
-            'open',
-            'open',
-        ]);
+        expect(transitions.map((transition) => transition.kind)).toEqual(['open', 'open']);
         expect(second.fence).toEqual({
             documentRevision: 'revision-b',
             loadGeneration: first.fence.loadGeneration + 1,
@@ -179,17 +170,10 @@ describe('document page-source lifecycle', () => {
 
         harness.isActive.value = false;
         await nextTick();
-        await vi.waitFor(() => expect(kinds).toEqual([
-            'open',
-            'invalidate',
-        ]));
+        await vi.waitFor(() => expect(kinds).toEqual(['open', 'invalidate']));
         harness.isActive.value = true;
         await nextTick();
-        await vi.waitFor(() => expect(kinds).toEqual([
-            'open',
-            'invalidate',
-            'restore',
-        ]));
+        await vi.waitFor(() => expect(kinds).toEqual(['open', 'invalidate', 'restore']));
         harness.scope.stop();
     });
 });

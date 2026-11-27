@@ -1,9 +1,4 @@
-import {
-    lstat,
-    mkdtemp,
-    readdir,
-    rm,
-} from 'node:fs/promises';
+import {lstat, mkdtemp, readdir, rm} from 'node:fs/promises';
 import {join} from 'node:path';
 import {getErrorMessage} from '@contracts/getErrorMessage';
 
@@ -24,13 +19,16 @@ export interface IScanCleanupScratchFileSystem {
     lstat: (path: string) => Promise<{
         isDirectory: () => boolean;
         isSymbolicLink: () => boolean;
-        mtimeMs: number
+        mtimeMs: number;
     }>;
     readdir: (path: string) => Promise<readonly IScanCleanupScratchDirectoryEntry[]>;
-    rm: (path: string, options: {
-        force: boolean;
-        recursive: boolean
-    }) => Promise<void>;
+    rm: (
+        path: string,
+        options: {
+            force: boolean;
+            recursive: boolean;
+        },
+    ) => Promise<void>;
 }
 
 export interface IScanCleanupScratchSweepOptions {
@@ -42,8 +40,8 @@ export interface IScanCleanupScratchSweepOptions {
 }
 
 const defaultFileSystem: IScanCleanupScratchFileSystem = {
-    lstat: async path => lstat(path),
-    readdir: path => readdir(path, {withFileTypes: true}),
+    lstat: async (path) => lstat(path),
+    readdir: (path) => readdir(path, {withFileTypes: true}),
     rm: async (path, options) => rm(path, options),
 };
 
@@ -73,10 +71,7 @@ function ownerPidOf(name: string) {
     return null;
 }
 
-export async function sweepStaleScanCleanupScratchDirs(
-    parentPath: string,
-    options: IScanCleanupScratchSweepOptions = {},
-) {
+export async function sweepStaleScanCleanupScratchDirs(parentPath: string, options: IScanCleanupScratchSweepOptions = {}) {
     const fileSystem: IScanCleanupScratchFileSystem = {
         ...defaultFileSystem,
         ...options.fileSystem,
@@ -105,11 +100,7 @@ export async function sweepStaleScanCleanupScratchDirs(
         const scratchPath = join(parentPath, entry.name);
         try {
             const scratchStat = await fileSystem.lstat(scratchPath);
-            if (
-                !scratchStat.isDirectory()
-                || scratchStat.isSymbolicLink()
-                || now() - scratchStat.mtimeMs < maxAgeMs
-            ) {
+            if (!scratchStat.isDirectory() || scratchStat.isSymbolicLink() || now() - scratchStat.mtimeMs < maxAgeMs) {
                 continue;
             }
             await fileSystem.rm(scratchPath, {
@@ -125,9 +116,6 @@ export async function sweepStaleScanCleanupScratchDirs(
     return removedCount;
 }
 
-export async function createScanCleanupScratchDir(
-    parentPath: string,
-    prefix = `${SCAN_CLEANUP_RUN_PREFIX}${process.pid}-`,
-) {
+export async function createScanCleanupScratchDir(parentPath: string, prefix = `${SCAN_CLEANUP_RUN_PREFIX}${process.pid}-`) {
     return mkdtemp(join(parentPath, prefix));
 }

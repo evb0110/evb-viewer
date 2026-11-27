@@ -1,11 +1,9 @@
 import {getDocumentFilesCapability} from '@app/utils/platformDocuments';
-import type { IDocumentSessionState } from '@app/modules/workspace-shell/composables/document-session/documentSessionState';
-import type {
-    IDocumentRevisionInfo, TDocumentRevisionToken, 
-} from '@contracts/documentRevision';
-import type { TDocumentRef } from '@contracts/documentRef';
-import { isNativeDocumentRef } from '@app/utils/documentRef';
-import { isPathPdfSource } from '@app/modules/pdf-viewer/public';
+import type {IDocumentSessionState} from '@app/modules/workspace-shell/composables/document-session/documentSessionState';
+import type {IDocumentRevisionInfo, TDocumentRevisionToken} from '@contracts/documentRevision';
+import type {TDocumentRef} from '@contracts/documentRef';
+import {isNativeDocumentRef} from '@app/utils/documentRef';
+import {isPathPdfSource} from '@app/modules/pdf-viewer/public';
 interface IResolvedPathBaseline {
     baseline: {
         revision: TDocumentRevisionToken;
@@ -15,16 +13,11 @@ interface IResolvedPathBaseline {
 }
 
 export function hasNativePathBackedSource(state: IDocumentSessionState, path: TDocumentRef) {
-    return [
-        state.pdfSrc.value,
-        state.pdfReloadSrc.value,
-    ].some(source => {
+    return [state.pdfSrc.value, state.pdfReloadSrc.value].some((source) => {
         if (!isPathPdfSource(source)) {
             return false;
         }
-        return source.path === path
-            && state.isElectron.value
-            && isNativeDocumentRef(path);
+        return source.path === path && state.isElectron.value && isNativeDocumentRef(path);
     });
 }
 
@@ -34,10 +27,7 @@ export async function adoptStablePathBackedPersistedState(input: {
     resolveStableBaseline: () => Promise<IResolvedPathBaseline>;
     markCurrentHistoryEntryClean: () => Promise<void>;
 }) {
-    const {
-        baseline,
-        revisionInfo,
-    } = await input.resolveStableBaseline();
+    const {baseline, revisionInfo} = await input.resolveStableBaseline();
     if (!input.state.isActiveWorkingCopy(input.path)) {
         return false;
     }

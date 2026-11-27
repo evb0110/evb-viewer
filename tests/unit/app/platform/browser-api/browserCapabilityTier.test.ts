@@ -1,18 +1,6 @@
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    BROWSER_CAPABILITY_TIER_SUPPORT,
-    resolveBrowserCapabilityTier,
-} from '@app/platform/browser/browserCapabilityTier';
-import type {
-    TBrowserCapabilityTier,
-    TBrowserFileAccessTier,
-} from '@app/platform/browser/browserCapabilityTier';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {BROWSER_CAPABILITY_TIER_SUPPORT, resolveBrowserCapabilityTier} from '@app/platform/browser/browserCapabilityTier';
+import type {TBrowserCapabilityTier, TBrowserFileAccessTier} from '@app/platform/browser/browserCapabilityTier';
 
 interface IRuntimeShape {
     hasOpenPicker: boolean;
@@ -76,16 +64,20 @@ function stubRuntime(shape: IRuntimeShape) {
     const receivers: unknown[] = [];
     const pickerWindow = {
         ...(shape.hasOpenPicker
-            ? {showOpenFilePicker(this: unknown) {
-                receivers.push(this);
-                return Promise.resolve([]);
-            }}
+            ? {
+                  showOpenFilePicker(this: unknown) {
+                      receivers.push(this);
+                      return Promise.resolve([]);
+                  },
+              }
             : {}),
         ...(shape.hasSavePicker
-            ? {showSaveFilePicker(this: unknown) {
-                receivers.push(this);
-                return Promise.resolve({name: 'picked.pdf'});
-            }}
+            ? {
+                  showSaveFilePicker(this: unknown) {
+                      receivers.push(this);
+                      return Promise.resolve({name: 'picked.pdf'});
+                  },
+              }
             : {}),
     };
     const indexedDbFactory = shape.hasIndexedDb ? {open: vi.fn()} : undefined;
@@ -105,12 +97,14 @@ describe('browser capability tier', () => {
     });
 
     it('declares one level per independent picker and persistence combination', () => {
-        const expectedTiers = RUNTIME_SHAPES.map((shape): TBrowserCapabilityTier =>
-            `${shape.fileAccessTier}-${shape.hasIndexedDb ? 'persistent' : 'volatile'}`);
+        const expectedTiers = RUNTIME_SHAPES.map(
+            (shape): TBrowserCapabilityTier => `${shape.fileAccessTier}-${shape.hasIndexedDb ? 'persistent' : 'volatile'}`,
+        );
 
         expect(Object.keys(BROWSER_CAPABILITY_TIER_SUPPORT).sort()).toEqual(expectedTiers.sort());
-        expect(new Set(Object.values(BROWSER_CAPABILITY_TIER_SUPPORT)
-            .map(support => Object.values(support).join(':'))).size).toBe(RUNTIME_SHAPES.length);
+        expect(new Set(Object.values(BROWSER_CAPABILITY_TIER_SUPPORT).map((support) => Object.values(support).join(':'))).size).toBe(
+            RUNTIME_SHAPES.length,
+        );
     });
 
     it('resolves every runtime shape to its authoritative support policy', () => {
@@ -133,10 +127,7 @@ describe('browser capability tier', () => {
         await capabilities.openFilePicker?.();
         await capabilities.saveFilePicker?.();
 
-        expect(runtime.receivers).toEqual([
-            runtime.pickerWindow,
-            runtime.pickerWindow,
-        ]);
+        expect(runtime.receivers).toEqual([runtime.pickerWindow, runtime.pickerWindow]);
     });
 
     it('degrades to volatile downloads outside a browser runtime', () => {

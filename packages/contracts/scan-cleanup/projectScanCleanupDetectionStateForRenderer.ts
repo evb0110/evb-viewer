@@ -8,13 +8,12 @@ export const SCAN_CLEANUP_RENDERER_RESULT_WINDOW_PAGES = 256;
  * renderer IPC boundary. The full result store remains available in the main
  * process for export and reconciliation.
  */
-export function projectScanCleanupDetectionStateForRenderer(
-    state: TScanCleanupDetectionJobState,
-): TScanCleanupDetectionJobState {
-    const isLargeDetectionState = state.progress.totalUnits > SCAN_CLEANUP_STREAMING_BATCH_PAGES
-        || (state.resultCount ?? 0) > SCAN_CLEANUP_STREAMING_BATCH_PAGES
-        || state.results.length > SCAN_CLEANUP_STREAMING_BATCH_PAGES
-        || state.progress.completedPageNumbersTruncated === true;
+export function projectScanCleanupDetectionStateForRenderer(state: TScanCleanupDetectionJobState): TScanCleanupDetectionJobState {
+    const isLargeDetectionState =
+        state.progress.totalUnits > SCAN_CLEANUP_STREAMING_BATCH_PAGES ||
+        (state.resultCount ?? 0) > SCAN_CLEANUP_STREAMING_BATCH_PAGES ||
+        state.results.length > SCAN_CLEANUP_STREAMING_BATCH_PAGES ||
+        state.progress.completedPageNumbersTruncated === true;
     if (!isLargeDetectionState) {
         return state;
     }
@@ -28,7 +27,7 @@ export function projectScanCleanupDetectionStateForRenderer(
         completedPageNumbers: [],
         completedPageNumbersTruncated: true,
     };
-    const results = state.results.slice(-SCAN_CLEANUP_RENDERER_RESULT_WINDOW_PAGES).map(result => ({
+    const results = state.results.slice(-SCAN_CLEANUP_RENDERER_RESULT_WINDOW_PAGES).map((result) => ({
         pageNumber: result.pageNumber,
         ...(result.revision === undefined ? {} : {revision: result.revision}),
         classification: result.classification,
@@ -44,9 +43,7 @@ export function projectScanCleanupDetectionStateForRenderer(
         ...(result.recommendedOutputModeConfidence === undefined
             ? {}
             : {recommendedOutputModeConfidence: result.recommendedOutputModeConfidence}),
-        ...(result.recommendedOutputModeReason === undefined
-            ? {}
-            : {recommendedOutputModeReason: result.recommendedOutputModeReason}),
+        ...(result.recommendedOutputModeReason === undefined ? {} : {recommendedOutputModeReason: result.recommendedOutputModeReason}),
         ...(result.softAlphaForegroundRecommendation === undefined
             ? {}
             : {softAlphaForegroundRecommendation: result.softAlphaForegroundRecommendation}),

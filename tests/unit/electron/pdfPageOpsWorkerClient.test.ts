@@ -1,14 +1,7 @@
 import {EventEmitter} from 'node:events';
 import type * as TFsModule from 'node:fs';
 import type * as TWasmRunnerModule from '@node-runtime/pdfPageOpsWasmRunner';
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 
 interface IMockWorkerRecord {
     emitter: EventEmitter;
@@ -24,14 +17,14 @@ const mocks = vi.hoisted<{
     workers: IMockWorkerRecord[];
 }>(() => ({workers: []}));
 
-vi.mock('node:fs', async importOriginal => ({
-    ...await importOriginal<typeof TFsModule>(),
+vi.mock('node:fs', async (importOriginal) => ({
+    ...(await importOriginal<typeof TFsModule>()),
     existsSync: () => true,
 }));
 
-vi.mock('@node-runtime/pdfPageOpsWasmRunner', async importOriginal => ({
-    ...await importOriginal<typeof TWasmRunnerModule>(),
-    loadPdfPageOpsWasmModule: vi.fn(async () => ({} as WebAssembly.Module)),
+vi.mock('@node-runtime/pdfPageOpsWasmRunner', async (importOriginal) => ({
+    ...(await importOriginal<typeof TWasmRunnerModule>()),
+    loadPdfPageOpsWasmModule: vi.fn(async () => ({}) as WebAssembly.Module),
 }));
 
 vi.mock('node:worker_threads', () => ({
@@ -59,10 +52,7 @@ vi.mock('node:worker_threads', () => ({
             mocks.workers.push(this.record);
         }
 
-        postMessage(message: {
-            id: number;
-            args: string[];
-        }) {
+        postMessage(message: {id: number; args: string[]}) {
             this.record.messages.push(message);
         }
 
@@ -98,13 +88,7 @@ describe('pdfPageOpsWorkerClient idle eviction', () => {
             '--pages',
             '1',
         ]);
-        const taskB = runDesktopPageOpsWasm(wasmPath, [
-            'page-geometry',
-            '--input',
-            '/fake/b.pdf',
-            '--page',
-            '1',
-        ]);
+        const taskB = runDesktopPageOpsWasm(wasmPath, ['page-geometry', '--input', '/fake/b.pdf', '--page', '1']);
 
         await vi.advanceTimersByTimeAsync(0);
         expect(mocks.workers).toHaveLength(2);
@@ -113,11 +97,7 @@ describe('pdfPageOpsWorkerClient idle eviction', () => {
         expect(workerA.messages).toHaveLength(1);
         expect(workerB.messages).toHaveLength(1);
 
-        const closeA = runDesktopPageOpsWasm(wasmPath, [
-            'ocr-text-visibility',
-            '--close-session',
-            '42',
-        ]);
+        const closeA = runDesktopPageOpsWasm(wasmPath, ['ocr-text-visibility', '--close-session', '42']);
 
         // Worker B finishes while worker A is still busy and the targeted close
         // for session 42 remains queued for worker A.

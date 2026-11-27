@@ -1,30 +1,15 @@
-import { getErrorMessage } from '@contracts/getErrorMessage';
+import {getErrorMessage} from '@contracts/getErrorMessage';
 import assert from 'node:assert/strict';
-import {
-    existsSync,
-    readFileSync,
-} from 'node:fs';
-import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
-import type {
-    ConsoleMessage,
-    Page,
-} from 'puppeteer-core';
-import { delay } from 'es-toolkit/promise';
-import { evaluateInPage } from '@tests/e2e/electron/helpers/pageRuntime';
-import {
-    callWorkspaceCommand,
-    getWorkspaceToolbarSnapshot,
-} from '@tests/e2e/electron/helpers/workspaceExpose';
-import { sessionLogFilePath } from '@scripts/electron-run/electronRunSessionPaths';
-import {
-    toPdfNavLogEntries,
-    toPdfRenderTraceEntries,
-} from '@scripts/diagnostics/pdfTraceEntryGuards';
-import {
-    type IPdfDiagnosticsContext,
-    runPdfDiagnosticScenario,
-} from '@scripts/diagnostics/runPdfDiagnosticScenario';
+import {existsSync, readFileSync} from 'node:fs';
+import {resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
+import type {ConsoleMessage, Page} from 'puppeteer-core';
+import {delay} from 'es-toolkit/promise';
+import {evaluateInPage} from '@tests/e2e/electron/helpers/pageRuntime';
+import {callWorkspaceCommand, getWorkspaceToolbarSnapshot} from '@tests/e2e/electron/helpers/workspaceExpose';
+import {sessionLogFilePath} from '@scripts/electron-run/electronRunSessionPaths';
+import {toPdfNavLogEntries, toPdfRenderTraceEntries} from '@scripts/diagnostics/pdfTraceEntryGuards';
+import {type IPdfDiagnosticsContext, runPdfDiagnosticScenario} from '@scripts/diagnostics/runPdfDiagnosticScenario';
 import {
     installCommittedSurfaceSampler,
     stopCommittedSurfaceSampler,
@@ -36,40 +21,15 @@ export {summarizeArnoldOpenTrace} from '@scripts/diagnostics/summarizeArnoldOpen
 const TARGET_PDF_PATH = process.env.EVB_E2E_ARNOLD_PDF_PATH?.length
     ? process.env.EVB_E2E_ARNOLD_PDF_PATH
     : resolve(process.cwd(), '.devkit', 'manual-pdf-fixtures', 'arnold-grammar.pdf');
-const DIAGNOSTIC_OUTPUT_PATH = resolve(
-    process.cwd(),
-    '.devkit',
-    'arnold-pdf-open-diagnostics.json',
-);
-const CONSOLE_OUTPUT_PATH = resolve(
-    process.cwd(),
-    '.devkit',
-    'arnold-pdf-open-console.log',
-);
+const DIAGNOSTIC_OUTPUT_PATH = resolve(process.cwd(), '.devkit', 'arnold-pdf-open-diagnostics.json');
+const CONSOLE_OUTPUT_PATH = resolve(process.cwd(), '.devkit', 'arnold-pdf-open-console.log');
 const CONSOLE_MESSAGE_LIMIT = 2_000;
 const ARNOLD_FIRST_OWNED_PAGE_FRAME_BUDGET_MS = 500;
 const ARNOLD_FIRST_MEANINGFUL_PIXELS_BUDGET_MS = 1_500;
 const ARNOLD_SETTLED_GEOMETRY_TOLERANCE_PX = 2;
 const ARNOLD_PLACEHOLDER_TRANSITION_TOLERANCE_PX = 8;
 const ARNOLD_HIGH_ZOOM = 5.03;
-const SAMPLE_OFFSETS_MS = [
-    0,
-    250,
-    500,
-    1_000,
-    1_500,
-    2_000,
-    3_000,
-    4_000,
-    4_500,
-    5_000,
-    7_000,
-    10_000,
-    15_000,
-    20_000,
-    25_000,
-    30_000,
-];
+const SAMPLE_OFFSETS_MS = [0, 250, 500, 1_000, 1_500, 2_000, 3_000, 4_000, 4_500, 5_000, 7_000, 10_000, 15_000, 20_000, 25_000, 30_000];
 const ARNOLD_WORKING_PATH_TRACE_EVENTS = new Set([
     'pdf-open-source-ready',
     'pdf-document-range-preload-start',
@@ -90,9 +50,7 @@ interface IConsoleLogEntry {
 }
 
 export function isExpectedArnoldDiagnosticWarning(text: string) {
-    return text.includes('[pdf-render-trace]')
-        || text.includes('[pdf-nav]')
-        || text.includes('[pdf-zoom-debug]');
+    return text.includes('[pdf-render-trace]') || text.includes('[pdf-nav]') || text.includes('[pdf-zoom-debug]');
 }
 
 export function collectArnoldWorkingCopyPaths(
@@ -102,8 +60,8 @@ export function collectArnoldWorkingCopyPaths(
     }>,
 ) {
     return renderTrace
-        .filter(entry => ARNOLD_WORKING_PATH_TRACE_EVENTS.has(entry.event))
-        .map(entry => entry.payload.path)
+        .filter((entry) => ARNOLD_WORKING_PATH_TRACE_EVENTS.has(entry.event))
+        .map((entry) => entry.payload.path)
         .filter((value): value is string => typeof value === 'string' && value.length > 0);
 }
 
@@ -111,38 +69,42 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null;
 }
 
-export function collectArnoldConsoleRenderTrace(
-    consoleEntries: ReadonlyArray<Pick<IConsoleLogEntry, 'args' | 'text'>>,
-) {
-    return toPdfRenderTraceEntries(consoleEntries.flatMap((entry) => {
-        const match = entry.text.match(/\[pdf-render-trace\]\s+([^\s[]+)/u);
-        const payload = entry.args.find((value, index) => index > 0 && isRecord(value));
-        if (!match?.[1] || !payload) {
-            return [];
-        }
-        return [{
-            event: match[1],
-            payload,
-        }];
-    }));
+export function collectArnoldConsoleRenderTrace(consoleEntries: ReadonlyArray<Pick<IConsoleLogEntry, 'args' | 'text'>>) {
+    return toPdfRenderTraceEntries(
+        consoleEntries.flatMap((entry) => {
+            const match = entry.text.match(/\[pdf-render-trace\]\s+([^\s[]+)/u);
+            const payload = entry.args.find((value, index) => index > 0 && isRecord(value));
+            if (!match?.[1] || !payload) {
+                return [];
+            }
+            return [
+                {
+                    event: match[1],
+                    payload,
+                },
+            ];
+        }),
+    );
 }
 
-export function collectArnoldConsoleNavLog(
-    consoleEntries: ReadonlyArray<Pick<IConsoleLogEntry, 'args' | 'receivedAtMs' | 'text'>>,
-) {
-    return toPdfNavLogEntries(consoleEntries.flatMap((entry) => {
-        const marker = '[pdf-nav] ';
-        const markerIndex = entry.text.indexOf(marker);
-        if (markerIndex < 0) {
-            return [];
-        }
-        const data = entry.args[1];
-        return [{
-            message: entry.text.slice(markerIndex + marker.length).replace(/\s+\[object Object\]$/u, ''),
-            args: Array.isArray(data) ? data : data === undefined ? [] : [data],
-            loggedAtMs: entry.receivedAtMs,
-        }];
-    }));
+export function collectArnoldConsoleNavLog(consoleEntries: ReadonlyArray<Pick<IConsoleLogEntry, 'args' | 'receivedAtMs' | 'text'>>) {
+    return toPdfNavLogEntries(
+        consoleEntries.flatMap((entry) => {
+            const marker = '[pdf-nav] ';
+            const markerIndex = entry.text.indexOf(marker);
+            if (markerIndex < 0) {
+                return [];
+            }
+            const data = entry.args[1];
+            return [
+                {
+                    message: entry.text.slice(markerIndex + marker.length).replace(/\s+\[object Object\]$/u, ''),
+                    args: Array.isArray(data) ? data : data === undefined ? [] : [data],
+                    loggedAtMs: entry.receivedAtMs,
+                },
+            ];
+        }),
+    );
 }
 
 export function isArnoldOwnedFrameWithinBudget(firstPageShellMs: number) {
@@ -209,7 +171,9 @@ interface IArnoldSnapshot {
     pages: unknown[];
 }
 
-type TArnoldSnapshotWithoutToolbar = Omit<IArnoldSnapshot, 'workspace'> & {workspace: Omit<IArnoldSnapshot['workspace'], 'toolbarSnapshot'>;};
+type TArnoldSnapshotWithoutToolbar = Omit<IArnoldSnapshot, 'workspace'> & {
+    workspace: Omit<IArnoldSnapshot['workspace'], 'toolbarSnapshot'>;
+};
 
 function safeJson(value: unknown) {
     try {
@@ -220,13 +184,18 @@ function safeJson(value: unknown) {
 }
 
 async function serializeConsoleMessage(message: ConsoleMessage, startedAtMs: number): Promise<IConsoleLogEntry> {
-    const args = await Promise.all(message.args().slice(0, 8).map(async (handle) => {
-        try {
-            return await handle.jsonValue();
-        } catch (error) {
-            return {unserializable: getErrorMessage(error)};
-        }
-    }));
+    const args = await Promise.all(
+        message
+            .args()
+            .slice(0, 8)
+            .map(async (handle) => {
+                try {
+                    return await handle.jsonValue();
+                } catch (error) {
+                    return {unserializable: getErrorMessage(error)};
+                }
+            }),
+    );
     const location = message.location();
     const serializedLocation: IConsoleLogEntry['location'] = {};
     if (location.url !== undefined) {
@@ -261,13 +230,15 @@ function installConsoleCollector(page: Page): IConsoleCollector {
     const consoleHandler = (message: ConsoleMessage) => {
         const task = serializeConsoleMessage(message, startedAtMs)
             .then(pushEntry)
-            .catch(error => pushEntry({
-                receivedAtMs: Date.now() - startedAtMs,
-                type: 'console-serialization-error',
-                text: getErrorMessage(error),
-                location: {},
-                args: [],
-            }))
+            .catch((error) =>
+                pushEntry({
+                    receivedAtMs: Date.now() - startedAtMs,
+                    type: 'console-serialization-error',
+                    text: getErrorMessage(error),
+                    location: {},
+                    args: [],
+                }),
+            )
             .finally(() => pending.delete(task));
         pending.add(task);
     };
@@ -278,10 +249,12 @@ function installConsoleCollector(page: Page): IConsoleCollector {
             type: 'pageerror',
             text: getErrorMessage(error),
             location: {},
-            args: [{
-                name: error.name,
-                stack: error.stack,
-            }],
+            args: [
+                {
+                    name: error.name,
+                    stack: error.stack,
+                },
+            ],
         });
     };
 
@@ -312,24 +285,29 @@ function formatConsoleEntry(entry: IConsoleLogEntry) {
 
 async function promoteDiagnosticConsoleWarnings(page: Page) {
     await evaluateInPage(page, () => {
-        const diagnosticWindow = window as Window & {__diagnosticWarnAsWarn?: boolean;};
+        const diagnosticWindow = window as Window & {__diagnosticWarnAsWarn?: boolean};
         diagnosticWindow.__diagnosticWarnAsWarn = true;
     });
 }
 
 async function waitForStableWorkspace(page: Page) {
-    await page.waitForFunction(() => {
-        const diagnosticWindow = window as Window & {__openFileDirect?: unknown;};
-        const host = document.querySelector<HTMLElement>('.workspace-host');
-        const hostRect = host?.getBoundingClientRect();
-        return typeof diagnosticWindow.__openFileDirect === 'function'
-            // The real Recent UI is intentionally non-actionable until the
-            // canonical chassis owner is mounted. Do not charge cold dev
-            // chunk compilation to the document-open transition by bypassing
-            // that same readiness fence through the diagnostic hook.
-            && host?.dataset.recentOpenOwnerReady === 'true'
-            && Boolean(hostRect && hostRect.width > 100 && hostRect.height > 100);
-    }, { timeout: 30_000 });
+    await page.waitForFunction(
+        () => {
+            const diagnosticWindow = window as Window & {__openFileDirect?: unknown};
+            const host = document.querySelector<HTMLElement>('.workspace-host');
+            const hostRect = host?.getBoundingClientRect();
+            return (
+                typeof diagnosticWindow.__openFileDirect === 'function' &&
+                // The real Recent UI is intentionally non-actionable until the
+                // canonical chassis owner is mounted. Do not charge cold dev
+                // chunk compilation to the document-open transition by bypassing
+                // that same readiness fence through the diagnostic hook.
+                host?.dataset.recentOpenOwnerReady === 'true' &&
+                Boolean(hostRect && hostRect.width > 100 && hostRect.height > 100)
+            );
+        },
+        {timeout: 30_000},
+    );
     await delay(1_000);
 }
 
@@ -338,7 +316,9 @@ function isExecutionContextReset(error: unknown) {
         return false;
     }
 
-    return /Execution context was destroyed|Cannot find context with specified id|Target closed|Session closed|Frame was detached/i.test(getErrorMessage(error));
+    return /Execution context was destroyed|Cannot find context with specified id|Target closed|Session closed|Frame was detached/i.test(
+        getErrorMessage(error),
+    );
 }
 
 async function openPathDirectOnce(page: Page, pdfPath: string) {
@@ -363,11 +343,7 @@ async function openPathDirectOnce(page: Page, pdfPath: string) {
     }, pdfPath);
 }
 
-async function openPathDirectWithRetry(
-    page: Page,
-    pdfPath: string,
-    progress: IOpenProgress,
-): Promise<IOpenTriggerResult> {
+async function openPathDirectWithRetry(page: Page, pdfPath: string, progress: IOpenProgress): Promise<IOpenTriggerResult> {
     const timeoutMs = 45_000;
     const startedAtMs = Date.now();
     let lastError: string | undefined;
@@ -418,231 +394,238 @@ async function openPathDirectWithRetry(
 }
 
 async function collectOpenSnapshot(page: Page, label: string, startedAtMs: number): Promise<IArnoldSnapshot> {
-    const rawSnapshot: unknown = await evaluateInPage(page, (snapshotLabel: string, nodeStartedAtMs: number) => {
-        const diagnosticWindow = window as Window & {__arnoldDiagnosticOpenResult?: unknown;};
+    const rawSnapshot: unknown = await evaluateInPage(
+        page,
+        (snapshotLabel: string, nodeStartedAtMs: number) => {
+            const diagnosticWindow = window as Window & {__arnoldDiagnosticOpenResult?: unknown};
 
-        const rectSnapshot = (element: Element | null) => {
-            if (!element) {
-                return null;
-            }
-            const rect = element.getBoundingClientRect();
-            return {
-                top: Math.round(rect.top),
-                right: Math.round(rect.right),
-                bottom: Math.round(rect.bottom),
-                left: Math.round(rect.left),
-                width: Math.round(rect.width),
-                height: Math.round(rect.height),
-            };
-        };
-
-        const styleSnapshot = (element: Element | null) => {
-            if (!element) {
-                return null;
-            }
-            const style = window.getComputedStyle(element);
-            return {
-                display: style.display,
-                visibility: style.visibility,
-                opacity: style.opacity,
-                overflow: style.overflow,
-                overflowY: style.overflowY,
-                position: style.position,
-            };
-        };
-
-        const isVisibleElement = (element: HTMLElement) => {
-            const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return rect.width > 0
-                && rect.height > 0
-                && style.display !== 'none'
-                && style.visibility !== 'hidden'
-                && Number(style.opacity || '1') > 0;
-        };
-
-        const intersectsViewport = (element: HTMLElement) => {
-            if (!isVisibleElement(element)) {
-                return false;
-            }
-            const rect = element.getBoundingClientRect();
-            return rect.bottom > 0
-                && rect.right > 0
-                && rect.top < window.innerHeight
-                && rect.left < window.innerWidth;
-        };
-
-        const sampleVisual = (visual: HTMLCanvasElement | HTMLImageElement | null) => {
-            if (!visual) {
-                return null;
-            }
-            const intrinsicWidth = visual instanceof HTMLCanvasElement ? visual.width : visual.naturalWidth;
-            const intrinsicHeight = visual instanceof HTMLCanvasElement ? visual.height : visual.naturalHeight;
-            const rect = visual.getBoundingClientRect();
-            const result = {
-                width: intrinsicWidth,
-                height: intrinsicHeight,
-                cssWidth: Math.round(rect.width),
-                cssHeight: Math.round(rect.height),
-                sampleCount: 0,
-                nonWhitePixelCount: 0,
-                whitePixelCount: 0,
-                transparentPixelCount: 0,
-                stride: 0,
-                likelyBlankWhite: false,
-                luminanceRange: 0,
-                error: null as string | null,
-            };
-
-            try {
-                if (intrinsicWidth <= 0 || intrinsicHeight <= 0) {
-                    result.error = 'visual source unavailable or empty';
-                    return result;
+            const rectSnapshot = (element: Element | null) => {
+                if (!element) {
+                    return null;
                 }
+                const rect = element.getBoundingClientRect();
+                return {
+                    top: Math.round(rect.top),
+                    right: Math.round(rect.right),
+                    bottom: Math.round(rect.bottom),
+                    left: Math.round(rect.left),
+                    width: Math.round(rect.width),
+                    height: Math.round(rect.height),
+                };
+            };
 
-                const sampleSize = 48;
-                const sampleCanvas = document.createElement('canvas');
-                sampleCanvas.width = sampleSize;
-                sampleCanvas.height = sampleSize;
-                const sampleContext = sampleCanvas.getContext('2d', {willReadFrequently: true});
-                if (!sampleContext) {
-                    result.error = 'bounded sample canvas context unavailable';
-                    return result;
+            const styleSnapshot = (element: Element | null) => {
+                if (!element) {
+                    return null;
                 }
-                sampleContext.drawImage(visual, 0, 0, sampleSize, sampleSize);
-                const pixels = sampleContext.getImageData(0, 0, sampleSize, sampleSize).data;
-                result.stride = Math.max(intrinsicWidth, intrinsicHeight) / sampleSize;
-                let minLuminance = 255;
-                let maxLuminance = 0;
-                for (let y = 0; y < sampleSize; y += 1) {
-                    for (let x = 0; x < sampleSize; x += 1) {
-                        const offset = ((y * sampleSize) + x) * 4;
-                        const red = pixels[offset] ?? 0;
-                        const green = pixels[offset + 1] ?? 0;
-                        const blue = pixels[offset + 2] ?? 0;
-                        const alpha = pixels[offset + 3] ?? 0;
-                        const luminance = (red * 0.2126) + (green * 0.7152) + (blue * 0.0722);
-                        if (alpha > 0) {
-                            minLuminance = Math.min(minLuminance, luminance);
-                            maxLuminance = Math.max(maxLuminance, luminance);
-                        }
-                        result.sampleCount += 1;
-                        if (alpha === 0) {
-                            result.transparentPixelCount += 1;
-                        } else if (red >= 248 && green >= 248 && blue >= 248) {
-                            result.whitePixelCount += 1;
-                        } else {
-                            result.nonWhitePixelCount += 1;
+                const style = window.getComputedStyle(element);
+                return {
+                    display: style.display,
+                    visibility: style.visibility,
+                    opacity: style.opacity,
+                    overflow: style.overflow,
+                    overflowY: style.overflowY,
+                    position: style.position,
+                };
+            };
+
+            const isVisibleElement = (element: HTMLElement) => {
+                const rect = element.getBoundingClientRect();
+                const style = window.getComputedStyle(element);
+                return (
+                    rect.width > 0 &&
+                    rect.height > 0 &&
+                    style.display !== 'none' &&
+                    style.visibility !== 'hidden' &&
+                    Number(style.opacity || '1') > 0
+                );
+            };
+
+            const intersectsViewport = (element: HTMLElement) => {
+                if (!isVisibleElement(element)) {
+                    return false;
+                }
+                const rect = element.getBoundingClientRect();
+                return rect.bottom > 0 && rect.right > 0 && rect.top < window.innerHeight && rect.left < window.innerWidth;
+            };
+
+            const sampleVisual = (visual: HTMLCanvasElement | HTMLImageElement | null) => {
+                if (!visual) {
+                    return null;
+                }
+                const intrinsicWidth = visual instanceof HTMLCanvasElement ? visual.width : visual.naturalWidth;
+                const intrinsicHeight = visual instanceof HTMLCanvasElement ? visual.height : visual.naturalHeight;
+                const rect = visual.getBoundingClientRect();
+                const result = {
+                    width: intrinsicWidth,
+                    height: intrinsicHeight,
+                    cssWidth: Math.round(rect.width),
+                    cssHeight: Math.round(rect.height),
+                    sampleCount: 0,
+                    nonWhitePixelCount: 0,
+                    whitePixelCount: 0,
+                    transparentPixelCount: 0,
+                    stride: 0,
+                    likelyBlankWhite: false,
+                    luminanceRange: 0,
+                    error: null as string | null,
+                };
+
+                try {
+                    if (intrinsicWidth <= 0 || intrinsicHeight <= 0) {
+                        result.error = 'visual source unavailable or empty';
+                        return result;
+                    }
+
+                    const sampleSize = 48;
+                    const sampleCanvas = document.createElement('canvas');
+                    sampleCanvas.width = sampleSize;
+                    sampleCanvas.height = sampleSize;
+                    const sampleContext = sampleCanvas.getContext('2d', {willReadFrequently: true});
+                    if (!sampleContext) {
+                        result.error = 'bounded sample canvas context unavailable';
+                        return result;
+                    }
+                    sampleContext.drawImage(visual, 0, 0, sampleSize, sampleSize);
+                    const pixels = sampleContext.getImageData(0, 0, sampleSize, sampleSize).data;
+                    result.stride = Math.max(intrinsicWidth, intrinsicHeight) / sampleSize;
+                    let minLuminance = 255;
+                    let maxLuminance = 0;
+                    for (let y = 0; y < sampleSize; y += 1) {
+                        for (let x = 0; x < sampleSize; x += 1) {
+                            const offset = (y * sampleSize + x) * 4;
+                            const red = pixels[offset] ?? 0;
+                            const green = pixels[offset + 1] ?? 0;
+                            const blue = pixels[offset + 2] ?? 0;
+                            const alpha = pixels[offset + 3] ?? 0;
+                            const luminance = red * 0.2126 + green * 0.7152 + blue * 0.0722;
+                            if (alpha > 0) {
+                                minLuminance = Math.min(minLuminance, luminance);
+                                maxLuminance = Math.max(maxLuminance, luminance);
+                            }
+                            result.sampleCount += 1;
+                            if (alpha === 0) {
+                                result.transparentPixelCount += 1;
+                            } else if (red >= 248 && green >= 248 && blue >= 248) {
+                                result.whitePixelCount += 1;
+                            } else {
+                                result.nonWhitePixelCount += 1;
+                            }
                         }
                     }
+                    result.likelyBlankWhite =
+                        result.sampleCount > 0 && result.nonWhitePixelCount === 0 && result.transparentPixelCount === 0;
+                    result.luminanceRange = Math.round(maxLuminance - minLuminance);
+                } catch (error) {
+                    result.error = getErrorMessage(error);
                 }
-                result.likelyBlankWhite = result.sampleCount > 0
-                    && result.nonWhitePixelCount === 0
-                    && result.transparentPixelCount === 0;
-                result.luminanceRange = Math.round(maxLuminance - minLuminance);
-            } catch (error) {
-                result.error = getErrorMessage(error);
-            }
 
-            return result;
-        };
+                return result;
+            };
 
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host')
-            ?? Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).find(isVisibleElement)
-            ?? null;
-        const visibleViewers = Array.from(document.querySelectorAll<HTMLElement>('#pdf-viewer')).filter(isVisibleElement);
-        const activeViewer = document.querySelector<HTMLElement>('.editor-pane.is-active #pdf-viewer');
-        const viewer = activeViewer && isVisibleElement(activeViewer)
-            ? activeViewer
-            : (visibleViewers[0] ?? null);
-        const pageContainers = Array.from(viewer?.querySelectorAll<HTMLElement>('.page_container') ?? []);
-        const visiblePages = pageContainers.filter((container) => {
-            const rect = container.getBoundingClientRect();
-            return rect.bottom > 0 && rect.top < window.innerHeight;
-        });
-        const firstPage = pageContainers[0] ?? null;
-        const pagesToSample = Array.from(new Set([
-            firstPage,
-            ...visiblePages,
-        ].flatMap(element => element ? [element] : []))).slice(0, 5);
-        const legacyInitialPageFrame = document.querySelector<HTMLElement>(
-            '[data-evb-initial-visual-placeholder="true"] .pdf-initial-surface-placeholder__page-shell',
-        );
-        const ownedPageFrame = [
-            document.querySelector<HTMLElement>('.document-viewer-chassis__opening-page'),
-            legacyInitialPageFrame,
-            firstPage?.querySelector<HTMLElement>('.page_canvas.canvasWrapper') ?? null,
-        ].find((candidate): candidate is HTMLElement => Boolean(candidate && isVisibleElement(candidate))) ?? null;
+            const activeHost =
+                document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host') ??
+                Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).find(isVisibleElement) ??
+                null;
+            const visibleViewers = Array.from(document.querySelectorAll<HTMLElement>('#pdf-viewer')).filter(isVisibleElement);
+            const activeViewer = document.querySelector<HTMLElement>('.editor-pane.is-active #pdf-viewer');
+            const viewer = activeViewer && isVisibleElement(activeViewer) ? activeViewer : (visibleViewers[0] ?? null);
+            const pageContainers = Array.from(viewer?.querySelectorAll<HTMLElement>('.page_container') ?? []);
+            const visiblePages = pageContainers.filter((container) => {
+                const rect = container.getBoundingClientRect();
+                return rect.bottom > 0 && rect.top < window.innerHeight;
+            });
+            const firstPage = pageContainers[0] ?? null;
+            const pagesToSample = Array.from(new Set([firstPage, ...visiblePages].flatMap((element) => (element ? [element] : [])))).slice(
+                0,
+                5,
+            );
+            const legacyInitialPageFrame = document.querySelector<HTMLElement>(
+                '[data-evb-initial-visual-placeholder="true"] .pdf-initial-surface-placeholder__page-shell',
+            );
+            const ownedPageFrame =
+                [
+                    document.querySelector<HTMLElement>('.document-viewer-chassis__opening-page'),
+                    legacyInitialPageFrame,
+                    firstPage?.querySelector<HTMLElement>('.page_canvas.canvasWrapper') ?? null,
+                ].find((candidate): candidate is HTMLElement => Boolean(candidate && isVisibleElement(candidate))) ?? null;
 
-        return {
-            label: snapshotLabel,
-            sampledAtMs: Date.now() - nodeStartedAtMs,
-            url: window.location.href,
-            openResult: diagnosticWindow.__arnoldDiagnosticOpenResult ?? null,
-            counts: {
-                workspaceHosts: document.querySelectorAll('.workspace-host').length,
-                visibleViewers: visibleViewers.length,
-                pageContainers: pageContainers.length,
-                renderedPages: viewer?.querySelectorAll('.page_container--rendered').length ?? 0,
-                pageSkeletons: viewer?.querySelectorAll('.document-page-skeleton').length ?? 0,
-                visiblePageSkeletons: Array.from(
-                    viewer?.querySelectorAll<HTMLElement>('.document-page-skeleton') ?? [],
-                ).filter(intersectsViewport).length,
-                canvases: viewer?.querySelectorAll('.page_canvas canvas').length ?? 0,
-                textSpans: viewer?.querySelectorAll('.text-layer span, .textLayer span').length ?? 0,
-                loadingStates: document.querySelectorAll('.pdf-loading, .pdf-loading-overlay, [data-loading="true"]').length,
-                errorStates: document.querySelectorAll('.pdf-error, .viewer-error, [data-error="true"]').length,
-                visibleLoadingStates: Array.from(document.querySelectorAll<HTMLElement>(
-                    '.document-loading, .pdf-loading, .pdf-loading-overlay, [data-loading="true"]',
-                )).filter(intersectsViewport).length,
-                visibleOpeningFallbacks: Array.from(document.querySelectorAll<HTMLElement>(
-                    '.workspace-host-document-open-fallback',
-                )).filter(intersectsViewport).length,
-            },
-            workspace: {
-                loadingText: document.querySelector<HTMLElement>('.document-loading, .pdf-loading, .pdf-loading-overlay')?.textContent.trim() ?? null,
-                hostClassName: activeHost?.className ?? null,
-                hostRect: rectSnapshot(activeHost),
-                openingSkeletonRect: rectSnapshot(document.querySelector('.workspace-host-document-open-fallback')),
-            },
-            viewer: {
-                className: viewer?.className ?? null,
-                rect: rectSnapshot(viewer),
-                scrollTop: viewer?.scrollTop ?? null,
-                scrollHeight: viewer?.scrollHeight ?? null,
-                clientHeight: viewer?.clientHeight ?? null,
-                scrollWidth: viewer?.scrollWidth ?? null,
-                clientWidth: viewer?.clientWidth ?? null,
-                computed: styleSnapshot(viewer),
-            },
-            // Opening ownership is independent of whether the debounced
-            // skeleton is currently visible. Measure the chassis/legacy/live
-            // page frame itself and record skeleton presence separately.
-            initialPlaceholderPageRect: rectSnapshot(legacyInitialPageFrame),
-            ownedPageFrameRect: rectSnapshot(ownedPageFrame),
-            ownedPageFrameHasSkeleton: Boolean(ownedPageFrame?.querySelector('.document-page-skeleton')),
-            pages: pagesToSample.map((pageContainer) => {
-                const canvas = pageContainer.querySelector<HTMLCanvasElement>('.page_canvas canvas');
-                const skeleton = pageContainer.querySelector<HTMLElement>('.document-page-skeleton');
-                const pageCanvas = pageContainer.querySelector<HTMLElement>('.page_canvas');
-                return {
-                    page: Number(pageContainer.dataset.page ?? pageContainer.getAttribute('data-page-number') ?? 0),
-                    className: pageContainer.className,
-                    rect: rectSnapshot(pageContainer),
-                    computed: styleSnapshot(pageContainer),
-                    hasRenderedClass: pageContainer.classList.contains('page_container--rendered'),
-                    skeletonRect: rectSnapshot(skeleton),
-                    skeletonComputed: styleSnapshot(skeleton),
-                    pageCanvasRect: rectSnapshot(pageCanvas),
-                    pageCanvasComputed: styleSnapshot(pageCanvas),
-                    canvasCount: pageContainer.querySelectorAll('.page_canvas canvas').length,
-                    canvasIntersectsViewport: canvas ? intersectsViewport(canvas) : false,
-                    textSpanCount: pageContainer.querySelectorAll('.text-layer span, .textLayer span').length,
-                    canvas: sampleVisual(canvas),
-                };
-            }),
-        };
-    }, label, startedAtMs);
+            return {
+                label: snapshotLabel,
+                sampledAtMs: Date.now() - nodeStartedAtMs,
+                url: window.location.href,
+                openResult: diagnosticWindow.__arnoldDiagnosticOpenResult ?? null,
+                counts: {
+                    workspaceHosts: document.querySelectorAll('.workspace-host').length,
+                    visibleViewers: visibleViewers.length,
+                    pageContainers: pageContainers.length,
+                    renderedPages: viewer?.querySelectorAll('.page_container--rendered').length ?? 0,
+                    pageSkeletons: viewer?.querySelectorAll('.document-page-skeleton').length ?? 0,
+                    visiblePageSkeletons: Array.from(viewer?.querySelectorAll<HTMLElement>('.document-page-skeleton') ?? []).filter(
+                        intersectsViewport,
+                    ).length,
+                    canvases: viewer?.querySelectorAll('.page_canvas canvas').length ?? 0,
+                    textSpans: viewer?.querySelectorAll('.text-layer span, .textLayer span').length ?? 0,
+                    loadingStates: document.querySelectorAll('.pdf-loading, .pdf-loading-overlay, [data-loading="true"]').length,
+                    errorStates: document.querySelectorAll('.pdf-error, .viewer-error, [data-error="true"]').length,
+                    visibleLoadingStates: Array.from(
+                        document.querySelectorAll<HTMLElement>(
+                            '.document-loading, .pdf-loading, .pdf-loading-overlay, [data-loading="true"]',
+                        ),
+                    ).filter(intersectsViewport).length,
+                    visibleOpeningFallbacks: Array.from(
+                        document.querySelectorAll<HTMLElement>('.workspace-host-document-open-fallback'),
+                    ).filter(intersectsViewport).length,
+                },
+                workspace: {
+                    loadingText:
+                        document.querySelector<HTMLElement>('.document-loading, .pdf-loading, .pdf-loading-overlay')?.textContent.trim() ??
+                        null,
+                    hostClassName: activeHost?.className ?? null,
+                    hostRect: rectSnapshot(activeHost),
+                    openingSkeletonRect: rectSnapshot(document.querySelector('.workspace-host-document-open-fallback')),
+                },
+                viewer: {
+                    className: viewer?.className ?? null,
+                    rect: rectSnapshot(viewer),
+                    scrollTop: viewer?.scrollTop ?? null,
+                    scrollHeight: viewer?.scrollHeight ?? null,
+                    clientHeight: viewer?.clientHeight ?? null,
+                    scrollWidth: viewer?.scrollWidth ?? null,
+                    clientWidth: viewer?.clientWidth ?? null,
+                    computed: styleSnapshot(viewer),
+                },
+                // Opening ownership is independent of whether the debounced
+                // skeleton is currently visible. Measure the chassis/legacy/live
+                // page frame itself and record skeleton presence separately.
+                initialPlaceholderPageRect: rectSnapshot(legacyInitialPageFrame),
+                ownedPageFrameRect: rectSnapshot(ownedPageFrame),
+                ownedPageFrameHasSkeleton: Boolean(ownedPageFrame?.querySelector('.document-page-skeleton')),
+                pages: pagesToSample.map((pageContainer) => {
+                    const canvas = pageContainer.querySelector<HTMLCanvasElement>('.page_canvas canvas');
+                    const skeleton = pageContainer.querySelector<HTMLElement>('.document-page-skeleton');
+                    const pageCanvas = pageContainer.querySelector<HTMLElement>('.page_canvas');
+                    return {
+                        page: Number(pageContainer.dataset.page ?? pageContainer.getAttribute('data-page-number') ?? 0),
+                        className: pageContainer.className,
+                        rect: rectSnapshot(pageContainer),
+                        computed: styleSnapshot(pageContainer),
+                        hasRenderedClass: pageContainer.classList.contains('page_container--rendered'),
+                        skeletonRect: rectSnapshot(skeleton),
+                        skeletonComputed: styleSnapshot(skeleton),
+                        pageCanvasRect: rectSnapshot(pageCanvas),
+                        pageCanvasComputed: styleSnapshot(pageCanvas),
+                        canvasCount: pageContainer.querySelectorAll('.page_canvas canvas').length,
+                        canvasIntersectsViewport: canvas ? intersectsViewport(canvas) : false,
+                        textSpanCount: pageContainer.querySelectorAll('.text-layer span, .textLayer span').length,
+                        canvas: sampleVisual(canvas),
+                    };
+                }),
+            };
+        },
+        label,
+        startedAtMs,
+    );
     const snapshot = rawSnapshot as TArnoldSnapshotWithoutToolbar;
     const toolbarSampleStartedAtMs = Date.now() - startedAtMs;
     const rawToolbarSnapshot: unknown = await getWorkspaceToolbarSnapshot(page, {requireVisible: true});
@@ -679,9 +662,7 @@ function readSnapshotCanvasNonWhitePixels(snapshot: IArnoldSnapshot) {
         if (!canvas || typeof canvas !== 'object') {
             continue;
         }
-        total += (
-            readFiniteNumber((canvas as Record<string, unknown>).nonWhitePixelCount) ?? 0
-        );
+        total += readFiniteNumber((canvas as Record<string, unknown>).nonWhitePixelCount) ?? 0;
     }
     return total;
 }
@@ -697,40 +678,28 @@ function readSnapshotCanvasLuminanceRange(snapshot: IArnoldSnapshot) {
         if (record.canvasIntersectsViewport !== true || !canvas || typeof canvas !== 'object') {
             continue;
         }
-        maximum = Math.max(
-            maximum,
-            readFiniteNumber((canvas as Record<string, unknown>).luminanceRange) ?? 0,
-        );
+        maximum = Math.max(maximum, readFiniteNumber((canvas as Record<string, unknown>).luminanceRange) ?? 0);
     }
     return maximum;
 }
 
 function hasMeaningfulPagePixels(snapshot: IArnoldSnapshot) {
-    return readSnapshotCanvasNonWhitePixels(snapshot) > 0
-        && readSnapshotCanvasLuminanceRange(snapshot) > 8;
+    return readSnapshotCanvasNonWhitePixels(snapshot) > 0 && readSnapshotCanvasLuminanceRange(snapshot) > 8;
 }
 
 function readSnapshotPageRect(snapshot: IArnoldSnapshot) {
-    const page = snapshot.pages.find(value => (
-        value
-        && typeof value === 'object'
-        && (value as Record<string, unknown>).canvasIntersectsViewport === true
-    ));
-    const rect = page && typeof page === 'object'
-        ? (page as Record<string, unknown>).rect
-        : null;
+    const page = snapshot.pages.find(
+        (value) => value && typeof value === 'object' && (value as Record<string, unknown>).canvasIntersectsViewport === true,
+    );
+    const rect = page && typeof page === 'object' ? (page as Record<string, unknown>).rect : null;
     return readRect(rect);
 }
 
 function readSnapshotCanvasRect(snapshot: IArnoldSnapshot) {
-    const page = snapshot.pages.find(value => (
-        value
-        && typeof value === 'object'
-        && (value as Record<string, unknown>).canvasIntersectsViewport === true
-    ));
-    return readRect(page && typeof page === 'object'
-        ? (page as Record<string, unknown>).pageCanvasRect
-        : null);
+    const page = snapshot.pages.find(
+        (value) => value && typeof value === 'object' && (value as Record<string, unknown>).canvasIntersectsViewport === true,
+    );
+    return readRect(page && typeof page === 'object' ? (page as Record<string, unknown>).pageCanvasRect : null);
 }
 
 function readRect(value: unknown) {
@@ -744,11 +713,11 @@ function readRect(value: unknown) {
     return top === null || width === null || height === null
         ? null
         : {
-            top,
-            width,
-            height,
-            right,
-        };
+              top,
+              width,
+              height,
+              right,
+          };
 }
 
 function readSnapshotRect(snapshot: IArnoldSnapshot, owner: 'host' | 'viewer') {
@@ -779,25 +748,22 @@ function assertArnoldAcceptance(input: {
     scrollResult: Awaited<ReturnType<typeof scrollActiveViewer>>;
     surfaceTrace: Awaited<ReturnType<typeof stopCommittedSurfaceSampler>>;
 }) {
-    const allSnapshots = [
-        ...input.snapshots,
-        input.beforeScroll,
-        input.afterScroll,
-    ];
-    const evidence = () => safeJson({
-        triggerResult: input.triggerResult,
-        snapshots: allSnapshots.map(snapshot => ({
-            label: snapshot.label,
-            sampledAtMs: snapshot.sampledAtMs,
-            counts: snapshot.counts,
-            hostRect: snapshot.workspace.hostRect,
-            viewer: snapshot.viewer,
-            ownedPageFrameRect: snapshot.ownedPageFrameRect,
-            ownedPageFrameHasSkeleton: snapshot.ownedPageFrameHasSkeleton,
-            nonWhitePixels: readSnapshotCanvasNonWhitePixels(snapshot),
-            luminanceRange: readSnapshotCanvasLuminanceRange(snapshot),
-        })),
-    });
+    const allSnapshots = [...input.snapshots, input.beforeScroll, input.afterScroll];
+    const evidence = () =>
+        safeJson({
+            triggerResult: input.triggerResult,
+            snapshots: allSnapshots.map((snapshot) => ({
+                label: snapshot.label,
+                sampledAtMs: snapshot.sampledAtMs,
+                counts: snapshot.counts,
+                hostRect: snapshot.workspace.hostRect,
+                viewer: snapshot.viewer,
+                ownedPageFrameRect: snapshot.ownedPageFrameRect,
+                ownedPageFrameHasSkeleton: snapshot.ownedPageFrameHasSkeleton,
+                nonWhitePixels: readSnapshotCanvasNonWhitePixels(snapshot),
+                luminanceRange: readSnapshotCanvasLuminanceRange(snapshot),
+            })),
+        });
 
     assert.equal(input.triggerResult.status, 'resolved', evidence());
     assert.equal(input.triggerResult.opened, true, evidence());
@@ -805,20 +771,18 @@ function assertArnoldAcceptance(input: {
 
     const firstMeaningfulPixels = input.snapshots.find(hasMeaningfulPagePixels);
     assert.ok(firstMeaningfulPixels, evidence());
-    assert.ok(
-        firstMeaningfulPixels.sampledAtMs <= ARNOLD_FIRST_MEANINGFUL_PIXELS_BUDGET_MS,
-        evidence(),
-    );
+    assert.ok(firstMeaningfulPixels.sampledAtMs <= ARNOLD_FIRST_MEANINGFUL_PIXELS_BUDGET_MS, evidence());
 
-    const firstNonblank = input.snapshots.find(snapshot => (
-        (snapshot.counts.visibleViewers ?? 0) === 1
-        && (snapshot.counts.canvases ?? 0) > 0
-        && readSnapshotCanvasNonWhitePixels(snapshot) > 0
-        && readSnapshotCanvasLuminanceRange(snapshot) > 8
-    ));
+    const firstNonblank = input.snapshots.find(
+        (snapshot) =>
+            (snapshot.counts.visibleViewers ?? 0) === 1 &&
+            (snapshot.counts.canvases ?? 0) > 0 &&
+            readSnapshotCanvasNonWhitePixels(snapshot) > 0 &&
+            readSnapshotCanvasLuminanceRange(snapshot) > 8,
+    );
     assert.ok(firstNonblank, evidence());
 
-    const visuallySettled = allSnapshots.filter(snapshot => snapshot.sampledAtMs >= firstNonblank.sampledAtMs);
+    const visuallySettled = allSnapshots.filter((snapshot) => snapshot.sampledAtMs >= firstNonblank.sampledAtMs);
     assert.ok(visuallySettled.length > 0, evidence());
     for (const snapshot of visuallySettled) {
         assert.equal(snapshot.counts.workspaceHosts, 1, evidence());
@@ -833,19 +797,19 @@ function assertArnoldAcceptance(input: {
     }
 
     const stableHostRects = visuallySettled
-        .map(snapshot => readSnapshotRect(snapshot, 'host'))
+        .map((snapshot) => readSnapshotRect(snapshot, 'host'))
         .filter((value): value is NonNullable<typeof value> => value !== null);
     const stablePageRects = input.snapshots
-        .filter(snapshot => snapshot.sampledAtMs >= firstNonblank.sampledAtMs)
+        .filter((snapshot) => snapshot.sampledAtMs >= firstNonblank.sampledAtMs)
         .map(readSnapshotPageRect)
         .filter((value): value is NonNullable<typeof value> => value !== null);
     const stableCanvasRects = input.snapshots
-        .filter(snapshot => snapshot.sampledAtMs >= firstNonblank.sampledAtMs)
+        .filter((snapshot) => snapshot.sampledAtMs >= firstNonblank.sampledAtMs)
         .map(readSnapshotCanvasRect)
         .filter((value): value is NonNullable<typeof value> => value !== null);
 
     const stableViewerRects = visuallySettled
-        .map(snapshot => readSnapshotRect(snapshot, 'viewer'))
+        .map((snapshot) => readSnapshotRect(snapshot, 'viewer'))
         .filter((value): value is NonNullable<typeof value> => value !== null);
     assert.ok(stableViewerRects.length > 0, evidence());
     const firstViewerRect = stableViewerRects[0];
@@ -855,11 +819,7 @@ function assertArnoldAcceptance(input: {
         assert.ok(Math.abs(rect.width - firstViewerRect.width) <= ARNOLD_SETTLED_GEOMETRY_TOLERANCE_PX, evidence());
         assert.ok(Math.abs(rect.height - firstViewerRect.height) <= ARNOLD_SETTLED_GEOMETRY_TOLERANCE_PX, evidence());
     }
-    for (const rects of [
-        stableHostRects,
-        stablePageRects,
-        stableCanvasRects,
-    ]) {
+    for (const rects of [stableHostRects, stablePageRects, stableCanvasRects]) {
         assert.ok(rects.length > 0, evidence());
         const baseline = rects[0];
         assert.ok(baseline, evidence());
@@ -869,22 +829,15 @@ function assertArnoldAcceptance(input: {
             assert.ok(Math.abs(rect.height - baseline.height) <= ARNOLD_SETTLED_GEOMETRY_TOLERANCE_PX, evidence());
         }
     }
-    const ownedFrameSnapshots = input.snapshots.filter(snapshot => (
-        snapshot.sampledAtMs <= firstNonblank.sampledAtMs
-        && readRect(snapshot.ownedPageFrameRect) !== null
-    ));
+    const ownedFrameSnapshots = input.snapshots.filter(
+        (snapshot) => snapshot.sampledAtMs <= firstNonblank.sampledAtMs && readRect(snapshot.ownedPageFrameRect) !== null,
+    );
     const firstOwnedFrameSnapshot = ownedFrameSnapshots[0];
-    const firstOwnedFrameRect = firstOwnedFrameSnapshot
-        ? readRect(firstOwnedFrameSnapshot.ownedPageFrameRect)
-        : null;
+    const firstOwnedFrameRect = firstOwnedFrameSnapshot ? readRect(firstOwnedFrameSnapshot.ownedPageFrameRect) : null;
     const firstPageRect = readSnapshotPageRect(firstNonblank);
     assert.ok(firstOwnedFrameSnapshot && firstOwnedFrameRect && firstPageRect, evidence());
     const surfaceTiming = summarizeCommittedSurfaceTiming(input.surfaceTrace);
-    assert.ok(
-        surfaceTiming.firstPageShellMs !== null
-        && isArnoldOwnedFrameWithinBudget(surfaceTiming.firstPageShellMs),
-        evidence(),
-    );
+    assert.ok(surfaceTiming.firstPageShellMs !== null && isArnoldOwnedFrameWithinBudget(surfaceTiming.firstPageShellMs), evidence());
     assert.deepEqual(input.surfaceTrace.errors ?? [], [], evidence());
     assert.ok(Math.abs(firstOwnedFrameRect.top - firstPageRect.top) <= ARNOLD_PLACEHOLDER_TRANSITION_TOLERANCE_PX, evidence());
     assert.ok(Math.abs(firstOwnedFrameRect.width - firstPageRect.width) <= ARNOLD_PLACEHOLDER_TRANSITION_TOLERANCE_PX, evidence());
@@ -897,41 +850,42 @@ function assertArnoldAcceptance(input: {
         assert.ok(Math.abs(rect.height - firstOwnedFrameRect.height) <= ARNOLD_SETTLED_GEOMETRY_TOLERANCE_PX, evidence());
     }
 
-    const countTraceEvent = (event: string) => input.renderTrace.filter(entry => entry.event === event).length;
-    const sourceReadyEntries = input.renderTrace.filter(entry => entry.event === 'pdf-open-source-ready');
+    const countTraceEvent = (event: string) => input.renderTrace.filter((entry) => entry.event === event).length;
+    const sourceReadyEntries = input.renderTrace.filter((entry) => entry.event === 'pdf-open-source-ready');
     assert.equal(sourceReadyEntries.length, 1, evidence());
     assert.equal(countTraceEvent('pdf-document-get-document-submit'), 1, evidence());
     assert.equal(countTraceEvent('managed-shapes-import-start'), 1, evidence());
     assert.equal(countTraceEvent('managed-shapes-import-end'), 1, evidence());
-    const firstCanvasIndex = input.renderTrace.findIndex(entry => entry.event === 'renderer-canvas-mounted');
-    const importStartIndex = input.renderTrace.findIndex(entry => entry.event === 'managed-shapes-import-start');
-    const importEndIndex = input.renderTrace.findIndex(entry => entry.event === 'managed-shapes-import-end');
+    const firstCanvasIndex = input.renderTrace.findIndex((entry) => entry.event === 'renderer-canvas-mounted');
+    const importStartIndex = input.renderTrace.findIndex((entry) => entry.event === 'managed-shapes-import-start');
+    const importEndIndex = input.renderTrace.findIndex((entry) => entry.event === 'managed-shapes-import-end');
     assert.ok(firstCanvasIndex >= 0 && importStartIndex > firstCanvasIndex && importEndIndex > importStartIndex, evidence());
     const workingPaths = collectArnoldWorkingCopyPaths(input.renderTrace);
     assert.ok(workingPaths.length > 0, evidence());
     assert.equal(new Set(workingPaths).size, 1, evidence());
     assert.equal(sourceReadyEntries[0]?.payload.path, workingPaths[0], evidence());
-    for (const [
-        index,
-        entry,
-    ] of input.renderTrace.entries()) {
+    for (const [index, entry] of input.renderTrace.entries()) {
         if (entry.event !== 'renderer-canvas-prepare-stale') {
             continue;
         }
-        const recovered = input.renderTrace.slice(index + 1).some(candidate => (
-            candidate.event === 'renderer-finalize-page'
-            && candidate.payload.pageNumber === entry.payload.pageNumber
-        ));
+        const recovered = input.renderTrace
+            .slice(index + 1)
+            .some((candidate) => candidate.event === 'renderer-finalize-page' && candidate.payload.pageNumber === entry.payload.pageNumber);
         assert.equal(recovered, true, evidence());
     }
     assert.equal(input.recentOpenWarnings.length, 0, evidence());
-    const unexpectedConsoleFailures = input.consoleEntries.filter(entry => (
-        entry.type === 'pageerror'
-        || entry.type === 'error'
-        || (entry.type === 'warn' && !isExpectedArnoldDiagnosticWarning(entry.text))
-    ));
+    const unexpectedConsoleFailures = input.consoleEntries.filter(
+        (entry) =>
+            entry.type === 'pageerror' ||
+            entry.type === 'error' ||
+            (entry.type === 'warn' && !isExpectedArnoldDiagnosticWarning(entry.text)),
+    );
     assert.deepEqual(unexpectedConsoleFailures, [], evidence());
-    assert.doesNotMatch(input.mainProcessLog, /(?:uncaught|unhandled promise|fatal|renderer process (?:crashed|gone)|error:)/iu, evidence());
+    assert.doesNotMatch(
+        input.mainProcessLog,
+        /(?:uncaught|unhandled promise|fatal|renderer process (?:crashed|gone)|error:)/iu,
+        evidence(),
+    );
     assert.equal(input.scrollResult.scrolled, true, evidence());
     assert.equal(input.scrollResult.target, 'pdf-viewer', evidence());
     assert.ok(input.scrollResult.afterScrollTop > input.scrollResult.beforeScrollTop, evidence());
@@ -940,9 +894,9 @@ function assertArnoldAcceptance(input: {
     assert.ok(input.highZoom.documentHorizontalOverflow <= 1, evidence());
     assert.ok(input.highZoom.bodyHorizontalOverflow <= 1, evidence());
     assert.ok(
-        input.highZoom.hostRight !== null
-        && input.highZoom.viewerRight !== null
-        && Math.abs(input.highZoom.hostRight - input.highZoom.viewerRight) <= 2,
+        input.highZoom.hostRight !== null &&
+            input.highZoom.viewerRight !== null &&
+            Math.abs(input.highZoom.hostRight - input.highZoom.viewerRight) <= 2,
         evidence(),
     );
 }
@@ -953,10 +907,7 @@ async function scrollActiveViewer(page: Page) {
         const visibleViewer = Array.from(document.querySelectorAll<HTMLElement>('#pdf-viewer')).find((candidate) => {
             const rect = candidate.getBoundingClientRect();
             const style = window.getComputedStyle(candidate);
-            return rect.width > 0
-                && rect.height > 0
-                && style.display !== 'none'
-                && style.visibility !== 'hidden';
+            return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
         });
         const scroller = activeViewer ?? visibleViewer ?? document.scrollingElement;
         if (!scroller) {
@@ -968,7 +919,7 @@ async function scrollActiveViewer(page: Page) {
 
         const beforeScrollTop = scroller.scrollTop;
         scroller.scrollTop = beforeScrollTop + 96;
-        scroller.dispatchEvent(new Event('scroll', { bubbles: true }));
+        scroller.dispatchEvent(new Event('scroll', {bubbles: true}));
         window.dispatchEvent(new Event('scroll'));
         return {
             scrolled: true,
@@ -982,10 +933,13 @@ async function scrollActiveViewer(page: Page) {
 async function collectHighZoomEvidence(page: Page): Promise<IHighZoomEvidence> {
     const zoomResult = await callWorkspaceCommand(page, 'setCustomZoomFromDisplay', [ARNOLD_HIGH_ZOOM]);
     assert.equal(zoomResult.called, true);
-    await page.waitForFunction(() => {
-        const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active #pdf-viewer');
-        return Boolean(viewer && viewer.scrollWidth > viewer.clientWidth + 20);
-    }, {timeout: 10_000});
+    await page.waitForFunction(
+        () => {
+            const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active #pdf-viewer');
+            return Boolean(viewer && viewer.scrollWidth > viewer.clientWidth + 20);
+        },
+        {timeout: 10_000},
+    );
     return evaluateInPage(page, () => {
         const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active #pdf-viewer');
         const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
@@ -995,17 +949,11 @@ async function collectHighZoomEvidence(page: Page): Promise<IHighZoomEvidence> {
         const viewerRect = viewer.getBoundingClientRect();
         const hostRect = host?.getBoundingClientRect() ?? null;
         const viewerScrollLeftBefore = viewer.scrollLeft;
-        viewer.scrollLeft = Math.min(
-            viewer.scrollWidth - viewer.clientWidth,
-            viewerScrollLeftBefore + 96,
-        );
+        viewer.scrollLeft = Math.min(viewer.scrollWidth - viewer.clientWidth, viewerScrollLeftBefore + 96);
         viewer.dispatchEvent(new Event('scroll', {bubbles: true}));
         return {
             bodyHorizontalOverflow: Math.max(0, document.body.scrollWidth - document.body.clientWidth),
-            documentHorizontalOverflow: Math.max(
-                0,
-                document.documentElement.scrollWidth - document.documentElement.clientWidth,
-            ),
+            documentHorizontalOverflow: Math.max(0, document.documentElement.scrollWidth - document.documentElement.clientWidth),
             hostRight: hostRect?.right ?? null,
             viewerRight: viewerRect.right,
             viewerHorizontalOverflow: viewer.scrollWidth - viewer.clientWidth,
@@ -1037,17 +985,9 @@ export const arnoldPdfOpenScenario = {
     },
     skipDefaultOpen: true,
     prepare: (context: IPdfDiagnosticsContext) => installConsoleCollector(context.page),
-    afterDiagnosticsEnabled: async (context: IPdfDiagnosticsContext) => (
-        promoteDiagnosticConsoleWarnings(context.page)
-    ),
-    run: async (
-        context: IPdfDiagnosticsContext,
-        consoleCollector: IConsoleCollector,
-    ) => {
-        const {
-            page,
-            session,
-        } = context;
+    afterDiagnosticsEnabled: async (context: IPdfDiagnosticsContext) => promoteDiagnosticConsoleWarnings(context.page),
+    run: async (context: IPdfDiagnosticsContext, consoleCollector: IConsoleCollector) => {
+        const {page, session} = context;
         await waitForStableWorkspace(page);
         await installCommittedSurfaceSampler(page);
         const diagnosticStartedAtMs = Date.now();
@@ -1057,10 +997,8 @@ export const arnoldPdfOpenScenario = {
             startedAtMs: diagnosticStartedAtMs,
         };
         const openPromise = openPathDirectWithRetry(page, TARGET_PDF_PATH, openProgress);
-        const snapshots = await context.sampling.atOffsets(
-            diagnosticStartedAtMs,
-            SAMPLE_OFFSETS_MS,
-            offsetMs => collectOpenSnapshot(page, `open+${offsetMs}ms`, diagnosticStartedAtMs),
+        const snapshots = await context.sampling.atOffsets(diagnosticStartedAtMs, SAMPLE_OFFSETS_MS, (offsetMs) =>
+            collectOpenSnapshot(page, `open+${offsetMs}ms`, diagnosticStartedAtMs),
         );
         const triggerResult = await openPromise;
         const beforeScroll = await collectOpenSnapshot(page, 'before-scroll', diagnosticStartedAtMs);
@@ -1077,17 +1015,11 @@ export const arnoldPdfOpenScenario = {
         // Renderer diagnostics are also emitted to the console. Use that independent
         // channel only if a dev reload or execution-context replacement orphaned the
         // window-scoped reader installed at session start.
-        const navLog = bufferedNavLog.length > 0
-            ? bufferedNavLog
-            : collectArnoldConsoleNavLog(consoleEntries);
-        const renderTrace = bufferedRenderTrace.length > 0
-            ? bufferedRenderTrace
-            : collectArnoldConsoleRenderTrace(consoleEntries);
+        const navLog = bufferedNavLog.length > 0 ? bufferedNavLog : collectArnoldConsoleNavLog(consoleEntries);
+        const renderTrace = bufferedRenderTrace.length > 0 ? bufferedRenderTrace : collectArnoldConsoleRenderTrace(consoleEntries);
         const mainProcessLog = readMainProcessLog(session.name);
 
-        const recentOpenWarnings = consoleEntries.filter(
-            entry => entry.text.includes('Document open visual settle timed out'),
-        );
+        const recentOpenWarnings = consoleEntries.filter((entry) => entry.text.includes('Document open visual settle timed out'));
         const diagnostic = {
             pdfPath: TARGET_PDF_PATH,
             capturedAt: new Date().toISOString(),
@@ -1106,16 +1038,13 @@ export const arnoldPdfOpenScenario = {
             consoleEntries,
             mainProcessLog,
             recentOpenWarnings,
-            renderTracePageOne: renderTrace.filter(entry => {
+            renderTracePageOne: renderTrace.filter((entry) => {
                 const pageNumber = entry.payload.pageNumber ?? entry.payload.page;
                 return pageNumber === 1;
             }),
         };
         context.artifacts.writeJson(DIAGNOSTIC_OUTPUT_PATH, diagnostic);
-        context.artifacts.writeText(
-            CONSOLE_OUTPUT_PATH,
-            `${consoleEntries.map(formatConsoleEntry).join('\n')}\n`,
-        );
+        context.artifacts.writeText(CONSOLE_OUTPUT_PATH, `${consoleEntries.map(formatConsoleEntry).join('\n')}\n`);
 
         assertArnoldAcceptance({
             triggerResult,
@@ -1133,12 +1062,9 @@ export const arnoldPdfOpenScenario = {
         assert.equal(existsSync(DIAGNOSTIC_OUTPUT_PATH), true);
         assert.equal(existsSync(CONSOLE_OUTPUT_PATH), true);
     },
-    cleanup: async (
-        context: IPdfDiagnosticsContext,
-        consoleCollector: IConsoleCollector,
-    ) => {
+    cleanup: async (context: IPdfDiagnosticsContext, consoleCollector: IConsoleCollector) => {
         await evaluateInPage(context.page, () => {
-            delete (window as Window & {__diagnosticWarnAsWarn?: boolean;}).__diagnosticWarnAsWarn;
+            delete (window as Window & {__diagnosticWarnAsWarn?: boolean}).__diagnosticWarnAsWarn;
         }).catch(() => {});
         await stopCommittedSurfaceSampler(context.page).catch(() => ({
             errors: [],
@@ -1148,9 +1074,7 @@ export const arnoldPdfOpenScenario = {
     },
 };
 
-export const runArnoldPdfOpenDiagnostics = () => (
-    runPdfDiagnosticScenario(arnoldPdfOpenScenario)
-);
+export const runArnoldPdfOpenDiagnostics = () => runPdfDiagnosticScenario(arnoldPdfOpenScenario);
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
     await runArnoldPdfOpenDiagnostics().catch((error: unknown) => {

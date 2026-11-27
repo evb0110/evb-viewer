@@ -1,9 +1,6 @@
-import type { TMenuEventUnsubscribe } from '@contracts/electronApiCommon';
-import type {
-    IApplicationMenuDocumentState,
-    IDocumentsMenuCapability,
-} from '@contracts/electronApiDocuments';
-import type { IWindowTabsCapability } from '@contracts/windowTabsPlatformFeature';
+import type {TMenuEventUnsubscribe} from '@contracts/electronApiCommon';
+import type {IApplicationMenuDocumentState, IDocumentsMenuCapability} from '@contracts/electronApiDocuments';
+import type {IWindowTabsCapability} from '@contracts/windowTabsPlatformFeature';
 
 // The browser's application menu. Desktop's native menu sends its commands to
 // the renderer on platform menu events and is drawn from the document state the
@@ -13,7 +10,9 @@ import type { IWindowTabsCapability } from '@contracts/windowTabsPlatformFeature
 // A menu event without a payload is a no-argument callback in the capability
 // and an undefined payload in the platform contract; both take this shape.
 type TMenuCallbackArgs<TRegister> = TRegister extends (callback: (...args: infer TArgs) => void) => unknown
-    ? TArgs extends [] | [undefined] ? [payload?: undefined] : TArgs
+    ? TArgs extends [] | [undefined]
+        ? [payload?: undefined]
+        : TArgs
     : never;
 type TDocumentMenuEventName = Extract<keyof IDocumentsMenuCapability, `onMenu${string}`>;
 type TWindowTabsMenuEventName = Extract<keyof IWindowTabsCapability, `onMenu${string}`>;
@@ -43,22 +42,20 @@ export function subscribeBrowserMenuEvent<TName extends TBrowserMenuEventName>(n
     };
 }
 
-export function dispatchBrowserMenuEvent<TName extends TBrowserMenuEventName>(
-    name: TName,
-    ...args: TBrowserMenuEventArgs[TName]
-) {
-    for (const listener of [...menuEventListeners.get(name) ?? []]) {
+export function dispatchBrowserMenuEvent<TName extends TBrowserMenuEventName>(name: TName, ...args: TBrowserMenuEventArgs[TName]) {
+    for (const listener of [...(menuEventListeners.get(name) ?? [])]) {
         (listener as TBrowserMenuListener<TName>)(...args);
     }
 }
 
 export function setBrowserMenuDocumentState(state: boolean | IApplicationMenuDocumentState) {
-    menuDocumentState = typeof state === 'boolean'
-        ? {
-            hasDocument: state,
-            canSave: state,
-        }
-        : state;
+    menuDocumentState =
+        typeof state === 'boolean'
+            ? {
+                  hasDocument: state,
+                  canSave: state,
+              }
+            : state;
     for (const listener of [...menuDocumentStateListeners]) {
         listener(menuDocumentState);
     }

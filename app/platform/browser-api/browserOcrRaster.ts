@@ -1,7 +1,4 @@
-import type {
-    IPdfOperatorList,
-    IPdfPage,
-} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import type {IPdfOperatorList, IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import pdfjsRuntime, {AnnotationMode} from '@app/services/pdfjs/runtimeLib';
 import {renderBrowserPdfRaster} from '@app/platform/browser-api/browserPdfRaster';
 import {
@@ -23,7 +20,9 @@ interface IPageImage {
 }
 
 /** Transfer painted tiles; workers perform readback and RGB packing. */
-export interface IBrowserOcrRaster {image: TBrowserOcrEngineRequest['payload']['image']}
+export interface IBrowserOcrRaster {
+    image: TBrowserOcrEngineRequest['payload']['image'];
+}
 
 export class BrowserOcrRasterTooLargeError extends Error {
     public constructor(width: number, height: number, maxPixels = BROWSER_OCR_MAX_RASTER_PIXELS) {
@@ -44,21 +43,23 @@ function multiply(left: TMatrix, right: TMatrix): TMatrix {
 }
 
 function isMatrix(value: unknown): value is TMatrix {
-    return Array.isArray(value) && value.length === 6 && value.every(entry => typeof entry === 'number' && Number.isFinite(entry));
+    return Array.isArray(value) && value.length === 6 && value.every((entry) => typeof entry === 'number' && Number.isFinite(entry));
 }
 
 function imageSize(value: unknown) {
-    if (typeof value !== 'object' || value === null) {return null;}
-    const {
-        width, height,
-    } = value as {
+    if (typeof value !== 'object' || value === null) {
+        return null;
+    }
+    const {width, height} = value as {
         width?: unknown;
-        height?: unknown
+        height?: unknown;
     };
-    return typeof width === 'number' && typeof height === 'number' ? {
-        width,
-        height,
-    } : null;
+    return typeof width === 'number' && typeof height === 'number'
+        ? {
+              width,
+              height,
+          }
+        : null;
 }
 
 /**
@@ -69,25 +70,23 @@ function readPageImages(operatorList: IPdfOperatorList) {
     const {OPS} = pdfjsRuntime;
     const images: IPageImage[] = [];
     const stack: TMatrix[] = [];
-    let ctm: TMatrix = [
-        1,
-        0,
-        0,
-        1,
-        0,
-        0,
-    ];
-    const record = (size: {
-        width: number;
-        height: number
-    } | null, mask: boolean) => {
+    let ctm: TMatrix = [1, 0, 0, 1, 0, 0];
+    const record = (
+        size: {
+            width: number;
+            height: number;
+        } | null,
+        mask: boolean,
+    ) => {
         const scaleX = Math.hypot(ctm[0], ctm[1]);
         const scaleY = Math.hypot(ctm[2], ctm[3]);
-        if (!size || size.width <= 0 || size.height <= 0 || scaleX <= 0 || scaleY <= 0) {return;}
+        if (!size || size.width <= 0 || size.height <= 0 || scaleX <= 0 || scaleY <= 0) {
+            return;
+        }
         images.push({
             width: size.width,
             height: size.height,
-            dpi: Math.round(Math.max(size.width * 72 / scaleX, size.height * 72 / scaleY)),
+            dpi: Math.round(Math.max((size.width * 72) / scaleX, (size.height * 72) / scaleY)),
             mask,
         });
     };
@@ -101,20 +100,29 @@ function readPageImages(operatorList: IPdfOperatorList) {
                 ctm = stack.pop() ?? ctm;
                 break;
             case OPS.transform:
-                if (isMatrix(args)) {ctm = multiply(ctm, args);}
+                if (isMatrix(args)) {
+                    ctm = multiply(ctm, args);
+                }
                 break;
             case OPS.paintFormXObjectBegin:
                 stack.push(ctm);
-                if (isMatrix(args[0])) {ctm = multiply(ctm, args[0]);}
+                if (isMatrix(args[0])) {
+                    ctm = multiply(ctm, args[0]);
+                }
                 break;
             case OPS.paintFormXObjectEnd:
                 ctm = stack.pop() ?? ctm;
                 break;
             case OPS.paintImageXObject:
-                record(typeof args[1] === 'number' && typeof args[2] === 'number' ? {
-                    width: args[1],
-                    height: args[2],
-                } : null, false);
+                record(
+                    typeof args[1] === 'number' && typeof args[2] === 'number'
+                        ? {
+                              width: args[1],
+                              height: args[2],
+                          }
+                        : null,
+                    false,
+                );
                 break;
             case OPS.paintInlineImageXObject:
                 record(imageSize(args[0]), false);
@@ -135,13 +143,11 @@ function readPageImages(operatorList: IPdfOperatorList) {
 export function readPageSourceDpi(operatorList: IPdfOperatorList) {
     const images = readPageImages(operatorList);
     const area = (image: IPageImage) => image.width * image.height;
-    const dominant = images
-        .filter(image => !image.mask)
-        .sort((left, right) => area(right) - area(left) || right.dpi - left.dpi)[0];
-    if (!dominant) {return undefined;}
-    const mask = images
-        .filter(image => image.mask)
-        .sort((left, right) => area(right) - area(left) || right.dpi - left.dpi)[0];
+    const dominant = images.filter((image) => !image.mask).sort((left, right) => area(right) - area(left) || right.dpi - left.dpi)[0];
+    if (!dominant) {
+        return undefined;
+    }
+    const mask = images.filter((image) => image.mask).sort((left, right) => area(right) - area(left) || right.dpi - left.dpi)[0];
     return mask && area(mask) >= area(dominant) * 0.95 && mask.dpi > dominant.dpi ? mask.dpi : dominant.dpi;
 }
 

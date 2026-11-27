@@ -20,8 +20,5 @@ export function normalizeAnnotationSubtypeToken(subtype: string | null | undefin
 }
 
 export function normalizeComparableText(value: string | null | undefined) {
-    return (value ?? '')
-        .trim()
-        .replace(/\s+/g, ' ')
-        .toLowerCase();
+    return (value ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
 }

@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {
     captureDocumentZoomAnchor,
     resolveDocumentZoomAnchorScroll,
@@ -34,18 +30,22 @@ describe('document zoom anchor', () => {
             yRatio: 0.784,
         });
 
-        const restored = resolveDocumentZoomAnchorScroll(viewport, [
-            {
-                top: 16,
-                width: 800,
-                height: 2_000,
-            },
-            {
-                top: 2_032,
-                width: 800,
-                height: 2_000,
-            },
-        ], anchor);
+        const restored = resolveDocumentZoomAnchorScroll(
+            viewport,
+            [
+                {
+                    top: 16,
+                    width: 800,
+                    height: 2_000,
+                },
+                {
+                    top: 2_032,
+                    width: 800,
+                    height: 2_000,
+                },
+            ],
+            anchor,
+        );
         expect(restored).toEqual({
             left: 150,
             top: 1_384,
@@ -55,11 +55,13 @@ describe('document zoom anchor', () => {
     });
 
     it('retains a latent anchor when a narrow viewport clamps its scroll', () => {
-        const layouts = [{
-            top: 20,
-            width: 300,
-            height: 400,
-        }];
+        const layouts = [
+            {
+                top: 20,
+                width: 300,
+                height: 400,
+            },
+        ];
         const retained = {
             pageIndex: 0,
             xRatio: 0.5,
@@ -87,15 +89,21 @@ describe('document zoom anchor', () => {
             scrollLeft: 500,
             scrollTop: 600,
         };
-        const anchor = captureDocumentZoomAnchor(viewport, [{
-            left: 300,
-            top: 16,
-            width: 400,
-            height: 1_000,
-        }], {
-            x: 100,
-            y: 100,
-        });
+        const anchor = captureDocumentZoomAnchor(
+            viewport,
+            [
+                {
+                    left: 300,
+                    top: 16,
+                    width: 400,
+                    height: 1_000,
+                },
+            ],
+            {
+                x: 100,
+                y: 100,
+            },
+        );
 
         expect(anchor).toMatchObject({
             pageIndex: 0,
@@ -107,12 +115,20 @@ describe('document zoom anchor', () => {
             yRatio: 0.684,
         });
         viewport.clientHeight = 388;
-        expect(resolveDocumentZoomAnchorScroll(viewport, [{
-            left: 600,
-            top: 16,
-            width: 800,
-            height: 2_000,
-        }], anchor)).toEqual({
+        expect(
+            resolveDocumentZoomAnchorScroll(
+                viewport,
+                [
+                    {
+                        left: 600,
+                        top: 16,
+                        width: 800,
+                        height: 2_000,
+                    },
+                ],
+                anchor,
+            ),
+        ).toEqual({
             left: 1_100,
             top: 1_284,
         });
@@ -125,24 +141,38 @@ describe('document zoom anchor', () => {
             scrollLeft: 500,
             scrollTop: 600,
         };
-        const anchor = captureDocumentZoomAnchor(viewport, [{
-            left: 300,
-            top: 16,
-            width: 400,
-            height: 1_000,
-        }], {
-            x: 480,
-            y: 390,
-        });
+        const anchor = captureDocumentZoomAnchor(
+            viewport,
+            [
+                {
+                    left: 300,
+                    top: 16,
+                    width: 400,
+                    height: 1_000,
+                },
+            ],
+            {
+                x: 480,
+                y: 390,
+            },
+        );
         viewport.clientWidth = 300;
         viewport.clientHeight = 200;
 
-        expect(resolveDocumentZoomAnchorScroll(viewport, [{
-            left: 600,
-            top: 16,
-            width: 800,
-            height: 2_000,
-        }], anchor)).toEqual({
+        expect(
+            resolveDocumentZoomAnchorScroll(
+                viewport,
+                [
+                    {
+                        left: 600,
+                        top: 16,
+                        width: 800,
+                        height: 2_000,
+                    },
+                ],
+                anchor,
+            ),
+        ).toEqual({
             left: 1_660,
             top: 1_764,
         });
@@ -155,23 +185,28 @@ describe('document zoom anchor', () => {
             scrollLeft: 0,
             scrollTop: 0,
         };
-        const anchor = captureDocumentZoomAnchor(viewport, [
+        const anchor = captureDocumentZoomAnchor(
+            viewport,
+            [
+                {
+                    left: 50,
+                    top: 16,
+                    width: 400,
+                    height: 1_000,
+                },
+                {
+                    left: 20,
+                    top: 16,
+                    width: 800,
+                    height: 2_000,
+                },
+            ],
             {
-                left: 50,
-                top: 16,
-                width: 400,
-                height: 1_000,
+                x: 100,
+                y: 100,
             },
-            {
-                left: 20,
-                top: 16,
-                width: 800,
-                height: 2_000,
-            },
-        ], {
-            x: 100,
-            y: 100,
-        }, 1);
+            1,
+        );
 
         expect(anchor).toMatchObject({
             pageIndex: 1,
@@ -187,23 +222,37 @@ describe('document zoom anchor', () => {
             scrollLeft: 0,
             scrollTop: 0,
         };
-        const anchor = captureDocumentZoomAnchor(viewport, [{
-            left: 300,
-            top: 16,
-            width: 400,
-            height: 1_000,
-        }], {
-            x: 100,
-            y: 100,
-        });
+        const anchor = captureDocumentZoomAnchor(
+            viewport,
+            [
+                {
+                    left: 300,
+                    top: 16,
+                    width: 400,
+                    height: 1_000,
+                },
+            ],
+            {
+                x: 100,
+                y: 100,
+            },
+        );
 
         expect(anchor?.xRatio).toBe(-0.5);
-        expect(resolveDocumentZoomAnchorScroll(viewport, [{
-            left: 600,
-            top: 16,
-            width: 800,
-            height: 2_000,
-        }], anchor)).toEqual({
+        expect(
+            resolveDocumentZoomAnchorScroll(
+                viewport,
+                [
+                    {
+                        left: 600,
+                        top: 16,
+                        width: 800,
+                        height: 2_000,
+                    },
+                ],
+                anchor,
+            ),
+        ).toEqual({
             left: 100,
             top: 84,
         });
@@ -211,10 +260,13 @@ describe('document zoom anchor', () => {
 
     it('anchors on the same page as a full scan in continuous single-column and facing layouts', () => {
         // The nearest page by a full scan: first page with the least distance.
-        const scanNearest = (layouts: ReadonlyArray<{
-            top: number;
-            height: number
-        }>, y: number) => {
+        const scanNearest = (
+            layouts: ReadonlyArray<{
+                top: number;
+                height: number;
+            }>,
+            y: number,
+        ) => {
             let best = 0;
             let bestDistance = Number.POSITIVE_INFINITY;
             layouts.forEach((layout, index) => {
@@ -240,27 +292,26 @@ describe('document zoom anchor', () => {
                 top: number;
                 height: number;
                 width: number;
-                left: number
+                left: number;
             }> = [];
             let top = 0;
             const pageCount = 1 + Math.floor(random() * 40);
             for (let index = 0; index < pageCount; index += facing ? 2 : 1) {
-                const heights = [
-                    200 + Math.floor(random() * 400),
-                    200 + Math.floor(random() * 400),
-                ];
+                const heights = [200 + Math.floor(random() * 400), 200 + Math.floor(random() * 400)];
                 layouts.push({
                     top,
                     height: heights[0]!,
                     width: 300,
                     left: 0,
                 });
-                if (facing && index + 1 < pageCount) {layouts.push({
-                    top,
-                    height: heights[1]!,
-                    width: 300,
-                    left: 320,
-                });}
+                if (facing && index + 1 < pageCount) {
+                    layouts.push({
+                        top,
+                        height: heights[1]!,
+                        width: 300,
+                        left: 320,
+                    });
+                }
                 top += Math.max(heights[0]!, facing ? heights[1]! : 0) + gap;
             }
             for (let probe = 0; probe < 20; probe += 1) {
@@ -271,8 +322,9 @@ describe('document zoom anchor', () => {
                     scrollLeft: 0,
                     scrollTop,
                 };
-                expect(captureDocumentZoomAnchor(container, layouts)?.pageIndex, `trial ${trial} y ${scrollTop}`)
-                    .toBe(scanNearest(layouts, scrollTop));
+                expect(captureDocumentZoomAnchor(container, layouts)?.pageIndex, `trial ${trial} y ${scrollTop}`).toBe(
+                    scanNearest(layouts, scrollTop),
+                );
             }
         }
     });

@@ -1,14 +1,7 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {AnnotationApplication} from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import type {AnnotationStore} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
-import {
-    asAnnotationId,
-    type AnnotationEntity,
-} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {asAnnotationId, type AnnotationEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {normalizePdfNativeMutationSet} from '@contracts/nativePdfMutations';
 import {buildNativeMarkupMutationForSave} from '@app/modules/pdf-viewer/annotations/persistence/nativeMarkupProjection';
@@ -35,97 +28,109 @@ function entity(kind: AnnotationEntity['kind']): AnnotationEntity {
         modifiedAt: null,
     };
     switch (kind) {
-        case 'note': return {
-            ...base,
-            kind,
-            contents: 'initial',
-            position: rect,
-            color: '#ffff00',
-            open: false,
-        };
-        case 'text-box': return {
-            ...base,
-            kind,
-            text: 'initial',
-            rect,
-            rotation: 0,
-            fontSize: 12,
-            color: '#000000',
-        };
-        case 'text-markup': return {
-            ...base,
-            kind,
-            contents: 'initial',
-            quadPoints: [rect],
-            subtype: 'Highlight',
-            color: '#ffff00',
-            opacity: 1,
-        };
-        case 'shape': return {
-            ...base,
-            kind,
-            tool: 'rectangle',
-            rect,
-            strokeColor: '#000000',
-            strokeWidth: 2,
-            fill: null,
-            opacity: 1,
-        };
-        case 'placed-image': return {
-            ...base,
-            kind,
-            rect,
-            rotation: 0,
-            image: {
-                objectNumber: 12,
-                generationNumber: 0,
-                byteLength: 20,
-                sha256: 'a'.repeat(64),
-            },
-        };
+        case 'note':
+            return {
+                ...base,
+                kind,
+                contents: 'initial',
+                position: rect,
+                color: '#ffff00',
+                open: false,
+            };
+        case 'text-box':
+            return {
+                ...base,
+                kind,
+                text: 'initial',
+                rect,
+                rotation: 0,
+                fontSize: 12,
+                color: '#000000',
+            };
+        case 'text-markup':
+            return {
+                ...base,
+                kind,
+                contents: 'initial',
+                quadPoints: [rect],
+                subtype: 'Highlight',
+                color: '#ffff00',
+                opacity: 1,
+            };
+        case 'shape':
+            return {
+                ...base,
+                kind,
+                tool: 'rectangle',
+                rect,
+                strokeColor: '#000000',
+                strokeWidth: 2,
+                fill: null,
+                opacity: 1,
+            };
+        case 'placed-image':
+            return {
+                ...base,
+                kind,
+                rect,
+                rotation: 0,
+                image: {
+                    objectNumber: 12,
+                    generationNumber: 0,
+                    byteLength: 20,
+                    sha256: 'a'.repeat(64),
+                },
+            };
     }
 }
 function edit(store: AnnotationStore, original: AnnotationEntity, step: number) {
     const id = original.identity.id;
     switch (original.kind) {
-        case 'note': return store.updateNote(id, {contents: `edit-${step}`});
-        case 'text-box': return store.updateTextBox(id, {text: `edit-${step}`});
-        case 'text-markup': return store.updateTextMarkup(id, {contents: `edit-${step}`});
-        case 'shape': return store.updateShape(id, {strokeWidth: step + 2});
-        case 'placed-image': return store.updatePlacedImage(id, {rect: {
-            ...rect,
-            left: 0.2 + step / 10,
-        }});
+        case 'note':
+            return store.updateNote(id, {contents: `edit-${step}`});
+        case 'text-box':
+            return store.updateTextBox(id, {text: `edit-${step}`});
+        case 'text-markup':
+            return store.updateTextMarkup(id, {contents: `edit-${step}`});
+        case 'shape':
+            return store.updateShape(id, {strokeWidth: step + 2});
+        case 'placed-image':
+            return store.updatePlacedImage(id, {
+                rect: {
+                    ...rect,
+                    left: 0.2 + step / 10,
+                },
+            });
     }
 }
 /** The production lifecycle acknowledges bindings, then parses the committed file. */
 function commitAndReparse(app: AnnotationApplication) {
     const session = app.beginSave();
-    const parsed = session.plan.entities.filter(entry => !entry.deleted).map(entry => ({
-        ...entry,
-        identity: {
-            ...entry.identity,
-            pdfRef: entry.identity.pdfRef ?? '20 0 R',
-        },
-        revision: 0,
-        persistedRevision: 0,
-    }));
-    app.acknowledgeSave(session, null, parsed.map(entry => ({
-        annotationId: entry.identity.id,
-        pdfRef: entry.identity.pdfRef,
-    })));
+    const parsed = session.plan.entities
+        .filter((entry) => !entry.deleted)
+        .map((entry) => ({
+            ...entry,
+            identity: {
+                ...entry.identity,
+                pdfRef: entry.identity.pdfRef ?? '20 0 R',
+            },
+            revision: 0,
+            persistedRevision: 0,
+        }));
+    app.acknowledgeSave(
+        session,
+        null,
+        parsed.map((entry) => ({
+            annotationId: entry.identity.id,
+            pdfRef: entry.identity.pdfRef,
+        })),
+    );
     app.store.replaceFromDocument(parsed, []);
     return session.plan;
 }
-const kinds: Array<AnnotationEntity['kind']> = [
-    'note',
-    'text-box',
-    'text-markup',
-    'shape',
-    'placed-image',
-];
+const kinds: Array<AnnotationEntity['kind']> = ['note', 'text-box', 'text-markup', 'shape', 'placed-image'];
 
-describe.each(kinds)('%s saved history lifecycle', kind => {
+describe.each(kinds)('%s saved history lifecycle', (kind) => {
     it('saves undo and a divergent edit after acknowledgement and committed reparse', () => {
         const app = new AnnotationApplication('saved-history');
         const original = entity(kind);
@@ -182,12 +187,13 @@ describe.each(kinds)('%s saved history lifecycle', kind => {
     });
 });
 
-
 describe('saved markup author history', () => {
     it('keeps authored markup clean after projection, transport, acknowledge, reparse, undo and redo', () => {
         const app = new AnnotationApplication('author-history');
         const original = entity('text-markup');
-        if (original.kind !== 'text-markup') {throw new Error('Expected markup');}
+        if (original.kind !== 'text-markup') {
+            throw new Error('Expected markup');
+        }
         const created = app.store.createTextMarkup({
             ...original,
             identity: {id: original.identity.id},
@@ -207,25 +213,32 @@ describe('saved markup author history', () => {
         expect(hint.author).toBe(created.author);
         expect(hint.color).toBe('#ffd400');
         expect(hint.opacity).toBe(0.35);
-        app.acknowledgeSave(save, null, [{
-            annotationId: created.identity.id,
-            pdfRef: '20 0 R',
-        }]);
-        app.store.replaceFromDocument([mapPdfAnnotationParseEntity({
-            kind: 'highlight',
-            name: created.identity.id,
-            objectNumber: 20,
-            generationNumber: 0,
-            pageIndex: created.pageIndex,
-            createdAt: null,
-            modifiedAt: null,
-            author: hint.author ?? null,
-            subtype: created.subtype,
-            contents: hint.contents ?? '',
-            quadPoints: hint.markupGeometry ?? [hint.markerRect],
-            color: hint.color ?? '#ffff00',
-            opacity: hint.opacity ?? 1,
-        })], []);
+        app.acknowledgeSave(save, null, [
+            {
+                annotationId: created.identity.id,
+                pdfRef: '20 0 R',
+            },
+        ]);
+        app.store.replaceFromDocument(
+            [
+                mapPdfAnnotationParseEntity({
+                    kind: 'highlight',
+                    name: created.identity.id,
+                    objectNumber: 20,
+                    generationNumber: 0,
+                    pageIndex: created.pageIndex,
+                    createdAt: null,
+                    modifiedAt: null,
+                    author: hint.author ?? null,
+                    subtype: created.subtype,
+                    contents: hint.contents ?? '',
+                    quadPoints: hint.markupGeometry ?? [hint.markerRect],
+                    color: hint.color ?? '#ffff00',
+                    opacity: hint.opacity ?? 1,
+                }),
+            ],
+            [],
+        );
         expect(app.store.hasChangesSinceSavedBaseline()).toBe(false);
         expect(app.store.undo()).toBe(true);
         expect(app.store.hasChangesSinceSavedBaseline()).toBe(true);

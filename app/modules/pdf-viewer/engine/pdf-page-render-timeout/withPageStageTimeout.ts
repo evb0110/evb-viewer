@@ -1,11 +1,11 @@
-import { getErrorMessage } from '@app/utils/error';
-import { createPageRenderTimeoutError } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/createPageRenderTimeoutError';
-import type { IPageRenderStallPayload } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
+import {getErrorMessage} from '@app/utils/error';
+import {createPageRenderTimeoutError} from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/createPageRenderTimeoutError';
+import type {IPageRenderStallPayload} from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
 import {
     createPdfRenderSupervisor,
     type IPdfRenderSupervisor,
 } from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
-import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
+import {logPdfRenderTrace} from '@app/utils/pdfRenderTrace';
 
 const defaultPdfPageStageRenderSupervisor = createPdfRenderSupervisor();
 let pageStageTimeoutSequence = 0;
@@ -57,41 +57,38 @@ export function armPageStageDeadline(options: IArmPageStageDeadlineOptions) {
     };
     globalThis.document?.addEventListener('visibilitychange', restartWhenShown);
     const stopWatchingVisibility = () => globalThis.document?.removeEventListener('visibilitychange', restartWhenShown);
-    const arm = () => options.renderSupervisor.armTimer({
-        cause: 'page-stage-timeout',
-        delayMs: options.payload.timeoutMs,
-        key: options.key,
-        metadata: {
-            ...options.metadata,
-            pageNumber: options.payload.pageNumber,
-            stage: options.payload.stage,
-            timeoutMs: options.payload.timeoutMs,
-        },
-        onFire: () => {
-            if (globalThis.document?.visibilityState === 'hidden') {
-                return;
-            }
-            fired = true;
-            stopWatchingVisibility();
-            rejectDeadline(createPageRenderTimeoutError(
-                options.payload.pageNumber,
-                options.payload.stage,
-                options.payload.timeoutMs,
-            ));
-            try {
-                options.onTimeout?.();
-            } catch (error) {
-                logPageStageDeadlineCallbackFailure('on-timeout', error, options);
-            }
-            try {
-                if (options.shouldNotify()) {
-                    options.onRenderStall?.(options.payload);
+    const arm = () =>
+        options.renderSupervisor.armTimer({
+            cause: 'page-stage-timeout',
+            delayMs: options.payload.timeoutMs,
+            key: options.key,
+            metadata: {
+                ...options.metadata,
+                pageNumber: options.payload.pageNumber,
+                stage: options.payload.stage,
+                timeoutMs: options.payload.timeoutMs,
+            },
+            onFire: () => {
+                if (globalThis.document?.visibilityState === 'hidden') {
+                    return;
                 }
-            } catch (error) {
-                logPageStageDeadlineCallbackFailure('render-stall-recovery', error, options);
-            }
-        },
-    });
+                fired = true;
+                stopWatchingVisibility();
+                rejectDeadline(createPageRenderTimeoutError(options.payload.pageNumber, options.payload.stage, options.payload.timeoutMs));
+                try {
+                    options.onTimeout?.();
+                } catch (error) {
+                    logPageStageDeadlineCallbackFailure('on-timeout', error, options);
+                }
+                try {
+                    if (options.shouldNotify()) {
+                        options.onRenderStall?.(options.payload);
+                    }
+                } catch (error) {
+                    logPageStageDeadlineCallbackFailure('render-stall-recovery', error, options);
+                }
+            },
+        });
     let timer = arm();
     return {
         clear: () => {

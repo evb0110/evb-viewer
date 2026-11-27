@@ -1,16 +1,9 @@
-import type {
-    Ref,
-    ShallowRef,
-} from 'vue';
-import type { IPdfSemanticAnchor } from '@contracts/recentReadingView';
-import { isEqual } from 'es-toolkit/predicate';
-import {
-    createDefaultWorkspaceToolbarSnapshot,
-    type IWorkspaceExpose,
-    type IWorkspaceToolbarSnapshot,
-} from '@app/types/workspaceExpose';
-import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
-import { createTabViewSessionState } from '@app/modules/workspace-shell/tabs/createTabViewSessionState';
+import type {Ref, ShallowRef} from 'vue';
+import type {IPdfSemanticAnchor} from '@contracts/recentReadingView';
+import {isEqual} from 'es-toolkit/predicate';
+import {createDefaultWorkspaceToolbarSnapshot, type IWorkspaceExpose, type IWorkspaceToolbarSnapshot} from '@app/types/workspaceExpose';
+import type {ITabViewSessionState} from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
+import {createTabViewSessionState} from '@app/modules/workspace-shell/tabs/createTabViewSessionState';
 
 /**
  * One tab's view of a document: what its workspace shows (toolbar projection,
@@ -56,12 +49,15 @@ export interface IWorkspaceDocumentViewRecord extends IWorkspaceDocumentView {
     retire(): void;
 }
 
-export function createWorkspaceDocumentView(tabId: string, options: {
-    /** A failed document resolves mount waiters with null instead of waiting. */
-    isDocumentFailed: () => boolean;
-    /** A view of a document another view already shows starts from that view. */
-    seed?: IWorkspaceDocumentViewSeed | undefined;
-}): IWorkspaceDocumentViewRecord {
+export function createWorkspaceDocumentView(
+    tabId: string,
+    options: {
+        /** A failed document resolves mount waiters with null instead of waiting. */
+        isDocumentFailed: () => boolean;
+        /** A view of a document another view already shows starts from that view. */
+        seed?: IWorkspaceDocumentViewSeed | undefined;
+    },
+): IWorkspaceDocumentViewRecord {
     const retainedToolbarSnapshot = shallowRef(options.seed?.toolbarSnapshot ?? createDefaultWorkspaceToolbarSnapshot());
     const mountedWorkspace = shallowRef<IWorkspaceExpose | null>(null);
     const toolbarSnapshot = computed<IWorkspaceToolbarSnapshot>((previous) => {
@@ -86,7 +82,9 @@ export function createWorkspaceDocumentView(tabId: string, options: {
     }
 
     function applyViewState(state: ITabViewSessionState, anchor?: IPdfSemanticAnchor | null) {
-        if (anchor !== undefined) {readingAnchor.value = anchor;}
+        if (anchor !== undefined) {
+            readingAnchor.value = anchor;
+        }
         if (!isEqual(viewState.value, state)) {
             viewState.value = state;
         }

@@ -8,10 +8,7 @@ export interface IIterateDecodedTiffFramesOptions {
 export const DEFAULT_TIFF_DECODE_MAX_FRAMES = 250;
 export const DEFAULT_TIFF_DECODE_MAX_PIXELS = 80_000_000;
 export const DEFAULT_TIFF_DECODE_MAX_TOTAL_PIXELS = 256_000_000;
-export const DEFAULT_TIFF_DECODE_LIMITS: Required<Pick<
-    IIterateDecodedTiffFramesOptions,
-    'maxFrames' | 'maxPixels' | 'maxTotalPixels'
->> = {
+export const DEFAULT_TIFF_DECODE_LIMITS: Required<Pick<IIterateDecodedTiffFramesOptions, 'maxFrames' | 'maxPixels' | 'maxTotalPixels'>> = {
     maxFrames: DEFAULT_TIFF_DECODE_MAX_FRAMES,
     maxPixels: DEFAULT_TIFF_DECODE_MAX_PIXELS,
     maxTotalPixels: DEFAULT_TIFF_DECODE_MAX_TOTAL_PIXELS,
@@ -22,36 +19,24 @@ function getSourceSuffix(sourceLabel: string | undefined) {
 }
 
 function normalizePositiveInteger(value: number | undefined) {
-    return typeof value === 'number' && Number.isFinite(value) && value > 0
-        ? Math.trunc(value)
-        : null;
+    return typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.trunc(value) : null;
 }
 
-function assertTiffFrameCount(
-    frameCount: number,
-    options: IIterateDecodedTiffFramesOptions,
-) {
+function assertTiffFrameCount(frameCount: number, options: IIterateDecodedTiffFramesOptions) {
     const maxFrames = normalizePositiveInteger(options.maxFrames);
     if (maxFrames !== null && frameCount > maxFrames) {
         throw new Error(`TIFF frame count is capped at ${maxFrames}${getSourceSuffix(options.sourceLabel)}`);
     }
 }
 
-function assertTiffPixelCount(
-    width: number,
-    height: number,
-    options: IIterateDecodedTiffFramesOptions,
-) {
+function assertTiffPixelCount(width: number, height: number, options: IIterateDecodedTiffFramesOptions) {
     const maxPixels = normalizePositiveInteger(options.maxPixels);
     if (maxPixels !== null && width > maxPixels / height) {
         throw new Error(`TIFF frame dimensions are too large to decode safely${getSourceSuffix(options.sourceLabel)}`);
     }
 }
 
-function assertTiffTotalPixelCount(
-    totalPixels: number,
-    options: IIterateDecodedTiffFramesOptions,
-) {
+function assertTiffTotalPixelCount(totalPixels: number, options: IIterateDecodedTiffFramesOptions) {
     const maxTotalPixels = normalizePositiveInteger(options.maxTotalPixels);
     if (maxTotalPixels !== null && totalPixels > maxTotalPixels) {
         throw new Error(`TIFF aggregate decoded pixels are capped at ${maxTotalPixels}${getSourceSuffix(options.sourceLabel)}`);
@@ -101,9 +86,7 @@ const TIFF_DIRECTORY_MAX_ENTRIES = 65_535n;
 const MAX_SAFE_TIFF_OFFSET = BigInt(Number.MAX_SAFE_INTEGER);
 
 function readTiffOffset(bytes: Uint8Array, offset: number, layout: ITiffLayout) {
-    return layout.bigTiff
-        ? readTiffUint64(bytes, offset, layout.littleEndian)
-        : BigInt(readTiffUint32(bytes, offset, layout.littleEndian));
+    return layout.bigTiff ? readTiffUint64(bytes, offset, layout.littleEndian) : BigInt(readTiffUint32(bytes, offset, layout.littleEndian));
 }
 
 function readTiffLayout(header: Uint8Array): ITiffLayout | null {
@@ -120,11 +103,10 @@ function readTiffLayout(header: Uint8Array): ITiffLayout | null {
     if (magic !== 42 && !bigTiff) {
         return null;
     }
-    if (bigTiff && (
-        header.byteLength < 16
-        || readTiffUint16(header, 4, littleEndian) !== 8
-        || readTiffUint16(header, 6, littleEndian) !== 0
-    )) {
+    if (
+        bigTiff &&
+        (header.byteLength < 16 || readTiffUint16(header, 4, littleEndian) !== 8 || readTiffUint16(header, 6, littleEndian) !== 0)
+    ) {
         return null;
     }
     return {
@@ -168,9 +150,7 @@ function createTiffDirectoryDamagedError(options: IIterateDecodedTiffFramesOptio
  * caller holding the whole file and one reading a file handle share this parser.
  * A chain that points outside the file or back into itself is damaged.
  */
-function* walkTiffDirectories(
-    options: IIterateDecodedTiffFramesOptions,
-): Generator<ITiffByteRange, TTiffDirectorySizes, Uint8Array> {
+function* walkTiffDirectories(options: IIterateDecodedTiffFramesOptions): Generator<ITiffByteRange, TTiffDirectorySizes, Uint8Array> {
     const frames: TTiffDirectorySizes = [];
     const header = yield {
         offset: 0,
@@ -226,15 +206,9 @@ function* walkTiffDirectories(
  * Checks every directory's frame against the per-frame and total pixel caps
  * and returns the frame sizes. A directory without a width holds no image.
  */
-function checkTiffFrameSizes(
-    sizes: TTiffDirectorySizes,
-    options: IIterateDecodedTiffFramesOptions,
-): ITiffFrameDimensions[] {
+function checkTiffFrameSizes(sizes: TTiffDirectorySizes, options: IIterateDecodedTiffFramesOptions): ITiffFrameDimensions[] {
     let totalPixels = 0;
-    return sizes.flatMap(({
-        width,
-        height,
-    }) => {
+    return sizes.flatMap(({width, height}) => {
         if (width === null || width <= 0) {
             return [];
         }
@@ -271,10 +245,7 @@ export async function readTiffFrameDimensions(
 }
 
 /** The in-memory form of readTiffFrameDimensions: sizes and caps without decoding pixels. */
-export function readTiffFrameDimensionsFromBytes(
-    bytes: Uint8Array,
-    options: IIterateDecodedTiffFramesOptions,
-): ITiffFrameDimensions[] {
+export function readTiffFrameDimensionsFromBytes(bytes: Uint8Array, options: IIterateDecodedTiffFramesOptions): ITiffFrameDimensions[] {
     const walker = walkTiffDirectories(options);
     let step = walker.next();
     while (!step.done) {

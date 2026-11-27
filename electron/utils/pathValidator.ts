@@ -1,23 +1,7 @@
-import { getErrorMessage } from '@electron/utils/error';
-import {
-    basename,
-    dirname,
-    isAbsolute,
-    relative,
-    resolve,
-    sep,
-    win32,
-} from 'path';
-import {
-    existsSync,
-    lstatSync,
-    realpathSync,
-    statSync,
-} from 'fs';
-import {
-    getManagedAppTempRoots,
-    PINNED_REVISIONS_DIR_NAME,
-} from '@electron/utils/appTempDir';
+import {getErrorMessage} from '@electron/utils/error';
+import {basename, dirname, isAbsolute, relative, resolve, sep, win32} from 'path';
+import {existsSync, lstatSync, realpathSync, statSync} from 'fs';
+import {getManagedAppTempRoots, PINNED_REVISIONS_DIR_NAME} from '@electron/utils/appTempDir';
 
 interface IPathOps {
     basename(path: string): string;
@@ -28,23 +12,15 @@ interface IPathOps {
     sep: string;
 }
 
-type TManagedTempPathAccessValidator = (
-    context: {senderId?: number},
-    filePath: unknown,
-) => string | null | undefined;
+type TManagedTempPathAccessValidator = (context: {senderId?: number}, filePath: unknown) => string | null | undefined;
 
 let managedTempPathAccessValidator: TManagedTempPathAccessValidator | null = null;
 
-export function setManagedTempPathAccessValidator(
-    validator: TManagedTempPathAccessValidator,
-) {
+export function setManagedTempPathAccessValidator(validator: TManagedTempPathAccessValidator) {
     managedTempPathAccessValidator = validator;
 }
 
-export function getManagedTempPathAccessDecision(
-    context: {senderId?: number},
-    filePath: unknown,
-) {
+export function getManagedTempPathAccessDecision(context: {senderId?: number}, filePath: unknown) {
     return managedTempPathAccessValidator?.(context, filePath);
 }
 
@@ -105,20 +81,13 @@ function normalizeCandidatePath(filePath: string) {
 
 function isPathInsideBaseDir(baseDir: string, candidatePath: string) {
     const ops = getPathOps(baseDir, candidatePath);
-    const relativePath = ops.relative(
-        normalizePathForComparison(baseDir, ops),
-        normalizePathForComparison(candidatePath, ops),
-    );
+    const relativePath = ops.relative(normalizePathForComparison(baseDir, ops), normalizePathForComparison(candidatePath, ops));
 
     if (relativePath === '' || relativePath === '.') {
         return false;
     }
 
-    return (
-        relativePath !== '..'
-        && !relativePath.startsWith(`..${ops.sep}`)
-        && !ops.isAbsolute(relativePath)
-    );
+    return relativePath !== '..' && !relativePath.startsWith(`..${ops.sep}`) && !ops.isAbsolute(relativePath);
 }
 
 function isPathInsideAnyBaseDir(baseDirs: string[], candidatePath: string) {
@@ -136,23 +105,20 @@ function isSamePath(left: string, right: string) {
 }
 
 function isPathSameAsAnyBaseDir(baseDirs: string[], candidatePath: string) {
-    return baseDirs.some(baseDir => isSamePath(baseDir, candidatePath));
+    return baseDirs.some((baseDir) => isSamePath(baseDir, candidatePath));
 }
 
 function isReservedTempPathByName(tempBaseDirs: string[], candidatePath: string) {
     const reservedName = PINNED_REVISIONS_DIR_NAME.toLowerCase();
     for (const baseDir of tempBaseDirs) {
         const ops = getPathOps(baseDir, candidatePath);
-        const relativePath = ops.relative(
-            normalizePathForComparison(baseDir, ops),
-            normalizePathForComparison(candidatePath, ops),
-        );
+        const relativePath = ops.relative(normalizePathForComparison(baseDir, ops), normalizePathForComparison(candidatePath, ops));
         if (
-            relativePath !== ''
-            && relativePath !== '.'
-            && relativePath !== '..'
-            && !relativePath.startsWith(`..${ops.sep}`)
-            && !ops.isAbsolute(relativePath)
+            relativePath !== '' &&
+            relativePath !== '.' &&
+            relativePath !== '..' &&
+            !relativePath.startsWith(`..${ops.sep}`) &&
+            !ops.isAbsolute(relativePath)
         ) {
             const firstSegment = relativePath.split(ops.sep)[0];
             if (firstSegment && firstSegment.toLowerCase() === reservedName) {
@@ -199,7 +165,7 @@ function hasReservedTempDirIdentity(tempBaseDirs: string[], candidatePath: strin
     let current = ops.resolve(stripWindowsExtendedLengthPrefix(candidatePath));
     for (;;) {
         const identity = readDirectoryIdentity(current);
-        if (identity && reservedIdentities.some(reserved => reserved.dev === identity.dev && reserved.ino === identity.ino)) {
+        if (identity && reservedIdentities.some((reserved) => reserved.dev === identity.dev && reserved.ino === identity.ino)) {
             return true;
         }
         if (isPathSameAsAnyBaseDir(tempBaseDirs, current)) {
@@ -229,18 +195,14 @@ function resolveKernelPathPrefixSync(rawPath: string): string | null {
 
     const ops = getPathOps(rawPath);
     const unprefixed = stripWindowsExtendedLengthPrefix(rawPath);
-    const realpathNative = typeof realpathSync.native === 'function'
-        ? realpathSync.native
-        : realpathSync;
+    const realpathNative = typeof realpathSync.native === 'function' ? realpathSync.native : realpathSync;
     const remainder: string[] = [];
     let prefix = unprefixed;
 
     for (;;) {
         try {
             const resolvedPrefix = realpathNative(prefix);
-            return remainder.length === 0
-                ? resolvedPrefix
-                : ops.resolve(resolvedPrefix, ...remainder.toReversed());
+            return remainder.length === 0 ? resolvedPrefix : ops.resolve(resolvedPrefix, ...remainder.toReversed());
         } catch {
             const segment = ops.basename(prefix);
             if (segment !== '') {
@@ -339,12 +301,7 @@ function getTempBaseDirsSync() {
             // cannot resolve it and the canonical form is unknown.
             return [tempDir];
         }
-        const baseDirs = isSamePath(canonicalTempDir, tempDir)
-            ? [tempDir]
-            : [
-                tempDir,
-                canonicalTempDir,
-            ];
+        const baseDirs = isSamePath(canonicalTempDir, tempDir) ? [tempDir] : [tempDir, canonicalTempDir];
         canonicalTempBaseDirs.set(configuredTempDir, baseDirs);
         return baseDirs;
     });
@@ -404,9 +361,7 @@ function resolveExistingTempPath(absolutePath: string, tempBaseDirs: string[]): 
         }
 
         const resolvedPath = safeRealpathSync(absolutePath);
-        return isPathInsideAnyBaseDir(tempBaseDirs, resolvedPath)
-            ? resolvedPath
-            : false;
+        return isPathInsideAnyBaseDir(tempBaseDirs, resolvedPath) ? resolvedPath : false;
     } catch {
         return null;
     }
@@ -420,10 +375,7 @@ export function isAllowedWritePath(filePath: string) {
 
     try {
         const tempBaseDirs = getTempBaseDirsSync();
-        if (
-            !isPathInsideAnyBaseDir(tempBaseDirs, absolutePath)
-            || isReservedTempPathInBaseDirs(tempBaseDirs, absolutePath)
-        ) {
+        if (!isPathInsideAnyBaseDir(tempBaseDirs, absolutePath) || isReservedTempPathInBaseDirs(tempBaseDirs, absolutePath)) {
             return false;
         }
 
@@ -445,10 +397,7 @@ export function isAllowedReadPath(filePath: string) {
 
     try {
         const tempBaseDirs = getTempBaseDirsSync();
-        if (
-            !isPathInsideAnyBaseDir(tempBaseDirs, absolutePath)
-            || isReservedTempPathInBaseDirs(tempBaseDirs, absolutePath)
-        ) {
+        if (!isPathInsideAnyBaseDir(tempBaseDirs, absolutePath) || isReservedTempPathInBaseDirs(tempBaseDirs, absolutePath)) {
             return false;
         }
 
@@ -478,10 +427,7 @@ function resolveAllowedReadPathSync(filePath: string) {
     }
 
     const tempBaseDirs = getTempBaseDirsSync();
-    if (
-        !isPathInsideAnyBaseDir(tempBaseDirs, absolutePath)
-        || isReservedTempPathInBaseDirs(tempBaseDirs, absolutePath)
-    ) {
+    if (!isPathInsideAnyBaseDir(tempBaseDirs, absolutePath) || isReservedTempPathInBaseDirs(tempBaseDirs, absolutePath)) {
         return null;
     }
 
@@ -514,10 +460,7 @@ function resolveAllowedWritePathSync(filePath: string) {
     }
 
     const tempBaseDirs = getTempBaseDirsSync();
-    if (
-        !isPathInsideAnyBaseDir(tempBaseDirs, absolutePath)
-        || isReservedTempPathInBaseDirs(tempBaseDirs, absolutePath)
-    ) {
+    if (!isPathInsideAnyBaseDir(tempBaseDirs, absolutePath) || isReservedTempPathInBaseDirs(tempBaseDirs, absolutePath)) {
         return null;
     }
 
@@ -538,8 +481,10 @@ function resolveAllowedWritePathSync(filePath: string) {
         const parentDir = ops.dirname(absolutePath);
         const resolvedParentDir = safeRealpathSync(parentDir);
         const isTempDirRoot = isPathSameAsAnyBaseDir(tempBaseDirs, resolvedParentDir);
-        if ((!isPathInsideAnyBaseDir(tempBaseDirs, resolvedParentDir) && !isTempDirRoot)
-            || isReservedTempPathInBaseDirs(tempBaseDirs, resolvedParentDir)) {
+        if (
+            (!isPathInsideAnyBaseDir(tempBaseDirs, resolvedParentDir) && !isTempDirRoot) ||
+            isReservedTempPathInBaseDirs(tempBaseDirs, resolvedParentDir)
+        ) {
             return null;
         }
     } catch {

@@ -1,22 +1,11 @@
 #!/usr/bin/env node
 
-import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import {
-    chmodSync,
-    existsSync,
-    readFileSync,
-    readdirSync,
-    statSync,
-    writeFileSync,
-} from 'node:fs';
-import { createRequire } from 'node:module';
-import path, {
-    basename,
-    join,
-    resolve,
-} from 'node:path';
-import { fileURLToPath } from 'node:url';
+import {spawnSync} from 'node:child_process';
+import {createHash} from 'node:crypto';
+import {chmodSync, existsSync, readFileSync, readdirSync, statSync, writeFileSync} from 'node:fs';
+import {createRequire} from 'node:module';
+import path, {basename, join, resolve} from 'node:path';
+import {fileURLToPath} from 'node:url';
 
 const DMG_EXTENSION = '.dmg';
 const MAC_METADATA_PATTERN = /^latest-mac.*\.yml$/u;
@@ -33,10 +22,7 @@ const MAC_METADATA_PATTERN = /^latest-mac.*\.yml$/u;
 /** @param {string} rawValue */
 function parseYamlScalar(rawValue) {
     const trimmed = rawValue.trim().replace(/\s+#.*$/u, '');
-    if (
-        (trimmed.startsWith('"') && trimmed.endsWith('"'))
-        || (trimmed.startsWith('\'') && trimmed.endsWith('\''))
-    ) {
+    if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
         return trimmed.slice(1, -1);
     }
     return trimmed;
@@ -45,9 +31,9 @@ function parseYamlScalar(rawValue) {
 /** @param {string} metadataFileName @param {string} artifactPath */
 function assertSafeArtifactReference(metadataFileName, artifactPath) {
     if (
-        artifactPath.startsWith('/')
-        || /^[A-Za-z]:[\\/]/u.test(artifactPath)
-        || artifactPath.split(/[\\/]/u).some(segment => segment === '' || segment === '.' || segment === '..')
+        artifactPath.startsWith('/') ||
+        /^[A-Za-z]:[\\/]/u.test(artifactPath) ||
+        artifactPath.split(/[\\/]/u).some((segment) => segment === '' || segment === '.' || segment === '..')
     ) {
         throw new Error(`Unsafe path entry in ${metadataFileName}: ${artifactPath}`);
     }
@@ -59,21 +45,12 @@ function runCommand(command, args, options = {}) {
     const result = spawnSync(command, args, {
         encoding: 'utf8',
         env: options.env ?? process.env,
-        stdio: options.stdio ?? [
-            'ignore',
-            'pipe',
-            'pipe',
-        ],
+        stdio: options.stdio ?? ['ignore', 'pipe', 'pipe'],
     });
 
     if (result.status !== 0) {
-        const output = [
-            result.stdout,
-            result.stderr,
-        ].filter(Boolean).join('\n').trim();
-        throw new Error(
-            `Command failed (${command} ${args.join(' ')}): ${output}`,
-        );
+        const output = [result.stdout, result.stderr].filter(Boolean).join('\n').trim();
+        throw new Error(`Command failed (${command} ${args.join(' ')}): ${output}`);
     }
 
     return `${result.stdout ?? ''}${result.stderr ?? ''}`;
@@ -84,11 +61,7 @@ function tryRunCommand(command, args, options = {}) {
     const result = spawnSync(command, args, {
         encoding: 'utf8',
         env: options.env ?? process.env,
-        stdio: [
-            'ignore',
-            'pipe',
-            'pipe',
-        ],
+        stdio: ['ignore', 'pipe', 'pipe'],
     });
     return {
         ok: result.status === 0,
@@ -101,7 +74,7 @@ function parseNotaryJson(output, context) {
     try {
         return JSON.parse(output);
     } catch (error) {
-        throw new Error(`${context} returned non-JSON output: ${output}`, { cause: error });
+        throw new Error(`${context} returned non-JSON output: ${output}`, {cause: error});
     }
 }
 
@@ -151,10 +124,7 @@ export function parseMacUpdaterFileEntries(metadataFileName, metadataText) {
             currentEntry = {
                 sha512: '',
                 size: null,
-                url: assertSafeArtifactReference(
-                    metadataFileName,
-                    parseYamlScalar(urlMatch[1] ?? ''),
-                ),
+                url: assertSafeArtifactReference(metadataFileName, parseYamlScalar(urlMatch[1] ?? '')),
             };
             continue;
         }
@@ -198,9 +168,7 @@ function parseTopLevelScalar(metadataFileName, metadataText, key) {
         return null;
     }
     const value = parseYamlScalar(match[1] ?? '');
-    return key === 'path'
-        ? assertSafeArtifactReference(metadataFileName, value)
-        : value;
+    return key === 'path' ? assertSafeArtifactReference(metadataFileName, value) : value;
 }
 
 /** @param {string} metadataText @param {string} key @param {string} value */
@@ -295,11 +263,11 @@ export function updateMacUpdaterMetadataArtifactInfo(metadataFileName, metadataT
 export function assertMacUpdaterMetadataHashes({
     artifactNames,
     artifactsDir = 'release',
-    readArtifactInfo = artifactName => computeArtifactFileInfo(join(resolve(process.cwd(), artifactsDir), artifactName)),
-    readMetadataText = metadataFileName => readFileSync(join(resolve(process.cwd(), artifactsDir), metadataFileName), 'utf8'),
+    readArtifactInfo = (artifactName) => computeArtifactFileInfo(join(resolve(process.cwd(), artifactsDir), artifactName)),
+    readMetadataText = (metadataFileName) => readFileSync(join(resolve(process.cwd(), artifactsDir), metadataFileName), 'utf8'),
 } = {}) {
     const files = artifactNames ?? readdirSync(resolve(process.cwd(), artifactsDir));
-    const metadataFileNames = files.filter(fileName => MAC_METADATA_PATTERN.test(fileName));
+    const metadataFileNames = files.filter((fileName) => MAC_METADATA_PATTERN.test(fileName));
 
     for (const metadataFileName of metadataFileNames) {
         const metadataText = readMetadataText(metadataFileName);
@@ -336,14 +304,7 @@ function getNotaryCredentialArgs(env) {
     if (!env.APPLE_API_KEY || !env.APPLE_API_KEY_ID || !env.APPLE_API_ISSUER) {
         throw new Error('Apple notarization credentials are required');
     }
-    return [
-        '--key',
-        env.APPLE_API_KEY,
-        '--key-id',
-        env.APPLE_API_KEY_ID,
-        '--issuer',
-        env.APPLE_API_ISSUER,
-    ];
+    return ['--key', env.APPLE_API_KEY, '--key-id', env.APPLE_API_KEY_ID, '--issuer', env.APPLE_API_ISSUER];
 }
 
 /** @param {string} rootDir @param {number} [depth] @returns {string | null} */
@@ -352,7 +313,7 @@ function findFirstAppBundle(rootDir, depth = 0) {
         return null;
     }
 
-    for (const entry of readdirSync(rootDir, { withFileTypes: true })) {
+    for (const entry of readdirSync(rootDir, {withFileTypes: true})) {
         const entryPath = join(rootDir, entry.name);
         if (entry.isDirectory() && entry.name.endsWith('.app')) {
             return entryPath;
@@ -376,11 +337,7 @@ function resolveDmgSigningIdentity(artifactsDir, env) {
 
     const appPath = findFirstAppBundle(artifactsDir);
     if (appPath) {
-        const metadata = runCommand('codesign', [
-            '-dv',
-            '--verbose=4',
-            appPath,
-        ], { env });
+        const metadata = runCommand('codesign', ['-dv', '--verbose=4', appPath], {env});
         const authorityMatch = metadata.match(/^Authority=(Developer ID Application:.+)$/mu);
         if (authorityMatch) {
             const authority = authorityMatch[1];
@@ -390,29 +347,20 @@ function resolveDmgSigningIdentity(artifactsDir, env) {
         }
     }
 
-    const identities = tryRunCommand('security', [
-        'find-identity',
-        '-v',
-        '-p',
-        'codesigning',
-    ], { env });
+    const identities = tryRunCommand('security', ['find-identity', '-v', '-p', 'codesigning'], {env});
     const identityMatch = identities.output.match(/\)\s+([A-Fa-f0-9]{40})\s+"Developer ID Application:[^"]+"/u);
     return identityMatch?.[1] ?? null;
 }
 
 /** @param {string} projectRoot @param {IFindAppBuilderOptions} [options] */
-export function findAppBuilderExecutable(projectRoot, {
-    arch = process.arch,
-    env = process.env,
-    platform = process.platform,
-} = {}) {
+export function findAppBuilderExecutable(projectRoot, {arch = process.arch, env = process.env, platform = process.platform} = {}) {
     if (env.APP_BUILDER_BINARY && existsSync(env.APP_BUILDER_BINARY)) {
         return env.APP_BUILDER_BINARY;
     }
 
     const binRoot = join(projectRoot, 'node_modules', '.pnpm');
     const packageDir = readdirSync(binRoot)
-        .filter(entry => entry.startsWith('app-builder-bin@'))
+        .filter((entry) => entry.startsWith('app-builder-bin@'))
         .sort()
         .at(-1);
     if (!packageDir) {
@@ -420,25 +368,20 @@ export function findAppBuilderExecutable(projectRoot, {
     }
 
     const packageRoot = join(binRoot, packageDir, 'node_modules', 'app-builder-bin');
-    const platformPart = platform === 'darwin'
-        ? 'mac'
-        : platform === 'win32'
-            ? 'win'
-            : 'linux';
-    const archPart = arch === 'x64'
-        ? 'amd64'
-        : arch;
-    const candidates = platform === 'darwin'
-        ? [join(packageRoot, platformPart, `app-builder_${archPart}`)]
-        : platform === 'win32'
-            ? [join(packageRoot, platformPart, arch, 'app-builder.exe')]
-            : [join(packageRoot, platformPart, arch, 'app-builder')];
+    const platformPart = platform === 'darwin' ? 'mac' : platform === 'win32' ? 'win' : 'linux';
+    const archPart = arch === 'x64' ? 'amd64' : arch;
+    const candidates =
+        platform === 'darwin'
+            ? [join(packageRoot, platformPart, `app-builder_${archPart}`)]
+            : platform === 'win32'
+              ? [join(packageRoot, platformPart, arch, 'app-builder.exe')]
+              : [join(packageRoot, platformPart, arch, 'app-builder')];
     if (platform === process.platform && arch === process.arch) {
         // Resolved on demand so dependency-free release jobs can import this module.
         candidates.unshift(createRequire(import.meta.url)('app-builder-bin').appBuilderPath);
     }
 
-    const executable = candidates.find(candidate => existsSync(candidate));
+    const executable = candidates.find((candidate) => existsSync(candidate));
     if (!executable) {
         throw new Error(`No app-builder executable found for ${platform}-${arch}`);
     }
@@ -450,15 +393,8 @@ export function findAppBuilderExecutable(projectRoot, {
 
 /** @param {string} dmgPath @param {string | null} signingIdentity @param {NodeJS.ProcessEnv} env */
 function ensureSignedDmg(dmgPath, signingIdentity, env) {
-    const signatureMetadata = tryRunCommand('codesign', [
-        '-dv',
-        '--verbose=4',
-        dmgPath,
-    ], { env });
-    if (
-        signatureMetadata.ok
-        && /^Authority=Developer ID Application:/mu.test(signatureMetadata.output)
-    ) {
+    const signatureMetadata = tryRunCommand('codesign', ['-dv', '--verbose=4', dmgPath], {env});
+    if (signatureMetadata.ok && /^Authority=Developer ID Application:/mu.test(signatureMetadata.output)) {
         return;
     }
 
@@ -467,13 +403,7 @@ function ensureSignedDmg(dmgPath, signingIdentity, env) {
     }
 
     process.stdout.write(`[mac-dmg] Signing ${basename(dmgPath)}.\n`);
-    runCommand('codesign', [
-        '--force',
-        '--sign',
-        signingIdentity,
-        '--timestamp',
-        dmgPath,
-    ], {
+    runCommand('codesign', ['--force', '--sign', signingIdentity, '--timestamp', dmgPath], {
         env,
         stdio: 'inherit',
     });
@@ -481,26 +411,21 @@ function ensureSignedDmg(dmgPath, signingIdentity, env) {
 
 /** @param {string} dmgPath @param {NodeJS.ProcessEnv} env */
 function notarizeAndStapleDmg(dmgPath, env) {
-    const existingTicket = tryRunCommand('xcrun', [
-        'stapler',
-        'validate',
-        dmgPath,
-    ], { env });
+    const existingTicket = tryRunCommand('xcrun', ['stapler', 'validate', dmgPath], {env});
     if (existingTicket.ok) {
         process.stdout.write(`[mac-dmg] ${basename(dmgPath)} already has a valid stapled ticket.\n`);
         return;
     }
 
     process.stdout.write(`[mac-dmg] Submitting ${basename(dmgPath)} to Apple notary service.\n`);
-    const submission = parseNotaryJson(runCommand('xcrun', [
-        'notarytool',
-        'submit',
-        dmgPath,
-        ...getNotaryCredentialArgs(env),
-        '--output-format',
-        'json',
-        '--no-progress',
-    ], { env }), 'notarytool submit');
+    const submission = parseNotaryJson(
+        runCommand(
+            'xcrun',
+            ['notarytool', 'submit', dmgPath, ...getNotaryCredentialArgs(env), '--output-format', 'json', '--no-progress'],
+            {env},
+        ),
+        'notarytool submit',
+    );
     if (!submission.id) {
         throw new Error(`notarytool submit did not return a submission id: ${JSON.stringify(submission)}`);
     }
@@ -512,19 +437,11 @@ function notarizeAndStapleDmg(dmgPath, env) {
     }
 
     process.stdout.write(`[mac-dmg] Stapling ${basename(dmgPath)}.\n`);
-    runCommand('xcrun', [
-        'stapler',
-        'staple',
-        dmgPath,
-    ], {
+    runCommand('xcrun', ['stapler', 'staple', dmgPath], {
         env,
         stdio: 'inherit',
     });
-    runCommand('xcrun', [
-        'stapler',
-        'validate',
-        dmgPath,
-    ], {
+    runCommand('xcrun', ['stapler', 'validate', dmgPath], {
         env,
         stdio: 'inherit',
     });
@@ -532,42 +449,20 @@ function notarizeAndStapleDmg(dmgPath, env) {
 
 /** @param {string} submissionId @param {NodeJS.ProcessEnv} env @returns {INotaryResponse} */
 function waitForNotarization(submissionId, env) {
-    const args = [
-        ...getNotaryCredentialArgs(env),
-        '--output-format',
-        'json',
-        '--no-progress',
-    ];
+    const args = [...getNotaryCredentialArgs(env), '--output-format', 'json', '--no-progress'];
 
     for (let attempt = 1; attempt <= 4; attempt += 1) {
-        const waitResult = tryRunCommand('xcrun', [
-            'notarytool',
-            'wait',
-            submissionId,
-            ...args,
-            '--timeout',
-            '8m',
-        ], { env });
+        const waitResult = tryRunCommand('xcrun', ['notarytool', 'wait', submissionId, ...args, '--timeout', '8m'], {env});
         if (waitResult.ok) {
             return parseNotaryJson(waitResult.output, 'notarytool wait');
         }
 
-        const infoResult = tryRunCommand('xcrun', [
-            'notarytool',
-            'info',
-            submissionId,
-            ...args,
-        ], { env });
+        const infoResult = tryRunCommand('xcrun', ['notarytool', 'info', submissionId, ...args], {env});
         if (infoResult.ok) {
             const info = parseNotaryJson(infoResult.output, 'notarytool info');
             if (info.status && info.status !== 'In Progress') {
                 if (info.status === 'Invalid') {
-                    const logResult = tryRunCommand('xcrun', [
-                        'notarytool',
-                        'log',
-                        submissionId,
-                        ...args,
-                    ], { env });
+                    const logResult = tryRunCommand('xcrun', ['notarytool', 'log', submissionId, ...args], {env});
                     throw new Error(`Notarization submission ${submissionId} was Invalid: ${logResult.output}`);
                 }
                 return info;
@@ -584,10 +479,7 @@ function waitForNotarization(submissionId, env) {
 }
 
 /** @param {string} dmgPath @param {string} projectRoot @param {NodeJS.ProcessEnv} env @param {{arch?: string, platform?: string}} [options] @returns {IArtifactFileInfo} */
-function regenerateDmgBlockmap(dmgPath, projectRoot, env, {
-    arch = process.arch,
-    platform = process.platform,
-} = {}) {
+function regenerateDmgBlockmap(dmgPath, projectRoot, env, {arch = process.arch, platform = process.platform} = {}) {
     const appBuilder = findAppBuilderExecutable(projectRoot, {
         arch,
         env,
@@ -595,34 +487,24 @@ function regenerateDmgBlockmap(dmgPath, projectRoot, env, {
     });
     const blockmapPath = `${dmgPath}.blockmap`;
     process.stdout.write(`[mac-dmg] Regenerating ${basename(blockmapPath)}.\n`);
-    const output = runCommand(appBuilder, [
-        'blockmap',
-        '--input',
-        dmgPath,
-        '--output',
-        blockmapPath,
-    ], { env });
+    const output = runCommand(appBuilder, ['blockmap', '--input', dmgPath, '--output', blockmapPath], {env});
     return /** @type {IArtifactFileInfo} */ (JSON.parse(output));
 }
 
 /** @param {string} artifactsDir @param {string} dmgPath @param {IArtifactFileInfo} fileInfo */
 function updateMacMetadataFiles(artifactsDir, dmgPath, fileInfo) {
     const artifactName = basename(dmgPath);
-    const metadataFileNames = readdirSync(artifactsDir)
-        .filter(fileName => MAC_METADATA_PATTERN.test(fileName));
+    const metadataFileNames = readdirSync(artifactsDir).filter((fileName) => MAC_METADATA_PATTERN.test(fileName));
 
     let updateCount = 0;
     for (const metadataFileName of metadataFileNames) {
         const metadataPath = join(artifactsDir, metadataFileName);
         const metadataText = readFileSync(metadataPath, 'utf8');
-        if (!parseMacUpdaterFileEntries(metadataFileName, metadataText).some(entry => entry.url === artifactName)) {
+        if (!parseMacUpdaterFileEntries(metadataFileName, metadataText).some((entry) => entry.url === artifactName)) {
             continue;
         }
 
-        writeFileSync(
-            metadataPath,
-            updateMacUpdaterMetadataArtifactInfo(metadataFileName, metadataText, artifactName, fileInfo),
-        );
+        writeFileSync(metadataPath, updateMacUpdaterMetadataArtifactInfo(metadataFileName, metadataText, artifactName, fileInfo));
         updateCount += 1;
     }
 
@@ -663,8 +545,8 @@ export function notarizeMacDmgArtifacts({
     }
 
     const dmgPaths = readdirSync(resolvedArtifactsDir)
-        .filter(fileName => fileName.endsWith(DMG_EXTENSION))
-        .map(fileName => join(resolvedArtifactsDir, fileName))
+        .filter((fileName) => fileName.endsWith(DMG_EXTENSION))
+        .map((fileName) => join(resolvedArtifactsDir, fileName))
         .sort();
     if (dmgPaths.length === 0) {
         process.stdout.write('[mac-dmg] No DMG artifacts found; nothing to notarize.\n');
@@ -685,16 +567,15 @@ export function notarizeMacDmgArtifacts({
         updateMacMetadataFiles(resolvedArtifactsDir, dmgPath, fileInfo);
     }
 
-    assertMacUpdaterMetadataHashes({ artifactsDir: resolvedArtifactsDir });
+    assertMacUpdaterMetadataHashes({artifactsDir: resolvedArtifactsDir});
     return {
         processed: dmgPaths.length,
         skipped: false,
     };
 }
 
-const isDirectCliRun = process.argv[1]
-    && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
+const isDirectCliRun = process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
 
 if (isDirectCliRun) {
-    notarizeMacDmgArtifacts({ artifactsDir: process.argv[2] ?? 'release' });
+    notarizeMacDmgArtifacts({artifactsDir: process.argv[2] ?? 'release'});
 }

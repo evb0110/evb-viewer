@@ -1,11 +1,8 @@
-import {
-    parentPort,
-    workerData,
-} from 'worker_threads';
-import { combinePagesIntoMultiPageTiffLocal } from '@electron/features/image-export/main/combinePagesIntoMultiPageTiffLocal';
-import type { IWorkerTaskErrorFrame } from '@electron/utils/workerTask';
-import { createWorkerTaskErrorFrame } from '@electron/utils/workerTask';
-import { getErrorMessage } from '@electron/utils/error';
+import {parentPort, workerData} from 'worker_threads';
+import {combinePagesIntoMultiPageTiffLocal} from '@electron/features/image-export/main/combinePagesIntoMultiPageTiffLocal';
+import type {IWorkerTaskErrorFrame} from '@electron/utils/workerTask';
+import {createWorkerTaskErrorFrame} from '@electron/utils/workerTask';
+import {getErrorMessage} from '@electron/utils/error';
 
 interface ITiffCombineWorkerData {
     combineThreads?: unknown;
@@ -18,17 +15,19 @@ interface ITiffCombineWorkerData {
 
 type TTiffCombineWorkerResult =
     | {
-        type: 'result';
-        ok: true;
-    }
+          type: 'result';
+          ok: true;
+      }
     | {
-        type: 'result';
-        ok: false;
-        error: string;
-        errorFrame?: IWorkerTaskErrorFrame;
-    };
+          type: 'result';
+          ok: false;
+          error: string;
+          errorFrame?: IWorkerTaskErrorFrame;
+      };
 
-interface ITiffCombineWorkerCancelMessage {type: 'cancel';}
+interface ITiffCombineWorkerCancelMessage {
+    type: 'cancel';
+}
 
 function getWorkerInput() {
     const input = workerData as ITiffCombineWorkerData | undefined;
@@ -36,10 +35,7 @@ function getWorkerInput() {
         throw new Error('Invalid TIFF combine worker payload');
     }
     const pagePaths: string[] = [];
-    for (const [
-        index,
-        path,
-    ] of input.pagePaths.entries()) {
+    for (const [index, path] of input.pagePaths.entries()) {
         if (typeof path !== 'string' || path.trim().length === 0) {
             throw new Error(`Invalid TIFF combine page path at index ${index}`);
         }
@@ -49,14 +45,14 @@ function getWorkerInput() {
         throw new Error('TIFF combine worker requires at least one page path');
     }
     return {
-        combineThreads: typeof input.combineThreads === 'number'
-            && Number.isInteger(input.combineThreads)
-            && input.combineThreads > 0
-            ? input.combineThreads
-            : undefined,
-        defaultDpi: typeof input.defaultDpi === 'number' && Number.isFinite(input.defaultDpi) && input.defaultDpi > 0
-            ? input.defaultDpi
-            : undefined,
+        combineThreads:
+            typeof input.combineThreads === 'number' && Number.isInteger(input.combineThreads) && input.combineThreads > 0
+                ? input.combineThreads
+                : undefined,
+        defaultDpi:
+            typeof input.defaultDpi === 'number' && Number.isFinite(input.defaultDpi) && input.defaultDpi > 0
+                ? input.defaultDpi
+                : undefined,
         deleteSourcePages: input.deleteSourcePages === true,
         pagePaths,
         outputPath: input.outputPath,
@@ -65,9 +61,7 @@ function getWorkerInput() {
 }
 
 function isCancelMessage(message: unknown): message is ITiffCombineWorkerCancelMessage {
-    return Boolean(message)
-        && typeof message === 'object'
-        && (message as {type?: unknown}).type === 'cancel';
+    return Boolean(message) && typeof message === 'object' && (message as {type?: unknown}).type === 'cancel';
 }
 
 async function run() {

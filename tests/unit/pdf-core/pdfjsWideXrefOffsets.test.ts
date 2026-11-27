@@ -1,12 +1,5 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    getDocument,
-    PDFDataRangeTransport,
-} from 'pdfjs-dist/legacy/build/pdf.mjs';
+import {describe, expect, it} from 'vitest';
+import {getDocument, PDFDataRangeTransport} from 'pdfjs-dist/legacy/build/pdf.mjs';
 
 interface ISparseSegment {
     offset: number;
@@ -23,11 +16,7 @@ class SparsePdfRangeTransport extends PDFDataRangeTransport {
     public requestedBytes = 0;
     public budgetExceededError: Error | null = null;
 
-    constructor(
-        totalLength: number,
-        segments: readonly ISparseSegment[],
-        onBudgetExceeded: (error: Error) => void,
-    ) {
+    constructor(totalLength: number, segments: readonly ISparseSegment[], onBudgetExceeded: (error: Error) => void) {
         super(totalLength, null);
         this.segments = segments;
         this.onBudgetExceeded = onBudgetExceeded;
@@ -54,13 +43,7 @@ class SparsePdfRangeTransport extends PDFDataRangeTransport {
             const overlapStart = Math.max(clampedBegin, segment.offset);
             const overlapEnd = Math.min(clampedEnd, segEnd);
             if (overlapStart < overlapEnd) {
-                chunk.set(
-                    segment.bytes.subarray(
-                        overlapStart - segment.offset,
-                        overlapEnd - segment.offset,
-                    ),
-                    overlapStart - clampedBegin,
-                );
+                chunk.set(segment.bytes.subarray(overlapStart - segment.offset, overlapEnd - segment.offset), overlapStart - clampedBegin);
             }
         }
         queueMicrotask(() => {
@@ -150,56 +133,22 @@ function buildSparseWideXrefPdf({
         `3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Contents 4 0 R >>\nendobj\n`,
     );
     const contentStream = 'q Q\n';
-    const obj4Offset = pushSegment(
-        `4 0 obj\n<< /Length ${contentStream.length} >>\nstream\n${contentStream}\nendstream\nendobj\n`,
-    );
+    const obj4Offset = pushSegment(`4 0 obj\n<< /Length ${contentStream.length} >>\nstream\n${contentStream}\nendstream\nendobj\n`);
 
     const xrefOffset = cursor;
     const entries: Array<[number, number, number]> = [
-        [
-            0,
-            0,
-            65535,
-        ],
-        [
-            1,
-            obj1Offset,
-            0,
-        ],
-        [
-            1,
-            obj2Offset,
-            0,
-        ],
-        [
-            1,
-            obj3Offset,
-            0,
-        ],
-        [
-            1,
-            obj4Offset,
-            0,
-        ],
-        [
-            1,
-            fillerObjectOffset,
-            0,
-        ],
-        [
-            1,
-            xrefOffset,
-            0,
-        ],
+        [0, 0, 65535],
+        [1, obj1Offset, 0],
+        [1, obj2Offset, 0],
+        [1, obj3Offset, 0],
+        [1, obj4Offset, 0],
+        [1, fillerObjectOffset, 0],
+        [1, xrefOffset, 0],
     ];
     const rowWidth = 1 + offsetFieldWidth + 2;
     const xrefStreamData = new Uint8Array(entries.length * rowWidth);
     for (let index = 0; index < entries.length; index += 1) {
-        const [
-            type,
-            offset,
-            generation,
-        ] = entries[index]!;
+        const [type, offset, generation] = entries[index]!;
         const rowStart = index * rowWidth;
         xrefStreamData[rowStart] = type;
         xrefStreamData.set(encodeUnsignedBigEndian(offset, offsetFieldWidth), rowStart + 1);
@@ -258,21 +207,13 @@ describe('vendored pdfjs-dist wide XRef stream offsets', () => {
         },
         {
             label: '>10 GiB binary 8-byte offsets',
-            catalogOffset: (10 * 1024 * 1024 * 1024) + 586,
+            catalogOffset: 10 * 1024 * 1024 * 1024 + 586,
             offsetFieldWidth: 8,
             pageWidth: 260,
             pageHeight: 160,
         },
-    ])('opens range-backed PDF 1.5 XRef stream with $label', async ({
-        catalogOffset,
-        offsetFieldWidth,
-        pageWidth,
-        pageHeight,
-    }) => {
-        const {
-            segments,
-            totalLength,
-        } = buildSparseWideXrefPdf({
+    ])('opens range-backed PDF 1.5 XRef stream with $label', async ({catalogOffset, offsetFieldWidth, pageWidth, pageHeight}) => {
+        const {segments, totalLength} = buildSparseWideXrefPdf({
             catalogOffset,
             offsetFieldWidth,
             pageWidth,
@@ -292,19 +233,13 @@ describe('vendored pdfjs-dist wide XRef stream offsets', () => {
         });
         loadingTask.promise.catch(() => undefined);
         try {
-            const pdfDocument = await Promise.race([
-                loadingTask.promise,
-                budgetFailure,
-            ]);
+            const pdfDocument = await Promise.race([loadingTask.promise, budgetFailure]);
             expect(range.budgetExceededError).toBeNull();
             expect(range.requestCount).toBeLessThanOrEqual(MAX_RANGE_REQUESTS);
             expect(range.requestedBytes).toBeLessThanOrEqual(MAX_REQUESTED_BYTES);
             expect(pdfDocument.numPages).toBe(1);
-            const page = await Promise.race([
-                pdfDocument.getPage(1),
-                budgetFailure,
-            ]);
-            const viewport = page.getViewport({ scale: 1 });
+            const page = await Promise.race([pdfDocument.getPage(1), budgetFailure]);
+            const viewport = page.getViewport({scale: 1});
             expect(viewport.width).toBe(pageWidth);
             expect(viewport.height).toBe(pageHeight);
         } finally {

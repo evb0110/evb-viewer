@@ -4,14 +4,8 @@ interface IWaitForVisualFramesOptions {
     hiddenFallbackMs?: number;
 }
 
-export async function waitForVisualFrames(
-    options: IWaitForVisualFramesOptions = {},
-) {
-    const {
-        frames = 1,
-        timeoutMs = 64,
-        hiddenFallbackMs = 16,
-    } = options;
+export async function waitForVisualFrames(options: IWaitForVisualFramesOptions = {}) {
+    const {frames = 1, timeoutMs = 64, hiddenFallbackMs = 16} = options;
 
     const normalizedFrames = Math.max(1, Math.floor(frames));
     const normalizedTimeoutMs = Math.max(1, timeoutMs);

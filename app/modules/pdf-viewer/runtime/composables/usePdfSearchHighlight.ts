@@ -1,7 +1,5 @@
-import { BrowserLogger } from '@app/utils/browserLogger';
-import type {
-    IPdfPageMatches, IPdfSearchMatch,
-} from '@app/types/pdfUi';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import type {IPdfPageMatches, IPdfSearchMatch} from '@app/types/pdfUi';
 import {
     assembleTextLayerSearchText,
     buildRunMatchOverlaps,
@@ -10,7 +8,7 @@ import {
     highlightTextRunInPdfjsStyle,
     resetTextLayerMappedText,
 } from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightDom';
-import type { IHighlightMatchRange } from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightDom';
+import type {IHighlightMatchRange} from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightDom';
 import {
     canUseHighlightAPI,
     clearHighlightAPIForLayer,
@@ -81,28 +79,40 @@ export const usePdfSearchHighlight = () => {
     }
 
     function updateCurrent(textLayerDiv: HTMLElement, painted: IPaintedLayer, matches: IHighlightMatchRange[]) {
-        const selected = matches.filter(match => match.isCurrent);
-        const segments = painted.segments.filter(segment => selected.some(match => (
-            segment.range ? match.start === segment.start && match.end === segment.end : match.start <= segment.start && match.end >= segment.end
-        )));
-        const elements = segments.flatMap(segment => segment.element ? [segment.element] : []);
-        const ranges = segments.flatMap(segment => segment.range ? [segment.range] : []);
+        const selected = matches.filter((match) => match.isCurrent);
+        const segments = painted.segments.filter((segment) =>
+            selected.some((match) =>
+                segment.range
+                    ? match.start === segment.start && match.end === segment.end
+                    : match.start <= segment.start && match.end >= segment.end,
+            ),
+        );
+        const elements = segments.flatMap((segment) => (segment.element ? [segment.element] : []));
+        const ranges = segments.flatMap((segment) => (segment.range ? [segment.range] : []));
         for (const element of painted.result.currentMatchElements) {
-            if (!elements.includes(element)) {element.classList.remove(HIGHLIGHT_CURRENT_CLASS);}
+            if (!elements.includes(element)) {
+                element.classList.remove(HIGHLIGHT_CURRENT_CLASS);
+            }
         }
         for (const element of elements) {
-            if (!element.classList.contains(HIGHLIGHT_CURRENT_CLASS)) {element.classList.add(HIGHLIGHT_CURRENT_CLASS);}
+            if (!element.classList.contains(HIGHLIGHT_CURRENT_CLASS)) {
+                element.classList.add(HIGHLIGHT_CURRENT_CLASS);
+            }
         }
         const ids = cssState.layerRangeIds.get(textLayerDiv);
         if (ids) {
             const changed = new Set([
-                ...painted.segments.filter(segment => segment.range && painted.result.currentMatchRanges.includes(segment.range)),
+                ...painted.segments.filter((segment) => segment.range && painted.result.currentMatchRanges.includes(segment.range)),
                 ...segments,
             ]);
             for (const segment of changed) {
-                if (!segment.range || !segment.id) {continue;}
+                if (!segment.range || !segment.id) {
+                    continue;
+                }
                 const current = ranges.includes(segment.range);
-                if (ids.current.has(segment.id) === current) {continue;}
+                if (ids.current.has(segment.id) === current) {
+                    continue;
+                }
                 const from = current ? HIGHLIGHT_API_NAME : HIGHLIGHT_API_CURRENT_NAME;
                 const to = current ? HIGHLIGHT_API_CURRENT_NAME : HIGHLIGHT_API_NAME;
                 CSS.highlights.get(from)?.delete(segment.range);
@@ -120,23 +130,25 @@ export const usePdfSearchHighlight = () => {
     }
 
     function paintMatches(textLayerDiv: HTMLElement, painted: IPaintedLayer, matches: IHighlightMatchRange[]) {
-        if (painted.matches.length !== matches.length || painted.matches.some((match, index) => (
-            match.start !== matches[index]?.start || match.end !== matches[index]?.end
-        ))) {
+        if (
+            painted.matches.length !== matches.length ||
+            painted.matches.some((match, index) => match.start !== matches[index]?.start || match.end !== matches[index]?.end)
+        ) {
             clearPaint(textLayerDiv);
             painted.segments = [];
             painted.result.elements.splice(0);
             const {runs} = getCachedTextLayerIndex(textLayerDiv);
             const runOverlaps = buildRunMatchOverlaps(runs, matches);
-            for (const [
-                runIndex,
-                run,
-            ] of runs.entries()) {
-                if (run.kind !== 'span' || !runOverlaps[runIndex]?.length) {continue;}
+            for (const [runIndex, run] of runs.entries()) {
+                if (run.kind !== 'span' || !runOverlaps[runIndex]?.length) {
+                    continue;
+                }
                 if (painted.mode === 'css' && run.textNode) {
                     for (const match of runOverlaps[runIndex]) {
                         const [entry] = createHighlightRangesInSpan(run.textNode, run.startOffset, [match], [match]);
-                        if (!entry) {continue;}
+                        if (!entry) {
+                            continue;
+                        }
                         const id = `pdf-${painted.pageMatches.pageIndex}-${run.startOffset}-${painted.segments.length}`;
                         registerHighlightRange(cssState, textLayerDiv, entry.range, false, id);
                         painted.segments.push({
@@ -147,7 +159,13 @@ export const usePdfSearchHighlight = () => {
                         });
                     }
                 } else {
-                    const elements = highlightTextRunInPdfjsStyle(run, matches, HIGHLIGHT_CLASS, HIGHLIGHT_CURRENT_CLASS, runOverlaps[runIndex]);
+                    const elements = highlightTextRunInPdfjsStyle(
+                        run,
+                        matches,
+                        HIGHLIGHT_CLASS,
+                        HIGHLIGHT_CURRENT_CLASS,
+                        runOverlaps[runIndex],
+                    );
                     painted.result.elements.push(...elements);
                     let offset = run.startOffset;
                     for (const node of run.span.childNodes) {
@@ -163,31 +181,44 @@ export const usePdfSearchHighlight = () => {
                     }
                 }
             }
-            if (painted.mode === 'css') {updateHighlightAPI(cssState, HIGHLIGHT_API_NAME, HIGHLIGHT_API_CURRENT_NAME);}
+            if (painted.mode === 'css') {
+                updateHighlightAPI(cssState, HIGHLIGHT_API_NAME, HIGHLIGHT_API_CURRENT_NAME);
+            }
             painted.matches = matches;
         }
         updateCurrent(textLayerDiv, painted, matches);
     }
 
     /** The engine's mapped matches stay with the painted layer, so a new current result only moves current paint. */
-    function paintVisualMatches(textLayerDiv: HTMLElement, painted: IPaintedLayer, visualMatches: IVisualSearchMatch[], currentMatch: IPdfSearchMatch | null) {
+    function paintVisualMatches(
+        textLayerDiv: HTMLElement,
+        painted: IPaintedLayer,
+        visualMatches: IVisualSearchMatch[],
+        currentMatch: IPdfSearchMatch | null,
+    ) {
         painted.visualMatches = visualMatches;
         paintMatches(textLayerDiv, painted, markVisualMatchesWithCurrent(visualMatches, painted.pageMatches, currentMatch));
     }
 
-    function highlightPage(textLayerDiv: HTMLElement, pageMatches: IPdfPageMatches | null, currentMatch: IPdfSearchMatch | null): IHighlightResult {
+    function highlightPage(
+        textLayerDiv: HTMLElement,
+        pageMatches: IPdfPageMatches | null,
+        currentMatch: IPdfSearchMatch | null,
+    ): IHighlightResult {
         if (!pageMatches || pageMatches.matches.length === 0) {
             clearHighlights(textLayerDiv);
             return createHighlightResult();
         }
         const mode = canUseHighlightAPI() ? getHighlightMode() : 'dom';
         let painted = paintedLayers.get(textLayerDiv);
-        if (!painted || painted.mode !== mode || (painted.pageMatches !== pageMatches
-            && (!pageMatches.signatureToken || painted.pageMatches.signatureToken !== pageMatches.signatureToken))) {
+        if (
+            !painted ||
+            painted.mode !== mode ||
+            (painted.pageMatches !== pageMatches &&
+                (!pageMatches.signatureToken || painted.pageMatches.signatureToken !== pageMatches.signatureToken))
+        ) {
             clearHighlights(textLayerDiv);
-            const {
-                text, runs,
-            } = getCachedTextLayerIndex(textLayerDiv);
+            const {text, runs} = getCachedTextLayerIndex(textLayerDiv);
             painted = {
                 pageMatches,
                 mode,
@@ -214,11 +245,16 @@ export const usePdfSearchHighlight = () => {
         painted.pending = controller;
         const layer = painted;
         void reconcileVisualMatches(pageMatches, layer.text, layer.assembled, controller.signal)
-            .then(reconciled => {
-                if (controller.signal.aborted) {return;}
+            .then((reconciled) => {
+                if (controller.signal.aborted) {
+                    return;
+                }
                 paintVisualMatches(textLayerDiv, layer, reconciled, currentMatch);
-            }).catch((error: unknown) => {
-                if (!controller.signal.aborted) {BrowserLogger.warn('pdf-search', 'Failed to reconcile search highlights', error);}
+            })
+            .catch((error: unknown) => {
+                if (!controller.signal.aborted) {
+                    BrowserLogger.warn('pdf-search', 'Failed to reconcile search highlights', error);
+                }
             });
         return painted.result;
     }

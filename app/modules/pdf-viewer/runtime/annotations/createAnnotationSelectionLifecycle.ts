@@ -1,7 +1,4 @@
-import type {
-    TAnnotationTool,
-    TMarkupSubtype,
-} from '@app/types/annotations';
+import type {TAnnotationTool, TMarkupSubtype} from '@app/types/annotations';
 import type {IAnnotationTextSelectionSnapshot} from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationTextSelectionCache';
 import type {TAnnotationCreationOutcome} from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
 
@@ -35,13 +32,14 @@ interface ICreateAnnotationSelectionLifecycleOptions {
  * receives the first promise, whichever of tool activation and an explicit
  * context-menu command came first, so the two create the markup once.
  */
-export const createAnnotationSelectionLifecycle = (
-    options: ICreateAnnotationSelectionLifecycleOptions,
-) => {
-    const pending = new Map<string, {
-        request: IAnnotationSelectionCreationRequest & {range: Range};
-        outcome: Promise<TAnnotationCreationOutcome>;
-    }>();
+export const createAnnotationSelectionLifecycle = (options: ICreateAnnotationSelectionLifecycleOptions) => {
+    const pending = new Map<
+        string,
+        {
+            request: IAnnotationSelectionCreationRequest & {range: Range};
+            outcome: Promise<TAnnotationCreationOutcome>;
+        }
+    >();
     let toolEpoch = 0;
 
     function requestKey(request: IAnnotationSelectionCreationRequest, toolEpoch: number) {
@@ -56,10 +54,17 @@ export const createAnnotationSelectionLifecycle = (
     function requestCreation(request: IAnnotationSelectionCreationRequest) {
         const requestEpoch = toolEpoch;
         const key = requestKey(request, requestEpoch);
-        const existing = pending.get(key) ?? pending.get(requestKey({
-            ...request,
-            requireActiveTool: !request.requireActiveTool,
-        }, requestEpoch));
+        const existing =
+            pending.get(key) ??
+            pending.get(
+                requestKey(
+                    {
+                        ...request,
+                        requireActiveTool: !request.requireActiveTool,
+                    },
+                    requestEpoch,
+                ),
+            );
         if (existing?.request.requireActiveTool && !request.requireActiveTool) {
             // An explicit command takes over the activation it joins; under its
             // key no tool change cancels it and later requests still join it.
@@ -75,8 +80,7 @@ export const createAnnotationSelectionLifecycle = (
             ...request,
             range: request.selection.range,
         };
-        const isRequestCurrent = () => !live.requireActiveTool
-            || (options.getActiveTool() === request.tool && requestEpoch === toolEpoch);
+        const isRequestCurrent = () => !live.requireActiveTool || (options.getActiveTool() === request.tool && requestEpoch === toolEpoch);
         const outcome = (async () => {
             if (!isRequestCurrent()) {
                 return {status: 'cancelled'} as const;
@@ -97,7 +101,9 @@ export const createAnnotationSelectionLifecycle = (
         });
         const forget = () => {
             const current = requestKey(live, requestEpoch);
-            if (pending.get(current)?.outcome === outcome) {pending.delete(current);}
+            if (pending.get(current)?.outcome === outcome) {
+                pending.delete(current);
+            }
         };
         outcome.then(forget, forget);
         return outcome;

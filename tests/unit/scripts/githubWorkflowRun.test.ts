@@ -1,10 +1,6 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { pathToFileURL } from 'node:url';
-import { resolve } from 'node:path';
+import {describe, expect, it} from 'vitest';
+import {pathToFileURL} from 'node:url';
+import {resolve} from 'node:path';
 
 interface IWorkflowRunInfo {
     conclusion: string | null;
@@ -29,20 +25,15 @@ interface IWorkflowRunModule {
         nowFn: () => number;
         readStartTimeoutMsFn: () => number;
         sleepFn: (duration: number) => Promise<void>;
-        stderr?: { write: (message: string) => void };
+        stderr?: {write: (message: string) => void};
         targetSha?: string;
         workflow: string;
     }) => Promise<IWorkflowRunInfo>;
 }
 
-const {
-    getRepositoryUrlFromRunUrl,
-    getRunArtifactsUrl,
-    isTransientGitHubCliError,
-    waitForWorkflowRunStart,
-} = await import(
-    pathToFileURL(resolve(process.cwd(), 'scripts/release/github-workflow-run.mjs')).href,
-) as IWorkflowRunModule;
+const {getRepositoryUrlFromRunUrl, getRunArtifactsUrl, isTransientGitHubCliError, waitForWorkflowRunStart} = (await import(
+    pathToFileURL(resolve(process.cwd(), 'scripts/release/github-workflow-run.mjs')).href
+)) as IWorkflowRunModule;
 
 describe('GitHub workflow run handoff', () => {
     it('stops once the dispatched workflow run is visible', async () => {
@@ -60,11 +51,11 @@ describe('GitHub workflow run handoff', () => {
                 return attempts === 1
                     ? null
                     : {
-                        conclusion: null,
-                        databaseId: 123,
-                        status: 'queued',
-                        url: 'https://github.com/example/repo/actions/runs/123',
-                    };
+                          conclusion: null,
+                          databaseId: 123,
+                          status: 'queued',
+                          url: 'https://github.com/example/repo/actions/runs/123',
+                      };
             },
             nowFn: () => now,
             readStartTimeoutMsFn: () => 60_000,
@@ -116,7 +107,7 @@ describe('GitHub workflow run handoff', () => {
             sleepFn: async (duration: number) => {
                 now += duration;
             },
-            stderr: { write: (message: string) => stderr.push(message) },
+            stderr: {write: (message: string) => stderr.push(message)},
             workflow: 'Release',
         });
 

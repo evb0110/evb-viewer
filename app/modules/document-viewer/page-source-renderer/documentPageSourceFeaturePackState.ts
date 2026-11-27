@@ -1,36 +1,29 @@
-import { isAbortError } from '@contracts/isAbortError';
-import type {
-    ComponentPublicInstance,
-    Ref,
-} from 'vue';
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import type {
-    IZoomStateAccess,
-    TDocumentViewMode,
-    TZoomMode,
-} from '@contracts/shared';
-import type { IDocumentSearchMatch } from '@app/modules/document-viewer/search/documentSearch';
+import {isAbortError} from '@contracts/isAbortError';
+import type {ComponentPublicInstance, Ref} from 'vue';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {TDocumentRevisionToken} from '@contracts/documentRevision';
+import type {IZoomStateAccess, TDocumentViewMode, TZoomMode} from '@contracts/shared';
+import type {IDocumentSearchMatch} from '@app/modules/document-viewer/search/documentSearch';
 import type {
     IDocumentPageMetrics,
     IDocumentPageSource,
     IDocumentSourceCapabilities,
 } from '@app/modules/document-viewer/source/documentPageSource';
-import type { IDocumentViewerRuntime } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
-import type { workspaceSurfaceBudgetController } from '@app/modules/document-viewer/runtime/workspaceSurfaceBudgetController';
+import type {IDocumentViewerRuntime} from '@app/modules/document-viewer/runtime/documentViewerRuntime';
+import type {workspaceSurfaceBudgetController} from '@app/modules/document-viewer/runtime/workspaceSurfaceBudgetController';
 import {
     createDocumentTransitionChannel,
     type IDocumentTransition,
 } from '@app/modules/document-viewer/lifecycle/createDocumentTransitionChannel';
-import { createDjvuPageSource } from '@app/modules/document-viewer/source/createDjvuPageSource';
-import { resolveDocumentPageSourceOpeningFrame } from '@app/modules/document-viewer/layout/resolveDocumentPageSourceOpeningFrame';
+import {createDjvuPageSource} from '@app/modules/document-viewer/source/createDjvuPageSource';
+import {resolveDocumentPageSourceOpeningFrame} from '@app/modules/document-viewer/layout/resolveDocumentPageSourceOpeningFrame';
 import {
     createProvisionalDocumentPageMetrics,
     hydrateRemainingDocumentPageMetrics,
     loadInitialDocumentPageMetric,
     type TDocumentPageMetricsCollection,
 } from '@app/modules/document-viewer/page-source-renderer/loadPrioritizedDocumentPageMetrics';
-import { createDjvuPagePreviewSourceFromPath } from '@app/platform/browser-api/public';
+import {createDjvuPagePreviewSourceFromPath} from '@app/platform/browser-api/public';
 
 /** Keep background DjVu metric work within the visible and render-priority window. */
 const DOCUMENT_SOURCE_BACKGROUND_METRIC_HYDRATION_MAX_PAGES = 128;
@@ -41,7 +34,9 @@ export interface IDocumentPageSourceFence {
     readonly documentRevision: string | null;
     readonly src: TDocumentRef | null;
 }
-export interface IDocumentPageSourceTransition extends IDocumentTransition<IDocumentPageSourceFence> {readonly kind: 'open' | 'settle' | 'invalidate' | 'restore';}
+export interface IDocumentPageSourceTransition extends IDocumentTransition<IDocumentPageSourceFence> {
+    readonly kind: 'open' | 'settle' | 'invalidate' | 'restore';
+}
 /** One admitted open: its cancellation, and whether its first page committed (false on failure or retirement). */
 export function createDocumentPageSourceOpenJob() {
     const abort = new AbortController();
@@ -60,23 +55,20 @@ export function createDocumentPageSourceLifecycle(options: {
     const openSurfaceGeneration = ref<number | null>(null);
     const documentRevision = ref<string | null>(null);
     const activeFences = new WeakSet<IDocumentPageSourceFence>();
-    const readFence = (): IDocumentPageSourceFence => Object.freeze({
-        loadGeneration: loadGeneration.value,
-        openSurfaceGeneration: openSurfaceGeneration.value,
-        documentRevision: documentRevision.value,
-        src: options.readSrc(),
-    });
-    const isFenceCurrent = (fence: IDocumentPageSourceFence) => (
-        fence.loadGeneration === loadGeneration.value
-        && fence.openSurfaceGeneration === openSurfaceGeneration.value
-        && fence.documentRevision === documentRevision.value
-        && fence.src === options.readSrc()
-        && (!activeFences.has(fence) || options.readIsActive())
-    );
-    const channel = createDocumentTransitionChannel<
-        IDocumentPageSourceFence,
-        IDocumentPageSourceTransition
-    >(isFenceCurrent);
+    const readFence = (): IDocumentPageSourceFence =>
+        Object.freeze({
+            loadGeneration: loadGeneration.value,
+            openSurfaceGeneration: openSurfaceGeneration.value,
+            documentRevision: documentRevision.value,
+            src: options.readSrc(),
+        });
+    const isFenceCurrent = (fence: IDocumentPageSourceFence) =>
+        fence.loadGeneration === loadGeneration.value &&
+        fence.openSurfaceGeneration === openSurfaceGeneration.value &&
+        fence.documentRevision === documentRevision.value &&
+        fence.src === options.readSrc() &&
+        (!activeFences.has(fence) || options.readIsActive());
+    const channel = createDocumentTransitionChannel<IDocumentPageSourceFence, IDocumentPageSourceTransition>(isFenceCurrent);
     function supersede() {
         // Source changes invalidate this loader's own work fence. The shared
         // surface owns document replacement; calling supersede here would
@@ -90,17 +82,18 @@ export function createDocumentPageSourceLifecycle(options: {
         supersede();
         const src = options.readSrc();
         const generation = ++loadGeneration.value;
-        documentRevision.value = src
-            ? String(options.readRevisionToken() ?? `page-source:${String(generation)}`)
-            : null;
+        documentRevision.value = src ? String(options.readRevisionToken() ?? `page-source:${String(generation)}`) : null;
         const chassisAuthority = options.chassisAuthority;
-        openSurfaceGeneration.value = src && chassisAuthority
-            ? chassisAuthority.openSurface.acquireSource({
-                documentId: chassisAuthority.openSurface.snapshot.value.identity?.documentId
-                    ?? String(src),
-                documentRevision: documentRevision.value ?? '',
-            }, chassisAuthority.openSurface.snapshot.value.generation)
-            : null;
+        openSurfaceGeneration.value =
+            src && chassisAuthority
+                ? chassisAuthority.openSurface.acquireSource(
+                      {
+                          documentId: chassisAuthority.openSurface.snapshot.value.identity?.documentId ?? String(src),
+                          documentRevision: documentRevision.value ?? '',
+                      },
+                      chassisAuthority.openSurface.snapshot.value.generation,
+                  )
+                : null;
         return channel.publish({
             kind: 'open',
             fence: readFence(),
@@ -109,13 +102,7 @@ export function createDocumentPageSourceLifecycle(options: {
     function start() {
         // Registration admits the current source, so a late renderer opens the same source and revision.
         void admit();
-        watch(
-            [
-                options.readSrc,
-                options.readRevisionToken,
-            ],
-            () => void admit(),
-        );
+        watch([options.readSrc, options.readRevisionToken], () => void admit());
         watch(
             () => options.chassisAuthority?.openSurface.snapshot.value,
             (snapshot) => {
@@ -123,11 +110,14 @@ export function createDocumentPageSourceLifecycle(options: {
                 const src = options.readSrc();
                 const revision = documentRevision.value;
                 if (
-                    !surface || !snapshot || !src || !revision
-                    || snapshot.openingPageFrame?.generation !== snapshot.generation
-                    || snapshot.identity?.documentId !== String(src)
-                    || snapshot.identity.documentRevision !== revision && !snapshot.identity.provisional
-                    || snapshot.generation === openSurfaceGeneration.value
+                    !surface ||
+                    !snapshot ||
+                    !src ||
+                    !revision ||
+                    snapshot.openingPageFrame?.generation !== snapshot.generation ||
+                    snapshot.identity?.documentId !== String(src) ||
+                    (snapshot.identity.documentRevision !== revision && !snapshot.identity.provisional) ||
+                    snapshot.generation === openSurfaceGeneration.value
                 ) {
                     return;
                 }
@@ -135,10 +125,13 @@ export function createDocumentPageSourceLifecycle(options: {
                 // host's provisional identity through the same surface owner
                 // used by a new source, then recommit its connected page.
                 openSurfaceGeneration.value = snapshot.generation;
-                openSurfaceGeneration.value = surface.acquireSource({
-                    documentId: String(src),
-                    documentRevision: revision,
-                }, snapshot.generation);
+                openSurfaceGeneration.value = surface.acquireSource(
+                    {
+                        documentId: String(src),
+                        documentRevision: revision,
+                    },
+                    snapshot.generation,
+                );
                 void channel.publish({
                     kind: 'settle',
                     fence: readFence(),
@@ -146,21 +139,25 @@ export function createDocumentPageSourceLifecycle(options: {
             },
             {flush: 'sync'},
         );
-        watch(options.readIsActive, (isActive) => {
-            if (!isActive) {
+        watch(
+            options.readIsActive,
+            (isActive) => {
+                if (!isActive) {
+                    void channel.publish({
+                        kind: 'invalidate',
+                        fence: readFence(),
+                    });
+                    return;
+                }
+                const fence = readFence();
+                activeFences.add(fence);
                 void channel.publish({
-                    kind: 'invalidate',
-                    fence: readFence(),
+                    kind: 'restore',
+                    fence,
                 });
-                return;
-            }
-            const fence = readFence();
-            activeFences.add(fence);
-            void channel.publish({
-                kind: 'restore',
-                fence,
-            });
-        }, {flush: 'post'});
+            },
+            {flush: 'post'},
+        );
     }
     return {
         admit,
@@ -188,18 +185,18 @@ export interface IDocumentPageSourceFeaturePackProps {
     searchResults?: readonly IDocumentSearchMatch[];
     currentSearchResultIndex?: number;
 }
-export type TDocumentPageSourceRuntimeProps = Required<Pick<
-    IDocumentPageSourceFeaturePackProps,
-    'continuousScroll' | 'isActive' | 'isInteractionActive' | 'isResizing' | 'viewMode'
->> & Pick<IDocumentPageSourceFeaturePackProps, 'documentRevisionToken' | 'src'> & {
-    zoom: number;
-    zoomMode: TZoomMode;
-};
+export type TDocumentPageSourceRuntimeProps = Required<
+    Pick<IDocumentPageSourceFeaturePackProps, 'continuousScroll' | 'isActive' | 'isInteractionActive' | 'isResizing' | 'viewMode'>
+> &
+    Pick<IDocumentPageSourceFeaturePackProps, 'documentRevisionToken' | 'src'> & {
+        zoom: number;
+        zoomMode: TZoomMode;
+    };
 export interface IDocumentPageSourceFeaturePackEmit {
     (event: 'update:totalPages', value: number): void;
     (event: 'update:sourceCapabilities', value: IDocumentSourceCapabilities): void;
     (event: 'loadError', value: unknown): void;
-    (event: 'initial-visual-ready', value: {pageNumber: number;}): void;
+    (event: 'initial-visual-ready', value: {pageNumber: number}): void;
 }
 export async function openDocumentPageSource(
     transition: IDocumentPageSourceTransition,
@@ -210,8 +207,11 @@ export async function openDocumentPageSource(
         commitPageTerminalError: (pageNumber: number, cause?: unknown) => string;
         createPageFailureError: (pageNumber: number, message?: string) => Error;
         ensureExactPageMetric: (
-            source: IDocumentPageSource, loadGeneration: number, pageNumber: number,
-            signal: AbortSignal, isCurrent: () => boolean,
+            source: IDocumentPageSource,
+            loadGeneration: number,
+            pageNumber: number,
+            signal: AbortSignal,
+            isCurrent: () => boolean,
         ) => Promise<IDocumentPageMetrics>;
         layoutLifecycle: {
             beginLayoutTransaction: (transition: IDocumentPageSourceTransition) => void;
@@ -248,7 +248,10 @@ export async function openDocumentPageSource(
     // before any page is shown), as the chassis's opening shell reads it.
     const readOpeningPage = () => {
         const viewport = context.chassisAuthority?.openSurface.viewportSession.value;
-        return Math.max(1, Math.trunc(viewport?.observedPage ?? viewport?.committedPage ?? viewport?.requestedPage ?? context.readCurrentPage()));
+        return Math.max(
+            1,
+            Math.trunc(viewport?.observedPage ?? viewport?.committedPage ?? viewport?.requestedPage ?? context.readCurrentPage()),
+        );
     };
     try {
         const preview = await createDjvuPagePreviewSourceFromPath(documentRef);
@@ -256,12 +259,9 @@ export async function openDocumentPageSource(
             preview.terminate();
             return false;
         }
-        const nextSource = await createDjvuPageSource(
-            documentRef,
-            preview,
-            context.surfaceBudget,
-            {initialPageNumber: readOpeningPage()},
-        ).catch((error: unknown) => {
+        const nextSource = await createDjvuPageSource(documentRef, preview, context.surfaceBudget, {
+            initialPageNumber: readOpeningPage(),
+        }).catch((error: unknown) => {
             preview.terminate();
             throw error;
         });
@@ -281,11 +281,7 @@ export async function openDocumentPageSource(
         });
         const normalizePage = () => Math.min(nextSource.pageCount, readOpeningPage());
         let initialPage = normalizePage();
-        let initialMetric = await loadInitialDocumentPageMetric(
-            nextSource,
-            initialPage,
-            context.loadController.signal,
-        );
+        let initialMetric = await loadInitialDocumentPageMetric(nextSource, initialPage, context.loadController.signal);
         if (!transition.isCurrent()) {
             return false;
         }
@@ -317,39 +313,38 @@ export async function openDocumentPageSource(
         const authority = context.chassisAuthority;
         const metric = context.readPageMetric(initialPage);
         const viewport = context.readViewport();
-        if (
-            generation === null
-            || !authority
-            || !metric
-            || !viewport
-            || authority.openSurface.snapshot.value.generation !== generation
-        ) {
+        if (generation === null || !authority || !metric || !viewport || authority.openSurface.snapshot.value.generation !== generation) {
             throw new Error('Unable to commit the initial document page shell');
         }
         const surface = authority.openSurface;
         let snapshot = surface.snapshot.value;
-        if (snapshot.openingPageGeometry === null && !surface.commitOpeningPageGeometry(generation, {
-            documentId: snapshot.identity?.documentId ?? String(documentRef),
-            pageNumber: initialPage,
-            pageCount: nextSource.pageCount,
-            width: metric.widthPoints,
-            height: metric.heightPoints,
-            rotation: metric.rotation,
-        })) {
+        if (
+            snapshot.openingPageGeometry === null &&
+            !surface.commitOpeningPageGeometry(generation, {
+                documentId: snapshot.identity?.documentId ?? String(documentRef),
+                pageNumber: initialPage,
+                pageCount: nextSource.pageCount,
+                width: metric.widthPoints,
+                height: metric.heightPoints,
+                rotation: metric.rotation,
+            })
+        ) {
             throw new Error('Unable to commit the initial document page geometry');
         }
         snapshot = surface.snapshot.value;
         const policy = context.readPolicy();
         const frameGeometry = snapshot.openingPageGeometry;
-        const frame = frameGeometry && resolveDocumentPageSourceOpeningFrame({
-            geometry: frameGeometry,
-            viewport: {
-                width: viewport.clientWidth,
-                height: viewport.clientHeight,
-            },
-            zoom: policy.zoom,
-            zoomMode: policy.zoomMode,
-        });
+        const frame =
+            frameGeometry &&
+            resolveDocumentPageSourceOpeningFrame({
+                geometry: frameGeometry,
+                viewport: {
+                    width: viewport.clientWidth,
+                    height: viewport.clientHeight,
+                },
+                zoom: policy.zoom,
+                zoomMode: policy.zoomMode,
+            });
         if (!frame) {
             throw new Error('Unable to resolve the initial document page shell');
         }
@@ -357,12 +352,12 @@ export async function openDocumentPageSource(
         const frameCommitted = existingFrame
             ? existingFrame.generation === generation && existingFrame.pageNumber === initialPage
             : surface.commitOpeningPageFrame(generation, {
-                generation,
-                ownerId: context.openingPageFrameOwnerId,
-                pageNumber: initialPage,
-                intentKey: `page-source:${policy.zoomMode}:${String(policy.zoom)}:${String(policy.continuousScroll)}`,
-                style: frame.style,
-            });
+                  generation,
+                  ownerId: context.openingPageFrameOwnerId,
+                  pageNumber: initialPage,
+                  intentKey: `page-source:${policy.zoomMode}:${String(policy.zoom)}:${String(policy.continuousScroll)}`,
+                  style: frame.style,
+              });
         if (!frameCommitted) {
             throw new Error('Unable to commit the initial document page frame');
         }
@@ -382,23 +377,18 @@ export async function openDocumentPageSource(
                     initialPage,
                     initialMetric,
                     signal: context.loadController.signal,
-                    isCurrent: () => (
-                        transition.isCurrent()
-                        && !context.loadController.signal.aborted
-                    ),
-                    getPriorityPage: () => Math.max(1, Math.min(
-                        nextSource.pageCount,
-                        Math.trunc(context.readCurrentPage()),
-                    )),
+                    isCurrent: () => transition.isCurrent() && !context.loadController.signal.aborted,
+                    getPriorityPage: () => Math.max(1, Math.min(nextSource.pageCount, Math.trunc(context.readCurrentPage()))),
                     getPriorityPages: context.getPriorityPages,
                     maxHydratedPages: DOCUMENT_SOURCE_BACKGROUND_METRIC_HYDRATION_MAX_PAGES,
-                    loadMetric: (pageNumber, signal) => context.ensureExactPageMetric(
-                        nextSource,
-                        transition.fence.loadGeneration,
-                        pageNumber,
-                        signal,
-                        transition.isCurrent,
-                    ),
+                    loadMetric: (pageNumber, signal) =>
+                        context.ensureExactPageMetric(
+                            nextSource,
+                            transition.fence.loadGeneration,
+                            pageNumber,
+                            signal,
+                            transition.isCurrent,
+                        ),
                     onMetric: context.scheduleRender,
                 });
                 if (!metrics || !transition.isCurrent()) {
@@ -422,9 +412,7 @@ export async function openDocumentPageSource(
             context.isLoading.value = false;
             const pageNumber = Math.max(1, Math.trunc(context.readCurrentPage()));
             const message = context.commitPageTerminalError(pageNumber, error);
-            context.emit('loadError', error instanceof Error
-                ? error
-                : context.createPageFailureError(pageNumber, message));
+            context.emit('loadError', error instanceof Error ? error : context.createPageFailureError(pageNumber, message));
         }
         return false;
     }

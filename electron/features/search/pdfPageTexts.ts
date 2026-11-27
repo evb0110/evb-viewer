@@ -1,35 +1,26 @@
 import {stat} from 'node:fs/promises';
-import { dirname } from 'path';
-import { range } from 'es-toolkit/math';
-import { buildPopplerEnv } from '@electron/native-tools/buildPopplerEnv';
-import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
-import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
-import { getPdfPageCount } from '@electron/pdf/pdfPageCount';
-import {
-    hasRightToLeftSearchText,
-    normalizeExtractedPageText,
-} from '@pdf-core/pdfSearchAlgorithms';
-import { fileURLToPath } from 'url';
-import { groupContiguousPages } from '@electron/pdf/pdfTextPageBatching';
-import {
-    openPdfPageTextVisibilitySession,
-    type TOcrPdfTextVisibilityAnalysis,
-} from '@electron/pdf/inspectPdfPageTextVisibility';
-import { resolveNativePageOpsPath } from '@electron/features/page-ops/public/nativePageOpsPath';
-import { getAppTempDir } from '@electron/utils/appTempDir';
-import { createLogger } from '@electron/utils/createLogger';
-import { getErrorMessage } from '@electron/utils/error';
+import {dirname} from 'path';
+import {range} from 'es-toolkit/math';
+import {buildPopplerEnv} from '@electron/native-tools/buildPopplerEnv';
+import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
+import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
+import {getPdfPageCount} from '@electron/pdf/pdfPageCount';
+import {hasRightToLeftSearchText, normalizeExtractedPageText} from '@pdf-core/pdfSearchAlgorithms';
+import {fileURLToPath} from 'url';
+import {groupContiguousPages} from '@electron/pdf/pdfTextPageBatching';
+import {openPdfPageTextVisibilitySession, type TOcrPdfTextVisibilityAnalysis} from '@electron/pdf/inspectPdfPageTextVisibility';
+import {resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
+import {getAppTempDir} from '@electron/utils/appTempDir';
+import {createLogger} from '@electron/utils/createLogger';
+import {getErrorMessage} from '@electron/utils/error';
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
-import {
-    resolveUnpackedWorkerPath,
-    runResultWorkerTask,
-} from '@electron/utils/workerTask';
-import { WORKER_BUNDLES_BY_ID } from '@electron-worker-bundles/electronWorkerBundles.js';
-import { streamItems } from '@electron/features/search/streamItems';
+import {resolveUnpackedWorkerPath, runResultWorkerTask} from '@electron/utils/workerTask';
+import {WORKER_BUNDLES_BY_ID} from '@electron-worker-bundles/electronWorkerBundles.js';
+import {streamItems} from '@electron/features/search/streamItems';
 import {mainJobBroker} from '@electron/resources/jobBroker';
-import type { IPageText } from '@electron/features/search/pageText';
-import { readOcrLayerLayout } from '@ocr-core/readOcrLayerLayout';
-import type { IPdfPageRange } from '@electron/features/search/pdfjsPageTexts';
+import type {IPageText} from '@electron/features/search/pageText';
+import {readOcrLayerLayout} from '@ocr-core/readOcrLayerLayout';
+import type {IPdfPageRange} from '@electron/features/search/pdfjsPageTexts';
 import * as v from 'valibot';
 
 const PDF_TEXT_WORKER_FILENAME = WORKER_BUNDLES_BY_ID['pdf-text'].fileName;
@@ -78,47 +69,16 @@ const PDFINFO_PAGE_BOX = /^Page\s+(\d+)\s+(MediaBox|CropBox):\s+(\S+)\s+(\S+)\s+
 const PDFINFO_PAGE_ROTATION = /^Page\s+(\d+)\s+rot:\s+(-?\d+)\s*$/gmu;
 
 function popplerTextArea(media: number[], crop: number[], rotation: number): IPopplerTextArea {
-    const [
-        mx0 = 0,
-        my0 = 0,
-        mx1 = 0,
-        my1 = 0,
-    ] = media;
-    const [
-        x0 = 0,
-        y0 = 0,
-        x1 = 0,
-        y1 = 0,
-    ] = crop;
-    const [
-        x,
-        y,
-        width,
-        height,
-    ] = rotation === 90 ? [
-        y0 - my0,
-        x0 - mx0,
-        y1 - y0,
-        x1 - x0,
-    ]
-        : rotation === 180 ? [
-            mx1 - x1,
-            y0 - my0,
-            x1 - x0,
-            y1 - y0,
-        ]
-            : rotation === 270 ? [
-                my1 - y1,
-                mx1 - x1,
-                y1 - y0,
-                x1 - x0,
-            ]
-                : [
-                    x0 - mx0,
-                    my1 - y1,
-                    x1 - x0,
-                    y1 - y0,
-                ];
+    const [mx0 = 0, my0 = 0, mx1 = 0, my1 = 0] = media;
+    const [x0 = 0, y0 = 0, x1 = 0, y1 = 0] = crop;
+    const [x, y, width, height] =
+        rotation === 90
+            ? [y0 - my0, x0 - mx0, y1 - y0, x1 - x0]
+            : rotation === 180
+              ? [mx1 - x1, y0 - my0, x1 - x0, y1 - y0]
+              : rotation === 270
+                ? [my1 - y1, mx1 - x1, y1 - y0, x1 - x0]
+                : [x0 - mx0, my1 - y1, x1 - x0, y1 - y0];
     return {
         x: Math.round(x),
         y: Math.round(y),
@@ -136,33 +96,26 @@ function popplerTextArea(media: number[], crop: number[], rotation: number): IPo
 async function readCroppedPageAreas(pdfPath: string, window: Required<IPdfPageRange>, signal?: AbortSignal) {
     const paths = getPdfNativeToolPaths();
     const env = buildPopplerEnv(paths);
-    const result = await runNativeToolCommand(paths.pdfinfo, [
-        '-box',
-        '-f',
-        String(window.firstPage),
-        '-l',
-        String(window.lastPage),
-        pdfPath,
-    ], {
-        ...(env === undefined ? {} : {env}),
-        ...(signal === undefined ? {} : {signal}),
-        commandLabel: 'pdfinfo(page boxes)',
-        maxStdoutBytes: 4 * 1024 * 1024,
-    });
+    const result = await runNativeToolCommand(
+        paths.pdfinfo,
+        ['-box', '-f', String(window.firstPage), '-l', String(window.lastPage), pdfPath],
+        {
+            ...(env === undefined ? {} : {env}),
+            ...(signal === undefined ? {} : {signal}),
+            commandLabel: 'pdfinfo(page boxes)',
+            maxStdoutBytes: 4 * 1024 * 1024,
+        },
+    );
     const mediaBoxes = new Map<number, number[]>();
     const cropBoxes = new Map<number, number[]>();
-    for (const [
-        , page,
-        box,
-        ...values
-    ] of result.stdout.matchAll(PDFINFO_PAGE_BOX)) {
-        (box === 'CropBox' ? cropBoxes : mediaBoxes).set(Number(page), values.map(value => Number(value.replace(',', '.'))));
+    for (const [, page, box, ...values] of result.stdout.matchAll(PDFINFO_PAGE_BOX)) {
+        (box === 'CropBox' ? cropBoxes : mediaBoxes).set(
+            Number(page),
+            values.map((value) => Number(value.replace(',', '.'))),
+        );
     }
     const areas = new Map<number, IPopplerTextArea>();
-    for (const [
-        , page,
-        rotation,
-    ] of result.stdout.matchAll(PDFINFO_PAGE_ROTATION)) {
+    for (const [, page, rotation] of result.stdout.matchAll(PDFINFO_PAGE_ROTATION)) {
         const media = mediaBoxes.get(Number(page));
         const crop = cropBoxes.get(Number(page));
         if (media && crop && crop.some((value, index) => Math.abs(value - (media[index] ?? value)) >= 0.5)) {
@@ -190,46 +143,37 @@ async function readPopplerPageTexts(
     const pages: IPageText[] = [];
     let pageNumber = (range.firstPage ?? 1) - 1;
     let pending = '';
-    const result = await runNativeToolCommand(paths.pdftotext, [
-        ...(contentOrder ? ['-raw'] : []),
-        ...(area === undefined ? [] : [
-            '-x',
-            String(area.x),
-            '-y',
-            String(area.y),
-            '-W',
-            String(area.width),
-            '-H',
-            String(area.height),
-        ]),
-        ...(range.firstPage === undefined ? [] : [
-            '-f',
-            String(range.firstPage),
-        ]),
-        ...(range.lastPage === undefined ? [] : [
-            '-l',
-            String(range.lastPage),
-        ]),
-        pdfPath,
-        '-',
-    ], {
-        ...(env === undefined ? {} : {env}),
-        ...(signal === undefined ? {} : {signal}),
-        commandLabel: 'pdftotext(page text)',
-        maxStdoutBytes: 64 * 1024,
-        rejectOnStdoutTruncation: false,
-        onStdout(chunk) {
-            pending += chunk;
-            for (let end = pending.indexOf('\f'); end >= 0; end = pending.indexOf('\f')) {
-                pageNumber += 1;
-                pages.push({
-                    pageNumber,
-                    text: normalizeExtractedPageText(pending.slice(0, end)),
-                });
-                pending = pending.slice(end + 1);
-            }
+    const result = await runNativeToolCommand(
+        paths.pdftotext,
+        [
+            ...(contentOrder ? ['-raw'] : []),
+            ...(area === undefined
+                ? []
+                : ['-x', String(area.x), '-y', String(area.y), '-W', String(area.width), '-H', String(area.height)]),
+            ...(range.firstPage === undefined ? [] : ['-f', String(range.firstPage)]),
+            ...(range.lastPage === undefined ? [] : ['-l', String(range.lastPage)]),
+            pdfPath,
+            '-',
+        ],
+        {
+            ...(env === undefined ? {} : {env}),
+            ...(signal === undefined ? {} : {signal}),
+            commandLabel: 'pdftotext(page text)',
+            maxStdoutBytes: 64 * 1024,
+            rejectOnStdoutTruncation: false,
+            onStdout(chunk) {
+                pending += chunk;
+                for (let end = pending.indexOf('\f'); end >= 0; end = pending.indexOf('\f')) {
+                    pageNumber += 1;
+                    pages.push({
+                        pageNumber,
+                        text: normalizeExtractedPageText(pending.slice(0, end)),
+                    });
+                    pending = pending.slice(end + 1);
+                }
+            },
         },
-    });
+    );
     return MISSING_POPPLER_DATA.test(result.stderr) ? null : pages;
 }
 
@@ -241,19 +185,33 @@ async function readVisiblePopplerPageTexts(
     signal?: AbortSignal,
     contentOrder = false,
 ) {
-    if (areas.size === 0) {return readPopplerPageTexts(pdfPath, range, signal, contentOrder);}
+    if (areas.size === 0) {
+        return readPopplerPageTexts(pdfPath, range, signal, contentOrder);
+    }
     const areaKey = (pageNumber: number) => JSON.stringify(areas.get(pageNumber) ?? null);
     const pages: IPageText[] = [];
     for (let firstPage = range.firstPage; firstPage <= range.lastPage;) {
         let lastPage = firstPage;
-        while (lastPage < range.lastPage && areaKey(lastPage + 1) === areaKey(firstPage)) {lastPage += 1;}
-        const run = await readPopplerPageTexts(pdfPath, {
-            firstPage,
-            lastPage,
-        }, signal, contentOrder, areas.get(firstPage));
-        if (run === null) {return null;}
+        while (lastPage < range.lastPage && areaKey(lastPage + 1) === areaKey(firstPage)) {
+            lastPage += 1;
+        }
+        const run = await readPopplerPageTexts(
+            pdfPath,
+            {
+                firstPage,
+                lastPage,
+            },
+            signal,
+            contentOrder,
+            areas.get(firstPage),
+        );
+        if (run === null) {
+            return null;
+        }
         pages.push(...run);
-        if (run.length < lastPage - firstPage + 1) {break;}
+        if (run.length < lastPage - firstPage + 1) {
+            break;
+        }
         firstPage = lastPage + 1;
     }
     return pages;
@@ -266,35 +224,43 @@ async function readVisiblePopplerPageTexts(
  * pdftotext on OCR layers that embed a font per page.
  */
 function streamPdfjsPageTexts(pdfPath: string, range: IPdfPageRange, signal?: AbortSignal) {
-    return streamItems<IPageText>((emit, workerSignal) => mainJobBroker.run({
-        ownerId: 'pdf-text',
-        kind: 'pdf-text',
-        priority: 'background',
-        resources: {
-            cpuTokens: 1,
-            estimatedResidentBytes: 256 * 1024 * 1024,
-            nativeProcesses: 0,
-            ioWeight: 1,
-        },
-        signal: workerSignal,
-    }, () => runResultWorkerTask({
-        workerPath: resolveUnpackedWorkerPath(dirname(fileURLToPath(import.meta.url)), PDF_TEXT_WORKER_FILENAME),
-        workerData: {
-            pdfPath,
-            firstPage: range.firstPage,
-            lastPage: range.lastPage,
-        },
-        invalidPayloadMessage: 'PDF text worker returned an invalid payload',
-        createWorkerExitError: code => new Error(`PDF text worker exited with code ${code}`),
-        onProgressMessage(message) {
-            const parsed = v.safeParse(PDF_TEXT_WORKER_PAGE_MESSAGE_SCHEMA, message);
-            if (parsed.success) {
-                emit(parsed.output.page);
-            }
-            return parsed.success;
-        },
-        signal: workerSignal,
-    })), signal);
+    return streamItems<IPageText>(
+        (emit, workerSignal) =>
+            mainJobBroker.run(
+                {
+                    ownerId: 'pdf-text',
+                    kind: 'pdf-text',
+                    priority: 'background',
+                    resources: {
+                        cpuTokens: 1,
+                        estimatedResidentBytes: 256 * 1024 * 1024,
+                        nativeProcesses: 0,
+                        ioWeight: 1,
+                    },
+                    signal: workerSignal,
+                },
+                () =>
+                    runResultWorkerTask({
+                        workerPath: resolveUnpackedWorkerPath(dirname(fileURLToPath(import.meta.url)), PDF_TEXT_WORKER_FILENAME),
+                        workerData: {
+                            pdfPath,
+                            firstPage: range.firstPage,
+                            lastPage: range.lastPage,
+                        },
+                        invalidPayloadMessage: 'PDF text worker returned an invalid payload',
+                        createWorkerExitError: (code) => new Error(`PDF text worker exited with code ${code}`),
+                        onProgressMessage(message) {
+                            const parsed = v.safeParse(PDF_TEXT_WORKER_PAGE_MESSAGE_SCHEMA, message);
+                            if (parsed.success) {
+                                emit(parsed.output.page);
+                            }
+                            return parsed.success;
+                        },
+                        signal: workerSignal,
+                    }),
+            ),
+        signal,
+    );
 }
 
 function resolvePageOpsBinary() {
@@ -324,7 +290,7 @@ function readDecodedOcrLayers(
         if (page?.evbOcrLayer && page.evbOcrLines !== null && !page.paintedText && !areas.has(pageNumber)) {
             pages.set(pageNumber, {
                 pageNumber,
-                text: normalizeExtractedPageText(page.evbOcrLines.map(line => line.text).join('\n')),
+                text: normalizeExtractedPageText(page.evbOcrLines.map((line) => line.text).join('\n')),
                 layout: readOcrLayerLayout(page.evbOcrLines),
             });
         }
@@ -350,23 +316,32 @@ async function readPdfPageTextsInReadingOrder(
     signal: AbortSignal | undefined,
     viewerPageText: boolean,
 ) {
-    const foreignLayerPages = pages.filter((page) => {
-        const visibility = inspection.visibility.get(page.pageNumber);
-        return page.text.length > 0 && visibility !== undefined && !visibility.paintedText
-            && (visibility.evbOcrLayer || visibility.hiddenText);
-    }).map(page => page.pageNumber);
+    const foreignLayerPages = pages
+        .filter((page) => {
+            const visibility = inspection.visibility.get(page.pageNumber);
+            return (
+                page.text.length > 0 &&
+                visibility !== undefined &&
+                !visibility.paintedText &&
+                (visibility.evbOcrLayer || visibility.hiddenText)
+            );
+        })
+        .map((page) => page.pageNumber);
     const orderedTexts = new Map<number, IPageText>();
     for (const range of groupContiguousPages(foreignLayerPages)) {
-        for (const page of await readVisiblePopplerPageTexts(pdfPath, range, areas, signal, true) ?? []) {
+        for (const page of (await readVisiblePopplerPageTexts(pdfPath, range, areas, signal, true)) ?? []) {
             orderedTexts.set(page.pageNumber, page);
         }
     }
     const viewerOrderPages = viewerPageText
-        ? pages.filter((page) => {
-            const visibility = inspection.visibility.get(page.pageNumber);
-            return visibility !== undefined && (!visibility.hiddenText || visibility.paintedText)
-                && hasRightToLeftSearchText(page.text);
-        }).map(page => page.pageNumber)
+        ? pages
+              .filter((page) => {
+                  const visibility = inspection.visibility.get(page.pageNumber);
+                  return (
+                      visibility !== undefined && (!visibility.hiddenText || visibility.paintedText) && hasRightToLeftSearchText(page.text)
+                  );
+              })
+              .map((page) => page.pageNumber)
         : [];
     // One PDF.js pass spans the window's right-to-left pages; a pass that
     // fails leaves them Poppler's text, so search still works.
@@ -376,19 +351,27 @@ async function readPdfPageTextsInReadingOrder(
         const reread = new Set(viewerOrderPages);
         const rereadTexts: IPageText[] = [];
         try {
-            for await (const page of streamPdfjsPageTexts(pdfPath, {
-                firstPage,
-                lastPage,
-            }, signal)) {
-                if (reread.has(page.pageNumber)) {rereadTexts.push(page);}
+            for await (const page of streamPdfjsPageTexts(
+                pdfPath,
+                {
+                    firstPage,
+                    lastPage,
+                },
+                signal,
+            )) {
+                if (reread.has(page.pageNumber)) {
+                    rereadTexts.push(page);
+                }
             }
-            for (const page of rereadTexts) {orderedTexts.set(page.pageNumber, page);}
+            for (const page of rereadTexts) {
+                orderedTexts.set(page.pageNumber, page);
+            }
         } catch (error) {
             signal?.throwIfAborted();
             log.warn(`Right-to-left pages ${firstPage}-${lastPage} keep Poppler's text: ${getErrorMessage(error)}`);
         }
     }
-    return pages.map(page => orderedTexts.get(page.pageNumber) ?? page);
+    return pages.map((page) => orderedTexts.get(page.pageNumber) ?? page);
 }
 
 /**
@@ -404,14 +387,16 @@ async function readRemainingPopplerPageTexts(
     signal?: AbortSignal,
 ) {
     const pages: IPageText[] = [];
-    for (const run of groupContiguousPages(range(window.firstPage, window.lastPage + 1).filter(page => !decoded.has(page)))) {
+    for (const run of groupContiguousPages(range(window.firstPage, window.lastPage + 1).filter((page) => !decoded.has(page)))) {
         const runPages = await readVisiblePopplerPageTexts(pdfPath, run, areas, signal);
-        if (runPages === null) {return null;}
+        if (runPages === null) {
+            return null;
+        }
         pages.push(...runPages);
         if (runPages.length < run.lastPage - run.firstPage + 1) {
             return {
                 pages,
-                endPage: (runPages.at(-1)?.pageNumber ?? run.firstPage - 1),
+                endPage: runPages.at(-1)?.pageNumber ?? run.firstPage - 1,
             };
         }
     }
@@ -431,25 +416,25 @@ export function streamPdfPageTexts(
     options: TStreamPdfPageTextsOptions = {},
     onProgress?: (pageNumber: number) => void,
 ): AsyncGenerator<IPageText> {
-    const {
-        signal,
-        visiblePageOnly = false,
-        ...range
-    } = options;
+    const {signal, visiblePageOnly = false, ...range} = options;
     const cancellation = new AbortController();
     const iterator = (async function* () {
         try {
-            yield* streamPdfPageTextRanges(pdfPath, [range], signal ? AbortSignal.any([
-                signal,
-                cancellation.signal,
-            ]) : cancellation.signal, onProgress, visiblePageOnly);
+            yield* streamPdfPageTextRanges(
+                pdfPath,
+                [range],
+                signal ? AbortSignal.any([signal, cancellation.signal]) : cancellation.signal,
+                onProgress,
+                visiblePageOnly,
+            );
         } catch (error) {
-            if (getUnprovenNativeTerminationDetail(error) !== undefined
-                || !cancellation.signal.aborted || signal?.aborted) {throw error;}
+            if (getUnprovenNativeTerminationDetail(error) !== undefined || !cancellation.signal.aborted || signal?.aborted) {
+                throw error;
+            }
         }
     })();
     const finish = iterator.return.bind(iterator);
-    iterator.return = value => {
+    iterator.return = (value) => {
         // Async generators queue return behind next, so abort admission before queuing it.
         cancellation.abort();
         return finish(value);
@@ -468,14 +453,19 @@ async function* streamPdfPageTextRanges(
     const source = await stat(pdfPath, {bigint: true});
     const assertSource = async () => {
         const current = await stat(pdfPath, {bigint: true});
-        if (current.dev !== source.dev || current.ino !== source.ino || current.size !== source.size
-            || current.mtimeNs !== source.mtimeNs || current.ctimeNs !== source.ctimeNs) {
+        if (
+            current.dev !== source.dev ||
+            current.ino !== source.ino ||
+            current.size !== source.size ||
+            current.mtimeNs !== source.mtimeNs ||
+            current.ctimeNs !== source.ctimeNs
+        ) {
             throw new Error('PDF source changed during text extraction');
         }
     };
     const windows: Array<Required<IPdfPageRange>> = [];
     for (const pageRange of ranges) {
-        const lastPage = pageRange.lastPage ?? await getPdfPageCount(pdfPath, signal === undefined ? {} : {signal});
+        const lastPage = pageRange.lastPage ?? (await getPdfPageCount(pdfPath, signal === undefined ? {} : {signal}));
         for (const firstPage of range(pageRange.firstPage ?? 1, lastPage + 1, POPPLER_TEXT_PAGE_WINDOW_SIZE)) {
             windows.push({
                 firstPage,
@@ -498,10 +488,7 @@ async function* streamPdfPageTextRanges(
         reuseSession: windows.length > VISIBILITY_WINDOWS_PER_LOAD,
     });
     try {
-        for (const [
-            index,
-            window,
-        ] of windows.entries()) {
+        for (const [index, window] of windows.entries()) {
             signal?.throwIfAborted();
             await assertSource();
             // Starting a window reports its first page, so progress moves while
@@ -516,7 +503,7 @@ async function* streamPdfPageTextRanges(
                 // while multi-window builds reuse one parsed source index in WASM.
                 inspectedWindows = index + VISIBILITY_WINDOWS_PER_LOAD;
                 inspection = await visibilitySession.inspectPages(
-                    windows.slice(index, inspectedWindows).flatMap(later => range(later.firstPage, later.lastPage + 1)),
+                    windows.slice(index, inspectedWindows).flatMap((later) => range(later.firstPage, later.lastPage + 1)),
                     signal,
                 );
                 if (inspection.status === 'degraded') {
@@ -532,14 +519,20 @@ async function* streamPdfPageTextRanges(
             }
             if (visiblePageOnly && index >= measuredWindows) {
                 measuredWindows = index + 1;
-                while (measuredWindows < Math.min(windows.length, index + PAGE_BOX_WINDOWS_PER_READ)
-                    && windows[measuredWindows]?.firstPage === (windows[measuredWindows - 1]?.lastPage ?? 0) + 1) {
+                while (
+                    measuredWindows < Math.min(windows.length, index + PAGE_BOX_WINDOWS_PER_READ) &&
+                    windows[measuredWindows]?.firstPage === (windows[measuredWindows - 1]?.lastPage ?? 0) + 1
+                ) {
                     measuredWindows += 1;
                 }
-                measuredAreas = await readCroppedPageAreas(pdfPath, {
-                    firstPage: window.firstPage,
-                    lastPage: windows[measuredWindows - 1]?.lastPage ?? window.lastPage,
-                }, signal);
+                measuredAreas = await readCroppedPageAreas(
+                    pdfPath,
+                    {
+                        firstPage: window.firstPage,
+                        lastPage: windows[measuredWindows - 1]?.lastPage ?? window.lastPage,
+                    },
+                    signal,
+                );
             }
             const areas = new Map([...measuredAreas].filter(([page]) => page >= window.firstPage && page <= window.lastPage));
             const decoded = readDecodedOcrLayers(window, inspection, areas);
@@ -549,19 +542,9 @@ async function* streamPdfPageTextRanges(
                 yield* streamPdfjsPageTexts(pdfPath, window, signal);
                 continue;
             }
-            const orderedPages = await readPdfPageTextsInReadingOrder(
-                pdfPath,
-                poppler.pages,
-                inspection,
-                areas,
-                signal,
-                visiblePageOnly,
-            );
-            const pages = [
-                ...orderedPages,
-                ...decoded.values(),
-            ]
-                .filter(page => page.pageNumber <= poppler.endPage)
+            const orderedPages = await readPdfPageTextsInReadingOrder(pdfPath, poppler.pages, inspection, areas, signal, visiblePageOnly);
+            const pages = [...orderedPages, ...decoded.values()]
+                .filter((page) => page.pageNumber <= poppler.endPage)
                 .sort((left, right) => left.pageNumber - right.pageNumber);
             await assertSource();
             for (const page of pages) {
@@ -581,13 +564,11 @@ async function* streamPdfPageTextRanges(
 }
 
 /** Reads the text of the requested pages, one pass per contiguous range. */
-export async function readPdfPageTexts(
-    pdfPath: string,
-    pageNumbers: readonly number[],
-    signal?: AbortSignal,
-): Promise<IPageText[]> {
+export async function readPdfPageTexts(pdfPath: string, pageNumbers: readonly number[], signal?: AbortSignal): Promise<IPageText[]> {
     const texts: IPageText[] = [];
-    if (pageNumbers.length === 0) {return texts;}
+    if (pageNumbers.length === 0) {
+        return texts;
+    }
     for await (const page of streamPdfPageTextRanges(pdfPath, groupContiguousPages([...pageNumbers]), signal)) {
         texts.push(page);
     }

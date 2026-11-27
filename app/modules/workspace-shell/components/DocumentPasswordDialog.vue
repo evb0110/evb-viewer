@@ -2,21 +2,24 @@
     <UModal
         :open="open"
         :title="t('errors.file.passwordPromptTitle')"
-        :ui="{ footer: 'justify-end gap-2' }"
+        :ui="{footer: 'justify-end gap-2'}"
         :dismissible="!checking"
-        :close="{ disabled: checking }"
+        :close="{disabled: checking}"
         @update:open="handleOpenUpdate"
     >
         <template #description>
             <span class="sr-only">
-                {{ t('errors.file.passwordPromptDescription', { name: fileName }) }}
+                {{ t('errors.file.passwordPromptDescription', {name: fileName}) }}
             </span>
         </template>
 
         <template #body>
-            <form class="space-y-4" @submit.prevent="handleSubmit">
+            <form
+                class="space-y-4"
+                @submit.prevent="handleSubmit"
+            >
                 <p class="text-sm text-muted">
-                    {{ t('errors.file.passwordPromptDescription', { name: fileName }) }}
+                    {{ t('errors.file.passwordPromptDescription', {name: fileName}) }}
                 </p>
                 <!--
                     The blank help line holds the error's place, so a wrong
@@ -62,32 +65,16 @@
 </template>
 
 <script setup lang="ts">
-import { useDocumentPasswordPrompt } from '@app/modules/workspace-shell/composables/useDocumentPasswordPrompt';
+import {useDocumentPasswordPrompt} from '@app/modules/workspace-shell/composables/useDocumentPasswordPrompt';
 
-const { t } = useTypedI18n();
-const {
-    open,
-    fileName,
-    checking,
-    errorMessage,
-    submitPassword,
-    cancelPasswordPrompt,
-} = useDocumentPasswordPrompt();
+const {t} = useTypedI18n();
+const {open, fileName, checking, errorMessage, submitPassword, cancelPasswordPrompt} = useDocumentPasswordPrompt();
 const password = ref('');
 const passwordInput = useTemplateRef<{inputRef: HTMLInputElement | null}>('passwordInput');
 
 // Clear the field on visibility changes and after a failed password check
 // finishes while the dialog stays open (also returning focus).
-watch([
-    open,
-    checking,
-], async ([
-    isOpen,
-    isChecking,
-], [
-    wasOpen,
-    wasChecking,
-]) => {
+watch([open, checking], async ([isOpen, isChecking], [wasOpen, wasChecking]) => {
     const checkEndedWhileOpen = wasChecking && !isChecking && isOpen;
     if (isOpen !== wasOpen || checkEndedWhileOpen) {
         password.value = '';

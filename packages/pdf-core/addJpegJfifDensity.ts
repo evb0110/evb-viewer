@@ -11,10 +11,11 @@ export function addJpegJfifDensity(jpegBytes: Uint8Array, dpi: number) {
 
     const view = new DataView(jpegBytes.buffer, jpegBytes.byteOffset, jpegBytes.byteLength);
     // An SOI, then an APP0 segment whose length covers bytes 4 to 17 and whose identifier is "JFIF\0".
-    const hasJfifHeader = view.getUint16(0) === 0xffd8
-        && view.getUint16(2) === 0xffe0
-        && view.getUint16(4) >= 14
-        && String.fromCharCode(...jpegBytes.subarray(6, 11)) === 'JFIF\0';
+    const hasJfifHeader =
+        view.getUint16(0) === 0xffd8 &&
+        view.getUint16(2) === 0xffe0 &&
+        view.getUint16(4) >= 14 &&
+        String.fromCharCode(...jpegBytes.subarray(6, 11)) === 'JFIF\0';
     if (!hasJfifHeader) {
         return jpegBytes;
     }

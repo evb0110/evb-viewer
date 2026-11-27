@@ -1,14 +1,5 @@
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    getShortcutLabels,
-    isMacPlatformHint,
-} from '@app/constants/shortcuts';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {getShortcutLabels, isMacPlatformHint} from '@app/constants/shortcuts';
 
 describe('shortcuts', () => {
     afterEach(() => {
@@ -36,7 +27,7 @@ describe('shortcuts', () => {
         vi.stubGlobal('navigator', {
             platform: '',
             userAgent: '',
-            userAgentData: { platform: 'macOS' },
+            userAgentData: {platform: 'macOS'},
         });
 
         expect(getShortcutLabels().openFile).toBe('\u2318O');

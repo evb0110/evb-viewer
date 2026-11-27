@@ -1,4 +1,4 @@
-import { pdfViewerDomSelectors } from '@app/modules/pdf-viewer/public/domContracts';
+import {pdfViewerDomSelectors} from '@app/modules/pdf-viewer/public/domContracts';
 import type {
     IViewerChromeRect,
     IViewerInvariantNoteWindow,
@@ -27,12 +27,7 @@ const VIEWPORT_SELECTOR = '[data-document-viewer-chassis-viewport], #pdf-viewer'
  * is wrong whatever the viewer is showing, so they are read from the rendered
  * shell rather than assumed from the viewport box.
  */
-const CHROME_SELECTORS = [
-    '#editor-global-toolbar-host',
-    '.sidebar-wrapper',
-    '.tab-bar',
-    '.status-bar',
-] as const;
+const CHROME_SELECTORS = ['#editor-global-toolbar-host', '.sidebar-wrapper', '.tab-bar', '.status-bar'] as const;
 
 function toRect(rect: DOMRect): IViewerRect {
     return {
@@ -59,21 +54,17 @@ function resolvePaintedRect(rect: IViewerRect, clipPath: string | undefined): IV
     if (!inset) {
         return rect;
     }
-    const parts = (inset[1] ?? '').split(/\s+round\s+/u)[0]?.trim().split(/\s+/u) ?? [];
+    const parts =
+        (inset[1] ?? '')
+            .split(/\s+round\s+/u)[0]
+            ?.trim()
+            .split(/\s+/u) ?? [];
     if (parts.length === 0 || parts.length > 4) {
         return rect;
     }
-    const sides = [
-        parts[0],
-        parts[1] ?? parts[0],
-        parts[2] ?? parts[0],
-        parts[3] ?? parts[1] ?? parts[0],
-    ];
+    const sides = [parts[0], parts[1] ?? parts[0], parts[2] ?? parts[0], parts[3] ?? parts[1] ?? parts[0]];
     const resolved: number[] = [];
-    for (const [
-        index,
-        side,
-    ] of sides.entries()) {
+    for (const [index, side] of sides.entries()) {
         const reference = index % 2 === 0 ? rect.height : rect.width;
         const value = resolveInsetLength(side, reference);
         if (value === null) {
@@ -83,12 +74,7 @@ function resolvePaintedRect(rect: IViewerRect, clipPath: string | undefined): IV
         // element's own shadow is painted there, so it cannot uncover more.
         resolved.push(Math.max(0, value));
     }
-    const [
-        top = 0,
-        right = 0,
-        bottom = 0,
-        left = 0,
-    ] = resolved;
+    const [top = 0, right = 0, bottom = 0, left = 0] = resolved;
     return {
         height: Math.max(0, rect.height - top - bottom),
         left: rect.left + left,
@@ -124,21 +110,19 @@ function isPaintedElement(element: Element | null): element is HTMLElement {
     return rect.width > 0 && rect.height > 0;
 }
 
-function isHiddenNoteWindow(
-    noteWindow: HTMLElement,
-    rect: IViewerRect,
-    paintedRect: IViewerRect,
-) {
+function isHiddenNoteWindow(noteWindow: HTMLElement, rect: IViewerRect, paintedRect: IViewerRect) {
     const style = noteWindow.ownerDocument.defaultView?.getComputedStyle(noteWindow);
     const opacity = Number(style?.opacity ?? '1');
-    return !style
-        || style.display === 'none'
-        || style.visibility === 'hidden'
-        || opacity === 0
-        || rect.width <= 0
-        || rect.height <= 0
-        || paintedRect.width <= 0
-        || paintedRect.height <= 0;
+    return (
+        !style ||
+        style.display === 'none' ||
+        style.visibility === 'hidden' ||
+        opacity === 0 ||
+        rect.width <= 0 ||
+        rect.height <= 0 ||
+        paintedRect.width <= 0 ||
+        paintedRect.height <= 0
+    );
 }
 
 /** The one painted workspace the reader is looking at, or null. */
@@ -149,12 +133,13 @@ export function findActiveWorkspaceHost(root: Document) {
             return host;
         }
     }
-    const paintedHosts = [...root.querySelectorAll<HTMLElement>('.workspace-host')].filter(candidate => (
-        isPaintedElement(candidate)
-        && candidate.getBoundingClientRect().width > MIN_HOST_SIZE_PX
-        && candidate.getBoundingClientRect().height > MIN_HOST_SIZE_PX
-    ));
-    return paintedHosts.length === 1 ? paintedHosts[0] ?? null : null;
+    const paintedHosts = [...root.querySelectorAll<HTMLElement>('.workspace-host')].filter(
+        (candidate) =>
+            isPaintedElement(candidate) &&
+            candidate.getBoundingClientRect().width > MIN_HOST_SIZE_PX &&
+            candidate.getBoundingClientRect().height > MIN_HOST_SIZE_PX,
+    );
+    return paintedHosts.length === 1 ? (paintedHosts[0] ?? null) : null;
 }
 
 /**
@@ -173,9 +158,9 @@ function readViewportRect(viewport: HTMLElement): IViewerRect {
 }
 
 function readPages(host: HTMLElement): IViewerInvariantPage[] {
-    const containers = [...host.querySelectorAll<HTMLElement>(
-        `${pdfViewerDomSelectors.pageContainer}[data-page]:not(.page_container--buffered)`,
-    )];
+    const containers = [
+        ...host.querySelectorAll<HTMLElement>(`${pdfViewerDomSelectors.pageContainer}[data-page]:not(.page_container--buffered)`),
+    ];
     return containers
         .map((container): IViewerInvariantPage | null => {
             const pageNumber = Number.parseInt(container.dataset.page ?? '', 10);
@@ -233,8 +218,8 @@ function readNoteWindows(host: HTMLElement): IViewerInvariantNoteWindow[] {
             const hasAnchorPage = Number.isSafeInteger(anchorPageNumber) && anchorPageNumber > 0;
             const anchorContainer = hasAnchorPage
                 ? host.querySelector<HTMLElement>(
-                    `${pdfViewerDomSelectors.pageContainer}[data-page="${String(anchorPageNumber)}"]:not(.page_container--buffered)`,
-                )
+                      `${pdfViewerDomSelectors.pageContainer}[data-page="${String(anchorPageNumber)}"]:not(.page_container--buffered)`,
+                  )
                 : null;
             const rect = toRect(noteWindow.getBoundingClientRect());
             const style = noteWindow.ownerDocument.defaultView?.getComputedStyle(noteWindow);
@@ -289,8 +274,7 @@ function parsePositiveInteger(value: string | null | undefined) {
  */
 function readToolbarPage(root: Document) {
     const toolbarHost = root.querySelector<HTMLElement>('#editor-global-toolbar-host') ?? root;
-    const controls = [...toolbarHost.querySelectorAll<HTMLElement>(TOOLBAR_PAGE_CONTROLS_SELECTOR)]
-        .find(isPaintedElement) ?? null;
+    const controls = [...toolbarHost.querySelectorAll<HTMLElement>(TOOLBAR_PAGE_CONTROLS_SELECTOR)].find(isPaintedElement) ?? null;
     if (!controls) {
         return {
             toolbarPageNumber: null,
@@ -303,9 +287,7 @@ function readToolbarPage(root: Document) {
     return {
         toolbarPageNumber: parsePositiveInteger(secondaryText) ?? parsePositiveInteger(primaryText),
         toolbarPageText: secondaryText ? `${primaryText} ${secondaryText}` : primaryText,
-        toolbarTotalPages: parsePositiveInteger(
-            controls.querySelector('.page-controls-total')?.textContent,
-        ),
+        toolbarTotalPages: parsePositiveInteger(controls.querySelector('.page-controls-total')?.textContent),
     };
 }
 

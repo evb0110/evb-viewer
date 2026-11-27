@@ -1,14 +1,10 @@
-import type {
-    ComputedRef,
-    Ref,
-} from 'vue';
-import type { TPdfViewMode } from '@app/types/pdfContracts';
-import type { IPageRange } from '@app/types/pdfUi';
-import type { IPdfRasterSchedulerSnapshot } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { logPdfNav } from '@app/utils/logPdfNav';
-import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
-
+import type {ComputedRef, Ref} from 'vue';
+import type {TPdfViewMode} from '@app/types/pdfContracts';
+import type {IPageRange} from '@app/types/pdfUi';
+import type {IPdfRasterSchedulerSnapshot} from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {logPdfNav} from '@app/utils/logPdfNav';
+import {logPdfRenderTrace} from '@app/utils/pdfRenderTrace';
 
 interface IUsePdfViewerNavigationDiagnosticsOptions {
     currentPage: Ref<number>;
@@ -33,16 +29,17 @@ type TViewerDiagnosticSnapshot = readonly [number, number, number, boolean];
 
 export const usePdfViewerNavigationDiagnostics = (options: IUsePdfViewerNavigationDiagnosticsOptions) => {
     watch(
-        () => [
-            !!options.navigationAnchorWindow.value,
-            options.virtualWindowStart.value,
-            options.virtualWindowEnd.value,
-            options.currentPage.value,
-            options.visibleRange.value.start,
-            options.visibleRange.value.end,
-            options.searchNavigationTargetPage.value,
-            options.searchNavigationState.value,
-        ] as const,
+        () =>
+            [
+                !!options.navigationAnchorWindow.value,
+                options.virtualWindowStart.value,
+                options.virtualWindowEnd.value,
+                options.currentPage.value,
+                options.visibleRange.value.start,
+                options.visibleRange.value.end,
+                options.searchNavigationTargetPage.value,
+                options.searchNavigationState.value,
+            ] as const,
         (snapshot: TNavigationDiagnosticSnapshot) => {
             const anchored = snapshot[0];
             const start = snapshot[1];
@@ -61,36 +58,22 @@ export const usePdfViewerNavigationDiagnostics = (options: IUsePdfViewerNavigati
             }
 
             logPdfNav(
-                `[PDF-NAV] virtualWindow anchored=${anchored}`
-                + ` start=${start} end=${end} currentPage=${page}`
-                + ` visibleRange=${visibleStart}-${visibleEnd}`
-                + ` searchAnchor=${searchAnchorPage ?? 'none'}`
-                + ` searchState=${searchNavigationState}`,
+                `[PDF-NAV] virtualWindow anchored=${anchored}` +
+                    ` start=${start} end=${end} currentPage=${page}` +
+                    ` visibleRange=${visibleStart}-${visibleEnd}` +
+                    ` searchAnchor=${searchAnchorPage ?? 'none'}` +
+                    ` searchState=${searchNavigationState}`,
             );
         },
     );
 
     watch(
-        () => [
-            options.currentPage.value,
-            options.visibleRange.value.start,
-            options.visibleRange.value.end,
-            options.isLoading.value,
-        ] as const,
+        () =>
+            [options.currentPage.value, options.visibleRange.value.start, options.visibleRange.value.end, options.isLoading.value] as const,
         (snapshot: TViewerDiagnosticSnapshot, previous?: TViewerDiagnosticSnapshot) => {
-            const [
-                page,
-                visibleStart,
-                visibleEnd,
-                isLoading,
-            ] = snapshot;
+            const [page, visibleStart, visibleEnd, isLoading] = snapshot;
             if (previous) {
-                const [
-                    prevPage,
-                    prevStart,
-                    prevEnd,
-                    prevLoading,
-                ] = previous;
+                const [prevPage, prevStart, prevEnd, prevLoading] = previous;
                 const pageChanged = page !== prevPage;
                 const rangeChanged = visibleStart !== prevStart || visibleEnd !== prevEnd;
                 const loadingChanged = isLoading !== prevLoading;

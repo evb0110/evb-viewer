@@ -1,27 +1,12 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { ref } from 'vue';
-import { usePdfScale } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScale';
-import { ZOOM } from '@app/constants/pdfLayout';
-import type {
-    TFitMode,
-    TZoomMode,
-} from '@app/types/pdfContracts';
-import type { IPdfPageMetric } from '@app/types/pdfUi';
-import type {
-    TPdfViewMode,
-    TPdfViewRotation,
-} from '@contracts/shared';
+import {describe, expect, it, vi} from 'vitest';
+import {ref} from 'vue';
+import {usePdfScale} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScale';
+import {ZOOM} from '@app/constants/pdfLayout';
+import type {TFitMode, TZoomMode} from '@app/types/pdfContracts';
+import type {IPdfPageMetric} from '@app/types/pdfUi';
+import type {TPdfViewMode, TPdfViewRotation} from '@contracts/shared';
 
-function createContainer(
-    width: number,
-    height: number,
-    physicalHeight = height,
-) {
+function createContainer(width: number, height: number, physicalHeight = height) {
     return {
         clientWidth: width,
         clientHeight: height,
@@ -46,15 +31,17 @@ function createScaleComposable(options: {
 }) {
     const zoom = ref(options.zoom ?? 1);
     const fitMode = ref<TFitMode>(options.mode ?? 'width');
-    const zoomMode = ref<TZoomMode>(options.zoomMode ?? (
-        fitMode.value === 'height' ? 'fit-height' : 'fit-width'
-    ));
+    const zoomMode = ref<TZoomMode>(options.zoomMode ?? (fitMode.value === 'height' ? 'fit-height' : 'fit-width'));
     const viewMode = ref<TPdfViewMode>(options.viewMode ?? 'single');
     const viewRotation = ref<TPdfViewRotation>(options.viewRotation ?? 0);
-    const pageMetrics = ref(options.pageMetrics ?? [{
-        width: options.width,
-        height: options.height,
-    }]);
+    const pageMetrics = ref(
+        options.pageMetrics ?? [
+            {
+                width: options.width,
+                height: options.height,
+            },
+        ],
+    );
     const pageMetricsVersion = ref(0);
     const numPages = ref(pageMetrics.value.length);
     const baseWidth = ref(options.width);
@@ -124,7 +111,7 @@ describe('usePdfScale', () => {
     });
 
     it('keeps viewer spacing fixed while fitting width', () => {
-        const { scale } = createScaleComposable({
+        const {scale} = createScaleComposable({
             width: 227.04,
             height: 350.64,
             mode: 'width',
@@ -143,7 +130,7 @@ describe('usePdfScale', () => {
     });
 
     it('fits the projected page width after a quarter-turn view rotation', () => {
-        const { scale } = createScaleComposable({
+        const {scale} = createScaleComposable({
             width: 600,
             height: 800,
             mode: 'width',
@@ -179,7 +166,7 @@ describe('usePdfScale', () => {
     });
 
     it('accounts for fixed margins in fit-height mode', () => {
-        const { scale } = createScaleComposable({
+        const {scale} = createScaleComposable({
             width: 504,
             height: 648,
             mode: 'height',
@@ -196,7 +183,7 @@ describe('usePdfScale', () => {
     });
 
     it('fits the current page width instead of the widest page in single-page mode', () => {
-        const { scale } = createScaleComposable({
+        const {scale} = createScaleComposable({
             width: 400,
             height: 500,
             pageMetrics: [
@@ -242,7 +229,7 @@ describe('usePdfScale', () => {
                 height: 500,
             },
         ] satisfies IPdfPageMetric[];
-        const { scale } = createScaleComposable({
+        const {scale} = createScaleComposable({
             width: 300,
             height: 500,
             pageMetrics,
@@ -254,9 +241,7 @@ describe('usePdfScale', () => {
 
         scale.computeFitWidthScale(container);
 
-        expect(
-            scale.effectiveScale.value * (pageMetrics[0]!.width + pageMetrics[1]!.width),
-        ).toBeCloseTo(940, 6);
+        expect(scale.effectiveScale.value * (pageMetrics[0]!.width + pageMetrics[1]!.width)).toBeCloseTo(940, 6);
     });
 
     it('uses the active facing spread row height for fit-height scale', () => {
@@ -274,7 +259,7 @@ describe('usePdfScale', () => {
                 height: 800,
             },
         ] satisfies IPdfPageMetric[];
-        const { scale } = createScaleComposable({
+        const {scale} = createScaleComposable({
             width: 600,
             height: 1000,
             pageMetrics,
@@ -304,10 +289,7 @@ describe('usePdfScale', () => {
                 height: 1_000,
             },
         ] satisfies IPdfPageMetric[];
-        const {
-            scale,
-            currentPage,
-        } = createScaleComposable({
+        const {scale, currentPage} = createScaleComposable({
             width: 320,
             height: 500,
             pageMetrics,
@@ -316,14 +298,14 @@ describe('usePdfScale', () => {
         });
         const container = createContainer(1536, 900);
 
-        scale.computeFitWidthScale(container, { page: 3 });
+        scale.computeFitWidthScale(container, {page: 3});
 
         expect(currentPage.value).toBe(1);
         expect(scale.effectiveScale.value * pageMetrics[2]!.height).toBeCloseTo(860, 6);
     });
 
     it('keeps custom zoom absolute after fit scale recomputes', () => {
-        const { scale } = createScaleComposable({
+        const {scale} = createScaleComposable({
             width: 500,
             height: 700,
             mode: 'width',
@@ -339,7 +321,7 @@ describe('usePdfScale', () => {
     });
 
     it('resolves BHS-like fit-height below the manual minimum zoom', () => {
-        const { scale } = createScaleComposable({
+        const {scale} = createScaleComposable({
             width: 4_766.9,
             height: 6_355.86,
             mode: 'height',
@@ -356,7 +338,7 @@ describe('usePdfScale', () => {
     });
 
     it('clamps fit-width scale to the fit maximum zoom level', () => {
-        const { scale } = createScaleComposable({
+        const {scale} = createScaleComposable({
             width: 10,
             height: 10,
             mode: 'width',
@@ -370,7 +352,7 @@ describe('usePdfScale', () => {
     });
 
     it('clamps fit-height scale to the fit minimum zoom level', () => {
-        const { scale } = createScaleComposable({
+        const {scale} = createScaleComposable({
             width: 10_000,
             height: 10_000,
             mode: 'height',
@@ -385,9 +367,7 @@ describe('usePdfScale', () => {
     });
 
     it('keeps continuous fit-width stable across mixed-width pages', () => {
-        const {
-            scale, currentPage,
-        } = createScaleComposable({
+        const {scale, currentPage} = createScaleComposable({
             width: 300,
             height: 500,
             continuousScroll: true,

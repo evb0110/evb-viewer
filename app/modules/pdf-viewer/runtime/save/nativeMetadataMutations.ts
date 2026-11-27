@@ -1,8 +1,5 @@
-import type {
-    IPdfBookmarkEntry,
-    IPdfPageLabelRange,
-} from '@app/types/pdfContracts';
-import { normalizePageLabelRanges } from '@app/modules/document-viewer/public';
+import type {IPdfBookmarkEntry, IPdfPageLabelRange} from '@app/types/pdfContracts';
+import {normalizePageLabelRanges} from '@app/modules/document-viewer/public';
 
 export function buildNativePageLabelsMutationForSave(opts: {
     pageLabelsDirty: boolean;

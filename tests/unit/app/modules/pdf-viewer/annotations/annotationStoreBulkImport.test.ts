@@ -1,14 +1,6 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    asAnnotationId,
-    type INoteEntity,
-} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import { requirePageIndex } from '@contracts/pageNumbers';
+import {describe, expect, it, vi} from 'vitest';
+import {asAnnotationId, type INoteEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {requirePageIndex} from '@contracts/pageNumbers';
 import {AnnotationStore} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 
 function persistedNote(id: string, contents = id): INoteEntity {
@@ -38,12 +30,7 @@ function persistedNote(id: string, contents = id): INoteEntity {
 }
 
 function semanticFingerprintCalls(calls: readonly unknown[][]) {
-    return calls.filter(([value]) => (
-        typeof value === 'object'
-        && value !== null
-        && 'kind' in value
-        && 'pageIndex' in value
-    ));
+    return calls.filter(([value]) => typeof value === 'object' && value !== null && 'kind' in value && 'pageIndex' in value);
 }
 
 describe('AnnotationStore bulk imports', () => {
@@ -55,7 +42,7 @@ describe('AnnotationStore bulk imports', () => {
 
         try {
             store.importMany(() => {
-                entities.forEach(entity => store.import(entity));
+                entities.forEach((entity) => store.import(entity));
             });
 
             const importCalls = semanticFingerprintCalls(stringify.mock.calls.slice(callsBeforeImport));
@@ -73,8 +60,9 @@ describe('AnnotationStore bulk imports', () => {
         published.mockClear();
 
         store.importMany(() => {
-            Array.from({length: 64}, (_, index) => persistedNote(`recovered-${index}`))
-                .forEach(entity => store.import(entity, {preserveSavedBaseline: true}));
+            Array.from({length: 64}, (_, index) => persistedNote(`recovered-${index}`)).forEach((entity) =>
+                store.import(entity, {preserveSavedBaseline: true}),
+            );
         });
 
         expect(published).toHaveBeenCalledTimes(1);

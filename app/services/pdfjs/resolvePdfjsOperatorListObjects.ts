@@ -1,14 +1,12 @@
-import type {
-    IPdfOperatorList,
-    IPdfPage,
-} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import type {IPdfOperatorList, IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import pdfjsRuntime from '@app/services/pdfjs/runtimeLib';
 
-interface IPdfjsObjectPool {get(id: string, callback: (value: unknown) => void): unknown;}
+interface IPdfjsObjectPool {
+    get(id: string, callback: (value: unknown) => void): unknown;
+}
 
 function isPdfjsObjectPool(value: unknown): value is IPdfjsObjectPool {
-    return typeof value === 'object' && value !== null
-        && 'get' in value && typeof value.get === 'function';
+    return typeof value === 'object' && value !== null && 'get' in value && typeof value.get === 'function';
 }
 
 /** Operator-list completion does not wait for the worker's image decoders. */
@@ -19,9 +17,13 @@ export function resolvePdfjsOperatorListObjects(
 ): Promise<ReadonlyMap<string, unknown>> {
     const ids = new Set<string>();
     for (let index = 0; index < operatorList.fnArray.length; index += 1) {
-        if (operatorList.fnArray[index] !== pdfjsRuntime.OPS.dependency) {continue;}
+        if (operatorList.fnArray[index] !== pdfjsRuntime.OPS.dependency) {
+            continue;
+        }
         for (const id of operatorList.argsArray[index] ?? []) {
-            if (typeof id === 'string') {ids.add(id);}
+            if (typeof id === 'string') {
+                ids.add(id);
+            }
         }
     }
     // The renderer adapter owns this PDF.js-only callback API. Consumers get
@@ -59,9 +61,7 @@ export function resolvePdfjsOperatorListObjects(
         }
         try {
             for (const id of ids) {
-                const pool = id.startsWith('g_')
-                    ? 'commonObjs' in page ? page.commonObjs : undefined
-                    : page.objs;
+                const pool = id.startsWith('g_') ? ('commonObjs' in page ? page.commonObjs : undefined) : page.objs;
                 if (!isPdfjsObjectPool(pool)) {
                     throw new Error('PDF.js dependency object pool is unavailable');
                 }
@@ -70,7 +70,9 @@ export function resolvePdfjsOperatorListObjects(
                         return;
                     }
                     objects.set(id, value);
-                    if (objects.size === ids.size) {complete();}
+                    if (objects.size === ids.size) {
+                        complete();
+                    }
                 });
             }
         } catch (error) {

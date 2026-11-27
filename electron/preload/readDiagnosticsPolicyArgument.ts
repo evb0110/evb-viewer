@@ -3,12 +3,10 @@ import {
     createDiagnosticsStartupPolicy,
     type IDiagnosticsStartupPolicy,
 } from '@electron/platform-ipc/coreContract';
-import { decodeBase64UrlUtf8 } from '@electron/preload/decodeBase64UrlUtf8';
+import {decodeBase64UrlUtf8} from '@electron/preload/decodeBase64UrlUtf8';
 
-export function readDiagnosticsPolicyArgument(
-    argv: readonly string[] = process.argv,
-): Readonly<IDiagnosticsStartupPolicy> {
-    const matchingArguments = argv.filter(argument => argument.startsWith(DIAGNOSTICS_POLICY_ARGUMENT_PREFIX));
+export function readDiagnosticsPolicyArgument(argv: readonly string[] = process.argv): Readonly<IDiagnosticsStartupPolicy> {
+    const matchingArguments = argv.filter((argument) => argument.startsWith(DIAGNOSTICS_POLICY_ARGUMENT_PREFIX));
     if (matchingArguments.length !== 1) {
         return createDiagnosticsStartupPolicy('unknown');
     }
@@ -21,9 +19,13 @@ export function readDiagnosticsPolicyArgument(
 
     try {
         const parsed: unknown = JSON.parse(decodedJson);
-        if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)
-            || Reflect.ownKeys(parsed).length !== 1
-            || !Object.hasOwn(parsed, 'mode')) {
+        if (
+            typeof parsed !== 'object' ||
+            parsed === null ||
+            Array.isArray(parsed) ||
+            Reflect.ownKeys(parsed).length !== 1 ||
+            !Object.hasOwn(parsed, 'mode')
+        ) {
             return createDiagnosticsStartupPolicy('unknown');
         }
         return createDiagnosticsStartupPolicy((parsed as {mode?: unknown}).mode);

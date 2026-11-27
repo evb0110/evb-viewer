@@ -1,14 +1,7 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { delay } from 'es-toolkit/promise';
-import {
-    clickAsUser,
-    clickFoundAsUser,
-} from '@tests/e2e/electron/helpers/userInput';
-import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
+import {describe, expect, it} from 'vitest';
+import {delay} from 'es-toolkit/promise';
+import {clickAsUser, clickFoundAsUser} from '@tests/e2e/electron/helpers/userInput';
+import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
     createBlankFixturePdf,
     createCorruptPdfFixture,
@@ -16,7 +9,7 @@ import {
     createMultiPageTextFixturePdf,
     createRotated90FixturePdf,
 } from '@tests/e2e/electron/helpers/fixtures';
-import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import type {IElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {
     clickVisibleToolbarButton,
     ensureSidebarOpen,
@@ -27,18 +20,10 @@ import {
     waitForPdfLoaded,
     waitForToolbarCurrentPage,
 } from '@tests/e2e/electron/helpers/viewerCore';
-import {
-    evaluateInPage,
-    waitForFunctionInPage,
-} from '@tests/e2e/electron/helpers/pageRuntime';
-import { readToolbarPageIndicator } from '@tests/e2e/electron/helpers/toolbarPageIndicator';
-import { readViewportPageObservation } from '@tests/e2e/electron/helpers/viewportPageObservation';
-import {
-    activatePaneByTab,
-    activateWorkspaceTab,
-    createNewWorkspaceTab,
-    openNewPane,
-} from '@tests/e2e/electron/helpers/workspaceTabs';
+import {evaluateInPage, waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
+import {readToolbarPageIndicator} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
+import {readViewportPageObservation} from '@tests/e2e/electron/helpers/viewportPageObservation';
+import {activatePaneByTab, activateWorkspaceTab, createNewWorkspaceTab, openNewPane} from '@tests/e2e/electron/helpers/workspaceTabs';
 import {
     getWorkspaceToolbarSnapshot,
     requireWorkspaceCommand,
@@ -53,12 +38,9 @@ import {
     summarizeCommittedSurfaceTiming,
     waitForCommittedSurfaceSamples,
 } from '@tests/e2e/electron/helpers/viewerCommittedSurfaceContract';
-import {
-    waitForAnimationFrames,
-    wheelPdfViewportAndWaitForSettlement,
-} from '@tests/e2e/electron/helpers/viewerVirtualizationContract';
-import { expectWithinTimingBudget } from '@tests/e2e/electron/helpers/timingBudget';
-import { E2E_CONTENT_SIZE } from '@tests/e2e/electron/helpers/userEnvironment';
+import {waitForAnimationFrames, wheelPdfViewportAndWaitForSettlement} from '@tests/e2e/electron/helpers/viewerVirtualizationContract';
+import {expectWithinTimingBudget} from '@tests/e2e/electron/helpers/timingBudget';
+import {E2E_CONTENT_SIZE} from '@tests/e2e/electron/helpers/userEnvironment';
 
 const OPEN_TIMEOUT_MS = 60_000;
 const SETTLE_TIMEOUT_MS = 30_000;
@@ -91,12 +73,7 @@ const RENDER_SETTLE_TIMEOUT_MS = 45_000;
 // 1,927-1,929ms when Fit Height mounted every row between the stale and the
 // re-anchored scroll position.
 const FIT_CHANGE_FREEZE_BUDGET_MS = 750;
-const FIT_PROBE_CHECKPOINTS = [
-    'before-fit',
-    'fit-height',
-    'fit-width',
-    'settled',
-] as const;
+const FIT_PROBE_CHECKPOINTS = ['before-fit', 'fit-height', 'fit-width', 'settled'] as const;
 
 interface IVisibleSidebarSample {
     ownerTabId: string | null;
@@ -123,23 +100,27 @@ interface IFitFrameSample {
 }
 
 interface IFitProbeWindow {
-    __evbFitProbe?: {
-        checkpoint: string;
-        frames: IFitFrameSample[];
-        sample: () => void;
-        stop: () => void;
-    } | undefined;
-    __evbOpenGenerationProbe?: {
-        frames: IOpenGenerationFrame[];
-        stop: () => void;
-    } | undefined;
+    __evbFitProbe?:
+        | {
+              checkpoint: string;
+              frames: IFitFrameSample[];
+              sample: () => void;
+              stop: () => void;
+          }
+        | undefined;
+    __evbOpenGenerationProbe?:
+        | {
+              frames: IOpenGenerationFrame[];
+              stop: () => void;
+          }
+        | undefined;
 }
 
 async function readViewerAuthorityState(session: IElectronE2ESession) {
     return evaluateInPage(session.page, () => {
-        const activeHost = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
-        ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const activeHost =
+            document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]') ??
+            document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const viewport = activeHost?.querySelector<HTMLElement>('#pdf-viewer') ?? null;
         const chassis = viewport?.closest<HTMLElement>('.document-viewer-chassis') ?? null;
         const viewportRect = viewport?.getBoundingClientRect() ?? null;
@@ -149,17 +130,22 @@ async function readViewerAuthorityState(session: IElectronE2ESession) {
                 return {
                     page: Number(container.dataset.page) || null,
                     rendered: container.classList.contains('page_container--rendered'),
-                    visibleHeight: viewportRect
-                        ? Math.min(rect.bottom, viewportRect.bottom) - Math.max(rect.top, viewportRect.top)
-                        : 0,
+                    visibleHeight: viewportRect ? Math.min(rect.bottom, viewportRect.bottom) - Math.max(rect.top, viewportRect.top) : 0,
                 };
             })
-            .filter(entry => entry.page !== null && entry.visibleHeight > 0)
+            .filter((entry) => entry.page !== null && entry.visibleHeight > 0)
             .sort((left, right) => right.visibleHeight - left.visibleHeight);
-        const toolbar = (window as {__evbTestApi?: {getActiveToolbarSnapshot?: () => {
-            currentPage?: number;
-            totalPages?: number;
-        } | null}}).__evbTestApi?.getActiveToolbarSnapshot?.() ?? null;
+        const toolbar =
+            (
+                window as {
+                    __evbTestApi?: {
+                        getActiveToolbarSnapshot?: () => {
+                            currentPage?: number;
+                            totalPages?: number;
+                        } | null;
+                    };
+                }
+            ).__evbTestApi?.getActiveToolbarSnapshot?.() ?? null;
         return {
             activeTabId: activeHost?.dataset.workspaceTabId ?? null,
             chassisCurrentPage: Number(chassis?.dataset.chassisCurrentPage) || null,
@@ -179,66 +165,78 @@ async function readViewerAuthorityState(session: IElectronE2ESession) {
 }
 
 async function readDocumentHostState(session: IElectronE2ESession, tabId: string | null) {
-    return evaluateInPage(session.page, (targetTabId: string | null) => {
-        const host = targetTabId === null
-            ? document.querySelector<HTMLElement>('.workspace-host[data-workspace-active="true"]')
-            : document.querySelector<HTMLElement>(
-                `.workspace-host[data-workspace-tab-id="${targetTabId}"]`,
-            );
-        const viewport = host?.querySelector<HTMLElement>('#pdf-viewer') ?? null;
-        const chassis = host?.querySelector<HTMLElement>('.document-viewer-chassis') ?? null;
-        const viewportRect = viewport?.getBoundingClientRect() ?? null;
-        const pages = Array.from(host?.querySelectorAll<HTMLElement>('.page_container') ?? [])
-            .map((container) => {
-                const rect = container.getBoundingClientRect();
-                return {
-                    page: Number(container.dataset.page) || null,
-                    visibleHeight: viewportRect
-                        ? Math.min(rect.bottom, viewportRect.bottom) - Math.max(rect.top, viewportRect.top)
-                        : 0,
-                };
-            })
-            .filter(entry => entry.page !== null && entry.visibleHeight > 0)
-            .sort((left, right) => right.visibleHeight - left.visibleHeight);
-        const toolbar = (window as {__evbTestApi?: {getActiveToolbarSnapshot?: () => {
-            currentPage?: number;
-            totalPages?: number;
-        } | null}}).__evbTestApi?.getActiveToolbarSnapshot?.() ?? null;
-        return {
-            committedPage: Number(chassis?.dataset.viewportCommittedPage) || null,
-            hostActive: host?.dataset.workspaceActive === 'true',
-            hostPresent: host !== null,
-            mostVisiblePage: pages[0]?.page ?? null,
-            pageContainerCount: host?.querySelectorAll('.page_container').length ?? 0,
-            sidebarVisible: Boolean(host?.querySelector('.sidebar-wrapper:not(.is-closed)')),
-            toolbarPage: toolbar?.currentPage ?? null,
-            totalPages: toolbar?.totalPages ?? null,
-        };
-    }, tabId);
+    return evaluateInPage(
+        session.page,
+        (targetTabId: string | null) => {
+            const host =
+                targetTabId === null
+                    ? document.querySelector<HTMLElement>('.workspace-host[data-workspace-active="true"]')
+                    : document.querySelector<HTMLElement>(`.workspace-host[data-workspace-tab-id="${targetTabId}"]`);
+            const viewport = host?.querySelector<HTMLElement>('#pdf-viewer') ?? null;
+            const chassis = host?.querySelector<HTMLElement>('.document-viewer-chassis') ?? null;
+            const viewportRect = viewport?.getBoundingClientRect() ?? null;
+            const pages = Array.from(host?.querySelectorAll<HTMLElement>('.page_container') ?? [])
+                .map((container) => {
+                    const rect = container.getBoundingClientRect();
+                    return {
+                        page: Number(container.dataset.page) || null,
+                        visibleHeight: viewportRect ? Math.min(rect.bottom, viewportRect.bottom) - Math.max(rect.top, viewportRect.top) : 0,
+                    };
+                })
+                .filter((entry) => entry.page !== null && entry.visibleHeight > 0)
+                .sort((left, right) => right.visibleHeight - left.visibleHeight);
+            const toolbar =
+                (
+                    window as {
+                        __evbTestApi?: {
+                            getActiveToolbarSnapshot?: () => {
+                                currentPage?: number;
+                                totalPages?: number;
+                            } | null;
+                        };
+                    }
+                ).__evbTestApi?.getActiveToolbarSnapshot?.() ?? null;
+            return {
+                committedPage: Number(chassis?.dataset.viewportCommittedPage) || null,
+                hostActive: host?.dataset.workspaceActive === 'true',
+                hostPresent: host !== null,
+                mostVisiblePage: pages[0]?.page ?? null,
+                pageContainerCount: host?.querySelectorAll('.page_container').length ?? 0,
+                sidebarVisible: Boolean(host?.querySelector('.sidebar-wrapper:not(.is-closed)')),
+                toolbarPage: toolbar?.currentPage ?? null,
+                totalPages: toolbar?.totalPages ?? null,
+            };
+        },
+        tabId,
+    );
 }
 
 async function waitForFitSettlement(session: IElectronE2ESession, expectedPage: number) {
-    await waitForFunctionInPage(session.page, (targetPage: number) => {
-        const activeHost = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
-        ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const viewport = activeHost?.querySelector<HTMLElement>('#pdf-viewer') ?? null;
-        const chassis = viewport?.closest<HTMLElement>('.document-viewer-chassis') ?? null;
-        const container = activeHost?.querySelector<HTMLElement>(
-            `.page_container[data-page="${String(targetPage)}"]`,
-        ) ?? null;
-        if (!viewport || !container) {
-            return false;
-        }
-        const viewportRect = viewport.getBoundingClientRect();
-        const rect = container.getBoundingClientRect();
-        const visibleHeight = Math.min(rect.bottom, viewportRect.bottom)
-            - Math.max(rect.top, viewportRect.top);
-        return chassis?.dataset.viewportLifecycle === 'ready'
-            && Number(chassis.dataset.viewportCommittedPage) === targetPage
-            && visibleHeight > Math.min(rect.height, viewportRect.height) / 2
-            && container.classList.contains('page_container--rendered');
-    }, {timeout: RENDER_SETTLE_TIMEOUT_MS}, expectedPage);
+    await waitForFunctionInPage(
+        session.page,
+        (targetPage: number) => {
+            const activeHost =
+                document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]') ??
+                document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+            const viewport = activeHost?.querySelector<HTMLElement>('#pdf-viewer') ?? null;
+            const chassis = viewport?.closest<HTMLElement>('.document-viewer-chassis') ?? null;
+            const container = activeHost?.querySelector<HTMLElement>(`.page_container[data-page="${String(targetPage)}"]`) ?? null;
+            if (!viewport || !container) {
+                return false;
+            }
+            const viewportRect = viewport.getBoundingClientRect();
+            const rect = container.getBoundingClientRect();
+            const visibleHeight = Math.min(rect.bottom, viewportRect.bottom) - Math.max(rect.top, viewportRect.top);
+            return (
+                chassis?.dataset.viewportLifecycle === 'ready' &&
+                Number(chassis.dataset.viewportCommittedPage) === targetPage &&
+                visibleHeight > Math.min(rect.height, viewportRect.height) / 2 &&
+                container.classList.contains('page_container--rendered')
+            );
+        },
+        {timeout: RENDER_SETTLE_TIMEOUT_MS},
+        expectedPage,
+    );
     await waitForAnimationFrames(session.page, 4);
 }
 
@@ -335,12 +333,7 @@ const OPEN_PHASE_SPANS = [
  * phase. A slow open is only actionable if the trace still says which phase
  * consumed the time, so losing one of these is a regression in its own right.
  */
-const REQUIRED_OPEN_PHASES = [
-    'preflight-open-capability',
-    'parser-validation',
-    'pdfjs-parse',
-    'document-state-commit',
-] as const;
+const REQUIRED_OPEN_PHASES = ['preflight-open-capability', 'parser-validation', 'pdfjs-parse', 'document-state-commit'] as const;
 
 interface IOpenPhaseMeasurement {
     durationMs: number | null;
@@ -367,88 +360,88 @@ interface IOpenPhaseLedger {
  * instrumentation shows up as a number instead of hiding.
  */
 async function readOpenPhaseLedger(session: IElectronE2ESession): Promise<IOpenPhaseLedger> {
-    return evaluateInPage(session.page, (spans: ReadonlyArray<{
-        end: string;
-        phase: string;
-        start: string;
-    }>) => {
-        const traceWindow = window as Window & IPdfRenderTraceWindow;
-        const entries = traceWindow.__getPdfRenderTrace?.() ?? traceWindow.__pdfRenderTraceBuffer ?? [];
-        const readTraceAt = (entry: {payload: Record<string, unknown>} | undefined) => {
-            const value = entry?.payload.traceAtMs;
-            return typeof value === 'number' ? value : null;
-        };
-        // The last open in the buffer is the one under test; a fixture may have
-        // opened a previous document into the same trace.
-        const openStartIndex = entries.map(entry => entry.event).lastIndexOf('pdf-open-route-start');
-        const openEntries = openStartIndex === -1 ? entries : entries.slice(openStartIndex);
-        const openStartedAtMs = readTraceAt(openEntries[0]);
-        const findEntry = (event: string) => openEntries.find(entry => entry.event === event);
-        const offsetOf = (event: string) => {
-            const at = readTraceAt(findEntry(event));
-            return at === null || openStartedAtMs === null ? null : Math.round(at - openStartedAtMs);
-        };
-        const phases = spans.map((span) => {
-            const startEntry = findEntry(span.start);
-            const endEntry = findEntry(span.end);
-            const startedAt = readTraceAt(startEntry);
-            const endedAt = readTraceAt(endEntry);
-            // Some phases only report their own elapsed time on the end event,
-            // because the start is on the far side of an await that the trace
-            // does not mark.
-            const reportedElapsed = endEntry?.payload.elapsedMs;
-            const durationMs = typeof reportedElapsed === 'number'
-                ? Math.round(reportedElapsed)
-                : startedAt !== null && endedAt !== null
-                    ? Math.round(endedAt - startedAt)
-                    : null;
-            return {
-                durationMs,
-                endedAtMs: endedAt === null || openStartedAtMs === null
-                    ? null
-                    : Math.round(endedAt - openStartedAtMs),
-                phase: span.phase,
-                startedAtMs: startedAt === null || openStartedAtMs === null
-                    ? null
-                    : Math.round(startedAt - openStartedAtMs),
+    return evaluateInPage(
+        session.page,
+        (
+            spans: ReadonlyArray<{
+                end: string;
+                phase: string;
+                start: string;
+            }>,
+        ) => {
+            const traceWindow = window as Window & IPdfRenderTraceWindow;
+            const entries = traceWindow.__getPdfRenderTrace?.() ?? traceWindow.__pdfRenderTraceBuffer ?? [];
+            const readTraceAt = (entry: {payload: Record<string, unknown>} | undefined) => {
+                const value = entry?.payload.traceAtMs;
+                return typeof value === 'number' ? value : null;
             };
-        });
-        const firstCanvasMountedMs = offsetOf('renderer-canvas-mounted');
-        const measuredMs = phases.reduce((total, entry) => total + (entry.durationMs ?? 0), 0);
-        const openStartWallTime = findEntry('pdf-open-direct-start')?.payload.wallTimeMs;
-        const routeStartMissing = openStartIndex === -1;
-        const resolvedPages = findEntry('pdf-document-get-document-resolve')?.payload.numPages;
-        return {
-            firstCanvasMountedMs,
-            firstRenderBeginMs: offsetOf('renderer-single-page-begin'),
-            routeStartMissing,
-            numPages: typeof resolvedPages === 'number' ? resolvedPages : null,
-            openStartWallTimeMs: typeof openStartWallTime === 'number' ? openStartWallTime : null,
-            phases,
-            unaccountedMs: firstCanvasMountedMs === null
-                ? null
-                : Math.round(firstCanvasMountedMs - measuredMs),
-        };
-    }, OPEN_PHASE_SPANS.map(span => ({
-        end: span.end,
-        phase: span.phase,
-        start: span.start,
-    })));
+            // The last open in the buffer is the one under test; a fixture may have
+            // opened a previous document into the same trace.
+            const openStartIndex = entries.map((entry) => entry.event).lastIndexOf('pdf-open-route-start');
+            const openEntries = openStartIndex === -1 ? entries : entries.slice(openStartIndex);
+            const openStartedAtMs = readTraceAt(openEntries[0]);
+            const findEntry = (event: string) => openEntries.find((entry) => entry.event === event);
+            const offsetOf = (event: string) => {
+                const at = readTraceAt(findEntry(event));
+                return at === null || openStartedAtMs === null ? null : Math.round(at - openStartedAtMs);
+            };
+            const phases = spans.map((span) => {
+                const startEntry = findEntry(span.start);
+                const endEntry = findEntry(span.end);
+                const startedAt = readTraceAt(startEntry);
+                const endedAt = readTraceAt(endEntry);
+                // Some phases only report their own elapsed time on the end event,
+                // because the start is on the far side of an await that the trace
+                // does not mark.
+                const reportedElapsed = endEntry?.payload.elapsedMs;
+                const durationMs =
+                    typeof reportedElapsed === 'number'
+                        ? Math.round(reportedElapsed)
+                        : startedAt !== null && endedAt !== null
+                          ? Math.round(endedAt - startedAt)
+                          : null;
+                return {
+                    durationMs,
+                    endedAtMs: endedAt === null || openStartedAtMs === null ? null : Math.round(endedAt - openStartedAtMs),
+                    phase: span.phase,
+                    startedAtMs: startedAt === null || openStartedAtMs === null ? null : Math.round(startedAt - openStartedAtMs),
+                };
+            });
+            const firstCanvasMountedMs = offsetOf('renderer-canvas-mounted');
+            const measuredMs = phases.reduce((total, entry) => total + (entry.durationMs ?? 0), 0);
+            const openStartWallTime = findEntry('pdf-open-direct-start')?.payload.wallTimeMs;
+            const routeStartMissing = openStartIndex === -1;
+            const resolvedPages = findEntry('pdf-document-get-document-resolve')?.payload.numPages;
+            return {
+                firstCanvasMountedMs,
+                firstRenderBeginMs: offsetOf('renderer-single-page-begin'),
+                routeStartMissing,
+                numPages: typeof resolvedPages === 'number' ? resolvedPages : null,
+                openStartWallTimeMs: typeof openStartWallTime === 'number' ? openStartWallTime : null,
+                phases,
+                unaccountedMs: firstCanvasMountedMs === null ? null : Math.round(firstCanvasMountedMs - measuredMs),
+            };
+        },
+        OPEN_PHASE_SPANS.map((span) => ({
+            end: span.end,
+            phase: span.phase,
+            start: span.start,
+        })),
+    );
 }
 
 async function readPdfRenderTrace(session: IElectronE2ESession, limit: number) {
-    return evaluateInPage(session.page, (max: number) => {
-        const traceWindow = window as Window & IPdfRenderTraceWindow;
-        const noise = [
-            'raster-scheduler-snapshot',
-            'pdf-document-page-',
-            'renderer-single-page-',
-            'renderer-canvas-',
-        ];
-        return (traceWindow.__getPdfRenderTrace?.() ?? traceWindow.__pdfRenderTraceBuffer ?? [])
-            .filter(entry => !noise.some(prefix => entry.event.startsWith(prefix)))
-            .slice(-max);
-    }, limit);
+    return evaluateInPage(
+        session.page,
+        (max: number) => {
+            const traceWindow = window as Window & IPdfRenderTraceWindow;
+            const noise = ['raster-scheduler-snapshot', 'pdf-document-page-', 'renderer-single-page-', 'renderer-canvas-'];
+            return (traceWindow.__getPdfRenderTrace?.() ?? traceWindow.__pdfRenderTraceBuffer ?? [])
+                .filter((entry) => !noise.some((prefix) => entry.event.startsWith(prefix)))
+                .slice(-max);
+        },
+        limit,
+    );
 }
 
 /**
@@ -457,18 +450,20 @@ async function readPdfRenderTrace(session: IElectronE2ESession, limit: number) {
  * canvas was released.
  */
 async function readRawPdfRenderTrace(session: IElectronE2ESession, limit: number) {
-    return evaluateInPage(session.page, (max: number) => {
-        const traceWindow = window as Window & IPdfRenderTraceWindow;
-        return (traceWindow.__getPdfRenderTrace?.() ?? traceWindow.__pdfRenderTraceBuffer ?? [])
-            .slice(-max);
-    }, limit);
+    return evaluateInPage(
+        session.page,
+        (max: number) => {
+            const traceWindow = window as Window & IPdfRenderTraceWindow;
+            return (traceWindow.__getPdfRenderTrace?.() ?? traceWindow.__pdfRenderTraceBuffer ?? []).slice(-max);
+        },
+        limit,
+    );
 }
 
 async function readWorkspaceTabState(session: IElectronE2ESession) {
     return evaluateInPage(session.page, () => ({
         activeTabId: document.querySelector<HTMLElement>('.tab-list .tab.is-active')?.dataset.tabId ?? null,
-        tabIds: Array.from(document.querySelectorAll<HTMLElement>('.tab-list .tab[data-tab-id]'))
-            .map(tab => tab.dataset.tabId ?? ''),
+        tabIds: Array.from(document.querySelectorAll<HTMLElement>('.tab-list .tab[data-tab-id]')).map((tab) => tab.dataset.tabId ?? ''),
     }));
 }
 
@@ -485,40 +480,41 @@ interface IDirectOpenRouteOutcome {
  * the parser rejects it; both outcomes are inside this promise, so what follows
  * reads a settled shell instead of a shell sampled after a guessed delay.
  */
-async function openPathAndAwaitRouteOutcome(
-    session: IElectronE2ESession,
-    path: string,
-): Promise<IDirectOpenRouteOutcome> {
-    return evaluateInPage(session.page, async (targetPath: string) => {
-        const openWindow = Object.create(window) as {
-            __allowRendererFileOpenForAutomation?: (value: string) => Promise<boolean>;
-            __openFileDirect?: (value: string) => Promise<boolean>;
-        };
-        if (typeof openWindow.__allowRendererFileOpenForAutomation === 'function') {
-            await openWindow.__allowRendererFileOpenForAutomation(targetPath);
-        }
-        const openFileDirect = openWindow.__openFileDirect;
-        if (typeof openFileDirect !== 'function') {
-            return {
-                available: false,
-                error: null,
-                opened: null,
+async function openPathAndAwaitRouteOutcome(session: IElectronE2ESession, path: string): Promise<IDirectOpenRouteOutcome> {
+    return evaluateInPage(
+        session.page,
+        async (targetPath: string) => {
+            const openWindow = Object.create(window) as {
+                __allowRendererFileOpenForAutomation?: (value: string) => Promise<boolean>;
+                __openFileDirect?: (value: string) => Promise<boolean>;
             };
-        }
-        try {
-            return {
-                available: true,
-                error: null,
-                opened: await openFileDirect(targetPath),
-            };
-        } catch (error) {
-            return {
-                available: true,
-                error: String(error),
-                opened: null,
-            };
-        }
-    }, path);
+            if (typeof openWindow.__allowRendererFileOpenForAutomation === 'function') {
+                await openWindow.__allowRendererFileOpenForAutomation(targetPath);
+            }
+            const openFileDirect = openWindow.__openFileDirect;
+            if (typeof openFileDirect !== 'function') {
+                return {
+                    available: false,
+                    error: null,
+                    opened: null,
+                };
+            }
+            try {
+                return {
+                    available: true,
+                    error: null,
+                    opened: await openFileDirect(targetPath),
+                };
+            } catch (error) {
+                return {
+                    available: true,
+                    error: String(error),
+                    opened: null,
+                };
+            }
+        },
+        path,
+    );
 }
 
 interface IOpenRouteCapabilitySpan {
@@ -533,23 +529,25 @@ interface IOpenRouteCapabilitySpan {
  * close its span too, otherwise the phase ledger of the next open measures from
  * an origin that was never terminated.
  */
-async function readOpenRouteCapabilitySpan(
-    session: IElectronE2ESession,
-    path: string,
-): Promise<IOpenRouteCapabilitySpan> {
-    return evaluateInPage(session.page, (targetPath: string) => {
-        const traceWindow = window as Window & IPdfRenderTraceWindow;
-        const entries = (traceWindow.__getPdfRenderTrace?.() ?? traceWindow.__pdfRenderTraceBuffer ?? [])
-            .filter(entry => entry.payload.path === targetPath);
-        const end = entries.find(entry => entry.event === 'pdf-open-route-capability-end');
-        const elapsedMs = end?.payload.elapsedMs;
-        return {
-            elapsedMs: typeof elapsedMs === 'number' ? elapsedMs : null,
-            ended: end !== undefined,
-            failed: end?.payload.failed === true,
-            started: entries.some(entry => entry.event === 'pdf-open-route-start'),
-        };
-    }, path);
+async function readOpenRouteCapabilitySpan(session: IElectronE2ESession, path: string): Promise<IOpenRouteCapabilitySpan> {
+    return evaluateInPage(
+        session.page,
+        (targetPath: string) => {
+            const traceWindow = window as Window & IPdfRenderTraceWindow;
+            const entries = (traceWindow.__getPdfRenderTrace?.() ?? traceWindow.__pdfRenderTraceBuffer ?? []).filter(
+                (entry) => entry.payload.path === targetPath,
+            );
+            const end = entries.find((entry) => entry.event === 'pdf-open-route-capability-end');
+            const elapsedMs = end?.payload.elapsedMs;
+            return {
+                elapsedMs: typeof elapsedMs === 'number' ? elapsedMs : null,
+                ended: end !== undefined,
+                failed: end?.payload.failed === true,
+                started: entries.some((entry) => entry.event === 'pdf-open-route-start'),
+            };
+        },
+        path,
+    );
 }
 
 /**
@@ -558,22 +556,40 @@ async function readOpenRouteCapabilitySpan(
  */
 async function waitForNoWorkspaceOpening(session: IElectronE2ESession) {
     try {
-        await waitForFunctionInPage(session.page, () => {
-            const debugState = (window as {__evbTestApi?: {collectWorkspaceDebugState?: () => {workspaces: Array<{toolbarSnapshot: {
-                hasPdf: boolean;
-                initialVisualReady: boolean;
-                hasOpenError: boolean
-            } | null}>} | null}})
-                .__evbTestApi?.collectWorkspaceDebugState?.();
-            return debugState !== undefined
-                && debugState !== null
-                && debugState.workspaces.every(({toolbarSnapshot}) => !toolbarSnapshot?.hasPdf
-                    || toolbarSnapshot.initialVisualReady || toolbarSnapshot.hasOpenError);
-        }, {timeout: SETTLE_TIMEOUT_MS});
+        await waitForFunctionInPage(
+            session.page,
+            () => {
+                const debugState = (
+                    window as {
+                        __evbTestApi?: {
+                            collectWorkspaceDebugState?: () => {
+                                workspaces: Array<{
+                                    toolbarSnapshot: {
+                                        hasPdf: boolean;
+                                        initialVisualReady: boolean;
+                                        hasOpenError: boolean;
+                                    } | null;
+                                }>;
+                            } | null;
+                        };
+                    }
+                ).__evbTestApi?.collectWorkspaceDebugState?.();
+                return (
+                    debugState !== undefined &&
+                    debugState !== null &&
+                    debugState.workspaces.every(
+                        ({toolbarSnapshot}) =>
+                            !toolbarSnapshot?.hasPdf || toolbarSnapshot.initialVisualReady || toolbarSnapshot.hasOpenError,
+                    )
+                );
+            },
+            {timeout: SETTLE_TIMEOUT_MS},
+        );
     } catch (error) {
         const stuckState = await evaluateInPage(session.page, () => {
-            const debugState = (window as {__evbTestApi?: {collectWorkspaceDebugState?: () => unknown}})
-                .__evbTestApi?.collectWorkspaceDebugState?.();
+            const debugState = (
+                window as {__evbTestApi?: {collectWorkspaceDebugState?: () => unknown}}
+            ).__evbTestApi?.collectWorkspaceDebugState?.();
             return JSON.stringify(debugState);
         });
         throw new Error(`A workspace still claims an open: ${stuckState}`, {cause: error});
@@ -582,43 +598,50 @@ async function waitForNoWorkspaceOpening(session: IElectronE2ESession) {
 
 async function activateWorkspaceTabById(session: IElectronE2ESession, tabId: string) {
     await clickAsUser(session.page, `.tab-list .tab[data-tab-id="${tabId}"]`, {timeoutMs: 5_000});
-    await waitForFunctionInPage(session.page, (targetTabId: string) => (
-        document.querySelector(
-            `.workspace-host[data-workspace-tab-id="${targetTabId}"][data-workspace-active="true"]`,
-        ) !== null
-    ), {timeout: OPEN_TIMEOUT_MS}, tabId);
+    await waitForFunctionInPage(
+        session.page,
+        (targetTabId: string) =>
+            document.querySelector(`.workspace-host[data-workspace-tab-id="${targetTabId}"][data-workspace-active="true"]`) !== null,
+        {timeout: OPEN_TIMEOUT_MS},
+        tabId,
+    );
 }
 
 async function waitForSemanticPageAuthority(session: IElectronE2ESession, expectedPage: number) {
-    await waitForFunctionInPage(session.page, (targetPage: number) => {
-        const activeHost = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
-        ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const viewport = activeHost?.querySelector<HTMLElement>('#pdf-viewer') ?? null;
-        const chassis = viewport?.closest<HTMLElement>('.document-viewer-chassis') ?? null;
-        const container = activeHost?.querySelector<HTMLElement>(
-            `.page_container[data-page="${String(targetPage)}"]`,
-        ) ?? null;
-        if (!viewport || !chassis || !container) {
-            return false;
-        }
-        const viewportRect = viewport.getBoundingClientRect();
-        const mostVisiblePage = Array.from(activeHost?.querySelectorAll<HTMLElement>('.page_container') ?? [])
-            .map((candidate) => {
-                const rect = candidate.getBoundingClientRect();
-                return {
-                    page: Number(candidate.dataset.page) || null,
-                    visibleHeight: Math.min(rect.bottom, viewportRect.bottom)
-                        - Math.max(rect.top, viewportRect.top),
-                };
-            })
-            .filter(entry => entry.page !== null && entry.visibleHeight > 0)
-            .sort((left, right) => right.visibleHeight - left.visibleHeight)[0]?.page ?? null;
-        return chassis.dataset.viewportLifecycle === 'ready'
-            && Number(chassis.dataset.chassisCurrentPage) === targetPage
-            && mostVisiblePage === targetPage
-            && container.classList.contains('page_container--rendered');
-    }, {timeout: RENDER_SETTLE_TIMEOUT_MS}, expectedPage);
+    await waitForFunctionInPage(
+        session.page,
+        (targetPage: number) => {
+            const activeHost =
+                document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]') ??
+                document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+            const viewport = activeHost?.querySelector<HTMLElement>('#pdf-viewer') ?? null;
+            const chassis = viewport?.closest<HTMLElement>('.document-viewer-chassis') ?? null;
+            const container = activeHost?.querySelector<HTMLElement>(`.page_container[data-page="${String(targetPage)}"]`) ?? null;
+            if (!viewport || !chassis || !container) {
+                return false;
+            }
+            const viewportRect = viewport.getBoundingClientRect();
+            const mostVisiblePage =
+                Array.from(activeHost?.querySelectorAll<HTMLElement>('.page_container') ?? [])
+                    .map((candidate) => {
+                        const rect = candidate.getBoundingClientRect();
+                        return {
+                            page: Number(candidate.dataset.page) || null,
+                            visibleHeight: Math.min(rect.bottom, viewportRect.bottom) - Math.max(rect.top, viewportRect.top),
+                        };
+                    })
+                    .filter((entry) => entry.page !== null && entry.visibleHeight > 0)
+                    .sort((left, right) => right.visibleHeight - left.visibleHeight)[0]?.page ?? null;
+            return (
+                chassis.dataset.viewportLifecycle === 'ready' &&
+                Number(chassis.dataset.chassisCurrentPage) === targetPage &&
+                mostVisiblePage === targetPage &&
+                container.classList.contains('page_container--rendered')
+            );
+        },
+        {timeout: RENDER_SETTLE_TIMEOUT_MS},
+        expectedPage,
+    );
 }
 
 /**
@@ -629,16 +652,16 @@ async function waitForSemanticPageAuthority(session: IElectronE2ESession, expect
  */
 async function readMountedPageWindow(session: IElectronE2ESession) {
     return evaluateInPage(session.page, () => {
-        const activeHost = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
-        ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const activeHost =
+            document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]') ??
+            document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
         const viewport = activeHost?.querySelector<HTMLElement>('#pdf-viewer') ?? null;
         const containers = Array.from(activeHost?.querySelectorAll<HTMLElement>('.page_container') ?? []);
         const pages = containers
-            .map(container => Number(container.dataset.page) || null)
+            .map((container) => Number(container.dataset.page) || null)
             .filter((page): page is number => page !== null)
             .sort((left, right) => left - right);
-        const offsets = containers.map(container => ({
+        const offsets = containers.map((container) => ({
             offsetTop: container.offsetTop,
             page: Number(container.dataset.page) || null,
             rendered: container.classList.contains('page_container--rendered'),
@@ -662,11 +685,7 @@ async function readMountedPageWindow(session: IElectronE2ESession) {
  * record; a deep-page convergence failure is unreadable from a single
  * end-of-timeout snapshot.
  */
-async function settleSemanticPageAuthority(
-    session: IElectronE2ESession,
-    expectedPage: number,
-    label: string,
-) {
+async function settleSemanticPageAuthority(session: IElectronE2ESession, expectedPage: number, label: string) {
     const samples: Array<{
         elapsedMs: number;
         mounted: Awaited<ReturnType<typeof readMountedPageWindow>>;
@@ -674,11 +693,14 @@ async function settleSemanticPageAuthority(
     const startedAt = Date.now();
     const settled = waitForSemanticPageAuthority(session, expectedPage);
     let pending = true;
-    void settled.then(() => {
-        pending = false;
-    }, () => {
-        pending = false;
-    });
+    void settled.then(
+        () => {
+            pending = false;
+        },
+        () => {
+            pending = false;
+        },
+    );
     const sampler = (async () => {
         while (pending && Date.now() - startedAt < RENDER_SETTLE_TIMEOUT_MS) {
             await delay(1_000);
@@ -699,96 +721,101 @@ async function settleSemanticPageAuthority(
         await settled;
     } catch (error) {
         await sampler;
-        console.info(`[standard-pdf-semantic-settle-failure] ${JSON.stringify({
-            authority: await readViewerAuthorityState(session),
-            expectedPage,
-            label,
-            mountedSamples: samples.slice(-12),
-            toolbar: await getWorkspaceToolbarSnapshot(session.page),
-            trace: await readPdfRenderTrace(session, 120),
-        })}`);
+        console.info(
+            `[standard-pdf-semantic-settle-failure] ${JSON.stringify({
+                authority: await readViewerAuthorityState(session),
+                expectedPage,
+                label,
+                mountedSamples: samples.slice(-12),
+                toolbar: await getWorkspaceToolbarSnapshot(session.page),
+                trace: await readPdfRenderTrace(session, 120),
+            })}`,
+        );
         throw error;
     }
     await sampler;
 }
 
 async function startFitProbe(session: IElectronE2ESession, anchorPage: number) {
-    await evaluateInPage(session.page, (targetPage: number) => {
-        const probeWindow = window as Window & IFitProbeWindow;
-        probeWindow.__evbFitProbe?.stop();
-        const startedAt = performance.now();
-        const frames: IFitFrameSample[] = [];
-        // The automation window is hidden, so requestAnimationFrame ticks about
-        // once a second here: far too coarse to prove that no skeleton was ever
-        // put on screen. Timers keep their millisecond cadence because the
-        // automation renderer disables background throttling.
-        let sampleTimer = 0;
-        let running = true;
-        const probe = {
-            checkpoint: 'before-fit',
-            frames,
-            sample: () => {},
-            stop: () => {
-                running = false;
-                window.clearInterval(sampleTimer);
-            },
-        };
-        const sample = () => {
-            if (!running) {
-                return;
-            }
-            const activeHost = document.querySelector<HTMLElement>(
-                '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
-            ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-            const viewport = activeHost?.querySelector<HTMLElement>('#pdf-viewer') ?? null;
-            const anchor = activeHost?.querySelector<HTMLElement>(
-                `.page_container[data-page="${String(targetPage)}"]`,
-            ) ?? null;
-            const viewportRect = viewport?.getBoundingClientRect() ?? null;
-            const topVisible = viewportRect
-                ? Array.from(activeHost?.querySelectorAll<HTMLElement>('.page_container') ?? [])
-                    .map((container) => {
-                        const rect = container.getBoundingClientRect();
-                        return {
-                            page: Number(container.dataset.page) || null,
-                            visibleHeight: Math.min(rect.bottom, viewportRect.bottom)
-                                - Math.max(rect.top, viewportRect.top),
-                        };
-                    })
-                    .filter(entry => entry.visibleHeight > 0)
-                    .sort((left, right) => right.visibleHeight - left.visibleHeight)[0]?.page ?? null
-                : null;
-            const skeleton = anchor?.querySelector<HTMLElement>('.document-page-skeleton') ?? null;
-            frames.push({
-                anchorCanvasCount: anchor?.querySelectorAll('.page_canvas canvas').length ?? 0,
-                anchorRendered: anchor?.classList.contains('page_container--rendered') ?? false,
-                anchorSkeletonVisible: Boolean(
-                    skeleton
-                    && skeleton.isConnected
-                    && window.getComputedStyle(skeleton).display !== 'none',
-                ),
-                checkpoint: probe.checkpoint,
-                elapsedMs: Math.round(performance.now() - startedAt),
-                topVisiblePage: topVisible,
-            });
-        };
-        probe.sample = sample;
-        probeWindow.__evbFitProbe = probe;
-        sample();
-        sampleTimer = window.setInterval(sample, 16);
-    }, anchorPage);
+    await evaluateInPage(
+        session.page,
+        (targetPage: number) => {
+            const probeWindow = window as Window & IFitProbeWindow;
+            probeWindow.__evbFitProbe?.stop();
+            const startedAt = performance.now();
+            const frames: IFitFrameSample[] = [];
+            // The automation window is hidden, so requestAnimationFrame ticks about
+            // once a second here: far too coarse to prove that no skeleton was ever
+            // put on screen. Timers keep their millisecond cadence because the
+            // automation renderer disables background throttling.
+            let sampleTimer = 0;
+            let running = true;
+            const probe = {
+                checkpoint: 'before-fit',
+                frames,
+                sample: () => {},
+                stop: () => {
+                    running = false;
+                    window.clearInterval(sampleTimer);
+                },
+            };
+            const sample = () => {
+                if (!running) {
+                    return;
+                }
+                const activeHost =
+                    document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]') ??
+                    document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+                const viewport = activeHost?.querySelector<HTMLElement>('#pdf-viewer') ?? null;
+                const anchor = activeHost?.querySelector<HTMLElement>(`.page_container[data-page="${String(targetPage)}"]`) ?? null;
+                const viewportRect = viewport?.getBoundingClientRect() ?? null;
+                const topVisible = viewportRect
+                    ? (Array.from(activeHost?.querySelectorAll<HTMLElement>('.page_container') ?? [])
+                          .map((container) => {
+                              const rect = container.getBoundingClientRect();
+                              return {
+                                  page: Number(container.dataset.page) || null,
+                                  visibleHeight: Math.min(rect.bottom, viewportRect.bottom) - Math.max(rect.top, viewportRect.top),
+                              };
+                          })
+                          .filter((entry) => entry.visibleHeight > 0)
+                          .sort((left, right) => right.visibleHeight - left.visibleHeight)[0]?.page ?? null)
+                    : null;
+                const skeleton = anchor?.querySelector<HTMLElement>('.document-page-skeleton') ?? null;
+                frames.push({
+                    anchorCanvasCount: anchor?.querySelectorAll('.page_canvas canvas').length ?? 0,
+                    anchorRendered: anchor?.classList.contains('page_container--rendered') ?? false,
+                    anchorSkeletonVisible: Boolean(
+                        skeleton && skeleton.isConnected && window.getComputedStyle(skeleton).display !== 'none',
+                    ),
+                    checkpoint: probe.checkpoint,
+                    elapsedMs: Math.round(performance.now() - startedAt),
+                    topVisiblePage: topVisible,
+                });
+            };
+            probe.sample = sample;
+            probeWindow.__evbFitProbe = probe;
+            sample();
+            sampleTimer = window.setInterval(sample, 16);
+        },
+        anchorPage,
+    );
 }
 
 async function markFitProbeCheckpoint(session: IElectronE2ESession, checkpoint: string) {
-    await evaluateInPage(session.page, (value: string) => {
-        const probeWindow = window as Window & IFitProbeWindow;
-        if (probeWindow.__evbFitProbe) {
-            probeWindow.__evbFitProbe.checkpoint = value;
-            // Each boundary is observed when it is crossed, so a fit that
-            // finishes between two interval samples is still on record.
-            probeWindow.__evbFitProbe.sample();
-        }
-    }, checkpoint);
+    await evaluateInPage(
+        session.page,
+        (value: string) => {
+            const probeWindow = window as Window & IFitProbeWindow;
+            if (probeWindow.__evbFitProbe) {
+                probeWindow.__evbFitProbe.checkpoint = value;
+                // Each boundary is observed when it is crossed, so a fit that
+                // finishes between two interval samples is still on record.
+                probeWindow.__evbFitProbe.sample();
+            }
+        },
+        checkpoint,
+    );
 }
 
 async function stopFitProbe(session: IElectronE2ESession) {
@@ -818,19 +845,19 @@ async function startOpenGenerationProbe(session: IElectronE2ESession) {
             }
             const rect = element.getBoundingClientRect();
             const style = window.getComputedStyle(element);
-            return rect.width > 4
-                && rect.height > 4
-                && style.display !== 'none'
-                && style.visibility !== 'hidden'
-                && Number(style.opacity || '1') > 0;
+            return (
+                rect.width > 4 &&
+                rect.height > 4 &&
+                style.display !== 'none' &&
+                style.visibility !== 'hidden' &&
+                Number(style.opacity || '1') > 0
+            );
         };
         const sample = () => {
             if (!running) {
                 return;
             }
-            const activeHost = document.querySelector<HTMLElement>(
-                '.workspace-host[data-workspace-active="true"]',
-            );
+            const activeHost = document.querySelector<HTMLElement>('.workspace-host[data-workspace-active="true"]');
             const viewport = activeHost?.querySelector<HTMLElement>('#pdf-viewer') ?? null;
             const chassis = activeHost?.querySelector<HTMLElement>('.document-viewer-chassis') ?? null;
             const visibleSidebars = Array.from(document.querySelectorAll<HTMLElement>('.sidebar-wrapper'))
@@ -848,10 +875,12 @@ async function startOpenGenerationProbe(session: IElectronE2ESession) {
                 elapsedMs: Math.round(performance.now() - startedAt),
                 openSurfacePhase: viewport?.dataset.openSurfacePhase ?? null,
                 openSurfacePresentation: chassis?.dataset.openSurfacePresentation ?? null,
-                totalPages: Number(
-                    (window as {__evbTestApi?: {getActiveToolbarSnapshot?: () => {totalPages?: number} | null}})
-                        .__evbTestApi?.getActiveToolbarSnapshot?.()?.totalPages ?? 0,
-                ) || null,
+                totalPages:
+                    Number(
+                        (
+                            window as {__evbTestApi?: {getActiveToolbarSnapshot?: () => {totalPages?: number} | null}}
+                        ).__evbTestApi?.getActiveToolbarSnapshot?.()?.totalPages ?? 0,
+                    ) || null,
                 visibleSidebars,
             });
         };
@@ -907,14 +936,16 @@ async function alternateFitAndAssertConvergence(
                 ? waitForFitSettlement(session, anchorPage)
                 : waitForSemanticPageAuthority(session, anchorPage));
         } catch (error) {
-            console.info(`[standard-pdf-fit-settle-failure] ${JSON.stringify({
-                anchorPage,
-                authority: await readViewerAuthorityState(session),
-                command,
-                observations,
-                round,
-                trace: await readPdfRenderTrace(session, 120),
-            })}`);
+            console.info(
+                `[standard-pdf-fit-settle-failure] ${JSON.stringify({
+                    anchorPage,
+                    authority: await readViewerAuthorityState(session),
+                    command,
+                    observations,
+                    round,
+                    trace: await readPdfRenderTrace(session, 120),
+                })}`,
+            );
             throw error;
         }
         const authority = await readViewerAuthorityState(session);
@@ -943,30 +974,28 @@ interface IMixedGeometryObservation {
 /** Reads the rendered surface used by the mixed-size geometry replay. */
 async function readMixedGeometry(session: IElectronE2ESession): Promise<IMixedGeometryObservation> {
     return evaluateInPage(session.page, () => {
-        const activeHost = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
-        ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const viewport = activeHost?.querySelector<HTMLElement>(
-            '[data-document-viewer-chassis-viewport], .document-viewer-viewport, #pdf-viewer',
-        ) ?? null;
-        const zoom = Array.from(document.querySelectorAll<HTMLElement>(
-            '.zoom-controls-display-value, .zoom-controls-display',
-        )).find((element) => {
-            const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return rect.width > 0
-                && rect.height > 0
-                && style.display !== 'none'
-                && style.visibility !== 'hidden';
-        })?.textContent?.trim() ?? null;
+        const activeHost =
+            document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]') ??
+            document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const viewport =
+            activeHost?.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport], .document-viewer-viewport, #pdf-viewer') ??
+            null;
+        const zoom =
+            Array.from(document.querySelectorAll<HTMLElement>('.zoom-controls-display-value, .zoom-controls-display'))
+                .find((element) => {
+                    const rect = element.getBoundingClientRect();
+                    const style = window.getComputedStyle(element);
+                    return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+                })
+                ?.textContent?.trim() ?? null;
 
         return {
             viewport: viewport
                 ? {
-                    clientWidth: viewport.clientWidth,
-                    scrollWidth: viewport.scrollWidth,
-                    scrollTop: viewport.scrollTop,
-                }
+                      clientWidth: viewport.clientWidth,
+                      scrollWidth: viewport.scrollWidth,
+                      scrollTop: viewport.scrollTop,
+                  }
                 : null,
             zoom,
         };
@@ -975,26 +1004,37 @@ async function readMixedGeometry(session: IElectronE2ESession): Promise<IMixedGe
 
 async function clickFitWidthWithTrustedInput(session: IElectronE2ESession) {
     await clickAsUser(session.page, '.zoom-controls-display');
-    await clickFoundAsUser(session.page, () => Array.from(document.querySelectorAll<HTMLButtonElement>('button.zoom-toggle-btn'))
-        .find(button => /Fit Width/iu.test(button.textContent ?? '') && button.checkVisibility()), null, {
-        description: 'Fit Width in the zoom menu',
-        timeoutMs: SETTLE_TIMEOUT_MS,
-    });
-    await waitForFunctionInPage(session.page, () => (
-        (window as {__evbTestApi?: {getActiveToolbarSnapshot?: () => {zoomMode?: string} | null}})
-            .__evbTestApi?.getActiveToolbarSnapshot?.()?.zoomMode === 'fit-width'
-    ), {timeout: SETTLE_TIMEOUT_MS});
+    await clickFoundAsUser(
+        session.page,
+        () =>
+            Array.from(document.querySelectorAll<HTMLButtonElement>('button.zoom-toggle-btn')).find(
+                (button) => /Fit Width/iu.test(button.textContent ?? '') && button.checkVisibility(),
+            ),
+        null,
+        {
+            description: 'Fit Width in the zoom menu',
+            timeoutMs: SETTLE_TIMEOUT_MS,
+        },
+    );
+    await waitForFunctionInPage(
+        session.page,
+        () =>
+            (
+                window as {__evbTestApi?: {getActiveToolbarSnapshot?: () => {zoomMode?: string} | null}}
+            ).__evbTestApi?.getActiveToolbarSnapshot?.()?.zoomMode === 'fit-width',
+        {timeout: SETTLE_TIMEOUT_MS},
+    );
     await waitForAnimationFrames(session.page, 4);
 }
 
 async function readActiveSidebarPresentation(session: IElectronE2ESession) {
     return evaluateInPage(session.page, () => {
-        const activeHost = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
-        );
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
         const content = activeHost?.querySelector<HTMLElement>('.sidebar-wrapper:not(.is-closed) .sidebar-wrapper__content');
-        const zoom = Array.from(document.querySelectorAll<HTMLElement>('.zoom-controls-display-value, .zoom-controls-display'))
-            .find(element => element.checkVisibility())?.textContent?.trim() ?? null;
+        const zoom =
+            Array.from(document.querySelectorAll<HTMLElement>('.zoom-controls-display-value, .zoom-controls-display'))
+                .find((element) => element.checkVisibility())
+                ?.textContent?.trim() ?? null;
         return {
             sidebarWidth: content ? Math.round(content.getBoundingClientRect().width) : null,
             zoom,
@@ -1005,9 +1045,7 @@ async function readActiveSidebarPresentation(session: IElectronE2ESession) {
 /** The real fit inputs behind a presentation sample, reported with any mismatch. */
 async function readActiveFitGeometry(session: IElectronE2ESession) {
     return evaluateInPage(session.page, () => {
-        const activeHost = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
-        );
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
         const wrapper = activeHost?.querySelector<HTMLElement>('.sidebar-wrapper') ?? null;
         const viewport = activeHost?.querySelector<HTMLElement>('#pdf-viewer') ?? null;
         const chassis = viewport?.closest<HTMLElement>('.document-viewer-chassis') ?? null;
@@ -1015,18 +1053,19 @@ async function readActiveFitGeometry(session: IElectronE2ESession) {
         return {
             chassisResizing: chassis?.dataset.chassisResizing ?? null,
             lifecycle: chassis?.dataset.viewportLifecycle ?? null,
-            viewport: viewport && rect
-                ? {
-                    clientHeight: viewport.clientHeight,
-                    clientWidth: viewport.clientWidth,
-                    left: rect.left,
-                    offsetWidth: viewport.offsetWidth,
-                    scrollHeight: viewport.scrollHeight,
-                    scrollTop: viewport.scrollTop,
-                    scrollWidth: viewport.scrollWidth,
-                    width: rect.width,
-                }
-                : null,
+            viewport:
+                viewport && rect
+                    ? {
+                          clientHeight: viewport.clientHeight,
+                          clientWidth: viewport.clientWidth,
+                          left: rect.left,
+                          offsetWidth: viewport.offsetWidth,
+                          scrollHeight: viewport.scrollHeight,
+                          scrollTop: viewport.scrollTop,
+                          scrollWidth: viewport.scrollWidth,
+                          width: rect.width,
+                      }
+                    : null,
             window: {
                 height: window.innerHeight,
                 width: window.innerWidth,
@@ -1045,41 +1084,53 @@ async function readActiveFitGeometry(session: IElectronE2ESession) {
  * with page 1 rendered, so it reads a finished fit.
  */
 async function waitForSidebarFitSettled(session: IElectronE2ESession) {
-    await waitForFunctionInPage(session.page, () => {
-        const activeHost = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
-        );
-        const chassis = activeHost?.querySelector<HTMLElement>('.document-viewer-chassis');
-        const wrapper = activeHost?.querySelector<HTMLElement>('.sidebar-wrapper');
-        if (chassis?.dataset.chassisResizing !== 'false' || !wrapper) {
-            return false;
-        }
-        const isWidthTransitioning = wrapper.getAnimations().some(animation => (
-            animation instanceof CSSTransition
-            && animation.transitionProperty === 'width'
-            && animation.playState !== 'finished'
-        ));
-        return !isWidthTransitioning;
-    }, {timeout: SETTLE_TIMEOUT_MS});
+    await waitForFunctionInPage(
+        session.page,
+        () => {
+            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
+            const chassis = activeHost?.querySelector<HTMLElement>('.document-viewer-chassis');
+            const wrapper = activeHost?.querySelector<HTMLElement>('.sidebar-wrapper');
+            if (chassis?.dataset.chassisResizing !== 'false' || !wrapper) {
+                return false;
+            }
+            const isWidthTransitioning = wrapper
+                .getAnimations()
+                .some(
+                    (animation) =>
+                        animation instanceof CSSTransition &&
+                        animation.transitionProperty === 'width' &&
+                        animation.playState !== 'finished',
+                );
+            return !isWidthTransitioning;
+        },
+        {timeout: SETTLE_TIMEOUT_MS},
+    );
     await waitForFitSettlement(session, 1);
 }
 
 // A press on the resizer and a release where it was pressed, as a person
 // clicks it without dragging.
 async function pressAndReleaseActiveSidebarResizerAsUser(session: IElectronE2ESession) {
-    await clickAsUser(session.page, '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .sidebar-wrapper:not(.is-closed) .sidebar-resizer');
+    await clickAsUser(
+        session.page,
+        '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .sidebar-wrapper:not(.is-closed) .sidebar-resizer',
+    );
     await waitForAnimationFrames(session.page, 4);
 }
 
 async function dragActiveSidebarResizerAsUser(session: IElectronE2ESession, deltaX: number) {
     const start = await evaluateInPage(session.page, () => {
-        const rect = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .sidebar-wrapper:not(.is-closed) .sidebar-resizer',
-        )?.getBoundingClientRect();
-        return rect ? {
-            x: rect.left + (rect.width / 2),
-            y: rect.top + (rect.height / 2),
-        } : null;
+        const rect = document
+            .querySelector<HTMLElement>(
+                '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .sidebar-wrapper:not(.is-closed) .sidebar-resizer',
+            )
+            ?.getBoundingClientRect();
+        return rect
+            ? {
+                  x: rect.left + rect.width / 2,
+                  y: rect.top + rect.height / 2,
+              }
+            : null;
     });
     expect(start).not.toBeNull();
     if (!start) {
@@ -1106,10 +1157,7 @@ describe('standard PDF.js fit-mode continuity', () => {
             width: 1_440,
         });
 
-        const deepPdfPath = await createMultiPageTextFixturePdf(
-            `standard-pdf-fit-deep-${Date.now()}.pdf`,
-            DEEP_PDF_PAGE_COUNT,
-        );
+        const deepPdfPath = await createMultiPageTextFixturePdf(`standard-pdf-fit-deep-${Date.now()}.pdf`, DEEP_PDF_PAGE_COUNT);
 
         // The trace has to be armed before the open is claimed: the phases that
         // decide the first-useful-pixel time all run before the first canvas.
@@ -1143,18 +1191,11 @@ describe('standard PDF.js fit-mode continuity', () => {
         // Without the open origin every offset below is measured from whatever
         // happened to be first in the buffer, so the ledger would be fiction.
         expect(openPhaseLedger.routeStartMissing, JSON.stringify(openPhaseLedger)).toBe(false);
-        const measuredPhases = new Set(
-            openPhaseLedger.phases
-                .filter(entry => entry.durationMs !== null)
-                .map(entry => entry.phase),
-        );
+        const measuredPhases = new Set(openPhaseLedger.phases.filter((entry) => entry.durationMs !== null).map((entry) => entry.phase));
         // Losing a phase measurement is a regression too: a nine-second open is
         // only actionable while the trace still attributes the time.
         for (const phase of REQUIRED_OPEN_PHASES) {
-            expect(
-                measuredPhases.has(phase),
-                `open phase '${phase}' was not measured: ${JSON.stringify(openPhaseLedger)}`,
-            ).toBe(true);
+            expect(measuredPhases.has(phase), `open phase '${phase}' was not measured: ${JSON.stringify(openPhaseLedger)}`).toBe(true);
         }
         const openViolations = findCommittedSurfaceCausalOpenViolations(openTrace, {
             maxFirstCanvasMs: FIRST_USEFUL_PIXEL_BUDGET_MS,
@@ -1197,16 +1238,22 @@ describe('standard PDF.js fit-mode continuity', () => {
         // Sidebar closed: presentation must not change the fit contract.
         await requireWorkspaceCommand(session.page, 'handleToggleSidebar');
         await waitForWorkspaceToolbarSnapshot(session.page, {showSidebar: false}, {timeoutMs: SETTLE_TIMEOUT_MS});
-        await waitForFunctionInPage(session.page, () => {
-            const activeHost = document.querySelector<HTMLElement>(
-                '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
-            ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-            const sidebar = activeHost?.querySelector<HTMLElement>('.sidebar-wrapper') ?? null;
-            return sidebar?.classList.contains('is-closed') === true
-                && sidebar.hasAttribute('inert')
-                && sidebar.getAttribute('aria-hidden') === 'true'
-                && sidebar.getBoundingClientRect().width <= 0.5;
-        }, {timeout: SETTLE_TIMEOUT_MS});
+        await waitForFunctionInPage(
+            session.page,
+            () => {
+                const activeHost =
+                    document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]') ??
+                    document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+                const sidebar = activeHost?.querySelector<HTMLElement>('.sidebar-wrapper') ?? null;
+                return (
+                    sidebar?.classList.contains('is-closed') === true &&
+                    sidebar.hasAttribute('inert') &&
+                    sidebar.getAttribute('aria-hidden') === 'true' &&
+                    sidebar.getBoundingClientRect().width <= 0.5
+                );
+            },
+            {timeout: SETTLE_TIMEOUT_MS},
+        );
         await waitForFitSettlement(session, DEEP_PAGE);
 
         const sidebarClosedObservations = await alternateFitAndAssertConvergence(session, DEEP_PAGE, 4);
@@ -1229,10 +1276,12 @@ describe('standard PDF.js fit-mode continuity', () => {
             await delay(250);
             afterScroll = await readViewerAuthorityState(session);
         }
-        console.info(`[standard-pdf-physical-scroll] ${JSON.stringify({
-            afterScroll,
-            beforeScroll,
-        })}`);
+        console.info(
+            `[standard-pdf-physical-scroll] ${JSON.stringify({
+                afterScroll,
+                beforeScroll,
+            })}`,
+        );
 
         expect(
             afterScroll.mostVisiblePage,
@@ -1248,15 +1297,18 @@ describe('standard PDF.js fit-mode continuity', () => {
         // The wheel, not the last fit command, now decides which page the
         // viewer is on: authority, screen, and toolbar all name the scrolled
         // page while the fit-owned page is left behind.
-        expect({
-            chassisCurrentPage: scrolledAuthority.chassisCurrentPage,
-            mostVisiblePage: scrolledAuthority.mostVisiblePage,
-            toolbarPage: scrolledToolbar?.currentPage ?? null,
-        }, JSON.stringify({
-            beforeScroll,
-            scrolledAuthority,
-            scrolledToolbar,
-        })).toEqual({
+        expect(
+            {
+                chassisCurrentPage: scrolledAuthority.chassisCurrentPage,
+                mostVisiblePage: scrolledAuthority.mostVisiblePage,
+                toolbarPage: scrolledToolbar?.currentPage ?? null,
+            },
+            JSON.stringify({
+                beforeScroll,
+                scrolledAuthority,
+                scrolledToolbar,
+            }),
+        ).toEqual({
             chassisCurrentPage: scrolledPage,
             mostVisiblePage: scrolledPage,
             toolbarPage: scrolledPage,
@@ -1289,10 +1341,13 @@ describe('standard PDF.js fit-mode continuity', () => {
             toolbarPage: scrolledPage,
         });
 
-        expect(openViolations, JSON.stringify({
-            openTiming,
+        expect(
             openViolations,
-        })).toEqual([]);
+            JSON.stringify({
+                openTiming,
+                openViolations,
+            }),
+        ).toEqual([]);
     }, 300_000);
 
     it('keeps the committed page visible while a fit change replaces its raster', async () => {
@@ -1303,10 +1358,7 @@ describe('standard PDF.js fit-mode continuity', () => {
             width: 1_440,
         });
 
-        const deepPdfPath = await createMultiPageTextFixturePdf(
-            `standard-pdf-fit-pixels-${Date.now()}.pdf`,
-            DEEP_PDF_PAGE_COUNT,
-        );
+        const deepPdfPath = await createMultiPageTextFixturePdf(`standard-pdf-fit-pixels-${Date.now()}.pdf`, DEEP_PDF_PAGE_COUNT);
         await openPdfInApp(session.page, deepPdfPath, OPEN_TIMEOUT_MS);
         await waitForPdfLoaded(session.page, OPEN_TIMEOUT_MS);
         await goToPageViaToolbar(session.page, DEEP_PAGE);
@@ -1321,19 +1373,10 @@ describe('standard PDF.js fit-mode continuity', () => {
         let frames: IFitFrameSample[] = [];
         try {
             await waitForAnimationFrames(session.page, 5);
-            for (const [
-                checkpoint,
-                command,
-            ] of [
-                    [
-                        'fit-height',
-                        'handleFitHeight',
-                    ],
-                    [
-                        'fit-width',
-                        'handleFitWidth',
-                    ],
-                ] as const) {
+            for (const [checkpoint, command] of [
+                ['fit-height', 'handleFitHeight'],
+                ['fit-width', 'handleFitWidth'],
+            ] as const) {
                 await markFitProbeCheckpoint(session, checkpoint);
                 await requireWorkspaceCommand(session.page, command);
                 await waitForFitSettlement(session, DEEP_PAGE);
@@ -1348,20 +1391,16 @@ describe('standard PDF.js fit-mode continuity', () => {
         // page Fit Height settled on as Fit Width starts, and the page after
         // Fit Width settled. The interval samples cover the transitions.
         expect(
-            FIT_PROBE_CHECKPOINTS.filter(checkpoint => !frames.some(frame => frame.checkpoint === checkpoint)),
+            FIT_PROBE_CHECKPOINTS.filter((checkpoint) => !frames.some((frame) => frame.checkpoint === checkpoint)),
             JSON.stringify(frames),
         ).toEqual([]);
-        const skeletonFrames = frames.filter(frame => frame.anchorSkeletonVisible);
-        const uncommittedFrames = frames.filter(frame => frame.anchorCanvasCount === 0);
-        const strayPageFrames = frames.filter(frame => (
-            frame.topVisiblePage !== null && frame.topVisiblePage !== DEEP_PAGE
-        ));
+        const skeletonFrames = frames.filter((frame) => frame.anchorSkeletonVisible);
+        const uncommittedFrames = frames.filter((frame) => frame.anchorCanvasCount === 0);
+        const strayPageFrames = frames.filter((frame) => frame.topVisiblePage !== null && frame.topVisiblePage !== DEEP_PAGE);
         if (skeletonFrames.length || uncommittedFrames.length || strayPageFrames.length) {
             // A blank page is only actionable with the raster events that say
             // which release emptied the canvas host.
-            console.info(`[standard-pdf-fit-raster-trace] ${JSON.stringify(
-                await readRawPdfRenderTrace(session, 400),
-            )}`);
+            console.info(`[standard-pdf-fit-raster-trace] ${JSON.stringify(await readRawPdfRenderTrace(session, 400))}`);
         }
         expect(skeletonFrames, JSON.stringify(skeletonFrames.slice(0, 8))).toEqual([]);
         expect(uncommittedFrames, JSON.stringify(uncommittedFrames.slice(0, 8))).toEqual([]);
@@ -1371,18 +1410,21 @@ describe('standard PDF.js fit-mode continuity', () => {
         const longestFreeze = frames.reduce<{
             checkpoint: string;
             gapMs: number;
-        }>((longest, frame, index) => {
-            const gapMs = frame.elapsedMs - (frames[index - 1]?.elapsedMs ?? frame.elapsedMs);
-            return gapMs > longest.gapMs
-                ? {
-                    checkpoint: frame.checkpoint,
-                    gapMs,
-                }
-                : longest;
-        }, {
-            checkpoint: 'none',
-            gapMs: 0,
-        });
+        }>(
+            (longest, frame, index) => {
+                const gapMs = frame.elapsedMs - (frames[index - 1]?.elapsedMs ?? frame.elapsedMs);
+                return gapMs > longest.gapMs
+                    ? {
+                          checkpoint: frame.checkpoint,
+                          gapMs,
+                      }
+                    : longest;
+            },
+            {
+                checkpoint: 'none',
+                gapMs: 0,
+            },
+        );
         console.info(`[standard-pdf-fit-freeze] ${JSON.stringify(longestFreeze)}`);
         expectWithinTimingBudget(longestFreeze.gapMs, FIT_CHANGE_FREEZE_BUDGET_MS, JSON.stringify(longestFreeze));
     }, 300_000);
@@ -1395,14 +1437,8 @@ describe('standard PDF.js fit-mode continuity', () => {
             width: 1_440,
         });
 
-        const priorPdfPath = await createBlankFixturePdf(
-            `standard-pdf-prior-${Date.now()}.pdf`,
-            PRIOR_PDF_PAGE_COUNT,
-        );
-        const deepPdfPath = await createMultiPageTextFixturePdf(
-            `standard-pdf-open-deep-${Date.now()}.pdf`,
-            DEEP_PDF_PAGE_COUNT,
-        );
+        const priorPdfPath = await createBlankFixturePdf(`standard-pdf-prior-${Date.now()}.pdf`, PRIOR_PDF_PAGE_COUNT);
+        const deepPdfPath = await createMultiPageTextFixturePdf(`standard-pdf-open-deep-${Date.now()}.pdf`, DEEP_PDF_PAGE_COUNT);
 
         await openPdfInApp(session.page, priorPdfPath, OPEN_TIMEOUT_MS);
         await waitForPdfLoaded(session.page, OPEN_TIMEOUT_MS);
@@ -1425,10 +1461,15 @@ describe('standard PDF.js fit-mode continuity', () => {
         let openFrames: IOpenGenerationFrame[] = [];
         try {
             await triggerOpenPathInApp(session.page, deepPdfPath, OPEN_TIMEOUT_MS);
-            await waitForFunctionInPage(session.page, (expectedTotal: number) => (
-                (window as {__evbTestApi?: {getActiveToolbarSnapshot?: () => {totalPages?: number} | null}})
-                    .__evbTestApi?.getActiveToolbarSnapshot?.()?.totalPages === expectedTotal
-            ), {timeout: OPEN_TIMEOUT_MS}, DEEP_PDF_PAGE_COUNT);
+            await waitForFunctionInPage(
+                session.page,
+                (expectedTotal: number) =>
+                    (
+                        window as {__evbTestApi?: {getActiveToolbarSnapshot?: () => {totalPages?: number} | null}}
+                    ).__evbTestApi?.getActiveToolbarSnapshot?.()?.totalPages === expectedTotal,
+                {timeout: OPEN_TIMEOUT_MS},
+                DEEP_PDF_PAGE_COUNT,
+            );
             await waitForPdfLoaded(session.page, OPEN_TIMEOUT_MS);
             await waitForFitSettlement(session, 1);
             await waitForAnimationFrames(session.page, 5);
@@ -1437,8 +1478,7 @@ describe('standard PDF.js fit-mode continuity', () => {
         }
         const secondOpenPhaseLedger = await readOpenPhaseLedger(session);
         console.info(`[standard-pdf-second-open-phases] ${JSON.stringify(secondOpenPhaseLedger)}`);
-        expect(secondOpenPhaseLedger.numPages, JSON.stringify(secondOpenPhaseLedger))
-            .toBe(DEEP_PDF_PAGE_COUNT);
+        expect(secondOpenPhaseLedger.numPages, JSON.stringify(secondOpenPhaseLedger)).toBe(DEEP_PDF_PAGE_COUNT);
         expect(secondOpenPhaseLedger.routeStartMissing, JSON.stringify(secondOpenPhaseLedger)).toBe(false);
 
         expect(openFrames.length).toBeGreaterThan(10);
@@ -1452,36 +1492,27 @@ describe('standard PDF.js fit-mode continuity', () => {
                 phaseFirstObservedMs[frame.openSurfacePhase] = frame.elapsedMs;
             }
         }
-        console.info(`[standard-pdf-open-generation] ${JSON.stringify({
-            frameCount: openFrames.length,
-            phaseFirstObservedMs,
-            phases: [...new Set(openFrames.map(frame => frame.openSurfacePhase))],
-            sampleSpanMs: openFrames.at(-1)?.elapsedMs ?? 0,
-            sidebarFrames: openFrames
-                .filter(frame => frame.visibleSidebars.length > 0)
-                .slice(0, 6),
-        })}`);
-        const transitionPhases = new Set([
-            'pending',
-            'geometry-committed',
-            'canvas-committed',
-            'viewport-committed',
-        ]);
+        console.info(
+            `[standard-pdf-open-generation] ${JSON.stringify({
+                frameCount: openFrames.length,
+                phaseFirstObservedMs,
+                phases: [...new Set(openFrames.map((frame) => frame.openSurfacePhase))],
+                sampleSpanMs: openFrames.at(-1)?.elapsedMs ?? 0,
+                sidebarFrames: openFrames.filter((frame) => frame.visibleSidebars.length > 0).slice(0, 6),
+            })}`,
+        );
+        const transitionPhases = new Set(['pending', 'geometry-committed', 'canvas-committed', 'viewport-committed']);
         // The reported defect: the previous document's outline stayed on screen
         // under the new tab's title. A sidebar that does not belong to the host
         // the workspace is presenting mixes two document identities, whatever
         // the open surface is doing.
-        const foreignSidebarFrames = openFrames.filter(frame => (
-            frame.visibleSidebars.some(sidebar => !sidebar.ownsActiveHost)
-        ));
+        const foreignSidebarFrames = openFrames.filter((frame) => frame.visibleSidebars.some((sidebar) => !sidebar.ownsActiveHost));
         expect(foreignSidebarFrames, JSON.stringify(foreignSidebarFrames.slice(0, 8))).toEqual([]);
         // And no sidebar at all - not even the claiming document's own - may be
         // presented before that document owns a committed visual surface.
-        const staleSidebarFrames = openFrames.filter(frame => (
-            frame.openSurfacePhase !== null
-            && transitionPhases.has(frame.openSurfacePhase)
-            && frame.visibleSidebars.length > 0
-        ));
+        const staleSidebarFrames = openFrames.filter(
+            (frame) => frame.openSurfacePhase !== null && transitionPhases.has(frame.openSurfacePhase) && frame.visibleSidebars.length > 0,
+        );
         expect(staleSidebarFrames, JSON.stringify(staleSidebarFrames.slice(0, 8))).toEqual([]);
 
         // The new document owns its own sidebar preference. Opening it must
@@ -1493,13 +1524,16 @@ describe('standard PDF.js fit-mode continuity', () => {
         try {
             await waitForFitSettlement(session, DEEP_PAGE);
         } catch (error) {
-            throw new Error(`The deep page never settled: ${JSON.stringify({
-                authority: await readViewerAuthorityState(session),
-                chassis: await session.page.evaluate(() => ({...document.querySelector<HTMLElement>(
-                    '.editor-pane.is-active .document-viewer-chassis',
-                )?.dataset})),
-                trace: await readRawPdfRenderTrace(session, 120),
-            })}`, {cause: error});
+            throw new Error(
+                `The deep page never settled: ${JSON.stringify({
+                    authority: await readViewerAuthorityState(session),
+                    chassis: await session.page.evaluate(() => ({
+                        ...document.querySelector<HTMLElement>('.editor-pane.is-active .document-viewer-chassis')?.dataset,
+                    })),
+                    trace: await readRawPdfRenderTrace(session, 120),
+                })}`,
+                {cause: error},
+            );
         }
 
         // An invalid staged open must leave the document the user already had
@@ -1529,13 +1563,15 @@ describe('standard PDF.js fit-mode continuity', () => {
         await activateWorkspaceTabById(session, documentTabId!);
         await waitForFitSettlement(session, DEEP_PAGE);
         const preserved = await readDocumentHostState(session, documentTabId);
-        console.info(`[standard-pdf-invalid-open] ${JSON.stringify({
-            beforeInvalid,
-            invalidOpenOutcome,
-            invalidRouteSpan,
-            preserved,
-            tabsAfterInvalid,
-        })}`);
+        console.info(
+            `[standard-pdf-invalid-open] ${JSON.stringify({
+                beforeInvalid,
+                invalidOpenOutcome,
+                invalidRouteSpan,
+                preserved,
+                tabsAfterInvalid,
+            })}`,
+        );
         expect(preserved, JSON.stringify(preserved)).toMatchObject({
             committedPage: DEEP_PAGE,
             hostActive: true,
@@ -1554,10 +1590,7 @@ describe('standard PDF.js fit-mode continuity', () => {
             width: 1_440,
         });
 
-        const deepPdfPath = await createMultiPageTextFixturePdf(
-            `standard-pdf-fit-scale-${Date.now()}.pdf`,
-            DEEP_PDF_PAGE_COUNT,
-        );
+        const deepPdfPath = await createMultiPageTextFixturePdf(`standard-pdf-fit-scale-${Date.now()}.pdf`, DEEP_PDF_PAGE_COUNT);
         await openPdfInApp(session.page, deepPdfPath, OPEN_TIMEOUT_MS);
         await waitForPdfLoaded(session.page, OPEN_TIMEOUT_MS);
         await goToPageViaToolbar(session.page, DEEP_PAGE);
@@ -1568,25 +1601,23 @@ describe('standard PDF.js fit-mode continuity', () => {
         // Rapid fit changes: the reported alternation needs no scrolling and no
         // pause between commands, so nothing here waits for a round to settle.
         // Superseded rounds must retire without leaving their own anchor behind.
-        for (const command of [
-            'handleFitHeight',
-            'handleFitWidth',
-            'handleFitHeight',
-            'handleFitWidth',
-        ] as const) {
+        for (const command of ['handleFitHeight', 'handleFitWidth', 'handleFitHeight', 'handleFitWidth'] as const) {
             await requireWorkspaceCommand(session.page, command);
         }
         await waitForFitSettlement(session, DEEP_PAGE);
         const afterRapid = await readViewerAuthorityState(session);
         const rapidToolbar = await getWorkspaceToolbarSnapshot(session.page);
-        expect({
-            ...afterRapid,
-            toolbarPage: rapidToolbar?.currentPage ?? null,
-        }, JSON.stringify({
-            afterRapid,
-            rapidToolbar,
-            trace: await readPdfRenderTrace(session, 60),
-        })).toMatchObject({
+        expect(
+            {
+                ...afterRapid,
+                toolbarPage: rapidToolbar?.currentPage ?? null,
+            },
+            JSON.stringify({
+                afterRapid,
+                rapidToolbar,
+                trace: await readPdfRenderTrace(session, 60),
+            }),
+        ).toMatchObject({
             chassisCurrentPage: DEEP_PAGE,
             committedPage: DEEP_PAGE,
             mostVisiblePage: DEEP_PAGE,
@@ -1602,16 +1633,22 @@ describe('standard PDF.js fit-mode continuity', () => {
             await requireWorkspaceCommand(session.page, 'handleZoomIn');
             await delay(200);
         }
-        await waitForFunctionInPage(session.page, () => (
-            (window as {__evbTestApi?: {getActiveToolbarSnapshot?: () => {zoomMode?: string} | null}})
-                .__evbTestApi?.getActiveToolbarSnapshot?.()?.zoomMode === 'custom'
-        ), {timeout: SETTLE_TIMEOUT_MS});
+        await waitForFunctionInPage(
+            session.page,
+            () =>
+                (
+                    window as {__evbTestApi?: {getActiveToolbarSnapshot?: () => {zoomMode?: string} | null}}
+                ).__evbTestApi?.getActiveToolbarSnapshot?.()?.zoomMode === 'custom',
+            {timeout: SETTLE_TIMEOUT_MS},
+        );
         await settleSemanticPageAuthority(session, DEEP_PAGE, 'after-custom-zoom');
         const zoomedToolbar = await getWorkspaceToolbarSnapshot(session.page);
-        console.info(`[standard-pdf-non-default-scale] ${JSON.stringify({
-            fitZoom,
-            zoomedToolbar,
-        })}`);
+        console.info(
+            `[standard-pdf-non-default-scale] ${JSON.stringify({
+                fitZoom,
+                zoomedToolbar,
+            })}`,
+        );
         expect(zoomedToolbar?.zoomMode).toBe('custom');
         expect(
             zoomedToolbar?.effectiveZoom ?? 0,
@@ -1628,22 +1665,29 @@ describe('standard PDF.js fit-mode continuity', () => {
         // the zoom mode. That path never mints a fit viewport intent, and its
         // geometry replacement has to keep the page on its own.
         await requireWorkspaceCommand(session.page, 'handleFitWidth');
-        await waitForFunctionInPage(session.page, () => (
-            (window as {__evbTestApi?: {getActiveToolbarSnapshot?: () => {zoomMode?: string} | null}})
-                .__evbTestApi?.getActiveToolbarSnapshot?.()?.zoomMode === 'fit-width'
-        ), {timeout: SETTLE_TIMEOUT_MS});
+        await waitForFunctionInPage(
+            session.page,
+            () =>
+                (
+                    window as {__evbTestApi?: {getActiveToolbarSnapshot?: () => {zoomMode?: string} | null}}
+                ).__evbTestApi?.getActiveToolbarSnapshot?.()?.zoomMode === 'fit-width',
+            {timeout: SETTLE_TIMEOUT_MS},
+        );
         await settleSemanticPageAuthority(session, DEEP_PAGE, 'after-zoom-mode-only-fit');
         const afterZoomModeOnlyFit = await readViewerAuthorityState(session);
         const zoomModeOnlyToolbar = await getWorkspaceToolbarSnapshot(session.page);
-        expect({
-            chassisCurrentPage: afterZoomModeOnlyFit.chassisCurrentPage,
-            mostVisiblePage: afterZoomModeOnlyFit.mostVisiblePage,
-            toolbarPage: zoomModeOnlyToolbar?.currentPage ?? null,
-        }, JSON.stringify({
-            afterZoomModeOnlyFit,
-            trace: await readPdfRenderTrace(session, 60),
-            zoomModeOnlyToolbar,
-        })).toEqual({
+        expect(
+            {
+                chassisCurrentPage: afterZoomModeOnlyFit.chassisCurrentPage,
+                mostVisiblePage: afterZoomModeOnlyFit.mostVisiblePage,
+                toolbarPage: zoomModeOnlyToolbar?.currentPage ?? null,
+            },
+            JSON.stringify({
+                afterZoomModeOnlyFit,
+                trace: await readPdfRenderTrace(session, 60),
+                zoomModeOnlyToolbar,
+            }),
+        ).toEqual({
             chassisCurrentPage: DEEP_PAGE,
             mostVisiblePage: DEEP_PAGE,
             toolbarPage: DEEP_PAGE,
@@ -1695,13 +1739,16 @@ describe('standard PDF.js fit-mode continuity', () => {
         await waitForFitSettlement(session, DEEP_PAGE + 1);
         const afterKeyboardPaging = await readViewerAuthorityState(session);
         const keyboardToolbar = await getWorkspaceToolbarSnapshot(session.page);
-        expect({
-            ...afterKeyboardPaging,
-            toolbarPage: keyboardToolbar?.currentPage ?? null,
-        }, JSON.stringify({
-            afterKeyboardPaging,
-            keyboardToolbar,
-        })).toMatchObject({
+        expect(
+            {
+                ...afterKeyboardPaging,
+                toolbarPage: keyboardToolbar?.currentPage ?? null,
+            },
+            JSON.stringify({
+                afterKeyboardPaging,
+                keyboardToolbar,
+            }),
+        ).toMatchObject({
             chassisCurrentPage: DEEP_PAGE + 1,
             committedPage: DEEP_PAGE + 1,
             mostVisiblePage: DEEP_PAGE + 1,
@@ -1711,12 +1758,8 @@ describe('standard PDF.js fit-mode continuity', () => {
 
     it('keeps mixed-size jumps and continuous Fit Width geometry user-visible', async () => {
         const session = sessionFixture.getSession();
-        const mixedPdfPath = await createMixedSize66FixturePdf(
-            `standard-pdf-fit-mixed-66-${Date.now()}.pdf`,
-        );
-        const rotatedPdfPath = await createRotated90FixturePdf(
-            `standard-pdf-fit-rotated-90-${Date.now()}.pdf`,
-        );
+        const mixedPdfPath = await createMixedSize66FixturePdf(`standard-pdf-fit-mixed-66-${Date.now()}.pdf`);
+        const rotatedPdfPath = await createRotated90FixturePdf(`standard-pdf-fit-rotated-90-${Date.now()}.pdf`);
 
         await openPdfInApp(session.page, mixedPdfPath, OPEN_TIMEOUT_MS);
         await waitForPdfLoaded(session.page, OPEN_TIMEOUT_MS);
@@ -1754,19 +1797,19 @@ describe('standard PDF.js fit-mode continuity', () => {
         ).toBeLessThanOrEqual(1);
 
         const viewportPoint = await evaluateInPage(session.page, () => {
-            const activeHost = document.querySelector<HTMLElement>(
-                '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
-            ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-            const viewport = activeHost?.querySelector<HTMLElement>(
-                '[data-document-viewer-chassis-viewport], .document-viewer-viewport, #pdf-viewer',
-            ) ?? null;
+            const activeHost =
+                document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]') ??
+                document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+            const viewport =
+                activeHost?.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport], .document-viewer-viewport, #pdf-viewer') ??
+                null;
             if (!viewport) {
                 return null;
             }
             const rect = viewport.getBoundingClientRect();
             return {
-                x: Math.round(rect.left + (rect.width / 2)),
-                y: Math.round(rect.top + (rect.height / 2)),
+                x: Math.round(rect.left + rect.width / 2),
+                y: Math.round(rect.top + rect.height / 2),
             };
         });
         expect(viewportPoint).not.toBeNull();
@@ -1801,10 +1844,14 @@ describe('standard PDF.js fit-mode continuity', () => {
         // first committed geometry must already have no horizontal range.
         await openPdfInApp(session.page, rotatedPdfPath, OPEN_TIMEOUT_MS);
         await waitForPdfLoaded(session.page, OPEN_TIMEOUT_MS);
-        await waitForFunctionInPage(session.page, () => (
-            (window as {__evbTestApi?: {getActiveToolbarSnapshot?: () => {zoomMode?: string} | null}})
-                .__evbTestApi?.getActiveToolbarSnapshot?.()?.zoomMode === 'fit-width'
-        ), {timeout: SETTLE_TIMEOUT_MS});
+        await waitForFunctionInPage(
+            session.page,
+            () =>
+                (
+                    window as {__evbTestApi?: {getActiveToolbarSnapshot?: () => {zoomMode?: string} | null}}
+                ).__evbTestApi?.getActiveToolbarSnapshot?.()?.zoomMode === 'fit-width',
+            {timeout: SETTLE_TIMEOUT_MS},
+        );
         await waitForAnimationFrames(session.page, 4);
         const rotatedGeometry = await readMixedGeometry(session);
         const rotatedVisiblePages = await readViewportPageObservation(session.page);
@@ -1837,10 +1884,13 @@ describe('standard PDF.js fit-mode continuity', () => {
         await dragActiveSidebarResizerAsUser(session, 100 + 1 / 3);
         const dragged = await readActiveSidebarPresentation(session);
         const draggedGeometry = await readActiveFitGeometry(session);
-        expect(dragged.sidebarWidth, JSON.stringify({
-            dragged,
-            draggedGeometry,
-        })).toBe(372);
+        expect(
+            dragged.sidebarWidth,
+            JSON.stringify({
+                dragged,
+                draggedGeometry,
+            }),
+        ).toBe(372);
 
         await createNewWorkspaceTab(session);
         await openPdfInApp(session.page, secondPdfPath, OPEN_TIMEOUT_MS);
@@ -1863,12 +1913,15 @@ describe('standard PDF.js fit-mode continuity', () => {
             returns.push(await readActiveSidebarPresentation(session));
             returnGeometry.push(await readActiveFitGeometry(session));
         }
-        expect(returns, JSON.stringify({
-            dragged,
-            draggedGeometry,
-            returnGeometry,
+        expect(
             returns,
-        })).toEqual(returns.map(() => dragged));
+            JSON.stringify({
+                dragged,
+                draggedGeometry,
+                returnGeometry,
+                returns,
+            }),
+        ).toEqual(returns.map(() => dragged));
 
         await clickVisibleToolbarButton(session.page, 'Toggle Sidebar');
         await waitForWorkspaceToolbarSnapshot(session.page, {showSidebar: false}, {timeoutMs: SETTLE_TIMEOUT_MS});
@@ -1876,11 +1929,14 @@ describe('standard PDF.js fit-mode continuity', () => {
         await ensureSidebarOpen(session.page, OPEN_TIMEOUT_MS);
         await waitForSidebarFitSettled(session);
         const reopened = await readActiveSidebarPresentation(session);
-        expect(reopened, JSON.stringify({
-            draggedGeometry,
+        expect(
             reopened,
-            reopenedGeometry: await readActiveFitGeometry(session),
-        })).toEqual(dragged);
+            JSON.stringify({
+                draggedGeometry,
+                reopened,
+                reopenedGeometry: await readActiveFitGeometry(session),
+            }),
+        ).toEqual(dragged);
     }, 180_000);
 
     it('keeps a dragged sidebar width when a narrowed pane only presses and releases its resizer', async () => {
@@ -1893,9 +1949,8 @@ describe('standard PDF.js fit-mode continuity', () => {
         await waitForSidebarFitSettled(session);
         await dragActiveSidebarResizerAsUser(session, 100);
         expect((await readActiveSidebarPresentation(session)).sidebarWidth).toBe(372);
-        const readActivePaneId = () => evaluateInPage(session.page, () => (
-            document.querySelector<HTMLElement>('.editor-pane.is-active')?.dataset.editorPaneId ?? ''
-        ));
+        const readActivePaneId = () =>
+            evaluateInPage(session.page, () => document.querySelector<HTMLElement>('.editor-pane.is-active')?.dataset.editorPaneId ?? '');
         const documentPaneId = await readActivePaneId();
 
         // An empty pane beside it narrows the document's pane, which then
@@ -1903,7 +1958,8 @@ describe('standard PDF.js fit-mode continuity', () => {
         await openNewPane(session.page, 'right');
         const emptyPaneId = await readActivePaneId();
         await activatePaneByTab(session.page, documentPaneId);
-        await expect.poll(async () => (await readActiveSidebarPresentation(session)).sidebarWidth, {timeout: SETTLE_TIMEOUT_MS})
+        await expect
+            .poll(async () => (await readActiveSidebarPresentation(session)).sidebarWidth, {timeout: SETTLE_TIMEOUT_MS})
             .toBeLessThan(372);
         const narrowed = (await readActiveSidebarPresentation(session)).sidebarWidth;
 
@@ -1914,8 +1970,9 @@ describe('standard PDF.js fit-mode continuity', () => {
         // With the empty pane closed the sidebar is back at the reader's width.
         await activatePaneByTab(session.page, emptyPaneId);
         await clickAsUser(session.page, '.editor-pane.is-active .tab.is-active .tab-close');
-        await waitForFunctionInPage(session.page, () => document.querySelectorAll('.editor-pane').length === 1, {timeout: SETTLE_TIMEOUT_MS});
-        await expect.poll(async () => (await readActiveSidebarPresentation(session)).sidebarWidth, {timeout: SETTLE_TIMEOUT_MS})
-            .toBe(372);
+        await waitForFunctionInPage(session.page, () => document.querySelectorAll('.editor-pane').length === 1, {
+            timeout: SETTLE_TIMEOUT_MS,
+        });
+        await expect.poll(async () => (await readActiveSidebarPresentation(session)).sidebarWidth, {timeout: SETTLE_TIMEOUT_MS}).toBe(372);
     }, 180_000);
 });

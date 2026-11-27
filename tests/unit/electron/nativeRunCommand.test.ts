@@ -1,22 +1,10 @@
-import { EventEmitter } from 'node:events';
-import { existsSync } from 'node:fs';
-import {
-    mkdtemp,
-    rm,
-    writeFile,
-} from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    onTestFinished,
-    vi,
-} from 'vitest';
-import { join } from 'node:path';
-import type { IHostResourceProfileSnapshot } from '@contracts/hostResourceProfile';
+import {EventEmitter} from 'node:events';
+import {existsSync} from 'node:fs';
+import {mkdtemp, rm, writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {afterEach, beforeEach, describe, expect, it, onTestFinished, vi} from 'vitest';
+import {join} from 'node:path';
+import type {IHostResourceProfileSnapshot} from '@contracts/hostResourceProfile';
 
 const mocks = vi.hoisted(() => ({
     spawn: vi.fn(),
@@ -65,12 +53,14 @@ vi.mock('@electron/utils/managedScratchTemp', () => ({
 }));
 vi.mock('@electron/native-tools/managedProcessRegistry', () => ({registerManagedProcess: mocks.registerManagedProcess}));
 vi.mock('@electron/utils/processTree', () => ({isProcessTreeAlive: mocks.isProcessTreeAlive}));
-vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
-    debug: mocks.telemetryDebug,
-    info: vi.fn(),
-    warn: mocks.telemetryWarn,
-    error: vi.fn(),
-})}));
+vi.mock('@electron/utils/createLogger', () => ({
+    createLogger: () => ({
+        debug: mocks.telemetryDebug,
+        info: vi.fn(),
+        warn: mocks.telemetryWarn,
+        error: vi.fn(),
+    }),
+}));
 
 const GIB = 1024 ** 3;
 
@@ -113,7 +103,7 @@ describe('runNativeCommand', () => {
         vi.useFakeTimers();
         const proc = new MockNativeProcess();
         mocks.spawn.mockReturnValue(proc);
-        const { runNativeCommand } = await import('@electron/native-tools/runNativeCommand');
+        const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
 
         const resultPromise = runNativeCommand('/bin/tool', []);
         const rejection = resultPromise.catch((error: unknown) => error);
@@ -136,21 +126,16 @@ describe('runNativeCommand', () => {
             });
             const proc = new MockNativeProcess();
             mocks.spawn.mockReturnValueOnce(proc);
-            const result = runNativeCommand(command, [
-                '-f',
-                '1',
-                'in.pdf',
-                '-',
-            ]);
+            const result = runNativeCommand(command, ['-f', '1', 'in.pdf', '-']);
             await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce());
-            const [
-                file,
-                args,
-                spawnOptions,
-            ] = mocks.spawn.mock.calls[0]! as [string, string[], {
-                memoryLimitBytes?: number;
-                onMemoryLimitExceeded?: (bytes: number) => void;
-            }];
+            const [file, args, spawnOptions] = mocks.spawn.mock.calls[0]! as [
+                string,
+                string[],
+                {
+                    memoryLimitBytes?: number;
+                    onMemoryLimitExceeded?: (bytes: number) => void;
+                },
+            ];
             proc.emit('close', 0, null);
             await result;
             mocks.spawn.mockClear();
@@ -162,102 +147,74 @@ describe('runNativeCommand', () => {
             };
         };
 
-        for (const [
-            platformName,
-            command,
-        ] of [
-            [
-                'linux',
-                '/opt/poppler/bin/pdftotext',
-            ],
-            [
-                'darwin',
-                '/opt/poppler/bin/pdftoppm',
-            ],
-            [
-                'win32',
-                '/opt/poppler/bin/pdftoppm.exe',
-            ],
+        for (const [platformName, command] of [
+            ['linux', '/opt/poppler/bin/pdftotext'],
+            ['darwin', '/opt/poppler/bin/pdftoppm'],
+            ['win32', '/opt/poppler/bin/pdftoppm.exe'],
         ] as const) {
             expect(await spawnedAs(platformName, command)).toEqual({
                 file: command,
-                args: [
-                    '-f',
-                    '1',
-                    'in.pdf',
-                    '-',
-                ],
+                args: ['-f', '1', 'in.pdf', '-'],
                 memoryLimitBytes: 4 * 1024 ** 3,
                 hasMemoryCallback: true,
             });
         }
         expect(await spawnedAs('linux', '/opt/tools/evb-pdf-page-ops')).toEqual({
             file: '/opt/tools/evb-pdf-page-ops',
-            args: [
-                '-f',
-                '1',
-                'in.pdf',
-                '-',
-            ],
+            args: ['-f', '1', 'in.pdf', '-'],
             memoryLimitBytes: undefined,
             hasMemoryCallback: false,
         });
     });
 
     it.each([
-        [
-            'darwin',
-            '/opt/poppler/bin/pdftoppm',
-        ],
-        [
-            'linux',
-            '/opt/poppler/bin/pdftoppm',
-        ],
-        [
-            'win32',
-            '/opt/poppler/bin/pdftoppm.exe',
-        ],
-    ] as const)('stops Poppler on %s when the native supervisor reports a memory-limit breach and leaves other tools alone', async (platformName, popplerPath) => {
-        const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
-        onTestFinished(() => {
-            Object.defineProperty(process, 'platform', platform);
-        });
-        Object.defineProperty(process, 'platform', {
-            value: platformName,
-            configurable: true,
-        });
-        const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
-        const poppler = new MockNativeProcess(7_001);
-        const otherTool = new MockNativeProcess(7_002);
-        mocks.spawn.mockReturnValueOnce(poppler).mockReturnValueOnce(otherTool);
-        mocks.terminateDetachedChildProcess.mockResolvedValueOnce(true);
+        ['darwin', '/opt/poppler/bin/pdftoppm'],
+        ['linux', '/opt/poppler/bin/pdftoppm'],
+        ['win32', '/opt/poppler/bin/pdftoppm.exe'],
+    ] as const)(
+        'stops Poppler on %s when the native supervisor reports a memory-limit breach and leaves other tools alone',
+        async (platformName, popplerPath) => {
+            const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
+            onTestFinished(() => {
+                Object.defineProperty(process, 'platform', platform);
+            });
+            Object.defineProperty(process, 'platform', {
+                value: platformName,
+                configurable: true,
+            });
+            const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
+            const poppler = new MockNativeProcess(7_001);
+            const otherTool = new MockNativeProcess(7_002);
+            mocks.spawn.mockReturnValueOnce(poppler).mockReturnValueOnce(otherTool);
+            mocks.terminateDetachedChildProcess.mockResolvedValueOnce(true);
 
-        const popplerRejection = runNativeCommand(popplerPath, ['in.pdf']).then(
-            () => null,
-            (error: Error) => error,
-        );
-        const otherResult = runNativeCommand('/opt/tools/evb-pdf-page-ops', ['in.pdf']);
-        await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledTimes(2));
+            const popplerRejection = runNativeCommand(popplerPath, ['in.pdf']).then(
+                () => null,
+                (error: Error) => error,
+            );
+            const otherResult = runNativeCommand('/opt/tools/evb-pdf-page-ops', ['in.pdf']);
+            await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledTimes(2));
 
-        const popplerOptions = mocks.spawn.mock.calls[0]![2] as {
-            memoryLimitBytes?: number;
-            onMemoryLimitExceeded?: (bytes: number) => void;
-        };
-        const otherOptions = mocks.spawn.mock.calls[1]![2] as {
-            memoryLimitBytes?: number;
-            onMemoryLimitExceeded?: (bytes: number) => void;
-        };
-        expect(popplerOptions.memoryLimitBytes).toBe(4 * 1024 ** 3);
-        expect(otherOptions.memoryLimitBytes).toBeUndefined();
+            const popplerOptions = mocks.spawn.mock.calls[0]![2] as {
+                memoryLimitBytes?: number;
+                onMemoryLimitExceeded?: (bytes: number) => void;
+            };
+            const otherOptions = mocks.spawn.mock.calls[1]![2] as {
+                memoryLimitBytes?: number;
+                onMemoryLimitExceeded?: (bytes: number) => void;
+            };
+            expect(popplerOptions.memoryLimitBytes).toBe(4 * 1024 ** 3);
+            expect(otherOptions.memoryLimitBytes).toBeUndefined();
 
-        popplerOptions.onMemoryLimitExceeded?.(5 * 1024 ** 3);
+            popplerOptions.onMemoryLimitExceeded?.(5 * 1024 ** 3);
 
-        expect((await popplerRejection)?.message).toBe(`${popplerPath} stopped after using more than 4 GiB of memory`);
-        expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledExactlyOnceWith(poppler, 1_000);
+            expect((await popplerRejection)?.message).toBe(`${popplerPath} stopped after using more than 4 GiB of memory`);
+            expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledExactlyOnceWith(poppler, 1_000);
 
-        otherTool.emit('close', 0, null);
-        await expect(otherResult).resolves.toMatchObject({exitCode: 0});
-    });
+            otherTool.emit('close', 0, null);
+            await expect(otherResult).resolves.toMatchObject({exitCode: 0});
+        },
+    );
 
     it('routes managed native temp files to per-invocation scratch and removes it after success', async () => {
         vi.stubEnv('EVB_APP_TEMP_NAMESPACE', 'profile-one');
@@ -285,11 +242,7 @@ describe('runNativeCommand', () => {
                 scratchPath,
             }),
         );
-        expect(mocks.removeManagedScratchTempDir).toHaveBeenCalledWith(
-            scratchPath,
-            'native-command-',
-            expect.any(String),
-        );
+        expect(mocks.removeManagedScratchTempDir).toHaveBeenCalledWith(scratchPath, 'native-command-', expect.any(String));
         expect(mocks.unregisterManagedProcess).toHaveBeenCalledOnce();
     });
 
@@ -305,33 +258,24 @@ describe('runNativeCommand', () => {
                 await secondSpawned.promise;
                 return path;
             })
-            .mockImplementation(async prefix => mkdtemp(join(scratchRoot, prefix)));
-        mocks.removeManagedScratchTempDir.mockImplementation(async path => {
+            .mockImplementation(async (prefix) => mkdtemp(join(scratchRoot, prefix)));
+        mocks.removeManagedScratchTempDir.mockImplementation(async (path) => {
             await rm(path, {
                 force: true,
                 recursive: true,
             });
             return true;
         });
-        const processes = [
-            new MockNativeProcess(),
-            new MockNativeProcess(42_425),
-        ];
+        const processes = [new MockNativeProcess(), new MockNativeProcess(42_425)];
         mocks.spawn.mockReturnValueOnce(processes[0]).mockReturnValueOnce(processes[1]);
         const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
 
         const firstSpawned = Promise.withResolvers<number>();
         const firstResult = runNativeCommand('/bin/tool', [], {onSpawn: firstSpawned.resolve});
         const secondResult = runNativeCommand('/bin/tool', [], {onSpawn: secondSpawned.resolve});
-        const [
-            firstPid,
-            secondPid,
-        ] = await Promise.all([
-            firstSpawned.promise,
-            secondSpawned.promise,
-        ]);
-        const firstProcess = processes.find(proc => proc.pid === firstPid)!;
-        const secondProcess = processes.find(proc => proc.pid === secondPid)!;
+        const [firstPid, secondPid] = await Promise.all([firstSpawned.promise, secondSpawned.promise]);
+        const firstProcess = processes.find((proc) => proc.pid === firstPid)!;
+        const secondProcess = processes.find((proc) => proc.pid === secondPid)!;
         const firstScratch = await mocks.createManagedScratchTempDir.mock.results[0]!.value;
         const secondScratch = await mocks.createManagedScratchTempDir.mock.results[1]!.value;
 
@@ -414,10 +358,9 @@ describe('runNativeCommand', () => {
     it('rejects an already-aborted signal before spawning', async () => {
         const controller = new AbortController();
         controller.abort();
-        const { runNativeCommand } = await import('@electron/native-tools/runNativeCommand');
+        const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
 
-        await expect(runNativeCommand('/bin/tool', [], {signal: controller.signal}))
-            .rejects.toThrow(/(?:This|The) operation was aborted/u);
+        await expect(runNativeCommand('/bin/tool', [], {signal: controller.signal})).rejects.toThrow(/(?:This|The) operation was aborted/u);
 
         expect(mocks.spawn).not.toHaveBeenCalled();
     });
@@ -425,12 +368,9 @@ describe('runNativeCommand', () => {
     it('resolves allowed exit codes and captures bounded stdout/stderr', async () => {
         const proc = new MockNativeProcess();
         mocks.spawn.mockReturnValue(proc);
-        const { runNativeCommand } = await import('@electron/native-tools/runNativeCommand');
+        const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
 
-        const resultPromise = runNativeCommand('/bin/tool', ['--version'], {allowedExitCodes: [
-            0,
-            3,
-        ]});
+        const resultPromise = runNativeCommand('/bin/tool', ['--version'], {allowedExitCodes: [0, 3]});
         proc.stdout.emit('data', Buffer.from('ok'));
         proc.stderr.emit('data', Buffer.from('warn'));
         proc.emit('close', 3, null);
@@ -452,7 +392,7 @@ describe('runNativeCommand', () => {
         const resultPromise = runNativeCommand('/bin/tool', [], {
             longLived: true,
             maxStdoutBytes: 3,
-            onStdout: chunk => chunks.push(chunk),
+            onStdout: (chunk) => chunks.push(chunk),
             onClose,
         });
         proc.stdout.emit('data', Buffer.from('streamed output'));
@@ -494,12 +434,15 @@ describe('runNativeCommand', () => {
 
         // A scanned page takes seconds to render; its age is timing detail.
         expect(mocks.telemetryWarn).not.toHaveBeenCalled();
-        expect(mocks.telemetryDebug).toHaveBeenCalledWith('Native process settled', expect.objectContaining({
-            command: 'slow-tool',
-            durationMs: 60_000,
-            exitCode: 0,
-            outcome: 'resolved',
-        }));
+        expect(mocks.telemetryDebug).toHaveBeenCalledWith(
+            'Native process settled',
+            expect.objectContaining({
+                command: 'slow-tool',
+                durationMs: 60_000,
+                exitCode: 0,
+                outcome: 'resolved',
+            }),
+        );
     });
 
     it('terminates the process when the spawn callback fails', async () => {
@@ -538,21 +481,17 @@ describe('runNativeCommand', () => {
     });
 
     it.each([
-        [
-            'stdout' as const,
-            'onStdout' as const,
-        ],
-        [
-            'stderr' as const,
-            'onStderr' as const,
-        ],
+        ['stdout' as const, 'onStdout' as const],
+        ['stderr' as const, 'onStderr' as const],
     ])('contains throwing %s callbacks and terminates the helper', async (stream, callbackName) => {
         const proc = new MockNativeProcess();
         mocks.spawn.mockReturnValue(proc);
         const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
-        const resultPromise = runNativeCommand('/bin/tool', [], {[callbackName]: () => {
-            throw new Error('callback exploded');
-        }});
+        const resultPromise = runNativeCommand('/bin/tool', [], {
+            [callbackName]: () => {
+                throw new Error('callback exploded');
+            },
+        });
 
         expect(() => proc[stream].emit('data', Buffer.from('progress'))).not.toThrow();
 
@@ -564,9 +503,11 @@ describe('runNativeCommand', () => {
         const proc = new MockNativeProcess();
         mocks.spawn.mockReturnValue(proc);
         const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
-        const resultPromise = runNativeCommand('/bin/tool', [], {onStdout: () => {
-            throw new Error('flush callback exploded');
-        }});
+        const resultPromise = runNativeCommand('/bin/tool', [], {
+            onStdout: () => {
+                throw new Error('flush callback exploded');
+            },
+        });
 
         proc.stdout.emit('data', Buffer.from([0xd0]));
         proc.emit('close', 0, null);
@@ -610,7 +551,7 @@ describe('runNativeCommand', () => {
         const proc = new MockNativeProcess();
         const log = vi.fn();
         mocks.spawn.mockReturnValue(proc);
-        const { runNativeCommand } = await import('@electron/native-tools/runNativeCommand');
+        const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
 
         const resultPromise = runNativeCommand('/bin/tool', ['--bad'], {
             commandLabel: 'fixture-tool',
@@ -622,7 +563,7 @@ describe('runNativeCommand', () => {
             () => {
                 throw new Error('Expected command to reject');
             },
-            error => error as Error,
+            (error) => error as Error,
         );
         proc.stdout.emit('data', Buffer.from('abcdef'));
         proc.stderr.emit('data', Buffer.from('uvwxyz'));
@@ -642,31 +583,30 @@ describe('runNativeCommand', () => {
         expect(log).toHaveBeenCalledWith('error', expect.stringContaining('cmd=/bin/tool --bad'));
     });
 
-    it.each([
-        'SIGKILL',
-        'SIGBUS',
-        'SIGSEGV',
-    ] as const)(
+    it.each(['SIGKILL', 'SIGBUS', 'SIGSEGV'] as const)(
         'classifies a signal-only %s exit with its typed signal instead of exit code -1',
-        async signal => {
+        async (signal) => {
             const proc = new MockNativeProcess();
             mocks.spawn.mockReturnValue(proc);
             const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
 
             const resultPromise = runNativeCommand('/bin/tool', []);
-            const rejection: Promise<Error & {
-                closeSignal?: NodeJS.Signals | null;
-                exitCode?: number | null;
-                kind?: string;
-            }> = resultPromise.then(
-                () => {
-                    throw new Error('Expected command to reject');
-                },
-                error => error as Error & {
+            const rejection: Promise<
+                Error & {
                     closeSignal?: NodeJS.Signals | null;
                     exitCode?: number | null;
                     kind?: string;
+                }
+            > = resultPromise.then(
+                () => {
+                    throw new Error('Expected command to reject');
                 },
+                (error) =>
+                    error as Error & {
+                        closeSignal?: NodeJS.Signals | null;
+                        exitCode?: number | null;
+                        kind?: string;
+                    },
             );
             proc.emit('close', null, signal);
 
@@ -716,7 +656,7 @@ describe('runNativeCommand', () => {
     it('rejects stdout truncation by default even for successful exits', async () => {
         const proc = new MockNativeProcess();
         mocks.spawn.mockReturnValue(proc);
-        const { runNativeCommand } = await import('@electron/native-tools/runNativeCommand');
+        const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
 
         const resultPromise = runNativeCommand('/bin/tool', [], {
             commandLabel: 'fixture-tool',
@@ -726,7 +666,7 @@ describe('runNativeCommand', () => {
             () => {
                 throw new Error('Expected command to reject');
             },
-            error => error as Error,
+            (error) => error as Error,
         );
         proc.stdout.emit('data', Buffer.from('abcdef'));
         proc.emit('close', 0, null);
@@ -737,7 +677,7 @@ describe('runNativeCommand', () => {
     it('allows stdout truncation when explicitly requested', async () => {
         const proc = new MockNativeProcess();
         mocks.spawn.mockReturnValue(proc);
-        const { runNativeCommand } = await import('@electron/native-tools/runNativeCommand');
+        const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
 
         const resultPromise = runNativeCommand('/bin/tool', [], {
             maxStdoutBytes: 3,
@@ -759,7 +699,7 @@ describe('runNativeCommand', () => {
         const controller = new AbortController();
         const removeEventListener = vi.spyOn(controller.signal, 'removeEventListener');
         mocks.spawn.mockReturnValue(proc);
-        const { runNativeCommand } = await import('@electron/native-tools/runNativeCommand');
+        const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
 
         const resultPromise = runNativeCommand('/bin/tool', [], {
             signal: controller.signal,
@@ -769,7 +709,7 @@ describe('runNativeCommand', () => {
             () => {
                 throw new Error('Expected command to reject');
             },
-            error => error as Error,
+            (error) => error as Error,
         );
         await vi.advanceTimersByTimeAsync(10);
 
@@ -794,8 +734,8 @@ describe('runNativeCommand', () => {
         mocks.spawn.mockReturnValue(proc);
         const log = vi.fn();
         const onTerminationProof = vi.fn();
-        const { runNativeCommand } = await import('@electron/native-tools/runNativeCommand');
-        const { getUnprovenNativeTerminationDetail } = await import('@electron/utils/nativeTerminationProof');
+        const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
+        const {getUnprovenNativeTerminationDetail} = await import('@electron/utils/nativeTerminationProof');
 
         const rejection = runNativeCommand('/bin/tool', [], {
             log,
@@ -821,8 +761,8 @@ describe('runNativeCommand', () => {
         const proc = new MockNativeProcess();
         mocks.spawn.mockReturnValue(proc);
         const log = vi.fn();
-        const { runNativeCommand } = await import('@electron/native-tools/runNativeCommand');
-        const { getUnprovenNativeTerminationDetail } = await import('@electron/utils/nativeTerminationProof');
+        const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
+        const {getUnprovenNativeTerminationDetail} = await import('@electron/utils/nativeTerminationProof');
 
         const rejection = runNativeCommand('/bin/tool', [], {
             log,
@@ -843,8 +783,8 @@ describe('runNativeCommand', () => {
         mocks.terminateDetachedChildProcess.mockImplementation(() => new Promise<boolean>(() => {}));
         const proc = new MockNativeProcess();
         mocks.spawn.mockReturnValue(proc);
-        const { runNativeCommand } = await import('@electron/native-tools/runNativeCommand');
-        const { getUnprovenNativeTerminationDetail } = await import('@electron/utils/nativeTerminationProof');
+        const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
+        const {getUnprovenNativeTerminationDetail} = await import('@electron/utils/nativeTerminationProof');
 
         const rejection = runNativeCommand('/bin/tool', [], {
             terminationGraceMs: 500,
@@ -865,11 +805,10 @@ describe('runNativeCommand', () => {
         const proc = new MockNativeProcess();
         mocks.spawn.mockReturnValue(proc);
         const controller = new AbortController();
-        const { runNativeCommand } = await import('@electron/native-tools/runNativeCommand');
-        const { getUnprovenNativeTerminationDetail } = await import('@electron/utils/nativeTerminationProof');
+        const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
+        const {getUnprovenNativeTerminationDetail} = await import('@electron/utils/nativeTerminationProof');
 
-        const rejection = runNativeCommand('/bin/tool', [], {signal: controller.signal})
-            .catch((error: unknown) => error);
+        const rejection = runNativeCommand('/bin/tool', [], {signal: controller.signal}).catch((error: unknown) => error);
         controller.abort();
         proc.emit('close', null, 'SIGTERM');
 
@@ -881,15 +820,17 @@ describe('runNativeCommand', () => {
         let proveTermination!: (terminated: boolean) => void;
         const proc = new MockNativeProcess();
         mocks.spawn.mockReturnValue(proc);
-        mocks.terminateDetachedChildProcess.mockImplementation(() => new Promise<boolean>(resolve => {
-            proveTermination = resolve;
-        }));
+        mocks.terminateDetachedChildProcess.mockImplementation(
+            () =>
+                new Promise<boolean>((resolve) => {
+                    proveTermination = resolve;
+                }),
+        );
         const controller = new AbortController();
-        const { runNativeCommand } = await import('@electron/native-tools/runNativeCommand');
-        const { getUnprovenNativeTerminationDetail } = await import('@electron/utils/nativeTerminationProof');
+        const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
+        const {getUnprovenNativeTerminationDetail} = await import('@electron/utils/nativeTerminationProof');
 
-        const rejection = runNativeCommand('/bin/tool', [], {signal: controller.signal})
-            .catch((error: unknown) => error);
+        const rejection = runNativeCommand('/bin/tool', [], {signal: controller.signal}).catch((error: unknown) => error);
         controller.abort();
         await Promise.resolve();
         proc.emit('close', null, 'SIGTERM');
@@ -905,10 +846,7 @@ describe('runNativeCommand', () => {
         const onStderr = vi.fn();
         mocks.spawn.mockReturnValue(proc);
         mocks.terminateDetachedChildProcess.mockResolvedValueOnce(true);
-        const {
-            cancelNativeCommandGroup,
-            runNativeCommand,
-        } = await import('@electron/native-tools/runNativeCommand');
+        const {cancelNativeCommandGroup, runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
 
         const resultPromise = runNativeCommand('/bin/tool', ['--watch'], {
             cancelGroup: 'job-1',
@@ -919,7 +857,7 @@ describe('runNativeCommand', () => {
             () => {
                 throw new Error('Expected command to reject');
             },
-            error => error as Error,
+            (error) => error as Error,
         );
 
         proc.stdout.emit('data', Buffer.from('progress'));
@@ -938,10 +876,7 @@ describe('runNativeCommand', () => {
         const proc = new MockNativeProcess();
         mocks.spawn.mockReturnValue(proc);
         mocks.terminateDetachedChildProcess.mockResolvedValueOnce(true);
-        const {
-            cancelNativeCommandGroupAndWait,
-            runNativeCommand,
-        } = await import('@electron/native-tools/runNativeCommand');
+        const {cancelNativeCommandGroupAndWait, runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
 
         const resultPromise = runNativeCommand('/bin/tool', ['--watch'], {cancelGroup: 'job-ack'});
         const rejection = resultPromise.catch((error: unknown) => error as Error);
@@ -951,11 +886,7 @@ describe('runNativeCommand', () => {
         expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(proc, 1_000);
     });
 
-    it.each([
-        'abnormal-close',
-        'cancellation',
-        'job-close',
-    ] as const)('retains real Windows scratch after unproven %s', async mode => {
+    it.each(['abnormal-close', 'cancellation', 'job-close'] as const)('retains real Windows scratch after unproven %s', async (mode) => {
         const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
         const scratchRoot = await mkdtemp(join(tmpdir(), 'native-windows-containment-'));
         onTestFinished(async () => {
@@ -970,21 +901,21 @@ describe('runNativeCommand', () => {
             configurable: true,
         });
         vi.stubEnv('EVB_APP_TEMP_NAMESPACE', 'windows-containment');
-        mocks.createManagedScratchTempDir.mockImplementation(async prefix => mkdtemp(join(scratchRoot, prefix)));
-        mocks.removeManagedScratchTempDir.mockImplementation(async path => {
+        mocks.createManagedScratchTempDir.mockImplementation(async (prefix) => mkdtemp(join(scratchRoot, prefix)));
+        mocks.removeManagedScratchTempDir.mockImplementation(async (path) => {
             await rm(path, {
                 recursive: true,
                 force: true,
-            }); return true;
+            });
+            return true;
         });
         const proc = new MockNativeProcess();
         mocks.spawn.mockReturnValue(proc);
         mocks.terminateDetachedChildProcess.mockResolvedValueOnce(false);
-        if (mode === 'job-close') {mocks.jobProof.mockReturnValue(Promise.resolve(false));}
-        const {
-            configureMainJobBroker,
-            mainJobBroker,
-        } = await import('@electron/resources/jobBroker');
+        if (mode === 'job-close') {
+            mocks.jobProof.mockReturnValue(Promise.resolve(false));
+        }
+        const {configureMainJobBroker, mainJobBroker} = await import('@electron/resources/jobBroker');
         configureMainJobBroker(createHostProfile(8, 16 * GIB));
         const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
         const {getUnprovenNativeTerminationDetail} = await import('@electron/utils/nativeTerminationProof');
@@ -993,7 +924,9 @@ describe('runNativeCommand', () => {
         const rejection = result.catch((error: unknown) => error);
         await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce());
         const scratch = await mocks.createManagedScratchTempDir.mock.results[0]!.value;
-        if (mode === 'cancellation') {controller.abort(new Error('cancel native command'));}
+        if (mode === 'cancellation') {
+            controller.abort(new Error('cancel native command'));
+        }
         proc.emit('close', 2, null);
         expect(getUnprovenNativeTerminationDetail(await rejection)).toBeDefined();
         expect(existsSync(scratch)).toBe(true);
@@ -1008,12 +941,14 @@ describe('runNativeCommand', () => {
     it('keeps scratch until the owned Windows job acknowledges empty', async () => {
         vi.stubEnv('EVB_APP_TEMP_NAMESPACE', 'windows-job-proof');
         const scratchRoot = await mkdtemp(join(tmpdir(), 'native-windows-proof-'));
-        onTestFinished(() => rm(scratchRoot, {
-            recursive: true,
-            force: true,
-        }));
-        mocks.createManagedScratchTempDir.mockImplementation(async prefix => mkdtemp(join(scratchRoot, prefix)));
-        mocks.removeManagedScratchTempDir.mockImplementation(async path => {
+        onTestFinished(() =>
+            rm(scratchRoot, {
+                recursive: true,
+                force: true,
+            }),
+        );
+        mocks.createManagedScratchTempDir.mockImplementation(async (prefix) => mkdtemp(join(scratchRoot, prefix)));
+        mocks.removeManagedScratchTempDir.mockImplementation(async (path) => {
             await rm(path, {
                 recursive: true,
                 force: true,
@@ -1035,7 +970,6 @@ describe('runNativeCommand', () => {
         await expect(result).resolves.toMatchObject({exitCode: 0});
         expect(existsSync(scratch)).toBe(false);
     });
-
 });
 
 describe('runNativeCommand broker admission', () => {
@@ -1070,11 +1004,10 @@ describe('runNativeCommand broker admission', () => {
 
     it('runs more than eight commands at once on a large host', async () => {
         const processes = Array.from({length: 12}, (_, index) => new MockNativeProcess(50_000 + index));
-        for (const proc of processes) {mocks.spawn.mockReturnValueOnce(proc);}
-        const {
-            mainJobBroker,
-            runNativeCommand,
-        } = await loadConfigured();
+        for (const proc of processes) {
+            mocks.spawn.mockReturnValueOnce(proc);
+        }
+        const {mainJobBroker, runNativeCommand} = await loadConfigured();
 
         const results = processes.map(() => runNativeCommand('/bin/tool', []));
 
@@ -1084,7 +1017,9 @@ describe('runNativeCommand broker admission', () => {
             queued: 0,
             used: {nativeProcesses: 12},
         });
-        for (const proc of processes) {proc.emit('close', 0, null);}
+        for (const proc of processes) {
+            proc.emit('close', 0, null);
+        }
         await Promise.all(results);
         expect(mainJobBroker.getSnapshot()).toMatchObject({
             active: 0,
@@ -1096,10 +1031,7 @@ describe('runNativeCommand broker admission', () => {
         vi.useFakeTimers();
         const proc = new MockNativeProcess();
         mocks.spawn.mockReturnValue(proc);
-        const {
-            mainJobBroker,
-            runNativeCommand,
-        } = await loadConfigured(createHostProfile(2, 4 * GIB));
+        const {mainJobBroker, runNativeCommand} = await loadConfigured(createHostProfile(2, 4 * GIB));
         const occupant = await mainJobBroker.acquire({
             ownerId: 'occupant',
             kind: 'native-command',
@@ -1128,14 +1060,10 @@ describe('runNativeCommand broker admission', () => {
         mocks.spawn.mockReturnValue(proc);
         const termination = Promise.withResolvers<boolean>();
         mocks.terminateDetachedChildProcess.mockImplementation(() => termination.promise);
-        const {
-            mainJobBroker,
-            runNativeCommand,
-        } = await loadConfigured();
+        const {mainJobBroker, runNativeCommand} = await loadConfigured();
         const {getUnprovenNativeTerminationDetail} = await import('@electron/utils/nativeTerminationProof');
         const controller = new AbortController();
-        const rejection = runNativeCommand('/bin/tool', [], {signal: controller.signal})
-            .catch((error: unknown) => error);
+        const rejection = runNativeCommand('/bin/tool', [], {signal: controller.signal}).catch((error: unknown) => error);
         await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce());
 
         controller.abort(new Error('cancel native command'));
@@ -1143,7 +1071,7 @@ describe('runNativeCommand broker admission', () => {
         // Sol's probe: a failed kill surfaces as a child `error` before the
         // termination proof settles.
         proc.emit('error', new Error('kill EPERM'));
-        await new Promise(resolve => setImmediate(resolve));
+        await new Promise((resolve) => setImmediate(resolve));
         expect(mainJobBroker.getSnapshot()).toMatchObject({
             active: 1,
             used: {nativeProcesses: 1},
@@ -1162,10 +1090,7 @@ describe('runNativeCommand broker admission', () => {
     it('runs under the lease of the broker run whose proof sink it receives', async () => {
         const proc = new MockNativeProcess();
         mocks.spawn.mockReturnValue(proc);
-        const {
-            mainJobBroker,
-            runNativeCommand,
-        } = await loadConfigured();
+        const {mainJobBroker, runNativeCommand} = await loadConfigured();
         // A single-slot broker: the outer lease takes everything.
         const capacity = {
             cpuTokens: 1,
@@ -1175,21 +1100,24 @@ describe('runNativeCommand broker admission', () => {
         };
         mainJobBroker.reconfigureCapacity(capacity);
 
-        const result = mainJobBroker.run({
-            ownerId: 'outer',
-            kind: 'outer-job',
-            priority: 'user',
-            resources: capacity,
-        }, async (brokerRun) => {
-            const command = runNativeCommand('/bin/tool', [], {brokerRun});
-            await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce());
-            expect(mainJobBroker.getSnapshot()).toMatchObject({
-                active: 1,
-                queued: 0,
-            });
-            proc.emit('close', 0, null);
-            return command;
-        });
+        const result = mainJobBroker.run(
+            {
+                ownerId: 'outer',
+                kind: 'outer-job',
+                priority: 'user',
+                resources: capacity,
+            },
+            async (brokerRun) => {
+                const command = runNativeCommand('/bin/tool', [], {brokerRun});
+                await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce());
+                expect(mainJobBroker.getSnapshot()).toMatchObject({
+                    active: 1,
+                    queued: 0,
+                });
+                proc.emit('close', 0, null);
+                return command;
+            },
+        );
 
         await expect(result).resolves.toMatchObject({exitCode: 0});
         expect(mainJobBroker.getSnapshot()).toMatchObject({
@@ -1202,10 +1130,7 @@ describe('runNativeCommand broker admission', () => {
         const inner = new MockNativeProcess();
         const later = new MockNativeProcess(42_425);
         mocks.spawn.mockReturnValueOnce(inner).mockReturnValueOnce(later);
-        const {
-            mainJobBroker,
-            runNativeCommand,
-        } = await loadConfigured();
+        const {mainJobBroker, runNativeCommand} = await loadConfigured();
         const capacity = {
             cpuTokens: 1,
             estimatedResidentBytes: GIB,
@@ -1242,12 +1167,7 @@ describe('runNativeCommand broker admission', () => {
     it('runs under the caller lease through a chained or mapped broker run context', async () => {
         const proc = new MockNativeProcess();
         mocks.spawn.mockReturnValue(proc);
-        const {
-            chainJobBrokerRunContext,
-            mainJobBroker,
-            mapJobBrokerRunTerminationProof,
-            runNativeCommand,
-        } = await loadConfigured();
+        const {chainJobBrokerRunContext, mainJobBroker, mapJobBrokerRunTerminationProof, runNativeCommand} = await loadConfigured();
         const capacity = {
             cpuTokens: 1,
             estimatedResidentBytes: GIB,
@@ -1257,26 +1177,29 @@ describe('runNativeCommand broker admission', () => {
         mainJobBroker.reconfigureCapacity(capacity);
         const local: Array<Promise<boolean>> = [];
 
-        const result = mainJobBroker.run({
-            ownerId: 'outer',
-            kind: 'outer-job',
-            priority: 'user',
-            resources: capacity,
-        }, async (brokerRun) => {
-            // Chaining and wrapping the proof sink preserves the explicit broker lease.
-            const chained = chainJobBrokerRunContext(brokerRun, proof => local.push(proof));
-            const wrapped = mapJobBrokerRunTerminationProof(chained, outerSink => proof => outerSink(proof));
-            const command = runNativeCommand('/bin/tool', [], {
-                brokerRun: wrapped,
-            });
-            await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce());
-            expect(mainJobBroker.getSnapshot()).toMatchObject({
-                active: 1,
-                used: capacity,
-            });
-            proc.emit('close', 0, null);
-            return command;
-        });
+        const result = mainJobBroker.run(
+            {
+                ownerId: 'outer',
+                kind: 'outer-job',
+                priority: 'user',
+                resources: capacity,
+            },
+            async (brokerRun) => {
+                // Chaining and wrapping the proof sink preserves the explicit broker lease.
+                const chained = chainJobBrokerRunContext(brokerRun, (proof) => local.push(proof));
+                const wrapped = mapJobBrokerRunTerminationProof(chained, (outerSink) => (proof) => outerSink(proof));
+                const command = runNativeCommand('/bin/tool', [], {
+                    brokerRun: wrapped,
+                });
+                await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce());
+                expect(mainJobBroker.getSnapshot()).toMatchObject({
+                    active: 1,
+                    used: capacity,
+                });
+                proc.emit('close', 0, null);
+                return command;
+            },
+        );
 
         await expect(result).resolves.toMatchObject({exitCode: 0});
         expect(mainJobBroker.getSnapshot().active).toBe(0);
@@ -1285,10 +1208,7 @@ describe('runNativeCommand broker admission', () => {
     it('rejects a stale released brokerRun lease via broker.isActive(lease) and acquires a leaf lease', async () => {
         const proc = new MockNativeProcess();
         mocks.spawn.mockReturnValue(proc);
-        const {
-            mainJobBroker,
-            runNativeCommand,
-        } = await loadConfigured();
+        const {mainJobBroker, runNativeCommand} = await loadConfigured();
         const capacity = {
             cpuTokens: 4,
             estimatedResidentBytes: 4 * GIB,
@@ -1298,19 +1218,22 @@ describe('runNativeCommand broker admission', () => {
         mainJobBroker.reconfigureCapacity(capacity);
         let staleBrokerRun: Parameters<Parameters<typeof mainJobBroker.run>[1]>[0] | undefined;
 
-        await mainJobBroker.run({
-            ownerId: 'finished-job',
-            kind: 'combine',
-            priority: 'user',
-            resources: {
-                cpuTokens: 4,
-                estimatedResidentBytes: 4 * GIB,
-                nativeProcesses: 1,
-                ioWeight: 1,
+        await mainJobBroker.run(
+            {
+                ownerId: 'finished-job',
+                kind: 'combine',
+                priority: 'user',
+                resources: {
+                    cpuTokens: 4,
+                    estimatedResidentBytes: 4 * GIB,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
             },
-        }, async (brokerRun) => {
-            staleBrokerRun = brokerRun;
-        });
+            async (brokerRun) => {
+                staleBrokerRun = brokerRun;
+            },
+        );
 
         expect(mainJobBroker.isActive(staleBrokerRun!.lease)).toBe(false);
         const command = runNativeCommand('/native/evb-pdf-image-combine', ['--output', '/out.pdf'], {
@@ -1334,11 +1257,7 @@ describe('runNativeCommand broker admission', () => {
     });
 
     it('rejects foreign-broker, fabricated, and retained-unproven brokerRun contexts', async () => {
-        const {
-            JobBroker,
-            mainJobBroker,
-            runNativeCommand,
-        } = await loadConfigured();
+        const {JobBroker, mainJobBroker, runNativeCommand} = await loadConfigured();
         mainJobBroker.reconfigureCapacity({
             cpuTokens: 4,
             estimatedResidentBytes: 4 * GIB,
@@ -1353,46 +1272,52 @@ describe('runNativeCommand broker admission', () => {
             nativeProcesses: 2,
             ioWeight: 4,
         });
-        await foreignBroker.run({
-            ownerId: 'foreign',
-            kind: 'combine',
-            priority: 'user',
-            resources: {
-                cpuTokens: 4,
-                estimatedResidentBytes: 4 * GIB,
-                nativeProcesses: 1,
-                ioWeight: 1,
+        await foreignBroker.run(
+            {
+                ownerId: 'foreign',
+                kind: 'combine',
+                priority: 'user',
+                resources: {
+                    cpuTokens: 4,
+                    estimatedResidentBytes: 4 * GIB,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
             },
-        }, async (foreignRun) => {
-            const proc = new MockNativeProcess();
-            mocks.spawn.mockReturnValueOnce(proc);
-            const cmd = runNativeCommand('/native/evb-pdf-image-combine', [], {brokerRun: foreignRun});
-            await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledTimes(1));
-            expect(mainJobBroker.getSnapshot().active).toBe(1);
-            expect(spawnEnv(0).EVB_PDF_COMBINE_THREADS).toBe('1');
-            proc.emit('close', 0, null);
-            await cmd;
-        });
+            async (foreignRun) => {
+                const proc = new MockNativeProcess();
+                mocks.spawn.mockReturnValueOnce(proc);
+                const cmd = runNativeCommand('/native/evb-pdf-image-combine', [], {brokerRun: foreignRun});
+                await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledTimes(1));
+                expect(mainJobBroker.getSnapshot().active).toBe(1);
+                expect(spawnEnv(0).EVB_PDF_COMBINE_THREADS).toBe('1');
+                proc.emit('close', 0, null);
+                await cmd;
+            },
+        );
 
         // 2. Retained lease from a completed run with unproven termination cannot authorize a new child,
         //    and fallback child proofs must not be routed to the rejected retained lease's sink.
         vi.useFakeTimers();
         const retainedProof = Promise.withResolvers<boolean>();
         let retainedRun: Parameters<Parameters<typeof mainJobBroker.run>[1]>[0] | undefined;
-        await mainJobBroker.run({
-            ownerId: 'retained-owner',
-            kind: 'combine',
-            priority: 'user',
-            resources: {
-                cpuTokens: 2,
-                estimatedResidentBytes: 2 * GIB,
-                nativeProcesses: 1,
-                ioWeight: 1,
+        await mainJobBroker.run(
+            {
+                ownerId: 'retained-owner',
+                kind: 'combine',
+                priority: 'user',
+                resources: {
+                    cpuTokens: 2,
+                    estimatedResidentBytes: 2 * GIB,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
             },
-        }, async (brokerRun) => {
-            retainedRun = brokerRun;
-            brokerRun.onTerminationProof(retainedProof.promise);
-        });
+            async (brokerRun) => {
+                retainedRun = brokerRun;
+                brokerRun.onTerminationProof(retainedProof.promise);
+            },
+        );
         expect(mainJobBroker.getSnapshot().active).toBe(1);
         const rejectedSinkSpy = vi.fn(retainedRun!.onTerminationProof);
         const proc2 = new MockNativeProcess(42_426);
@@ -1428,29 +1353,32 @@ describe('runNativeCommand broker admission', () => {
         mocks.spawn.mockReturnValueOnce(proc);
         const termination = Promise.withResolvers<boolean>();
         mocks.terminateDetachedChildProcess.mockReturnValueOnce(termination.promise);
-        const {
-            mainJobBroker,
-            runNativeCommand,
-        } = await loadConfigured();
+        const {mainJobBroker, runNativeCommand} = await loadConfigured();
         const controller = new AbortController();
 
-        const runPromise = mainJobBroker.run({
-            ownerId: 'throwing-observer',
-            kind: 'combine',
-            priority: 'user',
-            resources: {
-                cpuTokens: 1,
-                estimatedResidentBytes: 512 * 1024 * 1024,
-                nativeProcesses: 1,
-                ioWeight: 1,
-            },
-        }, async (brokerRun) => runNativeCommand('/bin/tool', [], {
-            signal: controller.signal,
-            brokerRun,
-            onTerminationProof: () => {
-                throw new Error('observer threw');
-            },
-        })).catch((error: unknown) => error);
+        const runPromise = mainJobBroker
+            .run(
+                {
+                    ownerId: 'throwing-observer',
+                    kind: 'combine',
+                    priority: 'user',
+                    resources: {
+                        cpuTokens: 1,
+                        estimatedResidentBytes: 512 * 1024 * 1024,
+                        nativeProcesses: 1,
+                        ioWeight: 1,
+                    },
+                },
+                async (brokerRun) =>
+                    runNativeCommand('/bin/tool', [], {
+                        signal: controller.signal,
+                        brokerRun,
+                        onTerminationProof: () => {
+                            throw new Error('observer threw');
+                        },
+                    }),
+            )
+            .catch((error: unknown) => error);
 
         await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce());
         controller.abort();
@@ -1472,14 +1400,7 @@ describe('runNativeCommand broker admission', () => {
         const scratch = await mkdtemp(join(tmpdir(), 'scan-cleanup-broker-concurrent-'));
         const manifestPath = join(scratch, 'classify-manifest.json');
         const pageOutputPath = join(scratch, 'page-2.ppm');
-        const ppmBytes = Buffer.concat([
-            Buffer.from('P6\n1 1\n255\n', 'ascii'),
-            Buffer.from([
-                255,
-                255,
-                255,
-            ]),
-        ]);
+        const ppmBytes = Buffer.concat([Buffer.from('P6\n1 1\n255\n', 'ascii'), Buffer.from([255, 255, 255])]);
         const batchWritten = Promise.withResolvers<void>();
         const releaseBatch = Promise.withResolvers<void>();
         mocks.spawn.mockImplementation((_command: string, args: string[]) => {
@@ -1495,19 +1416,10 @@ describe('runNativeCommand broker admission', () => {
             });
             return batchProc;
         });
-        const {
-            mainJobBroker,
-            runNativeCommand,
-        } = await loadConfigured();
+        const {mainJobBroker, runNativeCommand} = await loadConfigured();
         const {runScanCleanupSidecar} = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
         const {createScanCleanupRasterBatchRenderer} = await import('@electron/features/scan-cleanup/createScanCleanupRasterBatchRenderer');
-        const {
-            mkdtemp: fsMkdtemp,
-            open: fsOpen,
-            readdir: fsReaddir,
-            rename: fsRename,
-            rm: fsRm,
-        } = await import('node:fs/promises');
+        const {mkdtemp: fsMkdtemp, open: fsOpen, readdir: fsReaddir, rename: fsRename, rm: fsRm} = await import('node:fs/promises');
         const capacity = {
             cpuTokens: 2,
             estimatedResidentBytes: 2 * GIB,
@@ -1535,75 +1447,83 @@ describe('runNativeCommand broker admission', () => {
                 rename: fsRename,
                 rm: fsRm,
             });
-            await mainJobBroker.run({
-                ownerId: 'scan-cleanup:1:owner',
-                kind: 'scan-cleanup-detect-all',
-                priority: 'user',
-                resources: {
-                    cpuTokens: 1,
-                    estimatedResidentBytes: 512 * 1024 * 1024,
-                    nativeProcesses: 1,
-                    ioWeight: 2,
-                },
-            }, async (brokerRun) => {
-                const controller = new AbortController();
-                const sidecarPromise = runScanCleanupSidecar(
-                    '/bin/evb-scan-cleanup',
-                    manifestPath,
-                    controller.signal,
-                    () => undefined,
-                    () => undefined,
-                    {
-                        allowedPathRoot: scratch,
-                        brokerRun,
+            await mainJobBroker.run(
+                {
+                    ownerId: 'scan-cleanup:1:owner',
+                    kind: 'scan-cleanup-detect-all',
+                    priority: 'user',
+                    resources: {
+                        cpuTokens: 1,
+                        estimatedResidentBytes: 512 * 1024 * 1024,
+                        nativeProcesses: 1,
+                        ioWeight: 2,
                     },
-                );
-                await vi.waitFor(() => expect(spawnedArgs).toHaveLength(1));
-                // While the sidecar is still running, staging page 2 must be admitted under the
-                // same detection lease rather than blocking on the broker's single leaf slot.
-                const stagedPromise = renderBatch({
-                    dpi: 150,
-                    log: () => undefined,
-                    pdftoppmBinary: '/bin/pdftoppm',
-                    signal: controller.signal,
-                    sourcePdfPath: join(scratch, 'source.pdf'),
-                    targets: [{
-                        limits: {
-                            expectedWidthPx: 1,
-                            expectedHeightPx: 1,
-                            maxDimensionPx: 100,
-                            maxPixels: 10_000,
+                },
+                async (brokerRun) => {
+                    const controller = new AbortController();
+                    const sidecarPromise = runScanCleanupSidecar(
+                        '/bin/evb-scan-cleanup',
+                        manifestPath,
+                        controller.signal,
+                        () => undefined,
+                        () => undefined,
+                        {
+                            allowedPathRoot: scratch,
+                            brokerRun,
                         },
-                        outputPath: pageOutputPath,
-                        pageNumber: 2,
-                    }],
-                    brokerRun,
-                });
-                await batchWritten.promise;
-                expect(spawnedArgs).toHaveLength(2);
-                // Both sidecarProc and batchProc are simultaneously active under the same
-                // detection lease; no extra transient leaf lease was allocated.
-                expect(mainJobBroker.getSnapshot()).toMatchObject({
-                    active: 2,
-                    queued: 0,
-                });
-                releaseBatch.resolve();
-                const staged = await stagedPromise;
-                expect(staged).toEqual([{
-                    pageNumber: 2,
-                    width: 1,
-                    height: 1,
-                }]);
-                expect(mainJobBroker.getSnapshot()).toMatchObject({
-                    active: 2,
-                    queued: 0,
-                });
-                sidecarProc.stdout.emit('data', Buffer.from(
-                    '{"version":3,"type":"result","result":{"status":"success","completedPages":2,"totalPages":2}}\n',
-                ));
-                sidecarProc.emit('close', 0, null);
-                await sidecarPromise;
-            });
+                    );
+                    await vi.waitFor(() => expect(spawnedArgs).toHaveLength(1));
+                    // While the sidecar is still running, staging page 2 must be admitted under the
+                    // same detection lease rather than blocking on the broker's single leaf slot.
+                    const stagedPromise = renderBatch({
+                        dpi: 150,
+                        log: () => undefined,
+                        pdftoppmBinary: '/bin/pdftoppm',
+                        signal: controller.signal,
+                        sourcePdfPath: join(scratch, 'source.pdf'),
+                        targets: [
+                            {
+                                limits: {
+                                    expectedWidthPx: 1,
+                                    expectedHeightPx: 1,
+                                    maxDimensionPx: 100,
+                                    maxPixels: 10_000,
+                                },
+                                outputPath: pageOutputPath,
+                                pageNumber: 2,
+                            },
+                        ],
+                        brokerRun,
+                    });
+                    await batchWritten.promise;
+                    expect(spawnedArgs).toHaveLength(2);
+                    // Both sidecarProc and batchProc are simultaneously active under the same
+                    // detection lease; no extra transient leaf lease was allocated.
+                    expect(mainJobBroker.getSnapshot()).toMatchObject({
+                        active: 2,
+                        queued: 0,
+                    });
+                    releaseBatch.resolve();
+                    const staged = await stagedPromise;
+                    expect(staged).toEqual([
+                        {
+                            pageNumber: 2,
+                            width: 1,
+                            height: 1,
+                        },
+                    ]);
+                    expect(mainJobBroker.getSnapshot()).toMatchObject({
+                        active: 2,
+                        queued: 0,
+                    });
+                    sidecarProc.stdout.emit(
+                        'data',
+                        Buffer.from('{"version":3,"type":"result","result":{"status":"success","completedPages":2,"totalPages":2}}\n'),
+                    );
+                    sidecarProc.emit('close', 0, null);
+                    await sidecarPromise;
+                },
+            );
         } finally {
             previewLease.release();
             await rm(scratch, {
@@ -1623,17 +1543,14 @@ describe('runNativeCommand broker admission', () => {
         mocks.spawn.mockReturnValue(proc);
         const termination = Promise.withResolvers<boolean>();
         mocks.terminateDetachedChildProcess.mockReturnValueOnce(termination.promise);
-        const {
-            mainJobBroker,
-            runNativeCommand,
-        } = await loadConfigured();
+        const {mainJobBroker, runNativeCommand} = await loadConfigured();
         const {getUnprovenNativeTerminationDetail} = await import('@electron/utils/nativeTerminationProof');
         const proofs: Array<Promise<boolean>> = [];
         const controller = new AbortController();
 
         const rejection = runNativeCommand('/bin/tool', [], {
             signal: controller.signal,
-            onTerminationProof: proof => proofs.push(proof),
+            onTerminationProof: (proof) => proofs.push(proof),
         }).catch((error: unknown) => error);
         await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce());
         controller.abort();
@@ -1647,10 +1564,12 @@ describe('runNativeCommand broker admission', () => {
         });
 
         termination.resolve(true);
-        await vi.waitFor(() => expect(mainJobBroker.getSnapshot()).toMatchObject({
-            active: 0,
-            used: {nativeProcesses: 0},
-        }));
+        await vi.waitFor(() =>
+            expect(mainJobBroker.getSnapshot()).toMatchObject({
+                active: 0,
+                used: {nativeProcesses: 0},
+            }),
+        );
     });
 
     it.each([
@@ -1681,17 +1600,10 @@ describe('runNativeCommand broker admission', () => {
             env: {EVB_PDF_COMBINE_THREADS: '3'},
             expected: '3',
         },
-    ])('starts the image combiner under a caller lease with $name', async ({
-        lease,
-        env,
-        expected,
-    }) => {
+    ])('starts the image combiner under a caller lease with $name', async ({lease, env, expected}) => {
         const proc = new MockNativeProcess();
         mocks.spawn.mockReturnValue(proc);
-        const {
-            mainJobBroker,
-            runNativeCommand,
-        } = await loadConfigured();
+        const {mainJobBroker, runNativeCommand} = await loadConfigured();
         const resources = {
             ...lease,
             nativeProcesses: 1,
@@ -1699,21 +1611,24 @@ describe('runNativeCommand broker admission', () => {
         };
         mainJobBroker.reconfigureCapacity(resources);
 
-        await mainJobBroker.run({
-            ownerId: 'combine',
-            kind: 'combine',
-            priority: 'user',
-            resources,
-        }, async (brokerRun) => {
-            const result = runNativeCommand('/native/evb-pdf-image-combine', ['--output', '/out.pdf'], {
-                brokerRun,
-                ...(env === undefined ? {} : {env}),
-            });
-            await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce());
-            expect(spawnEnv().EVB_PDF_COMBINE_THREADS).toBe(expected);
-            proc.emit('close', 0, null);
-            return result;
-        });
+        await mainJobBroker.run(
+            {
+                ownerId: 'combine',
+                kind: 'combine',
+                priority: 'user',
+                resources,
+            },
+            async (brokerRun) => {
+                const result = runNativeCommand('/native/evb-pdf-image-combine', ['--output', '/out.pdf'], {
+                    brokerRun,
+                    ...(env === undefined ? {} : {env}),
+                });
+                await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce());
+                expect(spawnEnv().EVB_PDF_COMBINE_THREADS).toBe(expected);
+                proc.emit('close', 0, null);
+                return result;
+            },
+        );
     });
 
     it.each([
@@ -1727,16 +1642,10 @@ describe('runNativeCommand broker admission', () => {
             capacityBytes: 256 * 1024 * 1024,
             charged: 256 * 1024 * 1024,
         },
-    ])('charges a standalone image combiner $name and starts it with one thread', async ({
-        capacityBytes,
-        charged,
-    }) => {
+    ])('charges a standalone image combiner $name and starts it with one thread', async ({capacityBytes, charged}) => {
         const combine = new MockNativeProcess();
         mocks.spawn.mockReturnValueOnce(combine);
-        const {
-            mainJobBroker,
-            runNativeCommand,
-        } = await loadConfigured();
+        const {mainJobBroker, runNativeCommand} = await loadConfigured();
         mainJobBroker.reconfigureCapacity({
             cpuTokens: 8,
             estimatedResidentBytes: capacityBytes,
@@ -1761,10 +1670,7 @@ describe('runNativeCommand broker admission', () => {
     it('leaves the combiner thread count of other tools alone', async () => {
         const other = new MockNativeProcess(42_425);
         mocks.spawn.mockReturnValueOnce(other);
-        const {
-            mainJobBroker,
-            runNativeCommand,
-        } = await loadConfigured();
+        const {mainJobBroker, runNativeCommand} = await loadConfigured();
         const resources = {
             cpuTokens: 6,
             estimatedResidentBytes: 8 * GIB,
@@ -1773,18 +1679,21 @@ describe('runNativeCommand broker admission', () => {
         };
         mainJobBroker.reconfigureCapacity(resources);
 
-        await mainJobBroker.run({
-            ownerId: 'qpdf',
-            kind: 'qpdf',
-            priority: 'user',
-            resources,
-        }, async (brokerRun) => {
-            const qpdf = runNativeCommand('/native/qpdf', [], {brokerRun});
-            await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce());
-            expect(spawnEnv(0).EVB_PDF_COMBINE_THREADS).toBeUndefined();
-            other.emit('close', 0, null);
-            return qpdf;
-        });
+        await mainJobBroker.run(
+            {
+                ownerId: 'qpdf',
+                kind: 'qpdf',
+                priority: 'user',
+                resources,
+            },
+            async (brokerRun) => {
+                const qpdf = runNativeCommand('/native/qpdf', [], {brokerRun});
+                await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce());
+                expect(spawnEnv(0).EVB_PDF_COMBINE_THREADS).toBeUndefined();
+                other.emit('close', 0, null);
+                return qpdf;
+            },
+        );
     });
 
     it('never retains JobBroker leases when onStdout aborts a fast-exiting supervised POSIX child', async () => {
@@ -1809,10 +1718,7 @@ describe('runNativeCommand broker admission', () => {
         });
         vi.resetModules();
 
-        const {
-            mainJobBroker,
-            runNativeCommand,
-        } = await loadConfigured();
+        const {mainJobBroker, runNativeCommand} = await loadConfigured();
         const {getUnprovenNativeTerminationDetail} = await import('@electron/utils/nativeTerminationProof');
         mainJobBroker.reconfigureCapacity({
             cpuTokens: 2,
@@ -1823,33 +1729,33 @@ describe('runNativeCommand broker admission', () => {
 
         for (let iteration = 0; iteration < 25; iteration += 1) {
             const controller = new AbortController();
-            const outcome = await mainJobBroker.run({
-                ownerId: `fast-abort-${iteration}`,
-                kind: 'search',
-                priority: 'user',
-                resources: {
-                    cpuTokens: 1,
-                    estimatedResidentBytes: 128 * 1024 * 1024,
-                    nativeProcesses: 1,
-                    ioWeight: 1,
+            const outcome = await mainJobBroker.run(
+                {
+                    ownerId: `fast-abort-${iteration}`,
+                    kind: 'search',
+                    priority: 'user',
+                    resources: {
+                        cpuTokens: 1,
+                        estimatedResidentBytes: 128 * 1024 * 1024,
+                        nativeProcesses: 1,
+                        ioWeight: 1,
+                    },
                 },
-            }, async (brokerRun) => {
-                try {
-                    await runNativeCommand(process.execPath, [
-                        '-e',
-                        'process.stdout.write("hit\\n"); process.exit(0);',
-                    ], {
-                        signal: controller.signal,
-                        brokerRun,
-                        onStdout: () => {
-                            controller.abort();
-                        },
-                    });
-                    return null;
-                } catch (error) {
-                    return error;
-                }
-            });
+                async (brokerRun) => {
+                    try {
+                        await runNativeCommand(process.execPath, ['-e', 'process.stdout.write("hit\\n"); process.exit(0);'], {
+                            signal: controller.signal,
+                            brokerRun,
+                            onStdout: () => {
+                                controller.abort();
+                            },
+                        });
+                        return null;
+                    } catch (error) {
+                        return error;
+                    }
+                },
+            );
 
             if (outcome !== null) {
                 expect(
@@ -1857,14 +1763,8 @@ describe('runNativeCommand broker admission', () => {
                     `iteration ${iteration} reported unprovenNativeTermination`,
                 ).toBeUndefined();
             }
-            expect(
-                mainJobBroker.getSnapshot().active,
-                `iteration ${iteration} retained a JobBroker lease`,
-            ).toBe(0);
+            expect(mainJobBroker.getSnapshot().active, `iteration ${iteration} retained a JobBroker lease`).toBe(0);
         }
-        expect(mocks.telemetryWarn).not.toHaveBeenCalledWith(
-            expect.stringContaining('unprovenNativeTermination'),
-            expect.anything(),
-        );
+        expect(mocks.telemetryWarn).not.toHaveBeenCalledWith(expect.stringContaining('unprovenNativeTermination'), expect.anything());
     });
 });

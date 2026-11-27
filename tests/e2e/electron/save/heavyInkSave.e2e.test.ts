@@ -1,41 +1,17 @@
-import type { Page } from 'puppeteer-core';
-import {
-    mkdtempSync,
-    readFileSync,
-    rmSync,
-} from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import {
-    PDFArray,
-    PDFDict,
-    PDFDocument,
-    PDFName,
-} from 'pdf-lib';
-import {
-    expect,
-    it,
-} from 'vitest';
-import { startElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
-import {
-    waitForPdfLoaded,
-    waitForViewerInteractive,
-} from '@tests/e2e/electron/helpers/viewerCore';
-import { clickAnnotationTool } from '@tests/e2e/electron/helpers/viewerAnnotations';
-import { clickAsUser } from '@tests/e2e/electron/helpers/userInput';
-import {
-    createBlankFixturePdf,
-    readPdfAnnotationSummary,
-} from '@tests/e2e/electron/helpers/fixtures';
-import {
-    evaluateInPage,
-    waitForFunctionInPage,
-} from '@tests/e2e/electron/helpers/pageRuntime';
-import {
-    readWorkspaceStateValues,
-    waitForWorkspaceToolbarIdle,
-} from '@tests/e2e/electron/helpers/workspaceExpose';
-import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
+import type {Page} from 'puppeteer-core';
+import {mkdtempSync, readFileSync, rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {PDFArray, PDFDict, PDFDocument, PDFName} from 'pdf-lib';
+import {expect, it} from 'vitest';
+import {startElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import {waitForPdfLoaded, waitForViewerInteractive} from '@tests/e2e/electron/helpers/viewerCore';
+import {clickAnnotationTool} from '@tests/e2e/electron/helpers/viewerAnnotations';
+import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
+import {createBlankFixturePdf, readPdfAnnotationSummary} from '@tests/e2e/electron/helpers/fixtures';
+import {evaluateInPage, waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
+import {readWorkspaceStateValues, waitForWorkspaceToolbarIdle} from '@tests/e2e/electron/helpers/workspaceExpose';
+import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
 
 interface IPdfInkStats {
     annotationCount: number;
@@ -58,17 +34,27 @@ async function readPdfInkStats(filePath: string): Promise<IPdfInkStats> {
 
     for (const page of doc.getPages()) {
         const annots = page.node.lookupMaybe(PDFName.of('Annots'), PDFArray);
-        if (!annots) {continue;}
+        if (!annots) {
+            continue;
+        }
         for (let index = 0; index < annots.size(); index += 1) {
             const annot = annots.lookupMaybe(index, PDFDict);
-            if (!annot) {continue;}
-            if (annot.lookupMaybe(PDFName.of('Subtype'), PDFName)?.asString() !== '/Ink') {continue;}
+            if (!annot) {
+                continue;
+            }
+            if (annot.lookupMaybe(PDFName.of('Subtype'), PDFName)?.asString() !== '/Ink') {
+                continue;
+            }
             annotationCount += 1;
             const inkList = annot.lookupMaybe(PDFName.of('InkList'), PDFArray);
-            if (!inkList) {continue;}
+            if (!inkList) {
+                continue;
+            }
             for (let strokeIndex = 0; strokeIndex < inkList.size(); strokeIndex += 1) {
                 const stroke = inkList.lookupMaybe(strokeIndex, PDFArray);
-                if (!stroke) {continue;}
+                if (!stroke) {
+                    continue;
+                }
                 const pointsInStroke = Math.floor(stroke.size() / 2);
                 strokeCount += 1;
                 strokePointCounts.push(pointsInStroke);
@@ -86,10 +72,17 @@ async function readPdfInkStats(filePath: string): Promise<IPdfInkStats> {
 }
 
 async function waitForShapeCount(page: Page, expectedCount: number, timeout = 60_000) {
-    await waitForFunctionInPage(page, (count: number) => {
-        const shapes = document.querySelectorAll('.editor-pane.is-active .pdf-annotation-editor-layer g[data-annotation-kind="shape"][data-annotation-id]');
-        return shapes.length === count;
-    }, { timeout }, expectedCount);
+    await waitForFunctionInPage(
+        page,
+        (count: number) => {
+            const shapes = document.querySelectorAll(
+                '.editor-pane.is-active .pdf-annotation-editor-layer g[data-annotation-kind="shape"][data-annotation-id]',
+            );
+            return shapes.length === count;
+        },
+        {timeout},
+        expectedCount,
+    );
 }
 
 async function drawFreehandStroke(
@@ -101,31 +94,45 @@ async function drawFreehandStroke(
 ) {
     await clickAnnotationTool(page, 'Draw', 30_000);
     await waitForViewerInteractive(page, 30_000);
-    await waitForFunctionInPage(page, () => Boolean(
-        document.querySelector('.editor-pane.is-active .page_container[data-page="1"] .pdf-annotation-editor-layer'),
-    ), { timeout: 30_000 });
+    await waitForFunctionInPage(
+        page,
+        () => Boolean(document.querySelector('.editor-pane.is-active .page_container[data-page="1"] .pdf-annotation-editor-layer')),
+        {timeout: 30_000},
+    );
 
-    const clientPoints = await evaluateInPage(page, async ({ratios}: {
-        ratios: Array<{
-            x: number;
-            y: number;
-        }>;
-    }) => {
-        const overlay = document.querySelector<SVGElement>('.editor-pane.is-active .page_container[data-page="1"] .pdf-annotation-editor-layer');
-        const pageContainer = overlay?.closest<HTMLElement>('.page_container');
-        if (!overlay || !pageContainer || ratios.length < 2) {return null;}
-        pageContainer.scrollIntoView({
-            block: 'center',
-            inline: 'center',
-        });
-        await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-        const rect = overlay.getBoundingClientRect();
-        if (rect.width <= 0 || rect.height <= 0) {return null;}
-        return ratios.map(point => ({
-            clientX: rect.left + rect.width * point.x,
-            clientY: rect.top + rect.height * point.y,
-        }));
-    }, { ratios: points.map(point => ({...point})) });
+    const clientPoints = await evaluateInPage(
+        page,
+        async ({
+            ratios,
+        }: {
+            ratios: Array<{
+                x: number;
+                y: number;
+            }>;
+        }) => {
+            const overlay = document.querySelector<SVGElement>(
+                '.editor-pane.is-active .page_container[data-page="1"] .pdf-annotation-editor-layer',
+            );
+            const pageContainer = overlay?.closest<HTMLElement>('.page_container');
+            if (!overlay || !pageContainer || ratios.length < 2) {
+                return null;
+            }
+            pageContainer.scrollIntoView({
+                block: 'center',
+                inline: 'center',
+            });
+            await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+            const rect = overlay.getBoundingClientRect();
+            if (rect.width <= 0 || rect.height <= 0) {
+                return null;
+            }
+            return ratios.map((point) => ({
+                clientX: rect.left + rect.width * point.x,
+                clientY: rect.top + rect.height * point.y,
+            }));
+        },
+        {ratios: points.map((point) => ({...point}))},
+    );
 
     if (!clientPoints || clientPoints.length < 2) {
         throw new Error('Unable to resolve client points for heavy-ink freehand stroke');
@@ -135,7 +142,7 @@ async function drawFreehandStroke(
     await page.mouse.move(start.clientX, start.clientY);
     await page.mouse.down();
     for (const point of clientPoints.slice(1)) {
-        await page.mouse.move(point.clientX, point.clientY, { steps: 8 });
+        await page.mouse.move(point.clientX, point.clientY, {steps: 8});
     }
     const end = clientPoints[clientPoints.length - 1]!;
     await page.mouse.move(end.clientX, end.clientY);
@@ -173,65 +180,58 @@ it('saves and reopens heavy freehand ink drawings past the 100,000-point mutatio
 
         // Seed 26 unsaved Ink shapes of 4,000 points each (104,000 /InkList points total)
         // in bounded recovery replays so the pending Save payload exceeds 100,000 points.
-        const seededCount = await session.page.evaluate(async ({
-            shapeCount,
-            pointsPerShape,
-        }: {
-            shapeCount: number;
-            pointsPerShape: number;
-        }) => {
-            const handle = (window as IE2EWindow).__evbTestApi?.getActiveWorkspaceHandle();
-            const plan = handle?.captureCanonicalAnnotationRecovery?.();
-            const template = plan?.entities.find(entity => entity.kind === 'shape');
-            if (!handle?.restoreCanonicalAnnotationRecovery || !plan || !template) {return null;}
-            const {
-                metadata: _metadata,
-                ...annotations
-            } = plan;
-            const changed = plan.changedFields?.[template.identity.id] ?? [];
-            const batchSize = 4;
+        const seededCount = await session.page.evaluate(
+            async ({shapeCount, pointsPerShape}: {shapeCount: number; pointsPerShape: number}) => {
+                const handle = (window as IE2EWindow).__evbTestApi?.getActiveWorkspaceHandle();
+                const plan = handle?.captureCanonicalAnnotationRecovery?.();
+                const template = plan?.entities.find((entity) => entity.kind === 'shape');
+                if (!handle?.restoreCanonicalAnnotationRecovery || !plan || !template) {
+                    return null;
+                }
+                const {metadata: _metadata, ...annotations} = plan;
+                const changed = plan.changedFields?.[template.identity.id] ?? [];
+                const batchSize = 4;
 
-            for (let first = 0; first < shapeCount; first += batchSize) {
-                const count = Math.min(batchSize, shapeCount - first);
-                const entities = Array.from({length: count}, (_, offset) => {
-                    const shapeIndex = first + offset;
-                    const bandTop = 0.06 + shapeIndex * 0.017;
-                    const strokePoints = Array.from({length: pointsPerShape}, (_, pointIndex) => {
-                        const t = pointIndex / (pointsPerShape - 1);
+                for (let first = 0; first < shapeCount; first += batchSize) {
+                    const count = Math.min(batchSize, shapeCount - first);
+                    const entities = Array.from({length: count}, (_, offset) => {
+                        const shapeIndex = first + offset;
+                        const bandTop = 0.06 + shapeIndex * 0.017;
+                        const strokePoints = Array.from({length: pointsPerShape}, (_, pointIndex) => {
+                            const t = pointIndex / (pointsPerShape - 1);
+                            return {
+                                x: Number((0.06 + t * 0.88).toFixed(5)),
+                                y: Number((bandTop + Math.sin(t * Math.PI * 16) * 0.004).toFixed(5)),
+                            };
+                        });
                         return {
-                            x: Number((0.06 + t * 0.88).toFixed(5)),
-                            y: Number((bandTop + Math.sin(t * Math.PI * 16) * 0.004).toFixed(5)),
+                            ...template,
+                            identity: {id: `heavy-ink-seeded-${String(shapeIndex)}`},
+                            rect: {
+                                left: 0.06,
+                                top: Number((bandTop - 0.004).toFixed(5)),
+                                width: 0.88,
+                                height: 0.008,
+                            },
+                            points: strokePoints,
+                            strokes: [strokePoints],
                         };
                     });
-                    return {
-                        ...template,
-                        identity: {id: `heavy-ink-seeded-${String(shapeIndex)}`},
-                        rect: {
-                            left: 0.06,
-                            top: Number((bandTop - 0.004).toFixed(5)),
-                            width: 0.88,
-                            height: 0.008,
-                        },
-                        points: strokePoints,
-                        strokes: [strokePoints],
-                    };
-                });
-                await handle.restoreCanonicalAnnotationRecovery({
-                    ...annotations,
-                    drafts: [],
-                    heldFields: {},
-                    entities,
-                    changedFields: Object.fromEntries(entities.map(entity => [
-                        entity.identity.id,
-                        changed,
-                    ])),
-                });
-            }
-            return shapeCount;
-        }, {
-            shapeCount: SEEDED_HEAVY_INK_SHAPES,
-            pointsPerShape: POINTS_PER_SEEDED_SHAPE,
-        });
+                    await handle.restoreCanonicalAnnotationRecovery({
+                        ...annotations,
+                        drafts: [],
+                        heldFields: {},
+                        entities,
+                        changedFields: Object.fromEntries(entities.map((entity) => [entity.identity.id, changed])),
+                    });
+                }
+                return shapeCount;
+            },
+            {
+                shapeCount: SEEDED_HEAVY_INK_SHAPES,
+                pointsPerShape: POINTS_PER_SEEDED_SHAPE,
+            },
+        );
         expect(seededCount).toBe(SEEDED_HEAVY_INK_SHAPES);
         await waitForShapeCount(session.page, SEEDED_HEAVY_INK_SHAPES + 1, 60_000);
 
@@ -251,53 +251,74 @@ it('saves and reopens heavy freehand ink drawings past the 100,000-point mutatio
             },
         ]);
         await waitForShapeCount(session.page, EXPECTED_SAVED_SHAPES, 30_000);
-        await expect.poll(async () => (
-            await readWorkspaceStateValues<{dirtyState?: {hasPendingUnsavedChanges?: boolean}}>(session.page, ['dirtyState'])
-        ).dirtyState?.hasPendingUnsavedChanges, { timeout: 30_000 }).toBe(true);
+        await expect
+            .poll(
+                async () =>
+                    (await readWorkspaceStateValues<{dirtyState?: {hasPendingUnsavedChanges?: boolean}}>(session.page, ['dirtyState']))
+                        .dirtyState?.hasPendingUnsavedChanges,
+                {timeout: 30_000},
+            )
+            .toBe(true);
 
-        const readFailures = () => session.page.evaluate(() => Array.from(document.querySelectorAll<HTMLElement>('.app-toast-failure'))
-            .map(toast => toast.innerText.trim()));
+        const readFailures = () =>
+            session.page.evaluate(() =>
+                Array.from(document.querySelectorAll<HTMLElement>('.app-toast-failure')).map((toast) => toast.innerText.trim()),
+            );
 
         await clickAsUser(session.page, 'button.save-split-primary');
-        await expect.poll(async () => {
-            const failures = await readFailures();
-            if (failures.length > 0) {return 'failed';}
-            const state = await readWorkspaceStateValues<{dirtyState?: {
-                fileDirty?: boolean;
-                hasPendingUnsavedChanges?: boolean;
-            }}>(session.page, ['dirtyState']);
-            return state.dirtyState?.fileDirty === false && state.dirtyState?.hasPendingUnsavedChanges === false
-                ? 'saved'
-                : 'pending';
-        }, {
-            timeout: 120_000,
-            interval: 500,
-        }).not.toBe('pending');
-        await waitForWorkspaceToolbarIdle(session.page, { timeoutMs: 120_000 });
+        await expect
+            .poll(
+                async () => {
+                    const failures = await readFailures();
+                    if (failures.length > 0) {
+                        return 'failed';
+                    }
+                    const state = await readWorkspaceStateValues<{
+                        dirtyState?: {
+                            fileDirty?: boolean;
+                            hasPendingUnsavedChanges?: boolean;
+                        };
+                    }>(session.page, ['dirtyState']);
+                    return state.dirtyState?.fileDirty === false && state.dirtyState?.hasPendingUnsavedChanges === false
+                        ? 'saved'
+                        : 'pending';
+                },
+                {
+                    timeout: 120_000,
+                    interval: 500,
+                },
+            )
+            .not.toBe('pending');
+        await waitForWorkspaceToolbarIdle(session.page, {timeoutMs: 120_000});
 
         const failures = await readFailures();
         const savedStats = await readPdfInkStats(sourcePath);
-        console.info('HEAVY_INK_SAVE', JSON.stringify({
-            expectedShapes: EXPECTED_SAVED_SHAPES,
-            seededPoints: SEEDED_INK_POINTS,
-            savedStats,
-            failures,
-        }));
+        console.info(
+            'HEAVY_INK_SAVE',
+            JSON.stringify({
+                expectedShapes: EXPECTED_SAVED_SHAPES,
+                seededPoints: SEEDED_INK_POINTS,
+                savedStats,
+                failures,
+            }),
+        );
         expect(failures).toEqual([]);
         expect(savedStats.annotationCount).toBe(EXPECTED_SAVED_SHAPES);
         expect(savedStats.strokeCount).toBe(EXPECTED_SAVED_SHAPES);
-        expect(savedStats.strokePointCounts.filter(count => count === POINTS_PER_SEEDED_SHAPE))
-            .toHaveLength(SEEDED_HEAVY_INK_SHAPES);
-        expect(savedStats.strokePointCounts.filter(count => count !== POINTS_PER_SEEDED_SHAPE))
-            .toHaveLength(EXPECTED_SAVED_SHAPES - SEEDED_HEAVY_INK_SHAPES);
-        expect(savedStats.strokePointCounts.every(count => count >= 2)).toBe(true);
+        expect(savedStats.strokePointCounts.filter((count) => count === POINTS_PER_SEEDED_SHAPE)).toHaveLength(SEEDED_HEAVY_INK_SHAPES);
+        expect(savedStats.strokePointCounts.filter((count) => count !== POINTS_PER_SEEDED_SHAPE)).toHaveLength(
+            EXPECTED_SAVED_SHAPES - SEEDED_HEAVY_INK_SHAPES,
+        );
+        expect(savedStats.strokePointCounts.every((count) => count >= 2)).toBe(true);
         expect(savedStats.totalPoints).toBeGreaterThan(SEEDED_INK_POINTS);
 
         const dirtyAfterSave = (
-            await readWorkspaceStateValues<{dirtyState?: {
-                fileDirty?: boolean;
-                hasPendingUnsavedChanges?: boolean;
-            }}>(session.page, ['dirtyState'])
+            await readWorkspaceStateValues<{
+                dirtyState?: {
+                    fileDirty?: boolean;
+                    hasPendingUnsavedChanges?: boolean;
+                };
+            }>(session.page, ['dirtyState'])
         ).dirtyState;
         expect(dirtyAfterSave?.fileDirty).toBe(false);
         expect(dirtyAfterSave?.hasPendingUnsavedChanges).toBe(false);
@@ -316,7 +337,7 @@ it('saves and reopens heavy freehand ink drawings past the 100,000-point mutatio
         expect(reopenedSummary.bySubtype.Ink).toBe(EXPECTED_SAVED_SHAPES);
     } finally {
         await session.stop();
-        rmSync(sourcePath, { force: true });
+        rmSync(sourcePath, {force: true});
         rmSync(outputDirectory, {
             recursive: true,
             force: true,

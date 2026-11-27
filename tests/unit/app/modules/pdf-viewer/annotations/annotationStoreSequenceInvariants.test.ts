@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {AnnotationStore} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 import {
     asAnnotationId,
@@ -36,13 +32,7 @@ function note(id: string): INoteEntity {
 }
 
 function shape(id: string): IShapeEntity {
-    const {
-        contents: _contents,
-        position: _position,
-        color: _color,
-        open: _open,
-        ...base
-    } = note(id);
+    const {contents: _contents, position: _position, color: _color, open: _open, ...base} = note(id);
     return {
         ...base,
         kind: 'shape',
@@ -66,15 +56,21 @@ interface IExpectedEntity {
 }
 
 function visible(entities: readonly AnnotationEntity[]): IExpectedEntity[] {
-    return entities.filter(entity => !entity.deleted).map(entity => ({
-        id: entity.identity.id,
-        value: entity.kind === 'note' ? entity.contents : entity.kind === 'shape' ? entity.strokeColor : '',
-    })).sort((a, b) => a.id.localeCompare(b.id));
+    return entities
+        .filter((entity) => !entity.deleted)
+        .map((entity) => ({
+            id: entity.identity.id,
+            value: entity.kind === 'note' ? entity.contents : entity.kind === 'shape' ? entity.strokeColor : '',
+        }))
+        .sort((a, b) => a.id.localeCompare(b.id));
 }
 
 /** The annotations the pending Save plan changes against what the working bytes hold. */
 function unwritten(store: AnnotationStore) {
-    return store.pendingChanges().filter(change => change.changedFields.length > 0).map(change => change.entity.identity.id);
+    return store
+        .pendingChanges()
+        .filter((change) => change.changedFields.length > 0)
+        .map((change) => change.entity.identity.id);
 }
 
 describe('AnnotationStore interleaved sequence invariants', () => {
@@ -98,7 +94,9 @@ describe('AnnotationStore interleaved sequence invariants', () => {
         store.undo();
         const recovered = new AnnotationStore();
         const persisted = store.get(created.identity.id)!;
-        if (persisted.kind !== 'note') {throw new Error('Expected the saved note');}
+        if (persisted.kind !== 'note') {
+            throw new Error('Expected the saved note');
+        }
         recovered.replaceFromDocument([persisted], []);
         recovered.import({...persisted, contents: 'recovered edit', revision: persisted.revision + 1}, {preserveSavedBaseline: true});
         expect(unwritten(recovered)).toEqual(['working-note']);
@@ -107,7 +105,7 @@ describe('AnnotationStore interleaved sequence invariants', () => {
         expect(recovered.hasChangesSinceSavedBaseline()).toBe(false);
     });
 
-    it('plans an edit undone to the saved file\'s state after a write put it in the working bytes', () => {
+    it("plans an edit undone to the saved file's state after a write put it in the working bytes", () => {
         const store = new AnnotationStore();
         store.replaceFromDocument([{...note('saved'), persistedRevision: 0}], []);
         store.updateNote(asAnnotationId('saved'), {contents: 'written'});
@@ -117,7 +115,9 @@ describe('AnnotationStore interleaved sequence invariants', () => {
 
         // Its revision counts as saved, as the file holds it, yet the working bytes Save writes from do not.
         expect(store.dirtyEntities()).toEqual([]);
-        expect(store.pendingChanges()).toEqual([{entity: expect.objectContaining({contents: 'saved'}), changedFields: ['contents'], heldFields: {contents: 'written'}}]);
+        expect(store.pendingChanges()).toEqual([
+            {entity: expect.objectContaining({contents: 'saved'}), changedFields: ['contents'], heldFields: {contents: 'written'}},
+        ]);
     });
 
     it('ignores a never-written create-delete pair and load epochs for working-byte drafts', () => {
@@ -150,10 +150,12 @@ describe('AnnotationStore interleaved sequence invariants', () => {
         const store = new AnnotationStore();
         const entity = store.createNote(note('saved'));
         store.updateNote(entity.identity.id, {contents: 'edited'});
-        store.markPersisted(store.beginSave(), [{
-            annotationId: entity.identity.id,
-            pdfRef: '4R',
-        }]);
+        store.markPersisted(store.beginSave(), [
+            {
+                annotationId: entity.identity.id,
+                pdfRef: '4R',
+            },
+        ]);
         store.delete(entity.identity.id);
         expect(store.hasChangesSinceSavedBaseline()).toBe(true);
         store.markPersisted(store.beginSave());
@@ -188,13 +190,7 @@ describe('AnnotationStore interleaved sequence invariants', () => {
         expect(store.hasChangesSinceSavedBaseline()).toBe(false);
     });
 
-    it.each([
-        1,
-        7,
-        19,
-        42,
-        103,
-    ])('preserves semantic history across saves and reparses, seed %i', (seed) => {
+    it.each([1, 7, 19, 42, 103])('preserves semantic history across saves and reparses, seed %i', (seed) => {
         const store = new AnnotationStore();
         const imported = {
             ...note('imported'),
@@ -223,14 +219,11 @@ describe('AnnotationStore interleaved sequence invariants', () => {
         }
         for (let step = 0; step < 150; step += 1) {
             const op = random(6);
-            if (op === 0 || expected.length === 0 && op < 3) {
+            if (op === 0 || (expected.length === 0 && op < 3)) {
                 record();
                 const id = `authored-${nextId++}`;
                 const entity = nextId % 2 ? store.createNote(note(id)) : store.createShape(shape(id));
-                expected = [
-                    ...expected,
-                    ...visible([entity]),
-                ].sort((a, b) => a.id.localeCompare(b.id));
+                expected = [...expected, ...visible([entity])].sort((a, b) => a.id.localeCompare(b.id));
                 trace.push(`create ${id}`);
             } else if (op === 1 || op === 2) {
                 record();
@@ -239,16 +232,23 @@ describe('AnnotationStore interleaved sequence invariants', () => {
                 if (op === 1) {
                     const entity = store.get(id)!;
                     const value = entity.kind === 'note' ? `edit-${step}` : `#${step.toString(16).padStart(6, '0')}`;
-                    if (entity.kind === 'note') {store.updateNote(id, {contents: value});}
-                    else {store.updateShape(id, {strokeColor: value});}
-                    expected = expected.map(item => item.id === id ? {
-                        ...item,
-                        value,
-                    } : item);
+                    if (entity.kind === 'note') {
+                        store.updateNote(id, {contents: value});
+                    } else {
+                        store.updateShape(id, {strokeColor: value});
+                    }
+                    expected = expected.map((item) =>
+                        item.id === id
+                            ? {
+                                  ...item,
+                                  value,
+                              }
+                            : item,
+                    );
                     trace.push(`edit ${id}`);
                 } else {
                     store.delete(id);
-                    expected = expected.filter(item => item.id !== id);
+                    expected = expected.filter((item) => item.id !== id);
                     trace.push(`delete ${id}`);
                 }
             } else if (op === 3) {
@@ -267,12 +267,15 @@ describe('AnnotationStore interleaved sequence invariants', () => {
                 }
             } else if (op === 5) {
                 trace.push('save and reparse');
-                store.markPersisted(store.beginSave(), store.list().map(entity => ({
-                    annotationId: entity.identity.id,
-                    pdfRef: `${nextRef++}R`,
-                })));
+                store.markPersisted(
+                    store.beginSave(),
+                    store.list().map((entity) => ({
+                        annotationId: entity.identity.id,
+                        pdfRef: `${nextRef++}R`,
+                    })),
+                );
                 saved = structuredClone(expected);
-                const parsed = store.list().map(entity => ({
+                const parsed = store.list().map((entity) => ({
                     ...entity,
                     identity: {
                         id: asAnnotationId(`parsed-${entity.identity.pdfRef}`),

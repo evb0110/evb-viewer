@@ -1,16 +1,8 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { AGENT_CAPABILITY_TEMPLATES } from '@electron/features/agent/mcp/mcpDefinitions';
-import {
-    MCP_TOOLS,
-    validateJsonObjectAgainstSchema,
-    validateMcpToolArguments,
-} from '@electron/features/agent/mcp/mcpToolDefinitions';
-import { ASSISTANT_MCP_TOOL_HANDLER_NAMES } from '@electron/features/agent/mcp/mcpServerCore';
-import { resolveAgentCommandRequestTimeoutMs } from '@electron/features/agent/workspaceBridge';
+import {describe, expect, it} from 'vitest';
+import {AGENT_CAPABILITY_TEMPLATES} from '@electron/features/agent/mcp/mcpDefinitions';
+import {MCP_TOOLS, validateJsonObjectAgainstSchema, validateMcpToolArguments} from '@electron/features/agent/mcp/mcpToolDefinitions';
+import {ASSISTANT_MCP_TOOL_HANDLER_NAMES} from '@electron/features/agent/mcp/mcpServerCore';
+import {resolveAgentCommandRequestTimeoutMs} from '@electron/features/agent/workspaceBridge';
 import {AGENT_OCR_RUN_INPUT_SCHEMA} from '@contracts/agentOcr';
 import {toJsonSchema} from '@valibot/to-json-schema';
 
@@ -46,95 +38,84 @@ describe('assistant tool contract invariants', () => {
             alias: 'tool',
             type: 'string',
         },
-    ])('exports strict $id JSON schemas requiring either the primary input or its alias', ({
-        id, primary, alias, type,
-    }) => {
-        for (const name of [
-            'evb_run_action',
-            'evb_read_action',
-        ]) {
-            const branches = MCP_TOOLS.find(tool => tool.name === name)?.inputSchema.oneOf as Array<{
+    ])('exports strict $id JSON schemas requiring either the primary input or its alias', ({id, primary, alias, type}) => {
+        for (const name of ['evb_run_action', 'evb_read_action']) {
+            const branches = MCP_TOOLS.find((tool) => tool.name === name)?.inputSchema.oneOf as Array<{
                 required: string[];
                 properties: {
                     id: {const: string};
-                    input: Record<string, unknown>
+                    input: Record<string, unknown>;
                 };
             }>;
-            const branch = branches.find(candidate => candidate.properties.id.const === id);
+            const branch = branches.find((candidate) => candidate.properties.id.const === id);
             expect(branch?.required).toContain('input');
-            expect(branch?.properties.input).toMatchObject({allOf: expect.arrayContaining([
-                expect.objectContaining({
-                    type: 'object',
-                    additionalProperties: false,
-                    properties: expect.objectContaining({
-                        [primary]: expect.objectContaining({type}),
-                        [alias]: expect.objectContaining({type}),
+            expect(branch?.properties.input).toMatchObject({
+                allOf: expect.arrayContaining([
+                    expect.objectContaining({
+                        type: 'object',
+                        additionalProperties: false,
+                        properties: expect.objectContaining({
+                            [primary]: expect.objectContaining({type}),
+                            [alias]: expect.objectContaining({type}),
+                        }),
                     }),
-                }),
-                {anyOf: [
-                    primary,
-                    alias,
-                ].map(key => ({
-                    type: 'object',
-                    properties: {[key]: {}},
-                    required: [key],
-                }))},
-            ])});
+                    {
+                        anyOf: [primary, alias].map((key) => ({
+                            type: 'object',
+                            properties: {[key]: {}},
+                            required: [key],
+                        })),
+                    },
+                ]),
+            });
         }
     });
 
     it('maps every advertised tool to exactly one handler and keeps capability ids unique', () => {
-        expect(new Set(MCP_TOOLS.map(tool => tool.name))).toEqual(new Set(ASSISTANT_MCP_TOOL_HANDLER_NAMES));
-        const capabilityIds = AGENT_CAPABILITY_TEMPLATES.map(capability => capability.id);
+        expect(new Set(MCP_TOOLS.map((tool) => tool.name))).toEqual(new Set(ASSISTANT_MCP_TOOL_HANDLER_NAMES));
+        const capabilityIds = AGENT_CAPABILITY_TEMPLATES.map((capability) => capability.id);
         expect(new Set(capabilityIds).size).toBe(capabilityIds.length);
     });
 
     it('derives every advertised action input branch directly from the canonical capability catalog', () => {
-        const actionTool = MCP_TOOLS.find(tool => tool.name === 'evb_run_action');
-        const branches = actionTool?.inputSchema.oneOf as Array<{properties: {
-            id: {const: string};
-            input: Record<string, unknown>;
-        }}>;
+        const actionTool = MCP_TOOLS.find((tool) => tool.name === 'evb_run_action');
+        const branches = actionTool?.inputSchema.oneOf as Array<{
+            properties: {
+                id: {const: string};
+                input: Record<string, unknown>;
+            };
+        }>;
         expect(branches).toHaveLength(AGENT_CAPABILITY_TEMPLATES.length);
         for (const template of AGENT_CAPABILITY_TEMPLATES) {
-            const branch = branches.find(candidate => candidate.properties.id.const === template.id);
+            const branch = branches.find((candidate) => candidate.properties.id.const === template.id);
             expect(branch?.properties.input).toEqual(generatedInputSchema(template.inputSchema));
         }
     });
 
     it('uses the advertised schema itself as the recursive runtime validator', () => {
-        const template = AGENT_CAPABILITY_TEMPLATES.find(candidate => candidate.id === 'document.search');
+        const template = AGENT_CAPABILITY_TEMPLATES.find((candidate) => candidate.id === 'document.search');
         if (!template) {
             throw new Error('document.search template is missing');
         }
-        expect(() => validateJsonObjectAgainstSchema('document.search', {
-            query: 'needle',
-            unexpected: true,
-        }, template.inputSchema)).toThrow(/advertised schema/u);
+        expect(() =>
+            validateJsonObjectAgainstSchema(
+                'document.search',
+                {
+                    query: 'needle',
+                    unexpected: true,
+                },
+                template.inputSchema,
+            ),
+        ).toThrow(/advertised schema/u);
         expect(() => validateJsonObjectAgainstSchema('document.search', {query: 'needle'}, template.inputSchema)).not.toThrow();
     });
 
     it.each([
-        [
-            'annotation.open_note',
-            {},
-        ],
-        [
-            'annotation.focus',
-            {},
-        ],
-        [
-            'annotation.delete',
-            {},
-        ],
-        [
-            'annotation.update_note',
-            {text: ''},
-        ],
-        [
-            'annotation.update_text_markup_color',
-            {color: '#ffd54f'},
-        ],
+        ['annotation.open_note', {}],
+        ['annotation.focus', {}],
+        ['annotation.delete', {}],
+        ['annotation.update_note', {text: ''}],
+        ['annotation.update_text_markup_color', {color: '#ffd54f'}],
     ])('rejects absent and blank annotation references for %s at the MCP boundary', (id, extra) => {
         for (const ref of [
             {},
@@ -145,19 +126,17 @@ describe('assistant tool contract invariants', () => {
                 id: '\u2003\ufeff',
             },
         ]) {
-            expect(() => validateMcpToolArguments('evb_run_action', {
-                id,
-                input: {
-                    ...ref,
-                    ...extra,
-                },
-            })).toThrow(/advertised schema.*non-blank/u);
+            expect(() =>
+                validateMcpToolArguments('evb_run_action', {
+                    id,
+                    input: {
+                        ...ref,
+                        ...extra,
+                    },
+                }),
+            ).toThrow(/advertised schema.*non-blank/u);
         }
-        for (const key of [
-            'stableKey',
-            'annotationId',
-            'id',
-        ]) {
+        for (const key of ['stableKey', 'annotationId', 'id']) {
             const input = {
                 stableKey: ' ',
                 annotationId: '',
@@ -165,10 +144,12 @@ describe('assistant tool contract invariants', () => {
                 [key]: ' annotation-1 ',
                 ...extra,
             };
-            expect(validateMcpToolArguments('evb_run_action', {
-                id,
-                input,
-            })).toEqual({
+            expect(
+                validateMcpToolArguments('evb_run_action', {
+                    id,
+                    input,
+                }),
+            ).toEqual({
                 id,
                 input,
             });
@@ -176,70 +157,71 @@ describe('assistant tool contract invariants', () => {
     });
 
     it('publishes required annotation inputs and non-blank identifier alternatives', () => {
-        for (const name of [
-            'evb_run_action',
-            'evb_read_action',
-        ]) {
-            const branches = MCP_TOOLS.find(tool => tool.name === name)?.inputSchema.oneOf as Array<{
+        for (const name of ['evb_run_action', 'evb_read_action']) {
+            const branches = MCP_TOOLS.find((tool) => tool.name === name)?.inputSchema.oneOf as Array<{
                 required: string[];
                 properties: {
                     id: {const: string};
-                    input: Record<string, unknown>
+                    input: Record<string, unknown>;
                 };
             }>;
-            const branch = branches.find(candidate => candidate.properties.id.const === 'annotation.open_note');
+            const branch = branches.find((candidate) => candidate.properties.id.const === 'annotation.open_note');
             expect(branch?.required).toContain('input');
-            expect(branch?.properties.input).toMatchObject({allOf: expect.arrayContaining([{anyOf: [
-                'stableKey',
-                'annotationId',
-                'id',
-            ].map(key => ({
-                type: 'object',
-                properties: {[key]: {
-                    type: 'string',
-                    pattern: '\\S',
-                }},
-                required: [key],
-            }))}])});
-            expect(() => validateMcpToolArguments(name, {id: 'annotation.open_note'}))
-                .toThrow(/advertised schema.*non-blank/u);
+            expect(branch?.properties.input).toMatchObject({
+                allOf: expect.arrayContaining([
+                    {
+                        anyOf: ['stableKey', 'annotationId', 'id'].map((key) => ({
+                            type: 'object',
+                            properties: {
+                                [key]: {
+                                    type: 'string',
+                                    pattern: '\\S',
+                                },
+                            },
+                            required: [key],
+                        })),
+                    },
+                ]),
+            });
+            expect(() => validateMcpToolArguments(name, {id: 'annotation.open_note'})).toThrow(/advertised schema.*non-blank/u);
         }
     });
 
     it('advertises the shared OCR contract and enforces replace-all acknowledgement', () => {
-        const template = AGENT_CAPABILITY_TEMPLATES.find(candidate => candidate.id === 'ocr.start');
+        const template = AGENT_CAPABILITY_TEMPLATES.find((candidate) => candidate.id === 'ocr.start');
         if (!template) {
             throw new Error('ocr.start template is missing');
         }
         expect(template.inputSchema).toBe(AGENT_OCR_RUN_INPUT_SCHEMA);
-        expect(() => validateJsonObjectAgainstSchema(
-            'ocr.start',
-            {supersessionPolicy: 'replace-all'},
-            template.inputSchema,
-        )).toThrow(/advertised schema/u);
-        expect(() => validateJsonObjectAgainstSchema('ocr.start', {
-            languages: ['eng'],
-            supersessionPolicy: 'replace-all',
-            replaceAllAcknowledged: true,
-            open: false,
-        }, template.inputSchema)).not.toThrow();
-        expect(() => validateJsonObjectAgainstSchema(
-            'ocr.start',
-            {selectedLanguages: ['eng']},
-            template.inputSchema,
-        )).toThrow(/advertised schema/u);
+        expect(() => validateJsonObjectAgainstSchema('ocr.start', {supersessionPolicy: 'replace-all'}, template.inputSchema)).toThrow(
+            /advertised schema/u,
+        );
+        expect(() =>
+            validateJsonObjectAgainstSchema(
+                'ocr.start',
+                {
+                    languages: ['eng'],
+                    supersessionPolicy: 'replace-all',
+                    replaceAllAcknowledged: true,
+                    open: false,
+                },
+                template.inputSchema,
+            ),
+        ).not.toThrow();
+        expect(() => validateJsonObjectAgainstSchema('ocr.start', {selectedLanguages: ['eng']}, template.inputSchema)).toThrow(
+            /advertised schema/u,
+        );
     });
 
-    it.each([
-        'ocr.start',
-        'export.docx',
-        'export.images',
-        'export.multi_page_tiff',
-        'page_ops.convert_to_pdf',
-    ])('uses the long-running timeout for %s', (id) => {
-        expect(resolveAgentCommandRequestTimeoutMs({
-            name: 'run_action',
-            arguments: {id},
-        })).toBe(180_000);
-    });
+    it.each(['ocr.start', 'export.docx', 'export.images', 'export.multi_page_tiff', 'page_ops.convert_to_pdf'])(
+        'uses the long-running timeout for %s',
+        (id) => {
+            expect(
+                resolveAgentCommandRequestTimeoutMs({
+                    name: 'run_action',
+                    arguments: {id},
+                }),
+            ).toBe(180_000);
+        },
+    );
 });

@@ -1,12 +1,7 @@
-import type {
-    IResolvedSearchMatchOptions,
-    TSearchResultOffset,
-    IPdfSearchExcerpt,
-    ISearchIndexCoverage,
-} from '@contracts/search';
-import type { TOcrIndexRotation } from '@contracts/ocrIndex';
-import type { IOcrWord } from '@contracts/shared';
-import type { Ref } from 'vue';
+import type {IResolvedSearchMatchOptions, TSearchResultOffset, IPdfSearchExcerpt, ISearchIndexCoverage} from '@contracts/search';
+import type {TOcrIndexRotation} from '@contracts/ocrIndex';
+import type {IOcrWord} from '@contracts/shared';
+import type {Ref} from 'vue';
 
 export interface IDocumentSearchMatch {
     pageIndex: number;

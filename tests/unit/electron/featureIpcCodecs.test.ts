@@ -1,18 +1,14 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { AGENT_PLATFORM_FEATURE } from '@contracts/agentPlatformFeature';
-import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
+import {describe, expect, it} from 'vitest';
+import {AGENT_PLATFORM_FEATURE} from '@contracts/agentPlatformFeature';
+import {DJVU_PLATFORM_FEATURE} from '@contracts/djvuPlatformFeature';
 import {
     DOCUMENT_FILES_PLATFORM_FEATURE,
     DOCUMENT_OPEN_PLATFORM_FEATURE,
     DOCUMENT_PDF_PLATFORM_FEATURE,
 } from '@contracts/documentsPlatformFeature';
-import { PLATFORM_FEATURE_REGISTRY } from '@contracts/platformApiDescriptor';
-import { OCR_PLATFORM_FEATURE } from '@contracts/ocrPlatformFeature';
-import { SCAN_CLEANUP_PLATFORM_FEATURE } from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
+import {PLATFORM_FEATURE_REGISTRY} from '@contracts/platformApiDescriptor';
+import {OCR_PLATFORM_FEATURE} from '@contracts/ocrPlatformFeature';
+import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import {PDF_DECRYPT_PASSWORD_MAX_BYTES} from '@contracts/pdfDecryptSchemas';
 import {createBrowserAssistantState} from '@app/platform/browser-api/browserAgentCapability';
 import * as v from 'valibot';
@@ -68,33 +64,24 @@ describe('feature IPC codec maps', () => {
 
     it('preserves native path print layout options when the filename is omitted', () => {
         const options = {
-            pageNumbers: [
-                2,
-                5,
-            ],
+            pageNumbers: [2, 5],
             viewMode: 'facing',
             orientation: 'landscape',
             requestId: 'print-request-1',
         } as const;
         const codec = DOCUMENT_PDF_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.printPdfPath];
 
-        expect(codec.decodeArgs([
-            '/tmp/document.pdf',
-            undefined,
-            options,
-        ])).toEqual([
-            '/tmp/document.pdf',
-            undefined,
-            options,
-        ]);
-        expect(() => codec.decodeArgs([
-            '/tmp/document.pdf',
-            'document.pdf',
-            {
-                ...options,
-                orientation: 'diagonal',
-            },
-        ])).toThrow('options.orientation is invalid');
+        expect(codec.decodeArgs(['/tmp/document.pdf', undefined, options])).toEqual(['/tmp/document.pdf', undefined, options]);
+        expect(() =>
+            codec.decodeArgs([
+                '/tmp/document.pdf',
+                'document.pdf',
+                {
+                    ...options,
+                    orientation: 'diagonal',
+                },
+            ]),
+        ).toThrow('options.orientation is invalid');
     });
 
     it('preserves native data print handoff options when the filename is omitted', () => {
@@ -102,20 +89,10 @@ describe('feature IPC codec maps', () => {
         const options = {requestId: 'print-data-request-1'};
         const codec = DOCUMENT_PDF_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.printPdfData];
 
-        expect(codec.decodeArgs([
-            data,
-            undefined,
-            options,
-        ])).toEqual([
-            data,
-            undefined,
-            options,
-        ]);
-        expect(() => codec.decodeArgs([
-            data,
-            'document.pdf',
-            {requestId: ''},
-        ])).toThrow('options.requestId must be a non-empty bounded string');
+        expect(codec.decodeArgs([data, undefined, options])).toEqual([data, undefined, options]);
+        expect(() => codec.decodeArgs([data, 'document.pdf', {requestId: ''}])).toThrow(
+            'options.requestId must be a non-empty bounded string',
+        );
 
         const cancelCodec = DOCUMENT_PDF_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.cancelPdfPrint];
         expect(cancelCodec.decodeArgs(['print-data-request-1'])).toEqual(['print-data-request-1']);
@@ -134,32 +111,17 @@ describe('feature IPC codec maps', () => {
         const channel = DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.validatePdfPath;
         const codec = DOCUMENT_PDF_PLATFORM_FEATURE.ipcCodecs[channel];
 
-        expect(codec?.decodeArgs(['/tmp/document.pdf']))
-            .toEqual(['/tmp/document.pdf']);
-        expect(codec?.decodeArgs([
-            '/tmp/document.pdf',
-            {purpose: 'opening'},
-        ])).toEqual([
-            '/tmp/document.pdf',
-            {purpose: 'opening'},
-        ]);
-        expect(codec?.decodeArgs([
-            '/tmp/document.pdf',
-            {purpose: 'save'},
-        ])).toEqual([
-            '/tmp/document.pdf',
-            {purpose: 'save'},
-        ]);
-        expect(() => codec?.decodeArgs([
-            '/tmp/document.pdf',
-            {purpose: 'other'},
-        ])).toThrow('validation options must be {purpose: \'opening\' | \'save\'}');
+        expect(codec?.decodeArgs(['/tmp/document.pdf'])).toEqual(['/tmp/document.pdf']);
+        expect(codec?.decodeArgs(['/tmp/document.pdf', {purpose: 'opening'}])).toEqual(['/tmp/document.pdf', {purpose: 'opening'}]);
+        expect(codec?.decodeArgs(['/tmp/document.pdf', {purpose: 'save'}])).toEqual(['/tmp/document.pdf', {purpose: 'save'}]);
+        expect(() => codec?.decodeArgs(['/tmp/document.pdf', {purpose: 'other'}])).toThrow(
+            "validation options must be {purpose: 'opening' | 'save'}",
+        );
     });
 
     it('preserves typed native mutation fallback errors and rejects unknown codes', () => {
-        const codec = DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[
-            DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.applyPdfNativeMutationsToWorkingCopy
-        ];
+        const codec =
+            DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.applyPdfNativeMutationsToWorkingCopy];
         const fallback = {
             applied: false,
             validation: null,
@@ -170,19 +132,20 @@ describe('feature IPC codec maps', () => {
         } as const;
 
         expect(codec?.decodeResult(fallback)).toEqual(fallback);
-        expect(() => codec?.decodeResult({
-            ...fallback,
-            error: {
-                code: 'future-native-code',
-                message: 'Unknown native mutation failure',
-            },
-        })).toThrow('invalid native PDF save result');
+        expect(() =>
+            codec?.decodeResult({
+                ...fallback,
+                error: {
+                    code: 'future-native-code',
+                    message: 'Unknown native mutation failure',
+                },
+            }),
+        ).toThrow('invalid native PDF save result');
     });
 
     it('preserves why a native mutation refused and rejects unknown refusals', () => {
-        const codec = DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[
-            DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.applyPdfNativeMutationsToWorkingCopy
-        ];
+        const codec =
+            DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.applyPdfNativeMutationsToWorkingCopy];
         const refusal = {
             applied: false,
             validation: null,
@@ -198,9 +161,8 @@ describe('feature IPC codec maps', () => {
     });
 
     it('preserves only an affirmative native mutation postcondition proof', () => {
-        const codec = DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[
-            DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.applyPdfNativeMutationsToWorkingCopy
-        ];
+        const codec =
+            DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.applyPdfNativeMutationsToWorkingCopy];
         const verified = {
             applied: true,
             validation: {
@@ -213,10 +175,12 @@ describe('feature IPC codec maps', () => {
         } as const;
 
         expect(codec?.decodeResult(verified)).toEqual(verified);
-        expect(() => codec?.decodeResult({
-            ...verified,
-            nativeMutationPostconditionsVerified: false,
-        })).toThrow('invalid native PDF save result');
+        expect(() =>
+            codec?.decodeResult({
+                ...verified,
+                nativeMutationPostconditionsVerified: false,
+            }),
+        ).toThrow('invalid native PDF save result');
     });
 
     it('passes workspace snapshot responses to the bridge for their single parse', () => {
@@ -238,15 +202,21 @@ describe('feature IPC codec maps', () => {
             layout: null,
         };
 
-        expect(codec.decodeArgs([{
-            requestId: 'snapshot-1',
-            ok: true,
-            snapshot,
-        }])).toEqual([{
-            requestId: 'snapshot-1',
-            ok: true,
-            snapshot,
-        }]);
+        expect(
+            codec.decodeArgs([
+                {
+                    requestId: 'snapshot-1',
+                    ok: true,
+                    snapshot,
+                },
+            ]),
+        ).toEqual([
+            {
+                requestId: 'snapshot-1',
+                ok: true,
+                snapshot,
+            },
+        ]);
         const malformed = {
             requestId: 'snapshot-1',
             ok: true,
@@ -259,46 +229,28 @@ describe('feature IPC codec maps', () => {
     });
 
     it('preserves the source identity needed to validate cached opening geometry', () => {
-        expect(DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[
-            DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getPdfOpeningGeometry
-        ]?.decodeResult(null)).toBeNull();
-        expect(DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.statFile].decodeResult({
-            size: 28_000_000,
-            modifiedAt: 1_720_000_000_000,
-        })).toEqual({
+        expect(
+            DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getPdfOpeningGeometry]?.decodeResult(
+                null,
+            ),
+        ).toBeNull();
+        expect(
+            DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.statFile].decodeResult({
+                size: 28_000_000,
+                modifiedAt: 1_720_000_000_000,
+            }),
+        ).toEqual({
             size: 28_000_000,
             modifiedAt: 1_720_000_000_000,
         });
-        expect(() => DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.statFile].decodeResult({
-            size: 28_000_000,
-            modifiedAt: -1,
-        })).toThrow('invalid file modification time');
-        expect(djvuCodec(DJVU_CHANNELS.getPageSourceInfo).decodeResult({
-            pageCount: 431,
-            pageNumber: 1,
-            pageSize: {
-                width: 600,
-                height: 800,
-                dpi: 300,
-            },
-            sourceSize: 28_000_000,
-            sourceModifiedAt: 1_720_000_000_000,
-        })).toEqual({
-            pageCount: 431,
-            pageNumber: 1,
-            pageSize: {
-                width: 600,
-                height: 800,
-                dpi: 300,
-            },
-            sourceSize: 28_000_000,
-            sourceModifiedAt: 1_720_000_000_000,
-        });
-        expect(v.parse(DJVU_PLATFORM_FEATURE.events.onOpenComplete.payload, {
-            success: true,
-            pageCount: 431,
-            requestId: 'djvu-open-finalized',
-            pageSourceInfo: {
+        expect(() =>
+            DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.statFile].decodeResult({
+                size: 28_000_000,
+                modifiedAt: -1,
+            }),
+        ).toThrow('invalid file modification time');
+        expect(
+            djvuCodec(DJVU_CHANNELS.getPageSourceInfo).decodeResult({
                 pageCount: 431,
                 pageNumber: 1,
                 pageSize: {
@@ -308,8 +260,36 @@ describe('feature IPC codec maps', () => {
                 },
                 sourceSize: 28_000_000,
                 sourceModifiedAt: 1_720_000_000_000,
+            }),
+        ).toEqual({
+            pageCount: 431,
+            pageNumber: 1,
+            pageSize: {
+                width: 600,
+                height: 800,
+                dpi: 300,
             },
-        })).toMatchObject({
+            sourceSize: 28_000_000,
+            sourceModifiedAt: 1_720_000_000_000,
+        });
+        expect(
+            v.parse(DJVU_PLATFORM_FEATURE.events.onOpenComplete.payload, {
+                success: true,
+                pageCount: 431,
+                requestId: 'djvu-open-finalized',
+                pageSourceInfo: {
+                    pageCount: 431,
+                    pageNumber: 1,
+                    pageSize: {
+                        width: 600,
+                        height: 800,
+                        dpi: 300,
+                    },
+                    sourceSize: 28_000_000,
+                    sourceModifiedAt: 1_720_000_000_000,
+                },
+            }),
+        ).toMatchObject({
             success: true,
             requestId: 'djvu-open-finalized',
             pageSourceInfo: {
@@ -320,55 +300,61 @@ describe('feature IPC codec maps', () => {
     });
 
     it('validates native DjVu page text and nested outline provider results', () => {
-        expect(djvuCodec(DJVU_CHANNELS.getPageText).decodeArgs([
-            '/tmp/book.djvu',
-            3,
-        ])).toEqual([
-            '/tmp/book.djvu',
-            3,
+        expect(djvuCodec(DJVU_CHANNELS.getPageText).decodeArgs(['/tmp/book.djvu', 3])).toEqual(['/tmp/book.djvu', 3]);
+        expect(djvuCodec(DJVU_CHANNELS.getPageText).decodeResult('Native page text')).toBe('Native page text');
+        expect(
+            djvuCodec(DJVU_CHANNELS.getOutline).decodeResult([
+                {
+                    title: 'Chapter',
+                    pageNumber: 1,
+                    children: [
+                        {
+                            title: 'Section',
+                            pageNumber: 3,
+                            children: [],
+                        },
+                    ],
+                },
+            ]),
+        ).toEqual([
+            {
+                title: 'Chapter',
+                pageNumber: 1,
+                children: [
+                    {
+                        title: 'Section',
+                        pageNumber: 3,
+                        children: [],
+                    },
+                ],
+            },
         ]);
-        expect(djvuCodec(DJVU_CHANNELS.getPageText).decodeResult('Native page text'))
-            .toBe('Native page text');
-        expect(djvuCodec(DJVU_CHANNELS.getOutline).decodeResult([{
-            title: 'Chapter',
-            pageNumber: 1,
-            children: [{
-                title: 'Section',
-                pageNumber: 3,
-                children: [],
-            }],
-        }])).toEqual([{
-            title: 'Chapter',
-            pageNumber: 1,
-            children: [{
-                title: 'Section',
-                pageNumber: 3,
-                children: [],
-            }],
-        }]);
-        expect(() => djvuCodec(DJVU_CHANNELS.getPageText).decodeArgs([
-            '/tmp/book.djvu',
-            0,
-        ])).toThrow('pageNumber');
-        expect(() => djvuCodec(DJVU_CHANNELS.getOutline).decodeResult([{
-            title: 'Broken',
-            pageNumber: 0,
-            children: [],
-        }])).toThrow('invalid DjVu outline item');
+        expect(() => djvuCodec(DJVU_CHANNELS.getPageText).decodeArgs(['/tmp/book.djvu', 0])).toThrow('pageNumber');
+        expect(() =>
+            djvuCodec(DJVU_CHANNELS.getOutline).decodeResult([
+                {
+                    title: 'Broken',
+                    pageNumber: 0,
+                    children: [],
+                },
+            ]),
+        ).toThrow('invalid DjVu outline item');
     });
 
     it('validates streamed DjVu text-search options and word geometry', () => {
-        expect(djvuCodec(DJVU_CHANNELS.searchText).decodeArgs([
-            '/tmp/book.djvu',
-            'needle',
-            {
-                requestId: 'djvu-search-1',
-                pageCount: 431,
-                matchCase: false,
-                wholeWord: true,
-                useRegex: false,
-            },
-        ])).toEqual([
+        expect(
+            djvuCodec(DJVU_CHANNELS.searchText).decodeArgs([
+                '/tmp/book.djvu',
+                'needle',
+                {
+                    requestId: 'djvu-search-1',
+                    pageCount: 431,
+                    matchCase: false,
+                    wholeWord: true,
+                    useRegex: false,
+                },
+            ]),
+        ).toEqual([
             '/tmp/book.djvu',
             'needle',
             {
@@ -379,36 +365,46 @@ describe('feature IPC codec maps', () => {
                 useRegex: false,
             },
         ]);
-        expect(djvuCodec(DJVU_CHANNELS.searchText).decodeResult({
-            truncated: false,
-            results: [{
-                pageNumber: 9,
-                pageMatchIndex: 0,
-                matchIndex: 0,
-                startOffset: 5,
-                endOffset: 11,
-                excerpt: {
-                    prefix: false,
-                    suffix: false,
-                    before: '',
-                    match: 'needle',
-                    after: '',
+        expect(
+            djvuCodec(DJVU_CHANNELS.searchText).decodeResult({
+                truncated: false,
+                results: [
+                    {
+                        pageNumber: 9,
+                        pageMatchIndex: 0,
+                        matchIndex: 0,
+                        startOffset: 5,
+                        endOffset: 11,
+                        excerpt: {
+                            prefix: false,
+                            suffix: false,
+                            before: '',
+                            match: 'needle',
+                            after: '',
+                        },
+                        pageWidth: 1000,
+                        pageHeight: 2000,
+                        rotation: 0,
+                        words: [
+                            {
+                                text: 'needle',
+                                x: 150,
+                                y: 400,
+                                width: 200,
+                                height: 100,
+                            },
+                        ],
+                    },
+                ],
+            }),
+        ).toMatchObject({
+            results: [
+                {
+                    pageNumber: 9,
+                    words: [{y: 400}],
                 },
-                pageWidth: 1000,
-                pageHeight: 2000,
-                rotation: 0,
-                words: [{
-                    text: 'needle',
-                    x: 150,
-                    y: 400,
-                    width: 200,
-                    height: 100,
-                }],
-            }],
-        })).toMatchObject({results: [{
-            pageNumber: 9,
-            words: [{y: 400}],
-        }]});
+            ],
+        });
         const largePageCountArgs = [
             '/tmp/book.djvu',
             'needle',
@@ -429,29 +425,29 @@ describe('feature IPC codec maps', () => {
             },
         ]);
 
-        for (const invalidPageCount of [
-            0,
-            -1,
-            1.5,
-            Number.MAX_SAFE_INTEGER + 1,
-            Number.POSITIVE_INFINITY,
-        ]) {
-            expect(() => djvuCodec(DJVU_CHANNELS.searchText).decodeArgs([
-                '/tmp/book.djvu',
-                'needle',
-                {
-                    requestId: 'djvu-search-1',
-                    pageCount: invalidPageCount,
-                },
-            ])).toThrow('pageCount must be a positive safe integer');
+        for (const invalidPageCount of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, Number.POSITIVE_INFINITY]) {
+            expect(() =>
+                djvuCodec(DJVU_CHANNELS.searchText).decodeArgs([
+                    '/tmp/book.djvu',
+                    'needle',
+                    {
+                        requestId: 'djvu-search-1',
+                        pageCount: invalidPageCount,
+                    },
+                ]),
+            ).toThrow('pageCount must be a positive safe integer');
         }
-        expect(() => djvuCodec(DJVU_CHANNELS.searchText).decodeResult({
-            truncated: false,
-            results: [{
-                pageNumber: 9,
-                words: [{width: -1}],
-            }],
-        })).toThrow('invalid');
+        expect(() =>
+            djvuCodec(DJVU_CHANNELS.searchText).decodeResult({
+                truncated: false,
+                results: [
+                    {
+                        pageNumber: 9,
+                        words: [{width: -1}],
+                    },
+                ],
+            }),
+        ).toThrow('invalid');
     });
 
     it('validates exact first-page opening geometry at the IPC boundary', () => {
@@ -466,142 +462,169 @@ describe('feature IPC codec maps', () => {
             size: 28_000_000,
             modifiedAt: 1_720_000_000_000,
         };
-        expect(DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getPdfOpeningGeometry].decodeResult(validGeometry))
-            .toEqual(validGeometry);
-        expect(() => DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getPdfOpeningGeometry].decodeResult({
-            ...validGeometry,
-            widestPageWidth: 500,
-        })).toThrow('invalid PDF opening geometry result');
-        expect(() => DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getPdfOpeningGeometry].decodeResult({
-            ...validGeometry,
-            tallestPageHeight: 700,
-        })).toThrow('invalid PDF opening geometry result');
-        expect(DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeResult({
+        expect(
+            DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getPdfOpeningGeometry].decodeResult(
+                validGeometry,
+            ),
+        ).toEqual(validGeometry);
+        expect(() =>
+            DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getPdfOpeningGeometry].decodeResult({
+                ...validGeometry,
+                widestPageWidth: 500,
+            }),
+        ).toThrow('invalid PDF opening geometry result');
+        expect(() =>
+            DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getPdfOpeningGeometry].decodeResult({
+                ...validGeometry,
+                tallestPageHeight: 700,
+            }),
+        ).toThrow('invalid PDF opening geometry result');
+        expect(
+            DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeResult({
+                kind: 'pdf',
+                workingPath: '/managed/scan.pdf',
+                originalPath: '/documents/scan.pdf',
+            }),
+        ).toEqual({
             kind: 'pdf',
             workingPath: '/managed/scan.pdf',
             originalPath: '/documents/scan.pdf',
-        })).toEqual({
-            kind: 'pdf',
-            workingPath: '/managed/scan.pdf',
-            originalPath: '/documents/scan.pdf',
         });
-        expect(DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeResult({
+        expect(
+            DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeResult({
+                kind: 'pdf-needs-password',
+                originalPath: '/documents/scan.pdf',
+            }),
+        ).toEqual({
             kind: 'pdf-needs-password',
             originalPath: '/documents/scan.pdf',
-        })).toEqual({
-            kind: 'pdf-needs-password',
-            originalPath: '/documents/scan.pdf',
         });
-        expect(DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeResult({
+        expect(
+            DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeResult({
+                kind: 'pdf-unsupported-encryption',
+                originalPath: '/documents/scan.pdf',
+            }),
+        ).toEqual({
             kind: 'pdf-unsupported-encryption',
             originalPath: '/documents/scan.pdf',
-        })).toEqual({
-            kind: 'pdf-unsupported-encryption',
-            originalPath: '/documents/scan.pdf',
         });
-        expect(DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeArgs([
-            '/documents/scan.pdf',
-            {password: 'correct-password'},
-        ])).toEqual([
-            '/documents/scan.pdf',
-            {password: 'correct-password'},
-        ]);
-        expect(DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeArgs([
-            '/documents/scan.pdf',
-            {recordRecent: false},
-        ])).toEqual([
-            '/documents/scan.pdf',
-            {recordRecent: false},
-        ]);
-        expect(DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeArgs([
-            '/documents/scan.pdf',
-            undefined,
-        ])).toEqual(['/documents/scan.pdf']);
-        expect(() => DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeArgs([
-            '/documents/scan.pdf',
-            {recordRecent: 'no'},
-        ])).toThrow();
-        expect(() => DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeArgs([
-            '/documents/scan.pdf',
-            {recordRecent: false, extra: true},
-        ])).toThrow();
-        expect(() => DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeArgs([
-            '/documents/scan.pdf',
-            'correct-password',
-        ])).toThrow();
-        for (const notARequest of [[], new Map(), null]) {
-            expect(() => DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeArgs([
+        expect(
+            DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeArgs([
                 '/documents/scan.pdf',
-                notARequest,
-            ])).toThrow();
+                {password: 'correct-password'},
+            ]),
+        ).toEqual(['/documents/scan.pdf', {password: 'correct-password'}]);
+        expect(
+            DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeArgs([
+                '/documents/scan.pdf',
+                {recordRecent: false},
+            ]),
+        ).toEqual(['/documents/scan.pdf', {recordRecent: false}]);
+        expect(
+            DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeArgs([
+                '/documents/scan.pdf',
+                undefined,
+            ]),
+        ).toEqual(['/documents/scan.pdf']);
+        expect(() =>
+            DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeArgs([
+                '/documents/scan.pdf',
+                {recordRecent: 'no'},
+            ]),
+        ).toThrow();
+        expect(() =>
+            DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeArgs([
+                '/documents/scan.pdf',
+                {recordRecent: false, extra: true},
+            ]),
+        ).toThrow();
+        expect(() =>
+            DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeArgs([
+                '/documents/scan.pdf',
+                'correct-password',
+            ]),
+        ).toThrow();
+        for (const notARequest of [[], new Map(), null]) {
+            expect(() =>
+                DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeArgs([
+                    '/documents/scan.pdf',
+                    notARequest,
+                ]),
+            ).toThrow();
         }
-        expect(() => DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeArgs([
-            '/documents/scan.pdf',
-            {password: 'x'.repeat(PDF_DECRYPT_PASSWORD_MAX_BYTES + 1)},
-        ])).toThrow(`password exceeds the ${PDF_DECRYPT_PASSWORD_MAX_BYTES}-byte limit`);
+        expect(() =>
+            DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeArgs([
+                '/documents/scan.pdf',
+                {password: 'x'.repeat(PDF_DECRYPT_PASSWORD_MAX_BYTES + 1)},
+            ]),
+        ).toThrow(`password exceeds the ${PDF_DECRYPT_PASSWORD_MAX_BYTES}-byte limit`);
         const multibytePassword = '🔒'.repeat(Math.ceil((PDF_DECRYPT_PASSWORD_MAX_BYTES + 1) / 4));
         expect(multibytePassword.length).toBeLessThan(PDF_DECRYPT_PASSWORD_MAX_BYTES);
-        expect(() => DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeArgs([
-            '/documents/scan.pdf',
-            {password: multibytePassword},
-        ])).toThrow(`password exceeds the ${PDF_DECRYPT_PASSWORD_MAX_BYTES}-byte limit`);
-        expect(() => DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeResult({
-            kind: 'pdf-needs-password',
-            originalPath: '',
-        })).toThrow('invalid encrypted PDF open-file result');
-        expect(() => DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getPdfOpeningGeometry].decodeResult({
-            ...validGeometry,
-            pageNumber: 2,
-        })).toThrow('invalid PDF opening geometry result');
-        expect(() => DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getPdfOpeningGeometry].decodeResult({
-            ...validGeometry,
-            rotation: 45,
-        })).toThrow('invalid PDF opening geometry result');
+        expect(() =>
+            DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeArgs([
+                '/documents/scan.pdf',
+                {password: multibytePassword},
+            ]),
+        ).toThrow(`password exceeds the ${PDF_DECRYPT_PASSWORD_MAX_BYTES}-byte limit`);
+        expect(() =>
+            DOCUMENT_OPEN_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect].decodeResult({
+                kind: 'pdf-needs-password',
+                originalPath: '',
+            }),
+        ).toThrow('invalid encrypted PDF open-file result');
+        expect(() =>
+            DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getPdfOpeningGeometry].decodeResult({
+                ...validGeometry,
+                pageNumber: 2,
+            }),
+        ).toThrow('invalid PDF opening geometry result');
+        expect(() =>
+            DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getPdfOpeningGeometry].decodeResult({
+                ...validGeometry,
+                rotation: 45,
+            }),
+        ).toThrow('invalid PDF opening geometry result');
     });
 
-    it.each([
-        'djvu-convert',
-        'djvu-open',
-        'djvu-print',
-    ] as const)('decodes %s document-output job state', (operation) => {
-        expect(djvuCodec(DJVU_CHANNELS.getJobState).decodeResult({
-            jobId: `${operation}-job`,
-            operation,
-            status: 'queued',
-            progress: {
+    it.each(['djvu-convert', 'djvu-open', 'djvu-print'] as const)('decodes %s document-output job state', (operation) => {
+        expect(
+            djvuCodec(DJVU_CHANNELS.getJobState).decodeResult({
                 jobId: `${operation}-job`,
-                phase: operation === 'djvu-open' ? 'loading' : 'converting',
-                percent: 0,
-            },
-            updatedAtMs: 1,
-        })).toMatchObject({
+                operation,
+                status: 'queued',
+                progress: {
+                    jobId: `${operation}-job`,
+                    phase: operation === 'djvu-open' ? 'loading' : 'converting',
+                    percent: 0,
+                },
+                updatedAtMs: 1,
+            }),
+        ).toMatchObject({
             operation,
             status: 'queued',
         });
     });
 
     it('decodes staged artifact receipts in both native IPC directions', () => {
-        expect(DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[
-            DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.applyPdfNativeMutationsToWorkingCopy
-        ].decodeResult({
-            applied: true,
-            validation: {
-                isValid: true,
-                tool: 'native',
-                errors: [],
-                warnings: [],
-            },
-            stagedOutput: validStagedArtifact,
-        })).toMatchObject({stagedOutput: validStagedArtifact});
-        expect(DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[
-            DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.commitStagedPdfNativeMutations
-        ].decodeArgs([
-            '/tmp/working.pdf',
-            validStagedArtifact,
-        ])).toEqual([
-            '/tmp/working.pdf',
-            validStagedArtifact,
-        ]);
+        expect(
+            DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[
+                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.applyPdfNativeMutationsToWorkingCopy
+            ].decodeResult({
+                applied: true,
+                validation: {
+                    isValid: true,
+                    tool: 'native',
+                    errors: [],
+                    warnings: [],
+                },
+                stagedOutput: validStagedArtifact,
+            }),
+        ).toMatchObject({stagedOutput: validStagedArtifact});
+        expect(
+            DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[
+                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.commitStagedPdfNativeMutations
+            ].decodeArgs(['/tmp/working.pdf', validStagedArtifact]),
+        ).toEqual(['/tmp/working.pdf', validStagedArtifact]);
     });
 
     it('rejects malformed staged artifact receipts at the IPC boundary', () => {
@@ -613,52 +636,57 @@ describe('feature IPC codec maps', () => {
             },
         };
 
-        expect(() => DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[
-            DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.applyPdfNativeMutationsToWorkingCopy
-        ].decodeResult({
-            applied: true,
-            validation: null,
-            stagedOutput: malformedArtifact,
-        })).toThrow('invalid staged native PDF output');
-        expect(() => DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[
-            DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.commitStagedPdfNativeMutations
-        ].decodeArgs([
-            '/tmp/working.pdf',
-            malformedArtifact,
-        ])).toThrow('typed staged artifact');
+        expect(() =>
+            DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[
+                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.applyPdfNativeMutationsToWorkingCopy
+            ].decodeResult({
+                applied: true,
+                validation: null,
+                stagedOutput: malformedArtifact,
+            }),
+        ).toThrow('invalid staged native PDF output');
+        expect(() =>
+            DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[
+                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.commitStagedPdfNativeMutations
+            ].decodeArgs(['/tmp/working.pdf', malformedArtifact]),
+        ).toThrow('typed staged artifact');
     });
 
     it('rejects oversized renderer collections before handler dispatch', () => {
-        expect(() => agentCodec(AGENT_CHANNELS.sendAssistantMessage).decodeArgs([{
-            text: 'inspect',
-            scope: {
-                kind: 'document',
-                key: 'document:a',
-                title: 'a.pdf',
-            },
-            selection: {
-                instanceId: 'codex',
-                model: 'gpt-5.4',
-                effort: 'high',
-                speedMode: 'standard',
-            },
-            attachments: Array.from({length: 9}, () => ({})),
-        }])).toThrow('assistant attachments exceeds maximum item count (8)');
+        expect(() =>
+            agentCodec(AGENT_CHANNELS.sendAssistantMessage).decodeArgs([
+                {
+                    text: 'inspect',
+                    scope: {
+                        kind: 'document',
+                        key: 'document:a',
+                        title: 'a.pdf',
+                    },
+                    selection: {
+                        instanceId: 'codex',
+                        model: 'gpt-5.4',
+                        effort: 'high',
+                        speedMode: 'standard',
+                    },
+                    attachments: Array.from({length: 9}, () => ({})),
+                },
+            ]),
+        ).toThrow('assistant attachments exceeds maximum item count (8)');
 
-        expect(() => djvuCodec(DJVU_CHANNELS.printDjvuPath).decodeArgs([
-            '/tmp/a.djvu',
-            {
-                orientation: 'auto',
-                pageNumbers: Array.from({length: 100_001}, (_, index) => index + 1),
-                viewMode: 'single',
-            },
-        ])).toThrow('pageNumbers exceeds maximum item count (100000)');
+        expect(() =>
+            djvuCodec(DJVU_CHANNELS.printDjvuPath).decodeArgs([
+                '/tmp/a.djvu',
+                {
+                    orientation: 'auto',
+                    pageNumbers: Array.from({length: 100_001}, (_, index) => index + 1),
+                    viewMode: 'single',
+                },
+            ]),
+        ).toThrow('pageNumbers exceeds maximum item count (100000)');
 
-        expect(() => ocrCodec(OCR_CHANNELS.createSearchablePdf).decodeArgs([
-            '/tmp/a.pdf',
-            Array.from({length: 100_001}),
-            'request-1',
-        ])).toThrow('OCR searchable PDF pages exceeds maximum item count (100000)');
+        expect(() =>
+            ocrCodec(OCR_CHANNELS.createSearchablePdf).decodeArgs(['/tmp/a.pdf', Array.from({length: 100_001}), 'request-1']),
+        ).toThrow('OCR searchable PDF pages exceeds maximum item count (100000)');
     });
     it('decodes resolved assistant send failures with their structured envelope', () => {
         const errorEnvelope = {

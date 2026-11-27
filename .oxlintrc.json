@@ -1,15 +1,6 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": [
-    "typescript",
-    "unicorn",
-    "oxc",
-    "import",
-    "promise",
-    "vue",
-    "vitest",
-    "node"
-  ],
+  "plugins": ["typescript", "unicorn", "oxc", "import", "promise", "vue", "vitest", "node"],
   "categories": {
     "correctness": "off"
   },
@@ -28,10 +19,7 @@
   "rules": {
     "array-callback-return": "error",
     "constructor-super": "error",
-    "curly": [
-      "error",
-      "all"
-    ],
+    "curly": ["error", "all"],
     "eqeqeq": [
       "error",
       "always",
@@ -186,11 +174,7 @@
       {
         "patterns": [
           {
-            "group": [
-              "@i18n-core/*",
-              "@i18n-app/*",
-              "@releaseSelection/*"
-            ],
+            "group": ["@i18n-core/*", "@i18n-app/*", "@releaseSelection/*"],
             "message": "Use shared package root entrypoints."
           }
         ]
@@ -206,9 +190,7 @@
   ],
   "overrides": [
     {
-      "files": [
-        "app/**/*.{ts,vue}"
-      ],
+      "files": ["app/**/*.{ts,vue}"],
       "rules": {
         "no-restricted-globals": [
           "error",
@@ -222,34 +204,24 @@
           {
             "patterns": [
               {
-                "group": [
-                  "@i18n-core/*",
-                  "@i18n-app/*",
-                  "@releaseSelection/*"
-                ],
+                "group": ["@i18n-core/*", "@i18n-app/*", "@releaseSelection/*"],
                 "message": "Import shared packages through their root entrypoints."
               }
             ],
             "paths": [
               {
                 "name": "vue-i18n",
-                "importNames": [
-                  "useI18n"
-                ],
+                "importNames": ["useI18n"],
                 "message": "Use useTypedI18n()."
               },
               {
                 "name": "#imports",
-                "importNames": [
-                  "useI18n"
-                ],
+                "importNames": ["useI18n"],
                 "message": "Use useTypedI18n()."
               },
               {
                 "name": "#i18n",
-                "importNames": [
-                  "useI18n"
-                ],
+                "importNames": ["useI18n"],
                 "message": "Use useTypedI18n()."
               }
             ]
@@ -258,21 +230,14 @@
       }
     },
     {
-      "files": [
-        "app/composables/useTypedI18n.ts"
-      ],
+      "files": ["app/composables/useTypedI18n.ts"],
       "rules": {
         "no-restricted-globals": "off",
         "no-restricted-imports": "off"
       }
     },
     {
-      "files": [
-        "app/**",
-        "electron/**",
-        "landing/**",
-        "server/**"
-      ],
+      "files": ["app/**", "electron/**", "landing/**", "server/**"],
       "rules": {
         "no-restricted-properties": [
           "error",
@@ -285,9 +250,7 @@
       }
     },
     {
-      "files": [
-        "app/**/*.{ts,vue}"
-      ],
+      "files": ["app/**/*.{ts,vue}"],
       "rules": {
         "no-restricted-properties": [
           "error",
@@ -305,10 +268,7 @@
       }
     },
     {
-      "files": [
-        "app/utils/browserLogger.ts",
-        "app/utils/consoleErrorObserver.ts"
-      ],
+      "files": ["app/utils/browserLogger.ts", "app/utils/consoleErrorObserver.ts"],
       "rules": {
         "no-restricted-properties": [
           "error",
@@ -321,50 +281,37 @@
       }
     },
     {
-      "files": [
-        "electron/preload/installDebugLogListener.ts"
-      ],
+      "files": ["electron/preload/installDebugLogListener.ts"],
       "rules": {
         "no-restricted-properties": "off"
       }
     },
     {
-      "files": [
-        "packages/contracts/**"
-      ],
+      "files": ["packages/contracts/**"],
       "rules": {
         "no-restricted-globals": [
           "error",
           {
-            "globals": [
-              "process",
-              "Buffer"
-            ],
+            "globals": ["process", "Buffer"],
             "checkGlobalObject": true
           }
         ]
       }
     },
     {
-      "files": [
-        "tests/**"
-      ],
+      "files": ["tests/**"],
       "rules": {
         "no-unsafe-optional-chaining": "off"
       }
     },
     {
-      "files": [
-        "tests/e2e/**/*.ts"
-      ],
+      "files": ["tests/e2e/**/*.ts"],
       "rules": {
         "invariants/e2e-click-as-user": "error"
       }
     },
     {
-      "files": [
-        "tests/e2e/electron/drawing/annotationStrokeParity.e2e.test.ts"
-      ],
+      "files": ["tests/e2e/electron/drawing/annotationStrokeParity.e2e.test.ts"],
       "rules": {
         "invariants/e2e-click-as-user": "off"
       }

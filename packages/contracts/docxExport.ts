@@ -1,4 +1,4 @@
-import type { TDocumentRef } from '@contracts/documentRef';
+import type {TDocumentRef} from '@contracts/documentRef';
 import type {TSessionId} from '@contracts/shared';
 
 /** Serial file capability kept separate from the legacy all-at-once API. */
@@ -19,4 +19,6 @@ export const DOCX_EXPORT_STREAM_CHANNELS = {
 export const DOCX_EXPORT_STREAM_MAX_CHUNK_BYTES = 4 * 1024 * 1024;
 export const DOCX_EXPORT_STREAM_SESSION_TIMEOUT_MS = 10 * 60 * 1000;
 
-export interface IDocxExportStreamBeginResult {readonly sessionId: TSessionId;}
+export interface IDocxExportStreamBeginResult {
+    readonly sessionId: TSessionId;
+}

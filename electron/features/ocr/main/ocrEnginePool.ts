@@ -1,15 +1,9 @@
-import {
-    dirname,
-    join,
-} from 'node:path';
+import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import * as electron from 'electron';
 import {WORKER_BUNDLES_BY_ID} from '@electron-worker-bundles/electronWorkerBundles.js';
 import type {IOcrEngineResult} from '@ocr-core/tesseractEngine';
-import {
-    createOcrEngineHost,
-    type IOcrEngineLane,
-} from '@electron/features/ocr/main/ocrEngineHostClient';
+import {createOcrEngineHost, type IOcrEngineLane} from '@electron/features/ocr/main/ocrEngineHostClient';
 import {getRuntimeTessdataDir} from '@electron/features/ocr/languageModels';
 import {
     createOcrModelBytesReader,
@@ -19,16 +13,8 @@ import {
 } from '@electron/features/ocr/main/ocrRuntimePolicy';
 import {createAbortError} from '@contracts/isAbortError';
 import type {TOcrModelCode} from '@contracts/ocrLanguages';
-import type {
-    IOcrEngineLaneReply,
-    TDesktopOcrEngineRequest,
-} from '@electron/features/ocr/main/ocrEngineHostProtocol';
-import {
-    mainJobBroker,
-    type IJobBrokerLease,
-    type IJobBrokerRequest,
-    type JobBroker,
-} from '@electron/resources/jobBroker';
+import type {IOcrEngineLaneReply, TDesktopOcrEngineRequest} from '@electron/features/ocr/main/ocrEngineHostProtocol';
+import {mainJobBroker, type IJobBrokerLease, type IJobBrokerRequest, type JobBroker} from '@electron/resources/jobBroker';
 import {resolveUnpackedWorkerPath} from '@electron/utils/workerTask';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -108,7 +94,9 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
     };
 
     const releaseMemory = (entry: IEngineWorker) => {
-        for (const lease of entry.memoryLeases.splice(0)) {lease.release();}
+        for (const lease of entry.memoryLeases.splice(0)) {
+            lease.release();
+        }
     };
 
     const exited = (entry: IEngineWorker) => {
@@ -127,13 +115,18 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
     // still queued for it leaves the broker now rather than when the thread
     // exits, which a worker wedged in its engine may never do.
     const end = (entry: IEngineWorker) => {
-        if (entry.ending) {return;}
+        if (entry.ending) {
+            return;
+        }
         entry.ending = true;
         clearTimeout(entry.idleTimer);
         workers.delete(entry);
         entry.admission?.controller.abort(WORKER_ENDED);
         if (entry.worker) {
-            void entry.worker.terminate().then(() => exited(entry), () => undefined);
+            void entry.worker.terminate().then(
+                () => exited(entry),
+                () => undefined,
+            );
         } else {
             exited(entry);
         }
@@ -142,8 +135,11 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
 
     const park = (entry: IEngineWorker) => {
         if (entry.ending || !entry.worker) {
-            if (!entry.ending) {end(entry);}
-            else {wakeWaiter();}
+            if (!entry.ending) {
+                end(entry);
+            } else {
+                wakeWaiter();
+            }
             return;
         }
         entry.busy = false;
@@ -156,11 +152,7 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
         for (const entry of Array.from(workers)) {
             if (!entry.busy) {
                 end(entry);
-            } else if (
-                entry.admission !== null
-                && entry.residentBytes > 0
-                && broker.isQueued(entry.admission.request)
-            ) {
+            } else if (entry.admission !== null && entry.residentBytes > 0 && broker.isQueued(entry.admission.request)) {
                 // Two warm workers each waiting for memory the other holds
                 // would otherwise wait for good. Ending it moves its pass to
                 // a fresh worker.
@@ -173,8 +165,10 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
     const acquire = async (signal: AbortSignal): Promise<IEngineWorker> => {
         for (;;) {
             signal.throwIfAborted();
-            if (closed) {throw new Error('The OCR engine pool was shut down');}
-            const idle = [...workers].find(entry => !entry.busy);
+            if (closed) {
+                throw new Error('The OCR engine pool was shut down');
+            }
+            const idle = [...workers].find((entry) => !entry.busy);
             if (idle) {
                 clearTimeout(idle.idleTimer);
                 idle.busy = true;
@@ -198,7 +192,9 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
                 const wake = () => {
                     signal.removeEventListener('abort', wake);
                     const index = waiters.indexOf(wake);
-                    if (index >= 0) {waiters.splice(index, 1);}
+                    if (index >= 0) {
+                        waiters.splice(index, 1);
+                    }
                     resolve();
                 };
                 waiters.push(wake);
@@ -209,14 +205,12 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
 
     // What a pass on this worker needs: its own models and page, and the
     // other models its engine still keeps.
-    const resolvePassBytes = (
-        entry: IEngineWorker,
-        modelSizes: ReadonlyMap<TOcrModelCode, number>,
-        workingBytes: number,
-    ) => {
+    const resolvePassBytes = (entry: IEngineWorker, modelSizes: ReadonlyMap<TOcrModelCode, number>, workingBytes: number) => {
         let otherCachedBytes = 0;
         for (const [code, bytes] of entry.cachedModels) {
-            if (!modelSizes.has(code)) {otherCachedBytes += bytes;}
+            if (!modelSizes.has(code)) {
+                otherCachedBytes += bytes;
+            }
         }
         return Math.min(broker.getSnapshot().capacity.estimatedResidentBytes, workingBytes + otherCachedBytes);
     };
@@ -242,10 +236,7 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
                     nativeProcesses: 0,
                     ioWeight: 0,
                 },
-                signal: AbortSignal.any([
-                    signal,
-                    admission.signal,
-                ]),
+                signal: AbortSignal.any([signal, admission.signal]),
             };
             entry.admission = {
                 controller: admission,
@@ -255,7 +246,9 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
             try {
                 passLease = await broker.acquire(request);
             } catch (error) {
-                if (admission.signal.aborted && !signal.aborted) {continue;}
+                if (admission.signal.aborted && !signal.aborted) {
+                    continue;
+                }
                 park(entry);
                 // Its pass left the queue while it was not idle; work that has
                 // waited for memory since may now end it.
@@ -304,23 +297,19 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
         async run(request: TDesktopOcrEngineRequest, signal: AbortSignal, ownerId = 'ocr-engine'): Promise<IOcrEngineResult> {
             const {capacity} = broker.getSnapshot();
             const modelSizes = await readModelBytes(request.models);
-            const workingBytes = resolveOcrLaneResources(
-                sumOcrModelBytes(modelSizes),
-                request.image,
-                capacity,
-            ).estimatedResidentBytes;
-            const {
-                entry,
-                growth,
-                passLease,
-            } = await admitPass(signal, ownerId, modelSizes, workingBytes);
+            const workingBytes = resolveOcrLaneResources(sumOcrModelBytes(modelSizes), request.image, capacity).estimatedResidentBytes;
+            const {entry, growth, passLease} = await admitPass(signal, ownerId, modelSizes, workingBytes);
             entry.residentBytes += growth;
             // The worker keeps what the pass added and the models it read; the
             // core goes back. It is idle before its charge changes, so work
             // already short of memory may end it at once.
             const keepWorker = () => {
-                for (const [code, bytes] of modelSizes) {entry.cachedModels.set(code, bytes);}
-                if (growth > 0) {entry.memoryLeases.push(passLease);}
+                for (const [code, bytes] of modelSizes) {
+                    entry.cachedModels.set(code, bytes);
+                }
+                if (growth > 0) {
+                    entry.memoryLeases.push(passLease);
+                }
                 park(entry);
                 if (growth > 0) {
                     passLease.shrink({
@@ -335,8 +324,11 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
             };
             const discardWorker = () => {
                 entry.memoryLeases.push(passLease);
-                if (entry.exited) {releaseMemory(entry);}
-                else {end(entry);}
+                if (entry.exited) {
+                    releaseMemory(entry);
+                } else {
+                    end(entry);
+                }
             };
             const id = nextId++;
             const worker = entry.worker!;
@@ -347,14 +339,22 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
                     worker.off('message', onMessage);
                     worker.off('error', onError);
                     worker.off('exit', onExit);
-                    if (error) {reject(error);}
-                    else {resolve(result!);}
+                    if (error) {
+                        reject(error);
+                    } else {
+                        resolve(result!);
+                    }
                 };
                 const onMessage = (message: IOcrEngineLaneReply) => {
-                    if (message.id !== id) {return;}
+                    if (message.id !== id) {
+                        return;
+                    }
                     keepWorker();
-                    if (message.ok) {settle(null, message.result);}
-                    else {settle(new Error(message.error));}
+                    if (message.ok) {
+                        settle(null, message.result);
+                    } else {
+                        settle(new Error(message.error));
+                    }
                 };
                 const onError = (error: Error) => {
                     discardWorker();
@@ -380,20 +380,26 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
                     onAbort();
                     return;
                 }
-                const transfer = request.image instanceof Uint8Array && request.image.buffer instanceof ArrayBuffer
-                    ? [request.image.buffer]
-                    : [];
-                worker.postMessage({
-                    id,
-                    request,
-                }, transfer);
+                const transfer =
+                    request.image instanceof Uint8Array && request.image.buffer instanceof ArrayBuffer ? [request.image.buffer] : [];
+                worker.postMessage(
+                    {
+                        id,
+                        request,
+                    },
+                    transfer,
+                );
             });
         },
         terminate() {
             closed = true;
             unregisterReclaimer();
-            for (const entry of Array.from(workers)) {end(entry);}
-            for (const wake of waiters.splice(0)) {wake();}
+            for (const entry of Array.from(workers)) {
+                end(entry);
+            }
+            for (const wake of waiters.splice(0)) {
+                wake();
+            }
         },
     };
 }

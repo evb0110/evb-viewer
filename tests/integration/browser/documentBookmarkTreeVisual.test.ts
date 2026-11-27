@@ -2,26 +2,11 @@
 
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 
-import {
-    afterEach,
-    describe,
-    expect,
-    inject,
-    it,
-    vi,
-} from 'vitest';
-import {
-    createApp,
-    defineComponent,
-    h,
-    nextTick,
-} from 'vue';
-import type { IDocumentBookmarkTreeItem } from '@app/modules/document-viewer/bookmarks/documentBookmarks';
+import {afterEach, describe, expect, inject, it, vi} from 'vitest';
+import {createApp, defineComponent, h, nextTick} from 'vue';
+import type {IDocumentBookmarkTreeItem} from '@app/modules/document-viewer/bookmarks/documentBookmarks';
 import DocumentBookmarkTree from '@app/components/document-viewer/DocumentBookmarkTree.vue';
-import {
-    closeChromiumBrowser,
-    connectOrLaunchChromium,
-} from './browserIntegrationChromium';
+import {closeChromiumBrowser, connectOrLaunchChromium} from './browserIntegrationChromium';
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
@@ -29,11 +14,13 @@ vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
 }));
 
 const IconStub = defineComponent({
-    props: {name: {
-        type: String,
-        required: true,
-    }},
-    setup: props => () => h('i', {'data-icon': props.name}),
+    props: {
+        name: {
+            type: String,
+            required: true,
+        },
+    },
+    setup: (props) => () => h('i', {'data-icon': props.name}),
 });
 
 function bookmark(
@@ -61,18 +48,29 @@ afterEach(() => {
 async function renderBookmarkTreeSnapshot(items: IDocumentBookmarkTreeItem[]) {
     const host = document.createElement('div');
     document.body.append(host);
-    const app = createApp(defineComponent({setup: () => () => h(DocumentBookmarkTree, {
-        items,
-        activeId: null,
-        displayMode: 'all-expanded',
-        expandedIds: new Set<string>(),
-        activePathIds: new Set<string>(),
-    })}));
+    const app = createApp(
+        defineComponent({
+            setup: () => () =>
+                h(DocumentBookmarkTree, {
+                    items,
+                    activeId: null,
+                    displayMode: 'all-expanded',
+                    expandedIds: new Set<string>(),
+                    activePathIds: new Set<string>(),
+                }),
+        }),
+    );
     app.component('UIcon', IconStub);
-    app.component('AppTooltip', defineComponent({
-        inheritAttrs: false,
-        setup: (_props, {slots}) => () => slots.default?.(),
-    }));
+    app.component(
+        'AppTooltip',
+        defineComponent({
+            inheritAttrs: false,
+            setup:
+                (_props, {slots}) =>
+                () =>
+                    slots.default?.(),
+        }),
+    );
     app.mount(host);
     await nextTick();
     const unmount = () => {
@@ -81,9 +79,7 @@ async function renderBookmarkTreeSnapshot(items: IDocumentBookmarkTreeItem[]) {
         activeUnmounts.delete(unmount);
     };
     activeUnmounts.add(unmount);
-    const compiledStyles = [...document.head.querySelectorAll('style')]
-        .map(style => style.outerHTML)
-        .join('\n');
+    const compiledStyles = [...document.head.querySelectorAll('style')].map((style) => style.outerHTML).join('\n');
     return {
         compiledStyles,
         markup: host.innerHTML,
@@ -93,13 +89,8 @@ async function renderBookmarkTreeSnapshot(items: IDocumentBookmarkTreeItem[]) {
 describe('DocumentBookmarkTree visual styling in Chromium', () => {
     it('computes real depth indentation and bookmark title styling from scoped CSS', async () => {
         const origin = inject('browserIntegrationOrigin');
-        const {
-            compiledStyles,
-            markup,
-        } = await renderBookmarkTreeSnapshot([
-            bookmark('a', [
-                bookmark('a1', [bookmark('a2')]),
-            ]),
+        const {compiledStyles, markup} = await renderBookmarkTreeSnapshot([
+            bookmark('a', [bookmark('a1', [bookmark('a2')])]),
             bookmark('styled', [], {
                 bold: true,
                 italic: true,
@@ -112,12 +103,14 @@ describe('DocumentBookmarkTree visual styling in Chromium', () => {
         try {
             const page = await browser.newPage();
             const url = `${origin}/__bookmark-tree-visual`;
-            await page.route(url, route => route.fulfill({
-                contentType: 'text/html',
-                body: `<!doctype html><html><head>${compiledStyles}</head><body><div id="mount" style="width: 320px; height: 400px">${markup}</div></body></html>`,
-            }));
+            await page.route(url, (route) =>
+                route.fulfill({
+                    contentType: 'text/html',
+                    body: `<!doctype html><html><head>${compiledStyles}</head><body><div id="mount" style="width: 320px; height: 400px">${markup}</div></body></html>`,
+                }),
+            );
             await page.goto(url, {waitUntil: 'domcontentloaded'});
-            await page.evaluate('import(\'/_nuxt/assets/css/main.css\').then(() => undefined)');
+            await page.evaluate("import('/_nuxt/assets/css/main.css').then(() => undefined)");
 
             const metrics = await page.evaluate(() => {
                 const readRow = (id: string) => {

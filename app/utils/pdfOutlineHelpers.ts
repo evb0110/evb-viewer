@@ -1,6 +1,6 @@
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import { clamp } from 'es-toolkit/math';
-import { parsePageIndex } from '@contracts/pageNumbers';
+import {clamp} from 'es-toolkit/math';
+import {parsePageIndex} from '@contracts/pageNumbers';
 import type {
     IBookmarkItem,
     IBookmarkLocation,
@@ -9,11 +9,8 @@ import type {
     TCreateBookmarkId,
 } from '@app/types/pdfOutline';
 import type {IPdfBookmarkEntry} from '@app/types/pdfContracts';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import {
-    getOptionalString,
-    isRecord,
-} from '@app/services/pdfjs/runtime';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {getOptionalString, isRecord} from '@app/services/pdfjs/runtime';
 
 interface IRefProxy {
     num: number;
@@ -29,9 +26,7 @@ export interface IBookmarkDestinationTarget {
 }
 
 function isRefProxy(value: unknown): value is IRefProxy {
-    return isRecord(value)
-        && typeof value.num === 'number'
-        && typeof value.gen === 'number';
+    return isRecord(value) && typeof value.num === 'number' && typeof value.gen === 'number';
 }
 
 function normalizeDestinationPageIndex(rawPageRef: number, numPages: number) {
@@ -62,9 +57,7 @@ function getDestinationKind(destinationArray: unknown[]) {
 }
 
 function getFiniteDestinationNumber(value: unknown) {
-    return typeof value === 'number' && Number.isFinite(value)
-        ? value
-        : null;
+    return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
 function getDestinationTopValue(destinationArray: unknown[], destinationKind: string | null) {
@@ -83,20 +76,17 @@ function getDestinationTopValue(destinationArray: unknown[], destinationKind: st
 }
 
 function shouldAlignDestinationToPageTop(destinationKind: string | null) {
-    return destinationKind === 'XYZ'
-        || destinationKind === 'Fit'
-        || destinationKind === 'FitB'
-        || destinationKind === 'FitH'
-        || destinationKind === 'FitBH'
-        || destinationKind === 'FitR';
+    return (
+        destinationKind === 'XYZ' ||
+        destinationKind === 'Fit' ||
+        destinationKind === 'FitB' ||
+        destinationKind === 'FitH' ||
+        destinationKind === 'FitBH' ||
+        destinationKind === 'FitR'
+    );
 }
 
-async function resolveDestinationPageYRatio(
-    pdfDocument: IPdfDocument,
-    page: number,
-    destinationArray: unknown[],
-    signal?: AbortSignal,
-) {
+async function resolveDestinationPageYRatio(pdfDocument: IPdfDocument, page: number, destinationArray: unknown[], signal?: AbortSignal) {
     throwIfAborted(signal);
     const destinationKind = getDestinationKind(destinationArray);
     if (!shouldAlignDestinationToPageTop(destinationKind)) {
@@ -107,9 +97,7 @@ async function resolveDestinationPageYRatio(
     if (destinationKind === 'Fit' || destinationKind === 'FitB') {
         return 0;
     }
-    const left = destinationKind === 'XYZ' || destinationKind === 'FitR'
-        ? getFiniteDestinationNumber(destinationArray[2])
-        : null;
+    const left = destinationKind === 'XYZ' || destinationKind === 'FitR' ? getFiniteDestinationNumber(destinationArray[2]) : null;
     if (left === null && destinationTop === null) {
         return null;
     }
@@ -122,8 +110,7 @@ async function resolveDestinationPageYRatio(
         }
         // A null PDF coordinate retains the reader's current coordinate.
         // Only the axis contributing to displayed Y needs to be specified.
-        if ((viewport.transform[1] !== 0 && left === null)
-            || (viewport.transform[3] !== 0 && destinationTop === null)) {
+        if ((viewport.transform[1] !== 0 && left === null) || (viewport.transform[3] !== 0 && destinationTop === null)) {
             return null;
         }
         const point = viewport.convertToViewportPoint(left ?? 0, destinationTop ?? 0);
@@ -131,12 +118,12 @@ async function resolveDestinationPageYRatio(
         if (destinationKind === 'FitR') {
             const right = getFiniteDestinationNumber(destinationArray[4]);
             const bottom = getFiniteDestinationNumber(destinationArray[3]);
-            if (right === null || bottom === null) {return null;}
+            if (right === null || bottom === null) {
+                return null;
+            }
             top = Math.min(top ?? 0, viewport.convertToViewportPoint(right, bottom)[1] ?? 0);
         }
-        return typeof top === 'number' && Number.isFinite(top)
-            ? clamp(top / viewport.height, 0, 1)
-            : null;
+        return typeof top === 'number' && Number.isFinite(top) ? clamp(top / viewport.height, 0, 1) : null;
     } catch (error) {
         if (signal?.aborted) {
             throwIfAborted(signal);
@@ -241,15 +228,18 @@ export async function resolveBookmarkPageTargets(
 ) {
     const targets = new Map<IBookmarkItem, IResolvedBookmarkPageTarget | null>();
     for (const item of items) {
-        const target = item.pageIndex !== null && item.pageIndex !== undefined
-            ? {
-                pageIndex: item.pageIndex,
-                pageYRatio: item.pageYRatio ?? null,
-            }
-            : pdfDocument && item.dest
-                ? await resolveDestinationTarget(pdfDocument, item.dest, destinationCache, refIndexCache, signal)
-                : null;
-        if (signal?.aborted) {return null;}
+        const target =
+            item.pageIndex !== null && item.pageIndex !== undefined
+                ? {
+                      pageIndex: item.pageIndex,
+                      pageYRatio: item.pageYRatio ?? null,
+                  }
+                : pdfDocument && item.dest
+                  ? await resolveDestinationTarget(pdfDocument, item.dest, destinationCache, refIndexCache, signal)
+                  : null;
+        if (signal?.aborted) {
+            return null;
+        }
         targets.set(item, target);
     }
     return targets;
@@ -289,10 +279,7 @@ function throwIfAborted(signal?: AbortSignal) {
     }
 }
 
-export function buildOutlineFromBookmarkEntries(
-    entries: readonly IPdfBookmarkEntry[],
-    createId: TCreateBookmarkId,
-) {
+export function buildOutlineFromBookmarkEntries(entries: readonly IPdfBookmarkEntry[], createId: TCreateBookmarkId) {
     const root: IBookmarkItem[] = [];
     const stack: Array<{
         entry: IPdfBookmarkEntry;
@@ -320,15 +307,16 @@ export function buildOutlineFromBookmarkEntries(
             break;
         }
         const children: IBookmarkItem[] = [];
-        const pageIndex = typeof frame.entry.pageIndex === 'number' && Number.isFinite(frame.entry.pageIndex)
-            ? parsePageIndex(Math.max(0, Math.trunc(frame.entry.pageIndex)))
-            : null;
+        const pageIndex =
+            typeof frame.entry.pageIndex === 'number' && Number.isFinite(frame.entry.pageIndex)
+                ? parsePageIndex(Math.max(0, Math.trunc(frame.entry.pageIndex)))
+                : null;
         const dest = frame.entry.originalDestination
             ? [
-                frame.entry.originalDestination.sourceTarget,
-                {name: frame.entry.originalDestination.kind},
-                ...frame.entry.originalDestination.coordinates,
-            ]
+                  frame.entry.originalDestination.sourceTarget,
+                  {name: frame.entry.originalDestination.kind},
+                  ...frame.entry.originalDestination.coordinates,
+              ]
             : frame.entry.namedDest;
         const id = createId({
             parentId: frame.parentId,
@@ -363,7 +351,9 @@ export function buildOutlineFromBookmarkEntries(
     }
 
     if (skippedOverDepth) {
-        BrowserLogger.warn(OUTLINE_LOG_SECTION, 'Skipped pending PDF bookmark items beyond the supported nesting depth', {maxDepth: MAX_OUTLINE_DEPTH});
+        BrowserLogger.warn(OUTLINE_LOG_SECTION, 'Skipped pending PDF bookmark items beyond the supported nesting depth', {
+            maxDepth: MAX_OUTLINE_DEPTH,
+        });
     }
 
     return root;
@@ -394,19 +384,12 @@ export async function resolveBookmarkDestinationTarget(
     const pageYRatio = await resolveDestinationPageYRatio(pdfDocument, page, destinationArray, signal);
     return {
         page,
-        ...(pageYRatio === null ? {} : { pageYRatio }),
+        ...(pageYRatio === null ? {} : {pageYRatio}),
     };
 }
 
-export function findBookmarkLocation(
-    items: IBookmarkItem[],
-    id: string,
-    parent: IBookmarkItem | null = null,
-): IBookmarkLocation | null {
-    for (const [
-        index,
-        item,
-    ] of items.entries()) {
+export function findBookmarkLocation(items: IBookmarkItem[], id: string, parent: IBookmarkItem | null = null): IBookmarkLocation | null {
+    for (const [index, item] of items.entries()) {
         if (item.id === id) {
             return {
                 parent,
@@ -472,10 +455,12 @@ export function resolveMaxBookmarkDepth(items: IBookmarkItem[]) {
     const pending: Array<{
         depth: number;
         items: IBookmarkItem[];
-    }> = [{
-        depth: 0,
-        items,
-    }];
+    }> = [
+        {
+            depth: 0,
+            items,
+        },
+    ];
     while (pending.length > 0) {
         const frame = pending.pop();
         if (!frame) {
@@ -516,12 +501,10 @@ export function resolveActiveBookmarkForPage(
     flatBookmarks: IBookmarkItem[],
     currentPage: number,
     currentActiveItemId: string | null,
-    getPageIndex: (item: IBookmarkItem) => number | null = item => item.pageIndex,
+    getPageIndex: (item: IBookmarkItem) => number | null = (item) => item.pageIndex,
 ) {
     const pageIndex = Math.max(0, (Number.isFinite(currentPage) ? currentPage : 1) - 1);
-    const currentActive = currentActiveItemId
-        ? flatBookmarks.find(item => item.id === currentActiveItemId) ?? null
-        : null;
+    const currentActive = currentActiveItemId ? (flatBookmarks.find((item) => item.id === currentActiveItemId) ?? null) : null;
 
     if (currentActive && getPageIndex(currentActive) === pageIndex) {
         return currentActive;
@@ -533,20 +516,15 @@ export function resolveActiveBookmarkForPage(
 
     for (const item of flatBookmarks) {
         const itemPageIndex = getPageIndex(item);
-        if (
-            typeof itemPageIndex !== 'number'
-            || !Number.isFinite(itemPageIndex)
-            || itemPageIndex > pageIndex
-        ) {
+        if (typeof itemPageIndex !== 'number' || !Number.isFinite(itemPageIndex) || itemPageIndex > pageIndex) {
             continue;
         }
         // Nearest preceding page wins; later equal-page candidates win unless
         // a child inherits the page of the parent that names the section.
         if (
-            active === null
-            || itemPageIndex > activePageIndex
-            || (itemPageIndex === activePageIndex
-                && (depths.get(item) ?? 0) <= (depths.get(active) ?? 0))
+            active === null ||
+            itemPageIndex > activePageIndex ||
+            (itemPageIndex === activePageIndex && (depths.get(item) ?? 0) <= (depths.get(active) ?? 0))
         ) {
             active = item;
             activePageIndex = itemPageIndex;
@@ -591,7 +569,7 @@ function normalizeExplicitBookmarkColor(color: string | null | undefined) {
 }
 
 function summarizeBookmarkFlag(items: readonly IBookmarkItem[], flag: 'bold' | 'italic'): TBookmarkStyleFlagState {
-    const onCount = items.filter(item => item[flag]).length;
+    const onCount = items.filter((item) => item[flag]).length;
     if (onCount === 0) {
         return 'off';
     }
@@ -605,7 +583,7 @@ function summarizeBookmarkFlag(items: readonly IBookmarkItem[], flag: 'bold' | '
  */
 export function summarizeBookmarkStyles(items: readonly IBookmarkItem[]): IBookmarkStyleSummary {
     const firstColor = normalizeBookmarkColor(items[0]?.color);
-    const colorMixed = items.some(item => normalizeBookmarkColor(item.color) !== firstColor);
+    const colorMixed = items.some((item) => normalizeBookmarkColor(item.color) !== firstColor);
     return {
         targetCount: items.length,
         bold: summarizeBookmarkFlag(items, 'bold'),

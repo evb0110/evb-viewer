@@ -1,19 +1,8 @@
-import type {
-    IScanCleanupRasterRenderLimits,
-    TScanCleanupLog,
-    TScanCleanupRenderPage,
-} from '@evb/scan-cleanup/core/types';
-import {
-    readPpmDimensions,
-    type TScanCleanupOpenFile,
-} from '@evb/scan-cleanup/core/rasterLayerDimensions';
+import type {IScanCleanupRasterRenderLimits, TScanCleanupLog, TScanCleanupRenderPage} from '@evb/scan-cleanup/core/types';
+import {readPpmDimensions, type TScanCleanupOpenFile} from '@evb/scan-cleanup/core/rasterLayerDimensions';
 import {SCAN_CLEANUP_RASTER_MAX_PIXELS} from '@evb/scan-cleanup/core/policy/scanCleanupRasterPolicy';
 
-export {
-    resolveScanCleanupRasterRenderLimits,
-    SCAN_CLEANUP_RASTER_MAX_PIXELS,
-} from '@evb/scan-cleanup/core/policy/scanCleanupRasterPolicy';
-
+export {resolveScanCleanupRasterRenderLimits, SCAN_CLEANUP_RASTER_MAX_PIXELS} from '@evb/scan-cleanup/core/policy/scanCleanupRasterPolicy';
 
 interface IScanCleanupRasterRenderDependencies {
     fileSystem: {open: TScanCleanupOpenFile};
@@ -22,26 +11,9 @@ interface IScanCleanupRasterRenderDependencies {
     renderPagePpm: TScanCleanupRenderPage;
 }
 
-
-export function readScanCleanupPngDimensions(
-    bytes: Uint8Array,
-    maxPixels = SCAN_CLEANUP_RASTER_MAX_PIXELS,
-    errorContext = 'raster',
-) {
-    const signature = [
-        0x89,
-        0x50,
-        0x4e,
-        0x47,
-        0x0d,
-        0x0a,
-        0x1a,
-        0x0a,
-    ];
-    const hasIhdr = bytes[12] === 0x49
-        && bytes[13] === 0x48
-        && bytes[14] === 0x44
-        && bytes[15] === 0x52;
+export function readScanCleanupPngDimensions(bytes: Uint8Array, maxPixels = SCAN_CLEANUP_RASTER_MAX_PIXELS, errorContext = 'raster') {
+    const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+    const hasIhdr = bytes[12] === 0x49 && bytes[13] === 0x48 && bytes[14] === 0x44 && bytes[15] === 0x52;
     if (bytes.byteLength < 24 || !signature.every((value, index) => bytes[index] === value) || !hasIhdr) {
         throw new Error(`Scan cleanup ${errorContext} produced an invalid PNG`);
     }
@@ -67,19 +39,13 @@ function assertRasterDimensionsWithinLimits(
     errorContext: string,
 ) {
     if (
-        (maxPixels !== undefined && dimensions.width * dimensions.height > maxPixels)
-        || (
-            limits !== undefined
-            && (
-                dimensions.width > limits.maxDimensionPx
-                || dimensions.height > limits.maxDimensionPx
-                || dimensions.width * dimensions.height > limits.maxPixels
-            )
-        )
+        (maxPixels !== undefined && dimensions.width * dimensions.height > maxPixels) ||
+        (limits !== undefined &&
+            (dimensions.width > limits.maxDimensionPx ||
+                dimensions.height > limits.maxDimensionPx ||
+                dimensions.width * dimensions.height > limits.maxPixels))
     ) {
-        throw new Error(
-            `Scan cleanup ${errorContext} dimensions ${dimensions.width}x${dimensions.height} exceed limits`,
-        );
+        throw new Error(`Scan cleanup ${errorContext} dimensions ${dimensions.width}x${dimensions.height} exceed limits`);
     }
     return dimensions;
 }

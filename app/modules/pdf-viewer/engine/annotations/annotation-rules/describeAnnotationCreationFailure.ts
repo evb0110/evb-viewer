@@ -1,4 +1,4 @@
-import type { TAnnotationCreationFailureReason } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
+import type {TAnnotationCreationFailureReason} from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
 
 /**
  * Automation-facing English text for a creation failure. User-facing copy is

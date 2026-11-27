@@ -7,7 +7,9 @@ export type TSenderLifetimeTarget = Pick<WebContents, 'on' | 'removeListener'>;
 type TSenderLifetimeListener = (end: TSenderLifetimeEnd) => void;
 
 /** `navigation` also ends on a cross-document navigation of the main frame. */
-interface ISenderLifetimeOptions {readonly navigation?: boolean;}
+interface ISenderLifetimeOptions {
+    readonly navigation?: boolean;
+}
 
 interface ISenderLifetimeSubscription {
     readonly listener: TSenderLifetimeListener;

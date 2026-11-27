@@ -1,6 +1,6 @@
-import type { Ref } from 'vue';
-import { useEventListener } from '@vueuse/core';
-import { getEventCurrentTarget } from '@app/utils/getEventCurrentTarget';
+import type {Ref} from 'vue';
+import {useEventListener} from '@vueuse/core';
+import {getEventCurrentTarget} from '@app/utils/getEventCurrentTarget';
 
 interface ISlot {
     left: number;
@@ -13,7 +13,9 @@ interface IRectSnapshot {
     right: number;
 }
 
-interface ITabSlotSnapshot extends ISlot { element: HTMLElement; }
+interface ITabSlotSnapshot extends ISlot {
+    element: HTMLElement;
+}
 
 interface ITabListSnapshot {
     tabList: HTMLElement;
@@ -35,11 +37,7 @@ export const useTabDragReorder = (
     containerRef: Ref<HTMLElement | null>,
     onReorder: (fromIndex: number, toIndex: number) => void,
     onDragStart?: (index: number) => void,
-    onMoveToDirection?: (
-        fromIndex: number,
-        direction: 'left' | 'right',
-        targetIndex: number | null,
-    ) => void,
+    onMoveToDirection?: (fromIndex: number, direction: 'left' | 'right', targetIndex: number | null) => void,
 ) => {
     const isDragging = ref(false);
     const dragIndex = ref(-1);
@@ -86,27 +84,23 @@ export const useTabDragReorder = (
             };
         });
         sourceTabList = getSourceTabList();
-        sourceTabListRect = sourceTabList
-            ? toRectSnapshot(sourceTabList.getBoundingClientRect())
-            : null;
-        tabListSnapshots = Array.from(document.querySelectorAll<HTMLElement>('[data-tab-list]'))
-            .map((tabList) => {
-                const rect = tabList.getBoundingClientRect();
-                return {
-                    tabList,
-                    rect: toRectSnapshot(rect),
-                    tabs: Array.from(tabList.querySelectorAll<HTMLElement>('[data-tab-id]'))
-                        .map((tab) => {
-                            const tabRect = tab.getBoundingClientRect();
-                            return {
-                                element: tab,
-                                left: tabRect.left,
-                                width: tabRect.width,
-                                centerX: tabRect.left + tabRect.width / 2,
-                            };
-                        }),
-                };
-            });
+        sourceTabListRect = sourceTabList ? toRectSnapshot(sourceTabList.getBoundingClientRect()) : null;
+        tabListSnapshots = Array.from(document.querySelectorAll<HTMLElement>('[data-tab-list]')).map((tabList) => {
+            const rect = tabList.getBoundingClientRect();
+            return {
+                tabList,
+                rect: toRectSnapshot(rect),
+                tabs: Array.from(tabList.querySelectorAll<HTMLElement>('[data-tab-id]')).map((tab) => {
+                    const tabRect = tab.getBoundingClientRect();
+                    return {
+                        element: tab,
+                        left: tabRect.left,
+                        width: tabRect.width,
+                        centerX: tabRect.left + tabRect.width / 2,
+                    };
+                }),
+            };
+        });
     }
 
     function isBetween(i: number, from: number, to: number) {
@@ -160,10 +154,14 @@ export const useTabDragReorder = (
         }
 
         for (let i = 0; i < tabElements.length; i++) {
-            if (i === dragIndex.value) {continue;}
+            if (i === dragIndex.value) {
+                continue;
+            }
 
             const el = tabElements[i];
-            if (!el) {continue;}
+            if (!el) {
+                continue;
+            }
             if (isBetween(i, dragIndex.value, targetIndex)) {
                 const direction = targetIndex > dragIndex.value ? -1 : 1;
                 el.style.transform = `translateX(${direction * dragSlot.width}px)`;
@@ -209,24 +207,20 @@ export const useTabDragReorder = (
         }
 
         const candidateLists = tabListSnapshots
-            .filter(snapshot => snapshot.tabList !== sourceList)
-            .filter(candidate => direction === 'right'
-                ? candidate.rect.left >= sourceRect.right - 1
-                : candidate.rect.right <= sourceRect.left + 1);
+            .filter((snapshot) => snapshot.tabList !== sourceList)
+            .filter((candidate) =>
+                direction === 'right' ? candidate.rect.left >= sourceRect.right - 1 : candidate.rect.right <= sourceRect.left + 1,
+            );
 
-        const containingList = candidateLists.find(candidate => (
-            pointerX >= candidate.rect.left && pointerX <= candidate.rect.right
-        ));
-        const nearestList = containingList ?? [...candidateLists]
-            .sort((a, b) => {
-                const aDistance = direction === 'right'
-                    ? Math.abs(a.rect.left - pointerX)
-                    : Math.abs(a.rect.right - pointerX);
-                const bDistance = direction === 'right'
-                    ? Math.abs(b.rect.left - pointerX)
-                    : Math.abs(b.rect.right - pointerX);
+        const containingList = candidateLists.find((candidate) => pointerX >= candidate.rect.left && pointerX <= candidate.rect.right);
+        const nearestList =
+            containingList ??
+            [...candidateLists].sort((a, b) => {
+                const aDistance = direction === 'right' ? Math.abs(a.rect.left - pointerX) : Math.abs(a.rect.right - pointerX);
+                const bDistance = direction === 'right' ? Math.abs(b.rect.left - pointerX) : Math.abs(b.rect.right - pointerX);
                 return aDistance - bDistance;
-            })[0] ?? null;
+            })[0] ??
+            null;
 
         if (!nearestList) {
             return {
@@ -237,13 +231,12 @@ export const useTabDragReorder = (
 
         return {
             insertionIndex: resolveInsertionIndex(nearestList, pointerX),
-            tabElements: nearestList.tabs.map(tab => tab.element),
+            tabElements: nearestList.tabs.map((tab) => tab.element),
         };
     }
 
     function areSameElements(left: HTMLElement[], right: HTMLElement[]) {
-        return left.length === right.length
-            && left.every((element, index) => element === right[index]);
+        return left.length === right.length && left.every((element, index) => element === right[index]);
     }
 
     function applyExternalShifts(elements: HTMLElement[], shiftDistance: number) {
@@ -441,9 +434,8 @@ export const useTabDragReorder = (
         const from = dragIndex.value;
         const to = targetIndex;
         const moveDirection = resolveOutsideMoveDirection(pointerX, wasDragging);
-        const targetInsertionIndex = moveDirection && pointerX !== null
-            ? resolveOutsideMoveTarget(moveDirection, pointerX).insertionIndex
-            : null;
+        const targetInsertionIndex =
+            moveDirection && pointerX !== null ? resolveOutsideMoveTarget(moveDirection, pointerX).insertionIndex : null;
 
         resetDragState();
 

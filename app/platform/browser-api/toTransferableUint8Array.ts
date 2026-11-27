@@ -1,1 +1,1 @@
-export { toTransferableUint8Array } from '@app/platform/browser/toTransferableUint8Array';
+export {toTransferableUint8Array} from '@app/platform/browser/toTransferableUint8Array';

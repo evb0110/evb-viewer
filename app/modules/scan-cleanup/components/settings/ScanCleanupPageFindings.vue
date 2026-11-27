@@ -1,14 +1,23 @@
 <template>
-    <div class="scan-cleanup-page-findings" :data-page-findings="pageNumber">
+    <div
+        class="scan-cleanup-page-findings"
+        :data-page-findings="pageNumber"
+    >
         <p
             v-for="hint in attentionHints"
             :key="hint"
             class="scan-cleanup-page-findings-notice"
         >
-            <UIcon name="i-ph-warning" aria-hidden="true" />
+            <UIcon
+                name="i-ph-warning"
+                aria-hidden="true"
+            />
             <span>{{ hint }}</span>
         </p>
-        <details v-if="diagnosticGroups.length > 0" class="scan-cleanup-page-findings-technical">
+        <details
+            v-if="diagnosticGroups.length > 0"
+            class="scan-cleanup-page-findings-technical"
+        >
             <summary>{{ t('scanCleanup.pages.technicalDetails') }}</summary>
             <dl>
                 <div
@@ -21,7 +30,8 @@
                         v-for="note in group.notes"
                         :key="note"
                         class="scan-cleanup-page-findings-note"
-                    >{{ note }}</div>
+                        >{{ note }}</div
+                    >
                     <div
                         v-for="(row, rowIndex) in group.rows"
                         :key="`${group.title}-${rowIndex}`"
@@ -43,10 +53,7 @@ import {
     type IScanCleanupPageFacts,
 } from '@app/modules/scan-cleanup/runtime/describeScanCleanupPage';
 
-const {
-    facts,
-    pageNumber,
-} = defineProps<{
+const {facts, pageNumber} = defineProps<{
     facts: IScanCleanupPageFacts;
     pageNumber: number;
 }>();

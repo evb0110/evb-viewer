@@ -1,22 +1,10 @@
-import {
-    requirePageIndex,
-    requirePageNumber,
-} from '@contracts/pageNumbers';
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import type { TPdfViewMode } from '@contracts/shared';
-import {
-    buildPageLayoutMetrics,
-    getLayoutContentHeight,
-    getLayoutPageTop,
-    getLayoutRowHeight,
-} from '@app/modules/document-viewer/public';
-import { getInterSegmentSpacerHeight } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getInterSegmentSpacerHeight';
-import { getLeadingSpacerHeightForPage } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getLeadingSpacerHeightForPage';
-import { getTrailingSpacerHeightForPage } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getTrailingSpacerHeightForPage';
+import {requirePageIndex, requirePageNumber} from '@contracts/pageNumbers';
+import {describe, expect, it} from 'vitest';
+import type {TPdfViewMode} from '@contracts/shared';
+import {buildPageLayoutMetrics, getLayoutContentHeight, getLayoutPageTop, getLayoutRowHeight} from '@app/modules/document-viewer/public';
+import {getInterSegmentSpacerHeight} from '@app/modules/pdf-viewer/engine/pdf-page-layout/getInterSegmentSpacerHeight';
+import {getLeadingSpacerHeightForPage} from '@app/modules/pdf-viewer/engine/pdf-page-layout/getLeadingSpacerHeightForPage';
+import {getTrailingSpacerHeightForPage} from '@app/modules/pdf-viewer/engine/pdf-page-layout/getTrailingSpacerHeightForPage';
 
 const GAP = 20;
 const PAGE_HEIGHT = 100;
@@ -53,9 +41,9 @@ describe('virtual PDF segment spacer geometry', () => {
         const spacerHeight = getInterSegmentSpacerHeight(layout, requirePageNumber(previousPage), requirePageNumber(nextPage));
 
         expect(spacerHeight).toBe(340);
-        expect(
-            getPageBottom(layout, previousPage) + GAP + spacerHeight + GAP,
-        ).toBe(getLayoutPageTop(layout, requirePageIndex(nextPage - 1)));
+        expect(getPageBottom(layout, previousPage) + GAP + spacerHeight + GAP).toBe(
+            getLayoutPageTop(layout, requirePageIndex(nextPage - 1)),
+        );
     });
 
     it('subtracts both grid-row gaps from a facing-mode inter-segment spacer', () => {
@@ -65,9 +53,9 @@ describe('virtual PDF segment spacer geometry', () => {
         const spacerHeight = getInterSegmentSpacerHeight(layout, requirePageNumber(previousPage), requirePageNumber(nextPage));
 
         expect(spacerHeight).toBe(220);
-        expect(
-            getPageBottom(layout, previousPage) + GAP + spacerHeight + GAP,
-        ).toBe(getLayoutPageTop(layout, requirePageIndex(nextPage - 1)));
+        expect(getPageBottom(layout, previousPage) + GAP + spacerHeight + GAP).toBe(
+            getLayoutPageTop(layout, requirePageIndex(nextPage - 1)),
+        );
     });
 
     it.each([
@@ -83,19 +71,13 @@ describe('virtual PDF segment spacer geometry', () => {
             firstMountedPage: 3,
             lastMountedPage: 6,
         },
-    ])('preserves the analytical track extent in $viewMode mode', ({
-        viewMode,
-        totalPages,
-        firstMountedPage,
-        lastMountedPage,
-    }) => {
+    ])('preserves the analytical track extent in $viewMode mode', ({viewMode, totalPages, firstMountedPage, lastMountedPage}) => {
         const layout = createLayout(totalPages, viewMode);
         const leadingSpacer = getLeadingSpacerHeightForPage(layout, firstMountedPage);
         const trailingSpacer = getTrailingSpacerHeightForPage(layout, lastMountedPage);
         const firstPageTop = PADDING + leadingSpacer + (leadingSpacer > 0 ? GAP : 0);
-        const reconstructedContentHeight = getPageBottom(layout, lastMountedPage)
-            + (trailingSpacer > 0 ? GAP + trailingSpacer : 0)
-            + PADDING;
+        const reconstructedContentHeight =
+            getPageBottom(layout, lastMountedPage) + (trailingSpacer > 0 ? GAP + trailingSpacer : 0) + PADDING;
 
         expect(firstPageTop).toBe(getLayoutPageTop(layout, requirePageIndex(firstMountedPage - 1)));
         expect(reconstructedContentHeight).toBe(getLayoutContentHeight(layout));

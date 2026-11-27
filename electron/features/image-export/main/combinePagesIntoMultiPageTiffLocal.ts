@@ -1,21 +1,12 @@
-import {
-    createWriteStream,
-    type WriteStream,
-} from 'fs';
-import {
-    readFile,
-    rm,
-} from 'fs/promises';
-import { finished } from 'node:stream/promises';
-import UTIF, { type IUtifFrame } from 'utif';
+import {createWriteStream, type WriteStream} from 'fs';
+import {readFile, rm} from 'fs/promises';
+import {finished} from 'node:stream/promises';
+import UTIF, {type IUtifFrame} from 'utif';
 import {encodeMultiPageTiffHeader} from '@pdf-core/tiffEncoding';
-import type { ITiffImageDescriptor } from '@pdf-core/tiffEncoding';
-import {
-    atomicReplace,
-    makeSiblingTempPath,
-} from '@electron/utils/atomicReplace';
-import { tryCombinePagesWithNativeTiffCombiner } from '@electron/features/image-export/main/tryCombinePagesWithNativeTiffCombiner';
-import { abortErrorFromSignal } from '@electron/utils/abort';
+import type {ITiffImageDescriptor} from '@pdf-core/tiffEncoding';
+import {atomicReplace, makeSiblingTempPath} from '@electron/utils/atomicReplace';
+import {tryCombinePagesWithNativeTiffCombiner} from '@electron/features/image-export/main/tryCombinePagesWithNativeTiffCombiner';
+import {abortErrorFromSignal} from '@electron/utils/abort';
 
 interface ITiffPageRgba {
     width: number;
@@ -43,11 +34,13 @@ interface ICombinePagesIntoMultiPageTiffLocalOptions {
 }
 
 function throwIfAborted(signal?: AbortSignal) {
-    if (signal?.aborted) {throw abortErrorFromSignal(signal);}
+    if (signal?.aborted) {
+        throw abortErrorFromSignal(signal);
+    }
 }
 
 async function removeSourcePages(pagePaths: string[]) {
-    await Promise.all(pagePaths.map(pagePath => rm(pagePath, {force: true}).catch(() => undefined)));
+    await Promise.all(pagePaths.map((pagePath) => rm(pagePath, {force: true}).catch(() => undefined)));
 }
 
 interface IIndexedArrayBufferView extends ArrayBufferView {
@@ -117,9 +110,7 @@ function resolveTiffNumber(value: unknown): number | null {
 
 function resolveTiffOrientation(ifd: IUtifFrame): TTiffOrientation {
     const value = resolveTiffNumber((ifd as Record<string | number, unknown>).t274);
-    return value === 2 || value === 3 || value === 4 || value === 5 || value === 6 || value === 7 || value === 8
-        ? value
-        : 1;
+    return value === 2 || value === 3 || value === 4 || value === 5 || value === 6 || value === 7 || value === 8 ? value : 1;
 }
 
 function resolveTiffDpi(ifd: IUtifFrame, defaultDpi: number) {
@@ -138,21 +129,14 @@ function swapsTiffOrientationDimensions(orientation: TTiffOrientation) {
     return orientation >= 5;
 }
 
-function createTiffOrientationMapper(
-    width: number,
-    height: number,
-    orientation: TTiffOrientation,
-    outputWidth: number,
-) {
+function createTiffOrientationMapper(width: number, height: number, orientation: TTiffOrientation, outputWidth: number) {
     switch (orientation) {
         case 1:
             return (sourceX: number, sourceY: number) => (sourceY * outputWidth + sourceX) * 4;
         case 2:
             return (sourceX: number, sourceY: number) => (sourceY * outputWidth + width - 1 - sourceX) * 4;
         case 3:
-            return (sourceX: number, sourceY: number) => (
-                ((height - 1 - sourceY) * outputWidth + width - 1 - sourceX) * 4
-            );
+            return (sourceX: number, sourceY: number) => ((height - 1 - sourceY) * outputWidth + width - 1 - sourceX) * 4;
         case 4:
             return (sourceX: number, sourceY: number) => ((height - 1 - sourceY) * outputWidth + sourceX) * 4;
         case 5:
@@ -160,20 +144,13 @@ function createTiffOrientationMapper(
         case 6:
             return (sourceX: number, sourceY: number) => (sourceX * outputWidth + height - 1 - sourceY) * 4;
         case 7:
-            return (sourceX: number, sourceY: number) => (
-                ((width - 1 - sourceX) * outputWidth + height - 1 - sourceY) * 4
-            );
+            return (sourceX: number, sourceY: number) => ((width - 1 - sourceX) * outputWidth + height - 1 - sourceY) * 4;
         case 8:
             return (sourceX: number, sourceY: number) => ((width - 1 - sourceX) * outputWidth + sourceY) * 4;
     }
 }
 
-function transformTiffRgba(
-    rgba: Uint8Array,
-    width: number,
-    height: number,
-    orientation: TTiffOrientation,
-) {
+function transformTiffRgba(rgba: Uint8Array, width: number, height: number, orientation: TTiffOrientation) {
     if (orientation === 1) {
         return {
             width,
@@ -205,18 +182,8 @@ function transformTiffRgba(
 }
 
 function readTiffDimensions(ifd: IUtifFrame) {
-    const width = resolveTiffDimension(ifd, [
-        'width',
-        't256',
-        'ImageWidth',
-        256,
-    ]);
-    const height = resolveTiffDimension(ifd, [
-        'height',
-        't257',
-        'ImageLength',
-        257,
-    ]);
+    const width = resolveTiffDimension(ifd, ['width', 't256', 'ImageWidth', 256]);
+    const height = resolveTiffDimension(ifd, ['height', 't257', 'ImageLength', 257]);
 
     if (!width || !height) {
         return null;
@@ -249,10 +216,7 @@ function decodeSinglePageTiffMetadata(tiffBytes: Uint8Array, defaultDpi: number)
     throw new Error('Failed to decode TIFF page metadata');
 }
 
-function decodeSinglePageTiffRgba(
-    tiffBytes: Uint8Array,
-    page: ILocalTiffPageDescriptor,
-): ITiffPageRgba {
+function decodeSinglePageTiffRgba(tiffBytes: Uint8Array, page: ILocalTiffPageDescriptor): ITiffPageRgba {
     const ifds = UTIF.decode(tiffBytes);
 
     for (const ifd of ifds) {
@@ -303,11 +267,7 @@ export async function readTiffPageDescriptors(pagePaths: string[], signal?: Abor
     return pages;
 }
 
-async function writeChunkToStream(
-    stream: WriteStream,
-    chunk: Uint8Array,
-    streamCompletion: Promise<unknown>,
-) {
+async function writeChunkToStream(stream: WriteStream, chunk: Uint8Array, streamCompletion: Promise<unknown>) {
     if (chunk.length === 0) {
         return;
     }
@@ -329,10 +289,7 @@ async function writeChunkToStream(
         stream.once('drain', handleDrain);
         stream.once('error', handleError);
     });
-    await Promise.race([
-        drain,
-        streamCompletion,
-    ]);
+    await Promise.race([drain, streamCompletion]);
 }
 
 export async function combinePagesIntoMultiPageTiffLocal(
@@ -341,7 +298,7 @@ export async function combinePagesIntoMultiPageTiffLocal(
     options: ICombinePagesIntoMultiPageTiffLocalOptions | AbortSignal = {},
 ) {
     const signal = options instanceof AbortSignal ? options : options.signal;
-    const defaultDpi = options instanceof AbortSignal ? 72 : options.defaultDpi ?? 72;
+    const defaultDpi = options instanceof AbortSignal ? 72 : (options.defaultDpi ?? 72);
     const deleteSourcePages = !(options instanceof AbortSignal) && options.deleteSourcePages === true;
     const tempPath = options instanceof AbortSignal ? undefined : options.tempPath;
     const cancelGroup = options instanceof AbortSignal ? undefined : options.cancelGroup;
@@ -351,7 +308,18 @@ export async function combinePagesIntoMultiPageTiffLocal(
         throw new Error('No pages available for TIFF export');
     }
     throwIfAborted(signal);
-    if (await tryCombinePagesWithNativeTiffCombiner(pagePaths, outputPath, tempOutputPath, signal, defaultDpi, undefined, combineThreads, cancelGroup)) {
+    if (
+        await tryCombinePagesWithNativeTiffCombiner(
+            pagePaths,
+            outputPath,
+            tempOutputPath,
+            signal,
+            defaultDpi,
+            undefined,
+            combineThreads,
+            cancelGroup,
+        )
+    ) {
         if (deleteSourcePages) {
             await removeSourcePages(pagePaths);
         }
@@ -361,17 +329,14 @@ export async function combinePagesIntoMultiPageTiffLocal(
     throwIfAborted(signal);
     const pages = await readTiffPageDescriptors(pagePaths, signal, defaultDpi);
     throwIfAborted(signal);
-    const {
-        firstDataOffset,
-        header,
-    } = encodeMultiPageTiffHeader(pages, UTIF);
-    const stream = createWriteStream(tempOutputPath, { flags: 'w' });
+    const {firstDataOffset, header} = encodeMultiPageTiffHeader(pages, UTIF);
+    const stream = createWriteStream(tempOutputPath, {flags: 'w'});
     const streamCompletion = finished(stream);
     void streamCompletion.catch(() => undefined);
-    const abortStream = signal
-        ? () => stream.destroy(abortErrorFromSignal(signal))
-        : null;
-    if (abortStream) {signal?.addEventListener('abort', abortStream, {once: true});}
+    const abortStream = signal ? () => stream.destroy(abortErrorFromSignal(signal)) : null;
+    if (abortStream) {
+        signal?.addEventListener('abort', abortStream, {once: true});
+    }
     let replacedOutput = false;
 
     try {
@@ -402,16 +367,18 @@ export async function combinePagesIntoMultiPageTiffLocal(
         await atomicReplace(tempOutputPath, outputPath);
         replacedOutput = true;
         if (deleteSourcePages) {
-            await removeSourcePages(pages.map(page => page.path));
+            await removeSourcePages(pages.map((page) => page.path));
         }
     } catch (error) {
         stream.destroy();
         await streamCompletion.catch(() => undefined);
         throw error;
     } finally {
-        if (abortStream) {signal?.removeEventListener('abort', abortStream);}
+        if (abortStream) {
+            signal?.removeEventListener('abort', abortStream);
+        }
         if (!replacedOutput) {
-            await rm(tempOutputPath, { force: true }).catch(() => undefined);
+            await rm(tempOutputPath, {force: true}).catch(() => undefined);
         }
     }
 }

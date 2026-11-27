@@ -1,33 +1,26 @@
 function toBridgeSafeValue(value: unknown, depth: number): unknown {
-    if (depth > 32) {throw new Error('scan-cleanup payload exceeds supported depth');}
+    if (depth > 32) {
+        throw new Error('scan-cleanup payload exceeds supported depth');
+    }
     const raw: unknown = toRaw(value);
     if (raw === null || typeof raw !== 'object') {
         return raw;
     }
     if (Array.isArray(raw)) {
-        return raw.map(entry => toBridgeSafeValue(entry, depth + 1));
+        return raw.map((entry) => toBridgeSafeValue(entry, depth + 1));
     }
     if (raw instanceof Map) {
-        return Object.fromEntries([...raw.entries()].map(([
-            key,
-            entry,
-        ]) => [
-            String(key),
-            toBridgeSafeValue(entry, depth + 1),
-        ]));
+        return Object.fromEntries([...raw.entries()].map(([key, entry]) => [String(key), toBridgeSafeValue(entry, depth + 1)]));
     }
     if (raw instanceof Set) {
-        return [...raw.values()].map(entry => toBridgeSafeValue(entry, depth + 1));
+        return [...raw.values()].map((entry) => toBridgeSafeValue(entry, depth + 1));
     }
     const prototype: unknown = Object.getPrototypeOf(raw);
     if (prototype !== Object.prototype && prototype !== null) {
         throw new Error(`scan-cleanup payload contains a non-plain object (${Object.prototype.toString.call(raw)})`);
     }
     const result: Record<string, unknown> = {};
-    for (const [
-        key,
-        entry,
-    ] of Object.entries(raw)) {
+    for (const [key, entry] of Object.entries(raw)) {
         if (entry === undefined) {
             continue;
         }

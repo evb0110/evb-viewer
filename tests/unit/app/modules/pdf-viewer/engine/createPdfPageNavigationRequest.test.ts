@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {createPageNavigationRequest} from '@app/modules/document-viewer/public';
 import {createPdfPageNavigationRequest} from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/createPdfPageNavigationRequest';
 
@@ -10,10 +6,12 @@ describe('createPdfPageNavigationRequest', () => {
     it('preserves a fully formed request supplied by a destination resolver', () => {
         const request = createPageNavigationRequest(4, 'bookmark');
 
-        expect(createPdfPageNavigationRequest(9, {
-            navigationRequest: request,
-            navigationSource: 'search',
-        })).toBe(request);
+        expect(
+            createPdfPageNavigationRequest(9, {
+                navigationRequest: request,
+                navigationSource: 'search',
+            }),
+        ).toBe(request);
     });
 
     it('keeps search text identity and readiness in the shared request', () => {
@@ -45,15 +43,16 @@ describe('createPdfPageNavigationRequest', () => {
     });
 
     it('infers annotation readiness for marker targets and clamps ratio targets', () => {
-        expect(createPdfPageNavigationRequest(
-            3,
-            {markerRect: {
-                left: 0.1,
-                top: 0.2,
-                width: 0.3,
-                height: 0.4,
-            }},
-        )).toMatchObject({
+        expect(
+            createPdfPageNavigationRequest(3, {
+                markerRect: {
+                    left: 0.1,
+                    top: 0.2,
+                    width: 0.3,
+                    height: 0.4,
+                },
+            }),
+        ).toMatchObject({
             source: 'annotation',
             alignment: 'rect-center',
             readiness: 'annotation-editor',
@@ -63,10 +62,12 @@ describe('createPdfPageNavigationRequest', () => {
             },
         });
 
-        expect(createPdfPageNavigationRequest(8, {
-            navigationSource: 'bookmark',
-            pageYRatio: 4,
-        })).toMatchObject({
+        expect(
+            createPdfPageNavigationRequest(8, {
+                navigationSource: 'bookmark',
+                pageYRatio: 4,
+            }),
+        ).toMatchObject({
             source: 'bookmark',
             alignment: 'page-top',
             target: {

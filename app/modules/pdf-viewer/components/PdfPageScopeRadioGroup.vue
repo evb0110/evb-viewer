@@ -31,15 +31,12 @@
 </template>
 
 <script setup lang="ts">
-import type { TPdfPageScope } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfPageScopeSelection';
+import type {TPdfPageScope} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfPageScopeSelection';
 
-const scope = defineModel<TPdfPageScope>('scope', { required: true });
-const rangeInput = defineModel<string>('rangeInput', { required: true });
+const scope = defineModel<TPdfPageScope>('scope', {required: true});
+const rangeInput = defineModel<string>('rangeInput', {required: true});
 
-const {
-    describedBy = undefined,
-    invalid = false,
-} = defineProps<{
+const {describedBy = undefined, invalid = false} = defineProps<{
     legend: string;
     items: Array<{
         value: TPdfPageScope;
@@ -51,7 +48,7 @@ const {
     describedBy?: string | undefined;
 }>();
 
-const emit = defineEmits<{ rangeBlur: [] }>();
+const emit = defineEmits<{rangeBlur: []}>();
 
 const radioGroupUi = {
     fieldset: 'gap-y-2',

@@ -1,10 +1,20 @@
 <template>
-    <div ref="column" class="effort-column" data-model-picker-effort @keydown="handleKeydown">
+    <div
+        ref="column"
+        class="effort-column"
+        data-model-picker-effort
+        @keydown="handleKeydown"
+    >
         <div class="effort-header">
             <span>{{ t('assistant.reasoning') }}</span>
             <span class="effort-model">{{ modelLabel }}</span>
         </div>
-        <div v-if="efforts.length" class="effort-rows app-scrollbar" role="radiogroup" :aria-label="t('assistant.reasoning')">
+        <div
+            v-if="efforts.length"
+            class="effort-rows app-scrollbar"
+            role="radiogroup"
+            :aria-label="t('assistant.reasoning')"
+        >
             <button
                 v-for="(option, index) in efforts"
                 :key="option.id"
@@ -19,23 +29,31 @@
                 @click="emit('pick', option.id)"
             >
                 <span class="effort-label">{{ option.label }}</span>
-                <UIcon v-if="option.id === effort" name="i-ph-check" class="effort-check" />
-                <span v-else-if="option.isDefault" class="effort-default">{{ t('assistant.effortDefault') }}</span>
+                <UIcon
+                    v-if="option.id === effort"
+                    name="i-ph-check"
+                    class="effort-check"
+                />
+                <span
+                    v-else-if="option.isDefault"
+                    class="effort-default"
+                    >{{ t('assistant.effortDefault') }}</span
+                >
             </button>
         </div>
-        <p v-else class="effort-empty">{{ t('assistant.noEffortLevels') }}</p>
+        <p
+            v-else
+            class="effort-empty"
+            >{{ t('assistant.noEffortLevels') }}</p
+        >
     </div>
 </template>
 
 <script setup lang="ts">
-import type { IAgentAssistantModelOption } from '@contracts/agent';
-import { useTypedI18n } from '@app/composables/useTypedI18n';
+import type {IAgentAssistantModelOption} from '@contracts/agent';
+import {useTypedI18n} from '@app/composables/useTypedI18n';
 
-const {
-    model,
-    modelLabel,
-    effort,
-} = defineProps<{
+const {model, modelLabel, effort} = defineProps<{
     model: IAgentAssistantModelOption | undefined;
     modelLabel: string;
     effort: string;
@@ -44,40 +62,48 @@ const emit = defineEmits<{
     pick: [effort: string];
     back: [];
 }>();
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 const column = ref<HTMLElement | null>(null);
 const efforts = computed(() => model?.reasoningEfforts ?? []);
-const shown = computed(() => efforts.value.some(option => option.id === effort));
+const shown = computed(() => efforts.value.some((option) => option.id === effort));
 
 /** Focuses the selected level, else the first; false when the model has none. */
 function focusLevel() {
     const rows = column.value?.querySelectorAll<HTMLElement>('[data-effort-level]');
     const row = column.value?.querySelector<HTMLElement>('[data-effort-level][aria-checked="true"]') ?? rows?.[0];
-    row?.focus({ preventScroll: true });
-    row?.scrollIntoView({ block: 'nearest' });
+    row?.focus({preventScroll: true});
+    row?.scrollIntoView({block: 'nearest'});
     return Boolean(row);
 }
 
 function handleKeydown(event: KeyboardEvent) {
-    if (event.altKey || event.ctrlKey || event.metaKey) {return;}
+    if (event.altKey || event.ctrlKey || event.metaKey) {
+        return;
+    }
     if (event.key === 'ArrowLeft') {
         event.preventDefault();
         emit('back');
         return;
     }
-    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') {return;}
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') {
+        return;
+    }
     const rows = Array.from(column.value?.querySelectorAll<HTMLElement>('[data-effort-level]') ?? []);
-    const index = rows.findIndex(row => row === document.activeElement);
+    const index = rows.findIndex((row) => row === document.activeElement);
     const next = rows[Math.min(rows.length - 1, Math.max(0, index + (event.key === 'ArrowDown' ? 1 : -1)))];
     event.preventDefault();
-    if (!next) {return;}
+    if (!next) {
+        return;
+    }
     next.focus();
-    next.scrollIntoView({ block: 'nearest' });
+    next.scrollIntoView({block: 'nearest'});
     // A radio group selects the level the arrow moves to.
-    if (next.dataset.effortId && next.dataset.effortId !== effort) {emit('pick', next.dataset.effortId);}
+    if (next.dataset.effortId && next.dataset.effortId !== effort) {
+        emit('pick', next.dataset.effortId);
+    }
 }
 
-defineExpose({ focusLevel });
+defineExpose({focusLevel});
 </script>
 
 <style lang="scss" scoped>

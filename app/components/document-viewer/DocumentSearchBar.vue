@@ -13,7 +13,10 @@
             @keydown.shift.enter="onPrevious"
         >
             <template #actions>
-                <AppTooltip :text="t('search.previousMatch')" :delay-duration="1200">
+                <AppTooltip
+                    :text="t('search.previousMatch')"
+                    :delay-duration="1200"
+                >
                     <UButton
                         icon="i-ph-caret-up"
                         variant="ghost"
@@ -25,7 +28,10 @@
                         @click="onPrevious"
                     />
                 </AppTooltip>
-                <AppTooltip :text="t('search.nextMatch')" :delay-duration="1200">
+                <AppTooltip
+                    :text="t('search.nextMatch')"
+                    :delay-duration="1200"
+                >
                     <UButton
                         icon="i-ph-caret-down"
                         variant="ghost"
@@ -48,7 +54,7 @@
                     color="neutral"
                     size="xs"
                     class="search-toggle"
-                    :class="{ 'is-active': options.matchCase }"
+                    :class="{'is-active': options.matchCase}"
                     :aria-pressed="options.matchCase"
                     :aria-label="t('search.caseSensitive')"
                     @click="toggleOption('matchCase')"
@@ -59,7 +65,7 @@
                     color="neutral"
                     size="xs"
                     class="search-toggle"
-                    :class="{ 'is-active': options.wholeWord }"
+                    :class="{'is-active': options.wholeWord}"
                     :aria-pressed="options.wholeWord"
                     :aria-label="t('search.wholeWord')"
                     @click="toggleOption('wholeWord')"
@@ -70,7 +76,7 @@
                     color="neutral"
                     size="xs"
                     class="search-toggle"
-                    :class="{ 'is-active': options.useRegex }"
+                    :class="{'is-active': options.useRegex}"
                     :aria-pressed="options.useRegex"
                     :aria-label="t('search.regex')"
                     @click="toggleOption('useRegex')"
@@ -78,7 +84,10 @@
             </div>
 
             <div class="ml-auto">
-                <AppTooltip :text="t('search.runSearchHint')" :delay-duration="1200">
+                <AppTooltip
+                    :text="t('search.runSearchHint')"
+                    :delay-duration="1200"
+                >
                     <UButton
                         :label="t('search.runSearch')"
                         variant="outline"
@@ -96,10 +105,10 @@
 </template>
 
 <script setup lang="ts">
-import type { IResolvedSearchMatchOptions } from '@contracts/search';
+import type {IResolvedSearchMatchOptions} from '@contracts/search';
 import AppSearchInput from '@app/components/AppSearchInput.vue';
 
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 
 interface IProps {
     modelValue: string;
@@ -107,12 +116,11 @@ interface IProps {
     options: IResolvedSearchMatchOptions;
 }
 
-interface IDocumentSearchBarExpose {focus: () => void;}
+interface IDocumentSearchBarExpose {
+    focus: () => void;
+}
 
-const {
-    modelValue,
-    options,
-} = defineProps<IProps>();
+const {modelValue, options} = defineProps<IProps>();
 
 const emit = defineEmits<{
     'update:modelValue': [value: string];
@@ -167,7 +175,7 @@ function toggleOption(key: keyof IProps['options']) {
     focus();
 }
 
-defineExpose<IDocumentSearchBarExpose>({ focus });
+defineExpose<IDocumentSearchBarExpose>({focus});
 </script>
 
 <style scoped>

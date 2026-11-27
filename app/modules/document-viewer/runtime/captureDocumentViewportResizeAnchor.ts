@@ -8,10 +8,12 @@ export interface IDocumentViewportResizeAnchor {
     readonly viewportRatioY: number;
 }
 
-export interface IDocumentViewportResizeAnchorOptions {readonly viewportPoint?: {
-    x: number;
-    y: number
-};}
+export interface IDocumentViewportResizeAnchorOptions {
+    readonly viewportPoint?: {
+        x: number;
+        y: number;
+    };
+}
 
 function clampRatio(value: number) {
     return Math.max(0, Math.min(1, value));
@@ -39,27 +41,27 @@ export function captureDocumentViewportResizeAnchor(
     }
     const viewportRatioX = clampRatio((options?.viewportPoint?.x ?? viewport.clientWidth / 2) / viewport.clientWidth);
     const viewportRatioY = clampRatio((options?.viewportPoint?.y ?? viewport.clientHeight / 2) / viewport.clientHeight);
-    const anchorX = viewportRect.left + viewport.clientLeft + (viewport.clientWidth * viewportRatioX);
-    const anchorY = viewportRect.top + viewport.clientTop + (viewport.clientHeight * viewportRatioY);
-    const candidates = Array.from(
-        viewport.querySelectorAll<HTMLElement>(DOCUMENT_PAGE_ANCHOR_SELECTOR),
-    ).flatMap((element) => {
+    const anchorX = viewportRect.left + viewport.clientLeft + viewport.clientWidth * viewportRatioX;
+    const anchorY = viewportRect.top + viewport.clientTop + viewport.clientHeight * viewportRatioY;
+    const candidates = Array.from(viewport.querySelectorAll<HTMLElement>(DOCUMENT_PAGE_ANCHOR_SELECTOR)).flatMap((element) => {
         const pageNumber = readPageNumber(element);
         const rect = element.getBoundingClientRect();
         return pageNumber !== null && rect.width > 0 && rect.height > 0
-            ? [{
-                pageNumber,
-                rect,
-            }]
+            ? [
+                  {
+                      pageNumber,
+                      rect,
+                  },
+              ]
             : [];
     });
-    const candidate = candidates.reduce<(typeof candidates)[number] | null>((nearest, current) => (
-        nearest === null
-        || distanceFromPoint(current.rect, anchorX, anchorY)
-            < distanceFromPoint(nearest.rect, anchorX, anchorY)
-            ? current
-            : nearest
-    ), null);
+    const candidate = candidates.reduce<(typeof candidates)[number] | null>(
+        (nearest, current) =>
+            nearest === null || distanceFromPoint(current.rect, anchorX, anchorY) < distanceFromPoint(nearest.rect, anchorX, anchorY)
+                ? current
+                : nearest,
+        null,
+    );
     if (!candidate) {
         return null;
     }

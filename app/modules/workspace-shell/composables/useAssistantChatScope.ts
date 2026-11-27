@@ -1,8 +1,8 @@
-import type { Ref } from 'vue';
-import type { IAgentAssistantChatScope } from '@contracts/agent';
-import type { ITab } from '@app/types/tabs';
-import { parseTabId } from '@contracts/windowTabs';
-import { resolveDocumentRefBackend } from '@app/utils/documentRef';
+import type {Ref} from 'vue';
+import type {IAgentAssistantChatScope} from '@contracts/agent';
+import type {ITab} from '@app/types/tabs';
+import {parseTabId} from '@contracts/windowTabs';
+import {resolveDocumentRefBackend} from '@app/utils/documentRef';
 import type {
     describeTabDocument,
     IWorkspaceDocumentController,
@@ -20,10 +20,8 @@ interface IUseAssistantChatScopeOptions {
 /** The document the assistant panel works on, and whether its turn is running a command there. */
 export const useAssistantChatScope = (options: IUseAssistantChatScopeOptions) => {
     const hasActiveDocument = computed(() => (options.activeTabId.value ? !options.isTabEmpty(options.activeTabId.value) : false));
-    const hasAnyDocument = computed(() => options.tabs.value.some(tab => !options.isTabEmpty(tab.id)));
-    const activeDocumentName = computed(() => hasActiveDocument.value
-        ? options.activeTabDocument.value?.fileName ?? null
-        : null);
+    const hasAnyDocument = computed(() => options.tabs.value.some((tab) => !options.isTabEmpty(tab.id)));
+    const activeDocumentName = computed(() => (hasActiveDocument.value ? (options.activeTabDocument.value?.fileName ?? null) : null));
     const chatScopePending = computed(() => {
         const phase = options.activeDocumentSession.value?.snapshot.value.phase;
         return phase === 'opening' || phase === 'closing';
@@ -45,16 +43,14 @@ export const useAssistantChatScope = (options: IUseAssistantChatScopeOptions) =>
             kind: 'document',
             // Saved chats are looked up by this key after a relaunch, and every
             // open mints a new document session key, so the key follows the file.
-            key: documentRef
-                ? `document:${documentBackend ?? 'unknown'}:${documentRef}`
-                : `tab:${tabId}`,
+            key: documentRef ? `document:${documentBackend ?? 'unknown'}:${documentRef}` : `tab:${tabId}`,
             title: tabDocument.fileName ?? documentRef ?? null,
             tabId,
-            ...(documentSessionKey ? { documentSessionKey } : {}),
-            ...(documentInstanceId ? { documentInstanceId } : {}),
-            ...(documentRef ? { documentRef } : {}),
+            ...(documentSessionKey ? {documentSessionKey} : {}),
+            ...(documentInstanceId ? {documentInstanceId} : {}),
+            ...(documentRef ? {documentRef} : {}),
             ...(documentBackend === undefined ? {} : {documentBackend}),
-            ...(documentIdentity ? { documentIdentity } : {}),
+            ...(documentIdentity ? {documentIdentity} : {}),
             commandTarget: session.createCommandTarget(tabId),
         };
     });

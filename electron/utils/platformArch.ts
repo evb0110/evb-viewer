@@ -29,9 +29,7 @@ function formatAllowedValues(values: readonly string[] | undefined) {
     return ` (allowed: ${values.join(', ')})`;
 }
 
-export function resolvePlatformArch(
-    options: IResolvePlatformArchOptions = {},
-): IResolvedPlatformArch {
+export function resolvePlatformArch(options: IResolvePlatformArchOptions = {}): IResolvedPlatformArch {
     const sourcePlatform = options.platform ?? process.platform;
     const sourceArch = options.arch ?? process.arch;
 
@@ -45,19 +43,12 @@ export function resolvePlatformArch(
         throw new Error(`Unsupported architecture: ${sourceArch}`);
     }
 
-    if (
-        options.allowedPlatforms &&
-        !options.allowedPlatforms.includes(mappedPlatform)
-    ) {
-        throw new Error(
-            `Platform "${mappedPlatform}" is not supported in this context${formatAllowedValues(options.allowedPlatforms)}`,
-        );
+    if (options.allowedPlatforms && !options.allowedPlatforms.includes(mappedPlatform)) {
+        throw new Error(`Platform "${mappedPlatform}" is not supported in this context${formatAllowedValues(options.allowedPlatforms)}`);
     }
 
     if (options.allowedArchs && !options.allowedArchs.includes(mappedArch)) {
-        throw new Error(
-            `Architecture "${mappedArch}" is not supported in this context${formatAllowedValues(options.allowedArchs)}`,
-        );
+        throw new Error(`Architecture "${mappedArch}" is not supported in this context${formatAllowedValues(options.allowedArchs)}`);
     }
 
     return {
@@ -67,8 +58,6 @@ export function resolvePlatformArch(
     };
 }
 
-export function resolvePlatformArchTag(
-    options: IResolvePlatformArchOptions = {},
-) {
+export function resolvePlatformArchTag(options: IResolvePlatformArchOptions = {}) {
     return resolvePlatformArch(options).tag;
 }

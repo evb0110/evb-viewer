@@ -10,10 +10,7 @@ import {
     type TBrowserQpdfCommand,
 } from '@contracts/browserQpdfEngine';
 import {getBrowserPageOpsWorkerRequestId} from '@contracts/browserPageOpsWorker';
-import {
-    compileWasmWithDeadline,
-    handlePrecompiledWasmModuleMessage,
-} from '@app/platform/browser/loadWasmWithDeadline';
+import {compileWasmWithDeadline, handlePrecompiledWasmModuleMessage} from '@app/platform/browser/loadWasmWithDeadline';
 import {
     getQpdfCheckArgs,
     getQpdfLosslessRewriteArgs,
@@ -81,15 +78,12 @@ const ERRNO_ENOENT = 44;
 const ERRNO_EINVAL = 28;
 
 const COMMAND_ARGS: Record<TBrowserQpdfCommand, () => string[]> = {
-    'check': () => getQpdfCheckArgs(INPUT_PATH),
+    check: () => getQpdfCheckArgs(INPUT_PATH),
     'page-count': () => getQpdfPageCountArgs(INPUT_PATH),
-    'rewrite': () => getQpdfRewriteArgs(INPUT_PATH, OUTPUT_PATH),
+    rewrite: () => getQpdfRewriteArgs(INPUT_PATH, OUTPUT_PATH),
     'lossless-rewrite': () => getQpdfLosslessRewriteArgs(INPUT_PATH, OUTPUT_PATH),
 };
-const WRITING_COMMANDS: ReadonlySet<TBrowserQpdfCommand> = new Set([
-    'rewrite',
-    'lossless-rewrite',
-]);
+const WRITING_COMMANDS: ReadonlySet<TBrowserQpdfCommand> = new Set(['rewrite', 'lossless-rewrite']);
 
 class EngineUnavailableError extends Error {}
 
@@ -106,10 +100,7 @@ function cached<T>(load: () => Promise<T>) {
 }
 
 const loadQpdf = cached(async () => {
-    const [
-        imported,
-        module,
-    ] = await Promise.all([
+    const [imported, module] = await Promise.all([
         import(/* @vite-ignore */ new URL('/wasm/evb-qpdf.mjs', self.location.href).href) as Promise<{default: TQpdfModuleFactory}>,
         compileWasmWithDeadline(new URL(`/wasm/evb-qpdf.wasm?revision=${BROWSER_QPDF_ENGINE_REVISION}`, self.location.href).href),
     ]);
@@ -139,7 +130,9 @@ function mountBlob(fs: IQpdfModule['FS'], blob: Blob) {
             blocks.delete(index);
         } else {
             bytes = new Uint8Array(reader.readAsArrayBuffer(blob.slice(index * BLOB_BLOCK_BYTES, (index + 1) * BLOB_BLOCK_BYTES)));
-            if (blocks.size >= BLOB_CACHED_BLOCKS) {blocks.delete(blocks.keys().next().value!);}
+            if (blocks.size >= BLOB_CACHED_BLOCKS) {
+                blocks.delete(blocks.keys().next().value!);
+            }
         }
         blocks.set(index, bytes);
         return bytes;
@@ -153,9 +146,22 @@ function mountBlob(fs: IQpdfModule['FS'], blob: Blob) {
             const size = node.mode & S_IFREG ? blob.size : 4096;
             const time = blob instanceof File ? blob.lastModified : 0;
             return {
-                dev: 1, ino: node.id, mode: node.mode, nlink: 1, uid: 0, gid: 0, rdev: 0, size,
-                atime: new Date(time), mtime: new Date(time), ctime: new Date(time), atimeMs: time, mtimeMs: time, ctimeMs: time,
-                blksize: 4096, blocks: Math.ceil(size / 4096),
+                dev: 1,
+                ino: node.id,
+                mode: node.mode,
+                nlink: 1,
+                uid: 0,
+                gid: 0,
+                rdev: 0,
+                size,
+                atime: new Date(time),
+                mtime: new Date(time),
+                ctime: new Date(time),
+                atimeMs: time,
+                mtimeMs: time,
+                ctimeMs: time,
+                blksize: 4096,
+                blocks: Math.ceil(size / 4096),
             };
         },
         setattr: refuse(ERRNO_EPERM),
@@ -175,7 +181,9 @@ function mountBlob(fs: IQpdfModule['FS'], blob: Blob) {
                 const bytes = block(Math.floor(at / BLOB_BLOCK_BYTES));
                 const from = at % BLOB_BLOCK_BYTES;
                 const count = Math.min(length - done, bytes.byteLength - from);
-                if (count <= 0) {break;}
+                if (count <= 0) {
+                    break;
+                }
                 buffer.set(bytes.subarray(from, from + count), offset + done);
                 done += count;
             }
@@ -184,18 +192,24 @@ function mountBlob(fs: IQpdfModule['FS'], blob: Blob) {
         write: refuse(ERRNO_EPERM),
         llseek(stream: IQpdfFileStream, offset: number, whence: number) {
             const position = offset + (whence === 1 ? stream.position : whence === 2 ? blob.size : 0);
-            if (position < 0) {throw new fs.ErrnoError(ERRNO_EINVAL);}
+            if (position < 0) {
+                throw new fs.ErrnoError(ERRNO_EINVAL);
+            }
             return position;
         },
     };
     fs.mkdirTree(BLOB_MOUNT);
-    fs.mount({
-        mount() {
-            const root = Object.assign(fs.createNode(null, '/', S_IFDIR | 0o555, 0), {node_ops, stream_ops: {}});
-            nodes.set(BLOB_NAME, Object.assign(fs.createNode(root, BLOB_NAME, S_IFREG | 0o444, 0), {node_ops, stream_ops}));
-            return root;
+    fs.mount(
+        {
+            mount() {
+                const root = Object.assign(fs.createNode(null, '/', S_IFDIR | 0o555, 0), {node_ops, stream_ops: {}});
+                nodes.set(BLOB_NAME, Object.assign(fs.createNode(root, BLOB_NAME, S_IFREG | 0o444, 0), {node_ops, stream_ops}));
+                return root;
+            },
         },
-    }, {}, BLOB_MOUNT);
+        {},
+        BLOB_MOUNT,
+    );
 }
 
 /**
@@ -215,7 +229,7 @@ async function runQpdf(command: TBrowserQpdfCommand, input: Uint8Array | Blob): 
     try {
         instance = await engine.factory({
             instantiateWasm(imports, receive) {
-                void WebAssembly.instantiate(engine.module, imports).then(created => receive(created, engine.module));
+                void WebAssembly.instantiate(engine.module, imports).then((created) => receive(created, engine.module));
                 return {};
             },
             thisProgram: 'qpdf',
@@ -249,7 +263,9 @@ async function runQpdf(command: TBrowserQpdfCommand, input: Uint8Array | Blob): 
     try {
         exitCode = instance.callMain(COMMAND_ARGS[command]());
     } catch (error) {
-        if (!(error instanceof OutputBudgetError)) {throw error;}
+        if (!(error instanceof OutputBudgetError)) {
+            throw error;
+        }
         // Reported as qpdf's own failure exit, so callers refuse the rewrite.
         return {
             exitCode: 2,
@@ -258,11 +274,11 @@ async function runQpdf(command: TBrowserQpdfCommand, input: Uint8Array | Blob): 
             output: null,
         };
     } finally {
-        if (input instanceof Blob) {instance.FS.unmount(BLOB_MOUNT);}
+        if (input instanceof Blob) {
+            instance.FS.unmount(BLOB_MOUNT);
+        }
     }
-    const output = WRITING_COMMANDS.has(command) && isQpdfSuccessExitCode(exitCode)
-        ? instance.FS.readFile(OUTPUT_PATH)
-        : null;
+    const output = WRITING_COMMANDS.has(command) && isQpdfSuccessExitCode(exitCode) ? instance.FS.readFile(OUTPUT_PATH) : null;
     return {
         exitCode,
         stdout: log.stdout,
@@ -272,12 +288,16 @@ async function runQpdf(command: TBrowserQpdfCommand, input: Uint8Array | Blob): 
 }
 
 function getErrorCode(error: unknown) {
-    if (error instanceof EngineUnavailableError) {return BROWSER_QPDF_ENGINE_ERROR_CODES.unavailable;}
+    if (error instanceof EngineUnavailableError) {
+        return BROWSER_QPDF_ENGINE_ERROR_CODES.unavailable;
+    }
     return BROWSER_QPDF_ENGINE_ERROR_CODES.failed;
 }
 
 self.addEventListener('message', async (event: MessageEvent<unknown>) => {
-    if (handlePrecompiledWasmModuleMessage(event.data)) {return;}
+    if (handlePrecompiledWasmModuleMessage(event.data)) {
+        return;
+    }
     const request = parseBrowserQpdfEngineRequest(event.data);
     if (request === null) {
         const id = getBrowserPageOpsWorkerRequestId(event.data);
@@ -292,12 +312,15 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
     }
     try {
         const data = await runQpdf(request.payload.command, request.payload.input);
-        self.postMessage({
-            id: request.id,
-            ok: true,
-            type: request.type,
-            data,
-        }, data.output ? [data.output.buffer as ArrayBuffer] : []);
+        self.postMessage(
+            {
+                id: request.id,
+                ok: true,
+                type: request.type,
+                data,
+            },
+            data.output ? [data.output.buffer as ArrayBuffer] : [],
+        );
     } catch (error) {
         const message = getErrorMessage(error);
         self.postMessage({

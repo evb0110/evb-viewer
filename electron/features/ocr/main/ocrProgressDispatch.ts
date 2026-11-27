@@ -1,8 +1,8 @@
-import { BrowserWindow } from 'electron';
-import type { IOcrEventMap } from '@contracts/ocrPlatformFeature';
-import { createLogger } from '@electron/utils/createLogger';
-import { getErrorMessage } from '@electron/utils/error';
-import { sendPlatformEvent } from '@electron/utils/sendPlatformEvent';
+import {BrowserWindow} from 'electron';
+import type {IOcrEventMap} from '@contracts/ocrPlatformFeature';
+import {createLogger} from '@electron/utils/createLogger';
+import {getErrorMessage} from '@electron/utils/error';
+import {sendPlatformEvent} from '@electron/utils/sendPlatformEvent';
 
 const log = createLogger('ocr-ipc');
 
@@ -17,7 +17,5 @@ export function safeSendToWindow<TChannel extends Extract<keyof IOcrEventMap, st
 }
 
 export function getJobWindow(webContentsId: number) {
-    return BrowserWindow.getAllWindows().find(
-        window => window.webContents.id === webContentsId,
-    );
+    return BrowserWindow.getAllWindows().find((window) => window.webContents.id === webContentsId);
 }

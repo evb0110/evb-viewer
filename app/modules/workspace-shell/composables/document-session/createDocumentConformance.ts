@@ -1,15 +1,12 @@
-import type {
-    IPdfConformanceProfile,
-    TPdfSaveMode,
-} from '@app/types/pdfContracts';
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import type {IPdfConformanceProfile, TPdfSaveMode} from '@app/types/pdfContracts';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import {createStaleRevisionError} from '@contracts/documentMutationErrors';
-import type { IDocumentSessionState } from '@app/modules/workspace-shell/composables/document-session/documentSessionState';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { getErrorMessage } from '@app/utils/error';
-import { getDocumentPdfCapability } from '@app/utils/platformDocuments';
-import { shouldForcePdfSaveAs } from '@app/services/pdf-file/shouldForcePdfSaveAs';
+import type {IDocumentSessionState} from '@app/modules/workspace-shell/composables/document-session/documentSessionState';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {getErrorMessage} from '@app/utils/error';
+import {getDocumentPdfCapability} from '@app/utils/platformDocuments';
+import {shouldForcePdfSaveAs} from '@app/services/pdf-file/shouldForcePdfSaveAs';
 
 interface IConformanceProfileRequest {
     path: TDocumentRef;
@@ -34,7 +31,9 @@ export interface IPdfConformanceIdleScheduler {
     schedule: (callback: () => void) => number;
 }
 
-export interface IPdfConformanceDeferralOptions { fileSize?: number | null }
+export interface IPdfConformanceDeferralOptions {
+    fileSize?: number | null;
+}
 
 export const MAX_EAGER_PDF_CONFORMANCE_BYTES = 64 * 1024 * 1024;
 
@@ -46,24 +45,26 @@ export const MAX_EAGER_PDF_CONFORMANCE_BYTES = 64 * 1024 * 1024;
  */
 export function readOriginalFailureReason(error: unknown): 'original-changed' | 'write-failed' | null {
     const message = getErrorMessage(error);
-    if (!message.includes('WorkingCopyMaterializationError')) {return null;}
+    if (!message.includes('WorkingCopyMaterializationError')) {
+        return null;
+    }
     return message.includes('changed after it was opened') ? 'original-changed' : 'write-failed';
 }
 
 function createDefaultIdleScheduler(): IPdfConformanceIdleScheduler {
     if (
-        typeof window !== 'undefined'
-        && typeof window.requestIdleCallback === 'function'
-        && typeof window.cancelIdleCallback === 'function'
+        typeof window !== 'undefined' &&
+        typeof window.requestIdleCallback === 'function' &&
+        typeof window.cancelIdleCallback === 'function'
     ) {
         return {
-            cancel: handle => window.cancelIdleCallback(handle),
-            schedule: callback => window.requestIdleCallback(callback, {timeout: 2_000}),
+            cancel: (handle) => window.cancelIdleCallback(handle),
+            schedule: (callback) => window.requestIdleCallback(callback, {timeout: 2_000}),
         };
     }
     return {
-        cancel: handle => window.clearTimeout(handle),
-        schedule: callback => window.setTimeout(callback, 0),
+        cancel: (handle) => window.clearTimeout(handle),
+        schedule: (callback) => window.setTimeout(callback, 0),
     };
 }
 
@@ -100,9 +101,12 @@ export function createDocumentConformance(
             return saveRestrictionInFlight.promise;
         }
 
-        const promise = getDocumentPdfCapability().analyzePdfConformance(path, {purpose: 'save-restrictions'})
+        const promise = getDocumentPdfCapability()
+            .analyzePdfConformance(path, {purpose: 'save-restrictions'})
             .catch((error: unknown) => {
-                if (readOriginalFailureReason(error)) {throw error;}
+                if (readOriginalFailureReason(error)) {
+                    throw error;
+                }
                 BrowserLogger.warn('pdf-file', 'PDF save restriction analysis failed', {
                     path,
                     error,
@@ -122,15 +126,8 @@ export function createDocumentConformance(
         return promise;
     }
 
-    function applyPdfConformanceProfile(
-        path: TDocumentRef,
-        requestId: number,
-        profile: IPdfConformanceProfile | null,
-    ) {
-        if (
-            conformanceProfileRequestId === requestId
-            && state.workingCopyPath.value === path
-        ) {
+    function applyPdfConformanceProfile(path: TDocumentRef, requestId: number, profile: IPdfConformanceProfile | null) {
+        if (conformanceProfileRequestId === requestId && state.workingCopyPath.value === path) {
             state.pdfConformanceProfile.value = profile;
             state.pdfConformanceAnalysisState.value = 'ready';
             pendingConformanceProfile = null;
@@ -147,27 +144,28 @@ export function createDocumentConformance(
 
         cancelScheduledConformanceAnalysis();
         state.pdfConformanceAnalysisState.value = 'analyzing';
-        const promise = getDocumentPdfCapability().analyzePdfConformance(request.path).then((profile) => {
-            applyPdfConformanceProfile(request.path, request.requestId, profile);
-            return profile;
-        }).catch((conformanceError: unknown) => {
-            if (
-                conformanceProfileRequestId === request.requestId
-                && state.workingCopyPath.value === request.path
-            ) {
-                state.pdfConformanceAnalysisState.value = 'failed';
-                BrowserLogger.warn('pdf-file', 'Deferred conformance analysis failed', {
-                    path: request.path,
-                    error: conformanceError,
-                });
-                throw conformanceError;
-            }
-            return null;
-        }).finally(() => {
-            if (conformanceProfileInFlight?.requestId === request.requestId) {
-                conformanceProfileInFlight = null;
-            }
-        });
+        const promise = getDocumentPdfCapability()
+            .analyzePdfConformance(request.path)
+            .then((profile) => {
+                applyPdfConformanceProfile(request.path, request.requestId, profile);
+                return profile;
+            })
+            .catch((conformanceError: unknown) => {
+                if (conformanceProfileRequestId === request.requestId && state.workingCopyPath.value === request.path) {
+                    state.pdfConformanceAnalysisState.value = 'failed';
+                    BrowserLogger.warn('pdf-file', 'Deferred conformance analysis failed', {
+                        path: request.path,
+                        error: conformanceError,
+                    });
+                    throw conformanceError;
+                }
+                return null;
+            })
+            .finally(() => {
+                if (conformanceProfileInFlight?.requestId === request.requestId) {
+                    conformanceProfileInFlight = null;
+                }
+            });
         conformanceProfileInFlight = {
             path: request.path,
             promise,
@@ -176,10 +174,7 @@ export function createDocumentConformance(
         return promise;
     }
 
-    function deferPdfConformanceProfile(
-        path: TDocumentRef,
-        options?: IPdfConformanceDeferralOptions,
-    ) {
+    function deferPdfConformanceProfile(path: TDocumentRef, options?: IPdfConformanceDeferralOptions) {
         const requestId = ++conformanceProfileRequestId;
         cancelScheduledConformanceAnalysis();
         conformanceProfileInFlight = null;
@@ -190,10 +185,7 @@ export function createDocumentConformance(
             path,
             requestId,
         };
-        if (
-            typeof options?.fileSize === 'number'
-            && options.fileSize > MAX_EAGER_PDF_CONFORMANCE_BYTES
-        ) {
+        if (typeof options?.fileSize === 'number' && options.fileSize > MAX_EAGER_PDF_CONFORMANCE_BYTES) {
             state.pdfConformanceAnalysisState.value = 'on-demand-only';
             BrowserLogger.debug('pdf-file', 'Skipped eager conformance analysis for large PDF', {
                 path,
@@ -208,12 +200,12 @@ export function createDocumentConformance(
     function notifyPdfInitialVisualReady(path: TDocumentRef | null = state.workingCopyPath.value) {
         const pending = pendingConformanceProfile;
         if (
-            !path
-            || !pending
-            || pending.path !== path
-            || pending.requestId !== conformanceProfileRequestId
-            || state.workingCopyPath.value !== path
-            || state.pdfConformanceAnalysisState.value !== 'waiting-initial-visual'
+            !path ||
+            !pending ||
+            pending.path !== path ||
+            pending.requestId !== conformanceProfileRequestId ||
+            state.workingCopyPath.value !== path ||
+            state.pdfConformanceAnalysisState.value !== 'waiting-initial-visual'
         ) {
             return false;
         }
@@ -222,10 +214,10 @@ export function createDocumentConformance(
         scheduledConformanceHandle = idleScheduler.schedule(() => {
             scheduledConformanceHandle = null;
             if (
-                pendingConformanceProfile !== pending
-                || pending.requestId !== conformanceProfileRequestId
-                || state.workingCopyPath.value !== pending.path
-                || state.pdfConformanceAnalysisState.value !== 'waiting-idle'
+                pendingConformanceProfile !== pending ||
+                pending.requestId !== conformanceProfileRequestId ||
+                state.workingCopyPath.value !== pending.path ||
+                state.pdfConformanceAnalysisState.value !== 'waiting-idle'
             ) {
                 return;
             }
@@ -246,14 +238,14 @@ export function createDocumentConformance(
         }
 
         const pending = pendingConformanceProfile;
-        const request = pending?.path === path
-            && pending.requestId === conformanceProfileRequestId
-            ? pending
-            : {
-                fileSize: null,
-                path,
-                requestId: ++conformanceProfileRequestId,
-            };
+        const request =
+            pending?.path === path && pending.requestId === conformanceProfileRequestId
+                ? pending
+                : {
+                      fileSize: null,
+                      path,
+                      requestId: ++conformanceProfileRequestId,
+                  };
         pendingConformanceProfile = request;
         return startPdfConformanceAnalysis(request);
     }
@@ -266,10 +258,7 @@ export function createDocumentConformance(
      * that failed answers "copy". A document whose revision or working copy
      * moved meanwhile has nothing to save: that is a stale revision.
      */
-    async function shouldForceSaveAsForWorkingCopy(
-        mode: TPdfSaveMode,
-        workingPath: TDocumentRef,
-    ) {
+    async function shouldForceSaveAsForWorkingCopy(mode: TPdfSaveMode, workingPath: TDocumentRef) {
         if (state.requiresSaveAsOnFirstSave.value) {
             return true;
         }

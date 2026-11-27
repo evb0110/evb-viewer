@@ -1,29 +1,22 @@
 import {readFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {normalizePdfNativeMutationSet} from '@pdf-core';
-import {
-    PDF_ANNOTATION_PARSE_MAX_ENTRIES,
-    PDF_ANNOTATION_PARSE_MAX_LINE_BYTES,
-} from '@contracts/pdfAnnotationParseTypes';
-import {
-    PDF_ANNOTATION_PARSE_ENTRY_SCHEMA,
-    PDF_ANNOTATION_PARSE_SIDECAR_HEADER_SCHEMA,
-} from '@contracts/pdfAnnotationParseSchemas';
+import {PDF_ANNOTATION_PARSE_MAX_ENTRIES, PDF_ANNOTATION_PARSE_MAX_LINE_BYTES} from '@contracts/pdfAnnotationParseTypes';
+import {PDF_ANNOTATION_PARSE_ENTRY_SCHEMA, PDF_ANNOTATION_PARSE_SIDECAR_HEADER_SCHEMA} from '@contracts/pdfAnnotationParseSchemas';
 import * as v from 'valibot';
 
 // The fixture is the sidecar's header line merged with its first chunk.
 const annotationParseFixtureSchema = v.pipe(
-    v.strictObject({
-        ...PDF_ANNOTATION_PARSE_SIDECAR_HEADER_SCHEMA.entries,
-        chunkIndex: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
-        entries: v.pipe(v.array(PDF_ANNOTATION_PARSE_ENTRY_SCHEMA), v.maxLength(PDF_ANNOTATION_PARSE_MAX_ENTRIES)),
-    }, 'contains unsupported field'),
-    v.check(value => value.entries.length <= PDF_ANNOTATION_PARSE_MAX_ENTRIES),
+    v.strictObject(
+        {
+            ...PDF_ANNOTATION_PARSE_SIDECAR_HEADER_SCHEMA.entries,
+            chunkIndex: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
+            entries: v.pipe(v.array(PDF_ANNOTATION_PARSE_ENTRY_SCHEMA), v.maxLength(PDF_ANNOTATION_PARSE_MAX_ENTRIES)),
+        },
+        'contains unsupported field',
+    ),
+    v.check((value) => value.entries.length <= PDF_ANNOTATION_PARSE_MAX_ENTRIES),
 );
 
 describe('native interop golden protocol fixtures', () => {
@@ -54,22 +47,23 @@ describe('native interop golden protocol fixtures', () => {
             'x',
             'y',
         ]);
-        const normalized = normalizePdfNativeMutationSet({
-            ...sidecarFixture,
-            placedImages: sidecarFixture.placedImages.map(({
-                bytesPath: _bytesPath,
-                ...image
-            }) => ({
-                ...image,
-                source: {
-                    path: String(_bytesPath),
-                    size: Number(sidecarFixture.placedImages[0]?.byteLength),
-                    sha256: String(sidecarFixture.placedImages[0]?.sha256),
-                    leaseId: 'golden-sidecar-lease',
-                    revision: null,
-                },
-            })),
-        }, 'golden fixture', {errorKind: 'error'});
+        const normalized = normalizePdfNativeMutationSet(
+            {
+                ...sidecarFixture,
+                placedImages: sidecarFixture.placedImages.map(({bytesPath: _bytesPath, ...image}) => ({
+                    ...image,
+                    source: {
+                        path: String(_bytesPath),
+                        size: Number(sidecarFixture.placedImages[0]?.byteLength),
+                        sha256: String(sidecarFixture.placedImages[0]?.sha256),
+                        leaseId: 'golden-sidecar-lease',
+                        revision: null,
+                    },
+                })),
+            },
+            'golden fixture',
+            {errorKind: 'error'},
+        );
 
         expect(normalized.placedImages).toHaveLength(1);
         expect(normalized.textBoxes).toEqual(sidecarFixture.textBoxes);
@@ -86,14 +80,7 @@ describe('native interop golden protocol fixtures', () => {
 
         expect(fixture.format).toBe('evb-pdf-annotation-parse');
         expect(fixture.schemaVersion).toBe(1);
-        expect(fixture.entries.map(entry => entry.kind)).toEqual([
-            'text-box',
-            'note',
-            'highlight',
-            'stamp',
-            'shape',
-            'foreign',
-        ]);
+        expect(fixture.entries.map((entry) => entry.kind)).toEqual(['text-box', 'note', 'highlight', 'stamp', 'shape', 'foreign']);
         expect(fixture.entries[0]).toMatchObject({
             kind: 'text-box',
             text: 'Fixture text box',
@@ -109,12 +96,14 @@ describe('native interop golden protocol fixtures', () => {
         expect(fixture.entries[2]).toMatchObject({
             kind: 'highlight',
             subtype: 'Highlight',
-            quadPoints: [{
-                left: 0.1,
-                top: 0.2,
-                width: 0.4,
-                height: 0.05,
-            }],
+            quadPoints: [
+                {
+                    left: 0.1,
+                    top: 0.2,
+                    width: 0.4,
+                    height: 0.05,
+                },
+            ],
             color: '#ffcc00',
             opacity: 0.5,
             contents: 'Fixture highlight',

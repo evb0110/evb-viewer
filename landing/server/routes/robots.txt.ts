@@ -1,7 +1,4 @@
-import {
-    buildAbsoluteUrl,
-    normalizeSiteUrl,
-} from '~~/shared/seo';
+import {buildAbsoluteUrl, normalizeSiteUrl} from '~~/shared/seo';
 
 const AI_CRAWLERS = [
     'GPTBot',
@@ -24,12 +21,7 @@ export default defineEventHandler((event) => {
     const runtimeConfig = useRuntimeConfig(event);
     const siteUrl = normalizeSiteUrl(runtimeConfig.public.siteUrl);
 
-    const lines = [
-        'User-agent: *',
-        'Allow: /',
-        'Disallow: /api/',
-        '',
-    ];
+    const lines = ['User-agent: *', 'Allow: /', 'Disallow: /api/', ''];
 
     for (const bot of AI_CRAWLERS) {
         lines.push(`User-agent: ${bot}`, 'Disallow: /', '');

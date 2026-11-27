@@ -1,43 +1,23 @@
-import type { Page } from 'puppeteer-core';
-import { execFileSync } from 'node:child_process';
-import {
-    existsSync,
-    mkdtempSync,
-    readFileSync,
-    writeFileSync,
-} from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { decode } from 'fast-png';
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { delay } from 'es-toolkit/promise';
+import type {Page} from 'puppeteer-core';
+import {execFileSync} from 'node:child_process';
+import {existsSync, mkdtempSync, readFileSync, writeFileSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {decode} from 'fast-png';
+import {afterEach, describe, expect, it} from 'vitest';
+import {delay} from 'es-toolkit/promise';
 import {
     createBlankFixturePdf,
     createAnnotationFidelityFixtureBytes,
     readAnnotationFidelitySnapshot,
     readPdfAnnotationSummary,
 } from '@tests/e2e/electron/helpers/fixtures';
-import {
-    evaluateInPage,
-    waitForFunctionInPage,
-} from '@tests/e2e/electron/helpers/pageRuntime';
-import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
-import {
-    clickAsUser,
-    clickFoundAsUser,
-} from '@tests/e2e/electron/helpers/userInput';
-import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
-import { runDesktopQpdfWasm } from '@electron/native-tools/qpdfWasmWorkerClient';
-import {
-    clickAnnotationTool,
-    setAnnotationColor,
-    selectAllFocusedAnnotationText,
-} from '@tests/e2e/electron/helpers/viewerAnnotations';
+import {evaluateInPage, waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
+import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
+import {clickAsUser, clickFoundAsUser} from '@tests/e2e/electron/helpers/userInput';
+import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
+import {runDesktopQpdfWasm} from '@electron/native-tools/qpdfWasmWorkerClient';
+import {clickAnnotationTool, setAnnotationColor, selectAllFocusedAnnotationText} from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {
     clickToolbarButtonWhenEnabled,
     openPdfInApp,
@@ -69,10 +49,12 @@ interface IManagedShapeDebugShape {
     source?: string;
     stableKey?: string | null;
     strokeWidth?: number;
-    strokes?: Array<Array<{
-        x: number;
-        y: number;
-    }>>;
+    strokes?: Array<
+        Array<{
+            x: number;
+            y: number;
+        }>
+    >;
     type?: string;
     width?: number;
     x?: number;
@@ -82,10 +64,7 @@ interface IManagedShapeDebugShape {
 function createRendererErrorTracker(page: Page): IRendererErrorTracker {
     const errors: string[] = [];
 
-    const onConsole = (message: {
-        type: () => string;
-        text: () => string;
-    }) => {
+    const onConsole = (message: {type: () => string; text: () => string}) => {
         const text = message.text();
         if (message.type() !== 'error') {
             return;
@@ -114,51 +93,49 @@ function createRendererErrorTracker(page: Page): IRendererErrorTracker {
 }
 
 async function waitForShapeCount(page: Page, expectedCount: number) {
-    await waitForFunctionInPage(page, (count: number) => {
-        const isVisibleHost = (element: HTMLElement) => {
-            const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
-        };
-        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-            .filter(isVisibleHost);
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const host = (activeHost && visibleHosts.includes(activeHost))
-            ? activeHost
-            : (visibleHosts.length === 1 ? visibleHosts[0] : null);
-        const shapes = host?.querySelectorAll('.pdf-annotation-editor-layer g[data-annotation-kind="shape"][data-annotation-id]') ?? [];
-        return shapes.length === count;
-    }, { timeout: 20_000 }, expectedCount);
+    await waitForFunctionInPage(
+        page,
+        (count: number) => {
+            const isVisibleHost = (element: HTMLElement) => {
+                const rect = element.getBoundingClientRect();
+                const style = window.getComputedStyle(element);
+                return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
+            };
+            const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).filter(isVisibleHost);
+            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+            const host = activeHost && visibleHosts.includes(activeHost) ? activeHost : visibleHosts.length === 1 ? visibleHosts[0] : null;
+            const shapes = host?.querySelectorAll('.pdf-annotation-editor-layer g[data-annotation-kind="shape"][data-annotation-id]') ?? [];
+            return shapes.length === count;
+        },
+        {timeout: 20_000},
+        expectedCount,
+    );
 }
 
 async function waitForShapeSidebarCount(page: Page, expectedCount: number) {
-    await waitForFunctionInPage(page, (count: number) => {
-        const isVisible = (element: HTMLElement) => {
-            const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
-        };
-        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-            .filter(isVisible);
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const host = (activeHost && visibleHosts.includes(activeHost))
-            ? activeHost
-            : (visibleHosts.length === 1 ? visibleHosts[0] : null);
-        const shapeItems = Array.from(host?.querySelectorAll<HTMLElement>('.notes-list .note-item') ?? [])
-            .filter(isVisible);
-        return shapeItems.length === count;
-    }, { timeout: 20_000 }, expectedCount);
+    await waitForFunctionInPage(
+        page,
+        (count: number) => {
+            const isVisible = (element: HTMLElement) => {
+                const rect = element.getBoundingClientRect();
+                const style = window.getComputedStyle(element);
+                return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+            };
+            const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).filter(isVisible);
+            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+            const host = activeHost && visibleHosts.includes(activeHost) ? activeHost : visibleHosts.length === 1 ? visibleHosts[0] : null;
+            const shapeItems = Array.from(host?.querySelectorAll<HTMLElement>('.notes-list .note-item') ?? []).filter(isVisible);
+            return shapeItems.length === count;
+        },
+        {timeout: 20_000},
+        expectedCount,
+    );
 }
 
-async function waitForAnnotationSubtypeCountOnDisk(
-    filePath: string,
-    subtype: string,
-    expectedCount: number,
-    timeoutMs = 10_000,
-) {
+async function waitForAnnotationSubtypeCountOnDisk(filePath: string, subtype: string, expectedCount: number, timeoutMs = 10_000) {
     const startedAt = Date.now();
 
-    while ((Date.now() - startedAt) < timeoutMs) {
+    while (Date.now() - startedAt < timeoutMs) {
         const summary = await readPdfAnnotationSummary(filePath);
         if ((summary.bySubtype[subtype] ?? 0) === expectedCount) {
             return summary;
@@ -180,16 +157,22 @@ async function waitForLineCountOnDisk(filePath: string, expectedCount: number, t
 /** Counts the arrays directly inside the array that follows `key` in a QDF dictionary. */
 function countTopLevelArrays(dictionary: string, key: string) {
     const start = dictionary.indexOf('[', dictionary.indexOf(key));
-    if (dictionary.indexOf(key) < 0 || start < 0) {return 0;}
+    if (dictionary.indexOf(key) < 0 || start < 0) {
+        return 0;
+    }
     let depth = 0;
     let count = 0;
     for (const character of dictionary.slice(start)) {
         if (character === '[') {
             depth += 1;
-            if (depth === 2) {count += 1;}
+            if (depth === 2) {
+                count += 1;
+            }
         } else if (character === ']') {
             depth -= 1;
-            if (depth === 0) {break;}
+            if (depth === 0) {
+                break;
+            }
         }
     }
     return count;
@@ -220,10 +203,7 @@ async function dragLineSegment(
     },
     pageNumber = 1,
 ) {
-    await dragInkStrokeWithMouse(page, [
-        segment.start,
-        segment.end,
-    ], pageNumber, 'Line');
+    await dragInkStrokeWithMouse(page, [segment.start, segment.end], pageNumber, 'Line');
 }
 
 async function dragInkStrokeWithMouse(
@@ -237,81 +217,86 @@ async function dragInkStrokeWithMouse(
 ) {
     await clickAnnotationTool(page, tool);
     await waitForViewerInteractive(page);
-    await waitForFunctionInPage(page, (targetPageNumber: number) => {
-        const isVisibleHost = (element: HTMLElement) => {
-            const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
-        };
-        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-            .filter(isVisibleHost);
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const host = (activeHost && visibleHosts.includes(activeHost))
-            ? activeHost
-            : (visibleHosts.length === 1 ? visibleHosts[0] : null);
-        const overlay = host?.querySelector<SVGElement>(`.page_container[data-page="${targetPageNumber}"] .pdf-annotation-editor-layer`) ?? null;
-        return Boolean(overlay);
-    }, { timeout: 10_000 }, pageNumber);
+    await waitForFunctionInPage(
+        page,
+        (targetPageNumber: number) => {
+            const isVisibleHost = (element: HTMLElement) => {
+                const rect = element.getBoundingClientRect();
+                const style = window.getComputedStyle(element);
+                return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
+            };
+            const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).filter(isVisibleHost);
+            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+            const host = activeHost && visibleHosts.includes(activeHost) ? activeHost : visibleHosts.length === 1 ? visibleHosts[0] : null;
+            const overlay =
+                host?.querySelector<SVGElement>(`.page_container[data-page="${targetPageNumber}"] .pdf-annotation-editor-layer`) ?? null;
+            return Boolean(overlay);
+        },
+        {timeout: 10_000},
+        pageNumber,
+    );
 
-    const clientPoints = await evaluateInPage(page, async ({
-        targetPageNumber,
-        ratios,
-    }: {
-        targetPageNumber: number;
-        ratios: ReadonlyArray<{
-            x: number;
-            y: number;
-        }>;
-    }) => {
-        const isVisibleHost = (element: HTMLElement) => {
-            const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
-        };
-        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-            .filter(isVisibleHost);
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const host = (activeHost && visibleHosts.includes(activeHost))
-            ? activeHost
-            : (visibleHosts.length === 1 ? visibleHosts[0] : null);
-        const overlay = host?.querySelector<SVGElement>(`.page_container[data-page="${targetPageNumber}"] .pdf-annotation-editor-layer`) ?? null;
-        if (!overlay || ratios.length < 2) {
-            return null;
-        }
-
-        const pageContainer = overlay.closest<HTMLElement>('.page_container');
-        pageContainer?.scrollIntoView({
-            block: 'center',
-            inline: 'center',
-        });
-        await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-
-        const scrollViewport = overlay.closest<HTMLElement>('[data-document-viewer-chassis-viewport], .pdfViewer');
-        if (pageContainer && scrollViewport && host) {
-            const pageRect = overlay.getBoundingClientRect();
-            const hostRect = host.getBoundingClientRect();
-            const visibleTop = Math.max(hostRect.top, 24);
-            const visibleBottom = Math.min(hostRect.bottom, window.innerHeight - 24);
-            if (visibleBottom > visibleTop) {
-                const targetY = pageRect.top + pageRect.height * (ratios[0]?.y ?? 0.5);
-                scrollViewport.scrollTop += targetY - ((visibleTop + visibleBottom) / 2);
-                await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    const clientPoints = await evaluateInPage(
+        page,
+        async ({
+            targetPageNumber,
+            ratios,
+        }: {
+            targetPageNumber: number;
+            ratios: ReadonlyArray<{
+                x: number;
+                y: number;
+            }>;
+        }) => {
+            const isVisibleHost = (element: HTMLElement) => {
+                const rect = element.getBoundingClientRect();
+                const style = window.getComputedStyle(element);
+                return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
+            };
+            const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).filter(isVisibleHost);
+            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+            const host = activeHost && visibleHosts.includes(activeHost) ? activeHost : visibleHosts.length === 1 ? visibleHosts[0] : null;
+            const overlay =
+                host?.querySelector<SVGElement>(`.page_container[data-page="${targetPageNumber}"] .pdf-annotation-editor-layer`) ?? null;
+            if (!overlay || ratios.length < 2) {
+                return null;
             }
-        }
 
-        const rect = overlay.getBoundingClientRect();
-        if (rect.width <= 0 || rect.height <= 0) {
-            return null;
-        }
+            const pageContainer = overlay.closest<HTMLElement>('.page_container');
+            pageContainer?.scrollIntoView({
+                block: 'center',
+                inline: 'center',
+            });
+            await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
 
-        return ratios.map(point => ({
-            clientX: rect.left + rect.width * point.x,
-            clientY: rect.top + rect.height * point.y,
-        }));
-    }, {
-        targetPageNumber: pageNumber,
-        ratios: [...points],
-    });
+            const scrollViewport = overlay.closest<HTMLElement>('[data-document-viewer-chassis-viewport], .pdfViewer');
+            if (pageContainer && scrollViewport && host) {
+                const pageRect = overlay.getBoundingClientRect();
+                const hostRect = host.getBoundingClientRect();
+                const visibleTop = Math.max(hostRect.top, 24);
+                const visibleBottom = Math.min(hostRect.bottom, window.innerHeight - 24);
+                if (visibleBottom > visibleTop) {
+                    const targetY = pageRect.top + pageRect.height * (ratios[0]?.y ?? 0.5);
+                    scrollViewport.scrollTop += targetY - (visibleTop + visibleBottom) / 2;
+                    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+                }
+            }
+
+            const rect = overlay.getBoundingClientRect();
+            if (rect.width <= 0 || rect.height <= 0) {
+                return null;
+            }
+
+            return ratios.map((point) => ({
+                clientX: rect.left + rect.width * point.x,
+                clientY: rect.top + rect.height * point.y,
+            }));
+        },
+        {
+            targetPageNumber: pageNumber,
+            ratios: [...points],
+        },
+    );
 
     if (!clientPoints || clientPoints.length < 2) {
         throw new Error('Unable to resolve client points for mouse ink stroke');
@@ -321,97 +306,99 @@ async function dragInkStrokeWithMouse(
     await page.mouse.move(start.clientX, start.clientY);
     await page.mouse.down();
     for (const point of clientPoints.slice(1)) {
-        await page.mouse.move(point.clientX, point.clientY, { steps: 6 });
+        await page.mouse.move(point.clientX, point.clientY, {steps: 6});
     }
     const end = clientPoints[clientPoints.length - 1]!;
     await page.mouse.move(end.clientX, end.clientY);
     await page.mouse.up();
 }
 
-async function clickPagePoint(page: Page, point: {
-    x: number;
-    y: number;
-}, pageNumber = 1, button: 'left' | 'right' = 'left') {
+async function clickPagePoint(
+    page: Page,
+    point: {
+        x: number;
+        y: number;
+    },
+    pageNumber = 1,
+    button: 'left' | 'right' = 'left',
+) {
     await clickAnnotationTool(page, 'Select');
     await waitForViewerInteractive(page);
-    await waitForFunctionInPage(page, (targetPageNumber: number) => {
-        const isVisibleHost = (element: HTMLElement) => {
-            const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
-        };
-        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-            .filter(isVisibleHost);
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const host = (activeHost && visibleHosts.includes(activeHost))
-            ? activeHost
-            : (visibleHosts.length === 1 ? visibleHosts[0] : null);
-        const overlay = host?.querySelector<SVGElement>(`.page_container[data-page="${targetPageNumber}"] .pdf-annotation-editor-layer`) ?? null;
-        return Boolean(overlay);
-    }, { timeout: 10_000 }, pageNumber);
+    await waitForFunctionInPage(
+        page,
+        (targetPageNumber: number) => {
+            const isVisibleHost = (element: HTMLElement) => {
+                const rect = element.getBoundingClientRect();
+                const style = window.getComputedStyle(element);
+                return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
+            };
+            const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).filter(isVisibleHost);
+            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+            const host = activeHost && visibleHosts.includes(activeHost) ? activeHost : visibleHosts.length === 1 ? visibleHosts[0] : null;
+            const overlay =
+                host?.querySelector<SVGElement>(`.page_container[data-page="${targetPageNumber}"] .pdf-annotation-editor-layer`) ?? null;
+            return Boolean(overlay);
+        },
+        {timeout: 10_000},
+        pageNumber,
+    );
 
-    const targetPoint = await evaluateInPage(page, async ({
-        targetPageNumber,
-        ratioX,
-        ratioY,
-    }: {
-        targetPageNumber: number;
-        ratioX: number;
-        ratioY: number;
-    }) => {
-        const isVisibleHost = (element: HTMLElement) => {
-            const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
-        };
-        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-            .filter(isVisibleHost);
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const host = (activeHost && visibleHosts.includes(activeHost))
-            ? activeHost
-            : (visibleHosts.length === 1 ? visibleHosts[0] : null);
-        const overlay = host?.querySelector<SVGElement>(`.page_container[data-page="${targetPageNumber}"] .pdf-annotation-editor-layer`) ?? null;
-        if (!overlay) {
-            return null;
-        }
-
-        const pageContainer = overlay.closest<HTMLElement>('.page_container');
-        pageContainer?.scrollIntoView({
-            block: 'center',
-            inline: 'center',
-        });
-        await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-
-        const scrollViewport = overlay.closest<HTMLElement>('[data-document-viewer-chassis-viewport], .pdfViewer');
-        if (pageContainer && scrollViewport && host) {
-            const pageRect = overlay.getBoundingClientRect();
-            const hostRect = host.getBoundingClientRect();
-            const visibleTop = Math.max(hostRect.top, 24);
-            const visibleBottom = Math.min(hostRect.bottom, window.innerHeight - 24);
-            if (visibleBottom > visibleTop) {
-                const targetY = pageRect.top + pageRect.height * ratioY;
-                scrollViewport.scrollTop += targetY - ((visibleTop + visibleBottom) / 2);
-                await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    const targetPoint = await evaluateInPage(
+        page,
+        async ({targetPageNumber, ratioX, ratioY}: {targetPageNumber: number; ratioX: number; ratioY: number}) => {
+            const isVisibleHost = (element: HTMLElement) => {
+                const rect = element.getBoundingClientRect();
+                const style = window.getComputedStyle(element);
+                return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
+            };
+            const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).filter(isVisibleHost);
+            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+            const host = activeHost && visibleHosts.includes(activeHost) ? activeHost : visibleHosts.length === 1 ? visibleHosts[0] : null;
+            const overlay =
+                host?.querySelector<SVGElement>(`.page_container[data-page="${targetPageNumber}"] .pdf-annotation-editor-layer`) ?? null;
+            if (!overlay) {
+                return null;
             }
-        }
 
-        const rect = overlay.getBoundingClientRect();
-        if (rect.width <= 0 || rect.height <= 0) {
-            return null;
-        }
+            const pageContainer = overlay.closest<HTMLElement>('.page_container');
+            pageContainer?.scrollIntoView({
+                block: 'center',
+                inline: 'center',
+            });
+            await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
 
-        const clientX = rect.left + rect.width * ratioX;
-        const clientY = rect.top + rect.height * ratioY;
+            const scrollViewport = overlay.closest<HTMLElement>('[data-document-viewer-chassis-viewport], .pdfViewer');
+            if (pageContainer && scrollViewport && host) {
+                const pageRect = overlay.getBoundingClientRect();
+                const hostRect = host.getBoundingClientRect();
+                const visibleTop = Math.max(hostRect.top, 24);
+                const visibleBottom = Math.min(hostRect.bottom, window.innerHeight - 24);
+                if (visibleBottom > visibleTop) {
+                    const targetY = pageRect.top + pageRect.height * ratioY;
+                    scrollViewport.scrollTop += targetY - (visibleTop + visibleBottom) / 2;
+                    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+                }
+            }
 
-        return {
-            clientX,
-            clientY,
-        };
-    }, {
-        targetPageNumber: pageNumber,
-        ratioX: point.x,
-        ratioY: point.y,
-    });
+            const rect = overlay.getBoundingClientRect();
+            if (rect.width <= 0 || rect.height <= 0) {
+                return null;
+            }
+
+            const clientX = rect.left + rect.width * ratioX;
+            const clientY = rect.top + rect.height * ratioY;
+
+            return {
+                clientX,
+                clientY,
+            };
+        },
+        {
+            targetPageNumber: pageNumber,
+            ratioX: point.x,
+            ratioY: point.y,
+        },
+    );
 
     if (!targetPoint) {
         throw new Error('Unable to resolve click target for shape');
@@ -421,10 +408,14 @@ async function clickPagePoint(page: Page, point: {
     await page.mouse.click(targetPoint.clientX, targetPoint.clientY, {button});
 }
 
-async function waitForNoVisibleInkAtPoints(page: Page, points: ReadonlyArray<{
-    x: number;
-    y: number;
-}>, pageNumber = 1) {
+async function waitForNoVisibleInkAtPoints(
+    page: Page,
+    points: ReadonlyArray<{
+        x: number;
+        y: number;
+    }>,
+    pageNumber = 1,
+) {
     for (const point of points) {
         await waitForNoVisibleInkAtPoint(page, point, pageNumber);
     }
@@ -436,19 +427,20 @@ async function deleteSelectedShape(page: Page) {
 
 async function deleteSelectedShapeViaPropertiesPopup(page: Page) {
     const deleteSelector = '.annotation-context-menu .pdf-context-menu__action--danger';
-    await waitForFunctionInPage(page, (selector: string) => {
-        const button = document.querySelector<HTMLButtonElement>(selector);
-        if (!button) {
-            return false;
-        }
-        const rect = button.getBoundingClientRect();
-        const style = window.getComputedStyle(button);
-        return !button.disabled
-            && style.display !== 'none'
-            && style.visibility !== 'hidden'
-            && rect.width > 0
-            && rect.height > 0;
-    }, {timeout: 10_000}, deleteSelector);
+    await waitForFunctionInPage(
+        page,
+        (selector: string) => {
+            const button = document.querySelector<HTMLButtonElement>(selector);
+            if (!button) {
+                return false;
+            }
+            const rect = button.getBoundingClientRect();
+            const style = window.getComputedStyle(button);
+            return !button.disabled && style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+        },
+        {timeout: 10_000},
+        deleteSelector,
+    );
 
     const buttonPoint = await page.evaluate(() => {
         const button = document.querySelector<HTMLButtonElement>('.annotation-context-menu .pdf-context-menu__action--danger');
@@ -482,7 +474,7 @@ async function getToolbarSaveDebugState(page: Page) {
                 className: button.className,
                 text: button.textContent?.trim() ?? '',
             }))
-            .filter(button => button.label === 'Save' || button.label.startsWith('Save ('));
+            .filter((button) => button.label === 'Save' || button.label.startsWith('Save ('));
 
         const activeTabDirty = Boolean(document.querySelector('.tab.is-active .tab-dirty-dot'));
 
@@ -506,48 +498,55 @@ async function saveViaToolbarButton(page: Page) {
         throw new Error(`Save toolbar action was not clickable: ${detail}. State: ${JSON.stringify(state)}`);
     }
 
-    await waitForWorkspaceToolbarIdle(page, { timeoutMs: 20_000 });
-    await page.waitForFunction(() => {
-        const hasPendingToolbarLoading = document.querySelector('.toolbar-btn.is-loading, .save-split-primary.is-loading');
-        if (hasPendingToolbarLoading) {
-            return false;
-        }
+    await waitForWorkspaceToolbarIdle(page, {timeoutMs: 20_000});
+    await page.waitForFunction(
+        () => {
+            const hasPendingToolbarLoading = document.querySelector('.toolbar-btn.is-loading, .save-split-primary.is-loading');
+            if (hasPendingToolbarLoading) {
+                return false;
+            }
 
-        const savingStatuses = Array.from(document.querySelectorAll('.note-window__status, .pdf-annotation-note-window__status'));
-        return savingStatuses.length === 0;
-    }, { timeout: 20_000 });
+            const savingStatuses = Array.from(document.querySelectorAll('.note-window__status, .pdf-annotation-note-window__status'));
+            return savingStatuses.length === 0;
+        },
+        {timeout: 20_000},
+    );
 }
 
 async function waitForNoShapeSelectionUi(page: Page) {
     try {
-        await waitForFunctionInPage(page, () => {
-            const isVisible = (element: Element | null) => {
-                if (!element) {
-                    return false;
-                }
-                const rect = element.getBoundingClientRect();
-                const style = window.getComputedStyle(element);
-                return style.display !== 'none'
-                && style.visibility !== 'hidden'
-                && Number(style.opacity || '1') > 0
-                && rect.width > 0
-                && rect.height > 0;
-            };
-            const isVisibleHost = (element: HTMLElement) => {
-                const rect = element.getBoundingClientRect();
-                const style = window.getComputedStyle(element);
-                return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
-            };
-            const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-                .filter(isVisibleHost);
-            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-            const host = (activeHost && visibleHosts.includes(activeHost))
-                ? activeHost
-                : (visibleHosts.length === 1 ? visibleHosts[0] : null);
-            const selectionOutline = host?.querySelector('.pdf-annotation-selection-handles');
-            const propertiesPopup = document.querySelector('.annotation-properties');
-            return !isVisible(selectionOutline ?? null) && !isVisible(propertiesPopup);
-        }, { timeout: 10_000 });
+        await waitForFunctionInPage(
+            page,
+            () => {
+                const isVisible = (element: Element | null) => {
+                    if (!element) {
+                        return false;
+                    }
+                    const rect = element.getBoundingClientRect();
+                    const style = window.getComputedStyle(element);
+                    return (
+                        style.display !== 'none' &&
+                        style.visibility !== 'hidden' &&
+                        Number(style.opacity || '1') > 0 &&
+                        rect.width > 0 &&
+                        rect.height > 0
+                    );
+                };
+                const isVisibleHost = (element: HTMLElement) => {
+                    const rect = element.getBoundingClientRect();
+                    const style = window.getComputedStyle(element);
+                    return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
+                };
+                const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).filter(isVisibleHost);
+                const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+                const host =
+                    activeHost && visibleHosts.includes(activeHost) ? activeHost : visibleHosts.length === 1 ? visibleHosts[0] : null;
+                const selectionOutline = host?.querySelector('.pdf-annotation-selection-handles');
+                const propertiesPopup = document.querySelector('.annotation-properties');
+                return !isVisible(selectionOutline ?? null) && !isVisible(propertiesPopup);
+            },
+            {timeout: 10_000},
+        );
     } catch (error) {
         const state = await evaluateInPage(page, () => {
             const describe = (element: Element | null) => {
@@ -561,272 +560,121 @@ async function waitForNoShapeSelectionUi(page: Page) {
                     display: style.display,
                     visibility: style.visibility,
                     opacity: style.opacity,
-                    rect: [
-                        rect.left,
-                        rect.top,
-                        rect.width,
-                        rect.height,
-                    ],
+                    rect: [rect.left, rect.top, rect.width, rect.height],
                 };
             };
             return {
                 selectionOutline: describe(document.querySelector('.editor-pane.is-active .pdf-annotation-selection-handles')),
                 propertiesPopup: describe(document.querySelector('.annotation-properties')),
-                shapeIds: Array.from(document.querySelectorAll('.editor-pane.is-active g[data-annotation-kind="shape"][data-annotation-id]')).map(element => element.getAttribute('data-annotation-id')),
-                shapeHitTargets: Array.from(document.querySelectorAll('.editor-pane.is-active g[data-annotation-kind="shape"][data-annotation-id] [data-annotation-hit-target]')).length,
+                shapeIds: Array.from(
+                    document.querySelectorAll('.editor-pane.is-active g[data-annotation-kind="shape"][data-annotation-id]'),
+                ).map((element) => element.getAttribute('data-annotation-id')),
+                shapeHitTargets: Array.from(
+                    document.querySelectorAll(
+                        '.editor-pane.is-active g[data-annotation-kind="shape"][data-annotation-id] [data-annotation-hit-target]',
+                    ),
+                ).length,
             };
         });
-        throw new Error(`Visible shape selection UI remained: ${JSON.stringify(state)}. ${error instanceof Error ? error.message : String(error)}`);
+        throw new Error(
+            `Visible shape selection UI remained: ${JSON.stringify(state)}. ${error instanceof Error ? error.message : String(error)}`,
+        );
     }
 }
 
 async function waitForShapeSelectionUi(page: Page) {
-    await waitForFunctionInPage(page, () => {
-        const isVisibleHost = (element: HTMLElement) => {
-            const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
-        };
-        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-            .filter(isVisibleHost);
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const host = (activeHost && visibleHosts.includes(activeHost))
-            ? activeHost
-            : (visibleHosts.length === 1 ? visibleHosts[0] : null);
-        return Boolean(host?.querySelector('.pdf-annotation-editor-layer g[data-annotation-kind="shape"][data-annotation-id].is-selected'));
-    }, { timeout: 10_000 });
+    await waitForFunctionInPage(
+        page,
+        () => {
+            const isVisibleHost = (element: HTMLElement) => {
+                const rect = element.getBoundingClientRect();
+                const style = window.getComputedStyle(element);
+                return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
+            };
+            const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).filter(isVisibleHost);
+            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+            const host = activeHost && visibleHosts.includes(activeHost) ? activeHost : visibleHosts.length === 1 ? visibleHosts[0] : null;
+            return Boolean(
+                host?.querySelector('.pdf-annotation-editor-layer g[data-annotation-kind="shape"][data-annotation-id].is-selected'),
+            );
+        },
+        {timeout: 10_000},
+    );
 }
 
 async function waitForActiveColorIndicator(page: Page) {
-    await waitForFunctionInPage(page, () => {
-        const isVisibleHost = (element: HTMLElement) => {
-            const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
-        };
-        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-            .filter(isVisibleHost);
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const host = (activeHost && visibleHosts.includes(activeHost))
-            ? activeHost
-            : (visibleHosts.length === 1 ? visibleHosts[0] : null);
-        const swatches = Array.from(host?.querySelectorAll<HTMLButtonElement>('.notes-panel .swatch') ?? []);
-        return swatches.some(swatch => swatch.classList.contains('is-active'));
-    }, { timeout: 10_000 });
+    await waitForFunctionInPage(
+        page,
+        () => {
+            const isVisibleHost = (element: HTMLElement) => {
+                const rect = element.getBoundingClientRect();
+                const style = window.getComputedStyle(element);
+                return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
+            };
+            const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).filter(isVisibleHost);
+            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+            const host = activeHost && visibleHosts.includes(activeHost) ? activeHost : visibleHosts.length === 1 ? visibleHosts[0] : null;
+            const swatches = Array.from(host?.querySelectorAll<HTMLButtonElement>('.notes-panel .swatch') ?? []);
+            return swatches.some((swatch) => swatch.classList.contains('is-active'));
+        },
+        {timeout: 10_000},
+    );
 }
 
-async function waitForNoVisibleInkAtPoint(page: Page, point: {
-    x: number;
-    y: number;
-}, pageNumber = 1) {
-    await waitForFunctionInPage(page, ({
-        targetPageNumber,
-        ratioX,
-        ratioY,
-    }: {
-        targetPageNumber: number;
-        ratioX: number;
-        ratioY: number;
-    }) => {
-        const isVisibleHost = (element: HTMLElement) => {
-            const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
-        };
-        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-            .filter(isVisibleHost);
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const host = (activeHost && visibleHosts.includes(activeHost))
-            ? activeHost
-            : (visibleHosts.length === 1 ? visibleHosts[0] : null);
-        const pageContainer = host?.querySelector<HTMLElement>(
-            `.page_container[data-page="${targetPageNumber}"]`,
-        ) ?? null;
-        if (!pageContainer) {
-            return false;
-        }
-
-        const pageRect = pageContainer.getBoundingClientRect();
-        if (pageRect.width <= 0 || pageRect.height <= 0) {
-            return false;
-        }
-
-        const canvases = Array.from(pageContainer.querySelectorAll<HTMLCanvasElement>('canvas'));
-        if (canvases.length === 0) {
-            return false;
-        }
-
-        const hasVisibleInk = canvases.some((canvas) => {
-            const rect = canvas.getBoundingClientRect();
-            if (rect.width <= 0 || rect.height <= 0 || canvas.width <= 0 || canvas.height <= 0) {
+async function waitForNoVisibleInkAtPoint(
+    page: Page,
+    point: {
+        x: number;
+        y: number;
+    },
+    pageNumber = 1,
+) {
+    await waitForFunctionInPage(
+        page,
+        ({targetPageNumber, ratioX, ratioY}: {targetPageNumber: number; ratioX: number; ratioY: number}) => {
+            const isVisibleHost = (element: HTMLElement) => {
+                const rect = element.getBoundingClientRect();
+                const style = window.getComputedStyle(element);
+                return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
+            };
+            const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).filter(isVisibleHost);
+            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+            const host = activeHost && visibleHosts.includes(activeHost) ? activeHost : visibleHosts.length === 1 ? visibleHosts[0] : null;
+            const pageContainer = host?.querySelector<HTMLElement>(`.page_container[data-page="${targetPageNumber}"]`) ?? null;
+            if (!pageContainer) {
                 return false;
             }
 
-            const context = canvas.getContext('2d', { willReadFrequently: true });
-            if (!context) {
+            const pageRect = pageContainer.getBoundingClientRect();
+            if (pageRect.width <= 0 || pageRect.height <= 0) {
                 return false;
             }
 
-            const scaleX = canvas.width / rect.width;
-            const scaleY = canvas.height / rect.height;
-            const centerX = Math.round((rect.width * ratioX) * scaleX);
-            const centerY = Math.round((rect.height * ratioY) * scaleY);
-            const radius = Math.max(2, Math.round(Math.max(scaleX, scaleY) * 5));
-            const startX = Math.max(0, centerX - radius);
-            const startY = Math.max(0, centerY - radius);
-            const width = Math.min(canvas.width - startX, (radius * 2) + 1);
-            const height = Math.min(canvas.height - startY, (radius * 2) + 1);
-
-            if (width <= 0 || height <= 0) {
-                return false;
-            }
-
-            const imageData = context.getImageData(startX, startY, width, height).data;
-            for (let index = 0; index < imageData.length; index += 4) {
-                const alpha = imageData[index + 3] ?? 0;
-                if (alpha === 0) {
-                    continue;
-                }
-
-                const red = imageData[index] ?? 0;
-                const green = imageData[index + 1] ?? 0;
-                const blue = imageData[index + 2] ?? 0;
-                const isBlankPagePixel = red >= 248 && green >= 248 && blue >= 248;
-                if (!isBlankPagePixel) {
-                    return true;
-                }
-            }
-
-            return false;
-        });
-
-        const clientX = pageRect.left + pageRect.width * ratioX;
-        const clientY = pageRect.top + pageRect.height * ratioY;
-        const overlay = pageContainer.querySelector<SVGElement>('.pdf-annotation-editor-layer');
-        const isVisibleGhostElement = (element: Element) => {
-            if (overlay?.contains(element) || element.closest('.pdf-annotation-editor-layer')) {
-                return false;
-            }
-
-            const rect = element.getBoundingClientRect();
-            if (
-                rect.width <= 0
-                || rect.height <= 0
-                || clientX < (rect.left - 2)
-                || clientX > (rect.right + 2)
-                || clientY < (rect.top - 2)
-                || clientY > (rect.bottom + 2)
-            ) {
-                return false;
-            }
-
-            const style = window.getComputedStyle(element);
-            if (
-                style.display === 'none'
-                || style.visibility === 'hidden'
-                || Number(style.opacity || '1') === 0
-            ) {
-                return false;
-            }
-
-            if (element instanceof HTMLElement && element.hidden) {
-                return false;
-            }
-
-            return true;
-        };
-        const hasVisibleLayerGhost = (
-            Array.from(pageContainer.querySelectorAll(
-                '.pdf-annotation-editor-layer [data-annotation-id][data-annotation-kind="shape"]',
-            )).some(isVisibleGhostElement)
-            || Array.from(pageContainer.querySelectorAll(
-                '.pdf-annotation-editor-layer svg polyline',
-            )).some(isVisibleGhostElement)
-            || document.elementsFromPoint(clientX, clientY).some((element) => {
-                if (!(element instanceof Element)) {
-                    return false;
-                }
-
-                const layerElement = element.closest('.pdf-annotation-editor-layer');
-                if (!layerElement || !pageContainer.contains(layerElement) || element === layerElement) {
-                    return false;
-                }
-
-                return isVisibleGhostElement(element)
-                    && Boolean(
-                        element instanceof SVGElement
-                        || Boolean(element.closest('[data-annotation-id]')),
-                    );
-            })
-        );
-
-        return !hasVisibleInk && !hasVisibleLayerGhost;
-    }, { timeout: 15_000 }, {
-        targetPageNumber: pageNumber,
-        ratioX: point.x,
-        ratioY: point.y,
-    });
-}
-
-async function hasVisibleCanvasInkAtPointWithOverlayHidden(page: Page, point: {
-    x: number;
-    y: number;
-}, pageNumber = 1) {
-    return evaluateInPage(page, ({
-        targetPageNumber,
-        ratioX,
-        ratioY,
-    }: {
-        targetPageNumber: number;
-        ratioX: number;
-        ratioY: number;
-    }) => {
-        const isVisibleHost = (element: HTMLElement) => {
-            const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
-        };
-        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-            .filter(isVisibleHost);
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const host = (activeHost && visibleHosts.includes(activeHost))
-            ? activeHost
-            : (visibleHosts.length === 1 ? visibleHosts[0] : null);
-        const pageContainer = host?.querySelector<HTMLElement>(
-            `.page_container[data-page="${targetPageNumber}"]`,
-        ) ?? null;
-        if (!pageContainer) {
-            return false;
-        }
-
-        const overlay = pageContainer.querySelector<SVGElement>('.pdf-annotation-editor-layer');
-        const previousDisplay = overlay?.style.display ?? '';
-        if (overlay) {
-            overlay.style.display = 'none';
-        }
-
-        try {
             const canvases = Array.from(pageContainer.querySelectorAll<HTMLCanvasElement>('canvas'));
-            return canvases.some((canvas) => {
+            if (canvases.length === 0) {
+                return false;
+            }
+
+            const hasVisibleInk = canvases.some((canvas) => {
                 const rect = canvas.getBoundingClientRect();
                 if (rect.width <= 0 || rect.height <= 0 || canvas.width <= 0 || canvas.height <= 0) {
                     return false;
                 }
 
-                const context = canvas.getContext('2d', { willReadFrequently: true });
+                const context = canvas.getContext('2d', {willReadFrequently: true});
                 if (!context) {
                     return false;
                 }
 
                 const scaleX = canvas.width / rect.width;
                 const scaleY = canvas.height / rect.height;
-                const centerX = Math.round((rect.width * ratioX) * scaleX);
-                const centerY = Math.round((rect.height * ratioY) * scaleY);
-                const radius = Math.max(4, Math.round(Math.max(scaleX, scaleY) * 8));
+                const centerX = Math.round(rect.width * ratioX * scaleX);
+                const centerY = Math.round(rect.height * ratioY * scaleY);
+                const radius = Math.max(2, Math.round(Math.max(scaleX, scaleY) * 5));
                 const startX = Math.max(0, centerX - radius);
                 const startY = Math.max(0, centerY - radius);
-                const width = Math.min(canvas.width - startX, (radius * 2) + 1);
-                const height = Math.min(canvas.height - startY, (radius * 2) + 1);
+                const width = Math.min(canvas.width - startX, radius * 2 + 1);
+                const height = Math.min(canvas.height - startY, radius * 2 + 1);
 
                 if (width <= 0 || height <= 0) {
                     return false;
@@ -850,54 +698,197 @@ async function hasVisibleCanvasInkAtPointWithOverlayHidden(page: Page, point: {
 
                 return false;
             });
-        } finally {
-            if (overlay) {
-                overlay.style.display = previousDisplay;
+
+            const clientX = pageRect.left + pageRect.width * ratioX;
+            const clientY = pageRect.top + pageRect.height * ratioY;
+            const overlay = pageContainer.querySelector<SVGElement>('.pdf-annotation-editor-layer');
+            const isVisibleGhostElement = (element: Element) => {
+                if (overlay?.contains(element) || element.closest('.pdf-annotation-editor-layer')) {
+                    return false;
+                }
+
+                const rect = element.getBoundingClientRect();
+                if (
+                    rect.width <= 0 ||
+                    rect.height <= 0 ||
+                    clientX < rect.left - 2 ||
+                    clientX > rect.right + 2 ||
+                    clientY < rect.top - 2 ||
+                    clientY > rect.bottom + 2
+                ) {
+                    return false;
+                }
+
+                const style = window.getComputedStyle(element);
+                if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity || '1') === 0) {
+                    return false;
+                }
+
+                if (element instanceof HTMLElement && element.hidden) {
+                    return false;
+                }
+
+                return true;
+            };
+            const hasVisibleLayerGhost =
+                Array.from(
+                    pageContainer.querySelectorAll('.pdf-annotation-editor-layer [data-annotation-id][data-annotation-kind="shape"]'),
+                ).some(isVisibleGhostElement) ||
+                Array.from(pageContainer.querySelectorAll('.pdf-annotation-editor-layer svg polyline')).some(isVisibleGhostElement) ||
+                document.elementsFromPoint(clientX, clientY).some((element) => {
+                    if (!(element instanceof Element)) {
+                        return false;
+                    }
+
+                    const layerElement = element.closest('.pdf-annotation-editor-layer');
+                    if (!layerElement || !pageContainer.contains(layerElement) || element === layerElement) {
+                        return false;
+                    }
+
+                    return (
+                        isVisibleGhostElement(element) &&
+                        Boolean(element instanceof SVGElement || Boolean(element.closest('[data-annotation-id]')))
+                    );
+                });
+
+            return !hasVisibleInk && !hasVisibleLayerGhost;
+        },
+        {timeout: 15_000},
+        {
+            targetPageNumber: pageNumber,
+            ratioX: point.x,
+            ratioY: point.y,
+        },
+    );
+}
+
+async function hasVisibleCanvasInkAtPointWithOverlayHidden(
+    page: Page,
+    point: {
+        x: number;
+        y: number;
+    },
+    pageNumber = 1,
+) {
+    return evaluateInPage(
+        page,
+        ({targetPageNumber, ratioX, ratioY}: {targetPageNumber: number; ratioX: number; ratioY: number}) => {
+            const isVisibleHost = (element: HTMLElement) => {
+                const rect = element.getBoundingClientRect();
+                const style = window.getComputedStyle(element);
+                return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
+            };
+            const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).filter(isVisibleHost);
+            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+            const host = activeHost && visibleHosts.includes(activeHost) ? activeHost : visibleHosts.length === 1 ? visibleHosts[0] : null;
+            const pageContainer = host?.querySelector<HTMLElement>(`.page_container[data-page="${targetPageNumber}"]`) ?? null;
+            if (!pageContainer) {
+                return false;
             }
-        }
-    }, {
-        targetPageNumber: pageNumber,
-        ratioX: point.x,
-        ratioY: point.y,
-    });
+
+            const overlay = pageContainer.querySelector<SVGElement>('.pdf-annotation-editor-layer');
+            const previousDisplay = overlay?.style.display ?? '';
+            if (overlay) {
+                overlay.style.display = 'none';
+            }
+
+            try {
+                const canvases = Array.from(pageContainer.querySelectorAll<HTMLCanvasElement>('canvas'));
+                return canvases.some((canvas) => {
+                    const rect = canvas.getBoundingClientRect();
+                    if (rect.width <= 0 || rect.height <= 0 || canvas.width <= 0 || canvas.height <= 0) {
+                        return false;
+                    }
+
+                    const context = canvas.getContext('2d', {willReadFrequently: true});
+                    if (!context) {
+                        return false;
+                    }
+
+                    const scaleX = canvas.width / rect.width;
+                    const scaleY = canvas.height / rect.height;
+                    const centerX = Math.round(rect.width * ratioX * scaleX);
+                    const centerY = Math.round(rect.height * ratioY * scaleY);
+                    const radius = Math.max(4, Math.round(Math.max(scaleX, scaleY) * 8));
+                    const startX = Math.max(0, centerX - radius);
+                    const startY = Math.max(0, centerY - radius);
+                    const width = Math.min(canvas.width - startX, radius * 2 + 1);
+                    const height = Math.min(canvas.height - startY, radius * 2 + 1);
+
+                    if (width <= 0 || height <= 0) {
+                        return false;
+                    }
+
+                    const imageData = context.getImageData(startX, startY, width, height).data;
+                    for (let index = 0; index < imageData.length; index += 4) {
+                        const alpha = imageData[index + 3] ?? 0;
+                        if (alpha === 0) {
+                            continue;
+                        }
+
+                        const red = imageData[index] ?? 0;
+                        const green = imageData[index + 1] ?? 0;
+                        const blue = imageData[index + 2] ?? 0;
+                        const isBlankPagePixel = red >= 248 && green >= 248 && blue >= 248;
+                        if (!isBlankPagePixel) {
+                            return true;
+                        }
+                    }
+
+                    return false;
+                });
+            } finally {
+                if (overlay) {
+                    overlay.style.display = previousDisplay;
+                }
+            }
+        },
+        {
+            targetPageNumber: pageNumber,
+            ratioX: point.x,
+            ratioY: point.y,
+        },
+    );
 }
 
 async function getManagedShapeDebugState(page: Page) {
-    const [
-        domState,
-        shapeResult,
-        deletedAnnotationIds,
-        deletedStableKeys,
-        viewerState,
-    ] = await Promise.all([
+    const [domState, shapeResult, deletedAnnotationIds, deletedStableKeys, viewerState] = await Promise.all([
         evaluateInPage(page, () => {
             const isVisibleHost = (element: HTMLElement) => {
                 const rect = element.getBoundingClientRect();
                 const style = window.getComputedStyle(element);
                 return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
             };
-            const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-                .filter(isVisibleHost);
+            const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).filter(isVisibleHost);
             const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-            const host = (activeHost && visibleHosts.includes(activeHost))
-                ? activeHost
-                : (visibleHosts.length === 1 ? visibleHosts[0] : null);
-            const shapeElements = Array.from(host?.querySelectorAll<SVGGElement>('.pdf-annotation-editor-layer g[data-annotation-kind="shape"][data-annotation-id]') ?? []);
-            const shapeHitTestIds = shapeElements.flatMap(shape => {
+            const host = activeHost && visibleHosts.includes(activeHost) ? activeHost : visibleHosts.length === 1 ? visibleHosts[0] : null;
+            const shapeElements = Array.from(
+                host?.querySelectorAll<SVGGElement>('.pdf-annotation-editor-layer g[data-annotation-kind="shape"][data-annotation-id]') ??
+                    [],
+            );
+            const shapeHitTestIds = shapeElements.flatMap((shape) => {
                 const rect = shape.getBoundingClientRect();
                 if (rect.width <= 0 || rect.height <= 0) {
                     return [];
                 }
-                const hit = document.elementsFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
-                    .map(element => element.closest<SVGGElement>('g[data-annotation-kind="shape"][data-annotation-id]')?.getAttribute('data-annotation-id') ?? null)
+                const hit = document
+                    .elementsFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)
+                    .map(
+                        (element) =>
+                            element
+                                .closest<SVGGElement>('g[data-annotation-kind="shape"][data-annotation-id]')
+                                ?.getAttribute('data-annotation-id') ?? null,
+                    )
                     .find(Boolean);
                 return hit ? [hit] : [];
             });
             return {
                 hasWorkspace: Boolean(host),
                 domShapeCount: shapeElements.length,
-                domShapeIds: shapeElements.map(shape => shape.getAttribute('data-annotation-id')),
-                domSelectedShapeIds: shapeElements.filter(shape => shape.classList.contains('is-selected')).map(shape => shape.getAttribute('data-annotation-id')),
+                domShapeIds: shapeElements.map((shape) => shape.getAttribute('data-annotation-id')),
+                domSelectedShapeIds: shapeElements
+                    .filter((shape) => shape.classList.contains('is-selected'))
+                    .map((shape) => shape.getAttribute('data-annotation-id')),
                 shapeHitTestIds,
                 visibleSelectionUi: Boolean(host?.querySelector('.pdf-annotation-selection-handles')),
                 visiblePropertiesPopup: Boolean(document.querySelector('.annotation-properties')),
@@ -910,11 +901,7 @@ async function getManagedShapeDebugState(page: Page) {
             hasShapes?: boolean;
             hiddenEmbeddedAnnotationIds?: string[];
             selectedShapeId?: string | null;
-        }>(page, [
-            'hasShapes',
-            'hiddenEmbeddedAnnotationIds',
-            'selectedShapeId',
-        ], {
+        }>(page, ['hasShapes', 'hiddenEmbeddedAnnotationIds', 'selectedShapeId'], {
             requiredMethods: ['getAllShapes'],
             requiredProperties: [],
         }),
@@ -931,7 +918,7 @@ async function getManagedShapeDebugState(page: Page) {
         selectedShapeId: domSelectedShapeId,
         exposedHasShapes: Boolean(viewerState.hasShapes),
         exposedSelectedShapeId: viewerState.selectedShapeId ?? null,
-        shapes: shapes.map(shape => ({
+        shapes: shapes.map((shape) => ({
             id: shape.id,
             pageIndex: shape.pageIndex ?? null,
             type: shape.type ?? null,
@@ -944,7 +931,7 @@ async function getManagedShapeDebugState(page: Page) {
             annotationId: shape.annotationId ?? null,
             stableKey: shape.stableKey ?? null,
             points: shape.points?.slice(0, 6) ?? null,
-            strokes: shape.strokes?.slice(0, 2).map(points => points.slice(0, 6)) ?? null,
+            strokes: shape.strokes?.slice(0, 2).map((points) => points.slice(0, 6)) ?? null,
         })),
         deletedAnnotationIds: deletedAnnotationIds.value ?? [],
         deletedStableKeys: deletedStableKeys.value ?? [],
@@ -953,15 +940,10 @@ async function getManagedShapeDebugState(page: Page) {
 }
 
 async function getFirstManagedShapeStrokeMetrics(page: Page) {
-    const [
-        shapeResult,
-        paint,
-    ] = await Promise.all([
+    const [shapeResult, paint] = await Promise.all([
         callWorkspaceCommand<IManagedShapeDebugShape[]>(page, 'getAllShapes'),
         evaluateInPage(page, () => {
-            const pageContainer = document.querySelector<HTMLElement>(
-                '.editor-pane.is-active .page_container[data-page="1"]',
-            );
+            const pageContainer = document.querySelector<HTMLElement>('.editor-pane.is-active .page_container[data-page="1"]');
             const visual = pageContainer?.querySelector<SVGGeometryElement>(
                 '.pdf-annotation-editor-layer g[data-annotation-kind="shape"][data-annotation-id] [data-annotation-visual] polyline',
             );
@@ -987,51 +969,47 @@ async function getFirstManagedShapeStrokeMetrics(page: Page) {
     };
 }
 
-async function getPointInteractionDebugState(page: Page, point: {
-    x: number;
-    y: number;
-}, pageNumber = 1) {
-    return evaluateInPage(page, ({
-        ratioX,
-        ratioY,
-        targetPageNumber,
-    }: {
-        ratioX: number;
-        ratioY: number;
-        targetPageNumber: number;
-    }) => {
-        const isVisibleHost = (element: HTMLElement) => {
-            const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
-        };
-        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-            .filter(isVisibleHost);
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const host = (activeHost && visibleHosts.includes(activeHost))
-            ? activeHost
-            : (visibleHosts.length === 1 ? visibleHosts[0] : null);
-        const pageContainer = host?.querySelector<HTMLElement>(`.page_container[data-page="${targetPageNumber}"]`) ?? null;
-        const overlay = pageContainer?.querySelector<SVGElement>('.pdf-annotation-editor-layer') ?? null;
-        if (!pageContainer || !overlay) {
-            return null;
-        }
+async function getPointInteractionDebugState(
+    page: Page,
+    point: {
+        x: number;
+        y: number;
+    },
+    pageNumber = 1,
+) {
+    return evaluateInPage(
+        page,
+        ({ratioX, ratioY, targetPageNumber}: {ratioX: number; ratioY: number; targetPageNumber: number}) => {
+            const isVisibleHost = (element: HTMLElement) => {
+                const rect = element.getBoundingClientRect();
+                const style = window.getComputedStyle(element);
+                return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 100 && rect.height > 100;
+            };
+            const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).filter(isVisibleHost);
+            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+            const host = activeHost && visibleHosts.includes(activeHost) ? activeHost : visibleHosts.length === 1 ? visibleHosts[0] : null;
+            const pageContainer = host?.querySelector<HTMLElement>(`.page_container[data-page="${targetPageNumber}"]`) ?? null;
+            const overlay = pageContainer?.querySelector<SVGElement>('.pdf-annotation-editor-layer') ?? null;
+            if (!pageContainer || !overlay) {
+                return null;
+            }
 
-        const overlayRect = overlay.getBoundingClientRect();
-        const clientX = overlayRect.left + overlayRect.width * ratioX;
-        const clientY = overlayRect.top + overlayRect.height * ratioY;
-        const elementStack = document.elementsFromPoint(clientX, clientY)
-            .slice(0, 12)
-            .map((element) => ({
-                tag: element.tagName,
-                className: element instanceof HTMLElement || element instanceof SVGElement
-                    ? element.className.baseVal ?? element.className ?? ''
-                    : '',
-                dataAnnotationId: element instanceof HTMLElement ? element.dataset.annotationId ?? null : null,
-            }));
+            const overlayRect = overlay.getBoundingClientRect();
+            const clientX = overlayRect.left + overlayRect.width * ratioX;
+            const clientY = overlayRect.top + overlayRect.height * ratioY;
+            const elementStack = document
+                .elementsFromPoint(clientX, clientY)
+                .slice(0, 12)
+                .map((element) => ({
+                    tag: element.tagName,
+                    className:
+                        element instanceof HTMLElement || element instanceof SVGElement
+                            ? (element.className.baseVal ?? element.className ?? '')
+                            : '',
+                    dataAnnotationId: element instanceof HTMLElement ? (element.dataset.annotationId ?? null) : null,
+                }));
 
-        const overlayShapes = Array.from(overlay.querySelectorAll('g'))
-            .map((group, index) => ({
+            const overlayShapes = Array.from(overlay.querySelectorAll('g')).map((group, index) => ({
                 index,
                 className: group.getAttribute('class') ?? '',
                 bbox: (() => {
@@ -1049,17 +1027,19 @@ async function getPointInteractionDebugState(page: Page, point: {
                 })(),
             }));
 
-        return {
-            clientX,
-            clientY,
-            elementStack,
-            overlayShapes,
-        };
-    }, {
-        ratioX: point.x,
-        ratioY: point.y,
-        targetPageNumber: pageNumber,
-    });
+            return {
+                clientX,
+                clientY,
+                elementStack,
+                overlayShapes,
+            };
+        },
+        {
+            ratioX: point.x,
+            ratioY: point.y,
+            targetPageNumber: pageNumber,
+        },
+    );
 }
 
 async function waitForAllShapesEmbedded(page: Page, expectedCount: number) {
@@ -1068,8 +1048,8 @@ async function waitForAllShapesEmbedded(page: Page, expectedCount: number) {
     while (Date.now() - startedAt < 20_000) {
         shapes = (await callWorkspaceCommand<IManagedShapeDebugShape[]>(page, 'getAllShapes')).value ?? [];
         if (
-            shapes.length === expectedCount
-            && shapes.every(shape => shape.source === 'embedded' && typeof shape.annotationId === 'string' && shape.annotationId.length > 0)
+            shapes.length === expectedCount &&
+            shapes.every((shape) => shape.source === 'embedded' && typeof shape.annotationId === 'string' && shape.annotationId.length > 0)
         ) {
             return;
         }
@@ -1139,11 +1119,7 @@ interface IReopenScenarioStep {
     expectNoCanvasInkForShapes?: readonly number[];
 }
 
-type TScenarioStep =
-    | IDrawScenarioStep
-    | ISaveScenarioStep
-    | IDeleteScenarioStep
-    | IReopenScenarioStep;
+type TScenarioStep = IDrawScenarioStep | ISaveScenarioStep | IDeleteScenarioStep | IReopenScenarioStep;
 
 interface ISavedShapeDeleteScenario {
     name: string;
@@ -1174,12 +1150,7 @@ const ink = (
     drawMode,
 });
 
-const line = (
-    color: string,
-    start: IDrawShapePoint,
-    end: IDrawShapePoint,
-    hit: IDrawShapePoint,
-): ILineScenarioShape => ({
+const line = (color: string, start: IDrawShapePoint, end: IDrawShapePoint, hit: IDrawShapePoint): ILineScenarioShape => ({
     kind: 'line',
     color,
     start,
@@ -1188,122 +1159,53 @@ const line = (
 });
 
 const baseInkStrokes = [
-    ink('#ef4444', p(0.24, 0.24), [
-        p(0.18, 0.2),
-        p(0.24, 0.24),
-        p(0.31, 0.3),
-    ]),
-    ink('#22c55e', p(0.56, 0.34), [
-        p(0.46, 0.28),
-        p(0.56, 0.34),
-        p(0.66, 0.42),
-    ]),
-    ink('#3b82f6', p(0.34, 0.62), [
-        p(0.22, 0.58),
-        p(0.34, 0.62),
-        p(0.46, 0.7),
-    ]),
+    ink('#ef4444', p(0.24, 0.24), [p(0.18, 0.2), p(0.24, 0.24), p(0.31, 0.3)]),
+    ink('#22c55e', p(0.56, 0.34), [p(0.46, 0.28), p(0.56, 0.34), p(0.66, 0.42)]),
+    ink('#3b82f6', p(0.34, 0.62), [p(0.22, 0.58), p(0.34, 0.62), p(0.46, 0.7)]),
 ] as const;
 
 const mouseInkStrokes = [
-    ink('#ef4444', p(0.24, 0.24), [
-        p(0.14, 0.18),
-        p(0.18, 0.2),
-        p(0.22, 0.225),
+    ink(
+        '#ef4444',
         p(0.24, 0.24),
-        p(0.265, 0.262),
-        p(0.29, 0.285),
-        p(0.31, 0.3),
-    ], 'mouse'),
-    ink('#22c55e', p(0.56, 0.34), [
-        p(0.42, 0.255),
-        p(0.46, 0.28),
-        p(0.5, 0.305),
+        [p(0.14, 0.18), p(0.18, 0.2), p(0.22, 0.225), p(0.24, 0.24), p(0.265, 0.262), p(0.29, 0.285), p(0.31, 0.3)],
+        'mouse',
+    ),
+    ink(
+        '#22c55e',
         p(0.56, 0.34),
-        p(0.6, 0.365),
-        p(0.63, 0.39),
-        p(0.66, 0.42),
-    ], 'mouse'),
-    ink('#3b82f6', p(0.34, 0.62), [
-        p(0.18, 0.555),
-        p(0.22, 0.58),
-        p(0.27, 0.595),
+        [p(0.42, 0.255), p(0.46, 0.28), p(0.5, 0.305), p(0.56, 0.34), p(0.6, 0.365), p(0.63, 0.39), p(0.66, 0.42)],
+        'mouse',
+    ),
+    ink(
+        '#3b82f6',
         p(0.34, 0.62),
-        p(0.39, 0.652),
-        p(0.43, 0.678),
-        p(0.46, 0.7),
-    ], 'mouse'),
+        [p(0.18, 0.555), p(0.22, 0.58), p(0.27, 0.595), p(0.34, 0.62), p(0.39, 0.652), p(0.43, 0.678), p(0.46, 0.7)],
+        'mouse',
+    ),
 ] as const;
 
 const fiveInkStrokes = [
-    ink('#ef4444', p(0.18, 0.2), [
-        p(0.14, 0.17),
-        p(0.18, 0.2),
-        p(0.24, 0.24),
-    ]),
-    ink('#22c55e', p(0.34, 0.3), [
-        p(0.3, 0.27),
-        p(0.34, 0.3),
-        p(0.4, 0.35),
-    ]),
-    ink('#3b82f6', p(0.54, 0.38), [
-        p(0.48, 0.34),
-        p(0.54, 0.38),
-        p(0.6, 0.43),
-    ]),
-    ink('#ffd400', p(0.3, 0.58), [
-        p(0.24, 0.54),
-        p(0.3, 0.58),
-        p(0.36, 0.63),
-    ]),
-    ink('#8b5cf6', p(0.62, 0.66), [
-        p(0.56, 0.61),
-        p(0.62, 0.66),
-        p(0.69, 0.71),
-    ]),
+    ink('#ef4444', p(0.18, 0.2), [p(0.14, 0.17), p(0.18, 0.2), p(0.24, 0.24)]),
+    ink('#22c55e', p(0.34, 0.3), [p(0.3, 0.27), p(0.34, 0.3), p(0.4, 0.35)]),
+    ink('#3b82f6', p(0.54, 0.38), [p(0.48, 0.34), p(0.54, 0.38), p(0.6, 0.43)]),
+    ink('#ffd400', p(0.3, 0.58), [p(0.24, 0.54), p(0.3, 0.58), p(0.36, 0.63)]),
+    ink('#8b5cf6', p(0.62, 0.66), [p(0.56, 0.61), p(0.62, 0.66), p(0.69, 0.71)]),
 ] as const;
 
 const multiRoundInkStrokes = [
     ...fiveInkStrokes.slice(0, 3),
-    ink('#ffd400', p(0.28, 0.56), [
-        p(0.23, 0.52),
-        p(0.28, 0.56),
-        p(0.34, 0.61),
-    ]),
-    ink('#8b5cf6', p(0.5, 0.6), [
-        p(0.45, 0.56),
-        p(0.5, 0.6),
-        p(0.56, 0.65),
-    ]),
-    ink('#f59e0b', p(0.7, 0.67), [
-        p(0.64, 0.62),
-        p(0.7, 0.67),
-        p(0.76, 0.72),
-    ]),
-    ink('#06b6d4', p(0.16, 0.14), [
-        p(0.12, 0.1),
-        p(0.16, 0.14),
-        p(0.22, 0.19),
-    ]),
-    ink('#ec4899', p(0.44, 0.18), [
-        p(0.39, 0.14),
-        p(0.44, 0.18),
-        p(0.5, 0.23),
-    ]),
-    ink('#111827', p(0.7, 0.22), [
-        p(0.64, 0.18),
-        p(0.7, 0.22),
-        p(0.76, 0.26),
-    ]),
+    ink('#ffd400', p(0.28, 0.56), [p(0.23, 0.52), p(0.28, 0.56), p(0.34, 0.61)]),
+    ink('#8b5cf6', p(0.5, 0.6), [p(0.45, 0.56), p(0.5, 0.6), p(0.56, 0.65)]),
+    ink('#f59e0b', p(0.7, 0.67), [p(0.64, 0.62), p(0.7, 0.67), p(0.76, 0.72)]),
+    ink('#06b6d4', p(0.16, 0.14), [p(0.12, 0.1), p(0.16, 0.14), p(0.22, 0.19)]),
+    ink('#ec4899', p(0.44, 0.18), [p(0.39, 0.14), p(0.44, 0.18), p(0.5, 0.23)]),
+    ink('#111827', p(0.7, 0.22), [p(0.64, 0.18), p(0.7, 0.22), p(0.76, 0.26)]),
 ] as const;
 
 const successiveCycleInkStrokes = [
     ...baseInkStrokes,
-    ink('#f59e0b', p(0.65, 0.64), [
-        p(0.54, 0.56),
-        p(0.65, 0.64),
-        p(0.74, 0.72),
-    ]),
+    ink('#f59e0b', p(0.65, 0.64), [p(0.54, 0.56), p(0.65, 0.64), p(0.74, 0.72)]),
 ] as const;
 
 const baseLines = [
@@ -1320,11 +1222,7 @@ const savedShapeDeleteScenarios = [
         steps: [
             {
                 action: 'draw',
-                shapeIndexes: [
-                    0,
-                    1,
-                    2,
-                ],
+                shapeIndexes: [0, 1, 2],
                 expectCount: 3,
             },
             {
@@ -1332,11 +1230,7 @@ const savedShapeDeleteScenarios = [
                 via: 'handle',
                 settle: 'embedded',
                 expectDiskCount: 3,
-                expectNoCanvasInkForShapes: [
-                    0,
-                    1,
-                    2,
-                ],
+                expectNoCanvasInkForShapes: [0, 1, 2],
             },
             {
                 action: 'delete',
@@ -1364,13 +1258,7 @@ const savedShapeDeleteScenarios = [
         steps: [
             {
                 action: 'draw',
-                shapeIndexes: [
-                    0,
-                    1,
-                    2,
-                    3,
-                    4,
-                ],
+                shapeIndexes: [0, 1, 2, 3, 4],
                 expectCount: 5,
             },
             {
@@ -1417,11 +1305,7 @@ const savedShapeDeleteScenarios = [
         steps: [
             {
                 action: 'draw',
-                shapeIndexes: [
-                    0,
-                    1,
-                    2,
-                ],
+                shapeIndexes: [0, 1, 2],
                 expectCount: 3,
             },
             {
@@ -1461,11 +1345,7 @@ const savedShapeDeleteScenarios = [
         steps: [
             {
                 action: 'draw',
-                shapeIndexes: [
-                    0,
-                    1,
-                    2,
-                ],
+                shapeIndexes: [0, 1, 2],
                 expectCount: 3,
             },
             {
@@ -1503,11 +1383,7 @@ const savedShapeDeleteScenarios = [
         steps: [
             {
                 action: 'draw',
-                shapeIndexes: [
-                    0,
-                    1,
-                    2,
-                ],
+                shapeIndexes: [0, 1, 2],
                 expectCount: 3,
             },
             {
@@ -1543,11 +1419,7 @@ const savedShapeDeleteScenarios = [
         steps: [
             {
                 action: 'draw',
-                shapeIndexes: [
-                    0,
-                    1,
-                    2,
-                ],
+                shapeIndexes: [0, 1, 2],
                 expectCount: 3,
             },
             {
@@ -1581,11 +1453,7 @@ const savedShapeDeleteScenarios = [
         steps: [
             {
                 action: 'draw',
-                shapeIndexes: [
-                    0,
-                    1,
-                    2,
-                ],
+                shapeIndexes: [0, 1, 2],
                 expectCount: 3,
             },
             {
@@ -1628,11 +1496,7 @@ const savedShapeDeleteScenarios = [
         steps: [
             {
                 action: 'draw',
-                shapeIndexes: [
-                    0,
-                    1,
-                    2,
-                ],
+                shapeIndexes: [0, 1, 2],
                 expectCount: 3,
             },
             {
@@ -1668,11 +1532,7 @@ const savedShapeDeleteScenarios = [
         steps: [
             {
                 action: 'draw',
-                shapeIndexes: [
-                    0,
-                    1,
-                    2,
-                ],
+                shapeIndexes: [0, 1, 2],
                 expectCount: 3,
             },
             {
@@ -1708,11 +1568,7 @@ const savedShapeDeleteScenarios = [
         steps: [
             {
                 action: 'draw',
-                shapeIndexes: [
-                    0,
-                    1,
-                    2,
-                ],
+                shapeIndexes: [0, 1, 2],
                 expectCount: 3,
             },
             {
@@ -1740,11 +1596,7 @@ const savedShapeDeleteScenarios = [
             },
             {
                 action: 'draw',
-                shapeIndexes: [
-                    3,
-                    4,
-                    5,
-                ],
+                shapeIndexes: [3, 4, 5],
                 expectCount: 4,
             },
             {
@@ -1772,11 +1624,7 @@ const savedShapeDeleteScenarios = [
             },
             {
                 action: 'draw',
-                shapeIndexes: [
-                    6,
-                    7,
-                    8,
-                ],
+                shapeIndexes: [6, 7, 8],
                 expectCount: 5,
             },
             {
@@ -1811,11 +1659,7 @@ const savedShapeDeleteScenarios = [
         steps: [
             {
                 action: 'draw',
-                shapeIndexes: [
-                    0,
-                    1,
-                    2,
-                ],
+                shapeIndexes: [0, 1, 2],
                 expectCount: 3,
             },
             {
@@ -1838,11 +1682,7 @@ const savedShapeDeleteScenarios = [
         steps: [
             {
                 action: 'draw',
-                shapeIndexes: [
-                    0,
-                    1,
-                    2,
-                ],
+                shapeIndexes: [0, 1, 2],
                 expectCount: 3,
             },
             {
@@ -1870,11 +1710,7 @@ const savedShapeDeleteScenarios = [
         steps: [
             {
                 action: 'draw',
-                shapeIndexes: [
-                    0,
-                    1,
-                    2,
-                ],
+                shapeIndexes: [0, 1, 2],
                 expectCount: 3,
             },
             {
@@ -1933,11 +1769,7 @@ const savedShapeDeleteScenarios = [
         steps: [
             {
                 action: 'draw',
-                shapeIndexes: [
-                    0,
-                    1,
-                    2,
-                ],
+                shapeIndexes: [0, 1, 2],
                 expectCount: 3,
             },
             {
@@ -1979,11 +1811,7 @@ const savedShapeDeleteScenarios = [
 
 function getScenarioGhostPoints(shape: TScenarioShape) {
     if (shape.kind === 'line') {
-        return [
-            shape.start,
-            shape.hit,
-            shape.end,
-        ];
+        return [shape.start, shape.hit, shape.end];
     }
 
     return shape.points;
@@ -1998,21 +1826,13 @@ function getScenarioAnnotationSubtype(scenario: ISavedShapeDeleteScenario) {
     return firstShape.kind === 'line' ? 'Line' : 'Ink';
 }
 
-async function expectScenarioAnnotationCount(
-    scenario: ISavedShapeDeleteScenario,
-    fixturePath: string,
-    expectedCount: number,
-) {
+async function expectScenarioAnnotationCount(scenario: ISavedShapeDeleteScenario, fixturePath: string, expectedCount: number) {
     const subtype = getScenarioAnnotationSubtype(scenario);
     const summary = await waitForAnnotationSubtypeCountOnDisk(fixturePath, subtype, expectedCount);
     expect(summary.bySubtype[subtype] ?? 0).toBe(expectedCount);
 }
 
-async function expectNoCanvasInkForScenarioShapes(
-    page: Page,
-    scenario: ISavedShapeDeleteScenario,
-    shapeIndexes: readonly number[],
-) {
+async function expectNoCanvasInkForScenarioShapes(page: Page, scenario: ISavedShapeDeleteScenario, shapeIndexes: readonly number[]) {
     for (const shapeIndex of shapeIndexes) {
         const shape = scenario.shapes[shapeIndex];
         if (!shape) {
@@ -2026,7 +1846,7 @@ async function expectToolbarClean(page: Page) {
     const toolbarState = await getToolbarSaveDebugState(page);
     expect(toolbarState.activeTabDirty).toBe(false);
     if (toolbarState.toolbarSnapshot) {
-        expect(toolbarState.toolbarSnapshot).toMatchObject({ canSave: false });
+        expect(toolbarState.toolbarSnapshot).toMatchObject({canSave: false});
     }
 }
 
@@ -2059,11 +1879,7 @@ async function drawScenarioShape(page: Page, shape: TScenarioShape) {
     await dragInkStrokeWithMouse(page, shape.points);
 }
 
-async function drawScenarioShapes(
-    page: Page,
-    scenario: ISavedShapeDeleteScenario,
-    step: IDrawScenarioStep,
-) {
+async function drawScenarioShapes(page: Page, scenario: ISavedShapeDeleteScenario, step: IDrawScenarioStep) {
     const firstShape = scenario.shapes[step.shapeIndexes[0] ?? -1];
     await clickAnnotationTool(page, firstShape?.kind === 'line' ? 'Line' : 'Draw');
     await waitForActiveColorIndicator(page);
@@ -2090,34 +1906,26 @@ async function waitForShapeCountWithScenarioDiagnostics(
     try {
         await waitForShapeCount(page, expectedCount);
     } catch (error) {
-        const [
-            managedShapeState,
-            toolbarState,
-            canvasGhostVisible,
-            pointInteractionState,
-        ] = await Promise.all([
+        const [managedShapeState, toolbarState, canvasGhostVisible, pointInteractionState] = await Promise.all([
             getManagedShapeDebugState(page),
             getToolbarSaveDebugState(page),
             hasVisibleCanvasInkAtPointWithOverlayHidden(page, shape.hit),
             getPointInteractionDebugState(page, shape.hit),
         ]);
-        throw new Error([
-            `${scenario.name}: ${error instanceof Error ? error.message : String(error)}`,
-            `stateAfterClick=${JSON.stringify(stateAfterClick)}`,
-            `managedShapeState=${JSON.stringify(managedShapeState)}`,
-            `toolbarState=${JSON.stringify(toolbarState)}`,
-            `canvasGhostVisible=${JSON.stringify(canvasGhostVisible)}`,
-            `pointInteractionState=${JSON.stringify(pointInteractionState)}`,
-        ].join('\n'));
+        throw new Error(
+            [
+                `${scenario.name}: ${error instanceof Error ? error.message : String(error)}`,
+                `stateAfterClick=${JSON.stringify(stateAfterClick)}`,
+                `managedShapeState=${JSON.stringify(managedShapeState)}`,
+                `toolbarState=${JSON.stringify(toolbarState)}`,
+                `canvasGhostVisible=${JSON.stringify(canvasGhostVisible)}`,
+                `pointInteractionState=${JSON.stringify(pointInteractionState)}`,
+            ].join('\n'),
+        );
     }
 }
 
-async function deleteScenarioShape(
-    page: Page,
-    scenario: ISavedShapeDeleteScenario,
-    fixturePath: string,
-    step: IDeleteScenarioStep,
-) {
+async function deleteScenarioShape(page: Page, scenario: ISavedShapeDeleteScenario, fixturePath: string, step: IDeleteScenarioStep) {
     const shape = scenario.shapes[step.shapeIndex];
     if (!shape) {
         throw new Error(`Scenario references missing shape ${step.shapeIndex}: ${scenario.name}`);
@@ -2141,11 +1949,11 @@ async function deleteScenarioShape(
     }
     if (step.expectSource) {
         expect(stateAfterDelete.shapes).toHaveLength(step.expectCount);
-        expect(stateAfterDelete.shapes.every(candidate => candidate.source === step.expectSource)).toBe(true);
+        expect(stateAfterDelete.shapes.every((candidate) => candidate.source === step.expectSource)).toBe(true);
     }
     if (step.expectKind) {
         expect(stateAfterDelete.shapes).toHaveLength(step.expectCount);
-        expect(stateAfterDelete.shapes.every(candidate => candidate.type === step.expectKind)).toBe(true);
+        expect(stateAfterDelete.shapes.every((candidate) => candidate.type === step.expectKind)).toBe(true);
     }
     if (typeof step.expectDiskCount === 'number') {
         await expectScenarioAnnotationCount(scenario, fixturePath, step.expectDiskCount);
@@ -2162,10 +1970,7 @@ async function runSavedShapeDeleteScenario(page: Page, scenario: ISavedShapeDele
     await waitForPdfLoaded(page);
 
     let shapeCount = 0;
-    for (const [
-        stepIndex,
-        step,
-    ] of scenario.steps.entries()) {
+    for (const [stepIndex, step] of scenario.steps.entries()) {
         try {
             switch (step.action) {
                 case 'draw':
@@ -2203,13 +2008,15 @@ async function runSavedShapeDeleteScenario(page: Page, scenario: ISavedShapeDele
         } catch (error) {
             const detail = error instanceof Error ? error.message : String(error);
             const managedShapeState = await getManagedShapeDebugState(page);
-            throw new Error([
-                `${scenario.name}: step ${stepIndex + 1} (${step.action}) failed`,
-                `step=${JSON.stringify(step)}`,
-                `shapeCount=${shapeCount}`,
-                `detail=${detail}`,
-                `managedShapeState=${JSON.stringify(managedShapeState)}`,
-            ].join('\n'));
+            throw new Error(
+                [
+                    `${scenario.name}: step ${stepIndex + 1} (${step.action}) failed`,
+                    `step=${JSON.stringify(step)}`,
+                    `shapeCount=${shapeCount}`,
+                    `detail=${detail}`,
+                    `managedShapeState=${JSON.stringify(managedShapeState)}`,
+                ].join('\n'),
+            );
         }
     }
 }
@@ -2263,74 +2070,100 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
         await clickAnnotationTool(page, 'Select');
         await waitForShapeCount(page, 1);
         await page.screenshot({path: join(directory, 'opened.png')});
-        const siblingSelector = '.editor-pane.is-active g[data-annotation-kind="shape"][data-annotation-id*="sibling"] [data-annotation-hit-target]';
+        const siblingSelector =
+            '.editor-pane.is-active g[data-annotation-kind="shape"][data-annotation-id*="sibling"] [data-annotation-hit-target]';
         await clickAsUser(page, siblingSelector);
         await page.keyboard.press('ArrowRight');
         await page.keyboard.press('Escape');
-        await clickFoundAsUser(page, () => Array.from(document.querySelectorAll('.editor-pane.is-active .note-item'))
-            .find(row => row.textContent?.includes('Skewed original comment'))?.querySelector('.note-item-content'), undefined,
-        {
-            description: 'the imported skewed markup comment',
-            count: 2,
-        });
+        await clickFoundAsUser(
+            page,
+            () =>
+                Array.from(document.querySelectorAll('.editor-pane.is-active .note-item'))
+                    .find((row) => row.textContent?.includes('Skewed original comment'))
+                    ?.querySelector('.note-item-content'),
+            undefined,
+            {
+                description: 'the imported skewed markup comment',
+                count: 2,
+            },
+        );
         const textarea = 'textarea.note-window__textarea';
         await page.waitForSelector(textarea, {visible: true});
         await clickAsUser(page, textarea);
         await selectAllFocusedAnnotationText(page);
         await page.keyboard.type('Edited skewed comment with real input');
-        await page.waitForFunction(() => document.querySelector<HTMLTextAreaElement>('textarea.note-window__textarea')?.value === 'Edited skewed comment with real input');
+        await page.waitForFunction(
+            () =>
+                document.querySelector<HTMLTextAreaElement>('textarea.note-window__textarea')?.value ===
+                'Edited skewed comment with real input',
+        );
         await page.keyboard.press('Tab');
         await clickAsUser(page, '.note-window .note-window__close');
-        await page.waitForFunction(() => document.querySelector('.editor-pane.is-active .notes-list')?.textContent?.includes('Edited skewed comment with real input') === true);
+        await page.waitForFunction(
+            () =>
+                document
+                    .querySelector('.editor-pane.is-active .notes-list')
+                    ?.textContent?.includes('Edited skewed comment with real input') === true,
+        );
         await waitForWorkspaceToolbarIdle(page);
         await page.screenshot({path: join(directory, 'edited.png')});
         await clickAsUser(page, '.save-split-primary');
         await waitForWorkspaceToolbarIdle(page);
-        await expect.poll(async () => (await readAnnotationFidelitySnapshot(readFileSync(sourcePath)))
-            .find(row => row.name === 'skewed-markup')?.contents).toBe('Edited skewed comment with real input');
+        await expect
+            .poll(
+                async () =>
+                    (await readAnnotationFidelitySnapshot(readFileSync(sourcePath))).find((row) => row.name === 'skewed-markup')?.contents,
+            )
+            .toBe('Edited skewed comment with real input');
         const after = await readAnnotationFidelitySnapshot(readFileSync(sourcePath));
         writeFileSync(join(directory, 'after.json'), JSON.stringify(after, null, 2));
         // Collect every preservation failure from the same saved bytes.
         expect.soft(after).toHaveLength(before.length);
-        for (const name of [
-            'foreign-dashed',
-            'evb-shape:closed-arrow',
-        ]) {
-            expect.soft(after.find(row => row.name === name), name).toEqual(before.find(row => row.name === name));
+        for (const name of ['foreign-dashed', 'evb-shape:closed-arrow']) {
+            expect
+                .soft(
+                    after.find((row) => row.name === name),
+                    name,
+                )
+                .toEqual(before.find((row) => row.name === name));
         }
-        for (const sourceThread of before.filter(row => row.name === null)) {
-            expect.soft(after.find(row => row.ref === sourceThread.ref), 'foreign Popup/reply').toEqual(sourceThread);
+        for (const sourceThread of before.filter((row) => row.name === null)) {
+            expect
+                .soft(
+                    after.find((row) => row.ref === sourceThread.ref),
+                    'foreign Popup/reply',
+                )
+                .toEqual(sourceThread);
         }
-        const markupBefore = before.find(row => row.name === 'skewed-markup')!;
-        const markupAfter = after.find(row => row.name === 'skewed-markup')!;
-        for (const key of [
-            'quads',
-            'rect',
-            'appearance',
-            'appearanceStream',
-            'appearanceDictionary',
-            'resources',
-        ] as const) {
+        const markupBefore = before.find((row) => row.name === 'skewed-markup')!;
+        const markupAfter = after.find((row) => row.name === 'skewed-markup')!;
+        for (const key of ['quads', 'rect', 'appearance', 'appearanceStream', 'appearanceDictionary', 'resources'] as const) {
             expect.soft(markupAfter[key], key).toEqual(markupBefore[key]);
         }
-        expect(after.find(row => row.name === 'evb-shape:sibling')?.rect).not.toEqual(before.find(row => row.name === 'evb-shape:sibling')?.rect);
+        expect(after.find((row) => row.name === 'evb-shape:sibling')?.rect).not.toEqual(
+            before.find((row) => row.name === 'evb-shape:sibling')?.rect,
+        );
         await clickAsUser(page, '.editor-pane.is-active .tab.is-active .tab-close');
-        await expect.poll(async () => (await readWorkspaceStateValues<{originalPath?: string | null}>(page, ['originalPath'])).originalPath).toBeNull();
+        await expect
+            .poll(async () => (await readWorkspaceStateValues<{originalPath?: string | null}>(page, ['originalPath'])).originalPath)
+            .toBeNull();
         await openPdfInApp(page, sourcePath);
         await waitForPdfLoaded(page);
         await waitForShapeCount(page, 1);
-        await page.waitForFunction(() => document.querySelector('.editor-pane.is-active .notes-list')?.textContent?.includes('Edited skewed comment with real input') === true);
+        await page.waitForFunction(
+            () =>
+                document
+                    .querySelector('.editor-pane.is-active .notes-list')
+                    ?.textContent?.includes('Edited skewed comment with real input') === true,
+        );
         await page.screenshot({path: join(directory, 'reopened.png')});
-        await runDesktopQpdfWasm([
-            '--check',
-            sourcePath,
-        ], {commandLabel: 'qpdf(e2e-draw-check)'});
+        await runDesktopQpdfWasm(['--check', sourcePath], {commandLabel: 'qpdf(e2e-draw-check)'});
         console.log(`A37 saved-byte evidence: ${directory}`);
     });
 
     it('preserves repeated draw-save-delete-redraw cycles without ghost shapes or auto-selecting new strokes', async () => {
         const session = await startDrawShapeSession();
-        const { page } = session;
+        const {page} = session;
 
         const fixturePath = await createBlankFixturePdf(`draw-shape-${Date.now()}.pdf`, 1);
         await openPdfInApp(page, fixturePath);
@@ -2362,9 +2195,7 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
         expect(initialStrokeMetrics?.strokeWidth).toBe(1);
         expect(initialStrokeMetrics?.renderedStrokeWidth).toBeGreaterThan(0);
         expect(initialStrokeMetrics?.renderedStrokeWidth).toBeCloseTo(
-            (initialStrokeMetrics?.strokeWidth ?? 0)
-            * (initialStrokeMetrics?.scaleFactor ?? 0)
-            * (initialStrokeMetrics?.userUnit ?? 0),
+            (initialStrokeMetrics?.strokeWidth ?? 0) * (initialStrokeMetrics?.scaleFactor ?? 0) * (initialStrokeMetrics?.userUnit ?? 0),
             2,
         );
 
@@ -2373,10 +2204,12 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
         expect(await getToolbarSaveDebugState(page)).toMatchObject({activeTabDirty: false});
         let annotationSummary = await waitForInkCountOnDisk(fixturePath, 1);
         expect(annotationSummary.bySubtype.Ink ?? 0).toBe(1);
-        expect(await hasVisibleCanvasInkAtPointWithOverlayHidden(page, {
-            x: 0.28,
-            y: 0.27,
-        })).toBe(false);
+        expect(
+            await hasVisibleCanvasInkAtPointWithOverlayHidden(page, {
+                x: 0.28,
+                y: 0.27,
+            }),
+        ).toBe(false);
 
         await clickPagePoint(page, {
             x: 0.28,
@@ -2417,10 +2250,12 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
 
         annotationSummary = await waitForInkCountOnDisk(fixturePath, 1);
         expect(annotationSummary.bySubtype.Ink ?? 0).toBe(1);
-        expect(await hasVisibleCanvasInkAtPointWithOverlayHidden(page, {
-            x: 0.6,
-            y: 0.38,
-        })).toBe(false);
+        expect(
+            await hasVisibleCanvasInkAtPointWithOverlayHidden(page, {
+                x: 0.6,
+                y: 0.38,
+            }),
+        ).toBe(false);
 
         await clickPagePoint(page, {
             x: 0.6,
@@ -2459,21 +2294,25 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
         await waitForShapeCount(page, 1);
         annotationSummary = await waitForInkCountOnDisk(fixturePath, 1);
         expect(annotationSummary.bySubtype.Ink ?? 0).toBe(1);
-        expect(await hasVisibleCanvasInkAtPointWithOverlayHidden(page, {
-            x: 0.34,
-            y: 0.6,
-        })).toBe(false);
+        expect(
+            await hasVisibleCanvasInkAtPointWithOverlayHidden(page, {
+                x: 0.34,
+                y: 0.6,
+            }),
+        ).toBe(false);
 
         await clickAsUser(page, '.editor-pane.is-active .tab.is-active .tab-close');
-        await expect.poll(async () => (
-            await readWorkspaceStateValues<{originalPath?: string | null}>(page, ['originalPath'])
-        ).originalPath, {timeout: 10_000}).toBeNull();
+        await expect
+            .poll(async () => (await readWorkspaceStateValues<{originalPath?: string | null}>(page, ['originalPath'])).originalPath, {
+                timeout: 10_000,
+            })
+            .toBeNull();
         expect(await page.$('[role="dialog"]')).toBeNull();
     });
 
     it('keeps drawing undo and redo coherent after saving the new shape', async () => {
         const session = await startDrawShapeSession();
-        const { page } = session;
+        const {page} = session;
 
         const fixturePath = await createBlankFixturePdf(`draw-shape-save-undo-redo-${Date.now()}.pdf`, 1);
         await openPdfInApp(page, fixturePath);
@@ -2510,7 +2349,7 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
     it('leaves a gap where a freehand stroke leaves the page and comes back', async () => {
         const outputDirectory = mkdtempSync(join(tmpdir(), 'evb-e2e-ink-page-exit-'));
         const session = await startDrawShapeSession();
-        const { page } = session;
+        const {page} = session;
         const fixturePath = await createBlankFixturePdf(`draw-page-exit-${Date.now()}.pdf`, 1);
         await openPdfInApp(page, fixturePath);
         await waitForPdfLoaded(page);
@@ -2540,9 +2379,13 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
         await waitForWorkspaceToolbarIdle(page, {timeoutMs: 20_000});
 
         const layout = await page.evaluate(() => {
-            const overlay = document.querySelector<SVGElement>('.editor-pane.is-active .page_container[data-page="1"] .pdf-annotation-editor-layer');
+            const overlay = document.querySelector<SVGElement>(
+                '.editor-pane.is-active .page_container[data-page="1"] .pdf-annotation-editor-layer',
+            );
             const shape = overlay?.querySelector('g[data-annotation-kind="shape"]');
-            if (!overlay || !shape) {return null;}
+            if (!overlay || !shape) {
+                return null;
+            }
             const rect = overlay.getBoundingClientRect();
             return {
                 left: rect.left,
@@ -2562,15 +2405,19 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
         const isInkPixel = (cssX: number, cssY: number) => {
             const index = (Math.round(cssY * scaleY) * screenshot.width + Math.round(cssX * scaleX)) * screenshot.channels;
             // Antialiased 1 pt ink stays below 150 per channel; page and edge are lighter.
-            return (screenshot.data[index] ?? 255) < 150
-                && (screenshot.data[index + 1] ?? 255) < 150
-                && (screenshot.data[index + 2] ?? 255) < 150;
+            return (
+                (screenshot.data[index] ?? 255) < 150 &&
+                (screenshot.data[index + 1] ?? 255) < 150 &&
+                (screenshot.data[index + 2] ?? 255) < 150
+            );
         };
         const countInkPixels = (fromX: number, toX: number, fromY: number, toY: number) => {
             let count = 0;
             for (let y = fromY; y <= toY; y += 1) {
                 for (let x = fromX; x <= toX; x += 1) {
-                    if (isInkPixel(x, y)) {count += 1;}
+                    if (isInkPixel(x, y)) {
+                        count += 1;
+                    }
                 }
             }
             return count;
@@ -2591,14 +2438,11 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
         await saveViaWindowHandle(page);
         await waitForInkCountOnDisk(fixturePath, 1);
         const qdfPath = join(outputDirectory, 'page-exit.qdf.pdf');
-        await runDesktopQpdfWasm([
-            '--qdf',
-            '--object-streams=disable',
-            fixturePath,
-            qdfPath,
-        ], {commandLabel: 'qpdf(e2e-draw-qdf)'});
-        const inkDictionary = readFileSync(qdfPath, 'latin1').split('endobj')
-            .find(dictionary => dictionary.includes('/Subtype /Ink')) ?? '';
+        await runDesktopQpdfWasm(['--qdf', '--object-streams=disable', fixturePath, qdfPath], {commandLabel: 'qpdf(e2e-draw-qdf)'});
+        const inkDictionary =
+            readFileSync(qdfPath, 'latin1')
+                .split('endobj')
+                .find((dictionary) => dictionary.includes('/Subtype /Ink')) ?? '';
         expect(countTopLevelArrays(inkDictionary, '/InkList'), 'one Ink annotation saves both paths').toBe(2);
 
         await clickToolbarButtonWhenEnabled(page, 'Undo');
@@ -2611,36 +2455,41 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
         const outputDirectory = mkdtempSync(join(tmpdir(), 'evb-e2e-closed-arrow-'));
         const outputPath = join(outputDirectory, 'saved-arrow.pdf');
         const session = await startDrawShapeSession({EVB_E2E_SAVE_DIALOG_PATH: outputPath});
-        const { page } = session;
+        const {page} = session;
         const filePath = await createBlankFixturePdf(`draw-closed-arrow-${Date.now()}.pdf`, 1);
         await openPdfInApp(page, filePath);
         await waitForPdfLoaded(page);
         await clickAnnotationTool(page, 'Arrow');
         await setAnnotationColor(page, '#111827');
 
-        await dragInkStrokeWithMouse(page, [
-            {
-                x: 0.2,
-                y: 0.4,
-            },
-            {
-                x: 0.7,
-                y: 0.4,
-            },
-        ], 1, 'Arrow');
+        await dragInkStrokeWithMouse(
+            page,
+            [
+                {
+                    x: 0.2,
+                    y: 0.4,
+                },
+                {
+                    x: 0.7,
+                    y: 0.4,
+                },
+            ],
+            1,
+            'Arrow',
+        );
         await waitForShapeCount(page, 1);
         await waitForWorkspaceToolbarIdle(page, {timeoutMs: 20_000});
         const saveTriggerPoint = await page.evaluate(() => {
-            const button = Array.from(document.querySelectorAll<HTMLButtonElement>('.save-split-trigger'))
-                .find(candidate => {
-                    const rect = candidate.getBoundingClientRect();
-                    const style = window.getComputedStyle(candidate);
-                    return rect.width > 8 && rect.height > 8
-                        && style.display !== 'none'
-                        && style.visibility !== 'hidden'
-                        && !candidate.disabled;
-                });
-            if (!button) {return null;}
+            const button = Array.from(document.querySelectorAll<HTMLButtonElement>('.save-split-trigger')).find((candidate) => {
+                const rect = candidate.getBoundingClientRect();
+                const style = window.getComputedStyle(candidate);
+                return (
+                    rect.width > 8 && rect.height > 8 && style.display !== 'none' && style.visibility !== 'hidden' && !candidate.disabled
+                );
+            });
+            if (!button) {
+                return null;
+            }
             const rect = button.getBoundingClientRect();
             return {
                 x: rect.left + rect.width / 2,
@@ -2651,15 +2500,18 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
         await page.mouse.click(saveTriggerPoint!.x, saveTriggerPoint!.y);
         await page.waitForSelector('.save-split-menu', {visible: true});
         const saveAsPoint = await page.evaluate(() => {
-            const item = Array.from(document.querySelectorAll<HTMLElement>('.save-split-item'))
-                .find(candidate => candidate.textContent?.trim().startsWith('Save As'));
-            if (!item) {return null;}
+            const item = Array.from(document.querySelectorAll<HTMLElement>('.save-split-item')).find((candidate) =>
+                candidate.textContent?.trim().startsWith('Save As'),
+            );
+            if (!item) {
+                return null;
+            }
             const rect = item.getBoundingClientRect();
             return rect.width > 0 && rect.height > 0
                 ? {
-                    x: rect.left + rect.width / 2,
-                    y: rect.top + rect.height / 2,
-                }
+                      x: rect.left + rect.width / 2,
+                      y: rect.top + rect.height / 2,
+                  }
                 : null;
         });
         expect(saveAsPoint).not.toBeNull();
@@ -2670,9 +2522,11 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
         await clickAsUser(page, '.editor-pane.is-active .tab.is-active .tab-close');
         // Reopening the same path before the close finishes would match the
         // closing document instead of opening the saved file.
-        await expect.poll(async () => (
-            await readWorkspaceStateValues<{originalPath?: string | null}>(page, ['originalPath'])
-        ).originalPath, {timeout: 10_000}).toBeNull();
+        await expect
+            .poll(async () => (await readWorkspaceStateValues<{originalPath?: string | null}>(page, ['originalPath'])).originalPath, {
+                timeout: 10_000,
+            })
+            .toBeNull();
         await openPdfInApp(page, outputPath);
         await waitForPdfLoaded(page);
         await waitForShapeCount(page, 1);
@@ -2681,7 +2535,9 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
                 '.editor-pane.is-active .pdf-annotation-editor-shape__arrowhead:not(.is-open)',
             );
             const matrix = head?.getScreenCTM();
-            if (!head || !matrix || head.points.numberOfItems !== 3) {return null;}
+            if (!head || !matrix || head.points.numberOfItems !== 3) {
+                return null;
+            }
             const corners = Array.from({length: 3}, (_, index) => {
                 const point = head.points.getItem(index);
                 return new DOMPoint(point.x, point.y).matrixTransform(matrix);
@@ -2699,69 +2555,46 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
         }));
         const screenshotScaleX = editorScreenshot.width / screenshotViewport.width;
         const screenshotScaleY = editorScreenshot.height / screenshotViewport.height;
-        const editorPixelIndex = (
-            Math.round(headCenter!.y * screenshotScaleY) * editorScreenshot.width
-            + Math.round(headCenter!.x * screenshotScaleX)
-        ) * editorScreenshot.channels;
+        const editorPixelIndex =
+            (Math.round(headCenter!.y * screenshotScaleY) * editorScreenshot.width + Math.round(headCenter!.x * screenshotScaleX)) *
+            editorScreenshot.channels;
         expect(
-            (editorScreenshot.data[editorPixelIndex] ?? 255) < 100
-            && (editorScreenshot.data[editorPixelIndex + 1] ?? 255) < 100
-            && (editorScreenshot.data[editorPixelIndex + 2] ?? 255) < 100,
+            (editorScreenshot.data[editorPixelIndex] ?? 255) < 100 &&
+                (editorScreenshot.data[editorPixelIndex + 1] ?? 255) < 100 &&
+                (editorScreenshot.data[editorPixelIndex + 2] ?? 255) < 100,
             'the closed arrowhead stays filled in the reopened editor',
         ).toBe(true);
 
-        const { pdftoppm } = getPdfNativeToolPaths();
-        await runDesktopQpdfWasm([
-            '--check',
-            outputPath,
-        ], {commandLabel: 'qpdf(e2e-draw-arrow-check)'});
+        const {pdftoppm} = getPdfNativeToolPaths();
+        await runDesktopQpdfWasm(['--check', outputPath], {commandLabel: 'qpdf(e2e-draw-arrow-check)'});
         const qdfPath = join(outputDirectory, 'arrow.qdf.pdf');
-        await runDesktopQpdfWasm([
-            '--qdf',
-            '--object-streams=disable',
-            outputPath,
-            qdfPath,
-        ], {commandLabel: 'qpdf(e2e-draw-arrow-qdf)'});
+        await runDesktopQpdfWasm(['--qdf', '--object-streams=disable', outputPath, qdfPath], {commandLabel: 'qpdf(e2e-draw-arrow-qdf)'});
         const qdf = readFileSync(qdfPath, 'latin1');
-        const lineDictionary = qdf.split('endobj')
-            ?.find(dictionary => dictionary.includes('/ClosedArrow')) ?? '';
+        const lineDictionary = qdf.split('endobj')?.find((dictionary) => dictionary.includes('/ClosedArrow')) ?? '';
         expect(lineDictionary).toContain('/IC');
         expect(lineDictionary).toContain('/AP');
 
         const renderPrefix = join(outputDirectory, 'arrow-poppler');
-        execFileSync(pdftoppm, [
-            '-f',
-            '1',
-            '-l',
-            '1',
-            '-singlefile',
-            '-png',
-            '-r',
-            '150',
-            outputPath,
-            renderPrefix,
-        ]);
+        execFileSync(pdftoppm, ['-f', '1', '-l', '1', '-singlefile', '-png', '-r', '150', outputPath, renderPrefix]);
         const rendered = decode(readFileSync(`${renderPrefix}.png`));
         const darkPixelAt = (x: number, y: number) => {
             const index = (Math.round(y) * rendered.width + Math.round(x)) * rendered.channels;
-            return (rendered.data[index] ?? 255) < 100
-                && (rendered.data[index + 1] ?? 255) < 100
-                && (rendered.data[index + 2] ?? 255) < 100;
+            return (
+                (rendered.data[index] ?? 255) < 100 && (rendered.data[index + 1] ?? 255) < 100 && (rendered.data[index + 2] ?? 255) < 100
+            );
         };
         const match = lineDictionary.match(/\/L\s*\[\s*([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s+([\d.-]+)\s*\]/);
         expect(match, 'saved line geometry should be present').not.toBeNull();
-        const [
-            , x1s,
-            y1s,
-            x2s,
-            y2s,
-        ] = match ?? [];
-        const x1 = Number(x1s), y1 = Number(y1s), x2 = Number(x2s), y2 = Number(y2s);
+        const [, x1s, y1s, x2s, y2s] = match ?? [];
+        const x1 = Number(x1s),
+            y1 = Number(y1s),
+            x2 = Number(x2s),
+            y2 = Number(y2s);
         const length = Math.hypot(x2 - x1, y2 - y1);
         const strokeWidthMatch = lineDictionary.match(/\/Border\s*\[\s*[\d.-]+\s+[\d.-]+\s+([\d.-]+)/);
         const strokeWidth = Number(strokeWidthMatch?.[1] ?? 1);
         const along = Math.min(strokeWidth * 5, length * 0.2) / length;
-        const across = strokeWidth * 1.5 / length;
+        const across = (strokeWidth * 1.5) / length;
         const sampleX = x2 + (x1 - x2) * along + (y1 - y2) * across;
         const sampleY = y2 + (y1 - y2) * along - (x1 - x2) * across;
         const pixelScale = 150 / 72;

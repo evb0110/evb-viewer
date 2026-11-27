@@ -24,62 +24,67 @@ import {
     type IDjvuProgress,
     type IDjvuTextSearchOptions,
 } from '@contracts/electronApiDjvu';
-import {
-    parseDocumentRef, type TDocumentRef,
-} from '@contracts/documentRef';
+import {parseDocumentRef, type TDocumentRef} from '@contracts/documentRef';
 import {pdfSearchResponseSchema} from '@contracts/search';
-import {
-    definePlatformFeature,
-    type TFeatureCapability,
-    type TFeatureEventMap,
-    type TFeatureInvokeMap,
-} from '@contracts/platformFeature';
-import {
-    parseJobId, parseRequestId, type TRequestId,
-} from '@contracts/shared';
+import {definePlatformFeature, type TFeatureCapability, type TFeatureEventMap, type TFeatureInvokeMap} from '@contracts/platformFeature';
+import {parseJobId, parseRequestId, type TRequestId} from '@contracts/shared';
 import * as v from 'valibot';
 
 const IPC_REQUEST_ID_MAX_LENGTH = 128;
 const DJVU_NATIVE_IPC_TIMEOUT_MS = 30 * 60 * 1_000;
 const error = 'invalid DjVu IPC payload';
-const nonEmptyString = v.pipe(v.string('query must be a non-empty string'), v.check(value => value.trim().length > 0, 'query must be a non-empty string'));
-const safeIntegerAtLeast = (minimum: number, message: string) => v.pipe(v.number(message), v.check(value => Number.isSafeInteger(value), message), v.minValue(minimum, message));
-const requestIdSchema = (fieldName: string) => v.pipe(
-    v.string(`${fieldName} must be a string`),
-    v.transform(value => value.trim()),
-    v.maxLength(IPC_REQUEST_ID_MAX_LENGTH, `${fieldName} exceeds maximum length (${IPC_REQUEST_ID_MAX_LENGTH})`),
-    v.check(value => parseRequestId(value) !== null, `${fieldName} must be a valid request ID`),
-    v.transform(value => parseRequestId(value)!),
+const nonEmptyString = v.pipe(
+    v.string('query must be a non-empty string'),
+    v.check((value) => value.trim().length > 0, 'query must be a non-empty string'),
 );
-const documentRefSchema = v.pipe(v.string(), v.check(value => parseDocumentRef(value) !== null, 'must be an absolute document reference'), v.transform(value => parseDocumentRef(value)!));
-const jobIdSchema = v.pipe(v.string(), v.check(value => parseJobId(value) !== null, 'jobId must be a valid job ID'), v.transform(value => parseJobId(value)!));
+const safeIntegerAtLeast = (minimum: number, message: string) =>
+    v.pipe(
+        v.number(message),
+        v.check((value) => Number.isSafeInteger(value), message),
+        v.minValue(minimum, message),
+    );
+const requestIdSchema = (fieldName: string) =>
+    v.pipe(
+        v.string(`${fieldName} must be a string`),
+        v.transform((value) => value.trim()),
+        v.maxLength(IPC_REQUEST_ID_MAX_LENGTH, `${fieldName} exceeds maximum length (${IPC_REQUEST_ID_MAX_LENGTH})`),
+        v.check((value) => parseRequestId(value) !== null, `${fieldName} must be a valid request ID`),
+        v.transform((value) => parseRequestId(value)!),
+    );
+const documentRefSchema = v.pipe(
+    v.string(),
+    v.check((value) => parseDocumentRef(value) !== null, 'must be an absolute document reference'),
+    v.transform((value) => parseDocumentRef(value)!),
+);
+const jobIdSchema = v.pipe(
+    v.string(),
+    v.check((value) => parseJobId(value) !== null, 'jobId must be a valid job ID'),
+    v.transform((value) => parseJobId(value)!),
+);
 const documentArgs = v.strictTuple([documentRefSchema]);
 const jobArgs = v.strictTuple([jobIdSchema]);
-const pageSourceInfoArgs = v.strictTuple([
-    documentRefSchema,
-    safeIntegerAtLeast(1, 'pageNumber must be a safe integer >= 1'),
-]);
+const pageSourceInfoArgs = v.strictTuple([documentRefSchema, safeIntegerAtLeast(1, 'pageNumber must be a safe integer >= 1')]);
 const pagePreviewArgs = v.strictTuple([
     documentRefSchema,
     safeIntegerAtLeast(1, 'pageNumber must be a safe integer >= 1'),
     v.optional(djvuPagePreviewOptionsSchema),
 ]);
-const startOpenArgs = v.strictTuple([
-    documentRefSchema,
-    requestIdSchema('startOpenForViewing.requestId'),
-]);
+const startOpenArgs = v.strictTuple([documentRefSchema, requestIdSchema('startOpenForViewing.requestId')]);
 const cancelPreviewArgs = v.strictTuple([requestIdSchema('cancelPagePreview.requestId')]);
 const cancelTextSearchArgs = v.strictTuple([requestIdSchema('cancelTextSearch.requestId')]);
 const startConvertArgs = v.strictTuple([
     documentRefSchema,
     documentRefSchema,
-    v.pipe(djvuConvertOptionsSchema, v.check(options => options.requestId !== undefined, 'startConvertToPdf.options.requestId is required')),
+    v.pipe(
+        djvuConvertOptionsSchema,
+        v.check((options) => options.requestId !== undefined, 'startConvertToPdf.options.requestId is required'),
+    ),
 ]);
 const printArgs = v.strictTuple([
     documentRefSchema,
     v.pipe(
         djvuPrintOptionsSchema,
-        v.check(options => options.pageNumbers === undefined || options.pageNumbers.length > 0, 'pageNumbers must be a non-empty array'),
+        v.check((options) => options.pageNumbers === undefined || options.pageNumbers.length > 0, 'pageNumbers must be a non-empty array'),
     ),
 ]);
 const searchTextArgs = v.strictTuple([
@@ -87,7 +92,7 @@ const searchTextArgs = v.strictTuple([
     nonEmptyString,
     v.pipe(
         djvuTextSearchOptionsSchema,
-        v.transform(options => ({
+        v.transform((options) => ({
             ...options,
             matchCase: options.matchCase ?? false,
             wholeWord: options.wholeWord ?? false,
@@ -96,52 +101,74 @@ const searchTextArgs = v.strictTuple([
     ),
 ]);
 
-const textSearchProgressInputSchema = v.pipe(v.object({
-    requestId: v.pipe(v.string(), v.check(value => parseRequestId(value) !== null, error), v.transform(value => parseRequestId(value)!)),
-    processed: safeIntegerAtLeast(0, error),
-    total: safeIntegerAtLeast(0, error),
-    results: v.optional(v.array(v.unknown())),
-    resultsStartIndex: v.optional(v.unknown()),
-    truncated: v.optional(v.boolean()),
-    canceled: v.optional(v.boolean()),
-    status: v.optional(v.picklist([
-        'running',
-        'success',
-        'canceled',
-        'failed',
-    ])),
-    error: v.optional(v.string()),
-}, error), v.check(progress => progress.resultsStartIndex === undefined || typeof progress.resultsStartIndex === 'number' && Number.isSafeInteger(progress.resultsStartIndex) && progress.resultsStartIndex >= 0, error));
-const textSearchProgressSchema = v.pipe(textSearchProgressInputSchema, v.transform(progress => {
-    let results: v.InferOutput<typeof pdfSearchResponseSchema>['results'] | undefined;
-    if (progress.results !== undefined) {
-        const parsed = v.safeParse(pdfSearchResponseSchema, {
-            results: progress.results,
-            truncated: Boolean(progress.truncated),
-        }, {abortEarly: true});
-        if (!parsed.success) {throw new Error(error);}
-        results = parsed.output.results;
-    }
-    return {
-        requestId: progress.requestId,
-        processed: progress.processed,
-        total: progress.total,
-        ...(results === undefined ? {} : {results}),
-        ...(results === undefined || typeof progress.resultsStartIndex !== 'number' ? {} : {resultsStartIndex: progress.resultsStartIndex}),
-        ...(progress.truncated === undefined ? {} : {truncated: progress.truncated}),
-        ...(progress.canceled === undefined ? {} : {canceled: progress.canceled}),
-        ...(progress.status === undefined ? {} : {status: progress.status}),
-        ...(progress.error === undefined ? {} : {error: progress.error}),
-    };
-}));
+const textSearchProgressInputSchema = v.pipe(
+    v.object(
+        {
+            requestId: v.pipe(
+                v.string(),
+                v.check((value) => parseRequestId(value) !== null, error),
+                v.transform((value) => parseRequestId(value)!),
+            ),
+            processed: safeIntegerAtLeast(0, error),
+            total: safeIntegerAtLeast(0, error),
+            results: v.optional(v.array(v.unknown())),
+            resultsStartIndex: v.optional(v.unknown()),
+            truncated: v.optional(v.boolean()),
+            canceled: v.optional(v.boolean()),
+            status: v.optional(v.picklist(['running', 'success', 'canceled', 'failed'])),
+            error: v.optional(v.string()),
+        },
+        error,
+    ),
+    v.check(
+        (progress) =>
+            progress.resultsStartIndex === undefined ||
+            (typeof progress.resultsStartIndex === 'number' &&
+                Number.isSafeInteger(progress.resultsStartIndex) &&
+                progress.resultsStartIndex >= 0),
+        error,
+    ),
+);
+const textSearchProgressSchema = v.pipe(
+    textSearchProgressInputSchema,
+    v.transform((progress) => {
+        let results: v.InferOutput<typeof pdfSearchResponseSchema>['results'] | undefined;
+        if (progress.results !== undefined) {
+            const parsed = v.safeParse(
+                pdfSearchResponseSchema,
+                {
+                    results: progress.results,
+                    truncated: Boolean(progress.truncated),
+                },
+                {abortEarly: true},
+            );
+            if (!parsed.success) {
+                throw new Error(error);
+            }
+            results = parsed.output.results;
+        }
+        return {
+            requestId: progress.requestId,
+            processed: progress.processed,
+            total: progress.total,
+            ...(results === undefined ? {} : {results}),
+            ...(results === undefined || typeof progress.resultsStartIndex !== 'number'
+                ? {}
+                : {resultsStartIndex: progress.resultsStartIndex}),
+            ...(progress.truncated === undefined ? {} : {truncated: progress.truncated}),
+            ...(progress.canceled === undefined ? {} : {canceled: progress.canceled}),
+            ...(progress.status === undefined ? {} : {status: progress.status}),
+            ...(progress.error === undefined ? {} : {error: progress.error}),
+        };
+    }),
+);
 
-function defineDjvuMethod<const TName extends string, const TChannel extends string, const TArgs extends v.GenericSchema<unknown, unknown[]>, const TResult extends v.GenericSchema<unknown, unknown>>(definition: {
-    name: TName;
-    channel: TChannel;
-    args: TArgs;
-    result: TResult;
-    timeout?: boolean
-}) {
+function defineDjvuMethod<
+    const TName extends string,
+    const TChannel extends string,
+    const TArgs extends v.GenericSchema<unknown, unknown[]>,
+    const TResult extends v.GenericSchema<unknown, unknown>,
+>(definition: {name: TName; channel: TChannel; args: TArgs; result: TResult; timeout?: boolean}) {
     return {
         kind: 'async',
         channel: definition.channel,
@@ -158,26 +185,24 @@ function defineDjvuMethod<const TName extends string, const TChannel extends str
         lazy: 'forwarded',
     } as const;
 }
-function defineDjvuClientMethod<const TName extends string, const TChannel extends string, const TArgs extends v.GenericSchema<unknown, unknown[]>, const TResult extends v.GenericSchema<unknown, unknown>, const TMapArgs extends (...args: never[]) => unknown>(definition: {
-    name: TName;
-    channel: TChannel;
-    args: TArgs;
-    result: TResult;
-    mapArgs: TMapArgs;
-    timeout?: boolean
-}) {
+function defineDjvuClientMethod<
+    const TName extends string,
+    const TChannel extends string,
+    const TArgs extends v.GenericSchema<unknown, unknown[]>,
+    const TResult extends v.GenericSchema<unknown, unknown>,
+    const TMapArgs extends (...args: never[]) => unknown,
+>(definition: {name: TName; channel: TChannel; args: TArgs; result: TResult; mapArgs: TMapArgs; timeout?: boolean}) {
     return {
         ...defineDjvuMethod(definition),
         client: {mapArgs: definition.mapArgs},
     } as const;
 }
-function defineOptionalNativeDjvuMethod<const TName extends string, const TChannel extends string, const TArgs extends v.GenericSchema<unknown, unknown[]>, const TResult extends v.GenericSchema<unknown, unknown>>(definition: {
-    name: TName;
-    channel: TChannel;
-    args: TArgs;
-    result: TResult;
-    timeout?: boolean
-}) {
+function defineOptionalNativeDjvuMethod<
+    const TName extends string,
+    const TChannel extends string,
+    const TArgs extends v.GenericSchema<unknown, unknown[]>,
+    const TResult extends v.GenericSchema<unknown, unknown>,
+>(definition: {name: TName; channel: TChannel; args: TArgs; result: TResult; timeout?: boolean}) {
     return {
         ...defineDjvuMethod(definition),
         browser: {
@@ -205,16 +230,16 @@ export const DJVU_PLATFORM_FEATURE = definePlatformFeature({
             args: startOpenArgs,
             result: djvuJobStartHandleSchema,
             timeout: true,
-            mapArgs: (path: TDocumentRef, requestId: TRequestId): [TDocumentRef, TRequestId] => [
-                path,
-                requestId,
-            ],
+            mapArgs: (path: TDocumentRef, requestId: TRequestId): [TDocumentRef, TRequestId] => [path, requestId],
         }),
         releaseViewingPath: defineDjvuMethod({
             name: 'releaseViewingPath',
             channel: 'djvu:releaseViewingPath',
             args: documentArgs,
-            result: v.pipe(v.undefined('expected an undefined IPC result'), v.transform((): void => undefined)),
+            result: v.pipe(
+                v.undefined('expected an undefined IPC result'),
+                v.transform((): void => undefined),
+            ),
         }),
         startConvertToPdf: defineDjvuClientMethod({
             name: 'startConvertToPdf',
@@ -222,11 +247,11 @@ export const DJVU_PLATFORM_FEATURE = definePlatformFeature({
             args: startConvertArgs,
             result: djvuJobStartHandleSchema,
             timeout: true,
-            mapArgs: (source: TDocumentRef, output: TDocumentRef, options: IDjvuConvertOptions): [TDocumentRef, TDocumentRef, IDjvuConvertOptions] => [
-                source,
-                output,
-                options,
-            ],
+            mapArgs: (
+                source: TDocumentRef,
+                output: TDocumentRef,
+                options: IDjvuConvertOptions,
+            ): [TDocumentRef, TDocumentRef, IDjvuConvertOptions] => [source, output, options],
         }),
         printDjvuPath: defineDjvuClientMethod({
             name: 'printDjvuPath',
@@ -234,10 +259,7 @@ export const DJVU_PLATFORM_FEATURE = definePlatformFeature({
             args: printArgs,
             result: djvuPrintResultSchema,
             timeout: true,
-            mapArgs: (path: TDocumentRef, options: IDjvuPrintOptions): [TDocumentRef, IDjvuPrintOptions] => [
-                path,
-                options,
-            ],
+            mapArgs: (path: TDocumentRef, options: IDjvuPrintOptions): [TDocumentRef, IDjvuPrintOptions] => [path, options],
         }),
         cancel: defineDjvuMethod({
             name: 'cancel',
@@ -264,7 +286,11 @@ export const DJVU_PLATFORM_FEATURE = definePlatformFeature({
             args: searchTextArgs,
             result: pdfSearchResponseSchema,
             timeout: true,
-            mapArgs: (path: TDocumentRef, query: string, options: IDjvuTextSearchOptions): [TDocumentRef, string, IDjvuTextSearchOptions] => [
+            mapArgs: (
+                path: TDocumentRef,
+                query: string,
+                options: IDjvuTextSearchOptions,
+            ): [TDocumentRef, string, IDjvuTextSearchOptions] => [
                 path,
                 query,
                 {
@@ -323,11 +349,11 @@ export const DJVU_PLATFORM_FEATURE = definePlatformFeature({
             args: pagePreviewArgs,
             result: djvuPagePreviewSchema,
             timeout: true,
-            mapArgs: (path: TDocumentRef, page: TPageNumber, options?: IDjvuPagePreviewOptions): [TDocumentRef, number, IDjvuPagePreviewOptions | undefined] => [
-                path,
-                page,
-                options,
-            ],
+            mapArgs: (
+                path: TDocumentRef,
+                page: TPageNumber,
+                options?: IDjvuPagePreviewOptions,
+            ): [TDocumentRef, number, IDjvuPagePreviewOptions | undefined] => [path, page, options],
         }),
         estimateSizes: defineDjvuMethod({
             name: 'estimateSizes',
@@ -340,7 +366,10 @@ export const DJVU_PLATFORM_FEATURE = definePlatformFeature({
             name: 'cleanupTemp',
             channel: 'djvu:cleanupTemp',
             args: documentArgs,
-            result: v.pipe(v.undefined('expected an undefined IPC result'), v.transform((): void => undefined)),
+            result: v.pipe(
+                v.undefined('expected an undefined IPC result'),
+                v.transform((): void => undefined),
+            ),
         }),
     },
     events: {
@@ -359,7 +388,8 @@ export const DJVU_PLATFORM_FEATURE = definePlatformFeature({
                     owner: 'ipc-progress-pump',
                     mode: 'latest-per-key',
                     key: (payload: IDjvuProgress) => `${payload.jobId}:${payload.phase}`,
-                    terminal: (payload: IDjvuProgress) => payload.status === 'success' || payload.status === 'canceled' || payload.status === 'failed',
+                    terminal: (payload: IDjvuProgress) =>
+                        payload.status === 'success' || payload.status === 'canceled' || payload.status === 'failed',
                     intervalMs: 50,
                     terminalRetentionMs: 30_000,
                 },

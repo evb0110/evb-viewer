@@ -1,16 +1,8 @@
-import type {
-    IPdfPage,
-    IPdfViewport,
-} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import type {IPdfPage, IPdfViewport} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {yieldToBrowser} from '@app/platform/browser-api/browserYield';
-import {
-    createPpmRaster, writePpmTile,
-} from '@ocr-core/ppmRaster';
-import {
-    BROWSER_PDF_RENDER_TILE_PX as RENDER_TILE_PX,
-    type IBrowserPdfRasterTiles,
-} from '@contracts/browserPdfRaster';
-import { PDF_POINTS_PER_INCH } from '@pdf-core/imageExportResolution';
+import {createPpmRaster, writePpmTile} from '@ocr-core/ppmRaster';
+import {BROWSER_PDF_RENDER_TILE_PX as RENDER_TILE_PX, type IBrowserPdfRasterTiles} from '@contracts/browserPdfRaster';
+import {PDF_POINTS_PER_INCH} from '@pdf-core/imageExportResolution';
 
 export interface IBrowserPdfRasterOptions {
     annotationMode: number;
@@ -35,7 +27,9 @@ export interface IBrowserPdfRasterOptions {
  * A page rendered on white, as painted tiles for the consuming worker to read
  * back, or as an assembled binary PPM where tiles cannot be transferred.
  */
-export interface IBrowserPdfRaster {image: IBrowserPdfRasterTiles | Uint8Array}
+export interface IBrowserPdfRaster {
+    image: IBrowserPdfRasterTiles | Uint8Array;
+}
 
 /** A page box painted at a resolution: the viewport, and where the box lies in it. */
 export interface IBrowserPdfBoxRaster {
@@ -52,36 +46,31 @@ export interface IBrowserPdfBoxRaster {
  * record predicts from the box's points alone. The page's own viewport maps
  * the box, so a MediaBox wider than the page view paints the same way.
  */
-export function createBrowserPdfBoxRaster(page: IPdfPage, box: {
-    xPoints: number;
-    yPoints: number;
-    widthPoints: number;
-    heightPoints: number;
-}, dpi: number): IBrowserPdfBoxRaster {
+export function createBrowserPdfBoxRaster(
+    page: IPdfPage,
+    box: {
+        xPoints: number;
+        yPoints: number;
+        widthPoints: number;
+        heightPoints: number;
+    },
+    dpi: number,
+): IBrowserPdfBoxRaster {
     const userUnit = page.getViewport({scale: 1}).userUnit || 1;
     const viewport = page.getViewport({scale: dpi / PDF_POINTS_PER_INCH / userUnit});
     const corners = [
-        [
-            box.xPoints,
-            box.yPoints,
-        ],
-        [
-            box.xPoints + box.widthPoints,
-            box.yPoints + box.heightPoints,
-        ],
-    ].map(([
-        x,
-        y,
-    ]) => viewport.convertToViewportPoint(x!, y!));
-    const xs = corners.map(point => point[0]!);
-    const ys = corners.map(point => point[1]!);
+        [box.xPoints, box.yPoints],
+        [box.xPoints + box.widthPoints, box.yPoints + box.heightPoints],
+    ].map(([x, y]) => viewport.convertToViewportPoint(x!, y!));
+    const xs = corners.map((point) => point[0]!);
+    const ys = corners.map((point) => point[1]!);
     const swapsAxes = Math.abs(Math.round(viewport.rotation / 90)) % 2 === 1;
     return {
         viewport,
         x: Math.round(Math.min(...xs)),
         y: Math.round(Math.min(...ys)),
-        width: Math.max(1, Math.ceil((swapsAxes ? box.heightPoints : box.widthPoints) * dpi / PDF_POINTS_PER_INCH)),
-        height: Math.max(1, Math.ceil((swapsAxes ? box.widthPoints : box.heightPoints) * dpi / PDF_POINTS_PER_INCH)),
+        width: Math.max(1, Math.ceil(((swapsAxes ? box.heightPoints : box.widthPoints) * dpi) / PDF_POINTS_PER_INCH)),
+        height: Math.max(1, Math.ceil(((swapsAxes ? box.widthPoints : box.heightPoints) * dpi) / PDF_POINTS_PER_INCH)),
     };
 }
 
@@ -103,12 +92,14 @@ export async function renderBrowserPdfRaster(
         width: Math.max(1, Math.ceil(viewport.width)),
         height: Math.max(1, Math.ceil(viewport.height)),
     };
-    const {
-        width, height,
-    } = region;
+    const {width, height} = region;
     const channels = options.netpbm === 'gray' ? 1 : 3;
-    if (width > options.maxDimensionPx || height > options.maxDimensionPx || width * height > options.maxPixels
-        || !Number.isSafeInteger(width * height * channels + 64)) {
+    if (
+        width > options.maxDimensionPx ||
+        height > options.maxDimensionPx ||
+        width * height > options.maxPixels ||
+        !Number.isSafeInteger(width * height * channels + 64)
+    ) {
         throw options.tooLarge(width, height);
     }
     const transfer = !options.netpbm && typeof OffscreenCanvas !== 'undefined' && typeof createImageBitmap === 'function';
@@ -124,7 +115,9 @@ export async function renderBrowserPdfRaster(
                 canvas.width = tileWidth;
                 canvas.height = tileHeight;
                 const context = canvas.getContext('2d', {willReadFrequently: !transfer});
-                if (!context) {throw new Error('Canvas 2D context is unavailable');}
+                if (!context) {
+                    throw new Error('Canvas 2D context is unavailable');
+                }
                 const task = page.render({
                     canvas,
                     canvasContext: context,
@@ -132,14 +125,7 @@ export async function renderBrowserPdfRaster(
                     // tabs receive no animation frames.
                     useRequestAnimationFrame: false,
                     viewport,
-                    transform: [
-                        1,
-                        0,
-                        0,
-                        1,
-                        -(region.x + left),
-                        -(region.y + top),
-                    ],
+                    transform: [1, 0, 0, 1, -(region.x + left), -(region.y + top)],
                     background: 'rgb(255,255,255)',
                     annotationMode: options.annotationMode,
                 });
@@ -167,15 +153,17 @@ export async function renderBrowserPdfRaster(
         }
         signal.throwIfAborted();
     } catch (error) {
-        tiles.forEach(tile => tile.close());
+        tiles.forEach((tile) => tile.close());
         throw error;
     } finally {
         canvas.width = 0;
         canvas.height = 0;
     }
-    return {image: ppm?.image ?? {
-        width,
-        height,
-        tiles,
-    }};
+    return {
+        image: ppm?.image ?? {
+            width,
+            height,
+            tiles,
+        },
+    };
 }

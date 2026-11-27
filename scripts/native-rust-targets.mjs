@@ -51,10 +51,7 @@ export function normalizeNativeTargetArch(value) {
 }
 
 /** @param {{arch?: string, platform?: string}} options @returns {{arch: string, platform: string}} */
-export function getHostNativeTarget({
-    arch = process.arch,
-    platform = process.platform,
-} = {}) {
+export function getHostNativeTarget({arch = process.arch, platform = process.platform} = {}) {
     return {
         arch: normalizeNativeTargetArch(arch),
         platform: normalizeNativeTargetPlatform(platform),
@@ -62,10 +59,7 @@ export function getHostNativeTarget({
 }
 
 /** @param {NodeJS.ProcessEnv} [env] @param {{arch: string, platform: string}} [hostTarget] */
-export function getRequestedNativeRustTarget(
-    env = process.env,
-    hostTarget = getHostNativeTarget(),
-) {
+export function getRequestedNativeRustTarget(env = process.env, hostTarget = getHostNativeTarget()) {
     const buildEnv = readBuildEnvironment(env);
     const platform = normalizeNativeTargetPlatform(buildEnv.EVB_NATIVE_TARGET_PLATFORM ?? hostTarget.platform);
     const arch = normalizeNativeTargetArch(buildEnv.EVB_NATIVE_TARGET_ARCH ?? hostTarget.arch);
@@ -84,10 +78,7 @@ export function getRequestedNativeRustTarget(
         // Named even for the host: an ambient CARGO_BUILD_TARGET or a Cargo
         // config default would otherwise send the build elsewhere, and an older
         // binary at the unqualified path would be staged in its place.
-        cargoTargetArgs: [
-            '--target',
-            rustTarget,
-        ],
+        cargoTargetArgs: ['--target', rustTarget],
         isHostTarget,
         platform,
         platformArch,

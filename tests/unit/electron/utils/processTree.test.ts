@@ -1,17 +1,7 @@
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { spawn } from 'node:child_process';
-import { once } from 'node:events';
-import {
-    isProcessTreeAlive,
-    processTreeRuntime,
-    terminateProcessTree,
-} from '@electron/utils/processTree';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {spawn} from 'node:child_process';
+import {once} from 'node:events';
+import {isProcessTreeAlive, processTreeRuntime, terminateProcessTree} from '@electron/utils/processTree';
 
 const describePosix = process.platform === 'win32' ? describe.skip : describe;
 // terminateProcessTree intentionally refuses to signal the current process.
@@ -49,8 +39,8 @@ describePosix('terminateProcessTree (posix)', () => {
 
         expect(terminated).toBe(false);
         expect(killSpy).toHaveBeenCalled();
-        expect(killCalls.some(call => call.pid === -pid && call.signal === 'SIGTERM')).toBe(true);
-        expect(killCalls.some(call => call.pid === -pid && call.signal === 'SIGKILL')).toBe(true);
+        expect(killCalls.some((call) => call.pid === -pid && call.signal === 'SIGTERM')).toBe(true);
+        expect(killCalls.some((call) => call.pid === -pid && call.signal === 'SIGKILL')).toBe(true);
     });
 
     it('does not send SIGKILL when process exits after SIGTERM', async () => {
@@ -85,8 +75,8 @@ describePosix('terminateProcessTree (posix)', () => {
         });
 
         expect(terminated).toBe(true);
-        expect(killCalls.some(call => call.pid === pid && call.signal === 'SIGTERM')).toBe(true);
-        expect(killCalls.some(call => call.signal === 'SIGKILL')).toBe(false);
+        expect(killCalls.some((call) => call.pid === pid && call.signal === 'SIGTERM')).toBe(true);
+        expect(killCalls.some((call) => call.signal === 'SIGKILL')).toBe(false);
     });
 
     it('stops polling once the caller proves the direct target exited', async () => {
@@ -107,11 +97,13 @@ describePosix('terminateProcessTree (posix)', () => {
             return true;
         }) as typeof processTreeRuntime.kill);
 
-        await expect(terminateProcessTree(pid, {
-            graceMs: 1_000,
-            isTargetAlive: () => targetAlive,
-            preferProcessGroup: false,
-        })).resolves.toBe(true);
+        await expect(
+            terminateProcessTree(pid, {
+                graceMs: 1_000,
+                isTargetAlive: () => targetAlive,
+                preferProcessGroup: false,
+            }),
+        ).resolves.toBe(true);
 
         expect(delaySpy).not.toHaveBeenCalled();
     });
@@ -143,16 +135,18 @@ describePosix('terminateProcessTree (posix)', () => {
             return true;
         }) as typeof processTreeRuntime.kill);
 
-        await expect(terminateProcessTree(pid, {
-            graceMs: 0,
-            preferProcessGroup: true,
-        })).resolves.toBe(true);
+        await expect(
+            terminateProcessTree(pid, {
+                graceMs: 0,
+                preferProcessGroup: true,
+            }),
+        ).resolves.toBe(true);
 
         expect(killCalls).toContainEqual({
             pid,
             signal: 'SIGTERM',
         });
-        expect(killCalls.some(call => call.pid === -pid && call.signal !== 0)).toBe(false);
+        expect(killCalls.some((call) => call.pid === -pid && call.signal !== 0)).toBe(false);
     });
 
     it('finishes the detached process group after its leader exits', async () => {
@@ -161,7 +155,7 @@ describePosix('terminateProcessTree (posix)', () => {
         let processGroupAlive = true;
         const killCalls: Array<{
             pid: number;
-            signal: NodeJS.Signals | 0 | undefined
+            signal: NodeJS.Signals | 0 | undefined;
         }> = [];
         vi.spyOn(processTreeRuntime, 'kill').mockImplementation(((targetPid, signal?: NodeJS.Signals | 0) => {
             killCalls.push({
@@ -190,15 +184,12 @@ describePosix('terminateProcessTree (posix)', () => {
         });
 
         expect(terminated).toBe(true);
-        expect(killCalls.some(call => call.signal === 'SIGTERM')).toBe(true);
-        expect(killCalls.some(call => call.signal === 'SIGKILL')).toBe(true);
+        expect(killCalls.some((call) => call.signal === 'SIGTERM')).toBe(true);
+        expect(killCalls.some((call) => call.signal === 'SIGKILL')).toBe(true);
     });
 
     it('detects and terminates a descendant that outlives its group leader', async () => {
-        const child = spawn('sh', [
-            '-c',
-            'sleep 30 & exit 0',
-        ], {
+        const child = spawn('sh', ['-c', 'sleep 30 & exit 0'], {
             detached: true,
             stdio: 'ignore',
         });
@@ -206,15 +197,17 @@ describePosix('terminateProcessTree (posix)', () => {
         if (typeof pid !== 'number') {
             throw new Error('Expected a process id for the detached group');
         }
-        await new Promise<void>(resolve => child.once('close', () => resolve()));
+        await new Promise<void>((resolve) => child.once('close', () => resolve()));
 
         try {
             expect(isProcessTreeAlive(pid, 'linux')).toBe(true);
-            await expect(terminateProcessTree(pid, {
-                graceMs: 1_000,
-                platform: 'linux',
-                preferProcessGroup: true,
-            })).resolves.toBe(true);
+            await expect(
+                terminateProcessTree(pid, {
+                    graceMs: 1_000,
+                    platform: 'linux',
+                    preferProcessGroup: true,
+                }),
+            ).resolves.toBe(true);
             expect(isProcessTreeAlive(pid, 'linux')).toBe(false);
         } finally {
             try {
@@ -235,21 +228,9 @@ describePosix('terminateProcessTree (posix)', () => {
 
     it('clamps forced-kill wait observation between 250ms and 2000ms', async () => {
         const pid = makeTestPid(4345);
-        for (const [
-            graceMs,
-            expectedMinForceWaitMs,
-            expectedMaxForceWaitMs,
-        ] of [
-            [
-                0,
-                250,
-                350,
-            ],
-            [
-                10_000,
-                2_000,
-                2_100,
-            ],
+        for (const [graceMs, expectedMinForceWaitMs, expectedMaxForceWaitMs] of [
+            [0, 250, 350],
+            [10_000, 2_000, 2_100],
         ] as const) {
             let now = 0;
             let forceKillSentAt = -1;
@@ -267,11 +248,13 @@ describePosix('terminateProcessTree (posix)', () => {
                 return true;
             }) as typeof processTreeRuntime.kill);
 
-            await expect(terminateProcessTree(pid, {
-                graceMs,
-                platform: 'linux',
-                preferProcessGroup: false,
-            })).resolves.toBe(false);
+            await expect(
+                terminateProcessTree(pid, {
+                    graceMs,
+                    platform: 'linux',
+                    preferProcessGroup: false,
+                }),
+            ).resolves.toBe(false);
 
             const waitedAfterForceKill = now - forceKillSentAt;
             expect(waitedAfterForceKill).toBeGreaterThanOrEqual(expectedMinForceWaitMs);
@@ -290,14 +273,10 @@ describe('terminateProcessTree (win32 taskkill)', () => {
     it('uses a timed execFile for taskkill and trusts the confirmed target exit', async () => {
         const pid = makeTestPid(5151);
         let alive = true;
-        const execFileSpy = vi.spyOn(processTreeRuntime, 'execFile').mockImplementation(((command, args, options) => {
+        const execFileSpy = vi.spyOn(processTreeRuntime, 'execFile').mockImplementation((command, args, options) => {
             const argumentList = args ?? [];
             expect(command).toBe('taskkill');
-            expect(argumentList).toEqual(expect.arrayContaining([
-                '/PID',
-                String(pid),
-                '/T',
-            ]));
+            expect(argumentList).toEqual(expect.arrayContaining(['/PID', String(pid), '/T']));
             expect(options).toMatchObject({
                 timeout: 50,
                 windowsHide: true,
@@ -310,7 +289,7 @@ describe('terminateProcessTree (win32 taskkill)', () => {
                 }) as never;
             }
             return Promise.reject(new Error('taskkill timed out')) as never;
-        }));
+        });
         vi.spyOn(processTreeRuntime, 'kill').mockImplementation(((targetPid, signal?: NodeJS.Signals | 0) => {
             if (targetPid === pid && signal === 0 && !alive) {
                 throw errno('ESRCH');
@@ -334,10 +313,10 @@ describe('terminateProcessTree (win32 taskkill)', () => {
     it('rejects tree proof when taskkill loses the exit race', async () => {
         const pid = makeTestPid(5252);
         let alive = true;
-        vi.spyOn(processTreeRuntime, 'execFile').mockImplementation((() => {
+        vi.spyOn(processTreeRuntime, 'execFile').mockImplementation(() => {
             alive = false;
             return Promise.reject(new Error('taskkill lost the exit race')) as never;
-        }));
+        });
         vi.spyOn(processTreeRuntime, 'kill').mockImplementation(((targetPid, signal?: NodeJS.Signals | 0) => {
             if (targetPid === pid && signal === 0 && !alive) {
                 throw errno('ESRCH');
@@ -345,32 +324,31 @@ describe('terminateProcessTree (win32 taskkill)', () => {
             return true;
         }) as typeof processTreeRuntime.kill);
 
-        await expect(terminateProcessTree(pid, {
-            graceMs: 0,
-            platform: 'win32',
-        })).resolves.toBe(false);
+        await expect(
+            terminateProcessTree(pid, {
+                graceMs: 0,
+                platform: 'win32',
+            }),
+        ).resolves.toBe(false);
     });
 
     it('keeps an already-dead Windows root unproven without signalling a reused PID', async () => {
         const exec = vi.spyOn(processTreeRuntime, 'execFile');
-        await expect(terminateProcessTree(makeTestPid(5353), {
-            platform: 'win32',
-            isTargetAlive: () => false,
-        })).resolves.toBe(false);
+        await expect(
+            terminateProcessTree(makeTestPid(5353), {
+                platform: 'win32',
+                isTargetAlive: () => false,
+            }),
+        ).resolves.toBe(false);
         expect(exec).not.toHaveBeenCalled();
     });
-
 });
-
 
 const describeWindows = process.platform === 'win32' ? describe : describe.skip;
 describeWindows('Windows native tree containment with real descendants', () => {
-    it.each([
-        'dead-root',
-        'exit-before-taskkill',
-        'successful-tree-kill',
-    ] as const)(
-        'never authorizes cleanup while a descendant lives: %s', async mode => {
+    it.each(['dead-root', 'exit-before-taskkill', 'successful-tree-kill'] as const)(
+        'never authorizes cleanup while a descendant lives: %s',
+        async (mode) => {
             const {createServer} = await import('node:net');
             const {randomUUID} = await import('node:crypto');
             const pipe = `\\\\.\\pipe\\evb-d11-${randomUUID()}`;
@@ -380,17 +358,9 @@ describeWindows('Windows native tree containment with real descendants', () => {
             const connected = once(server, 'connection');
             const leafSource = `require('node:net').connect(${JSON.stringify(pipe)}).on('connect', function () { this.write('ready'); }); setInterval(() => {}, 60000);`;
             const rootSource = `const child = require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(leafSource)}], {detached: true, windowsHide: true, stdio: 'ignore'}); child.unref(); process.send({pid: child.pid}); process.on('message', () => process.exit(0));`;
-            const root = spawn(process.execPath, [
-                '-e',
-                rootSource,
-            ], {
+            const root = spawn(process.execPath, ['-e', rootSource], {
                 windowsHide: true,
-                stdio: [
-                    'ignore',
-                    'ignore',
-                    'ignore',
-                    'ipc',
-                ],
+                stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
             });
             const rootExit = once(root, 'exit');
             const [message] = await once(root, 'message');
@@ -399,13 +369,23 @@ describeWindows('Windows native tree containment with real descendants', () => {
             expect(String((await once(socket, 'data'))[0])).toBe('ready');
             const leafExit = once(socket, 'close');
             const alive = (pid: number) => {
-                try { process.kill(pid, 0); return true; } catch { return false; }
+                try {
+                    process.kill(pid, 0);
+                    return true;
+                } catch {
+                    return false;
+                }
             };
-            const exitRoot = async () => { root.send('exit'); await rootExit; };
+            const exitRoot = async () => {
+                root.send('exit');
+                await rootExit;
+            };
             const realExec = processTreeRuntime.execFile;
             let spy: ReturnType<typeof vi.spyOn> | undefined;
             try {
-                if (mode === 'dead-root') {await exitRoot();}
+                if (mode === 'dead-root') {
+                    await exitRoot();
+                }
                 if (mode === 'exit-before-taskkill') {
                     spy = vi.spyOn(processTreeRuntime, 'execFile').mockImplementation(async (...args) => {
                         await exitRoot();
@@ -427,9 +407,13 @@ describeWindows('Windows native tree containment with real descendants', () => {
                 }
             } finally {
                 spy?.mockRestore();
-                if (root.exitCode === null && root.signalCode === null) {root.kill();}
+                if (root.exitCode === null && root.signalCode === null) {
+                    root.kill();
+                }
                 await rootExit;
-                if (alive(leafPid)) {process.kill(leafPid);}
+                if (alive(leafPid)) {
+                    process.kill(leafPid);
+                }
                 await leafExit;
                 await vi.waitFor(() => expect(alive(leafPid)).toBe(false));
                 expect(alive(root.pid!)).toBe(false);

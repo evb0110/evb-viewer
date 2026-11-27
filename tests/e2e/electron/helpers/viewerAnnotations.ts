@@ -1,14 +1,8 @@
-import type { Page } from 'puppeteer-core';
-import { delay } from 'es-toolkit/promise';
-import { readPdfAnnotationSummary } from '@tests/e2e/electron/helpers/fixtures';
-import {
-    DEFAULT_TIMEOUT_MS,
-    findVisiblePointInActiveHost,
-} from '@tests/e2e/electron/helpers/viewerDom';
-import {
-    openAnnotationsTab,
-    waitForViewerInteractive,
-} from '@tests/e2e/electron/helpers/viewerCore';
+import type {Page} from 'puppeteer-core';
+import {delay} from 'es-toolkit/promise';
+import {readPdfAnnotationSummary} from '@tests/e2e/electron/helpers/fixtures';
+import {DEFAULT_TIMEOUT_MS, findVisiblePointInActiveHost} from '@tests/e2e/electron/helpers/viewerDom';
+import {openAnnotationsTab, waitForViewerInteractive} from '@tests/e2e/electron/helpers/viewerCore';
 import {
     callWorkspaceCommand,
     collectWorkspaceExposeDebugState,
@@ -16,21 +10,18 @@ import {
     readWorkspaceStateValues,
     type IWorkspaceExposeProbeWindow,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
-import {
-    clickAsUser,
-    revealForPointer,
-} from '@tests/e2e/electron/helpers/userInput';
+import {clickAsUser, revealForPointer} from '@tests/e2e/electron/helpers/userInput';
 
 const TOOL_LABEL_TO_ID: Record<string, string> = {
-    'Draw': 'draw',
-    'Text': 'text',
-    'Highlight': 'highlight',
-    'Underline': 'underline',
-    'Strikethrough': 'strikethrough',
-    'Rectangle': 'rectangle',
-    'Circle': 'circle',
-    'Line': 'line',
-    'Arrow': 'arrow',
+    Draw: 'draw',
+    Text: 'text',
+    Highlight: 'highlight',
+    Underline: 'underline',
+    Strikethrough: 'strikethrough',
+    Rectangle: 'rectangle',
+    Circle: 'circle',
+    Line: 'line',
+    Arrow: 'arrow',
 };
 
 function resolveToolId(label: string) {
@@ -40,19 +31,19 @@ function resolveToolId(label: string) {
     return TOOL_LABEL_TO_ID[label] ?? label.toLowerCase();
 }
 
-async function waitForActiveAnnotationTool(
-    page: Page,
-    toolId: string,
-    timeoutMs = DEFAULT_TIMEOUT_MS,
-) {
-    await page.waitForFunction((expectedToolId: string) => {
-        const host = globalThis.__evbE2E.getActiveWorkspaceHost();
-        if (!host) {
-            return false;
-        }
-        const activeBtn = host.querySelector('.notes-panel .tool-button.is-active');
-        return activeBtn?.getAttribute('data-tool') === expectedToolId;
-    }, {timeout: timeoutMs}, toolId);
+async function waitForActiveAnnotationTool(page: Page, toolId: string, timeoutMs = DEFAULT_TIMEOUT_MS) {
+    await page.waitForFunction(
+        (expectedToolId: string) => {
+            const host = globalThis.__evbE2E.getActiveWorkspaceHost();
+            if (!host) {
+                return false;
+            }
+            const activeBtn = host.querySelector('.notes-panel .tool-button.is-active');
+            return activeBtn?.getAttribute('data-tool') === expectedToolId;
+        },
+        {timeout: timeoutMs},
+        toolId,
+    );
 }
 
 async function getActiveToolLabel(page: Page) {
@@ -67,7 +58,7 @@ export async function clickAnnotationTool(page: Page, label: string, timeoutMs =
     await waitForViewerInteractive(page, timeoutMs);
 
     const toolId = resolveToolId(label);
-    if (await getActiveToolLabel(page) === toolId) {
+    if ((await getActiveToolLabel(page)) === toolId) {
         return;
     }
 
@@ -85,16 +76,18 @@ export async function setAnnotationColor(page: Page, colorHex: string) {
     await openAnnotationsTab(page);
     const activeTool = await getActiveToolLabel(page);
 
-    await clickVisibleAnnotationControl(page,
-        `.editor-pane.is-active .workspace-host[data-workspace-active="true"] .notes-panel .swatch[aria-label="${colorHex}"]`);
+    await clickVisibleAnnotationControl(
+        page,
+        `.editor-pane.is-active .workspace-host[data-workspace-active="true"] .notes-panel .swatch[aria-label="${colorHex}"]`,
+    );
 
     if (activeTool) {
         await waitForActiveAnnotationTool(page, activeTool, Math.min(DEFAULT_TIMEOUT_MS, 4_000));
     }
 
     await page.evaluate(async () => {
-        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
-        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     });
 }
 
@@ -117,33 +110,44 @@ export async function clickVisibleAnnotationControl(page: Page, selector: string
 }
 
 export async function setAnnotationKeepActiveWithPointer(page: Page, enabled: boolean) {
-    const selector = '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .annotation-tool-options [role="checkbox"], .editor-pane.is-active .workspace-host[data-workspace-active="true"] .annotation-tool-options input[type="checkbox"]';
+    const selector =
+        '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .annotation-tool-options [role="checkbox"], .editor-pane.is-active .workspace-host[data-workspace-active="true"] .annotation-tool-options input[type="checkbox"]';
     await page.waitForSelector(selector, {
         visible: true,
         timeout: 20_000,
     });
-    const read = () => page.$eval(selector, checkbox => checkbox instanceof HTMLInputElement
-        ? checkbox.checked : checkbox.getAttribute('aria-checked') === 'true');
-    if (await read() !== enabled) {await clickVisibleAnnotationControl(page, selector);}
-    await page.waitForFunction((input: {
-        selector: string;
-        enabled: boolean
-    }) => {
-        const checkbox = document.querySelector(input.selector);
-        return (checkbox instanceof HTMLInputElement ? checkbox.checked : checkbox?.getAttribute('aria-checked') === 'true') === input.enabled;
-    }, {timeout: 10_000}, {
-        selector,
-        enabled,
-    });
+    const read = () =>
+        page.$eval(selector, (checkbox) =>
+            checkbox instanceof HTMLInputElement ? checkbox.checked : checkbox.getAttribute('aria-checked') === 'true',
+        );
+    if ((await read()) !== enabled) {
+        await clickVisibleAnnotationControl(page, selector);
+    }
+    await page.waitForFunction(
+        (input: {selector: string; enabled: boolean}) => {
+            const checkbox = document.querySelector(input.selector);
+            return (
+                (checkbox instanceof HTMLInputElement ? checkbox.checked : checkbox?.getAttribute('aria-checked') === 'true') ===
+                input.enabled
+            );
+        },
+        {timeout: 10_000},
+        {
+            selector,
+            enabled,
+        },
+    );
 }
 
 /** Native editing commands preserve the focus established by the actual click. */
 export async function selectAllFocusedAnnotationText(page: Page) {
-    await page.waitForFunction(() => {
-        const active = document.activeElement;
-        return active instanceof HTMLTextAreaElement
-            || (active instanceof HTMLElement && active.isContentEditable);
-    }, {timeout: 10_000});
+    await page.waitForFunction(
+        () => {
+            const active = document.activeElement;
+            return active instanceof HTMLTextAreaElement || (active instanceof HTMLElement && active.isContentEditable);
+        },
+        {timeout: 10_000},
+    );
     if (process.platform === 'darwin') {
         const client = await page.createCDPSession();
         try {
@@ -183,65 +187,70 @@ export async function createTextMarkupWithPointer(
     pageNumber = 1,
 ) {
     await clickAnnotationTool(page, tool);
-    const geometry = await page.evaluate((input: {
-        spanIndex: number;
-        pageNumber: number
-    }) => {
-        const host = document.querySelector('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
-        const targetPage = host?.querySelector(`.page_container[data-page="${input.pageNumber}"]`);
-        const spans = Array.from(targetPage?.querySelectorAll<HTMLElement>('.text-layer span') ?? [])
-            .filter(span => (span.textContent?.trim().length ?? 0) > 3);
-        const span = spans[input.spanIndex];
-        const node = span?.firstChild;
-        if (!(node instanceof Text) || node.length < 4) {
-            throw new Error('The pointer markup fixture has no suitable text span');
-        }
-        const startRange = document.createRange();
-        startRange.setStart(node, 0);
-        startRange.setEnd(node, 1);
-        const endRange = document.createRange();
-        endRange.setStart(node, node.length - 1);
-        endRange.setEnd(node, node.length);
-        const start = startRange.getBoundingClientRect();
-        const end = endRange.getBoundingClientRect();
-        const points = [
-            {
-                x: start.left + 0.5,
-                y: start.top + start.height / 2,
-            },
-            {
-                x: end.right - 0.5,
-                y: end.top + end.height / 2,
-            },
-        ];
-        for (const point of points) {
-            const hit = document.elementFromPoint(point.x, point.y);
-            if (!hit || !span?.contains(hit)) {
-                throw new Error(`Text drag endpoint is obstructed: ${hit?.outerHTML.slice(0, 200)}`);
+    const geometry = await page.evaluate(
+        (input: {spanIndex: number; pageNumber: number}) => {
+            const host = document.querySelector('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
+            const targetPage = host?.querySelector(`.page_container[data-page="${input.pageNumber}"]`);
+            const spans = Array.from(targetPage?.querySelectorAll<HTMLElement>('.text-layer span') ?? []).filter(
+                (span) => (span.textContent?.trim().length ?? 0) > 3,
+            );
+            const span = spans[input.spanIndex];
+            const node = span?.firstChild;
+            if (!(node instanceof Text) || node.length < 4) {
+                throw new Error('The pointer markup fixture has no suitable text span');
             }
-        }
-        return {
-            before: targetPage?.querySelectorAll('[data-annotation-kind="text-markup"]').length ?? 0,
-            points,
-        };
-    }, {
-        spanIndex,
-        pageNumber,
-    });
+            const startRange = document.createRange();
+            startRange.setStart(node, 0);
+            startRange.setEnd(node, 1);
+            const endRange = document.createRange();
+            endRange.setStart(node, node.length - 1);
+            endRange.setEnd(node, node.length);
+            const start = startRange.getBoundingClientRect();
+            const end = endRange.getBoundingClientRect();
+            const points = [
+                {
+                    x: start.left + 0.5,
+                    y: start.top + start.height / 2,
+                },
+                {
+                    x: end.right - 0.5,
+                    y: end.top + end.height / 2,
+                },
+            ];
+            for (const point of points) {
+                const hit = document.elementFromPoint(point.x, point.y);
+                if (!hit || !span?.contains(hit)) {
+                    throw new Error(`Text drag endpoint is obstructed: ${hit?.outerHTML.slice(0, 200)}`);
+                }
+            }
+            return {
+                before: targetPage?.querySelectorAll('[data-annotation-kind="text-markup"]').length ?? 0,
+                points,
+            };
+        },
+        {
+            spanIndex,
+            pageNumber,
+        },
+    );
     await page.mouse.move(geometry.points[0]!.x, geometry.points[0]!.y);
     await page.mouse.down();
     await page.mouse.move(geometry.points[1]!.x, geometry.points[1]!.y, {steps: 16});
     await page.mouse.up();
-    await page.waitForFunction((input: {
-        before: number;
-        pageNumber: number
-    }) => (
-        (document.querySelector(`.editor-pane.is-active .workspace-host[data-workspace-active="true"] .page_container[data-page="${input.pageNumber}"]`)
-            ?.querySelectorAll('[data-annotation-kind="text-markup"]').length ?? 0) === input.before + 1
-    ), {timeout: 20_000}, {
-        before: geometry.before,
-        pageNumber,
-    });
+    await page.waitForFunction(
+        (input: {before: number; pageNumber: number}) =>
+            (document
+                .querySelector(
+                    `.editor-pane.is-active .workspace-host[data-workspace-active="true"] .page_container[data-page="${input.pageNumber}"]`,
+                )
+                ?.querySelectorAll('[data-annotation-kind="text-markup"]').length ?? 0) ===
+            input.before + 1,
+        {timeout: 20_000},
+        {
+            before: geometry.before,
+            pageNumber,
+        },
+    );
 }
 
 export interface IEvbTextMarkupVisualSnapshot {
@@ -258,13 +267,13 @@ export interface IEvbTextMarkupVisualSnapshot {
 export async function readEvbTextMarkupVisuals(page: Page): Promise<IEvbTextMarkupVisualSnapshot[]> {
     return page.evaluate(() => {
         const host = globalThis.__evbE2E.getActiveWorkspaceHost();
-        return Array.from(host?.querySelectorAll<SVGGElement>(
-            '.pdf-annotation-editor-layer g[data-annotation-kind="text-markup"]',
-        ) ?? []).map(group => ({
+        return Array.from(
+            host?.querySelectorAll<SVGGElement>('.pdf-annotation-editor-layer g[data-annotation-kind="text-markup"]') ?? [],
+        ).map((group) => ({
             pageNumber: Number(group.closest<HTMLElement>('.page_container')?.dataset.page) || null,
             subtype: group.dataset.markupSubtype ?? null,
             // Every subtype has one hit rectangle per quad; only Highlight also paints a rectangle.
-            rects: Array.from(group.querySelectorAll<SVGRectElement>('rect[data-annotation-hit-target]')).map(rect => ({
+            rects: Array.from(group.querySelectorAll<SVGRectElement>('rect[data-annotation-hit-target]')).map((rect) => ({
                 height: Number(rect.getAttribute('height') ?? 0),
                 left: Number(rect.getAttribute('x') ?? 0),
                 top: Number(rect.getAttribute('y') ?? 0),
@@ -274,17 +283,15 @@ export async function readEvbTextMarkupVisuals(page: Page): Promise<IEvbTextMark
     });
 }
 
-export async function waitForEvbTextMarkupVisualCount(
-    page: Page,
-    expectedCount: number,
-    timeoutMs = DEFAULT_TIMEOUT_MS,
-) {
-    await page.waitForFunction((count: number) => {
-        const host = globalThis.__evbE2E.getActiveWorkspaceHost();
-        return (host?.querySelectorAll(
-            '.pdf-annotation-editor-layer g[data-annotation-kind="text-markup"]',
-        ).length ?? 0) === count;
-    }, {timeout: timeoutMs}, expectedCount);
+export async function waitForEvbTextMarkupVisualCount(page: Page, expectedCount: number, timeoutMs = DEFAULT_TIMEOUT_MS) {
+    await page.waitForFunction(
+        (count: number) => {
+            const host = globalThis.__evbE2E.getActiveWorkspaceHost();
+            return (host?.querySelectorAll('.pdf-annotation-editor-layer g[data-annotation-kind="text-markup"]').length ?? 0) === count;
+        },
+        {timeout: timeoutMs},
+        expectedCount,
+    );
 }
 
 export async function selectTextFromRenderedSpans(
@@ -298,11 +305,10 @@ export async function selectTextFromRenderedSpans(
 ) {
     const selectionText = await page.evaluate((selectionOptions) => {
         const textSpansForPage = (pageNumber: number) => {
-            const page = document.querySelector<HTMLElement>(
-                `.page_container[data-page="${pageNumber}"]`,
+            const page = document.querySelector<HTMLElement>(`.page_container[data-page="${pageNumber}"]`);
+            return Array.from(page?.querySelectorAll<HTMLElement>('.text-layer span') ?? []).filter(
+                (span) => (span.textContent ?? '').trim().length > 0,
             );
-            return Array.from(page?.querySelectorAll<HTMLElement>('.text-layer span') ?? [])
-                .filter(span => (span.textContent ?? '').trim().length > 0);
         };
         const startSpan = textSpansForPage(selectionOptions.startPage)[selectionOptions.startSpan];
         const endSpan = textSpansForPage(selectionOptions.endPage)[selectionOptions.endSpan];
@@ -345,21 +351,25 @@ export async function createCanonicalTextMarkup(
     const selectedText = await selectTextFromRenderedSpans(page, options);
     const commandResult = await callWorkspaceCommand<boolean>(page, 'highlightSelection');
     if (!commandResult.called || commandResult.value !== true) {
-        throw new Error(`Canonical ${tool} creation failed for ${JSON.stringify({
-            selectedText,
-            commandResult,
-        })}`);
+        throw new Error(
+            `Canonical ${tool} creation failed for ${JSON.stringify({
+                selectedText,
+                commandResult,
+            })}`,
+        );
     }
     if (await page.evaluate(() => (document.getSelection()?.rangeCount ?? 0) > 0)) {
         throw new Error(`Canonical ${tool} creation left native selection over the annotation`);
     }
     const previous = await before;
-    await page.waitForFunction((minimumCount: number) => (
-        document.querySelectorAll('.pdf-annotation-editor-layer g[data-annotation-kind="text-markup"]').length > minimumCount
-    ), {timeout: 20_000}, previous.length);
+    await page.waitForFunction(
+        (minimumCount: number) =>
+            document.querySelectorAll('.pdf-annotation-editor-layer g[data-annotation-kind="text-markup"]').length > minimumCount,
+        {timeout: 20_000},
+        previous.length,
+    );
     return selectedText;
 }
-
 
 export async function getFreeTextEditorCount(page: Page) {
     return page.evaluate(() => {
@@ -391,25 +401,29 @@ export async function createCanonicalTextBoxWithPointer(
     pageNumber = 1,
 ) {
     await clickAnnotationTool(page, 'Text', 30_000);
-    await page.waitForFunction((targetPageNumber: number) => {
-        const selector = `.page_container[data-page="${targetPageNumber}"]`;
-        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
-        const container = host?.querySelector<HTMLElement>(selector);
-        const layer = container?.querySelector<HTMLElement>('.pdf-annotation-editor-layer');
-        const rect = layer?.getBoundingClientRect();
-        const layerStyle = layer ? window.getComputedStyle(layer) : null;
-        return Boolean(
-            container?.classList.contains('page_container--rendered')
-            && container.dataset.pageLayerReadiness !== 'canvas-only'
-            && container.dataset.pageLayerReadiness !== 'hydrating'
-            && layer
-            && rect
-            && rect.width > 0
-            && rect.height > 0
-            && layer.classList.contains('is-interactive')
-            && layerStyle?.pointerEvents === 'auto',
-        );
-    }, {timeout: 30_000}, pageNumber);
+    await page.waitForFunction(
+        (targetPageNumber: number) => {
+            const selector = `.page_container[data-page="${targetPageNumber}"]`;
+            const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
+            const container = host?.querySelector<HTMLElement>(selector);
+            const layer = container?.querySelector<HTMLElement>('.pdf-annotation-editor-layer');
+            const rect = layer?.getBoundingClientRect();
+            const layerStyle = layer ? window.getComputedStyle(layer) : null;
+            return Boolean(
+                container?.classList.contains('page_container--rendered') &&
+                container.dataset.pageLayerReadiness !== 'canvas-only' &&
+                container.dataset.pageLayerReadiness !== 'hydrating' &&
+                layer &&
+                rect &&
+                rect.width > 0 &&
+                rect.height > 0 &&
+                layer.classList.contains('is-interactive') &&
+                layerStyle?.pointerEvents === 'auto',
+            );
+        },
+        {timeout: 30_000},
+        pageNumber,
+    );
 
     const point = await resolveAnnotationLayerPoint(page, position, pageNumber);
     if (!point) {
@@ -417,17 +431,20 @@ export async function createCanonicalTextBoxWithPointer(
     }
     await page.mouse.click(point.x, point.y);
 
-    const editorSelector = `.editor-pane.is-active .workspace-host[data-workspace-active="true"] .page_container[data-page="${pageNumber}"] `
-        + '.pdf-annotation-editor-text-box.is-editing [contenteditable="true"]';
+    const editorSelector =
+        `.editor-pane.is-active .workspace-host[data-workspace-active="true"] .page_container[data-page="${pageNumber}"] ` +
+        '.pdf-annotation-editor-text-box.is-editing [contenteditable="true"]';
     await page.waitForSelector(editorSelector, {
         timeout: 30_000,
         visible: true,
     });
     // Assert that the placement click established editor focus. Repairing focus
     // here would hide a broken click-to-type interaction from persistence tests.
-    await page.waitForFunction((selector: string) => (
-        document.activeElement === document.querySelector(selector)
-    ), {timeout: 30_000}, editorSelector);
+    await page.waitForFunction(
+        (selector: string) => document.activeElement === document.querySelector(selector),
+        {timeout: 30_000},
+        editorSelector,
+    );
     await page.keyboard.type(text, {delay: 10});
     const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
     await page.keyboard.down(modifier);
@@ -436,18 +453,26 @@ export async function createCanonicalTextBoxWithPointer(
     } finally {
         await page.keyboard.up(modifier);
     }
-    await page.waitForFunction((expectedText: string) => Array.from(
-        document.querySelectorAll<HTMLElement>(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .pdf-annotation-editor-layer [data-annotation-kind="text-box"]',
-        ),
-    ).some(entity => entity.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim() === expectedText), {timeout: 30_000}, text);
+    await page.waitForFunction(
+        (expectedText: string) =>
+            Array.from(
+                document.querySelectorAll<HTMLElement>(
+                    '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .pdf-annotation-editor-layer [data-annotation-kind="text-box"]',
+                ),
+            ).some((entity) => entity.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim() === expectedText),
+        {timeout: 30_000},
+        text,
+    );
 
-    const annotationId = await page.evaluate((expectedText: string) => Array.from(
-        document.querySelectorAll<HTMLElement>(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .pdf-annotation-editor-layer [data-annotation-kind="text-box"]',
-        ),
-    ).find(entity => entity.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim() === expectedText)
-        ?.dataset.annotationId ?? null, text);
+    const annotationId = await page.evaluate(
+        (expectedText: string) =>
+            Array.from(
+                document.querySelectorAll<HTMLElement>(
+                    '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .pdf-annotation-editor-layer [data-annotation-kind="text-box"]',
+                ),
+            ).find((entity) => entity.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim() === expectedText)?.dataset.annotationId ?? null,
+        text,
+    );
     if (!annotationId) {
         throw new Error(`Canonical text-box creation produced no annotation id for ${JSON.stringify(text)}`);
     }
@@ -469,34 +494,34 @@ export async function waitForPdfAnnotationSubtypeCount(filePath: string, subtype
 
 export async function waitForNoOpenNoteWindows(page: Page) {
     try {
-        await page.waitForFunction(() => {
-            const isVisible = (candidate: HTMLElement) => {
-                const rect = candidate.getBoundingClientRect();
-                const style = window.getComputedStyle(candidate);
-                return (
-                    style.display !== 'none'
-                    && style.visibility !== 'hidden'
-                    && Number(style.opacity || '1') > 0
-                    && rect.width > 0
-                    && rect.height > 0
+        await page.waitForFunction(
+            () => {
+                const isVisible = (candidate: HTMLElement) => {
+                    const rect = candidate.getBoundingClientRect();
+                    const style = window.getComputedStyle(candidate);
+                    return (
+                        style.display !== 'none' &&
+                        style.visibility !== 'hidden' &&
+                        Number(style.opacity || '1') > 0 &&
+                        rect.width > 0 &&
+                        rect.height > 0
+                    );
+                };
+                const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).filter(isVisible);
+                const activeHost = document.querySelector<HTMLElement>(
+                    '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
                 );
-            };
-            const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-                .filter(isVisible);
-            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
-            const host = activeHost && visibleHosts.includes(activeHost)
-                ? activeHost
-                : (visibleHosts.length === 1 ? visibleHosts[0] : null);
-            const root: ParentNode = host ?? document;
-            return Array.from(root.querySelectorAll('textarea.note-window__textarea'))
-                .flatMap(candidate => (
-                    candidate instanceof HTMLTextAreaElement
-                    && isVisible(candidate)
-                        ? [candidate]
-                        : []
-                ))
-                .length === 0;
-        }, { timeout: 8_000 });
+                const host =
+                    activeHost && visibleHosts.includes(activeHost) ? activeHost : visibleHosts.length === 1 ? visibleHosts[0] : null;
+                const root: ParentNode = host ?? document;
+                return (
+                    Array.from(root.querySelectorAll('textarea.note-window__textarea')).flatMap((candidate) =>
+                        candidate instanceof HTMLTextAreaElement && isVisible(candidate) ? [candidate] : [],
+                    ).length === 0
+                );
+            },
+            {timeout: 8_000},
+        );
     } catch {
         throw new Error(`Timed out waiting for note windows to close: ${JSON.stringify(await collectStickyNoteDebugState(page))}`);
     }
@@ -508,27 +533,19 @@ export async function clickLatestVisibleNoteWindowClose(page: Page) {
             const rect = candidate.getBoundingClientRect();
             const style = window.getComputedStyle(candidate);
             return (
-                style.display !== 'none'
-                && style.visibility !== 'hidden'
-                && Number(style.opacity || '1') > 0
-                && rect.width > 0
-                && rect.height > 0
+                style.display !== 'none' &&
+                style.visibility !== 'hidden' &&
+                Number(style.opacity || '1') > 0 &&
+                rect.width > 0 &&
+                rect.height > 0
             );
         };
-        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-            .filter(isVisible);
+        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).filter(isVisible);
         const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
-        const host = activeHost && visibleHosts.includes(activeHost)
-            ? activeHost
-            : (visibleHosts.length === 1 ? visibleHosts[0] : null);
+        const host = activeHost && visibleHosts.includes(activeHost) ? activeHost : visibleHosts.length === 1 ? visibleHosts[0] : null;
         const root: ParentNode = host ?? document;
         const closeButton = Array.from(root.querySelectorAll('.note-window__close'))
-            .flatMap(candidate => (
-                candidate instanceof HTMLButtonElement
-                && isVisible(candidate)
-                    ? [candidate]
-                    : []
-            ))
+            .flatMap((candidate) => (candidate instanceof HTMLButtonElement && isVisible(candidate) ? [candidate] : []))
             .at(-1);
         if (!closeButton) {
             return null;
@@ -537,7 +554,9 @@ export async function clickLatestVisibleNoteWindowClose(page: Page) {
         const x = rect.left + rect.width / 2;
         const y = rect.top + rect.height / 2;
         const hit = document.elementFromPoint(x, y);
-        if (!hit || !closeButton.contains(hit)) {throw new Error('The note close button is obstructed');}
+        if (!hit || !closeButton.contains(hit)) {
+            throw new Error('The note close button is obstructed');
+        }
         return {
             x,
             y,
@@ -550,81 +569,69 @@ export async function clickLatestVisibleNoteWindowClose(page: Page) {
 }
 
 async function collectStickyNoteDebugState(page: Page) {
-    const workspaceDebug = await collectWorkspaceExposeDebugState(page, { requiredProperties: ['annotationComments'] });
+    const workspaceDebug = await collectWorkspaceExposeDebugState(page, {requiredProperties: ['annotationComments']});
     const domDebug = await page.evaluate(() => {
-        const unwrap = (value: unknown) => (
-            value
-            && typeof value === 'object'
-            && 'value' in value
-                ? (value as { value?: unknown }).value
-                : value
+        const unwrap = (value: unknown) =>
+            value && typeof value === 'object' && 'value' in value ? (value as {value?: unknown}).value : value;
+        const setupState = ((window as IWorkspaceExposeProbeWindow).__evbFindWorkspaceExpose?.({
+            requiredProperties: ['annotationComments'],
+        }) ?? (window as IWorkspaceExposeProbeWindow).__evbFindWorkspaceExpose?.({requiredProperties: ['pdfViewerRef']})) as Record<
+            string,
+            unknown
+        > | null;
+        const comments = Array.from(document.querySelectorAll<HTMLElement>('.notes-list .note-item')).map(
+            (item) => item.textContent?.replace(/\s+/g, ' ').trim() ?? '',
         );
-        const setupState = (
-            (window as IWorkspaceExposeProbeWindow).__evbFindWorkspaceExpose?.({ requiredProperties: ['annotationComments'] })
-            ?? (window as IWorkspaceExposeProbeWindow).__evbFindWorkspaceExpose?.({ requiredProperties: ['pdfViewerRef'] })
-        ) as Record<string, unknown> | null;
-        const comments = Array.from(document.querySelectorAll<HTMLElement>('.notes-list .note-item'))
-            .map(item => item.textContent?.replace(/\s+/g, ' ').trim() ?? '');
-        const noteWindows = Array.from(document.querySelectorAll<HTMLElement>('.note-window'))
-            .map(windowElement => windowElement.textContent?.replace(/\s+/g, ' ').trim() ?? '');
-        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-            .filter((host) => {
-                const rect = host.getBoundingClientRect();
-                const style = window.getComputedStyle(host);
-                return (
-                    rect.width > 100
-                    && rect.height > 100
-                    && style.display !== 'none'
-                    && style.visibility !== 'hidden'
-                    && Number(style.opacity || '1') > 0
-                );
-            });
+        const noteWindows = Array.from(document.querySelectorAll<HTMLElement>('.note-window')).map(
+            (windowElement) => windowElement.textContent?.replace(/\s+/g, ' ').trim() ?? '',
+        );
+        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).filter((host) => {
+            const rect = host.getBoundingClientRect();
+            const style = window.getComputedStyle(host);
+            return (
+                rect.width > 100 &&
+                rect.height > 100 &&
+                style.display !== 'none' &&
+                style.visibility !== 'hidden' &&
+                Number(style.opacity || '1') > 0
+            );
+        });
         const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
-        const host = activeHost && visibleHosts.includes(activeHost)
-            ? activeHost
-            : (visibleHosts[0] ?? null);
-        const pageContainers = Array.from(host?.querySelectorAll<HTMLElement>('.page_container') ?? [])
-            .map((pageContainer) => {
-                const rect = pageContainer.getBoundingClientRect();
-                const editorLayer = pageContainer.querySelector<HTMLElement>('.pdf-annotation-editor-layer, .annotation-editor-layer');
-                return {
-                    page: pageContainer.dataset.page ?? null,
-                    rendered: pageContainer.classList.contains('page_container--rendered'),
-                    rect: {
-                        left: Math.round(rect.left),
-                        top: Math.round(rect.top),
-                        width: Math.round(rect.width),
-                        height: Math.round(rect.height),
-                    },
-                    editorLayerClasses: editorLayer?.className ?? null,
-                    freeTextCount: pageContainer.querySelectorAll('.pdf-annotation-editor-text-box').length,
-                    highlightCount: pageContainer.querySelectorAll('.pdf-annotation-editor-text-markup, .highlightAnnotation').length,
-                };
-            });
+        const host = activeHost && visibleHosts.includes(activeHost) ? activeHost : (visibleHosts[0] ?? null);
+        const pageContainers = Array.from(host?.querySelectorAll<HTMLElement>('.page_container') ?? []).map((pageContainer) => {
+            const rect = pageContainer.getBoundingClientRect();
+            const editorLayer = pageContainer.querySelector<HTMLElement>('.pdf-annotation-editor-layer, .annotation-editor-layer');
+            return {
+                page: pageContainer.dataset.page ?? null,
+                rendered: pageContainer.classList.contains('page_container--rendered'),
+                rect: {
+                    left: Math.round(rect.left),
+                    top: Math.round(rect.top),
+                    width: Math.round(rect.width),
+                    height: Math.round(rect.height),
+                },
+                editorLayerClasses: editorLayer?.className ?? null,
+                freeTextCount: pageContainer.querySelectorAll('.pdf-annotation-editor-text-box').length,
+                highlightCount: pageContainer.querySelectorAll('.pdf-annotation-editor-text-markup, .highlightAnnotation').length,
+            };
+        });
         const toolbarButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label]'))
-            .map(button => ({
+            .map((button) => ({
                 label: button.getAttribute('aria-label'),
                 disabled: button.disabled,
                 classes: button.className,
             }))
-            .filter(button => (button.label ?? '').toLowerCase().includes('note'));
-        const contextButtons = Array.from(document.querySelectorAll<HTMLButtonElement>(
-            '.annotation-context-menu .pdf-context-menu__action',
-        )).map(button => ({
+            .filter((button) => (button.label ?? '').toLowerCase().includes('note'));
+        const contextButtons = Array.from(
+            document.querySelectorAll<HTMLButtonElement>('.annotation-context-menu .pdf-context-menu__action'),
+        ).map((button) => ({
             text: button.textContent?.replace(/\s+/g, ' ').trim() ?? '',
             disabled: button.disabled,
         }));
-        const annotationComments = setupState
-            ? unwrap(setupState['annotationComments'])
-            : null;
-        const annotationEditorState = setupState
-            ? unwrap(setupState['annotationEditorState'])
-            : null;
+        const annotationComments = setupState ? unwrap(setupState['annotationComments']) : null;
+        const annotationEditorState = setupState ? unwrap(setupState['annotationEditorState']) : null;
         const sortedNoteWindows = setupState
-            ? (
-                unwrap(setupState['sortedAnnotationNoteWindows'])
-                ?? unwrap(setupState['annotationNoteWindows'])
-            )
+            ? (unwrap(setupState['sortedAnnotationNoteWindows']) ?? unwrap(setupState['annotationNoteWindows']))
             : null;
 
         return {
@@ -639,31 +646,31 @@ async function collectStickyNoteDebugState(page: Page) {
             annotationEditorState,
             annotationComments: Array.isArray(annotationComments)
                 ? annotationComments.map((comment) => {
-                    const entry = comment as Record<string, unknown>;
-                    return {
-                        stableKey: entry.stableKey ?? null,
-                        source: entry.source ?? null,
-                        subtype: entry.subtype ?? null,
-                        hasNote: entry.hasNote ?? null,
-                        text: entry.text ?? null,
-                        createdAt: entry.createdAt ?? null,
-                        modifiedAt: entry.modifiedAt ?? null,
-                    };
-                })
+                      const entry = comment as Record<string, unknown>;
+                      return {
+                          stableKey: entry.stableKey ?? null,
+                          source: entry.source ?? null,
+                          subtype: entry.subtype ?? null,
+                          hasNote: entry.hasNote ?? null,
+                          text: entry.text ?? null,
+                          createdAt: entry.createdAt ?? null,
+                          modifiedAt: entry.modifiedAt ?? null,
+                      };
+                  })
                 : null,
             sortedNoteWindows: Array.isArray(sortedNoteWindows)
                 ? sortedNoteWindows.map((note) => {
-                    const entry = note as Record<string, unknown>;
-                    const comment = (entry.comment ?? {}) as Record<string, unknown>;
-                    return {
-                        stableKey: comment.stableKey ?? null,
-                        source: comment.source ?? null,
-                        subtype: comment.subtype ?? null,
-                        text: comment.text ?? null,
-                        createdAt: comment.createdAt ?? null,
-                        modifiedAt: comment.modifiedAt ?? null,
-                    };
-                })
+                      const entry = note as Record<string, unknown>;
+                      const comment = (entry.comment ?? {}) as Record<string, unknown>;
+                      return {
+                          stableKey: comment.stableKey ?? null,
+                          source: comment.source ?? null,
+                          subtype: comment.subtype ?? null,
+                          text: comment.text ?? null,
+                          createdAt: comment.createdAt ?? null,
+                          modifiedAt: comment.modifiedAt ?? null,
+                      };
+                  })
                 : null,
         };
     });
@@ -673,7 +680,6 @@ async function collectStickyNoteDebugState(page: Page) {
         matchingComponentSamples: workspaceDebug.matchingComponentSamples,
     };
 }
-
 
 export interface IAnnotationOwnershipDebugState {
     annotationDirtyEntityCount: number;
@@ -688,7 +694,9 @@ export interface IAnnotationOwnershipDebugState {
     workspaceState: Record<string, unknown>;
 }
 
-interface IAnnotationOwnershipWorkspaceState extends Record<string, unknown> {dirtyState?: {annotationDirtyEntityCount?: number;};}
+interface IAnnotationOwnershipWorkspaceState extends Record<string, unknown> {
+    dirtyState?: {annotationDirtyEntityCount?: number};
+}
 
 export async function collectAnnotationOwnershipDebugState(page: Page): Promise<IAnnotationOwnershipDebugState> {
     await installWorkspaceExposeProbe(page);
@@ -702,15 +710,15 @@ export async function collectAnnotationOwnershipDebugState(page: Page): Promise<
     ]);
     const result = await page.evaluate(() => {
         const staticLayer = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .page_container[data-page="1"] .annotation-layer, '
-            + '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .page_container[data-page="1"] .annotationLayer',
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .page_container[data-page="1"] .annotation-layer, ' +
+                '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .page_container[data-page="1"] .annotationLayer',
         );
         const editorLayer = document.querySelector<HTMLElement>(
             '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .page_container[data-page="1"] .pdf-annotation-editor-layer',
         );
         const canonicalEntities = Array.from(
             editorLayer?.querySelectorAll<HTMLElement>('[data-annotation-id][data-annotation-kind]') ?? [],
-        ).map(entity => ({
+        ).map((entity) => ({
             id: entity.dataset.annotationId ?? '',
             kind: entity.dataset.annotationKind ?? '',
             selected: entity.classList.contains('is-selected'),
@@ -719,15 +727,15 @@ export async function collectAnnotationOwnershipDebugState(page: Page): Promise<
         return {
             canonicalEntities,
             legacyEditorLayerCount: document.querySelectorAll(
-                '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .page_container[data-page="1"] .annotation-editor-layer, '
-                + '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .page_container[data-page="1"] .annotationEditorLayer',
+                '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .page_container[data-page="1"] .annotation-editor-layer, ' +
+                    '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .page_container[data-page="1"] .annotationEditorLayer',
             ).length,
-            staticLinkHrefs: Array.from(
-                staticLayer?.querySelectorAll<HTMLAnchorElement>('.linkAnnotation a[data-href]') ?? [],
-            ).map(link => link.dataset.href ?? ''),
-            staticNonLinkAnnotationCount: Array.from(
-                staticLayer?.querySelectorAll<HTMLElement>('[data-annotation-id]') ?? [],
-            ).filter(element => !element.closest('.linkAnnotation')).length,
+            staticLinkHrefs: Array.from(staticLayer?.querySelectorAll<HTMLAnchorElement>('.linkAnnotation a[data-href]') ?? []).map(
+                (link) => link.dataset.href ?? '',
+            ),
+            staticNonLinkAnnotationCount: Array.from(staticLayer?.querySelectorAll<HTMLElement>('[data-annotation-id]') ?? []).filter(
+                (element) => !element.closest('.linkAnnotation'),
+            ).length,
         };
     });
     return {
@@ -736,7 +744,6 @@ export async function collectAnnotationOwnershipDebugState(page: Page): Promise<
         workspaceState,
     };
 }
-
 
 async function resolveAnnotationLayerPoint(
     page: Page,
@@ -748,90 +755,90 @@ async function resolveAnnotationLayerPoint(
 ) {
     await waitForViewerInteractive(page);
 
-    return page.evaluate(async ({
-        xRatio,
-        yRatio,
-        targetPageNumber,
-    }) => {
-        const pageSelector = targetPageNumber
-            ? `.page_container[data-page="${targetPageNumber}"]`
-            : '.page_container';
-        const host = globalThis.__evbE2E.getActiveWorkspaceHost(pageSelector);
-        if (!host) {
-            return null;
-        }
+    return page.evaluate(
+        async ({xRatio, yRatio, targetPageNumber}) => {
+            const pageSelector = targetPageNumber ? `.page_container[data-page="${targetPageNumber}"]` : '.page_container';
+            const host = globalThis.__evbE2E.getActiveWorkspaceHost(pageSelector);
+            if (!host) {
+                return null;
+            }
 
-        const pageContainer = host.querySelector<HTMLElement>(pageSelector);
-        const layer = pageContainer?.querySelector<HTMLElement>('.pdf-annotation-editor-layer, .annotation-editor-layer');
-        const target = layer ?? pageContainer;
-        if (!target) {
-            return null;
-        }
+            const pageContainer = host.querySelector<HTMLElement>(pageSelector);
+            const layer = pageContainer?.querySelector<HTMLElement>('.pdf-annotation-editor-layer, .annotation-editor-layer');
+            const target = layer ?? pageContainer;
+            if (!target) {
+                return null;
+            }
 
-        pageContainer?.scrollIntoView({
-            block: 'center',
-            inline: 'center',
-        });
-        await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-
-        let rect = target.getBoundingClientRect();
-        if (rect.width <= 0 || rect.height <= 0) {
-            return null;
-        }
-
-        // A click reaches the page only inside the viewer's own viewport; the
-        // host also holds the sidebar, which covers a page scrolled under it.
-        const viewport = pageContainer?.closest<HTMLElement>('#pdf-viewer') ?? host;
-        let hostRect = viewport.getBoundingClientRect();
-        const getVisibleBounds = () => ({
-            left: Math.max(rect.left, hostRect.left, 0) + 24,
-            right: Math.min(rect.right, hostRect.right, window.innerWidth) - 24,
-            top: Math.max(rect.top, hostRect.top, 0) + 24,
-            bottom: Math.min(rect.bottom, hostRect.bottom, window.innerHeight) - 24,
-        });
-        let bounds = getVisibleBounds();
-        if (bounds.right <= bounds.left || bounds.bottom <= bounds.top) {
             pageContainer?.scrollIntoView({
                 block: 'center',
                 inline: 'center',
             });
-            await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-            rect = target.getBoundingClientRect();
-            hostRect = viewport.getBoundingClientRect();
-            bounds = getVisibleBounds();
-        }
-        const {
-            bottom,
-            left,
-            right,
-            top,
-        } = bounds;
-        if (right <= left || bottom <= top) {
-            return null;
-        }
-        const clamp = (value: number, min: number, max: number) => (
-            Math.min(Math.max(value, min), max)
-        );
+            await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
 
-        return {
-            x: Math.round(clamp(rect.left + rect.width * xRatio, left, right)),
-            y: Math.round(clamp(rect.top + rect.height * yRatio, top, bottom)),
-        };
-    }, {
-        xRatio: ratio.x,
-        yRatio: ratio.y,
-        targetPageNumber: pageNumber ?? null,
-    });
+            let rect = target.getBoundingClientRect();
+            if (rect.width <= 0 || rect.height <= 0) {
+                return null;
+            }
+
+            // A click reaches the page only inside the viewer's own viewport; the
+            // host also holds the sidebar, which covers a page scrolled under it.
+            const viewport = pageContainer?.closest<HTMLElement>('#pdf-viewer') ?? host;
+            let hostRect = viewport.getBoundingClientRect();
+            const getVisibleBounds = () => ({
+                left: Math.max(rect.left, hostRect.left, 0) + 24,
+                right: Math.min(rect.right, hostRect.right, window.innerWidth) - 24,
+                top: Math.max(rect.top, hostRect.top, 0) + 24,
+                bottom: Math.min(rect.bottom, hostRect.bottom, window.innerHeight) - 24,
+            });
+            let bounds = getVisibleBounds();
+            if (bounds.right <= bounds.left || bounds.bottom <= bounds.top) {
+                pageContainer?.scrollIntoView({
+                    block: 'center',
+                    inline: 'center',
+                });
+                await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+                rect = target.getBoundingClientRect();
+                hostRect = viewport.getBoundingClientRect();
+                bounds = getVisibleBounds();
+            }
+            const {bottom, left, right, top} = bounds;
+            if (right <= left || bottom <= top) {
+                return null;
+            }
+            const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+
+            return {
+                x: Math.round(clamp(rect.left + rect.width * xRatio, left, right)),
+                y: Math.round(clamp(rect.top + rect.height * yRatio, top, bottom)),
+            };
+        },
+        {
+            xRatio: ratio.x,
+            yRatio: ratio.y,
+            targetPageNumber: pageNumber ?? null,
+        },
+    );
 }
 
-export async function createFreeTextAnnotation(page: Page, text: string, position?: {
-    x: number;
-    y: number;
-}, pageNumber = 1) {
-    await createCanonicalTextBoxWithPointer(page, text, position ?? {
-        x: 0.4,
-        y: 0.3,
-    }, pageNumber);
+export async function createFreeTextAnnotation(
+    page: Page,
+    text: string,
+    position?: {
+        x: number;
+        y: number;
+    },
+    pageNumber = 1,
+) {
+    await createCanonicalTextBoxWithPointer(
+        page,
+        text,
+        position ?? {
+            x: 0.4,
+            y: 0.3,
+        },
+        pageNumber,
+    );
     return getOrdinaryFreeTextEditorCount(page);
 }
 
@@ -845,7 +852,7 @@ export async function createFreeTextAnnotationWithPointer(
     text: string,
     position: {
         x: number;
-        y: number
+        y: number;
     },
     pageNumber = 1,
 ) {
@@ -868,10 +875,10 @@ export async function createStickyNoteWithPointer(
     text: string,
     position: {
         x: number;
-        y: number
+        y: number;
     },
     pageNumber?: number,
-    options: {allowClearPointSearch?: boolean;} = {},
+    options: {allowClearPointSearch?: boolean} = {},
 ) {
     if (options.allowClearPointSearch && pageNumber === undefined) {
         throw new Error('Clear-point search requires an explicit target page number');
@@ -879,63 +886,52 @@ export async function createStickyNoteWithPointer(
     await openAnnotationsTab(page, 30_000);
     await waitForViewerInteractive(page, 30_000);
 
-    const point = await page.evaluate(async ({
-        targetPageNumber,
-        xRatio,
-        yRatio,
-    }) => {
-        const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-            .filter((host) => {
+    const point = await page.evaluate(
+        async ({targetPageNumber, xRatio, yRatio}) => {
+            const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).filter((host) => {
                 const rect = host.getBoundingClientRect();
                 const style = window.getComputedStyle(host);
-                return (
-                    rect.width > 100
-                    && rect.height > 100
-                    && style.display !== 'none'
-                    && style.visibility !== 'hidden'
-                );
+                return rect.width > 100 && rect.height > 100 && style.display !== 'none' && style.visibility !== 'hidden';
             });
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
-        const host = activeHost && visibleHosts.includes(activeHost)
-            ? activeHost
-            : (visibleHosts[0] ?? null);
-        const pageSelector = targetPageNumber
-            ? `.page_container[data-page="${targetPageNumber}"]`
-            : '.page_container--rendered, .page_container';
-        const pageContainer = host?.querySelector<HTMLElement>(pageSelector) ?? null;
-        if (!host || !pageContainer) {
-            return null;
-        }
-        pageContainer.scrollIntoView({
-            block: 'center',
-            inline: 'center',
-        });
-        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
-        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
-        const rect = pageContainer.getBoundingClientRect();
-        const hostRect = host.getBoundingClientRect();
-        const left = Math.max(rect.left, hostRect.left, 0) + 24;
-        const right = Math.min(rect.right, hostRect.right, window.innerWidth) - 24;
-        const top = Math.max(rect.top, hostRect.top, 0) + 24;
-        const bottom = Math.min(rect.bottom, hostRect.bottom, window.innerHeight) - 24;
-        if (right <= left || bottom <= top) {
-            return null;
-        }
-        const clamp = (value: number, min: number, max: number) => (
-            Math.min(Math.max(value, min), max)
-        );
-        return {
-            pageNumber: pageContainer.dataset.page ?? String(targetPageNumber ?? 1),
-            point: {
-                x: Math.round(clamp(rect.left + rect.width * xRatio, left, right)),
-                y: Math.round(clamp(rect.top + rect.height * yRatio, top, bottom)),
-            },
-        };
-    }, {
-        targetPageNumber: pageNumber ?? null,
-        xRatio: position.x,
-        yRatio: position.y,
-    });
+            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
+            const host = activeHost && visibleHosts.includes(activeHost) ? activeHost : (visibleHosts[0] ?? null);
+            const pageSelector = targetPageNumber
+                ? `.page_container[data-page="${targetPageNumber}"]`
+                : '.page_container--rendered, .page_container';
+            const pageContainer = host?.querySelector<HTMLElement>(pageSelector) ?? null;
+            if (!host || !pageContainer) {
+                return null;
+            }
+            pageContainer.scrollIntoView({
+                block: 'center',
+                inline: 'center',
+            });
+            await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+            await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+            const rect = pageContainer.getBoundingClientRect();
+            const hostRect = host.getBoundingClientRect();
+            const left = Math.max(rect.left, hostRect.left, 0) + 24;
+            const right = Math.min(rect.right, hostRect.right, window.innerWidth) - 24;
+            const top = Math.max(rect.top, hostRect.top, 0) + 24;
+            const bottom = Math.min(rect.bottom, hostRect.bottom, window.innerHeight) - 24;
+            if (right <= left || bottom <= top) {
+                return null;
+            }
+            const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+            return {
+                pageNumber: pageContainer.dataset.page ?? String(targetPageNumber ?? 1),
+                point: {
+                    x: Math.round(clamp(rect.left + rect.width * xRatio, left, right)),
+                    y: Math.round(clamp(rect.top + rect.height * yRatio, top, bottom)),
+                },
+            };
+        },
+        {
+            targetPageNumber: pageNumber ?? null,
+            xRatio: position.x,
+            yRatio: position.y,
+        },
+    );
     if (!point) {
         throw new Error('Sticky-note creation could not resolve a visible page point');
     }
@@ -945,111 +941,115 @@ export async function createStickyNoteWithPointer(
     await clickAnnotationTool(page, 'Note');
     // The placement check below reads the active workspace through the probe.
     await installWorkspaceExposeProbe(page);
-    await page.waitForFunction(() => Array.from(document.querySelectorAll<HTMLElement>(
-        '.pdf-annotation-editor-layer[data-pdf-annotation-editor-ready="true"], '
-        + '.annotation-editor-layer[data-pdf-annotation-editor-ready="true"]',
-    )).some(layer => {
-        const rect = layer.getBoundingClientRect();
-        return rect.width > 0 && rect.height > 0;
-    }), {timeout: 10_000});
-    await page.waitForFunction(() => {
-        const workspace = (window as IWorkspaceExposeProbeWindow)
-            .__evbFindWorkspaceExpose?.({requiredMethods: ['getToolbarSnapshot']}) as {getToolbarSnapshot?: () => {isPlacingPageNote?: boolean};} | null;
-        return workspace?.getToolbarSnapshot?.().isPlacingPageNote === true;
-    }, {timeout: 10_000});
+    await page.waitForFunction(
+        () =>
+            Array.from(
+                document.querySelectorAll<HTMLElement>(
+                    '.pdf-annotation-editor-layer[data-pdf-annotation-editor-ready="true"], ' +
+                        '.annotation-editor-layer[data-pdf-annotation-editor-ready="true"]',
+                ),
+            ).some((layer) => {
+                const rect = layer.getBoundingClientRect();
+                return rect.width > 0 && rect.height > 0;
+            }),
+        {timeout: 10_000},
+    );
+    await page.waitForFunction(
+        () => {
+            const workspace = (window as IWorkspaceExposeProbeWindow).__evbFindWorkspaceExpose?.({
+                requiredMethods: ['getToolbarSnapshot'],
+            }) as {getToolbarSnapshot?: () => {isPlacingPageNote?: boolean}} | null;
+            return workspace?.getToolbarSnapshot?.().isPlacingPageNote === true;
+        },
+        {timeout: 10_000},
+    );
     // Existing imported markup can cover the requested point after placement
     // mode starts. The default contract remains strict: a covered point fails
     // rather than moving the annotation. One fixture may opt into searching a
     // clear point, but only inside its explicitly identified target page.
-    const pointHandle = await page.waitForFunction((request) => {
-        const requestedPoint = request.point;
-        const isUsableBackgroundPoint = (x: number, y: number) => {
-            const target = document.elementFromPoint(x, y);
-            const background = target?.closest<HTMLElement>('.pdf-annotation-editor-surface__background');
-            const layer = background?.closest<HTMLElement>('.pdf-annotation-editor-layer');
-            const pageContainer = layer?.closest<HTMLElement>('.page_container');
-            return Boolean(
-                target === background
-                && pageContainer?.classList.contains('page_container--rendered')
-                && pageContainer?.getAttribute('data-page-layer-readiness') === 'ready'
-                && layer?.dataset.pdfAnnotationEditorReady === 'true'
-                && layer.classList.contains('is-interactive')
-                && background
-                && getComputedStyle(background).pointerEvents !== 'none',
-            );
-        };
-        if (isUsableBackgroundPoint(requestedPoint.x, requestedPoint.y)) {
-            return requestedPoint;
-        }
-        if (!request.allowClearPointSearch) {
-            return false;
-        }
-        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
-        const pageContainer = host?.querySelector<HTMLElement>(
-            `.page_container[data-page="${request.pageNumber}"]`,
-        ) ?? null;
-        if (!pageContainer || !host) {
-            return false;
-        }
-        const rect = pageContainer.getBoundingClientRect();
-        const hostRect = host.getBoundingClientRect();
-        const left = Math.max(rect.left, hostRect.left, 0) + 24;
-        const right = Math.min(rect.right, hostRect.right, window.innerWidth) - 24;
-        const top = Math.max(rect.top, hostRect.top, 0) + 24;
-        const bottom = Math.min(rect.bottom, hostRect.bottom, window.innerHeight) - 24;
-        if (right <= left || bottom <= top) {
-            return false;
-        }
-        const ratios = [
-            0.12,
-            0.24,
-            0.36,
-            0.48,
-            0.6,
-            0.72,
-            0.84,
-            0.92,
-        ];
-        for (const yRatio of ratios) {
-            for (const xRatio of ratios) {
-                const x = Math.round(Math.min(Math.max(rect.left + rect.width * xRatio, left), right));
-                const y = Math.round(Math.min(Math.max(rect.top + rect.height * yRatio, top), bottom));
-                if (isUsableBackgroundPoint(x, y)) {
-                    return {
-                        x,
-                        y,
-                    };
+    const pointHandle = await page.waitForFunction(
+        (request) => {
+            const requestedPoint = request.point;
+            const isUsableBackgroundPoint = (x: number, y: number) => {
+                const target = document.elementFromPoint(x, y);
+                const background = target?.closest<HTMLElement>('.pdf-annotation-editor-surface__background');
+                const layer = background?.closest<HTMLElement>('.pdf-annotation-editor-layer');
+                const pageContainer = layer?.closest<HTMLElement>('.page_container');
+                return Boolean(
+                    target === background &&
+                    pageContainer?.classList.contains('page_container--rendered') &&
+                    pageContainer?.getAttribute('data-page-layer-readiness') === 'ready' &&
+                    layer?.dataset.pdfAnnotationEditorReady === 'true' &&
+                    layer.classList.contains('is-interactive') &&
+                    background &&
+                    getComputedStyle(background).pointerEvents !== 'none',
+                );
+            };
+            if (isUsableBackgroundPoint(requestedPoint.x, requestedPoint.y)) {
+                return requestedPoint;
+            }
+            if (!request.allowClearPointSearch) {
+                return false;
+            }
+            const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
+            const pageContainer = host?.querySelector<HTMLElement>(`.page_container[data-page="${request.pageNumber}"]`) ?? null;
+            if (!pageContainer || !host) {
+                return false;
+            }
+            const rect = pageContainer.getBoundingClientRect();
+            const hostRect = host.getBoundingClientRect();
+            const left = Math.max(rect.left, hostRect.left, 0) + 24;
+            const right = Math.min(rect.right, hostRect.right, window.innerWidth) - 24;
+            const top = Math.max(rect.top, hostRect.top, 0) + 24;
+            const bottom = Math.min(rect.bottom, hostRect.bottom, window.innerHeight) - 24;
+            if (right <= left || bottom <= top) {
+                return false;
+            }
+            const ratios = [0.12, 0.24, 0.36, 0.48, 0.6, 0.72, 0.84, 0.92];
+            for (const yRatio of ratios) {
+                for (const xRatio of ratios) {
+                    const x = Math.round(Math.min(Math.max(rect.left + rect.width * xRatio, left), right));
+                    const y = Math.round(Math.min(Math.max(rect.top + rect.height * yRatio, top), bottom));
+                    if (isUsableBackgroundPoint(x, y)) {
+                        return {
+                            x,
+                            y,
+                        };
+                    }
                 }
             }
-        }
-        return false;
-    }, {timeout: 10_000}, {
-        allowClearPointSearch: options.allowClearPointSearch === true,
-        pageNumber: point.pageNumber,
-        point: point.point,
-    });
-    const placementPoint = await pointHandle.jsonValue() as {
+            return false;
+        },
+        {timeout: 10_000},
+        {
+            allowClearPointSearch: options.allowClearPointSearch === true,
+            pageNumber: point.pageNumber,
+            point: point.point,
+        },
+    );
+    const placementPoint = (await pointHandle.jsonValue()) as {
         x: number;
         y: number;
     };
     await pointHandle.dispose();
     await page.mouse.click(placementPoint.x, placementPoint.y);
 
-    const textarea = await page.waitForSelector(
-        'textarea.note-window__textarea',
-        {
-            timeout: 10_000,
-            visible: true,
-        },
-    );
+    const textarea = await page.waitForSelector('textarea.note-window__textarea', {
+        timeout: 10_000,
+        visible: true,
+    });
     if (!textarea) {
         throw new Error('Sticky-note placement did not open the note editor');
     }
     await clickAsUser(page, textarea);
     await page.keyboard.type(text, {delay: 10});
-    await page.waitForFunction((expectedText: string) => (
-        Array.from(document.querySelectorAll<HTMLTextAreaElement>('textarea.note-window__textarea'))
-            .some(candidate => candidate.value === expectedText)
-    ), {timeout: 10_000}, text);
+    await page.waitForFunction(
+        (expectedText: string) =>
+            Array.from(document.querySelectorAll<HTMLTextAreaElement>('textarea.note-window__textarea')).some(
+                (candidate) => candidate.value === expectedText,
+            ),
+        {timeout: 10_000},
+        text,
+    );
     await page.keyboard.press('Tab');
 }

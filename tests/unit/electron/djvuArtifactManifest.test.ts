@@ -1,6 +1,6 @@
 import type * as AppTempDir from '@electron/utils/appTempDir';
 import type * as FileSystem from 'node:fs/promises';
-import { createHash } from 'node:crypto';
+import {createHash} from 'node:crypto';
 import {
     existsSync,
     mkdirSync,
@@ -14,15 +14,9 @@ import {
     rmSync,
     writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {afterEach, describe, expect, it, vi} from 'vitest';
 import {
     assertDjvuSourceIdentity,
     createDjvuDiskQuotaMonitor,
@@ -39,14 +33,14 @@ const pruneState = vi.hoisted(() => ({
     resume: Promise.withResolvers<undefined>(),
 }));
 
-vi.mock('@electron/utils/appTempDir', async importOriginal => {
+vi.mock('@electron/utils/appTempDir', async (importOriginal) => {
     const actual = await importOriginal<typeof AppTempDir>();
     return {
         ...actual,
         getAppTempDir: () => pruneState.root || actual.getAppTempDir(),
     };
 });
-vi.mock('node:fs/promises', async importOriginal => {
+vi.mock('node:fs/promises', async (importOriginal) => {
     const actual = await importOriginal<typeof FileSystem>();
     return {
         ...actual,
@@ -81,10 +75,16 @@ describe('DjVu artifact manifests', () => {
         const sourcePath = join(directory, 'source.djvu');
         const aliasPath = join(directory, 'input.djvu');
         writeFileSync(sourcePath, 'source bytes');
-        const job = await openDjvuArtifactJob(sourcePath, [{
-            startPage: 1,
-            endPage: 1,
-        }], {});
+        const job = await openDjvuArtifactJob(
+            sourcePath,
+            [
+                {
+                    startPage: 1,
+                    endPage: 1,
+                },
+            ],
+            {},
+        );
         try {
             vi.stubGlobal('process', {
                 ...process,
@@ -108,10 +108,16 @@ describe('DjVu artifact manifests', () => {
         writeFileSync(sourcePath, 'AAAA');
         const timestamp = new Date('2020-01-01T00:00:00Z');
         utimesSync(sourcePath, timestamp, timestamp);
-        const job = await openDjvuArtifactJob(sourcePath, [{
-            startPage: 1,
-            endPage: 1,
-        }], {});
+        const job = await openDjvuArtifactJob(
+            sourcePath,
+            [
+                {
+                    startPage: 1,
+                    endPage: 1,
+                },
+            ],
+            {},
+        );
         try {
             writeFileSync(sourcePath, 'BBBB');
             expect(statSync(sourcePath, {bigint: true}).ino).toBe(job.sourceIdentity.ino);
@@ -130,10 +136,16 @@ describe('DjVu artifact manifests', () => {
         // An exact whole-second timestamp round trips on all three filesystems.
         const timestamp = new Date('2020-01-01T00:00:00Z');
         utimesSync(sourcePath, timestamp, timestamp);
-        const job = await openDjvuArtifactJob(sourcePath, [{
-            startPage: 1,
-            endPage: 1,
-        }], {});
+        const job = await openDjvuArtifactJob(
+            sourcePath,
+            [
+                {
+                    startPage: 1,
+                    endPage: 1,
+                },
+            ],
+            {},
+        );
         try {
             writeFileSync(replacementPath, 'BBBB');
             utimesSync(replacementPath, timestamp, timestamp);
@@ -169,7 +181,9 @@ describe('DjVu artifact manifests', () => {
         });
         await first.updateRange(1, {status: 'running'});
         await first.close();
-        const savedManifest = JSON.parse(readFileSync(first.manifestPath, 'utf8')) as Record<string, unknown> & {ranges: Array<Record<string, unknown>>};
+        const savedManifest = JSON.parse(readFileSync(first.manifestPath, 'utf8')) as Record<string, unknown> & {
+            ranges: Array<Record<string, unknown>>;
+        };
         savedManifest.extra = 'stripped';
         savedManifest.ranges[0]!.extra = 'stripped';
         writeFileSync(first.manifestPath, JSON.stringify(savedManifest));
@@ -179,10 +193,7 @@ describe('DjVu artifact manifests', () => {
         expect(resumed.directory).toBe(first.directory);
         expect(Object.hasOwn(resumed.manifest, 'extra')).toBe(false);
         expect(Object.hasOwn(resumed.manifest.ranges[0]!, 'extra')).toBe(false);
-        expect(resumed.manifest.ranges.map(range => range.status)).toEqual([
-            'verified',
-            'pending',
-        ]);
+        expect(resumed.manifest.ranges.map((range) => range.status)).toEqual(['verified', 'pending']);
         await resumed.cleanup?.();
     });
 
@@ -193,10 +204,12 @@ describe('DjVu artifact manifests', () => {
         writeFileSync(sourcePath, 'djvu-source');
         const identityName = '__EVB_NATIVE_BUILD_IDS__';
         const identityKey = 'evb-pdf-image-combine';
-        const ranges = [{
-            startPage: 1,
-            endPage: 1,
-        }];
+        const ranges = [
+            {
+                startPage: 1,
+                endPage: 1,
+            },
+        ];
         try {
             vi.stubGlobal(identityName, {[identityKey]: 'old-tool'});
             const first = await openDjvuArtifactJob(sourcePath, ranges, {artifactKind: 'compact-page'});
@@ -227,10 +240,12 @@ describe('DjVu artifact manifests', () => {
         directories.push(directory);
         const sourcePath = join(directory, 'source.djvu');
         writeFileSync(sourcePath, 'djvu-source');
-        const ranges = [{
-            startPage: 1,
-            endPage: 1,
-        }];
+        const ranges = [
+            {
+                startPage: 1,
+                endPage: 1,
+            },
+        ];
         const first = await openDjvuArtifactJob(sourcePath, ranges, {});
         writeFileSync(first.manifest.ranges[0]!.outputPath, 'AAAA');
         await first.updateRange(0, {status: 'verified'});
@@ -248,17 +263,19 @@ describe('DjVu artifact manifests', () => {
         directories.push(directory);
         const sourcePath = join(directory, 'source.djvu');
         writeFileSync(sourcePath, 'djvu-source');
-        const ranges = [{
-            startPage: 1,
-            endPage: 1,
-        }];
+        const ranges = [
+            {
+                startPage: 1,
+                endPage: 1,
+            },
+        ];
         const first = await openDjvuArtifactJob(sourcePath, ranges, {});
         let secondOpened = false;
-        const secondPromise = openDjvuArtifactJob(sourcePath, ranges, {}).then(job => {
+        const secondPromise = openDjvuArtifactJob(sourcePath, ranges, {}).then((job) => {
             secondOpened = true;
             return job;
         });
-        await new Promise(resolve => setTimeout(resolve, 20));
+        await new Promise((resolve) => setTimeout(resolve, 20));
         expect(secondOpened).toBe(false);
 
         await first.close();
@@ -272,13 +289,15 @@ describe('DjVu artifact manifests', () => {
         directories.push(directory);
         const sourcePath = join(directory, 'source.djvu');
         writeFileSync(sourcePath, 'djvu-source');
-        const ranges = [{
-            startPage: 1,
-            endPage: 1,
-        }];
+        const ranges = [
+            {
+                startPage: 1,
+                endPage: 1,
+            },
+        ];
         const first = await openDjvuArtifactJob(sourcePath, ranges, {});
         await first.close();
-        const manifest = JSON.parse(readFileSync(first.manifestPath, 'utf8')) as {ranges: Array<{outputPath: string}>;};
+        const manifest = JSON.parse(readFileSync(first.manifestPath, 'utf8')) as {ranges: Array<{outputPath: string}>};
         manifest.ranges[0]!.outputPath = join(directory, 'unowned.pdf');
         writeFileSync(first.manifestPath, JSON.stringify(manifest));
 
@@ -294,10 +313,16 @@ describe('DjVu artifact manifests', () => {
         directories.push(directory);
         const sourcePath = join(directory, 'source.djvu');
         writeFileSync(sourcePath, 'djvu-source');
-        const job = await openDjvuArtifactJob(sourcePath, [{
-            startPage: 1,
-            endPage: 1,
-        }], {});
+        const job = await openDjvuArtifactJob(
+            sourcePath,
+            [
+                {
+                    startPage: 1,
+                    endPage: 1,
+                },
+            ],
+            {},
+        );
 
         await job.cleanup?.();
 
@@ -309,37 +334,34 @@ describe('DjVu artifact manifests', () => {
         directories.push(directory);
         const sourcePath = join(directory, 'source.djvu');
         writeFileSync(sourcePath, 'djvu-source');
-        const job = await openDjvuArtifactJob(sourcePath, [
-            {
-                startPage: 1,
-                endPage: 1,
-            },
-            {
-                startPage: 2,
-                endPage: 2,
-            },
-        ], {maxTotalBytesForTests: 7});
+        const job = await openDjvuArtifactJob(
+            sourcePath,
+            [
+                {
+                    startPage: 1,
+                    endPage: 1,
+                },
+                {
+                    startPage: 2,
+                    endPage: 2,
+                },
+            ],
+            {maxTotalBytesForTests: 7},
+        );
         for (const range of job.manifest.ranges) {
             writeFileSync(range.outputPath, 'four');
         }
 
-        const results = await Promise.allSettled([
-            job.updateRange(0, {status: 'verified'}),
-            job.updateRange(1, {status: 'verified'}),
-        ]);
+        const results = await Promise.allSettled([job.updateRange(0, {status: 'verified'}), job.updateRange(1, {status: 'verified'})]);
 
-        expect(results.map(result => result.status).sort()).toEqual([
-            'fulfilled',
-            'rejected',
+        expect(results.map((result) => result.status).sort()).toEqual(['fulfilled', 'rejected']);
+        expect(job.manifest.ranges.map((range) => range.status).sort()).toEqual(['failed', 'verified']);
+        expect(job.manifest.ranges.filter((range) => range.status === 'verified')).toEqual([
+            expect.objectContaining({
+                accountedSize: 4,
+                sha256: createHash('sha256').update('four').digest('hex'),
+            }),
         ]);
-        expect(job.manifest.ranges.map(range => range.status).sort()).toEqual([
-            'failed',
-            'verified',
-        ]);
-        expect(job.manifest.ranges.filter(range => range.status === 'verified')).toEqual([expect.objectContaining({
-            accountedSize: 4,
-            sha256: createHash('sha256').update('four').digest('hex'),
-        })]);
         await job.cleanup?.();
     });
 
@@ -348,24 +370,40 @@ describe('DjVu artifact manifests', () => {
         directories.push(directory);
         const sourcePath = join(directory, 'source.djvu');
         writeFileSync(sourcePath, 'djvu-source');
-        const job = await openDjvuArtifactJob(sourcePath, [{
-            startPage: 1,
-            endPage: 1,
-        }], {
-            artifactKind: 'compact-page',
-            outputExtension: '.json',
-            maxTotalBytesForTests: 7,
-        });
+        const job = await openDjvuArtifactJob(
+            sourcePath,
+            [
+                {
+                    startPage: 1,
+                    endPage: 1,
+                },
+            ],
+            {
+                artifactKind: 'compact-page',
+                outputExtension: '.json',
+                maxTotalBytesForTests: 7,
+            },
+        );
         const checkpointPath = job.manifest.ranges[0]!.outputPath;
         const layerPath = join(job.directory, 'layer.pbm');
         writeFileSync(checkpointPath, 'four');
         writeFileSync(layerPath, 'more');
 
-        await expect(job.updateRange(0, {status: 'verified'}, {additionalArtifacts: [{
-            path: layerPath,
-            size: 4,
-            sha256: createHash('sha256').update('more').digest('hex'),
-        }]})).rejects.toThrow('DjVu disk quota exceeded');
+        await expect(
+            job.updateRange(
+                0,
+                {status: 'verified'},
+                {
+                    additionalArtifacts: [
+                        {
+                            path: layerPath,
+                            size: 4,
+                            sha256: createHash('sha256').update('more').digest('hex'),
+                        },
+                    ],
+                },
+            ),
+        ).rejects.toThrow('DjVu disk quota exceeded');
 
         expect(job.manifest.ranges[0]).toMatchObject({status: 'failed'});
         expect(() => readFileSync(checkpointPath)).toThrow();
@@ -436,7 +474,6 @@ describe('DjVu artifact manifests', () => {
     });
 });
 
-
 describe('DjVu pruning concurrent claims', () => {
     it.each([
         {
@@ -463,19 +500,19 @@ describe('DjVu pruning concurrent claims', () => {
             reason: 'retention limit',
             claim: 'refreshed manifest',
         },
-    ])('preserves a $claim admitted during $reason enumeration', async ({
-        reason, claim,
-    }) => {
+    ])('preserves a $claim admitted during $reason enumeration', async ({reason, claim}) => {
         const root = mkdtempSync(join(tmpdir(), 'evb-djvu-prune-'));
         pruneState.root = root;
         pruneState.captured = Promise.withResolvers<undefined>();
         pruneState.resume = Promise.withResolvers<undefined>();
         const sourcePath = join(root, 'source.djvu');
         writeFileSync(sourcePath, 'djvu-source');
-        const ranges = [{
-            startPage: 1,
-            endPage: 1,
-        }];
+        const ranges = [
+            {
+                startPage: 1,
+                endPage: 1,
+            },
+        ];
         const original = await openDjvuArtifactJob(sourcePath, ranges, {});
         await original.close();
         const old = new Date(Date.now() - (reason === 'stale age' ? 8 * 86400_000 : 10_000));
@@ -494,7 +531,9 @@ describe('DjVu pruning concurrent claims', () => {
         const consumer = claim === 'closed consumer';
         const admitted = await openDjvuArtifactJob(sourcePath, ranges, {consumer});
         try {
-            if (claim !== 'open job') {await admitted.close();}
+            if (claim !== 'open job') {
+                await admitted.close();
+            }
             pruneState.resume.resolve(undefined);
             // This must settle while an open job still holds its lock.
             await pruning;
@@ -503,7 +542,9 @@ describe('DjVu pruning concurrent claims', () => {
         } finally {
             pruneState.resume.resolve(undefined);
             await admitted.close();
-            if (consumer) {await releaseDjvuArtifactConsumer(admitted.directory, {remove: true});}
+            if (consumer) {
+                await releaseDjvuArtifactConsumer(admitted.directory, {remove: true});
+            }
             pruneState.root = '';
             pruneState.intercept = false;
             rmSync(root, {

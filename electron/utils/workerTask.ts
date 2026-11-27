@@ -1,24 +1,13 @@
-import { existsSync } from 'fs';
-import {
-    basename, join, 
-} from 'path';
-import {
-    Worker,
-    type ResourceLimits,
-} from 'worker_threads';
-import { isRecord } from '@contracts/runtimeGuards';
-import {
-    parseWorkerTaskErrorFrame,
-    type IWorkerTaskErrorFrame,
-} from '@contracts/workerTaskErrorFrame';
+import {existsSync} from 'fs';
+import {basename, join} from 'path';
+import {Worker, type ResourceLimits} from 'worker_threads';
+import {isRecord} from '@contracts/runtimeGuards';
+import {parseWorkerTaskErrorFrame, type IWorkerTaskErrorFrame} from '@contracts/workerTaskErrorFrame';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
-import { isAbortError } from '@electron/utils/abort';
-import { getErrorMessage } from '@electron/utils/error';
-import { createLogger } from '@electron/utils/createLogger';
-import {
-    getUnprovenNativeTerminationDetail,
-    markUnprovenNativeTermination,
-} from '@electron/utils/nativeTerminationProof';
+import {isAbortError} from '@electron/utils/abort';
+import {getErrorMessage} from '@electron/utils/error';
+import {createLogger} from '@electron/utils/createLogger';
+import {getUnprovenNativeTerminationDetail, markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
 
 const workerTaskLog = createLogger('worker-task');
 
@@ -26,16 +15,16 @@ export type {IWorkerTaskErrorFrame};
 
 type TResultWorkerPayload =
     | {
-        type: 'result';
-        ok: true;
-        data?: unknown;
-    }
+          type: 'result';
+          ok: true;
+          data?: unknown;
+      }
     | {
-        type: 'result';
-        ok: false;
-        error: string;
-        errorFrame?: IWorkerTaskErrorFrame;
-    };
+          type: 'result';
+          ok: false;
+          error: string;
+          errorFrame?: IWorkerTaskErrorFrame;
+      };
 
 type TResultWorkerDecoder<T> = (data: unknown) => T | null;
 
@@ -68,13 +57,15 @@ interface IRunResultWorkerTaskBaseOptions {
     onTerminationProof?: (proof: Promise<boolean>) => void;
 }
 
-interface IDecodedResultWorkerTaskOptions<T> extends IRunResultWorkerTaskBaseOptions {decodeResult: TResultWorkerDecoder<T>;}
+interface IDecodedResultWorkerTaskOptions<T> extends IRunResultWorkerTaskBaseOptions {
+    decodeResult: TResultWorkerDecoder<T>;
+}
 
-interface IUnknownResultWorkerTaskOptions extends IRunResultWorkerTaskBaseOptions {decodeResult?: undefined;}
+interface IUnknownResultWorkerTaskOptions extends IRunResultWorkerTaskBaseOptions {
+    decodeResult?: undefined;
+}
 
-type TRunResultWorkerTaskOptions<T = unknown> =
-    | IDecodedResultWorkerTaskOptions<T>
-    | IUnknownResultWorkerTaskOptions;
+type TRunResultWorkerTaskOptions<T = unknown> = IDecodedResultWorkerTaskOptions<T> | IUnknownResultWorkerTaskOptions;
 
 export interface IStreamingWorkerTaskHandle<T> {
     worker: Worker;
@@ -107,18 +98,13 @@ function getErrorStringProperty(error: unknown, key: 'name' | 'code') {
         return undefined;
     }
     const value = (error as Record<string, unknown>)[key];
-    return typeof value === 'string' && value.length > 0
-        ? value
-        : undefined;
+    return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
 function readCloneableErrorDetails(error: unknown, explicitDetails: unknown): unknown {
     try {
-        const candidate = explicitDetails !== undefined
-            ? explicitDetails
-            : isRecord(error) && 'details' in error
-                ? error.details
-                : undefined;
+        const candidate =
+            explicitDetails !== undefined ? explicitDetails : isRecord(error) && 'details' in error ? error.details : undefined;
         if (candidate === undefined) {
             return undefined;
         }
@@ -193,16 +179,13 @@ function parseResultWorkerPayload(payload: unknown): TResultWorkerPayload | null
         // makes the whole result untrusted even when the legacy error string
         // happens to be valid. Falling back would discard structured fields
         // such as cancellation, retryability, and termination evidence.
-        if (
-            ('errorFrame' in payload && errorFrame === null)
-            || (typeof payload.error !== 'string' && errorFrame === null)
-        ) {
+        if (('errorFrame' in payload && errorFrame === null) || (typeof payload.error !== 'string' && errorFrame === null)) {
             return null;
         }
         return {
             type: 'result',
             ok: false,
-            error: typeof payload.error === 'string' ? payload.error : errorFrame?.message ?? 'Worker task failed',
+            error: typeof payload.error === 'string' ? payload.error : (errorFrame?.message ?? 'Worker task failed'),
             ...(errorFrame === null ? {} : {errorFrame}),
         };
     }
@@ -226,9 +209,7 @@ function markWorkerTaskErrorReported<T>(error: T, receipt: FailureReceipt | unde
 }
 
 export function getWorkerTaskFailureReceipt(error: unknown) {
-    return typeof error === 'object' && error !== null
-        ? reportedWorkerTaskErrors.get(error)
-        : undefined;
+    return typeof error === 'object' && error !== null ? reportedWorkerTaskErrors.get(error) : undefined;
 }
 
 export function rememberWorkerTaskFailureReceipt(error: unknown, receipt: FailureReceipt | undefined) {
@@ -278,11 +259,7 @@ function wrapUnmarkableError(reason: unknown, fallbackMessage: string, fallbackN
 // leave the task pending forever. A mark the reason already reports is no
 // exception: an AggregateError reports its members' marks without carrying one
 // itself, so marking it still writes to it.
-function asMarkableError(
-    reason: unknown,
-    fallbackMessage = 'The operation was aborted',
-    fallbackName = 'AbortError',
-): object {
+function asMarkableError(reason: unknown, fallbackMessage = 'The operation was aborted', fallbackName = 'AbortError'): object {
     if (typeof reason === 'object' && reason !== null) {
         try {
             if (Object.isExtensible(reason)) {
@@ -310,10 +287,12 @@ function hasReadableTerminationMark(error: unknown) {
 
 function hasVerifiedOwnTerminationMark(error: unknown) {
     try {
-        return typeof error === 'object'
-            && error !== null
-            && typeof (error as Record<symbol, unknown>)[UNPROVEN_NATIVE_TERMINATION_SYMBOL] === 'string'
-            && getUnprovenNativeTerminationDetail(error) !== undefined;
+        return (
+            typeof error === 'object' &&
+            error !== null &&
+            typeof (error as Record<symbol, unknown>)[UNPROVEN_NATIVE_TERMINATION_SYMBOL] === 'string' &&
+            getUnprovenNativeTerminationDetail(error) !== undefined
+        );
     } catch {
         return false;
     }
@@ -326,32 +305,28 @@ function markTerminationError(
     fallbackName = 'AbortError',
 ): object {
     try {
-        const marked = markUnprovenNativeTermination(
-            asMarkableError(reason, fallbackMessage, fallbackName),
-            detail,
-        );
+        const marked = markUnprovenNativeTermination(asMarkableError(reason, fallbackMessage, fallbackName), detail);
         if (hasVerifiedOwnTerminationMark(marked)) {
             return marked;
         }
     } catch {
         // Fall through to mark a plain Error wrapper below.
     }
-    return markUnprovenNativeTermination(
-        wrapUnmarkableError(reason, fallbackMessage, fallbackName),
-        detail,
-    );
+    return markUnprovenNativeTermination(wrapUnmarkableError(reason, fallbackMessage, fallbackName), detail);
 }
 
 function toError(error: unknown) {
     return error instanceof Error ? error : new Error(String(error));
 }
 
-function createWorkerTaskError(payload: Extract<TResultWorkerPayload, {ok: false;}>) {
-    return new WorkerTaskError(payload.errorFrame ?? {
-        message: payload.error,
-        canceled: false,
-        retryable: false,
-    });
+function createWorkerTaskError(payload: Extract<TResultWorkerPayload, {ok: false}>) {
+    return new WorkerTaskError(
+        payload.errorFrame ?? {
+            message: payload.error,
+            canceled: false,
+            retryable: false,
+        },
+    );
 }
 
 function getAbortReason(signal: AbortSignal) {
@@ -366,7 +341,7 @@ function createWorkerOptions(workerData: unknown, resourceLimits: ResourceLimits
     const workerOptions: {
         workerData: unknown;
         resourceLimits?: ResourceLimits;
-    } = { workerData };
+    } = {workerData};
     if (resourceLimits) {
         workerOptions.resourceLimits = resourceLimits;
     }
@@ -415,13 +390,7 @@ function attachLateWorkerErrorHandler(worker: Worker, workerPath: string) {
     });
 }
 
-async function terminateWorkerAfterTask(
-    worker: Worker,
-    {
-        workerPath,
-        hasExited,
-    }: ITerminateWorkerAfterTaskOptions,
-) {
+async function terminateWorkerAfterTask(worker: Worker, {workerPath, hasExited}: ITerminateWorkerAfterTaskOptions) {
     worker.removeAllListeners('message');
     worker.removeAllListeners('online');
     worker.removeAllListeners('exit');
@@ -522,13 +491,7 @@ interface IAttachWorkerHandlersOptions<T> {
     startedAt: number;
 }
 
-function attachWorkerHandlers<T>({
-    worker,
-    options,
-    resolve,
-    reject,
-    startedAt,
-}: IAttachWorkerHandlersOptions<T>) {
+function attachWorkerHandlers<T>({worker, options, resolve, reject, startedAt}: IAttachWorkerHandlersOptions<T>) {
     const {
         invalidPayloadMessage,
         createStartupError,
@@ -567,9 +530,9 @@ function attachWorkerHandlers<T>({
             return decoded === null
                 ? {valid: false}
                 : {
-                    valid: true,
-                    value: decoded as T,
-                };
+                      valid: true,
+                      value: decoded as T,
+                  };
         } catch {
             return {valid: false};
         }
@@ -601,11 +564,11 @@ function attachWorkerHandlers<T>({
         return hasReadableTerminationMark(error)
             ? error
             : markTerminationError(
-                error,
-                `worker ${options.workerPath} stopped without settling the native processes it spawned`,
-                'Worker task failed',
-                'Error',
-            );
+                  error,
+                  `worker ${options.workerPath} stopped without settling the native processes it spawned`,
+                  'Worker task failed',
+                  'Error',
+              );
     };
 
     const cleanup = () => {
@@ -669,11 +632,13 @@ function attachWorkerHandlers<T>({
             });
             finalize(() => {
                 recordOwnChildrenUnproven();
-                reject(markTerminationError(
-                    error,
-                    `worker ${options.workerPath} was force terminated after ignoring cancellation for `
-                    + `${cooperativeCancelDelayMs}ms; native processes it spawned were never confirmed stopped`,
-                ));
+                reject(
+                    markTerminationError(
+                        error,
+                        `worker ${options.workerPath} was force terminated after ignoring cancellation for ` +
+                            `${cooperativeCancelDelayMs}ms; native processes it spawned were never confirmed stopped`,
+                    ),
+                );
             });
         }, cooperativeCancelDelayMs);
         cooperativeCancelTimer.unref();
@@ -692,15 +657,12 @@ function attachWorkerHandlers<T>({
             clearTimeout(inactivityTimeout);
         }
         inactivityTimeout = setTimeout(() => {
-            requestCancel(
-                'timeout',
-                new Error(`Worker task timed out after ${inactivityTimeoutMs}ms without progress`),
-            );
+            requestCancel('timeout', new Error(`Worker task timed out after ${inactivityTimeoutMs}ms without progress`));
         }, inactivityTimeoutMs);
         inactivityTimeout.unref();
     };
 
-    options.signal?.addEventListener('abort', handleAbort, { once: true });
+    options.signal?.addEventListener('abort', handleAbort, {once: true});
 
     const timeoutMs = options.timeoutMs;
     if (timeoutMs !== undefined) {
@@ -735,10 +697,8 @@ function attachWorkerHandlers<T>({
         // Only a reply the protocol accepts, with a result its decoder accepts,
         // acknowledges a cancel; anything else is a worker that stopped making
         // sense while its native children may still run.
-        const acknowledgesCancel = hasPendingCancelError && resultPayload !== null && (
-            !resultPayload.ok
-            || decodeReply(resultPayload.data).valid
-        );
+        const acknowledgesCancel =
+            hasPendingCancelError && resultPayload !== null && (!resultPayload.ok || decodeReply(resultPayload.data).valid);
         if (acknowledgesCancel && resultPayload !== null) {
             cancellationAcknowledged = true;
             if (!resultPayload.ok && resultPayload.errorFrame?.canceled) {
@@ -765,8 +725,7 @@ function attachWorkerHandlers<T>({
                 return;
             }
             if (!resultPayload) {
-                const error = options.createWorkerError?.(new Error(invalidPayloadMessage))
-                    ?? new Error(invalidPayloadMessage);
+                const error = options.createWorkerError?.(new Error(invalidPayloadMessage)) ?? new Error(invalidPayloadMessage);
                 const receipt = workerTaskLog.error(
                     'Worker returned an invalid payload',
                     {
@@ -796,10 +755,14 @@ function attachWorkerHandlers<T>({
                 if (workerError.canceled) {
                     workerTaskLog.info('Worker reported cancellation', summary);
                 } else {
-                    const receipt = workerTaskLog.error('Worker reported failure', {
-                        code: 'MAIN_WORKER_TASK_FAILED',
-                        cause: workerError,
-                    }, summary);
+                    const receipt = workerTaskLog.error(
+                        'Worker reported failure',
+                        {
+                            code: 'MAIN_WORKER_TASK_FAILED',
+                            cause: workerError,
+                        },
+                        summary,
+                    );
                     markWorkerTaskErrorReported(workerError, receipt);
                 }
                 reject(workerError);
@@ -816,11 +779,15 @@ function attachWorkerHandlers<T>({
                             elapsedMs: Math.round(performance.now() - startedAt),
                         },
                     );
-                    reject(markWorkerTaskErrorReported(
-                        asCrashOutcome(options.createWorkerError?.(new Error(invalidResultMessage ?? invalidPayloadMessage))
-                            ?? new Error(invalidResultMessage ?? invalidPayloadMessage)),
-                        receipt,
-                    ));
+                    reject(
+                        markWorkerTaskErrorReported(
+                            asCrashOutcome(
+                                options.createWorkerError?.(new Error(invalidResultMessage ?? invalidPayloadMessage)) ??
+                                    new Error(invalidResultMessage ?? invalidPayloadMessage),
+                            ),
+                            receipt,
+                        ),
+                    );
                     return;
                 }
                 workerTaskLog.debug('Worker completed', {
@@ -857,10 +824,14 @@ function attachWorkerHandlers<T>({
         if (hasPendingCancelError) {
             workerTaskLog.info('Worker emitted an error while cancelling', summary);
         } else {
-            receipt = workerTaskLog.error('Worker emitted an error', {
-                code: 'MAIN_WORKER_TASK_FAILED',
-                cause: error,
-            }, summary);
+            receipt = workerTaskLog.error(
+                'Worker emitted an error',
+                {
+                    code: 'MAIN_WORKER_TASK_FAILED',
+                    cause: error,
+                },
+                summary,
+            );
         }
         finalize(() => {
             if (hasPendingCancelError) {
@@ -902,11 +873,15 @@ function attachWorkerHandlers<T>({
                 return;
             }
             if (code === 0) {
-                reject(markWorkerTaskErrorReported(
-                    asCrashOutcome(options.createWorkerError?.(new Error(invalidResultMessage ?? invalidPayloadMessage))
-                        ?? new Error(invalidResultMessage ?? invalidPayloadMessage)),
-                    receipt,
-                ));
+                reject(
+                    markWorkerTaskErrorReported(
+                        asCrashOutcome(
+                            options.createWorkerError?.(new Error(invalidResultMessage ?? invalidPayloadMessage)) ??
+                                new Error(invalidResultMessage ?? invalidPayloadMessage),
+                        ),
+                        receipt,
+                    ),
+                );
                 return;
             }
             if (!online && createStartupExitError) {
@@ -924,15 +899,8 @@ function attachWorkerHandlers<T>({
 
 export function runResultWorkerTask<T>(options: IDecodedResultWorkerTaskOptions<T>): Promise<T>;
 export function runResultWorkerTask(options: IUnknownResultWorkerTaskOptions): Promise<unknown>;
-export async function runResultWorkerTask<T>(
-    options: TRunResultWorkerTaskOptions<T>,
-): Promise<T | unknown> {
-    const {
-        workerPath,
-        workerData,
-        createStartError,
-        createStartupError,
-    } = options;
+export async function runResultWorkerTask<T>(options: TRunResultWorkerTaskOptions<T>): Promise<T | unknown> {
+    const {workerPath, workerData, createStartError, createStartupError} = options;
     if (options.signal?.aborted) {
         throw getAbortReason(options.signal);
     }
@@ -942,9 +910,7 @@ export async function runResultWorkerTask<T>(
         try {
             worker = new Worker(workerPath, createWorkerOptions(workerData, options.resourceLimits));
         } catch (error) {
-            const buildStartError = createStartError === null
-                ? undefined
-                : createStartError ?? createStartupError;
+            const buildStartError = createStartError === null ? undefined : (createStartError ?? createStartupError);
             reject(buildStartError ? buildStartError(getErrorMessage(error)) : toError(error));
             return;
         }
@@ -959,19 +925,15 @@ export async function runResultWorkerTask<T>(
 }
 
 export function startStreamingWorkerTask<T>(
-    options: IDecodedResultWorkerTaskOptions<T> & { createStartupError: (message: string) => Error },
+    options: IDecodedResultWorkerTaskOptions<T> & {createStartupError: (message: string) => Error},
 ): IStreamingWorkerTaskHandle<T>;
 export function startStreamingWorkerTask(
-    options: IUnknownResultWorkerTaskOptions & { createStartupError: (message: string) => Error },
+    options: IUnknownResultWorkerTaskOptions & {createStartupError: (message: string) => Error},
 ): IStreamingWorkerTaskHandle<unknown>;
 export function startStreamingWorkerTask<T>(
-    options: TRunResultWorkerTaskOptions<T> & { createStartupError: (message: string) => Error },
+    options: TRunResultWorkerTaskOptions<T> & {createStartupError: (message: string) => Error},
 ): IStreamingWorkerTaskHandle<T | unknown> {
-    const {
-        workerPath,
-        workerData,
-        createStartupError,
-    } = options;
+    const {workerPath, workerData, createStartupError} = options;
     if (options.signal?.aborted) {
         throw getAbortReason(options.signal);
     }

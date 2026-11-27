@@ -1,135 +1,144 @@
 <template>
     <WorkspaceShell :aria-busy="documentContext.isMoving.value">
-        <div class="workspace-transfer-content" :inert="documentContext.isMoving.value">
-        <WorkspaceToolbarHost
-            :is-active="isActive && surfaceMode === 'reader'"
-            :can-teleport="canTeleportToolbar"
+        <div
+            class="workspace-transfer-content"
+            :inert="documentContext.isMoving.value"
         >
-            <WorkspacePdfToolbarView
-                :snapshot="workspaceToolbarSnapshot"
-                :has-pdf="presentation.toolbarHasPdf.value"
-                :can-toggle-sidebar="presentation.canToggleSidebar.value"
-                :can-use-ocr="canUseOcr"
-                :is-fullscreen="isFullscreen"
-                :fullscreen-supported="fullscreenSupported"
-                :is-opening-document="presentation.isOpeningDocumentForDisplay.value"
-                :document-busy="presentation.toolbarDocumentBusyForDisplay.value"
-                :controls-disabled="presentation.toolbarControlsDisabled.value"
-                :page-dropdown-total-pages="presentation.documentMetadataReady.value ? totalPages : 0"
-                :page-labels="presentation.toolbarPageLabels.value"
-                :navigation-ticket="documentOpenSurface.navigationTicket.value"
-                :physical-page="physicalToolbarPage"
-                :ocr="documentContext.ocr"
-                :ocr-working-copy-path="file.workingCopyPath.value"
-                :ocr-external-error="docxExportError"
-                :ocr-is-exporting-docx="isExportingDocx"
-                :ocr-popup-open="ocrPopupOpen"
-                :zoom-dropdown-open="zoomDropdownOpen"
-                :page-dropdown-open="pageDropdownOpen"
-                @update:ocr-popup-open="handleDropdownOpen('ocr', $event)"
-                @update:zoom-dropdown-open="handleDropdownOpen('zoom', $event)"
-                @update:page-dropdown-open="handleDropdownOpen('page', $event)"
-                @update:zoom="handleZoomUpdate"
-                @update:view-mode="handleViewModeUpdate"
-                @open-file="fileOps.handleOpenFileFromUi"
-                @open-settings="emit('open-settings')"
-                @open-scan-cleanup="scanCleanup.openScanCleanup"
-                @save="runToolbarAction(handleSaveWithAutomationEvent)"
-                @save-as="runToolbarAction(handleSaveAs)"
-                @print="print.handlePrint"
-                @print-current-page="print.handlePrintCurrentPage"
-                @export-docx="runToolbarAction(handleExportDocx)"
-                @ocr-export-docx="handleExportDocx"
-                @ocr-cancel-docx-export="cancelDocxExportDirect"
-                @undo="runToolbarAction(history.handleUndo)"
-                @redo="runToolbarAction(history.handleRedo)"
-                @toggle-sidebar="runToolbarAction(workspaceExpose.handleToggleSidebar)"
-                @fit-width="runToolbarAction(workspaceExpose.handleFitWidth)"
-                @fit-height="runToolbarAction(workspaceExpose.handleFitHeight)"
-                @toggle-continuous-scroll="runToolbarAction(workspaceExpose.handleToggleContinuousScroll)"
-                @enable-drag="runToolbarAction(workspaceExpose.handleEnableDragMode)"
-                @disable-drag="runToolbarAction(workspaceExpose.handleDisableDragMode)"
-                @capture-region="runToolbarAction(handleCaptureRegion)"
-                @crop="runToolbarAction(handleCropAction)"
-                @quick-note="runToolbarAction(handleQuickNoteAction)"
-                @toggle-fullscreen="emit('toggle-fullscreen')"
-                @go-to-page="navigation.handleGoToPage"
-            />
-        </WorkspaceToolbarHost>
-        <WorkspaceSidebarHost
-            v-show="surfaceMode === 'reader' || !scanCleanup.workspaceMounted.value"
-            :show-sidebar="presentation.toolbarShowSidebarForDisplay.value"
-            :sidebar-wrapper-style="sidebarWrapperStyle"
-            :sidebar-content-width="search.sidebarContentWidth.value"
-            :sidebar-max-width="search.sidebarMaxWidth.value"
-            :is-resizing-sidebar="isPointerResizingSidebar"
-            :resize-aria-label="t('sidebar.resize')"
-            @resize-start="startSidebarResize"
-            @resize-by="search.resizeSidebarBy"
-            @container-resize="setSidebarContainerWidth"
-            @slide-start="isSlidingSidebar = true"
-            @slide-end="isSlidingSidebar = false"
-            @dismiss="showSidebar = false"
-        >
-            <template #sidebar>
-                <WorkspaceDocumentSidebar
-                    :is-open="isSidebarPresented"
-                    :is-active="isDocumentSidebarActive"
-                    :is-source-resizing="isSourceSidebarResizing"
+            <WorkspaceToolbarHost
+                :is-active="isActive && surfaceMode === 'reader'"
+                :can-teleport="canTeleportToolbar"
+            >
+                <WorkspacePdfToolbarView
+                    :snapshot="workspaceToolbarSnapshot"
+                    :has-pdf="presentation.toolbarHasPdf.value"
+                    :can-toggle-sidebar="presentation.canToggleSidebar.value"
+                    :can-use-ocr="canUseOcr"
+                    :is-fullscreen="isFullscreen"
+                    :fullscreen-supported="fullscreenSupported"
+                    :is-opening-document="presentation.isOpeningDocumentForDisplay.value"
+                    :document-busy="presentation.toolbarDocumentBusyForDisplay.value"
+                    :controls-disabled="presentation.toolbarControlsDisabled.value"
+                    :page-dropdown-total-pages="presentation.documentMetadataReady.value ? totalPages : 0"
                     :page-labels="presentation.toolbarPageLabels.value"
-                    :document-opening="presentation.isOpeningDocumentForDisplay.value"
+                    :navigation-ticket="documentOpenSurface.navigationTicket.value"
+                    :physical-page="physicalToolbarPage"
+                    :ocr="documentContext.ocr"
+                    :ocr-working-copy-path="file.workingCopyPath.value"
+                    :ocr-external-error="docxExportError"
+                    :ocr-is-exporting-docx="isExportingDocx"
+                    :ocr-popup-open="ocrPopupOpen"
+                    :zoom-dropdown-open="zoomDropdownOpen"
+                    :page-dropdown-open="pageDropdownOpen"
+                    @update:ocr-popup-open="handleDropdownOpen('ocr', $event)"
+                    @update:zoom-dropdown-open="handleDropdownOpen('zoom', $event)"
+                    @update:page-dropdown-open="handleDropdownOpen('page', $event)"
+                    @update:zoom="handleZoomUpdate"
+                    @update:view-mode="handleViewModeUpdate"
+                    @open-file="fileOps.handleOpenFileFromUi"
+                    @open-settings="emit('open-settings')"
+                    @open-scan-cleanup="scanCleanup.openScanCleanup"
+                    @save="runToolbarAction(handleSaveWithAutomationEvent)"
+                    @save-as="runToolbarAction(handleSaveAs)"
+                    @print="print.handlePrint"
+                    @print-current-page="print.handlePrintCurrentPage"
+                    @export-docx="runToolbarAction(handleExportDocx)"
+                    @ocr-export-docx="handleExportDocx"
+                    @ocr-cancel-docx-export="cancelDocxExportDirect"
+                    @undo="runToolbarAction(history.handleUndo)"
+                    @redo="runToolbarAction(history.handleRedo)"
+                    @toggle-sidebar="runToolbarAction(workspaceExpose.handleToggleSidebar)"
+                    @fit-width="runToolbarAction(workspaceExpose.handleFitWidth)"
+                    @fit-height="runToolbarAction(workspaceExpose.handleFitHeight)"
+                    @toggle-continuous-scroll="runToolbarAction(workspaceExpose.handleToggleContinuousScroll)"
+                    @enable-drag="runToolbarAction(workspaceExpose.handleEnableDragMode)"
+                    @disable-drag="runToolbarAction(workspaceExpose.handleDisableDragMode)"
+                    @capture-region="runToolbarAction(handleCaptureRegion)"
+                    @crop="runToolbarAction(handleCropAction)"
+                    @quick-note="runToolbarAction(handleQuickNoteAction)"
+                    @toggle-fullscreen="emit('toggle-fullscreen')"
+                    @go-to-page="navigation.handleGoToPage"
                 />
-            </template>
-            <!-- The document chassis stays laid out while Start covers it, so an
+            </WorkspaceToolbarHost>
+            <WorkspaceSidebarHost
+                v-show="surfaceMode === 'reader' || !scanCleanup.workspaceMounted.value"
+                :show-sidebar="presentation.toolbarShowSidebarForDisplay.value"
+                :sidebar-wrapper-style="sidebarWrapperStyle"
+                :sidebar-content-width="search.sidebarContentWidth.value"
+                :sidebar-max-width="search.sidebarMaxWidth.value"
+                :is-resizing-sidebar="isPointerResizingSidebar"
+                :resize-aria-label="t('sidebar.resize')"
+                @resize-start="startSidebarResize"
+                @resize-by="search.resizeSidebarBy"
+                @container-resize="setSidebarContainerWidth"
+                @slide-start="isSlidingSidebar = true"
+                @slide-end="isSlidingSidebar = false"
+                @dismiss="showSidebar = false"
+            >
+                <template #sidebar>
+                    <WorkspaceDocumentSidebar
+                        :is-open="isSidebarPresented"
+                        :is-active="isDocumentSidebarActive"
+                        :is-source-resizing="isSourceSidebarResizing"
+                        :page-labels="presentation.toolbarPageLabels.value"
+                        :document-opening="presentation.isOpeningDocumentForDisplay.value"
+                    />
+                </template>
+                <!-- The document chassis stays laid out while Start covers it, so an
             open presents its first frame at the final geometry. -->
-            <div class="workspace-viewer-host" :aria-hidden="!presentation.showWorkspaceViewerDocument.value ? 'true' : undefined">
-                <WorkspaceDocumentAlerts
-                    :visible="surfaceMode === 'reader'"
-                    :show-djvu-banner="presentation.showDjvuConversionBanner.value"
-                    :djvu-converting="file.conversionState.value.isConverting"
-                    @convert="file.openConvertDialog"
-                    @dismiss="file.djvuDismissBanner"
+                <div
+                    class="workspace-viewer-host"
+                    :aria-hidden="!presentation.showWorkspaceViewerDocument.value ? 'true' : undefined"
+                >
+                    <WorkspaceDocumentAlerts
+                        :visible="surfaceMode === 'reader'"
+                        :show-djvu-banner="presentation.showDjvuConversionBanner.value"
+                        :djvu-converting="file.conversionState.value.isConverting"
+                        @convert="file.openConvertDialog"
+                        @dismiss="file.djvuDismissBanner"
+                    />
+                    <component
+                        :is="activeViewerComponent"
+                        v-if="mountedDocumentDriver"
+                        :ref="bindActiveViewerRef"
+                        v-bind="activeViewerProps"
+                        v-on="activeViewerListeners"
+                    />
+                </div>
+            </WorkspaceSidebarHost>
+            <WorkspaceScanCleanupSurface :can-teleport-toolbar="canTeleportToolbar" />
+            <WorkspacePageOpProgressOverlay v-show="surfaceMode === 'reader'" />
+            <WorkspaceExportProgressOverlay v-show="surfaceMode === 'reader'" />
+            <Teleport
+                v-if="isActive && canTeleportStatus"
+                to="#editor-global-status-host"
+            >
+                <PdfStatusBar
+                    :file-path="statusBar.statusFilePath.value"
+                    :file-size-label="statusBar.statusFileSizeLabel.value"
+                    :zoom-label="presentation.statusZoomLabel.value"
+                    :materialization-label="statusActivityLabel"
+                    :can-show-in-folder="statusBar.statusCanShowInFolder.value"
+                    :show-in-folder-tooltip="statusBar.statusShowInFolderTooltip.value"
+                    :show-in-folder-aria-label="statusBar.statusShowInFolderAriaLabel.value"
+                    :save-dot-class="statusBar.statusSaveDotClass.value"
+                    :save-dot-tooltip="statusBar.statusSaveDotTooltip.value"
+                    :save-dot-aria-label="statusBar.statusSaveDotAriaLabel.value"
+                    :can-save="!documentContext.isMoving.value && statusBar.statusSaveDotCanSave.value"
+                    @show-in-folder="statusBar.handleStatusShowInFolderClick"
+                    @save="statusBar.handleStatusSaveClick"
                 />
-                <component
-                    :is="activeViewerComponent"
-                    v-if="mountedDocumentDriver"
-                    :ref="bindActiveViewerRef"
-                    v-bind="activeViewerProps"
-                    v-on="activeViewerListeners"
-                />
-            </div>
-        </WorkspaceSidebarHost>
-        <WorkspaceScanCleanupSurface :can-teleport-toolbar="canTeleportToolbar" />
-        <WorkspacePageOpProgressOverlay v-show="surfaceMode === 'reader'" />
-        <WorkspaceExportProgressOverlay v-show="surfaceMode === 'reader'" />
-        <Teleport v-if="isActive && canTeleportStatus" to="#editor-global-status-host">
-            <PdfStatusBar
-                :file-path="statusBar.statusFilePath.value"
-                :file-size-label="statusBar.statusFileSizeLabel.value"
-                :zoom-label="presentation.statusZoomLabel.value"
-                :materialization-label="statusActivityLabel"
-                :can-show-in-folder="statusBar.statusCanShowInFolder.value"
-                :show-in-folder-tooltip="statusBar.statusShowInFolderTooltip.value"
-                :show-in-folder-aria-label="statusBar.statusShowInFolderAriaLabel.value"
-                :save-dot-class="statusBar.statusSaveDotClass.value"
-                :save-dot-tooltip="statusBar.statusSaveDotTooltip.value"
-                :save-dot-aria-label="statusBar.statusSaveDotAriaLabel.value"
-                :can-save="!documentContext.isMoving.value && statusBar.statusSaveDotCanSave.value"
-                @show-in-folder="statusBar.handleStatusShowInFolderClick"
-                @save="statusBar.handleStatusSaveClick"
+            </Teleport>
+            <WorkspaceAnnotationOverlays :visible="surfaceMode === 'reader' && !documentContext.isMoving.value" />
+            <DjvuConversionOverlay
+                v-bind="file.conversionState.value"
+                :is-converting="file.conversionState.value.isConverting && isRenderActive"
+                :modal="isActive"
+                @cancel="file.handleDjvuCancel"
             />
-        </Teleport>
-        <WorkspaceAnnotationOverlays :visible="surfaceMode === 'reader' && !documentContext.isMoving.value" />
-        <DjvuConversionOverlay
-            v-bind="file.conversionState.value"
-            :is-converting="file.conversionState.value.isConverting && isRenderActive"
-            :modal="isActive"
-            @cancel="file.handleDjvuCancel"
-        />
-        <WorkspaceSaveDialogHost
-            :visible="surfaceMode === 'reader'"
-            :show-djvu-conversion-ui="presentation.showDjvuConversionUi.value"
-        />
+            <WorkspaceSaveDialogHost
+                :visible="surfaceMode === 'reader'"
+                :show-djvu-conversion-ui="presentation.showDjvuConversionUi.value"
+            />
         </div>
         <AppProgressOverlay
             class="workspace-transfer-state"
@@ -148,13 +157,9 @@ import '@app/assets/css/pdf-comment-ui.scss';
 import '@app/assets/css/pdf-search-highlights.scss';
 import '@app/assets/css/pdf-animations.scss';
 import '@app/assets/css/pdf-debug-overlays.scss';
-import { PdfStatusBar } from '@app/modules/pdf-viewer/public/component-exports/pdfStatusBar';
-import {
-    formatScanCleanupProgress,
-    isScanCleanupRunning,
-    scanCleanupRun,
-} from '@app/modules/scan-cleanup/public/runtime';
-import { createWorkspaceExpose } from '@app/modules/workspace-shell/expose/createWorkspaceExpose';
+import {PdfStatusBar} from '@app/modules/pdf-viewer/public/component-exports/pdfStatusBar';
+import {formatScanCleanupProgress, isScanCleanupRunning, scanCleanupRun} from '@app/modules/scan-cleanup/public/runtime';
+import {createWorkspaceExpose} from '@app/modules/workspace-shell/expose/createWorkspaceExpose';
 import WorkspaceAnnotationOverlays from '@app/modules/workspace-shell/components/WorkspaceAnnotationOverlays.vue';
 import WorkspaceDocumentAlerts from '@app/modules/workspace-shell/components/WorkspaceDocumentAlerts.vue';
 import WorkspaceExportProgressOverlay from '@app/modules/workspace-shell/components/WorkspaceExportProgressOverlay.vue';
@@ -168,30 +173,25 @@ import WorkspaceScanCleanupSurface from '@app/modules/workspace-shell/components
 import WorkspaceToolbarHost from '@app/modules/workspace-shell/components/layout/WorkspaceToolbarHost.vue';
 import AppProgressOverlay from '@app/components/AppProgressOverlay.vue';
 import {runDetached} from '@app/utils/asyncGuard';
-import { useDocumentWorkspaceAgent } from '@app/modules/workspace-shell/agent/useDocumentWorkspaceAgent';
-import { createDocumentViewContext } from '@app/modules/workspace-shell/documentViewContext';
-import { useWorkspacePresentation } from '@app/modules/workspace-shell/composables/useWorkspacePresentation';
-import { useWorkspaceHostTeleportAvailability } from '@app/modules/workspace-shell/composables/useWorkspaceHostTeleportAvailability';
-import { createDefaultWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
-import { createDocumentWorkspaceAutomationHandlers } from '@app/modules/workspace-shell/automation/createDocumentWorkspaceAutomationHandlers';
-import { useWorkspaceDocumentLifecycle } from '@app/modules/workspace-shell/composables/useWorkspaceDocumentLifecycle';
-import { createTabViewSessionState } from '@app/modules/workspace-shell/tabs/createTabViewSessionState';
-import { DjvuConversionOverlay } from '@app/modules/djvu-viewer/public';
-import {
-    createDocumentOpenSurfaceSession,
-    documentOpenSurfaceSessionKey,
-} from '@app/modules/document-viewer/public';
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { TOpenFileResult } from '@contracts/electronApiDocuments';
-import type { TPdfViewMode } from '@contracts/shared';
-import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import {useDocumentWorkspaceAgent} from '@app/modules/workspace-shell/agent/useDocumentWorkspaceAgent';
+import {createDocumentViewContext} from '@app/modules/workspace-shell/documentViewContext';
+import {useWorkspacePresentation} from '@app/modules/workspace-shell/composables/useWorkspacePresentation';
+import {useWorkspaceHostTeleportAvailability} from '@app/modules/workspace-shell/composables/useWorkspaceHostTeleportAvailability';
+import {createDefaultWorkspaceViewerCapabilities} from '@app/types/workspaceExpose';
+import {createDocumentWorkspaceAutomationHandlers} from '@app/modules/workspace-shell/automation/createDocumentWorkspaceAutomationHandlers';
+import {useWorkspaceDocumentLifecycle} from '@app/modules/workspace-shell/composables/useWorkspaceDocumentLifecycle';
+import {createTabViewSessionState} from '@app/modules/workspace-shell/tabs/createTabViewSessionState';
+import {DjvuConversionOverlay} from '@app/modules/djvu-viewer/public';
+import {createDocumentOpenSurfaceSession, documentOpenSurfaceSessionKey} from '@app/modules/document-viewer/public';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {TOpenFileResult} from '@contracts/electronApiDocuments';
+import type {TPdfViewMode} from '@contracts/shared';
+import type {IWorkspaceDocumentController} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 const documentOpenSurface = createDocumentOpenSurfaceSession();
 provide(documentOpenSurfaceSessionKey, documentOpenSurface);
-const physicalToolbarPage = computed(() => (
-    documentOpenSurface.viewportSession.value.observedPage
-    ?? documentOpenSurface.viewportSession.value.committedPage
-    ?? 1
-));
+const physicalToolbarPage = computed(
+    () => documentOpenSurface.viewportSession.value.observedPage ?? documentOpenSurface.viewportSession.value.committedPage ?? 1,
+);
 const {
     fullscreenSupported,
     isActive,
@@ -217,11 +217,8 @@ const emit = defineEmits<{
     'open-settings': [];
     'toggle-fullscreen': [];
 }>();
-const { t } = useTypedI18n();
-const {
-    canTeleportStatus,
-    canTeleportToolbar,
-} = useWorkspaceHostTeleportAvailability({
+const {t} = useTypedI18n();
+const {canTeleportStatus, canTeleportToolbar} = useWorkspaceHostTeleportAvailability({
     toolbarHostId: 'editor-global-toolbar-host',
     statusHostId: 'editor-global-status-host',
 });
@@ -234,12 +231,9 @@ const context = createDocumentViewContext({
     isShown: computed(() => isActive || isRenderActive),
     openSurface: documentOpenSurface,
     runDocumentOpen: (request, run) => documentLifecycle.runOpen(request, run),
-    emitOpenInNewTab: result => emit('open-in-new-tab', result),
+    emitOpenInNewTab: (result) => emit('open-in-new-tab', result),
 });
-const {
-    document: documentContext,
-    documentView,
-} = context;
+const {document: documentContext, documentView} = context;
 const {
     scanCleanup,
     scanCleanup: {surfaceMode},
@@ -251,12 +245,7 @@ const {
     fileOps,
     print,
 } = context;
-const {
-    file,
-    history,
-    save,
-    docxExport,
-} = documentContext;
+const {file, history, save, docxExport} = documentContext;
 // A cleanup started from this document keeps running after Done. While the
 // reader is shown, the status bar names its step and count beside a spinner,
 // so the work is never invisible.
@@ -264,38 +253,20 @@ const statusActivityLabel = computed(() => {
     const workingCopyPath = file.workingCopyPath.value;
     const job = scanCleanupRun.jobState;
     if (
-        surfaceMode.value === 'reader'
-        && workingCopyPath
-        && job
-        && isScanCleanupRunning.value
-        && scanCleanupRun.ownerDocumentRef === workingCopyPath
+        surfaceMode.value === 'reader' &&
+        workingCopyPath &&
+        job &&
+        isScanCleanupRunning.value &&
+        scanCleanupRun.ownerDocumentRef === workingCopyPath
     ) {
         return `${t('scanCleanup.button')}: ${formatScanCleanupProgress(job.progress, t).text}`;
     }
     return null;
 });
-const {
-    zoomDropdownOpen,
-    pageDropdownOpen,
-    ocrPopupOpen,
-    closeAllDropdowns,
-    viewMode,
-    totalPages,
-    showSidebar,
-} = view;
-const {
-    sidebarWrapperStyle,
-    isResizingSidebar,
-    isPointerResizingSidebar,
-    isSlidingSidebar,
-    startSidebarResize,
-    setSidebarContainerWidth,
-} = search;
-const {
-    error: docxExportError,
-    isExporting: isExportingDocx,
-    cancel: cancelDocxExportDirect,
-} = docxExport;
+const {zoomDropdownOpen, pageDropdownOpen, ocrPopupOpen, closeAllDropdowns, viewMode, totalPages, showSidebar} = view;
+const {sidebarWrapperStyle, isResizingSidebar, isPointerResizingSidebar, isSlidingSidebar, startSidebarResize, setSidebarContainerWidth} =
+    search;
+const {error: docxExportError, isExporting: isExportingDocx, cancel: cancelDocxExportDirect} = docxExport;
 const {
     ensureEditProjection,
     handleDropdownOpen,
@@ -309,48 +280,40 @@ const {
 const {openOptimizePdfForInteractionDialog} = save.optimizeDialog;
 const presentation = useWorkspacePresentation(documentContext, context);
 
-
 const isExternalWorkspaceLayoutResizingRef = toRef(() => isExternalWorkspaceLayoutResizing === true);
-const isActiveViewerLayoutResizing = computed(() => (
-    isResizingSidebar.value || isExternalWorkspaceLayoutResizingRef.value || isTabTransitionBusy
-));
-const isDocumentSidebarActive = computed(() => (
-    surfaceMode.value === 'reader'
-    && (isActive || isRenderActive || isActiveViewerLayoutResizing.value)
-));
+const isActiveViewerLayoutResizing = computed(
+    () => isResizingSidebar.value || isExternalWorkspaceLayoutResizingRef.value || isTabTransitionBusy,
+);
+const isDocumentSidebarActive = computed(
+    () => surfaceMode.value === 'reader' && (isActive || isRenderActive || isActiveViewerLayoutResizing.value),
+);
 // The panel stays painted through the closing slide so the wrapper covers real
 // content instead of an empty strip; the opening slide reveals it the same way.
 const isSidebarPresented = computed(() => showSidebar.value || isSlidingSidebar.value);
 // The sidebar panels keep their width through the slide. Only a pointer drag or
 // a host-level layout change can reflow them.
-const isSourceSidebarResizing = computed(() => (
-    isPointerResizingSidebar.value
-    || isExternalWorkspaceLayoutResizingRef.value
-    || isTabTransitionBusy
-    || (isRenderActive && !isActive)
-));
-const {
-    handleInitialVisualReady: emitFirstPageRendered,
-    handleSave: handleSaveWithAutomationEvent,
-} = createDocumentWorkspaceAutomationHandlers({
-    getContext: () => ({
-        currentPage: view.currentPage.value,
-        documentRevisionToken: file.documentRevisionToken.value,
-        path: file.originalPath.value ?? file.workingCopyPath.value,
-        tabId,
-        totalPages: totalPages.value,
-    }),
-    handleSave: save.handleSave,
-});
+const isSourceSidebarResizing = computed(
+    () =>
+        isPointerResizingSidebar.value ||
+        isExternalWorkspaceLayoutResizingRef.value ||
+        isTabTransitionBusy ||
+        (isRenderActive && !isActive),
+);
+const {handleInitialVisualReady: emitFirstPageRendered, handleSave: handleSaveWithAutomationEvent} =
+    createDocumentWorkspaceAutomationHandlers({
+        getContext: () => ({
+            currentPage: view.currentPage.value,
+            documentRevisionToken: file.documentRevisionToken.value,
+            path: file.originalPath.value ?? file.workingCopyPath.value,
+            tabId,
+            totalPages: totalPages.value,
+        }),
+        handleSave: save.handleSave,
+    });
 // Keep the PDF feature pack mounted so its document session and page source stay
 // durable for scan cleanup. Its reader presentation is separate and can be
 // removed while the cleanup surface owns the visible page work.
-const {
-    activeViewerComponent,
-    activeViewerProps,
-    activeViewerListeners,
-    bindActiveViewerRef,
-} = context.bindDocumentView({
+const {activeViewerComponent, activeViewerProps, activeViewerListeners, bindActiveViewerRef} = context.bindDocumentView({
     mountPresentation: computed(() => surfaceMode.value === 'reader'),
     isRenderActive: computed(() => isRenderActive && surfaceMode.value === 'reader'),
     isWorkspaceLayoutResizing: isActiveViewerLayoutResizing,
@@ -360,13 +323,13 @@ const {
     },
 });
 const {mountedDocumentDriver} = documentContext.driver;
-const canExportDocx = computed(() => (
-    Boolean(file.workingCopyPath.value) && !save.isAnySaving.value && !history.isHistoryBusy.value
-));
+const canExportDocx = computed(() => Boolean(file.workingCopyPath.value) && !save.isAnySaving.value && !history.isHistoryBusy.value);
 const handleCropAction = () => runPdfEditAction(context.crop.handleCrop);
 // A toolbar action closes the open menus and logs its failure.
 function runToolbarAction(action: () => unknown) {
-    if (documentContext.isMoving.value) {return;}
+    if (documentContext.isMoving.value) {
+        return;
+    }
     closeAllDropdowns();
     void runDetached(() => Promise.resolve(action()), {
         category: 'user-visible-operation',
@@ -389,11 +352,7 @@ function handleViewModeUpdate(nextViewMode: TPdfViewMode) {
     viewMode.value = nextViewMode;
 }
 const viewerCapabilities = computed(() => documentContext.viewerCapabilities.value ?? createDefaultWorkspaceViewerCapabilities());
-const {
-    runAgentAction,
-    readAgentResource,
-} = useDocumentWorkspaceAgent(documentContext, context, presentation.waitForDocumentOpenSettled);
-
+const {runAgentAction, readAgentResource} = useDocumentWorkspaceAgent(documentContext, context, presentation.waitForDocumentOpenSettled);
 
 const workspaceExpose = createWorkspaceExpose(documentContext, context, {
     ensurePdfProjectionForEdit: ensureEditProjection,
@@ -402,7 +361,9 @@ const workspaceExpose = createWorkspaceExpose(documentContext, context, {
     handleSaveAs,
     handleExportDocx,
     handleGoToPage: (page, options) => documentLifecycle.goToPage(page, options),
-    handleCrop: () => { void handleCropAction(); },
+    handleCrop: () => {
+        void handleCropAction();
+    },
     handleInsertImageFromFile,
     handlePasteImageFromClipboard,
     initialVisualReady: presentation.initialDocumentVisualReady,
@@ -440,11 +401,15 @@ const documentLifecycle = useWorkspaceDocumentLifecycle({
     hasWorkingCopy: () => file.workingCopyPath.value !== null,
     goToPage: navigation.handleGoToPage,
 });
-watch(() => isActive || isRenderActive, (shown, wasShown) => {
-    if (wasShown && !shown) {
-        documentLifecycle.captureViewState();
-    }
-}, {flush: 'sync'});
+watch(
+    () => isActive || isRenderActive,
+    (shown, wasShown) => {
+        if (wasShown && !shown) {
+            documentLifecycle.captureViewState();
+        }
+    },
+    {flush: 'sync'},
+);
 onMounted(() => {
     documentSession.attachWorkspace(tabId, workspaceExpose);
     documentLifecycle.presentWhenShown();
@@ -462,7 +427,6 @@ defineExpose(workspaceExpose);
 .workspace-transfer-content {
     display: contents;
 }
-
 
 .workspace-viewer-host {
     position: relative;

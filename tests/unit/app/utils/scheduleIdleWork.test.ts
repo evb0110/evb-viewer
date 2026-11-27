@@ -1,14 +1,7 @@
 // @vitest-environment happy-dom
 
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { scheduleIdleWork } from '@app/utils/scheduleIdleWork';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {scheduleIdleWork} from '@app/utils/scheduleIdleWork';
 
 describe('scheduleIdleWork', () => {
     beforeEach(() => {

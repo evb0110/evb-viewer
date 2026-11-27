@@ -1,24 +1,15 @@
 // @vitest-environment happy-dom
 import {BrowserLogger, setBrowserLogSink} from '@app/utils/browserLogger';
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    effectScope,
-    nextTick,
-    ref,
-} from 'vue';
-import type { Ref } from 'vue';
-import { usePageLabelState } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageLabelState';
-import { recordPdfDocumentLoadedRevision } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentLoadedRevision';
-import { resolveVisiblePageLabelsDuringMetadataRefresh } from '@app/modules/pdf-viewer/engine/page-labels/resolveVisiblePageLabelsDuringMetadataRefresh';
+import {describe, expect, it, vi} from 'vitest';
+import {effectScope, nextTick, ref} from 'vue';
+import type {Ref} from 'vue';
+import {usePageLabelState} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageLabelState';
+import {recordPdfDocumentLoadedRevision} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentLoadedRevision';
+import {resolveVisiblePageLabelsDuringMetadataRefresh} from '@app/modules/pdf-viewer/engine/page-labels/resolveVisiblePageLabelsDuringMetadataRefresh';
 import type {IPdfPageLabelRange} from '@app/types/pdfContracts';
-import { PAGE_LABEL_DENSE_READ_MAX_PAGES } from '@app/modules/document-viewer/pageLabels';
-import { cast } from '@tests/helpers/cast';
+import {PAGE_LABEL_DENSE_READ_MAX_PAGES} from '@app/modules/document-viewer/pageLabels';
+import {cast} from '@tests/helpers/cast';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 
@@ -33,49 +24,66 @@ function createDeferred<T>() {
     };
 }
 
-function createPdfDocumentRef(
-    numPages: number,
-    getPageLabels: () => Promise<string[] | null>,
-) {
-    return cast<Ref<IPdfDocument | null>>(ref({
-        numPages,
-        getPageLabels,
-    }));
+function createPdfDocumentRef(numPages: number, getPageLabels: () => Promise<string[] | null>) {
+    return cast<Ref<IPdfDocument | null>>(
+        ref({
+            numPages,
+            getPageLabels,
+        }),
+    );
 }
 
 describe('usePageLabelState', () => {
-    it.each(['PDF.js', 'compact catalog'])('#1608 retains the cause of failed %s label enrichment', async reader => {
+    it.each(['PDF.js', 'compact catalog'])('#1608 retains the cause of failed %s label enrichment', async (reader) => {
         const retained: string[] = [];
-        setBrowserLogSink(entry => {if (entry.level === 'warn' || entry.level === 'error') {retained.push(JSON.stringify(entry));}});
+        setBrowserLogSink((entry) => {
+            if (entry.level === 'warn' || entry.level === 'error') {
+                retained.push(JSON.stringify(entry));
+            }
+        });
         const failure = new Error('Corrupt PageLabels number tree');
-        const pdfDocument = createPdfDocumentRef(2, async () => {throw failure;});
+        const pdfDocument = createPdfDocumentRef(2, async () => {
+            throw failure;
+        });
         const state = usePageLabelState({
-            pdfDocument, totalPages: ref(2), markDirty: () => {},
-            ...(reader === 'compact catalog' ? {
-                workingCopyPath: ref(requireDocumentRef('/docs/labels.pdf')),
-                readPageLabelRanges: async () => {throw failure;},
-            } : {}),
+            pdfDocument,
+            totalPages: ref(2),
+            markDirty: () => {},
+            ...(reader === 'compact catalog'
+                ? {
+                      workingCopyPath: ref(requireDocumentRef('/docs/labels.pdf')),
+                      readPageLabelRanges: async () => {
+                          throw failure;
+                      },
+                  }
+                : {}),
         });
         try {
             await state.syncPageLabelsFromDocument(pdfDocument.value);
             expect(state.pageLabelsResolved.value).toBe(false);
             expect(retained.join(' ')).toContain('Corrupt PageLabels number tree');
-        } finally {setBrowserLogSink(() => {});}
+        } finally {
+            setBrowserLogSink(() => {});
+        }
     });
 
-    describe.each(['PDF.js', 'compact catalog'])('%s read diagnostics', reader => {
+    describe.each(['PDF.js', 'compact catalog'])('%s read diagnostics', (reader) => {
         function startRead(read: () => Promise<never>) {
             const scope = effectScope();
             const pdfDocument = createPdfDocumentRef(2, read);
-            const state = scope.run(() => usePageLabelState({
-                pdfDocument,
-                totalPages: ref(2),
-                markDirty: vi.fn(),
-                ...(reader === 'compact catalog' ? {
-                    workingCopyPath: ref(requireDocumentRef('/docs/labels.pdf')),
-                    readPageLabelRanges: read,
-                } : {}),
-            }))!;
+            const state = scope.run(() =>
+                usePageLabelState({
+                    pdfDocument,
+                    totalPages: ref(2),
+                    markDirty: vi.fn(),
+                    ...(reader === 'compact catalog'
+                        ? {
+                              workingCopyPath: ref(requireDocumentRef('/docs/labels.pdf')),
+                              readPageLabelRanges: read,
+                          }
+                        : {}),
+                }),
+            )!;
             return {scope, pdfDocument, state};
         }
 
@@ -104,11 +112,15 @@ describe('usePageLabelState', () => {
             new DOMException('Source handle is gone', 'NotFoundError'),
             Object.assign(new Error('Source file is gone'), {name: 'NotFoundError'}),
             Object.assign(new Error('Source file is gone'), {code: 'ENOENT'}),
-            new Error("Failed to execute 'readAsArrayBuffer' on 'FileReader': The requested file could not be found, typically due to reference problems that occur after a reference to a file is acquired."),
-        ])('does not warn for current source absence: $name $message', async failure => {
+            new Error(
+                "Failed to execute 'readAsArrayBuffer' on 'FileReader': The requested file could not be found, typically due to reference problems that occur after a reference to a file is acquired.",
+            ),
+        ])('does not warn for current source absence: $name $message', async (failure) => {
             const warn = vi.spyOn(BrowserLogger, 'warn');
             const debug = vi.spyOn(BrowserLogger, 'debug');
-            const {scope, state} = startRead(async () => {throw failure;});
+            const {scope, state} = startRead(async () => {
+                throw failure;
+            });
             try {
                 await state.whenPageLabelsSettled();
                 expect(warn).not.toHaveBeenCalled();
@@ -121,21 +133,23 @@ describe('usePageLabelState', () => {
             }
         });
 
-        it.each([
-            new Error('Corrupt PageLabels number tree'),
-            new DOMException('Source permission denied', 'NotAllowedError'),
-        ])('warns for an unexpected current failure: $name $message', async failure => {
-            const warn = vi.spyOn(BrowserLogger, 'warn');
-            const {scope, state} = startRead(async () => {throw failure;});
-            try {
-                await state.whenPageLabelsSettled();
-                expect(warn).toHaveBeenCalledWith('page-labels', expect.any(String), failure);
-                expect(state.pageLabelsResolved.value).toBe(false);
-            } finally {
-                scope.stop();
-                warn.mockRestore();
-            }
-        });
+        it.each([new Error('Corrupt PageLabels number tree'), new DOMException('Source permission denied', 'NotAllowedError')])(
+            'warns for an unexpected current failure: $name $message',
+            async (failure) => {
+                const warn = vi.spyOn(BrowserLogger, 'warn');
+                const {scope, state} = startRead(async () => {
+                    throw failure;
+                });
+                try {
+                    await state.whenPageLabelsSettled();
+                    expect(warn).toHaveBeenCalledWith('page-labels', expect.any(String), failure);
+                    expect(state.pageLabelsResolved.value).toBe(false);
+                } finally {
+                    scope.stop();
+                    warn.mockRestore();
+                }
+            },
+        );
     });
 
     it('keeps accepted labels when the document arrives after the preserved revision scope ends', async () => {
@@ -152,12 +166,14 @@ describe('usePageLabelState', () => {
             preservesSourceReload: () => preserving,
         });
         await state.syncPageLabelsFromDocument(pdfDocument.value);
-        state.handlePageLabelRangesUpdate([{
-            startPage: 1,
-            style: 'D',
-            prefix: 'Accepted-',
-            startNumber: 1,
-        }]);
+        state.handlePageLabelRangesUpdate([
+            {
+                startPage: 1,
+                style: 'D',
+                prefix: 'Accepted-',
+                startNumber: 1,
+            },
+        ]);
         preserving = true;
         revision.value = requireDocumentRevisionToken('revision-2');
         await nextTick();
@@ -180,12 +196,14 @@ describe('usePageLabelState', () => {
             markDirty: vi.fn(),
         });
         const reading = state.syncPageLabelsFromDocument(pdfDocument.value);
-        state.handlePageLabelRangesUpdate([{
-            startPage: 1,
-            style: 'D',
-            prefix: 'Accepted-',
-            startNumber: 1,
-        }]);
+        state.handlePageLabelRangesUpdate([
+            {
+                startPage: 1,
+                style: 'D',
+                prefix: 'Accepted-',
+                startNumber: 1,
+            },
+        ]);
         expect(state.labelAt(1)).toBe('Accepted-1');
         pending.resolve(null);
         await reading;
@@ -195,94 +213,79 @@ describe('usePageLabelState', () => {
 
     it.each([
         {ranges: []},
-        {ranges: [{
-            startPage: 1,
-            style: 'r' as const,
-            prefix: 'Accepted ',
-            startNumber: 1,
-        }]},
-    ])(
-        'keeps recovered label edits over an in-flight base-byte read, including empty ranges',
-        async ({ranges}) => {
-            const source = usePageLabelState({
-                pdfDocument: ref(null),
-                totalPages: ref(3),
-                markDirty: vi.fn(),
-            });
-            // Both cases replace an existing label range, so [] means an accepted deletion.
-            source.handlePageLabelRangesUpdate([{
+        {
+            ranges: [
+                {
+                    startPage: 1,
+                    style: 'r' as const,
+                    prefix: 'Accepted ',
+                    startNumber: 1,
+                },
+            ],
+        },
+    ])('keeps recovered label edits over an in-flight base-byte read, including empty ranges', async ({ranges}) => {
+        const source = usePageLabelState({
+            pdfDocument: ref(null),
+            totalPages: ref(3),
+            markDirty: vi.fn(),
+        });
+        // Both cases replace an existing label range, so [] means an accepted deletion.
+        source.handlePageLabelRangesUpdate([
+            {
                 startPage: 1,
                 style: 'D',
                 prefix: 'Original ',
                 startNumber: 1,
-            }]);
-            source.handlePageLabelRangesUpdate(ranges);
-            const recovery = source.captureRecovery();
-            expect(recovery).toBeDefined();
-            const pending = createDeferred<string[] | null>();
-            const doc = createPdfDocumentRef(3, () => pending.promise);
-            const restored = usePageLabelState({
-                pdfDocument: doc,
-                totalPages: ref(3),
-                markDirty: vi.fn(),
-            });
-            const reading = restored.syncPageLabelsFromDocument(doc.value);
-            restored.restoreRecovery(recovery!);
-            pending.resolve([
-                'Original 1',
-                'Original 2',
-                'Original 3',
-            ]);
-            await reading;
-            expect(restored.readPageLabelWindow(1, 3)).toEqual(ranges.length
-                ? [
-                    'Accepted i',
-                    'Accepted ii',
-                    'Accepted iii',
-                ]
-                : [
-                    '1',
-                    '2',
-                    '3',
-                ]);
-            expect(restored.pageLabelsDirty.value).toBe(true);
-            expect(restored.pageLabelsResolved.value).toBe(true);
-            restored.markPageLabelsSaved();
-            expect(restored.captureRecovery()).toBeUndefined();
-        },
-    );
+            },
+        ]);
+        source.handlePageLabelRangesUpdate(ranges);
+        const recovery = source.captureRecovery();
+        expect(recovery).toBeDefined();
+        const pending = createDeferred<string[] | null>();
+        const doc = createPdfDocumentRef(3, () => pending.promise);
+        const restored = usePageLabelState({
+            pdfDocument: doc,
+            totalPages: ref(3),
+            markDirty: vi.fn(),
+        });
+        const reading = restored.syncPageLabelsFromDocument(doc.value);
+        restored.restoreRecovery(recovery!);
+        pending.resolve(['Original 1', 'Original 2', 'Original 3']);
+        await reading;
+        expect(restored.readPageLabelWindow(1, 3)).toEqual(ranges.length ? ['Accepted i', 'Accepted ii', 'Accepted iii'] : ['1', '2', '3']);
+        expect(restored.pageLabelsDirty.value).toBe(true);
+        expect(restored.pageLabelsResolved.value).toBe(true);
+        restored.markPageLabelsSaved();
+        expect(restored.captureRecovery()).toBeUndefined();
+    });
 
     it('keeps complete labels visible while refreshed document metadata is unresolved', () => {
-        const labels = [
-            'i',
-            'ii',
-            '1',
-        ];
+        const labels = ['i', 'ii', '1'];
 
-        expect(resolveVisiblePageLabelsDuringMetadataRefresh({
-            pageLabels: labels,
-            pageLabelsResolved: false,
-            isSaving: false,
-            totalPages: 3,
-        })).toBe(labels);
+        expect(
+            resolveVisiblePageLabelsDuringMetadataRefresh({
+                pageLabels: labels,
+                pageLabelsResolved: false,
+                isSaving: false,
+                totalPages: 3,
+            }),
+        ).toBe(labels);
     });
 
     it('hides incomplete labels while refreshed document metadata is unresolved', () => {
-        expect(resolveVisiblePageLabelsDuringMetadataRefresh({
-            pageLabels: ['i'],
-            pageLabelsResolved: false,
-            isSaving: false,
-            totalPages: 3,
-        })).toBeNull();
+        expect(
+            resolveVisiblePageLabelsDuringMetadataRefresh({
+                pageLabels: ['i'],
+                pageLabelsResolved: false,
+                isSaving: false,
+                totalPages: 3,
+            }),
+        ).toBeNull();
     });
 
     it('loads labels from document when available', async () => {
         const markDirty = vi.fn();
-        const pdfDocument = createPdfDocumentRef(3, async () => [
-            'i',
-            'ii',
-            'iii',
-        ]);
+        const pdfDocument = createPdfDocumentRef(3, async () => ['i', 'ii', 'iii']);
         const state = usePageLabelState({
             pdfDocument,
             totalPages: ref(3),
@@ -291,11 +294,7 @@ describe('usePageLabelState', () => {
 
         await state.syncPageLabelsFromDocument(pdfDocument.value);
 
-        expect(state.pageLabels.value).toEqual([
-            'i',
-            'ii',
-            'iii',
-        ]);
+        expect(state.pageLabels.value).toEqual(['i', 'ii', 'iii']);
         expect(state.pageLabelsDirty.value).toBe(false);
     });
 
@@ -320,11 +319,7 @@ describe('usePageLabelState', () => {
 
     it('collapses implicit default labels to null when the document exposes numeric labels', async () => {
         const markDirty = vi.fn();
-        const pdfDocument = createPdfDocumentRef(3, async () => [
-            '1',
-            '2',
-            '3',
-        ]);
+        const pdfDocument = createPdfDocumentRef(3, async () => ['1', '2', '3']);
         const state = usePageLabelState({
             pdfDocument,
             totalPages: ref(3),
@@ -334,12 +329,14 @@ describe('usePageLabelState', () => {
         await state.syncPageLabelsFromDocument(pdfDocument.value);
 
         expect(state.pageLabels.value).toBeNull();
-        expect(state.pageLabelRanges.value).toEqual([{
-            startPage: 1,
-            style: 'D',
-            prefix: '',
-            startNumber: 1,
-        }]);
+        expect(state.pageLabelRanges.value).toEqual([
+            {
+                startPage: 1,
+                style: 'D',
+                prefix: '',
+                startNumber: 1,
+            },
+        ]);
     });
 
     it('ignores label sync results from a document that has been replaced', async () => {
@@ -350,10 +347,7 @@ describe('usePageLabelState', () => {
         });
         const freshDocument = cast<IPdfDocument>({
             numPages: 2,
-            getPageLabels: vi.fn(async () => [
-                'Cover',
-                'Body',
-            ]),
+            getPageLabels: vi.fn(async () => ['Cover', 'Body']),
         });
         const pdfDocument = cast<Ref<IPdfDocument | null>>(ref(staleDocument));
         const state = usePageLabelState({
@@ -366,32 +360,20 @@ describe('usePageLabelState', () => {
         await nextTick();
         await state.syncPageLabelsFromDocument(freshDocument);
 
-        expect(state.pageLabels.value).toEqual([
-            'Cover',
-            'Body',
-        ]);
+        expect(state.pageLabels.value).toEqual(['Cover', 'Body']);
 
-        staleLabels.resolve([
-            'old-1',
-            'old-2',
-        ]);
+        staleLabels.resolve(['old-1', 'old-2']);
         await Promise.resolve();
         await Promise.resolve();
 
-        expect(state.pageLabels.value).toEqual([
-            'Cover',
-            'Body',
-        ]);
+        expect(state.pageLabels.value).toEqual(['Cover', 'Body']);
     });
 
     it('keeps labels through a same-shape revision of the working copy and clears them for another document', async () => {
         const workingCopyPath = ref(requireDocumentRef('/tmp/work.pdf'));
         const firstDocument = cast<IPdfDocument>({
             numPages: 2,
-            getPageLabels: vi.fn(async () => [
-                'i',
-                '1',
-            ]),
+            getPageLabels: vi.fn(async () => ['i', '1']),
         });
         const pdfDocument = cast<Ref<IPdfDocument | null>>(ref(firstDocument));
         const state = usePageLabelState({
@@ -410,14 +392,8 @@ describe('usePageLabelState', () => {
         pdfDocument.value = rotatedRevision;
         const rotatedSync = state.syncPageLabelsFromDocument(pdfDocument.value);
 
-        expect(state.pageLabels.value).toEqual([
-            'i',
-            '1',
-        ]);
-        rotatedLabels.resolve([
-            'i',
-            '1',
-        ]);
+        expect(state.pageLabels.value).toEqual(['i', '1']);
+        rotatedLabels.resolve(['i', '1']);
         await rotatedSync;
 
         const otherLabels = createDeferred<string[] | null>();
@@ -434,13 +410,14 @@ describe('usePageLabelState', () => {
         await otherSync;
     });
 
-    it('keeps edited labels when another view\'s PDF.js document of the same revision takes over', async () => {
+    it("keeps edited labels when another view's PDF.js document of the same revision takes over", async () => {
         const workingCopyPath = ref(requireDocumentRef('/tmp/work.pdf'));
         const documentRevisionToken = ref(requireDocumentRevisionToken('revision-1'));
-        const createView = () => cast<IPdfDocument>({
-            numPages: 3,
-            getPageLabels: vi.fn(async () => null),
-        });
+        const createView = () =>
+            cast<IPdfDocument>({
+                numPages: 3,
+                getPageLabels: vi.fn(async () => null),
+            });
         const pdfDocument = cast<Ref<IPdfDocument | null>>(ref(createView()));
         const onPageLabelsSynchronized = vi.fn();
         const onDocumentBytesChanged = vi.fn();
@@ -454,12 +431,14 @@ describe('usePageLabelState', () => {
             onDocumentBytesChanged,
         });
         await vi.waitFor(() => expect(onPageLabelsSynchronized).toHaveBeenCalledTimes(1));
-        const edited: IPdfPageLabelRange[] = [{
-            startPage: 1,
-            style: 'r',
-            prefix: '',
-            startNumber: 1,
-        }];
+        const edited: IPdfPageLabelRange[] = [
+            {
+                startPage: 1,
+                style: 'r',
+                prefix: '',
+                startNumber: 1,
+            },
+        ];
         state.handlePageLabelRangesUpdate(edited);
 
         // The user activates the other view: its document holds the same bytes.
@@ -469,11 +448,7 @@ describe('usePageLabelState', () => {
 
         expect(state.pageLabelsDirty.value).toBe(true);
         expect(state.pageLabelRanges.value).toEqual(edited);
-        expect(state.pageLabels.value).toEqual([
-            'i',
-            'ii',
-            'iii',
-        ]);
+        expect(state.pageLabels.value).toEqual(['i', 'ii', 'iii']);
         expect(onDocumentBytesChanged).toHaveBeenCalledTimes(1);
 
         // A new revision is new bytes, read again.
@@ -486,10 +461,14 @@ describe('usePageLabelState', () => {
 
     it('keeps edited labels while the view in use has not loaded its PDF.js document yet', async () => {
         const documentRevisionToken = ref(requireDocumentRevisionToken('revision-1'));
-        const pdfDocument = cast<Ref<IPdfDocument | null>>(ref(cast<IPdfDocument>({
-            numPages: 3,
-            getPageLabels: vi.fn(async () => null),
-        })));
+        const pdfDocument = cast<Ref<IPdfDocument | null>>(
+            ref(
+                cast<IPdfDocument>({
+                    numPages: 3,
+                    getPageLabels: vi.fn(async () => null),
+                }),
+            ),
+        );
         const onPageLabelsSynchronized = vi.fn();
         const state = usePageLabelState({
             pdfDocument,
@@ -500,12 +479,14 @@ describe('usePageLabelState', () => {
             onPageLabelsSynchronized,
         });
         await vi.waitFor(() => expect(onPageLabelsSynchronized).toHaveBeenCalledTimes(1));
-        const edited: IPdfPageLabelRange[] = [{
-            startPage: 1,
-            style: 'R',
-            prefix: '',
-            startNumber: 1,
-        }];
+        const edited: IPdfPageLabelRange[] = [
+            {
+                startPage: 1,
+                style: 'R',
+                prefix: '',
+                startNumber: 1,
+            },
+        ];
         state.handlePageLabelRangesUpdate(edited);
 
         // A new split view, or a remounting one, is in use before its document loads.
@@ -547,22 +528,26 @@ describe('usePageLabelState', () => {
             onPageLabelsSynchronized,
         });
         await vi.waitFor(() => expect(onPageLabelsSynchronized).toHaveBeenCalledTimes(1));
-        state.handlePageLabelRangesUpdate([{
-            startPage: 1,
-            style: 'R',
-            prefix: '',
-            startNumber: 1,
-        }]);
+        state.handlePageLabelRangesUpdate([
+            {
+                startPage: 1,
+                style: 'R',
+                prefix: '',
+                startNumber: 1,
+            },
+        ]);
 
         // Save writes the labels into revision 2 in place; neither view reloads.
         documentRevisionToken.value = requireDocumentRevisionToken('revision-2');
         state.markPageLabelsSaved();
-        const editedAfterSave: IPdfPageLabelRange[] = [{
-            startPage: 1,
-            style: 'r',
-            prefix: 'x-',
-            startNumber: 1,
-        }];
+        const editedAfterSave: IPdfPageLabelRange[] = [
+            {
+                startPage: 1,
+                style: 'r',
+                prefix: 'x-',
+                startNumber: 1,
+            },
+        ];
         state.handlePageLabelRangesUpdate(editedAfterSave);
 
         pdfDocument.value = rightView;
@@ -596,17 +581,11 @@ describe('usePageLabelState', () => {
 
         pdfDocument.value = cast<IPdfDocument>({
             numPages: 2,
-            getPageLabels: vi.fn(async () => [
-                'Cover',
-                'Body',
-            ]),
+            getPageLabels: vi.fn(async () => ['Cover', 'Body']),
         });
 
         await vi.waitFor(() => expect(state.pageLabelsResolved.value).toBe(true));
-        expect(state.pageLabels.value).toEqual([
-            'Cover',
-            'Body',
-        ]);
+        expect(state.pageLabels.value).toEqual(['Cover', 'Body']);
     });
 
     it('reads compact imported ranges before formatting a huge alphabetic label', async () => {
@@ -616,12 +595,14 @@ describe('usePageLabelState', () => {
             totalPages: ref(1),
             workingCopyPath: ref(requireDocumentRef('/tmp/imported.pdf')),
             markDirty: vi.fn(),
-            readPageLabelRanges: async () => [{
-                startPage: 1,
-                style: 'A',
-                prefix: 'Imported-',
-                startNumber: 1_000_000_000,
-            }],
+            readPageLabelRanges: async () => [
+                {
+                    startPage: 1,
+                    style: 'A',
+                    prefix: 'Imported-',
+                    startNumber: 1_000_000_000,
+                },
+            ],
         });
         await state.syncPageLabelsFromDocument(pdfDocument.value);
         expect(state.pageLabelsResolved.value).toBe(true);
@@ -638,7 +619,9 @@ describe('usePageLabelState', () => {
             totalPages: ref(1),
             workingCopyPath: ref(requireDocumentRef('/tmp/imported.pdf')),
             markDirty: vi.fn(),
-            readPageLabelRanges: async () => { throw new Error('Catalog could not be read'); },
+            readPageLabelRanges: async () => {
+                throw new Error('Catalog could not be read');
+            },
         });
         await state.syncPageLabelsFromDocument(pdfDocument.value);
         expect(state.pageLabelsResolved.value).toBe(false);
@@ -654,12 +637,14 @@ describe('usePageLabelState', () => {
             onPageLabelsDirty,
         });
 
-        const ranges: IPdfPageLabelRange[] = [{
-            startPage: 1,
-            style: 'D',
-            prefix: 'P-',
-            startNumber: 1,
-        }];
+        const ranges: IPdfPageLabelRange[] = [
+            {
+                startPage: 1,
+                style: 'D',
+                prefix: 'P-',
+                startNumber: 1,
+            },
+        ];
 
         state.handlePageLabelRangesUpdate(ranges);
         expect(state.pageLabelsDirty.value).toBe(true);
@@ -703,12 +688,7 @@ describe('usePageLabelState', () => {
 
         state.handlePageLabelRangesUpdate(ranges);
 
-        expect(state.pageLabels.value).toEqual([
-            'Cover',
-            '1',
-            '2',
-            '3',
-        ]);
+        expect(state.pageLabels.value).toEqual(['Cover', '1', '2', '3']);
         expect(state.pageLabelsDirty.value).toBe(false);
         expect(onPageLabelsDirty).not.toHaveBeenCalled();
     });
@@ -720,12 +700,14 @@ describe('usePageLabelState', () => {
             markDirty: vi.fn(),
         });
 
-        state.handlePageLabelRangesUpdate([{
-            startPage: 1,
-            style: 'D',
-            prefix: '',
-            startNumber: 1,
-        }]);
+        state.handlePageLabelRangesUpdate([
+            {
+                startPage: 1,
+                style: 'D',
+                prefix: '',
+                startNumber: 1,
+            },
+        ]);
 
         expect(state.pageLabels.value).toBeNull();
         expect(state.pageLabelsDirty.value).toBe(false);
@@ -738,25 +720,25 @@ describe('usePageLabelState', () => {
             markDirty: vi.fn(),
         });
 
-        state.handlePageLabelRangesUpdate([{
-            startPage: 1,
-            style: 'r',
-            prefix: '',
-            startNumber: 1,
-        }]);
+        state.handlePageLabelRangesUpdate([
+            {
+                startPage: 1,
+                style: 'r',
+                prefix: '',
+                startNumber: 1,
+            },
+        ]);
         await state.syncPageLabelsFromDocument(null);
 
-        expect(state.pageLabels.value).toEqual([
-            'i',
-            'ii',
-            'iii',
+        expect(state.pageLabels.value).toEqual(['i', 'ii', 'iii']);
+        expect(state.pageLabelRanges.value).toEqual([
+            {
+                startPage: 1,
+                style: 'r',
+                prefix: '',
+                startNumber: 1,
+            },
         ]);
-        expect(state.pageLabelRanges.value).toEqual([{
-            startPage: 1,
-            style: 'r',
-            prefix: '',
-            startNumber: 1,
-        }]);
         expect(state.pageLabelsDirty.value).toBe(false);
     });
 
@@ -768,12 +750,14 @@ describe('usePageLabelState', () => {
         });
 
         state.pageLabels.value = ['i'];
-        state.pageLabelRanges.value = [{
-            startPage: 1,
-            style: 'r',
-            prefix: '',
-            startNumber: 1,
-        }];
+        state.pageLabelRanges.value = [
+            {
+                startPage: 1,
+                style: 'r',
+                prefix: '',
+                startNumber: 1,
+            },
+        ];
 
         await state.syncPageLabelsFromDocument(null);
 
@@ -820,10 +804,7 @@ describe('usePageLabelState', () => {
         expect(state.pageLabelsResolved.value).toBe(false);
         expect(state.labelAt(1)).toBe('1');
         expect(state.labelAt(totalPages)).toBe(String(totalPages));
-        expect(state.readPageLabelWindow(totalPages - 1)).toEqual([
-            String(totalPages - 1),
-            String(totalPages),
-        ]);
+        expect(state.readPageLabelWindow(totalPages - 1)).toEqual([String(totalPages - 1), String(totalPages)]);
     });
 
     it('uses compact catalog ranges when PDF.js cannot read dense labels', async () => {
@@ -842,9 +823,12 @@ describe('usePageLabelState', () => {
                 startNumber: 1,
             },
         ]);
-        const pdfDocument = createPdfDocumentRef(totalPages, vi.fn(async () => {
-            throw new Error('dense PDF.js page-label reads must stay skipped');
-        }));
+        const pdfDocument = createPdfDocumentRef(
+            totalPages,
+            vi.fn(async () => {
+                throw new Error('dense PDF.js page-label reads must stay skipped');
+            }),
+        );
         const state = usePageLabelState({
             pdfDocument,
             totalPages: ref(totalPages),
@@ -881,10 +865,7 @@ describe('usePageLabelState', () => {
             if (shouldFail) {
                 throw new Error('temporary label read failure');
             }
-            return [
-                'Cover',
-                'Body',
-            ];
+            return ['Cover', 'Body'];
         });
         const state = usePageLabelState({
             pdfDocument,
@@ -896,10 +877,7 @@ describe('usePageLabelState', () => {
         shouldFail = true;
         await state.syncPageLabelsFromDocument(pdfDocument.value);
 
-        expect(state.pageLabels.value).toEqual([
-            'Cover',
-            'Body',
-        ]);
+        expect(state.pageLabels.value).toEqual(['Cover', 'Body']);
         expect(state.pageLabelsResolved.value).toBe(false);
     });
 
@@ -926,22 +904,19 @@ describe('usePageLabelState', () => {
             markDirty: vi.fn(),
         });
 
-        state.handlePageLabelRangesUpdate([{
-            startPage: 400_000,
-            style: 'D',
-            prefix: 'Section ',
-            startNumber: 1,
-        }]);
+        state.handlePageLabelRangesUpdate([
+            {
+                startPage: 400_000,
+                style: 'D',
+                prefix: 'Section ',
+                startNumber: 1,
+            },
+        ]);
 
         expect(state.pageLabels.value).toBeNull();
         expect(state.labelAt(399_999)).toBe('399999');
         expect(state.labelAt(400_000)).toBe('Section 1');
         expect(state.labelAt(totalPages)).toBe('Section 600001');
-        expect(state.readPageLabelWindow(399_999, 400_002)).toEqual([
-            '399999',
-            'Section 1',
-            'Section 2',
-            'Section 3',
-        ]);
+        expect(state.readPageLabelWindow(399_999, 400_002)).toEqual(['399999', 'Section 1', 'Section 2', 'Section 3']);
     });
 });

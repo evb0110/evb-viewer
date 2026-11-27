@@ -4,23 +4,12 @@ import {join} from 'node:path';
 import {createNodeStorePort} from '@document-store/nodeStorePort';
 import {createDocument} from '@document-store/documentDirectory';
 import type {IDocumentStore} from '@document-store/documentDirectory';
-import {
-    readWorkspaceCheckpoints,
-    removeWorkspaceCheckpoint,
-    writeWorkspaceCheckpoint,
-} from '@document-store/workspaceCheckpoint';
+import {readWorkspaceCheckpoints, removeWorkspaceCheckpoint, writeWorkspaceCheckpoint} from '@document-store/workspaceCheckpoint';
 import {createBrowserDocumentRef} from '@app/platform/browser/browserDocumentRefs';
 import type {IWorkspaceCheckpointAnnotationRecovery} from '@contracts/workspaceCheckpoint';
 import {createFileSystemFileHandle} from '@tests/unit/app/platform/browserPlatformTestDoubles';
 
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 
 const WINDOW_TABS_CHANNEL = 'evb-viewer:browserWindowTabs';
 
@@ -87,7 +76,7 @@ function createPageTransitionEvent(type: 'pagehide' | 'pageshow', persisted: boo
 function stubBrowserGlobals(href = 'http://localhost:3235/') {
     const windowListeners = new Map<string, Set<EventListener>>();
     const windowStub = {
-        location: { href },
+        location: {href},
         history: {
             state: null,
             replaceState: vi.fn((_state: unknown, _title: string, url?: string | URL | null) => {
@@ -183,7 +172,7 @@ describe('browserWindowTabsCapability', () => {
         const browserWindow = stubBrowserGlobals('http://localhost:3235/?evbWindowId=100');
         const externalWindow = new MockBroadcastChannel(WINDOW_TABS_CHANNEL);
         const messages: unknown[] = [];
-        externalWindow.addEventListener('message', event => messages.push(event.data));
+        externalWindow.addEventListener('message', (event) => messages.push(event.data));
         const {browserWindowTabsCapability} = await import('@app/platform/browserWindowTabs');
         browserWindowTabsCapability.notifyRendererReady({phase: 'shell-interactive'});
 
@@ -193,46 +182,54 @@ describe('browserWindowTabsCapability', () => {
         browserWindowTabsCapability.notifyRendererReady({phase: 'shell-interactive'});
         messages.length = 0;
         browserWindow.dispatch('focus');
-        expect(messages).toEqual([expect.objectContaining({
-            type: 'announce',
-            windowId: 100,
-            ready: true,
-        })]);
+        expect(messages).toEqual([
+            expect.objectContaining({
+                type: 'announce',
+                windowId: 100,
+                ready: true,
+            }),
+        ]);
     });
 
     it('re-announces a window restored from the browser back-forward cache', async () => {
         const browserWindow = stubBrowserGlobals('http://localhost:3235/?evbWindowId=100');
         const externalWindow = new MockBroadcastChannel(WINDOW_TABS_CHANNEL);
         const messages: unknown[] = [];
-        externalWindow.addEventListener('message', event => messages.push(event.data));
-        const { browserWindowTabsCapability } = await import('@app/platform/browserWindowTabs');
+        externalWindow.addEventListener('message', (event) => messages.push(event.data));
+        const {browserWindowTabsCapability} = await import('@app/platform/browserWindowTabs');
         browserWindowTabsCapability.notifyRendererReady({phase: 'shell-interactive'});
         messages.length = 0;
 
         browserWindow.dispatch('pagehide', createPageTransitionEvent('pagehide', true));
-        expect(messages).toContainEqual(expect.objectContaining({
-            type: 'unregister',
-            windowId: 100,
-        }));
+        expect(messages).toContainEqual(
+            expect.objectContaining({
+                type: 'unregister',
+                windowId: 100,
+            }),
+        );
 
         messages.length = 0;
         browserWindow.dispatch('pageshow', createPageTransitionEvent('pageshow', true));
-        expect(messages).toContainEqual(expect.objectContaining({
-            type: 'announce',
-            windowId: 100,
-            ready: true,
-        }));
-        expect(messages).toContainEqual(expect.objectContaining({
-            type: 'discover',
-            windowId: 100,
-        }));
+        expect(messages).toContainEqual(
+            expect.objectContaining({
+                type: 'announce',
+                windowId: 100,
+                ready: true,
+            }),
+        );
+        expect(messages).toContainEqual(
+            expect.objectContaining({
+                type: 'discover',
+                windowId: 100,
+            }),
+        );
     });
 
     it('announces readiness to other windows only after the shell becomes interactive', async () => {
         stubBrowserGlobals('http://localhost:3235/?evbWindowId=100');
         const externalWindow = new MockBroadcastChannel(WINDOW_TABS_CHANNEL);
         const messages: unknown[] = [];
-        externalWindow.addEventListener('message', event => messages.push(event.data));
+        externalWindow.addEventListener('message', (event) => messages.push(event.data));
         const {browserWindowTabsCapability} = await import('@app/platform/browserWindowTabs');
         const readyAnnouncement = expect.objectContaining({
             type: 'announce',
@@ -248,7 +245,6 @@ describe('browserWindowTabsCapability', () => {
     });
 });
 
-
 describe('browser recovery diagnostics', () => {
     let root = '';
     beforeEach(async () => {
@@ -259,20 +255,24 @@ describe('browser recovery diagnostics', () => {
             holdBrowserLock: async () => () => undefined,
             runBrowserLock: async (_name: string, task: () => Promise<unknown>) => task(),
         }));
-        vi.doMock('@app/platform/browser/browserFileHandleStore', () => ({fileHandleStore: {
-            keys: async () => [], get: async () => undefined, put: async () => undefined, delete: async () => undefined,
-        }}));
-        vi.doMock('@app/platform/browser/browserRecentFilesStore', async importOriginal => ({
-            ...await importOriginal<typeof import('@app/platform/browser/browserRecentFilesStore')>(),
+        vi.doMock('@app/platform/browser/browserFileHandleStore', () => ({
+            fileHandleStore: {
+                keys: async () => [],
+                get: async () => undefined,
+                put: async () => undefined,
+                delete: async () => undefined,
+            },
+        }));
+        vi.doMock('@app/platform/browser/browserRecentFilesStore', async (importOriginal) => ({
+            ...(await importOriginal<typeof import('@app/platform/browser/browserRecentFilesStore')>()),
             tryReadRecentFilesFromStorage: () => [],
         }));
-
 
         root = await mkdtemp(join(tmpdir(), 'browser-recovery-1609-'));
     });
     afterEach(async () => {
         const {browserDocumentStore} = await import('@app/platform/browser/browserDocumentRepository');
-        await Promise.all(browserDocumentStore.openEntries().map(entry => entry.doc?.close()));
+        await Promise.all(browserDocumentStore.openEntries().map((entry) => entry.doc?.close()));
         vi.restoreAllMocks();
         await rm(root, {recursive: true, force: true});
         vi.doUnmock('@app/platform/browser/runBrowserLock');
@@ -294,7 +294,10 @@ describe('browser recovery diagnostics', () => {
         const memory: IDocumentStore = {port: createMemoryStorePort(), publication: browserPublication};
         vi.spyOn(browserDocumentStore, 'stores').mockResolvedValue({durable: store, memory});
         const api = await import('@app/platform/browser/browserWorkspaceRecovery');
-        const diagnostics = () => [...warn.mock.calls, ...error.mock.calls].map(args => JSON.stringify(args, (_key, value: unknown) => value instanceof Error ? value.message : value)).join('\n');
+        const diagnostics = () =>
+            [...warn.mock.calls, ...error.mock.calls]
+                .map((args) => JSON.stringify(args, (_key, value: unknown) => (value instanceof Error ? value.message : value)))
+                .join('\n');
         return {store, repo: browserDocumentStore, api, diagnostics, warn, error, info, debug};
     }
 
@@ -304,14 +307,20 @@ describe('browser recovery diagnostics', () => {
         const {fileHandleStore} = await import('@app/platform/browser/browserFileHandleStore');
         const handles = new Set(['retained-recovery-binding']);
         vi.spyOn(fileHandleStore, 'keys').mockImplementation(async () => [...handles]);
-        vi.spyOn(fileHandleStore, 'delete').mockImplementation(async key => { handles.delete(key); });
+        vi.spyOn(fileHandleStore, 'delete').mockImplementation(async (key) => {
+            handles.delete(key);
+        });
         await store.port.writeAtomic(target, new TextEncoder().encode('{corrupt'));
         const claimed = await api.claimBrowserWorkspaceCheckpoint('recovery-window');
         expect.soft(await fileHandleStore.keys()).toContain('retained-recovery-binding');
         expect.soft(new TextDecoder().decode(await store.port.read(target))).toBe('{corrupt');
         expect.soft(diagnostics()).toContain(target);
-        expect.soft(diagnostics()).toMatch(/(?:SyntaxError|Expected property name|Unexpected token|not valid JSON|Unreadable document manifest|parsing|parse error)/iu);
-        expect(claimed?.tabs.some(tab => tab.workingCopyLost)).toBe(true);
+        expect
+            .soft(diagnostics())
+            .toMatch(
+                /(?:SyntaxError|Expected property name|Unexpected token|not valid JSON|Unreadable document manifest|parsing|parse error)/iu,
+            );
+        expect(claimed?.tabs.some((tab) => tab.workingCopyLost)).toBe(true);
     });
 
     it('#1609 reports an orphan manifest read failure after browser collection', async () => {
@@ -322,32 +331,49 @@ describe('browser recovery diagnostics', () => {
         // Startup inspection completed while the manifest was readable; it fails before the subsequent claim.
         await api.hasBrowserWorkspaceCheckpoint('orphan-window');
         const read = store.port.read.bind(store.port);
-        vi.spyOn(store.port, 'read').mockImplementation(target => target === 'documents/orphan/manifest.json'
-            ? Promise.reject(new Error('NotAllowedError injected orphan manifest')) : read(target));
+        vi.spyOn(store.port, 'read').mockImplementation((target) =>
+            target === 'documents/orphan/manifest.json'
+                ? Promise.reject(new Error('NotAllowedError injected orphan manifest'))
+                : read(target),
+        );
         const claimed = await api.claimBrowserWorkspaceCheckpoint('orphan-window');
         expect.soft(diagnostics()).toContain('documents/orphan/manifest.json');
         expect.soft(diagnostics()).toContain('NotAllowedError injected orphan manifest');
-        expect(claimed?.tabs.some(tab => tab.workingCopyLost)).toBe(true);
+        expect(claimed?.tabs.some((tab) => tab.workingCopyLost)).toBe(true);
     });
 
     it('#1609 logs a failed browser startup collection with its key and error', async () => {
         const {store, api, diagnostics} = await recovery();
         const list = store.port.list.bind(store.port);
-        vi.spyOn(store.port, 'list').mockImplementation(key => key === 'documents'
-            ? Promise.reject(new Error('NotAllowedError injected startup list documents')) : list(key));
+        vi.spyOn(store.port, 'list').mockImplementation((key) =>
+            key === 'documents' ? Promise.reject(new Error('NotAllowedError injected startup list documents')) : list(key),
+        );
         await api.claimBrowserWorkspaceCheckpoint('collection-window');
         expect.soft(diagnostics()).toContain('documents');
         expect(diagnostics()).toContain('NotAllowedError injected startup list documents');
     });
 
-    it.each(['rejects', 'finds no entry'])('#1609 never acknowledges unwritten drafts after a durable-entry lookup %s', async mode => {
+    it.each(['rejects', 'finds no entry'])('#1609 never acknowledges unwritten drafts after a durable-entry lookup %s', async (mode) => {
         const {store, api, diagnostics} = await recovery();
         const ref = createBrowserDocumentRef('paper.pdf', 'draft-document');
         const list = store.port.list.bind(store.port);
-        if (mode === 'rejects') {vi.spyOn(store.port, 'list').mockImplementation(key => key === 'documents'
-            ? Promise.reject(new Error('NotReadableError injected durable-entry lookup')) : list(key));}
-        const drafts: IWorkspaceCheckpointAnnotationRecovery = {artifactId: 'draft-1609', documentInstanceId: 'instance-1609', workingCopyRef: ref, workingByteRevision: '1', annotationMutationGeneration: 1, payload: {entities: []}};
-        const outcome = await api.setBrowserDocumentDrafts(drafts).then(value => value, () => false);
+        if (mode === 'rejects') {
+            vi.spyOn(store.port, 'list').mockImplementation((key) =>
+                key === 'documents' ? Promise.reject(new Error('NotReadableError injected durable-entry lookup')) : list(key),
+            );
+        }
+        const drafts: IWorkspaceCheckpointAnnotationRecovery = {
+            artifactId: 'draft-1609',
+            documentInstanceId: 'instance-1609',
+            workingCopyRef: ref,
+            workingByteRevision: '1',
+            annotationMutationGeneration: 1,
+            payload: {entities: []},
+        };
+        const outcome = await api.setBrowserDocumentDrafts(drafts).then(
+            (value) => value,
+            () => false,
+        );
         expect.soft(outcome, 'true acknowledges a checkpoint whose drafts were never written').toBe(false);
         if (mode === 'rejects') {
             expect.soft(diagnostics()).toContain(ref);
@@ -357,21 +383,33 @@ describe('browser recovery diagnostics', () => {
 
     async function closedWindowDraft(store: IDocumentStore) {
         const ref = createBrowserDocumentRef('copy.pdf', 'copy-directory');
-        const drafts: IWorkspaceCheckpointAnnotationRecovery = {artifactId: 'copy-note', documentInstanceId: 'copy-instance', workingCopyRef: ref, workingByteRevision: 'drt1:browser:copy-directory:1', annotationMutationGeneration: 1, payload: {entities: [{contents: 'Copy note'}]}};
+        const drafts: IWorkspaceCheckpointAnnotationRecovery = {
+            artifactId: 'copy-note',
+            documentInstanceId: 'copy-instance',
+            workingCopyRef: ref,
+            workingByteRevision: 'drt1:browser:copy-directory:1',
+            annotationMutationGeneration: 1,
+            payload: {entities: [{contents: 'Copy note'}]},
+        };
         const doc = await createDocument(store, {id: 'copy-directory', ext: 'pdf', source: new Blob(['%PDF-1.7'])});
         await doc.setDrafts(1, drafts);
         await doc.close();
-        await writeWorkspaceCheckpoint(store.port, 'closed-window', {tabs: {'copy-directory': {directory: 'copy-directory', view: null}}, layout: null});
+        await writeWorkspaceCheckpoint(store.port, 'closed-window', {
+            tabs: {'copy-directory': {directory: 'copy-directory', view: null}},
+            layout: null,
+        });
         return ref;
     }
 
-    it('keeps a closed window\'s checkpoint while another window holds a directory it names', async () => {
+    it("keeps a closed window's checkpoint while another window holds a directory it names", async () => {
         const {store, api} = await recovery();
         const ref = await closedWindowDraft(store);
         const {browserDocumentLockName} = await import('@app/platform/browser/browserDocumentRepository');
         const locks = await import('@app/platform/browser/runBrowserLock');
         // A window starting alongside this one holds the copy's directory while this one collects.
-        const otherWindow = vi.spyOn(locks, 'holdBrowserLock').mockImplementation(async name => (name === browserDocumentLockName('copy-directory') ? null : () => undefined));
+        const otherWindow = vi
+            .spyOn(locks, 'holdBrowserLock')
+            .mockImplementation(async (name) => (name === browserDocumentLockName('copy-directory') ? null : () => undefined));
         expect(await api.claimBrowserWorkspaceCheckpoint('starting-window')).toBeNull();
         expect([...(await readWorkspaceCheckpoints(store.port)).keys()]).toContain('closed-window');
 
@@ -389,7 +427,11 @@ describe('browser recovery diagnostics', () => {
         await removeWorkspaceCheckpoint(store.port, 'closed-window');
         const claimed = await api.claimBrowserWorkspaceCheckpoint('later-window');
         expect(claimed?.tabs).toHaveLength(1);
-        expect(claimed?.tabs[0]).toMatchObject({fileName: 'copy.pdf', workingCopyRef: ref, annotationRecovery: {workingCopyRef: ref, payload: {entities: [{contents: 'Copy note'}]}}});
+        expect(claimed?.tabs[0]).toMatchObject({
+            fileName: 'copy.pdf',
+            workingCopyRef: ref,
+            annotationRecovery: {workingCopyRef: ref, payload: {entities: [{contents: 'Copy note'}]}},
+        });
     });
 
     it('#1609 keeps an absent browser store silent without a recovery notice', async () => {
@@ -401,7 +443,6 @@ describe('browser recovery diagnostics', () => {
         expect(debug).not.toHaveBeenCalled();
     });
 
-
     it('#1609 logs an unreadable manifest during browser handle collection while another window holds its directory', async () => {
         const {store, api, diagnostics} = await recovery();
         const locks = await import('@app/platform/browser/runBrowserLock');
@@ -409,8 +450,9 @@ describe('browser recovery diagnostics', () => {
         const target = 'documents/held-document/manifest.json';
         await store.port.writeAtomic(target, new TextEncoder().encode('{corrupt'));
         const read = store.port.read.bind(store.port);
-        vi.spyOn(store.port, 'read').mockImplementation(name => name === target
-            ? Promise.reject(new Error('NotReadableError injected handle-collection manifest')) : read(name));
+        vi.spyOn(store.port, 'read').mockImplementation((name) =>
+            name === target ? Promise.reject(new Error('NotReadableError injected handle-collection manifest')) : read(name),
+        );
         await api.claimBrowserWorkspaceCheckpoint('held-window');
         expect.soft(diagnostics()).toContain(target);
         expect(diagnostics()).toContain('NotReadableError injected handle-collection manifest');
@@ -439,7 +481,9 @@ describe('browser recovery diagnostics', () => {
         const releaseNameEdited = Promise.withResolvers<void>();
         let pauseFirstNameEdited = true;
         repo.onDirectoryEdited = async () => {
-            if (!pauseFirstNameEdited) {return;}
+            if (!pauseFirstNameEdited) {
+                return;
+            }
             pauseFirstNameEdited = false;
             nameEditedStarted.resolve();
             await releaseNameEdited.promise;
@@ -546,13 +590,15 @@ describe('browser recovery diagnostics', () => {
         const rev1Token = repo.tokenOf(entry);
         await repo.write(ref, new TextEncoder().encode('%PDF-1.7 rev2'), {expectedDocumentRevisionToken: rev1Token});
 
-        expect(await api.setBrowserDocumentDrafts({
-            artifactId: 'document-drafts',
-            documentInstanceId: 'instance-stale-clear',
-            workingCopyRef: ref,
-            workingByteRevision: rev1Token,
-            annotationMutationGeneration: 0,
-        })).toBe(false);
+        expect(
+            await api.setBrowserDocumentDrafts({
+                artifactId: 'document-drafts',
+                documentInstanceId: 'instance-stale-clear',
+                workingCopyRef: ref,
+                workingByteRevision: rev1Token,
+                annotationMutationGeneration: 0,
+            }),
+        ).toBe(false);
 
         const rev2Token = repo.tokenOf(entry);
         const nameEditedStarted = Promise.withResolvers<void>();
@@ -577,7 +623,9 @@ describe('browser recovery diagnostics', () => {
         releaseNameEdited.resolve();
 
         expect(await closedWrite).toBe(false);
-        const manifest = JSON.parse(new TextDecoder().decode(await store.port.read(`documents/${docId}/manifest.json`))) as {drafts?: string};
+        const manifest = JSON.parse(new TextDecoder().decode(await store.port.read(`documents/${docId}/manifest.json`))) as {
+            drafts?: string;
+        };
         expect(manifest.drafts).toBeUndefined();
     });
 
@@ -622,7 +670,9 @@ describe('browser recovery diagnostics', () => {
         releaseNameEdited.resolve();
         expect(await draftWrite).toBe(true);
         expect(doc.state().drafts).toEqual(rev1Drafts);
-        const storedManifest = JSON.parse(new TextDecoder().decode(await store.port.read(`documents/${doc.id}/manifest.json`))) as {drafts?: string};
+        const storedManifest = JSON.parse(new TextDecoder().decode(await store.port.read(`documents/${doc.id}/manifest.json`))) as {
+            drafts?: string;
+        };
         expect(storedManifest.drafts).toBeDefined();
 
         // Control: an externally modified picked file materialized with asItIs (witness: undefined) must reject drafts captured on the old baseline.
@@ -632,7 +682,9 @@ describe('browser recovery diagnostics', () => {
             name: 'changed.pdf',
             getFile: async () => new File([changedBytes], 'changed.pdf', {lastModified: changedModified}),
         });
-        const changedSourceRef = await repo.registerFile(new File([changedBytes], 'changed.pdf', {lastModified: changedModified}), {saveHandle: changedHandle});
+        const changedSourceRef = await repo.registerFile(new File([changedBytes], 'changed.pdf', {lastModified: changedModified}), {
+            saveHandle: changedHandle,
+        });
         const changedWorkingRef = await repo.cloneAsWorkingCopy(changedSourceRef);
         const changedEntry = await repo.requireEntry(changedWorkingRef);
         const changedDoc = changedEntry.doc!;
@@ -684,7 +736,9 @@ describe('browser recovery diagnostics', () => {
         const releaseFirstNameEdited = Promise.withResolvers<void>();
         let pauseFirst = true;
         repo.onDirectoryEdited = async () => {
-            if (!pauseFirst) {return;}
+            if (!pauseFirst) {
+                return;
+            }
             pauseFirst = false;
             firstNameEditedStarted.resolve();
             await releaseFirstNameEdited.promise;
@@ -710,7 +764,9 @@ describe('browser recovery diagnostics', () => {
         releaseFirstNameEdited.resolve();
         expect(await staleAcrossUndo).toBe(false);
         expect(doc.state().drafts).toBeUndefined();
-        const manifestAfterUndo = JSON.parse(new TextDecoder().decode(await store.port.read(`documents/${doc.id}/manifest.json`))) as {drafts?: string};
+        const manifestAfterUndo = JSON.parse(new TextDecoder().decode(await store.port.read(`documents/${doc.id}/manifest.json`))) as {
+            drafts?: string;
+        };
         expect(manifestAfterUndo.drafts).toBeUndefined();
 
         // 2. Fresh draft captured after the earlier undo (next > 2, current === null) must succeed when unchanged baseline materializes (null -> 1).
@@ -737,7 +793,9 @@ describe('browser recovery diagnostics', () => {
 
         expect(await postUndoWrite).toBe(true);
         expect(doc.state().drafts).toEqual(postUndoDrafts);
-        const manifestAfterPostUndo = JSON.parse(new TextDecoder().decode(await store.port.read(`documents/${doc.id}/manifest.json`))) as {drafts?: string};
+        const manifestAfterPostUndo = JSON.parse(new TextDecoder().decode(await store.port.read(`documents/${doc.id}/manifest.json`))) as {
+            drafts?: string;
+        };
         expect(manifestAfterPostUndo.drafts).toBeDefined();
     });
 
@@ -753,7 +811,10 @@ describe('browser recovery diagnostics', () => {
         });
         const moveEntry = await repo.requireEntry(moveRef);
         const moveDoc = moveEntry.doc!;
-        expect(await moveDoc.mutate(1, {kind: 'append', bytes: new TextEncoder().encode('+redo'), drafts: 'clear'})).toMatchObject({status: 'committed', revision: {id: 2}});
+        expect(await moveDoc.mutate(1, {kind: 'append', bytes: new TextEncoder().encode('+redo'), drafts: 'clear'})).toMatchObject({
+            status: 'committed',
+            revision: {id: 2},
+        });
         await moveDoc.retain([1, 2]);
         expect(await moveDoc.restore(2, 1)).toMatchObject({status: 'committed', revision: {id: 1}});
         const moveToken = repo.tokenOf(moveEntry);
@@ -793,7 +854,9 @@ describe('browser recovery diagnostics', () => {
                     const chunks: Uint8Array<ArrayBuffer>[] = [];
                     return Object.assign(new WritableStream(), {
                         write: async (chunk: FileSystemWriteChunkType) => {
-                            if (!(chunk instanceof ArrayBuffer)) {throw new TypeError('Expected ArrayBuffer chunk');}
+                            if (!(chunk instanceof ArrayBuffer)) {
+                                throw new TypeError('Expected ArrayBuffer chunk');
+                            }
                             chunks.push(new Uint8Array(chunk));
                         },
                         close: async () => {
@@ -812,7 +875,10 @@ describe('browser recovery diagnostics', () => {
         const picked = makeWritableHandle('foreign-browser.pdf', '%PDF-1.7 orig', 1_000);
         const copy = makeWritableHandle('foreign-browser-copy.pdf', '', 2_000);
         rememberFileHandle('foreign-browser-copy', copy.handle);
-        const sourceRef = await repo.registerFile(new File([picked.disk.bytes], 'foreign-browser.pdf', {lastModified: picked.disk.lastModified}), {saveHandle: picked.handle});
+        const sourceRef = await repo.registerFile(
+            new File([picked.disk.bytes], 'foreign-browser.pdf', {lastModified: picked.disk.lastModified}),
+            {saveHandle: picked.handle},
+        );
         const workingRef = await repo.cloneAsWorkingCopy(sourceRef);
         const entry = await repo.requireEntry(workingRef);
         const doc = entry.doc!;
@@ -826,28 +892,38 @@ describe('browser recovery diagnostics', () => {
         const stagedStarted = Promise.withResolvers<void>();
         const releaseStaged = Promise.withResolvers<void>();
         const realPublish = browserPublication.publish.bind(browserPublication);
-        const publishSpy = vi.spyOn(browserPublication, 'publish').mockImplementationOnce(async (dest, src, expected, stage, reserve) => realPublish(dest, src, expected, async (witness) => {
-            await stage(witness);
-            stagedStarted.resolve();
-            await releaseStaged.promise;
-        }, reserve));
+        const publishSpy = vi.spyOn(browserPublication, 'publish').mockImplementationOnce(async (dest, src, expected, stage, reserve) =>
+            realPublish(
+                dest,
+                src,
+                expected,
+                async (witness) => {
+                    await stage(witness);
+                    stagedStarted.resolve();
+                    await releaseStaged.promise;
+                },
+                reserve,
+            ),
+        );
 
         const revisionEvents: string[] = [];
-        const stopListening = repo.onDocumentRevisionChanged(event => revisionEvents.push(`${event.reason}:${event.token}`));
+        const stopListening = repo.onDocumentRevisionChanged((event) => revisionEvents.push(`${event.reason}:${event.token}`));
 
         const saveAsPromise = repo.save(workingRef, rev1Token, {saveAs: 'handle:foreign-browser-copy'});
         await stagedStarted.promise;
 
         // While foreign-staged (including with staged pendingPublish), old `:1` draft is rejected.
         expect(doc.state().current?.foreign).toBe('staged');
-        expect(await api.setBrowserDocumentDrafts({
-            artifactId: 'document-drafts',
-            documentInstanceId: 'instance-foreign-browser',
-            workingCopyRef: workingRef,
-            workingByteRevision: rev1Token,
-            annotationMutationGeneration: 1,
-            payload: {entities: [{contents: 'Rejected during foreign pendingPublish'}]},
-        })).toBe(false);
+        expect(
+            await api.setBrowserDocumentDrafts({
+                artifactId: 'document-drafts',
+                documentInstanceId: 'instance-foreign-browser',
+                workingCopyRef: workingRef,
+                workingByteRevision: rev1Token,
+                annotationMutationGeneration: 1,
+                payload: {entities: [{contents: 'Rejected during foreign pendingPublish'}]},
+            }),
+        ).toBe(false);
 
         releaseStaged.resolve();
         expect(await saveAsPromise).toMatchObject({status: 'saved', revision: {id: 1, foreign: 'committed'}});
@@ -859,14 +935,16 @@ describe('browser recovery diagnostics', () => {
         expect(revisionEvents).toEqual([`save-sync:${publishedToken}`]);
 
         // Stale pre-Save-As `:1` draft arriving after publication is rejected.
-        expect(await api.setBrowserDocumentDrafts({
-            artifactId: 'document-drafts',
-            documentInstanceId: 'instance-foreign-browser',
-            workingCopyRef: workingRef,
-            workingByteRevision: rev1Token,
-            annotationMutationGeneration: 1,
-            payload: {entities: [{contents: 'Rejected stale pre-Save-As draft'}]},
-        })).toBe(false);
+        expect(
+            await api.setBrowserDocumentDrafts({
+                artifactId: 'document-drafts',
+                documentInstanceId: 'instance-foreign-browser',
+                workingCopyRef: workingRef,
+                workingByteRevision: rev1Token,
+                annotationMutationGeneration: 1,
+                payload: {entities: [{contents: 'Rejected stale pre-Save-As draft'}]},
+            }),
+        ).toBe(false);
 
         // Fresh post-publication draft using the new save-sync token succeeds and survives close & reopen.
         const postPublishDraft: IWorkspaceCheckpointAnnotationRecovery = {
@@ -885,22 +963,28 @@ describe('browser recovery diagnostics', () => {
         const reopenedEntry = await repo.requireEntry(workingRef);
         expect(repo.tokenOf(reopenedEntry)).toBe(publishedToken);
         expect(reopenedEntry.doc?.state().drafts).toEqual(postPublishDraft);
-        expect(await api.setBrowserDocumentDrafts({
-            artifactId: 'document-drafts',
-            documentInstanceId: 'instance-foreign-browser',
-            workingCopyRef: workingRef,
-            workingByteRevision: rev1Token,
-            annotationMutationGeneration: 3,
-            payload: {entities: [{contents: 'Rejected stale :1 after reopen'}]},
-        })).toBe(false);
-        expect(await api.setBrowserDocumentDrafts({
-            ...postPublishDraft,
-            annotationMutationGeneration: 4,
-            payload: {entities: [{contents: 'Accepted :1:f after reopen'}]},
-        })).toBe(true);
+        expect(
+            await api.setBrowserDocumentDrafts({
+                artifactId: 'document-drafts',
+                documentInstanceId: 'instance-foreign-browser',
+                workingCopyRef: workingRef,
+                workingByteRevision: rev1Token,
+                annotationMutationGeneration: 3,
+                payload: {entities: [{contents: 'Rejected stale :1 after reopen'}]},
+            }),
+        ).toBe(false);
+        expect(
+            await api.setBrowserDocumentDrafts({
+                ...postPublishDraft,
+                annotationMutationGeneration: 4,
+                payload: {entities: [{contents: 'Accepted :1:f after reopen'}]},
+            }),
+        ).toBe(true);
 
         // Mutating to rev 2 and restoring back to publishedToken (:1:f) still parses cleanly.
-        await repo.write(workingRef, new TextEncoder().encode('%PDF-1.7 rev2 after foreign saveAs'), {expectedDocumentRevisionToken: publishedToken});
+        await repo.write(workingRef, new TextEncoder().encode('%PDF-1.7 rev2 after foreign saveAs'), {
+            expectedDocumentRevisionToken: publishedToken,
+        });
         const rev2AfterForeign = repo.tokenOf(reopenedEntry);
         await repo.restoreRevision(workingRef, publishedToken, rev2AfterForeign);
         expect(repo.tokenOf(reopenedEntry)).toBe(publishedToken);
@@ -909,7 +993,10 @@ describe('browser recovery diagnostics', () => {
         const prePublishPicked = makeWritableHandle('pre-publish-foreign.pdf', '%PDF-1.7 pre-orig', 1_000);
         const prePublishCopy = makeWritableHandle('pre-publish-copy.pdf', '', 2_000);
         rememberFileHandle('pre-publish-copy', prePublishCopy.handle);
-        const prePublishSource = await repo.registerFile(new File([prePublishPicked.disk.bytes], 'pre-publish-foreign.pdf', {lastModified: prePublishPicked.disk.lastModified}), {saveHandle: prePublishPicked.handle});
+        const prePublishSource = await repo.registerFile(
+            new File([prePublishPicked.disk.bytes], 'pre-publish-foreign.pdf', {lastModified: prePublishPicked.disk.lastModified}),
+            {saveHandle: prePublishPicked.handle},
+        );
         const prePublishWorking = await repo.cloneAsWorkingCopy(prePublishSource);
         const prePublishEntry = await repo.requireEntry(prePublishWorking);
         const prePublishToken = repo.tokenOf(prePublishEntry);
@@ -921,90 +1008,112 @@ describe('browser recovery diagnostics', () => {
         await repo.release(prePublishWorking);
         const reopenedPrePublish = await repo.requireEntry(prePublishWorking);
         expect(reopenedPrePublish.doc?.state().current?.foreign).toBe('staged');
-        expect(await api.setBrowserDocumentDrafts({
-            artifactId: 'document-drafts',
-            documentInstanceId: 'instance-pre-publish',
-            workingCopyRef: prePublishWorking,
-            workingByteRevision: prePublishToken,
-            annotationMutationGeneration: 1,
-            payload: {entities: [{contents: 'Rejected after pre-publish reopen'}]},
-        })).toBe(false);
+        expect(
+            await api.setBrowserDocumentDrafts({
+                artifactId: 'document-drafts',
+                documentInstanceId: 'instance-pre-publish',
+                workingCopyRef: prePublishWorking,
+                workingByteRevision: prePublishToken,
+                annotationMutationGeneration: 1,
+                payload: {entities: [{contents: 'Rejected after pre-publish reopen'}]},
+            }),
+        ).toBe(false);
 
         // (b) Un-adopted pendingPublish across close & reopen keeps foreign: 'staged' and rejects `:1`.
         const unadoptedSpy = vi.spyOn(browserPublication, 'publish').mockImplementationOnce(async (_dest, _src, _expected, stage) => {
             await stage('unmatched-staged-witness');
             throw new Error('crash before write');
         });
-        await expect(repo.save(prePublishWorking, prePublishToken, {saveAs: 'handle:pre-publish-copy'})).rejects.toThrow('crash before write');
+        await expect(repo.save(prePublishWorking, prePublishToken, {saveAs: 'handle:pre-publish-copy'})).rejects.toThrow(
+            'crash before write',
+        );
         unadoptedSpy.mockRestore();
         await repo.release(prePublishWorking);
         const reopenedUnadopted = await repo.requireEntry(prePublishWorking);
         expect(reopenedUnadopted.doc?.state().current?.foreign).toBe('staged');
-        expect(await api.setBrowserDocumentDrafts({
-            artifactId: 'document-drafts',
-            documentInstanceId: 'instance-pre-publish',
-            workingCopyRef: prePublishWorking,
-            workingByteRevision: prePublishToken,
-            annotationMutationGeneration: 2,
-            payload: {entities: [{contents: 'Rejected after unadopted reopen'}]},
-        })).toBe(false);
+        expect(
+            await api.setBrowserDocumentDrafts({
+                artifactId: 'document-drafts',
+                documentInstanceId: 'instance-pre-publish',
+                workingCopyRef: prePublishWorking,
+                workingByteRevision: prePublishToken,
+                annotationMutationGeneration: 2,
+                payload: {entities: [{contents: 'Rejected after unadopted reopen'}]},
+            }),
+        ).toBe(false);
 
         // (c) Adopted pendingPublish on reopen transitions foreign: 'staged' -> 'committed' and token to `:1:f`.
         const adoptedSpy = vi.spyOn(browserPublication, 'publish').mockImplementationOnce(async (dest, src, expected, stage, reserve) => {
             await realPublish(dest, src, expected, stage, reserve);
             throw new Error('crash after write before ack');
         });
-        await expect(repo.save(prePublishWorking, prePublishToken, {saveAs: 'handle:pre-publish-copy'})).rejects.toThrow('crash after write before ack');
+        await expect(repo.save(prePublishWorking, prePublishToken, {saveAs: 'handle:pre-publish-copy'})).rejects.toThrow(
+            'crash after write before ack',
+        );
         adoptedSpy.mockRestore();
         await repo.release(prePublishWorking);
         const reopenedAdopted = await repo.requireEntry(prePublishWorking);
         const adoptedToken = repo.tokenOf(reopenedAdopted);
         expect(reopenedAdopted.doc?.state().current?.foreign).toBe('committed');
         expect(adoptedToken).toBe(`drt1:browser:${reopenedAdopted.doc!.id}:1:f`);
-        expect(await api.setBrowserDocumentDrafts({
-            artifactId: 'document-drafts',
-            documentInstanceId: 'instance-pre-publish',
-            workingCopyRef: prePublishWorking,
-            workingByteRevision: prePublishToken,
-            annotationMutationGeneration: 3,
-            payload: {entities: [{contents: 'Rejected old :1 after adopted reopen'}]},
-        })).toBe(false);
-        expect(await api.setBrowserDocumentDrafts({
-            artifactId: 'document-drafts',
-            documentInstanceId: 'instance-pre-publish',
-            workingCopyRef: prePublishWorking,
-            workingByteRevision: adoptedToken,
-            annotationMutationGeneration: 4,
-            payload: {entities: [{contents: 'Accepted :1:f after adopted reopen'}]},
-        })).toBe(true);
+        expect(
+            await api.setBrowserDocumentDrafts({
+                artifactId: 'document-drafts',
+                documentInstanceId: 'instance-pre-publish',
+                workingCopyRef: prePublishWorking,
+                workingByteRevision: prePublishToken,
+                annotationMutationGeneration: 3,
+                payload: {entities: [{contents: 'Rejected old :1 after adopted reopen'}]},
+            }),
+        ).toBe(false);
+        expect(
+            await api.setBrowserDocumentDrafts({
+                artifactId: 'document-drafts',
+                documentInstanceId: 'instance-pre-publish',
+                workingCopyRef: prePublishWorking,
+                workingByteRevision: adoptedToken,
+                annotationMutationGeneration: 4,
+                payload: {entities: [{contents: 'Accepted :1:f after adopted reopen'}]},
+            }),
+        ).toBe(true);
 
         // 3. ADR 0010 rescue + S6 undo after append rescue: stageAppend -> save (conflict) -> Save As of r2 -> undo to r1 restores `:1:f`, rejects `:1`, and accepts `:1:f` across reopen.
         const rescuePicked = makeWritableHandle('rescue.pdf', '%PDF-1.7 rescue-orig', 1_000);
         const rescueCopy = makeWritableHandle('rescue-copy.pdf', '', 2_000);
         rememberFileHandle('rescue-copy', rescueCopy.handle);
-        const rescueSource = await repo.registerFile(new File([rescuePicked.disk.bytes], 'rescue.pdf', {lastModified: rescuePicked.disk.lastModified}), {saveHandle: rescuePicked.handle});
+        const rescueSource = await repo.registerFile(
+            new File([rescuePicked.disk.bytes], 'rescue.pdf', {lastModified: rescuePicked.disk.lastModified}),
+            {saveHandle: rescuePicked.handle},
+        );
         const rescueWorking = await repo.cloneAsWorkingCopy(rescueSource);
         const rescueEntry = await repo.requireEntry(rescueWorking);
         const rescueToken = repo.tokenOf(rescueEntry);
         rescuePicked.disk.bytes = new TextEncoder().encode('%PDF-1.7 rescue-foreign');
         rescuePicked.disk.lastModified = 4_000;
 
-        const lease = await repo.stageAppend(rescueWorking, rescueToken, async (file, base) => {
-            const extra = new TextEncoder().encode(' +edit');
-            await file.writeAt(base, extra);
-            return base + extra.byteLength;
-        }, {allowForeignBase: true});
+        const lease = await repo.stageAppend(
+            rescueWorking,
+            rescueToken,
+            async (file, base) => {
+                const extra = new TextEncoder().encode(' +edit');
+                await file.writeAt(base, extra);
+                return base + extra.byteLength;
+            },
+            {allowForeignBase: true},
+        );
         expect(lease).not.toBeNull();
         expect(rescueEntry.doc?.state().current?.foreign).toBe('staged');
         // Drafts remain rejected while foreign bytes are staged for rescue.
-        expect(await api.setBrowserDocumentDrafts({
-            artifactId: 'document-drafts',
-            documentInstanceId: 'instance-rescue',
-            workingCopyRef: rescueWorking,
-            workingByteRevision: rescueToken,
-            annotationMutationGeneration: 1,
-            payload: {entities: [{contents: 'Rejected during stageAppend foreign staging'}]},
-        })).toBe(false);
+        expect(
+            await api.setBrowserDocumentDrafts({
+                artifactId: 'document-drafts',
+                documentInstanceId: 'instance-rescue',
+                workingCopyRef: rescueWorking,
+                workingByteRevision: rescueToken,
+                annotationMutationGeneration: 1,
+                payload: {entities: [{contents: 'Rejected during stageAppend foreign staging'}]},
+            }),
+        ).toBe(false);
         expect(await repo.save(rescueWorking, rescueToken, {commit: lease!})).toEqual({status: 'conflict'});
         const committedRescueToken = repo.tokenOf(rescueEntry);
         expect(committedRescueToken).not.toBe(rescueToken);
@@ -1017,14 +1126,16 @@ describe('browser recovery diagnostics', () => {
         const restoredForeignToken = repo.tokenOf(rescueEntry);
         expect(rescueEntry.doc?.state().current?.foreign).toBe('committed');
         expect(restoredForeignToken).toBe(`drt1:browser:${rescueEntry.doc!.id}:1:f`);
-        expect(await api.setBrowserDocumentDrafts({
-            artifactId: 'document-drafts',
-            documentInstanceId: 'instance-rescue',
-            workingCopyRef: rescueWorking,
-            workingByteRevision: rescueToken,
-            annotationMutationGeneration: 2,
-            payload: {entities: [{contents: 'Rejected stale :1 after undo to foreign r1'}]},
-        })).toBe(false);
+        expect(
+            await api.setBrowserDocumentDrafts({
+                artifactId: 'document-drafts',
+                documentInstanceId: 'instance-rescue',
+                workingCopyRef: rescueWorking,
+                workingByteRevision: rescueToken,
+                annotationMutationGeneration: 2,
+                payload: {entities: [{contents: 'Rejected stale :1 after undo to foreign r1'}]},
+            }),
+        ).toBe(false);
         const restoredForeignDraft: IWorkspaceCheckpointAnnotationRecovery = {
             artifactId: 'document-drafts',
             documentInstanceId: 'instance-rescue',
@@ -1038,19 +1149,23 @@ describe('browser recovery diagnostics', () => {
         const reopenedRescue = await repo.requireEntry(rescueWorking);
         expect(repo.tokenOf(reopenedRescue)).toBe(restoredForeignToken);
         expect(reopenedRescue.doc?.state().drafts).toEqual(restoredForeignDraft);
-        expect(await api.setBrowserDocumentDrafts({
-            artifactId: 'document-drafts',
-            documentInstanceId: 'instance-rescue',
-            workingCopyRef: rescueWorking,
-            workingByteRevision: rescueToken,
-            annotationMutationGeneration: 4,
-            payload: {entities: [{contents: 'Rejected stale :1 after reopen of undone foreign r1'}]},
-        })).toBe(false);
-        expect(await api.setBrowserDocumentDrafts({
-            ...restoredForeignDraft,
-            annotationMutationGeneration: 5,
-            payload: {entities: [{contents: 'Accepted :1:f after reopen of undone foreign r1'}]},
-        })).toBe(true);
+        expect(
+            await api.setBrowserDocumentDrafts({
+                artifactId: 'document-drafts',
+                documentInstanceId: 'instance-rescue',
+                workingCopyRef: rescueWorking,
+                workingByteRevision: rescueToken,
+                annotationMutationGeneration: 4,
+                payload: {entities: [{contents: 'Rejected stale :1 after reopen of undone foreign r1'}]},
+            }),
+        ).toBe(false);
+        expect(
+            await api.setBrowserDocumentDrafts({
+                ...restoredForeignDraft,
+                annotationMutationGeneration: 5,
+                payload: {entities: [{contents: 'Accepted :1:f after reopen of undone foreign r1'}]},
+            }),
+        ).toBe(true);
 
         // 4. Untitled working copy -> mutate to r2 -> Save As -> undo to r1 still accepts drafts.
         const untitledCopy = makeWritableHandle('untitled-copy.pdf', '', 1_000);
@@ -1099,7 +1214,9 @@ describe('browser recovery diagnostics', () => {
                 const chunks: Uint8Array<ArrayBuffer>[] = [];
                 return Object.assign(new WritableStream(), {
                     write: async (chunk: FileSystemWriteChunkType) => {
-                        if (!(chunk instanceof ArrayBuffer)) {throw new TypeError('Expected ArrayBuffer chunk');}
+                        if (!(chunk instanceof ArrayBuffer)) {
+                            throw new TypeError('Expected ArrayBuffer chunk');
+                        }
                         chunks.push(new Uint8Array(chunk));
                     },
                     close: async () => {
@@ -1112,7 +1229,9 @@ describe('browser recovery diagnostics', () => {
                 }) satisfies FileSystemWritableFileStream;
             },
         };
-        const sourceRef = await repo.registerFile(new File([disk.bytes], 'staged-recovery.pdf', {lastModified: disk.lastModified}), {saveHandle: handle});
+        const sourceRef = await repo.registerFile(new File([disk.bytes], 'staged-recovery.pdf', {lastModified: disk.lastModified}), {
+            saveHandle: handle,
+        });
         const workingRef = await repo.cloneAsWorkingCopy(sourceRef);
         const entry = await repo.requireEntry(workingRef);
         const docId = entry.doc!.id;
@@ -1133,11 +1252,16 @@ describe('browser recovery diagnostics', () => {
         // 2. External program replaces the source PDF; stageAppend stages foreign bytes (`foreign: 'staged'`, token `:1:s`).
         disk.bytes = new TextEncoder().encode('%PDF-1.7 externally replaced');
         disk.lastModified = 2_000;
-        const lease = await repo.stageAppend(workingRef, originalToken, async (file, base) => {
-            const extra = new TextEncoder().encode(' +staged');
-            await file.writeAt(base, extra);
-            return base + extra.byteLength;
-        }, {allowForeignBase: true});
+        const lease = await repo.stageAppend(
+            workingRef,
+            originalToken,
+            async (file, base) => {
+                const extra = new TextEncoder().encode(' +staged');
+                await file.writeAt(base, extra);
+                return base + extra.byteLength;
+            },
+            {allowForeignBase: true},
+        );
         expect(lease).not.toBeNull();
         expect(entry.doc?.state().current?.foreign).toBe('staged');
         expect(repo.tokenOf(entry)).toBe(`drt1:browser:${docId}:1:s`);
@@ -1149,7 +1273,7 @@ describe('browser recovery diagnostics', () => {
         await repo.release(workingRef);
         const claimed = await api.claimBrowserWorkspaceCheckpoint('recovery-window');
         expect(claimed).not.toBeNull();
-        const recoveredTab = claimed!.tabs.find(tab => tab.workingCopyRef === workingRef);
+        const recoveredTab = claimed!.tabs.find((tab) => tab.workingCopyRef === workingRef);
         expect(recoveredTab?.annotationRecovery).toEqual(originalDraft);
 
         const reopenedRevision = await repo.getDocumentRevision(workingRef);
@@ -1164,37 +1288,43 @@ describe('browser recovery diagnostics', () => {
         const restoring = restoreWorkspaceCheckpoint(claimed!, {
             activeTabId: ref(null),
             documentSessions,
-            restoreGraph: checkpoint => {
-                tabs.value = checkpoint.tabs.map(tab => ({id: tab.tabId}));
+            restoreGraph: (checkpoint) => {
+                tabs.value = checkpoint.tabs.map((tab) => ({id: tab.tabId}));
             },
             activateTab: () => {},
         });
         await nextTick();
         const session = documentSessions.getSession(recoveredTab!.tabId)!;
-        session.attachWorkspace(recoveredTab!.tabId, createWorkspaceExposeFixture({
-            holdDocumentDrafts: () => settleDrafts,
-            restoreCanonicalAnnotationRecovery,
-            handleOpenFileWithResult: async () => {
-                await session.runOpen({
-                    kind: 'restore',
-                    target: {fileName: 'staged-recovery.pdf', originalPath: recoveredTab!.sourceRef!},
-                }, async () => {
-                    session.commitFile({
-                        originalPath: recoveredTab!.sourceRef!,
-                        workingCopyPath: workingRef,
-                        isDjvu: false,
-                        revisionInfo: reopenedRevision,
-                    });
-                    return {presentation: Promise.resolve({status: 'presented' as const})};
-                }).finished;
-                return true;
-            },
-            getAutomationStateSnapshot: () => ({
-                ...createWorkspaceExposeFixture().getAutomationStateSnapshot(),
-                workingCopyPath: workingRef,
-                documentIdentity: reopenedRevision,
+        session.attachWorkspace(
+            recoveredTab!.tabId,
+            createWorkspaceExposeFixture({
+                holdDocumentDrafts: () => settleDrafts,
+                restoreCanonicalAnnotationRecovery,
+                handleOpenFileWithResult: async () => {
+                    await session.runOpen(
+                        {
+                            kind: 'restore',
+                            target: {fileName: 'staged-recovery.pdf', originalPath: recoveredTab!.sourceRef!},
+                        },
+                        async () => {
+                            session.commitFile({
+                                originalPath: recoveredTab!.sourceRef!,
+                                workingCopyPath: workingRef,
+                                isDjvu: false,
+                                revisionInfo: reopenedRevision,
+                            });
+                            return {presentation: Promise.resolve({status: 'presented' as const})};
+                        },
+                    ).finished;
+                    return true;
+                },
+                getAutomationStateSnapshot: () => ({
+                    ...createWorkspaceExposeFixture().getAutomationStateSnapshot(),
+                    workingCopyPath: workingRef,
+                    documentIdentity: reopenedRevision,
+                }),
             }),
-        }));
+        );
 
         const failedPaths = await restoring;
         expect(failedPaths).toEqual([recoveredTab!.sourceRef ?? workingRef]);
@@ -1204,7 +1334,9 @@ describe('browser recovery diagnostics', () => {
         // Stored `:1` draft stays preserved on disk intact and is not overwritten.
         const reopenedEntry = await repo.requireEntry(workingRef);
         expect(reopenedEntry.doc?.state().drafts).toEqual(originalDraft);
-        const manifest = JSON.parse(new TextDecoder().decode(await store.port.read(`documents/${docId}/manifest.json`))) as {drafts?: string};
+        const manifest = JSON.parse(new TextDecoder().decode(await store.port.read(`documents/${docId}/manifest.json`))) as {
+            drafts?: string;
+        };
         expect(manifest.drafts).toBeDefined();
 
         // 5. Confirm ADR 0010 stageAppend -> save conflict -> Save As rescue still succeeds using pre-staging `:1` token.
@@ -1218,7 +1350,9 @@ describe('browser recovery diagnostics', () => {
                 const chunks: Uint8Array<ArrayBuffer>[] = [];
                 return Object.assign(new WritableStream(), {
                     write: async (chunk: FileSystemWriteChunkType) => {
-                        if (!(chunk instanceof ArrayBuffer)) {throw new TypeError('Expected ArrayBuffer chunk');}
+                        if (!(chunk instanceof ArrayBuffer)) {
+                            throw new TypeError('Expected ArrayBuffer chunk');
+                        }
                         chunks.push(new Uint8Array(chunk));
                     },
                     close: async () => {
@@ -1232,11 +1366,16 @@ describe('browser recovery diagnostics', () => {
             },
         };
         rememberFileHandle('staged-recovery-copy', copyHandle);
-        const rescueLease = await repo.stageAppend(workingRef, originalToken, async (file, base) => {
-            const extra = new TextEncoder().encode(' +rescued');
-            await file.writeAt(base, extra);
-            return base + extra.byteLength;
-        }, {allowForeignBase: true});
+        const rescueLease = await repo.stageAppend(
+            workingRef,
+            originalToken,
+            async (file, base) => {
+                const extra = new TextEncoder().encode(' +rescued');
+                await file.writeAt(base, extra);
+                return base + extra.byteLength;
+            },
+            {allowForeignBase: true},
+        );
         expect(rescueLease).not.toBeNull();
         expect(await repo.save(workingRef, originalToken, {commit: rescueLease!})).toEqual({status: 'conflict'});
         const rev2Token = repo.tokenOf(reopenedEntry);
@@ -1252,7 +1391,9 @@ describe('browser recovery diagnostics', () => {
             name: 'first-edit.pdf',
             getFile: async () => new File([disk.bytes], 'first-edit.pdf', {lastModified: disk.lastModified}),
         });
-        const sourceRef = await repo.registerFile(new File([disk.bytes], 'first-edit.pdf', {lastModified: disk.lastModified}), {saveHandle: handle});
+        const sourceRef = await repo.registerFile(new File([disk.bytes], 'first-edit.pdf', {lastModified: disk.lastModified}), {
+            saveHandle: handle,
+        });
         const workingRef = await repo.cloneAsWorkingCopy(sourceRef);
         const entry = await repo.requireEntry(workingRef);
         const docId = entry.doc!.id;
@@ -1300,13 +1441,13 @@ describe('browser recovery diagnostics', () => {
         expect(await repo.nameEdited(entry)).toBe(true);
         expect(namingOutcomes).toEqual([false, true]);
         const checkpointsAfterRetry = await readWorkspaceCheckpoints(store.port);
-        expect(Object.values(checkpointsAfterRetry.get('window-fault')?.tabs ?? {}).map(tab => tab.directory)).toContain(docId);
+        expect(Object.values(checkpointsAfterRetry.get('window-fault')?.tabs ?? {}).map((tab) => tab.directory)).toContain(docId);
 
         // Even with all checkpoints removed (simulating crash while checkpoint write was failing), recovery preserves the first byte edit.
         await removeWorkspaceCheckpoint(store.port, 'window-fault');
         await repo.release(workingRef);
         const claimed = await api.claimBrowserWorkspaceCheckpoint('recovery-window');
-        expect(claimed?.tabs.some(tab => tab.workingCopyRef === workingRef)).toBe(true);
+        expect(claimed?.tabs.some((tab) => tab.workingCopyRef === workingRef)).toBe(true);
         expect(new TextDecoder().decode(await repo.read(workingRef))).toBe('%PDF-1.7 original +first-byte-edit');
     });
 
@@ -1327,8 +1468,30 @@ describe('browser recovery diagnostics', () => {
             layout: {type: 'leaf', paneId: 'pane-1'},
             panes: [{paneId: 'pane-1', tabIds: ['tab-a', 'tab-b'], activeTabId: 'tab-a'}],
             tabs: [
-                {tabId: 'tab-a', paneId: 'pane-1', fileName: 'first.pdf', sourceRef: refA, workingCopyRef: refA, isDirty: true, isDjvu: false, currentPage: null, zoom: null, zoomMode: null},
-                {tabId: 'tab-b', paneId: 'pane-1', fileName: 'second.pdf', sourceRef: refB, workingCopyRef: refB, isDirty: true, isDjvu: false, currentPage: null, zoom: null, zoomMode: null},
+                {
+                    tabId: 'tab-a',
+                    paneId: 'pane-1',
+                    fileName: 'first.pdf',
+                    sourceRef: refA,
+                    workingCopyRef: refA,
+                    isDirty: true,
+                    isDjvu: false,
+                    currentPage: null,
+                    zoom: null,
+                    zoomMode: null,
+                },
+                {
+                    tabId: 'tab-b',
+                    paneId: 'pane-1',
+                    fileName: 'second.pdf',
+                    sourceRef: refB,
+                    workingCopyRef: refB,
+                    isDirty: true,
+                    isDjvu: false,
+                    currentPage: null,
+                    zoom: null,
+                    zoomMode: null,
+                },
             ],
         };
         await writeWorkspaceCheckpoint(store.port, windowId, {
@@ -1339,21 +1502,25 @@ describe('browser recovery diagnostics', () => {
             layout,
         });
 
-        repo.onDirectoryEdited = directory => api.nameBrowserWorkspaceDirectory(windowId, directory);
+        repo.onDirectoryEdited = (directory) => api.nameBrowserWorkspaceDirectory(windowId, directory);
         const firstClaim = await api.claimBrowserWorkspaceCheckpoint(windowId);
-        expect(firstClaim?.tabs.map(tab => tab.workingCopyRef)).toEqual([refA, refB]);
+        expect(firstClaim?.tabs.map((tab) => tab.workingCopyRef)).toEqual([refA, refB]);
         const afterFirstClaim = (await readWorkspaceCheckpoints(store.port)).get(windowId);
-        expect(Object.values(afterFirstClaim?.tabs ?? {}).map(tab => tab.directory).sort()).toEqual(['dir-a', 'dir-b']);
+        expect(
+            Object.values(afterFirstClaim?.tabs ?? {})
+                .map((tab) => tab.directory)
+                .sort(),
+        ).toEqual(['dir-a', 'dir-b']);
         await api.saveBrowserWorkspaceCheckpoint(windowId, firstClaim!);
         await Promise.all([repo.release(refA), repo.release(refB)]);
 
         // Second reload in a fresh module instance must recover each tab exactly once.
         vi.resetModules();
         const second = await recovery();
-        second.repo.onDirectoryEdited = directory => second.api.nameBrowserWorkspaceDirectory(windowId, directory);
+        second.repo.onDirectoryEdited = (directory) => second.api.nameBrowserWorkspaceDirectory(windowId, directory);
         const secondClaim = await second.api.claimBrowserWorkspaceCheckpoint(windowId);
-        expect(secondClaim?.tabs.map(tab => tab.workingCopyRef)).toEqual([refA, refB]);
-        expect(secondClaim?.tabs.every(tab => !tab.workingCopyLost)).toBe(true);
+        expect(secondClaim?.tabs.map((tab) => tab.workingCopyRef)).toEqual([refA, refB]);
+        expect(secondClaim?.tabs.every((tab) => !tab.workingCopyLost)).toBe(true);
         expect(new TextDecoder().decode(await second.repo.read(refA))).toBe('%PDF-1.7 A');
         expect(new TextDecoder().decode(await second.repo.read(refB))).toBe('%PDF-1.7 B');
     });
@@ -1364,7 +1531,11 @@ describe('browser recovery diagnostics', () => {
         const healthyRef = createBrowserDocumentRef('healthy.pdf', 'dir-healthy');
         const malformedRef = createBrowserDocumentRef('malformed.pdf', 'dir-malformed');
         const healthyDoc = await createDocument(store, {id: 'dir-healthy', name: 'healthy.pdf', source: new Blob(['%PDF-1.7 HEALTHY'])});
-        const malformedDoc = await createDocument(store, {id: 'dir-malformed', name: 'malformed.pdf', source: new Blob(['%PDF-1.7 MALFORMED'])});
+        const malformedDoc = await createDocument(store, {
+            id: 'dir-malformed',
+            name: 'malformed.pdf',
+            source: new Blob(['%PDF-1.7 MALFORMED']),
+        });
 
         const healthyDrafts: IWorkspaceCheckpointAnnotationRecovery = {
             artifactId: 'healthy-draft',
@@ -1384,7 +1555,9 @@ describe('browser recovery diagnostics', () => {
             payload: {entities: [{contents: 'Kept raw draft on disk'}]},
         });
 
-        const malformedManifest = JSON.parse(new TextDecoder().decode(await store.port.read('documents/dir-malformed/manifest.json'))) as {drafts?: string};
+        const malformedManifest = JSON.parse(new TextDecoder().decode(await store.port.read('documents/dir-malformed/manifest.json'))) as {
+            drafts?: string;
+        };
         expect(malformedManifest.drafts).toBeDefined();
         const malformedDraftPath = `documents/dir-malformed/${malformedManifest.drafts!}`;
         const draftBytesBefore = await store.port.read(malformedDraftPath);
@@ -1405,8 +1578,30 @@ describe('browser recovery diagnostics', () => {
                 layout: {type: 'leaf', paneId: 'pane-1'},
                 panes: [{paneId: 'pane-1', tabIds: ['tab-healthy', 'tab-malformed'], activeTabId: 'tab-healthy'}],
                 tabs: [
-                    {tabId: 'tab-healthy', paneId: 'pane-1', fileName: 'healthy.pdf', sourceRef: healthyRef, workingCopyRef: healthyRef, isDirty: true, isDjvu: false, currentPage: 1, zoom: 1, zoomMode: null},
-                    {tabId: 'tab-malformed', paneId: 'pane-1', fileName: 'malformed.pdf', sourceRef: malformedRef, workingCopyRef: malformedRef, isDirty: true, isDjvu: false, currentPage: 2, zoom: 1, zoomMode: null},
+                    {
+                        tabId: 'tab-healthy',
+                        paneId: 'pane-1',
+                        fileName: 'healthy.pdf',
+                        sourceRef: healthyRef,
+                        workingCopyRef: healthyRef,
+                        isDirty: true,
+                        isDjvu: false,
+                        currentPage: 1,
+                        zoom: 1,
+                        zoomMode: null,
+                    },
+                    {
+                        tabId: 'tab-malformed',
+                        paneId: 'pane-1',
+                        fileName: 'malformed.pdf',
+                        sourceRef: malformedRef,
+                        workingCopyRef: malformedRef,
+                        isDirty: true,
+                        isDjvu: false,
+                        currentPage: 2,
+                        zoom: 1,
+                        zoomMode: null,
+                    },
                 ],
             },
         });
@@ -1416,7 +1611,7 @@ describe('browser recovery diagnostics', () => {
         expect(claimed).not.toBeNull();
         expect(claimed?.tabs).toHaveLength(2);
 
-        const claimedHealthy = claimed?.tabs.find(tab => tab.workingCopyRef === healthyRef);
+        const claimedHealthy = claimed?.tabs.find((tab) => tab.workingCopyRef === healthyRef);
         expect(claimedHealthy).toMatchObject({
             tabId: 'tab-healthy',
             workingCopyRef: healthyRef,
@@ -1426,7 +1621,7 @@ describe('browser recovery diagnostics', () => {
         expect(claimedHealthy?.workingCopyLost).toBeUndefined();
         expect(claimedHealthy?.annotationRecoveryInvalid).toBeUndefined();
 
-        const claimedMalformed = claimed?.tabs.find(tab => tab.workingCopyRef === malformedRef);
+        const claimedMalformed = claimed?.tabs.find((tab) => tab.workingCopyRef === malformedRef);
         expect(claimedMalformed).toMatchObject({
             tabId: 'tab-malformed',
             workingCopyRef: malformedRef,
@@ -1446,23 +1641,27 @@ describe('browser recovery diagnostics', () => {
         // subsequent page mutations (like rotate) from deleting the original draft file.
         const reopenedMalformedEntry = await repo.requireEntry(malformedRef);
         const reopenedRevision = repo.tokenOf(reopenedMalformedEntry);
-        expect(await api.setBrowserDocumentDrafts({
-            artifactId: 'document-drafts',
-            documentInstanceId: 'instance-reopened',
-            workingCopyRef: malformedRef,
-            workingByteRevision: reopenedRevision,
-            annotationMutationGeneration: 0,
-        })).toBe(false);
+        expect(
+            await api.setBrowserDocumentDrafts({
+                artifactId: 'document-drafts',
+                documentInstanceId: 'instance-reopened',
+                workingCopyRef: malformedRef,
+                workingByteRevision: reopenedRevision,
+                annotationMutationGeneration: 0,
+            }),
+        ).toBe(false);
         expect(await store.port.read(malformedDraftPath)).toEqual(draftBytesBefore);
 
-        expect(await api.setBrowserDocumentDrafts({
-            artifactId: 'document-drafts',
-            documentInstanceId: 'instance-reopened',
-            workingCopyRef: malformedRef,
-            workingByteRevision: reopenedRevision,
-            annotationMutationGeneration: 1,
-            payload: {entities: [{contents: 'must not overwrite'}]},
-        })).toBe(false);
+        expect(
+            await api.setBrowserDocumentDrafts({
+                artifactId: 'document-drafts',
+                documentInstanceId: 'instance-reopened',
+                workingCopyRef: malformedRef,
+                workingByteRevision: reopenedRevision,
+                annotationMutationGeneration: 1,
+                payload: {entities: [{contents: 'must not overwrite'}]},
+            }),
+        ).toBe(false);
         expect(await store.port.read(malformedDraftPath)).toEqual(draftBytesBefore);
 
         // Verify the real restoreWorkspaceCheckpoint + createWorkspaceDocumentRecovery flow installs
@@ -1490,50 +1689,57 @@ describe('browser recovery diagnostics', () => {
         const restoring = restoreWorkspaceCheckpoint(claimed!, {
             activeTabId: ref(null),
             documentSessions,
-            restoreGraph: checkpoint => {
-                tabs.value = checkpoint.tabs.map(tab => ({id: tab.tabId}));
+            restoreGraph: (checkpoint) => {
+                tabs.value = checkpoint.tabs.map((tab) => ({id: tab.tabId}));
             },
             activateTab: () => {},
         });
         await nextTick();
 
         const healthySession = documentSessions.getSession(claimedHealthy!.tabId)!;
-        healthySession.attachWorkspace(claimedHealthy!.tabId, createWorkspaceExposeFixture({
-            holdDocumentDrafts: () => () => {},
-            restoreCanonicalAnnotationRecovery: restoreCanonicalHealthy,
-            handleOpenFileWithResult: async () => {
-                await healthySession.runOpen({
-                    kind: 'restore',
-                    target: {fileName: 'healthy.pdf', originalPath: healthyRef},
-                }, async () => {
-                    healthySession.commitFile({
-                        originalPath: healthyRef,
-                        workingCopyPath: healthyRef,
-                        isDjvu: false,
-                        revisionInfo: reopenedHealthyRevision,
-                    });
-                    return {presentation: Promise.resolve({status: 'presented' as const})};
-                }).finished;
-                return true;
-            },
-            getAutomationStateSnapshot: () => ({
-                ...createWorkspaceExposeFixture().getAutomationStateSnapshot(),
-                workingCopyPath: healthyRef,
-                documentIdentity: reopenedHealthyRevision,
+        healthySession.attachWorkspace(
+            claimedHealthy!.tabId,
+            createWorkspaceExposeFixture({
+                holdDocumentDrafts: () => () => {},
+                restoreCanonicalAnnotationRecovery: restoreCanonicalHealthy,
+                handleOpenFileWithResult: async () => {
+                    await healthySession.runOpen(
+                        {
+                            kind: 'restore',
+                            target: {fileName: 'healthy.pdf', originalPath: healthyRef},
+                        },
+                        async () => {
+                            healthySession.commitFile({
+                                originalPath: healthyRef,
+                                workingCopyPath: healthyRef,
+                                isDjvu: false,
+                                revisionInfo: reopenedHealthyRevision,
+                            });
+                            return {presentation: Promise.resolve({status: 'presented' as const})};
+                        },
+                    ).finished;
+                    return true;
+                },
+                getAutomationStateSnapshot: () => ({
+                    ...createWorkspaceExposeFixture().getAutomationStateSnapshot(),
+                    workingCopyPath: healthyRef,
+                    documentIdentity: reopenedHealthyRevision,
+                }),
             }),
-        }));
+        );
 
         const malformedSession = documentSessions.getSession(claimedMalformed!.tabId)!;
         const malformedDocRecovery = createWorkspaceDocumentRecovery({
             controller: malformedSession,
-            pdfViewer: () => ({
-                captureCanonicalAnnotationRecovery: () => ({
-                    version: 1,
-                    annotationMutationGeneration: 0,
-                    entities: [],
-                    drafts: [],
-                }),
-            } as never),
+            pdfViewer: () =>
+                ({
+                    captureCanonicalAnnotationRecovery: () => ({
+                        version: 1,
+                        annotationMutationGeneration: 0,
+                        entities: [],
+                        drafts: [],
+                    }),
+                }) as never,
             pdfDocumentAnnotations: {
                 application: ref({store: {subscribe: () => () => undefined}}),
                 textBoxDrafts: new Map(),
@@ -1553,37 +1759,45 @@ describe('browser recovery diagnostics', () => {
             } as never,
             reportFailure,
         });
-        malformedSession.attachWorkspace(claimedMalformed!.tabId, createWorkspaceExposeFixture({
-            holdDocumentDrafts: malformedDocRecovery.holdDrafts,
-            restoreCanonicalAnnotationRecovery: restoreCanonicalMalformed,
-            handleOpenFileWithResult: async () => {
-                await malformedSession.runOpen({
-                    kind: 'restore',
-                    target: {fileName: 'malformed.pdf', originalPath: malformedRef},
-                }, async () => {
-                    malformedSession.commitFile({
-                        originalPath: malformedRef,
-                        workingCopyPath: malformedRef,
-                        isDjvu: false,
-                        revisionInfo: reopenedMalformedRevision,
-                    });
-                    return {presentation: Promise.resolve({status: 'presented' as const})};
-                }).finished;
-                return true;
-            },
-            getAutomationStateSnapshot: () => ({
-                ...createWorkspaceExposeFixture().getAutomationStateSnapshot(),
-                workingCopyPath: malformedRef,
-                documentIdentity: reopenedMalformedRevision,
+        malformedSession.attachWorkspace(
+            claimedMalformed!.tabId,
+            createWorkspaceExposeFixture({
+                holdDocumentDrafts: malformedDocRecovery.holdDrafts,
+                restoreCanonicalAnnotationRecovery: restoreCanonicalMalformed,
+                handleOpenFileWithResult: async () => {
+                    await malformedSession.runOpen(
+                        {
+                            kind: 'restore',
+                            target: {fileName: 'malformed.pdf', originalPath: malformedRef},
+                        },
+                        async () => {
+                            malformedSession.commitFile({
+                                originalPath: malformedRef,
+                                workingCopyPath: malformedRef,
+                                isDjvu: false,
+                                revisionInfo: reopenedMalformedRevision,
+                            });
+                            return {presentation: Promise.resolve({status: 'presented' as const})};
+                        },
+                    ).finished;
+                    return true;
+                },
+                getAutomationStateSnapshot: () => ({
+                    ...createWorkspaceExposeFixture().getAutomationStateSnapshot(),
+                    workingCopyPath: malformedRef,
+                    documentIdentity: reopenedMalformedRevision,
+                }),
             }),
-        }));
+        );
 
         const failedPaths = await restoring;
         expect(failedPaths).toEqual([malformedRef]);
         expect(restoreCanonicalMalformed).not.toHaveBeenCalled();
         expect(setDraftsSpy).not.toHaveBeenCalled();
         await expect(malformedDocRecovery.commitDrafts()).rejects.toThrow('Recovered annotation drafts that were not applied stay stored');
-        await expect(malformedDocRecovery.commitDrafts('reported')).rejects.toThrow('Recovered annotation drafts that were not applied stay stored');
+        await expect(malformedDocRecovery.commitDrafts('reported')).rejects.toThrow(
+            'Recovered annotation drafts that were not applied stay stored',
+        );
         expect(await store.port.read(malformedDraftPath)).toEqual(draftBytesBefore);
     });
 });

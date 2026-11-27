@@ -1,6 +1,12 @@
 <template>
-    <section class="tool-page" :aria-labelledby="titleId">
-        <header v-if="showHeader" class="tool-page-header">
+    <section
+        class="tool-page"
+        :aria-labelledby="titleId"
+    >
+        <header
+            v-if="showHeader"
+            class="tool-page-header"
+        >
             <UButton
                 v-if="showBack"
                 color="neutral"
@@ -10,19 +16,35 @@
                 @click="close"
             />
             <div class="tool-page-heading">
-                <div v-if="showEyebrow" class="tool-page-kicker">
-                    <UIcon :name="icon" class="tool-page-kicker-icon" />
+                <div
+                    v-if="showEyebrow"
+                    class="tool-page-kicker"
+                >
+                    <UIcon
+                        :name="icon"
+                        class="tool-page-kicker-icon"
+                    />
                     <span>{{ eyebrow }}</span>
                 </div>
-                <h1 :id="titleId" class="tool-page-title">
+                <h1
+                    :id="titleId"
+                    class="tool-page-title"
+                >
                     {{ title }}
                 </h1>
-                <p v-if="description" class="tool-page-description">
+                <p
+                    v-if="description"
+                    class="tool-page-description"
+                >
                     {{ description }}
                 </p>
             </div>
         </header>
-        <h1 v-else :id="titleId" class="sr-only">
+        <h1
+            v-else
+            :id="titleId"
+            class="sr-only"
+        >
             {{ title }}
         </h1>
 
@@ -56,9 +78,9 @@ const {
     bodyScroll?: boolean;
 }>();
 
-const emit = defineEmits<{ 'close': [] }>();
+const emit = defineEmits<{close: []}>();
 
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 const titleId = useId();
 
 function close() {

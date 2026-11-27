@@ -1,23 +1,10 @@
-import type { App } from 'electron';
+import type {App} from 'electron';
 import {createRequire} from 'node:module';
 import {execFile} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
-import {
-    chmodSync,
-    closeSync,
-    lstatSync,
-    mkdirSync,
-    openSync,
-    renameSync,
-    unlinkSync,
-    writeSync,
-} from 'fs';
-import {
-    dirname,
-    join,
-    win32,
-} from 'path';
-import { tmpdir } from 'os';
+import {chmodSync, closeSync, lstatSync, mkdirSync, openSync, renameSync, unlinkSync, writeSync} from 'fs';
+import {dirname, join, win32} from 'path';
+import {tmpdir} from 'os';
 import {
     APP_TEMP_DIR_NAME,
     createAppTempNamespace as createAppTempNamespaceForProfile,
@@ -41,11 +28,7 @@ let initializedAppTempNamespaceStartedAt = 0;
 let ownerMarkerWritten = false;
 
 export function createAppTempNamespace(userDataPath: string) {
-    return createAppTempNamespaceForProfile(
-        userDataPath,
-        getAppTempUserId(),
-        process.platform === 'win32',
-    );
+    return createAppTempNamespaceForProfile(userDataPath, getAppTempUserId(), process.platform === 'win32');
 }
 
 export function initializeAppTempNamespace(userDataPath: string) {
@@ -95,12 +78,7 @@ export function getLegacyAppTempDirPath() {
 }
 
 export function getAppTempDirPathForUserData(userDataPath: string, baseDir = getAppStateDir()) {
-    return getAppTempNamespacePath(
-        userDataPath,
-        baseDir,
-        getAppTempUserId(),
-        process.platform === 'win32',
-    );
+    return getAppTempNamespacePath(userDataPath, baseDir, getAppTempUserId(), process.platform === 'win32');
 }
 
 /** This profile's namespace in the persistent per-user folder getAppStateDir() names. */
@@ -126,10 +104,7 @@ export const PINNED_REVISIONS_DIR_NAME = 'pinned-revisions';
 
 /** Where this profile's working copies can be: its namespace and the retired one. Every check of that reads this. */
 export function getManagedAppTempRoots() {
-    return [
-        getAppTempDirPath(),
-        getRetiredAppTempDirPath(),
-    ];
+    return [getAppTempDirPath(), getRetiredAppTempDirPath()];
 }
 
 function writeAppTempNamespaceOwner(tempDir: string, startTime: string | null) {
@@ -181,21 +156,20 @@ export function getAppTempDir() {
             throw error;
         }
     }
-    const created = mkdirSync(tempDir, { recursive: true });
+    const created = mkdirSync(tempDir, {recursive: true});
     // A power cut must not lose the folder that holds the durable journals:
     // every folder this call made gets its entry on disk.
     for (let directory = tempDir; created !== undefined; directory = dirname(directory)) {
         fsyncDirectorySync(dirname(directory));
-        if (directory === created || dirname(directory) === directory) {break;}
+        if (directory === created || dirname(directory) === directory) {
+            break;
+        }
     }
     if (created !== undefined && created !== tempDir && process.platform === 'darwin') {
         // Working copies need no Time Machine copy. The sticky exclusion is an
         // attribute on the folder, set once where the folder is made; a failure
         // costs only backup space.
-        execFile('/usr/bin/tmutil', [
-            'addexclusion',
-            getAppStateDir(),
-        ], () => undefined);
+        execFile('/usr/bin/tmutil', ['addexclusion', getAppStateDir()], () => undefined);
     }
     if (lstatSync(tempDir).isSymbolicLink()) {
         throw new Error(`App temp directory must not be a symbolic link: ${tempDir}`);
@@ -204,7 +178,9 @@ export function getAppTempDir() {
     // Until this process's start time is read, the namespace has no owner, and
     // other profiles' starts leave it alone.
     if (initializedAppTempNamespace) {
-        void getOwnStartTime().then(startTime => writeAppTempNamespaceOwner(tempDir, startTime)).catch(() => undefined);
+        void getOwnStartTime()
+            .then((startTime) => writeAppTempNamespaceOwner(tempDir, startTime))
+            .catch(() => undefined);
     }
     return tempDir;
 }

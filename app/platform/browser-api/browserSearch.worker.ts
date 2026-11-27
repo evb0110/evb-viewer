@@ -21,10 +21,7 @@ import {
     SEARCH_INDEX_RESPONSE_SCHEMA,
     SEARCH_INDEX_TEXT_BUDGET,
 } from '@contracts/searchIndexWire';
-import {
-    SearchRegexLimitError,
-    validateSearchQuery,
-} from '@pdf-core/pdfSearchCore';
+import {SearchRegexLimitError, validateSearchQuery} from '@pdf-core/pdfSearchCore';
 import * as v from 'valibot';
 
 const textEncoder = new TextEncoder();
@@ -46,26 +43,23 @@ async function runWasm(request: Uint8Array) {
     return outcome.output;
 }
 
-async function handleIndexRequest(
-    request: IBrowserSearchWorkerRequest<'index'>,
-): Promise<{
+async function handleIndexRequest(request: IBrowserSearchWorkerRequest<'index'>): Promise<{
     data: IBrowserSearchWorkerResultMap['index'];
     transfer: Transferable[];
 }> {
-    const {
-        documentRevision,
-        pageCount,
-        pagesBuffer,
-        maxPageTextBytes,
-        maxTotalTextBytes,
-    } = request.payload;
-    const output = await runWasm(encodePdfSearchWasmRequest({
-        op: 'index',
-        documentRevision,
-        pageCount,
-        maxPageTextBytes: maxPageTextBytes ?? SEARCH_INDEX_TEXT_BUDGET.maxPageTextBytes,
-        maxTotalTextBytes: maxTotalTextBytes ?? SEARCH_INDEX_TEXT_BUDGET.maxTotalTextBytes,
-    }, pagesBuffer));
+    const {documentRevision, pageCount, pagesBuffer, maxPageTextBytes, maxTotalTextBytes} = request.payload;
+    const output = await runWasm(
+        encodePdfSearchWasmRequest(
+            {
+                op: 'index',
+                documentRevision,
+                pageCount,
+                maxPageTextBytes: maxPageTextBytes ?? SEARCH_INDEX_TEXT_BUDGET.maxPageTextBytes,
+                maxTotalTextBytes: maxTotalTextBytes ?? SEARCH_INDEX_TEXT_BUDGET.maxTotalTextBytes,
+            },
+            pagesBuffer,
+        ),
+    );
     const decoded = decodePdfSearchIndexWasmOutput(output);
     return {
         data: decoded,
@@ -73,18 +67,8 @@ async function handleIndexRequest(
     };
 }
 
-async function handleSearchRequest(
-    request: IBrowserSearchWorkerRequest<'search'>,
-): Promise<IBrowserSearchWorkerResultMap['search']> {
-    const {
-        indexBytes,
-        documentRevision,
-        query,
-        options,
-        limit,
-        contextChars,
-        resultOffset,
-    } = request.payload;
+async function handleSearchRequest(request: IBrowserSearchWorkerRequest<'search'>): Promise<IBrowserSearchWorkerResultMap['search']> {
+    const {indexBytes, documentRevision, query, options, limit, contextChars, resultOffset} = request.payload;
     validateSearchQuery(query, options);
     // Warm the WASM instance before signaling start so cold download/compile never spends the timeout.
     await pdfSearchWasm.load();
@@ -92,17 +76,22 @@ async function handleSearchRequest(
         id: request.id,
         started: true,
     } satisfies TBrowserSearchWorkerResponse);
-    const output = await runWasm(encodePdfSearchWasmRequest({
-        op: 'search',
-        documentRevision,
-        query,
-        limit,
-        contextChars,
-        ...(resultOffset === undefined ? {} : {resultOffset}),
-        matchCase: options.matchCase,
-        wholeWord: options.wholeWord,
-        useRegex: options.useRegex,
-    }, indexBytes));
+    const output = await runWasm(
+        encodePdfSearchWasmRequest(
+            {
+                op: 'search',
+                documentRevision,
+                query,
+                limit,
+                contextChars,
+                ...(resultOffset === undefined ? {} : {resultOffset}),
+                matchCase: options.matchCase,
+                wholeWord: options.wholeWord,
+                useRegex: options.useRegex,
+            },
+            indexBytes,
+        ),
+    );
     const decoded = decodePdfSearchJsonOutput(output);
     if (isStaleSearchIndexAnswer(decoded)) {
         return {stale: true};
@@ -117,13 +106,7 @@ async function handleSearchRequest(
 async function handleMatchPageTextRequest(
     request: IBrowserSearchWorkerRequest<'matchPageText'>,
 ): Promise<IBrowserSearchWorkerResultMap['matchPageText']> {
-    const {
-        text,
-        query,
-        options,
-        maxMatches,
-        resultOffset,
-    } = request.payload;
+    const {text, query, options, maxMatches, resultOffset} = request.payload;
     validateSearchQuery(query, options);
     if (text.length === 0) {
         return {
@@ -139,20 +122,21 @@ async function handleMatchPageTextRequest(
         id: request.id,
         started: true,
     } satisfies TBrowserSearchWorkerResponse);
-    const output = await runWasm(encodePdfSearchWasmRequest({
-        op: 'matchPage',
-        query,
-        matchCase: options.matchCase,
-        wholeWord: options.wholeWord,
-        useRegex: options.useRegex,
-        maxMatches,
-        ...(resultOffset === undefined ? {} : {resultOffset}),
-    }, textEncoder.encode(text)));
-    const parsed = v.safeParse(
-        PDF_SEARCH_MATCH_PAGE_RESPONSE_SCHEMA,
-        decodePdfSearchJsonOutput(output),
-        {abortEarly: true},
+    const output = await runWasm(
+        encodePdfSearchWasmRequest(
+            {
+                op: 'matchPage',
+                query,
+                matchCase: options.matchCase,
+                wholeWord: options.wholeWord,
+                useRegex: options.useRegex,
+                maxMatches,
+                ...(resultOffset === undefined ? {} : {resultOffset}),
+            },
+            textEncoder.encode(text),
+        ),
     );
+    const parsed = v.safeParse(PDF_SEARCH_MATCH_PAGE_RESPONSE_SCHEMA, decodePdfSearchJsonOutput(output), {abortEarly: true});
     if (!parsed.success) {
         throw new Error('evb-pdf-search returned an invalid page match response');
     }
@@ -166,7 +150,9 @@ async function handleMatchPageTextRequest(
 // comes from the renderer's own PDF.js or DjVu.js document, so terminating this
 // worker on cancel never touches a document.
 self.addEventListener('message', async (event: MessageEvent<unknown>) => {
-    if (handlePrecompiledWasmModuleMessage(event.data)) {return;}
+    if (handlePrecompiledWasmModuleMessage(event.data)) {
+        return;
+    }
     const request = parseBrowserSearchWorkerRequest(event.data);
     if (request === null) {
         const id = getBrowserSearchWorkerRequestId(event.data);
@@ -197,12 +183,15 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
                 data = await handleMatchPageTextRequest(request);
                 break;
         }
-        self.postMessage({
-            id: request.id,
-            type: request.type,
-            ok: true,
-            data,
-        } as TBrowserSearchWorkerResponse, transfer);
+        self.postMessage(
+            {
+                id: request.id,
+                type: request.type,
+                ok: true,
+                data,
+            } as TBrowserSearchWorkerResponse,
+            transfer,
+        );
     } catch (error) {
         self.postMessage({
             id: request.id,

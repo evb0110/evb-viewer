@@ -2,7 +2,7 @@
     <UModal
         :open="open"
         :title="t('errors.save.unencryptedTitle')"
-        :ui="{ content: 'unencrypted-save-dialog', footer: 'justify-end gap-2' }"
+        :ui="{content: 'unencrypted-save-dialog', footer: 'justify-end gap-2'}"
         @update:open="handleOpenUpdate"
     >
         <template #description>
@@ -56,7 +56,7 @@ const emit = defineEmits<{
     cancel: [];
 }>();
 
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 
 function handleOpenUpdate(open: boolean) {
     emit('update:open', open);

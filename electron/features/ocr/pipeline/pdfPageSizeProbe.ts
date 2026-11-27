@@ -1,12 +1,9 @@
 import {createAbortError} from '@contracts/isAbortError';
 import {getUnprovenNativeTerminationDetail} from '@contracts/nativeErrors';
-import { getErrorMessage } from '@electron/utils/error';
+import {getErrorMessage} from '@electron/utils/error';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import type {TWorkerLog} from '@electron/features/ocr/pipeline/types';
-import {
-    createPdfPageSizeStore,
-    type IPdfPageSizeStore,
-} from '@evb/scan-cleanup/core/pdfPageSizes';
+import {createPdfPageSizeStore, type IPdfPageSizeStore} from '@evb/scan-cleanup/core/pdfPageSizes';
 import type {TScanCleanupRunCommand} from '@evb/scan-cleanup/core/types';
 
 export interface IOcrPageSizeInches {
@@ -16,15 +13,15 @@ export interface IOcrPageSizeInches {
 
 export type TOcrPageSizeProbeResult =
     | {
-        status: 'available';
-        pageSizes: Map<number, IOcrPageSizeInches>;
-    }
+          status: 'available';
+          pageSizes: Map<number, IOcrPageSizeInches>;
+      }
     | {
-        status: 'degraded';
-        reason: 'native-tool-unavailable' | 'native-tool-failed';
-        message: string;
-        pageSizes: Map<number, IOcrPageSizeInches>;
-    };
+          status: 'degraded';
+          reason: 'native-tool-unavailable' | 'native-tool-failed';
+          message: string;
+          pageSizes: Map<number, IOcrPageSizeInches>;
+      };
 
 export interface IOcrPageSizeSourceInput {
     pdfPageOpsBinary?: string;
@@ -86,7 +83,7 @@ async function readPageSizes(
 export function createOcrPageSizeSource(input: IOcrPageSizeSourceInput): IOcrPageSizeSource {
     let opened: {
         pdfPath: string;
-        store: IPdfPageSizeStore
+        store: IPdfPageSizeStore;
     } | null = null;
     // Closing never rejects: the sidecar lives in the job's temp directory,
     // which the job cleans anyway, and a failed close must neither leave a
@@ -136,7 +133,9 @@ export function createOcrPageSizeSource(input: IOcrPageSizeSourceInput): IOcrPag
                     pageSizes: await readPageSizes(await openStore(pdfPath, pdfPageOpsBinary), pageNumbers, input.signal),
                 };
             } catch (error) {
-                if (getUnprovenNativeTerminationDetail(error) !== undefined) {throw error;}
+                if (getUnprovenNativeTerminationDetail(error) !== undefined) {
+                    throw error;
+                }
                 abortIfRequested(input.signal);
                 const message = `Native PDF page-size inspection failed; OCR resource budgeting is using conservative defaults: ${getErrorMessage(error)}`;
                 input.log?.('warn', message);

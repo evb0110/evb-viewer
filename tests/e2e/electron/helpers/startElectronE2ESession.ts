@@ -1,28 +1,18 @@
-import {
-    existsSync,
-    mkdirSync,
-    mkdtempSync,
-    renameSync,
-    rmSync,
-    writeFileSync,
-} from 'node:fs';
-import { join } from 'node:path';
+import {existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync} from 'node:fs';
+import {join} from 'node:path';
 import puppeteer from 'puppeteer-core';
-import type {
-    Browser,
-    Page,
-} from 'puppeteer-core';
-import { delay } from 'es-toolkit/promise';
-import { sendCommand } from '@scripts/electron-run/sendCommand';
-import { projectRoot } from '@scripts/electron-run/projectRoot';
+import type {Browser, Page} from 'puppeteer-core';
+import {delay} from 'es-toolkit/promise';
+import {sendCommand} from '@scripts/electron-run/sendCommand';
+import {projectRoot} from '@scripts/electron-run/projectRoot';
 import {
     buildElectronE2EAutomationEnv,
     buildVisibleWindowElectronE2EAutomationEnv,
     resolveAutomationDeviceScaleFactor,
 } from '@scripts/electron-run/electronRunLaunchConfig';
-import { assertE2ESessionName } from '@scripts/electron-run/electronRunE2ESessionPrune';
-import { isProcessAlive } from '@scripts/electron-run/electronRunProcessTree';
-import { formatElectronStartupDiagnostics } from '@scripts/electron-run/electronRunStartupDiagnostics';
+import {assertE2ESessionName} from '@scripts/electron-run/electronRunE2ESessionPrune';
+import {isProcessAlive} from '@scripts/electron-run/electronRunProcessTree';
+import {formatElectronStartupDiagnostics} from '@scripts/electron-run/electronRunStartupDiagnostics';
 import {
     getSessionInfo,
     getSessionStartingInfo,
@@ -35,26 +25,14 @@ import {
     sessionDir,
     setCurrentSessionName,
 } from '@scripts/electron-run/electronRunSessionPaths';
-import {
-    buildE2ERunEnv,
-    createE2ERunScopedSessionName,
-} from '@scripts/electron-run/electronRunRunId';
-import type { TElectronRunCommand } from '@scripts/electron-run/electronRunProtocol';
-import {
-    DEFAULT_SETTINGS,
-    pickSettingsSavePatch,
-} from '@contracts/settings';
-import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
-import {
-    E2E_SESSION_START_TIMEOUT_MS,
-    startSessionDetached,
-} from '@scripts/electron-run/startSessionDetached';
-import { stopSingleSession } from '@scripts/electron-run/stopSession';
-import { cleanupSessionFixtures } from '@tests/e2e/electron/helpers/fixtures';
-import {
-    installPageEvaluationShims,
-    waitForFunctionInPage,
-} from '@tests/e2e/electron/helpers/pageRuntime';
+import {buildE2ERunEnv, createE2ERunScopedSessionName} from '@scripts/electron-run/electronRunRunId';
+import type {TElectronRunCommand} from '@scripts/electron-run/electronRunProtocol';
+import {DEFAULT_SETTINGS, pickSettingsSavePatch} from '@contracts/settings';
+import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
+import {E2E_SESSION_START_TIMEOUT_MS, startSessionDetached} from '@scripts/electron-run/startSessionDetached';
+import {stopSingleSession} from '@scripts/electron-run/stopSession';
+import {cleanupSessionFixtures} from '@tests/e2e/electron/helpers/fixtures';
+import {installPageEvaluationShims, waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 import {
     createElectronE2EHealthReadinessFailure,
     ElectronE2EInfrastructureError,
@@ -63,10 +41,7 @@ import {
     runElectronE2ETeardown,
     runWithElectronE2EDeadline,
 } from '@tests/e2e/electron/helpers/electronE2ESessionFailure';
-import {
-    establishUserEnvironment,
-    formatUserEnvironment,
-} from '@tests/e2e/electron/helpers/userEnvironment';
+import {establishUserEnvironment, formatUserEnvironment} from '@tests/e2e/electron/helpers/userEnvironment';
 
 const SESSION_READY_TIMEOUT_MS = E2E_SESSION_START_TIMEOUT_MS;
 const RENDERER_READY_TIMEOUT_MS = 30_000;
@@ -101,12 +76,14 @@ export function shouldPreserveE2EArtifacts(env: NodeJS.ProcessEnv = process.env)
 }
 
 function sanitizeArtifactLabel(label: string) {
-    return label
-        .trim()
-        .replace(/[^a-zA-Z0-9._-]+/g, '-')
-        .replace(/-+/g, '-')
-        .replace(/^-|-$/g, '')
-        .slice(0, 80) || 'electron-e2e-failure';
+    return (
+        label
+            .trim()
+            .replace(/[^a-zA-Z0-9._-]+/g, '-')
+            .replace(/-+/g, '-')
+            .replace(/^-|-$/g, '')
+            .slice(0, 80) || 'electron-e2e-failure'
+    );
 }
 
 // Windows scanners (Defender, indexer) briefly hold files after Electron exits;
@@ -116,9 +93,9 @@ const sessionRemoveOptions = {
     force: true,
     ...(process.platform === 'win32'
         ? {
-            maxRetries: 5,
-            retryDelay: 100,
-        }
+              maxRetries: 5,
+              retryDelay: 100,
+          }
         : {}),
 };
 
@@ -128,27 +105,16 @@ function cleanupSessionArtifacts(sessionName: string) {
     rmSync(sessionDir(sessionName), sessionRemoveOptions);
 }
 
-export function prunePreservedSessionArtifacts(
-    sessionName: string,
-    options: {archiveForRestart?: boolean} = {},
-) {
+export function prunePreservedSessionArtifacts(sessionName: string, options: {archiveForRestart?: boolean} = {}) {
     assertE2ESessionName(sessionName);
     cleanupSessionFixtures(sessionName);
-    for (const directoryName of [
-        'automation-electron-app',
-        'automation-electron-app-entry',
-        'electron-user-data',
-    ]) {
+    for (const directoryName of ['automation-electron-app', 'automation-electron-app-entry', 'electron-user-data']) {
         rmSync(join(sessionDir(sessionName), directoryName), sessionRemoveOptions);
     }
     if (options.archiveForRestart) {
-        const evidenceNames = [
-            'recordings',
-            'screenshots',
-            'electron-logs',
-            'session.log',
-            'logs.json',
-        ].filter(name => existsSync(join(sessionDir(sessionName), name)));
+        const evidenceNames = ['recordings', 'screenshots', 'electron-logs', 'session.log', 'logs.json'].filter((name) =>
+            existsSync(join(sessionDir(sessionName), name)),
+        );
         if (evidenceNames.length > 0) {
             const outputDir = join(FAILURE_ARTIFACTS_BASE_DIR, sessionName);
             mkdirSync(outputDir, {recursive: true});
@@ -169,18 +135,18 @@ function createSessionDiagnostics(sessionName: string) {
         sessionName,
         info: info
             ? {
-                ...info,
-                pidAlive: isProcessAlive(info.pid),
-                electronPidAlive: info.electronPid ? isProcessAlive(info.electronPid) : null,
-                nuxtPidAlive: info.nuxtPid ? isProcessAlive(info.nuxtPid) : null,
-            }
+                  ...info,
+                  pidAlive: isProcessAlive(info.pid),
+                  electronPidAlive: info.electronPid ? isProcessAlive(info.electronPid) : null,
+                  nuxtPidAlive: info.nuxtPid ? isProcessAlive(info.nuxtPid) : null,
+              }
             : null,
         starting: starting
             ? {
-                ...starting,
-                pidAlive: isProcessAlive(starting.pid),
-                ageMs: Date.now() - starting.startedAt,
-            }
+                  ...starting,
+                  pidAlive: isProcessAlive(starting.pid),
+                  ageMs: Date.now() - starting.startedAt,
+              }
             : null,
     };
     const logTail = readSessionLogTail(120);
@@ -191,14 +157,10 @@ function createSessionDiagnostics(sessionName: string) {
     ].join('\n');
 }
 
-async function captureFailureArtifacts(
-    sessionName: string,
-    page: Page,
-    label: string,
-): Promise<IElectronE2EFailureArtifacts> {
+async function captureFailureArtifacts(sessionName: string, page: Page, label: string): Promise<IElectronE2EFailureArtifacts> {
     setCurrentSessionName(sessionName);
     const outputDir = join(FAILURE_ARTIFACTS_BASE_DIR, sessionName);
-    mkdirSync(outputDir, { recursive: true });
+    mkdirSync(outputDir, {recursive: true});
     const basename = `${sanitizeArtifactLabel(label)}-${Date.now()}`;
     const screenshotPath = join(outputDir, `${basename}.png`);
     const diagnosticsPath = join(outputDir, `${basename}.txt`);
@@ -210,15 +172,18 @@ async function captureFailureArtifacts(
             type: 'png',
         });
     } catch (error) {
-        screenshotError = error instanceof Error ? error.stack ?? error.message : String(error);
+        screenshotError = error instanceof Error ? (error.stack ?? error.message) : String(error);
     }
 
-    writeFileSync(diagnosticsPath, [
-        `Electron E2E failure: ${label}`,
-        `Captured: ${new Date().toISOString()}`,
-        screenshotError ? `Screenshot failed: ${screenshotError}` : `Screenshot: ${screenshotPath}`,
-        createSessionDiagnostics(sessionName),
-    ].join('\n\n'));
+    writeFileSync(
+        diagnosticsPath,
+        [
+            `Electron E2E failure: ${label}`,
+            `Captured: ${new Date().toISOString()}`,
+            screenshotError ? `Screenshot failed: ${screenshotError}` : `Screenshot: ${screenshotPath}`,
+            createSessionDiagnostics(sessionName),
+        ].join('\n\n'),
+    );
 
     return {
         diagnosticsPath,
@@ -232,24 +197,26 @@ async function withSessionTimeout<T>(
     label: string,
     timeoutMs: number,
     task: (signal: AbortSignal) => Promise<T>,
-    options: { cleanupOnTimeout?: boolean } = {},
+    options: {cleanupOnTimeout?: boolean} = {},
 ): Promise<T> {
     return runWithElectronE2EDeadline(label, timeoutMs, task, {
         diagnostics: () => createSessionDiagnostics(sessionName),
-        ...(options.cleanupOnTimeout
-            ? {onTimeout: () => stopSingleSession(sessionName)}
-            : {}),
+        ...(options.cleanupOnTimeout ? {onTimeout: () => stopSingleSession(sessionName)} : {}),
     });
 }
 
 export async function waitForRendererReady(page: Page, timeoutMs = RENDERER_READY_TIMEOUT_MS) {
-    await waitForFunctionInPage(page, () => {
-        const nuxtRoot = document.querySelector('#__nuxt');
-        const hasNuxt = Boolean(nuxtRoot && nuxtRoot.children.length > 0);
-        const hasOpenFile = typeof (window as IE2EWindow & { __openFileDirect?: unknown }).__openFileDirect === 'function';
-        const hasElectronApi = typeof (window as IE2EWindow & { electronAPI?: unknown }).electronAPI === 'object';
-        return hasNuxt && hasOpenFile && hasElectronApi;
-    }, { timeout: timeoutMs });
+    await waitForFunctionInPage(
+        page,
+        () => {
+            const nuxtRoot = document.querySelector('#__nuxt');
+            const hasNuxt = Boolean(nuxtRoot && nuxtRoot.children.length > 0);
+            const hasOpenFile = typeof (window as IE2EWindow & {__openFileDirect?: unknown}).__openFileDirect === 'function';
+            const hasElectronApi = typeof (window as IE2EWindow & {electronAPI?: unknown}).electronAPI === 'object';
+            return hasNuxt && hasOpenFile && hasElectronApi;
+        },
+        {timeout: timeoutMs},
+    );
 }
 
 async function waitForHealthReady(sessionName: string, timeoutMs: number, signal: AbortSignal) {
@@ -261,10 +228,10 @@ async function waitForHealthReady(sessionName: string, timeoutMs: number, signal
     while (!signal.aborted && Date.now() - start < timeoutMs) {
         try {
             setCurrentSessionName(sessionName);
-            const health = await sendCommand('health', [], undefined, {
+            const health = (await sendCommand('health', [], undefined, {
                 signal,
                 retryOnTransportFailure: true,
-            }) as {ready?: boolean;};
+            })) as {ready?: boolean};
             successfulResponseCount += 1;
             if (health?.ready) {
                 return;
@@ -286,12 +253,7 @@ async function waitForHealthReady(sessionName: string, timeoutMs: number, signal
     if (signal.aborted) {
         throw signal.reason;
     }
-    throw createElectronE2EHealthReadinessFailure(
-        sessionName,
-        successfulResponseCount,
-        lastTransportError,
-        lastApplicationError,
-    );
+    throw createElectronE2EHealthReadinessFailure(sessionName, successfulResponseCount, lastTransportError, lastApplicationError);
 }
 
 async function waitForPageTarget(cdpPort: number, signal: AbortSignal, timeoutMs = 15_000) {
@@ -300,11 +262,11 @@ async function waitForPageTarget(cdpPort: number, signal: AbortSignal, timeoutMs
         try {
             const res = await fetch(`http://127.0.0.1:${cdpPort}/json/list`);
             if (res.ok) {
-                const targets = await res.json() as Array<{
+                const targets = (await res.json()) as Array<{
                     type: string;
                     webSocketDebuggerUrl?: string;
                 }>;
-                if (targets.some(t => t.type === 'page' && t.webSocketDebuggerUrl)) {
+                if (targets.some((t) => t.type === 'page' && t.webSocketDebuggerUrl)) {
                     return;
                 }
             }
@@ -324,7 +286,7 @@ async function getBrowserWsEndpoint(cdpPort: number) {
     if (!res.ok) {
         throw new Error(`Failed to fetch /json/version: HTTP ${res.status}`);
     }
-    const data = await res.json() as { webSocketDebuggerUrl?: string };
+    const data = (await res.json()) as {webSocketDebuggerUrl?: string};
     if (!data.webSocketDebuggerUrl) {
         throw new Error('/json/version missing webSocketDebuggerUrl');
     }
@@ -341,45 +303,33 @@ async function connectToSessionPage(sessionName: string, signal: AbortSignal) {
         );
     }
 
-    return runElectronE2EInfrastructureStage(
-        'cdp-connection',
-        `Connecting to Electron session '${sessionName}' over CDP`,
-        async () => {
-            await waitForPageTarget(info.cdpPort, signal);
-            const browserWsUrl = await getBrowserWsEndpoint(info.cdpPort);
-            const browser = await puppeteer.connect({
-                browserWSEndpoint: browserWsUrl,
-                defaultViewport: null,
-                protocolTimeout: 420_000,
-            });
-            if (signal.aborted) {
-                await browser.disconnect();
-                throw signal.reason;
-            }
+    return runElectronE2EInfrastructureStage('cdp-connection', `Connecting to Electron session '${sessionName}' over CDP`, async () => {
+        await waitForPageTarget(info.cdpPort, signal);
+        const browserWsUrl = await getBrowserWsEndpoint(info.cdpPort);
+        const browser = await puppeteer.connect({
+            browserWSEndpoint: browserWsUrl,
+            defaultViewport: null,
+            protocolTimeout: 420_000,
+        });
+        if (signal.aborted) {
+            await browser.disconnect();
+            throw signal.reason;
+        }
 
-            const page = (await browser.pages()).find(candidate => candidate.url().startsWith('evb-viewer://app/'));
-            if (!page) {
-                throw new Error('No Electron app page found via CDP');
-            }
+        const page = (await browser.pages()).find((candidate) => candidate.url().startsWith('evb-viewer://app/'));
+        if (!page) {
+            throw new Error('No Electron app page found via CDP');
+        }
 
-            return {
-                browser,
-                page,
-            };
-        },
-    );
+        return {
+            browser,
+            page,
+        };
+    });
 }
 
-export async function startElectronE2ESession(
-    sessionName: string,
-    options?: IElectronE2ESessionStartOptions,
-) {
-    return startElectronE2ESessionWithAutomationEnv(
-        sessionName,
-        options,
-        buildElectronE2EAutomationEnv,
-        {userEnvironment: true},
-    );
+export async function startElectronE2ESession(sessionName: string, options?: IElectronE2ESessionStartOptions) {
+    return startElectronE2ESessionWithAutomationEnv(sessionName, options, buildElectronE2EAutomationEnv, {userEnvironment: true});
 }
 
 interface IElectronE2ESessionStartOptions {
@@ -401,14 +351,9 @@ async function startElectronE2ESessionWithAutomationEnv(
     const scopedSessionName = assertE2ESessionName(createE2ERunScopedSessionName(sessionName, process.env));
     const clean = options?.clean ?? true;
 
-    await runElectronE2EInfrastructureStage(
-        'session-runner',
-        `Stopping stale Electron E2E session '${scopedSessionName}'`,
-        async () => withSessionTimeout(
-            scopedSessionName,
-            `Stopping stale Electron E2E session '${scopedSessionName}'`,
-            SESSION_STOP_TIMEOUT_MS,
-            () => stopSingleSession(scopedSessionName, {preserveWorkspaceCheckpoint: !clean}),
+    await runElectronE2EInfrastructureStage('session-runner', `Stopping stale Electron E2E session '${scopedSessionName}'`, async () =>
+        withSessionTimeout(scopedSessionName, `Stopping stale Electron E2E session '${scopedSessionName}'`, SESSION_STOP_TIMEOUT_MS, () =>
+            stopSingleSession(scopedSessionName, {preserveWorkspaceCheckpoint: !clean}),
         ),
     );
     if (clean) {
@@ -430,22 +375,23 @@ async function startElectronE2ESessionWithAutomationEnv(
             ...buildE2ERunEnv(process.env),
         },
         owner: 'e2e' as const,
-        ...(options?.initialOpenPaths ? { initialOpenPaths: options.initialOpenPaths } : {}),
+        ...(options?.initialOpenPaths ? {initialOpenPaths: options.initialOpenPaths} : {}),
     };
     const deviceScaleFactor = resolveAutomationDeviceScaleFactor(startOptions.env) ?? 1;
-    let connection: {
-        browser: Browser;
-        page: Page
-    } | undefined;
+    let connection:
+        | {
+              browser: Browser;
+              page: Page;
+          }
+        | undefined;
     try {
-        await runElectronE2EProcessLaunchStage(
-            `Starting Electron E2E session '${scopedSessionName}'`,
-            async () => withSessionTimeout(
+        await runElectronE2EProcessLaunchStage(`Starting Electron E2E session '${scopedSessionName}'`, async () =>
+            withSessionTimeout(
                 scopedSessionName,
                 `Starting Electron E2E session '${scopedSessionName}'`,
                 SESSION_READY_TIMEOUT_MS,
                 () => startSessionDetached(startOptions),
-                { cleanupOnTimeout: true },
+                {cleanupOnTimeout: true},
             ),
         );
 
@@ -457,11 +403,13 @@ async function startElectronE2ESessionWithAutomationEnv(
                     scopedSessionName,
                     `Waiting for Electron E2E session '${scopedSessionName}' metadata`,
                     SESSION_READY_TIMEOUT_MS,
-                    signal => waitForSessionReady(SESSION_READY_TIMEOUT_MS, signal),
-                    { cleanupOnTimeout: true },
+                    (signal) => waitForSessionReady(SESSION_READY_TIMEOUT_MS, signal),
+                    {cleanupOnTimeout: true},
                 );
                 if (!ready) {
-                    throw new Error(`Session '${scopedSessionName}' was not ready within ${Math.round(SESSION_READY_TIMEOUT_MS / 1000)}s.\n${createSessionDiagnostics(scopedSessionName)}`);
+                    throw new Error(
+                        `Session '${scopedSessionName}' was not ready within ${Math.round(SESSION_READY_TIMEOUT_MS / 1000)}s.\n${createSessionDiagnostics(scopedSessionName)}`,
+                    );
                 }
             },
         );
@@ -470,19 +418,20 @@ async function startElectronE2ESessionWithAutomationEnv(
             scopedSessionName,
             `Waiting for Electron E2E session '${scopedSessionName}' health`,
             SESSION_READY_TIMEOUT_MS + 5_000,
-            signal => waitForHealthReady(scopedSessionName, SESSION_READY_TIMEOUT_MS, signal),
-            { cleanupOnTimeout: true },
+            (signal) => waitForHealthReady(scopedSessionName, SESSION_READY_TIMEOUT_MS, signal),
+            {cleanupOnTimeout: true},
         );
         connection = await runElectronE2EInfrastructureStage(
             'cdp-connection',
             `Connecting to Electron E2E session '${scopedSessionName}' renderer`,
-            async () => withSessionTimeout(
-                scopedSessionName,
-                `Connecting to Electron E2E session '${scopedSessionName}' renderer`,
-                RENDERER_READY_TIMEOUT_MS + 20_000,
-                signal => connectToSessionPage(scopedSessionName, signal),
-                { cleanupOnTimeout: true },
-            ),
+            async () =>
+                withSessionTimeout(
+                    scopedSessionName,
+                    `Connecting to Electron E2E session '${scopedSessionName}' renderer`,
+                    RENDERER_READY_TIMEOUT_MS + 20_000,
+                    (signal) => connectToSessionPage(scopedSessionName, signal),
+                    {cleanupOnTimeout: true},
+                ),
         );
         await installPageEvaluationShims(connection.page);
         await waitForRendererReady(connection.page);
@@ -495,7 +444,9 @@ async function startElectronE2ESessionWithAutomationEnv(
             await runElectronE2ETeardown(error, [
                 {
                     label: 'startup browser disconnect',
-                    run: async () => { await connection?.browser.disconnect(); },
+                    run: async () => {
+                        await connection?.browser.disconnect();
+                    },
                 },
                 {
                     label: 'startup session stop',
@@ -507,29 +458,18 @@ async function startElectronE2ESessionWithAutomationEnv(
         }
         throw error;
     }
-    const {
-        browser, page,
-    } = connection;
+    const {browser, page} = connection;
 
-    const command = async <T = unknown>(
-        nextCommand: TElectronRunCommand,
-        args: unknown[] = [],
-        timeoutMs?: number,
-    ) => {
+    const command = async <T = unknown>(nextCommand: TElectronRunCommand, args: unknown[] = [], timeoutMs?: number) => {
         setCurrentSessionName(scopedSessionName);
-        return await sendCommand(nextCommand, args, timeoutMs) as T;
+        return (await sendCommand(nextCommand, args, timeoutMs)) as T;
     };
 
     const stop = async (stopOptions: IElectronE2ESessionStopOptions = {}) => {
         try {
-            await runElectronE2EInfrastructureStage(
-                'session-runner',
-                `Stopping Electron E2E session '${scopedSessionName}'`,
-                async () => withSessionTimeout(
-                    scopedSessionName,
-                    `Stopping Electron E2E session '${scopedSessionName}'`,
-                    SESSION_STOP_TIMEOUT_MS,
-                    () => stopSingleSession(scopedSessionName, {crashElectronBeforeStop: stopOptions.crashElectronBeforeStop ?? false}),
+            await runElectronE2EInfrastructureStage('session-runner', `Stopping Electron E2E session '${scopedSessionName}'`, async () =>
+                withSessionTimeout(scopedSessionName, `Stopping Electron E2E session '${scopedSessionName}'`, SESSION_STOP_TIMEOUT_MS, () =>
+                    stopSingleSession(scopedSessionName, {crashElectronBeforeStop: stopOptions.crashElectronBeforeStop ?? false}),
                 ),
             );
             if (stopOptions.preserveArtifacts || shouldPreserveE2EArtifacts()) {
@@ -592,10 +532,10 @@ async function startElectronE2ESessionWithAutomationEnv(
                 try {
                     await restoreRendererAndResumeCheckpoint();
                 } catch (recoveryError) {
-                    throw new AggregateError([
-                        error,
-                        recoveryError,
-                    ], 'Electron E2E reset failed and checkpoint persistence could not be resumed');
+                    throw new AggregateError(
+                        [error, recoveryError],
+                        'Electron E2E reset failed and checkpoint persistence could not be resumed',
+                    );
                 }
             }
             throw error;
@@ -607,7 +547,7 @@ async function startElectronE2ESessionWithAutomationEnv(
         browser,
         page,
         command,
-        captureFailureArtifacts: label => captureFailureArtifacts(scopedSessionName, page, label),
+        captureFailureArtifacts: (label) => captureFailureArtifacts(scopedSessionName, page, label),
         resetForE2E,
         stop,
     };
@@ -618,19 +558,11 @@ async function startElectronE2ESessionWithAutomationEnv(
  * the dedicated visible-window lifecycle fixture. Raw diagnostics must name
  * this capability at their call site so they cannot look like ordinary E2E.
  */
-export async function startHostVisibleElectronE2ESession(
-    sessionName: string,
-    options?: IElectronE2ESessionStartOptions,
-) {
-    return startElectronE2ESessionWithAutomationEnv(
-        sessionName,
-        options,
-        buildVisibleWindowElectronE2EAutomationEnv,
-        {
-            userEnvironment: false,
-            seedProfile: suppressDefaultViewerPrompt,
-        },
-    );
+export async function startHostVisibleElectronE2ESession(sessionName: string, options?: IElectronE2ESessionStartOptions) {
+    return startElectronE2ESessionWithAutomationEnv(sessionName, options, buildVisibleWindowElectronE2EAutomationEnv, {
+        userEnvironment: false,
+        seedProfile: suppressDefaultViewerPrompt,
+    });
 }
 
 /**
@@ -642,10 +574,19 @@ export async function startHostVisibleElectronE2ESession(
  */
 function suppressDefaultViewerPrompt(userDataPath: string) {
     const settingsPath = join(userDataPath, 'settings.json');
-    if (existsSync(settingsPath)) {return;}
+    if (existsSync(settingsPath)) {
+        return;
+    }
     mkdirSync(userDataPath, {recursive: true});
-    writeFileSync(settingsPath, JSON.stringify({
-        ...DEFAULT_SETTINGS,
-        suppressDefaultViewerPrompt: true,
-    }, null, 2));
+    writeFileSync(
+        settingsPath,
+        JSON.stringify(
+            {
+                ...DEFAULT_SETTINGS,
+                suppressDefaultViewerPrompt: true,
+            },
+            null,
+            2,
+        ),
+    );
 }

@@ -1,9 +1,6 @@
-import {
-    useIntervalFn,
-    useNow,
-} from '@vueuse/core';
-import type { MaybeRefOrGetter } from 'vue';
-import { formatElapsedClock } from '@app/utils/progressFormatting';
+import {useIntervalFn, useNow} from '@vueuse/core';
+import type {MaybeRefOrGetter} from 'vue';
+import {formatElapsedClock} from '@app/utils/progressFormatting';
 
 /**
  * The elapsed time of the current stage while that stage has no count of its
@@ -16,15 +13,22 @@ export const useStageElapsedClock = <TStage extends string>(
 ) => {
     const {now, pause, resume} = useNow({
         controls: true,
-        scheduler: callback => useIntervalFn(callback, 1000, {immediate: false}),
+        scheduler: (callback) => useIntervalFn(callback, 1000, {immediate: false}),
     });
     const startedAtMs = ref<number | null>(null);
     // The clock ticks only while a stage without a count is showing it.
-    watch(() => toValue(stage), (next) => {
-        startedAtMs.value = next === null ? null : Date.now();
-        if (next !== null && uncountedStages.has(next)) {resume();}
-        else {pause();}
-    }, {immediate: true});
+    watch(
+        () => toValue(stage),
+        (next) => {
+            startedAtMs.value = next === null ? null : Date.now();
+            if (next !== null && uncountedStages.has(next)) {
+                resume();
+            } else {
+                pause();
+            }
+        },
+        {immediate: true},
+    );
     return computed(() => {
         const current = toValue(stage);
         if (current === null || startedAtMs.value === null || !uncountedStages.has(current)) {

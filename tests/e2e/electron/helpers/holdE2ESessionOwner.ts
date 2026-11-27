@@ -2,11 +2,11 @@
 // detached path as startElectronE2ESession, reports readiness, and then stays
 // alive until a test ends it, so the test can observe what the session does
 // when its owner dies without stopping it.
-import { buildElectronE2EAutomationEnv } from '@scripts/electron-run/electronRunLaunchConfig';
-import { assertE2ESessionName } from '@scripts/electron-run/electronRunE2ESessionPrune';
-import { buildE2ERunEnv } from '@scripts/electron-run/electronRunRunId';
-import { setCurrentSessionName } from '@scripts/electron-run/electronRunSessionPaths';
-import { startSessionDetached } from '@scripts/electron-run/startSessionDetached';
+import {buildElectronE2EAutomationEnv} from '@scripts/electron-run/electronRunLaunchConfig';
+import {assertE2ESessionName} from '@scripts/electron-run/electronRunE2ESessionPrune';
+import {buildE2ERunEnv} from '@scripts/electron-run/electronRunRunId';
+import {setCurrentSessionName} from '@scripts/electron-run/electronRunSessionPaths';
+import {startSessionDetached} from '@scripts/electron-run/startSessionDetached';
 
 setCurrentSessionName(assertE2ESessionName(process.argv[2] ?? ''));
 await startSessionDetached({

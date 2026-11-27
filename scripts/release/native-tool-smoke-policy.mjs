@@ -27,24 +27,15 @@ const PACKAGED_TOOL_SMOKE_POLICY = {
     },
     pdfinfo: {
         allowedExitCodes: new Set([0]),
-        expectedOutputTokens: [
-            'pdfinfo',
-            'poppler',
-        ],
+        expectedOutputTokens: ['pdfinfo', 'poppler'],
     },
     pdftoppm: {
         allowedExitCodes: new Set([0]),
-        expectedOutputTokens: [
-            'pdftoppm',
-            'poppler',
-        ],
+        expectedOutputTokens: ['pdftoppm', 'poppler'],
     },
     pdftotext: {
         allowedExitCodes: new Set([0]),
-        expectedOutputTokens: [
-            'pdftotext',
-            'poppler',
-        ],
+        expectedOutputTokens: ['pdftotext', 'poppler'],
     },
 };
 
@@ -62,9 +53,7 @@ export function getPackagedToolSmokePolicy(toolName) {
 export function assertPackagedToolSmoke(toolName, exitCode, output) {
     const policy = getPackagedToolSmokePolicy(toolName);
     if (!policy.allowedExitCodes.has(exitCode)) {
-        throw new Error(
-            `Packaged tool smoke test failed (${toolName}) with exit code ${exitCode}`,
-        );
+        throw new Error(`Packaged tool smoke test failed (${toolName}) with exit code ${exitCode}`);
     }
 
     const normalizedOutput = output.trim().toLowerCase();
@@ -72,9 +61,7 @@ export function assertPackagedToolSmoke(toolName, exitCode, output) {
         throw new Error(`Packaged tool smoke test produced no output for ${toolName}`);
     }
 
-    if (!policy.expectedOutputTokens.some(token => normalizedOutput.includes(token))) {
-        throw new Error(
-            `Packaged tool smoke test output for ${toolName} did not match any expected signature`,
-        );
+    if (!policy.expectedOutputTokens.some((token) => normalizedOutput.includes(token))) {
+        throw new Error(`Packaged tool smoke test output for ${toolName} did not match any expected signature`);
     }
 }

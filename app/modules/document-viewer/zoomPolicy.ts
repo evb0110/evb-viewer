@@ -1,5 +1,5 @@
-import { clamp } from 'es-toolkit/math';
-import { ZOOM } from '@app/constants/pdfLayout';
+import {clamp} from 'es-toolkit/math';
+import {ZOOM} from '@app/constants/pdfLayout';
 
 export interface IDocumentZoomLimits {
     manualMin: number;

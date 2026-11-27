@@ -1,23 +1,10 @@
-import {
-    mkdtempSync,
-    rmSync,
-    symlinkSync,
-    writeFileSync,
-} from 'fs';
-import { tmpdir } from 'os';
-import { join } from 'path';
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { normalizeExistingPath } from '@electron/utils/normalizeExistingPath';
-import {
-    isDjvuPath, isPdfPath, isSupportedOpenPath,
-} from '@electron/image/pdfConversion';
-import { isAllowedOriginalSavePath } from '@electron/file-access/isAllowedOriginalSavePath';
+import {mkdtempSync, rmSync, symlinkSync, writeFileSync} from 'fs';
+import {tmpdir} from 'os';
+import {join} from 'path';
+import {afterEach, beforeEach, describe, expect, it} from 'vitest';
+import {normalizeExistingPath} from '@electron/utils/normalizeExistingPath';
+import {isDjvuPath, isPdfPath, isSupportedOpenPath} from '@electron/image/pdfConversion';
+import {isAllowedOriginalSavePath} from '@electron/file-access/isAllowedOriginalSavePath';
 
 let tempRoot = '';
 
@@ -64,21 +51,8 @@ describe('native path identity', () => {
 
     it('classifies literal quote suffixes consistently without resolving a different filename', () => {
         expect(isPdfPath('/tmp/"quoted.PDF"')).toBe(true);
-        expect(isDjvuPath('/tmp/\'quoted.djvu\'\u00a0')).toBe(true);
-        for (const suffix of [
-            'pdf',
-            'djvu',
-            'djv',
-            'png',
-            'jpg',
-            'jpeg',
-            'jp2',
-            'tif',
-            'tiff',
-            'bmp',
-            'webp',
-            'gif',
-        ]) {
+        expect(isDjvuPath("/tmp/'quoted.djvu'\u00a0")).toBe(true);
+        for (const suffix of ['pdf', 'djvu', 'djv', 'png', 'jpg', 'jpeg', 'jp2', 'tif', 'tiff', 'bmp', 'webp', 'gif']) {
             expect(isSupportedOpenPath(`/tmp/"quoted.${suffix}"`)).toBe(true);
             expect(isSupportedOpenPath(`/tmp/file.${suffix}.exe`)).toBe(false);
         }

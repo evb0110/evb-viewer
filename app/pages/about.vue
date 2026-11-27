@@ -1,6 +1,9 @@
 <template>
     <main class="about-page">
-        <article class="about-document" aria-labelledby="about-title">
+        <article
+            class="about-document"
+            aria-labelledby="about-title"
+        >
             <header class="about-header">
                 <p class="about-eyebrow">{{ t('about.eyebrow') }}</p>
                 <h1 id="about-title">{{ t('about.title') }}</h1>
@@ -8,7 +11,10 @@
             </header>
 
             <div class="about-content">
-                <section class="about-section" aria-labelledby="about-acknowledgements-title">
+                <section
+                    class="about-section"
+                    aria-labelledby="about-acknowledgements-title"
+                >
                     <h2 id="about-acknowledgements-title">{{ t('about.acknowledgementsHeading') }}</h2>
                     <div class="about-sentry-card">
                         <img
@@ -17,7 +23,7 @@
                             alt="Sentry"
                             width="200"
                             height="44"
-                        >
+                        />
                         <div class="about-sentry-copy">
                             <p>
                                 {{ t('about.sentryAcknowledgement.message') }}
@@ -26,14 +32,17 @@
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     @click="openExternalLink($event, SENTRY_OPEN_SOURCE_URL)"
-                                >{{ t('about.sentryAcknowledgement.linkLabel') }}</a>.
+                                    >{{ t('about.sentryAcknowledgement.linkLabel') }}</a>.
                             </p>
                             <p>{{ t('about.sentryAcknowledgement.privacyNotice') }}</p>
                         </div>
                     </div>
                 </section>
 
-                <section class="about-section" aria-labelledby="about-legal-title">
+                <section
+                    class="about-section"
+                    aria-labelledby="about-legal-title"
+                >
                     <h2 id="about-legal-title">{{ t('about.legalHeading') }}</h2>
                     <ul class="about-links">
                         <li>
@@ -42,7 +51,8 @@
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 @click="openExternalLink($event, LICENSE_URL)"
-                            >{{ t('about.licenseLinkLabel') }}</a>
+                                >{{ t('about.licenseLinkLabel') }}</a
+                            >
                         </li>
                         <li>
                             <a
@@ -50,7 +60,8 @@
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 @click="openExternalLink($event, THIRD_PARTY_NOTICES_URL)"
-                            >{{ t('about.thirdPartyNoticesLinkLabel') }}</a>
+                                >{{ t('about.thirdPartyNoticesLinkLabel') }}</a
+                            >
                         </li>
                         <li>
                             <NuxtLink to="/privacy">{{ t('about.privacyPolicyLinkLabel') }}</NuxtLink>
@@ -60,8 +71,14 @@
             </div>
 
             <footer class="about-footer">
-                <NuxtLink class="about-back-link" to="/">
-                    <UIcon name="i-ph-arrow-left" aria-hidden="true" />
+                <NuxtLink
+                    class="about-back-link"
+                    to="/"
+                >
+                    <UIcon
+                        name="i-ph-arrow-left"
+                        aria-hidden="true"
+                    />
                     <span>{{ t('about.backToViewer') }}</span>
                 </NuxtLink>
             </footer>
@@ -70,10 +87,10 @@
 </template>
 
 <script setup lang="ts">
-import { captureFailureForPresentation } from '@app/utils/failureReporter';
-import { useFailureToast } from '@app/composables/useFailureToast';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { getShellCapability } from '@app/utils/getShellCapability';
+import {captureFailureForPresentation} from '@app/utils/failureReporter';
+import {useFailureToast} from '@app/composables/useFailureToast';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {getShellCapability} from '@app/utils/getShellCapability';
 
 const SENTRY_OPEN_SOURCE_URL = 'https://sentry.io/for/open-source/';
 const SENTRY_WORDMARK_PATH = '/sentry-wordmark.svg';
@@ -81,9 +98,9 @@ const LICENSE_URL = 'https://github.com/evb0110/evb-viewer/blob/main/LICENSE';
 const THIRD_PARTY_NOTICES_URL = 'https://github.com/evb0110/evb-viewer/blob/main/THIRD_PARTY_NOTICES.md';
 const appVersion = String(useRuntimeConfig().public.appVersion);
 
-const { t } = useTypedI18n();
-const { presentFailureToast } = useFailureToast();
-const { isDesktopRuntime } = useRuntimeEnvironment();
+const {t} = useTypedI18n();
+const {presentFailureToast} = useFailureToast();
+const {isDesktopRuntime} = useRuntimeEnvironment();
 
 function openExternalLink(event: MouseEvent, url: string) {
     if (!isDesktopRuntime.value) {
@@ -91,13 +108,18 @@ function openExternalLink(event: MouseEvent, url: string) {
     }
 
     event.preventDefault();
-    void getShellCapability().openExternal(url).catch((error: unknown) => {
-        BrowserLogger.warn('workspace', 'Failed to open external link', error);
-        presentFailureToast({
-            ...captureFailureForPresentation({code: 'RENDERER_WORKSPACE_OPERATION_FAILED', local: {source: 'workspace', message: 'Failed to open external link', cause: error}}),
-            title: t('errors.workspace.openExternalLinkFailed'),
+    void getShellCapability()
+        .openExternal(url)
+        .catch((error: unknown) => {
+            BrowserLogger.warn('workspace', 'Failed to open external link', error);
+            presentFailureToast({
+                ...captureFailureForPresentation({
+                    code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
+                    local: {source: 'workspace', message: 'Failed to open external link', cause: error},
+                }),
+                title: t('errors.workspace.openExternalLinkFailed'),
+            });
         });
-    });
 }
 
 useHead(() => ({title: `${t('about.title')} | ${t('app.title')}`}));

@@ -1,10 +1,4 @@
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, describe, expect, it, vi} from 'vitest';
 import {
     createPdfRenderContinuationScheduler,
     type IContinuationSchedulerEnvironment,
@@ -21,15 +15,15 @@ function createHarness(options: {inputPending?: boolean} = {}) {
     const environment: IContinuationSchedulerEnvironment = {
         isInputPending: () => inputPending,
         now: () => now,
-        queueTask: callback => tasks.push(callback),
-        queueFrameFallbackTask: callback => frameFallbacks.push(callback),
-        requestAnimationFrame: callback => {
+        queueTask: (callback) => tasks.push(callback),
+        queueFrameFallbackTask: (callback) => frameFallbacks.push(callback),
+        requestAnimationFrame: (callback) => {
             frames.push(callback);
             nextFrameHandle += 1;
             frameHandles.push(nextFrameHandle);
             return nextFrameHandle;
         },
-        cancelAnimationFrame: handle => {
+        cancelAnimationFrame: (handle) => {
             const index = frameHandles.indexOf(handle);
             if (index !== -1) {
                 frames.splice(index, 1);
@@ -70,22 +64,26 @@ describe('PDF render continuation scheduler', () => {
     it('runs recursive foreground slices via immediate macrotasks without a 16 ms timer stall', async () => {
         vi.useFakeTimers();
         const yieldCalls: Array<() => void> = [];
-        const yieldMock = vi.fn(() => new Promise<void>((resolve) => {
-            yieldCalls.push(resolve);
-        }));
-        vi.stubGlobal('scheduler', { yield: yieldMock });
+        const yieldMock = vi.fn(
+            () =>
+                new Promise<void>((resolve) => {
+                    yieldCalls.push(resolve);
+                }),
+        );
+        vi.stubGlobal('scheduler', {yield: yieldMock});
         const scheduler = createPdfRenderContinuationScheduler();
         const continuation = vi.fn();
-        const scheduleSlice = () => scheduler.schedule({
-            key: 'viewer:1',
-            priority: 'visible',
-            continueRender: () => {
-                continuation();
-                if (continuation.mock.calls.length < 2) {
-                    scheduleSlice();
-                }
-            },
-        });
+        const scheduleSlice = () =>
+            scheduler.schedule({
+                key: 'viewer:1',
+                priority: 'visible',
+                continueRender: () => {
+                    continuation();
+                    if (continuation.mock.calls.length < 2) {
+                        scheduleSlice();
+                    }
+                },
+            });
 
         scheduleSlice();
 
@@ -128,10 +126,7 @@ describe('PDF render continuation scheduler', () => {
         await Promise.resolve();
         expect(events).toEqual([]);
 
-        await vi.waitFor(() => expect(events).toEqual([
-            'slice-1',
-            'slice-2',
-        ]));
+        await vi.waitFor(() => expect(events).toEqual(['slice-1', 'slice-2']));
     });
 
     it('falls back to a 0 ms timer when neither scheduler.yield nor MessageChannel exists', () => {
@@ -155,9 +150,10 @@ describe('PDF render continuation scheduler', () => {
     it('preserves abort and higher-priority preemption across immediate macrotask yields', async () => {
         const yieldCalls: Array<() => void> = [];
         vi.stubGlobal('scheduler', {
-            yield: () => new Promise<void>((resolve) => {
-                yieldCalls.push(resolve);
-            }),
+            yield: () =>
+                new Promise<void>((resolve) => {
+                    yieldCalls.push(resolve);
+                }),
         });
         const scheduler = createPdfRenderContinuationScheduler();
         const events: string[] = [];
@@ -187,18 +183,16 @@ describe('PDF render continuation scheduler', () => {
 
         yieldCalls.shift()?.();
         await Promise.resolve();
-        expect(events).toEqual([
-            'navigation-target',
-            'visible-2',
-        ]);
+        expect(events).toEqual(['navigation-target', 'visible-2']);
     });
 
     it('isolates synchronous callback throws under scheduler.yield and keeps draining queued work', async () => {
         const yieldCalls: Array<() => void> = [];
         vi.stubGlobal('scheduler', {
-            yield: () => new Promise<void>((resolve) => {
-                yieldCalls.push(resolve);
-            }),
+            yield: () =>
+                new Promise<void>((resolve) => {
+                    yieldCalls.push(resolve);
+                }),
         });
         const scheduler = createPdfRenderContinuationScheduler();
         const second = vi.fn();
@@ -313,14 +307,11 @@ describe('PDF render continuation scheduler', () => {
         expect(events).toEqual(['navigation']);
         expect(harness.frames).toHaveLength(1);
         harness.flushFrame();
-        expect(events).toEqual([
-            'navigation',
-            'prefetch',
-        ]);
+        expect(events).toEqual(['navigation', 'prefetch']);
     });
 
     it('gates background continuations while input is pending', () => {
-        const harness = createHarness({ inputPending: true });
+        const harness = createHarness({inputPending: true});
         const continuation = vi.fn();
         harness.scheduler.schedule({
             key: 'nearby:2',
@@ -382,10 +373,7 @@ describe('PDF render continuation scheduler', () => {
         expect(events).toEqual(['first']);
         expect(harness.tasks).toHaveLength(1);
         harness.flushTask();
-        expect(events).toEqual([
-            'first',
-            'second',
-        ]);
+        expect(events).toEqual(['first', 'second']);
     });
 
     it('promotes visible work out of an already queued background frame', () => {
@@ -408,10 +396,7 @@ describe('PDF render continuation scheduler', () => {
         expect(events).toEqual(['visible']);
         expect(harness.frames).toHaveLength(1);
         harness.flushFrame();
-        expect(events).toEqual([
-            'visible',
-            'prefetch',
-        ]);
+        expect(events).toEqual(['visible', 'prefetch']);
     });
 
     it('cancels visible work without consuming a frame', () => {
@@ -473,7 +458,7 @@ describe('PDF render continuation scheduler', () => {
     });
 
     it('runs background work through the fallback while input stays pending', () => {
-        const harness = createHarness({ inputPending: true });
+        const harness = createHarness({inputPending: true});
         const continuation = vi.fn();
         harness.scheduler.schedule({
             key: 'nearby:2',
@@ -491,7 +476,7 @@ describe('PDF render continuation scheduler', () => {
     });
 
     it('forces starved background work after the frame deferral limit', () => {
-        const harness = createHarness({ inputPending: true });
+        const harness = createHarness({inputPending: true});
         const continuation = vi.fn();
         harness.scheduler.schedule({
             key: 'nearby:5',

@@ -7,9 +7,5 @@ export interface IReaderPrintCommandState {
 }
 
 export function isReaderPrintCommandDisabled(state: IReaderPrintCommandState) {
-    return !state.hasInteractiveDocument
-        || !state.canPrint
-        || state.isPreparingPrint
-        || state.isAnySaving
-        || state.isHistoryBusy;
+    return !state.hasInteractiveDocument || !state.canPrint || state.isPreparingPrint || state.isAnySaving || state.isHistoryBusy;
 }

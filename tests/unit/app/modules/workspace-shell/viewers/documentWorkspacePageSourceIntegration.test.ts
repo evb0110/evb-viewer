@@ -2,23 +2,9 @@
 
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    computed,
-    createApp,
-    defineComponent,
-    h,
-    nextTick,
-    provide,
-    shallowRef,
-} from 'vue';
-import { requireDocumentRef } from '@contracts/documentRef';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {computed, createApp, defineComponent, h, nextTick, provide, shallowRef} from 'vue';
+import {requireDocumentRef} from '@contracts/documentRef';
 import type {IDocumentPageSource} from '@app/modules/document-viewer/public';
 import {
     createDocumentOpenSurfaceSession,
@@ -29,53 +15,60 @@ import ScanCleanupThumbnailRail from '@app/modules/scan-cleanup/components/ScanC
 
 vi.mock('@app/modules/workspace-shell/viewers/workspaceViewerFeatureChunkLoaders', async () => {
     const vue = await import('vue');
-    const {documentViewerRuntimeKey} = await import(
-        '@app/modules/document-viewer/public'
-    );
-    const createFeaturePackStub = (kind: string) => vue.defineComponent({
-        inheritAttrs: false,
-        props: {
-            bindDelayMs: {
-                type: Number,
-                required: true,
+    const {documentViewerRuntimeKey} = await import('@app/modules/document-viewer/public');
+    const createFeaturePackStub = (kind: string) =>
+        vue.defineComponent({
+            inheritAttrs: false,
+            props: {
+                bindDelayMs: {
+                    type: Number,
+                    required: true,
+                },
+                testSource: {
+                    type: Object,
+                    required: true,
+                },
             },
-            testSource: {
-                type: Object,
-                required: true,
+            setup(props) {
+                const authority = vue.inject(documentViewerRuntimeKey);
+                vue.onMounted(() => {
+                    setTimeout(() => authority?.bindSource(props.testSource as IDocumentPageSource), props.bindDelayMs);
+                });
+                return () =>
+                    vue.h('div', {
+                        'data-feature-pack-kind': kind,
+                        'data-feature-pack-stub': '',
+                    });
             },
+        });
+    return {
+        workspaceViewerFeatureChunkLoaders: {
+            pdfjs: async () => ({PdfViewer: createFeaturePackStub('pdfjs')}),
+            'page-source': async () => ({default: createFeaturePackStub('page-source')}),
         },
-        setup(props) {
-            const authority = vue.inject(documentViewerRuntimeKey);
-            vue.onMounted(() => {
-                setTimeout(() => authority?.bindSource(props.testSource as IDocumentPageSource), props.bindDelayMs);
-            });
-            return () => vue.h('div', {
-                'data-feature-pack-kind': kind,
-                'data-feature-pack-stub': '',
-            });
-        },
-    });
-    return {workspaceViewerFeatureChunkLoaders: {
-        pdfjs: async () => ({PdfViewer: createFeaturePackStub('pdfjs')}),
-        'page-source': async () => ({default: createFeaturePackStub('page-source')}),
-    }};
+    };
 });
 
 vi.mock('@app/components/document-viewer/DocumentThumbnailList.vue', async () => {
     const vue = await import('vue');
-    return {default: vue.defineComponent({
-        inheritAttrs: false,
-        props: {source: {
-            type: Object,
-            default: null,
-        }},
-        setup(props, {attrs}) {
-            return () => vue.h('div', {
-                ...attrs,
-                'data-thumbnail-source-rows': (props.source as IDocumentPageSource | null)?.pageCount ?? 0,
-            });
-        },
-    })};
+    return {
+        default: vue.defineComponent({
+            inheritAttrs: false,
+            props: {
+                source: {
+                    type: Object,
+                    default: null,
+                },
+            },
+            setup(props, {attrs}) {
+                return () =>
+                    vue.h('div', {
+                        ...attrs,
+                        'data-thumbnail-source-rows': (props.source as IDocumentPageSource | null)?.pageCount ?? 0,
+                    });
+            },
+        }),
+    };
 });
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
@@ -107,10 +100,7 @@ const source: IDocumentPageSource = {
 
 const mountedApps = new Set<() => void>();
 
-function mountWorkspaceChain(
-    openInitially: boolean,
-    rendererKind: 'pdfjs' | 'page-source' = 'pdfjs',
-) {
+function mountWorkspaceChain(openInitially: boolean, rendererKind: 'pdfjs' | 'page-source' = 'pdfjs') {
     const host = document.createElement('div');
     document.body.append(host);
     const cleanupOpen = shallowRef(openInitially);
@@ -118,38 +108,46 @@ function mountWorkspaceChain(
     const chassis = shallowRef<{getPageSource?: () => IDocumentPageSource | null} | null>(null);
     // The workspace reads the source a feature pack binds to the chassis live.
     const pageSource = computed(() => chassis.value?.getPageSource?.() ?? null);
-    const Root = defineComponent({setup() {
-        provide(documentOpenSurfaceSessionKey, createDocumentOpenSurfaceSession());
-        return () => h('div', [
-            h(DocumentViewerChassis, {
-                ref: chassis,
-                sourceKind: 'pdf',
-                isResizing: isResizing.value,
-                rendererKind,
-                bindDelayMs: 25,
-                testSource: source,
-            }),
-            h('span', {'data-workspace-source-ready': pageSource.value ? 'true' : 'false'}),
-            cleanupOpen.value
-                ? h(ScanCleanupThumbnailRail, {
-                    source: pageSource.value,
-                    sourcePending: pageSource.value === null,
-                    totalPages: 3,
-                    selectionLeader: 1,
-                    selectedPages: new Set([1]),
-                    overrides: {},
-                    classifications: new Map(),
-                    confidences: new Map(),
-                    textAxes: new Map(),
-                    documentOutputMode: 'auto',
-                    preserveOriginalQuality: false,
-                    disabled: false,
-                })
-                : null,
-        ]);
-    }});
+    const Root = defineComponent({
+        setup() {
+            provide(documentOpenSurfaceSessionKey, createDocumentOpenSurfaceSession());
+            return () =>
+                h('div', [
+                    h(DocumentViewerChassis, {
+                        ref: chassis,
+                        sourceKind: 'pdf',
+                        isResizing: isResizing.value,
+                        rendererKind,
+                        bindDelayMs: 25,
+                        testSource: source,
+                    }),
+                    h('span', {'data-workspace-source-ready': pageSource.value ? 'true' : 'false'}),
+                    cleanupOpen.value
+                        ? h(ScanCleanupThumbnailRail, {
+                              source: pageSource.value,
+                              sourcePending: pageSource.value === null,
+                              totalPages: 3,
+                              selectionLeader: 1,
+                              selectedPages: new Set([1]),
+                              overrides: {},
+                              classifications: new Map(),
+                              confidences: new Map(),
+                              textAxes: new Map(),
+                              documentOutputMode: 'auto',
+                              preserveOriginalQuality: false,
+                              disabled: false,
+                          })
+                        : null,
+                ]);
+        },
+    });
     const app = createApp(Root);
-    const passthrough = defineComponent({setup: (_props, {slots}) => () => h('span', slots.default?.())});
+    const passthrough = defineComponent({
+        setup:
+            (_props, {slots}) =>
+            () =>
+                h('span', slots.default?.()),
+    });
     app.component('AppTooltip', passthrough);
     app.component('UBadge', passthrough);
     app.component('UButton', passthrough);
@@ -172,20 +170,16 @@ function mountWorkspaceChain(
 }
 
 afterEach(() => {
-    for (const unmount of mountedApps) {unmount();}
+    for (const unmount of mountedApps) {
+        unmount();
+    }
     document.body.innerHTML = '';
 });
 
 describe('DocumentWorkspace page-source integration', () => {
     it.each([
-        [
-            'pdfjs',
-            'pdfjs',
-        ],
-        [
-            'page-source',
-            'page-source',
-        ],
+        ['pdfjs', 'pdfjs'],
+        ['page-source', 'page-source'],
     ] as const)('mounts the driver-selected %s feature pack', async (rendererKind, expectedKind) => {
         const harness = mountWorkspaceChain(false, rendererKind);
 

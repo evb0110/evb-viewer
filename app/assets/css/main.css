@@ -30,7 +30,7 @@
     --color-brand-500: oklch(54% 0.15 235);
     --color-brand-600: oklch(46% 0.14 235);
     --color-brand-700: oklch(39% 0.13 235);
-    --color-brand-800: oklch(33% 0.10 235);
+    --color-brand-800: oklch(33% 0.1 235);
     --color-brand-900: oklch(27% 0.07 235);
     --color-brand-950: oklch(21% 0.05 235);
 
@@ -41,14 +41,7 @@
     /* Universal UI scale lever — driven by useUiScale composable.
        Set on <html> via an inline style; this default keeps the prerendered shell stable. */
     --app-ui-scale: 1;
-    --app-font-ui:
-        'EVB Noto Sans',
-        'EVB Annotation Scripts',
-        Arial,
-        'Helvetica Neue',
-        Helvetica,
-        system-ui,
-        sans-serif;
+    --app-font-ui: 'EVB Noto Sans', 'EVB Annotation Scripts', Arial, 'Helvetica Neue', Helvetica, system-ui, sans-serif;
 
     /* Chrome-density tokens — kept in rem so they scale with --app-ui-scale via root font-size. */
     --app-toolbar-control-size: 2.25rem;
@@ -394,15 +387,7 @@
     --ui-primary-fg: #ffffff;
     --ui-success: oklch(45% 0.13 147);
     --app-window-bg: var(--ui-bg, #ffffff);
-    --app-font-mono:
-        ui-monospace,
-        'SFMono-Regular',
-        Menlo,
-        Monaco,
-        Consolas,
-        'Liberation Mono',
-        'Courier New',
-        monospace;
+    --app-font-mono: ui-monospace, 'SFMono-Regular', Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
 
     /* Chrome surfaces (tab bar, toolbar) */
     --app-chrome: color-mix(in oklab, var(--ui-bg) 74%, var(--ui-bg-muted) 26%);
@@ -471,8 +456,8 @@
     --app-status-save-dot-clean-bg: oklch(64% 0.16 147);
     --app-status-save-dot-clean-ring: oklch(44% 0.11 147);
     --app-status-save-dot-saving-bg: oklch(61% 0.18 259);
-    --app-status-save-dot-saving-ring: oklch(43% 0.10 259);
-    --app-status-save-dot-failed-bg: oklch(58% 0.20 27);
+    --app-status-save-dot-saving-ring: oklch(43% 0.1 259);
+    --app-status-save-dot-failed-bg: oklch(58% 0.2 27);
     --app-status-save-dot-failed-ring: oklch(41% 0.13 27);
     --app-document-viewer-bg: var(--ui-bg-muted);
     --app-document-page-bg: var(--ui-bg);
@@ -569,7 +554,8 @@
     --app-combine-workbench-padding: var(--app-space-12xl);
     --app-combine-file-list-gap: var(--app-space-xl);
     --app-combine-drag-handle-width: 1.25rem;
-    --app-combine-file-row-columns: var(--app-combine-drag-handle-width) var(--app-document-icon-width) var(--app-document-icon-width) minmax(0, 1fr) auto;
+    --app-combine-file-row-columns: var(--app-combine-drag-handle-width) var(--app-document-icon-width) var(--app-document-icon-width)
+        minmax(0, 1fr) auto;
     --app-combine-file-row-gap: var(--app-space-7xl);
     --app-combine-file-row-min-height: 3.25rem;
     --app-combine-file-row-padding: var(--app-space-2xl) var(--app-space-4xl);
@@ -707,7 +693,7 @@
     --app-file-icon-pdf-fill: oklch(98% 0.012 30);
     --app-file-icon-pdf-stroke: oklch(82% 0.04 30);
     --app-file-icon-pdf-fold: oklch(92% 0.04 30);
-    --app-file-icon-pdf-badge: oklch(58% 0.20 25);
+    --app-file-icon-pdf-badge: oklch(58% 0.2 25);
     --app-file-icon-djvu-fill: oklch(98% 0.012 235);
     --app-file-icon-djvu-stroke: oklch(82% 0.04 235);
     --app-file-icon-djvu-fold: oklch(92% 0.04 235);
@@ -822,10 +808,12 @@
     --editor-toolbar-delete-image: var(--pdfjs-delete-icon);
 }
 
-
 .settings-locale-select-content {
     max-width: min(var(--app-settings-select-max-size), var(--reka-combobox-content-available-width, var(--app-settings-select-max-size)));
-    max-height: min(var(--app-settings-select-max-size), var(--reka-combobox-content-available-height, var(--app-settings-select-max-size)));
+    max-height: min(
+        var(--app-settings-select-max-size),
+        var(--reka-combobox-content-available-height, var(--app-settings-select-max-size))
+    );
 }
 
 .dark {
@@ -882,11 +870,11 @@
     --app-status-save-dot-idle-bg: color-mix(in oklab, var(--ui-text-dimmed) 80%, var(--ui-bg) 20%);
     --app-status-save-dot-idle-ring: color-mix(in oklab, var(--ui-border) 72%, transparent 28%);
     --app-status-save-dot-dirty-bg: oklch(78% 0.15 74);
-    --app-status-save-dot-dirty-ring: oklch(60% 0.10 66);
+    --app-status-save-dot-dirty-ring: oklch(60% 0.1 66);
     --app-status-save-dot-clean-bg: oklch(69% 0.15 147);
-    --app-status-save-dot-clean-ring: oklch(53% 0.10 147);
+    --app-status-save-dot-clean-ring: oklch(53% 0.1 147);
     --app-status-save-dot-saving-bg: oklch(68% 0.16 259);
-    --app-status-save-dot-saving-ring: oklch(51% 0.10 259);
+    --app-status-save-dot-saving-ring: oklch(51% 0.1 259);
     --app-status-save-dot-failed-bg: oklch(65% 0.19 27);
     --app-status-save-dot-failed-ring: oklch(48% 0.12 27);
     --app-document-viewer-bg: color-mix(in oklab, var(--ui-bg-muted) 88%, var(--ui-text) 12%);
@@ -904,7 +892,7 @@
     --app-file-icon-pdf-fill: oklch(28% 0.012 30);
     --app-file-icon-pdf-stroke: oklch(40% 0.04 30);
     --app-file-icon-pdf-fold: oklch(34% 0.04 30);
-    --app-file-icon-pdf-badge: oklch(62% 0.20 25);
+    --app-file-icon-pdf-badge: oklch(62% 0.2 25);
     --app-file-icon-djvu-fill: oklch(28% 0.012 235);
     --app-file-icon-djvu-stroke: oklch(40% 0.04 235);
     --app-file-icon-djvu-fold: oklch(34% 0.04 235);
@@ -1012,10 +1000,7 @@
    ReKa publishes the collision-aware height for popovers; fixed custom menus
    fall back to the same viewport gutter used by other floating panels. */
 .app-floating-scroll-region {
-    max-block-size: var(
-        --reka-popover-content-available-height,
-        calc(100dvh - var(--app-overlay-viewport-gutter))
-    );
+    max-block-size: var(--reka-popover-content-available-height, calc(100dvh - var(--app-overlay-viewport-gutter)));
     overflow-y: auto;
     overscroll-behavior: contain;
 }

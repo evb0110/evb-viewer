@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {createWorkspaceSavePlan} from '@app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService';
 import type {
     IWorkspaceSaveDirtyState,
@@ -21,21 +17,21 @@ const CLEAN_DIRTY_STATE: IWorkspaceSaveDirtyState = {
     shapes: false,
 };
 
-function dirtyState(
-    overrides: Partial<IWorkspaceSaveDirtyState> = {},
-): IWorkspaceSaveDirtyState {
+function dirtyState(overrides: Partial<IWorkspaceSaveDirtyState> = {}): IWorkspaceSaveDirtyState {
     return {
         ...CLEAN_DIRTY_STATE,
         ...overrides,
     };
 }
 
-function buildPlan(options: {
-    request?: TWorkspaceSaveRequest;
-    dirtyState?: IWorkspaceSaveDirtyState;
-    hasManagedShapes?: boolean;
-    canPersistNativeWorkingCopy?: boolean;
-} = {}) {
+function buildPlan(
+    options: {
+        request?: TWorkspaceSaveRequest;
+        dirtyState?: IWorkspaceSaveDirtyState;
+        hasManagedShapes?: boolean;
+        canPersistNativeWorkingCopy?: boolean;
+    } = {},
+) {
     return createWorkspaceSavePlan({
         request: options.request ?? {kind: 'save'},
         target: {
@@ -58,10 +54,12 @@ function buildPlan(options: {
 describe('workspaceSavePlan', () => {
     it('represents clean Save and Save As as working-copy sourced serialized plans', () => {
         const save = buildPlan();
-        const saveAs = buildPlan({request: {
-            kind: 'save-as',
-            optimizeLossless: true,
-        }});
+        const saveAs = buildPlan({
+            request: {
+                kind: 'save-as',
+                optimizeLossless: true,
+            },
+        });
 
         expect(save).toMatchObject({
             kind: 'serialized',
@@ -80,10 +78,14 @@ describe('workspaceSavePlan', () => {
                 preserveLoadedSource: false,
             },
         });
-        expect(buildPlan({request: {
-            kind: 'save-as',
-            optimizeLossless: false,
-        }})).toMatchObject({body: {preserveLoadedSource: true}});
+        expect(
+            buildPlan({
+                request: {
+                    kind: 'save-as',
+                    optimizeLossless: false,
+                },
+            }),
+        ).toMatchObject({body: {preserveLoadedSource: true}});
         expect(saveAs.target).toEqual({
             expectedDocumentSessionKey: 'document-session-1',
             expectedOriginalPath: '/tmp/source.pdf',
@@ -93,19 +95,15 @@ describe('workspaceSavePlan', () => {
     });
 
     it.each([
-        [
-            {kind: 'repair'} as const,
-            'repair',
-        ],
-        [
-            {kind: 'optimize'} as const,
-            'optimize',
-        ],
+        [{kind: 'repair'} as const, 'repair'],
+        [{kind: 'optimize'} as const, 'optimize'],
     ])('plans clean %s through native working-copy persistence', (request, operation) => {
-        expect(buildPlan({
-            request,
-            canPersistNativeWorkingCopy: true,
-        })).toMatchObject({
+        expect(
+            buildPlan({
+                request,
+                canPersistNativeWorkingCopy: true,
+            }),
+        ).toMatchObject({
             kind: 'native-working-copy',
             operation,
         });
@@ -130,23 +128,25 @@ describe('workspaceSavePlan', () => {
         });
     });
 
-    it.each([
-        true,
-        false,
-    ])('plans dirty Repair through the staged repair route (native repair writer: %s)', canPersistNativeWorkingCopy => {
-        expect(buildPlan({
-            request: {kind: 'repair'},
-            dirtyState: dirtyState({bookmarks: true}),
-            canPersistNativeWorkingCopy,
-        })).toMatchObject({
-            kind: 'staged-repair',
-            request: {kind: 'repair'},
-            serializedFallback: {
-                source: 'working-copy',
-                forceRewrite: true,
-            },
-        });
-    });
+    it.each([true, false])(
+        'plans dirty Repair through the staged repair route (native repair writer: %s)',
+        (canPersistNativeWorkingCopy) => {
+            expect(
+                buildPlan({
+                    request: {kind: 'repair'},
+                    dirtyState: dirtyState({bookmarks: true}),
+                    canPersistNativeWorkingCopy,
+                }),
+            ).toMatchObject({
+                kind: 'staged-repair',
+                request: {kind: 'repair'},
+                serializedFallback: {
+                    source: 'working-copy',
+                    forceRewrite: true,
+                },
+            });
+        },
+    );
 
     it('plans eligible dirty Save through native mutations with an explicit serialized fallback', () => {
         const plan = buildPlan({
@@ -163,13 +163,15 @@ describe('workspaceSavePlan', () => {
     });
 
     it('routes dirty Save As through the same native writer path', () => {
-        expect(buildPlan({
-            request: {
-                kind: 'save-as',
-                optimizeLossless: false,
-            },
-            dirtyState: dirtyState({annotationChanges: true}),
-        }).kind).toBe('native-mutation');
+        expect(
+            buildPlan({
+                request: {
+                    kind: 'save-as',
+                    optimizeLossless: false,
+                },
+                dirtyState: dirtyState({annotationChanges: true}),
+            }).kind,
+        ).toBe('native-mutation');
     });
 
     it('keeps managed shape writes on the native writer path', () => {
@@ -182,11 +184,15 @@ describe('workspaceSavePlan', () => {
     });
 
     it('uses the optimization variant only for optimize-copy requests', () => {
-        expect(buildPlan({request: {
-            kind: 'optimize-copy',
-            options: {preset: 'lossless'},
-            requestId: requireRequestId('optimize-1'),
-        }})).toMatchObject({
+        expect(
+            buildPlan({
+                request: {
+                    kind: 'optimize-copy',
+                    options: {preset: 'lossless'},
+                    requestId: requireRequestId('optimize-1'),
+                },
+            }),
+        ).toMatchObject({
             kind: 'optimization',
             request: {
                 kind: 'optimize-copy',

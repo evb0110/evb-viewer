@@ -1,20 +1,12 @@
 // @vitest-environment happy-dom
 
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { ref } from 'vue';
-import {
-    createDocumentViewerRuntime,
-} from '@app/modules/document-viewer/runtime/documentViewerRuntime';
-import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
-import { createPageNavigationRequest } from '@app/modules/document-viewer/navigation/documentNavigationRequest';
-import type { IDocumentPageSource } from '@app/modules/document-viewer/source/documentPageSource';
-import { observeDocumentViewportWheelInteraction } from '@app/modules/document-viewer/runtime/documentViewportWritePort';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {ref} from 'vue';
+import {createDocumentViewerRuntime} from '@app/modules/document-viewer/runtime/documentViewerRuntime';
+import {createDocumentOpenSurfaceSession} from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
+import {createPageNavigationRequest} from '@app/modules/document-viewer/navigation/documentNavigationRequest';
+import type {IDocumentPageSource} from '@app/modules/document-viewer/source/documentPageSource';
+import {observeDocumentViewportWheelInteraction} from '@app/modules/document-viewer/runtime/documentViewportWritePort';
 import {requireDocumentRef} from '@contracts/documentRef';
 
 function createSource(kind: 'pdf' | 'djvu', pageCount: number): IDocumentPageSource {
@@ -95,37 +87,47 @@ describe('document viewer chassis authority', () => {
     it('derives opening-page visual state from current surface commits and rejects stale generations or wrong pages', () => {
         const authority = createDocumentViewerRuntime(ref('djvu'));
         expect(authority.openingPageVisual.value).toBe('none');
-        const generation = authority.openSurface.begin({
-            documentId: '/documents/scan.djvu',
-            documentRevision: 'revision-1',
-        }, null, 3);
+        const generation = authority.openSurface.begin(
+            {
+                documentId: '/documents/scan.djvu',
+                documentRevision: 'revision-1',
+            },
+            null,
+            3,
+        );
         expect(authority.openingPageVisual.value).toBe('skeleton');
         expect(authority.openSurface.metadataReady(5)).toBe(true);
-        expect(authority.openSurface.commitGeometry(generation, {
-            width: 600,
-            height: 800,
-            margin: 20,
-        })).toBe(true);
-        expect(authority.openSurface.commitOpeningPageFrame(generation - 1, {
-            generation: generation - 1,
-            ownerId: 'chassis-owner',
-            pageNumber: 3,
-            intentKey: 'fit-width:1',
-            style: {
-                width: '600px',
-                height: '800px',
-            },
-        })).toBe(false);
-        expect(authority.openSurface.commitOpeningPageFrame(generation, {
-            generation,
-            ownerId: 'chassis-owner',
-            pageNumber: 3,
-            intentKey: 'fit-width:1',
-            style: {
-                width: '600px',
-                height: '800px',
-            },
-        })).toBe(true);
+        expect(
+            authority.openSurface.commitGeometry(generation, {
+                width: 600,
+                height: 800,
+                margin: 20,
+            }),
+        ).toBe(true);
+        expect(
+            authority.openSurface.commitOpeningPageFrame(generation - 1, {
+                generation: generation - 1,
+                ownerId: 'chassis-owner',
+                pageNumber: 3,
+                intentKey: 'fit-width:1',
+                style: {
+                    width: '600px',
+                    height: '800px',
+                },
+            }),
+        ).toBe(false);
+        expect(
+            authority.openSurface.commitOpeningPageFrame(generation, {
+                generation,
+                ownerId: 'chassis-owner',
+                pageNumber: 3,
+                intentKey: 'fit-width:1',
+                style: {
+                    width: '600px',
+                    height: '800px',
+                },
+            }),
+        ).toBe(true);
         const element = document.createElement('div');
         element.dataset.openSurfaceFrameOwner = 'chassis-owner';
         element.dataset.openSurfaceGeneration = String(generation);
@@ -133,20 +135,24 @@ describe('document viewer chassis authority', () => {
         document.body.append(element);
         authority.bindOpeningPageElement(element);
 
-        expect(authority.openSurface.createRenderFence({
-            generation: generation - 1,
-            documentRevision: 'revision-1',
-            renderVersion: 1,
-            requestId: 1,
-            pageNumber: 3,
-        })).toBeNull();
-        expect(authority.openSurface.createRenderFence({
-            generation,
-            documentRevision: 'revision-1',
-            renderVersion: 1,
-            requestId: 1,
-            pageNumber: 2,
-        })).toBeNull();
+        expect(
+            authority.openSurface.createRenderFence({
+                generation: generation - 1,
+                documentRevision: 'revision-1',
+                renderVersion: 1,
+                requestId: 1,
+                pageNumber: 3,
+            }),
+        ).toBeNull();
+        expect(
+            authority.openSurface.createRenderFence({
+                generation,
+                documentRevision: 'revision-1',
+                renderVersion: 1,
+                requestId: 1,
+                pageNumber: 2,
+            }),
+        ).toBeNull();
         expect(authority.openingPageVisual.value).toBe('skeleton');
 
         const fence = authority.openSurface.createRenderFence({
@@ -158,16 +164,18 @@ describe('document viewer chassis authority', () => {
         });
         expect(fence).not.toBeNull();
         expect(authority.openSurface.commitCanvas(fence!)).toBe(true);
-        expect(authority.openSurface.commitViewport({
-            generation,
-            documentRevision: 'revision-1',
-            viewportIntentId: fence!.viewportIntentId,
-            documentGeometryRevision: 1,
-            interactionEpoch: 0,
-            pageNumber: 3,
-            left: 0,
-            top: 0,
-        })).toBe(true);
+        expect(
+            authority.openSurface.commitViewport({
+                generation,
+                documentRevision: 'revision-1',
+                viewportIntentId: fence!.viewportIntentId,
+                documentGeometryRevision: 1,
+                interactionEpoch: 0,
+                pageNumber: 3,
+                left: 0,
+                top: 0,
+            }),
+        ).toBe(true);
         expect(authority.openingPageVisual.value).toBe('fresh');
 
         authority.openSurface.begin({
@@ -248,30 +256,40 @@ describe('document viewer chassis authority', () => {
             top: 0,
         });
         openSurface.markReady(fence);
-        expect(openSurface.prepareRevisionSwap({
-            documentId: 'scan.pdf',
-            documentRevision: 'revision-2',
-        }, 1, [1])).toBe(true);
+        expect(
+            openSurface.prepareRevisionSwap(
+                {
+                    documentId: 'scan.pdf',
+                    documentRevision: 'revision-2',
+                },
+                1,
+                [1],
+            ),
+        ).toBe(true);
 
         // Unbinding during an in-place revision swap keeps the mounted
         // source, so a write begun before it still lands.
         const duringSwap = port.beginIntent('restore-during-swap');
         authority.bindSource(null);
         expect(authority.source.value).toBe(first);
-        expect(port.apply(container, {
-            intent: duringSwap,
-            reason: 'restore-during-swap',
-            top: 100,
-        })).toBe(true);
+        expect(
+            port.apply(container, {
+                intent: duringSwap,
+                reason: 'restore-during-swap',
+                top: 100,
+            }),
+        ).toBe(true);
 
         // A reload unbinds and binds a new source; older writes are stale.
         const beforeReload = port.beginIntent('restore-before-reload');
         authority.bindSource(createSource('pdf', 5));
-        expect(port.apply(container, {
-            intent: beforeReload,
-            reason: 'restore-before-reload',
-            top: 200,
-        })).toBe(false);
+        expect(
+            port.apply(container, {
+                intent: beforeReload,
+                reason: 'restore-before-reload',
+                top: 200,
+            }),
+        ).toBe(false);
         expect(container.scrollTop).toBe(100);
     });
 
@@ -289,24 +307,24 @@ describe('document viewer chassis authority', () => {
         expect(authority.viewportWritePort.consumeAuthorityScroll(container)).toBe(true);
 
         const staleAfterWheel = authority.viewportWritePort.beginIntent('resize-restore');
-        observeDocumentViewportWheelInteraction(
-            authority.viewportWritePort,
-            scrollInteraction(0),
-            container,
-        );
+        observeDocumentViewportWheelInteraction(authority.viewportWritePort, scrollInteraction(0), container);
         expect(authority.viewportWritePort.consumeAuthorityScroll(container)).toBe(false);
-        expect(authority.viewportWritePort.apply(container, {
-            intent: staleAfterWheel,
-            reason: 'stale-after-wheel',
-            top: 725,
-        })).toBe(false);
+        expect(
+            authority.viewportWritePort.apply(container, {
+                intent: staleAfterWheel,
+                reason: 'stale-after-wheel',
+                top: 725,
+            }),
+        ).toBe(false);
 
         const zoomIntent = authority.viewportWritePort.beginIntent('zoom-anchor-restore');
-        expect(authority.viewportWritePort.apply(container, {
-            intent: zoomIntent,
-            reason: 'zoom-anchor',
-            top: 730,
-        })).toBe(true);
+        expect(
+            authority.viewportWritePort.apply(container, {
+                intent: zoomIntent,
+                reason: 'zoom-anchor',
+                top: 730,
+            }),
+        ).toBe(true);
         observeDocumentViewportWheelInteraction(
             authority.viewportWritePort,
             {
@@ -320,23 +338,18 @@ describe('document viewer chassis authority', () => {
 
     it('counts a zoom gesture as one reader interaction when it starts, not one per streamed packet', () => {
         const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
-        const zoomPacket = (timeStamp: number) => observeDocumentViewportWheelInteraction(port, {
-            ...scrollInteraction(timeStamp, -40),
-            intent: 'zoom',
-        });
+        const zoomPacket = (timeStamp: number) =>
+            observeDocumentViewportWheelInteraction(port, {
+                ...scrollInteraction(timeStamp, -40),
+                intent: 'zoom',
+            });
         const before = port.getInteractionEpoch();
 
         zoomPacket(1_000);
         const afterFirstPacket = port.getInteractionEpoch();
         zoomPacket(1_016);
         zoomPacket(1_032);
-        expect([
-            afterFirstPacket,
-            port.getInteractionEpoch(),
-        ]).toEqual([
-            before + 1,
-            before + 1,
-        ]);
+        expect([afterFirstPacket, port.getInteractionEpoch()]).toEqual([before + 1, before + 1]);
 
         // A later pinch after a quiet gap is a new gesture of the reader's.
         zoomPacket(2_000);
@@ -368,11 +381,13 @@ describe('document viewer chassis authority', () => {
             // larger than the one before it without being a new gesture.
             expect(scrollPacket(port, 96, 140)).toBe('command-residue');
             expect(port.isCommandResidueLive()).toBe(true);
-            expect(port.apply(container, {
-                intent: navigation,
-                reason: 'navigation',
-                top: 700,
-            })).toBe(true);
+            expect(
+                port.apply(container, {
+                    intent: navigation,
+                    reason: 'navigation',
+                    top: 700,
+                }),
+            ).toBe(true);
         });
 
         it('yields to a new gesture after a quiet gap', () => {
@@ -387,22 +402,21 @@ describe('document viewer chassis authority', () => {
             expect(scrollPacket(port, 400)).toBe('user-input');
             expect(port.userScrollSuppressed.value).toBe(false);
             expect(port.isCommandResidueLive()).toBe(false);
-            expect(port.apply(container, {
-                intent: navigation,
-                reason: 'navigation',
-                top: 700,
-            })).toBe(false);
+            expect(
+                port.apply(container, {
+                    intent: navigation,
+                    reason: 'navigation',
+                    top: 700,
+                }),
+            ).toBe(false);
         });
 
         it('keeps a gesture begun before the command as residue when the command overtakes it', () => {
             vi.useFakeTimers();
             const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
             const container = createViewportContainer();
-            const send = (timeStamp: number) => observeDocumentViewportWheelInteraction(
-                port,
-                scrollInteraction(timeStamp, 40, 0, true),
-                container,
-            );
+            const send = (timeStamp: number) =>
+                observeDocumentViewportWheelInteraction(port, scrollInteraction(timeStamp, 40, 0, true), container);
 
             send(0);
             // Chromium queues wheel packets in the browser and lets the click
@@ -412,11 +426,13 @@ describe('document viewer chassis authority', () => {
 
             expect(send(850)).toBe('command-residue');
             expect(send(860)).toBe('command-residue');
-            expect(port.apply(container, {
-                intent: navigation,
-                reason: 'navigation',
-                top: 0,
-            })).toBe(true);
+            expect(
+                port.apply(container, {
+                    intent: navigation,
+                    reason: 'navigation',
+                    top: 0,
+                }),
+            ).toBe(true);
             // Scrolling is still suppressed, so the viewer scrolls this newer
             // gesture by hand rather than dropping it.
             expect(send(1_400)).toBe('adopted-user-input');
@@ -427,11 +443,8 @@ describe('document viewer chassis authority', () => {
             vi.useFakeTimers();
             const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
             const container = createViewportContainer();
-            const send = (timeStamp: number) => observeDocumentViewportWheelInteraction(
-                port,
-                scrollInteraction(timeStamp, 40, 0, true),
-                container,
-            );
+            const send = (timeStamp: number) =>
+                observeDocumentViewportWheelInteraction(port, scrollInteraction(timeStamp, 40, 0, true), container);
 
             port.fenceCommandAgainstLiveGesture(900);
 
@@ -455,9 +468,8 @@ describe('document viewer chassis authority', () => {
         it('keeps a diagonal tail whose larger axis alternates as one gesture', () => {
             vi.useFakeTimers();
             const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
-            const diagonalPacket = (timeStamp: number, deltaY: number, deltaX: number) => (
-                observeDocumentViewportWheelInteraction(port, scrollInteraction(timeStamp, deltaY, deltaX))
-            );
+            const diagonalPacket = (timeStamp: number, deltaY: number, deltaX: number) =>
+                observeDocumentViewportWheelInteraction(port, scrollInteraction(timeStamp, deltaY, deltaX));
 
             diagonalPacket(0, 12, 10);
             port.fenceCommandAgainstLiveGesture(10);
@@ -510,7 +522,7 @@ describe('document viewer chassis authority', () => {
             expect(container.scrollTop).toBe(780);
         });
 
-        it('cancels a cancelable residue packet without counting it as the reader\'s input', () => {
+        it("cancels a cancelable residue packet without counting it as the reader's input", () => {
             vi.useFakeTimers();
             const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
             const container = createViewportContainer();
@@ -589,9 +601,8 @@ describe('document viewer chassis authority', () => {
             vi.useFakeTimers();
             const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
             const container = createViewportContainer();
-            const send = (timeStamp: number, cancelable: boolean) => (
-                observeDocumentViewportWheelInteraction(port, scrollInteraction(timeStamp, 40, 0, cancelable), container)
-            );
+            const send = (timeStamp: number, cancelable: boolean) =>
+                observeDocumentViewportWheelInteraction(port, scrollInteraction(timeStamp, 40, 0, cancelable), container);
 
             send(0, true);
             port.observeWheelScrollSequence('begin');
@@ -612,11 +623,13 @@ describe('document viewer chassis authority', () => {
             // the signal, well past any idle window.
             vi.advanceTimersByTime(900);
             expect(send(48, false)).toBe('command-residue');
-            expect(port.apply(container, {
-                intent: navigation,
-                reason: 'navigation',
-                top: 700,
-            })).toBe(true);
+            expect(
+                port.apply(container, {
+                    intent: navigation,
+                    reason: 'navigation',
+                    top: 700,
+                }),
+            ).toBe(true);
 
             // The next gesture is the user's and releases the ownership.
             expect(send(1_400, true)).toBe('user-input');
@@ -626,9 +639,8 @@ describe('document viewer chassis authority', () => {
             vi.useFakeTimers();
             const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
             const container = createViewportContainer();
-            const send = (timeStamp: number, cancelable: boolean) => (
-                observeDocumentViewportWheelInteraction(port, scrollInteraction(timeStamp, 40, 0, cancelable), container)
-            );
+            const send = (timeStamp: number, cancelable: boolean) =>
+                observeDocumentViewportWheelInteraction(port, scrollInteraction(timeStamp, 40, 0, cancelable), container);
 
             send(0, true);
             port.observeWheelScrollSequence('begin');
@@ -669,9 +681,8 @@ describe('document viewer chassis authority', () => {
             vi.useFakeTimers();
             const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
             const container = createViewportContainer();
-            const send = (timeStamp: number, cancelable: boolean) => (
-                observeDocumentViewportWheelInteraction(port, scrollInteraction(timeStamp, 40, 0, cancelable), container)
-            );
+            const send = (timeStamp: number, cancelable: boolean) =>
+                observeDocumentViewportWheelInteraction(port, scrollInteraction(timeStamp, 40, 0, cancelable), container);
 
             // Measured under a 6x CPU slowdown: one fling arrived as ten
             // packets with a 192 ms median gap and gaps up to 334 ms.
@@ -691,11 +702,13 @@ describe('document viewer chassis authority', () => {
             // A quiet gap means nothing while the sequence is open.
             vi.advanceTimersByTime(600);
             expect(port.userScrollSuppressed.value).toBe(true);
-            expect(port.apply(container, {
-                intent: navigation,
-                reason: 'navigation',
-                top: 0,
-            })).toBe(true);
+            expect(
+                port.apply(container, {
+                    intent: navigation,
+                    reason: 'navigation',
+                    top: 0,
+                }),
+            ).toBe(true);
 
             port.observeWheelScrollSequence('end');
             expect(port.userScrollSuppressed.value).toBe(false);
@@ -704,9 +717,8 @@ describe('document viewer chassis authority', () => {
         it('does not let the late packets of an ended sequence reopen it', () => {
             vi.useFakeTimers();
             const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
-            const send = (timeStamp: number, cancelable: boolean) => (
-                observeDocumentViewportWheelInteraction(port, scrollInteraction(timeStamp, 40, 0, cancelable))
-            );
+            const send = (timeStamp: number, cancelable: boolean) =>
+                observeDocumentViewportWheelInteraction(port, scrollInteraction(timeStamp, 40, 0, cancelable));
 
             send(0, true);
             port.observeWheelScrollSequence('begin');
@@ -722,11 +734,13 @@ describe('document viewer chassis authority', () => {
             const container = createViewportContainer();
             const navigation = port.beginIntent('navigate:1');
             observeDocumentViewportWheelInteraction(port, scrollInteraction(48, 40, 0, false), container);
-            expect(port.apply(container, {
-                intent: navigation,
-                reason: 'navigation',
-                top: 700,
-            })).toBe(true);
+            expect(
+                port.apply(container, {
+                    intent: navigation,
+                    reason: 'navigation',
+                    top: 700,
+                }),
+            ).toBe(true);
             expect(container.scrollTop).toBe(700);
             expect(port.userScrollSuppressed.value).toBe(false);
         });
@@ -736,19 +750,19 @@ describe('document viewer chassis authority', () => {
                 vi.useFakeTimers();
                 const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
                 const container = createViewportContainer();
-                const send = (timeStamp: number, cancelable: boolean) => (
-                    observeDocumentViewportWheelInteraction(port, scrollInteraction(timeStamp, 40, 0, cancelable), container)
-                );
+                const send = (timeStamp: number, cancelable: boolean) =>
+                    observeDocumentViewportWheelInteraction(port, scrollInteraction(timeStamp, 40, 0, cancelable), container);
                 send(0, true);
                 port.observeWheelScrollSequence('begin');
                 send(16, false);
                 port.fenceCommandAgainstLiveGesture(20);
                 const navigation = port.beginIntent('navigate:1');
-                const lands = () => port.apply(container, {
-                    intent: navigation,
-                    reason: 'navigation',
-                    top: 700,
-                });
+                const lands = () =>
+                    port.apply(container, {
+                        intent: navigation,
+                        reason: 'navigation',
+                        top: 700,
+                    });
                 return {
                     port,
                     send,
@@ -777,10 +791,7 @@ describe('document viewer chassis authority', () => {
                 },
             ];
 
-            it.each(distortions)('keeps residue while the host sequence is open: $name', ({
-                timestampGapMs,
-                deliveryDelayMs,
-            }) => {
+            it.each(distortions)('keeps residue while the host sequence is open: $name', ({timestampGapMs, deliveryDelayMs}) => {
                 const fling = fencedFling();
                 vi.advanceTimersByTime(deliveryDelayMs);
 
@@ -789,10 +800,7 @@ describe('document viewer chassis authority', () => {
                 expect(fling.lands()).toBe(true);
             });
 
-            it.each(distortions)('keeps residue after the host ended the sequence: $name', ({
-                timestampGapMs,
-                deliveryDelayMs,
-            }) => {
+            it.each(distortions)('keeps residue after the host ended the sequence: $name', ({timestampGapMs, deliveryDelayMs}) => {
                 const fling = fencedFling();
                 fling.port.observeWheelScrollSequence('end');
                 vi.advanceTimersByTime(deliveryDelayMs);
@@ -808,9 +816,8 @@ describe('document viewer chassis authority', () => {
                 vi.useFakeTimers();
                 const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
                 const container = createViewportContainer();
-                const send = (timeStamp: number, deltaY: number) => (
-                    observeDocumentViewportWheelInteraction(port, scrollInteraction(timeStamp, deltaY, 0, true), container)
-                );
+                const send = (timeStamp: number, deltaY: number) =>
+                    observeDocumentViewportWheelInteraction(port, scrollInteraction(timeStamp, deltaY, 0, true), container);
 
                 send(0, 60);
                 port.observeWheelScrollSequence('begin');
@@ -820,11 +827,13 @@ describe('document viewer chassis authority', () => {
 
                 expect(send(260, 40)).toBe('command-residue');
                 expect(port.isWheelSequenceOpen?.()).toBe(true);
-                expect(port.apply(container, {
-                    intent: navigation,
-                    reason: 'navigation',
-                    top: 700,
-                })).toBe(true);
+                expect(
+                    port.apply(container, {
+                        intent: navigation,
+                        reason: 'navigation',
+                        top: 700,
+                    }),
+                ).toBe(true);
 
                 port.observeWheelScrollSequence('end');
                 expect(port.isWheelSequenceOpen?.()).toBe(false);
@@ -836,9 +845,8 @@ describe('document viewer chassis authority', () => {
                 vi.useFakeTimers();
                 const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
                 const container = createViewportContainer();
-                const send = (timeStamp: number, deltaY: number) => (
-                    observeDocumentViewportWheelInteraction(port, scrollInteraction(timeStamp, deltaY, 0, true), container)
-                );
+                const send = (timeStamp: number, deltaY: number) =>
+                    observeDocumentViewportWheelInteraction(port, scrollInteraction(timeStamp, deltaY, 0, true), container);
 
                 send(0, 60);
                 port.observeWheelScrollSequence('begin');
@@ -859,18 +867,18 @@ describe('document viewer chassis authority', () => {
                 vi.useFakeTimers();
                 const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
                 const container = createViewportContainer();
-                const send = (timeStamp: number, cancelable: boolean) => (
-                    observeDocumentViewportWheelInteraction(port, scrollInteraction(timeStamp, 40, 0, cancelable), container)
-                );
+                const send = (timeStamp: number, cancelable: boolean) =>
+                    observeDocumentViewportWheelInteraction(port, scrollInteraction(timeStamp, 40, 0, cancelable), container);
                 send(0, true);
                 port.observeWheelScrollSequence('begin');
                 port.fenceCommandAgainstLiveGesture(10);
                 const staleNavigation = port.beginIntent('navigate:734');
-                const staleNavigationLands = () => port.apply(container, {
-                    intent: staleNavigation,
-                    reason: 'navigation',
-                    top: 700,
-                });
+                const staleNavigationLands = () =>
+                    port.apply(container, {
+                        intent: staleNavigation,
+                        reason: 'navigation',
+                        top: 700,
+                    });
                 return {
                     port,
                     send,
@@ -908,9 +916,8 @@ describe('document viewer chassis authority', () => {
                 vi.useFakeTimers();
                 const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
                 const container = createViewportContainer();
-                const send = (timeStamp: number, cancelable: boolean) => (
-                    observeDocumentViewportWheelInteraction(port, scrollInteraction(timeStamp, 40, 0, cancelable), container)
-                );
+                const send = (timeStamp: number, cancelable: boolean) =>
+                    observeDocumentViewportWheelInteraction(port, scrollInteraction(timeStamp, 40, 0, cancelable), container);
                 send(0, true);
                 port.observeWheelScrollSequence('begin');
                 send(16, false);
@@ -919,19 +926,20 @@ describe('document viewer chassis authority', () => {
 
                 // 8 ms after the tail's last packet, before its `end` arrives.
                 expect(send(24, true)).toBe('adopted-user-input');
-                expect(port.apply(container, {
-                    intent: staleNavigation,
-                    reason: 'navigation',
-                    top: 700,
-                })).toBe(false);
+                expect(
+                    port.apply(container, {
+                        intent: staleNavigation,
+                        reason: 'navigation',
+                        top: 700,
+                    }),
+                ).toBe(false);
             });
 
-            it('is not closed by the old sequence\'s end arriving after its first packet', () => {
+            it("is not closed by the old sequence's end arriving after its first packet", () => {
                 vi.useFakeTimers();
                 const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
-                const send = (timeStamp: number, cancelable: boolean) => (
-                    observeDocumentViewportWheelInteraction(port, scrollInteraction(timeStamp, 40, 0, cancelable))
-                );
+                const send = (timeStamp: number, cancelable: boolean) =>
+                    observeDocumentViewportWheelInteraction(port, scrollInteraction(timeStamp, 40, 0, cancelable));
                 send(0, true);
                 port.observeWheelScrollSequence('begin');
                 send(16, false);
@@ -954,9 +962,8 @@ describe('document viewer chassis authority', () => {
             it('starts on a reversal, which inertia never produces, without leaving its sequence', () => {
                 vi.useFakeTimers();
                 const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
-                const send = (timeStamp: number, deltaY: number, cancelable: boolean) => (
-                    observeDocumentViewportWheelInteraction(port, scrollInteraction(timeStamp, deltaY, 0, cancelable))
-                );
+                const send = (timeStamp: number, deltaY: number, cancelable: boolean) =>
+                    observeDocumentViewportWheelInteraction(port, scrollInteraction(timeStamp, deltaY, 0, cancelable));
                 send(0, 60, true);
                 port.observeWheelScrollSequence('begin');
                 send(16, 55, false);
@@ -987,9 +994,8 @@ describe('document viewer chassis authority', () => {
             it('neither reopens nor ends a sequence this viewport finished earlier', () => {
                 vi.useFakeTimers();
                 const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
-                const send = (timeStamp: number, cancelable: boolean) => (
-                    observeDocumentViewportWheelInteraction(port, scrollInteraction(timeStamp, 40, 0, cancelable))
-                );
+                const send = (timeStamp: number, cancelable: boolean) =>
+                    observeDocumentViewportWheelInteraction(port, scrollInteraction(timeStamp, 40, 0, cancelable));
                 send(0, true);
                 port.observeWheelScrollSequence('begin');
                 send(16, false);
@@ -1012,9 +1018,8 @@ describe('document viewer chassis authority', () => {
             it('still ends its own sequence when it started listening mid-sequence and saw no begin', () => {
                 vi.useFakeTimers();
                 const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
-                const send = (timeStamp: number, cancelable: boolean) => (
-                    observeDocumentViewportWheelInteraction(port, scrollInteraction(timeStamp, 40, 0, cancelable))
-                );
+                const send = (timeStamp: number, cancelable: boolean) =>
+                    observeDocumentViewportWheelInteraction(port, scrollInteraction(timeStamp, 40, 0, cancelable));
                 // An earlier sequence elsewhere taught the viewport that the
                 // host reports boundaries.
                 port.observeWheelScrollSequence('begin');
@@ -1029,10 +1034,7 @@ describe('document viewer chassis authority', () => {
             });
         });
 
-        it.each([
-            40,
-            5_000,
-        ])('holds a command at %i ms through queued one-packet wheel sequences', (commandAtMs) => {
+        it.each([40, 5_000])('holds a command at %i ms through queued one-packet wheel sequences', (commandAtMs) => {
             vi.useFakeTimers();
             const port = createDocumentViewerRuntime(ref('pdf')).viewportWritePort;
             const container = createViewportContainer();
@@ -1059,11 +1061,13 @@ describe('document viewer chassis authority', () => {
             expect(sendOnePacketSequence(64)).toBe('command-residue');
             expect(port.userScrollSuppressed.value).toBe(true);
             expect(port.isCommandResidueLive()).toBe(true);
-            expect(port.apply(container, {
-                intent: navigation,
-                reason: 'navigation',
-                top: 0,
-            })).toBe(true);
+            expect(
+                port.apply(container, {
+                    intent: navigation,
+                    reason: 'navigation',
+                    top: 0,
+                }),
+            ).toBe(true);
 
             // Quiet: scrolling comes back, and once the restored style has
             // settled the next gesture is Chromium's to scroll.
@@ -1123,33 +1127,41 @@ describe('document viewer chassis authority', () => {
         const staleByIntent = authority.viewportWritePort.beginIntent('navigate:old');
         const current = authority.viewportWritePort.beginIntent('navigate:new');
 
-        expect(authority.viewportWritePort.apply(container, {
-            intent: staleByIntent,
-            reason: 'late-old-navigation',
-            top: 100,
-        })).toBe(false);
-        expect(authority.viewportWritePort.apply(container, {
-            intent: current,
-            reason: 'latest-navigation',
-            top: 200,
-        })).toBe(true);
+        expect(
+            authority.viewportWritePort.apply(container, {
+                intent: staleByIntent,
+                reason: 'late-old-navigation',
+                top: 100,
+            }),
+        ).toBe(false);
+        expect(
+            authority.viewportWritePort.apply(container, {
+                intent: current,
+                reason: 'latest-navigation',
+                top: 200,
+            }),
+        ).toBe(true);
         expect(container.scrollTop).toBe(200);
 
         const staleByInteraction = authority.viewportWritePort.beginIntent('resize-restore');
         authority.viewportWritePort.observeUserScroll(container);
-        expect(authority.viewportWritePort.apply(container, {
-            intent: staleByInteraction,
-            reason: 'late-resize',
-            top: 300,
-        })).toBe(false);
+        expect(
+            authority.viewportWritePort.apply(container, {
+                intent: staleByInteraction,
+                reason: 'late-resize',
+                top: 300,
+            }),
+        ).toBe(false);
 
         const staleByDocument = authority.viewportWritePort.beginIntent('document-a-restore');
         authority.bindSource(createSource('pdf', 4));
-        expect(authority.viewportWritePort.apply(container, {
-            intent: staleByDocument,
-            reason: 'late-document-a',
-            top: 400,
-        })).toBe(false);
+        expect(
+            authority.viewportWritePort.apply(container, {
+                intent: staleByDocument,
+                reason: 'late-document-a',
+                top: 400,
+            }),
+        ).toBe(false);
         expect(container.scrollTop).toBe(200);
     });
 
@@ -1168,7 +1180,7 @@ describe('document viewer chassis authority', () => {
             getClass: () => 'pdfViewer',
             getStyle: () => ({zoom: 2}),
             events: {scroll: () => received.push('pdf')},
-            wheel: value => received.push(`pdf-${value.intent}`),
+            wheel: (value) => received.push(`pdf-${value.intent}`),
         });
         authority.dispatchViewportEvent('scroll');
         authority.dispatchViewportWheel(interaction);
@@ -1180,27 +1192,20 @@ describe('document viewer chassis authority', () => {
             getClass: () => 'document-source-viewer',
             getStyle: () => ({}),
             events: {scroll: () => received.push('djvu')},
-            wheel: value => received.push(`djvu-${value.intent}`),
+            wheel: (value) => received.push(`djvu-${value.intent}`),
         });
         authority.dispatchViewportEvent('scroll');
         authority.dispatchViewportWheel(interaction);
 
         expect(authority.viewportElement.value).toBe(container);
         expect(authority.viewportClass.value).toBe('document-source-viewer');
-        expect(received).toEqual([
-            'pdf',
-            'pdf-platform-scroll',
-            'djvu',
-            'djvu-platform-scroll',
-        ]);
+        expect(received).toEqual(['pdf', 'pdf-platform-scroll', 'djvu', 'djvu-platform-scroll']);
     });
 
     it('rejects a feature pack that attempts to bind a source of the wrong kind', () => {
         const authority = createDocumentViewerRuntime(ref('pdf'));
 
-        expect(() => authority.bindSource(createSource('djvu', 3))).toThrow(
-            'Cannot bind djvu source to pdf chassis',
-        );
+        expect(() => authority.bindSource(createSource('djvu', 3))).toThrow('Cannot bind djvu source to pdf chassis');
     });
 
     it('clamps the physical navigation cursor after the source page count is known', () => {
@@ -1236,7 +1241,7 @@ describe('document viewer chassis authority', () => {
         expect(authority.currentPage.value).toBe(8);
     });
 
-    it('publishes its navigation as the open surface\'s current ticket', () => {
+    it("publishes its navigation as the open surface's current ticket", () => {
         const openSurface = createDocumentOpenSurfaceSession();
         openSurface.begin({
             documentId: 'scan.pdf',
@@ -1262,11 +1267,7 @@ describe('document viewer chassis authority', () => {
             const authority = createDocumentViewerRuntime(ref('pdf'), openSurface);
             const port = authority.viewportWritePort;
             const container = createViewportContainer();
-            const send = () => observeDocumentViewportWheelInteraction(
-                port,
-                scrollInteraction(performance.now(), 40, 0, true),
-                container,
-            );
+            const send = () => observeDocumentViewportWheelInteraction(port, scrollInteraction(performance.now(), 40, 0, true), container);
 
             expect(send()).toBe('user-input');
             expect(authority.navigate(createPageNavigationRequest(2, 'wheel'))).not.toBeNull();
@@ -1335,10 +1336,12 @@ describe('document viewer chassis authority', () => {
         expect(rebound.currentPage.value).toBe(1);
         expect(rebound.navigationPage.value).toBe(1);
 
-        expect(openSurface.reportNavigation(ticket!, {
-            kind: 'resolved',
-            page: 8,
-        })).toBe(true);
+        expect(
+            openSurface.reportNavigation(ticket!, {
+                kind: 'resolved',
+                page: 8,
+            }),
+        ).toBe(true);
         expect(authority.currentPage.value).toBe(1);
         expect(authority.navigationPage.value).toBe(8);
         expect(rebound.currentPage.value).toBe(1);

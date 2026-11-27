@@ -1,11 +1,7 @@
-import {
-    readFile,
-    rm,
-    writeFile,
-} from 'fs/promises';
-import { join } from 'path';
-import { app } from 'electron';
-import { userInfo } from 'node:os';
+import {readFile, rm, writeFile} from 'fs/promises';
+import {join} from 'path';
+import {app} from 'electron';
+import {userInfo} from 'node:os';
 import {
     DEFAULT_SETTINGS,
     migrateSettings,
@@ -14,29 +10,17 @@ import {
     UnsupportedSettingsSchemaError,
     type ISettingsRecoveryNotice,
 } from '@contracts/settings';
-import type { ISettingsData } from '@contracts/shared';
-import {
-    isErrnoException,
-    isRecord,
-} from '@contracts/runtimeGuards';
-import { createLogger } from '@electron/utils/createLogger';
-import { getErrorMessage } from '@electron/utils/error';
-import {
-    atomicReplace,
-    makeSiblingTempPath,
-} from '@electron/utils/atomicReplace';
-import { quarantineCorruptFile } from '@electron/utils/quarantineCorruptFile';
-import { sendPlatformEvent } from '@electron/utils/sendPlatformEvent';
-import { getAllRegisteredAppWindows } from '@electron/window/registry';
-import {
-    SETTINGS_PLATFORM_FEATURE,
-    type ISettingsEventMap,
-} from '@contracts/settingsPlatformFeature';
+import type {ISettingsData} from '@contracts/shared';
+import {isErrnoException, isRecord} from '@contracts/runtimeGuards';
+import {createLogger} from '@electron/utils/createLogger';
+import {getErrorMessage} from '@electron/utils/error';
+import {atomicReplace, makeSiblingTempPath} from '@electron/utils/atomicReplace';
+import {quarantineCorruptFile} from '@electron/utils/quarantineCorruptFile';
+import {sendPlatformEvent} from '@electron/utils/sendPlatformEvent';
+import {getAllRegisteredAppWindows} from '@electron/window/registry';
+import {SETTINGS_PLATFORM_FEATURE, type ISettingsEventMap} from '@contracts/settingsPlatformFeature';
 import {setMainDiagnosticsPreference} from '@electron/features/diagnostics/public';
-import {
-    parseClientDiagnosticsPreference,
-    type TClientDiagnosticsPreference,
-} from '@contracts/diagnostics/diagnosticsPreference';
+import {parseClientDiagnosticsPreference, type TClientDiagnosticsPreference} from '@contracts/diagnostics/diagnosticsPreference';
 import {runtimeConfig} from '@electron/runtimeConfig';
 import * as v from 'valibot';
 
@@ -59,14 +43,12 @@ let consentIntent: {
 };
 
 type TSettingsUpdateResult = Partial<ISettingsData> | undefined;
-type TSettingsUpdater = (
-    settings: ISettingsData,
-) => TSettingsUpdateResult | Promise<TSettingsUpdateResult>;
+type TSettingsUpdater = (settings: ISettingsData) => TSettingsUpdateResult | Promise<TSettingsUpdateResult>;
 
 // Version migration fills v1 defaults and retains stored extension keys.
 const settingsFileSchema = v.pipe(
     v.unknown(),
-    v.transform(value => migrateSettings(value)),
+    v.transform((value) => migrateSettings(value)),
 );
 
 /** A revocation takes effect immediately; a grant only once it is on disk. */
@@ -92,9 +74,9 @@ function withLatestConsent(settings: ISettingsData): ISettingsData {
     return consentIntent.preference === null
         ? settings
         : migrateSettings({
-            ...settings,
-            clientDiagnosticsPreference: consentIntent.preference,
-        });
+              ...settings,
+              clientDiagnosticsPreference: consentIntent.preference,
+          });
 }
 
 function getStoragePath() {
@@ -113,9 +95,9 @@ function applyElectronDefaults(settings: ISettingsData): ISettingsData {
         const username = userInfo().username.trim();
         return username
             ? {
-                ...settings,
-                authorName: username,
-            }
+                  ...settings,
+                  authorName: username,
+              }
             : settings;
     } catch {
         return settings;
@@ -124,7 +106,10 @@ function applyElectronDefaults(settings: ISettingsData): ISettingsData {
 
 function queueSettingsMutation<T>(mutation: () => Promise<T>) {
     const task = settingsMutationQueue.then(() => mutation());
-    settingsMutationQueue = task.then(() => undefined, () => undefined);
+    settingsMutationQueue = task.then(
+        () => undefined,
+        () => undefined,
+    );
     return task;
 }
 
@@ -135,7 +120,7 @@ async function writeSettingsAtomically(storagePath: string, settings: ISettingsD
     try {
         await atomicReplace(tempPath, storagePath);
     } catch (error) {
-        await rm(tempPath, { force: true }).catch(() => {});
+        await rm(tempPath, {force: true}).catch(() => {});
         throw error;
     }
 }
@@ -217,7 +202,7 @@ export async function loadSettings(): Promise<ISettingsData> {
     }
 
     if (settingsLoadPromise) {
-        return cloneSettings(withLatestConsent(await settingsLoadPromise ?? getDefaultSettings()));
+        return cloneSettings(withLatestConsent((await settingsLoadPromise) ?? getDefaultSettings()));
     }
 
     const generation = settingsCacheGeneration;
@@ -250,9 +235,7 @@ export function encodeUiScalePreferenceArgument() {
     if (!settingsCache) {
         return [];
     }
-    const encodedPreference = Buffer
-        .from(JSON.stringify(settingsCache.uiScale), 'utf8')
-        .toString('base64url');
+    const encodedPreference = Buffer.from(JSON.stringify(settingsCache.uiScale), 'utf8').toString('base64url');
     return [`${UI_SCALE_PREFERENCE_ARGUMENT_PREFIX}${encodedPreference}`];
 }
 
@@ -272,7 +255,7 @@ function broadcastCommittedSettings(settings: ISettingsData) {
             window,
             SETTINGS_PLATFORM_FEATURE.eventChannels.onChanged,
             settings,
-            error => logger.debug(`Failed to send settings change: ${getErrorMessage(error)}`),
+            (error) => logger.debug(`Failed to send settings change: ${getErrorMessage(error)}`),
         );
     }
 }
@@ -284,7 +267,9 @@ export async function updateSettings(
     return queueSettingsMutation(async () => {
         const generation = settingsCacheGeneration;
         const storagePath = getStoragePath();
-        if (!settingsCache) {await loadSettings();}
+        if (!settingsCache) {
+            await loadSettings();
+        }
         if (!settingsCache) {
             // A grant this change carried never reached disk; a later save
             // must not write it either, so the stored choice stands.
@@ -299,17 +284,16 @@ export async function updateSettings(
         const current = cloneSettings(settingsCache);
         const draft = cloneSettings(current);
         const mutationResult = await mutate(draft);
-        let next = migrateSettings(isRecord(mutationResult)
-            ? {
-                ...draft,
-                ...mutationResult,
-            }
-            : draft);
+        let next = migrateSettings(
+            isRecord(mutationResult)
+                ? {
+                      ...draft,
+                      ...mutationResult,
+                  }
+                : draft,
+        );
         let consentRevision = options.diagnosticsConsentRevision;
-        if (
-            consentRevision === undefined
-            && next.clientDiagnosticsPreference !== current.clientDiagnosticsPreference
-        ) {
+        if (consentRevision === undefined && next.clientDiagnosticsPreference !== current.clientDiagnosticsPreference) {
             consentRevision = recordMainDiagnosticsConsentIntent(next.clientDiagnosticsPreference);
         }
         // A choice made while this write was in flight is written after it.
@@ -324,9 +308,9 @@ export async function updateSettings(
             }
         } catch (error) {
             if (
-                next.clientDiagnosticsPreference === 'granted'
-                && consentRevision !== undefined
-                && consentRevision === consentIntent.revision
+                next.clientDiagnosticsPreference === 'granted' &&
+                consentRevision !== undefined &&
+                consentRevision === consentIntent.revision
             ) {
                 recordMainDiagnosticsConsentIntent(current.clientDiagnosticsPreference);
             }

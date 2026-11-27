@@ -5,36 +5,19 @@ import {
     type IPdfTextContent,
     type IPdfViewport,
 } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import { isAbortError } from '@contracts/isAbortError';
-import {
-    pageNumberToPageIndex,
-    requirePageNumber,
-    type TPageIndex,
-    type TPageNumber,
-} from '@contracts/pageNumbers';
-import type { TDocumentRef } from '@contracts/documentRef';
-import {
-    watch,
-    type MaybeRefOrGetter,
-} from 'vue';
-import { tryOnScopeDispose } from '@vueuse/core';
-import type {
-    IPdfPageMatches,
-    IPdfSearchMatch,
-} from '@app/types/pdfUi';
-import type { IOcrWord } from '@contracts/shared';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import { buildOcrWordKey } from '@contracts/ocrText';
-import { usePdfSearchHighlight } from '@app/modules/pdf-viewer/runtime/composables/usePdfSearchHighlight';
-import {
-    setupTextLayer,
-    teardownTextLayer,
-} from '@app/modules/pdf-viewer/runtime/composables/useTextLayerSelection';
-import {
-    isOcrDebugEnabled,
-    usePdfWordBoxes,
-} from '@app/modules/pdf-viewer/runtime/composables/usePdfWordBoxes';
-import { useOcrTextContent } from '@app/modules/pdf-viewer/runtime/composables/pdf/useOcrTextContent';
+import {isAbortError} from '@contracts/isAbortError';
+import {pageNumberToPageIndex, requirePageNumber, type TPageIndex, type TPageNumber} from '@contracts/pageNumbers';
+import type {TDocumentRef} from '@contracts/documentRef';
+import {watch, type MaybeRefOrGetter} from 'vue';
+import {tryOnScopeDispose} from '@vueuse/core';
+import type {IPdfPageMatches, IPdfSearchMatch} from '@app/types/pdfUi';
+import type {IOcrWord} from '@contracts/shared';
+import type {TDocumentRevisionToken} from '@contracts/documentRevision';
+import {buildOcrWordKey} from '@contracts/ocrText';
+import {usePdfSearchHighlight} from '@app/modules/pdf-viewer/runtime/composables/usePdfSearchHighlight';
+import {setupTextLayer, teardownTextLayer} from '@app/modules/pdf-viewer/runtime/composables/useTextLayerSelection';
+import {isOcrDebugEnabled, usePdfWordBoxes} from '@app/modules/pdf-viewer/runtime/composables/usePdfWordBoxes';
+import {useOcrTextContent} from '@app/modules/pdf-viewer/runtime/composables/pdf/useOcrTextContent';
 import {
     pdfViewportScrollActivity,
     type IPdfViewportScrollActivity,
@@ -44,23 +27,23 @@ import type {
     TPageMatchEntry,
     TTextLayerTextContentSource,
 } from '@app/modules/pdf-viewer/runtime/composables/pdf/pdfTextLayerRendererTypes';
-import { getHighlightMode } from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightCss';
+import {getHighlightMode} from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightCss';
 import {
     clearTextLayerIndexCache,
     clearTextLayerTextMapping,
     registerTextLayerTextMapping,
 } from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightDom';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { measureDevPerf } from '@app/utils/devPerf';
-import { logPdfNav } from '@app/utils/logPdfNav';
-import { guardAsync } from '@app/utils/asyncGuard';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {measureDevPerf} from '@app/utils/devPerf';
+import {logPdfNav} from '@app/utils/logPdfNav';
+import {guardAsync} from '@app/utils/asyncGuard';
 import {
     createPdfjsStructTreeLayer,
     createPdfjsTextLayer,
     type IPdfStructTreeLayer,
     type IPdfTextLayer,
 } from '@app/services/pdfjs/pdfViewerFacade';
-import { PDF_PAGE_SCALE_CSS_VARS } from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
+import {PDF_PAGE_SCALE_CSS_VARS} from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
 const HIGHLIGHT_REFRESH_BUDGET_MS = 8;
 const HIGHLIGHT_REFRESH_MAX_PAGES_PER_SLICE = 4;
 /** What a text-layer element holds; `textLayer` is set once its spans are complete. */
@@ -98,21 +81,9 @@ export const usePdfTextLayerRenderer = (deps: {
     const scrollActivity = deps.scrollActivity ?? pdfViewportScrollActivity;
     const activeDeferredStructTreeControllers = new Set<AbortController>();
     const deferredTextLayerWakers = new Map<number, Set<() => void>>();
-    const {
-        clearHighlights,
-        highlightPage,
-    } = usePdfSearchHighlight();
-    const {
-        renderPageWordBoxes,
-        clearWordBoxes,
-        clearOcrDebugBoxes,
-        renderOcrDebugBoxes,
-    } = usePdfWordBoxes();
-    const {
-        getOcrTextContent,
-        hasPageOcrData,
-        peekPageOcrData,
-    } = useOcrTextContent();
+    const {clearHighlights, highlightPage} = usePdfSearchHighlight();
+    const {renderPageWordBoxes, clearWordBoxes, clearOcrDebugBoxes, renderOcrDebugBoxes} = usePdfWordBoxes();
+    const {getOcrTextContent, hasPageOcrData, peekPageOcrData} = useOcrTextContent();
 
     const pageHighlightState: IPageHighlightSignatureState = {
         signatureByPage: new Map<number, string>(),
@@ -148,7 +119,7 @@ export const usePdfTextLayerRenderer = (deps: {
                 }
             }
         },
-        { flush: 'sync' },
+        {flush: 'sync'},
     );
 
     tryOnScopeDispose(() => {
@@ -182,17 +153,12 @@ export const usePdfTextLayerRenderer = (deps: {
         return Array.from(wordsByKey.values());
     }
 
-    function isSamePageMatchEntry(
-        match: TPageMatchEntry,
-        matchIndex: number,
-        currentMatchValue: IPdfSearchMatch,
-    ) {
-        return matchIndex === currentMatchValue.pageMatchIndex
-            || match.matchIndex === currentMatchValue.matchIndex
-            || (
-                match.start === currentMatchValue.startOffset
-                && match.end === currentMatchValue.endOffset
-            );
+    function isSamePageMatchEntry(match: TPageMatchEntry, matchIndex: number, currentMatchValue: IPdfSearchMatch) {
+        return (
+            matchIndex === currentMatchValue.pageMatchIndex ||
+            match.matchIndex === currentMatchValue.matchIndex ||
+            (match.start === currentMatchValue.startOffset && match.end === currentMatchValue.endOffset)
+        );
     }
 
     function resolveCurrentMatchWords(
@@ -208,9 +174,7 @@ export const usePdfTextLayerRenderer = (deps: {
             return currentMatchValue.words;
         }
 
-        const currentPageMatch = pageMatchData?.matches.find((match, index) => (
-            isSamePageMatchEntry(match, index, currentMatchValue)
-        ));
+        const currentPageMatch = pageMatchData?.matches.find((match, index) => isSamePageMatchEntry(match, index, currentMatchValue));
 
         return currentPageMatch?.words ?? [];
     }
@@ -220,14 +184,16 @@ export const usePdfTextLayerRenderer = (deps: {
         pageWidth: number;
         words: readonly IOcrWord[];
     } {
-        return Array.isArray(match.words)
-            && match.words.length > 0
-            && typeof match.pageWidth === 'number'
-            && Number.isFinite(match.pageWidth)
-            && match.pageWidth > 0
-            && typeof match.pageHeight === 'number'
-            && Number.isFinite(match.pageHeight)
-            && match.pageHeight > 0;
+        return (
+            Array.isArray(match.words) &&
+            match.words.length > 0 &&
+            typeof match.pageWidth === 'number' &&
+            Number.isFinite(match.pageWidth) &&
+            match.pageWidth > 0 &&
+            typeof match.pageHeight === 'number' &&
+            Number.isFinite(match.pageHeight) &&
+            match.pageHeight > 0
+        );
     }
 
     function hasRenderableCurrentMatchGeometry(
@@ -239,28 +205,30 @@ export const usePdfTextLayerRenderer = (deps: {
         words: readonly IOcrWord[];
     } {
         return Boolean(
-            currentMatchValue
-            && currentMatchValue.pageIndex === pageIndex
-            && Array.isArray(currentMatchValue.words)
-            && currentMatchValue.words.length > 0
-            && typeof currentMatchValue.pageWidth === 'number'
-            && Number.isFinite(currentMatchValue.pageWidth)
-            && currentMatchValue.pageWidth > 0
-            && typeof currentMatchValue.pageHeight === 'number'
-            && Number.isFinite(currentMatchValue.pageHeight)
-            && currentMatchValue.pageHeight > 0,
+            currentMatchValue &&
+            currentMatchValue.pageIndex === pageIndex &&
+            Array.isArray(currentMatchValue.words) &&
+            currentMatchValue.words.length > 0 &&
+            typeof currentMatchValue.pageWidth === 'number' &&
+            Number.isFinite(currentMatchValue.pageWidth) &&
+            currentMatchValue.pageWidth > 0 &&
+            typeof currentMatchValue.pageHeight === 'number' &&
+            Number.isFinite(currentMatchValue.pageHeight) &&
+            currentMatchValue.pageHeight > 0,
         );
     }
 
     function computeWordsGeometryHash(words: readonly IOcrWord[] | undefined) {
-        return words?.reduce((hash, word) => {
-            let nextHash = hash;
-            nextHash = Math.imul(nextHash ^ Math.round(word.x * 100), 16777619);
-            nextHash = Math.imul(nextHash ^ Math.round(word.y * 100), 16777619);
-            nextHash = Math.imul(nextHash ^ Math.round(word.width * 100), 16777619);
-            nextHash = Math.imul(nextHash ^ Math.round(word.height * 100), 16777619);
-            return nextHash >>> 0;
-        }, 2166136261) ?? 0;
+        return (
+            words?.reduce((hash, word) => {
+                let nextHash = hash;
+                nextHash = Math.imul(nextHash ^ Math.round(word.x * 100), 16777619);
+                nextHash = Math.imul(nextHash ^ Math.round(word.y * 100), 16777619);
+                nextHash = Math.imul(nextHash ^ Math.round(word.width * 100), 16777619);
+                nextHash = Math.imul(nextHash ^ Math.round(word.height * 100), 16777619);
+                return nextHash >>> 0;
+            }, 2166136261) ?? 0
+        );
     }
 
     function buildCurrentMatchSignature(currentMatchValue: IPdfSearchMatch) {
@@ -282,10 +250,7 @@ export const usePdfTextLayerRenderer = (deps: {
         return Boolean(currentMatchValue && currentMatchValue.pageIndex === pageIndex);
     }
 
-    function buildPageHighlightSignature(
-        pageMatchData: IPdfPageMatches | null,
-        currentMatchValue: IPdfSearchMatch | null,
-    ) {
+    function buildPageHighlightSignature(pageMatchData: IPdfPageMatches | null, currentMatchValue: IPdfSearchMatch | null) {
         if (!pageMatchData || pageMatchData.matches.length === 0) {
             return isCurrentMatchForPage(currentMatchValue, pageMatchData?.pageIndex)
                 ? `empty|current=${currentMatchValue.matchIndex}:${currentMatchValue.pageMatchIndex ?? -1}`
@@ -315,25 +280,20 @@ export const usePdfTextLayerRenderer = (deps: {
         }
 
         const geometryMatch = pageMatchData.matches.find(hasRenderableGeometryMatch);
-        const currentGeometryMatch = hasRenderableCurrentMatchGeometry(currentMatchValue, pageIndex)
-            ? currentMatchValue
-            : null;
+        const currentGeometryMatch = hasRenderableCurrentMatchGeometry(currentMatchValue, pageIndex) ? currentMatchValue : null;
         const geometrySource = geometryMatch ?? currentGeometryMatch;
         if (!geometrySource) {
             logPdfNav(
-                `[PDF-NAV] renderWordBoxesForPageMatch: page=${pageIndex + 1} no geometry source`
-                + ` pageMatches=${pageMatchData.matches.length}`
-                + ` pageWordMatches=${pageMatchData.matches.filter(match => Array.isArray(match.words) && match.words.length > 0).length}`
-                + ` currentWords=${currentMatchValue?.words?.length ?? 0}`
-                + ` currentPage=${currentMatchValue?.pageIndex ?? 'null'}`,
+                `[PDF-NAV] renderWordBoxesForPageMatch: page=${pageIndex + 1} no geometry source` +
+                    ` pageMatches=${pageMatchData.matches.length}` +
+                    ` pageWordMatches=${pageMatchData.matches.filter((match) => Array.isArray(match.words) && match.words.length > 0).length}` +
+                    ` currentWords=${currentMatchValue?.words?.length ?? 0}` +
+                    ` currentPage=${currentMatchValue?.pageIndex ?? 'null'}`,
             );
             return;
         }
 
-        const wordsByKey = new Map(collectWordsFromPageMatches(pageMatchData).map(word => [
-            buildOcrWordKey(word),
-            word,
-        ]));
+        const wordsByKey = new Map(collectWordsFromPageMatches(pageMatchData).map((word) => [buildOcrWordKey(word), word]));
         currentGeometryMatch?.words.forEach((word) => {
             wordsByKey.set(buildOcrWordKey(word), word);
         });
@@ -344,11 +304,11 @@ export const usePdfTextLayerRenderer = (deps: {
         });
 
         logPdfNav(
-            `[PDF-NAV] renderWordBoxesForPageMatch: page=${pageIndex + 1}`
-            + ` words=${allWords.length}`
-            + ` currentWords=${currentMatchWords.size}`
-            + ` source=${geometryMatch ? 'page' : 'current'}`
-            + ` pageSize=${geometrySource.pageWidth.toFixed(2)}x${geometrySource.pageHeight.toFixed(2)}`,
+            `[PDF-NAV] renderWordBoxesForPageMatch: page=${pageIndex + 1}` +
+                ` words=${allWords.length}` +
+                ` currentWords=${currentMatchWords.size}` +
+                ` source=${geometryMatch ? 'page' : 'current'}` +
+                ` pageSize=${geometrySource.pageWidth.toFixed(2)}x${geometrySource.pageHeight.toFixed(2)}`,
         );
 
         renderPageWordBoxes(
@@ -371,15 +331,10 @@ export const usePdfTextLayerRenderer = (deps: {
         currentMatchValue: IPdfSearchMatch | null,
         pageIndex: TPageIndex,
     ) {
-        return hasPageMatchWordBoxes(pageMatchData)
-            || hasRenderableCurrentMatchGeometry(currentMatchValue, pageIndex);
+        return hasPageMatchWordBoxes(pageMatchData) || hasRenderableCurrentMatchGeometry(currentMatchValue, pageIndex);
     }
 
-    function hasRenderedSearchGeometry(
-        container: HTMLElement,
-        currentMatchValue: IPdfSearchMatch | null,
-        pageIndex: TPageIndex,
-    ) {
+    function hasRenderedSearchGeometry(container: HTMLElement, currentMatchValue: IPdfSearchMatch | null, pageIndex: TPageIndex) {
         if (!container.querySelector('.pdf-word-box')) {
             return false;
         }
@@ -392,10 +347,7 @@ export const usePdfTextLayerRenderer = (deps: {
     }
 
     function hasUsablePdfTextContent(textContent: IPdfTextContent | null) {
-        return Boolean(textContent?.items.some(item => (
-            'str' in item
-            && String(item.str ?? '').trim().length > 0
-        )));
+        return Boolean(textContent?.items.some((item) => 'str' in item && String(item.str ?? '').trim().length > 0));
     }
 
     async function getPdfjsTextContent(pdfPage: IPdfPage) {
@@ -420,7 +372,7 @@ export const usePdfTextLayerRenderer = (deps: {
         for (const element of structure.querySelectorAll<HTMLElement>('[aria-owns]')) {
             const ownedIds = element.getAttribute('aria-owns')?.split(/\s+/u).filter(Boolean) ?? [];
             const text = ownedIds
-                .map(id => textLayerDiv.querySelector<HTMLElement>(`#${CSS.escape(id)}`)?.textContent ?? '')
+                .map((id) => textLayerDiv.querySelector<HTMLElement>(`#${CSS.escape(id)}`)?.textContent ?? '')
                 .join(' ')
                 .replace(/\s+/gu, ' ')
                 .trim();
@@ -431,14 +383,10 @@ export const usePdfTextLayerRenderer = (deps: {
     }
 
     function getCurrentTime() {
-        return typeof performance !== 'undefined'
-            ? performance.now()
-            : Date.now();
+        return typeof performance !== 'undefined' ? performance.now() : Date.now();
     }
 
-    function runPendingHighlightRefresh(
-        flushSearchHighlightRefresh: (root: HTMLElement | null, refreshVersion: number) => void,
-    ) {
+    function runPendingHighlightRefresh(flushSearchHighlightRefresh: (root: HTMLElement | null, refreshVersion: number) => void) {
         const pendingRoot = pageHighlightState.pendingRoot;
         pageHighlightState.pendingRoot = null;
         if (pendingRoot) {
@@ -448,8 +396,7 @@ export const usePdfTextLayerRenderer = (deps: {
 
     function shouldPauseHighlightRefreshSlice(processedPages: number, sliceStartedAt: number) {
         const elapsed = getCurrentTime() - sliceStartedAt;
-        return processedPages >= HIGHLIGHT_REFRESH_MAX_PAGES_PER_SLICE
-            || elapsed >= HIGHLIGHT_REFRESH_BUDGET_MS;
+        return processedPages >= HIGHLIGHT_REFRESH_MAX_PAGES_PER_SLICE || elapsed >= HIGHLIGHT_REFRESH_BUDGET_MS;
     }
 
     function pageHasSearchMatches(pageMatchData: IPdfPageMatches | null) {
@@ -493,38 +440,30 @@ export const usePdfTextLayerRenderer = (deps: {
         // text layer has committed. Keep the outgoing current mark until the
         // target can paint its replacement. Clearing it here exposes a stale
         // page with no visible match during the real compositor handoff.
-        const targetPageNumber = currentMatchValue
-            ? currentMatchValue.pageIndex + 1
-            : null;
+        const targetPageNumber = currentMatchValue ? currentMatchValue.pageIndex + 1 : null;
         if (
-            !currentMatchPresentationReady
-            && targetPageNumber !== null
-            && mountedPageNumber !== targetPageNumber
-            && container.querySelector('.pdf-search-highlight--current')
+            !currentMatchPresentationReady &&
+            targetPageNumber !== null &&
+            mountedPageNumber !== targetPageNumber &&
+            container.querySelector('.pdf-search-highlight--current')
         ) {
             return;
         }
 
-        const hasGeometryHighlights = hasSearchGeometryForPage(
-            pageMatchData,
-            currentMatchValue,
-            pageIndex,
-        );
-        if (!hasGeometryHighlights && deferSearchHighlightsUntilTextLayerReady(
-            mountedPageNumber,
-            textLayerDiv,
-            pageMatchData,
-        )) {
+        const hasGeometryHighlights = hasSearchGeometryForPage(pageMatchData, currentMatchValue, pageIndex);
+        if (!hasGeometryHighlights && deferSearchHighlightsUntilTextLayerReady(mountedPageNumber, textLayerDiv, pageMatchData)) {
             return;
         }
 
         const signature = buildPageHighlightSignature(pageMatchData, hasGeometryHighlights ? currentMatchValue : null);
         const previousSignature = pageHighlightState.signatureByPage.get(mountedPageNumber);
         if (
-            previousSignature === signature
-            && (!hasGeometryHighlights || hasRenderedSearchGeometry(container, currentMatchValue, pageIndex))
+            previousSignature === signature &&
+            (!hasGeometryHighlights || hasRenderedSearchGeometry(container, currentMatchValue, pageIndex))
         ) {
-            if (!hasGeometryHighlights) {highlightPage(textLayerDiv, pageMatchData, currentMatchValue);}
+            if (!hasGeometryHighlights) {
+                highlightPage(textLayerDiv, pageMatchData, currentMatchValue);
+            }
             return;
         }
 
@@ -539,11 +478,7 @@ export const usePdfTextLayerRenderer = (deps: {
                     renderedTextLayers.get(textLayerDiv)?.viewport,
                 );
             } else if (pageMatchData && pageMatchData.matches.length > 0) {
-                highlightPage(
-                    textLayerDiv,
-                    pageMatchData,
-                    currentMatchValue,
-                );
+                highlightPage(textLayerDiv, pageMatchData, currentMatchValue);
                 clearWordBoxes(container);
             } else {
                 clearHighlights(textLayerDiv);
@@ -572,10 +507,7 @@ export const usePdfTextLayerRenderer = (deps: {
             });
         };
 
-        const flushSearchHighlightRefresh = (
-            root: HTMLElement | null,
-            refreshVersion: number,
-        ) => {
+        const flushSearchHighlightRefresh = (root: HTMLElement | null, refreshVersion: number) => {
             if (!root || ('isConnected' in root && root.isConnected === false)) {
                 return;
             }
@@ -583,8 +515,9 @@ export const usePdfTextLayerRenderer = (deps: {
             const pageContainers = Array.from(root.querySelectorAll<HTMLElement>('.page_container'));
             const searchMatchesValue = toValue(deps.searchPageMatches);
             const currentMatchValue = toValue(deps.currentSearchMatch);
-            const currentMatchPresentationReady = currentMatchValue === null
-                || Array.from(root.querySelectorAll<HTMLElement>('.page_container')).some(pageContainer => {
+            const currentMatchPresentationReady =
+                currentMatchValue === null ||
+                Array.from(root.querySelectorAll<HTMLElement>('.page_container')).some((pageContainer) => {
                     if (pageContainer.dataset.page !== String(currentMatchValue.pageIndex + 1)) {
                         return false;
                     }
@@ -601,40 +534,44 @@ export const usePdfTextLayerRenderer = (deps: {
 
                 const sliceStartedAt = getCurrentTime();
 
-                measureDevPerf('pdf:highlight-refresh-slice', () => {
-                    let processedPages = 0;
+                measureDevPerf(
+                    'pdf:highlight-refresh-slice',
+                    () => {
+                        let processedPages = 0;
 
-                    while (nextIndex < pageContainers.length) {
-                        const container = pageContainers[nextIndex]!;
-                        nextIndex += 1;
-                        processedPages += 1;
+                        while (nextIndex < pageContainers.length) {
+                            const container = pageContainers[nextIndex]!;
+                            nextIndex += 1;
+                            processedPages += 1;
 
-                        const mountedPageNumber = Number.parseInt(container.dataset.page ?? '', 10);
-                        if (!Number.isFinite(mountedPageNumber) || mountedPageNumber < 1) {
-                            continue;
+                            const mountedPageNumber = Number.parseInt(container.dataset.page ?? '', 10);
+                            if (!Number.isFinite(mountedPageNumber) || mountedPageNumber < 1) {
+                                continue;
+                            }
+
+                            const pageIndex = pageNumberToPageIndex(requirePageNumber(mountedPageNumber));
+                            const pageMatchData = searchMatchesValue?.get(pageIndex) ?? null;
+                            refreshSearchHighlightsForPage(
+                                container,
+                                mountedPageNumber,
+                                pageMatchData,
+                                currentMatchValue,
+                                currentMatchPresentationReady,
+                            );
+
+                            if (shouldPauseHighlightRefreshSlice(processedPages, sliceStartedAt)) {
+                                break;
+                            }
                         }
-
-                        const pageIndex = pageNumberToPageIndex(requirePageNumber(mountedPageNumber));
-                        const pageMatchData = searchMatchesValue?.get(pageIndex) ?? null;
-                        refreshSearchHighlightsForPage(
-                            container,
-                            mountedPageNumber,
-                            pageMatchData,
-                            currentMatchValue,
-                            currentMatchPresentationReady,
-                        );
-
-                        if (shouldPauseHighlightRefreshSlice(processedPages, sliceStartedAt)) {
-                            break;
-                        }
-                    }
-                }, {
-                    thresholdMs: 8,
-                    details: {
-                        mountedPages: pageContainers.length,
-                        remainingPages: Math.max(0, pageContainers.length - nextIndex),
                     },
-                });
+                    {
+                        thresholdMs: 8,
+                        details: {
+                            mountedPages: pageContainers.length,
+                            remainingPages: Math.max(0, pageContainers.length - nextIndex),
+                        },
+                    },
+                );
 
                 if (nextIndex < pageContainers.length) {
                     scheduleContinuation(processSlice);
@@ -678,10 +615,12 @@ export const usePdfTextLayerRenderer = (deps: {
 
     function canReuseTextLayer(pdfPage: IPdfPage, textLayerDiv: HTMLElement) {
         const rendered = renderedTextLayers.get(textLayerDiv);
-        return Boolean(rendered?.textLayer
-            && rendered.pdfPage === pdfPage
-            && rendered.workingCopyPath === toValue(deps.workingCopyPath)
-            && rendered.documentRevisionToken === toValue(deps.documentRevisionToken));
+        return Boolean(
+            rendered?.textLayer &&
+            rendered.pdfPage === pdfPage &&
+            rendered.workingCopyPath === toValue(deps.workingCopyPath) &&
+            rendered.documentRevisionToken === toValue(deps.documentRevisionToken),
+        );
     }
 
     function isElementConnected(element: HTMLElement) {
@@ -704,11 +643,7 @@ export const usePdfTextLayerRenderer = (deps: {
         return Boolean(currentMatch && currentMatch.pageIndex + 1 === pageNumber);
     }
 
-    function isTextLayerRecordCurrent(
-        record: IRenderedTextLayer,
-        textLayerDiv: HTMLElement,
-        requireConnected: boolean,
-    ) {
+    function isTextLayerRecordCurrent(record: IRenderedTextLayer, textLayerDiv: HTMLElement, requireConnected: boolean) {
         if (renderedTextLayers.get(textLayerDiv) !== record) {
             return false;
         }
@@ -723,11 +658,7 @@ export const usePdfTextLayerRenderer = (deps: {
         return mountedPage === undefined || mountedPage === String(record.pdfPage.pageNumber);
     }
 
-    function waitForScrollOrWake(
-        pageNumber: number,
-        viewportContainer: HTMLElement | null,
-        signal?: AbortSignal,
-    ) {
+    function waitForScrollOrWake(pageNumber: number, viewportContainer: HTMLElement | null, signal?: AbortSignal) {
         if (signal?.aborted) {
             return Promise.reject(createAbortError());
         }
@@ -764,18 +695,21 @@ export const usePdfTextLayerRenderer = (deps: {
             const pageWakers = deferredTextLayerWakers.get(pageNumber) ?? new Set<() => void>();
             pageWakers.add(wake);
             deferredTextLayerWakers.set(pageNumber, pageWakers);
-            signal?.addEventListener('abort', onExternalAbort, { once: true });
+            signal?.addEventListener('abort', onExternalAbort, {once: true});
 
-            scrollActivity.waitUntilSettled(viewportContainer, localAbort.signal).then(() => {
-                cleanup();
-                resolve();
-            }, (error) => {
-                if (settled) {
-                    return;
-                }
-                cleanup();
-                reject(error);
-            });
+            scrollActivity.waitUntilSettled(viewportContainer, localAbort.signal).then(
+                () => {
+                    cleanup();
+                    resolve();
+                },
+                (error) => {
+                    if (settled) {
+                        return;
+                    }
+                    cleanup();
+                    reject(error);
+                },
+            );
         });
     }
 
@@ -789,8 +723,7 @@ export const usePdfTextLayerRenderer = (deps: {
         pageContainer?.querySelector<HTMLElement>('.structTree')?.remove();
         structTreeLayer.updateTextLayer();
         exposeMarkedContentNames(structTreeDom, textLayerDiv);
-        const structureHost = pageContainer
-            ?.querySelector<HTMLElement>('.page_canvas__render-layer, .page_canvas');
+        const structureHost = pageContainer?.querySelector<HTMLElement>('.page_canvas__render-layer, .page_canvas');
         structureHost?.append(structTreeDom);
         record.structTreeDom = structTreeDom;
     }
@@ -804,7 +737,7 @@ export const usePdfTextLayerRenderer = (deps: {
         structTreeDom: HTMLElement;
     } | null> {
         const pdfPage = pageOverride ?? record.pdfPage;
-        const { viewport } = record;
+        const {viewport} = record;
         if (typeof pdfPage.getStructTree !== 'function') {
             return null;
         }
@@ -816,14 +749,12 @@ export const usePdfTextLayerRenderer = (deps: {
             throwIfAborted(signal);
             const renderedStructure = await structTreeLayer.render();
             throwIfAborted(signal);
-            const structTreeDom = typeof HTMLElement !== 'undefined' && renderedStructure instanceof HTMLElement
-                ? renderedStructure
-                : null;
+            const structTreeDom = typeof HTMLElement !== 'undefined' && renderedStructure instanceof HTMLElement ? renderedStructure : null;
             return structTreeDom
                 ? {
-                    structTreeLayer,
-                    structTreeDom,
-                }
+                      structTreeLayer,
+                      structTreeDom,
+                  }
                 : null;
         } catch (structureError) {
             if (!signal?.aborted) {
@@ -834,14 +765,11 @@ export const usePdfTextLayerRenderer = (deps: {
     }
 
     function isCancellationError(error: unknown) {
-        const name = error && typeof error === 'object' ? (error as { name?: unknown }).name : undefined;
+        const name = error && typeof error === 'object' ? (error as {name?: unknown}).name : undefined;
         return isAbortError(error) || name === 'RenderingCancelledException';
     }
 
-    function scheduleDeferredStructTreeHydration(
-        record: IRenderedTextLayer,
-        textLayerDiv: HTMLElement,
-    ) {
+    function scheduleDeferredStructTreeHydration(record: IRenderedTextLayer, textLayerDiv: HTMLElement) {
         if (typeof record.pdfPage.getStructTree !== 'function') {
             return;
         }
@@ -849,21 +777,13 @@ export const usePdfTextLayerRenderer = (deps: {
         record.structTreeAbortController = controller;
         activeDeferredStructTreeControllers.add(controller);
         const documentTeardown = readPdfPageDocumentTeardownSignal(record.pdfPage);
-        const combinedSignal = documentTeardown
-            ? AbortSignal.any([
-                controller.signal,
-                documentTeardown,
-            ])
-            : controller.signal;
+        const combinedSignal = documentTeardown ? AbortSignal.any([controller.signal, documentTeardown]) : controller.signal;
 
         void (async () => {
             let lease: IPdfDocumentPageLease | null = null;
             try {
                 while (scrollActivity.isMotionActive(resolveViewportContainer(textLayerDiv))) {
-                    await scrollActivity.waitUntilSettled(
-                        resolveViewportContainer(textLayerDiv),
-                        combinedSignal,
-                    );
+                    await scrollActivity.waitUntilSettled(resolveViewportContainer(textLayerDiv), combinedSignal);
                     if (combinedSignal.aborted || renderedTextLayers.get(textLayerDiv) !== record) {
                         return;
                     }
@@ -874,11 +794,7 @@ export const usePdfTextLayerRenderer = (deps: {
                 let pageForStructure: IPdfPage = record.pdfPage;
                 if (deps.leasePage) {
                     lease = await deps.leasePage(requirePageNumber(record.pdfPage.pageNumber));
-                    if (
-                        combinedSignal.aborted
-                        || !isTextLayerRecordCurrent(record, textLayerDiv, true)
-                        || lease.page !== record.pdfPage
-                    ) {
+                    if (combinedSignal.aborted || !isTextLayerRecordCurrent(record, textLayerDiv, true) || lease.page !== record.pdfPage) {
                         return;
                     }
                     pageForStructure = lease.page;
@@ -913,13 +829,13 @@ export const usePdfTextLayerRenderer = (deps: {
         textLayerDiv: HTMLElement,
         viewport: ReturnType<IPdfPage['getViewport']>,
         signal?: AbortSignal,
-        renderOptions?: { eagerTextLayer?: boolean | undefined },
+        renderOptions?: {eagerTextLayer?: boolean | undefined},
     ) {
         throwIfAborted(signal);
 
         const rendered = renderedTextLayers.get(textLayerDiv);
         if (rendered?.textLayer && canReuseTextLayer(pdfPage, textLayerDiv)) {
-            rendered.textLayer.update({ viewport });
+            rendered.textLayer.update({viewport});
             rendered.viewport = viewport;
             return;
         }
@@ -935,9 +851,7 @@ export const usePdfTextLayerRenderer = (deps: {
             documentRevisionToken: toValue(deps.documentRevisionToken),
         };
         renderedTextLayers.set(textLayerDiv, record);
-        textLayerDiv.closest<HTMLElement>('.page_container')
-            ?.querySelector<HTMLElement>('.structTree')
-            ?.remove();
+        textLayerDiv.closest<HTMLElement>('.page_container')?.querySelector<HTMLElement>('.structTree')?.remove();
         // Mutable page scale belongs to the page shell. Layer-local copies can
         // outlive their render request and corrupt geometry after a fit change.
         textLayerDiv.style.removeProperty(PDF_PAGE_SCALE_CSS_VARS.scaleFactor);
@@ -946,7 +860,9 @@ export const usePdfTextLayerRenderer = (deps: {
         try {
             await buildTextLayer(record, textLayerDiv, signal, renderOptions);
         } catch (error) {
-            if (renderedTextLayers.get(textLayerDiv) === record) {cleanupTextLayerDom(textLayerDiv);}
+            if (renderedTextLayers.get(textLayerDiv) === record) {
+                cleanupTextLayerDom(textLayerDiv);
+            }
             throw error;
         }
     }
@@ -954,9 +870,13 @@ export const usePdfTextLayerRenderer = (deps: {
     async function resolveTextContentSource(record: IRenderedTextLayer, signal?: AbortSignal): Promise<TTextLayerTextContentSource> {
         const {pdfPage, viewport, workingCopyPath, documentRevisionToken} = record;
         const pageNumber = requirePageNumber(pdfPage.pageNumber);
-        if (!workingCopyPath || !documentRevisionToken) {return getPdfjsTextContentSource(pdfPage);}
+        if (!workingCopyPath || !documentRevisionToken) {
+            return getPdfjsTextContentSource(pdfPage);
+        }
         const cachedPageOcrAvailability = peekPageOcrData(workingCopyPath, documentRevisionToken, pageNumber);
-        if (cachedPageOcrAvailability === false) {return getPdfjsTextContentSource(pdfPage);}
+        if (cachedPageOcrAvailability === false) {
+            return getPdfjsTextContentSource(pdfPage);
+        }
         let hasOcrFallbackForPage = cachedPageOcrAvailability === true;
         if (cachedPageOcrAvailability === null) {
             try {
@@ -969,15 +889,21 @@ export const usePdfTextLayerRenderer = (deps: {
                 BrowserLogger.warn('pdf-text-layer', 'OCR availability check failed', ocrAvailabilityError);
             }
         }
-        if (!hasOcrFallbackForPage) {return getPdfjsTextContentSource(pdfPage);}
+        if (!hasOcrFallbackForPage) {
+            return getPdfjsTextContentSource(pdfPage);
+        }
         // Native PDF text wins; OCR text stands in only for a page without any.
         const pdfjsTextContent = await getPdfjsTextContent(pdfPage);
         throwIfAborted(signal);
-        if (hasUsablePdfTextContent(pdfjsTextContent)) {return pdfjsTextContent;}
+        if (hasUsablePdfTextContent(pdfjsTextContent)) {
+            return pdfjsTextContent;
+        }
         try {
             const ocrTextContent = await getOcrTextContent(workingCopyPath, documentRevisionToken, pageNumber, viewport);
             throwIfAborted(signal);
-            if (ocrTextContent) {return ocrTextContent;}
+            if (ocrTextContent) {
+                return ocrTextContent;
+            }
         } catch (ocrError) {
             if (signal?.aborted) {
                 throw ocrError;
@@ -991,7 +917,7 @@ export const usePdfTextLayerRenderer = (deps: {
         record: IRenderedTextLayer,
         textLayerDiv: HTMLElement,
         signal?: AbortSignal,
-        renderOptions?: { eagerTextLayer?: boolean | undefined },
+        renderOptions?: {eagerTextLayer?: boolean | undefined},
     ) {
         const {pdfPage, viewport} = record;
         const wasConnected = isElementConnected(textLayerDiv);
@@ -1001,11 +927,7 @@ export const usePdfTextLayerRenderer = (deps: {
         // viewport is actively scrolling/zooming so scrolled-past pages abort
         // before touching PDF.js or the DOM. Search target and prioritized pages
         // stay eager.
-        if (
-            wasConnected
-            && renderOptions?.eagerTextLayer !== true
-            && !isCurrentSearchMatchPage(pdfPage.pageNumber)
-        ) {
+        if (wasConnected && renderOptions?.eagerTextLayer !== true && !isCurrentSearchMatchPage(pdfPage.pageNumber)) {
             const viewportContainer = resolveViewportContainer(textLayerDiv);
             if (scrollActivity.isMotionActive(viewportContainer)) {
                 await waitForScrollOrWake(pdfPage.pageNumber, viewportContainer, signal);
@@ -1030,7 +952,7 @@ export const usePdfTextLayerRenderer = (deps: {
         const abortTextLayer = () => {
             textLayer.cancel();
         };
-        signal?.addEventListener('abort', abortTextLayer, { once: true });
+        signal?.addEventListener('abort', abortTextLayer, {once: true});
         try {
             await textLayer.render();
         } finally {
@@ -1041,11 +963,9 @@ export const usePdfTextLayerRenderer = (deps: {
             throw createAbortError();
         }
 
-        const deferStructTree = typeof pdfPage.getStructTree === 'function'
-            && scrollActivity.isMotionActive(resolveViewportContainer(textLayerDiv));
-        const structTreeResult = deferStructTree
-            ? null
-            : await loadStructTreeDom(record, signal);
+        const deferStructTree =
+            typeof pdfPage.getStructTree === 'function' && scrollActivity.isMotionActive(resolveViewportContainer(textLayerDiv));
+        const structTreeResult = deferStructTree ? null : await loadStructTreeDom(record, signal);
 
         // A render that waited on optional structure past a cleanup, reuse, or
         // a newer render of this element publishes nothing.
@@ -1054,12 +974,7 @@ export const usePdfTextLayerRenderer = (deps: {
         }
         throwIfAborted(signal);
         if (structTreeResult) {
-            attachStructTreeDom(
-                record,
-                textLayerDiv,
-                structTreeResult.structTreeLayer,
-                structTreeResult.structTreeDom,
-            );
+            attachStructTreeDom(record, textLayerDiv, structTreeResult.structTreeLayer, structTreeResult.structTreeDom);
         }
 
         registerTextLayerTextMapping(textLayerDiv, {
@@ -1074,12 +989,7 @@ export const usePdfTextLayerRenderer = (deps: {
         }
     }
 
-    function applyPageSearchHighlights(
-        container: HTMLElement,
-        textLayerDiv: HTMLElement,
-        pageNumber: number,
-        viewport?: IPdfViewport,
-    ) {
+    function applyPageSearchHighlights(container: HTMLElement, textLayerDiv: HTMLElement, pageNumber: number, viewport?: IPdfViewport) {
         const pageIndex = pageNumberToPageIndex(requirePageNumber(pageNumber));
         const searchMatches = toValue(deps.searchPageMatches);
         const currentMatch = toValue(deps.currentSearchMatch) ?? null;
@@ -1098,16 +1008,8 @@ export const usePdfTextLayerRenderer = (deps: {
             return;
         }
 
-        const hasGeometryHighlights = hasSearchGeometryForPage(
-            pageMatchData,
-            currentMatch,
-            pageIndex,
-        );
-        if (!hasGeometryHighlights && deferSearchHighlightsUntilTextLayerReady(
-            pageNumber,
-            textLayerDiv,
-            pageMatchData,
-        )) {
+        const hasGeometryHighlights = hasSearchGeometryForPage(pageMatchData, currentMatch, pageIndex);
+        if (!hasGeometryHighlights && deferSearchHighlightsUntilTextLayerReady(pageNumber, textLayerDiv, pageMatchData)) {
             return;
         }
 
@@ -1119,16 +1021,11 @@ export const usePdfTextLayerRenderer = (deps: {
             return;
         }
 
-        const highlightResult = highlightPage(
-            textLayerDiv,
-            pageMatchData,
-            currentMatch,
-        );
+        const highlightResult = highlightPage(textLayerDiv, pageMatchData, currentMatch);
 
         const isCssHighlightMode = getHighlightMode() === 'css';
-        const hasInTextHighlights = isCssHighlightMode
-            || highlightResult.elements.length > 0
-            || highlightResult.currentMatchRanges.length > 0;
+        const hasInTextHighlights =
+            isCssHighlightMode || highlightResult.elements.length > 0 || highlightResult.currentMatchRanges.length > 0;
 
         if (!hasInTextHighlights && pageMatchData && pageMatchData.matches.length > 0) {
             renderWordBoxesForPageMatch(container, pageMatchData, currentMatch, pageIndex);
@@ -1178,22 +1075,11 @@ export const usePdfTextLayerRenderer = (deps: {
         rawPageWidth: number,
         rawPageHeight: number,
     ) {
-        guardAsync(
-            renderOcrDebugBoxes(
-                container,
-                pageNumber,
-                wcPath,
-                documentRevisionToken,
-                viewport,
-                rawPageWidth,
-                rawPageHeight,
-            ),
-            {
-                category: 'background-diagnostic',
-                scope: 'pdf-renderer',
-                message: `Failed to render OCR debug overlays for page ${pageNumber}`,
-            },
-        );
+        guardAsync(renderOcrDebugBoxes(container, pageNumber, wcPath, documentRevisionToken, viewport, rawPageWidth, rawPageHeight), {
+            category: 'background-diagnostic',
+            scope: 'pdf-renderer',
+            message: `Failed to render OCR debug overlays for page ${pageNumber}`,
+        });
     }
 
     function scheduleOcrDebugForPage(
@@ -1219,10 +1105,7 @@ export const usePdfTextLayerRenderer = (deps: {
             return;
         }
 
-        const {
-            viewport,
-            rawDims,
-        } = context.renderResult;
+        const {viewport, rawDims} = context.renderResult;
         scheduleRenderOcrDebugBoxes(
             context.container,
             pageNumber,

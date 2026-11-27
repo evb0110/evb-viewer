@@ -1,26 +1,8 @@
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    effectScope,
-    nextTick,
-    ref,
-    watch,
-} from 'vue';
-import type {
-    EffectScope,
-    Ref,
-} from 'vue';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {effectScope, nextTick, ref, watch} from 'vue';
+import type {EffectScope, Ref} from 'vue';
 import type {StorageLike} from '@vueuse/core';
-import {
-    BROWSER_INSTALL_HINT_COOKIE_KEY,
-    BROWSER_INSTALL_HINT_STORAGE_KEY,
-} from '@app/utils/browserRuntimePersistence';
+import {BROWSER_INSTALL_HINT_COOKIE_KEY, BROWSER_INSTALL_HINT_STORAGE_KEY} from '@app/utils/browserRuntimePersistence';
 
 const mocks = vi.hoisted(() => ({
     mountedCallbacks: [] as Array<() => void>,
@@ -30,7 +12,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('vue', async (importOriginal) => ({
-    ...await importOriginal(),
+    ...(await importOriginal()),
     onMounted: (callback: () => void) => {
         mocks.mountedCallbacks.push(callback);
     },
@@ -79,7 +61,7 @@ function installBrowserGlobals() {
 async function createBrowserInstallHint() {
     const scope = effectScope();
     scopes.push(scope);
-    const { useBrowserInstallHint } = await import('@app/modules/workspace-shell/composables/useBrowserInstallHint');
+    const {useBrowserInstallHint} = await import('@app/modules/workspace-shell/composables/useBrowserInstallHint');
     const hint = scope.run(() => useBrowserInstallHint({isBrowserRuntime: ref(true)}));
     if (!hint) {
         throw new Error('Failed to create browser install hint composable');
@@ -103,7 +85,7 @@ describe('useBrowserInstallHint persistence', () => {
         mocks.useStorage.mockImplementation((key: string, defaultValue: boolean, storage: StorageLike) => {
             const stored = storage.getItem(key);
             const state = ref(stored === null ? defaultValue : stored === 'true');
-            watch(state, value => storage.setItem(key, String(value)), {flush: 'sync'});
+            watch(state, (value) => storage.setItem(key, String(value)), {flush: 'sync'});
             return state;
         });
         mocks.useTimeoutFn.mockReturnValue({start: mocks.startAutoDismiss});
@@ -120,7 +102,7 @@ describe('useBrowserInstallHint persistence', () => {
     it('migrates a legacy dismissal cookie to local storage and expires it securely', async () => {
         cookieHeader = `${BROWSER_INSTALL_HINT_COOKIE_KEY}=1; unrelated=value`;
 
-        const { hint } = await createBrowserInstallHint();
+        const {hint} = await createBrowserInstallHint();
 
         expect(browserStorage.get(BROWSER_INSTALL_HINT_STORAGE_KEY)).toBe('true');
         expect(hint.showBrowserInstallHint.value).toBe(false);
@@ -142,7 +124,7 @@ describe('useBrowserInstallHint persistence', () => {
     it('does not write cookies on later visits once local storage is canonical', async () => {
         browserStorage.set(BROWSER_INSTALL_HINT_STORAGE_KEY, 'true');
 
-        const { hint } = await createBrowserInstallHint();
+        const {hint} = await createBrowserInstallHint();
         hint.dismissBrowserInstallHint('auto');
 
         expect(hint.showBrowserInstallHint.value).toBe(false);

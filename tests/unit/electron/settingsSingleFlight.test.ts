@@ -1,22 +1,9 @@
-import {
-    mkdtemp,
-    rm,
-    writeFile,
-} from 'node:fs/promises';
+import {mkdtemp, rm, writeFile} from 'node:fs/promises';
 import {cast} from '@tests/helpers/cast';
-import {
-    readFileSync, writeFileSync, 
-} from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {readFileSync, writeFileSync} from 'node:fs';
+import {join} from 'node:path';
+import {tmpdir} from 'node:os';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import type * as FsPromises from 'node:fs/promises';
 import type * as Os from 'node:os';
 import type * as ElectronTranslations from '@electron/te';
@@ -98,10 +85,14 @@ describe('settings single-flight loading', () => {
     });
 
     afterEach(async () => {
-        await Promise.all(paths.splice(0).map(path => rm(path, {
-            force: true,
-            recursive: true,
-        })));
+        await Promise.all(
+            paths.splice(0).map((path) =>
+                rm(path, {
+                    force: true,
+                    recursive: true,
+                }),
+            ),
+        );
     });
 
     it('sends a write made outside the save path to every window that shows the app', async () => {
@@ -110,7 +101,7 @@ describe('settings single-flight loading', () => {
         mocks.appWindows.push(first.window, second.window);
         const {updateSettings} = await import('@electron/settings');
 
-        await updateSettings(settings => {
+        await updateSettings((settings) => {
             settings.agentMcpEnabled = true;
             return undefined;
         });
@@ -128,7 +119,7 @@ describe('settings single-flight loading', () => {
         mocks.appWindows.push(foreign.window, app.window);
         const {updateSettings} = await import('@electron/settings');
 
-        await updateSettings(settings => {
+        await updateSettings((settings) => {
             settings.skippedUpdateVersion = '9.9.9';
             return undefined;
         });
@@ -145,16 +136,16 @@ describe('settings single-flight loading', () => {
 
         const first = bindings.save({senderId: 9} as never, {authorName: 'First'});
         const second = bindings.save({senderId: 9} as never, {locale: 'ru'});
-        await Promise.all([
-            first,
-            second,
-        ]);
+        await Promise.all([first, second]);
 
         expect(window.send).toHaveBeenCalledOnce();
-        expect(window.send).toHaveBeenCalledWith('settings:changed', expect.objectContaining({
-            authorName: 'First',
-            locale: 'ru',
-        }));
+        expect(window.send).toHaveBeenCalledWith(
+            'settings:changed',
+            expect.objectContaining({
+                authorName: 'First',
+                locale: 'ru',
+            }),
+        );
     });
 
     it('broadcasts a diagnostics withdrawal to the window that made it', async () => {
@@ -227,13 +218,7 @@ describe('settings single-flight loading', () => {
         expect(mocks.readFile).toHaveBeenCalledOnce();
 
         read.resolve(JSON.stringify({theme: 'dark'}));
-        const [
-            firstSettings,
-            secondSettings,
-        ] = await Promise.all([
-            first,
-            second,
-        ]);
+        const [firstSettings, secondSettings] = await Promise.all([first, second]);
 
         expect(firstSettings).toMatchObject({theme: 'dark'});
         expect(secondSettings).toEqual(firstSettings);
@@ -243,13 +228,8 @@ describe('settings single-flight loading', () => {
     it('does not let an old generation repopulate the cache after a path reset', async () => {
         const oldRead = deferred<string>();
         const newRead = deferred<string>();
-        mocks.readFile
-            .mockReturnValueOnce(oldRead.promise)
-            .mockReturnValueOnce(newRead.promise);
-        const {
-            loadSettings,
-            resetSettingsCacheAfterUserDataPathChange,
-        } = await import('@electron/settings');
+        mocks.readFile.mockReturnValueOnce(oldRead.promise).mockReturnValueOnce(newRead.promise);
+        const {loadSettings, resetSettingsCacheAfterUserDataPathChange} = await import('@electron/settings');
 
         const oldLoad = loadSettings();
         const newPath = await mkdtemp(join(tmpdir(), 'evb-settings-single-flight-next-'));
@@ -270,13 +250,10 @@ describe('settings single-flight loading', () => {
     it('joins an active initial load before applying an update', async () => {
         const read = deferred<string>();
         mocks.readFile.mockReturnValue(read.promise);
-        const {
-            loadSettings,
-            updateSettings,
-        } = await import('@electron/settings');
+        const {loadSettings, updateSettings} = await import('@electron/settings');
 
         const initialLoad = loadSettings();
-        const update = updateSettings(settings => ({
+        const update = updateSettings((settings) => ({
             ...settings,
             authorName: 'Joined update',
         }));
@@ -291,14 +268,8 @@ describe('settings single-flight loading', () => {
     });
 
     it.each([
-        [
-            'missing',
-            {},
-        ],
-        [
-            'empty',
-            {authorName: ''},
-        ],
+        ['missing', {}],
+        ['empty', {authorName: ''}],
     ])('uses the Electron OS username when authorName is %s', async (_label, payload) => {
         mocks.readFile.mockResolvedValue(JSON.stringify(payload));
         const {loadSettings} = await import('@electron/settings');
@@ -324,10 +295,7 @@ describe('settings single-flight loading', () => {
         await writeFile(settingsPath, originalContent);
         const readError = Object.assign(new Error('I/O failure'), {code: 'EIO'});
         mocks.readFile.mockRejectedValue(readError);
-        const {
-            consumeSettingsRecoveryNotice,
-            loadSettings,
-        } = await import('@electron/settings');
+        const {consumeSettingsRecoveryNotice, loadSettings} = await import('@electron/settings');
 
         await expect(loadSettings()).resolves.toMatchObject({
             version: 2,
@@ -342,7 +310,7 @@ describe('settings single-flight loading', () => {
         const releaseFirst = deferred<undefined>();
         const oldPath = mocks.userDataPath;
         const settingsModule = await import('@electron/settings');
-        const first = settingsModule.updateSettings(async settings => {
+        const first = settingsModule.updateSettings(async (settings) => {
             firstStarted.resolve(undefined);
             await releaseFirst.promise;
             settings.theme = 'dark';
@@ -350,7 +318,7 @@ describe('settings single-flight loading', () => {
         });
         await firstStarted.promise;
 
-        const second = settingsModule.updateSettings(settings => {
+        const second = settingsModule.updateSettings((settings) => {
             settings.authorName = 'New profile user';
             return undefined;
         });
@@ -360,10 +328,7 @@ describe('settings single-flight loading', () => {
         settingsModule.resetSettingsCacheAfterUserDataPathChange();
         releaseFirst.resolve(undefined);
 
-        await Promise.all([
-            first,
-            second,
-        ]);
+        await Promise.all([first, second]);
 
         expect(readFileSync(join(oldPath, 'settings.json'), 'utf-8')).toContain('"theme": "dark"');
         expect(readFileSync(join(newPath, 'settings.json'), 'utf-8')).toMatch(/New profile user/u);

@@ -1,4 +1,4 @@
-import { normalizePrintPageNumbers } from '@app/utils/pdfPrintShared';
+import {normalizePrintPageNumbers} from '@app/utils/pdfPrintShared';
 
 const DEFAULT_PDF_FILE_NAME = 'document.pdf';
 const DEFAULT_PDF_STEM = 'document';
@@ -41,16 +41,13 @@ function resolveSourceFileName(fileName: string | null | undefined) {
 function sanitizeFileNameText(value: string) {
     return Array.from(value, (character) => {
         const codePoint = character.codePointAt(0);
-        return codePoint !== undefined && codePoint <= 31
-            ? '_'
-            : character.replace(WINDOWS_FORBIDDEN_FILE_NAME_CHARACTERS_PATTERN, '_');
+        return codePoint !== undefined && codePoint <= 31 ? '_' : character.replace(WINDOWS_FORBIDDEN_FILE_NAME_CHARACTERS_PATTERN, '_');
     }).join('');
 }
 
 function sanitizeSourceStem(sourceFileName: string) {
     const sourceStem = sourceFileName.replace(PDF_FILE_EXTENSION_PATTERN, '');
-    const sanitizedStem = sanitizeFileNameText(sourceStem)
-        .replace(TRAILING_FILE_NAME_CHARACTERS_PATTERN, '');
+    const sanitizedStem = sanitizeFileNameText(sourceStem).replace(TRAILING_FILE_NAME_CHARACTERS_PATTERN, '');
 
     if (!sanitizedStem || sanitizedStem === '.' || sanitizedStem === '..') {
         return DEFAULT_PDF_STEM;
@@ -79,17 +76,13 @@ function formatPageSpec(pageNumbers: number[]) {
             continue;
         }
 
-        ranges.push(rangeStart === rangeEnd
-            ? String(rangeStart)
-            : `${String(rangeStart)}-${String(rangeEnd)}`);
+        ranges.push(rangeStart === rangeEnd ? String(rangeStart) : `${String(rangeStart)}-${String(rangeEnd)}`);
         rangeStart = pageNumber;
         rangeEnd = pageNumber;
     }
 
     if (rangeStart !== undefined && rangeEnd !== undefined) {
-        ranges.push(rangeStart === rangeEnd
-            ? String(rangeStart)
-            : `${String(rangeStart)}-${String(rangeEnd)}`);
+        ranges.push(rangeStart === rangeEnd ? String(rangeStart) : `${String(rangeStart)}-${String(rangeEnd)}`);
     }
 
     return ranges.join('_');
@@ -106,10 +99,7 @@ function fingerprintPageSpec(pageSpec: string) {
 }
 
 function getTextSegments(value: string) {
-    return Array.from(
-        new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(value),
-        segment => segment.segment,
-    );
+    return Array.from(new Intl.Segmenter(undefined, {granularity: 'grapheme'}).segment(value), (segment) => segment.segment);
 }
 
 function truncateTextToBudget(value: string, maxLength: number, maxBytes: number) {
@@ -129,8 +119,7 @@ function truncateTextToBudget(value: string, maxLength: number, maxBytes: number
 }
 
 function fitsFileNameBudget(value: string) {
-    return value.length <= MAX_PRINT_FILE_NAME_LENGTH
-        && textEncoder.encode(value).byteLength <= MAX_PRINT_FILE_NAME_LENGTH;
+    return value.length <= MAX_PRINT_FILE_NAME_LENGTH && textEncoder.encode(value).byteLength <= MAX_PRINT_FILE_NAME_LENGTH;
 }
 
 function appendFileNameSuffix(sourceFileName: string, suffix: string) {
@@ -161,8 +150,7 @@ function buildSourcePdfFileName(sourceFileName: string) {
 }
 
 function appendSelectionLabel(sourceFileName: string, selectionLabel: string) {
-    const safeSelectionLabel = sanitizeFileNameText(selectionLabel)
-        .replace(TRAILING_FILE_NAME_CHARACTERS_PATTERN, '');
+    const safeSelectionLabel = sanitizeFileNameText(selectionLabel).replace(TRAILING_FILE_NAME_CHARACTERS_PATTERN, '');
 
     return appendFileNameSuffix(sourceFileName, ` - ${safeSelectionLabel}.pdf`);
 }
@@ -188,14 +176,15 @@ export function buildPrintSelectionFileName(options: IBuildPrintSelectionFileNam
     }
 
     const pageSpec = formatPageSpec(pageNumbers);
-    const selectionLabel = pageSpec.length <= MAX_EXACT_PAGE_SPEC_LENGTH
-        ? options.formatPages(pageSpec)
-        : options.formatSelection({
-            count: pageNumbers.length,
-            first: firstPage,
-            last: pageNumbers.at(-1) ?? firstPage,
-            fingerprint: fingerprintPageSpec(pageSpec),
-        });
+    const selectionLabel =
+        pageSpec.length <= MAX_EXACT_PAGE_SPEC_LENGTH
+            ? options.formatPages(pageSpec)
+            : options.formatSelection({
+                  count: pageNumbers.length,
+                  first: firstPage,
+                  last: pageNumbers.at(-1) ?? firstPage,
+                  fingerprint: fingerprintPageSpec(pageSpec),
+              });
 
     return appendSelectionLabel(sourceFileName, selectionLabel);
 }

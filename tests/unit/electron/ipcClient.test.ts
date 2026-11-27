@@ -1,20 +1,10 @@
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import type { IpcRenderer } from 'electron';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import type {IpcRenderer} from 'electron';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {DOCUMENT_WORKING_COPY_PLATFORM_FEATURE} from '@contracts/documentsPlatformFeature';
 import {getRawElectronPlatformApi} from '@app/utils/electronPlatformBridge';
-import {
-    CORE_IPC_SEND_CHANNELS,
-    IPC_INVOKE_CANCEL_REASON_FIELD,
-    IPC_INVOKE_REQUEST_ID_FIELD,
-} from '@electron/platform-ipc/coreContract';
+import {CORE_IPC_SEND_CHANNELS, IPC_INVOKE_CANCEL_REASON_FIELD, IPC_INVOKE_REQUEST_ID_FIELD} from '@electron/platform-ipc/coreContract';
 import {
     IpcInvokeTimeoutError,
     createIpcInvoker,
@@ -51,18 +41,11 @@ describe('createIpcInvoker timeout policy', () => {
         await vi.advanceTimersByTimeAsync(250);
 
         await assertion;
-        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
-            'native:slow',
-            'payload',
-            {[IPC_INVOKE_REQUEST_ID_FIELD]: expect.any(String)},
-        );
-        expect(ipcRenderer.send).toHaveBeenCalledWith(
-            'ipc:invokeCanceled',
-            {
-                [IPC_INVOKE_REQUEST_ID_FIELD]: expect.any(String),
-                [IPC_INVOKE_CANCEL_REASON_FIELD]: 'timeout',
-            },
-        );
+        expect(ipcRenderer.invoke).toHaveBeenCalledWith('native:slow', 'payload', {[IPC_INVOKE_REQUEST_ID_FIELD]: expect.any(String)});
+        expect(ipcRenderer.send).toHaveBeenCalledWith('ipc:invokeCanceled', {
+            [IPC_INVOKE_REQUEST_ID_FIELD]: expect.any(String),
+            [IPC_INVOKE_CANCEL_REASON_FIELD]: 'timeout',
+        });
     });
 
     it('leaves unconfigured channels without a renderer-side timeout', async () => {
@@ -93,7 +76,6 @@ describe('createIpcInvoker timeout policy', () => {
         await expect(invoke('regular:slow')).resolves.toBe(result);
     });
 });
-
 
 describe('renderer IPC abort propagation', () => {
     afterEach(() => {
@@ -137,13 +119,11 @@ describe('renderer IPC abort propagation', () => {
             });
         });
         vi.stubGlobal('window', {electronAPI: {documentWorkingCopy: {parsePdfAnnotations}}});
-        const parse = (signal: AbortSignal) => getRawElectronPlatformApi()!.documentWorkingCopy.parsePdfAnnotations(
-            requireDocumentRef('/managed/working.pdf'),
-            {
+        const parse = (signal: AbortSignal) =>
+            getRawElectronPlatformApi()!.documentWorkingCopy.parsePdfAnnotations(requireDocumentRef('/managed/working.pdf'), {
                 expectedDocumentRevisionToken: requireDocumentRevisionToken('drt1:abort-test'),
                 signal,
-            },
-        );
+            });
         return {
             ipcRenderer,
             parse,
@@ -152,13 +132,8 @@ describe('renderer IPC abort propagation', () => {
         };
     }
 
-    it.each([
-        true,
-        false,
-    ])('rejects with AbortError and cancels that request (timed: %s)', async timed => {
-        const {
-            ipcRenderer, parse, reply,
-        } = setup(timed);
+    it.each([true, false])('rejects with AbortError and cancels that request (timed: %s)', async (timed) => {
+        const {ipcRenderer, parse, reply} = setup(timed);
         const controller = new AbortController();
         const pending = parse(controller.signal);
         const aborted = expect(pending).rejects.toMatchObject({name: 'AbortError'});
@@ -173,9 +148,7 @@ describe('renderer IPC abort propagation', () => {
     });
 
     it('does not start an invoke for an already aborted signal', async () => {
-        const {
-            ipcRenderer, parse,
-        } = setup();
+        const {ipcRenderer, parse} = setup();
         const controller = new AbortController();
         controller.abort();
         await expect(parse(controller.signal)).rejects.toMatchObject({name: 'AbortError'});
@@ -183,20 +156,19 @@ describe('renderer IPC abort propagation', () => {
         expect(ipcRenderer.send).not.toHaveBeenCalled();
     });
 
-    it.each([
-        'resolve',
-        'reject',
-    ] as const)('stops observing the signal after the invoke settles by %s', async settlement => {
-        const {
-            ipcRenderer, parse, reply,
-        } = setup();
+    it.each(['resolve', 'reject'] as const)('stops observing the signal after the invoke settles by %s', async (settlement) => {
+        const {ipcRenderer, parse, reply} = setup();
         const controller = new AbortController();
         const pending = parse(controller.signal);
-        const assertion = settlement === 'resolve'
-            ? expect(pending).resolves.toEqual({finished: true})
-            : expect(pending).rejects.toThrow('Native failure');
-        if (settlement === 'resolve') {reply.resolve({finished: true});}
-        else {reply.reject(new Error('Native failure'));}
+        const assertion =
+            settlement === 'resolve'
+                ? expect(pending).resolves.toEqual({finished: true})
+                : expect(pending).rejects.toThrow('Native failure');
+        if (settlement === 'resolve') {
+            reply.resolve({finished: true});
+        } else {
+            reply.reject(new Error('Native failure'));
+        }
         await assertion;
         controller.abort();
         expect(ipcRenderer.send).not.toHaveBeenCalled();
@@ -204,9 +176,7 @@ describe('renderer IPC abort propagation', () => {
 
     it('clears the timed invoke deadline when the caller aborts', async () => {
         vi.useFakeTimers();
-        const {
-            ipcRenderer, parse,
-        } = setup();
+        const {ipcRenderer, parse} = setup();
         const controller = new AbortController();
         const pending = parse(controller.signal);
         const aborted = expect(pending).rejects.toMatchObject({name: 'AbortError'});
@@ -218,9 +188,7 @@ describe('renderer IPC abort propagation', () => {
 
     it('stops observing the signal when the invoke times out', async () => {
         vi.useFakeTimers();
-        const {
-            ipcRenderer, parse,
-        } = setup();
+        const {ipcRenderer, parse} = setup();
         const controller = new AbortController();
         const pending = parse(controller.signal);
         const timedOut = expect(pending).rejects.toThrow('IPC invoke timed out');
@@ -248,20 +216,24 @@ describe('createTypedIpcEventSubscriber diagnostics', () => {
         const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
         try {
-            const subscriber = createTypedIpcEventSubscriber<{'scan-cleanup:job:state': {status: 'running'};}>(ipcRenderer);
+            const subscriber = createTypedIpcEventSubscriber<{'scan-cleanup:job:state': {status: 'running'}}>(ipcRenderer);
             subscriber.onDecodedPayload(
                 'scan-cleanup:job:state',
-                () => { throw new Error('completedUnits exceeds totalUnits'); },
+                () => {
+                    throw new Error('completedUnits exceeds totalUnits');
+                },
                 vi.fn(),
             );
             listeners.get('scan-cleanup:job:state')?.({}, {status: 'invalid'});
 
             expect(ipcRenderer.send).toHaveBeenCalledWith(
                 CORE_IPC_SEND_CHANNELS.rendererLog,
-                expect.objectContaining({data: {
-                    channel: 'scan-cleanup:job:state',
-                    decoderError: 'completedUnits exceeds totalUnits',
-                }}),
+                expect.objectContaining({
+                    data: {
+                        channel: 'scan-cleanup:job:state',
+                        decoderError: 'completedUnits exceeds totalUnits',
+                    },
+                }),
             );
         } finally {
             warning.mockRestore();

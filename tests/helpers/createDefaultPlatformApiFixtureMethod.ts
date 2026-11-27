@@ -1,11 +1,8 @@
-import { vi } from 'vitest';
-import type { IPlatformMethodDescriptor } from '@contracts/platformApiDescriptor';
+import {vi} from 'vitest';
+import type {IPlatformMethodDescriptor} from '@contracts/platformApiDescriptor';
 import {DEFAULT_SETTINGS} from '@contracts/settings';
-import { cast } from '@tests/helpers/cast';
-import {
-    createBrowserAgentMcpStatus,
-    createBrowserAssistantState,
-} from '@app/platform/browser-api/browserAgentCapability';
+import {cast} from '@tests/helpers/cast';
+import {createBrowserAgentMcpStatus, createBrowserAssistantState} from '@app/platform/browser-api/browserAgentCapability';
 
 export interface IPlatformApiFixtureEventMethod<TPayload = unknown> {
     /** Deliver a live event to the subscribers that are currently attached. */
@@ -24,7 +21,9 @@ export interface IPlatformApiFixtureOperation<TResult, TArgs extends unknown[] =
     cancel: (operationKey?: TKey) => void;
 }
 
-export interface IPlatformApiFixtureOperationOptions<TArgs extends unknown[], TKey> {operationKey?: (...args: TArgs) => TKey;}
+export interface IPlatformApiFixtureOperationOptions<TArgs extends unknown[], TKey> {
+    operationKey?: (...args: TArgs) => TKey;
+}
 
 interface IPlatformApiFixturePendingOperation<TResult> {
     resolve: (value: TResult) => void;
@@ -40,9 +39,8 @@ export function createPlatformApiFixtureOperation<TResult, TArgs extends unknown
 ): IPlatformApiFixtureOperation<TResult, TArgs, TKey, TError> {
     const pendingOperations = new Map<TKey | symbol, IPlatformApiFixturePendingOperation<TResult>>();
     const singleOperationKey = Symbol('fixture-operation');
-    const resolveOperationKey = (...args: TArgs): TKey | symbol => options.operationKey === undefined
-        ? singleOperationKey
-        : options.operationKey(...args);
+    const resolveOperationKey = (...args: TArgs): TKey | symbol =>
+        options.operationKey === undefined ? singleOperationKey : options.operationKey(...args);
     const settle = (
         operationKey: TKey | symbol | undefined,
         settleOperation: (operation: IPlatformApiFixturePendingOperation<TResult>) => void,
@@ -72,29 +70,20 @@ export function createPlatformApiFixtureOperation<TResult, TArgs extends unknown
     return {
         method,
         resolve: (value, operationKey) => {
-            settle(
-                options.operationKey === undefined ? singleOperationKey : operationKey,
-                operation => operation.resolve(value),
-            );
+            settle(options.operationKey === undefined ? singleOperationKey : operationKey, (operation) => operation.resolve(value));
         },
         reject: (reason, operationKey) => {
-            settle(
-                options.operationKey === undefined ? singleOperationKey : operationKey,
-                operation => operation.reject(reason),
-            );
+            settle(options.operationKey === undefined ? singleOperationKey : operationKey, (operation) => operation.reject(reason));
         },
-        cancel: operationKey => {
-            settle(
-                options.operationKey === undefined ? singleOperationKey : operationKey,
-                operation => operation.reject(new Error('Fixture operation canceled')),
+        cancel: (operationKey) => {
+            settle(options.operationKey === undefined ? singleOperationKey : operationKey, (operation) =>
+                operation.reject(new Error('Fixture operation canceled')),
             );
         },
     };
 }
 
-type TPlatformApiFixtureEventFunction = (
-    callback: (payload: unknown) => void,
-) => () => void;
+type TPlatformApiFixtureEventFunction = (callback: (payload: unknown) => void) => () => void;
 
 const FEATURE_RESULTS: Readonly<Record<string, unknown>> = {
     // An inert fixture runs every Scan Cleanup operation, as desktop does.
@@ -237,11 +226,13 @@ const FEATURE_RESULTS: Readonly<Record<string, unknown>> = {
             dpi: 300,
         },
     },
-    'djvu.getPageSizes': [{
-        width: 600,
-        height: 800,
-        dpi: 300,
-    }],
+    'djvu.getPageSizes': [
+        {
+            width: 600,
+            height: 800,
+            dpi: 300,
+        },
+    ],
     'djvu.getPageText': '',
     'djvu.getOutline': [],
     'djvu.renderPagePreview': {
@@ -249,13 +240,15 @@ const FEATURE_RESULTS: Readonly<Record<string, unknown>> = {
         width: 600,
         height: 800,
     },
-    'djvu.estimateSizes': [{
-        subsample: 1,
-        label: 'Original',
-        description: 'Original resolution',
-        resultingDpi: 300,
-        estimatedBytes: 1,
-    }],
+    'djvu.estimateSizes': [
+        {
+            subsample: 1,
+            label: 'Original',
+            description: 'Original resolution',
+            resultingDpi: 300,
+            estimatedBytes: 1,
+        },
+    ],
     'djvu.cleanupTemp': undefined,
     'documentWorkingCopy.retainDocumentRevisions': undefined,
     'documentWorkingCopy.releasePinnedDocumentRevision': undefined,
@@ -340,29 +333,31 @@ function createAsyncDefault(path: string) {
 export function createDefaultPlatformApiFixtureMethod(descriptor: IPlatformMethodDescriptor) {
     if (descriptor.kind === 'event') {
         const subscribers = new Set<(payload: unknown) => void>();
-        const method = cast<TPlatformApiFixtureEventFunction & IPlatformApiFixtureEventMethod>(vi.fn((callback: (payload: unknown) => void) => {
-            subscribers.add(callback);
-            let subscribed = true;
-            return () => {
-                if (!subscribed) {
-                    return;
-                }
-                subscribed = false;
-                subscribers.delete(callback);
-            };
-        }));
+        const method = cast<TPlatformApiFixtureEventFunction & IPlatformApiFixtureEventMethod>(
+            vi.fn((callback: (payload: unknown) => void) => {
+                subscribers.add(callback);
+                let subscribed = true;
+                return () => {
+                    if (!subscribed) {
+                        return;
+                    }
+                    subscribed = false;
+                    subscribers.delete(callback);
+                };
+            }),
+        );
         const controls: IPlatformApiFixtureEventMethod = {
-            emit: payload => {
+            emit: (payload) => {
                 for (const subscriber of subscribers) {
                     subscriber(payload);
                 }
             },
-            replay: payload => {
+            replay: (payload) => {
                 for (const subscriber of subscribers) {
                     subscriber(payload);
                 }
             },
-            emitLate: payload => {
+            emitLate: (payload) => {
                 for (const subscriber of subscribers) {
                     subscriber(payload);
                 }
@@ -375,15 +370,10 @@ export function createDefaultPlatformApiFixtureMethod(descriptor: IPlatformMetho
     const path = descriptor.path.join('.');
     if (Object.hasOwn(FEATURE_RESULTS, path)) {
         const result = () => structuredClone(FEATURE_RESULTS[path]);
-        return descriptor.kind === 'async'
-            ? vi.fn(async () => result())
-            : vi.fn(result);
+        return descriptor.kind === 'async' ? vi.fn(async () => result()) : vi.fn(result);
     }
     if (descriptor.kind === 'sync') {
-        if (
-            path.endsWith('.getMemoryInfo')
-            || path.endsWith('.getResourceProfile')
-        ) {
+        if (path.endsWith('.getMemoryInfo') || path.endsWith('.getResourceProfile')) {
             return vi.fn(() => null);
         }
         if (path.endsWith('.getPathForFile')) {

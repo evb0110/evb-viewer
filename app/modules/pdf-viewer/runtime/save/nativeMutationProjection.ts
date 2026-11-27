@@ -1,27 +1,14 @@
 import type {TNativeAnnotationDeleteEffects} from '@contracts/nativePdfSaveReport';
 import {PDF_ANNOTATION_PARSE_MAX_PAGE_INDICES} from '@contracts/pdfAnnotationParseSchemas';
-import type {
-    IAnnotationCommentSummary,
-    IShapeAnnotation,
-} from '@app/types/annotations';
+import type {IAnnotationCommentSummary, IShapeAnnotation} from '@app/types/annotations';
 import {toLegacyShapeAnnotation} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import type {
-    IShapeEntity,
-    AnnotationEntity,
-    IPlacedImageEntity,
-} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import { computeSummaryStableKey } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
+import type {IShapeEntity, AnnotationEntity, IPlacedImageEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {computeSummaryStableKey} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 import {assertAnnotationBackendSemanticConformance} from '@app/modules/pdf-viewer/annotations/persistence/annotationBackendConformance';
-import { getPdfAnnotationIdFromStableKey } from '@app/modules/pdf-viewer/annotations/pdf-refs/parsePdfAnnotationStableKey';
-import type {
-    ISerializationPlan,
-    TSerializationBackend,
-} from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
-import {
-    annotationCommentSource,
-    selectSerializationBackend,
-} from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
-import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
+import {getPdfAnnotationIdFromStableKey} from '@app/modules/pdf-viewer/annotations/pdf-refs/parsePdfAnnotationStableKey';
+import type {ISerializationPlan, TSerializationBackend} from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
+import {annotationCommentSource, selectSerializationBackend} from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
+import {normalizePdfJsAnnotationId} from '@app/utils/pdfAnnotationRefs';
 import type {
     INativeAppendSaveRoute,
     TNativePdfMutationSaveMode,
@@ -48,12 +35,8 @@ import {
     isReplayableCanonicalStickyNote,
 } from '@app/modules/pdf-viewer/annotations/persistence/nativeFreeTextNoteProjection';
 import {isReplayableCanonicalTextBox} from '@app/modules/pdf-viewer/runtime/save/nativeTextBoxMutations';
-import type {
-    IPdfNativePlacedImage,
-    IPdfNativePlacedImageGeometryUpdate,
-    IPdfNativeTextBoxMutation,
-} from '@contracts/electronApiDocuments';
-import { buildNativeMarkupMutationForSave } from '@app/modules/pdf-viewer/annotations/persistence/nativeMarkupProjection';
+import type {IPdfNativePlacedImage, IPdfNativePlacedImageGeometryUpdate, IPdfNativeTextBoxMutation} from '@contracts/electronApiDocuments';
+import {buildNativeMarkupMutationForSave} from '@app/modules/pdf-viewer/annotations/persistence/nativeMarkupProjection';
 import {
     buildNativeBookmarksMutationForSave,
     buildNativePageLabelsMutationForSave,
@@ -66,10 +49,7 @@ import {nativeNoteGeometryProjection} from '@app/modules/pdf-viewer/annotations/
 import {buildNativeShapesMutationForSave} from '@app/modules/pdf-viewer/runtime/save/nativeShapeMutations';
 import {requirePageIndex} from '@contracts/pageNumbers';
 
-export type {
-    IPdfSaveByteRouteDecision,
-    IPdfSaveCanonicalInputs,
-} from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
+export type {IPdfSaveByteRouteDecision, IPdfSaveCanonicalInputs} from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
 
 /** Everything outside the frozen plan that save routing is allowed to depend on. */
 export interface IPdfSaveRouteCapabilities {
@@ -192,9 +172,7 @@ function isActuallyChangedEntity(entity: AnnotationEntity) {
 }
 
 function isNewCanonicalStickyNoteEntity(entity: AnnotationEntity) {
-    return entity.kind === 'note'
-        && entity.persistedRevision < 0
-        && !entity.identity.pdfRef;
+    return entity.kind === 'note' && entity.persistedRevision < 0 && !entity.identity.pdfRef;
 }
 
 function summarizeFrontierChanges(plan: ISerializationPlan): IPdfFrontierAnnotationChanges {
@@ -202,10 +180,7 @@ function summarizeFrontierChanges(plan: ISerializationPlan): IPdfFrontierAnnotat
     const noteIds = new Set<string>();
     const changedEntities = plan.expected.filter(isActuallyChangedEntity);
     changedEntities.forEach((entity) => {
-        [
-            entity.identity.id,
-            entity.identity.pdfRef,
-        ].forEach((candidate) => {
+        [entity.identity.id, entity.identity.pdfRef].forEach((candidate) => {
             addReplayableAnnotationId(ids, candidate);
             if (entity.kind === 'note' || entity.kind === 'text-box') {
                 addReplayableAnnotationId(noteIds, candidate);
@@ -247,9 +222,7 @@ function addReplayableNativeEntityIds(
         deletedShapeAnnotationIds: readonly string[];
         deletedShapeStableKeys: readonly string[];
         textBoxes: ReadonlyArray<Pick<IPdfNativeTextBoxMutation, 'stableKey' | 'annotationId'>>;
-        placedImageGeometryUpdates?: ReadonlyArray<
-            Pick<IPdfNativePlacedImageGeometryUpdate, 'stableKey' | 'annotationId'>
-        >;
+        placedImageGeometryUpdates?: ReadonlyArray<Pick<IPdfNativePlacedImageGeometryUpdate, 'stableKey' | 'annotationId'>>;
     },
 ) {
     input.shapes?.forEach((shape) => {
@@ -284,7 +257,7 @@ function collectReplayableEmbeddedAnnotationIds(input: {
     placedImages?: ReadonlyArray<Pick<IPlacedImageEntity, 'identity'>>;
 }) {
     const ids = new Set<string>();
-    const placedImageGeometryUpdates = input.placedImages?.map(image => ({
+    const placedImageGeometryUpdates = input.placedImages?.map((image) => ({
         stableKey: image.identity.id,
         ...(image.identity.pdfRef === undefined ? {} : {annotationId: image.identity.pdfRef}),
     }));
@@ -295,56 +268,41 @@ function collectReplayableEmbeddedAnnotationIds(input: {
         textBoxes: input.nativeTextBoxes ?? [],
         ...(placedImageGeometryUpdates === undefined ? {} : {placedImageGeometryUpdates}),
     });
-    const commentsByStableKey = Map.groupBy<string, IAnnotationCommentSummary>(input.comments, comment => comment.stableKey);
+    const commentsByStableKey = Map.groupBy<string, IAnnotationCommentSummary>(input.comments, (comment) => comment.stableKey);
     input.pendingTexts.forEach((_text, stableKey) => {
         addEmbeddedAnnotationIdFromStableKey(ids, stableKey);
-        const [
-            comment,
-            duplicate,
-        ] = commentsByStableKey.get(stableKey) ?? [];
+        const [comment, duplicate] = commentsByStableKey.get(stableKey) ?? [];
         if (comment && !duplicate) {
             addCommentIdentityAliases(ids, comment);
         }
     });
     input.pendingDeletes.forEach((comment) => {
-        [
-            comment.appAnnotationId,
-            comment.annotationId,
-            comment.uid,
-            comment.id,
-        ].forEach(id => addReplayableAnnotationId(ids, id));
+        [comment.appAnnotationId, comment.annotationId, comment.uid, comment.id].forEach((id) => addReplayableAnnotationId(ids, id));
         addEmbeddedAnnotationIdFromStableKey(ids, comment.stableKey);
     });
     input.comments
-        .filter(comment => isReplayableEditorOnlyFreeTextNote(comment) || isReplayableCanonicalTextBox(comment))
+        .filter((comment) => isReplayableEditorOnlyFreeTextNote(comment) || isReplayableCanonicalTextBox(comment))
         .forEach((comment) => {
-            [
-                comment.annotationId,
-                comment.uid,
-                comment.id,
-            ].forEach(id => addReplayableAnnotationId(ids, id));
+            [comment.annotationId, comment.uid, comment.id].forEach((id) => addReplayableAnnotationId(ids, id));
         });
     input.changedComments
-        .filter(comment => comment.source === 'shape')
+        .filter((comment) => comment.source === 'shape')
         .forEach((comment) => {
             // Canonical shapes are projected by the native shape mutation
             // payload. Their canonical aliases must not make that payload look
             // like work no native operation replays.
             addCommentIdentityAliases(ids, comment);
         });
+    input.changedComments.filter(isTextMarkupComment).forEach((comment) => {
+        // Changed canonical markups are emitted by the native markup
+        // payload. Count their aliases before route selection so an
+        // imported text update can remain on source replay beside them.
+        addCommentIdentityAliases(ids, comment);
+    });
     input.changedComments
-        .filter(isTextMarkupComment)
-        .forEach((comment) => {
-            // Changed canonical markups are emitted by the native markup
-            // payload. Count their aliases before route selection so an
-            // imported text update can remain on source replay beside them.
-            addCommentIdentityAliases(ids, comment);
-        });
-    input.changedComments
-        .filter(comment => (
-            isReplayableCanonicalStickyNote(comment)
-            && input.replayableCanonicalStickyNoteStableKeys.has(comment.stableKey)
-        ))
+        .filter(
+            (comment) => isReplayableCanonicalStickyNote(comment) && input.replayableCanonicalStickyNoteStableKeys.has(comment.stableKey),
+        )
         .forEach((comment) => {
             addCommentIdentityAliases(ids, comment);
         });
@@ -356,22 +314,14 @@ function collectReplayableEmbeddedAnnotationIds(input: {
     return ids;
 }
 
-function deriveCanonicalSaveInputs(
-    plan: ISerializationPlan,
-    capabilities: IPdfSaveRouteCapabilities,
-): IPdfSaveCanonicalInputs {
+function deriveCanonicalSaveInputs(plan: ISerializationPlan, capabilities: IPdfSaveRouteCapabilities): IPdfSaveCanonicalInputs {
     assertAnnotationBackendSemanticConformance(plan);
     // Once a frontier has been captured, every downstream backend is projected solely
     // from that immutable plan. Reading a second live-state route here made save
     // selection depend on mutations that happened after capture.
-    const comments = plan.entities
-        .filter(entity => !entity.deleted)
-        .map(entitySummary);
-    const changedEntities = plan.expected
-        .filter(entity => !entity.deleted && isActuallyChangedEntity(entity));
-    const changedComments = plan.expected
-        .filter(entity => !entity.deleted && isActuallyChangedEntity(entity))
-        .map(entitySummary);
+    const comments = plan.entities.filter((entity) => !entity.deleted).map(entitySummary);
+    const changedEntities = plan.expected.filter((entity) => !entity.deleted && isActuallyChangedEntity(entity));
+    const changedComments = plan.expected.filter((entity) => !entity.deleted && isActuallyChangedEntity(entity)).map(entitySummary);
     const pendingTexts = new Map<string, string>();
     const pendingDeletes: IAnnotationCommentSummary[] = [];
     plan.expected.filter(isActuallyChangedEntity).forEach((entity) => {
@@ -380,18 +330,13 @@ function deriveCanonicalSaveInputs(
             pendingDeletes.push(summary);
             return;
         }
-        if (
-            entity.kind === 'note'
-            && entity.identity.pdfRef
-        ) {
+        if (entity.kind === 'note' && entity.identity.pdfRef) {
             pendingTexts.set(summary.stableKey, summary.text);
         }
     });
     const frontierChanges = summarizeFrontierChanges(plan);
     const replayableCanonicalStickyNoteStableKeys = new Set(
-        changedEntities
-            .filter(isNewCanonicalStickyNoteEntity)
-            .map(entity => entitySummary(entity).stableKey),
+        changedEntities.filter(isNewCanonicalStickyNoteEntity).map((entity) => entitySummary(entity).stableKey),
     );
     return {
         comments,
@@ -405,14 +350,11 @@ function deriveCanonicalSaveInputs(
             changedComments,
             replayableCanonicalStickyNoteStableKeys,
             frontierChanges,
-            ...(capabilities.nativeTextBoxes === undefined
-                ? {}
-                : {nativeTextBoxes: capabilities.nativeTextBoxes ?? []}),
+            ...(capabilities.nativeTextBoxes === undefined ? {} : {nativeTextBoxes: capabilities.nativeTextBoxes ?? []}),
             shapes: capabilities.shapes,
             deletedShapeAnnotationIds: capabilities.deletedEmbeddedShapeAnnotationIds,
             deletedShapeStableKeys: capabilities.deletedEmbeddedShapeStableKeys,
-            placedImages: changedEntities
-                .filter((entity): entity is IPlacedImageEntity => entity.kind === 'placed-image'),
+            placedImages: changedEntities.filter((entity): entity is IPlacedImageEntity => entity.kind === 'placed-image'),
         }),
         replayableCanonicalStickyNoteStableKeys,
     };
@@ -420,9 +362,8 @@ function deriveCanonicalSaveInputs(
 
 function planAnnotationRoute(canonical: IPdfSaveCanonicalInputs): IPdfViewerAnnotationSavePlan {
     const changes = canonical.frontierChanges;
-    const hasPendingReplayableEmbeddedChanges = canonical.pendingTexts.size > 0
-        || canonical.pendingDeletes.length > 0
-        || canonical.replayableEmbeddedAnnotationIds.size > 0;
+    const hasPendingReplayableEmbeddedChanges =
+        canonical.pendingTexts.size > 0 || canonical.pendingDeletes.length > 0 || canonical.replayableEmbeddedAnnotationIds.size > 0;
     if (hasPendingReplayableEmbeddedChanges) {
         // Replayable sticky notes stay on the loaded-source writer route. The
         // native writer owns the append and no renderer rewrite is permitted.
@@ -435,8 +376,7 @@ function planAnnotationRoute(canonical: IPdfSaveCanonicalInputs): IPdfViewerAnno
             };
         }
 
-        const unreplayableAnnotationIds = Array.from(changes.ids)
-            .filter(id => !canonical.replayableEmbeddedAnnotationIds.has(id));
+        const unreplayableAnnotationIds = Array.from(changes.ids).filter((id) => !canonical.replayableEmbeddedAnnotationIds.has(id));
         if (unreplayableAnnotationIds.length === 0 && changes.ids.size > 0) {
             return {
                 route: 'loaded-source',
@@ -486,11 +426,7 @@ function admitNativeAppendRoute(
     if (selectSerializationBackend(plan, capabilities.availableBackends) !== 'native-append') {
         return 'backend-not-native-append';
     }
-    const {
-        nativeCapabilities,
-        dirtyState,
-        documentStructure,
-    } = capabilities;
+    const {nativeCapabilities, dirtyState, documentStructure} = capabilities;
     if (!nativeCapabilities || !dirtyState || !documentStructure) {
         return 'save-descriptors-unavailable';
     }
@@ -513,76 +449,78 @@ function admitNativeAppendRoute(
  * owns what this save actually changes, so ask it instead.
  */
 function hasNonShapeAnnotationWork(plan: ISerializationPlan) {
-    return plan.expected.some(entity => isActuallyChangedEntity(entity) && entity.kind !== 'shape');
+    return plan.expected.some((entity) => isActuallyChangedEntity(entity) && entity.kind !== 'shape');
 }
 
-function buildNativePlacedImageGeometryUpdates(
-    plan: ISerializationPlan,
-): IPdfNativePlacedImageGeometryUpdate[] {
+function buildNativePlacedImageGeometryUpdates(plan: ISerializationPlan): IPdfNativePlacedImageGeometryUpdate[] {
     return plan.entities
-        .filter((entity): entity is IPlacedImageEntity => (
-            entity.kind === 'placed-image' && !entity.deleted && isActuallyChangedEntity(entity)
-            && !('kind' in entity.image)
-        ))
-        .flatMap(entity => 'kind' in entity.image ? [] : [{
-            pageIndex: requirePageIndex(entity.pageIndex),
-            stableKey: entity.identity.id,
-            author: entity.author,
-            ...(entity.identity.pdfRef
-                ? {annotationId: normalizePdfJsAnnotationId(entity.identity.pdfRef)}
-                : {sourceImage: {...entity.image}}),
-            x: entity.rect.left,
-            y: entity.rect.top,
-            width: entity.rect.width,
-            height: entity.rect.height,
-            rotationDegrees: entity.rotation,
-        }]);
+        .filter(
+            (entity): entity is IPlacedImageEntity =>
+                entity.kind === 'placed-image' && !entity.deleted && isActuallyChangedEntity(entity) && !('kind' in entity.image),
+        )
+        .flatMap((entity) =>
+            'kind' in entity.image
+                ? []
+                : [
+                      {
+                          pageIndex: requirePageIndex(entity.pageIndex),
+                          stableKey: entity.identity.id,
+                          author: entity.author,
+                          ...(entity.identity.pdfRef
+                              ? {annotationId: normalizePdfJsAnnotationId(entity.identity.pdfRef)}
+                              : {sourceImage: {...entity.image}}),
+                          x: entity.rect.left,
+                          y: entity.rect.top,
+                          width: entity.rect.width,
+                          height: entity.rect.height,
+                          rotationDegrees: entity.rotation,
+                      },
+                  ],
+        );
 }
 
 function buildNativePlacedImages(plan: ISerializationPlan): IPdfNativePlacedImage[] {
-    return plan.expected.flatMap(entity => {
+    return plan.expected.flatMap((entity) => {
         if (entity.kind !== 'placed-image' || entity.deleted || !isActuallyChangedEntity(entity) || !('kind' in entity.image)) {
             return [];
         }
-        return [{
-            pageIndex: requirePageIndex(entity.pageIndex),
-            stableKey: entity.identity.id,
-            author: entity.author,
-            ...(entity.identity.pdfRef ? {annotationId: normalizePdfJsAnnotationId(entity.identity.pdfRef)} : {}),
-            x: entity.rect.left,
-            y: entity.rect.top,
-            width: entity.rect.width,
-            height: entity.rect.height,
-            rotationDegrees: entity.rotation,
-            mimeType: entity.image.mimeType,
-            bytesBase64: entity.image.dataBase64,
-            byteLength: entity.image.byteLength,
-            sha256: entity.image.sha256,
-        }];
+        return [
+            {
+                pageIndex: requirePageIndex(entity.pageIndex),
+                stableKey: entity.identity.id,
+                author: entity.author,
+                ...(entity.identity.pdfRef ? {annotationId: normalizePdfJsAnnotationId(entity.identity.pdfRef)} : {}),
+                x: entity.rect.left,
+                y: entity.rect.top,
+                width: entity.rect.width,
+                height: entity.rect.height,
+                rotationDegrees: entity.rotation,
+                mimeType: entity.image.mimeType,
+                bytesBase64: entity.image.dataBase64,
+                byteLength: entity.image.byteLength,
+                sha256: entity.image.sha256,
+            },
+        ];
     });
 }
 
 function addCommentIdentityAliases(ids: Set<string>, comment: IAnnotationCommentSummary) {
-    [
-        comment.appAnnotationId,
-        comment.annotationId,
-        comment.id,
-        comment.uid,
-    ].forEach(id => addReplayableAnnotationId(ids, id));
+    [comment.appAnnotationId, comment.annotationId, comment.id, comment.uid].forEach((id) => addReplayableAnnotationId(ids, id));
     addEmbeddedAnnotationIdFromStableKey(ids, comment.stableKey);
 }
 
 function isTextMarkupComment(comment: IAnnotationCommentSummary) {
-    return comment.subtype === 'Highlight'
-        || comment.subtype === 'Underline'
-        || comment.subtype === 'StrikeOut'
-        || comment.subtype === 'Strikethrough'
-        || comment.subtype === 'Squiggly';
+    return (
+        comment.subtype === 'Highlight' ||
+        comment.subtype === 'Underline' ||
+        comment.subtype === 'StrikeOut' ||
+        comment.subtype === 'Strikethrough' ||
+        comment.subtype === 'Squiggly'
+    );
 }
 
 function isCanonicalTextBoxComment(comment: IAnnotationCommentSummary) {
-    return Boolean(comment.appAnnotationId)
-        && comment.subtype?.trim().toLowerCase() === 'freetext';
+    return Boolean(comment.appAnnotationId) && comment.subtype?.trim().toLowerCase() === 'freetext';
 }
 
 function buildNativeTextBoxIdentityIndex(
@@ -620,13 +558,7 @@ function isCommentCoveredByNativeTextBoxIndex(
         normalizedIdentities: ReadonlySet<string>;
     },
 ) {
-    const commentIdentities = [
-        comment.appAnnotationId,
-        comment.annotationId,
-        comment.id,
-        comment.uid,
-        comment.stableKey,
-    ];
+    const commentIdentities = [comment.appAnnotationId, comment.annotationId, comment.id, comment.uid, comment.stableKey];
     return commentIdentities.some((commentIdentity) => {
         if (typeof commentIdentity !== 'string') {
             return false;
@@ -647,22 +579,20 @@ function buildClassifiedNativeMutationProjection(
     annotationRoute: IPdfViewerAnnotationSavePlan,
 ): INativePdfMutationProjection | TNativeSaveRouteRejection {
     const replayAllowed = annotationRoute.route === 'loaded-source';
-    const changedComments = plan.entities
-        .filter(entity => !entity.deleted && isActuallyChangedEntity(entity))
-        .map(entitySummary);
+    const changedComments = plan.entities.filter((entity) => !entity.deleted && isActuallyChangedEntity(entity)).map(entitySummary);
     // A text box the native payload writes is written once, by its own mutation:
     // never also as a note's geometry or a FreeText note.
-    const changedNotes = changedComments.filter(comment => !isCanonicalTextBoxComment(comment));
-    const noteTextUpdatesResult = replayAllowed && canonical.pendingTexts.size > 0
-        ? buildNativeNoteTextUpdatesForSave({
-            pendingTexts: canonical.pendingTexts,
-            canonicalComments: canonical.comments,
-        })
-        : null;
-    const canonicalStickyNotesForNativeAppend = changedComments.filter(comment => (
-        isReplayableCanonicalStickyNote(comment)
-        && canonical.replayableCanonicalStickyNoteStableKeys.has(comment.stableKey)
-    ));
+    const changedNotes = changedComments.filter((comment) => !isCanonicalTextBoxComment(comment));
+    const noteTextUpdatesResult =
+        replayAllowed && canonical.pendingTexts.size > 0
+            ? buildNativeNoteTextUpdatesForSave({
+                  pendingTexts: canonical.pendingTexts,
+                  canonicalComments: canonical.comments,
+              })
+            : null;
+    const canonicalStickyNotesForNativeAppend = changedComments.filter(
+        (comment) => isReplayableCanonicalStickyNote(comment) && canonical.replayableCanonicalStickyNoteStableKeys.has(comment.stableKey),
+    );
     const freeTextNotesResult = buildNativeFreeTextNotesForSave({
         // EVB-owned sticky notes remain safe native payloads when another
         // A canonical annotation outside the writer's bounded mutation set
@@ -670,13 +600,9 @@ function buildClassifiedNativeMutationProjection(
         canonicalComments: replayAllowed ? changedNotes : canonicalStickyNotesForNativeAppend,
         replayableCanonicalStickyNoteStableKeys: canonical.replayableCanonicalStickyNoteStableKeys,
     });
-    const annotationDeletesResult = replayAllowed
-        ? projectNativeAnnotationDeletes({pendingDeletes: canonical.pendingDeletes})
-        : null;
+    const annotationDeletesResult = replayAllowed ? projectNativeAnnotationDeletes({pendingDeletes: canonical.pendingDeletes}) : null;
     const noteTextUpdates = noteTextUpdatesResult?.value ?? [];
-    const noteGeometryUpdatesResult = replayAllowed
-        ? nativeNoteGeometryProjection(changedNotes)
-        : null;
+    const noteGeometryUpdatesResult = replayAllowed ? nativeNoteGeometryProjection(changedNotes) : null;
     if (noteGeometryUpdatesResult?.skipEvents.length) {
         return 'annotation-work-not-covered-by-native-mutations';
     }
@@ -684,20 +610,21 @@ function buildClassifiedNativeMutationProjection(
     const placedImageGeometryUpdates = buildNativePlacedImageGeometryUpdates(plan);
     const placedImages = buildNativePlacedImages(plan);
     const imageMutationCount = placedImageGeometryUpdates.length + placedImages.length;
-    const recoverableNotes = new Map<string, string>(plan.expected.flatMap(entity => (
-        entity.kind === 'note' && !entity.deleted && !entity.identity.pdfRef && entity.recoveryData
-            ? [[
-                entity.identity.id,
-                entity.recoveryData,
-            ] as const]
-            : []
-    )));
-    const freeTextNotes = (freeTextNotesResult?.value ?? []).map(note => {
+    const recoverableNotes = new Map<string, string>(
+        plan.expected.flatMap((entity) =>
+            entity.kind === 'note' && !entity.deleted && !entity.identity.pdfRef && entity.recoveryData
+                ? [[entity.identity.id, entity.recoveryData] as const]
+                : [],
+        ),
+    );
+    const freeTextNotes = (freeTextNotesResult?.value ?? []).map((note) => {
         const recoveryData = recoverableNotes.get(note.stableKey);
-        return recoveryData === undefined ? note : {
-            ...note,
-            recoveryData,
-        };
+        return recoveryData === undefined
+            ? note
+            : {
+                  ...note,
+                  recoveryData,
+              };
     });
     // Native text-box mutations are already a bounded projection. They remain
     // valid when other changed annotations select the writer route.
@@ -706,25 +633,22 @@ function buildClassifiedNativeMutationProjection(
     if (
         changedComments
             .filter(isCanonicalTextBoxComment)
-            .some(comment => !isCommentCoveredByNativeTextBoxIndex(comment, textBoxIdentityIndex))
+            .some((comment) => !isCommentCoveredByNativeTextBoxIndex(comment, textBoxIdentityIndex))
     ) {
         return 'native-text-box-payload-unavailable';
     }
     const annotationDeletes = annotationDeletesResult?.value ?? [];
-    const pendingDeleteTargetKeys = canonical.pendingDeletes
-        .map(getNativeAnnotationDeleteCommentTargetKey);
-    const projectedDeleteTargetKeys = annotationDeletes
-        .map(getNativeAnnotationDeleteRequestTargetKey);
+    const pendingDeleteTargetKeys = canonical.pendingDeletes.map(getNativeAnnotationDeleteCommentTargetKey);
+    const projectedDeleteTargetKeys = annotationDeletes.map(getNativeAnnotationDeleteRequestTargetKey);
     const pendingDeleteTargetSet = new Set(pendingDeleteTargetKeys);
     const projectedDeleteTargetSet = new Set(projectedDeleteTargetKeys);
-    const hasExactNativeDeleteCoverage = (
-        pendingDeleteTargetKeys.length === annotationDeletes.length
-        && pendingDeleteTargetKeys.every((key): key is string => key !== null)
-        && projectedDeleteTargetKeys.every((key): key is string => key !== null)
-        && pendingDeleteTargetSet.size === pendingDeleteTargetKeys.length
-        && projectedDeleteTargetSet.size === projectedDeleteTargetKeys.length
-        && pendingDeleteTargetKeys.every(key => projectedDeleteTargetSet.has(key))
-    );
+    const hasExactNativeDeleteCoverage =
+        pendingDeleteTargetKeys.length === annotationDeletes.length &&
+        pendingDeleteTargetKeys.every((key): key is string => key !== null) &&
+        projectedDeleteTargetKeys.every((key): key is string => key !== null) &&
+        pendingDeleteTargetSet.size === pendingDeleteTargetKeys.length &&
+        projectedDeleteTargetSet.size === projectedDeleteTargetKeys.length &&
+        pendingDeleteTargetKeys.every((key) => projectedDeleteTargetSet.has(key));
     const annotationWorkDirty = hasNonShapeAnnotationWork(plan);
     const markup = buildNativeMarkupMutationForSave({
         canonicalComments: canonical.comments,
@@ -732,34 +656,31 @@ function buildClassifiedNativeMutationProjection(
         annotationWorkDirty,
     });
     const hasMarkupMutations = Boolean(markup);
-    const nativeNoteMutationCount = noteTextUpdates.length
-        + freeTextNotes.length
-        + textBoxes.length
-        + annotationDeletes.length
-        + noteGeometryUpdates.length;
-    if (capabilities.forceWriterSave && nativeNoteMutationCount === 0 && !hasMarkupMutations
-        && imageMutationCount === 0) {
+    const nativeNoteMutationCount =
+        noteTextUpdates.length + freeTextNotes.length + textBoxes.length + annotationDeletes.length + noteGeometryUpdates.length;
+    if (capabilities.forceWriterSave && nativeNoteMutationCount === 0 && !hasMarkupMutations && imageMutationCount === 0) {
         return 'writer-save-required';
     }
-    if (!arePendingTextsCoveredByNativeChanges({
-        pendingTexts: canonical.pendingTexts,
-        nativeNoteTextUpdates: noteTextUpdatesResult?.value ?? null,
-        nativeFreeTextNotes: freeTextNotesResult?.value ?? null,
-    })) {
+    if (
+        !arePendingTextsCoveredByNativeChanges({
+            pendingTexts: canonical.pendingTexts,
+            nativeNoteTextUpdates: noteTextUpdatesResult?.value ?? null,
+            nativeFreeTextNotes: freeTextNotesResult?.value ?? null,
+        })
+    ) {
         return 'pending-texts-not-covered-by-native-mutations';
     }
     if (canonical.pendingDeletes.length > 0 && !hasExactNativeDeleteCoverage) {
         return 'pending-deletes-not-covered-by-native-mutations';
     }
-    if (annotationWorkDirty && nativeNoteMutationCount === 0 && !hasMarkupMutations
-        && imageMutationCount === 0) {
+    if (annotationWorkDirty && nativeNoteMutationCount === 0 && !hasMarkupMutations && imageMutationCount === 0) {
         return 'annotation-work-not-covered-by-native-mutations';
     }
 
     // The frozen frontier owns upserts. Only explicit tombstones authorize deletion.
-    const changedShapes = plan.expected.filter((entity): entity is IShapeEntity => (
-        entity.kind === 'shape' && !entity.deleted && isActuallyChangedEntity(entity)
-    ));
+    const changedShapes = plan.expected.filter(
+        (entity): entity is IShapeEntity => entity.kind === 'shape' && !entity.deleted && isActuallyChangedEntity(entity),
+    );
     const shapes = buildNativeShapesMutationForSave({
         shapeStateDirty: admitted.dirtyState.shapeStateDirty,
         rewriteShapeState: false,
@@ -784,20 +705,13 @@ function buildClassifiedNativeMutationProjection(
         untitledBookmarkLabel: admitted.documentStructure.untitledBookmarkLabel,
     });
     const hasMetadataMutations = Boolean(pageLabels) || Boolean(bookmarks);
-    if (
-        (admitted.documentStructure.pageLabelsDirty || admitted.documentStructure.bookmarksDirty)
-        && !hasMetadataMutations
-    ) {
+    if ((admitted.documentStructure.pageLabelsDirty || admitted.documentStructure.bookmarksDirty) && !hasMetadataMutations) {
         return 'metadata-payload-unavailable';
     }
-    if (
-        (hasMetadataMutations || hasShapeMutations)
-        && !admitted.nativeCapabilities.canPersistNativeMetadataMutations
-    ) {
+    if ((hasMetadataMutations || hasShapeMutations) && !admitted.nativeCapabilities.canPersistNativeMetadataMutations) {
         return 'native-structured-save-capability-unavailable';
     }
-    if (nativeNoteMutationCount === 0 && !hasMetadataMutations && !hasShapeMutations && !hasMarkupMutations
-        && imageMutationCount === 0) {
+    if (nativeNoteMutationCount === 0 && !hasMetadataMutations && !hasShapeMutations && !hasMarkupMutations && imageMutationCount === 0) {
         return 'no-native-mutations-projected';
     }
 
@@ -829,15 +743,16 @@ function buildClassifiedNativeMutationProjection(
         hasMetadataMutations,
         hasShapeMutations,
         hasMarkupMutations,
-        phase: hasMetadataMutations || hasShapeMutations || hasMarkupMutations
-            ? 'persist-native-pdf-mutations'
-            : annotationDeletes.length > 0
-                ? 'persist-native-annotation-changes'
-                : textBoxes.length > 0
+        phase:
+            hasMetadataMutations || hasShapeMutations || hasMarkupMutations
+                ? 'persist-native-pdf-mutations'
+                : annotationDeletes.length > 0
+                  ? 'persist-native-annotation-changes'
+                  : textBoxes.length > 0
                     ? 'persist-native-text-box-changes'
                     : freeTextNotes.length > 0
-                        ? 'persist-native-note-changes'
-                        : 'persist-native-note-text-updates',
+                      ? 'persist-native-note-changes'
+                      : 'persist-native-note-text-updates',
     };
 }
 
@@ -845,38 +760,30 @@ function buildClassifiedNativeMutationProjection(
  * The one place save routing is decided. Every projector receives the result and
  * asserts it; none of them may re-derive a mode, capability, or coverage branch.
  */
-export function buildNativePdfMutationProjection(
-    plan: ISerializationPlan,
-    capabilities: IPdfSaveRouteCapabilities,
-): TPdfSaveRouteDecision {
+export function buildNativePdfMutationProjection(plan: ISerializationPlan, capabilities: IPdfSaveRouteCapabilities): TPdfSaveRouteDecision {
     const canonical = deriveCanonicalSaveInputs(plan, capabilities);
     // Forced materialization selects the full writer route but never removes the
     // native-append grant: bounded native mutations still beat a full rewrite.
     const replayPlan = planAnnotationRoute(canonical);
     const annotationPlan: IPdfViewerAnnotationSavePlan = capabilities.forceWriterSave
         ? {
-            route: 'writer-save',
-            expectedCost: 'full-document',
-            reason: canonical.frontierChanges.hasChanges
-                ? 'writer-save-forced-with-annotation-changes'
-                : 'writer-save-forced',
-            unreplayableAnnotationIds: Array.from(canonical.frontierChanges.ids),
-        }
+              route: 'writer-save',
+              expectedCost: 'full-document',
+              reason: canonical.frontierChanges.hasChanges ? 'writer-save-forced-with-annotation-changes' : 'writer-save-forced',
+              unreplayableAnnotationIds: Array.from(canonical.frontierChanges.ids),
+          }
         : replayPlan;
     const admitted = admitNativeAppendRoute(plan, capabilities);
-    const nativeProjection = typeof admitted === 'string'
-        ? admitted
-        : buildClassifiedNativeMutationProjection(plan, canonical, capabilities, admitted, replayPlan);
-    const nativeRejection = typeof nativeProjection === 'string'
-        ? nativeProjection
-        : 'native-write-failed';
+    const nativeProjection =
+        typeof admitted === 'string'
+            ? admitted
+            : buildClassifiedNativeMutationProjection(plan, canonical, capabilities, admitted, replayPlan);
+    const nativeRejection = typeof nativeProjection === 'string' ? nativeProjection : 'native-write-failed';
     const byteRoute: IPdfSaveByteRouteDecision = {
         route: annotationPlan.route,
         annotationPlan,
         canonical,
-        baseBytes: capabilities.hasLoadedSource && annotationPlan.route !== 'writer-save'
-            ? 'loaded-source'
-            : 'writer-save',
+        baseBytes: capabilities.hasLoadedSource && annotationPlan.route !== 'writer-save' ? 'loaded-source' : 'writer-save',
         sourceFallbackAllowed: annotationPlan.route === 'loaded-source',
         nativeRejection,
     };
@@ -907,21 +814,26 @@ export function committedAffectedPageIndices(
 ) {
     const {mutations} = projection;
     const shapes = mutations.shapes;
-    const needsEffects = projection.annotationDeletes.length > 0 || (shapes !== undefined && (
-        shapes.rewriteShapeState || shapes.deletedAnnotationIds.length > 0 || shapes.deletedStableKeys.length > 0
-        || shapes.shapes.some(shape => Boolean(shape.annotationId))))
-        || projection.textBoxes?.some(box => Boolean(box.annotationId)) === true
-        || mutations.markup?.hints.some(hint => hint.source !== 'editor' || Boolean(normalizePdfJsAnnotationId(hint.annotationId))) === true;
-    if (needsEffects && !deleteEffects) {return undefined;}
-    if (deleteEffects && pageIndices?.length) {pageIndices = [...new Set([
-        ...pageIndices,
-        ...deleteEffects.affectedPageIndices,
-    ])].sort((a, b) => a - b);}
-    const local = !projection.hasMetadataMutations
-        && !projection.placedImageGeometryUpdates?.some(update => update.sourceImage)
-        && !mutations.placedImages?.some(image => Boolean(image.annotationId) || !image.stableKey)
-        && !projection.freeTextNotes.some(note => note.recoveryData)
-        && !projection.textBoxes?.some(box => Boolean(box.originalAppearance));
-    return local && pageIndices?.length && pageIndices.length <= PDF_ANNOTATION_PARSE_MAX_PAGE_INDICES
-        ? [...pageIndices] : undefined;
+    const needsEffects =
+        projection.annotationDeletes.length > 0 ||
+        (shapes !== undefined &&
+            (shapes.rewriteShapeState ||
+                shapes.deletedAnnotationIds.length > 0 ||
+                shapes.deletedStableKeys.length > 0 ||
+                shapes.shapes.some((shape) => Boolean(shape.annotationId)))) ||
+        projection.textBoxes?.some((box) => Boolean(box.annotationId)) === true ||
+        mutations.markup?.hints.some((hint) => hint.source !== 'editor' || Boolean(normalizePdfJsAnnotationId(hint.annotationId))) === true;
+    if (needsEffects && !deleteEffects) {
+        return undefined;
+    }
+    if (deleteEffects && pageIndices?.length) {
+        pageIndices = [...new Set([...pageIndices, ...deleteEffects.affectedPageIndices])].sort((a, b) => a - b);
+    }
+    const local =
+        !projection.hasMetadataMutations &&
+        !projection.placedImageGeometryUpdates?.some((update) => update.sourceImage) &&
+        !mutations.placedImages?.some((image) => Boolean(image.annotationId) || !image.stableKey) &&
+        !projection.freeTextNotes.some((note) => note.recoveryData) &&
+        !projection.textBoxes?.some((box) => Boolean(box.originalAppearance));
+    return local && pageIndices?.length && pageIndices.length <= PDF_ANNOTATION_PARSE_MAX_PAGE_INDICES ? [...pageIndices] : undefined;
 }

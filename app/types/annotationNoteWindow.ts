@@ -1,4 +1,4 @@
-import type { IAnnotationMarkerRect } from '@app/types/annotations';
+import type {IAnnotationMarkerRect} from '@app/types/annotations';
 
 export interface IAnnotationNotePosition {
     x: number;

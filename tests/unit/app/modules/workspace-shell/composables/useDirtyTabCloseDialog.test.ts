@@ -1,25 +1,14 @@
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 
-import {
-    effectScope,
-    nextTick,
-    shallowRef,
-    triggerRef,
-} from 'vue';
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { useDirtyTabCloseDialog } from '@app/modules/workspace-shell/composables/useDirtyTabCloseDialog';
+import {effectScope, nextTick, shallowRef, triggerRef} from 'vue';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {useDirtyTabCloseDialog} from '@app/modules/workspace-shell/composables/useDirtyTabCloseDialog';
 import {
     createWorkspaceDocumentController,
     type IWorkspaceDocumentController,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import { requireDocumentRef } from '@contracts/documentRef';
-import { requireDocumentInstanceId } from '@contracts/documentInstanceId';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requireDocumentInstanceId} from '@contracts/documentInstanceId';
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
@@ -42,13 +31,10 @@ function createDirtyTab(id: string, fileName: string, documentInstanceId: string
 }
 
 function createHarness(initialTabs: IWorkspaceDocumentController[]) {
-    const sessions = shallowRef(new Map(initialTabs.map(session => [
-        [...session.views.value.keys()][0]!,
-        session,
-    ])));
+    const sessions = shallowRef(new Map(initialTabs.map((session) => [[...session.views.value.keys()][0]!, session])));
     const scope = effectScope();
     scopes.push(scope);
-    const dialog = scope.run(() => useDirtyTabCloseDialog({getSession: tabId => sessions.value.get(tabId) ?? null}))!;
+    const dialog = scope.run(() => useDirtyTabCloseDialog({getSession: (tabId) => sessions.value.get(tabId) ?? null}))!;
     return {
         dialog,
         removeTab(tabId: string) {
@@ -81,10 +67,7 @@ describe('useDirtyTabCloseDialog', () => {
     });
 
     it('keeps a native window close prompt open when tabs change underneath it', async () => {
-        const {
-            dialog,
-            removeTab,
-        } = createHarness([createDirtyTab('target', 'Zaliznyak.pdf', 'generation-1')]);
+        const {dialog, removeTab} = createHarness([createDirtyTab('target', 'Zaliznyak.pdf', 'generation-1')]);
 
         const decision = dialog.requestDirtyWindowCloseConfirmation();
         expect(dialog.dirtyTabCloseDialogMode.value).toBe('window');
@@ -119,10 +102,7 @@ describe('useDirtyTabCloseDialog', () => {
     it('dismisses when the tab now holds another document', async () => {
         const target = createDirtyTab('target', 'Zaliznyak.pdf', 'generation-1');
         const other = createDirtyTab('other', 'Other.pdf', 'generation-1');
-        const {dialog} = createHarness([
-            target,
-            other,
-        ]);
+        const {dialog} = createHarness([target, other]);
 
         const confirmation = dialog.requestDirtyTabCloseConfirmation('target');
         target.assign({
@@ -141,13 +121,7 @@ describe('useDirtyTabCloseDialog', () => {
 
     it('dismisses when the tab closes without affecting another dirty tab', async () => {
         const other = createDirtyTab('other', 'Other.pdf', 'generation-1');
-        const {
-            dialog,
-            removeTab,
-        } = createHarness([
-            createDirtyTab('target', 'Zaliznyak.pdf', 'generation-1'),
-            other,
-        ]);
+        const {dialog, removeTab} = createHarness([createDirtyTab('target', 'Zaliznyak.pdf', 'generation-1'), other]);
 
         const confirmation = dialog.requestDirtyTabCloseConfirmation('target');
         removeTab('target');

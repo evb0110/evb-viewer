@@ -17,10 +17,7 @@ import type {
 import type {IScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
 import type {IPdfPageSizeStore} from '@evb/scan-cleanup/core/pdfPageSizes';
 
-export type TScanCleanupLog = (
-    level: 'debug' | 'warn' | 'error',
-    message: string,
-) => void;
+export type TScanCleanupLog = (level: 'debug' | 'warn' | 'error', message: string) => void;
 
 export const SCAN_CLEANUP_ASSEMBLER_BACKENDS = [
     'native-pdf-image-combine',
@@ -33,15 +30,10 @@ export const SCAN_CLEANUP_ASSEMBLER_BACKENDS = [
     'browser-wasm-pdf-image-combine',
     'browser-wasm-pdf-page-ops',
 ] as const;
-export type TScanCleanupAssemblerBackend = typeof SCAN_CLEANUP_ASSEMBLER_BACKENDS[number];
+export type TScanCleanupAssemblerBackend = (typeof SCAN_CLEANUP_ASSEMBLER_BACKENDS)[number];
 
-export const SCAN_CLEANUP_TRANSPORT_MODES = [
-    'file-ppm',
-    'file-png',
-    'source-preserved',
-    'browser-wasm-encoded',
-] as const;
-export type TScanCleanupTransportMode = typeof SCAN_CLEANUP_TRANSPORT_MODES[number];
+export const SCAN_CLEANUP_TRANSPORT_MODES = ['file-ppm', 'file-png', 'source-preserved', 'browser-wasm-encoded'] as const;
+export type TScanCleanupTransportMode = (typeof SCAN_CLEANUP_TRANSPORT_MODES)[number];
 
 export interface IPdfPageSize {
     pageNumber: number;
@@ -77,11 +69,7 @@ export interface IPdfPageSize {
 }
 
 /** Whether a page-size sidecar inspected image streams for dominant-raster facts. */
-export type TPdfPageSizeDominantImageAnalysis =
-    | 'performed'
-    | 'unavailable'
-    | 'skipped'
-    | 'unknown';
+export type TPdfPageSizeDominantImageAnalysis = 'performed' | 'unavailable' | 'skipped' | 'unknown';
 
 /**
  * One bounded window from the file-backed page geometry protocol. `offset`
@@ -111,14 +99,8 @@ export interface IPdfPageSizeChunk {
  * check for an injected or directly supplied array, and it rejects rather than
  * sorts so the broken producer is the thing that surfaces.
  */
-export function assertCanonicalPdfPageSizes(
-    pageSizes: readonly IPdfPageSize[],
-    context: string,
-) {
-    for (const [
-        index,
-        pageSize,
-    ] of pageSizes.entries()) {
+export function assertCanonicalPdfPageSizes(pageSizes: readonly IPdfPageSize[], context: string) {
+    for (const [index, pageSize] of pageSizes.entries()) {
         if (pageSize.pageNumber !== index + 1) {
             throw new Error(
                 `${context} received page geometry out of document order: expected page ${String(index + 1)} at index ${String(index)}, received page ${String(pageSize.pageNumber)}`,
@@ -151,9 +133,7 @@ export interface IScanCleanupPageRasterSource {
     compactLayeredPageCountComplete?: boolean;
     /** Record a bounded raster observation when the accessor itself is not the observer. */
     recordPageRaster?: (pageNumber: number, raster: IDetectedPageRaster | undefined) => void;
-    getPageRaster: (
-        pageNumber: number,
-    ) => Promise<IDetectedPageRaster | undefined> | IDetectedPageRaster | undefined;
+    getPageRaster: (pageNumber: number) => Promise<IDetectedPageRaster | undefined> | IDetectedPageRaster | undefined;
 }
 
 /**
@@ -169,23 +149,17 @@ export interface IScanCleanupResultStore<TRecord> {
      * `openFileBackedScanCleanupResultStore` reads. Absent when the store
      * does not own such files.
      */
-    readonly persistedFiles?: {
-        readonly recordsPath: string;
-        readonly indexPath: string;
-    } | undefined;
+    readonly persistedFiles?:
+        | {
+              readonly recordsPath: string;
+              readonly indexPath: string;
+          }
+        | undefined;
     append: (result: TRecord) => Promise<void>;
     replace: (pageNumber: number, result: TRecord) => Promise<void>;
     getPage: (pageNumber: number) => Promise<TRecord | undefined>;
-    readRange: (
-        firstPageNumber: number,
-        lastPageNumberExclusive: number,
-    ) => Promise<TRecord[]>;
-    forEachChunk: (
-        onChunk: (
-            results: readonly TRecord[],
-            firstPageNumber: number,
-        ) => Promise<void> | void,
-    ) => Promise<void>;
+    readRange: (firstPageNumber: number, lastPageNumberExclusive: number) => Promise<TRecord[]>;
+    forEachChunk: (onChunk: (results: readonly TRecord[], firstPageNumber: number) => Promise<void> | void) => Promise<void>;
     close: () => Promise<void>;
 }
 
@@ -195,8 +169,7 @@ export interface IScanCleanupResultStore<TRecord> {
  * their last bounded read. Detection closes it itself on cancellation or
  * failure, before releasing the source document.
  */
-export interface IScanCleanupDetectionResultStore
-    extends IScanCleanupResultStore<IScanCleanupDetectionResult> {}
+export interface IScanCleanupDetectionResultStore extends IScanCleanupResultStore<IScanCleanupDetectionResult> {}
 
 export interface ISourceDpiDetectionResult {
     detected: boolean;
@@ -204,32 +177,26 @@ export interface ISourceDpiDetectionResult {
     compactLayeredPageCount?: number;
     compactLayeredPageCountComplete?: boolean;
     recordPageRaster?: (pageNumber: number, raster: IDetectedPageRaster | undefined) => void;
-    getPageRaster: (
-        pageNumber: number,
-    ) => Promise<IDetectedPageRaster | undefined> | IDetectedPageRaster | undefined;
+    getPageRaster: (pageNumber: number) => Promise<IDetectedPageRaster | undefined> | IDetectedPageRaster | undefined;
 }
 
 export function isScanCleanupCompactLayeredRaster(raster: IDetectedPageRaster | undefined) {
-    return raster?.hasBilevelLayer === true
-        && raster.backgroundDpi !== undefined
-        && Number.isFinite(raster.backgroundDpi)
-        && raster.backgroundDpi > 0;
+    return (
+        raster?.hasBilevelLayer === true &&
+        raster.backgroundDpi !== undefined &&
+        Number.isFinite(raster.backgroundDpi) &&
+        raster.backgroundDpi > 0
+    );
 }
 
 export function resolveSourceDpi(value: number | null | undefined, fallback = 300) {
-    const safeFallback = Number.isFinite(fallback) && fallback > 0
-        ? Math.max(1, Math.round(fallback))
-        : 300;
+    const safeFallback = Number.isFinite(fallback) && fallback > 0 ? Math.max(1, Math.round(fallback)) : 300;
     const candidate = value ?? safeFallback;
-    return Number.isFinite(candidate) && candidate > 0
-        ? Math.max(1, Math.round(candidate))
-        : safeFallback;
+    return Number.isFinite(candidate) && candidate > 0 ? Math.max(1, Math.round(candidate)) : safeFallback;
 }
 
 /** Read verified dominant-image metadata as one bounded page raster fact. */
-export function detectPageRasterFromPageSize(
-    page: IPdfPageSize,
-): IDetectedPageRaster | undefined {
+export function detectPageRasterFromPageSize(page: IPdfPageSize): IDetectedPageRaster | undefined {
     const {
         dominantImageWidthPx: width,
         dominantImageHeightPx: height,
@@ -237,25 +204,22 @@ export function detectPageRasterFromPageSize(
         dominantImageHeightPoints: heightPoints,
     } = page;
     if (
-        width === undefined
-        || height === undefined
-        || widthPoints === undefined
-        || heightPoints === undefined
-        || !Number.isSafeInteger(width)
-        || !Number.isSafeInteger(height)
-        || width <= 0
-        || height <= 0
-        || !Number.isFinite(widthPoints)
-        || !Number.isFinite(heightPoints)
-        || widthPoints <= 0
-        || heightPoints <= 0
+        width === undefined ||
+        height === undefined ||
+        widthPoints === undefined ||
+        heightPoints === undefined ||
+        !Number.isSafeInteger(width) ||
+        !Number.isSafeInteger(height) ||
+        width <= 0 ||
+        height <= 0 ||
+        !Number.isFinite(widthPoints) ||
+        !Number.isFinite(heightPoints) ||
+        widthPoints <= 0 ||
+        heightPoints <= 0
     ) {
         return undefined;
     }
-    const dpi = Math.max(
-        width / widthPoints * 72,
-        height / heightPoints * 72,
-    );
+    const dpi = Math.max((width / widthPoints) * 72, (height / heightPoints) * 72);
     if (!Number.isFinite(dpi) || dpi <= 0) {
         return undefined;
     }
@@ -266,9 +230,7 @@ export function detectPageRasterFromPageSize(
     };
 }
 
-export function detectSourceDpiFromPageSizes(
-    pageSizes: readonly IPdfPageSize[],
-): ISourceDpiDetectionResult | null {
+export function detectSourceDpiFromPageSizes(pageSizes: readonly IPdfPageSize[]): ISourceDpiDetectionResult | null {
     if (pageSizes.length === 0) {
         return null;
     }
@@ -281,15 +243,13 @@ export function detectSourceDpiFromPageSizes(
         rasterByPage.set(page.pageNumber, raster);
     }
     let documentDpi = 0;
-    for (const [
-        , raster,
-    ] of rasterByPage) {
+    for (const [, raster] of rasterByPage) {
         documentDpi = Math.max(documentDpi, raster.dpi);
     }
     return {
         detected: true,
         documentDpi: documentDpi > 0 ? documentDpi : null,
-        getPageRaster: pageNumber => rasterByPage.get(pageNumber),
+        getPageRaster: (pageNumber) => rasterByPage.get(pageNumber),
     };
 }
 
@@ -333,10 +293,7 @@ export type TScanCleanupRunCommand = (
     options?: IScanCleanupRunCommandOptions,
 ) => Promise<IScanCleanupProcessResult>;
 
-export type TScanCleanupGetPageCount = (
-    pdfPath: string,
-    options?: {signal?: AbortSignal},
-) => Promise<number>;
+export type TScanCleanupGetPageCount = (pdfPath: string, options?: {signal?: AbortSignal}) => Promise<number>;
 
 export interface IReadPdfPageSizesOptions {
     pdfPageOpsBinary: string;
@@ -359,10 +316,7 @@ export type TScanCleanupGetPageSizeStore = (
     options: IReadPdfPageSizesOptions,
 ) => Promise<IPdfPageSizeStore> | IPdfPageSizeStore;
 
-export type TScanCleanupGetPageSizeChunks = (
-    pdfPath: string,
-    options: IReadPdfPageSizesOptions,
-) => AsyncGenerator<IPdfPageSizeChunk>;
+export type TScanCleanupGetPageSizeChunks = (pdfPath: string, options: IReadPdfPageSizesOptions) => AsyncGenerator<IPdfPageSizeChunk>;
 
 export type TScanCleanupDetectSourceDpi = (
     pdfPath: string,
@@ -396,7 +350,7 @@ export type TScanCleanupRenderPage = (
         x: number;
         y: number;
         width: number;
-        height: number
+        height: number;
     },
     limits?: IScanCleanupRasterRenderLimits,
     renderBox?: 'auto' | 'cropbox' | 'mediabox',
@@ -436,11 +390,7 @@ export type TScanCleanupRunSidecar = (
     },
 ) => Promise<void>;
 
-export type TScanCleanupRequirePublishedRaster = (
-    path: string | undefined,
-    pageNumber: number,
-    role: string,
-) => Promise<string>;
+export type TScanCleanupRequirePublishedRaster = (path: string | undefined, pageNumber: number, role: string) => Promise<string>;
 
 export type TScanCleanupExtractMrcLayers = (input: {
     pdfPath: string;
@@ -531,7 +481,7 @@ export interface IRunScanCleanupPipelineRequest {
     sourcePageNumbers?: number[];
     sourcePageRange?: {
         startPageNumber: number;
-        endPageNumber: number
+        endPageNumber: number;
     };
     outputModeRecommendations?: Partial<Record<string, TScanCleanupOutputMode>>;
     softAlphaForegroundRecommendations?: Partial<Record<string, boolean>>;
@@ -541,10 +491,7 @@ export interface IRunScanCleanupPipelineRequest {
     documentPriorByPage?: Partial<Record<string, IScanCleanupDocumentPrior>>;
     pagePlanEvidenceByPage?: Partial<Record<string, IScanCleanupPagePlanEvidence>>;
     /** Resolved `ink` placement positions for the outputs of each page. */
-    placementAnchorsByPage?: Partial<Record<
-        string,
-        Partial<Record<TScanCleanupOutputHalf, IScanCleanupPlacementAnchor>>
-    >>;
+    placementAnchorsByPage?: Partial<Record<string, Partial<Record<TScanCleanupOutputHalf, IScanCleanupPlacementAnchor>>>>;
     /** Bounded document-wide calibration for xlarge `ink` placement. */
     placementAnchorSummary?: IScanCleanupPlacementAnchorSummary;
     assemblyBackend?: TScanCleanupAssemblerBackend;
@@ -604,7 +551,8 @@ export interface IScanCleanupOutputPageForSummary {
         foregroundAlpha?: number;
     };
     /** Canonical affine geometry used by diagnostics to compare source and output grids. */
-    renderGeometry?: Pick<INativeScanCleanupOutputMetadataV3,
+    renderGeometry?: Pick<
+        INativeScanCleanupOutputMetadataV3,
         | 'canvasHeightPx'
         | 'canvasWidthPx'
         | 'cropRect'
@@ -626,7 +574,7 @@ export interface IScanCleanupOutputPageForSummary {
         | 'placementOffsetXPx'
         | 'placementOffsetYPx'
         | 'sourceRegion'
-    > & {dewarped: boolean;};
+    > & {dewarped: boolean};
 }
 
 export interface IScanCleanupOutputMapping {

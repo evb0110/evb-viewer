@@ -4,31 +4,14 @@ import type * as TOcrComposableModule from '@app/composables/useOcr';
 import type {TDocumentRef} from '@contracts/documentRef';
 import {requireDocumentRef} from '@contracts/documentRef';
 import type {IOcrCancelResult} from '@contracts/electronApiOcr';
-import type { IOcrLanguage } from '@contracts/shared';
+import type {IOcrLanguage} from '@contracts/shared';
 import {requireRequestId} from '@contracts/shared';
 import {requireEpochMs} from '@contracts/timestamps';
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    computed,
-    effectScope,
-    nextTick,
-    ref,
-    type EffectScope,
-} from 'vue';
-import type {
-    IOcrResults,
-    IOcrSettings,
-    IOcrUiProgress,
-} from '@app/utils/ocr/ocrTypes';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {computed, effectScope, nextTick, ref, type EffectScope} from 'vue';
+import type {IOcrResults, IOcrSettings, IOcrUiProgress} from '@app/utils/ocr/ocrTypes';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
-import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
+import {createElectronPlatformApiFixture} from '@tests/helpers/createElectronPlatformApiFixture';
 
 const useOcrMock = vi.hoisted(() => vi.fn());
 const copyClipboardTextMock = vi.hoisted(() => vi.fn());
@@ -62,8 +45,8 @@ const platformApi = createElectronPlatformApiFixture({settings: {getDebugLogs: g
 vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {warn: browserLoggerWarnMock}}));
 
-const { useOcrPopupPresenter } = await import('@app/modules/ocr-panel/runtime/useOcrPopupPresenter');
-const { applyAgentOcrOptionsToSettings } = await import('@app/modules/ocr-panel/runtime/ocrPopupSettings');
+const {useOcrPopupPresenter} = await import('@app/modules/ocr-panel/runtime/useOcrPopupPresenter');
+const {applyAgentOcrOptionsToSettings} = await import('@app/modules/ocr-panel/runtime/ocrPopupSettings');
 
 function createSettings(): IOcrSettings {
     return {
@@ -161,11 +144,7 @@ function createOcrMock() {
 
 type TOcrMock = ReturnType<typeof createOcrMock>;
 
-function setSearchableResult(
-    ocr: TOcrMock,
-    requestId: string,
-    pdfPath: string,
-) {
+function setSearchableResult(ocr: TOcrMock, requestId: string, pdfPath: string) {
     ocr.results.value = {
         pages: new Map(),
         languages: [...ocr.settings.value.selectedLanguages],
@@ -186,19 +165,26 @@ function createPresenterHarness(ocr: TOcrMock = createOcrMock()) {
     const totalPages = ref(12);
     const workingCopyPath = ref<TDocumentRef | null>(requireDocumentRef('/tmp/source.pdf'));
     let finishApply: (applied: boolean) => void = () => {};
-    const onOcrComplete = vi.fn(() => new Promise<boolean>((resolve) => { finishApply = resolve; }));
+    const onOcrComplete = vi.fn(
+        () =>
+            new Promise<boolean>((resolve) => {
+                finishApply = resolve;
+            }),
+    );
     const busy = ref(false);
 
     const scope = effectScope();
-    const presenter = scope.run(() => useOcrPopupPresenter({
-        context: {
-            currentPage,
-            totalPages,
-            workingCopyPath,
-            busy,
-        },
-        applyResult: onOcrComplete,
-    }));
+    const presenter = scope.run(() =>
+        useOcrPopupPresenter({
+            context: {
+                currentPage,
+                totalPages,
+                workingCopyPath,
+                busy,
+            },
+            applyResult: onOcrComplete,
+        }),
+    );
 
     if (!presenter) {
         throw new Error('Failed to create OCR popup presenter');
@@ -207,14 +193,16 @@ function createPresenterHarness(ocr: TOcrMock = createOcrMock()) {
     const disabled = ref(false);
     const externalError = ref<string | null | undefined>(null);
     const isOpen = ref(false);
-    const view = scope.run(() => presenter.createViewState({
-        disabled,
-        externalError,
-        open: isOpen,
-        setOpen: (value) => {
-            isOpen.value = value;
-        },
-    }));
+    const view = scope.run(() =>
+        presenter.createViewState({
+            disabled,
+            externalError,
+            open: isOpen,
+            setOpen: (value) => {
+                isOpen.value = value;
+            },
+        }),
+    );
 
     if (!view) {
         throw new Error('Failed to create OCR view state');
@@ -252,11 +240,13 @@ describe('useOcrPopupPresenter', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         copyClipboardTextMock.mockResolvedValue(undefined);
-        getDebugLogsMock.mockResolvedValue([{
-            source: 'ocr',
-            message: 'trace line',
-            timestamp: '2026-06-28T00:00:00.000Z',
-        }]);
+        getDebugLogsMock.mockResolvedValue([
+            {
+                source: 'ocr',
+                message: 'trace line',
+                timestamp: '2026-06-28T00:00:00.000Z',
+            },
+        ]);
     });
 
     afterEach(() => {
@@ -269,7 +259,9 @@ describe('useOcrPopupPresenter', () => {
         const scope = effectScope();
         try {
             const ocr = scope.run(() => useOcr());
-            if (!ocr) {throw new Error('OCR composable is unavailable');}
+            if (!ocr) {
+                throw new Error('OCR composable is unavailable');
+            }
             ocr.progress.value.phase = 'model-prep';
             ocr.progress.value.modelDownload = {
                 languageCode: 'deu',
@@ -306,13 +298,17 @@ describe('useOcrPopupPresenter', () => {
                     retrying: false,
                 },
             };
-            expect(harness.presenter.progressStatusText.value).toBe('ocr.modelDownload.progress:{"language":"ocr.languagePicker.names.deu","received":"1.0","total":"8.6","percent":11}');
+            expect(harness.presenter.progressStatusText.value).toBe(
+                'ocr.modelDownload.progress:{"language":"ocr.languagePicker.names.deu","received":"1.0","total":"8.6","percent":11}',
+            );
             harness.ocr.progress.value.modelDownload!.receivedBytes = 2_000_000;
             expect(harness.presenter.progressStatusText.value).toContain('"received":"2.0"');
             expect(harness.presenter.progressStatusText.value).toContain('"percent":23');
             harness.ocr.progress.value.modelDownload!.attempt = 2;
             harness.ocr.progress.value.modelDownload!.retrying = true;
-            expect(harness.presenter.progressStatusText.value).toBe('ocr.modelDownload.retrying:{"language":"ocr.languagePicker.names.deu","attempt":2,"attempts":3}');
+            expect(harness.presenter.progressStatusText.value).toBe(
+                'ocr.modelDownload.retrying:{"language":"ocr.languagePicker.names.deu","attempt":2,"attempts":3}',
+            );
             harness.ocr.progress.value.modelDownload!.retrying = false;
             expect(harness.presenter.progressStatusText.value).toContain('"attempt":2');
             harness.ocr.progress.value.phase = 'processing';
@@ -360,11 +356,7 @@ describe('useOcrPopupPresenter', () => {
                 pageSegmentationMode: 6,
                 supersessionPolicy: 'replace-all',
             });
-            expect(harness.ocr.runOcr).toHaveBeenCalledWith(
-                5,
-                12,
-                '/tmp/source.pdf',
-            );
+            expect(harness.ocr.runOcr).toHaveBeenCalledWith(5, 12, '/tmp/source.pdf');
             expect(harness.events.onOcrComplete).toHaveBeenCalledWith({
                 requestId: 'req-success',
                 pdfPath: resultPath,
@@ -394,10 +386,7 @@ describe('useOcrPopupPresenter', () => {
         const harness = createPresenterHarness();
         harness.ocr.settings.value = {
             ...harness.ocr.settings.value,
-            selectedLanguages: [
-                'eng',
-                'rus',
-            ],
+            selectedLanguages: ['eng', 'rus'],
         };
 
         harness.ocr.runOcr.mockImplementation(async () => {
@@ -408,13 +397,9 @@ describe('useOcrPopupPresenter', () => {
             await nextTick();
             expect(harness.presenter.hasSavedMultipleLanguages.value).toBe(true);
             expect(harness.presenter.selectedLanguageModel.value).toBeUndefined();
-            expect(harness.ocr.settings.value.selectedLanguages).toEqual([
-                'eng',
-                'rus',
-            ]);
+            expect(harness.ocr.settings.value.selectedLanguages).toEqual(['eng', 'rus']);
             expect(harness.presenter.canRunOcr.value).toBe(false);
-            expect(harness.presenter.languagePickerItems.value.filter(item => item.group === 'selected'))
-                .toHaveLength(2);
+            expect(harness.presenter.languagePickerItems.value.filter((item) => item.group === 'selected')).toHaveLength(2);
 
             harness.presenter.selectedLanguageModel.value = 'rus';
             expect(harness.ocr.settings.value.selectedLanguages).toEqual(['rus']);
@@ -443,10 +428,7 @@ describe('useOcrPopupPresenter', () => {
         }
     });
 
-    it.each([
-        'aborted',
-        'replaced',
-    ] as const)('starts no agent OCR when its command is %s while languages load', async (change) => {
+    it.each(['aborted', 'replaced'] as const)('starts no agent OCR when its command is %s while languages load', async (change) => {
         const harness = createPresenterHarness();
         const languagesLoaded = Promise.withResolvers<undefined>();
         harness.ocr.loadLanguages.mockImplementation(() => languagesLoaded.promise);
@@ -454,14 +436,22 @@ describe('useOcrPopupPresenter', () => {
         let documentReplaced = false;
 
         try {
-            const run = harness.presenter.runOcrForAgent({open: false}, {
-                signal: command.signal,
-                assertCurrentDocument: () => {
-                    if (documentReplaced) {throw new Error('The document changed');}
+            const run = harness.presenter.runOcrForAgent(
+                {open: false},
+                {
+                    signal: command.signal,
+                    assertCurrentDocument: () => {
+                        if (documentReplaced) {
+                            throw new Error('The document changed');
+                        }
+                    },
                 },
-            });
-            if (change === 'aborted') {command.abort(new DOMException('Interrupted', 'AbortError'));}
-            else {documentReplaced = true;}
+            );
+            if (change === 'aborted') {
+                command.abort(new DOMException('Interrupted', 'AbortError'));
+            } else {
+                documentReplaced = true;
+            }
             languagesLoaded.resolve(undefined);
 
             await expect(run).rejects.toThrow(change === 'aborted' ? 'Interrupted' : 'The document changed');
@@ -479,10 +469,13 @@ describe('useOcrPopupPresenter', () => {
         });
 
         try {
-            await harness.presenter.runOcrForAgent({open: false}, {
-                signal: command.signal,
-                assertCurrentDocument: () => undefined,
-            });
+            await harness.presenter.runOcrForAgent(
+                {open: false},
+                {
+                    signal: command.signal,
+                    assertCurrentDocument: () => undefined,
+                },
+            );
             expect(harness.ocr.cancelOcr).toHaveBeenCalled();
         } finally {
             stopHarness(harness.scope);
@@ -548,12 +541,14 @@ describe('useOcrPopupPresenter', () => {
             setSearchableResult(harness.ocr, 'req-late-success', '/tmp/late-success.pdf');
             await nextTick();
 
-            expect(harness.events.onOcrComplete).toHaveBeenCalledWith(expect.objectContaining({
-                requestId: 'req-late-success',
-                pdfPath: '/tmp/late-success.pdf',
-                sourceWorkingCopyPath: '/tmp/source.pdf',
-                sourcePageToRestore: 3,
-            }));
+            expect(harness.events.onOcrComplete).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    requestId: 'req-late-success',
+                    pdfPath: '/tmp/late-success.pdf',
+                    sourceWorkingCopyPath: '/tmp/source.pdf',
+                    sourcePageToRestore: 3,
+                }),
+            );
         } finally {
             stopHarness(harness.scope);
         }
@@ -599,10 +594,7 @@ describe('useOcrPopupPresenter', () => {
         }
     });
 
-    it.each([
-        true,
-        false,
-    ])('waits for application acknowledgement and displays its outcome (%s)', async (applied) => {
+    it.each([true, false])('waits for application acknowledgement and displays its outcome (%s)', async (applied) => {
         const harness = createPresenterHarness();
 
         try {
@@ -640,11 +632,7 @@ describe('useOcrPopupPresenter', () => {
             await harness.presenter.handleCopyLogs();
 
             expect(harness.presenter.copyLogsTooltip.value).toBe('ocr.logsCopyFailed');
-            expect(browserLoggerWarnMock).toHaveBeenCalledWith(
-                'ocr',
-                'Failed to copy OCR debug logs',
-                expect.any(Error),
-            );
+            expect(browserLoggerWarnMock).toHaveBeenCalledWith('ocr', 'Failed to copy OCR debug logs', expect.any(Error));
         } finally {
             stopHarness(harness.scope);
         }
@@ -726,28 +714,31 @@ describe('useOcrPopupPresenter', () => {
             expect(harness.ocr.settings.value.supersessionPolicy).toBe('missing-only');
 
             const languages = new Set(['eng']);
-            expect(applyAgentOcrOptionsToSettings(
-                harness.ocr.settings.value,
-                {supersessionPolicy: 'replace-all'},
-                languages,
-            ).supersessionPolicy).toBe('replace-evb');
+            expect(
+                applyAgentOcrOptionsToSettings(harness.ocr.settings.value, {supersessionPolicy: 'replace-all'}, languages)
+                    .supersessionPolicy,
+            ).toBe('replace-evb');
             // An agent that names no policy does not inherit the dialog's replace-all.
-            expect(applyAgentOcrOptionsToSettings(
-                {
-                    ...harness.ocr.settings.value,
-                    supersessionPolicy: 'replace-all',
-                },
-                {pageRange: 'all'},
-                languages,
-            ).supersessionPolicy).toBe('replace-evb');
-            expect(applyAgentOcrOptionsToSettings(
-                harness.ocr.settings.value,
-                {
-                    supersessionPolicy: 'replace-all',
-                    replaceAllAcknowledged: true,
-                },
-                languages,
-            ).supersessionPolicy).toBe('replace-all');
+            expect(
+                applyAgentOcrOptionsToSettings(
+                    {
+                        ...harness.ocr.settings.value,
+                        supersessionPolicy: 'replace-all',
+                    },
+                    {pageRange: 'all'},
+                    languages,
+                ).supersessionPolicy,
+            ).toBe('replace-evb');
+            expect(
+                applyAgentOcrOptionsToSettings(
+                    harness.ocr.settings.value,
+                    {
+                        supersessionPolicy: 'replace-all',
+                        replaceAllAcknowledged: true,
+                    },
+                    languages,
+                ).supersessionPolicy,
+            ).toBe('replace-all');
         } finally {
             stopHarness(harness.scope);
         }
@@ -908,7 +899,7 @@ describe('useOcrPopupPresenter', () => {
 
             harness.presenter.languageSearchQueryModel.value = 'rus';
             expect(harness.presenter.languageSearchQueryModel.value).toBe('rus');
-            expect(harness.presenter.languagePickerItems.value.map(item => item.value)).toEqual(['rus']);
+            expect(harness.presenter.languagePickerItems.value.map((item) => item.value)).toEqual(['rus']);
             expect('languageSearchQuery' in harness.presenter).toBe(false);
         } finally {
             stopHarness(harness.scope);

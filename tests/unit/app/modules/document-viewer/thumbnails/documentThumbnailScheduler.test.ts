@@ -1,9 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {describe, expect, it, vi} from 'vitest';
 import type {IDocumentRenderLease} from '@app/modules/document-viewer/source/documentPageSource';
 import {
     createDocumentThumbnailScheduler,
@@ -30,11 +25,7 @@ function deferred<T>(): IDeferred<T> {
     };
 }
 
-function demand(
-    pageNumber: number,
-    widthPx: number,
-    rank = 1,
-): IDocumentThumbnailDemand {
+function demand(pageNumber: number, widthPx: number, rank = 1): IDocumentThumbnailDemand {
     return {
         distance: pageNumber,
         pageNumber,
@@ -79,10 +70,12 @@ function cappedLeaseRender(widthPx: number, cap: number, release = vi.fn()) {
     const render = vi.fn(async () => {
         calls += 1;
         if (calls > cap) {
-            reportRunaway(new Error(
-                `render was called ${String(calls)} times for a ${String(cap)}-call scenario: `
-                + 'the scheduler is re-queueing work it already committed',
-            ));
+            reportRunaway(
+                new Error(
+                    `render was called ${String(calls)} times for a ${String(cap)}-call scenario: ` +
+                        'the scheduler is re-queueing work it already committed',
+                ),
+            );
             return new Promise<never>(() => undefined);
         }
         return lease(widthPx, release);
@@ -90,10 +83,7 @@ function cappedLeaseRender(widthPx: number, cap: number, release = vi.fn()) {
     return {
         render,
         /** Scheduler idle, or the cap's failure, whichever comes first. */
-        whenIdle: (scheduler: {whenIdle: () => Promise<void>}) => Promise.race([
-            scheduler.whenIdle(),
-            runaway,
-        ]),
+        whenIdle: (scheduler: {whenIdle: () => Promise<void>}) => Promise.race([scheduler.whenIdle(), runaway]),
     };
 }
 
@@ -111,9 +101,7 @@ describe('createDocumentThumbnailScheduler', () => {
             const pageNumber = request.pageNumber;
             const signal = request.signal;
             signal.addEventListener('abort', aborted, {once: true});
-            return pageNumber === 1
-                ? new Promise<IDocumentRenderLease>(() => undefined)
-                : Promise.resolve(lease(128));
+            return pageNumber === 1 ? new Promise<IDocumentRenderLease>(() => undefined) : Promise.resolve(lease(128));
         });
         const scheduler = createDocumentThumbnailScheduler({
             maxConcurrency: 1,
@@ -124,19 +112,13 @@ describe('createDocumentThumbnailScheduler', () => {
         });
         schedulerHolder.scheduler = scheduler;
 
-        scheduler.reconcile([
-            demand(1, 128),
-            demand(2, 128),
-        ]);
+        scheduler.reconcile([demand(1, 128), demand(2, 128)]);
         const idle = scheduler.whenIdle();
 
         await vi.advanceTimersByTimeAsync(100);
         await expect(idle).resolves.toBeUndefined();
         expect(aborted).toHaveBeenCalledOnce();
-        expect(render.mock.calls.map(([request]) => request.pageNumber)).toEqual([
-            1,
-            2,
-        ]);
+        expect(render.mock.calls.map(([request]) => request.pageNumber)).toEqual([1, 2]);
         expect(scheduler.getSnapshot().activeCount).toBe(0);
         scheduler.dispose();
         vi.useRealTimers();
@@ -149,7 +131,7 @@ describe('createDocumentThumbnailScheduler', () => {
             maxConcurrency: 1,
             onStateChange: vi.fn(),
             prepareSurface: vi.fn(async () => undefined),
-            render: vi.fn(request => {
+            render: vi.fn((request) => {
                 started.push(request.pageNumber);
                 const item = deferred<IDocumentRenderLease>();
                 pending.push(item);
@@ -157,11 +139,7 @@ describe('createDocumentThumbnailScheduler', () => {
             }),
         });
 
-        scheduler.reconcile([
-            demand(40, 128, 2),
-            demand(12, 128, 0),
-            demand(13, 128, 1),
-        ]);
+        scheduler.reconcile([demand(40, 128, 2), demand(12, 128, 0), demand(13, 128, 1)]);
         expect(started).toEqual([12]);
         expect(scheduler.getSnapshot().activeCount).toBe(1);
 
@@ -175,15 +153,14 @@ describe('createDocumentThumbnailScheduler', () => {
 
     it('releases a cancelled stale lease once and commits only the replacement', async () => {
         const pending: Array<IDeferred<IDocumentRenderLease>> = [];
-        const releases = [
-            vi.fn(),
-            vi.fn(),
-        ];
+        const releases = [vi.fn(), vi.fn()];
         const committed: number[] = [];
         const scheduler = createDocumentThumbnailScheduler({
             maxConcurrency: 1,
             onStateChange(_page, state) {
-                if (state) {committed.push(state.widthPx);}
+                if (state) {
+                    committed.push(state.widthPx);
+                }
             },
             prepareSurface: vi.fn(async (_lease, signal) => signal.throwIfAborted()),
             render: vi.fn(() => {
@@ -233,10 +210,7 @@ describe('createDocumentThumbnailScheduler', () => {
     it('retries a failed page until the caller drops it from demand', async () => {
         const reported: number[] = [];
         const committed: number[] = [];
-        const render = vi.fn(async (request: {
-            pageNumber: number;
-            widthPx: number;
-        }) => {
+        const render = vi.fn(async (request: {pageNumber: number; widthPx: number}) => {
             if (request.pageNumber !== 5) {
                 return lease(request.widthPx);
             }
@@ -262,68 +236,68 @@ describe('createDocumentThumbnailScheduler', () => {
             render,
         });
 
-        scheduler.reconcile([
-            demand(5, 128),
-            demand(6, 128),
-        ]);
+        scheduler.reconcile([demand(5, 128), demand(6, 128)]);
         await scheduler.whenIdle();
 
-        expect(reported).toEqual([
-            5,
-            5,
-            5,
-        ]);
+        expect(reported).toEqual([5, 5, 5]);
         expect(render.mock.calls.filter(([request]) => request.pageNumber === 5)).toHaveLength(3);
         expect(committed).toEqual([6]);
         scheduler.dispose();
     });
 
-    it.each([
-        'ignores abort',
-        'rejects on abort',
-    ])('counts deadlines when the provider %s and lets later thumbnails render', async (behavior) => {
-        vi.useFakeTimers();
-        const failures: string[] = [];
-        const surfaces: number[] = [];
-        const late = deferred<IDocumentRenderLease>();
-        const release = vi.fn();
-        const scheduler = createDocumentThumbnailScheduler({
-            maxConcurrency: 1,
-            renderTimeoutMs: 10,
-            render: request => {
-                if (request.pageNumber !== 5) {return Promise.resolve(lease(request.widthPx));}
-                if (behavior === 'ignores abort') {return late.promise;}
-                return new Promise<never>((_resolve, reject) => {
-                    request.signal?.addEventListener('abort', () => reject(new DOMException('Canceled render', 'AbortError')), {once: true});
-                });
-            },
-            prepareSurface: async () => undefined,
-            onStateChange: (pageNumber, state) => {
-                if (state) {surfaces.push(pageNumber);}
-            },
-            onError: error => {
-                failures.push(error instanceof Error ? error.message : String(error));
-                if (failures.length === 3) {scheduler.reconcile([demand(6, 128)]);}
-            },
-        });
-        try {
-            scheduler.reconcile([
-                demand(5, 128),
-                demand(6, 128),
-            ]);
-            await vi.advanceTimersByTimeAsync(40);
-            expect(failures).toEqual(Array<string>(3).fill('Thumbnail render timed out after 10ms'));
-            expect(surfaces).toEqual([6]);
-            expect(scheduler.getSnapshot().activePages).toEqual([]);
-            late.resolve(lease(128, release));
-            await vi.advanceTimersByTimeAsync(0);
-            expect(surfaces).toEqual([6]);
-            expect(release).toHaveBeenCalledTimes(behavior === 'ignores abort' ? 3 : 0);
-        } finally {
-            scheduler.dispose();
-            vi.useRealTimers();
-        }
-    });
+    it.each(['ignores abort', 'rejects on abort'])(
+        'counts deadlines when the provider %s and lets later thumbnails render',
+        async (behavior) => {
+            vi.useFakeTimers();
+            const failures: string[] = [];
+            const surfaces: number[] = [];
+            const late = deferred<IDocumentRenderLease>();
+            const release = vi.fn();
+            const scheduler = createDocumentThumbnailScheduler({
+                maxConcurrency: 1,
+                renderTimeoutMs: 10,
+                render: (request) => {
+                    if (request.pageNumber !== 5) {
+                        return Promise.resolve(lease(request.widthPx));
+                    }
+                    if (behavior === 'ignores abort') {
+                        return late.promise;
+                    }
+                    return new Promise<never>((_resolve, reject) => {
+                        request.signal?.addEventListener('abort', () => reject(new DOMException('Canceled render', 'AbortError')), {
+                            once: true,
+                        });
+                    });
+                },
+                prepareSurface: async () => undefined,
+                onStateChange: (pageNumber, state) => {
+                    if (state) {
+                        surfaces.push(pageNumber);
+                    }
+                },
+                onError: (error) => {
+                    failures.push(error instanceof Error ? error.message : String(error));
+                    if (failures.length === 3) {
+                        scheduler.reconcile([demand(6, 128)]);
+                    }
+                },
+            });
+            try {
+                scheduler.reconcile([demand(5, 128), demand(6, 128)]);
+                await vi.advanceTimersByTimeAsync(40);
+                expect(failures).toEqual(Array<string>(3).fill('Thumbnail render timed out after 10ms'));
+                expect(surfaces).toEqual([6]);
+                expect(scheduler.getSnapshot().activePages).toEqual([]);
+                late.resolve(lease(128, release));
+                await vi.advanceTimersByTimeAsync(0);
+                expect(surfaces).toEqual([6]);
+                expect(release).toHaveBeenCalledTimes(behavior === 'ignores abort' ? 3 : 0);
+            } finally {
+                scheduler.dispose();
+                vi.useRealTimers();
+            }
+        },
+    );
 
     it('keeps a real cancellation clean even when its provider misses the deadline', async () => {
         vi.useFakeTimers();
@@ -379,10 +353,12 @@ describe('createDocumentThumbnailScheduler', () => {
 
         // Callers need the requested width to tell a satisfied demand from a
         // pending upgrade; the leased width alone cannot say which one it is.
-        expect(states).toEqual([{
-            requestWidthPx: 256,
-            widthPx: 180,
-        }]);
+        expect(states).toEqual([
+            {
+                requestWidthPx: 256,
+                widthPx: 180,
+            },
+        ]);
         scheduler.dispose();
     });
 

@@ -1,31 +1,13 @@
 import type * as TChildProcess from 'node:child_process';
-import {
-    EventEmitter, on,
-} from 'node:events';
-import {
-    mkdtemp,
-    readFile,
-    rm,
-    writeFile,
-} from 'node:fs/promises';
+import {EventEmitter, on} from 'node:events';
+import {mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {existsSync} from 'node:fs';
 import {tmpdir} from 'node:os';
-import {
-    delimiter,
-    isAbsolute,
-    join,
-} from 'node:path';
+import {delimiter, isAbsolute, join} from 'node:path';
 import {PassThrough} from 'node:stream';
 import {decode as decodePng} from 'fast-png';
 import {requirePageNumber} from '@contracts/pageNumbers';
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 
 const mocks = vi.hoisted(() => ({
     createInterface: vi.fn(),
@@ -53,7 +35,9 @@ class MockLineReader extends EventEmitter {
     readonly close = vi.fn(() => this.emit('close'));
 
     async *[Symbol.asyncIterator]() {
-        for await (const [line] of on(this, 'line', {close: ['close']})) {yield String(line);}
+        for await (const [line] of on(this, 'line', {close: ['close']})) {
+            yield String(line);
+        }
     }
 }
 
@@ -68,11 +52,7 @@ describe('CLI scan cleanup sidecar protocol failures', () => {
     });
 
     it.each([
-        [
-            'malformed NDJSON',
-            '{',
-            undefined,
-        ],
+        ['malformed NDJSON', '{', undefined],
         [
             'schema-invalid NDJSON',
             JSON.stringify({
@@ -98,11 +78,7 @@ describe('CLI scan cleanup sidecar protocol failures', () => {
             }),
             new Error('CLI progress consumer failed'),
         ],
-    ] as const)('closes stdout and terminates the process group on %s', async (
-        _label,
-        line,
-        progressError,
-    ) => {
+    ] as const)('closes stdout and terminates the process group on %s', async (_label, line, progressError) => {
         const child = new MockCliSidecarProcess();
         const lines = new MockLineReader();
         const processKill = vi.spyOn(process, 'kill').mockReturnValue(true);
@@ -115,7 +91,9 @@ describe('CLI scan cleanup sidecar protocol failures', () => {
             new AbortController().signal,
             vi.fn(),
             () => {
-                if (progressError !== undefined) {throw progressError;}
+                if (progressError !== undefined) {
+                    throw progressError;
+                }
             },
         );
 
@@ -123,8 +101,11 @@ describe('CLI scan cleanup sidecar protocol failures', () => {
 
         await vi.waitFor(() => expect(lines.close).toHaveBeenCalledOnce());
         // Windows has no POSIX process groups; the adapter terminates the child itself there.
-        if (process.platform === 'win32') {expect(child.kill).toHaveBeenCalledWith('SIGTERM');}
-        else {expect(processKill).toHaveBeenCalledWith(-child.pid, 'SIGTERM');}
+        if (process.platform === 'win32') {
+            expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+        } else {
+            expect(processKill).toHaveBeenCalledWith(-child.pid, 'SIGTERM');
+        }
         child.exitCode = 1;
         child.emit('exit', null, 'SIGTERM');
         if (progressError === undefined) {
@@ -204,44 +185,48 @@ describe('CLI scan cleanup acceptance evidence', () => {
                 rightXPx: 1215,
             },
         };
-        const results = compactScanCleanupDetectionVerdicts([{
-            pageNumber: requirePageNumber(1),
-            classification: 'two-page-spread',
-            confidence: 0.71,
-            cutterXPx: 1203,
-            tier1Verdict: 'single-uncut-page',
-            reconciled: true,
-            clusterAgreement: 0.94,
-            documentPrior: {
-                dominantLayout: 'two-page-spread',
-                cutterRatioMedian: 0.544,
-                clusterDims: {
-                    widthPx: 2200,
-                    heightPx: 1573,
+        const results = compactScanCleanupDetectionVerdicts([
+            {
+                pageNumber: requirePageNumber(1),
+                classification: 'two-page-spread',
+                confidence: 0.71,
+                cutterXPx: 1203,
+                tier1Verdict: 'single-uncut-page',
+                reconciled: true,
+                clusterAgreement: 0.94,
+                documentPrior: {
+                    dominantLayout: 'two-page-spread',
+                    cutterRatioMedian: 0.544,
+                    clusterDims: {
+                        widthPx: 2200,
+                        heightPx: 1573,
+                    },
+                    agreementStrength: 0.94,
                 },
-                agreementStrength: 0.94,
+                splitDiagnostics,
             },
-            splitDiagnostics,
-        }]);
-        expect(results).toEqual([{
-            pageNumber: requirePageNumber(1),
-            classification: 'two-page-spread',
-            confidence: 0.71,
-            cutterXPx: 1203,
-            tier1Verdict: 'single-uncut-page',
-            reconciled: true,
-            clusterAgreement: 0.94,
-            documentPrior: {
-                dominantLayout: 'two-page-spread',
-                cutterRatioMedian: 0.544,
-                clusterDims: {
-                    widthPx: 2200,
-                    heightPx: 1573,
+        ]);
+        expect(results).toEqual([
+            {
+                pageNumber: requirePageNumber(1),
+                classification: 'two-page-spread',
+                confidence: 0.71,
+                cutterXPx: 1203,
+                tier1Verdict: 'single-uncut-page',
+                reconciled: true,
+                clusterAgreement: 0.94,
+                documentPrior: {
+                    dominantLayout: 'two-page-spread',
+                    cutterRatioMedian: 0.544,
+                    clusterDims: {
+                        widthPx: 2200,
+                        heightPx: 1573,
+                    },
+                    agreementStrength: 0.94,
                 },
-                agreementStrength: 0.94,
+                splitDiagnostics,
             },
-            splitDiagnostics,
-        }]);
+        ]);
     });
 
     it('extracts only raw bilevel planes from compact page specs', async () => {
@@ -261,35 +246,37 @@ describe('CLI scan cleanup acceptance evidence', () => {
             await Promise.all([
                 writeFile(first, Buffer.from('P4\n8 1\n\x80', 'binary')),
                 writeFile(second, Buffer.from('P4\n8 1\n\x40', 'binary')),
-                writeFile(manifest, JSON.stringify({pages: [
-                    `image-bilevel\t72\t144\t${first}`,
-                    `image-bilevel\t72\t144\t${second}`,
-                ]})),
+                writeFile(manifest, JSON.stringify({pages: [`image-bilevel\t72\t144\t${first}`, `image-bilevel\t72\t144\t${second}`]})),
             ]);
-            const {
-                buildCliRawMaskEvidenceManifest,
-                snapshotCliDiagnosticMasks,
-            } = await import('@scripts/scanCleanupCliAdapters');
+            const {buildCliRawMaskEvidenceManifest, snapshotCliDiagnosticMasks} = await import('@scripts/scanCleanupCliAdapters');
             const evidence = await snapshotCliDiagnosticMasks(manifest, [2], evidenceDirectory);
-            expect(evidence).toEqual([{
-                outputOrdinal: 2,
-                relativePath: 'raw-masks/output-0002.pbm',
-            }]);
+            expect(evidence).toEqual([
+                {
+                    outputOrdinal: 2,
+                    relativePath: 'raw-masks/output-0002.pbm',
+                },
+            ]);
             expect(await readFile(join(evidenceDirectory, evidence[0]!.relativePath), 'binary')).toBe('P4\n8 1\n\x40');
-            expect(buildCliRawMaskEvidenceManifest('/output.pdf', evidence, [{
-                outputOrdinal: 2,
-                outputPageNumber: 7,
-                sourcePageNumber: 4,
-                half: 'right',
-            }])).toEqual({
+            expect(
+                buildCliRawMaskEvidenceManifest('/output.pdf', evidence, [
+                    {
+                        outputOrdinal: 2,
+                        outputPageNumber: 7,
+                        sourcePageNumber: 4,
+                        half: 'right',
+                    },
+                ]),
+            ).toEqual({
                 schemaVersion: 1,
                 outputPdf: '/output.pdf',
-                pages: [{
-                    outputPage: 7,
-                    sourcePage: 4,
-                    half: 'right',
-                    rawMaskPath: 'raw-masks/output-0002.pbm',
-                }],
+                pages: [
+                    {
+                        outputPage: 7,
+                        sourcePage: 4,
+                        half: 'right',
+                        rawMaskPath: 'raw-masks/output-0002.pbm',
+                    },
+                ],
             });
         } finally {
             await rm(directory, {
@@ -301,23 +288,14 @@ describe('CLI scan cleanup acceptance evidence', () => {
 });
 
 /** Two pixels on a white page; the mask gives the left pixel ink and the right pixel paper. */
-const HARD_MASK_INK_THEN_PAPER = Buffer.concat([
-    Buffer.from('P4\n2 1\n', 'ascii'),
-    Buffer.from([0x80]),
-]);
+const HARD_MASK_INK_THEN_PAPER = Buffer.concat([Buffer.from('P4\n2 1\n', 'ascii'), Buffer.from([0x80])]);
 /** Opacity samples: the left pixel is opaque (255) and the right pixel is clear. */
-const SOFT_ALPHA_OPAQUE_THEN_CLEAR = Buffer.concat([
-    Buffer.from('P5\n2 1\n255\n', 'ascii'),
-    Buffer.from([
-        255,
-        0,
-    ]),
-]);
+const SOFT_ALPHA_OPAQUE_THEN_CLEAR = Buffer.concat([Buffer.from('P5\n2 1\n255\n', 'ascii'), Buffer.from([255, 0])]);
 
 const layeredMaskMagick = process.env.EVB_SCAN_CLEANUP_MAGICK_PATH ?? 'magick';
 const layeredMaskMagickAvailable = isAbsolute(layeredMaskMagick)
     ? existsSync(layeredMaskMagick)
-    : (process.env.PATH ?? '').split(delimiter).some(directory => existsSync(join(directory, layeredMaskMagick)));
+    : (process.env.PATH ?? '').split(delimiter).some((directory) => existsSync(join(directory, layeredMaskMagick)));
 
 describe.skipIf(!layeredMaskMagickAvailable)('CLI layered-mask fallback polarity', () => {
     beforeEach(async () => {
@@ -334,11 +312,7 @@ describe.skipIf(!layeredMaskMagickAvailable)('CLI layered-mask fallback polarity
      */
     async function flattenTwoPixelPage(
         mask: Buffer,
-        manifestLine: (paths: {
-            background: string;
-            foreground: string;
-            mask: string
-        }) => string[],
+        manifestLine: (paths: {background: string; foreground: string; mask: string}) => string[],
     ) {
         const directory = await mkdtemp(join(tmpdir(), 'layered-mask-fallback-'));
         try {
@@ -346,14 +320,8 @@ describe.skipIf(!layeredMaskMagickAvailable)('CLI layered-mask fallback polarity
             const foreground = join(directory, 'foreground.ppm');
             const maskPath = join(directory, 'mask.netpbm');
             await Promise.all([
-                writeFile(background, Buffer.concat([
-                    Buffer.from('P6\n2 1\n255\n', 'ascii'),
-                    Buffer.alloc(6, 255),
-                ])),
-                writeFile(foreground, Buffer.concat([
-                    Buffer.from('P6\n2 1\n255\n', 'ascii'),
-                    Buffer.alloc(6, 0),
-                ])),
+                writeFile(background, Buffer.concat([Buffer.from('P6\n2 1\n255\n', 'ascii'), Buffer.alloc(6, 255)])),
+                writeFile(foreground, Buffer.concat([Buffer.from('P6\n2 1\n255\n', 'ascii'), Buffer.alloc(6, 0)])),
                 writeFile(maskPath, mask),
             ]);
             const {flattenLayeredManifestPage} = await import('@scripts/flattenLayeredManifestPage');
@@ -371,14 +339,13 @@ describe.skipIf(!layeredMaskMagickAvailable)('CLI layered-mask fallback polarity
             // ImageMagick writes a two-colour result as a 1-bit palette PNG; the
             // single-colour fallback is a 1-bit gray PNG, and the colored one is 8-bit.
             const sample = (index: number) => {
-                if (decoded.depth !== 1) {return decoded.data[index * decoded.channels]!;}
+                if (decoded.depth !== 1) {
+                    return decoded.data[index * decoded.channels]!;
+                }
                 const bit = (decoded.data[index >> 3]! >> (7 - (index & 7))) & 1;
                 return decoded.palette ? decoded.palette[bit]![0]! : bit * 255;
             };
-            return [
-                sample(0),
-                sample(1),
-            ];
+            return [sample(0), sample(1)];
         } finally {
             await rm(directory, {
                 recursive: true,
@@ -388,116 +355,105 @@ describe.skipIf(!layeredMaskMagickAvailable)('CLI layered-mask fallback polarity
     }
 
     it('keeps hard stencil ink opaque in the layered-jpeg fallback', async () => {
-        expect(await flattenTwoPixelPage(HARD_MASK_INK_THEN_PAPER, ({
-            background, mask,
-        }) => [
-            'layered-jpeg',
-            '72',
-            '144',
-            '85',
-            background,
-            mask,
-        ])).toEqual([
-            0,
-            255,
-        ]);
+        expect(
+            await flattenTwoPixelPage(HARD_MASK_INK_THEN_PAPER, ({background, mask}) => [
+                'layered-jpeg',
+                '72',
+                '144',
+                '85',
+                background,
+                mask,
+            ]),
+        ).toEqual([0, 255]);
     });
 
     it('keeps hard stencil ink opaque over a colored layered-color-jpeg foreground', async () => {
-        expect(await flattenTwoPixelPage(HARD_MASK_INK_THEN_PAPER, ({
-            background, mask,
-        }) => [
-            'layered-color-jpeg',
-            '72',
-            '144',
-            '85',
-            background,
-            mask,
-            '128',
-            '16',
-            '16',
-        ])).toEqual([
-            128,
-            255,
-        ]);
+        expect(
+            await flattenTwoPixelPage(HARD_MASK_INK_THEN_PAPER, ({background, mask}) => [
+                'layered-color-jpeg',
+                '72',
+                '144',
+                '85',
+                background,
+                mask,
+                '128',
+                '16',
+                '16',
+            ]),
+        ).toEqual([128, 255]);
     });
 
     it('keeps soft alpha opacity as written in the soft-layered-jpeg fallback', async () => {
-        expect(await flattenTwoPixelPage(SOFT_ALPHA_OPAQUE_THEN_CLEAR, ({
-            background, mask,
-        }) => [
-            'soft-layered-jpeg',
-            '72',
-            '144',
-            '85',
-            background,
-            mask,
-        ])).toEqual([
-            0,
-            255,
-        ]);
+        expect(
+            await flattenTwoPixelPage(SOFT_ALPHA_OPAQUE_THEN_CLEAR, ({background, mask}) => [
+                'soft-layered-jpeg',
+                '72',
+                '144',
+                '85',
+                background,
+                mask,
+            ]),
+        ).toEqual([0, 255]);
     });
 
     it('keeps affine masks with no decode field as written in the fallback', async () => {
-        expect(await flattenTwoPixelPage(SOFT_ALPHA_OPAQUE_THEN_CLEAR, ({
-            background, foreground, mask,
-        }) => [
-            'affine-masked-layered-jpeg',
-            '72',
-            '144',
-            '85',
-            background,
-            foreground,
-            mask,
-            '72',
-            '0',
-            '0',
-            '144',
-            '0',
-            '0',
-        ])).toEqual([
-            0,
-            255,
-        ]);
+        expect(
+            await flattenTwoPixelPage(SOFT_ALPHA_OPAQUE_THEN_CLEAR, ({background, foreground, mask}) => [
+                'affine-masked-layered-jpeg',
+                '72',
+                '144',
+                '85',
+                background,
+                foreground,
+                mask,
+                '72',
+                '0',
+                '0',
+                '144',
+                '0',
+                '0',
+            ]),
+        ).toEqual([0, 255]);
     });
 
     it('inverts affine masks that declare an inverted decode in the fallback', async () => {
-        expect(await flattenTwoPixelPage(SOFT_ALPHA_OPAQUE_THEN_CLEAR, ({
-            background, foreground, mask,
-        }) => [
-            'affine-masked-layered-jpeg',
-            '72',
-            '144',
-            '85',
-            background,
-            foreground,
-            mask,
-            '72',
-            '0',
-            '0',
-            '144',
-            '0',
-            '0',
-            'inverted',
-        ])).toEqual([
-            255,
-            0,
-        ]);
+        expect(
+            await flattenTwoPixelPage(SOFT_ALPHA_OPAQUE_THEN_CLEAR, ({background, foreground, mask}) => [
+                'affine-masked-layered-jpeg',
+                '72',
+                '144',
+                '85',
+                background,
+                foreground,
+                mask,
+                '72',
+                '0',
+                '0',
+                '144',
+                '0',
+                '0',
+                'inverted',
+            ]),
+        ).toEqual([255, 0]);
     });
 });
 
 describe('scan cleanup source raster evidence', () => {
     it('rejects a timed-out source probe instead of using a different analysis DPI', async () => {
         const {detectSourceDpiDetails} = await import('@evb/scan-cleanup/core/sourceDpiDetection');
-        await expect(detectSourceDpiDetails(
-            '/public-book.pdf',
-            '/bin/pdfimages',
-            () => {},
-            undefined,
-            new AbortController().signal,
-            [1],
-            undefined,
-            async () => { throw new Error('pdfimages(-list) timed out'); },
-        )).rejects.toThrow('pdfimages(-list) timed out');
+        await expect(
+            detectSourceDpiDetails(
+                '/public-book.pdf',
+                '/bin/pdfimages',
+                () => {},
+                undefined,
+                new AbortController().signal,
+                [1],
+                undefined,
+                async () => {
+                    throw new Error('pdfimages(-list) timed out');
+                },
+            ),
+        ).rejects.toThrow('pdfimages(-list) timed out');
     });
 });

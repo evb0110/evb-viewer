@@ -1,18 +1,7 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    readBrowserRasterImageMetadata,
-    readBrowserTiffFrameDpi,
-} from '@app/platform/browser-api/browserRasterImageMetadata';
+import {describe, expect, it, vi} from 'vitest';
+import {readBrowserRasterImageMetadata, readBrowserTiffFrameDpi} from '@app/platform/browser-api/browserRasterImageMetadata';
 import {assertBrowserCombinedPdfOutputBytes} from '@app/platform/browser-api/createCombinedPdfFromPaths';
-import {
-    probeBrowserImageFile,
-    PDF_IMAGE_PLACEMENT_RESOURCE_LIMITS,
-} from '@app/platform/browser-api/browserImageResourcePolicy';
+import {probeBrowserImageFile, PDF_IMAGE_PLACEMENT_RESOURCE_LIMITS} from '@app/platform/browser-api/browserImageResourcePolicy';
 
 function jpegWithExifOrientation(orientation: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8) {
     return new Uint8Array([
@@ -79,16 +68,7 @@ function jpegWithExifOrientation(orientation: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8) {
 }
 
 describe('browserRasterImageMetadata', () => {
-    it.each([
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        8,
-    ] as const)('reads JPEG EXIF orientation %i before decode', async (orientation) => {
+    it.each([1, 2, 3, 4, 5, 6, 7, 8] as const)('reads JPEG EXIF orientation %i before decode', async (orientation) => {
         expect(readBrowserRasterImageMetadata(jpegWithExifOrientation(orientation), '.jpg')).toMatchObject({
             width: 800,
             height: 1200,
@@ -106,16 +86,8 @@ describe('browserRasterImageMetadata', () => {
         bytes.set(new TextEncoder().encode('RIFF'), 0);
         bytes.set(new TextEncoder().encode('WEBP'), 8);
         bytes.set(new TextEncoder().encode('VP8X'), 12);
-        bytes.set([
-            0xff,
-            0x03,
-            0x00,
-        ], 24);
-        bytes.set([
-            0xff,
-            0x01,
-            0x00,
-        ], 27);
+        bytes.set([0xff, 0x03, 0x00], 24);
+        bytes.set([0xff, 0x01, 0x00], 27);
         expect(readBrowserRasterImageMetadata(bytes, '.webp')).toMatchObject({
             width: 1024,
             height: 512,
@@ -123,17 +95,13 @@ describe('browserRasterImageMetadata', () => {
     });
 
     it('reads rational TIFF resolution values and centimeter units', () => {
-        expect(readBrowserTiffFrameDpi({
-            t282: [
-                300,
-                2,
-            ],
-            t283: [[
-                600,
-                4,
-            ]],
-            t296: 3,
-        })).toBe(381);
+        expect(
+            readBrowserTiffFrameDpi({
+                t282: [300, 2],
+                t283: [[600, 4]],
+                t296: 3,
+            }),
+        ).toBe(381);
     });
 
     it('checks nonempty output', () => {
@@ -142,12 +110,9 @@ describe('browserRasterImageMetadata', () => {
     });
 });
 
-
 describe('browser image export DPI planning', () => {
     it('samples source DPI within the selected pages and guards even unprobed page dimensions', async () => {
-        const {
-            createCanvas, DOMMatrix, ImageData, Path2D,
-        } = await import('@napi-rs/canvas');
+        const {createCanvas, DOMMatrix, ImageData, Path2D} = await import('@napi-rs/canvas');
         vi.stubGlobal('DOMMatrix', DOMMatrix);
         vi.stubGlobal('ImageData', ImageData);
         vi.stubGlobal('Path2D', Path2D);
@@ -159,13 +124,7 @@ describe('browser image export DPI planning', () => {
         scan.getContext('2d').fillRect(0, 0, scan.width, scan.height);
         const image = await pdf.embedPng(scan.toBuffer('image/png'));
         for (let pageNumber = 1; pageNumber <= 10; pageNumber += 1) {
-            const page = pdf.addPage(pageNumber === 8 ? [
-                10000,
-                72,
-            ] : [
-                72,
-                108,
-            ]);
+            const page = pdf.addPage(pageNumber === 8 ? [10000, 72] : [72, 108]);
             if (pageNumber !== 8) {
                 // Page 3 is outside the eight evenly spread full-document probes.
                 const width = pageNumber === 3 ? 5.76 : 72;
@@ -180,28 +139,8 @@ describe('browser image export DPI planning', () => {
         const task = pdfjs.getDocument({data: await pdf.save()});
         try {
             const document = await task.promise;
-            expect(await browserImageExportConfig(document, [
-                1,
-                2,
-                3,
-                4,
-                5,
-                6,
-                7,
-                8,
-                9,
-                10,
-            ])).toBe(58);
-            expect(await browserImageExportConfig(document, [
-                1,
-                2,
-                4,
-                5,
-                6,
-                7,
-                9,
-                10,
-            ])).toBe(96);
+            expect(await browserImageExportConfig(document, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])).toBe(58);
+            expect(await browserImageExportConfig(document, [1, 2, 4, 5, 6, 7, 9, 10])).toBe(96);
             expect(await browserImageExportConfig(document, [3])).toBe(1200);
         } finally {
             await task.destroy();

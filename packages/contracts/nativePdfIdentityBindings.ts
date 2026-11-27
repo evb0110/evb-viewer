@@ -1,6 +1,4 @@
-import type {
-    IPdfNativeAnnotationIdentityBinding,
-} from '@contracts/electronApiDocuments';
+import type {IPdfNativeAnnotationIdentityBinding} from '@contracts/electronApiDocuments';
 import {isRecord} from '@contracts/runtimeGuards';
 
 export const PDF_NATIVE_IDENTITY_BINDING_LIMITS = {
@@ -18,10 +16,7 @@ interface IPdfNativeIdentityBindingValidationOptions {
     scope?: 'chunk' | 'save';
 }
 
-function failIdentityBindingValidation(
-    message: string,
-    options: IPdfNativeIdentityBindingValidationOptions,
-): never {
+function failIdentityBindingValidation(message: string, options: IPdfNativeIdentityBindingValidationOptions): never {
     throw options.errorKind === 'error' ? new Error(message) : new TypeError(message);
 }
 
@@ -34,14 +29,10 @@ export function normalizePdfNativeAnnotationIdentityBindings(
     if (value === undefined) {
         return [];
     }
-    const maxItems = options.scope === 'chunk'
-        ? PDF_NATIVE_IDENTITY_BINDING_LIMITS.chunkItems
-        : PDF_NATIVE_IDENTITY_BINDING_LIMITS.saveItems;
+    const maxItems =
+        options.scope === 'chunk' ? PDF_NATIVE_IDENTITY_BINDING_LIMITS.chunkItems : PDF_NATIVE_IDENTITY_BINDING_LIMITS.saveItems;
     if (!Array.isArray(value) || value.length > maxItems) {
-        failIdentityBindingValidation(
-            `${label} must be an array with at most ${maxItems} items`,
-            options,
-        );
+        failIdentityBindingValidation(`${label} must be an array with at most ${maxItems} items`, options);
     }
     const annotationIds = new Set<string>();
     const pdfRefs = new Set<string>();
@@ -51,15 +42,12 @@ export function normalizePdfNativeAnnotationIdentityBindings(
         }
         const keys = Object.keys(entry).sort();
         if (keys.length !== 2 || keys[0] !== 'annotationId' || keys[1] !== 'pdfRef') {
-            failIdentityBindingValidation(
-                `${label}[${index}] must contain only annotationId and pdfRef`,
-                options,
-            );
+            failIdentityBindingValidation(`${label}[${index}] must contain only annotationId and pdfRef`, options);
         }
         if (
-            typeof entry.annotationId !== 'string'
-            || entry.annotationId.trim().length === 0
-            || new TextEncoder().encode(entry.annotationId).byteLength > PDF_NATIVE_IDENTITY_BINDING_LIMITS.annotationIdBytes
+            typeof entry.annotationId !== 'string' ||
+            entry.annotationId.trim().length === 0 ||
+            new TextEncoder().encode(entry.annotationId).byteLength > PDF_NATIVE_IDENTITY_BINDING_LIMITS.annotationIdBytes
         ) {
             failIdentityBindingValidation(
                 `${label}[${index}].annotationId must be a non-empty string with at most ${PDF_NATIVE_IDENTITY_BINDING_LIMITS.annotationIdBytes} UTF-8 bytes`,
@@ -72,26 +60,17 @@ export function normalizePdfNativeAnnotationIdentityBindings(
         }
         annotationIds.add(annotationId);
         if (typeof entry.pdfRef !== 'string') {
-            failIdentityBindingValidation(
-                `${label}[${index}].pdfRef must be a canonical PDF object reference`,
-                options,
-            );
+            failIdentityBindingValidation(`${label}[${index}].pdfRef must be a canonical PDF object reference`, options);
         }
         const pdfRef = entry.pdfRef.trim();
         const match = PDF_NATIVE_IDENTITY_BINDING_REF_PATTERN.exec(pdfRef);
         if (!match) {
-            failIdentityBindingValidation(
-                `${label}[${index}].pdfRef must use the canonical N G R form`,
-                options,
-            );
+            failIdentityBindingValidation(`${label}[${index}].pdfRef must use the canonical N G R form`, options);
         }
         const objectNumber = Number(match[1]);
         const generationNumber = Number(match[2]);
         if (!Number.isSafeInteger(objectNumber) || !Number.isSafeInteger(generationNumber)) {
-            failIdentityBindingValidation(
-                `${label}[${index}].pdfRef must contain safe integer object numbers`,
-                options,
-            );
+            failIdentityBindingValidation(`${label}[${index}].pdfRef must contain safe integer object numbers`, options);
         }
         if (pdfRefs.has(pdfRef)) {
             failIdentityBindingValidation(`${label} contains a duplicate PDF object reference`, options);
@@ -102,8 +81,10 @@ export function normalizePdfNativeAnnotationIdentityBindings(
             pdfRef,
         };
     });
-    if (options.scope === 'chunk'
-        && new TextEncoder().encode(JSON.stringify(bindings)).byteLength > PDF_NATIVE_IDENTITY_BINDING_LIMITS.chunkBytes) {
+    if (
+        options.scope === 'chunk' &&
+        new TextEncoder().encode(JSON.stringify(bindings)).byteLength > PDF_NATIVE_IDENTITY_BINDING_LIMITS.chunkBytes
+    ) {
         failIdentityBindingValidation(`${label} exceeds the native report byte budget`, options);
     }
     return bindings;

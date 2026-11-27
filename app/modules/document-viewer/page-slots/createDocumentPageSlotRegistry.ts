@@ -6,26 +6,34 @@ export interface IDocumentPageSlotOwner {
     dispose(): void;
 }
 
-export interface IDocumentPageSlotRegistry extends IDocumentPageSlotOwner {createOwner(ownerId: string): IDocumentPageSlotOwner;}
+export interface IDocumentPageSlotRegistry extends IDocumentPageSlotOwner {
+    createOwner(ownerId: string): IDocumentPageSlotOwner;
+}
 
 /** Owner-scoped registry: stale feature-pack cleanup cannot touch its successor. */
 export function createDocumentPageSlotRegistry(): IDocumentPageSlotRegistry {
     const mountedByOwner = new Map<string, Set<number>>();
 
     function createOwner(ownerId: string): IDocumentPageSlotOwner {
-        if (!ownerId) {throw new TypeError('Page-slot owners require an id');}
+        if (!ownerId) {
+            throw new TypeError('Page-slot owners require an id');
+        }
         const mountedPages = mountedByOwner.get(ownerId) ?? new Set<number>();
         mountedByOwner.set(ownerId, mountedPages);
         let disposed = false;
 
         return {
             ownerId,
-            isMounted: pageNumber => !disposed && mountedPages.has(pageNumber),
+            isMounted: (pageNumber) => !disposed && mountedPages.has(pageNumber),
             markMounted(pageNumber) {
-                if (!disposed) {mountedPages.add(pageNumber);}
+                if (!disposed) {
+                    mountedPages.add(pageNumber);
+                }
             },
             markUnmounted(pageNumber) {
-                if (!disposed) {mountedPages.delete(pageNumber);}
+                if (!disposed) {
+                    mountedPages.delete(pageNumber);
+                }
             },
             dispose() {
                 if (disposed) {

@@ -1,8 +1,5 @@
-import {
-    extname,
-    isAbsolute,
-} from 'path';
-import { isSupportedOpenPath } from '@electron/image/pdfConversion';
+import {extname, isAbsolute} from 'path';
+import {isSupportedOpenPath} from '@electron/image/pdfConversion';
 import {
     commitDocumentMutation,
     createDocumentFromSource,
@@ -22,28 +19,19 @@ import {
     rewriteOpenDocument,
     type IOpenDocument,
 } from '@electron/file-access/documentStore';
-import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
-import type { IDocumentMutationRevisionOptions } from '@contracts/electronApiDocuments';
-import { DocumentOpenRefusalError } from '@contracts/documentOpenErrors';
-import { encodeSerializableErrorEnvelope } from '@contracts/serializableError';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import { isPdfFileEncrypted } from '@electron/file-access/isPdfFileEncrypted';
-import {
-    decryptWorkingCopyWithWriter,
-    PdfDecryptAttemptError,
-} from '@electron/file-access/workingCopyDecryption';
-import type { TOpenPath } from '@electron/file-access/openPathCapabilities';
-import {
-    normalizePdfAppendBase,
-    pdfNeedsAppendBaseRewrite,
-} from '@electron/pdf/pdfAppendBase';
-import { createLogger } from '@electron/utils/createLogger';
-import { IPC_FILENAME_MAX_LENGTH } from '@electron/utils/ipcLimits';
-import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsContexts';
-import {
-    isPdfDecryptPassword,
-    PDF_DECRYPT_PASSWORD_MAX_BYTES,
-} from '@contracts/pdfDecryptSchemas';
+import {enqueueWorkingCopyMutation} from '@electron/file-access/workingCopyMutationQueue';
+import type {IDocumentMutationRevisionOptions} from '@contracts/electronApiDocuments';
+import {DocumentOpenRefusalError} from '@contracts/documentOpenErrors';
+import {encodeSerializableErrorEnvelope} from '@contracts/serializableError';
+import type {TDocumentRevisionToken} from '@contracts/documentRevision';
+import {isPdfFileEncrypted} from '@electron/file-access/isPdfFileEncrypted';
+import {decryptWorkingCopyWithWriter, PdfDecryptAttemptError} from '@electron/file-access/workingCopyDecryption';
+import type {TOpenPath} from '@electron/file-access/openPathCapabilities';
+import {normalizePdfAppendBase, pdfNeedsAppendBaseRewrite} from '@electron/pdf/pdfAppendBase';
+import {createLogger} from '@electron/utils/createLogger';
+import {IPC_FILENAME_MAX_LENGTH} from '@electron/utils/ipcLimits';
+import type {IDocumentsSenderIdContext} from '@electron/features/documents/documentsContexts';
+import {isPdfDecryptPassword, PDF_DECRYPT_PASSWORD_MAX_BYTES} from '@contracts/pdfDecryptSchemas';
 
 const logger = createLogger('documents-dialogs');
 const MAX_WORKING_COPY_DATA_BYTES = 16 * 1024 * 1024;
@@ -76,20 +64,28 @@ async function preparePdf(entry: IOpenDocument, readPath: string, options: IPrep
     let wasEncrypted = false;
     try {
         const encrypted = await isPdfFileEncrypted(readPath);
-        if (!encrypted && !await pdfNeedsAppendBaseRewrite(readPath, options.signal)) {return false;}
-        await rewriteOpenDocument(entry, async (staged) => {
-            if (encrypted) {
-                const decryption = await decryptWorkingCopyWithWriter(staged, options.password, options.signal);
-                if (decryption.outcome === 'needs-password' || decryption.outcome === 'unsupported') {
-                    throw new PdfDecryptAttemptError(decryption.outcome === 'needs-password' ? 'needs-password' : 'unsupported-encryption');
+        if (!encrypted && !(await pdfNeedsAppendBaseRewrite(readPath, options.signal))) {
+            return false;
+        }
+        await rewriteOpenDocument(
+            entry,
+            async (staged) => {
+                if (encrypted) {
+                    const decryption = await decryptWorkingCopyWithWriter(staged, options.password, options.signal);
+                    if (decryption.outcome === 'needs-password' || decryption.outcome === 'unsupported') {
+                        throw new PdfDecryptAttemptError(
+                            decryption.outcome === 'needs-password' ? 'needs-password' : 'unsupported-encryption',
+                        );
+                    }
+                    wasEncrypted = decryption.wasEncrypted;
                 }
-                wasEncrypted = decryption.wasEncrypted;
-            }
-            await normalizePdfAppendBase(staged, staged, {
-                ...(options.signal ? {signal: options.signal} : {}),
-                ...(options.admitRewrite ? {admitRewrite: options.admitRewrite} : {}),
-            });
-        }, 'open');
+                await normalizePdfAppendBase(staged, staged, {
+                    ...(options.signal ? {signal: options.signal} : {}),
+                    ...(options.admitRewrite ? {admitRewrite: options.admitRewrite} : {}),
+                });
+            },
+            'open',
+        );
     } catch (error) {
         await discardOpenDocument(entry);
         throw error;
@@ -111,7 +107,9 @@ export async function createDocumentFromFile(source: TOpenPath, originalPath: st
         ...(originalPath === undefined ? {} : {originalPath}),
         ...(ownerWebContentsId === undefined ? {} : {ownerWebContentsId}),
     });
-    if (isPdfPath(source)) {await preparePdf(entry, await requireDocumentFile(entry), {});}
+    if (isPdfPath(source)) {
+        await preparePdf(entry, await requireDocumentFile(entry), {});
+    }
     return entry;
 }
 
@@ -122,12 +120,15 @@ export async function createDocumentFromFile(source: TOpenPath, originalPath: st
 async function createRevisionOf(document: IOpenDocument, source: string | Uint8Array, ownerWebContentsId?: number) {
     const entry = await forkOpenDocument(document, ownerWebContentsId);
     try {
-        await commitDocumentMutation(entry, null, {
-            kind: 'rewrite',
-            source: typeof source === 'string'
-                ? source
-                : file => file.writeAt(0, source),
-        }, 'replace-working-copy');
+        await commitDocumentMutation(
+            entry,
+            null,
+            {
+                kind: 'rewrite',
+                source: typeof source === 'string' ? source : (file) => file.writeAt(0, source),
+            },
+            'replace-working-copy',
+        );
     } catch (error) {
         await discardOpenDocument(entry);
         throw error;
@@ -142,7 +143,9 @@ async function createRevisionOf(document: IOpenDocument, source: string | Uint8A
 export async function createDocumentForOriginal(source: TOpenPath, originalPath: string | undefined, ownerWebContentsId: number) {
     const ref = originalPath === undefined ? null : findWorkingCopyPathByOriginalPath(originalPath, ownerWebContentsId);
     const document = ref ? getWorkingCopyBackingEntry(ref, ownerWebContentsId) : null;
-    return document ? createRevisionOf(document, source, ownerWebContentsId) : createDocumentFromFile(source, originalPath, ownerWebContentsId);
+    return document
+        ? createRevisionOf(document, source, ownerWebContentsId)
+        : createDocumentFromFile(source, originalPath, ownerWebContentsId);
 }
 
 function resolveTrustedOriginalDocument(originalPath: string | undefined, warningContext: string, senderId?: number) {
@@ -151,7 +154,9 @@ function resolveTrustedOriginalDocument(originalPath: string | undefined, warnin
         throw new Error('Invalid original path');
     }
     const ref = normalized ? findWorkingCopyPathByOriginalPath(normalized, senderId) : null;
-    if (normalized && !ref) {logger.warn(`Ignoring untrusted original path for ${warningContext}`);}
+    if (normalized && !ref) {
+        logger.warn(`Ignoring untrusted original path for ${warningContext}`);
+    }
     return ref ? requireOpenDocument(ref, senderId) : null;
 }
 
@@ -171,12 +176,16 @@ export async function handleCreateWorkingCopyFromData(
     }
     const validatedPassword = assertOptionalPdfDecryptPassword(password);
     const document = resolveTrustedOriginalDocument(originalPath, 'createWorkingCopyFromData', context.senderId);
-    if (document) {return (await createRevisionOf(document, data, context.senderId)).ref;}
+    if (document) {
+        return (await createRevisionOf(document, data, context.senderId)).ref;
+    }
     const entry = await createDocumentFromSource(data, {
         ext: extensionOf(normalizedName),
         ...(context.senderId === undefined ? {} : {ownerWebContentsId: context.senderId}),
     });
-    if (isPdfPath(normalizedName)) {await preparePdf(entry, await requireDocumentFile(entry), {password: validatedPassword});}
+    if (isPdfPath(normalizedName)) {
+        await preparePdf(entry, await requireDocumentFile(entry), {password: validatedPassword});
+    }
     return entry.ref;
 }
 
@@ -191,20 +200,26 @@ export async function handleCreateWorkingCopyFromPath(
     }
     const validatedPassword = assertOptionalPdfDecryptPassword(password);
     const source = getWorkingCopyBackingEntry(sourcePath, context.senderId);
-    if (source) {return (await forkOpenDocument(source, context.senderId)).ref;}
-    const document = originalPath === sourcePath
-        ? null
-        : resolveTrustedOriginalDocument(originalPath, 'createWorkingCopyFromPath', context.senderId);
-    if (document) {return (await createRevisionOf(document, sourcePath, context.senderId)).ref;}
+    if (source) {
+        return (await forkOpenDocument(source, context.senderId)).ref;
+    }
+    const document =
+        originalPath === sourcePath ? null : resolveTrustedOriginalDocument(originalPath, 'createWorkingCopyFromPath', context.senderId);
+    if (document) {
+        return (await createRevisionOf(document, sourcePath, context.senderId)).ref;
+    }
     try {
         return (await openFileAsDocument(sourcePath, context.senderId, {password: validatedPassword})).entry.ref;
     } catch (error) {
         if (error instanceof DocumentOpenRefusalError) {
-            throw new Error(encodeSerializableErrorEnvelope({
-                code: error.code,
-                message: error.code,
-                ...(error.fileName === undefined ? {} : {fileName: error.fileName}),
-            }), {cause: error});
+            throw new Error(
+                encodeSerializableErrorEnvelope({
+                    code: error.code,
+                    message: error.code,
+                    ...(error.fileName === undefined ? {} : {fileName: error.fileName}),
+                }),
+                {cause: error},
+            );
         }
         throw error;
     }
@@ -222,7 +237,11 @@ export function handleRestoreDocumentRevision(
     return enqueueWorkingCopyMutation(entry.ref, () => restoreOpenDocumentRevision(entry, revision, expected));
 }
 
-export function handleRetainDocumentRevisions(context: IDocumentsSenderIdContext, workingPath: string, revisions: TDocumentRevisionToken[]) {
+export function handleRetainDocumentRevisions(
+    context: IDocumentsSenderIdContext,
+    workingPath: string,
+    revisions: TDocumentRevisionToken[],
+) {
     const entry = requireOpenDocument(workingPath, context.senderId);
     return enqueueWorkingCopyMutation(entry.ref, () => retainOpenDocumentRevisions(entry, revisions)).then(() => undefined);
 }

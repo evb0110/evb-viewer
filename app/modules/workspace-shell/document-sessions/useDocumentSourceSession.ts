@@ -1,5 +1,5 @@
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { IDocumentSourceCapabilities } from '@app/modules/document-viewer/public';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {IDocumentSourceCapabilities} from '@app/modules/document-viewer/public';
 
 type TDocumentSessionSourceKind = 'pdf' | 'djvu' | null;
 
@@ -39,9 +39,9 @@ export const useDocumentSourceSession = () => {
     const projectionRef = ref<TDocumentRef | null>(null);
     const sourceGeneration = ref(0);
     let activeActivation: IDocumentSourceActivation | null = null;
-    const capabilities = computed<IDocumentSourceCapabilities>(() => (
-        sourceKind.value === null ? EMPTY_SOURCE_CAPABILITIES : SOURCE_CAPABILITIES_BY_KIND[sourceKind.value]
-    ));
+    const capabilities = computed<IDocumentSourceCapabilities>(() =>
+        sourceKind.value === null ? EMPTY_SOURCE_CAPABILITIES : SOURCE_CAPABILITIES_BY_KIND[sourceKind.value],
+    );
 
     function activateDocumentSource(
         kind: Exclude<TDocumentSessionSourceKind, null>,
@@ -67,12 +67,10 @@ export const useDocumentSourceSession = () => {
 
     function clearDocumentSource(expectedActivation?: IDocumentSourceActivation) {
         if (
-            expectedActivation
-            && (
-                activeActivation?.generation !== expectedActivation.generation
-                || activeActivation.kind !== expectedActivation.kind
-                || activeActivation.documentRef !== expectedActivation.documentRef
-            )
+            expectedActivation &&
+            (activeActivation?.generation !== expectedActivation.generation ||
+                activeActivation.kind !== expectedActivation.kind ||
+                activeActivation.documentRef !== expectedActivation.documentRef)
         ) {
             return false;
         }

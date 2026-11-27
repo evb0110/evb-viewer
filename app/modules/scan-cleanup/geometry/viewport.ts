@@ -6,14 +6,16 @@ import type {
 
 export interface IScanCleanupPreviewSize {
     height: number;
-    width: number
+    width: number;
 }
 export interface IScanCleanupPreviewFitArea extends IScanCleanupPreviewSize {
     left: number;
-    top: number
+    top: number;
 }
 export interface IScanCleanupPreviewFitPlacement extends IScanCleanupPreviewFitArea {}
-export interface IScanCleanupPreviewFrameOutput extends IScanCleanupPreviewSize {half: IScanCleanupPreviewMetadata['half'];}
+export interface IScanCleanupPreviewFrameOutput extends IScanCleanupPreviewSize {
+    half: IScanCleanupPreviewMetadata['half'];
+}
 
 interface IResolvePreviewCutterStyleOptions {
     canvases: Partial<Record<TScanCleanupOutputHalf, IScanCleanupPreviewSize>>;
@@ -56,20 +58,18 @@ export function resolvePreviewCutterStyle({
             height: `${originalPlacement.height}px`,
         };
     }
-    const orderedHalves = readingOrder === 'rtl' && outputs.length > 1
-        ? [...outputs].reverse()
-        : [...outputs];
-    const renderedCanvases = orderedHalves.map(half => canvases[half] ?? fallbackCanvas);
+    const orderedHalves = readingOrder === 'rtl' && outputs.length > 1 ? [...outputs].reverse() : [...outputs];
+    const renderedCanvases = orderedHalves.map((half) => canvases[half] ?? fallbackCanvas);
     const renderedAreas = orderedHalves
-        .map(half => fitAreas[half])
+        .map((half) => fitAreas[half])
         .filter((area): area is IScanCleanupPreviewFitArea => area !== undefined);
-    const renderedBoxes = renderedAreas.length === renderedCanvases.length
-        ? resolvePreviewOutputFitRects(renderedAreas, renderedCanvases)
-            .filter((area): area is IScanCleanupPreviewFitPlacement => 'left' in area && 'top' in area)
-        : [];
-    const renderedGapCenter = renderedBoxes.length === renderedCanvases.length
-        ? resolvePreviewSpreadCutterCenter(renderedBoxes)
-        : null;
+    const renderedBoxes =
+        renderedAreas.length === renderedCanvases.length
+            ? resolvePreviewOutputFitRects(renderedAreas, renderedCanvases).filter(
+                  (area): area is IScanCleanupPreviewFitPlacement => 'left' in area && 'top' in area,
+              )
+            : [];
+    const renderedGapCenter = renderedBoxes.length === renderedCanvases.length ? resolvePreviewSpreadCutterCenter(renderedBoxes) : null;
     if (renderedGapCenter !== null) {
         return {insetInlineStart: `${renderedGapCenter}px`};
     }
@@ -101,21 +101,26 @@ export function resolvePreviewOutputFitSizes(
     if (availableAreas.length !== canvases.length || canvases.length === 0) {
         return [];
     }
-    const scale = Math.max(0, Math.min(...canvases.map((canvas, index) => {
-        const available = availableAreas[index] ?? {
-            width: 0,
-            height: 0,
-        };
-        return Math.min(available.width / Math.max(1, canvas.width), available.height / Math.max(1, canvas.height));
-    })));
-    return canvases.map(canvas => ({
+    const scale = Math.max(
+        0,
+        Math.min(
+            ...canvases.map((canvas, index) => {
+                const available = availableAreas[index] ?? {
+                    width: 0,
+                    height: 0,
+                };
+                return Math.min(available.width / Math.max(1, canvas.width), available.height / Math.max(1, canvas.height));
+            }),
+        ),
+    );
+    return canvases.map((canvas) => ({
         width: canvas.width * scale,
         height: canvas.height * scale,
     }));
 }
 
 export function resolvePreviewViewportFrame(outputs: IScanCleanupPreviewMetadata[]): IScanCleanupPreviewFrameOutput[] {
-    return outputs.map(output => ({
+    return outputs.map((output) => ({
         half: output.half,
         width: output.canvasWidthPx,
         height: output.canvasHeightPx,
@@ -131,23 +136,15 @@ export function resolvePreviewPlaceholderViewportFrame(
     const swapsAxes = rotationDegrees === 90 || rotationDegrees === 270;
     const analysisWidth = swapsAxes ? sourceHeight : sourceWidth;
     const analysisHeight = swapsAxes ? sourceWidth : sourceHeight;
-    const halves: Array<IScanCleanupPreviewMetadata['half']> = layoutClassification === 'two-page-spread'
-        ? [
-            'left',
-            'right',
-        ]
-        : ['full'];
-    return halves.map(half => ({
+    const halves: Array<IScanCleanupPreviewMetadata['half']> = layoutClassification === 'two-page-spread' ? ['left', 'right'] : ['full'];
+    return halves.map((half) => ({
         half,
         width: analysisWidth / halves.length,
         height: analysisHeight,
     }));
 }
 
-export function resolvePreviewOutputFitRects(
-    availableAreas: IScanCleanupPreviewFitArea[],
-    canvases: IScanCleanupPreviewSize[],
-) {
+export function resolvePreviewOutputFitRects(availableAreas: IScanCleanupPreviewFitArea[], canvases: IScanCleanupPreviewSize[]) {
     return resolvePreviewOutputFitSizes(availableAreas, canvases).map((size, index) => {
         const available = availableAreas[index];
         if (!available) {
@@ -165,9 +162,6 @@ export function resolvePreviewSpreadCutterCenter(renderedBoxes: readonly IScanCl
     if (renderedBoxes.length < 2) {
         return null;
     }
-    const [
-        left,
-        right,
-    ] = [...renderedBoxes].sort((first, second) => first.left - second.left);
+    const [left, right] = [...renderedBoxes].sort((first, second) => first.left - second.left);
     return ((left?.left ?? 0) + (left?.width ?? 0) + (right?.left ?? 0)) / 2;
 }

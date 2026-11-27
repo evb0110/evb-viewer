@@ -1,8 +1,5 @@
-import type { TDocumentRef } from '@contracts/documentRef';
-import type {
-    IPdfDocument,
-    IPdfPage,
-} from '@app/modules/pdf-viewer/public';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {IPdfDocument, IPdfPage} from '@app/modules/pdf-viewer/public';
 import {
     assertDocumentPageNumber,
     type IDocumentPageMetrics,
@@ -47,7 +44,7 @@ export function createPdfPageSource(options: ICreatePdfPageSourceOptions): IDocu
             }
             const page = await (options.getPage?.(pageNumber) ?? options.pdfDocument.getPage(pageNumber));
             signal?.throwIfAborted();
-            const viewport = page.getViewport({ scale: 1 });
+            const viewport = page.getViewport({scale: 1});
             const rotation = ((viewport.rotation % 360) + 360) % 360;
             return {
                 widthPoints: viewport.width,

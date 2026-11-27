@@ -1,19 +1,8 @@
 import {resolve} from 'node:path';
-import {
-    mkdirSync, writeFileSync,
-} from 'node:fs';
+import {mkdirSync, writeFileSync} from 'node:fs';
 import {PDFDocument} from 'pdf-lib';
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    activateMenuItemAsUser,
-    clickAsUser,
-    clickFoundAsUser,
-} from '@tests/e2e/electron/helpers/userInput';
+import {describe, expect, it, vi} from 'vitest';
+import {activateMenuItemAsUser, clickAsUser, clickFoundAsUser} from '@tests/e2e/electron/helpers/userInput';
 import {
     createCroppedSearchFixturePdf,
     createDenseTextFixturePdf,
@@ -28,19 +17,10 @@ import {
 } from '@tests/e2e/electron/helpers/fixtures';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {readDocumentBytes} from '@tests/e2e/electron/helpers/electronApiHelpers';
-import {
-    ensureSidebarOpen,
-    openDocumentSidebarTab,
-    openPdfInApp,
-    waitForPdfLoaded,
-} from '@tests/e2e/electron/helpers/viewerCore';
+import {ensureSidebarOpen, openDocumentSidebarTab, openPdfInApp, waitForPdfLoaded} from '@tests/e2e/electron/helpers/viewerCore';
 import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 import {enablePdfDiagnosticSession} from '@tests/e2e/electron/helpers/pdfDiagnosticSession';
-import {
-    callWorkspaceCommand,
-    requireWorkspaceCommand,
-    waitForWorkspaceToolbarSnapshot,
-} from '@tests/e2e/electron/helpers/workspaceExpose';
+import {callWorkspaceCommand, requireWorkspaceCommand, waitForWorkspaceToolbarSnapshot} from '@tests/e2e/electron/helpers/workspaceExpose';
 import {
     countWarmHighlightPixels,
     countOrangeHighlightPixelsInFrame,
@@ -83,19 +63,15 @@ function normalizeMatchText(value: string) {
 }
 
 const searchMatchScrollConfig = {
-    applyBudgetMs: readPositiveNumberEnv(
-        'EVB_SEARCH_SCROLL_APPLY_BUDGET_MS',
-        suppliedSearchMatchScrollPdf ? 2_000 : 1_500,
-    ),
+    applyBudgetMs: readPositiveNumberEnv('EVB_SEARCH_SCROLL_APPLY_BUDGET_MS', suppliedSearchMatchScrollPdf ? 2_000 : 1_500),
     expectedResultCount: readPositiveIntegerEnv(
         'EVB_SEARCH_SCROLL_RESULT_COUNT',
         suppliedSearchMatchScrollPdf ? 25 : defaultSearchMatchScrollResultCount,
     ),
     fixturePath: suppliedSearchMatchScrollPdf,
-    query: process.env.EVB_SEARCH_SCROLL_QUERY
-        ?? (suppliedSearchMatchScrollPdf ? 'lezgian' : SEARCH_MATCH_SCROLL_FIXTURE_QUERY),
-    targetGroup: process.env.EVB_SEARCH_SCROLL_TARGET_GROUP
-        ?? String(suppliedSearchMatchScrollPdf ? 369 : SEARCH_MATCH_SCROLL_FIXTURE_TARGET_PAGE),
+    query: process.env.EVB_SEARCH_SCROLL_QUERY ?? (suppliedSearchMatchScrollPdf ? 'lezgian' : SEARCH_MATCH_SCROLL_FIXTURE_QUERY),
+    targetGroup:
+        process.env.EVB_SEARCH_SCROLL_TARGET_GROUP ?? String(suppliedSearchMatchScrollPdf ? 369 : SEARCH_MATCH_SCROLL_FIXTURE_TARGET_PAGE),
     targetMatch: readPositiveIntegerEnv(
         'EVB_SEARCH_SCROLL_TARGET_MATCH',
         suppliedSearchMatchScrollPdf ? 1 : SEARCH_MATCH_SCROLL_FIXTURE_TARGET_MATCH,
@@ -104,10 +80,7 @@ const searchMatchScrollConfig = {
         'EVB_SEARCH_SCROLL_TARGET_PAGE',
         suppliedSearchMatchScrollPdf ? 369 : SEARCH_MATCH_SCROLL_FIXTURE_TARGET_PAGE,
     ),
-    zoom: readPositiveNumberEnv(
-        'EVB_SEARCH_SCROLL_ZOOM',
-        suppliedSearchMatchScrollPdf ? 2.84 : 3.8,
-    ),
+    zoom: readPositiveNumberEnv('EVB_SEARCH_SCROLL_ZOOM', suppliedSearchMatchScrollPdf ? 2.84 : 3.8),
 };
 
 const sessionFixture = createElectronE2ESessionFixture({
@@ -116,7 +89,6 @@ const sessionFixture = createElectronE2ESessionFixture({
 });
 
 describe('Electron E2E - PDF search match scrolling', () => {
-
     // A complemented member must not promote a later literal caret to negation.
     it('1544 highlights a literal caret after complemented regex class members', async () => {
         const session = sessionFixture.getSession();
@@ -126,10 +98,7 @@ describe('Electron E2E - PDF search match scrolling', () => {
         const pdf = await PDFDocument.create();
         pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));
         pdf.setModificationDate(new Date('2026-01-01T00:00:00Z'));
-        pdf.addPage([
-            612,
-            792,
-        ]).drawText('a^1!', {
+        pdf.addPage([612, 792]).drawText('a^1!', {
             x: 72,
             y: 650,
             size: 48,
@@ -141,53 +110,44 @@ describe('Electron E2E - PDF search match scrolling', () => {
         await ensureSidebarOpen(page);
         await openDocumentSidebarTab(page, 'Search');
         await clickAsUser(page, 'button[aria-label="Use regular expression"]');
-        expect(await page.$eval('button[aria-label="Use regular expression"]', button => button.getAttribute('aria-pressed'))).toBe('true');
-        for (const [
-            query,
-            expected,
-        ] of [
-                [
-                    String.raw`[\D^]`,
-                    [
-                        'a',
-                        '^',
-                        '!',
-                    ],
-                ],
-                [
-                    String.raw`[\P{L}^]`,
-                    [
-                        '^',
-                        '1',
-                        '!',
-                    ],
-                ],
-            ] as const) {
+        expect(await page.$eval('button[aria-label="Use regular expression"]', (button) => button.getAttribute('aria-pressed'))).toBe(
+            'true',
+        );
+        for (const [query, expected] of [
+            [String.raw`[\D^]`, ['a', '^', '!']],
+            [String.raw`[\P{L}^]`, ['^', '1', '!']],
+        ] as const) {
             await clickAsUser(page, '.document-search-bar input', {count: 3});
             await page.keyboard.type(query);
             await page.keyboard.press('Enter');
-            await page.waitForFunction((typed: string) => document.querySelectorAll('.document-search-result').length > 0
-                && document.querySelector('.document-search-results-header-summary')?.textContent?.includes(typed)
-                && !document.querySelector('.document-search-results-header-spinner'), {}, query);
+            await page.waitForFunction(
+                (typed: string) =>
+                    document.querySelectorAll('.document-search-result').length > 0 &&
+                    document.querySelector('.document-search-results-header-summary')?.textContent?.includes(typed) &&
+                    !document.querySelector('.document-search-results-header-spinner'),
+                {},
+                query,
+            );
             await clickAsUser(page, '.document-search-result[data-result-index="0"]');
-            await page.waitForFunction(() => document.querySelector('.textLayer .pdf-search-highlight') !== null
-                || [...CSS.highlights?.get('pdf-search-current-match') ?? []].length > 0);
+            await page.waitForFunction(
+                () =>
+                    document.querySelector('.textLayer .pdf-search-highlight') !== null ||
+                    [...(CSS.highlights?.get('pdf-search-current-match') ?? [])].length > 0,
+            );
             const painted = await page.evaluate(() => {
                 const nodes = [...document.querySelectorAll<HTMLElement>('.textLayer .pdf-search-highlight')];
-                const ranges = [
-                    'pdf-search-match',
-                    'pdf-search-current-match',
-                ].flatMap(name => [...CSS.highlights?.get(name) ?? []])
+                const ranges = ['pdf-search-match', 'pdf-search-current-match']
+                    .flatMap((name) => [...(CSS.highlights?.get(name) ?? [])])
                     .filter((range): range is Range => range instanceof Range);
                 const entries = nodes.length
-                    ? nodes.map(node => ({
-                        text: node.textContent,
-                        rect: node.getBoundingClientRect().toJSON(),
-                    }))
-                    : ranges.map(range => ({
-                        text: range.toString(),
-                        rect: range.getBoundingClientRect().toJSON(),
-                    }));
+                    ? nodes.map((node) => ({
+                          text: node.textContent,
+                          rect: node.getBoundingClientRect().toJSON(),
+                      }))
+                    : ranges.map((range) => ({
+                          text: range.toString(),
+                          rect: range.getBoundingClientRect().toJSON(),
+                      }));
                 return {
                     entries: entries.sort((a, b) => a.rect.x - b.rect.x),
                     summary: document.querySelector('.document-search-results-header-summary')?.textContent,
@@ -200,133 +160,198 @@ describe('Electron E2E - PDF search match scrolling', () => {
             });
             const label = query.includes('P{') ? 'property' : 'non-digit';
             const screenshot = await page.screenshot({path: resolve(evidence, `${label}.png`)});
-            const pixels = await Promise.all(painted.entries.map(entry => countWarmHighlightPixels(screenshot, entry.rect, painted.viewport)));
-            writeFileSync(resolve(evidence, `${label}.json`), JSON.stringify({
-                query,
-                expected,
-                painted,
-                pixels,
-            }, null, 2));
-            console.log(`1544_SEARCH ${JSON.stringify({
-                session: session.name,
-                query,
-                painted,
-                pixels,
-            })}`);
-            expect.soft(painted.entries.map(entry => entry.text), query).toEqual(expected);
-            expect.soft(pixels.every(count => count > 0), query).toBe(true);
+            const pixels = await Promise.all(
+                painted.entries.map((entry) => countWarmHighlightPixels(screenshot, entry.rect, painted.viewport)),
+            );
+            writeFileSync(
+                resolve(evidence, `${label}.json`),
+                JSON.stringify(
+                    {
+                        query,
+                        expected,
+                        painted,
+                        pixels,
+                    },
+                    null,
+                    2,
+                ),
+            );
+            console.log(
+                `1544_SEARCH ${JSON.stringify({
+                    session: session.name,
+                    query,
+                    painted,
+                    pixels,
+                })}`,
+            );
+            expect
+                .soft(
+                    painted.entries.map((entry) => entry.text),
+                    query,
+                )
+                .toEqual(expected);
+            expect
+                .soft(
+                    pixels.every((count) => count > 0),
+                    query,
+                )
+                .toBe(true);
         }
     });
 
-    it('finds mixed RTL page text with painted ranges and excludes reversed FreeText appearances', async () => {
-        const {page} = sessionFixture.getSession();
-        const evidence = resolve('.devkit/test/desktop-rtl-search');
-        mkdirSync(evidence, {recursive: true});
-        const selectAll = process.platform === 'darwin' ? 'Meta' : 'Control';
-        // search.pdf contains the browser RTL lane's two-page mixed-phrase control.
-        // The other three checked-in PDFs contain only FreeText appearances.
-        const cases = [
-            {
-                file: 'search.pdf',
-                query: '123 עולם abc',
-                count: 2,
-            },
-            {
-                file: 'short-hebrew.pdf',
-                query: 'הָרֳהָּטַהְו',
-                count: 0,
-            },
-            {
-                file: 'short-arabic.pdf',
-                query: 'ِمْسِــب',
-                count: 0,
-            },
-            {
-                file: 'short-syriac.pdf',
-                query: 'ܐܹ̈ܒܵܛ',
-                count: 0,
-            },
-        ];
-        for (const {
-            file, query, count,
-        } of cases) {
-            await openPdfInApp(page, resolve('tests/fixtures/electron/semtext', file));
-            await waitForPdfLoaded(page);
-            await ensureSidebarOpen(page);
-            await openDocumentSidebarTab(page, 'search');
-            await clickAsUser(page, '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-search-bar input');
-            await page.keyboard.down(selectAll);
-            await page.keyboard.press('KeyA');
-            await page.keyboard.up(selectAll);
-            await page.keyboard.press('Backspace');
-            await page.keyboard.press('Enter');
-            await page.waitForFunction(() => document.querySelector('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-search-results')?.textContent?.includes('Enter a search term'));
-            await page.keyboard.type(query);
-            await page.keyboard.press('Enter');
-            await page.waitForFunction(() => {
-                const summary = document.querySelector('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-search-results')?.textContent ?? '';
-                const searching = [...document.querySelectorAll('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-search-results-header-spinner')]
-                    .some(element => element.getBoundingClientRect().width > 0);
-                return !searching && (/\d+ results? for|No results found/u.test(summary));
-            });
-            const result = await page.evaluate(() => ({
-                summary: document.querySelector('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-search-results')?.textContent ?? '',
-                count: [...document.querySelectorAll('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-search-result')]
-                    .filter(element => element.getBoundingClientRect().width > 0).length,
-            }));
-            console.log(`RTL_SEARCH ${JSON.stringify({
-                file,
-                query,
-                ...result,
-            })}`);
-            expect.soft(result.count, `${file}: ${query}`).toBe(count);
-            expect.soft(result.summary, file).toContain(count ? '2 results for' : 'No results found');
-            await page.screenshot({path: resolve(evidence, `${file}-results.png`)});
-            if (count === 0 || result.count !== count) {continue;}
-            for (const index of [
-                0,
-                1,
-            ]) {
-                await clickAsUser(page, `.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-search-result[data-result-index="${index}"]`);
-                const readCurrent = () => {
-                    const ranges = [...CSS.highlights?.get('pdf-search-current-match') ?? []]
-                        .filter((range): range is Range => range instanceof Range);
-                    const elements = [...document.querySelectorAll('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .pdf-search-highlight--current')];
-                    const rects = [
-                        ...ranges.flatMap(range => [...range.getClientRects()]),
-                        ...elements.map(element => element.getBoundingClientRect()),
-                    ].filter(rect => rect.width > 0 && rect.height > 0);
-                    return {
-                        text: ranges.map(range => range.toString()).join('') || elements.map(element => element.textContent).join(''),
-                        pages: [...new Set([
-                            ...ranges.map(range => range.startContainer.parentElement?.closest<HTMLElement>('.page_container')?.dataset.page),
-                            ...elements.map(element => element.closest<HTMLElement>('.page_container')?.dataset.page),
-                        ])],
-                        rects: rects.map(rect => rect.toJSON()),
-                        viewport: {
-                            width: innerWidth,
-                            height: innerHeight,
-                        },
+    it(
+        'finds mixed RTL page text with painted ranges and excludes reversed FreeText appearances',
+        async () => {
+            const {page} = sessionFixture.getSession();
+            const evidence = resolve('.devkit/test/desktop-rtl-search');
+            mkdirSync(evidence, {recursive: true});
+            const selectAll = process.platform === 'darwin' ? 'Meta' : 'Control';
+            // search.pdf contains the browser RTL lane's two-page mixed-phrase control.
+            // The other three checked-in PDFs contain only FreeText appearances.
+            const cases = [
+                {
+                    file: 'search.pdf',
+                    query: '123 עולם abc',
+                    count: 2,
+                },
+                {
+                    file: 'short-hebrew.pdf',
+                    query: 'הָרֳהָּטַהְו',
+                    count: 0,
+                },
+                {
+                    file: 'short-arabic.pdf',
+                    query: 'ِمْسِــب',
+                    count: 0,
+                },
+                {
+                    file: 'short-syriac.pdf',
+                    query: 'ܐܹ̈ܒܵܛ',
+                    count: 0,
+                },
+            ];
+            for (const {file, query, count} of cases) {
+                await openPdfInApp(page, resolve('tests/fixtures/electron/semtext', file));
+                await waitForPdfLoaded(page);
+                await ensureSidebarOpen(page);
+                await openDocumentSidebarTab(page, 'search');
+                await clickAsUser(page, '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-search-bar input');
+                await page.keyboard.down(selectAll);
+                await page.keyboard.press('KeyA');
+                await page.keyboard.up(selectAll);
+                await page.keyboard.press('Backspace');
+                await page.keyboard.press('Enter');
+                await page.waitForFunction(() =>
+                    document
+                        .querySelector('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-search-results')
+                        ?.textContent?.includes('Enter a search term'),
+                );
+                await page.keyboard.type(query);
+                await page.keyboard.press('Enter');
+                await page.waitForFunction(() => {
+                    const summary =
+                        document.querySelector(
+                            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-search-results',
+                        )?.textContent ?? '';
+                    const searching = [
+                        ...document.querySelectorAll(
+                            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-search-results-header-spinner',
+                        ),
+                    ].some((element) => element.getBoundingClientRect().width > 0);
+                    return !searching && /\d+ results? for|No results found/u.test(summary);
+                });
+                const result = await page.evaluate(() => ({
+                    summary:
+                        document.querySelector(
+                            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-search-results',
+                        )?.textContent ?? '',
+                    count: [
+                        ...document.querySelectorAll(
+                            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-search-result',
+                        ),
+                    ].filter((element) => element.getBoundingClientRect().width > 0).length,
+                }));
+                console.log(
+                    `RTL_SEARCH ${JSON.stringify({
+                        file,
+                        query,
+                        ...result,
+                    })}`,
+                );
+                expect.soft(result.count, `${file}: ${query}`).toBe(count);
+                expect.soft(result.summary, file).toContain(count ? '2 results for' : 'No results found');
+                await page.screenshot({path: resolve(evidence, `${file}-results.png`)});
+                if (count === 0 || result.count !== count) {
+                    continue;
+                }
+                for (const index of [0, 1]) {
+                    await clickAsUser(
+                        page,
+                        `.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-search-result[data-result-index="${index}"]`,
+                    );
+                    const readCurrent = () => {
+                        const ranges = [...(CSS.highlights?.get('pdf-search-current-match') ?? [])].filter(
+                            (range): range is Range => range instanceof Range,
+                        );
+                        const elements = [
+                            ...document.querySelectorAll(
+                                '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .pdf-search-highlight--current',
+                            ),
+                        ];
+                        const rects = [
+                            ...ranges.flatMap((range) => [...range.getClientRects()]),
+                            ...elements.map((element) => element.getBoundingClientRect()),
+                        ].filter((rect) => rect.width > 0 && rect.height > 0);
+                        return {
+                            text:
+                                ranges.map((range) => range.toString()).join('') || elements.map((element) => element.textContent).join(''),
+                            pages: [
+                                ...new Set([
+                                    ...ranges.map(
+                                        (range) =>
+                                            range.startContainer.parentElement?.closest<HTMLElement>('.page_container')?.dataset.page,
+                                    ),
+                                    ...elements.map((element) => element.closest<HTMLElement>('.page_container')?.dataset.page),
+                                ]),
+                            ],
+                            rects: rects.map((rect) => rect.toJSON()),
+                            viewport: {
+                                width: innerWidth,
+                                height: innerHeight,
+                            },
+                        };
                     };
-                };
-                await page.waitForFunction(`(${readCurrent.toString()})().pages.includes('${index + 1}') && (${readCurrent.toString()})().rects.length > 0`);
-                const current = await page.evaluate(readCurrent);
-                expect.soft(current.text, `${file}: result ${index}`).toBe(query);
-                expect.soft(current.pages).toEqual([String(index + 1)]);
-                const screenshot = await page.screenshot({path: resolve(evidence, `${file}-match-${index}.png`)});
-                const pixels = await Promise.all(current.rects.map(rect => countWarmHighlightPixels(screenshot, rect, current.viewport)));
-                expect.soft(pixels.every(value => value > 0), `Painted ranges: ${JSON.stringify({
-                    current,
-                    pixels,
-                })}`).toBe(true);
-                console.log(`RTL_SEARCH_PAINT ${JSON.stringify({
-                    index,
-                    ...current,
-                    pixels,
-                })}`);
+                    await page.waitForFunction(
+                        `(${readCurrent.toString()})().pages.includes('${index + 1}') && (${readCurrent.toString()})().rects.length > 0`,
+                    );
+                    const current = await page.evaluate(readCurrent);
+                    expect.soft(current.text, `${file}: result ${index}`).toBe(query);
+                    expect.soft(current.pages).toEqual([String(index + 1)]);
+                    const screenshot = await page.screenshot({path: resolve(evidence, `${file}-match-${index}.png`)});
+                    const pixels = await Promise.all(
+                        current.rects.map((rect) => countWarmHighlightPixels(screenshot, rect, current.viewport)),
+                    );
+                    expect
+                        .soft(
+                            pixels.every((value) => value > 0),
+                            `Painted ranges: ${JSON.stringify({
+                                current,
+                                pixels,
+                            })}`,
+                        )
+                        .toBe(true);
+                    console.log(
+                        `RTL_SEARCH_PAINT ${JSON.stringify({
+                            index,
+                            ...current,
+                            pixels,
+                        })}`,
+                    );
+                }
             }
-        }
-    }, SEARCH_MATCH_SCROLL_TIMEOUT_MS);
+        },
+        SEARCH_MATCH_SCROLL_TIMEOUT_MS,
+    );
 
     it('shows three complete snippet lines inside each search match card', async () => {
         const {page} = sessionFixture.getSession();
@@ -335,9 +360,9 @@ describe('Electron E2E - PDF search match scrolling', () => {
         const pdf = await PDFDocument.create();
         for (let index = 0; index < 3; index += 1) {
             pdf.addPage().drawText(
-                'Despite the long period covered by the books of the Old Testament, Biblical Hebrew '
-                + 'exhibits a surprising degree of uniformity, owing to its being a literary language '
-                + 'and to the homogeneous character of the textual tradition.',
+                'Despite the long period covered by the books of the Old Testament, Biblical Hebrew ' +
+                    'exhibits a surprising degree of uniformity, owing to its being a literary language ' +
+                    'and to the homogeneous character of the textual tradition.',
                 {
                     x: 40,
                     y: 700,
@@ -357,17 +382,14 @@ describe('Electron E2E - PDF search match scrolling', () => {
         await page.keyboard.press('Enter');
         await page.waitForSelector('.document-search-result-snippet');
 
-        for (const scale of [
-            0.85,
-            1,
-            1.1,
-            1.25,
-        ]) {
+        for (const scale of [0.85, 1, 1.1, 1.25]) {
             // Layout setup mirrors the root scale applied by the settings UI.
-            await page.evaluate(value => document.documentElement.style.setProperty('--app-ui-scale', String(value)), scale);
-            await page.evaluate(() => new Promise<void>(resolveFrame => requestAnimationFrame(() => requestAnimationFrame(() => resolveFrame()))));
+            await page.evaluate((value) => document.documentElement.style.setProperty('--app-ui-scale', String(value)), scale);
+            await page.evaluate(
+                () => new Promise<void>((resolveFrame) => requestAnimationFrame(() => requestAnimationFrame(() => resolveFrame()))),
+            );
             await clickAsUser(page, '.document-search-result');
-            const layout = await page.$eval('.document-search-result.is-active', card => {
+            const layout = await page.$eval('.document-search-result.is-active', (card) => {
                 const snippet = card.querySelector<HTMLElement>('.document-search-result-snippet')!;
                 const style = getComputedStyle(snippet);
                 const cardStyle = getComputedStyle(card);
@@ -386,7 +408,9 @@ describe('Electron E2E - PDF search match scrolling', () => {
             await page.screenshot({path: resolve(evidence, `scale-${scale}.png`)});
             writeFileSync(resolve(evidence, `scale-${scale}.json`), JSON.stringify(layout, null, 2));
             expect(layout.textHeight, `fixture must wrap to at least three lines at scale ${scale}`).toBeGreaterThan(layout.lineHeight * 2);
-            expect(layout.height, `three complete lines at scale ${scale}: ${JSON.stringify(layout)}`).toBeGreaterThanOrEqual(layout.lineHeight * 3 - 0.5);
+            expect(layout.height, `three complete lines at scale ${scale}: ${JSON.stringify(layout)}`).toBeGreaterThanOrEqual(
+                layout.lineHeight * 3 - 0.5,
+            );
             expect(layout.bottomClearance, `bottom padding at scale ${scale}`).toBeGreaterThanOrEqual(layout.paddingBottom);
         }
     }, 120_000);
@@ -399,13 +423,15 @@ describe('Electron E2E - PDF search match scrolling', () => {
             Reflect.set(window, '__rasterstallRotationFailures', []);
             const observer = new MutationObserver(() => {
                 const failures = Array.from(document.querySelectorAll<HTMLElement>('.pdf-page-render-error'))
-                    .filter(element => element.getBoundingClientRect().width > 0)
-                    .map(element => ({
+                    .filter((element) => element.getBoundingClientRect().width > 0)
+                    .map((element) => ({
                         at: performance.now(),
                         text: element.textContent,
                         page: element.closest('.page_container')?.getAttribute('data-page'),
                     }));
-                if (failures.length) {Reflect.get(window, '__rasterstallRotationFailures').push(...failures);}
+                if (failures.length) {
+                    Reflect.get(window, '__rasterstallRotationFailures').push(...failures);
+                }
             });
             observer.observe(document.body, {
                 subtree: true,
@@ -424,29 +450,38 @@ describe('Electron E2E - PDF search match scrolling', () => {
         await page.waitForFunction(() => document.querySelector('.document-search-results')?.textContent?.includes('6 results for'));
         await clickAsUser(page, '.document-search-result[data-result-index="1"]');
         try {
-            for (const direction of [
-                'Clockwise',
-                'Counterclockwise',
-            ]) {
+            for (const direction of ['Clockwise', 'Counterclockwise']) {
                 await openDocumentSidebarTab(page, 'Pages');
                 await clickAsUser(page, '[data-thumbnail-page="1"]', {button: 'right'});
-                await clickFoundAsUser(page, label => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
-                    .find(element => element.textContent?.trim() === label && !element.disabled), `Rotate ${direction}`, {description: `Rotate ${direction}`});
-                await page.waitForFunction(landscape => {
-                    const target = document.querySelector<HTMLElement>('.page_container--rendered[data-page="1"]');
-                    const rect = target?.getBoundingClientRect();
-                    return rect && (rect.width > rect.height) === landscape && target?.dataset.pageLayerReadiness === 'ready';
-                }, {}, direction === 'Clockwise');
+                await clickFoundAsUser(
+                    page,
+                    (label) =>
+                        [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
+                            (element) => element.textContent?.trim() === label && !element.disabled,
+                        ),
+                    `Rotate ${direction}`,
+                    {description: `Rotate ${direction}`},
+                );
+                await page.waitForFunction(
+                    (landscape) => {
+                        const target = document.querySelector<HTMLElement>('.page_container--rendered[data-page="1"]');
+                        const rect = target?.getBoundingClientRect();
+                        return rect && rect.width > rect.height === landscape && target?.dataset.pageLayerReadiness === 'ready';
+                    },
+                    {},
+                    direction === 'Clockwise',
+                );
                 await openDocumentSidebarTab(page, 'search');
                 const state = await page.evaluate(() => ({
                     query: document.querySelector<HTMLInputElement>('.document-search-bar input')?.value,
                     summary: document.querySelector('.document-search-results')?.textContent,
                     selected: document.querySelector('.document-search-result.is-active')?.getAttribute('data-result-index'),
                     text: document.querySelector('.page_container[data-page="1"] .textLayer')?.textContent,
-                    currentText: [...CSS.highlights?.get('pdf-search-current-match') ?? []].map(range => range.toString()).join('')
-                        || document.querySelector('.pdf-search-highlight--current')?.textContent
-                        || document.querySelector<HTMLElement>('.pdf-word-box--current')?.dataset.word
-                        || '',
+                    currentText:
+                        [...(CSS.highlights?.get('pdf-search-current-match') ?? [])].map((range) => range.toString()).join('') ||
+                        document.querySelector('.pdf-search-highlight--current')?.textContent ||
+                        document.querySelector<HTMLElement>('.pdf-word-box--current')?.dataset.word ||
+                        '',
                 }));
                 writeFileSync(resolve(evidence, `${direction}.json`), JSON.stringify(state, null, 2));
                 expect(state.query).toBe('Page');
@@ -455,11 +490,13 @@ describe('Electron E2E - PDF search match scrolling', () => {
                 expect(state.text).toContain('Page 1 sample text');
                 expect(state.currentText.toLowerCase()).toBe('page');
                 await clickAsUser(page, 'button[aria-label="Next match"]');
-                await page.waitForFunction(() => document.querySelector('.document-search-result.is-active')
-                    ?.getAttribute('data-result-index') === '2');
+                await page.waitForFunction(
+                    () => document.querySelector('.document-search-result.is-active')?.getAttribute('data-result-index') === '2',
+                );
                 await clickAsUser(page, 'button[aria-label="Previous match"]');
-                await page.waitForFunction(() => document.querySelector('.document-search-result.is-active')
-                    ?.getAttribute('data-result-index') === '1');
+                await page.waitForFunction(
+                    () => document.querySelector('.document-search-result.is-active')?.getAttribute('data-result-index') === '1',
+                );
             }
         } finally {
             const failures = await page.evaluate(() => {
@@ -472,109 +509,145 @@ describe('Electron E2E - PDF search match scrolling', () => {
         }
     }, 120_000);
 
-    it('finishes a running search after a page rotation interrupts it', async () => {
-        const {page} = sessionFixture.getSession();
-        // Indexing this many pages takes seconds; the rotation commits within a fraction of one.
-        const pageCount = 4_000;
-        const lastPageWord = `p${pageCount}l${DENSE_TEXT_FIXTURE_LINES_PER_PAGE - 1}w0`;
-        await openPdfInApp(page, createDenseTextFixturePdf(
-            'rotation-running-search.pdf',
-            pageCount,
-            (pageNumber, line, word) => `p${pageNumber}l${line}w${word}`,
-        ), 120_000);
-        await waitForPdfLoaded(page);
-        await ensureSidebarOpen(page);
-        await openDocumentSidebarTab(page, 'Pages');
-        await clickAsUser(page, '[data-thumbnail-page="1"] .pdf-thumbnail-selection-toggle');
-        await page.waitForSelector('[data-thumbnail-page="1"] .pdf-thumbnail-selection-toggle[aria-pressed="true"]');
-        await openDocumentSidebarTab(page, 'search');
-        await clickAsUser(page, '.document-search-bar input');
-        await page.keyboard.type(lastPageWord);
-        await page.keyboard.press('Enter');
-        await page.waitForSelector('.document-search-results-header-spinner');
-        await activateMenuItemAsUser(page, {id: 'rotate-pages-clockwise'});
-        const found = `1 result for “${lastPageWord}”`;
-        await page.waitForFunction(text => document.querySelector('.document-search-results')?.textContent?.replaceAll(/\s+/g, ' ').includes(text), {timeout: 120_000}, found)
-            .catch(() => undefined);
-        expect(await page.$eval('.document-search-results', element => element.textContent?.replaceAll(/\s+/g, ' ').trim()))
-            .toContain(found);
-        const rotated = await PDFDocument.load(await readDocumentBytes(page), {updateMetadata: false});
-        expect(rotated.getPage(0).getRotation().angle).toBe(90);
-    }, SEARCH_MATCH_SCROLL_TIMEOUT_MS);
+    it(
+        'finishes a running search after a page rotation interrupts it',
+        async () => {
+            const {page} = sessionFixture.getSession();
+            // Indexing this many pages takes seconds; the rotation commits within a fraction of one.
+            const pageCount = 4_000;
+            const lastPageWord = `p${pageCount}l${DENSE_TEXT_FIXTURE_LINES_PER_PAGE - 1}w0`;
+            await openPdfInApp(
+                page,
+                createDenseTextFixturePdf(
+                    'rotation-running-search.pdf',
+                    pageCount,
+                    (pageNumber, line, word) => `p${pageNumber}l${line}w${word}`,
+                ),
+                120_000,
+            );
+            await waitForPdfLoaded(page);
+            await ensureSidebarOpen(page);
+            await openDocumentSidebarTab(page, 'Pages');
+            await clickAsUser(page, '[data-thumbnail-page="1"] .pdf-thumbnail-selection-toggle');
+            await page.waitForSelector('[data-thumbnail-page="1"] .pdf-thumbnail-selection-toggle[aria-pressed="true"]');
+            await openDocumentSidebarTab(page, 'search');
+            await clickAsUser(page, '.document-search-bar input');
+            await page.keyboard.type(lastPageWord);
+            await page.keyboard.press('Enter');
+            await page.waitForSelector('.document-search-results-header-spinner');
+            await activateMenuItemAsUser(page, {id: 'rotate-pages-clockwise'});
+            const found = `1 result for “${lastPageWord}”`;
+            await page
+                .waitForFunction(
+                    (text) => document.querySelector('.document-search-results')?.textContent?.replaceAll(/\s+/g, ' ').includes(text),
+                    {timeout: 120_000},
+                    found,
+                )
+                .catch(() => undefined);
+            expect(
+                await page.$eval('.document-search-results', (element) => element.textContent?.replaceAll(/\s+/g, ' ').trim()),
+            ).toContain(found);
+            const rotated = await PDFDocument.load(await readDocumentBytes(page), {updateMetadata: false});
+            expect(rotated.getPage(0).getRotation().angle).toBe(90);
+        },
+        SEARCH_MATCH_SCROLL_TIMEOUT_MS,
+    );
 
-    it('keeps every normalized ligature result inside the settled viewport', async () => {
-        const {page} = sessionFixture.getSession();
-        await openPdfInApp(page, resolve('tests/fixtures/electron/search/mixed-ligature-dictionary.pdf'));
-        await waitForPdfLoaded(page);
-        await ensureSidebarOpen(page);
-        await openDocumentSidebarTab(page, 'search');
-        await clickAsUser(page, '.document-search-bar input');
-        await page.keyboard.type('office');
-        await page.keyboard.press('Enter');
-        await page.waitForFunction(() => document.querySelector('.document-search-results')?.textContent?.includes('38 results for'));
-        await page.waitForFunction(() => ![...document.querySelectorAll('.document-search-results-header-spinner')]
-            .some(element => element.getBoundingClientRect().width > 0));
-        for (let index = 0; index < 38; index += 1) {
-            if (index === 0) {
-                await clickAsUser(page, '.document-search-result[data-result-index="0"]');
-            } else {
-                await clickAsUser(page, 'button[aria-label="Next match"]');
-            }
-            await page.waitForFunction(currentIndex => document.querySelector('.document-search-result.is-active')
-                ?.getAttribute('data-result-index') === String(currentIndex), {}, index);
-            const settled = await page.evaluate(async () => {
-                const invariants = Reflect.get(window, '__evbViewerInvariants') as {waitForSettled: (options: {
-                    timeoutMs: number;
-                    requireNavigationIdle: boolean
-                }) => Promise<{
-                    settled: boolean;
-                    reason: string | null
-                }>;};
-                return invariants.waitForSettled({
-                    timeoutMs: 10_000,
-                    requireNavigationIdle: true,
+    it(
+        'keeps every normalized ligature result inside the settled viewport',
+        async () => {
+            const {page} = sessionFixture.getSession();
+            await openPdfInApp(page, resolve('tests/fixtures/electron/search/mixed-ligature-dictionary.pdf'));
+            await waitForPdfLoaded(page);
+            await ensureSidebarOpen(page);
+            await openDocumentSidebarTab(page, 'search');
+            await clickAsUser(page, '.document-search-bar input');
+            await page.keyboard.type('office');
+            await page.keyboard.press('Enter');
+            await page.waitForFunction(() => document.querySelector('.document-search-results')?.textContent?.includes('38 results for'));
+            await page.waitForFunction(
+                () =>
+                    ![...document.querySelectorAll('.document-search-results-header-spinner')].some(
+                        (element) => element.getBoundingClientRect().width > 0,
+                    ),
+            );
+            for (let index = 0; index < 38; index += 1) {
+                if (index === 0) {
+                    await clickAsUser(page, '.document-search-result[data-result-index="0"]');
+                } else {
+                    await clickAsUser(page, 'button[aria-label="Next match"]');
+                }
+                await page.waitForFunction(
+                    (currentIndex) =>
+                        document.querySelector('.document-search-result.is-active')?.getAttribute('data-result-index') ===
+                        String(currentIndex),
+                    {},
+                    index,
+                );
+                const settled = await page.evaluate(async () => {
+                    const invariants = Reflect.get(window, '__evbViewerInvariants') as {
+                        waitForSettled: (options: {timeoutMs: number; requireNavigationIdle: boolean}) => Promise<{
+                            settled: boolean;
+                            reason: string | null;
+                        }>;
+                    };
+                    return invariants.waitForSettled({
+                        timeoutMs: 10_000,
+                        requireNavigationIdle: true,
+                    });
                 });
-            });
-            expect(settled.settled, settled.reason ?? 'Viewer did not settle').toBe(true);
-            const current = await page.evaluate(() => {
-                const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active #pdf-viewer')!;
-                const viewport = viewer.getBoundingClientRect();
-                const ranges = [...CSS.highlights?.get('pdf-search-current-match') ?? []]
-                    .filter((range): range is Range => range instanceof Range);
-                const highlights = [...viewer.querySelectorAll<HTMLElement>('.pdf-search-highlight--current, .pdf-word-box--current')];
-                const rects = [
-                    ...ranges.flatMap(range => [...range.getClientRects()]),
-                    ...highlights.map(element => element.getBoundingClientRect()),
-                ]
-                    .filter(rect => rect.width > 0 && rect.height > 0);
-                return {
-                    text: ranges.length ? ranges.map(range => range.toString()).join('')
-                        : highlights.map(element => element.textContent || element.dataset.word || '').join(''),
-                    viewport: viewport.toJSON(),
-                    rects: rects.map(rect => rect.toJSON()),
-                    visible: rects.length > 0 && rects.every(rect => rect.top >= viewport.top
-                        && rect.bottom <= viewport.bottom && rect.left >= viewport.left && rect.right <= viewport.right),
-                };
-            });
-            expect.soft(current.text, `Result ${index}`).toBe('oﬃce');
-            expect.soft(current.visible, `Result ${index}: ${JSON.stringify(current)}`).toBe(true);
-            console.log(`LIGATURE_NAVIGATION ${JSON.stringify({
-                index,
-                ...current,
-            })}`);
-        }
-    }, SEARCH_MATCH_SCROLL_TIMEOUT_MS);
+                expect(settled.settled, settled.reason ?? 'Viewer did not settle').toBe(true);
+                const current = await page.evaluate(() => {
+                    const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active #pdf-viewer')!;
+                    const viewport = viewer.getBoundingClientRect();
+                    const ranges = [...(CSS.highlights?.get('pdf-search-current-match') ?? [])].filter(
+                        (range): range is Range => range instanceof Range,
+                    );
+                    const highlights = [...viewer.querySelectorAll<HTMLElement>('.pdf-search-highlight--current, .pdf-word-box--current')];
+                    const rects = [
+                        ...ranges.flatMap((range) => [...range.getClientRects()]),
+                        ...highlights.map((element) => element.getBoundingClientRect()),
+                    ].filter((rect) => rect.width > 0 && rect.height > 0);
+                    return {
+                        text: ranges.length
+                            ? ranges.map((range) => range.toString()).join('')
+                            : highlights.map((element) => element.textContent || element.dataset.word || '').join(''),
+                        viewport: viewport.toJSON(),
+                        rects: rects.map((rect) => rect.toJSON()),
+                        visible:
+                            rects.length > 0 &&
+                            rects.every(
+                                (rect) =>
+                                    rect.top >= viewport.top &&
+                                    rect.bottom <= viewport.bottom &&
+                                    rect.left >= viewport.left &&
+                                    rect.right <= viewport.right,
+                            ),
+                    };
+                });
+                expect.soft(current.text, `Result ${index}`).toBe('oﬃce');
+                expect.soft(current.visible, `Result ${index}: ${JSON.stringify(current)}`).toBe(true);
+                console.log(
+                    `LIGATURE_NAVIGATION ${JSON.stringify({
+                        index,
+                        ...current,
+                    })}`,
+                );
+            }
+        },
+        SEARCH_MATCH_SCROLL_TIMEOUT_MS,
+    );
 
-    it('finds and highlights phrases across line breaks, no-break spaces and typographic apostrophes', async () => {
-        const {page} = sessionFixture.getSession();
-        await openPdfInApp(page, await createPhraseSearchFixturePdf(`phrase-search-${Date.now()}.pdf`));
-        await waitForPdfLoaded(page);
-        await ensureSidebarOpen(page);
-        await openDocumentSidebarTab(page, 'search');
-        const selectAll = process.platform === 'darwin' ? 'Meta' : 'Control';
-        for (const {
-            query, highlighted,
-        } of [
+    it(
+        'finds and highlights phrases across line breaks, no-break spaces and typographic apostrophes',
+        async () => {
+            const {page} = sessionFixture.getSession();
+            await openPdfInApp(page, await createPhraseSearchFixturePdf(`phrase-search-${Date.now()}.pdf`));
+            await waitForPdfLoaded(page);
+            await ensureSidebarOpen(page);
+            await openDocumentSidebarTab(page, 'search');
+            const selectAll = process.platform === 'darwin' ? 'Meta' : 'Control';
+            for (const {query, highlighted} of [
                 {
                     query: 'alpha beta',
                     highlighted: 'alpha beta',
@@ -584,977 +657,1044 @@ describe('Electron E2E - PDF search match scrolling', () => {
                     highlighted: 'red blue',
                 },
                 {
-                    query: 'scholar\'s',
+                    query: "scholar's",
                     highlighted: 'scholar\u2019s',
                 },
             ]) {
-            await clickAsUser(page, '.document-search-bar input');
-            await page.keyboard.down(selectAll);
-            await page.keyboard.press('KeyA');
-            await page.keyboard.up(selectAll);
-            await page.keyboard.type(query);
-            await page.keyboard.press('Enter');
-            await page.waitForFunction((typed: string) => {
-                const summary = document.querySelector('.document-search-results')?.textContent ?? '';
-                const searching = [...document.querySelectorAll('.document-search-results-header-spinner')]
-                    .some(element => element.getBoundingClientRect().width > 0);
-                return !searching && (summary.includes(typed) || summary.includes('No results'));
-            }, {}, query);
-            expect(await page.$eval('.document-search-results', element => element.textContent ?? ''), query).toContain('1 result for');
-            await clickAsUser(page, '.document-search-result[data-result-index="0"]');
-            // The current match paints as CSS highlight ranges or as highlight elements.
-            const readCurrent = () => {
-                const ranges = [...CSS.highlights?.get('pdf-search-current-match') ?? []]
-                    .filter((range): range is Range => range instanceof Range);
-                const elements = [...document.querySelectorAll<HTMLElement>('.editor-pane.is-active .pdf-search-highlight--current')];
-                const rects = [
-                    ...ranges.flatMap(range => [...range.getClientRects()]),
-                    ...elements.map(element => element.getBoundingClientRect()),
-                ].filter(rect => rect.width > 0 && rect.height > 0);
-                return {
-                    text: [
-                        ...ranges.map(range => range.toString()),
-                        ...elements.map(element => element.textContent ?? ''),
-                    ].join(' '),
-                    lines: new Set(rects.map(rect => Math.round(rect.top))).size,
+                await clickAsUser(page, '.document-search-bar input');
+                await page.keyboard.down(selectAll);
+                await page.keyboard.press('KeyA');
+                await page.keyboard.up(selectAll);
+                await page.keyboard.type(query);
+                await page.keyboard.press('Enter');
+                await page.waitForFunction(
+                    (typed: string) => {
+                        const summary = document.querySelector('.document-search-results')?.textContent ?? '';
+                        const searching = [...document.querySelectorAll('.document-search-results-header-spinner')].some(
+                            (element) => element.getBoundingClientRect().width > 0,
+                        );
+                        return !searching && (summary.includes(typed) || summary.includes('No results'));
+                    },
+                    {},
+                    query,
+                );
+                expect(await page.$eval('.document-search-results', (element) => element.textContent ?? ''), query).toContain(
+                    '1 result for',
+                );
+                await clickAsUser(page, '.document-search-result[data-result-index="0"]');
+                // The current match paints as CSS highlight ranges or as highlight elements.
+                const readCurrent = () => {
+                    const ranges = [...(CSS.highlights?.get('pdf-search-current-match') ?? [])].filter(
+                        (range): range is Range => range instanceof Range,
+                    );
+                    const elements = [...document.querySelectorAll<HTMLElement>('.editor-pane.is-active .pdf-search-highlight--current')];
+                    const rects = [
+                        ...ranges.flatMap((range) => [...range.getClientRects()]),
+                        ...elements.map((element) => element.getBoundingClientRect()),
+                    ].filter((rect) => rect.width > 0 && rect.height > 0);
+                    return {
+                        text: [...ranges.map((range) => range.toString()), ...elements.map((element) => element.textContent ?? '')].join(
+                            ' ',
+                        ),
+                        lines: new Set(rects.map((rect) => Math.round(rect.top))).size,
+                    };
                 };
-            };
-            await page.waitForFunction(`(${readCurrent.toString()})().lines > 0`);
-            const current = await page.evaluate(readCurrent);
-            expect(normalizeMatchText(current.text), query).toBe(normalizeMatchText(highlighted));
-            expect(current.lines, query).toBe(query === 'alpha beta' ? 2 : 1);
-        }
-    }, SEARCH_MATCH_SCROLL_TIMEOUT_MS);
-
-    it('keeps the final result visible and centers its match after a high-zoom xlarge search', async () => {
-        const session = sessionFixture.getSession();
-
-        const fixturePath = searchMatchScrollConfig.fixturePath
-            ?? await createSearchMatchScrollFixturePdf(`search-match-scroll-${Date.now()}.pdf`);
-        await session.page.setViewport({
-            deviceScaleFactor: 1,
-            height: 900,
-            width: 1_440,
-        });
-        await openPdfInApp(session.page, fixturePath, SEARCH_MATCH_SCROLL_TIMEOUT_MS);
-        await waitForPdfLoaded(session.page, SEARCH_MATCH_SCROLL_TIMEOUT_MS);
-        await enablePdfDiagnosticSession(session.page, {
-            navigation: true,
-            render: true,
-        });
-        await ensureSidebarOpen(session.page);
-        await openDocumentSidebarTab(session.page, 'Search');
-
-        const searchInput = await session.page.$(
-            '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-bar input',
-        );
-        expect(searchInput).not.toBeNull();
-        await searchInput!.type(searchMatchScrollConfig.query);
-        await clickAsUser(session.page, '.editor-pane.is-active [data-testid="document-sidebar"] .search-run-button:not(:disabled)');
-
-        await waitForFunctionInPage(session.page, (expectedCount: number) => {
-            const summary = document.querySelector<HTMLElement>(
-                '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-results-header-summary',
-            );
-            const spinner = document.querySelector<HTMLElement>(
-                '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-results-spinner',
-            );
-            return Boolean(
-                summary?.textContent?.trim().startsWith(`${expectedCount} results`)
-                && !spinner,
-            );
-        }, {timeout: SEARCH_MATCH_SCROLL_TIMEOUT_MS}, searchMatchScrollConfig.expectedResultCount);
-
-        await requireWorkspaceCommand(session.page, 'setCustomZoomFromDisplay', [searchMatchScrollConfig.zoom]);
-        await waitForWorkspaceToolbarSnapshot(session.page, {
-            hasPdf: true,
-            minEffectiveZoom: searchMatchScrollConfig.zoom * 0.98,
-        }, {timeoutMs: SEARCH_MATCH_SCROLL_TIMEOUT_MS});
-
-        const collapsedGroupAtListBottom = await session.page.evaluate(async (targetGroup: string) => {
-            const list = document.querySelector<HTMLElement>(
-                '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-results-list',
-            );
-            if (!list) {
-                throw new Error('Search results list was not found');
+                await page.waitForFunction(`(${readCurrent.toString()})().lines > 0`);
+                const current = await page.evaluate(readCurrent);
+                expect(normalizeMatchText(current.text), query).toBe(normalizeMatchText(highlighted));
+                expect(current.lines, query).toBe(query === 'alpha beta' ? 2 : 1);
             }
-            const findGroup = () => Array.from(list.querySelectorAll<HTMLElement>(
-                '.document-search-results-group-toggle',
-            )).find(group => group.dataset.pageNumber === targetGroup);
-            const waitForVirtualRows = () => new Promise<void>(resolve => requestAnimationFrame(() => (
-                requestAnimationFrame(() => resolve())
-            )));
-            const step = Math.max(36, Math.floor(list.clientHeight * 0.75));
-            const findTargetGroup = async () => {
-                const maxScrollTop = Math.max(0, list.scrollHeight - list.clientHeight);
-                for (let top = 0; top <= maxScrollTop; top += step) {
-                    list.scrollTop = top;
+        },
+        SEARCH_MATCH_SCROLL_TIMEOUT_MS,
+    );
+
+    it(
+        'keeps the final result visible and centers its match after a high-zoom xlarge search',
+        async () => {
+            const session = sessionFixture.getSession();
+
+            const fixturePath =
+                searchMatchScrollConfig.fixturePath ?? (await createSearchMatchScrollFixturePdf(`search-match-scroll-${Date.now()}.pdf`));
+            await session.page.setViewport({
+                deviceScaleFactor: 1,
+                height: 900,
+                width: 1_440,
+            });
+            await openPdfInApp(session.page, fixturePath, SEARCH_MATCH_SCROLL_TIMEOUT_MS);
+            await waitForPdfLoaded(session.page, SEARCH_MATCH_SCROLL_TIMEOUT_MS);
+            await enablePdfDiagnosticSession(session.page, {
+                navigation: true,
+                render: true,
+            });
+            await ensureSidebarOpen(session.page);
+            await openDocumentSidebarTab(session.page, 'Search');
+
+            const searchInput = await session.page.$('.editor-pane.is-active [data-testid="document-sidebar"] .document-search-bar input');
+            expect(searchInput).not.toBeNull();
+            await searchInput!.type(searchMatchScrollConfig.query);
+            await clickAsUser(session.page, '.editor-pane.is-active [data-testid="document-sidebar"] .search-run-button:not(:disabled)');
+
+            await waitForFunctionInPage(
+                session.page,
+                (expectedCount: number) => {
+                    const summary = document.querySelector<HTMLElement>(
+                        '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-results-header-summary',
+                    );
+                    const spinner = document.querySelector<HTMLElement>(
+                        '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-results-spinner',
+                    );
+                    return Boolean(summary?.textContent?.trim().startsWith(`${expectedCount} results`) && !spinner);
+                },
+                {timeout: SEARCH_MATCH_SCROLL_TIMEOUT_MS},
+                searchMatchScrollConfig.expectedResultCount,
+            );
+
+            await requireWorkspaceCommand(session.page, 'setCustomZoomFromDisplay', [searchMatchScrollConfig.zoom]);
+            await waitForWorkspaceToolbarSnapshot(
+                session.page,
+                {
+                    hasPdf: true,
+                    minEffectiveZoom: searchMatchScrollConfig.zoom * 0.98,
+                },
+                {timeoutMs: SEARCH_MATCH_SCROLL_TIMEOUT_MS},
+            );
+
+            const collapsedGroupAtListBottom = await session.page.evaluate(async (targetGroup: string) => {
+                const list = document.querySelector<HTMLElement>(
+                    '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-results-list',
+                );
+                if (!list) {
+                    throw new Error('Search results list was not found');
+                }
+                const findGroup = () =>
+                    Array.from(list.querySelectorAll<HTMLElement>('.document-search-results-group-toggle')).find(
+                        (group) => group.dataset.pageNumber === targetGroup,
+                    );
+                const waitForVirtualRows = () =>
+                    new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+                const step = Math.max(36, Math.floor(list.clientHeight * 0.75));
+                const findTargetGroup = async () => {
+                    const maxScrollTop = Math.max(0, list.scrollHeight - list.clientHeight);
+                    for (let top = 0; top <= maxScrollTop; top += step) {
+                        list.scrollTop = top;
+                        list.dispatchEvent(new Event('scroll'));
+                        await waitForVirtualRows();
+                        const group = findGroup();
+                        if (group) {
+                            return group;
+                        }
+                    }
+                    list.scrollTop = maxScrollTop;
                     list.dispatchEvent(new Event('scroll'));
                     await waitForVirtualRows();
-                    const group = findGroup();
-                    if (group) {
-                        return group;
-                    }
+                    return findGroup() ?? null;
+                };
+
+                let group = await findTargetGroup();
+                if (!group) {
+                    return null;
                 }
-                list.scrollTop = maxScrollTop;
+                if (group.getAttribute('aria-expanded') === 'true') {
+                    group.click();
+                    await waitForVirtualRows();
+                    group = findGroup() ?? (await findTargetGroup());
+                }
+                if (!group || group.getAttribute('aria-expanded') !== 'false') {
+                    return null;
+                }
+
+                const listRect = list.getBoundingClientRect();
+                const groupRect = group.getBoundingClientRect();
+                list.scrollTop = Math.min(
+                    Math.max(0, list.scrollHeight - list.clientHeight),
+                    Math.max(0, list.scrollTop + groupRect.bottom - listRect.bottom),
+                );
                 list.dispatchEvent(new Event('scroll'));
                 await waitForVirtualRows();
-                return findGroup() ?? null;
-            };
-
-            let group = await findTargetGroup();
-            if (!group) {
-                return null;
-            }
-            if (group.getAttribute('aria-expanded') === 'true') {
-                group.click();
-                await waitForVirtualRows();
-                group = findGroup() ?? await findTargetGroup();
-            }
-            if (!group || group.getAttribute('aria-expanded') !== 'false') {
-                return null;
-            }
-
-            const listRect = list.getBoundingClientRect();
-            const groupRect = group.getBoundingClientRect();
-            list.scrollTop = Math.min(
-                Math.max(0, list.scrollHeight - list.clientHeight),
-                Math.max(0, list.scrollTop + groupRect.bottom - listRect.bottom),
-            );
-            list.dispatchEvent(new Event('scroll'));
-            await waitForVirtualRows();
-            group = findGroup() ?? null;
-            if (!group) {
-                return null;
-            }
-            const alignedListRect = list.getBoundingClientRect();
-            const alignedGroupRect = group.getBoundingClientRect();
-            return {
-                bottomGap: alignedListRect.bottom - alignedGroupRect.bottom,
-                expanded: group.getAttribute('aria-expanded'),
-            };
-        }, searchMatchScrollConfig.targetGroup);
-        expect(collapsedGroupAtListBottom).not.toBeNull();
-        expect(collapsedGroupAtListBottom!.expanded).toBe('false');
-        expect(Math.abs(collapsedGroupAtListBottom!.bottomGap)).toBeLessThanOrEqual(
-            SEARCH_RESULT_LIST_EDGE_TOLERANCE_PX,
-        );
-
-        await clickFoundAsUser(session.page, (targetGroup: string) => Array.from(document.querySelectorAll<HTMLButtonElement>(
-            '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-results-group-toggle',
-        )).find(candidate => candidate.dataset.pageNumber === targetGroup
-            && candidate.getAttribute('aria-expanded') === 'false'), searchMatchScrollConfig.targetGroup, {
-            description: `collapsed search result group ${searchMatchScrollConfig.targetGroup}`,
-            timeoutMs: 5_000,
-        });
-
-        await waitForFunctionInPage(session.page, ({
-            targetMatch,
-            targetPage,
-        }: {
-            targetMatch: number;
-            targetPage: number;
-        }) => {
-            const list = document.querySelector<HTMLElement>(
-                '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-results-list',
-            );
-            const result = document.querySelector<HTMLElement>(
-                `.editor-pane.is-active [data-testid="document-sidebar"] .document-search-result[data-page-number="${String(targetPage)}"][data-page-match-number="${String(targetMatch)}"]`,
-            );
-            if (!list || !result) {
-                return false;
-            }
-            const listRect = list.getBoundingClientRect();
-            const resultRect = result.getBoundingClientRect();
-            return resultRect.top >= listRect.top - 1 && resultRect.bottom <= listRect.bottom + 1;
-        }, {timeout: SEARCH_MATCH_PAINT_TIMEOUT_MS}, {
-            targetMatch: searchMatchScrollConfig.targetMatch,
-            targetPage: searchMatchScrollConfig.targetViewerPage,
-        });
-
-        const sidebarStatusGeometry = await session.page.evaluate(({
-            targetMatch,
-            targetPage,
-        }: {
-            targetMatch: number;
-            targetPage: number;
-        }) => {
-            const sidebar = document.querySelector<HTMLElement>(
-                '.editor-pane.is-active [data-testid="document-sidebar"]',
-            );
-            const sidebarContent = sidebar?.querySelector<HTMLElement>('.app-sidebar-shell__content');
-            const panel = sidebar?.querySelector<HTMLElement>('.document-search-panel');
-            const results = sidebar?.querySelector<HTMLElement>('.document-search-results');
-            const listShell = sidebar?.querySelector<HTMLElement>('.document-search-results-list-shell');
-            const list = sidebar?.querySelector<HTMLElement>('.document-search-results-list');
-            const result = sidebar?.querySelector<HTMLElement>(
-                `.document-search-result[data-page-number="${String(targetPage)}"][data-page-match-number="${String(targetMatch)}"]`,
-            );
-            const status = document.querySelector<HTMLElement>('#editor-global-status-host .status-bar');
-            if (!sidebar || !sidebarContent || !panel || !results || !listShell || !list || !result || !status) {
-                throw new Error('Sidebar status geometry could not be measured');
-            }
-            const sidebarRect = sidebar.getBoundingClientRect();
-            const sidebarContentRect = sidebarContent.getBoundingClientRect();
-            const panelRect = panel.getBoundingClientRect();
-            const resultsRect = results.getBoundingClientRect();
-            const listShellRect = listShell.getBoundingClientRect();
-            const listRect = list.getBoundingClientRect();
-            const resultRect = result.getBoundingClientRect();
-            const statusRect = status.getBoundingClientRect();
-            const resultCenterX = resultRect.left + resultRect.width / 2;
-            const resultCenterY = resultRect.top + resultRect.height / 2;
-            const hitTarget = document.elementFromPoint(resultCenterX, resultCenterY);
-            return {
-                listBottom: listRect.bottom,
-                listShellBottom: listShellRect.bottom,
-                panelBottom: panelRect.bottom,
-                resultBottom: resultRect.bottom,
-                resultCenterX,
-                resultCenterY,
-                resultHitTarget: hitTarget === result || Boolean(hitTarget && result.contains(hitTarget)),
-                resultIndex: Number(result.dataset.resultIndex),
-                resultsBottom: resultsRect.bottom,
-                sidebarContentBottom: sidebarContentRect.bottom,
-                sidebarBottom: sidebarRect.bottom,
-                statusTop: statusRect.top,
-            };
-        }, {
-            targetMatch: searchMatchScrollConfig.targetMatch,
-            targetPage: searchMatchScrollConfig.targetViewerPage,
-        });
-        expect(
-            sidebarStatusGeometry.sidebarBottom,
-            JSON.stringify({sidebarStatusGeometry}),
-        ).toBeLessThanOrEqual(sidebarStatusGeometry.statusTop + SEARCH_RESULT_LIST_EDGE_TOLERANCE_PX);
-        expect(
-            Math.abs(sidebarStatusGeometry.panelBottom - sidebarStatusGeometry.sidebarContentBottom),
-            JSON.stringify({sidebarStatusGeometry}),
-        ).toBeLessThanOrEqual(1);
-        expect(
-            Math.abs(sidebarStatusGeometry.resultsBottom - sidebarStatusGeometry.sidebarContentBottom),
-            JSON.stringify({sidebarStatusGeometry}),
-        ).toBeLessThanOrEqual(1);
-        expect(
-            Math.abs(sidebarStatusGeometry.listShellBottom - sidebarStatusGeometry.sidebarContentBottom),
-            JSON.stringify({sidebarStatusGeometry}),
-        ).toBeLessThanOrEqual(1);
-        expect(
-            sidebarStatusGeometry.listBottom,
-            JSON.stringify({sidebarStatusGeometry}),
-        ).toBeLessThanOrEqual(sidebarStatusGeometry.sidebarContentBottom + 1);
-        expect(
-            sidebarStatusGeometry.resultBottom,
-            JSON.stringify({sidebarStatusGeometry}),
-        ).toBeLessThanOrEqual(sidebarStatusGeometry.statusTop + SEARCH_RESULT_LIST_EDGE_TOLERANCE_PX);
-        expect(sidebarStatusGeometry.resultIndex).toBe(searchMatchScrollConfig.expectedResultCount - 1);
-        expect(sidebarStatusGeometry.resultHitTarget, JSON.stringify({sidebarStatusGeometry})).toBe(true);
-
-        await session.page.evaluate(() => {
-            const diagnosticWindow = window as Window & {
-                __clearPdfNavLog?: () => void;
-                __clearPdfRenderTrace?: () => void;
-            };
-            diagnosticWindow.__clearPdfNavLog?.();
-            diagnosticWindow.__clearPdfRenderTrace?.();
-        });
-        const clickedTarget = await session.page.evaluate(({
-            targetMatch,
-            targetPage,
-        }: {
-            targetMatch: number;
-            targetPage: number;
-        }) => {
-            const result = document.querySelector<HTMLElement>(
-                `.editor-pane.is-active [data-testid="document-sidebar"] .document-search-result[data-page-number="${String(targetPage)}"][data-page-match-number="${String(targetMatch)}"]`,
-            );
-            const matchText = result?.querySelector<HTMLElement>(
-                '.document-search-result-highlight',
-            )?.textContent ?? '';
-            const resultRect = result?.getBoundingClientRect();
-            const clickedAtMs = performance.now();
-            return result && resultRect ? {
-                centerX: resultRect.left + resultRect.width / 2,
-                centerY: resultRect.top + resultRect.height / 2,
-                clickedAtMs,
-                matchText,
-            } : null;
-        }, {
-            targetMatch: searchMatchScrollConfig.targetMatch,
-            targetPage: searchMatchScrollConfig.targetViewerPage,
-        });
-        expect(clickedTarget).not.toBeNull();
-        expect(clickedTarget!.matchText.trim().length).toBeGreaterThan(0);
-        await session.page.mouse.click(clickedTarget!.centerX, clickedTarget!.centerY);
-
-        await waitForFunctionInPage(session.page, ({
-            targetMatch,
-            targetPage,
-        }: {
-            targetMatch: number;
-            targetPage: number;
-        }) => {
-            const currentResult = document.querySelector<HTMLElement>(
-                '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-result[aria-current="true"]',
-            );
-            const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host #pdf-viewer');
-            const page = viewer?.querySelector<HTMLElement>(`.page_container[data-page="${String(targetPage)}"]`);
-            const highlights = Array.from(page?.querySelectorAll<HTMLElement>(
-                '.pdf-search-highlight--current, .pdf-word-box--current',
-            ) ?? []).map(highlight => highlight.getBoundingClientRect())
-                .filter(rect => rect.width > 0 && rect.height > 0);
-            if (currentResult?.dataset.pageNumber !== String(targetPage)
-                || currentResult.dataset.pageMatchNumber !== String(targetMatch)
-                || !viewer
-                || !page
-                || highlights.length === 0) {
-                return false;
-            }
-            return true;
-        }, {timeout: SEARCH_MATCH_PAINT_TIMEOUT_MS}, {
-            targetMatch: searchMatchScrollConfig.targetMatch,
-            targetPage: searchMatchScrollConfig.targetViewerPage,
-        });
-
-        const readFinalState = () => session.page.evaluate((targetPage: number) => {
-            const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host #pdf-viewer');
-            const page = viewer?.querySelector<HTMLElement>(`.page_container[data-page="${String(targetPage)}"]`);
-            const viewerRect = viewer?.getBoundingClientRect() ?? null;
-            const pageRect = page?.getBoundingClientRect() ?? null;
-            const highlightElements = Array.from(page?.querySelectorAll<HTMLElement>(
-                '.pdf-search-highlight--current, .pdf-word-box--current',
-            ) ?? []);
-            const highlightRects = highlightElements.map(element => element.getBoundingClientRect())
-                .filter(rect => rect.width > 0 && rect.height > 0);
-            const highlight = highlightRects.length > 0
-                ? {
-                    bottom: Math.max(...highlightRects.map(rect => rect.bottom)),
-                    left: Math.min(...highlightRects.map(rect => rect.left)),
-                    right: Math.max(...highlightRects.map(rect => rect.right)),
-                    top: Math.min(...highlightRects.map(rect => rect.top)),
+                group = findGroup() ?? null;
+                if (!group) {
+                    return null;
                 }
-                : null;
-            const trace = ((window as Window & {__getPdfRenderTrace?: () => Array<{
-                event: string;
-                payload?: Record<string, unknown>
-            }>;}).__getPdfRenderTrace?.() ?? []);
-            const navigationMessages = ((window as Window & {__getPdfNavLog?: () => Array<{message: string;}>;})
-                .__getPdfNavLog?.() ?? []).map(entry => entry.message);
-            const appliedCount = trace.filter(entry => (
-                entry.event === 'navigation-viewport-authority-applied'
-                && entry.payload?.kind === 'search'
-            )).length;
-            const applied = trace.find(entry => (
-                entry.event === 'navigation-viewport-authority-applied'
-                && entry.payload?.kind === 'search'
-                && entry.payload?.page === targetPage
-            ));
-            const afterRangeUpdate = trace.find(entry => (
-                entry.event === 'navigation-viewport-authority-after-range-update'
-                && entry.payload?.intentId === applied?.payload?.intentId
-            ));
-            const refined = [...trace].reverse().find(entry => (
-                entry.event === 'navigation-text-anchor-refined'
-                && entry.payload?.intentId === applied?.payload?.intentId
-                && entry.payload?.page === targetPage
-            ));
-            const targetTrace = trace.filter(entry => entry.payload?.pageNumber === targetPage);
-            const cancelledCount = trace.filter(entry => (
-                entry.event.endsWith('-intent-cancelled')
-                && entry.payload?.intentId === applied?.payload?.intentId
-            )).length;
-            const resolvedRectValue = refined?.payload?.resolvedRect;
-            const resolvedRect = resolvedRectValue && typeof resolvedRectValue === 'object'
-                ? resolvedRectValue as Record<string, unknown>
-                : null;
-            const resolvedNumbers = resolvedRect
-                ? [
-                    resolvedRect.left,
-                    resolvedRect.top,
-                    resolvedRect.width,
-                    resolvedRect.height,
-                ].map(Number)
-                : [];
-            const resolvedHighlightEdgeDelta = highlight && pageRect
-                && resolvedNumbers.length === 4
-                && resolvedNumbers.every(Number.isFinite)
-                ? Math.max(
-                    Math.abs(highlight.left - (pageRect.left + resolvedNumbers[0]! * pageRect.width)),
-                    Math.abs(highlight.top - (pageRect.top + resolvedNumbers[1]! * pageRect.height)),
-                    Math.abs(highlight.right - (
-                        pageRect.left + (resolvedNumbers[0]! + resolvedNumbers[2]!) * pageRect.width
-                    )),
-                    Math.abs(highlight.bottom - (
-                        pageRect.top + (resolvedNumbers[1]! + resolvedNumbers[3]!) * pageRect.height
-                    )),
-                )
-                : null;
-            return {
-                afterRangeActualTop: Number(afterRangeUpdate?.payload?.actualTop),
-                appliedActualTop: Number(applied?.payload?.actualTop),
-                highlight: highlight
-                    ? {
-                        bottom: highlight.bottom,
-                        left: highlight.left,
-                        right: highlight.right,
-                        top: highlight.top,
-                    }
-                    : null,
-                highlightBackgroundColors: highlightElements.map(element => getComputedStyle(element).backgroundColor),
-                highlightOpacities: highlightElements.map(element => getComputedStyle(element).opacity),
-                highlightText: highlightElements.map(element => (
-                    element.textContent || element.dataset.word || ''
-                )).join(''),
-                highlightVisibilities: highlightElements.map(element => getComputedStyle(element).visibility),
-                hydrationReadyCount: targetTrace.filter(entry => (
-                    entry.event === 'renderer-layer-hydration-settled'
-                    && entry.payload?.outcome === 'ready'
-                )).length,
-                leaseAcquireCount: targetTrace.filter(entry => (
-                    entry.event === 'pdf-document-page-lease-acquire'
-                )).length,
-                navigationMessages,
-                scrollTop: viewer?.scrollTop ?? null,
-                appliedCount,
-                appliedTraceAtMs: Number(applied?.payload?.traceAtMs),
-                cancelledCount,
-                hasResolvedRect: refined?.payload?.hasResolvedRect === true,
-                hasResolvedSearchRange: refined?.payload?.searchRange !== null
-                    && refined?.payload?.searchRange !== undefined,
-                resolvedHighlightEdgeDelta,
-                singlePageBeginCount: targetTrace.filter(entry => (
-                    entry.event === 'renderer-single-page-begin'
-                )).length,
-                viewportSize: {
-                    height: window.innerHeight,
-                    width: window.innerWidth,
-                },
-                page: pageRect
-                    ? {
-                        bottom: pageRect.bottom,
-                        left: pageRect.left,
-                        right: pageRect.right,
-                        top: pageRect.top,
-                    }
-                    : null,
-                viewer: viewerRect
-                    ? {
-                        bottom: viewerRect.bottom,
-                        left: viewerRect.left,
-                        right: viewerRect.right,
-                        top: viewerRect.top,
-                    }
-                    : null,
-            };
-        }, searchMatchScrollConfig.targetViewerPage);
-
-        let finalState = await readFinalState();
-        expect(finalState.highlight).not.toBeNull();
-        expect(finalState.page).not.toBeNull();
-        expect(finalState.viewer).not.toBeNull();
-        expect(normalizeMatchText(finalState.highlightText)).toBe(
-            normalizeMatchText(clickedTarget!.matchText),
-        );
-        expect(finalState.highlightBackgroundColors).not.toContain('rgba(0, 0, 0, 0)');
-        expect(finalState.highlightOpacities).not.toContain('0');
-        expect(finalState.highlightVisibilities).not.toContain('hidden');
-
-        await waitForFunctionInPage(session.page, () => {
-            const trace = ((window as Window & {__getPdfRenderTrace?: () => Array<{
-                event: string;
-                payload?: Record<string, unknown>
-            }>;}).__getPdfRenderTrace?.() ?? []);
-            const applied = trace.filter(entry => (
-                entry.event === 'navigation-viewport-authority-applied'
-                && entry.payload?.kind === 'search'
-            ));
-            const intentId = applied[0]?.payload?.intentId;
-            return applied.length === 1
-                && trace.some(entry => (
-                    entry.event === 'navigation-viewport-authority-after-range-update'
-                    && entry.payload?.intentId === intentId
-                ))
-                && trace.some(entry => (
-                    entry.event === 'navigation-text-anchor-refined'
-                    && entry.payload?.intentId === intentId
-                    && entry.payload?.hasResolvedRect === true
-                ));
-        }, {timeout: SEARCH_MATCH_PAINT_TIMEOUT_MS});
-
-        await waitForFunctionInPage(session.page, (targetPage: number) => {
-            const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host #pdf-viewer');
-            const page = viewer?.querySelector<HTMLElement>(`.page_container[data-page="${String(targetPage)}"]`);
-            const viewerRect = viewer?.getBoundingClientRect();
-            const highlightRects = Array.from(page?.querySelectorAll<HTMLElement>(
-                '.pdf-search-highlight--current, .pdf-word-box--current',
-            ) ?? []).map(element => element.getBoundingClientRect())
-                .filter(rect => rect.width > 0 && rect.height > 0);
-            if (!viewerRect || highlightRects.length === 0) {
-                return false;
-            }
-            const highlight = {
-                bottom: Math.max(...highlightRects.map(rect => rect.bottom)),
-                left: Math.min(...highlightRects.map(rect => rect.left)),
-                right: Math.max(...highlightRects.map(rect => rect.right)),
-                top: Math.min(...highlightRects.map(rect => rect.top)),
-            };
-            const centeredY = Math.abs(
-                (highlight.top + highlight.bottom) / 2 - (viewerRect.top + viewerRect.bottom) / 2,
-            ) < 120;
-            return centeredY
-                && highlight.left >= viewerRect.left - 2
-                && highlight.right <= viewerRect.right + 2
-                && highlight.top >= viewerRect.top - 2
-                && highlight.bottom <= viewerRect.bottom + 2;
-        }, {timeout: SEARCH_MATCH_PAINT_TIMEOUT_MS}, searchMatchScrollConfig.targetViewerPage);
-
-        await new Promise(resolve => setTimeout(resolve, 500));
-        finalState = await readFinalState();
-        expect(finalState.appliedCount).toBe(1);
-        expect(finalState.cancelledCount).toBe(0);
-        expect(Number.isFinite(finalState.appliedTraceAtMs)).toBe(true);
-        expect(finalState.appliedTraceAtMs - clickedTarget!.clickedAtMs).toBeLessThanOrEqual(
-            searchMatchScrollConfig.applyBudgetMs,
-        );
-        expect(finalState.appliedTraceAtMs).toBeGreaterThanOrEqual(clickedTarget!.clickedAtMs);
-        expect(finalState.scrollTop).toBeCloseTo(finalState.appliedActualTop, 0);
-        expect(finalState.afterRangeActualTop).toBeCloseTo(finalState.appliedActualTop, 0);
-        expect(finalState.hasResolvedSearchRange).toBe(true);
-        expect(finalState.hasResolvedRect).toBe(true);
-        expect(finalState.resolvedHighlightEdgeDelta).not.toBeNull();
-        expect(finalState.resolvedHighlightEdgeDelta!).toBeLessThanOrEqual(4);
-        expect(finalState.singlePageBeginCount).toBeLessThanOrEqual(1);
-        expect(finalState.hydrationReadyCount).toBe(1);
-        expect(finalState.leaseAcquireCount).toBeLessThanOrEqual(4);
-        expect(finalState.navigationMessages.some(message => message.includes('scrollToCurrentMatch'))).toBe(false);
-        expect(finalState.highlight!.left).toBeGreaterThanOrEqual(finalState.viewer!.left - 2);
-        expect(finalState.highlight!.right).toBeLessThanOrEqual(finalState.viewer!.right + 2);
-        expect(finalState.highlight!.top).toBeGreaterThanOrEqual(finalState.viewer!.top - 2);
-        expect(finalState.highlight!.bottom).toBeLessThanOrEqual(finalState.viewer!.bottom + 2);
-        const highlightCenterY = (finalState.highlight!.top + finalState.highlight!.bottom) / 2;
-        const viewerCenterY = (finalState.viewer!.top + finalState.viewer!.bottom) / 2;
-        expect(Math.abs(highlightCenterY - viewerCenterY)).toBeLessThan(120);
-        await session.page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => (
-            requestAnimationFrame(() => resolve())
-        ))));
-        const screenshot = await session.page.screenshot({type: 'png'});
-        expect(await countWarmHighlightPixels(
-            screenshot,
-            finalState.highlight!,
-            finalState.viewportSize,
-        )).toBeGreaterThan(4);
-    }, SEARCH_MATCH_SCROLL_TIMEOUT_MS);
-
-    it('keeps repeated match selections visible after navigation settles', async () => {
-        const session = sessionFixture.getSession();
-        const fixturePath = searchMatchScrollConfig.fixturePath
-            ?? await createSearchMatchScrollFixturePdf(`search-repeat-${Date.now()}.pdf`);
-        await session.page.setViewport({
-            deviceScaleFactor: 2,
-            height: 1018,
-            width: 1869,
-        });
-        await openPdfInApp(session.page, fixturePath, SEARCH_MATCH_SCROLL_TIMEOUT_MS);
-        await waitForPdfLoaded(session.page, SEARCH_MATCH_SCROLL_TIMEOUT_MS);
-        await enablePdfDiagnosticSession(session.page, {
-            navigation: true,
-            render: true,
-        });
-        await ensureSidebarOpen(session.page);
-        await openDocumentSidebarTab(session.page, 'Search');
-        const searchInput = await session.page.$('.editor-pane.is-active .document-search-bar input');
-        await searchInput!.type(searchMatchScrollConfig.query);
-        await clickAsUser(session.page, '.editor-pane.is-active .search-run-button');
-        await waitForFunctionInPage(session.page, (count: number) => {
-            const summary = document.querySelector('.editor-pane.is-active .document-search-results-header-summary');
-            return summary?.textContent?.trim().startsWith(`${count} results`)
-                && !document.querySelector('.editor-pane.is-active .document-search-results-spinner');
-        }, {timeout: SEARCH_MATCH_SCROLL_TIMEOUT_MS}, searchMatchScrollConfig.expectedResultCount);
-        await callWorkspaceCommand(session.page, 'setCustomZoomFromDisplay', [3.8]);
-        await waitForWorkspaceToolbarSnapshot(session.page, {
-            hasPdf: true,
-            minEffectiveZoom: 3.7,
-        });
-        const targets = suppliedSearchMatchScrollPdf
-            ? [
-                {
-                    page: 22,
-                    match: 1,
-                },
-                {
-                    page: 81,
-                    match: 1,
-                },
-                {
-                    page: 22,
-                    match: 1,
-                },
-                {
-                    page: 81,
-                    match: 1,
-                },
-                {
-                    page: 23,
-                    match: 1,
-                },
-                {
-                    page: 83,
-                    match: 1,
-                },
-                {
-                    page: 23,
-                    match: 2,
-                },
-                {
-                    page: 82,
-                    match: 1,
-                },
-                {
-                    page: 23,
-                    match: 1,
-                },
-                {
-                    page: 81,
-                    match: 1,
-                },
-                {
-                    page: 23,
-                    match: 2,
-                },
-            ]
-            : [
-                {
-                    page: 22,
-                    match: 1,
-                },
-                {
-                    page: 81,
-                    match: 1,
-                },
-                {
-                    page: 22,
-                    match: 1,
-                },
-                {
-                    page: 81,
-                    match: 1,
-                },
-                {
-                    page: SEARCH_MATCH_SCROLL_FIXTURE_TARGET_PAGE,
-                    match: 1,
-                },
-                {
-                    page: 1,
-                    match: 1,
-                },
-                {
-                    page: SEARCH_MATCH_SCROLL_FIXTURE_TARGET_PAGE,
-                    match: 2,
-                },
-                {
-                    page: 1,
-                    match: 1,
-                },
-                {
-                    page: SEARCH_MATCH_SCROLL_FIXTURE_TARGET_PAGE,
-                    match: 3,
-                },
-            ];
-        for (const {
-            page: targetPage,
-            match: targetMatch,
-        } of targets) {
-            const selector = `.editor-pane.is-active .document-search-result[data-page-number="${targetPage}"][data-page-match-number="${targetMatch}"]`;
-            await session.page.evaluate(async (target: string) => {
-                const list = document.querySelector<HTMLElement>('.editor-pane.is-active .document-search-results-list')!;
-                const step = Math.max(1, Math.floor(list.clientHeight / 2));
-                const maxScrollTop = list.scrollHeight;
-                for (let top = 0; top <= maxScrollTop; top += step) {
-                    list.scrollTop = top;
-                    list.dispatchEvent(new Event('scroll'));
-                    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-                    const row = document.querySelector<HTMLElement>(target);
-                    if (row) {
-                        row.scrollIntoView({block: 'center'});
-                        return;
-                    }
-                }
-                throw new Error(`Missing result ${target}`);
-            }, selector);
-            const clicked = await session.page.evaluate((target: string) => {
-                const row = document.querySelector<HTMLElement>(target)!;
-                const box = row.getBoundingClientRect();
-                const x = box.left + box.width / 2;
-                const y = box.top + box.height / 2;
-                const diagnosticWindow = window as Window & {__clearPdfRenderTrace?: () => void};
-                diagnosticWindow.__clearPdfRenderTrace?.();
-                const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active #pdf-viewer')!;
-                const oldHighlight = viewer.querySelector<HTMLElement>(
-                    '.pdf-search-highlight--current, .pdf-word-box--current',
-                );
-                const oldPage = oldHighlight?.closest<HTMLElement>('.page_container')?.dataset.page;
-                const readHighlightPaint = (element: HTMLElement | null) => {
-                    if (!element) {
-                        return {
-                            opacity: null,
-                            visible: false,
-                        };
-                    }
-                    let opacity = 1;
-                    let visible = true;
-                    for (let current: HTMLElement | null = element; current && current !== viewer; current = current.parentElement) {
-                        const style = getComputedStyle(current);
-                        const currentOpacity = Number.parseFloat(style.opacity);
-                        if (Number.isFinite(currentOpacity)) {
-                            opacity *= currentOpacity;
-                        }
-                        visible = visible
-                            && style.visibility !== 'hidden'
-                            && style.display !== 'none';
-                    }
-                    return {
-                        opacity,
-                        visible: visible && opacity > 0,
-                    };
-                };
-                const outgoingPaint = readHighlightPaint(oldHighlight);
-                const viewerBounds = viewer.getBoundingClientRect();
-                const outgoingBounds = oldHighlight?.getBoundingClientRect();
-                const outgoingInViewport = !!outgoingBounds
-                    && outgoingBounds.bottom > viewerBounds.top
-                    && outgoingBounds.top < viewerBounds.bottom
-                    && outgoingBounds.right > viewerBounds.left
-                    && outgoingBounds.left < viewerBounds.right;
-                const targetPage = row.dataset.pageNumber;
-                const frames: Array<{
-                    committed: boolean;
-                    outgoingOrange: boolean;
-                    outgoingOpacity: number | null;
-                    outgoingVisible: boolean;
-                    targetOrange: boolean
-                    targetOpacity: number | null;
-                    targetVisible: boolean;
-                }> = [];
-                const monitor = window as Window & {
-                    __matchHandoffFrames?: typeof frames;
-                    __stopMatchHandoff?: boolean
-                };
-                monitor.__matchHandoffFrames = frames;
-                monitor.__stopMatchHandoff = false;
-                const sample = () => {
-                    if (monitor.__stopMatchHandoff || monitor.__matchHandoffFrames !== frames) {
-                        return;
-                    }
-                    const trace = (window as Window & {__getPdfRenderTrace?: () => Array<{event: string}>})
-                        .__getPdfRenderTrace?.() ?? [];
-                    if (oldPage && oldPage !== targetPage) {
-                        const outgoing = readHighlightPaint(viewer.querySelector<HTMLElement>(
-                            `.page_container[data-page="${oldPage}"] .pdf-search-highlight--current, .page_container[data-page="${oldPage}"] .pdf-word-box--current`,
-                        ));
-                        const destination = readHighlightPaint(viewer.querySelector<HTMLElement>(
-                            `.page_container[data-page="${targetPage}"] .pdf-search-highlight--current, .page_container[data-page="${targetPage}"] .pdf-word-box--current`,
-                        ));
-                        frames.push({
-                            committed: trace.some(entry => entry.event === 'navigation-viewport-authority-applied'),
-                            outgoingOrange: outgoing.opacity !== null,
-                            outgoingOpacity: outgoing.opacity,
-                            outgoingVisible: outgoing.visible,
-                            targetOrange: destination.opacity !== null,
-                            targetOpacity: destination.opacity,
-                            targetVisible: destination.visible,
-                        });
-                    }
-                    requestAnimationFrame(sample);
-                };
-                requestAnimationFrame(sample);
+                const alignedListRect = list.getBoundingClientRect();
+                const alignedGroupRect = group.getBoundingClientRect();
                 return {
-                    x,
-                    y,
-                    monitored: !!oldPage && oldPage !== targetPage,
-                    outgoingOpacity: outgoingPaint.opacity,
-                    outgoingVisible: outgoingPaint.visible,
-                    outgoingInViewport,
-                    hit: row.contains(document.elementFromPoint(x, y)),
-                    text: row.querySelector('.document-search-result-highlight')?.textContent ?? '',
-                    viewerRect: {
-                        bottom: viewerBounds.bottom,
-                        left: viewerBounds.left,
-                        right: viewerBounds.right,
-                        top: viewerBounds.top,
-                    },
-                    viewportSize: {
-                        height: window.innerHeight,
-                        width: window.innerWidth,
-                    },
+                    bottomGap: alignedListRect.bottom - alignedGroupRect.bottom,
+                    expanded: group.getAttribute('aria-expanded'),
                 };
-            }, selector);
-            expect(clicked.hit).toBe(true);
-            const paintCapture = clicked.monitored && clicked.outgoingVisible && clicked.outgoingInViewport
-                ? await startSearchHighlightPaintCapture(session.page)
-                : null;
-            try {
-                await session.page.mouse.click(clicked.x, clicked.y);
-                await waitForFunctionInPage(session.page, (target: string) =>
-                    document.querySelector(target)?.getAttribute('aria-current') === 'true',
-                {timeout: SEARCH_MATCH_PAINT_TIMEOUT_MS}, selector);
-                const readState = () => session.page.evaluate((pageNumber: number) => {
-                    const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active #pdf-viewer')!;
-                    const bounds = viewer.getBoundingClientRect();
-                    const page = viewer.querySelector<HTMLElement>(`.page_container[data-page="${pageNumber}"]`);
-                    const highlights = Array.from(page?.querySelectorAll<HTMLElement>(
-                        '.pdf-search-highlight--current, .pdf-word-box--current',
-                    ) ?? []);
-                    const rects = highlights.map(element => element.getBoundingClientRect())
-                        .filter(rect => rect.width > 0 && rect.height > 0);
-                    const rect = rects.length ? {
-                        left: Math.min(...rects.map(value => value.left)),
-                        right: Math.max(...rects.map(value => value.right)),
-                        top: Math.min(...rects.map(value => value.top)),
-                        bottom: Math.max(...rects.map(value => value.bottom)),
-                    } : null;
-                    const trace = (window as Window & {__getPdfRenderTrace?: () => Array<{
-                        event: string;
-                        payload?: Record<string, unknown>;
-                    }>}).__getPdfRenderTrace?.() ?? [];
-                    const applied = trace.filter(entry => entry.event === 'navigation-viewport-authority-applied');
-                    const navigationApplies = applied.filter(entry => entry.payload?.kind === 'search'
-                    || trace.some(refinement => refinement.event === 'navigation-text-anchor-refined'
-                        && refinement.payload?.intentId === entry.payload?.intentId
-                        && refinement.payload?.searchRange));
-                    return {
-                        visible: !!rect && rect.top >= bounds.top - 2
-                        && rect.bottom <= bounds.bottom + 2 && rect.left >= bounds.left - 2 && rect.right <= bounds.right + 2,
-                        centerDelta: rect ? (rect.top + rect.bottom - bounds.top - bounds.bottom) / 2 : null,
-                        scrollTop: viewer.scrollTop,
-                        scrollLeft: viewer.scrollLeft,
-                        scrollHeight: viewer.scrollHeight,
-                        clientHeight: viewer.clientHeight,
-                        appliedLeft: Number(applied.at(-1)?.payload?.actualLeft),
-                        appliedPositions: applied.map(entry => ({
-                            left: Number(entry.payload?.actualLeft),
-                            top: Number(entry.payload?.actualTop),
-                        })),
-                        appliedTop: Number(applied.at(-1)?.payload?.actualTop),
-                        appliedCount: navigationApplies.length,
-                        navigationTrace: trace.filter(entry => entry.event.startsWith('navigation-')),
-                        text: highlights.map(element => element.textContent || element.dataset.word || '').join(''),
-                        rect,
-                        viewportSize: {
-                            width: window.innerWidth,
-                            height: window.innerHeight,
-                        },
-                    };
-                }, targetPage);
-                await vi.waitFor(async () => {
-                    const state = await readState();
-                    expect(state.visible, `page ${targetPage} match ${targetMatch}: ${JSON.stringify(state)}`).toBe(true);
-                    expect(Math.abs(state.centerDelta!), JSON.stringify(state)).toBeLessThan(120);
-                }, {
-                    timeout: SEARCH_MATCH_PAINT_TIMEOUT_MS,
-                    interval: 50,
-                });
-                // Catch a delayed resize or outgoing-anchor replay after the match
-                // first appears, rather than accepting a transient correct frame.
-                await new Promise(resolve => setTimeout(resolve, 500));
-                const state = await readState();
-                expect(state.visible, `settled page ${targetPage} match ${targetMatch}: ${JSON.stringify(state)}`).toBe(true);
-                const paintedFrames = await paintCapture?.stop() ?? [];
-                const orangePixelCounts = await Promise.all(paintedFrames.map(frame => countOrangeHighlightPixelsInFrame(
-                    frame, clicked.viewerRect, clicked.viewportSize,
-                )));
-                if (paintCapture) {
-                    if (orangePixelCounts.some(count => count <= 4) || process.env.EVB_SEARCH_SCROLL_PAINT_EVIDENCE === '1') {
-                        writeSearchHighlightPaintEvidence({
-                            label: `page-${targetPage}-match-${targetMatch}`,
-                            frames: paintedFrames,
-                            orangePixelCounts,
-                            diagnostic: await session.page.evaluate(() => ({
-                                renderTrace: (window as Window & {__getPdfRenderTrace?: () => unknown}).__getPdfRenderTrace?.(),
-                                frames: (window as Window & {__matchHandoffFrames?: unknown}).__matchHandoffFrames,
-                            })),
-                        });
+            }, searchMatchScrollConfig.targetGroup);
+            expect(collapsedGroupAtListBottom).not.toBeNull();
+            expect(collapsedGroupAtListBottom!.expanded).toBe('false');
+            expect(Math.abs(collapsedGroupAtListBottom!.bottomGap)).toBeLessThanOrEqual(SEARCH_RESULT_LIST_EDGE_TOLERANCE_PX);
+
+            await clickFoundAsUser(
+                session.page,
+                (targetGroup: string) =>
+                    Array.from(
+                        document.querySelectorAll<HTMLButtonElement>(
+                            '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-results-group-toggle',
+                        ),
+                    ).find(
+                        (candidate) => candidate.dataset.pageNumber === targetGroup && candidate.getAttribute('aria-expanded') === 'false',
+                    ),
+                searchMatchScrollConfig.targetGroup,
+                {
+                    description: `collapsed search result group ${searchMatchScrollConfig.targetGroup}`,
+                    timeoutMs: 5_000,
+                },
+            );
+
+            await waitForFunctionInPage(
+                session.page,
+                ({targetMatch, targetPage}: {targetMatch: number; targetPage: number}) => {
+                    const list = document.querySelector<HTMLElement>(
+                        '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-results-list',
+                    );
+                    const result = document.querySelector<HTMLElement>(
+                        `.editor-pane.is-active [data-testid="document-sidebar"] .document-search-result[data-page-number="${String(targetPage)}"][data-page-match-number="${String(targetMatch)}"]`,
+                    );
+                    if (!list || !result) {
+                        return false;
                     }
-                    expect(paintedFrames.length, 'No compositor frames captured').toBeGreaterThan(0);
-                    expect(orangePixelCounts.filter(count => count <= 4), 'Painted frames lost the orange match').toEqual([]);
-                }
-                const handoffFrames = await session.page.evaluate(() => {
+                    const listRect = list.getBoundingClientRect();
+                    const resultRect = result.getBoundingClientRect();
+                    return resultRect.top >= listRect.top - 1 && resultRect.bottom <= listRect.bottom + 1;
+                },
+                {timeout: SEARCH_MATCH_PAINT_TIMEOUT_MS},
+                {
+                    targetMatch: searchMatchScrollConfig.targetMatch,
+                    targetPage: searchMatchScrollConfig.targetViewerPage,
+                },
+            );
+
+            const sidebarStatusGeometry = await session.page.evaluate(
+                ({targetMatch, targetPage}: {targetMatch: number; targetPage: number}) => {
+                    const sidebar = document.querySelector<HTMLElement>('.editor-pane.is-active [data-testid="document-sidebar"]');
+                    const sidebarContent = sidebar?.querySelector<HTMLElement>('.app-sidebar-shell__content');
+                    const panel = sidebar?.querySelector<HTMLElement>('.document-search-panel');
+                    const results = sidebar?.querySelector<HTMLElement>('.document-search-results');
+                    const listShell = sidebar?.querySelector<HTMLElement>('.document-search-results-list-shell');
+                    const list = sidebar?.querySelector<HTMLElement>('.document-search-results-list');
+                    const result = sidebar?.querySelector<HTMLElement>(
+                        `.document-search-result[data-page-number="${String(targetPage)}"][data-page-match-number="${String(targetMatch)}"]`,
+                    );
+                    const status = document.querySelector<HTMLElement>('#editor-global-status-host .status-bar');
+                    if (!sidebar || !sidebarContent || !panel || !results || !listShell || !list || !result || !status) {
+                        throw new Error('Sidebar status geometry could not be measured');
+                    }
+                    const sidebarRect = sidebar.getBoundingClientRect();
+                    const sidebarContentRect = sidebarContent.getBoundingClientRect();
+                    const panelRect = panel.getBoundingClientRect();
+                    const resultsRect = results.getBoundingClientRect();
+                    const listShellRect = listShell.getBoundingClientRect();
+                    const listRect = list.getBoundingClientRect();
+                    const resultRect = result.getBoundingClientRect();
+                    const statusRect = status.getBoundingClientRect();
+                    const resultCenterX = resultRect.left + resultRect.width / 2;
+                    const resultCenterY = resultRect.top + resultRect.height / 2;
+                    const hitTarget = document.elementFromPoint(resultCenterX, resultCenterY);
+                    return {
+                        listBottom: listRect.bottom,
+                        listShellBottom: listShellRect.bottom,
+                        panelBottom: panelRect.bottom,
+                        resultBottom: resultRect.bottom,
+                        resultCenterX,
+                        resultCenterY,
+                        resultHitTarget: hitTarget === result || Boolean(hitTarget && result.contains(hitTarget)),
+                        resultIndex: Number(result.dataset.resultIndex),
+                        resultsBottom: resultsRect.bottom,
+                        sidebarContentBottom: sidebarContentRect.bottom,
+                        sidebarBottom: sidebarRect.bottom,
+                        statusTop: statusRect.top,
+                    };
+                },
+                {
+                    targetMatch: searchMatchScrollConfig.targetMatch,
+                    targetPage: searchMatchScrollConfig.targetViewerPage,
+                },
+            );
+            expect(sidebarStatusGeometry.sidebarBottom, JSON.stringify({sidebarStatusGeometry})).toBeLessThanOrEqual(
+                sidebarStatusGeometry.statusTop + SEARCH_RESULT_LIST_EDGE_TOLERANCE_PX,
+            );
+            expect(
+                Math.abs(sidebarStatusGeometry.panelBottom - sidebarStatusGeometry.sidebarContentBottom),
+                JSON.stringify({sidebarStatusGeometry}),
+            ).toBeLessThanOrEqual(1);
+            expect(
+                Math.abs(sidebarStatusGeometry.resultsBottom - sidebarStatusGeometry.sidebarContentBottom),
+                JSON.stringify({sidebarStatusGeometry}),
+            ).toBeLessThanOrEqual(1);
+            expect(
+                Math.abs(sidebarStatusGeometry.listShellBottom - sidebarStatusGeometry.sidebarContentBottom),
+                JSON.stringify({sidebarStatusGeometry}),
+            ).toBeLessThanOrEqual(1);
+            expect(sidebarStatusGeometry.listBottom, JSON.stringify({sidebarStatusGeometry})).toBeLessThanOrEqual(
+                sidebarStatusGeometry.sidebarContentBottom + 1,
+            );
+            expect(sidebarStatusGeometry.resultBottom, JSON.stringify({sidebarStatusGeometry})).toBeLessThanOrEqual(
+                sidebarStatusGeometry.statusTop + SEARCH_RESULT_LIST_EDGE_TOLERANCE_PX,
+            );
+            expect(sidebarStatusGeometry.resultIndex).toBe(searchMatchScrollConfig.expectedResultCount - 1);
+            expect(sidebarStatusGeometry.resultHitTarget, JSON.stringify({sidebarStatusGeometry})).toBe(true);
+
+            await session.page.evaluate(() => {
+                const diagnosticWindow = window as Window & {
+                    __clearPdfNavLog?: () => void;
+                    __clearPdfRenderTrace?: () => void;
+                };
+                diagnosticWindow.__clearPdfNavLog?.();
+                diagnosticWindow.__clearPdfRenderTrace?.();
+            });
+            const clickedTarget = await session.page.evaluate(
+                ({targetMatch, targetPage}: {targetMatch: number; targetPage: number}) => {
+                    const result = document.querySelector<HTMLElement>(
+                        `.editor-pane.is-active [data-testid="document-sidebar"] .document-search-result[data-page-number="${String(targetPage)}"][data-page-match-number="${String(targetMatch)}"]`,
+                    );
+                    const matchText = result?.querySelector<HTMLElement>('.document-search-result-highlight')?.textContent ?? '';
+                    const resultRect = result?.getBoundingClientRect();
+                    const clickedAtMs = performance.now();
+                    return result && resultRect
+                        ? {
+                              centerX: resultRect.left + resultRect.width / 2,
+                              centerY: resultRect.top + resultRect.height / 2,
+                              clickedAtMs,
+                              matchText,
+                          }
+                        : null;
+                },
+                {
+                    targetMatch: searchMatchScrollConfig.targetMatch,
+                    targetPage: searchMatchScrollConfig.targetViewerPage,
+                },
+            );
+            expect(clickedTarget).not.toBeNull();
+            expect(clickedTarget!.matchText.trim().length).toBeGreaterThan(0);
+            await session.page.mouse.click(clickedTarget!.centerX, clickedTarget!.centerY);
+
+            await waitForFunctionInPage(
+                session.page,
+                ({targetMatch, targetPage}: {targetMatch: number; targetPage: number}) => {
+                    const currentResult = document.querySelector<HTMLElement>(
+                        '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-result[aria-current="true"]',
+                    );
+                    const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host #pdf-viewer');
+                    const page = viewer?.querySelector<HTMLElement>(`.page_container[data-page="${String(targetPage)}"]`);
+                    const highlights = Array.from(
+                        page?.querySelectorAll<HTMLElement>('.pdf-search-highlight--current, .pdf-word-box--current') ?? [],
+                    )
+                        .map((highlight) => highlight.getBoundingClientRect())
+                        .filter((rect) => rect.width > 0 && rect.height > 0);
+                    if (
+                        currentResult?.dataset.pageNumber !== String(targetPage) ||
+                        currentResult.dataset.pageMatchNumber !== String(targetMatch) ||
+                        !viewer ||
+                        !page ||
+                        highlights.length === 0
+                    ) {
+                        return false;
+                    }
+                    return true;
+                },
+                {timeout: SEARCH_MATCH_PAINT_TIMEOUT_MS},
+                {
+                    targetMatch: searchMatchScrollConfig.targetMatch,
+                    targetPage: searchMatchScrollConfig.targetViewerPage,
+                },
+            );
+
+            const readFinalState = () =>
+                session.page.evaluate((targetPage: number) => {
+                    const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host #pdf-viewer');
+                    const page = viewer?.querySelector<HTMLElement>(`.page_container[data-page="${String(targetPage)}"]`);
+                    const viewerRect = viewer?.getBoundingClientRect() ?? null;
+                    const pageRect = page?.getBoundingClientRect() ?? null;
+                    const highlightElements = Array.from(
+                        page?.querySelectorAll<HTMLElement>('.pdf-search-highlight--current, .pdf-word-box--current') ?? [],
+                    );
+                    const highlightRects = highlightElements
+                        .map((element) => element.getBoundingClientRect())
+                        .filter((rect) => rect.width > 0 && rect.height > 0);
+                    const highlight =
+                        highlightRects.length > 0
+                            ? {
+                                  bottom: Math.max(...highlightRects.map((rect) => rect.bottom)),
+                                  left: Math.min(...highlightRects.map((rect) => rect.left)),
+                                  right: Math.max(...highlightRects.map((rect) => rect.right)),
+                                  top: Math.min(...highlightRects.map((rect) => rect.top)),
+                              }
+                            : null;
+                    const trace =
+                        (
+                            window as Window & {
+                                __getPdfRenderTrace?: () => Array<{
+                                    event: string;
+                                    payload?: Record<string, unknown>;
+                                }>;
+                            }
+                        ).__getPdfRenderTrace?.() ?? [];
+                    const navigationMessages = (
+                        (window as Window & {__getPdfNavLog?: () => Array<{message: string}>}).__getPdfNavLog?.() ?? []
+                    ).map((entry) => entry.message);
+                    const appliedCount = trace.filter(
+                        (entry) => entry.event === 'navigation-viewport-authority-applied' && entry.payload?.kind === 'search',
+                    ).length;
+                    const applied = trace.find(
+                        (entry) =>
+                            entry.event === 'navigation-viewport-authority-applied' &&
+                            entry.payload?.kind === 'search' &&
+                            entry.payload?.page === targetPage,
+                    );
+                    const afterRangeUpdate = trace.find(
+                        (entry) =>
+                            entry.event === 'navigation-viewport-authority-after-range-update' &&
+                            entry.payload?.intentId === applied?.payload?.intentId,
+                    );
+                    const refined = [...trace]
+                        .reverse()
+                        .find(
+                            (entry) =>
+                                entry.event === 'navigation-text-anchor-refined' &&
+                                entry.payload?.intentId === applied?.payload?.intentId &&
+                                entry.payload?.page === targetPage,
+                        );
+                    const targetTrace = trace.filter((entry) => entry.payload?.pageNumber === targetPage);
+                    const cancelledCount = trace.filter(
+                        (entry) => entry.event.endsWith('-intent-cancelled') && entry.payload?.intentId === applied?.payload?.intentId,
+                    ).length;
+                    const resolvedRectValue = refined?.payload?.resolvedRect;
+                    const resolvedRect =
+                        resolvedRectValue && typeof resolvedRectValue === 'object' ? (resolvedRectValue as Record<string, unknown>) : null;
+                    const resolvedNumbers = resolvedRect
+                        ? [resolvedRect.left, resolvedRect.top, resolvedRect.width, resolvedRect.height].map(Number)
+                        : [];
+                    const resolvedHighlightEdgeDelta =
+                        highlight && pageRect && resolvedNumbers.length === 4 && resolvedNumbers.every(Number.isFinite)
+                            ? Math.max(
+                                  Math.abs(highlight.left - (pageRect.left + resolvedNumbers[0]! * pageRect.width)),
+                                  Math.abs(highlight.top - (pageRect.top + resolvedNumbers[1]! * pageRect.height)),
+                                  Math.abs(
+                                      highlight.right - (pageRect.left + (resolvedNumbers[0]! + resolvedNumbers[2]!) * pageRect.width),
+                                  ),
+                                  Math.abs(
+                                      highlight.bottom - (pageRect.top + (resolvedNumbers[1]! + resolvedNumbers[3]!) * pageRect.height),
+                                  ),
+                              )
+                            : null;
+                    return {
+                        afterRangeActualTop: Number(afterRangeUpdate?.payload?.actualTop),
+                        appliedActualTop: Number(applied?.payload?.actualTop),
+                        highlight: highlight
+                            ? {
+                                  bottom: highlight.bottom,
+                                  left: highlight.left,
+                                  right: highlight.right,
+                                  top: highlight.top,
+                              }
+                            : null,
+                        highlightBackgroundColors: highlightElements.map((element) => getComputedStyle(element).backgroundColor),
+                        highlightOpacities: highlightElements.map((element) => getComputedStyle(element).opacity),
+                        highlightText: highlightElements.map((element) => element.textContent || element.dataset.word || '').join(''),
+                        highlightVisibilities: highlightElements.map((element) => getComputedStyle(element).visibility),
+                        hydrationReadyCount: targetTrace.filter(
+                            (entry) => entry.event === 'renderer-layer-hydration-settled' && entry.payload?.outcome === 'ready',
+                        ).length,
+                        leaseAcquireCount: targetTrace.filter((entry) => entry.event === 'pdf-document-page-lease-acquire').length,
+                        navigationMessages,
+                        scrollTop: viewer?.scrollTop ?? null,
+                        appliedCount,
+                        appliedTraceAtMs: Number(applied?.payload?.traceAtMs),
+                        cancelledCount,
+                        hasResolvedRect: refined?.payload?.hasResolvedRect === true,
+                        hasResolvedSearchRange: refined?.payload?.searchRange !== null && refined?.payload?.searchRange !== undefined,
+                        resolvedHighlightEdgeDelta,
+                        singlePageBeginCount: targetTrace.filter((entry) => entry.event === 'renderer-single-page-begin').length,
+                        viewportSize: {
+                            height: window.innerHeight,
+                            width: window.innerWidth,
+                        },
+                        page: pageRect
+                            ? {
+                                  bottom: pageRect.bottom,
+                                  left: pageRect.left,
+                                  right: pageRect.right,
+                                  top: pageRect.top,
+                              }
+                            : null,
+                        viewer: viewerRect
+                            ? {
+                                  bottom: viewerRect.bottom,
+                                  left: viewerRect.left,
+                                  right: viewerRect.right,
+                                  top: viewerRect.top,
+                              }
+                            : null,
+                    };
+                }, searchMatchScrollConfig.targetViewerPage);
+
+            let finalState = await readFinalState();
+            expect(finalState.highlight).not.toBeNull();
+            expect(finalState.page).not.toBeNull();
+            expect(finalState.viewer).not.toBeNull();
+            expect(normalizeMatchText(finalState.highlightText)).toBe(normalizeMatchText(clickedTarget!.matchText));
+            expect(finalState.highlightBackgroundColors).not.toContain('rgba(0, 0, 0, 0)');
+            expect(finalState.highlightOpacities).not.toContain('0');
+            expect(finalState.highlightVisibilities).not.toContain('hidden');
+
+            await waitForFunctionInPage(
+                session.page,
+                () => {
+                    const trace =
+                        (
+                            window as Window & {
+                                __getPdfRenderTrace?: () => Array<{
+                                    event: string;
+                                    payload?: Record<string, unknown>;
+                                }>;
+                            }
+                        ).__getPdfRenderTrace?.() ?? [];
+                    const applied = trace.filter(
+                        (entry) => entry.event === 'navigation-viewport-authority-applied' && entry.payload?.kind === 'search',
+                    );
+                    const intentId = applied[0]?.payload?.intentId;
+                    return (
+                        applied.length === 1 &&
+                        trace.some(
+                            (entry) =>
+                                entry.event === 'navigation-viewport-authority-after-range-update' && entry.payload?.intentId === intentId,
+                        ) &&
+                        trace.some(
+                            (entry) =>
+                                entry.event === 'navigation-text-anchor-refined' &&
+                                entry.payload?.intentId === intentId &&
+                                entry.payload?.hasResolvedRect === true,
+                        )
+                    );
+                },
+                {timeout: SEARCH_MATCH_PAINT_TIMEOUT_MS},
+            );
+
+            await waitForFunctionInPage(
+                session.page,
+                (targetPage: number) => {
+                    const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host #pdf-viewer');
+                    const page = viewer?.querySelector<HTMLElement>(`.page_container[data-page="${String(targetPage)}"]`);
+                    const viewerRect = viewer?.getBoundingClientRect();
+                    const highlightRects = Array.from(
+                        page?.querySelectorAll<HTMLElement>('.pdf-search-highlight--current, .pdf-word-box--current') ?? [],
+                    )
+                        .map((element) => element.getBoundingClientRect())
+                        .filter((rect) => rect.width > 0 && rect.height > 0);
+                    if (!viewerRect || highlightRects.length === 0) {
+                        return false;
+                    }
+                    const highlight = {
+                        bottom: Math.max(...highlightRects.map((rect) => rect.bottom)),
+                        left: Math.min(...highlightRects.map((rect) => rect.left)),
+                        right: Math.max(...highlightRects.map((rect) => rect.right)),
+                        top: Math.min(...highlightRects.map((rect) => rect.top)),
+                    };
+                    const centeredY = Math.abs((highlight.top + highlight.bottom) / 2 - (viewerRect.top + viewerRect.bottom) / 2) < 120;
+                    return (
+                        centeredY &&
+                        highlight.left >= viewerRect.left - 2 &&
+                        highlight.right <= viewerRect.right + 2 &&
+                        highlight.top >= viewerRect.top - 2 &&
+                        highlight.bottom <= viewerRect.bottom + 2
+                    );
+                },
+                {timeout: SEARCH_MATCH_PAINT_TIMEOUT_MS},
+                searchMatchScrollConfig.targetViewerPage,
+            );
+
+            await new Promise((resolve) => setTimeout(resolve, 500));
+            finalState = await readFinalState();
+            expect(finalState.appliedCount).toBe(1);
+            expect(finalState.cancelledCount).toBe(0);
+            expect(Number.isFinite(finalState.appliedTraceAtMs)).toBe(true);
+            expect(finalState.appliedTraceAtMs - clickedTarget!.clickedAtMs).toBeLessThanOrEqual(searchMatchScrollConfig.applyBudgetMs);
+            expect(finalState.appliedTraceAtMs).toBeGreaterThanOrEqual(clickedTarget!.clickedAtMs);
+            expect(finalState.scrollTop).toBeCloseTo(finalState.appliedActualTop, 0);
+            expect(finalState.afterRangeActualTop).toBeCloseTo(finalState.appliedActualTop, 0);
+            expect(finalState.hasResolvedSearchRange).toBe(true);
+            expect(finalState.hasResolvedRect).toBe(true);
+            expect(finalState.resolvedHighlightEdgeDelta).not.toBeNull();
+            expect(finalState.resolvedHighlightEdgeDelta!).toBeLessThanOrEqual(4);
+            expect(finalState.singlePageBeginCount).toBeLessThanOrEqual(1);
+            expect(finalState.hydrationReadyCount).toBe(1);
+            expect(finalState.leaseAcquireCount).toBeLessThanOrEqual(4);
+            expect(finalState.navigationMessages.some((message) => message.includes('scrollToCurrentMatch'))).toBe(false);
+            expect(finalState.highlight!.left).toBeGreaterThanOrEqual(finalState.viewer!.left - 2);
+            expect(finalState.highlight!.right).toBeLessThanOrEqual(finalState.viewer!.right + 2);
+            expect(finalState.highlight!.top).toBeGreaterThanOrEqual(finalState.viewer!.top - 2);
+            expect(finalState.highlight!.bottom).toBeLessThanOrEqual(finalState.viewer!.bottom + 2);
+            const highlightCenterY = (finalState.highlight!.top + finalState.highlight!.bottom) / 2;
+            const viewerCenterY = (finalState.viewer!.top + finalState.viewer!.bottom) / 2;
+            expect(Math.abs(highlightCenterY - viewerCenterY)).toBeLessThan(120);
+            await session.page.evaluate(
+                () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
+            );
+            const screenshot = await session.page.screenshot({type: 'png'});
+            expect(await countWarmHighlightPixels(screenshot, finalState.highlight!, finalState.viewportSize)).toBeGreaterThan(4);
+        },
+        SEARCH_MATCH_SCROLL_TIMEOUT_MS,
+    );
+
+    it(
+        'keeps repeated match selections visible after navigation settles',
+        async () => {
+            const session = sessionFixture.getSession();
+            const fixturePath =
+                searchMatchScrollConfig.fixturePath ?? (await createSearchMatchScrollFixturePdf(`search-repeat-${Date.now()}.pdf`));
+            await session.page.setViewport({
+                deviceScaleFactor: 2,
+                height: 1018,
+                width: 1869,
+            });
+            await openPdfInApp(session.page, fixturePath, SEARCH_MATCH_SCROLL_TIMEOUT_MS);
+            await waitForPdfLoaded(session.page, SEARCH_MATCH_SCROLL_TIMEOUT_MS);
+            await enablePdfDiagnosticSession(session.page, {
+                navigation: true,
+                render: true,
+            });
+            await ensureSidebarOpen(session.page);
+            await openDocumentSidebarTab(session.page, 'Search');
+            const searchInput = await session.page.$('.editor-pane.is-active .document-search-bar input');
+            await searchInput!.type(searchMatchScrollConfig.query);
+            await clickAsUser(session.page, '.editor-pane.is-active .search-run-button');
+            await waitForFunctionInPage(
+                session.page,
+                (count: number) => {
+                    const summary = document.querySelector('.editor-pane.is-active .document-search-results-header-summary');
+                    return (
+                        summary?.textContent?.trim().startsWith(`${count} results`) &&
+                        !document.querySelector('.editor-pane.is-active .document-search-results-spinner')
+                    );
+                },
+                {timeout: SEARCH_MATCH_SCROLL_TIMEOUT_MS},
+                searchMatchScrollConfig.expectedResultCount,
+            );
+            await callWorkspaceCommand(session.page, 'setCustomZoomFromDisplay', [3.8]);
+            await waitForWorkspaceToolbarSnapshot(session.page, {
+                hasPdf: true,
+                minEffectiveZoom: 3.7,
+            });
+            const targets = suppliedSearchMatchScrollPdf
+                ? [
+                      {
+                          page: 22,
+                          match: 1,
+                      },
+                      {
+                          page: 81,
+                          match: 1,
+                      },
+                      {
+                          page: 22,
+                          match: 1,
+                      },
+                      {
+                          page: 81,
+                          match: 1,
+                      },
+                      {
+                          page: 23,
+                          match: 1,
+                      },
+                      {
+                          page: 83,
+                          match: 1,
+                      },
+                      {
+                          page: 23,
+                          match: 2,
+                      },
+                      {
+                          page: 82,
+                          match: 1,
+                      },
+                      {
+                          page: 23,
+                          match: 1,
+                      },
+                      {
+                          page: 81,
+                          match: 1,
+                      },
+                      {
+                          page: 23,
+                          match: 2,
+                      },
+                  ]
+                : [
+                      {
+                          page: 22,
+                          match: 1,
+                      },
+                      {
+                          page: 81,
+                          match: 1,
+                      },
+                      {
+                          page: 22,
+                          match: 1,
+                      },
+                      {
+                          page: 81,
+                          match: 1,
+                      },
+                      {
+                          page: SEARCH_MATCH_SCROLL_FIXTURE_TARGET_PAGE,
+                          match: 1,
+                      },
+                      {
+                          page: 1,
+                          match: 1,
+                      },
+                      {
+                          page: SEARCH_MATCH_SCROLL_FIXTURE_TARGET_PAGE,
+                          match: 2,
+                      },
+                      {
+                          page: 1,
+                          match: 1,
+                      },
+                      {
+                          page: SEARCH_MATCH_SCROLL_FIXTURE_TARGET_PAGE,
+                          match: 3,
+                      },
+                  ];
+            for (const {page: targetPage, match: targetMatch} of targets) {
+                const selector = `.editor-pane.is-active .document-search-result[data-page-number="${targetPage}"][data-page-match-number="${targetMatch}"]`;
+                await session.page.evaluate(async (target: string) => {
+                    const list = document.querySelector<HTMLElement>('.editor-pane.is-active .document-search-results-list')!;
+                    const step = Math.max(1, Math.floor(list.clientHeight / 2));
+                    const maxScrollTop = list.scrollHeight;
+                    for (let top = 0; top <= maxScrollTop; top += step) {
+                        list.scrollTop = top;
+                        list.dispatchEvent(new Event('scroll'));
+                        await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+                        const row = document.querySelector<HTMLElement>(target);
+                        if (row) {
+                            row.scrollIntoView({block: 'center'});
+                            return;
+                        }
+                    }
+                    throw new Error(`Missing result ${target}`);
+                }, selector);
+                const clicked = await session.page.evaluate((target: string) => {
+                    const row = document.querySelector<HTMLElement>(target)!;
+                    const box = row.getBoundingClientRect();
+                    const x = box.left + box.width / 2;
+                    const y = box.top + box.height / 2;
+                    const diagnosticWindow = window as Window & {__clearPdfRenderTrace?: () => void};
+                    diagnosticWindow.__clearPdfRenderTrace?.();
+                    const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active #pdf-viewer')!;
+                    const oldHighlight = viewer.querySelector<HTMLElement>('.pdf-search-highlight--current, .pdf-word-box--current');
+                    const oldPage = oldHighlight?.closest<HTMLElement>('.page_container')?.dataset.page;
+                    const readHighlightPaint = (element: HTMLElement | null) => {
+                        if (!element) {
+                            return {
+                                opacity: null,
+                                visible: false,
+                            };
+                        }
+                        let opacity = 1;
+                        let visible = true;
+                        for (let current: HTMLElement | null = element; current && current !== viewer; current = current.parentElement) {
+                            const style = getComputedStyle(current);
+                            const currentOpacity = Number.parseFloat(style.opacity);
+                            if (Number.isFinite(currentOpacity)) {
+                                opacity *= currentOpacity;
+                            }
+                            visible = visible && style.visibility !== 'hidden' && style.display !== 'none';
+                        }
+                        return {
+                            opacity,
+                            visible: visible && opacity > 0,
+                        };
+                    };
+                    const outgoingPaint = readHighlightPaint(oldHighlight);
+                    const viewerBounds = viewer.getBoundingClientRect();
+                    const outgoingBounds = oldHighlight?.getBoundingClientRect();
+                    const outgoingInViewport =
+                        !!outgoingBounds &&
+                        outgoingBounds.bottom > viewerBounds.top &&
+                        outgoingBounds.top < viewerBounds.bottom &&
+                        outgoingBounds.right > viewerBounds.left &&
+                        outgoingBounds.left < viewerBounds.right;
+                    const targetPage = row.dataset.pageNumber;
+                    const frames: Array<{
+                        committed: boolean;
+                        outgoingOrange: boolean;
+                        outgoingOpacity: number | null;
+                        outgoingVisible: boolean;
+                        targetOrange: boolean;
+                        targetOpacity: number | null;
+                        targetVisible: boolean;
+                    }> = [];
                     const monitor = window as Window & {
-                        __matchHandoffFrames?: Array<{
-                            committed: boolean;
-                            outgoingOrange: boolean;
-                            targetOrange: boolean;
-                            outgoingVisible: boolean;
-                            targetVisible: boolean;
-                        }>;
+                        __matchHandoffFrames?: typeof frames;
                         __stopMatchHandoff?: boolean;
                     };
-                    monitor.__stopMatchHandoff = true;
-                    return monitor.__matchHandoffFrames ?? [];
-                });
-                if (clicked.monitored) {
-                    expect(handoffFrames.some(frame => frame.committed)).toBe(true);
-                }
-                expect(handoffFrames.filter(frame => !frame.committed && (!frame.outgoingOrange || !frame.outgoingVisible)), 'Outgoing orange disappears before viewport commit').toEqual([]);
-                expect(handoffFrames.filter(frame => frame.committed && (!frame.targetOrange || !frame.targetVisible)), 'Destination arrives before orange highlight').toEqual([]);
-                expect(Math.abs(state.centerDelta!), JSON.stringify(state)).toBeLessThan(120);
-                expect(normalizeMatchText(state.text)).toBe(normalizeMatchText(clicked.text));
-                expect(state.appliedCount, JSON.stringify({
-                    targetPage,
-                    targetMatch,
-                    ...state,
-                })).toBe(1);
-                expect(state.scrollTop).toBeCloseTo(state.appliedTop, 0);
-                expect(state.scrollLeft).toBeCloseTo(state.appliedLeft, 0);
-                // A scrollbar resize may reassert the settled position. It must
-                // never introduce another destination or sideways correction.
-                for (const position of state.appliedPositions) {
-                    expect(position).toEqual({
-                        left: state.appliedLeft,
-                        top: state.appliedTop,
+                    monitor.__matchHandoffFrames = frames;
+                    monitor.__stopMatchHandoff = false;
+                    const sample = () => {
+                        if (monitor.__stopMatchHandoff || monitor.__matchHandoffFrames !== frames) {
+                            return;
+                        }
+                        const trace =
+                            (window as Window & {__getPdfRenderTrace?: () => Array<{event: string}>}).__getPdfRenderTrace?.() ?? [];
+                        if (oldPage && oldPage !== targetPage) {
+                            const outgoing = readHighlightPaint(
+                                viewer.querySelector<HTMLElement>(
+                                    `.page_container[data-page="${oldPage}"] .pdf-search-highlight--current, .page_container[data-page="${oldPage}"] .pdf-word-box--current`,
+                                ),
+                            );
+                            const destination = readHighlightPaint(
+                                viewer.querySelector<HTMLElement>(
+                                    `.page_container[data-page="${targetPage}"] .pdf-search-highlight--current, .page_container[data-page="${targetPage}"] .pdf-word-box--current`,
+                                ),
+                            );
+                            frames.push({
+                                committed: trace.some((entry) => entry.event === 'navigation-viewport-authority-applied'),
+                                outgoingOrange: outgoing.opacity !== null,
+                                outgoingOpacity: outgoing.opacity,
+                                outgoingVisible: outgoing.visible,
+                                targetOrange: destination.opacity !== null,
+                                targetOpacity: destination.opacity,
+                                targetVisible: destination.visible,
+                            });
+                        }
+                        requestAnimationFrame(sample);
+                    };
+                    requestAnimationFrame(sample);
+                    return {
+                        x,
+                        y,
+                        monitored: !!oldPage && oldPage !== targetPage,
+                        outgoingOpacity: outgoingPaint.opacity,
+                        outgoingVisible: outgoingPaint.visible,
+                        outgoingInViewport,
+                        hit: row.contains(document.elementFromPoint(x, y)),
+                        text: row.querySelector('.document-search-result-highlight')?.textContent ?? '',
+                        viewerRect: {
+                            bottom: viewerBounds.bottom,
+                            left: viewerBounds.left,
+                            right: viewerBounds.right,
+                            top: viewerBounds.top,
+                        },
+                        viewportSize: {
+                            height: window.innerHeight,
+                            width: window.innerWidth,
+                        },
+                    };
+                }, selector);
+                expect(clicked.hit).toBe(true);
+                const paintCapture =
+                    clicked.monitored && clicked.outgoingVisible && clicked.outgoingInViewport
+                        ? await startSearchHighlightPaintCapture(session.page)
+                        : null;
+                try {
+                    await session.page.mouse.click(clicked.x, clicked.y);
+                    await waitForFunctionInPage(
+                        session.page,
+                        (target: string) => document.querySelector(target)?.getAttribute('aria-current') === 'true',
+                        {timeout: SEARCH_MATCH_PAINT_TIMEOUT_MS},
+                        selector,
+                    );
+                    const readState = () =>
+                        session.page.evaluate((pageNumber: number) => {
+                            const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active #pdf-viewer')!;
+                            const bounds = viewer.getBoundingClientRect();
+                            const page = viewer.querySelector<HTMLElement>(`.page_container[data-page="${pageNumber}"]`);
+                            const highlights = Array.from(
+                                page?.querySelectorAll<HTMLElement>('.pdf-search-highlight--current, .pdf-word-box--current') ?? [],
+                            );
+                            const rects = highlights
+                                .map((element) => element.getBoundingClientRect())
+                                .filter((rect) => rect.width > 0 && rect.height > 0);
+                            const rect = rects.length
+                                ? {
+                                      left: Math.min(...rects.map((value) => value.left)),
+                                      right: Math.max(...rects.map((value) => value.right)),
+                                      top: Math.min(...rects.map((value) => value.top)),
+                                      bottom: Math.max(...rects.map((value) => value.bottom)),
+                                  }
+                                : null;
+                            const trace =
+                                (
+                                    window as Window & {
+                                        __getPdfRenderTrace?: () => Array<{
+                                            event: string;
+                                            payload?: Record<string, unknown>;
+                                        }>;
+                                    }
+                                ).__getPdfRenderTrace?.() ?? [];
+                            const applied = trace.filter((entry) => entry.event === 'navigation-viewport-authority-applied');
+                            const navigationApplies = applied.filter(
+                                (entry) =>
+                                    entry.payload?.kind === 'search' ||
+                                    trace.some(
+                                        (refinement) =>
+                                            refinement.event === 'navigation-text-anchor-refined' &&
+                                            refinement.payload?.intentId === entry.payload?.intentId &&
+                                            refinement.payload?.searchRange,
+                                    ),
+                            );
+                            return {
+                                visible:
+                                    !!rect &&
+                                    rect.top >= bounds.top - 2 &&
+                                    rect.bottom <= bounds.bottom + 2 &&
+                                    rect.left >= bounds.left - 2 &&
+                                    rect.right <= bounds.right + 2,
+                                centerDelta: rect ? (rect.top + rect.bottom - bounds.top - bounds.bottom) / 2 : null,
+                                scrollTop: viewer.scrollTop,
+                                scrollLeft: viewer.scrollLeft,
+                                scrollHeight: viewer.scrollHeight,
+                                clientHeight: viewer.clientHeight,
+                                appliedLeft: Number(applied.at(-1)?.payload?.actualLeft),
+                                appliedPositions: applied.map((entry) => ({
+                                    left: Number(entry.payload?.actualLeft),
+                                    top: Number(entry.payload?.actualTop),
+                                })),
+                                appliedTop: Number(applied.at(-1)?.payload?.actualTop),
+                                appliedCount: navigationApplies.length,
+                                navigationTrace: trace.filter((entry) => entry.event.startsWith('navigation-')),
+                                text: highlights.map((element) => element.textContent || element.dataset.word || '').join(''),
+                                rect,
+                                viewportSize: {
+                                    width: window.innerWidth,
+                                    height: window.innerHeight,
+                                },
+                            };
+                        }, targetPage);
+                    await vi.waitFor(
+                        async () => {
+                            const state = await readState();
+                            expect(state.visible, `page ${targetPage} match ${targetMatch}: ${JSON.stringify(state)}`).toBe(true);
+                            expect(Math.abs(state.centerDelta!), JSON.stringify(state)).toBeLessThan(120);
+                        },
+                        {
+                            timeout: SEARCH_MATCH_PAINT_TIMEOUT_MS,
+                            interval: 50,
+                        },
+                    );
+                    // Catch a delayed resize or outgoing-anchor replay after the match
+                    // first appears, rather than accepting a transient correct frame.
+                    await new Promise((resolve) => setTimeout(resolve, 500));
+                    const state = await readState();
+                    expect(state.visible, `settled page ${targetPage} match ${targetMatch}: ${JSON.stringify(state)}`).toBe(true);
+                    const paintedFrames = (await paintCapture?.stop()) ?? [];
+                    const orangePixelCounts = await Promise.all(
+                        paintedFrames.map((frame) => countOrangeHighlightPixelsInFrame(frame, clicked.viewerRect, clicked.viewportSize)),
+                    );
+                    if (paintCapture) {
+                        if (orangePixelCounts.some((count) => count <= 4) || process.env.EVB_SEARCH_SCROLL_PAINT_EVIDENCE === '1') {
+                            writeSearchHighlightPaintEvidence({
+                                label: `page-${targetPage}-match-${targetMatch}`,
+                                frames: paintedFrames,
+                                orangePixelCounts,
+                                diagnostic: await session.page.evaluate(() => ({
+                                    renderTrace: (window as Window & {__getPdfRenderTrace?: () => unknown}).__getPdfRenderTrace?.(),
+                                    frames: (window as Window & {__matchHandoffFrames?: unknown}).__matchHandoffFrames,
+                                })),
+                            });
+                        }
+                        expect(paintedFrames.length, 'No compositor frames captured').toBeGreaterThan(0);
+                        expect(
+                            orangePixelCounts.filter((count) => count <= 4),
+                            'Painted frames lost the orange match',
+                        ).toEqual([]);
+                    }
+                    const handoffFrames = await session.page.evaluate(() => {
+                        const monitor = window as Window & {
+                            __matchHandoffFrames?: Array<{
+                                committed: boolean;
+                                outgoingOrange: boolean;
+                                targetOrange: boolean;
+                                outgoingVisible: boolean;
+                                targetVisible: boolean;
+                            }>;
+                            __stopMatchHandoff?: boolean;
+                        };
+                        monitor.__stopMatchHandoff = true;
+                        return monitor.__matchHandoffFrames ?? [];
                     });
+                    if (clicked.monitored) {
+                        expect(handoffFrames.some((frame) => frame.committed)).toBe(true);
+                    }
+                    expect(
+                        handoffFrames.filter((frame) => !frame.committed && (!frame.outgoingOrange || !frame.outgoingVisible)),
+                        'Outgoing orange disappears before viewport commit',
+                    ).toEqual([]);
+                    expect(
+                        handoffFrames.filter((frame) => frame.committed && (!frame.targetOrange || !frame.targetVisible)),
+                        'Destination arrives before orange highlight',
+                    ).toEqual([]);
+                    expect(Math.abs(state.centerDelta!), JSON.stringify(state)).toBeLessThan(120);
+                    expect(normalizeMatchText(state.text)).toBe(normalizeMatchText(clicked.text));
+                    expect(
+                        state.appliedCount,
+                        JSON.stringify({
+                            targetPage,
+                            targetMatch,
+                            ...state,
+                        }),
+                    ).toBe(1);
+                    expect(state.scrollTop).toBeCloseTo(state.appliedTop, 0);
+                    expect(state.scrollLeft).toBeCloseTo(state.appliedLeft, 0);
+                    // A scrollbar resize may reassert the settled position. It must
+                    // never introduce another destination or sideways correction.
+                    for (const position of state.appliedPositions) {
+                        expect(position).toEqual({
+                            left: state.appliedLeft,
+                            top: state.appliedTop,
+                        });
+                    }
+                    expect(
+                        await countWarmHighlightPixels(await session.page.screenshot({type: 'png'}), state.rect!, state.viewportSize),
+                    ).toBeGreaterThan(4);
+                } finally {
+                    await paintCapture?.stop();
                 }
-                expect(await countWarmHighlightPixels(
-                    await session.page.screenshot({type: 'png'}), state.rect!, state.viewportSize,
-                )).toBeGreaterThan(4);
-            } finally {
-                await paintCapture?.stop();
             }
-        }
-    }, SEARCH_MATCH_SCROLL_TIMEOUT_MS);
+        },
+        SEARCH_MATCH_SCROLL_TIMEOUT_MS,
+    );
 
-    it('finds only text the page CropBox shows', async () => {
-        const {page} = sessionFixture.getSession();
-        await openPdfInApp(page, await createCroppedSearchFixturePdf(`cropped-search-${Date.now()}.pdf`));
-        await waitForPdfLoaded(page);
-        await ensureSidebarOpen(page);
-        await openDocumentSidebarTab(page, 'search');
-        const selectAll = process.platform === 'darwin' ? 'Meta' : 'Control';
-        for (const [
-            query,
-            summary,
-        ] of [
-                [
-                    'CROP_SHOWN',
-                    '1 result for',
-                ],
-                [
-                    'CROP_HIDDEN',
-                    'No results',
-                ],
+    it(
+        'finds only text the page CropBox shows',
+        async () => {
+            const {page} = sessionFixture.getSession();
+            await openPdfInApp(page, await createCroppedSearchFixturePdf(`cropped-search-${Date.now()}.pdf`));
+            await waitForPdfLoaded(page);
+            await ensureSidebarOpen(page);
+            await openDocumentSidebarTab(page, 'search');
+            const selectAll = process.platform === 'darwin' ? 'Meta' : 'Control';
+            for (const [query, summary] of [
+                ['CROP_SHOWN', '1 result for'],
+                ['CROP_HIDDEN', 'No results'],
             ] as const) {
-            await clickAsUser(page, '.document-search-bar input');
-            await page.keyboard.down(selectAll);
-            await page.keyboard.press('KeyA');
-            await page.keyboard.up(selectAll);
-            await page.keyboard.type(query);
-            await page.keyboard.press('Enter');
-            await page.waitForFunction((typed: string) => {
-                const text = document.querySelector('.document-search-results')?.textContent ?? '';
-                const searching = [...document.querySelectorAll('.document-search-results-header-spinner')]
-                    .some(element => element.getBoundingClientRect().width > 0);
-                return !searching && (text.includes(typed) || text.includes('No results'));
-            }, {}, query);
-            expect(await page.$eval('.document-search-results', element => element.textContent ?? ''), query).toContain(summary);
-        }
-    }, SEARCH_MATCH_SCROLL_TIMEOUT_MS);
+                await clickAsUser(page, '.document-search-bar input');
+                await page.keyboard.down(selectAll);
+                await page.keyboard.press('KeyA');
+                await page.keyboard.up(selectAll);
+                await page.keyboard.type(query);
+                await page.keyboard.press('Enter');
+                await page.waitForFunction(
+                    (typed: string) => {
+                        const text = document.querySelector('.document-search-results')?.textContent ?? '';
+                        const searching = [...document.querySelectorAll('.document-search-results-header-spinner')].some(
+                            (element) => element.getBoundingClientRect().width > 0,
+                        );
+                        return !searching && (text.includes(typed) || text.includes('No results'));
+                    },
+                    {},
+                    query,
+                );
+                expect(await page.$eval('.document-search-results', (element) => element.textContent ?? ''), query).toContain(summary);
+            }
+        },
+        SEARCH_MATCH_SCROLL_TIMEOUT_MS,
+    );
 });

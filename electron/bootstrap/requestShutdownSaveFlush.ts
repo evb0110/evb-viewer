@@ -1,15 +1,9 @@
-import { randomUUID } from 'crypto';
-import { ipcMain } from 'electron';
-import {
-    CORE_IPC_EVENT_CHANNELS,
-    CORE_IPC_SEND_CHANNELS,
-    decodeShutdownSaveFlushResult,
-} from '@electron/platform-ipc/coreContract';
-import type { ILogger } from '@electron/utils/createLogger';
-import { getErrorMessage } from '@electron/utils/error';
-import {
-    openDocuments,
-} from '@electron/file-access/documentStore';
+import {randomUUID} from 'crypto';
+import {ipcMain} from 'electron';
+import {CORE_IPC_EVENT_CHANNELS, CORE_IPC_SEND_CHANNELS, decodeShutdownSaveFlushResult} from '@electron/platform-ipc/coreContract';
+import type {ILogger} from '@electron/utils/createLogger';
+import {getErrorMessage} from '@electron/utils/error';
+import {openDocuments} from '@electron/file-access/documentStore';
 import type {IRawIpcRegistrationAudit} from '@electron/platform-ipc/rawIpcRegistration';
 
 export interface IShutdownSaveFlushSummary {
@@ -26,20 +20,17 @@ export interface IShutdownSaveFlushSummary {
     unhandledWindowIds: number[];
 }
 
-export function shutdownSaveFlushRequiresRecoveryPreservation(
-    summary: IShutdownSaveFlushSummary,
-) {
-    return summary.dirtyWorkingCopyPaths.length > 0
-        || summary.failedWindowIds.length > 0
-        || summary.timedOutWindowIds.length > 0
-        || summary.unhandledWindowIds.length > 0;
+export function shutdownSaveFlushRequiresRecoveryPreservation(summary: IShutdownSaveFlushSummary) {
+    return (
+        summary.dirtyWorkingCopyPaths.length > 0 ||
+        summary.failedWindowIds.length > 0 ||
+        summary.timedOutWindowIds.length > 0 ||
+        summary.unhandledWindowIds.length > 0
+    );
 }
 
-export function shutdownSaveFlushRequiresRetryableQuit(
-    summary: IShutdownSaveFlushSummary,
-) {
-    return summary.failedWindowIds.length > 0
-        || summary.timedOutWindowIds.length > 0;
+export function shutdownSaveFlushRequiresRetryableQuit(summary: IShutdownSaveFlushSummary) {
+    return summary.failedWindowIds.length > 0 || summary.timedOutWindowIds.length > 0;
 }
 
 function normalizePathList(value: unknown): string[] {
@@ -58,10 +49,7 @@ interface IShutdownSaveWindow {
     };
 }
 
-type TIsTrustedShutdownSaveSender = (
-    sender: Electron.WebContents,
-    senderFrame: Electron.WebFrameMain | null | undefined,
-) => boolean;
+type TIsTrustedShutdownSaveSender = (sender: Electron.WebContents, senderFrame: Electron.WebFrameMain | null | undefined) => boolean;
 
 export async function requestShutdownSaveFlush(options: {
     getWindows: () => IShutdownSaveWindow[];
@@ -70,8 +58,7 @@ export async function requestShutdownSaveFlush(options: {
     isTrustedSender: TIsTrustedShutdownSaveSender;
     rawIpcRegistrationAudit?: IRawIpcRegistrationAudit;
 }): Promise<IShutdownSaveFlushSummary> {
-    const windows = options.getWindows()
-        .filter(window => !window.isDestroyed() && !window.webContents.isDestroyed());
+    const windows = options.getWindows().filter((window) => !window.isDestroyed() && !window.webContents.isDestroyed());
     if (windows.length === 0) {
         return {
             dirtyWorkingCopyPaths: [],
@@ -83,21 +70,15 @@ export async function requestShutdownSaveFlush(options: {
     }
 
     const requestId = `shutdown-save-flush-${randomUUID()}`;
-    const pendingBySenderId = new Map(windows.map(window => [
-        window.webContents.id,
-        window.id,
-    ]));
+    const pendingBySenderId = new Map(windows.map((window) => [window.webContents.id, window.id]));
     const dirtyWorkingCopyPaths = new Set<string>();
     const failedWindowIds = new Set<number>();
     const unhandledWindowIds = new Set<number>();
     const flushedWorkingCopyPaths = new Set<string>();
 
-    return new Promise(resolve => {
+    return new Promise((resolve) => {
         const preserveOwnedWorkingCopies = (senderId: number) => {
-            for (const [
-                workingCopyPath,
-                entry,
-            ] of openDocuments) {
+            for (const [workingCopyPath, entry] of openDocuments) {
                 if (entry.ownerWebContentsId === senderId) {
                     dirtyWorkingCopyPaths.add(workingCopyPath);
                     flushedWorkingCopyPaths.delete(workingCopyPath);
@@ -145,10 +126,7 @@ export async function requestShutdownSaveFlush(options: {
             });
         };
 
-        const handleResponse = (
-            event: Electron.IpcMainEvent,
-            rawPayload: unknown,
-        ) => {
+        const handleResponse = (event: Electron.IpcMainEvent, rawPayload: unknown) => {
             if (!options.isTrustedSender(event.sender, event.senderFrame)) {
                 return;
             }
@@ -161,7 +139,9 @@ export async function requestShutdownSaveFlush(options: {
                 preserveOwnedWorkingCopies(event.sender.id);
                 failedWindowIds.add(windowId);
                 pendingBySenderId.delete(event.sender.id);
-                options.logger.error(`Renderer shutdown save flush returned an invalid response for sender ${event.sender.id}`, {code: 'MAIN_SHUTDOWN_SAVE_FLUSH_FAILED'});
+                options.logger.error(`Renderer shutdown save flush returned an invalid response for sender ${event.sender.id}`, {
+                    code: 'MAIN_SHUTDOWN_SAVE_FLUSH_FAILED',
+                });
                 finishIfDone();
                 return;
             }
@@ -180,12 +160,9 @@ export async function requestShutdownSaveFlush(options: {
                 }
                 const entry = openDocuments.get(path);
                 if (
-                    entry
-                    && (
-                        entry.ownerWebContentsId === undefined
-                        || entry.ownerWebContentsId === event.sender.id
-                    )
-                    && entry.doc.state().current === null
+                    entry &&
+                    (entry.ownerWebContentsId === undefined || entry.ownerWebContentsId === event.sender.id) &&
+                    entry.doc.state().current === null
                 ) {
                     dirtyWorkingCopyPaths.add(path);
                     flushedWorkingCopyPaths.delete(path);

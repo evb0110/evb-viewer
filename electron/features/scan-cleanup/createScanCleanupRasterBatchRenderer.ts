@@ -1,7 +1,4 @@
-import {
-    dirname,
-    join,
-} from 'node:path';
+import {dirname, join} from 'node:path';
 import {createPdftoppmPageProgress} from '@electron/native-tools/createPdftoppmPageProgress';
 import {runNativeCommand} from '@electron/native-tools/runNativeCommand';
 import {
@@ -65,10 +62,12 @@ export interface IScanCleanupRasterBatchFileSystem {
     readdir: (
         path: string,
         options: {withFileTypes: true},
-    ) => Promise<ReadonlyArray<{
-        isFile: () => boolean;
-        name: string;
-    }>>;
+    ) => Promise<
+        ReadonlyArray<{
+            isFile: () => boolean;
+            name: string;
+        }>
+    >;
     rename: (oldPath: string, newPath: string) => Promise<void>;
     rm: (
         path: string,
@@ -83,21 +82,18 @@ function validateTargets(targets: readonly IScanCleanupRasterBatchTarget[]) {
     if (targets.length < 1 || targets.length > MAX_RASTER_BATCH_PAGES) {
         throw new RangeError(`Poppler raster batch must contain 1-${String(MAX_RASTER_BATCH_PAGES)} pages`);
     }
-    for (const [
-        index,
-        target,
-    ] of targets.entries()) {
+    for (const [index, target] of targets.entries()) {
         if (
-            !Number.isSafeInteger(target.pageNumber)
-            || target.pageNumber < 1
-            || (index > 0 && target.pageNumber !== targets[index - 1]!.pageNumber + 1)
+            !Number.isSafeInteger(target.pageNumber) ||
+            target.pageNumber < 1 ||
+            (index > 0 && target.pageNumber !== targets[index - 1]!.pageNumber + 1)
         ) {
             throw new RangeError('Poppler raster batch pages must be contiguous and ordered');
         }
         if (
-            target.limits.expectedWidthPx > target.limits.maxDimensionPx
-            || target.limits.expectedHeightPx > target.limits.maxDimensionPx
-            || target.limits.expectedWidthPx * target.limits.expectedHeightPx > target.limits.maxPixels
+            target.limits.expectedWidthPx > target.limits.maxDimensionPx ||
+            target.limits.expectedHeightPx > target.limits.maxDimensionPx ||
+            target.limits.expectedWidthPx * target.limits.expectedHeightPx > target.limits.maxPixels
         ) {
             throw new RangeError(`Poppler raster batch page ${String(target.pageNumber)} exceeds limits`);
         }
@@ -112,9 +108,7 @@ export function createScanCleanupRasterBatchRenderer(
         validateTargets(input.targets);
         const firstPage = input.targets[0]!.pageNumber;
         const lastPage = input.targets.at(-1)!.pageNumber;
-        const scratch = await fileSystem.mkdtemp(
-            join(dirname(input.targets[0]!.outputPath), 'pdftoppm-batch-'),
-        );
+        const scratch = await fileSystem.mkdtemp(join(dirname(input.targets[0]!.outputPath), 'pdftoppm-batch-'));
         const prefix = join(scratch, 'page');
         let terminationProof: Promise<boolean> | undefined;
         let failure: unknown;
@@ -125,52 +119,59 @@ export function createScanCleanupRasterBatchRenderer(
             chainJobBrokerRunContext(input.brokerRun, input.onTerminationProof),
             recordLocalProof,
         );
-        const directProofSink = scopedBrokerRun === undefined
-            ? mergeTerminationProofSinks(input.onTerminationProof, recordLocalProof)
-            : undefined;
+        const directProofSink =
+            scopedBrokerRun === undefined ? mergeTerminationProofSinks(input.onTerminationProof, recordLocalProof) : undefined;
         try {
             // Poppler writes PPM; its PNG writer is fixed at maximum zlib
             // compression and would dominate detection on scanned pages.
-            await runCommand(input.pdftoppmBinary, [
-                '-progress',
-                '-cropbox',
-                '-hide-annotations',
-                '-r',
-                String(input.dpi),
-                '-f',
-                String(firstPage),
-                '-l',
-                String(lastPage),
-                input.sourcePdfPath,
-                prefix,
-            ], {
-                commandLabel: `pdftoppm(pages=${String(firstPage)}-${String(lastPage)},dpi=${String(input.dpi)})`,
-                timeoutMs: PDFTOPPM_BATCH_TIMEOUT_MS,
-                signal: input.signal,
-                log: input.log,
-                ...(scopedBrokerRun !== undefined
-                    ? {brokerRun: scopedBrokerRun}
-                    : directProofSink === undefined
-                        ? {}
-                        : {onTerminationProof: directProofSink}),
-                onStderr: createPdftoppmPageProgress(pageNumber => {
-                    if (pageNumber < firstPage || pageNumber > lastPage) {return;}
-                    // Progress is a side channel: its failure must neither
-                    // stop Poppler nor fail the pages this batch rendered.
-                    try {
-                        input.onPageRendered?.(pageNumber);
-                    } catch (error) {
-                        input.log(
-                            'warn',
-                            `Scan cleanup could not report rendered page ${String(pageNumber)}: ${getErrorMessage(error)}`,
-                        );
-                    }
-                }),
-            });
+            await runCommand(
+                input.pdftoppmBinary,
+                [
+                    '-progress',
+                    '-cropbox',
+                    '-hide-annotations',
+                    '-r',
+                    String(input.dpi),
+                    '-f',
+                    String(firstPage),
+                    '-l',
+                    String(lastPage),
+                    input.sourcePdfPath,
+                    prefix,
+                ],
+                {
+                    commandLabel: `pdftoppm(pages=${String(firstPage)}-${String(lastPage)},dpi=${String(input.dpi)})`,
+                    timeoutMs: PDFTOPPM_BATCH_TIMEOUT_MS,
+                    signal: input.signal,
+                    log: input.log,
+                    ...(scopedBrokerRun !== undefined
+                        ? {brokerRun: scopedBrokerRun}
+                        : directProofSink === undefined
+                          ? {}
+                          : {onTerminationProof: directProofSink}),
+                    onStderr: createPdftoppmPageProgress((pageNumber) => {
+                        if (pageNumber < firstPage || pageNumber > lastPage) {
+                            return;
+                        }
+                        // Progress is a side channel: its failure must neither
+                        // stop Poppler nor fail the pages this batch rendered.
+                        try {
+                            input.onPageRendered?.(pageNumber);
+                        } catch (error) {
+                            input.log(
+                                'warn',
+                                `Scan cleanup could not report rendered page ${String(pageNumber)}: ${getErrorMessage(error)}`,
+                            );
+                        }
+                    }),
+                },
+            );
             const generatedByPage = new Map<number, string>();
             for (const entry of await fileSystem.readdir(scratch, {withFileTypes: true})) {
                 const match = /^page-(\d+)\.ppm$/u.exec(entry.name);
-                if (!entry.isFile() || match === null) {continue;}
+                if (!entry.isFile() || match === null) {
+                    continue;
+                }
                 generatedByPage.set(Number.parseInt(match[1]!, 10), join(scratch, entry.name));
             }
             const results: IScanCleanupRasterBatchResult[] = [];
@@ -182,13 +183,11 @@ export function createScanCleanupRasterBatchRenderer(
                 }
                 const dimensions = await readPpmDimensions(generatedPath, fileSystem.open);
                 if (
-                    dimensions.width > target.limits.maxDimensionPx
-                    || dimensions.height > target.limits.maxDimensionPx
-                    || dimensions.width * dimensions.height > target.limits.maxPixels
+                    dimensions.width > target.limits.maxDimensionPx ||
+                    dimensions.height > target.limits.maxDimensionPx ||
+                    dimensions.width * dimensions.height > target.limits.maxPixels
                 ) {
-                    throw new RangeError(
-                        `PPM raster ${String(dimensions.width)}x${String(dimensions.height)} exceeds limits`,
-                    );
+                    throw new RangeError(`PPM raster ${String(dimensions.width)}x${String(dimensions.height)} exceeds limits`);
                 }
                 // evb-scan-cleanup sniffs P6 magic bytes directly, so handing
                 // Poppler's PPM straight through skips per-page PNG encode and
@@ -205,21 +204,21 @@ export function createScanCleanupRasterBatchRenderer(
             failure = error;
             throw error;
         } finally {
-            const removeScratch = () => fileSystem.rm(scratch, {
-                force: true,
-                recursive: true,
-            }).catch((error: unknown) => {
-                input.log(
-                    'warn',
-                    `Scan cleanup could not remove raster batch scratch directory: ${getErrorMessage(error)}`,
-                );
-            });
+            const removeScratch = () =>
+                fileSystem
+                    .rm(scratch, {
+                        force: true,
+                        recursive: true,
+                    })
+                    .catch((error: unknown) => {
+                        input.log('warn', `Scan cleanup could not remove raster batch scratch directory: ${getErrorMessage(error)}`);
+                    });
             // The shared single-page renderer's rule: a Poppler that may still
             // be writing keeps its directory until the runner proves it gone.
             if (getUnprovenNativeTerminationDetail(failure) === undefined) {
                 await removeScratch();
             } else {
-                void terminationProof?.then(proven => (proven ? removeScratch() : undefined)).catch(() => undefined);
+                void terminationProof?.then((proven) => (proven ? removeScratch() : undefined)).catch(() => undefined);
             }
         }
     };

@@ -1,7 +1,4 @@
-import type {
-    IScanCleanupOptions,
-    TScanCleanupOutputHalf,
-} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import type {IScanCleanupOptions, TScanCleanupOutputHalf} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {
     IScanCleanupDetectionResult,
     IScanCleanupPlacementAnchorCalibration,
@@ -42,14 +39,10 @@ function resolveSummaryInkTop(
     // A calibrated sample lies inside its own cluster. A page outside the
     // calibration window joins the nearest cluster that would still span at
     // most the tolerance with it, and otherwise keeps its own position.
-    let cluster = summary.clusters.find(candidate => (
-        yNormalized >= candidate.startNormalized
-        && yNormalized <= candidate.endNormalized
-    ));
+    let cluster = summary.clusters.find((candidate) => yNormalized >= candidate.startNormalized && yNormalized <= candidate.endNormalized);
     let nearestDistance = Number.POSITIVE_INFINITY;
     for (const candidate of cluster === undefined ? summary.clusters : []) {
-        const span = Math.max(candidate.endNormalized, yNormalized)
-            - Math.min(candidate.startNormalized, yNormalized);
+        const span = Math.max(candidate.endNormalized, yNormalized) - Math.min(candidate.startNormalized, yNormalized);
         const distance = Math.max(candidate.startNormalized - yNormalized, yNormalized - candidate.endNormalized);
         if (span <= summary.toleranceNormalized && distance < nearestDistance) {
             cluster = candidate;
@@ -69,10 +62,7 @@ function resolveSummaryInkTop(
  * resolved together because a spread moves as one sheet.
  */
 export function resolveScanCleanupSheetAnchorsFromSummary(
-    summary: Pick<
-        IScanCleanupPlacementAnchorSummary,
-        'clusters' | 'topEdgeNormalized' | 'toleranceNormalized'
-    >,
+    summary: Pick<IScanCleanupPlacementAnchorSummary, 'clusters' | 'topEdgeNormalized' | 'toleranceNormalized'>,
     inkTops: Partial<Record<TScanCleanupOutputHalf, number>>,
 ) {
     const snapped: Partial<Record<TScanCleanupOutputHalf, IScanCleanupSnappedInkTop>> = {};
@@ -115,7 +105,7 @@ export async function buildScanCleanupPlacementAnchorSummary({
 }): Promise<IScanCleanupPlacementAnchorSummary> {
     const reference = createScanCleanupInkReference();
     let sampleCount = 0;
-    await resultStore.forEachChunk(results => {
+    await resultStore.forEachChunk((results) => {
         signal.throwIfAborted();
         for (const result of results) {
             const sheet = toScanCleanupInkSheet(result);
@@ -124,29 +114,26 @@ export async function buildScanCleanupPlacementAnchorSummary({
         }
     });
 
-    const {
-        referenceHeightPoints,
-        toleranceNormalized,
-    } = resolveScanCleanupInkScale(reference);
-    const candidateCount = Math.min(
-        SCAN_CLEANUP_PLACEMENT_ANCHOR_SUMMARY_SAMPLE_LIMIT,
-        sampleCount,
+    const {referenceHeightPoints, toleranceNormalized} = resolveScanCleanupInkScale(reference);
+    const candidateCount = Math.min(SCAN_CLEANUP_PLACEMENT_ANCHOR_SUMMARY_SAMPLE_LIMIT, sampleCount);
+    const targetOrdinalSet = new Set(
+        candidateCount <= 1
+            ? candidateCount === 0
+                ? []
+                : [0]
+            : Array.from({length: candidateCount}, (_, index) => Math.floor((index * (sampleCount - 1)) / (candidateCount - 1))),
     );
-    const targetOrdinalSet = new Set(candidateCount <= 1
-        ? (candidateCount === 0 ? [] : [0])
-        : Array.from(
-            {length: candidateCount},
-            (_, index) => Math.floor(index * (sampleCount - 1) / (candidateCount - 1)),
-        ));
     const candidates: IScanCleanupPlacementAnchorSample[] = [];
     let ordinal = 0;
-    await resultStore.forEachChunk(results => {
+    await resultStore.forEachChunk((results) => {
         signal.throwIfAborted();
         for (const result of results) {
             const inkTops = collectScanCleanupSheetInkTops(options, toScanCleanupInkSheet(result), referenceHeightPoints);
             for (const half of SCAN_CLEANUP_OUTPUT_HALVES) {
                 const yNormalized = inkTops[half];
-                if (yNormalized === undefined) {continue;}
+                if (yNormalized === undefined) {
+                    continue;
+                }
                 if (targetOrdinalSet.has(ordinal)) {
                     candidates.push({
                         pageNumber: result.pageNumber,
@@ -159,15 +146,10 @@ export async function buildScanCleanupPlacementAnchorSummary({
         }
     });
     if (ordinal !== sampleCount) {
-        throw new Error(
-            `Scan cleanup placement summary observed ${String(ordinal)} samples after counting ${String(sampleCount)}`,
-        );
+        throw new Error(`Scan cleanup placement summary observed ${String(ordinal)} samples after counting ${String(sampleCount)}`);
     }
 
-    const resolution = resolveScanCleanupPlacementAnchorResolution(
-        candidates,
-        toleranceNormalized,
-    );
+    const resolution = resolveScanCleanupPlacementAnchorResolution(candidates, toleranceNormalized);
     return {
         schemaVersion: 1,
         sampleCount,

@@ -19,7 +19,7 @@
             v-if="!zenMode || nodeContainsPane(splitNode.first, zenActivePaneId)"
             :id="`editor-split-primary-${splitNode.id}`"
             class="editor-split-pane editor-split-pane-first"
-            :class="{ 'is-zen-pane': zenMode }"
+            :class="{'is-zen-pane': zenMode}"
             :style="firstPaneStyle"
         >
             <EditorPanesGrid
@@ -67,27 +67,16 @@
 </template>
 
 <script setup lang="ts">
-import type { ComponentPublicInstance } from 'vue';
-import {
-    useEventListener,
-    useResizeObserver,
-} from '@vueuse/core';
-import { clamp } from 'es-toolkit/math';
-import type {
-    IEditorLayoutSplitNode,
-    TEditorLayoutNode,
-    TPaneOrientation,
-} from '@contracts/editorPanes';
-import { createRafCoalescedCallback } from '@app/utils/createRafCoalescedCallback';
-import { resolveEditorPaneSplitBounds } from '@app/modules/workspace-shell/layout/resolveEditorPaneSplitBounds';
+import type {ComponentPublicInstance} from 'vue';
+import {useEventListener, useResizeObserver} from '@vueuse/core';
+import {clamp} from 'es-toolkit/math';
+import type {IEditorLayoutSplitNode, TEditorLayoutNode, TPaneOrientation} from '@contracts/editorPanes';
+import {createRafCoalescedCallback} from '@app/utils/createRafCoalescedCallback';
+import {resolveEditorPaneSplitBounds} from '@app/modules/workspace-shell/layout/resolveEditorPaneSplitBounds';
 
 defineOptions({name: 'EditorPanesGrid'});
 
-const {
-    node,
-    zenActivePaneId,
-    zenMode,
-} = defineProps<{
+const {node, zenActivePaneId, zenMode} = defineProps<{
     node: TEditorLayoutNode;
     zenMode: boolean;
     zenActivePaneId: string | null;
@@ -115,16 +104,10 @@ useResizeObserver(splitContainerRef, ([entry]) => {
         splitAxisSize.value = 0;
         return;
     }
-    splitAxisSize.value = split.orientation === 'horizontal'
-        ? entry.contentRect.width
-        : entry.contentRect.height;
+    splitAxisSize.value = split.orientation === 'horizontal' ? entry.contentRect.width : entry.contentRect.height;
 });
 
-const splitRatio = computed(() => clamp(
-    splitNode.value?.ratio ?? 0.5,
-    splitRatioBounds.value.minRatio,
-    splitRatioBounds.value.maxRatio,
-));
+const splitRatio = computed(() => clamp(splitNode.value?.ratio ?? 0.5, splitRatioBounds.value.minRatio, splitRatioBounds.value.maxRatio));
 
 const firstPaneStyle = computed(() => {
     if (!splitNode.value || zenMode) {
@@ -190,9 +173,10 @@ function startResize(event: PointerEvent, splitId: string, orientation: TPaneOri
     isSplitResizing = true;
     emit('update-layout-resizing', true);
     moveListener = (nextEvent: PointerEvent) => {
-        const raw = orientation === 'horizontal'
-            ? (nextEvent.clientX - startRect.left) / startRect.width
-            : (nextEvent.clientY - startRect.top) / startRect.height;
+        const raw =
+            orientation === 'horizontal'
+                ? (nextEvent.clientX - startRect.left) / startRect.width
+                : (nextEvent.clientY - startRect.top) / startRect.height;
         emit('update-split-ratio', splitId, clamp(raw, ratioBounds.minRatio, ratioBounds.maxRatio));
     };
     upListener = clearResizeListeners;
@@ -216,19 +200,10 @@ function finishKeyboardResize(event: KeyboardEvent | FocusEvent) {
         return;
     }
     if (event instanceof KeyboardEvent) {
-        const keys = splitNode.value?.orientation === 'horizontal'
-            ? [
-                'ArrowLeft',
-                'ArrowRight',
-                'Home',
-                'End',
-            ]
-            : [
-                'ArrowUp',
-                'ArrowDown',
-                'Home',
-                'End',
-            ];
+        const keys =
+            splitNode.value?.orientation === 'horizontal'
+                ? ['ArrowLeft', 'ArrowRight', 'Home', 'End']
+                : ['ArrowUp', 'ArrowDown', 'Home', 'End'];
         if (!keys.includes(event.key)) {
             return;
         }
@@ -266,11 +241,7 @@ function handleSplitResizeKeyDown(event: KeyboardEvent) {
         isSplitResizing = true;
         emit('update-layout-resizing', true);
     }
-    emit('update-split-ratio', split.id, clamp(
-        ratio,
-        splitRatioBounds.value.minRatio,
-        splitRatioBounds.value.maxRatio,
-    ));
+    emit('update-split-ratio', split.id, clamp(ratio, splitRatioBounds.value.minRatio, splitRatioBounds.value.maxRatio));
 }
 
 useEventListener(resizeWindowTarget, 'pointermove', (event: PointerEvent) => {

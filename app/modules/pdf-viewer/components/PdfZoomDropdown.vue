@@ -21,10 +21,12 @@
                 <span class="zoom-controls-display-value">{{ zoomDisplay }}</span>
             </button>
 
-            <UPopover v-else v-model:open="isOpen" mode="click">
-                <button
-                    class="zoom-controls-display"
-                >
+            <UPopover
+                v-else
+                v-model:open="isOpen"
+                mode="click"
+            >
+                <button class="zoom-controls-display">
                     <span class="zoom-controls-display-value">{{ zoomDisplay }}</span>
                 </button>
 
@@ -34,7 +36,7 @@
                             <button
                                 v-for="preset in zoomPresets"
                                 :key="preset.value"
-                                :class="['zoom-chip', { 'is-active': isPresetActive(preset.value) }]"
+                                :class="['zoom-chip', {'is-active': isPresetActive(preset.value)}]"
                                 :aria-pressed="isPresetActive(preset.value)"
                                 @click="handleSetZoom(preset.value)"
                             >
@@ -59,52 +61,73 @@
 
                         <div class="zoom-toggle-group zoom-toggle-group--fit">
                             <button
-                                :class="['zoom-toggle-btn', { 'is-active': isFitModeActive('width') }]"
+                                :class="['zoom-toggle-btn', {'is-active': isFitModeActive('width')}]"
                                 :aria-pressed="isFitModeActive('width')"
                                 @click="handleSetFitMode('width')"
                             >
-                                <UIcon name="i-ph-arrows-out-line-horizontal" class="zoom-toggle-icon" />
+                                <UIcon
+                                    name="i-ph-arrows-out-line-horizontal"
+                                    class="zoom-toggle-icon"
+                                />
                                 <span class="zoom-toggle-label">{{ t('zoom.fitWidth') }}</span>
                             </button>
                             <button
-                                :class="['zoom-toggle-btn', { 'is-active': isFitModeActive('height') }]"
+                                :class="['zoom-toggle-btn', {'is-active': isFitModeActive('height')}]"
                                 :aria-pressed="isFitModeActive('height')"
                                 @click="handleSetFitMode('height')"
                             >
-                                <UIcon name="i-ph-arrows-out-line-vertical" class="zoom-toggle-icon" />
+                                <UIcon
+                                    name="i-ph-arrows-out-line-vertical"
+                                    class="zoom-toggle-icon"
+                                />
                                 <span class="zoom-toggle-label">{{ t('zoom.fitHeight') }}</span>
                             </button>
                         </div>
 
-                        <div v-if="canUseViewModes" class="zoom-divider" />
+                        <div
+                            v-if="canUseViewModes"
+                            class="zoom-divider"
+                        />
 
-                        <div v-if="canUseViewModes" class="zoom-toggle-group zoom-toggle-group--view-modes">
+                        <div
+                            v-if="canUseViewModes"
+                            class="zoom-toggle-group zoom-toggle-group--view-modes"
+                        >
                             <button
-                                :class="['zoom-toggle-btn', { 'is-active': isViewModeActive('single') }]"
+                                :class="['zoom-toggle-btn', {'is-active': isViewModeActive('single')}]"
                                 :aria-pressed="isViewModeActive('single')"
                                 :aria-label="t('zoom.singlePage')"
                                 @click="handleSetViewMode('single')"
                             >
-                                <UIcon name="i-ph-file" class="zoom-toggle-icon" />
+                                <UIcon
+                                    name="i-ph-file"
+                                    class="zoom-toggle-icon"
+                                />
                                 <span class="zoom-toggle-label">{{ t('zoom.singleShort') }}</span>
                             </button>
                             <button
-                                :class="['zoom-toggle-btn', { 'is-active': isViewModeActive('facing') }]"
+                                :class="['zoom-toggle-btn', {'is-active': isViewModeActive('facing')}]"
                                 :aria-pressed="isViewModeActive('facing')"
                                 :aria-label="t('zoom.facingPages')"
                                 @click="handleSetViewMode('facing')"
                             >
-                                <UIcon name="i-ph-book-open" class="zoom-toggle-icon" />
+                                <UIcon
+                                    name="i-ph-book-open"
+                                    class="zoom-toggle-icon"
+                                />
                                 <span class="zoom-toggle-label">{{ t('zoom.facingShort') }}</span>
                             </button>
                             <button
-                                :class="['zoom-toggle-btn', { 'is-active': isViewModeActive('facing-first-single') }]"
+                                :class="['zoom-toggle-btn', {'is-active': isViewModeActive('facing-first-single')}]"
                                 :aria-pressed="isViewModeActive('facing-first-single')"
                                 :aria-label="t('zoom.facingWithFirstSingle')"
                                 @click="handleSetViewMode('facing-first-single')"
                             >
                                 <span class="zoom-toggle-icon-badge">
-                                    <UIcon name="i-ph-book-open" class="size-4" />
+                                    <UIcon
+                                        name="i-ph-book-open"
+                                        class="size-4"
+                                    />
                                     <span class="zoom-badge">1</span>
                                 </span>
                                 <span class="zoom-toggle-label">{{ t('zoom.facingFirstShort') }}</span>
@@ -130,18 +153,14 @@
 </template>
 
 <script setup lang="ts">
-import { clamp } from 'es-toolkit/math';
-import type {
-    TFitMode,
-    TZoomMode,
-    TPdfViewMode,
-} from '@contracts/shared';
-import { ZOOM } from '@app/constants/pdfLayout';
-import { clampPdfManualZoom } from '@app/modules/pdf-viewer/runtime/zoom/resolvePdfZoomScale';
-import { useShortcutLabels } from '@app/constants/shortcuts';
+import {clamp} from 'es-toolkit/math';
+import type {TFitMode, TZoomMode, TPdfViewMode} from '@contracts/shared';
+import {ZOOM} from '@app/constants/pdfLayout';
+import {clampPdfManualZoom} from '@app/modules/pdf-viewer/runtime/zoom/resolvePdfZoomScale';
+import {useShortcutLabels} from '@app/constants/shortcuts';
 import ToolbarButton from '@app/components/ToolbarButton.vue';
 
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 
 interface IProps {
     zoom: number;
@@ -156,16 +175,7 @@ interface IProps {
     canUseViewModes?: boolean;
 }
 
-const {
-    zoom,
-    effectiveZoom,
-    zoomMode,
-    viewMode,
-    open,
-    canUseViewModes = true,
-    disabled = false,
-    hasZoom = true,
-} = defineProps<IProps>();
+const {zoom, effectiveZoom, zoomMode, viewMode, open, canUseViewModes = true, disabled = false, hasZoom = true} = defineProps<IProps>();
 
 const emit = defineEmits<{
     'update:zoom': [level: number];
@@ -183,7 +193,6 @@ const isOpen = computed({
 });
 const customZoomValue = ref(formatZoomValue(zoom));
 const customInputRef = ref<HTMLInputElement | null>(null);
-
 
 const shortcutLabels = useShortcutLabels();
 
@@ -211,14 +220,8 @@ function close() {
 }
 
 watch(
-    [
-        isOpen,
-        normalizedEffectiveZoom,
-    ],
-    ([
-        openNow,
-        effectiveZoomValue,
-    ], previous) => {
+    [isOpen, normalizedEffectiveZoom],
+    ([openNow, effectiveZoomValue], previous) => {
         const opened = openNow && previous?.[0] === false;
         const zoomChanged = !previous || effectiveZoomValue !== previous[1];
         if (opened || zoomChanged) {
@@ -231,7 +234,7 @@ watch(
             });
         }
     },
-    { immediate: true },
+    {immediate: true},
 );
 
 function formatZoomValue(value: number) {
@@ -264,9 +267,7 @@ function isPresetActive(presetValue: number) {
 }
 
 function isFitModeActive(mode: TFitMode) {
-    const expectedZoomMode: TZoomMode = mode === 'height'
-        ? 'fit-height'
-        : 'fit-width';
+    const expectedZoomMode: TZoomMode = mode === 'height' ? 'fit-height' : 'fit-width';
     return zoomMode === expectedZoomMode;
 }
 
@@ -580,5 +581,4 @@ function selectCustomZoomInput(event: FocusEvent) {
 .zoom-toggle-btn.is-active .zoom-badge {
     color: var(--ui-text);
 }
-
 </style>

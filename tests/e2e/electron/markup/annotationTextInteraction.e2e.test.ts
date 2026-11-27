@@ -1,26 +1,10 @@
-import {
-    copyFileSync,
-    mkdtempSync,
-    readFileSync,
-    rmSync,
-    writeFileSync,
-} from 'node:fs';
+import {copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import type {Page} from 'puppeteer-core';
-import {
-    PDFDocument, PDFHexString, PDFName, StandardFonts,
-} from 'pdf-lib';
-import {
-    createCanvas,
-    loadImage,
-} from '@napi-rs/canvas';
-import {
-    describe,
-    expect,
-    it,
-    onTestFinished,
-} from 'vitest';
+import {PDFDocument, PDFHexString, PDFName, StandardFonts} from 'pdf-lib';
+import {createCanvas, loadImage} from '@napi-rs/canvas';
+import {describe, expect, it, onTestFinished} from 'vitest';
 import {
     createBlankFixturePdf,
     createLinkedTextFixturePdf,
@@ -45,10 +29,7 @@ import {
     saveViaWindowHandle,
     setupScrollToPage,
 } from '@tests/e2e/electron/helpers/viewerCore';
-import {
-    callWorkspaceCommand,
-    readWorkspaceStateValues,
-} from '@tests/e2e/electron/helpers/workspaceExpose';
+import {callWorkspaceCommand, readWorkspaceStateValues} from '@tests/e2e/electron/helpers/workspaceExpose';
 
 const BOX = '.editor-pane.is-active .pdf-annotation-editor-text-box[data-annotation-kind="text-box"]';
 const PREVIEW = '.editor-pane.is-active .pdf-annotation-editor-text-box-preview';
@@ -66,15 +47,23 @@ async function markupSelectionPoints(page: Page) {
     await waitForViewerInteractive(page);
     await page.evaluate(async () => {
         await document.fonts.ready;
-        await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+        await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
     });
     return page.evaluate(() => {
-        const spans = [...document.querySelectorAll<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .text-layer span')]
-            .filter(candidate => {
-                const rect = candidate.getBoundingClientRect();
-                return candidate.firstChild instanceof Text && (candidate.textContent?.length ?? 0) > 10
-                    && rect.top > 150 && rect.bottom < innerHeight - 200 && rect.right < innerWidth;
-            });
+        const spans = [
+            ...document.querySelectorAll<HTMLElement>(
+                '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .text-layer span',
+            ),
+        ].filter((candidate) => {
+            const rect = candidate.getBoundingClientRect();
+            return (
+                candidate.firstChild instanceof Text &&
+                (candidate.textContent?.length ?? 0) > 10 &&
+                rect.top > 150 &&
+                rect.bottom < innerHeight - 200 &&
+                rect.right < innerWidth
+            );
+        });
         const first = spans[0]?.firstChild;
         const last = spans[1]?.firstChild;
         if (!(first instanceof Text) || !(last instanceof Text)) {
@@ -113,9 +102,13 @@ async function markupSelectionPoints(page: Page) {
     });
 }
 
-async function dragMarkupSelection(page: Page, points: Pick<Awaited<ReturnType<typeof markupSelectionPoints>>, 'start' | 'end'>, captureBeforeRelease: boolean) {
+async function dragMarkupSelection(
+    page: Page,
+    points: Pick<Awaited<ReturnType<typeof markupSelectionPoints>>, 'start' | 'end'>,
+    captureBeforeRelease: boolean,
+) {
     await page.mouse.move(points.start.x, points.start.y);
-    const hit = await page.evaluate(point => {
+    const hit = await page.evaluate((point) => {
         const target = document.elementFromPoint(point.x, point.y);
         const container = target?.closest('.page_container');
         return {
@@ -126,15 +119,28 @@ async function dragMarkupSelection(page: Page, points: Pick<Awaited<ReturnType<t
     }, points.start);
     expect(hit.textLayer, 'Markup drag must start on the rendered text layer').toBe(true);
     await page.mouse.down();
-    const topAfterPress = await page.$eval(`.page_container[data-page="${hit.pageNumber}"]`, element => element.getBoundingClientRect().top);
+    const topAfterPress = await page.$eval(
+        `.page_container[data-page="${hit.pageNumber}"]`,
+        (element) => element.getBoundingClientRect().top,
+    );
     expect(topAfterPress, 'Starting text selection must not move the page under the pointer').toBeCloseTo(hit.top!, 0);
     await page.mouse.move(points.end.x, points.end.y, {steps: 16});
-    if (!captureBeforeRelease) {await page.mouse.up();}
+    if (!captureBeforeRelease) {
+        await page.mouse.up();
+    }
     const selected = await page.evaluate(() => {
         const selection = document.getSelection();
-        if (!selection?.rangeCount) {throw new Error(`Mouse drag did not select text: ${document.querySelector('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .pdfViewer')?.className}`);}
+        if (!selection?.rangeCount) {
+            throw new Error(
+                `Mouse drag did not select text: ${document.querySelector('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .pdfViewer')?.className}`,
+            );
+        }
         const range = selection.getRangeAt(0);
-        const rects = [...document.querySelectorAll<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .text-layer span')].flatMap(span => {
+        const rects = [
+            ...document.querySelectorAll<HTMLElement>(
+                '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .text-layer span',
+            ),
+        ].flatMap((span) => {
             const node = span.firstChild;
             if (!(node instanceof Text) || !range.intersectsNode(node)) {
                 return [];
@@ -148,47 +154,43 @@ async function dragMarkupSelection(page: Page, points: Pick<Awaited<ReturnType<t
             part.setStart(node, start);
             part.setEnd(node, end);
             const pageRect = span.closest('.page_container')!.getBoundingClientRect();
-            return [...part.getClientRects()].filter(rect => rect.width > 0 && rect.height > 0).map(rect => ({
-                left: (rect.left - pageRect.left) / pageRect.width,
-                top: (rect.top - pageRect.top) / pageRect.height,
-                width: rect.width / pageRect.width,
-                height: rect.height / pageRect.height,
-            }));
+            return [...part.getClientRects()]
+                .filter((rect) => rect.width > 0 && rect.height > 0)
+                .map((rect) => ({
+                    left: (rect.left - pageRect.left) / pageRect.width,
+                    top: (rect.top - pageRect.top) / pageRect.height,
+                    width: rect.width / pageRect.width,
+                    height: rect.height / pageRect.height,
+                }));
         });
         return {
             text: selection.toString(),
             rects,
         };
     });
-    if (captureBeforeRelease) {await page.mouse.up();}
+    if (captureBeforeRelease) {
+        await page.mouse.up();
+    }
     return selected;
 }
 
 async function expectMarkupGeometry(page: Page, expected: ISelectionRect[], compareUnion = false) {
-    const actual = await page.$$eval(`${MARKUP} [data-annotation-hit-target]`, elements => elements.map(element => ({
-        left: Number(element.getAttribute('x')),
-        top: Number(element.getAttribute('y')),
-        width: Number(element.getAttribute('width')),
-        height: Number(element.getAttribute('height')),
-    })));
+    const actual = await page.$$eval(`${MARKUP} [data-annotation-hit-target]`, (elements) =>
+        elements.map((element) => ({
+            left: Number(element.getAttribute('x')),
+            top: Number(element.getAttribute('y')),
+            width: Number(element.getAttribute('width')),
+            height: Number(element.getAttribute('height')),
+        })),
+    );
     if (compareUnion) {
         // Compare covered area, allowing the saved union to partition overlapping
         // line boxes without requiring the original rectangle representation.
-        const rectangles = [
-            ...actual,
-            ...expected,
-        ];
-        const xs = [...new Set(rectangles.flatMap(rect => [
-            rect.left,
-            rect.left + rect.width,
-        ]))].sort((a, b) => a - b);
-        const ys = [...new Set(rectangles.flatMap(rect => [
-            rect.top,
-            rect.top + rect.height,
-        ]))].sort((a, b) => a - b);
-        const contains = (rects: ISelectionRect[], x: number, y: number) => rects.some(rect => (
-            x > rect.left && x < rect.left + rect.width && y > rect.top && y < rect.top + rect.height
-        ));
+        const rectangles = [...actual, ...expected];
+        const xs = [...new Set(rectangles.flatMap((rect) => [rect.left, rect.left + rect.width]))].sort((a, b) => a - b);
+        const ys = [...new Set(rectangles.flatMap((rect) => [rect.top, rect.top + rect.height]))].sort((a, b) => a - b);
+        const contains = (rects: ISelectionRect[], x: number, y: number) =>
+            rects.some((rect) => x > rect.left && x < rect.left + rect.width && y > rect.top && y < rect.top + rect.height);
         let changedArea = 0;
         let coveredArea = 0;
         for (let column = 1; column < xs.length; column += 1) {
@@ -197,8 +199,12 @@ async function expectMarkupGeometry(page: Page, expected: ISelectionRect[], comp
                 const y = (ys[row - 1]! + ys[row]!) / 2;
                 const area = (xs[column]! - xs[column - 1]!) * (ys[row]! - ys[row - 1]!);
                 const expectedContains = contains(expected, x, y);
-                if (expectedContains) {coveredArea += area;}
-                if (contains(actual, x, y) !== expectedContains) {changedArea += area;}
+                if (expectedContains) {
+                    coveredArea += area;
+                }
+                if (contains(actual, x, y) !== expectedContains) {
+                    changedArea += area;
+                }
             }
         }
         expect(changedArea, 'Merged geometry must cover exactly the selected text area').toBeLessThan(0.00001);
@@ -210,31 +216,28 @@ async function expectMarkupGeometry(page: Page, expected: ISelectionRect[], comp
     actual.sort(byPosition);
     const expectedByPosition = [...expected].sort(byPosition);
     expect(actual).toHaveLength(expected.length);
-    for (const [
-        index,
-        rect,
-    ] of actual.entries()) {
-        for (const key of [
-            'left',
-            'top',
-            'width',
-            'height',
-        ] as const) {
+    for (const [index, rect] of actual.entries()) {
+        for (const key of ['left', 'top', 'width', 'height'] as const) {
             expect(rect[key], `quad ${index} ${key}`).toBeCloseTo(expectedByPosition[index]![key], 4);
         }
     }
 }
 
 async function highlightPaintColor(page: Page) {
-    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
-    const bounds = await page.$$eval(`${MARKUP} [data-annotation-hit-target]`, elements => {
-        const visible = elements.map(element => element.getBoundingClientRect()).map(rect => ({
-            left: Math.max(0, Math.ceil(rect.left + 2)),
-            top: Math.max(92, Math.ceil(rect.top + 2)),
-            right: Math.min(innerWidth, Math.floor(rect.right - 2)),
-            bottom: Math.min(innerHeight - 30, Math.floor(rect.bottom - 2)),
-        })).find(rect => rect.right > rect.left && rect.bottom > rect.top);
-        if (!visible) {throw new Error('Highlight must have a visible hit area');}
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    const bounds = await page.$$eval(`${MARKUP} [data-annotation-hit-target]`, (elements) => {
+        const visible = elements
+            .map((element) => element.getBoundingClientRect())
+            .map((rect) => ({
+                left: Math.max(0, Math.ceil(rect.left + 2)),
+                top: Math.max(92, Math.ceil(rect.top + 2)),
+                right: Math.min(innerWidth, Math.floor(rect.right - 2)),
+                bottom: Math.min(innerHeight - 30, Math.floor(rect.bottom - 2)),
+            }))
+            .find((rect) => rect.right > rect.left && rect.bottom > rect.top);
+        if (!visible) {
+            throw new Error('Highlight must have a visible hit area');
+        }
         return {
             left: visible.left,
             top: visible.top,
@@ -264,38 +267,44 @@ async function highlightPaintColor(page: Page) {
 
 async function expectHighlightPaint(page: Page) {
     let lastMeasurement = '';
-    await expect.poll(async () => {
-        const measurement = await page.$eval(`${MARKUP} [data-annotation-hit-target]`, element => {
-            const rect = element.getBoundingClientRect();
-            return {
-                rect: {
-                    left: rect.left,
-                    top: rect.top,
-                    right: rect.right,
-                    bottom: rect.bottom,
-                },
-                viewport: {
-                    width: innerWidth,
-                    height: innerHeight,
-                },
-                area: rect.width * rect.height,
-                pageRect: element.closest('.page_container')?.getBoundingClientRect().toJSON(),
-            };
+    await expect
+        .poll(
+            async () => {
+                const measurement = await page.$eval(`${MARKUP} [data-annotation-hit-target]`, (element) => {
+                    const rect = element.getBoundingClientRect();
+                    return {
+                        rect: {
+                            left: rect.left,
+                            top: rect.top,
+                            right: rect.right,
+                            bottom: rect.bottom,
+                        },
+                        viewport: {
+                            width: innerWidth,
+                            height: innerHeight,
+                        },
+                        area: rect.width * rect.height,
+                        pageRect: element.closest('.page_container')?.getBoundingClientRect().toJSON(),
+                    };
+                });
+                lastMeasurement = JSON.stringify(measurement);
+                const paintedPixels = await countWarmHighlightPixels(await page.screenshot(), measurement.rect, measurement.viewport);
+                return measurement.area > 0 ? paintedPixels / measurement.area : 0;
+            },
+            {
+                timeout: 10_000,
+                message: 'Committed highlight must paint after the reopened page renders',
+            },
+        )
+        .toBeGreaterThan(0.2)
+        .catch((error: unknown) => {
+            console.error(`Highlight paint geometry: ${lastMeasurement}`);
+            throw error;
         });
-        lastMeasurement = JSON.stringify(measurement);
-        const paintedPixels = await countWarmHighlightPixels(await page.screenshot(), measurement.rect, measurement.viewport);
-        return measurement.area > 0 ? paintedPixels / measurement.area : 0;
-    }, {
-        timeout: 10_000,
-        message: 'Committed highlight must paint after the reopened page renders',
-    }).toBeGreaterThan(0.2).catch((error: unknown) => {
-        console.error(`Highlight paint geometry: ${lastMeasurement}`);
-        throw error;
-    });
 }
 
 async function frame(page: Page, selector = BOX) {
-    return page.$eval(selector, element => {
+    return page.$eval(selector, (element) => {
         const rect = element.getBoundingClientRect();
         const style = getComputedStyle(element);
         return {
@@ -319,7 +328,7 @@ async function modifiedKey(page: Page, key: 'Enter' | 'KeyZ' | 'KeyS') {
 }
 
 async function placementPoint(page: Page) {
-    return page.$eval('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .page_container[data-page="1"]', element => {
+    return page.$eval('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .page_container[data-page="1"]', (element) => {
         const rect = element.getBoundingClientRect();
         const left = Math.max(rect.left, 340);
         const top = Math.max(rect.top, 150);
@@ -329,7 +338,9 @@ async function placementPoint(page: Page) {
             x: left + (right - left) * 0.2,
             y: top + (bottom - top) * 0.35,
         };
-        if (!element.contains(document.elementFromPoint(point.x, point.y))) {throw new Error('Text placement point is obstructed');}
+        if (!element.contains(document.elementFromPoint(point.x, point.y))) {
+            throw new Error('Text placement point is obstructed');
+        }
         return point;
     });
 }
@@ -348,7 +359,7 @@ async function waitForTextControlsLayout(page: Page) {
     await page.evaluate(async () => {
         await document.fonts.load('22px "EVB Annotation Sans"');
         await document.fonts.ready;
-        await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+        await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
     });
 }
 
@@ -356,11 +367,13 @@ async function resize(page: Page, handle: string, dx: number, dy: number) {
     await waitForTextControlsLayout(page);
     const selector = `.editor-pane.is-active .workspace-host[data-workspace-active="true"] [data-pdf-annotation-resize-handle="${handle}"]`;
     await page.waitForSelector(selector, {visible: true});
-    const point = await page.$eval(selector, element => {
+    const point = await page.$eval(selector, (element) => {
         const rect = element.getBoundingClientRect();
         const x = rect.x + rect.width / 2;
         const y = rect.y + rect.height / 2;
-        if (!element.contains(document.elementFromPoint(x, y))) {throw new Error('Text resize handle is obstructed');}
+        if (!element.contains(document.elementFromPoint(x, y))) {
+            throw new Error('Text resize handle is obstructed');
+        }
         return {
             x,
             y,
@@ -386,33 +399,22 @@ describe('Electron E2E - text interaction contract', () => {
     it('reveals the whole multiline annotation on sidebar navigation and keeps it stable on pointer entry', async () => {
         const session = sessions.getSession();
         const {page} = session;
-        await session.command('windowResize', [
-            1280,
-            900,
-        ]);
-        onTestFinished(async () => { await session.command('windowResize', [
-            900,
-            668,
-        ]); });
+        await session.command('windowResize', [1280, 900]);
+        onTestFinished(async () => {
+            await session.command('windowResize', [900, 668]);
+        });
         const directory = mkdtempSync(join(tmpdir(), 'evb-annotation-navigation-'));
-        onTestFinished(() => rmSync(directory, {
-            recursive: true,
-            force: true,
-        }));
+        onTestFinished(() =>
+            rmSync(directory, {
+                recursive: true,
+                force: true,
+            }),
+        );
         const path = join(directory, 'multiline.pdf');
         const pdf = await PDFDocument.create();
-        pdf.addPage([
-            425,
-            648,
-        ]);
-        const target = pdf.addPage([
-            425,
-            648,
-        ]);
-        pdf.addPage([
-            425,
-            648,
-        ]);
+        pdf.addPage([425, 648]);
+        const target = pdf.addPage([425, 648]);
+        pdf.addPage([425, 648]);
         const quads: number[] = [];
         for (let line = 0; line < 36; line += 1) {
             const y = 540 - line * 13;
@@ -423,24 +425,17 @@ describe('Electron E2E - text interaction contract', () => {
             });
             quads.push(50, y + 10, 350, y + 10, 50, y - 2, 350, y - 2);
         }
-        const annotation = pdf.context.register(pdf.context.obj({
-            Type: 'Annot',
-            Subtype: 'Squiggly',
-            Rect: [
-                50,
-                83,
-                350,
-                550,
-            ],
-            QuadPoints: quads,
-            C: [
-                0.1,
-                0.7,
-                0.2,
-            ],
-            F: 4,
-            NM: PDFHexString.fromText('multiline-navigation'),
-        }));
+        const annotation = pdf.context.register(
+            pdf.context.obj({
+                Type: 'Annot',
+                Subtype: 'Squiggly',
+                Rect: [50, 83, 350, 550],
+                QuadPoints: quads,
+                C: [0.1, 0.7, 0.2],
+                F: 4,
+                NM: PDFHexString.fromText('multiline-navigation'),
+            }),
+        );
         target.node.set(PDFName.of('Annots'), pdf.context.obj([annotation]));
         writeFileSync(path, await pdf.save());
         await openPdfInApp(page, path);
@@ -453,7 +448,9 @@ describe('Electron E2E - text interaction contract', () => {
                 const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active .pdfViewer');
                 const mark = document.querySelector<SVGElement>('.editor-pane.is-active g[data-annotation-kind="text-markup"]');
                 const targetPage = document.querySelector<HTMLElement>('.editor-pane.is-active .page_container[data-page="2"]');
-                if (!viewer || !mark || !targetPage) {throw new Error('Rendered annotation, page and viewport are required');}
+                if (!viewer || !mark || !targetPage) {
+                    throw new Error('Rendered annotation, page and viewport are required');
+                }
                 const rect = mark.getBoundingClientRect();
                 const pageRect = targetPage.getBoundingClientRect();
                 const viewport = viewer.getBoundingClientRect();
@@ -476,7 +473,7 @@ describe('Electron E2E - text interaction contract', () => {
             const samples = [before];
             const until = performance.now() + durationMs;
             while (performance.now() < until) {
-                await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+                await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
                 samples.push(read());
             }
             return {
@@ -484,10 +481,7 @@ describe('Electron E2E - text interaction contract', () => {
                 samples,
             };
         };
-        for (const zoom of [
-            1.32,
-            2.5,
-        ]) {
+        for (const zoom of [1.32, 2.5]) {
             await callWorkspaceCommand(page, 'setCustomZoomFromDisplay', [zoom]);
             await waitForViewerInteractive(page);
             await clickAsUser(page, row);
@@ -498,13 +492,17 @@ describe('Electron E2E - text interaction contract', () => {
             await waitForViewerInteractive(page);
             // Observe the actual rendered region through the settled interval;
             // the old first-line target leaves the bottom outside this viewport.
-            await expect.poll(async () => {
-                const {before: current} = await page.evaluate(bounds);
-                return current.height <= current.viewportHeight
-                    ? current.top >= current.viewportTop - 1 && current.bottom <= current.viewportBottom + 1
-                    : current.top >= current.viewportTop - 1
-                        && current.top < current.viewportTop + current.height / 36;
-            }, {timeout: 10_000}).toBe(true);
+            await expect
+                .poll(
+                    async () => {
+                        const {before: current} = await page.evaluate(bounds);
+                        return current.height <= current.viewportHeight
+                            ? current.top >= current.viewportTop - 1 && current.bottom <= current.viewportBottom + 1
+                            : current.top >= current.viewportTop - 1 && current.top < current.viewportTop + current.height / 36;
+                    },
+                    {timeout: 10_000},
+                )
+                .toBe(true);
             const {before} = await page.evaluate(bounds);
             // R2/R3 protect the rendered destination, not the virtualized scroll
             // offset. Sample inside the renderer during pointer entry as well
@@ -513,17 +511,7 @@ describe('Electron E2E - text interaction contract', () => {
             await page.mouse.move(850, 400, {steps: 15});
             const {samples} = await observation;
             for (const sample of samples) {
-                for (const key of [
-                    'top',
-                    'bottom',
-                    'left',
-                    'width',
-                    'height',
-                    'pageTop',
-                    'pageLeft',
-                    'pageWidth',
-                    'pageHeight',
-                ] as const) {
+                for (const key of ['top', 'bottom', 'left', 'width', 'height', 'pageTop', 'pageLeft', 'pageWidth', 'pageHeight'] as const) {
                     expect(Math.abs(sample[key] - before[key]), key).toBeLessThanOrEqual(1);
                 }
             }
@@ -556,19 +544,25 @@ describe('Electron E2E - text interaction contract', () => {
                     let complete: (() => Promise<void>) | undefined;
                     const seen = new Set<IViewerVNode>();
                     const visit = (vnode: IViewerVNode | undefined) => {
-                        if (!vnode || seen.has(vnode) || complete) {return;}
+                        if (!vnode || seen.has(vnode) || complete) {
+                            return;
+                        }
                         seen.add(vnode);
                         const owner = vnode.component;
                         if (owner) {
                             complete = owner.exposed?.commitPdfEditorsForSave;
                             visit(owner.subTree);
                         }
-                        if (Array.isArray(vnode.children)) {vnode.children.forEach(visit);}
+                        if (Array.isArray(vnode.children)) {
+                            vnode.children.forEach(visit);
+                        }
                         visit(vnode.ssContent);
                         visit(vnode.ssFallback);
                     };
                     visit(document.querySelector<HTMLElement & {_vnode?: IViewerVNode}>('#__nuxt')?._vnode);
-                    if (!complete) {throw new Error('The loaded viewer must settle its editors before fixture cleanup');}
+                    if (!complete) {
+                        throw new Error('The loaded viewer must settle its editors before fixture cleanup');
+                    }
                     await complete();
                 });
             } finally {
@@ -584,20 +578,28 @@ describe('Electron E2E - text interaction contract', () => {
         await waitForViewerInteractive(session.page);
         await openAnnotationsTab(session.page);
         await setAnnotationKeepActiveWithPointer(session.page, keepActive);
-        await callWorkspaceCommand(session.page, 'restoreViewState', [{
-            currentPage: null,
-            zoom: null,
-            zoomMode: null,
-            continuousScroll: null,
-            viewMode: null,
-            viewRotation: 0,
-        }]);
+        await callWorkspaceCommand(session.page, 'restoreViewState', [
+            {
+                currentPage: null,
+                zoom: null,
+                zoomMode: null,
+                continuousScroll: null,
+                viewMode: null,
+                viewRotation: 0,
+            },
+        ]);
         await callWorkspaceCommand(session.page, 'setCustomZoomFromDisplay', [zoom]);
-        await session.page.waitForFunction(percent => document.querySelector('.zoom-controls-display-value')?.textContent?.trim() === percent, {}, `${Math.round(zoom * 100)}%`);
+        await session.page.waitForFunction(
+            (percent) => document.querySelector('.zoom-controls-display-value')?.textContent?.trim() === percent,
+            {},
+            `${Math.round(zoom * 100)}%`,
+        );
         if (source && process.env.EVB_MARKUP_FIXTURE_PAGE) {
             const pageNumber = Number(process.env.EVB_MARKUP_FIXTURE_PAGE);
             await setupScrollToPage(session.page, pageNumber);
-            await session.page.waitForSelector(`.editor-pane.is-active .workspace-host[data-workspace-active="true"] .page_container[data-page="${pageNumber}"] .text-layer span`);
+            await session.page.waitForSelector(
+                `.editor-pane.is-active .workspace-host[data-workspace-active="true"] .page_container[data-page="${pageNumber}"] .text-layer span`,
+            );
         }
         await waitForViewerInteractive(session.page);
         return {
@@ -611,9 +613,7 @@ describe('Electron E2E - text interaction contract', () => {
         const textFixture = await createMultiPageTextFixturePdf(`markup-overlap-${Date.now()}.pdf`, 1);
         onTestFinished(() => rmSync(textFixture, {force: true}));
         const zoom = process.env.EVB_TEXT_INTERACTION_FIXTURE ? 3.8 : 2.92;
-        const {
-            page, path,
-        } = await openFixture(false, zoom, process.env.EVB_TEXT_INTERACTION_FIXTURE ?? textFixture);
+        const {page, path} = await openFixture(false, zoom, process.env.EVB_TEXT_INTERACTION_FIXTURE ?? textFixture);
         const initialAnnotations = await readPdfAnnotationSummary(path);
         await clickAnnotationTool(page, 'Highlight');
         const points = await markupSelectionPoints(page);
@@ -624,42 +624,59 @@ describe('Electron E2E - text interaction contract', () => {
         // Merge into an already saved annotation to exercise its stable PDF
         // identity and the native geometry rewrite, not only draft creation.
         await saveViaWindowHandle(page, 30_000);
-        if (process.env.EVB_MARKUP_EVIDENCE_DIR) {copyFileSync(path, join(process.env.EVB_MARKUP_EVIDENCE_DIR, 'first-saved.pdf'));}
+        if (process.env.EVB_MARKUP_EVIDENCE_DIR) {
+            copyFileSync(path, join(process.env.EVB_MARKUP_EVIDENCE_DIR, 'first-saved.pdf'));
+        }
 
         await clickAnnotationTool(page, 'Highlight');
         const expandedPoints = await markupSelectionPoints(page);
-        const expandedSelection = await dragMarkupSelection(page, {
-            ...expandedPoints,
-            start: expandedPoints.expandedStart,
-        }, true);
-        await page.waitForFunction(selector => document.querySelectorAll(selector).length === 1 && getSelection()?.rangeCount === 0, {}, MARKUP);
+        const expandedSelection = await dragMarkupSelection(
+            page,
+            {
+                ...expandedPoints,
+                start: expandedPoints.expandedStart,
+            },
+            true,
+        );
+        await page.waitForFunction(
+            (selector) => document.querySelectorAll(selector).length === 1 && getSelection()?.rangeCount === 0,
+            {},
+            MARKUP,
+        );
         await expectMarkupGeometry(page, expandedSelection.rects, true);
         expect(await highlightPaintColor(page), 'Re-highlighting text must not make it darker').toBe(before);
         if (process.env.EVB_MARKUP_EVIDENCE_DIR) {
             await page.screenshot({path: join(process.env.EVB_MARKUP_EVIDENCE_DIR, 'overlap-selected.png')});
         }
-        const cards = '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .note-item[data-annotation-kind="text-markup"] .note-item-text';
-        await expect.poll(() => page.$eval(cards, row => row.textContent?.replace(/\s+/gu, ''))).toBe(expandedSelection.text.replace(/\s+/gu, ''));
-        const texts = await page.$$eval(cards, rows => rows.map(row => row.textContent?.trim()));
+        const cards =
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .note-item[data-annotation-kind="text-markup"] .note-item-text';
+        await expect
+            .poll(() => page.$eval(cards, (row) => row.textContent?.replace(/\s+/gu, '')))
+            .toBe(expandedSelection.text.replace(/\s+/gu, ''));
+        const texts = await page.$$eval(cards, (rows) => rows.map((row) => row.textContent?.trim()));
         expect(texts).toHaveLength(1);
-        expect(texts.every(text => text && !text.toLowerCase().includes('no text'))).toBe(true);
+        expect(texts.every((text) => text && !text.toLowerCase().includes('no text'))).toBe(true);
         await page.mouse.click(points.start.x, points.start.y - 120);
-        expect(await page.$$eval(cards, rows => rows.map(row => row.textContent?.trim()))).toEqual(texts);
+        expect(await page.$$eval(cards, (rows) => rows.map((row) => row.textContent?.trim()))).toEqual(texts);
         expect(await highlightPaintColor(page), 'Blurring the selection must keep the highlight visible').toBe(before);
         if (process.env.EVB_MARKUP_EVIDENCE_DIR) {
             await page.screenshot({path: join(process.env.EVB_MARKUP_EVIDENCE_DIR, 'overlap.png')});
         }
         await clickVisibleAnnotationControl(page, '.toolbar-action--undo button:not(:disabled)');
-        await page.waitForFunction(selector => document.querySelectorAll(selector).length === 1, {}, MARKUP);
+        await page.waitForFunction((selector) => document.querySelectorAll(selector).length === 1, {}, MARKUP);
         await expectMarkupGeometry(page, initialSelection.rects, true);
-        await expect.poll(() => page.$eval(cards, row => row.textContent?.replace(/\s+/gu, ''))).toBe(initialSelection.text.replace(/\s+/gu, ''));
+        await expect
+            .poll(() => page.$eval(cards, (row) => row.textContent?.replace(/\s+/gu, '')))
+            .toBe(initialSelection.text.replace(/\s+/gu, ''));
         expect(await highlightPaintColor(page)).toBe(before);
         await clickVisibleAnnotationControl(page, '.toolbar-action--redo button:not(:disabled)');
-        await page.waitForFunction(selector => document.querySelectorAll(selector).length === 1, {}, MARKUP);
+        await page.waitForFunction((selector) => document.querySelectorAll(selector).length === 1, {}, MARKUP);
         await expectMarkupGeometry(page, expandedSelection.rects, true);
         expect(await highlightPaintColor(page)).toBe(before);
         await saveViaWindowHandle(page, 30_000);
-        if (process.env.EVB_MARKUP_EVIDENCE_DIR) {copyFileSync(path, join(process.env.EVB_MARKUP_EVIDENCE_DIR, 'merged-saved.pdf'));}
+        if (process.env.EVB_MARKUP_EVIDENCE_DIR) {
+            copyFileSync(path, join(process.env.EVB_MARKUP_EVIDENCE_DIR, 'merged-saved.pdf'));
+        }
 
         expect(await readPdfAnnotationSummary(path)).toEqual({
             total: initialAnnotations.total + 1,
@@ -680,9 +697,15 @@ describe('Electron E2E - text interaction contract', () => {
         await waitForViewerInteractive(reopened);
         await openAnnotationsTab(reopened);
         await callWorkspaceCommand(reopened, 'setCustomZoomFromDisplay', [zoom]);
-        await reopened.waitForFunction(percent => document.querySelector('.zoom-controls-display-value')?.textContent?.trim() === percent, {}, `${Math.round(zoom * 100)}%`);
+        await reopened.waitForFunction(
+            (percent) => document.querySelector('.zoom-controls-display-value')?.textContent?.trim() === percent,
+            {},
+            `${Math.round(zoom * 100)}%`,
+        );
         await waitForViewerInteractive(reopened);
-        await reopened.evaluate(async () => { await document.fonts.ready; });
+        await reopened.evaluate(async () => {
+            await document.fonts.ready;
+        });
         if (process.env.EVB_MARKUP_FIXTURE_PAGE) {
             await setupScrollToPage(reopened, Number(process.env.EVB_MARKUP_FIXTURE_PAGE));
         }
@@ -694,58 +717,63 @@ describe('Electron E2E - text interaction contract', () => {
             await reopened.screenshot({path: join(process.env.EVB_MARKUP_EVIDENCE_DIR, 'overlap-reopened.png')});
         }
         await expect.poll(() => highlightPaintColor(reopened)).toBe(before);
-        await expect.poll(() => reopened.$$eval(cards, rows => rows.map(row => row.textContent?.trim()))).toEqual(texts);
+        await expect.poll(() => reopened.$$eval(cards, (rows) => rows.map((row) => row.textContent?.trim()))).toEqual(texts);
     });
 
     it.each([
-        [
-            'highlight',
-            'Highlight',
-        ],
-        [
-            'underline',
-            'Underline',
-        ],
-        [
-            'strikethrough',
-            'StrikeOut',
-        ],
-        [
-            'squiggly',
-            'Squiggly',
-        ],
+        ['highlight', 'Highlight'],
+        ['underline', 'Underline'],
+        ['strikethrough', 'StrikeOut'],
+        ['squiggly', 'Squiggly'],
     ] as const)('commits %s after selecting text, consumes the selection, and saves matching geometry', async (tool, subtype) => {
         const textFixture = await createMultiPageTextFixturePdf(`markup-selection-${Date.now()}.pdf`, 1);
         onTestFinished(() => rmSync(textFixture, {force: true}));
-        const {
-            page,
-            path,
-        } = await openFixture(false, 2.92, process.env.EVB_TEXT_INTERACTION_FIXTURE ?? textFixture);
+        const {page, path} = await openFixture(false, 2.92, process.env.EVB_TEXT_INTERACTION_FIXTURE ?? textFixture);
         const initialAnnotations = await readPdfAnnotationSummary(path);
         await clickAnnotationTool(page, 'Select');
         const points = await markupSelectionPoints(page);
         const expected = await dragMarkupSelection(page, points, false);
         expect(expected.text.length).toBeGreaterThan(10);
         expect(expected.rects).toHaveLength(2);
-        await clickVisibleAnnotationControl(page, `.editor-pane.is-active .workspace-host[data-workspace-active="true"] .tool-button[data-tool="${tool}"]`);
+        await clickVisibleAnnotationControl(
+            page,
+            `.editor-pane.is-active .workspace-host[data-workspace-active="true"] .tool-button[data-tool="${tool}"]`,
+        );
         await page.waitForSelector(`${MARKUP}[data-markup-subtype="${subtype}"]`, {timeout: 3_000});
         expect(await page.evaluate(() => window.getSelection()?.rangeCount)).toBe(0);
         await expectMarkupGeometry(page, expected.rects, tool === 'highlight');
         // PDF.js positions lines absolutely, so native Selection.toString can
         // omit their separating spaces. The sidebar adds readable line gaps.
-        await expect.poll(() => page.$eval('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .note-item[data-annotation-kind="text-markup"] .note-item-text', element => element.textContent?.replace(/\s+/gu, ''))).toBe(expected.text.replace(/\s+/gu, ''));
-        expect(await page.$eval('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .tool-button[data-tool="select"]', element => element.getAttribute('aria-pressed'))).toBe('true');
+        await expect
+            .poll(() =>
+                page.$eval(
+                    '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .note-item[data-annotation-kind="text-markup"] .note-item-text',
+                    (element) => element.textContent?.replace(/\s+/gu, ''),
+                ),
+            )
+            .toBe(expected.text.replace(/\s+/gu, ''));
+        expect(
+            await page.$eval(
+                '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .tool-button[data-tool="select"]',
+                (element) => element.getAttribute('aria-pressed'),
+            ),
+        ).toBe('true');
         await page.mouse.click(points.end.x, points.end.y + 150);
-        if (tool === 'highlight') {await expectHighlightPaint(page);}
+        if (tool === 'highlight') {
+            await expectHighlightPaint(page);
+        }
         if (process.env.EVB_MARKUP_EVIDENCE_DIR) {
             await page.screenshot({path: join(process.env.EVB_MARKUP_EVIDENCE_DIR, `${tool}-committed.png`)});
         }
         await expectMarkupGeometry(page, expected.rects, tool === 'highlight');
         // Activating another markup tool after clicking blank space must not
         // turn the consumed cached range into another annotation.
-        await clickVisibleAnnotationControl(page, '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .tool-button[data-tool="underline"]');
+        await clickVisibleAnnotationControl(
+            page,
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .tool-button[data-tool="underline"]',
+        );
         await page.mouse.click(points.end.x, points.end.y + 150);
-        expect(await page.$$eval(MARKUP, elements => elements.length)).toBe(1);
+        expect(await page.$$eval(MARKUP, (elements) => elements.length)).toBe(1);
         await saveViaWindowHandle(page, 30_000);
         expect(await readPdfAnnotationSummary(path)).toEqual({
             total: initialAnnotations.total + 1,
@@ -773,7 +801,7 @@ describe('Electron E2E - text interaction contract', () => {
         await waitForViewerInteractive(reopened);
         await reopened.evaluate(async () => {
             await document.fonts.ready;
-            await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+            await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
         });
         if (process.env.EVB_MARKUP_FIXTURE_PAGE) {
             await setupScrollToPage(reopened, Number(process.env.EVB_MARKUP_FIXTURE_PAGE));
@@ -781,62 +809,74 @@ describe('Electron E2E - text interaction contract', () => {
         await waitForViewerInteractive(reopened);
         await reopened.waitForSelector(`${MARKUP}[data-markup-subtype="${subtype}"]`);
         await expectMarkupGeometry(reopened, expected.rects, tool === 'highlight');
-        if (tool === 'highlight') {await expectHighlightPaint(reopened);}
+        if (tool === 'highlight') {
+            await expectHighlightPaint(reopened);
+        }
         if (process.env.EVB_MARKUP_EVIDENCE_DIR) {
             await reopened.screenshot({path: join(process.env.EVB_MARKUP_EVIDENCE_DIR, `${tool}-reopened.png`)});
         }
-        await expect.poll(() => reopened.$eval('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .note-item[data-annotation-kind="text-markup"] .note-item-text', element => element.textContent?.trim())).toContain(expected.text.trim().slice(-20));
+        await expect
+            .poll(() =>
+                reopened.$eval(
+                    '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .note-item[data-annotation-kind="text-markup"] .note-item-text',
+                    (element) => element.textContent?.trim(),
+                ),
+            )
+            .toContain(expected.text.trim().slice(-20));
     });
 
     it.each([
-        [
-            'highlight',
-            'Highlight',
-        ],
-        [
-            'underline',
-            'Underline',
-        ],
-        [
-            'strikethrough',
-            'StrikeOut',
-        ],
-        [
-            'squiggly',
-            'Squiggly',
-        ],
+        ['highlight', 'Highlight'],
+        ['underline', 'Underline'],
+        ['strikethrough', 'StrikeOut'],
+        ['squiggly', 'Squiggly'],
     ] as const)('commits each real drag once while %s stays active', async (tool, subtype) => {
         const textFixture = await createMultiPageTextFixturePdf(`markup-drag-${Date.now()}.pdf`, 1);
         onTestFinished(() => rmSync(textFixture, {force: true}));
         const {page} = await openFixture(true, 2.92, process.env.EVB_TEXT_INTERACTION_FIXTURE ?? textFixture);
-        await clickVisibleAnnotationControl(page, `.editor-pane.is-active .workspace-host[data-workspace-active="true"] .tool-button[data-tool="${tool}"]`);
+        await clickVisibleAnnotationControl(
+            page,
+            `.editor-pane.is-active .workspace-host[data-workspace-active="true"] .tool-button[data-tool="${tool}"]`,
+        );
         const points = await markupSelectionPoints(page);
         const expected = await dragMarkupSelection(page, points, true);
         await page.waitForSelector(`${MARKUP}[data-markup-subtype="${subtype}"]`, {timeout: 3_000});
         expect(await page.evaluate(() => window.getSelection()?.rangeCount)).toBe(0);
         await expectMarkupGeometry(page, expected.rects, tool === 'highlight');
-        expect(await page.$eval(`.editor-pane.is-active .workspace-host[data-workspace-active="true"] .tool-button[data-tool="${tool}"]`, element => element.getAttribute('aria-pressed'))).toBe('true');
+        expect(
+            await page.$eval(
+                `.editor-pane.is-active .workspace-host[data-workspace-active="true"] .tool-button[data-tool="${tool}"]`,
+                (element) => element.getAttribute('aria-pressed'),
+            ),
+        ).toBe('true');
         await page.mouse.click(points.end.x, points.end.y + 150);
-        expect(await page.$$eval(MARKUP, elements => elements.length)).toBe(1);
+        expect(await page.$$eval(MARKUP, (elements) => elements.length)).toBe(1);
         await dragMarkupSelection(page, points, true);
         // A merged highlight keeps the count unchanged. Selection consumption
         // is the completion signal for the second asynchronous drag commit.
-        await page.waitForFunction((selector, count) => document.querySelectorAll(selector).length === count && window.getSelection()?.rangeCount === 0, {timeout: 3_000}, MARKUP, tool === 'highlight' ? 1 : 2);
+        await page.waitForFunction(
+            (selector, count) => document.querySelectorAll(selector).length === count && window.getSelection()?.rangeCount === 0,
+            {timeout: 3_000},
+            MARKUP,
+            tool === 'highlight' ? 1 : 2,
+        );
         expect(await page.evaluate(() => window.getSelection()?.rangeCount)).toBe(0);
         // The active instrument must still be possible to switch off.
-        await clickVisibleAnnotationControl(page, `.editor-pane.is-active .workspace-host[data-workspace-active="true"] .tool-button[data-tool="${tool}"]`);
-        expect(await page.$eval('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .tool-button[data-tool="select"]', element => element.getAttribute('aria-pressed'))).toBe('true');
+        await clickVisibleAnnotationControl(
+            page,
+            `.editor-pane.is-active .workspace-host[data-workspace-active="true"] .tool-button[data-tool="${tool}"]`,
+        );
+        expect(
+            await page.$eval(
+                '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .tool-button[data-tool="select"]',
+                (element) => element.getAttribute('aria-pressed'),
+            ),
+        ).toBe('true');
     });
 
     it.each([
-        [
-            'squiggly',
-            'Squiggly',
-        ],
-        [
-            'strikethrough',
-            'StrikeOut',
-        ],
+        ['squiggly', 'Squiggly'],
+        ['strikethrough', 'StrikeOut'],
     ] as const)('marks linked text with %s and keeps the link clickable outside markup', async (tool, subtype) => {
         const linkFixture = await createLinkedTextFixturePdf(`markup-link-${Date.now()}.pdf`);
         onTestFinished(() => rmSync(linkFixture, {force: true}));
@@ -844,10 +884,15 @@ describe('Electron E2E - text interaction contract', () => {
         await page.waitForSelector('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .pdf-link-overlay');
         await waitForViewerInteractive(page);
         const line = await page.evaluate(() => {
-            const span = [...document.querySelectorAll<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .text-layer span')]
-                .find(candidate => candidate.textContent?.includes('Open the project'));
+            const span = [
+                ...document.querySelectorAll<HTMLElement>(
+                    '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .text-layer span',
+                ),
+            ].find((candidate) => candidate.textContent?.includes('Open the project'));
             const rect = span?.getBoundingClientRect();
-            if (!rect) {throw new Error('The linked line has no text layer span');}
+            if (!rect) {
+                throw new Error('The linked line has no text layer span');
+            }
             return {
                 start: {
                     x: rect.left + 3,
@@ -860,19 +905,41 @@ describe('Electron E2E - text interaction contract', () => {
             };
         });
         // Outside markup the link owns the pointer, so a click still follows it.
-        expect(await page.evaluate(point => Boolean(document.elementFromPoint(point.x, point.y)?.closest('.pdf-link-overlay')), line.start)).toBe(true);
-        await clickVisibleAnnotationControl(page, `.editor-pane.is-active .workspace-host[data-workspace-active="true"] .tool-button[data-tool="${tool}"]`);
+        expect(
+            await page.evaluate((point) => Boolean(document.elementFromPoint(point.x, point.y)?.closest('.pdf-link-overlay')), line.start),
+        ).toBe(true);
+        await clickVisibleAnnotationControl(
+            page,
+            `.editor-pane.is-active .workspace-host[data-workspace-active="true"] .tool-button[data-tool="${tool}"]`,
+        );
         await page.mouse.move(line.start.x, line.start.y);
         await page.mouse.down();
         await page.mouse.move(line.end.x, line.end.y, {steps: 16});
         await page.mouse.up();
         await page.waitForSelector(`${MARKUP}[data-markup-subtype="${subtype}"]`, {timeout: 3_000});
-        expect(await page.$$eval(MARKUP, elements => elements.length)).toBe(1);
-        await expect.poll(() => page.$eval('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .note-item[data-annotation-kind="text-markup"] .note-item-text', element => element.textContent?.trim())).toContain('Example Workspace');
+        expect(await page.$$eval(MARKUP, (elements) => elements.length)).toBe(1);
+        await expect
+            .poll(() =>
+                page.$eval(
+                    '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .note-item[data-annotation-kind="text-markup"] .note-item-text',
+                    (element) => element.textContent?.trim(),
+                ),
+            )
+            .toContain('Example Workspace');
         // Leaving markup gives the link back its pointer; the new mark now
         // covers the line, so the link's own hit target is what is checked.
-        await clickVisibleAnnotationControl(page, '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .tool-button[data-tool="select"]');
-        await expect.poll(() => page.$eval('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .pdf-link-overlay', element => getComputedStyle(element).pointerEvents)).toBe('auto');
+        await clickVisibleAnnotationControl(
+            page,
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .tool-button[data-tool="select"]',
+        );
+        await expect
+            .poll(() =>
+                page.$eval(
+                    '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .pdf-link-overlay',
+                    (element) => getComputedStyle(element).pointerEvents,
+                ),
+            )
+            .toBe('auto');
     });
 
     it('keeps a drag that starts beside a line on that line after an earlier selection', async () => {
@@ -881,20 +948,14 @@ describe('Electron E2E - text interaction contract', () => {
         onTestFinished(() => rmSync(cardFixture, {force: true}));
         const pdf = await PDFDocument.create();
         const font = await pdf.embedFont(StandardFonts.Helvetica);
-        const sheet = pdf.addPage([
-            612,
-            792,
-        ]);
-        for (const [
-            index,
-            line,
-        ] of [
-                'Card heading for the margin drag',
-                'issue model 2',
-                'Project 106k issues',
-                'Open in Web Issue Tracker',
-                'Reporter Example Person',
-            ].entries()) {
+        const sheet = pdf.addPage([612, 792]);
+        for (const [index, line] of [
+            'Card heading for the margin drag',
+            'issue model 2',
+            'Project 106k issues',
+            'Open in Web Issue Tracker',
+            'Reporter Example Person',
+        ].entries()) {
             sheet.drawText(line, {
                 x: 72,
                 y: 700 - index * 40,
@@ -905,31 +966,40 @@ describe('Electron E2E - text interaction contract', () => {
         writeFileSync(cardFixture, await pdf.save());
         const {page} = await openFixture(true, 2.58, cardFixture);
         await waitForViewerInteractive(page);
-        const lines = await page.evaluate(() => Object.fromEntries([
-            'Card heading',
-            'issue model 2',
-        ].map((text) => {
-            const span = [...document.querySelectorAll<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .text-layer span')]
-                .find(candidate => candidate.textContent?.includes(text));
-            const rect = span?.getBoundingClientRect();
-            if (!rect) {throw new Error(`No text layer span for ${text}`);}
-            return [
-                text,
-                {
-                    left: rect.left,
-                    right: rect.right,
-                    top: rect.top,
-                    bottom: rect.bottom,
-                },
-            ];
-        })));
-        const drag = async (from: {
-            x: number;
-            y: number
-        }, to: {
-            x: number;
-            y: number
-        }) => {
+        const lines = await page.evaluate(() =>
+            Object.fromEntries(
+                ['Card heading', 'issue model 2'].map((text) => {
+                    const span = [
+                        ...document.querySelectorAll<HTMLElement>(
+                            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .text-layer span',
+                        ),
+                    ].find((candidate) => candidate.textContent?.includes(text));
+                    const rect = span?.getBoundingClientRect();
+                    if (!rect) {
+                        throw new Error(`No text layer span for ${text}`);
+                    }
+                    return [
+                        text,
+                        {
+                            left: rect.left,
+                            right: rect.right,
+                            top: rect.top,
+                            bottom: rect.bottom,
+                        },
+                    ];
+                }),
+            ),
+        );
+        const drag = async (
+            from: {
+                x: number;
+                y: number;
+            },
+            to: {
+                x: number;
+                y: number;
+            },
+        ) => {
             await page.mouse.move(from.x, from.y);
             await page.mouse.down();
             await page.mouse.move(to.x, to.y, {steps: 16});
@@ -939,16 +1009,18 @@ describe('Electron E2E - text interaction contract', () => {
         const heading = lines['Card heading']!;
         const label = lines['issue model 2']!;
         // An earlier drag leaves the page's selection machinery primed.
-        expect(await drag(
-            {
-                x: heading.left + 2,
-                y: (heading.top + heading.bottom) / 2,
-            },
-            {
-                x: heading.right - 2,
-                y: (heading.top + heading.bottom) / 2,
-            },
-        )).toContain('Card heading');
+        expect(
+            await drag(
+                {
+                    x: heading.left + 2,
+                    y: (heading.top + heading.bottom) / 2,
+                },
+                {
+                    x: heading.right - 2,
+                    y: (heading.top + heading.bottom) / 2,
+                },
+            ),
+        ).toContain('Card heading');
         // Press in the margin just left of the label and drag onto it.
         const selected = await drag(
             {
@@ -970,16 +1042,21 @@ describe('Electron E2E - text interaction contract', () => {
         const {page} = await openFixture(true, 2, textFixture);
         await openDocumentSidebarTab(page, 'Search');
         await page.type('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-search-bar input', 'sample');
-        await clickVisibleAnnotationControl(page, '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .search-run-button');
+        await clickVisibleAnnotationControl(
+            page,
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .search-run-button',
+        );
         const matchSelector = '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .text-layer .pdf-search-highlight';
         await page.waitForSelector(matchSelector, {visible: true});
         await openAnnotationsTab(page);
         await clickAnnotationTool(page, 'Highlight');
         await page.waitForSelector(matchSelector, {visible: true});
         await waitForViewerInteractive(page);
-        const points = await page.$eval(matchSelector, element => {
+        const points = await page.$eval(matchSelector, (element) => {
             const node = element.firstChild;
-            if (!(node instanceof Text)) {throw new Error('Search result has no text node');}
+            if (!(node instanceof Text)) {
+                throw new Error('Search result has no text node');
+            }
             const range = document.createRange();
             range.setStart(node, 0);
             range.setEnd(node, node.length);
@@ -1001,26 +1078,37 @@ describe('Electron E2E - text interaction contract', () => {
         expect(await page.evaluate(() => document.getSelection()?.rangeCount)).toBe(0);
         await expectMarkupGeometry(page, expected.rects);
         await openAnnotationsTab(page);
-        await expect.poll(() => page.$eval('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .note-item[data-annotation-kind="text-markup"] .note-item-text', element => element.textContent?.trim())).toBe('sample');
+        await expect
+            .poll(() =>
+                page.$eval(
+                    '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .note-item[data-annotation-kind="text-markup"] .note-item-text',
+                    (element) => element.textContent?.trim(),
+                ),
+            )
+            .toBe('sample');
     });
 
-    it.each([
-        0,
-        90,
-        180,
-        270,
-    ])('keeps the same usable text frame from press through typing at view rotation %i', async rotation => {
+    it.each([0, 90, 180, 270])('keeps the same usable text frame from press through typing at view rotation %i', async (rotation) => {
         const {page} = await openFixture();
-        await callWorkspaceCommand(page, 'restoreViewState', [{
-            currentPage: null,
-            zoom: null,
-            zoomMode: null,
-            continuousScroll: null,
-            viewMode: null,
-            viewRotation: rotation,
-        }]);
+        await callWorkspaceCommand(page, 'restoreViewState', [
+            {
+                currentPage: null,
+                zoom: null,
+                zoomMode: null,
+                continuousScroll: null,
+                viewMode: null,
+                viewRotation: rotation,
+            },
+        ]);
         await waitForPdfLoaded(page);
-        await page.waitForFunction(value => document.querySelector('.editor-pane.is-active [data-pdf-annotation-editor-surface]')?.getAttribute('data-view-rotation') === String(value), {}, rotation);
+        await page.waitForFunction(
+            (value) =>
+                document
+                    .querySelector('.editor-pane.is-active [data-pdf-annotation-editor-surface]')
+                    ?.getAttribute('data-view-rotation') === String(value),
+            {},
+            rotation,
+        );
         await clickAnnotationTool(page, 'Text');
         const point = await placementPoint(page);
         await page.mouse.move(point.x, point.y);
@@ -1034,22 +1122,20 @@ describe('Electron E2E - text interaction contract', () => {
             await page.screenshot({path: `.devkit/annotation-reaudit/text-frame-${rotation}.png`});
         }
         expect.soft(pressed.border).toBe('solid');
-        for (const key of [
-            'x',
-            'y',
-            'width',
-            'height',
-        ] as const) {
+        for (const key of ['x', 'y', 'width', 'height'] as const) {
             expect.soft(Math.abs(pressed[key] - released[key]), `Frame ${key} must not jump on release`).toBeLessThanOrEqual(1);
         }
         expect(released.focused).toBe(true);
         expect(released.height).toBeLessThan(released.fontSize * 2);
         await page.keyboard.type('Readable text');
         expect((await frame(page)).text).toBe('Readable text');
-        await expect.poll(() => page.$eval(
-            '.editor-pane.is-active .note-item[data-annotation-kind="text-box"] .note-item-text',
-            element => element.textContent?.trim(),
-        )).toBe('Readable text');
+        await expect
+            .poll(() =>
+                page.$eval('.editor-pane.is-active .note-item[data-annotation-kind="text-box"] .note-item-text', (element) =>
+                    element.textContent?.trim(),
+                ),
+            )
+            .toBe('Readable text');
     });
 
     it('keeps dragged text creation at a usable width and lets content determine height', async () => {
@@ -1072,10 +1158,7 @@ describe('Electron E2E - text interaction contract', () => {
         expect((await frame(page)).text).toBe('Hi');
     });
 
-    it.each([
-        false,
-        true,
-    ])('selects and moves a text box after clicking away from typing with keep-active %s', async keepActive => {
+    it.each([false, true])('selects and moves a text box after clicking away from typing with keep-active %s', async (keepActive) => {
         const {page} = await openFixture(keepActive, 2.92);
         await startText(page);
         await page.keyboard.type('Move this text');
@@ -1084,31 +1167,33 @@ describe('Electron E2E - text interaction contract', () => {
             x: typed.x + 20,
             y: typed.y - 140,
         };
-        expect(await page.evaluate(({
-            x,
-            y,
-        }) => document.elementFromPoint(x, y)?.closest('[data-annotation-id]')?.getAttribute('data-annotation-id') ?? null, away)).toBeNull();
+        expect(
+            await page.evaluate(
+                ({x, y}) => document.elementFromPoint(x, y)?.closest('[data-annotation-id]')?.getAttribute('data-annotation-id') ?? null,
+                away,
+            ),
+        ).toBeNull();
         await page.mouse.click(away.x, away.y);
         await expect.poll(async () => (await frame(page)).focused).toBe(false);
-        await expect.poll(() => page.$eval(BOX, element => element.classList.contains('is-editing'))).toBe(false);
+        await expect.poll(() => page.$eval(BOX, (element) => element.classList.contains('is-editing'))).toBe(false);
         expect(await page.$$(BOX)).toHaveLength(1);
         const before = await frame(page);
         const x = before.x + before.width / 2;
         const y = before.y + before.height / 2;
-        const target = await page.evaluate(({
-            x,
-            y,
-        }) => {
-            const element = document.elementFromPoint(x, y);
-            return {
-                className: element?.getAttribute('class'),
-                cursor: element ? getComputedStyle(element).cursor : null,
-                kind: element?.closest('[data-annotation-kind]')?.getAttribute('data-annotation-kind'),
-            };
-        }, {
-            x,
-            y,
-        });
+        const target = await page.evaluate(
+            ({x, y}) => {
+                const element = document.elementFromPoint(x, y);
+                return {
+                    className: element?.getAttribute('class'),
+                    cursor: element ? getComputedStyle(element).cursor : null,
+                    kind: element?.closest('[data-annotation-kind]')?.getAttribute('data-annotation-kind'),
+                };
+            },
+            {
+                x,
+                y,
+            },
+        );
         expect(target.kind).toBe('text-box');
         await page.mouse.click(x, y);
         expect(await page.$(`${BOX} [contenteditable="true"]`), JSON.stringify(target)).toBeNull();
@@ -1149,11 +1234,13 @@ describe('Electron E2E - text interaction contract', () => {
         await waitForTextControlsLayout(page);
         const before = await frame(page);
         const grip = '.editor-pane.is-active [data-pdf-annotation-move-handle]';
-        const point = await page.$eval(grip, element => {
+        const point = await page.$eval(grip, (element) => {
             const rect = element.getBoundingClientRect();
             const x = rect.x + rect.width / 2;
             const y = rect.y + rect.height / 2;
-            if (!element.contains(document.elementFromPoint(x, y))) {throw new Error('Text move grip is obstructed');}
+            if (!element.contains(document.elementFromPoint(x, y))) {
+                throw new Error('Text move grip is obstructed');
+            }
             return {
                 x,
                 y,
@@ -1185,7 +1272,9 @@ describe('Electron E2E - text interaction contract', () => {
         await page.keyboard.type('Edited text');
         expect((await frame(page)).text).toBe('Edited text');
         await clickVisibleAnnotationControl(page, '.editor-pane.is-active .tool-button[data-tool="text"]');
-        await expect.poll(() => page.$eval('.editor-pane.is-active .tool-button.is-active', element => element.getAttribute('data-tool'))).toBe('select');
+        await expect
+            .poll(() => page.$eval('.editor-pane.is-active .tool-button.is-active', (element) => element.getAttribute('data-tool')))
+            .toBe('select');
         expect((await frame(page)).text).toBe('Edited text');
     });
 
@@ -1196,11 +1285,13 @@ describe('Electron E2E - text interaction contract', () => {
         await waitForTextControlsLayout(page);
         const before = await frame(page);
         const grip = '.editor-pane.is-active [data-pdf-annotation-move-handle]';
-        const start = await page.$eval(grip, element => {
+        const start = await page.$eval(grip, (element) => {
             const rect = element.getBoundingClientRect();
             const x = rect.x + rect.width / 2;
             const y = rect.y + rect.height / 2;
-            if (!element.contains(document.elementFromPoint(x, y))) {throw new Error('Text move grip is obstructed');}
+            if (!element.contains(document.elementFromPoint(x, y))) {
+                throw new Error('Text move grip is obstructed');
+            }
             return {
                 x,
                 y,
@@ -1256,15 +1347,23 @@ describe('Electron E2E - text interaction contract', () => {
         ]) {
             const selector = `.editor-pane.is-active .tool-button[data-tool="${tool}"]`;
             await clickVisibleAnnotationControl(page, selector);
-            expect(await page.$eval(selector, element => element.classList.contains('is-active')), tool).toBe(true);
+            expect(await page.$eval(selector, (element) => element.classList.contains('is-active')), tool).toBe(true);
             await clickVisibleAnnotationControl(page, selector);
-            await expect.poll(() => page.$eval('.editor-pane.is-active .tool-button.is-active', element => element.getAttribute('data-tool')), {message: tool}).toBe('select');
+            await expect
+                .poll(() => page.$eval('.editor-pane.is-active .tool-button.is-active', (element) => element.getAttribute('data-tool')), {
+                    message: tool,
+                })
+                .toBe('select');
         }
         const topNote = 'header.toolbar .toolbar-group-item--quick-note button';
         await clickVisibleAnnotationControl(page, topNote);
-        await expect.poll(() => page.$eval('.editor-pane.is-active .tool-button.is-active', element => element.getAttribute('data-tool'))).toBe('note');
+        await expect
+            .poll(() => page.$eval('.editor-pane.is-active .tool-button.is-active', (element) => element.getAttribute('data-tool')))
+            .toBe('note');
         await clickVisibleAnnotationControl(page, topNote);
-        await expect.poll(() => page.$eval('.editor-pane.is-active .tool-button.is-active', element => element.getAttribute('data-tool'))).toBe('select');
+        await expect
+            .poll(() => page.$eval('.editor-pane.is-active .tool-button.is-active', (element) => element.getAttribute('data-tool')))
+            .toBe('select');
     });
 
     it('keeps an empty text draft alive when resizing before typing', async () => {
@@ -1281,25 +1380,22 @@ describe('Electron E2E - text interaction contract', () => {
         expect(await page.$$(BOX)).toHaveLength(1);
     });
 
-    it.each([
-        0,
-        90,
-        180,
-        270,
-    ])('keeps the move grip reachable at the viewport edge at view rotation %i', async rotation => {
+    it.each([0, 90, 180, 270])('keeps the move grip reachable at the viewport edge at view rotation %i', async (rotation) => {
         const {page} = await openFixture(false, 2.92);
-        await callWorkspaceCommand(page, 'restoreViewState', [{
-            currentPage: null,
-            zoom: null,
-            zoomMode: null,
-            continuousScroll: null,
-            viewMode: null,
-            viewRotation: rotation,
-        }]);
+        await callWorkspaceCommand(page, 'restoreViewState', [
+            {
+                currentPage: null,
+                zoom: null,
+                zoomMode: null,
+                continuousScroll: null,
+                viewMode: null,
+                viewRotation: rotation,
+            },
+        ]);
         await waitForPdfLoaded(page);
         await clickAnnotationTool(page, 'Text');
         const point = await placementPoint(page);
-        const y = await page.$eval('.editor-pane.is-active .page_container[data-page="1"]', element => {
+        const y = await page.$eval('.editor-pane.is-active .page_container[data-page="1"]', (element) => {
             const viewport = element.closest('.pdfViewer')!.getBoundingClientRect();
             return Math.max(viewport.top, element.getBoundingClientRect().top) + 4;
         });
@@ -1307,17 +1403,21 @@ describe('Electron E2E - text interaction contract', () => {
         await page.waitForSelector(`${BOX} [contenteditable="true"]`, {visible: true});
         await page.keyboard.type('Edge');
         const typed = await frame(page);
-        const viewportTop = await page.$eval('.editor-pane.is-active .pdfViewer', element => element.getBoundingClientRect().top);
+        const viewportTop = await page.$eval('.editor-pane.is-active .pdfViewer', (element) => element.getBoundingClientRect().top);
         await page.mouse.move(typed.x + typed.width / 2, typed.y + typed.height / 2);
         await page.mouse.wheel({deltaY: typed.y - viewportTop - 4});
         await expect.poll(async () => Math.abs((await frame(page)).y - (viewportTop + 4))).toBeLessThanOrEqual(3);
         const grip = '.editor-pane.is-active [data-pdf-annotation-move-handle]';
-        await expect.poll(() => page.$eval(grip, element => {
-            const rect = element.getBoundingClientRect();
-            return element.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
-        })).toBe(true);
+        await expect
+            .poll(() =>
+                page.$eval(grip, (element) => {
+                    const rect = element.getBoundingClientRect();
+                    return element.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
+                }),
+            )
+            .toBe(true);
         const before = await frame(page);
-        const start = await page.$eval(grip, element => {
+        const start = await page.$eval(grip, (element) => {
             const rect = element.getBoundingClientRect();
             return {
                 x: rect.x + rect.width / 2,
@@ -1335,38 +1435,40 @@ describe('Electron E2E - text interaction contract', () => {
     });
 
     it('rotates text at the page edge with pointer buttons, wraps, undoes, and saves its orientation', async () => {
-        const {
-            page,
-            path,
-        } = await openFixture(false, 0.9);
+        const {page, path} = await openFixture(false, 0.9);
         const rotationValue = '.editor-pane.is-active [data-annotation-rotation-value]';
         if (process.env.EVB_TEXT_INTERACTION_EVIDENCE === '1') {
             await page.screenshot({path: '.devkit/annotation-rotation-controls/empty-list.png'});
         }
         async function expectRotation(targetPage: Page, expected: number) {
-            await expect.poll(() => targetPage.$eval(rotationValue, element => Number.parseFloat(element.textContent ?? ''))).toBe(expected);
-            await expect.poll(() => targetPage.$eval(BOX, element => {
-                const matrix = new DOMMatrix(getComputedStyle(element).transform);
-                return (Math.round(Math.atan2(matrix.b, matrix.a) * 180 / Math.PI) + 360) % 360;
-            })).toBe(expected);
-            const bounds = await targetPage.$eval(BOX, element => {
+            await expect
+                .poll(() => targetPage.$eval(rotationValue, (element) => Number.parseFloat(element.textContent ?? '')))
+                .toBe(expected);
+            await expect
+                .poll(() =>
+                    targetPage.$eval(BOX, (element) => {
+                        const matrix = new DOMMatrix(getComputedStyle(element).transform);
+                        return (Math.round((Math.atan2(matrix.b, matrix.a) * 180) / Math.PI) + 360) % 360;
+                    }),
+                )
+                .toBe(expected);
+            const bounds = await targetPage.$eval(BOX, (element) => {
                 const box = element.getBoundingClientRect();
                 const pageRect = element.closest('.page_container')!.getBoundingClientRect();
-                return [
-                    box.left - pageRect.left,
-                    box.top - pageRect.top,
-                    pageRect.right - box.right,
-                    pageRect.bottom - box.bottom,
-                ];
+                return [box.left - pageRect.left, box.top - pageRect.top, pageRect.right - box.right, pageRect.bottom - box.bottom];
             });
-            for (const distance of bounds) {expect(distance).toBeGreaterThanOrEqual(-1);}
+            for (const distance of bounds) {
+                expect(distance).toBeGreaterThanOrEqual(-1);
+            }
         }
         async function dragGrip(dx: number, dy: number) {
-            const start = await page.$eval('.editor-pane.is-active [data-pdf-annotation-move-handle]', element => {
+            const start = await page.$eval('.editor-pane.is-active [data-pdf-annotation-move-handle]', (element) => {
                 const rect = element.getBoundingClientRect();
                 const x = rect.x + rect.width / 2;
                 const y = rect.y + rect.height / 2;
-                if (!element.contains(document.elementFromPoint(x, y))) {throw new Error('Rotated text move grip is obstructed');}
+                if (!element.contains(document.elementFromPoint(x, y))) {
+                    throw new Error('Rotated text move grip is obstructed');
+                }
                 return {
                     x,
                     y,
@@ -1380,12 +1482,14 @@ describe('Electron E2E - text interaction contract', () => {
             // Pointerup commits synchronously. Let Vue remove the preview
             // before polling the rendered canonical geometry.
             await page.evaluate(async () => {
-                await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+                await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
             });
-            await expect.poll(async () => {
-                const current = await frame(page);
-                return Math.max(Math.abs(current.x - preview.x), Math.abs(current.y - preview.y));
-            }).toBeLessThan(0.5);
+            await expect
+                .poll(async () => {
+                    const current = await frame(page);
+                    return Math.max(Math.abs(current.x - preview.x), Math.abs(current.y - preview.y));
+                })
+                .toBeLessThan(0.5);
             const committed = await frame(page);
             expect(committed.x).toBeCloseTo(preview.x, 0);
             expect(committed.y).toBeCloseTo(preview.y, 0);
@@ -1396,9 +1500,9 @@ describe('Electron E2E - text interaction contract', () => {
         await modifiedKey(page, 'Enter');
         await page.evaluate(async () => {
             await document.fonts.ready;
-            await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+            await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
         });
-        const pageRect = await page.$eval('.editor-pane.is-active .page_container[data-page="1"]', element => {
+        const pageRect = await page.$eval('.editor-pane.is-active .page_container[data-page="1"]', (element) => {
             const rect = element.getBoundingClientRect();
             return {
                 left: rect.left,
@@ -1411,12 +1515,7 @@ describe('Electron E2E - text interaction contract', () => {
         expect(edge.y - pageRect.top).toBeCloseTo(2, 0);
         expect(pageRect.right - edge.x - edge.width).toBeCloseTo(2, 0);
         await expectRotation(page, 0);
-        for (const rotation of [
-            90,
-            180,
-            270,
-            0,
-        ]) {
+        for (const rotation of [90, 180, 270, 0]) {
             await clickVisibleAnnotationControl(page, '.editor-pane.is-active [data-annotation-rotate="cw"]');
             await expectRotation(page, rotation);
             if (rotation === 90 && process.env.EVB_TEXT_INTERACTION_EVIDENCE === '1') {
@@ -1432,7 +1531,7 @@ describe('Electron E2E - text interaction contract', () => {
         await clickVisibleAnnotationControl(page, '.editor-pane.is-active [data-annotation-rotate="cw"]');
         await expectRotation(page, 270);
         await page.mouse.click(pageRect.left + 40, pageRect.top + 200);
-        await page.waitForFunction(selector => !document.querySelector(selector)?.classList.contains('is-selected'), {}, BOX);
+        await page.waitForFunction((selector) => !document.querySelector(selector)?.classList.contains('is-selected'), {}, BOX);
         await clickVisibleAnnotationControl(page, BOX);
         await expectRotation(page, 270);
         const beforeMove = await frame(page);
@@ -1459,10 +1558,7 @@ describe('Electron E2E - text interaction contract', () => {
     }, 120_000);
 
     it('scales glyphs with corner handles, reflows with side handles, and saves that appearance', async () => {
-        const {
-            page,
-            path,
-        } = await openFixture();
+        const {page, path} = await openFixture();
         await startText(page);
         await page.keyboard.type('Resize');
         await modifiedKey(page, 'Enter');
@@ -1499,26 +1595,27 @@ describe('Electron E2E - text interaction contract', () => {
     }, 120_000);
 
     it('saves after every new text box was discarded and can still undo the deletion', async () => {
-        const {
-            page,
-            path,
-        } = await openFixture();
+        const {page, path} = await openFixture();
         const original = readFileSync(path);
         const summary = await readPdfAnnotationSummary(path);
-        for (const text of [
-            'First discarded text',
-            'Second discarded text',
-        ]) {
+        for (const text of ['First discarded text', 'Second discarded text']) {
             await startText(page);
             await page.keyboard.type(text);
             await modifiedKey(page, 'Enter');
-            await page.waitForFunction((selector) => {
-                const box = document.querySelector(selector);
-                return box && !box.querySelector('[contenteditable="true"]')
-                    && document.activeElement === box.closest('[data-pdf-annotation-editor-surface]');
-            }, {}, BOX);
+            await page.waitForFunction(
+                (selector) => {
+                    const box = document.querySelector(selector);
+                    return (
+                        box &&
+                        !box.querySelector('[contenteditable="true"]') &&
+                        document.activeElement === box.closest('[data-pdf-annotation-editor-surface]')
+                    );
+                },
+                {},
+                BOX,
+            );
             await page.keyboard.press('Backspace');
-            await page.waitForFunction(selector => !document.querySelector(selector), {}, BOX);
+            await page.waitForFunction((selector) => !document.querySelector(selector), {}, BOX);
         }
         await saveViaWindowHandle(page, 30_000);
         expect(readFileSync(path)).toEqual(original);

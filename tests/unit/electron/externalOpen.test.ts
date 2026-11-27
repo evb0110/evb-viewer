@@ -1,42 +1,22 @@
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { EventEmitter } from 'node:events';
-import { resolve } from 'path';
-import { pathToFileURL } from 'url';
-import type {
-    App,
-    BrowserWindow,
-    IpcMainEvent,
-} from 'electron';
-import { DEFAULT_SETTINGS } from '@contracts/settings';
-import {
-    createExternalOpenManager,
-    createMacOpenFileRouter,
-} from '@electron/bootstrap/externalOpen';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {EventEmitter} from 'node:events';
+import {resolve} from 'path';
+import {pathToFileURL} from 'url';
+import type {App, BrowserWindow, IpcMainEvent} from 'electron';
+import {DEFAULT_SETTINGS} from '@contracts/settings';
+import {createExternalOpenManager, createMacOpenFileRouter} from '@electron/bootstrap/externalOpen';
 import {
     bootSingleInstance,
     createStartupExternalOpenClaimTracker,
     runInitSequence,
     type IRunInitSequenceOptions,
 } from '@electron/bootstrap/runInitSequence';
-import { shouldResetRendererReadyOnNavigation } from '@electron/bootstrap/rendererReady';
-import { attachShowLifecycle } from '@electron/window/attachShowLifecycle';
-import { focusWindowForUser } from '@electron/window/focusWindowForUser';
-import {
-    getAllRegisteredAppWindows,
-    getRegisteredMainWindow,
-    registerAppWindow,
-} from '@electron/window/registry';
-import {
-    getWindowStartupPhase,
-    publishWindowStartupPhase,
-} from '@electron/window/rendererReady';
-import { createTestEventSender } from '@tests/helpers/electronEventEmitterHarness';
+import {shouldResetRendererReadyOnNavigation} from '@electron/bootstrap/rendererReady';
+import {attachShowLifecycle} from '@electron/window/attachShowLifecycle';
+import {focusWindowForUser} from '@electron/window/focusWindowForUser';
+import {getAllRegisteredAppWindows, getRegisteredMainWindow, registerAppWindow} from '@electron/window/registry';
+import {getWindowStartupPhase, publishWindowStartupPhase} from '@electron/window/rendererReady';
+import {createTestEventSender} from '@tests/helpers/electronEventEmitterHarness';
 
 const mocks = vi.hoisted(() => ({existsSync: vi.fn((_path: string) => true)}));
 
@@ -60,13 +40,13 @@ afterEach(() => {
 describe('createMacOpenFileRouter', () => {
     it('buffers supported open-file paths before the externalOpen manager is attached', () => {
         const logger = createLogger();
-        const router = createMacOpenFileRouter({ logger });
+        const router = createMacOpenFileRouter({logger});
         const externalOpenManager = {
             queueOpenRequest: vi.fn(),
             requestMainWindowForExternalOpen: vi.fn(),
         };
 
-        mocks.existsSync.mockImplementation(path => path === '/Users/test/Documents/sample.PDF');
+        mocks.existsSync.mockImplementation((path) => path === '/Users/test/Documents/sample.PDF');
         router.handleOpenFile('/Users/test/Documents/sample.PDF');
         router.attachExternalOpenManager(externalOpenManager);
 
@@ -81,7 +61,7 @@ describe('createMacOpenFileRouter', () => {
 
     it('ignores unsupported open-file paths', () => {
         const logger = createLogger();
-        const router = createMacOpenFileRouter({ logger });
+        const router = createMacOpenFileRouter({logger});
         const externalOpenManager = {
             queueOpenRequest: vi.fn(),
             requestMainWindowForExternalOpen: vi.fn(),
@@ -92,14 +72,12 @@ describe('createMacOpenFileRouter', () => {
 
         expect(externalOpenManager.queueOpenRequest).not.toHaveBeenCalled();
         expect(externalOpenManager.requestMainWindowForExternalOpen).not.toHaveBeenCalled();
-        expect(logger.warn).toHaveBeenCalledWith(
-            'Ignoring unsupported macOS open-file path: /Users/test/Documents/readme.txt',
-        );
+        expect(logger.warn).toHaveBeenCalledWith('Ignoring unsupported macOS open-file path: /Users/test/Documents/readme.txt');
     });
 
     it('routes later open-file events directly once the externalOpen manager is attached', () => {
         const logger = createLogger();
-        const router = createMacOpenFileRouter({ logger });
+        const router = createMacOpenFileRouter({logger});
         const externalOpenManager = {
             queueOpenRequest: vi.fn(),
             requestMainWindowForExternalOpen: vi.fn(),
@@ -115,13 +93,13 @@ describe('createMacOpenFileRouter', () => {
 
     it('preserves an existing trailing-whitespace path from the macOS open-file event', () => {
         const logger = createLogger();
-        const router = createMacOpenFileRouter({ logger });
+        const router = createMacOpenFileRouter({logger});
         const externalOpenManager = {
             queueOpenRequest: vi.fn(),
             requestMainWindowForExternalOpen: vi.fn(),
         };
         const exactPath = resolve('/Users/test/Documents/report.pdf ');
-        mocks.existsSync.mockImplementation(path => path === exactPath || path === exactPath.trim());
+        mocks.existsSync.mockImplementation((path) => path === exactPath || path === exactPath.trim());
 
         router.attachExternalOpenManager(externalOpenManager);
         router.handleOpenFile(exactPath);
@@ -185,7 +163,9 @@ describe('external open delivery across windows', () => {
             createWindow: noopAsync,
             dispatchOpenPaths(paths) {
                 const target = getRegisteredMainWindow();
-                if (!target) {return false;}
+                if (!target) {
+                    return false;
+                }
                 target.webContents.send('menu:openExternalPaths', paths);
                 return true;
             },
@@ -210,7 +190,7 @@ describe('external open delivery across windows', () => {
             externalOpenManager,
             focusMainWindow: noop,
             getMainWindow: getRegisteredMainWindow,
-            getWindowFromWebContents: sender => getAllRegisteredAppWindows().find(window => window.webContents === sender) ?? null,
+            getWindowFromWebContents: (sender) => getAllRegisteredAppWindows().find((window) => window.webContents === sender) ?? null,
             hasWindows,
             initRecentFilesCache: noopAsync,
             initializeElectronTranslations: noopAsync,
@@ -226,7 +206,9 @@ describe('external open delivery across windows', () => {
             onPrimaryInstanceReady: noop,
             maybePromptForDefaultViewer: noop,
             publishWindowStartupPhase,
-            registerIpcHandlers: handlers => { Object.assign(ipcHandlers, handlers); },
+            registerIpcHandlers: (handlers) => {
+                Object.assign(ipcHandlers, handlers);
+            },
             setupAppProtocolHandler: noop,
             setupMenu: noop,
             updateRecentFilesMenu: noop,
@@ -248,7 +230,7 @@ describe('external open delivery across windows', () => {
             expect(replacement.webContents.send).not.toHaveBeenCalled();
 
             main.close();
-            await new Promise<void>(resolve => setImmediate(resolve));
+            await new Promise<void>((resolve) => setImmediate(resolve));
 
             expect(replacement.webContents.send).toHaveBeenCalledExactlyOnceWith('menu:openExternalPaths', [path]);
             expect(main.webContents.send).not.toHaveBeenCalled();
@@ -260,12 +242,14 @@ describe('external open delivery across windows', () => {
 });
 
 describe('createExternalOpenManager', () => {
-    function createManagerHarness(options: {
-        isRendererReady?: boolean;
-        hasWindows?: boolean;
-        focusMainWindow?: () => void;
-        dispatchOpenPaths?: (paths: string[]) => boolean;
-    } = {}) {
+    function createManagerHarness(
+        options: {
+            isRendererReady?: boolean;
+            hasWindows?: boolean;
+            focusMainWindow?: () => void;
+            dispatchOpenPaths?: (paths: string[]) => boolean;
+        } = {},
+    ) {
         const logger = createLogger();
         let rendererReady = options.isRendererReady ?? true;
         let hasWindows = options.hasWindows ?? true;
@@ -301,15 +285,23 @@ describe('createExternalOpenManager', () => {
         let focused = false;
         let appActive = false;
         const window = {
-            focus() { focused = true; },
+            focus() {
+                focused = true;
+            },
             isDestroyed: () => false,
             isMinimized: () => false,
             isVisible: () => visible,
             restore() {},
-            show() { visible = true; },
+            show() {
+                visible = true;
+            },
             webContents: {focus() {}},
         };
-        const application = {focus() { appActive = true; }};
+        const application = {
+            focus() {
+                appActive = true;
+            },
+        };
         const {manager} = createManagerHarness({
             focusMainWindow: () => focusWindowForUser(window, {application, noFocus}),
         });
@@ -335,7 +327,7 @@ describe('createExternalOpenManager', () => {
     it('keeps an existing trailing-whitespace filename through dispatch', () => {
         const harness = createManagerHarness();
         const exactPath = resolve('/docs/report.pdf ');
-        mocks.existsSync.mockImplementation(path => path === exactPath || path === exactPath.trim());
+        mocks.existsSync.mockImplementation((path) => path === exactPath || path === exactPath.trim());
 
         harness.manager.markBootstrapReady();
         harness.manager.queueOpenRequest([exactPath]);
@@ -357,7 +349,7 @@ describe('createExternalOpenManager', () => {
         const harness = createManagerHarness();
         const secondInstanceCwd = resolve('/work/folder-b');
         const expectedPath = resolve(secondInstanceCwd, 'report.pdf');
-        mocks.existsSync.mockImplementation(path => path === expectedPath);
+        mocks.existsSync.mockImplementation((path) => path === expectedPath);
 
         harness.manager.markBootstrapReady();
         harness.manager.queueOpenRequestFromArgs(['report.pdf'], secondInstanceCwd);
@@ -369,7 +361,7 @@ describe('createExternalOpenManager', () => {
         const harness = createManagerHarness();
         const secondInstanceCwd = resolve('/work/folder-b');
         const exactPath = resolve(secondInstanceCwd, 'report.pdf ');
-        mocks.existsSync.mockImplementation(path => path === exactPath || path === exactPath.trim());
+        mocks.existsSync.mockImplementation((path) => path === exactPath || path === exactPath.trim());
 
         harness.manager.markBootstrapReady();
         harness.manager.queueOpenRequestFromArgs(['report.pdf '], secondInstanceCwd);
@@ -380,7 +372,7 @@ describe('createExternalOpenManager', () => {
     it('keeps an existing trailing-whitespace command-line filename through dispatch', () => {
         const harness = createManagerHarness();
         const exactPath = resolve('/docs/report.pdf ');
-        mocks.existsSync.mockImplementation(path => path === exactPath || path === exactPath.trim());
+        mocks.existsSync.mockImplementation((path) => path === exactPath || path === exactPath.trim());
 
         harness.manager.markBootstrapReady();
         harness.manager.queueOpenRequestFromArgs([exactPath], process.cwd());
@@ -391,22 +383,20 @@ describe('createExternalOpenManager', () => {
     it('rejects a missing exact path instead of opening its trimmed sibling', () => {
         const harness = createManagerHarness();
         const sibling = resolve('/docs/missing-exact.pdf');
-        mocks.existsSync.mockImplementation(path => path === sibling);
+        mocks.existsSync.mockImplementation((path) => path === sibling);
 
         harness.manager.markBootstrapReady();
         harness.manager.queueOpenRequestFromArgs([`${sibling} `], process.cwd());
 
         expect(harness.dispatchOpenPaths).not.toHaveBeenCalled();
-        expect(harness.logger.warn).toHaveBeenCalledWith(
-            `Ignoring missing dispatch external open path: ${sibling} `,
-        );
+        expect(harness.logger.warn).toHaveBeenCalledWith(`Ignoring missing dispatch external open path: ${sibling} `);
     });
 
     it('keeps literal quote characters in an already-tokenized filename', () => {
         const harness = createManagerHarness();
         const exactPath = resolve('/docs/"quoted.pdf"');
         const sibling = resolve('/docs/quoted.pdf');
-        mocks.existsSync.mockImplementation(path => path === exactPath || path === sibling);
+        mocks.existsSync.mockImplementation((path) => path === exactPath || path === sibling);
 
         harness.manager.markBootstrapReady();
         harness.manager.queueOpenRequestFromArgs([exactPath], process.cwd());
@@ -417,13 +407,10 @@ describe('createExternalOpenManager', () => {
     it('does not join separate argv tokens into another existing filename', () => {
         const harness = createManagerHarness();
         const sibling = resolve('/docs/report final.pdf');
-        mocks.existsSync.mockImplementation(path => path === sibling);
+        mocks.existsSync.mockImplementation((path) => path === sibling);
 
         harness.manager.markBootstrapReady();
-        harness.manager.queueOpenRequestFromArgs([
-            'report',
-            'final.pdf',
-        ], resolve('/docs'));
+        harness.manager.queueOpenRequestFromArgs(['report', 'final.pdf'], resolve('/docs'));
 
         expect(harness.dispatchOpenPaths).not.toHaveBeenCalled();
     });
@@ -431,7 +418,7 @@ describe('createExternalOpenManager', () => {
     it('decodes an explicit file URI exactly once at argv admission', () => {
         const harness = createManagerHarness();
         const exactPath = resolve('/docs/Отчёт%20 空.pdf ');
-        mocks.existsSync.mockImplementation(path => path === exactPath);
+        mocks.existsSync.mockImplementation((path) => path === exactPath);
 
         harness.manager.markBootstrapReady();
         harness.manager.queueOpenRequestFromArgs([pathToFileURL(exactPath).href], process.cwd());
@@ -442,7 +429,7 @@ describe('createExternalOpenManager', () => {
     it('does not decode a plain percent-containing native path', () => {
         const harness = createManagerHarness();
         const exactPath = resolve('/docs/report%20name.pdf');
-        mocks.existsSync.mockImplementation(path => path === exactPath);
+        mocks.existsSync.mockImplementation((path) => path === exactPath);
 
         harness.manager.markBootstrapReady();
         harness.manager.queueOpenRequestFromArgs([exactPath], process.cwd());
@@ -452,7 +439,7 @@ describe('createExternalOpenManager', () => {
 
     it('keeps one startup open when completion takes longer than 30 seconds', async () => {
         vi.useFakeTimers();
-        const harness = createManagerHarness({ isRendererReady: false });
+        const harness = createManagerHarness({isRendererReady: false});
         const tracker = createStartupExternalOpenClaimTracker({
             externalOpenManager: harness.manager,
             logger: harness.logger,
@@ -464,7 +451,9 @@ describe('createExternalOpenManager', () => {
         const claimed = await harness.manager.claimPendingOpenPaths();
         tracker.track(sender, claimed);
         let completeOpen!: () => void;
-        const completion = new Promise<void>(resolve => { completeOpen = resolve; });
+        const completion = new Promise<void>((resolve) => {
+            completeOpen = resolve;
+        });
         const acknowledgement = completion.then(() => tracker.acknowledge(sender, []));
 
         await vi.advanceTimersByTimeAsync(31_000);
@@ -482,14 +471,11 @@ describe('createExternalOpenManager', () => {
         expect(harness.dispatchOpenPaths).toHaveBeenCalledExactlyOnceWith([exactPath]);
     });
 
-    it.each([
-        'main-frame navigation',
-        'renderer process gone',
-        'window closed',
-    ])(
-        'redelivers an unacknowledged startup claim after %s', async (reason) => {
+    it.each(['main-frame navigation', 'renderer process gone', 'window closed'])(
+        'redelivers an unacknowledged startup claim after %s',
+        async (reason) => {
             vi.useFakeTimers();
-            const harness = createManagerHarness({ isRendererReady: false });
+            const harness = createManagerHarness({isRendererReady: false});
             const tracker = createStartupExternalOpenClaimTracker({
                 externalOpenManager: harness.manager,
                 logger: harness.logger,
@@ -513,12 +499,12 @@ describe('createExternalOpenManager', () => {
 
     it('does not acknowledge a deleted exact path as its remaining sibling', async () => {
         vi.useFakeTimers();
-        const harness = createManagerHarness({ isRendererReady: false });
+        const harness = createManagerHarness({isRendererReady: false});
         const exactPath = '/docs/report.pdf ';
         harness.manager.markBootstrapReady();
         harness.manager.queueOpenRequest([exactPath]);
         await expect(harness.manager.claimPendingOpenPaths()).resolves.toEqual([exactPath]);
-        mocks.existsSync.mockImplementation(path => path === exactPath.trim());
+        mocks.existsSync.mockImplementation((path) => path === exactPath.trim());
 
         harness.manager.acknowledgeClaimedOpenPaths([exactPath]);
         harness.setRendererReady(true);
@@ -562,10 +548,7 @@ describe('createExternalOpenManager', () => {
         await vi.advanceTimersByTimeAsync(1);
 
         expect(harness.dispatchOpenPaths).toHaveBeenCalledTimes(2);
-        expect(harness.dispatchOpenPaths).toHaveBeenNthCalledWith(2, [
-            '/docs/one.pdf',
-            '/docs/two.pdf',
-        ]);
+        expect(harness.dispatchOpenPaths).toHaveBeenNthCalledWith(2, ['/docs/one.pdf', '/docs/two.pdf']);
     });
 
     it('does not re-arm the singleton phase for a duplicate path', async () => {
@@ -590,10 +573,7 @@ describe('createExternalOpenManager', () => {
 
         harness.manager.markBootstrapReady();
         harness.manager.queueOpenRequest(['/docs/initial.pdf']);
-        harness.manager.queueOpenRequest([
-            '/docs/one.pdf',
-            '/docs/two.pdf',
-        ]);
+        harness.manager.queueOpenRequest(['/docs/one.pdf', '/docs/two.pdf']);
 
         await vi.advanceTimersByTimeAsync(799);
         harness.manager.queueOpenRequest(['/docs/three.pdf']);
@@ -604,11 +584,7 @@ describe('createExternalOpenManager', () => {
         await vi.advanceTimersByTimeAsync(1);
 
         expect(harness.dispatchOpenPaths).toHaveBeenCalledTimes(2);
-        expect(harness.dispatchOpenPaths).toHaveBeenNthCalledWith(2, [
-            '/docs/one.pdf',
-            '/docs/two.pdf',
-            '/docs/three.pdf',
-        ]);
+        expect(harness.dispatchOpenPaths).toHaveBeenNthCalledWith(2, ['/docs/one.pdf', '/docs/two.pdf', '/docs/three.pdf']);
     });
 
     it('caps a continuously extended multi-path batch at 10 seconds', async () => {
@@ -617,10 +593,7 @@ describe('createExternalOpenManager', () => {
 
         harness.manager.markBootstrapReady();
         harness.manager.queueOpenRequest(['/docs/initial.pdf']);
-        harness.manager.queueOpenRequest([
-            '/docs/one.pdf',
-            '/docs/two.pdf',
-        ]);
+        harness.manager.queueOpenRequest(['/docs/one.pdf', '/docs/two.pdf']);
 
         for (let index = 0; index < 12; index += 1) {
             await vi.advanceTimersByTimeAsync(799);
@@ -636,7 +609,7 @@ describe('createExternalOpenManager', () => {
     });
 
     it('keeps queued paths until renderer readiness returns', () => {
-        const harness = createManagerHarness({ isRendererReady: false });
+        const harness = createManagerHarness({isRendererReady: false});
 
         harness.manager.markBootstrapReady();
         harness.manager.queueOpenRequest(['/docs/retry.pdf']);
@@ -652,7 +625,7 @@ describe('createExternalOpenManager', () => {
     });
 
     it('lets the startup renderer claim queued paths before rendererReady dispatch', async () => {
-        const harness = createManagerHarness({ isRendererReady: false });
+        const harness = createManagerHarness({isRendererReady: false});
 
         harness.manager.markBootstrapReady();
         harness.manager.queueOpenRequest(['/docs/startup.pdf']);
@@ -667,7 +640,7 @@ describe('createExternalOpenManager', () => {
 
     it('requeues failed startup claims for later renderer dispatch', async () => {
         vi.useFakeTimers();
-        const harness = createManagerHarness({ isRendererReady: false });
+        const harness = createManagerHarness({isRendererReady: false});
 
         harness.manager.markBootstrapReady();
         harness.manager.queueOpenRequest(['/docs/startup.pdf']);
@@ -686,7 +659,7 @@ describe('createExternalOpenManager', () => {
 
     it('redelivers a failed trailing-space startup path at once, not at the claim timeout', async () => {
         vi.useFakeTimers();
-        const harness = createManagerHarness({ isRendererReady: false });
+        const harness = createManagerHarness({isRendererReady: false});
         const startupClaims = createStartupExternalOpenClaimTracker({
             externalOpenManager: harness.manager,
             logger: harness.logger,
@@ -707,28 +680,20 @@ describe('createExternalOpenManager', () => {
     });
 
     it('does not claim unsupported or missing startup paths for capability grants', async () => {
-        const harness = createManagerHarness({ isRendererReady: false });
+        const harness = createManagerHarness({isRendererReady: false});
         mocks.existsSync.mockImplementation((path: string) => path === '/docs/startup.pdf');
 
         harness.manager.markBootstrapReady();
-        harness.manager.queueOpenRequest([
-            '/docs/startup.pdf',
-            '/docs/readme.txt',
-            '/docs/missing.pdf',
-        ]);
+        harness.manager.queueOpenRequest(['/docs/startup.pdf', '/docs/readme.txt', '/docs/missing.pdf']);
 
         await expect(harness.manager.claimPendingOpenPaths()).resolves.toEqual(['/docs/startup.pdf']);
-        expect(harness.logger.warn).toHaveBeenCalledWith(
-            'Ignoring unsupported startup claim external open path: /docs/readme.txt',
-        );
-        expect(harness.logger.warn).toHaveBeenCalledWith(
-            'Ignoring missing startup claim external open path: /docs/missing.pdf',
-        );
+        expect(harness.logger.warn).toHaveBeenCalledWith('Ignoring unsupported startup claim external open path: /docs/readme.txt');
+        expect(harness.logger.warn).toHaveBeenCalledWith('Ignoring missing startup claim external open path: /docs/missing.pdf');
     });
 
     it('does not requeue failed startup acknowledgement paths that were removed or unsupported', async () => {
         vi.useFakeTimers();
-        const harness = createManagerHarness({ isRendererReady: false });
+        const harness = createManagerHarness({isRendererReady: false});
 
         harness.manager.markBootstrapReady();
         harness.manager.queueOpenRequest(['/docs/startup.pdf']);
@@ -736,10 +701,7 @@ describe('createExternalOpenManager', () => {
         await expect(harness.manager.claimPendingOpenPaths()).resolves.toEqual(['/docs/startup.pdf']);
 
         mocks.existsSync.mockImplementation((path: string) => path !== '/docs/missing.pdf');
-        harness.manager.acknowledgeClaimedOpenPaths([
-            '/docs/missing.pdf',
-            '/docs/readme.txt',
-        ]);
+        harness.manager.acknowledgeClaimedOpenPaths(['/docs/missing.pdf', '/docs/readme.txt']);
         harness.setRendererReady(true);
         harness.manager.scheduleFlushPendingFiles();
         await vi.advanceTimersByTimeAsync(800);
@@ -749,7 +711,7 @@ describe('createExternalOpenManager', () => {
 
     it('briefly waits for a startup open-file event before returning an empty initial claim', async () => {
         vi.useFakeTimers();
-        const harness = createManagerHarness({ isRendererReady: false });
+        const harness = createManagerHarness({isRendererReady: false});
 
         harness.manager.markBootstrapReady();
         const claimPromise = harness.manager.claimPendingOpenPaths();
@@ -771,7 +733,7 @@ describe('createExternalOpenManager', () => {
             .mockReturnValueOnce(true)
             .mockReturnValueOnce(false)
             .mockReturnValueOnce(true);
-        const harness = createManagerHarness({ dispatchOpenPaths });
+        const harness = createManagerHarness({dispatchOpenPaths});
 
         harness.manager.markBootstrapReady();
         harness.manager.queueOpenRequest(['/docs/initial.pdf']);
@@ -797,7 +759,7 @@ describe('createExternalOpenManager', () => {
     it('drops a batch once the retry budget is spent', async () => {
         vi.useFakeTimers();
         const dispatchOpenPaths = vi.fn(() => false);
-        const harness = createManagerHarness({ dispatchOpenPaths });
+        const harness = createManagerHarness({dispatchOpenPaths});
 
         harness.manager.markBootstrapReady();
         harness.manager.queueOpenRequest(['/docs/undeliverable.pdf']);
@@ -805,9 +767,7 @@ describe('createExternalOpenManager', () => {
         await vi.advanceTimersByTimeAsync(10_000);
 
         expect(dispatchOpenPaths).toHaveBeenCalledTimes(10);
-        expect(harness.logger.warn).toHaveBeenCalledWith(
-            'External open dispatch failed 10 times; dropping 1 queued path(s)',
-        );
+        expect(harness.logger.warn).toHaveBeenCalledWith('External open dispatch failed 10 times; dropping 1 queued path(s)');
 
         await vi.advanceTimersByTimeAsync(10_000);
 
@@ -855,12 +815,7 @@ describe('createExternalOpenManager', () => {
 
         // Electron's argv for a launch: the executable, the entry script, a switch, then the user's arguments.
         function appArgv(...userArguments: string[]) {
-            return [
-                '/opt/evb/evb-viewer',
-                '/opt/evb/main.js',
-                '--',
-                ...userArguments,
-            ];
+            return ['/opt/evb/evb-viewer', '/opt/evb/main.js', '--', ...userArguments];
         }
 
         // Boots a launch whose argv and working directory come from the process.
@@ -894,7 +849,7 @@ describe('createExternalOpenManager', () => {
             const second = createSingleInstanceApp(false);
             const secondCwd = resolve('/work/folder-c');
             const exactPath = resolve(secondCwd, 'report.pdf ');
-            mocks.existsSync.mockImplementation(path => path === exactPath);
+            mocks.existsSync.mockImplementation((path) => path === exactPath);
 
             bootLaunch(appArgv(), resolve('/work/folder-a'), launchOptions(primary.app, harness.manager));
             bootRefusedLaunch(appArgv('report.pdf '), secondCwd, launchOptions(second.app, harness.manager));
@@ -905,15 +860,12 @@ describe('createExternalOpenManager', () => {
             expect(harness.dispatchOpenPaths).toHaveBeenCalledWith([exactPath]);
         });
 
-        it.each([
-            undefined,
-            null,
-        ])('opens a legacy sender event when the additional payload is absent: %j', (payload) => {
+        it.each([undefined, null])('opens a legacy sender event when the additional payload is absent: %j', (payload) => {
             const harness = createManagerHarness();
             const primary = createSingleInstanceApp(true);
             const secondCwd = resolve('/work/folder-b');
             const expectedPath = resolve(secondCwd, 'report.pdf');
-            mocks.existsSync.mockImplementation(path => path === expectedPath);
+            mocks.existsSync.mockImplementation((path) => path === expectedPath);
             bootLaunch(appArgv(), resolve('/work/folder-a'), launchOptions(primary.app, harness.manager));
             harness.manager.markBootstrapReady();
 
@@ -928,19 +880,16 @@ describe('createExternalOpenManager', () => {
                 argv: [4],
                 workingDirectory: '/work/folder-b',
             },
-        ])(
-            'rejects a malformed payload without falling back to event argv: %j',
-            (payload) => {
-                const harness = createManagerHarness();
-                const primary = createSingleInstanceApp(true);
-                bootLaunch(appArgv(), resolve('/work/folder-a'), launchOptions(primary.app, harness.manager));
-                harness.manager.markBootstrapReady();
+        ])('rejects a malformed payload without falling back to event argv: %j', (payload) => {
+            const harness = createManagerHarness();
+            const primary = createSingleInstanceApp(true);
+            bootLaunch(appArgv(), resolve('/work/folder-a'), launchOptions(primary.app, harness.manager));
+            harness.manager.markBootstrapReady();
 
-                primary.emitSecondInstance(appArgv('report.pdf'), resolve('/work/folder-b'), payload);
+            primary.emitSecondInstance(appArgv('report.pdf'), resolve('/work/folder-b'), payload);
 
-                expect(harness.dispatchOpenPaths).not.toHaveBeenCalled();
-            },
-        );
+            expect(harness.dispatchOpenPaths).not.toHaveBeenCalled();
+        });
 
         it('opens a relative file name from the second launch folder, not the first', () => {
             const harness = createManagerHarness();
@@ -948,7 +897,7 @@ describe('createExternalOpenManager', () => {
             const second = createSingleInstanceApp(false);
             const secondCwd = resolve('/work/folder-b');
             const expectedPath = resolve(secondCwd, 'report.pdf');
-            mocks.existsSync.mockImplementation(path => path === expectedPath);
+            mocks.existsSync.mockImplementation((path) => path === expectedPath);
 
             bootLaunch(appArgv(), resolve('/work/folder-a'), launchOptions(primary.app, harness.manager));
             bootRefusedLaunch(appArgv('report.pdf'), secondCwd, launchOptions(second.app, harness.manager));

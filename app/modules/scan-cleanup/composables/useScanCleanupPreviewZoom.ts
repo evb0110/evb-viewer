@@ -18,7 +18,6 @@ interface IPreviewPanGesture {
     pointerY: number;
 }
 
-
 interface IPreviewWheelZoomSession {
     anchorX: number;
     anchorY: number;
@@ -68,26 +67,24 @@ export const useScanCleanupPreviewZoom = (options: IUseScanCleanupPreviewZoomOpt
     // remain usable: minus leaves Fit for the next smaller manual level just
     // as plus leaves it for the next larger one.
     const previewMinimumZoom = computed(() => Math.min(ZOOM.MIN, previewFitZoom.value));
-    const previewEffectiveZoom = computed(() => previewZoomMode.value === 'fit'
-        ? previewFitZoom.value
-        : clamp(previewCustomZoom.value, previewMinimumZoom.value, ZOOM.MAX));
+    const previewEffectiveZoom = computed(() =>
+        previewZoomMode.value === 'fit' ? previewFitZoom.value : clamp(previewCustomZoom.value, previewMinimumZoom.value, ZOOM.MAX),
+    );
     const previewTransformScale = computed(() => previewEffectiveZoom.value / previewFitZoom.value);
-    const previewTransformStyle = computed(() => (
-        {transform: `translate3d(${previewPan.x}px, ${previewPan.y}px, 0) scale(${previewTransformScale.value})`}
-    ));
-    const previewZoomLabel = computed(() => previewZoomMode.value === 'fit'
-        ? options.formatFitLabel()
-        : options.formatZoomLabel(Math.round(previewEffectiveZoom.value * 100)));
-    const canZoomOut = computed(() => previewEffectiveZoom.value
-        > previewMinimumZoom.value + PREVIEW_ZOOM_EPSILON);
+    const previewTransformStyle = computed(() => ({
+        transform: `translate3d(${previewPan.x}px, ${previewPan.y}px, 0) scale(${previewTransformScale.value})`,
+    }));
+    const previewZoomLabel = computed(() =>
+        previewZoomMode.value === 'fit' ? options.formatFitLabel() : options.formatZoomLabel(Math.round(previewEffectiveZoom.value * 100)),
+    );
+    const canZoomOut = computed(() => previewEffectiveZoom.value > previewMinimumZoom.value + PREVIEW_ZOOM_EPSILON);
     const canZoomIn = computed(() => previewEffectiveZoom.value < ZOOM.MAX - PREVIEW_ZOOM_EPSILON);
-    const canPanPreview = computed(() => !options.disabled()
-        && previewTransformScale.value > 1 + PREVIEW_ZOOM_EPSILON);
+    const canPanPreview = computed(() => !options.disabled() && previewTransformScale.value > 1 + PREVIEW_ZOOM_EPSILON);
 
     function previewPanBounds(scale = previewTransformScale.value) {
         return {
-            x: Math.max(0, options.overlayBounds.width * (scale - 1) / 2),
-            y: Math.max(0, options.overlayBounds.height * (scale - 1) / 2),
+            x: Math.max(0, (options.overlayBounds.width * (scale - 1)) / 2),
+            y: Math.max(0, (options.overlayBounds.height * (scale - 1)) / 2),
         };
     }
 
@@ -106,22 +103,16 @@ export const useScanCleanupPreviewZoom = (options: IUseScanCleanupPreviewZoomOpt
         }
         const previousScale = previewTransformScale.value;
         const surfaceRect = options.surface.value?.getBoundingClientRect();
-        const hasCursorAnchor = clientX !== undefined
-            && clientY !== undefined
-            && surfaceRect !== undefined;
-        const anchorX = hasCursorAnchor
-            ? clientX - surfaceRect.left - options.overlayBounds.x - options.overlayBounds.width / 2
-            : 0;
-        const anchorY = hasCursorAnchor
-            ? clientY - surfaceRect.top - options.overlayBounds.y - options.overlayBounds.height / 2
-            : 0;
+        const hasCursorAnchor = clientX !== undefined && clientY !== undefined && surfaceRect !== undefined;
+        const anchorX = hasCursorAnchor ? clientX - surfaceRect.left - options.overlayBounds.x - options.overlayBounds.width / 2 : 0;
+        const anchorY = hasCursorAnchor ? clientY - surfaceRect.top - options.overlayBounds.y - options.overlayBounds.height / 2 : 0;
         const previousPanX = previewPan.x;
         const previousPanY = previewPan.y;
         previewCustomZoom.value = normalizedZoom;
         previewZoomMode.value = 'custom';
         const nextScale = previewTransformScale.value;
-        previewPan.x = anchorX - (anchorX - previousPanX) * nextScale / previousScale;
-        previewPan.y = anchorY - (anchorY - previousPanY) * nextScale / previousScale;
+        previewPan.x = anchorX - ((anchorX - previousPanX) * nextScale) / previousScale;
+        previewPan.y = anchorY - ((anchorY - previousPanY) * nextScale) / previousScale;
         clampPreviewPan();
     }
 
@@ -141,11 +132,7 @@ export const useScanCleanupPreviewZoom = (options: IUseScanCleanupPreviewZoomOpt
         }
         const eventTarget = event?.target;
         const usePointerAnchor = eventTarget instanceof Node && options.surface.value?.contains(eventTarget);
-        setPreviewZoom(
-            1,
-            usePointerAnchor ? event?.clientX : undefined,
-            usePointerAnchor ? event?.clientY : undefined,
-        );
+        setPreviewZoom(1, usePointerAnchor ? event?.clientX : undefined, usePointerAnchor ? event?.clientY : undefined);
     }
 
     function stepPreviewZoom(direction: -1 | 1) {
@@ -163,8 +150,7 @@ export const useScanCleanupPreviewZoom = (options: IUseScanCleanupPreviewZoomOpt
         }
         const interaction = resolveDocumentWheelInteraction(event, surface);
         const nowMs = Date.now();
-        const continuation = wheelZoomSession !== null
-            && nowMs - wheelZoomSession.lastPacketAtMs <= DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS;
+        const continuation = wheelZoomSession !== null && nowMs - wheelZoomSession.lastPacketAtMs <= DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS;
         if (interaction.intent !== 'zoom' && !continuation) {
             return;
         }
@@ -182,23 +168,14 @@ export const useScanCleanupPreviewZoom = (options: IUseScanCleanupPreviewZoomOpt
                 startZoom: previewEffectiveZoom.value,
             };
         }
-        const target = resolveDocumentWheelZoomTarget(
-            wheelZoomSession.startZoom,
-            wheelZoomSession.cumulativeDelta,
-            delta,
-            {
-                minimumZoom: previewMinimumZoom.value,
-                maximumZoom: ZOOM.MAX,
-            },
-        );
+        const target = resolveDocumentWheelZoomTarget(wheelZoomSession.startZoom, wheelZoomSession.cumulativeDelta, delta, {
+            minimumZoom: previewMinimumZoom.value,
+            maximumZoom: ZOOM.MAX,
+        });
         wheelZoomSession.cumulativeDelta = target.cumulativeDelta;
         wheelZoomSession.lastPacketAtMs = nowMs;
         if (target.valid) {
-            setPreviewZoom(
-                target.nextEffectiveZoom,
-                wheelZoomSession.anchorX,
-                wheelZoomSession.anchorY,
-            );
+            setPreviewZoom(target.nextEffectiveZoom, wheelZoomSession.anchorX, wheelZoomSession.anchorY);
         }
     }
 
@@ -207,23 +184,17 @@ export const useScanCleanupPreviewZoom = (options: IUseScanCleanupPreviewZoomOpt
     // navigation impossible at zoom. Their editing affordances are the discrete
     // handles and controls matched here.
     function pointerTargetIsInteractive(target: EventTarget | null) {
-        return target instanceof Element && target.closest([
-            'button',
-            'input',
-            'select',
-            'textarea',
-            '.cutter-control',
-        ].join(',')) !== null;
+        return target instanceof Element && target.closest(['button', 'input', 'select', 'textarea', '.cutter-control'].join(',')) !== null;
     }
 
     function startPreviewPan(event: PointerEvent) {
         if (
-            options.disabled()
-            || !canPanPreview.value
-            || event.button !== 0
-            || event.defaultPrevented
-            || options.dragActive.value
-            || pointerTargetIsInteractive(event.target)
+            options.disabled() ||
+            !canPanPreview.value ||
+            event.button !== 0 ||
+            event.defaultPrevented ||
+            options.dragActive.value ||
+            pointerTargetIsInteractive(event.target)
         ) {
             return;
         }

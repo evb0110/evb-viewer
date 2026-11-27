@@ -2,14 +2,7 @@
 
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import type {IDocumentThumbnailCommittedState} from '@app/modules/document-viewer/thumbnails/createDocumentThumbnailScheduler';
 import type {IDocumentThumbnailVirtualItem} from '@app/modules/document-viewer/thumbnails/useDocumentThumbnailController';
 import {
@@ -37,18 +30,17 @@ const controller = vi.hoisted(() => ({
     virtualItems: [] as IDocumentThumbnailVirtualItem[],
 }));
 
-vi.mock(
-    '@app/modules/document-viewer/thumbnails/useDocumentThumbnailController',
-    async () => {
-        const {ref} = await import('vue');
-        return {useDocumentThumbnailController: () => ({
+vi.mock('@app/modules/document-viewer/thumbnails/useDocumentThumbnailController', async () => {
+    const {ref} = await import('vue');
+    return {
+        useDocumentThumbnailController: () => ({
             ...controller,
             rasterWidth: ref(192),
             outputScale: ref(1),
             userScrollSuppressed: ref(false),
-        })};
-    },
-);
+        }),
+    };
+});
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),

@@ -1,13 +1,8 @@
-import { createServer as createNetServer } from 'node:net';
-import {
-    execFileSync,
-    execSync,
-    spawnSync,
-    type ChildProcess,
-} from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import { uniq } from 'es-toolkit/array';
-import { delay } from 'es-toolkit/promise';
+import {createServer as createNetServer} from 'node:net';
+import {execFileSync, execSync, spawnSync, type ChildProcess} from 'node:child_process';
+import {readFileSync} from 'node:fs';
+import {uniq} from 'es-toolkit/array';
+import {delay} from 'es-toolkit/promise';
 
 // SIGKILL only schedules teardown, so a killed process stays visible to
 // `kill(pid, 0)` until the kernel reaps it. Callers read the liveness check
@@ -24,7 +19,7 @@ export async function findFreePort(): Promise<number> {
                 reject(new Error('Failed to allocate free port'));
                 return;
             }
-            const { port } = addr;
+            const {port} = addr;
             server.close(() => resolve(port));
         });
         server.on('error', reject);
@@ -33,11 +28,11 @@ export async function findFreePort(): Promise<number> {
 
 export function getPidsOnPort(port: number): number[] {
     try {
-        const output = execSync(`lsof -ti :${port} 2>/dev/null || true`, { encoding: 'utf8' });
+        const output = execSync(`lsof -ti :${port} 2>/dev/null || true`, {encoding: 'utf8'});
         return output
             .split('\n')
-            .map(entry => Number(entry.trim()))
-            .filter(pid => Number.isFinite(pid) && pid > 0);
+            .map((entry) => Number(entry.trim()))
+            .filter((pid) => Number.isFinite(pid) && pid > 0);
     } catch {
         return [];
     }
@@ -77,7 +72,7 @@ export function collectDescendantPidsUnix(rootPid: number) {
     }
 
     try {
-        const output = execSync('ps -eo pid=,ppid=', { encoding: 'utf8' });
+        const output = execSync('ps -eo pid=,ppid=', {encoding: 'utf8'});
         const childrenByParent = new Map<number, number[]>();
 
         for (const line of output.split('\n')) {
@@ -124,7 +119,7 @@ export function findPidsByCommandSubstring(substring: string) {
     }
 
     try {
-        const output = execSync('ps -ax -o pid=,command=', { encoding: 'utf8' });
+        const output = execSync('ps -ax -o pid=,command=', {encoding: 'utf8'});
         const pids: number[] = [];
         for (const line of output.split('\n')) {
             const match = line.match(/^\s*(\d+)\s+(.+)$/);
@@ -153,22 +148,13 @@ export function findPidsByCommandSubstring(substring: string) {
  * Resolves true when it found the root alive and terminated its tree, false
  * when the root was already gone or termination could not be confirmed.
  */
-export async function killProcessTree(
-    pid: number,
-    graceMs = 1500,
-    options: {force?: boolean} = {},
-) {
+export async function killProcessTree(pid: number, graceMs = 1500, options: {force?: boolean} = {}) {
     if (!isProcessAlive(pid)) {
         return false;
     }
 
     if (process.platform === 'win32') {
-        const {status} = spawnSync('taskkill', [
-            '/PID',
-            String(pid),
-            '/T',
-            '/F',
-        ], {stdio: 'ignore'});
+        const {status} = spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], {stdio: 'ignore'});
         // TerminateProcess is asynchronous like SIGKILL, so the process stays
         // visible to the liveness check callers read straight afterwards.
         const rootExited = await waitForProcessesExit([pid], FORCED_EXIT_TIMEOUT_MS);
@@ -177,20 +163,17 @@ export async function killProcessTree(
     }
 
     const descendants = collectDescendantPidsUnix(pid);
-    const targets = uniq([
-        ...descendants,
-        pid,
-    ]);
+    const targets = uniq([...descendants, pid]);
     if (options.force) {
-        killPids(targets, { signal: 'SIGKILL' });
+        killPids(targets, {signal: 'SIGKILL'});
         return waitForProcessesExit(targets, FORCED_EXIT_TIMEOUT_MS);
     }
-    killPids(targets, { signal: 'SIGTERM' });
+    killPids(targets, {signal: 'SIGTERM'});
 
     if (graceMs > 0) {
         const deadline = Date.now() + graceMs;
         while (Date.now() < deadline) {
-            const alive = targets.some(targetPid => isProcessAlive(targetPid));
+            const alive = targets.some((targetPid) => isProcessAlive(targetPid));
             if (!alive) {
                 return true;
             }
@@ -198,9 +181,9 @@ export async function killProcessTree(
         }
     }
 
-    const remaining = targets.filter(targetPid => isProcessAlive(targetPid));
+    const remaining = targets.filter((targetPid) => isProcessAlive(targetPid));
     if (remaining.length > 0) {
-        killPids(remaining, { signal: 'SIGKILL' });
+        killPids(remaining, {signal: 'SIGKILL'});
         return waitForProcessesExit(remaining, FORCED_EXIT_TIMEOUT_MS);
     }
     return true;
@@ -229,7 +212,7 @@ export async function killSpawnedProcessTree(child: ChildProcess | null | undefi
 
 async function waitForProcessesExit(pids: readonly number[], timeoutMs: number) {
     const targets = uniq([...pids]);
-    const hasSurvivor = () => targets.some(pid => isProcessAlive(pid));
+    const hasSurvivor = () => targets.some((pid) => isProcessAlive(pid));
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
         if (!hasSurvivor()) {
@@ -249,7 +232,10 @@ function isLinuxProcStatAlive(stat: string) {
     if (commandEnd < 0) {
         return true;
     }
-    const state = stat.slice(commandEnd + 1).trimStart().charAt(0);
+    const state = stat
+        .slice(commandEnd + 1)
+        .trimStart()
+        .charAt(0);
     return state !== 'Z' && state !== 'X';
 }
 
@@ -262,18 +248,9 @@ function isLinuxProcStatAlive(stat: string) {
 // when the process left between kill(0) and the probe).
 function readPosixProcessState(pid: number) {
     try {
-        return execFileSync('ps', [
-            '-p',
-            String(pid),
-            '-o',
-            'stat=',
-        ], {
+        return execFileSync('ps', ['-p', String(pid), '-o', 'stat='], {
             encoding: 'utf8',
-            stdio: [
-                'ignore',
-                'pipe',
-                'ignore',
-            ],
+            stdio: ['ignore', 'pipe', 'ignore'],
         }).trim();
     } catch {
         return null;

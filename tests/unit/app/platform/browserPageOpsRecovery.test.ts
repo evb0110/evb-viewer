@@ -1,55 +1,47 @@
-import {
-    mkdtemp,
-    readFile,
-    rm,
-} from 'node:fs/promises';
+import {mkdtemp, readFile, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {
-    join,
-    resolve,
-} from 'node:path';
+import {join, resolve} from 'node:path';
 import {PDFDocument} from 'pdf-lib';
 import {afterEach, expect, it, onTestFinished, vi} from 'vitest';
 import type * as TBrowserDocumentStore from '@app/platform/browserDocumentStore';
-import {
-    BROWSER_MAX_FULL_READ_BYTES,
-    BrowserDocumentStore,
-} from '@app/platform/browserDocumentStore';
+import {BROWSER_MAX_FULL_READ_BYTES, BrowserDocumentStore} from '@app/platform/browserDocumentStore';
 import {browserPublication} from '@app/platform/browser/browserPublication';
 import {openDocument} from '@document-store/documentDirectory';
 import {createNodeStorePort} from '@document-store/nodeStorePort';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {createBrowserPageOpsCapability} from '@app/platform/browser-api/createBrowserPageOpsCapability';
-import {
-    createFileSystemFileHandle,
-    MemoryStorage,
-} from '@tests/unit/app/platform/browserPlatformTestDoubles';
+import {createFileSystemFileHandle, MemoryStorage} from '@tests/unit/app/platform/browserPlatformTestDoubles';
 
 const state = vi.hoisted(() => ({
     store: null as BrowserDocumentStore | null,
     worker: vi.fn(),
     canUseWorker: vi.fn(() => true),
 }));
-vi.mock('@app/platform/browserDocumentStore', async original => ({
-    ...await original<typeof TBrowserDocumentStore>(),
+vi.mock('@app/platform/browserDocumentStore', async (original) => ({
+    ...(await original<typeof TBrowserDocumentStore>()),
     get browserDocumentStore() {
-        if (!state.store) {throw new Error('Missing test store');}
+        if (!state.store) {
+            throw new Error('Missing test store');
+        }
         return state.store;
     },
 }));
-vi.mock('@app/platform/browser-api/browserPageOpsWorkerClient', async original => ({
-    ...await original<typeof import('@app/platform/browser-api/browserPageOpsWorkerClient')>(),
+vi.mock('@app/platform/browser-api/browserPageOpsWorkerClient', async (original) => ({
+    ...(await original<typeof import('@app/platform/browser-api/browserPageOpsWorkerClient')>()),
     canUseBrowserPageOpsWorker: () => state.canUseWorker(),
     runBrowserPageOpsWorkerRequest: (...args: unknown[]) => state.worker(...args),
 }));
 
-afterEach(() => {vi.unstubAllGlobals(); vi.clearAllMocks();});
+afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+});
 
-it.each([false, true])('browser recovery keeps the source and rolls back a refused retry: %s', async refuseRetry => {
+it.each([false, true])('browser recovery keeps the source and rolls back a refused retry: %s', async (refuseRetry) => {
     vi.stubGlobal('window', {localStorage: new MemoryStorage()});
     vi.stubGlobal('document', {cookie: ''});
-    const store = state.store = new BrowserDocumentStore();
+    const store = (state.store = new BrowserDocumentStore());
     const fixtures = resolve('native/pdf-page-ops/tests/fixtures/damaged-recovery');
     const original = new Uint8Array(await readFile(resolve(fixtures, 'object-identity.pdf')));
     const healthy = new Uint8Array(await readFile(resolve(fixtures, 'healthy.pdf')));
@@ -70,12 +62,19 @@ it.each([false, true])('browser recovery keeps the source and rolls back a refus
         await store.write(ref, healthy, {expectedDocumentRevisionToken: (await store.getDocumentRevision(ref)).token});
         return true;
     });
-    const unused = async () => {throw new Error('Unexpected picker');};
+    const unused = async () => {
+        throw new Error('Unexpected picker');
+    };
     const api = createBrowserPageOpsCapability({
-        clearSearchCaches: () => {}, openInputAccept: '.pdf', pickFiles: unused,
-        buildOpenPdfPickerTypes: () => [], createCombinedPdfFromPaths: unused,
-        pickSaveTarget: unused, saveBytesToPickerOrDownload: unused,
-        writeBytesToHandle: unused, repairWorkingCopy,
+        clearSearchCaches: () => {},
+        openInputAccept: '.pdf',
+        pickFiles: unused,
+        buildOpenPdfPickerTypes: () => [],
+        createCombinedPdfFromPaths: unused,
+        pickSaveTarget: unused,
+        saveBytesToPickerOrDownload: unused,
+        writeBytesToHandle: unused,
+        repairWorkingCopy,
     });
     const pending = api.delete(ref, [1], 2, {expectedDocumentRevisionToken: before.token});
     if (refuseRetry) {
@@ -97,23 +96,31 @@ it('refuses main-thread getPageGeometry fallback on oversized Blobs without call
     vi.stubGlobal('window', {localStorage: new MemoryStorage()});
     vi.stubGlobal('document', {cookie: ''});
     state.canUseWorker.mockReturnValue(false);
-    const store = state.store = new BrowserDocumentStore();
+    const store = (state.store = new BrowserDocumentStore());
     const oversizedBlob = new Blob([]);
     Object.defineProperty(oversizedBlob, 'size', {value: BROWSER_MAX_FULL_READ_BYTES + 1});
-    const arrayBufferSpy = vi.spyOn(oversizedBlob, 'arrayBuffer').mockRejectedValue(
-        new Error('main-thread fallback must never call arrayBuffer on an oversized Blob'),
-    );
+    const arrayBufferSpy = vi
+        .spyOn(oversizedBlob, 'arrayBuffer')
+        .mockRejectedValue(new Error('main-thread fallback must never call arrayBuffer on an oversized Blob'));
     vi.spyOn(store, 'readableBlob').mockResolvedValue(oversizedBlob);
-    const unused = async () => {throw new Error('Unexpected picker');};
+    const unused = async () => {
+        throw new Error('Unexpected picker');
+    };
     const api = createBrowserPageOpsCapability({
-        clearSearchCaches: () => {}, openInputAccept: '.pdf', pickFiles: unused,
-        buildOpenPdfPickerTypes: () => [], createCombinedPdfFromPaths: unused,
-        pickSaveTarget: unused, saveBytesToPickerOrDownload: unused,
-        writeBytesToHandle: unused, repairWorkingCopy: async () => false,
+        clearSearchCaches: () => {},
+        openInputAccept: '.pdf',
+        pickFiles: unused,
+        buildOpenPdfPickerTypes: () => [],
+        createCombinedPdfFromPaths: unused,
+        pickSaveTarget: unused,
+        saveBytesToPickerOrDownload: unused,
+        writeBytesToHandle: unused,
+        repairWorkingCopy: async () => false,
     });
 
-    await expect(api.getPageGeometry(requireDocumentRef('browser://documents/oversized.pdf'), requirePageNumber(1)))
-        .rejects.toMatchObject({code: 'too-large'});
+    await expect(api.getPageGeometry(requireDocumentRef('browser://documents/oversized.pdf'), requirePageNumber(1))).rejects.toMatchObject({
+        code: 'too-large',
+    });
     expect(arrayBufferSpy).not.toHaveBeenCalled();
     expect(state.worker).not.toHaveBeenCalled();
 });
@@ -123,7 +130,7 @@ it('rejects rotate on an externally replaced handle-backed PDF without committin
     vi.stubGlobal('document', {cookie: ''});
     const root = await mkdtemp(join(process.env.TMPDIR ?? tmpdir(), 'browser-pageops-foreign-'));
     onTestFinished(() => rm(root, {recursive: true, force: true}));
-    const store = state.store = new BrowserDocumentStore();
+    const store = (state.store = new BrowserDocumentStore());
     const docStore = {port: createNodeStorePort(root), publication: browserPublication};
     vi.spyOn(store, 'stores').mockResolvedValue({durable: docStore, memory: docStore});
 
@@ -140,10 +147,13 @@ it('rejects rotate on an externally replaced handle-backed PDF without committin
         name: 'handle-rotate.pdf',
         getFile: async () => new File([disk.bytes], 'handle-rotate.pdf', {type: 'application/pdf', lastModified: disk.lastModified}),
     });
-    const sourceRef = await store.registerFile(new File([disk.bytes], 'handle-rotate.pdf', {type: 'application/pdf', lastModified: disk.lastModified}), {
-        saveKind: 'pdf',
-        saveHandle: handle,
-    });
+    const sourceRef = await store.registerFile(
+        new File([disk.bytes], 'handle-rotate.pdf', {type: 'application/pdf', lastModified: disk.lastModified}),
+        {
+            saveKind: 'pdf',
+            saveHandle: handle,
+        },
+    );
     const workingRef = await store.cloneAsWorkingCopy(sourceRef);
     onTestFinished(() => store.release(workingRef));
     const entry = await store.requireEntry(workingRef);
@@ -154,16 +164,24 @@ it('rejects rotate on an externally replaced handle-backed PDF without committin
     disk.bytes = pdfB;
     disk.lastModified = 200;
 
-    const unused = async () => {throw new Error('Unexpected picker');};
+    const unused = async () => {
+        throw new Error('Unexpected picker');
+    };
     const api = createBrowserPageOpsCapability({
-        clearSearchCaches: () => {}, openInputAccept: '.pdf', pickFiles: unused,
-        buildOpenPdfPickerTypes: () => [], createCombinedPdfFromPaths: unused,
-        pickSaveTarget: unused, saveBytesToPickerOrDownload: unused,
-        writeBytesToHandle: unused, repairWorkingCopy: async () => false,
+        clearSearchCaches: () => {},
+        openInputAccept: '.pdf',
+        pickFiles: unused,
+        buildOpenPdfPickerTypes: () => [],
+        createCombinedPdfFromPaths: unused,
+        pickSaveTarget: unused,
+        saveBytesToPickerOrDownload: unused,
+        writeBytesToHandle: unused,
+        repairWorkingCopy: async () => false,
     });
 
-    await expect(api.rotate(workingRef, [1], 1, 90, {expectedDocumentRevisionToken: before.token}))
-        .rejects.toMatchObject({name: 'BrowserDocumentSourceChangedError'});
+    await expect(api.rotate(workingRef, [1], 1, 90, {expectedDocumentRevisionToken: before.token})).rejects.toMatchObject({
+        name: 'BrowserDocumentSourceChangedError',
+    });
 
     expect(entry.doc!.state().current).toBeNull();
     expect((await store.getDocumentRevision(workingRef)).token).toBe(before.token);

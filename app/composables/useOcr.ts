@@ -1,12 +1,9 @@
 import type {IPdfDocument} from '@app/modules/pdf-viewer/public';
-import { uniq } from 'es-toolkit/array';
-import { isAbortError } from '@contracts/isAbortError';
-import { createRequestId } from '@contracts/shared';
-import type {
-    IOcrLanguage,
-    TRequestId,
-} from '@contracts/shared';
-import type { TDocumentRef } from '@contracts/documentRef';
+import {uniq} from 'es-toolkit/array';
+import {isAbortError} from '@contracts/isAbortError';
+import {createRequestId} from '@contracts/shared';
+import type {IOcrLanguage, TRequestId} from '@contracts/shared';
+import type {TDocumentRef} from '@contracts/documentRef';
 import type {
     IOcrCancelResult,
     IOcrErrorEnvelope,
@@ -15,35 +12,23 @@ import type {
     TOcrCompletionOutcome,
     TOcrSearchablePdfPages,
 } from '@contracts/electronApiOcr';
-import { DEFAULT_OCR_RECOGNITION_OPTIONS } from '@contracts/electronApiOcr';
-import { requirePageNumber } from '@contracts/pageNumbers';
-import type { IOcrCapability } from '@contracts/ocrPlatformFeature';
-import { createDocxFromTextChunks } from '@app/utils/docxStreaming';
-import { OCR_TIMEOUT_MS } from '@app/constants/timeouts';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { waitForVisualFrames } from '@app/utils/asyncHelpers';
-import type {
-    IOcrUiProgress,
-    IOcrResults,
-    IOcrSettings,
-} from '@app/utils/ocr/ocrTypes';
-import {
-    parseOcrPageSelection,
-    type TOcrPageSelectionScope,
-} from '@app/utils/ocr/parsePageRange';
-import { hasRtlOcrLanguage } from '@app/utils/ocr/hasRtlOcrLanguage';
-import { resolveOcrExportLanguages } from '@app/utils/ocr/resolveOcrExportLanguages';
-import {
-    JobCanceledError,
-    JobTimeoutError,
-    runJob,
-    type IJobRun,
-} from '@app/utils/jobs/runJob';
-import { useOcrErrorLocalizer } from '@app/composables/useOcrErrorLocalizer';
-import { getOcrCapability } from '@app/utils/getOcrCapability';
-import { getErrorMessage } from '@app/utils/error';
-import { exportTextAsDocx } from '@app/utils/exportTextAsDocx';
-import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
+import {DEFAULT_OCR_RECOGNITION_OPTIONS} from '@contracts/electronApiOcr';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import type {IOcrCapability} from '@contracts/ocrPlatformFeature';
+import {createDocxFromTextChunks} from '@app/utils/docxStreaming';
+import {OCR_TIMEOUT_MS} from '@app/constants/timeouts';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {waitForVisualFrames} from '@app/utils/asyncHelpers';
+import type {IOcrUiProgress, IOcrResults, IOcrSettings} from '@app/utils/ocr/ocrTypes';
+import {parseOcrPageSelection, type TOcrPageSelectionScope} from '@app/utils/ocr/parsePageRange';
+import {hasRtlOcrLanguage} from '@app/utils/ocr/hasRtlOcrLanguage';
+import {resolveOcrExportLanguages} from '@app/utils/ocr/resolveOcrExportLanguages';
+import {JobCanceledError, JobTimeoutError, runJob, type IJobRun} from '@app/utils/jobs/runJob';
+import {useOcrErrorLocalizer} from '@app/composables/useOcrErrorLocalizer';
+import {getOcrCapability} from '@app/utils/getOcrCapability';
+import {getErrorMessage} from '@app/utils/error';
+import {exportTextAsDocx} from '@app/utils/exportTextAsDocx';
+import {getDocumentFilesCapability} from '@app/utils/platformDocuments';
 
 class OcrJobStartError extends Error {
     readonly errorEnvelope: IOcrErrorEnvelope | undefined;
@@ -55,14 +40,12 @@ class OcrJobStartError extends Error {
     }
 }
 
-type TOcrCompleteResult = Parameters<IOcrCapability['onComplete']>[0] extends (
-    result: infer TResult,
-) => void ? TResult : never;
+type TOcrCompleteResult = Parameters<IOcrCapability['onComplete']>[0] extends (result: infer TResult) => void ? TResult : never;
 
 export const useOcr = () => {
-    const { t } = useTypedI18n();
+    const {t} = useTypedI18n();
     const toast = useToast();
-    const { localizeOcrError } = useOcrErrorLocalizer();
+    const {localizeOcrError} = useOcrErrorLocalizer();
 
     const availableLanguages = ref<IOcrLanguage[]>([]);
     const languageLoadState = ref<'idle' | 'loading' | 'ready' | 'error'>('idle');
@@ -118,7 +101,8 @@ export const useOcr = () => {
             requiresCleanupAck: result.requiresCleanupAck === true,
         });
         if (result.requiresCleanupAck === true && result.pdfPath) {
-            void getOcrCapability().acknowledgeResultFile(result.requestId, result.pdfPath)
+            void getOcrCapability()
+                .acknowledgeResultFile(result.requestId, result.pdfPath)
                 .catch((ackError) => {
                     BrowserLogger.debug('ocr', 'Late canceled OCR cleanup acknowledgement failed', {
                         requestId: result.requestId,
@@ -162,11 +146,7 @@ export const useOcr = () => {
         return {
             pageRange: source.pageRange,
             customRange: source.customRange,
-            selectedLanguages: uniq(
-                source.selectedLanguages
-                    .map(language => language.trim())
-                    .filter(Boolean),
-            ),
+            selectedLanguages: uniq(source.selectedLanguages.map((language) => language.trim()).filter(Boolean)),
             qualityProfile: source.qualityProfile,
             preprocessingMode: source.preprocessingMode,
             pageSegmentationMode: source.pageSegmentationMode,
@@ -175,11 +155,7 @@ export const useOcr = () => {
     }
 
     function getDocxExportLanguages() {
-        return resolveOcrExportLanguages(
-            lastCompletedRunSettings.value,
-            activeRunSettings.value,
-            settings.value,
-        );
+        return resolveOcrExportLanguages(lastCompletedRunSettings.value, activeRunSettings.value, settings.value);
     }
 
     function getPageSelectionCount(selection: TOcrPageSelectionScope) {
@@ -192,19 +168,13 @@ export const useOcr = () => {
         if (selection.kind === 'range') {
             return selection.lastPage - selection.firstPage + 1;
         }
-        return selection.ranges.reduce(
-            (count, pageRange) => count + pageRange.lastPage - pageRange.firstPage + 1,
-            0,
-        );
+        return selection.ranges.reduce((count, pageRange) => count + pageRange.lastPage - pageRange.firstPage + 1, 0);
     }
 
-    function buildPageSelection(
-        selection: TOcrPageSelectionScope,
-        runSettings: IOcrSettings,
-    ): TOcrSearchablePdfPages {
+    function buildPageSelection(selection: TOcrPageSelectionScope, runSettings: IOcrSettings): TOcrSearchablePdfPages {
         const languages = [...runSettings.selectedLanguages];
         if (Array.isArray(selection)) {
-            return selection.map(pageNumber => ({
+            return selection.map((pageNumber) => ({
                 pageNumber: requirePageNumber(pageNumber),
                 languages,
             }));
@@ -226,7 +196,7 @@ export const useOcr = () => {
         }
         return {
             kind: 'ranges',
-            ranges: selection.ranges.map(pageRange => ({...pageRange})),
+            ranges: selection.ranges.map((pageRange) => ({...pageRange})),
             languages,
         };
     }
@@ -270,15 +240,12 @@ export const useOcr = () => {
         };
     }
 
-
     function applyProgress(p: Parameters<Parameters<IOcrCapability['onProgress']>[0]>[0]) {
         progress.value.phase = p.phase ?? 'processing';
         progress.value.modelDownload = p.modelDownload;
         progress.value.currentPage = p.currentPage;
         progress.value.processedCount = p.processedCount;
-        progress.value.phaseProgress = typeof p.phaseProgress === 'number'
-            ? p.phaseProgress
-            : null;
+        progress.value.phaseProgress = typeof p.phaseProgress === 'number' ? p.phaseProgress : null;
     }
 
     function buildSearchablePdfOptions(runSettings: IOcrSettings): IOcrSearchablePdfOptions {
@@ -287,9 +254,7 @@ export const useOcr = () => {
             preprocessingMode: runSettings.preprocessingMode,
             supersessionPolicy: runSettings.supersessionPolicy,
             // Choosing replace-all in the popup is the user's acknowledgement.
-            ...(runSettings.supersessionPolicy === 'replace-all'
-                ? {replaceAllAcknowledged: true}
-                : {}),
+            ...(runSettings.supersessionPolicy === 'replace-all' ? {replaceAllAcknowledged: true} : {}),
         };
         if (runSettings.pageSegmentationMode !== null) {
             options.pageSegmentationMode = runSettings.pageSegmentationMode;
@@ -301,7 +266,7 @@ export const useOcr = () => {
         if (response.outcome === 'no-pages-to-process') {
             const descriptions = uniq(
                 (response.diagnostics ?? [])
-                    .filter(diagnostic => diagnostic.severity === 'info')
+                    .filter((diagnostic) => diagnostic.severity === 'info')
                     .map(localizeOcrDiagnostic)
                     .filter((message): message is string => Boolean(message)),
             );
@@ -318,8 +283,9 @@ export const useOcr = () => {
         }
 
         // A page whose own text the run kept is not a recognized one; say how many there were.
-        const keptPages = response.diagnostics?.filter(diagnostic => diagnostic.code === 'OCR_EXISTING_TEXT_SKIPPED'
-            && diagnostic.severity === 'info').length ?? 0;
+        const keptPages =
+            response.diagnostics?.filter((diagnostic) => diagnostic.code === 'OCR_EXISTING_TEXT_SKIPPED' && diagnostic.severity === 'info')
+                .length ?? 0;
         if (response.success && keptPages > 0) {
             toast.add({
                 color: 'info',
@@ -327,7 +293,7 @@ export const useOcr = () => {
             });
         }
 
-        const diagnosticWarnings = response.diagnostics?.filter(diagnostic => diagnostic.severity === 'warning') ?? [];
+        const diagnosticWarnings = response.diagnostics?.filter((diagnostic) => diagnostic.severity === 'warning') ?? [];
         if (response.errors.length === 0 && response.errorEnvelope === undefined && diagnosticWarnings.length === 0) {
             return;
         }
@@ -338,16 +304,8 @@ export const useOcr = () => {
             errors: response.errors,
             errorCode: response.errorEnvelope?.code,
         };
-        if (
-            response.errorEnvelope === undefined
-            || response.errorEnvelope.code === 'OCR_INTERNAL_ERROR'
-        ) {
-            BrowserLogger.error(
-                'ocr',
-                'OCR backend reported page failures',
-                details,
-                {code: 'RENDERER_OCR_BACKEND_FAILED'},
-            );
+        if (response.errorEnvelope === undefined || response.errorEnvelope.code === 'OCR_INTERNAL_ERROR') {
+            BrowserLogger.error('ocr', 'OCR backend reported page failures', details, {code: 'RENDERER_OCR_BACKEND_FAILED'});
         } else {
             BrowserLogger.warn('ocr', 'OCR backend reported an expected outcome', details);
         }
@@ -361,9 +319,7 @@ export const useOcr = () => {
             return;
         }
 
-        const localizedErrors = response.errors.map(err =>
-            localizeOcrError(err, 'errors.ocr.createSearchablePdf'),
-        );
+        const localizedErrors = response.errors.map((err) => localizeOcrError(err, 'errors.ocr.createSearchablePdf'));
         error.value = uniq(localizedErrors).join('; ');
     }
 
@@ -387,11 +343,7 @@ export const useOcr = () => {
         }
     }
 
-    function storeOcrPdfResult(
-        requestId: TRequestId,
-        response: TOcrCompleteResult,
-        runSettings: IOcrSettings,
-    ) {
+    function storeOcrPdfResult(requestId: TRequestId, response: TOcrCompleteResult, runSettings: IOcrSettings) {
         if (!response.pdfPath) {
             throw new Error(t('errors.ocr.noPdfData'));
         }
@@ -425,10 +377,7 @@ export const useOcr = () => {
             requestId,
             error: getErrorMessage(caughtError),
         };
-        if (
-            caughtError instanceof OcrJobStartError
-            && caughtError.errorEnvelope?.code !== 'OCR_INTERNAL_ERROR'
-        ) {
+        if (caughtError instanceof OcrJobStartError && caughtError.errorEnvelope?.code !== 'OCR_INTERNAL_ERROR') {
             BrowserLogger.warn('ocr', 'OCR run was not started', details);
             return;
         }
@@ -455,17 +404,8 @@ export const useOcr = () => {
         return true;
     }
 
-    function getSelectedOcrPages(
-        currentPage: number,
-        totalPages: number,
-        runSettings: IOcrSettings,
-    ): TOcrPageSelectionScope {
-        const selection = parseOcrPageSelection(
-            runSettings.pageRange,
-            runSettings.customRange,
-            currentPage,
-            totalPages,
-        );
+    function getSelectedOcrPages(currentPage: number, totalPages: number, runSettings: IOcrSettings): TOcrPageSelectionScope {
+        const selection = parseOcrPageSelection(runSettings.pageRange, runSettings.customRange, currentPage, totalPages);
 
         BrowserLogger.debug('ocr', 'Pages selected', {
             kind: Array.isArray(selection) ? 'pages' : selection.kind,
@@ -485,11 +425,7 @@ export const useOcr = () => {
         return requestId;
     }
 
-    function handleOcrResponse(
-        requestId: TRequestId,
-        response: TOcrCompleteResult,
-        runSettings: IOcrSettings,
-    ) {
+    function handleOcrResponse(requestId: TRequestId, response: TOcrCompleteResult, runSettings: IOcrSettings) {
         lastRunOutcome.value = response.outcome ?? null;
         applyOcrResponseErrors(response, requestId);
 
@@ -507,7 +443,6 @@ export const useOcr = () => {
             }
         }
     }
-
 
     function startOcrJob(
         requestId: TRequestId,
@@ -542,11 +477,7 @@ export const useOcr = () => {
         });
     }
 
-    async function runOcr(
-        currentPage: number,
-        totalPages: number,
-        workingCopyPath: TDocumentRef | null = null,
-    ) {
+    async function runOcr(currentPage: number, totalPages: number, workingCopyPath: TDocumentRef | null = null) {
         BrowserLogger.debug('ocr', 'runOcr called', {
             currentPage,
             totalPages,
@@ -572,7 +503,7 @@ export const useOcr = () => {
         pendingRunToken = runToken;
         beginRunProgress(selection, runSettings);
         await nextTick();
-        await waitForVisualFrames({ frames: 2 });
+        await waitForVisualFrames({frames: 2});
         if (pendingRunToken !== runToken) {
             return;
         }
@@ -598,9 +529,7 @@ export const useOcr = () => {
                 error.value = e.message;
                 return;
             }
-            error.value = e instanceof JobTimeoutError
-                ? t('errors.ocr.timeout')
-                : localizeOcrError(e, 'errors.ocr.createSearchablePdf');
+            error.value = e instanceof JobTimeoutError ? t('errors.ocr.timeout') : localizeOcrError(e, 'errors.ocr.createSearchablePdf');
         } finally {
             if (activeRun === run) {
                 activeRun = null;
@@ -627,25 +556,29 @@ export const useOcr = () => {
 
         BrowserLogger.info('ocr', 'Cancelling OCR');
         progress.value.status = 'cancel-requested';
-        const request = run.cancel().then(
-            (cancelResult): IOcrCancelResult => cancelResult ?? {
-                canceled: false,
-                reason: 'not-found',
-            },
-            (cancelError: unknown): IOcrCancelResult => ({
-                canceled: false,
-                reason: 'failed',
-                error: getErrorMessage(cancelError),
-            }),
-        ).then((cancelResult) => {
-            error.value = !cancelResult.canceled && cancelResult.reason === 'failed'
-                ? cancelResult.error ?? t('errors.ocr.cancel')
-                : null;
-            resetRunProgress('cancelled');
-            return cancelResult;
-        }).finally(() => {
-            cancelRequest = null;
-        });
+        const request = run
+            .cancel()
+            .then(
+                (cancelResult): IOcrCancelResult =>
+                    cancelResult ?? {
+                        canceled: false,
+                        reason: 'not-found',
+                    },
+                (cancelError: unknown): IOcrCancelResult => ({
+                    canceled: false,
+                    reason: 'failed',
+                    error: getErrorMessage(cancelError),
+                }),
+            )
+            .then((cancelResult) => {
+                error.value =
+                    !cancelResult.canceled && cancelResult.reason === 'failed' ? (cancelResult.error ?? t('errors.ocr.cancel')) : null;
+                resetRunProgress('cancelled');
+                return cancelResult;
+            })
+            .finally(() => {
+                cancelRequest = null;
+            });
         cancelRequest = request;
         return request;
     }
@@ -671,9 +604,7 @@ export const useOcr = () => {
     }
 
     function toggleLanguage(code: string, selected: boolean) {
-        const selectedLanguages = selected
-            ? [code]
-            : settings.value.selectedLanguages.filter(languageCode => languageCode !== code);
+        const selectedLanguages = selected ? [code] : settings.value.selectedLanguages.filter((languageCode) => languageCode !== code);
 
         settings.value = {
             ...settings.value,
@@ -686,7 +617,7 @@ export const useOcr = () => {
     const progressPercent = computed(() => {
         const download = progress.value.modelDownload;
         if (progress.value.phase === 'model-prep' && download) {
-            return download.retrying ? null : Math.min(100, 100 * download.receivedBytes / download.totalBytes);
+            return download.retrying ? null : Math.min(100, (100 * download.receivedBytes) / download.totalBytes);
         }
         if (progress.value.phase !== 'processing') {
             return progress.value.phaseProgress;
@@ -694,15 +625,10 @@ export const useOcr = () => {
         if (progress.value.totalPages === 0) {
             return 0;
         }
-        return Math.round(
-            (progress.value.processedCount / progress.value.totalPages) * 100,
-        );
+        return Math.round((progress.value.processedCount / progress.value.totalPages) * 100);
     });
 
-    async function exportDocx(
-        workingCopyPath: TDocumentRef | null,
-        pdfDocument: IPdfDocument | null = null,
-    ) {
+    async function exportDocx(workingCopyPath: TDocumentRef | null, pdfDocument: IPdfDocument | null = null) {
         if (isExporting.value) {
             return false;
         }
@@ -715,7 +641,11 @@ export const useOcr = () => {
         try {
             const selectedLanguages = getDocxExportLanguages();
             const documentRevisionToken = workingCopyPath
-                ? (await getDocumentFilesCapability().getDocumentRevision(workingCopyPath).catch(() => null))?.token ?? null
+                ? ((
+                      await getDocumentFilesCapability()
+                          .getDocumentRevision(workingCopyPath)
+                          .catch(() => null)
+                  )?.token ?? null)
                 : null;
             abortController.signal.throwIfAborted();
             return await exportTextAsDocx({
@@ -727,12 +657,12 @@ export const useOcr = () => {
                 buildDocxChunks: createDocxFromTextChunks,
                 t,
                 toast,
-                setError: message => {
+                setError: (message) => {
                     if (!disposed) {
                         error.value = message;
                     }
                 },
-                localizeError: e => localizeOcrError(e, 'errors.ocr.exportDocx'),
+                localizeError: (e) => localizeOcrError(e, 'errors.ocr.exportDocx'),
             });
         } catch (e) {
             if (abortController.signal.aborted || isAbortError(e)) {

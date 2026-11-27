@@ -1,14 +1,16 @@
-import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import {createHash} from 'node:crypto';
+import {readFile} from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import {fileURLToPath} from 'node:url';
 import {getNativeExternalBuildInputs} from '@scripts/native-build-id.mjs';
-import { writeGeneratedFileIfChanged } from '@scripts/writeGeneratedFileIfChanged';
+import {writeGeneratedFileIfChanged} from '@scripts/writeGeneratedFileIfChanged';
 
-export interface IGenerateFirstUnsupportedAnnotationCharacterOptions { projectRoot?: string; }
+export interface IGenerateFirstUnsupportedAnnotationCharacterOptions {
+    projectRoot?: string;
+}
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const fontRelativePaths = getNativeExternalBuildInputs('pdf-page-ops').filter(file => file.startsWith('public/fonts/annotation/'));
+const fontRelativePaths = getNativeExternalBuildInputs('pdf-page-ops').filter((file) => file.startsWith('public/fonts/annotation/'));
 const coverageRelativePath = 'packages/contracts/annotationFontCoverage.json';
 const generatedRelativePath = 'packages/contracts/firstUnsupportedAnnotationCharacter.ts';
 const fontFacesRelativePath = 'app/assets/css/annotation-fonts.scss';
@@ -38,11 +40,19 @@ function readTableOffset(font: Buffer, tag: string) {
 }
 
 function classifyEncoding(platform: number, encoding: number) {
-    if (platform === 3 && encoding === 0) {return SUBTABLE_KIND_SYMBOL;}
+    if (platform === 3 && encoding === 0) {
+        return SUBTABLE_KIND_SYMBOL;
+    }
     // Variation-sequence records (platform 0, encoding 5) map through format 14 only.
-    if (platform === 0 && encoding === 5) {return undefined;}
-    if ((platform === 3 && encoding === 10) || (platform === 0 && encoding === 4)) {return SUBTABLE_KIND_FULL;}
-    if (platform === 2 || platform === 0 || (platform === 3 && encoding === 1)) {return SUBTABLE_KIND_BMP;}
+    if (platform === 0 && encoding === 5) {
+        return undefined;
+    }
+    if ((platform === 3 && encoding === 10) || (platform === 0 && encoding === 4)) {
+        return SUBTABLE_KIND_FULL;
+    }
+    if (platform === 2 || platform === 0 || (platform === 3 && encoding === 1)) {
+        return SUBTABLE_KIND_BMP;
+    }
     return undefined;
 }
 
@@ -56,7 +66,9 @@ function selectCmapSubtable(font: Buffer, cmapOffset: number): ICmapRecord {
         const offset = cmapOffset + font.readUInt32BE(record + 4);
         const format = font.readUInt16BE(offset);
         const readable = format === 4 || format === 12 || format === 13;
-        if (kind === undefined || !readable) {continue;}
+        if (kind === undefined || !readable) {
+            continue;
+        }
         if (selected === undefined || kind > selected.kind) {
             selected = {
                 format,
@@ -90,9 +102,13 @@ function* format4Codepoints(font: Buffer, offset: number) {
             if (rangeOffset !== 0) {
                 const glyphAddress = idRangeOffsets + segment * 2 + rangeOffset + (code - start) * 2;
                 glyph = font.readUInt16BE(glyphAddress);
-                if (glyph !== 0) {glyph = (glyph + delta) & 0xffff;}
+                if (glyph !== 0) {
+                    glyph = (glyph + delta) & 0xffff;
+                }
             }
-            if (glyph !== 0) {yield code;}
+            if (glyph !== 0) {
+                yield code;
+            }
         }
     }
 }
@@ -105,16 +121,16 @@ function* format12Codepoints(font: Buffer, offset: number) {
         const end = font.readUInt32BE(record + 4);
         const startGlyph = font.readUInt32BE(record + 8);
         for (let code = start; code <= end; code++) {
-            if (startGlyph + code - start !== 0) {yield code;}
+            if (startGlyph + code - start !== 0) {
+                yield code;
+            }
         }
     }
 }
 
 function mappedCodepoints(font: Buffer) {
     const subtable = selectCmapSubtable(font, readTableOffset(font, 'cmap'));
-    return [...subtable.format === 4
-        ? format4Codepoints(font, subtable.offset)
-        : format12Codepoints(font, subtable.offset)];
+    return [...(subtable.format === 4 ? format4Codepoints(font, subtable.offset) : format12Codepoints(font, subtable.offset))];
 }
 
 function toRanges(codepoints: number[]) {
@@ -125,10 +141,7 @@ function toRanges(codepoints: number[]) {
         if (last && code <= last[1] + 1) {
             last[1] = Math.max(last[1], code);
         } else {
-            ranges.push([
-                code,
-                code,
-            ]);
+            ranges.push([code, code]);
         }
     }
     return ranges;
@@ -147,44 +160,53 @@ export function unicodeRanges(fonts: Buffer | readonly Buffer[]): Array<[number,
 export function faceRanges(files: readonly string[], programs: readonly Buffer[]) {
     const general = new Set(mappedCodepoints(programs.at(-1)!));
     return files.map((file, index) => {
-        if (index === files.length - 1) {return undefined;}
+        if (index === files.length - 1) {
+            return undefined;
+        }
         const script = /^NotoSans(\p{L}+)-/u.exec(file)?.[1];
-        if (!script) {throw new Error(`${file} does not name the script its face serves`);}
+        if (!script) {
+            throw new Error(`${file} does not name the script its face serves`);
+        }
         const own = new RegExp(`^[\\p{Script=${script}}\\p{Script=Inherited}]$`, 'u');
         const codepoints = mappedCodepoints(programs[index]!);
-        const stranded = codepoints.find(code => !general.has(code) && !own.test(String.fromCodePoint(code))
-            && !/^\p{Script=Common}$/u.test(String.fromCodePoint(code)));
+        const stranded = codepoints.find(
+            (code) =>
+                !general.has(code) && !own.test(String.fromCodePoint(code)) && !/^\p{Script=Common}$/u.test(String.fromCodePoint(code)),
+        );
         if (stranded !== undefined) {
             throw new Error(`${file} maps U+${stranded.toString(16)} outside its ${script} face`);
         }
-        return toRanges(codepoints.filter(code => own.test(String.fromCodePoint(code))));
+        return toRanges(codepoints.filter((code) => own.test(String.fromCodePoint(code))));
     });
 }
 
 export function renderAnnotationFontFaces(files: readonly string[], ranges: ReturnType<typeof faceRanges>) {
-    const face = (family: string, file: string, range?: Array<[number, number]>) => [
-        '@font-face {',
-        `    font-family: "${family}";`,
-        `    src: url("/fonts/annotation/${file}") format("truetype");`,
-        '    font-style: normal;',
-        '    font-weight: 400;',
-        '    font-display: swap;',
-        ...range
-            ? [`    unicode-range: ${range.map(([
-                start,
-                end,
-            ]) => `U+${hex(start)}${start === end ? '' : `-${hex(end)}`}`).join(', ')};`]
-            : [],
-        '}',
-    ].join('\n');
+    const face = (family: string, file: string, range?: Array<[number, number]>) =>
+        [
+            '@font-face {',
+            `    font-family: "${family}";`,
+            `    src: url("/fonts/annotation/${file}") format("truetype");`,
+            '    font-style: normal;',
+            '    font-weight: 400;',
+            '    font-display: swap;',
+            ...(range
+                ? [`    unicode-range: ${range.map(([start, end]) => `U+${hex(start)}${start === end ? '' : `-${hex(end)}`}`).join(', ')};`]
+                : []),
+            '}',
+        ].join('\n');
     const hex = (code: number) => code.toString(16).toUpperCase().padStart(4, '0');
     // A later face of one family is tried first, so the first script face is declared last.
-    const scripts = files.slice(0, -1).map((file, index) => face('EVB Annotation Scripts', file, ranges[index])).reverse();
+    const scripts = files
+        .slice(0, -1)
+        .map((file, index) => face('EVB Annotation Scripts', file, ranges[index]))
+        .reverse();
     return [
         '/* Generated by scripts/generateFirstUnsupportedAnnotationCharacter.ts. */',
         ...scripts,
         face('EVB Annotation Sans', files.at(-1)!),
-    ].join('\n\n').concat('\n');
+    ]
+        .join('\n\n')
+        .concat('\n');
 }
 
 // The lookup and its control/invisible exceptions mirror text_box_font.rs `invisible` and `validate_text`:
@@ -235,7 +257,7 @@ export function firstUnsupportedAnnotationCharacter(text: string): string | unde
 export function renderFirstUnsupportedAnnotationCharacter() {
     return [
         '// Generated by scripts/generateFirstUnsupportedAnnotationCharacter.ts.',
-        'import coverage from \'@contracts/annotationFontCoverage.json\';',
+        "import coverage from '@contracts/annotationFontCoverage.json';",
         '',
         '// What the general face maps; each script face claims its unicodeRange.',
         'const ranges: ReadonlyArray<readonly number[]> = coverage.ranges;',
@@ -244,12 +266,10 @@ export function renderFirstUnsupportedAnnotationCharacter() {
     ].join('\n');
 }
 
-export async function generateFirstUnsupportedAnnotationCharacter(
-    options: IGenerateFirstUnsupportedAnnotationCharacterOptions = {},
-) {
+export async function generateFirstUnsupportedAnnotationCharacter(options: IGenerateFirstUnsupportedAnnotationCharacterOptions = {}) {
     const root = options.projectRoot ?? projectRoot;
-    const programs = await Promise.all(fontRelativePaths.map(file => readFile(path.join(root, file))));
-    const files = fontRelativePaths.map(file => path.basename(file));
+    const programs = await Promise.all(fontRelativePaths.map((file) => readFile(path.join(root, file))));
+    const files = fontRelativePaths.map((file) => path.basename(file));
     const ranges = faceRanges(files, programs);
     const fonts = programs.map((program, index) => ({
         file: files[index],
@@ -258,18 +278,24 @@ export async function generateFirstUnsupportedAnnotationCharacter(
     }));
     const changed = await Promise.all([
         writeGeneratedFileIfChanged(path.join(root, fontFacesRelativePath), renderAnnotationFontFaces(files, ranges)),
-        writeGeneratedFileIfChanged(path.join(root, coverageRelativePath), `${JSON.stringify({
-            fonts,
-            ranges: unicodeRanges(programs.at(-1)!),
-        }, null, 2)}\n`),
+        writeGeneratedFileIfChanged(
+            path.join(root, coverageRelativePath),
+            `${JSON.stringify(
+                {
+                    fonts,
+                    ranges: unicodeRanges(programs.at(-1)!),
+                },
+                null,
+                2,
+            )}\n`,
+        ),
         writeGeneratedFileIfChanged(path.join(root, generatedRelativePath), renderFirstUnsupportedAnnotationCharacter()),
     ]);
     return changed.some(Boolean);
 }
 
-const isDirectCliRun = process.argv[1] !== undefined
-    && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
+const isDirectCliRun = process.argv[1] !== undefined && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
 
-if (isDirectCliRun && await generateFirstUnsupportedAnnotationCharacter()) {
+if (isDirectCliRun && (await generateFirstUnsupportedAnnotationCharacter())) {
     console.info('Generated the text box glyph support ranges.');
 }

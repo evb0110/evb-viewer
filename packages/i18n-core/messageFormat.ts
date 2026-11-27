@@ -41,13 +41,15 @@ export function isPluralMessage(value: unknown): value is IPluralMessage {
 
 export function normalizeTranslationParams(rawParams?: number | TMessageParams): TMessageParams | undefined {
     if (typeof rawParams === 'number') {
-        return { count: rawParams };
+        return {count: rawParams};
     }
 
     return rawParams;
 }
 
-export interface ILocaleMessageSource { getLocaleMessage: (locale: string) => Record<string, unknown>; }
+export interface ILocaleMessageSource {
+    getLocaleMessage: (locale: string) => Record<string, unknown>;
+}
 
 // Narrows loosely typed composer access (e.g. `nuxtApp.$i18n` outside a component
 // setup context) to the one method the plain-message helpers below need.
@@ -67,9 +69,7 @@ export function getNestedTranslationLeaf(messages: Record<string, unknown>, path
         current = current[part];
     }
 
-    return typeof current === 'string' || isPluralMessage(current)
-        ? current
-        : null;
+    return typeof current === 'string' || isPluralMessage(current) ? current : null;
 }
 
 const pluralRulesCache = new Map<string, Intl.PluralRules>();
@@ -114,53 +114,43 @@ function selectPluralMessageForm(message: IPluralMessage, count: number | null, 
 }
 
 function selectLegacyPipeForm(template: string, count: number, locale: string) {
-    const forms = template.split('|').map(part => part.trim());
+    const forms = template.split('|').map((part) => part.trim());
     if (forms.length === 1) {
         return forms[0] ?? template;
     }
 
     const category = getPluralCategory(locale, count);
     if (forms.length === 2) {
-        return category === 'one'
-            ? fallbackForm(forms, template, 0)
-            : fallbackForm(forms, template, 1, 0);
+        return category === 'one' ? fallbackForm(forms, template, 0) : fallbackForm(forms, template, 1, 0);
     }
 
     if (forms.length === 3) {
         return category === 'one'
             ? fallbackForm(forms, template, 0)
             : category === 'few'
-                ? fallbackForm(forms, template, 1, 0)
-                : fallbackForm(forms, template, 2, 1, 0);
+              ? fallbackForm(forms, template, 1, 0)
+              : fallbackForm(forms, template, 2, 1, 0);
     }
 
     return category === 'zero'
         ? fallbackForm(forms, template, 0)
         : category === 'one'
-            ? fallbackForm(forms, template, 1, 0)
-            : category === 'two' || category === 'few'
-                ? fallbackForm(forms, template, 2, 1, 0)
-                : forms.at(-1) ?? template;
+          ? fallbackForm(forms, template, 1, 0)
+          : category === 'two' || category === 'few'
+            ? fallbackForm(forms, template, 2, 1, 0)
+            : (forms.at(-1) ?? template);
 }
 
-export function formatTranslationLeaf(
-    leaf: TTranslationLeaf | string,
-    params?: TMessageParams,
-    locale = 'en',
-) {
-    const count = typeof params?.count === 'number'
-        ? params.count
-        : null;
+export function formatTranslationLeaf(leaf: TTranslationLeaf | string, params?: TMessageParams, locale = 'en') {
+    const count = typeof params?.count === 'number' ? params.count : null;
     const template = isPluralMessage(leaf)
         ? selectPluralMessageForm(leaf, count, locale)
         : count === null
-            ? leaf
-            : selectLegacyPipeForm(leaf, count, locale);
+          ? leaf
+          : selectLegacyPipeForm(leaf, count, locale);
 
     return template.replace(/\{(\w+)\}/g, (_match, key: string) => {
         const value = params?.[key];
-        return value === undefined
-            ? `{${key}}`
-            : String(value);
+        return value === undefined ? `{${key}}` : String(value);
     });
 }

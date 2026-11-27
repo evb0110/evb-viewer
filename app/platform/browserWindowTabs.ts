@@ -1,7 +1,7 @@
 import * as functionUtils from 'es-toolkit/function';
-import type { IWindowTabsCapability } from '@contracts/windowTabsPlatformFeature';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { subscribeBrowserMenuEvent } from '@app/platform/browserMenuBar';
+import type {IWindowTabsCapability} from '@contracts/windowTabsPlatformFeature';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {subscribeBrowserMenuEvent} from '@app/platform/browserMenuBar';
 import {
     acknowledgeBrowserWorkspaceCheckpoint,
     browserWindowLockName,
@@ -37,7 +37,7 @@ const discoverMessageSchema = v.pipe(
         windowId: positiveWindowIdSchema,
         instanceNonce: v.optional(v.unknown()),
     }),
-    v.transform(value => ({
+    v.transform((value) => ({
         type: value.type,
         windowId: value.windowId,
         instanceNonce: typeof value.instanceNonce === 'string' ? value.instanceNonce : '',
@@ -51,7 +51,7 @@ const announceMessageSchema = v.pipe(
         label: v.string(),
         ready: v.boolean(),
     }),
-    v.transform(value => ({
+    v.transform((value) => ({
         type: value.type,
         windowId: value.windowId,
         instanceNonce: typeof value.instanceNonce === 'string' ? value.instanceNonce : '',
@@ -65,19 +65,14 @@ const unregisterMessageSchema = v.pipe(
         windowId: positiveWindowIdSchema,
         instanceNonce: v.optional(v.unknown()),
     }),
-    v.transform(value => ({
+    v.transform((value) => ({
         type: value.type,
         windowId: value.windowId,
         instanceNonce: typeof value.instanceNonce === 'string' ? value.instanceNonce : '',
     })),
 );
-const browserWindowTabsMessageSchema = v.union([
-    discoverMessageSchema,
-    announceMessageSchema,
-    unregisterMessageSchema,
-]);
+const browserWindowTabsMessageSchema = v.union([discoverMessageSchema, announceMessageSchema, unregisterMessageSchema]);
 type TBrowserWindowTabsMessage = v.InferOutput<typeof browserWindowTabsMessageSchema>;
-
 
 const browserWindowTabsInstanceId = Symbol('browserWindowTabsInstance');
 const inheritedWindowId = hasBrowserWindowContext() ? readNamedWindowId() : null;
@@ -92,13 +87,18 @@ let cleanupRegistered = false;
 let windowLock: {windowId: number; held: boolean; granted: Promise<boolean>} | null = null;
 
 function holdWindowLock(windowId: number) {
-    if (windowLock?.windowId === windowId) {return windowLock.granted;}
+    if (windowLock?.windowId === windowId) {
+        return windowLock.granted;
+    }
     const lock = {windowId, held: false, granted: Promise.resolve(false)};
     // A lock manager that refuses the request leaves the id unproven, as another holder would.
-    lock.granted = holdBrowserLock(browserWindowLockName(String(windowId))).then((release) => {
-        lock.held = release !== null;
-        return lock.held;
-    }, () => false);
+    lock.granted = holdBrowserLock(browserWindowLockName(String(windowId))).then(
+        (release) => {
+            lock.held = release !== null;
+            return lock.held;
+        },
+        () => false,
+    );
     windowLock = lock;
     return lock.granted;
 }
@@ -121,7 +121,7 @@ function getBrowserWindowTabsState() {
         return null;
     }
 
-    const browserWindow = window as Window & {[WINDOW_TABS_STATE_KEY]?: IBrowserWindowTabsState;};
+    const browserWindow = window as Window & {[WINDOW_TABS_STATE_KEY]?: IBrowserWindowTabsState};
     browserWindow[WINDOW_TABS_STATE_KEY] ??= {};
     return browserWindow[WINDOW_TABS_STATE_KEY];
 }
@@ -135,10 +135,7 @@ function getCurrentWindowLabel() {
 }
 
 function createWindowId() {
-    return Math.max(
-        1,
-        Math.floor(Date.now() + Math.random() * 1_000_000),
-    );
+    return Math.max(1, Math.floor(Date.now() + Math.random() * 1_000_000));
 }
 
 function readNamedWindowId() {
@@ -172,7 +169,9 @@ function resolveRecoveryInstanceNonce() {
         return state.recoveryInstanceNonce;
     }
     const nonce = createInstanceNonce();
-    if (state) {state.recoveryInstanceNonce = nonce;}
+    if (state) {
+        state.recoveryInstanceNonce = nonce;
+    }
     return nonce;
 }
 
@@ -188,13 +187,11 @@ function resolveCurrentWindowId() {
         const fromQuery = Number(url.searchParams.get(WINDOW_ID_QUERY_PARAM));
         if (Number.isSafeInteger(fromQuery) && fromQuery > 0) {
             url.searchParams.delete(WINDOW_ID_QUERY_PARAM);
-            window.history.replaceState(
-                window.history.state,
-                '',
-                url.toString(),
-            );
+            window.history.replaceState(window.history.state, '', url.toString());
             window.sessionStorage?.removeItem(WINDOW_TABS_STATE_KEY);
-            if (state) {state.windowId = fromQuery;}
+            if (state) {
+                state.windowId = fromQuery;
+            }
             rememberNamedWindowId(fromQuery);
             return fromQuery;
         }
@@ -206,10 +203,15 @@ function resolveCurrentWindowId() {
         const namedWindowId = readNamedWindowId();
         const reloadingWindowId = parsePositiveWindowId(Number(window.sessionStorage?.getItem(WINDOW_TABS_STATE_KEY)));
         window.sessionStorage?.removeItem(WINDOW_TABS_STATE_KEY);
-        if (namedWindowId && (holdsWindowLock(namedWindowId) === true
-            || (namedWindowId === reloadingWindowId
-                && performance.getEntriesByType('navigation').some(entry => 'type' in entry && entry.type === 'reload')))) {
-            if (state) {state.windowId = namedWindowId;}
+        if (
+            namedWindowId &&
+            (holdsWindowLock(namedWindowId) === true ||
+                (namedWindowId === reloadingWindowId &&
+                    performance.getEntriesByType('navigation').some((entry) => 'type' in entry && entry.type === 'reload')))
+        ) {
+            if (state) {
+                state.windowId = namedWindowId;
+            }
             rememberNamedWindowId(namedWindowId);
             return namedWindowId;
         }
@@ -218,7 +220,9 @@ function resolveCurrentWindowId() {
     }
 
     const windowId = createWindowId();
-    if (state) {state.windowId = windowId;}
+    if (state) {
+        state.windowId = windowId;
+    }
     rememberNamedWindowId(windowId);
     return windowId;
 }
@@ -320,10 +324,12 @@ function announceCurrentWindow() {
 }
 
 function shouldIgnoreBrowserWindowTabsMessage(message: TBrowserWindowTabsMessage) {
-    return 'windowId' in message
-        && 'instanceNonce' in message
-        && message.windowId === currentWindowId
-        && message.instanceNonce === currentRecoveryInstanceNonce;
+    return (
+        'windowId' in message &&
+        'instanceNonce' in message &&
+        message.windowId === currentWindowId &&
+        message.instanceNonce === currentRecoveryInstanceNonce
+    );
 }
 
 export function rekeyCurrentWindow() {
@@ -331,7 +337,9 @@ export function rekeyCurrentWindow() {
     void holdWindowLock(nextWindowId);
     currentWindowId = nextWindowId;
     const state = getBrowserWindowTabsState();
-    if (state) {state.windowId = currentWindowId;}
+    if (state) {
+        state.windowId = currentWindowId;
+    }
     rememberNamedWindowId(currentWindowId);
     announceCurrentWindow();
     postMessage({
@@ -341,17 +349,13 @@ export function rekeyCurrentWindow() {
     });
 }
 
-function handleWindowAnnouncement(message: Extract<TBrowserWindowTabsMessage, { type: 'announce' }>) {
-    if (
-        message.windowId === currentWindowId
-        && message.instanceNonce !== currentRecoveryInstanceNonce
-    ) {
+function handleWindowAnnouncement(message: Extract<TBrowserWindowTabsMessage, {type: 'announce'}>) {
+    if (message.windowId === currentWindowId && message.instanceNonce !== currentRecoveryInstanceNonce) {
         // A duplicated/restored tab can clone window.name. The context that
         // holds the owner's lease lock keeps the owner with its leases and
         // records; a context that does not takes a new id and that id's lock.
         // Without a lock manager the instance nonces decide which one keeps it.
-        const retainsOwner = holdsWindowLock(currentWindowId)
-            ?? currentRecoveryInstanceNonce < message.instanceNonce;
+        const retainsOwner = holdsWindowLock(currentWindowId) ?? currentRecoveryInstanceNonce < message.instanceNonce;
         if (!retainsOwner) {
             rekeyCurrentWindow();
         } else {
@@ -450,24 +454,32 @@ export function syncBrowserWindowTitle() {
 async function holdCurrentWindowLock() {
     for (;;) {
         const windowId = getBrowserWindowId();
-        if (!windowId) {return null;}
+        if (!windowId) {
+            return null;
+        }
         const held = await holdWindowLock(Number(windowId));
-        if (windowId !== getBrowserWindowId()) {continue;}
-        if (held) {return windowId;}
+        if (windowId !== getBrowserWindowId()) {
+            continue;
+        }
+        if (held) {
+            return windowId;
+        }
         rekeyCurrentWindow();
     }
 }
 
 async function nameInWindowCheckpoint(directory: string): Promise<boolean> {
     const windowId = await holdCurrentWindowLock();
-    if (!windowId) {return false;}
+    if (!windowId) {
+        return false;
+    }
     return nameBrowserWorkspaceDirectory(windowId, directory);
 }
 
 // The window's checkpoint names a document directory before its first edit, as desktop's does.
 // Returns `false` honestly when the checkpoint write fails or no durable store/window is held.
-browserDocumentStore.onDirectoryEdited = directory => nameInWindowCheckpoint(directory)
-    .catch((error) => {
+browserDocumentStore.onDirectoryEdited = (directory) =>
+    nameInWindowCheckpoint(directory).catch((error) => {
         BrowserLogger.warn('workspace-recovery', 'Failed to name a document in the window checkpoint', error);
         return false;
     });
@@ -476,19 +488,25 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
     browserRecovery: {
         async save(checkpoint) {
             const windowId = await holdCurrentWindowLock();
-            if (windowId) {await saveBrowserWorkspaceCheckpoint(windowId, checkpoint);}
+            if (windowId) {
+                await saveBrowserWorkspaceCheckpoint(windowId, checkpoint);
+            }
         },
     },
     setDocumentDrafts: setBrowserDocumentDrafts,
     async acknowledgeWorkspaceCheckpoint() {
         const windowId = getBrowserWindowId();
-        if (windowId) {await acknowledgeBrowserWorkspaceCheckpoint(windowId);}
+        if (windowId) {
+            await acknowledgeBrowserWorkspaceCheckpoint(windowId);
+        }
     },
     discardWorkspaceCheckpoint: () => Promise.resolve('1'),
     async resumeWorkspaceCheckpoint() {},
     claimWorkspaceCheckpoint: async () => {
         const windowId = await holdCurrentWindowLock();
-        if (!windowId) {return null;}
+        if (!windowId) {
+            return null;
+        }
         // A page that replaced another in this tab inherits its window's unsaved work first.
         return claimBrowserWorkspaceCheckpoint(windowId, inheritedWindowId === null ? null : String(inheritedWindowId));
     },

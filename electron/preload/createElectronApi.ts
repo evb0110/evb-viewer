@@ -1,8 +1,5 @@
-import type {
-    IpcRenderer,
-    webUtils,
-} from 'electron';
-import type { IElectronAPI } from '@contracts/electronApi';
+import type {IpcRenderer, webUtils} from 'electron';
+import type {IElectronAPI} from '@contracts/electronApi';
 import type {
     IDocumentDirectOpenRequest,
     IDocumentsFileIoCapability,
@@ -13,39 +10,24 @@ import type {
     IDocumentsWindowCapability,
     IDocumentsWorkingCopyCapability,
 } from '@contracts/electronApiDocuments';
-import type { IDocxExportFileCapability } from '@contracts/docxExport';
-import type {
-    TRequestId,
-    TUiScalePreference,
-} from '@contracts/shared';
-import {
-    parseDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
-import {
-    decodeDebugLogEntry,
-    type TMenuEventUnsubscribe,
-} from '@contracts/electronApiCommon';
-import type { IHostResourceProfileSnapshot } from '@contracts/hostResourceProfile';
-import type {
-    IWindowCloseResponse,
-    TWindowCloseRequestHandler,
-} from '@contracts/systemPlatformFeature';
-import { IMAGE_EXPORT_PLATFORM_FEATURE } from '@contracts/imageExportPlatformFeature';
-import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
-import { AGENT_PLATFORM_FEATURE } from '@contracts/agentPlatformFeature';
-import { OCR_PLATFORM_FEATURE } from '@contracts/ocrPlatformFeature';
-import { PAGE_OPS_PLATFORM_FEATURE } from '@contracts/pageOpsPlatformFeature';
-import { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
-import { SETTINGS_PLATFORM_FEATURE } from '@contracts/settingsPlatformFeature';
-import { SHELL_PLATFORM_FEATURE } from '@contracts/shellPlatformFeature';
-import { UPDATES_PLATFORM_FEATURE } from '@contracts/updatesPlatformFeature';
-import {
-    HOST_PLATFORM_FEATURE,
-    type IHostEnvironmentSnapshot,
-} from '@contracts/hostPlatformFeature';
-import { SYSTEM_PLATFORM_FEATURE } from '@contracts/systemPlatformFeature';
-import { WINDOW_TABS_PLATFORM_FEATURE } from '@contracts/windowTabsPlatformFeature';
+import type {IDocxExportFileCapability} from '@contracts/docxExport';
+import type {TRequestId, TUiScalePreference} from '@contracts/shared';
+import {parseDocumentRef, type TDocumentRef} from '@contracts/documentRef';
+import {decodeDebugLogEntry, type TMenuEventUnsubscribe} from '@contracts/electronApiCommon';
+import type {IHostResourceProfileSnapshot} from '@contracts/hostResourceProfile';
+import type {IWindowCloseResponse, TWindowCloseRequestHandler} from '@contracts/systemPlatformFeature';
+import {IMAGE_EXPORT_PLATFORM_FEATURE} from '@contracts/imageExportPlatformFeature';
+import {DJVU_PLATFORM_FEATURE} from '@contracts/djvuPlatformFeature';
+import {AGENT_PLATFORM_FEATURE} from '@contracts/agentPlatformFeature';
+import {OCR_PLATFORM_FEATURE} from '@contracts/ocrPlatformFeature';
+import {PAGE_OPS_PLATFORM_FEATURE} from '@contracts/pageOpsPlatformFeature';
+import {SEARCH_PLATFORM_FEATURE} from '@contracts/searchPlatformFeature';
+import {SETTINGS_PLATFORM_FEATURE} from '@contracts/settingsPlatformFeature';
+import {SHELL_PLATFORM_FEATURE} from '@contracts/shellPlatformFeature';
+import {UPDATES_PLATFORM_FEATURE} from '@contracts/updatesPlatformFeature';
+import {HOST_PLATFORM_FEATURE, type IHostEnvironmentSnapshot} from '@contracts/hostPlatformFeature';
+import {SYSTEM_PLATFORM_FEATURE} from '@contracts/systemPlatformFeature';
+import {WINDOW_TABS_PLATFORM_FEATURE} from '@contracts/windowTabsPlatformFeature';
 import {
     DOCUMENT_FILES_PLATFORM_FEATURE,
     DOCUMENT_MENU_PLATFORM_FEATURE,
@@ -56,22 +38,13 @@ import {
     DOCUMENT_WINDOW_PLATFORM_FEATURE,
     DOCUMENT_WORKING_COPY_PLATFORM_FEATURE,
 } from '@contracts/documentsPlatformFeature';
-import { getDebugLogMessages } from '@electron/preload/debugLogBuffer';
-import {
-    createDocumentsPreloadStreams,
-    type IDocumentsDirectInvokeMap,
-} from '@electron/features/documents/createDocumentsPreloadStreams';
+import {getDebugLogMessages} from '@electron/preload/debugLogBuffer';
+import {createDocumentsPreloadStreams, type IDocumentsDirectInvokeMap} from '@electron/features/documents/createDocumentsPreloadStreams';
 import {MAX_RENDERER_FILE_OPEN_TOKENS_PER_SENDER} from '@electron/features/documents/public/maxRendererFileOpenTokensPerSender';
-import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
-import {
-    FULL_SCAN_CLEANUP_SUPPORT,
-    SCAN_CLEANUP_PLATFORM_FEATURE,
-} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
-import {
-    createPlatformFeaturePreloadClient,
-    createTypedIpcEventSubscriber,
-} from '@electron/preload/ipcClient';
-import { getErrorMessage } from '@electron/utils/error';
+import {DOCUMENTS_CHANNELS} from '@electron/features/documents/contract';
+import {FULL_SCAN_CLEANUP_SUPPORT, SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
+import {createPlatformFeaturePreloadClient, createTypedIpcEventSubscriber} from '@electron/preload/ipcClient';
+import {getErrorMessage} from '@electron/utils/error';
 import {
     CORE_IPC_CHANNELS,
     CORE_IPC_EVENT_CHANNELS,
@@ -106,8 +79,7 @@ function tracePreloadStartup(stage: string, details?: Record<string, unknown>) {
     const now = Date.now();
     const iso = new Date(now).toISOString();
     console.info(
-        `[${iso}] [startup][preload] ${stage} (+${now - preloadStartupStart}ms from preload-api-init)`
-        + stringifyDetails(details),
+        `[${iso}] [startup][preload] ${stage} (+${now - preloadStartupStart}ms from preload-api-init)` + stringifyDetails(details),
     );
 }
 
@@ -136,9 +108,7 @@ interface IElectronSystemMemoryInfo {
 }
 
 function normalizeMemoryKilobytes(value: number | undefined) {
-    return typeof value === 'number' && Number.isFinite(value) && value > 0
-        ? value
-        : 0;
+    return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0;
 }
 
 export function decodeSystemMemoryInfo(memoryInfo: IElectronSystemMemoryInfo) {
@@ -148,8 +118,7 @@ export function decodeSystemMemoryInfo(memoryInfo: IElectronSystemMemoryInfo) {
         return null;
     }
 
-    const reclaimable = normalizeMemoryKilobytes(memoryInfo.fileBacked)
-        + normalizeMemoryKilobytes(memoryInfo.purgeable);
+    const reclaimable = normalizeMemoryKilobytes(memoryInfo.fileBacked) + normalizeMemoryKilobytes(memoryInfo.purgeable);
     // Linux reports the kernel's MemAvailable as `available`; its MemFree excludes page cache.
     // macOS and Windows report no `available`, so they keep free plus reclaimable memory.
     const kernelAvailable = memoryInfo.available;
@@ -190,7 +159,7 @@ export function createElectronApi(
     ipcRenderer: IpcRenderer,
     electronWebUtils: typeof webUtils,
     options: ICreateElectronApiOptions = {},
-): IElectronAPI & {diagnostics: IPreloadDiagnosticsApi;} {
+): IElectronAPI & {diagnostics: IPreloadDiagnosticsApi} {
     type TDocumentsFileOpenGrantChannel =
         | typeof DOCUMENTS_CHANNELS.registerRendererFileOpenToken
         | typeof DOCUMENTS_CHANNELS.registerRendererFileOpenTokens
@@ -214,7 +183,12 @@ export function createElectronApi(
     const ocr = createPlatformFeaturePreloadClient(ipcRenderer, OCR_PLATFORM_FEATURE, undefined, sharedEventSubscriber);
     const settingsIpc = createPlatformFeaturePreloadClient(ipcRenderer, SETTINGS_PLATFORM_FEATURE, undefined, sharedEventSubscriber);
     const updatesIpc = createPlatformFeaturePreloadClient(ipcRenderer, UPDATES_PLATFORM_FEATURE, undefined, sharedEventSubscriber);
-    const hostIpc = createPlatformFeaturePreloadClient(ipcRenderer, HOST_PLATFORM_FEATURE, {getResourceProfile: () => options.resourceProfile ?? null}, sharedEventSubscriber);
+    const hostIpc = createPlatformFeaturePreloadClient(
+        ipcRenderer,
+        HOST_PLATFORM_FEATURE,
+        {getResourceProfile: () => options.resourceProfile ?? null},
+        sharedEventSubscriber,
+    );
     const systemIpc = createPlatformFeaturePreloadClient(
         ipcRenderer,
         SYSTEM_PLATFORM_FEATURE,
@@ -222,28 +196,34 @@ export function createElectronApi(
         sharedEventSubscriber,
     );
     const windowTabsIpc = createPlatformFeaturePreloadClient(ipcRenderer, WINDOW_TABS_PLATFORM_FEATURE, undefined, sharedEventSubscriber);
-    const shutdownSaveFlushCallbacks = new Set<() => Promise<{
-        dirtyWorkingCopyPaths?: string[];
-        flushedWorkingCopyPaths?: string[];
-    }> | {
-        dirtyWorkingCopyPaths?: string[];
-        flushedWorkingCopyPaths?: string[];
-    }>();
+    const shutdownSaveFlushCallbacks = new Set<
+        () =>
+            | Promise<{
+                  dirtyWorkingCopyPaths?: string[];
+                  flushedWorkingCopyPaths?: string[];
+              }>
+            | {
+                  dirtyWorkingCopyPaths?: string[];
+                  flushedWorkingCopyPaths?: string[];
+              }
+    >();
     const windowCloseCallbacks = new Set<TWindowCloseRequestHandler>();
-    const pendingRendererFileOpenAllows = new Map<string, {
-        token: string;
-        promise: Promise<boolean>;
-    }>();
+    const pendingRendererFileOpenAllows = new Map<
+        string,
+        {
+            token: string;
+            promise: Promise<boolean>;
+        }
+    >();
 
     function createRendererFileOpenAllow(filePath: string, rendererFileOpenToken = globalThis.crypto.randomUUID()) {
-        const allowPromise = invokeDocuments(
-            DOCUMENTS_CHANNELS.registerRendererFileOpenToken,
-            rendererFileOpenToken,
-        )
-            .then(() => invokeDocuments(DOCUMENTS_CHANNELS.allowRendererFileOpen, {
-                filePath,
-                token: rendererFileOpenToken,
-            }))
+        const allowPromise = invokeDocuments(DOCUMENTS_CHANNELS.registerRendererFileOpenToken, rendererFileOpenToken)
+            .then(() =>
+                invokeDocuments(DOCUMENTS_CHANNELS.allowRendererFileOpen, {
+                    filePath,
+                    token: rendererFileOpenToken,
+                }),
+            )
             .finally(() => {
                 const pending = pendingRendererFileOpenAllows.get(filePath);
                 if (pending?.token === rendererFileOpenToken) {
@@ -266,7 +246,7 @@ export function createElectronApi(
         if (uniqueFilePaths.length === 0) {
             return Promise.resolve(true);
         }
-        const requests = uniqueFilePaths.map(filePath => ({
+        const requests = uniqueFilePaths.map((filePath) => ({
             filePath,
             token: globalThis.crypto.randomUUID(),
         }));
@@ -275,25 +255,24 @@ export function createElectronApi(
                 const batch = requests.slice(offset, offset + MAX_RENDERER_FILE_OPEN_TOKENS_PER_SENDER);
                 const registered = await invokeDocuments(
                     DOCUMENTS_CHANNELS.registerRendererFileOpenTokens,
-                    batch.map(request => request.token),
+                    batch.map((request) => request.token),
                 );
                 if (!registered) {
                     return false;
                 }
-                if (!await invokeDocuments(DOCUMENTS_CHANNELS.allowRendererFileOpenBatch, batch)) {
+                if (!(await invokeDocuments(DOCUMENTS_CHANNELS.allowRendererFileOpenBatch, batch))) {
                     return false;
                 }
             }
             return true;
-        })()
-            .finally(() => {
-                for (const request of requests) {
-                    const pending = pendingRendererFileOpenAllows.get(request.filePath);
-                    if (pending?.token === request.token) {
-                        pendingRendererFileOpenAllows.delete(request.filePath);
-                    }
+        })().finally(() => {
+            for (const request of requests) {
+                const pending = pendingRendererFileOpenAllows.get(request.filePath);
+                if (pending?.token === request.token) {
+                    pendingRendererFileOpenAllows.delete(request.filePath);
                 }
-            });
+            }
+        });
         for (const request of requests) {
             pendingRendererFileOpenAllows.set(request.filePath, {
                 token: request.token,
@@ -318,24 +297,20 @@ export function createElectronApi(
 
     const openDocumentDirect = async (path: TDocumentRef, request?: IDocumentDirectOpenRequest) => {
         const pendingAllow = pendingRendererFileOpenAllows.get(path)?.promise;
-        if (pendingAllow && !await pendingAllow) {
+        if (pendingAllow && !(await pendingAllow)) {
             return null;
         }
         await options.waitForDocumentOpenDirect?.(path);
-        return request === undefined
-            ? documentOpenFeature.openDocumentDirect(path)
-            : documentOpenFeature.openDocumentDirect(path, request);
+        return request === undefined ? documentOpenFeature.openDocumentDirect(path) : documentOpenFeature.openDocumentDirect(path, request);
     };
-    const openDocumentDirectBatch = async (
-        paths: TDocumentRef[],
-        requestId?: TRequestId,
-        options?: {forceCombine?: boolean},
-    ) => {
-        const allowed = await Promise.all(paths.map(async (path) => {
-            const pendingAllow = pendingRendererFileOpenAllows.get(path)?.promise;
-            return pendingAllow === undefined || await pendingAllow;
-        }));
-        if (allowed.some(result => !result)) {
+    const openDocumentDirectBatch = async (paths: TDocumentRef[], requestId?: TRequestId, options?: {forceCombine?: boolean}) => {
+        const allowed = await Promise.all(
+            paths.map(async (path) => {
+                const pendingAllow = pendingRendererFileOpenAllows.get(path)?.promise;
+                return pendingAllow === undefined || (await pendingAllow);
+            }),
+        );
+        if (allowed.some((result) => !result)) {
             return null;
         }
         return options === undefined
@@ -343,22 +318,23 @@ export function createElectronApi(
             : documentOpenFeature.openDocumentDirectBatch(paths, requestId, options);
     };
 
-    const extractPathsForFiles = (files: File[]): TDocumentRef[] => files
-        .map(file => electronWebUtils.getPathForFile(file))
-        .map(filePath => parseDocumentRef(filePath))
-        .filter((filePath): filePath is TDocumentRef => filePath !== null);
+    const extractPathsForFiles = (files: File[]): TDocumentRef[] =>
+        files
+            .map((file) => electronWebUtils.getPathForFile(file))
+            .map((filePath) => parseDocumentRef(filePath))
+            .filter((filePath): filePath is TDocumentRef => filePath !== null);
 
     const getPathForFile = (file: File): TDocumentRef => {
         const filePath = parseDocumentRef(electronWebUtils.getPathForFile(file));
         if (filePath === null) {
             throw new Error('Selected file does not have an absolute document path');
         }
-        observeRendererFileOpenGrant(allowRendererFileOpen(filePath), { filePath });
+        observeRendererFileOpenGrant(allowRendererFileOpen(filePath), {filePath});
         return filePath;
     };
     const getPathsForFiles = (files: File[]) => {
         const filePaths = extractPathsForFiles(files);
-        observeRendererFileOpenGrant(allowRendererFileOpenBatch(filePaths), { fileCount: filePaths.length });
+        observeRendererFileOpenGrant(allowRendererFileOpenBatch(filePaths), {fileCount: filePaths.length});
         return filePaths;
     };
     const registerFilesForOpen = async (files: File[]) => {
@@ -403,7 +379,9 @@ export function createElectronApi(
                 flushedWorkingCopyPaths: Array.from(flushedWorkingCopyPaths),
                 ...(callbacks.length === 0
                     ? {error: 'No shutdown save-flush handler is registered.'}
-                    : errors.length > 0 ? {error: errors.join('; ')} : {}),
+                    : errors.length > 0
+                      ? {error: errors.join('; ')}
+                      : {}),
             };
             ipcRenderer.send(CORE_IPC_SEND_CHANNELS.shutdownSaveFlushResult, response);
         })();
@@ -497,12 +475,7 @@ export function createElectronApi(
         undefined,
         sharedEventSubscriber,
     ) satisfies IDocumentsWindowCapability;
-    const documentMenu = createPlatformFeaturePreloadClient(
-        ipcRenderer,
-        DOCUMENT_MENU_PLATFORM_FEATURE,
-        undefined,
-        sharedEventSubscriber,
-    );
+    const documentMenu = createPlatformFeaturePreloadClient(ipcRenderer, DOCUMENT_MENU_PLATFORM_FEATURE, undefined, sharedEventSubscriber);
     const documentOpen = {
         openDocumentDirect,
         openDocumentDirectBatch,
@@ -547,7 +520,12 @@ export function createElectronApi(
         imageExport,
 
         ocr,
-        scanCleanup: createPlatformFeaturePreloadClient(ipcRenderer, SCAN_CLEANUP_PLATFORM_FEATURE, {getSupport: () => FULL_SCAN_CLEANUP_SUPPORT}, sharedEventSubscriber),
+        scanCleanup: createPlatformFeaturePreloadClient(
+            ipcRenderer,
+            SCAN_CLEANUP_PLATFORM_FEATURE,
+            {getSupport: () => FULL_SCAN_CLEANUP_SUPPORT},
+            sharedEventSubscriber,
+        ),
 
         search: createPlatformFeaturePreloadClient(ipcRenderer, SEARCH_PLATFORM_FEATURE, undefined, sharedEventSubscriber),
 
@@ -555,10 +533,7 @@ export function createElectronApi(
 
         settings: {
             ...settingsIpc,
-            get: () => invokeWithStartupTrace(
-                'settings:get',
-                settingsIpc.get,
-            ),
+            get: () => invokeWithStartupTrace('settings:get', settingsIpc.get),
             getDebugLogs: () => Promise.resolve(getDebugLogMessages()),
             onDebugLog: (callback): TMenuEventUnsubscribe =>
                 eventSubscriber.onDecodedPayload(CORE_IPC_EVENT_CHANNELS.debugLog, decodeDebugLogEntry, callback),
@@ -603,12 +578,10 @@ export function createElectronApi(
                 tracePreloadStartup('app:rendererReady dispatched', {phase: phase.phase});
                 ipcRenderer.send(CORE_IPC_CHANNELS.rendererReady, phase);
             },
-            claimPendingExternalOpenPaths: () => invokeWithStartupTrace(
-                'app:claimPendingExternalOpenPaths',
-                windowTabsIpc.claimPendingExternalOpenPaths,
-            ),
+            claimPendingExternalOpenPaths: () =>
+                invokeWithStartupTrace('app:claimPendingExternalOpenPaths', windowTabsIpc.claimPendingExternalOpenPaths),
         },
-    } satisfies IElectronAPI & {diagnostics: IPreloadDiagnosticsApi;};
+    } satisfies IElectronAPI & {diagnostics: IPreloadDiagnosticsApi};
 
     return api;
 }

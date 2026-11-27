@@ -1,13 +1,9 @@
-import type { IShapeAnnotation } from '@app/types/annotations';
-import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
-import type { IPdfNativeShapeAnnotation } from '@contracts/electronApiDocuments';
-import { requirePageIndex } from '@contracts/pageNumbers';
-import { parseEpochMs } from '@contracts/timestamps';
-import {
-    PDF_ANNOTATION_LINE_END_STYLES,
-    PDF_ANNOTATION_SHAPE_PDF_SUBTYPES,
-    PDF_ANNOTATION_SHAPE_TYPES,
-} from '@contracts/annotations';
+import type {IShapeAnnotation} from '@app/types/annotations';
+import {normalizePdfJsAnnotationId} from '@app/utils/pdfAnnotationRefs';
+import type {IPdfNativeShapeAnnotation} from '@contracts/electronApiDocuments';
+import {requirePageIndex} from '@contracts/pageNumbers';
+import {parseEpochMs} from '@contracts/timestamps';
+import {PDF_ANNOTATION_LINE_END_STYLES, PDF_ANNOTATION_SHAPE_PDF_SUBTYPES, PDF_ANNOTATION_SHAPE_TYPES} from '@contracts/annotations';
 
 const NATIVE_SHAPE_TYPES = new Set(PDF_ANNOTATION_SHAPE_TYPES);
 const NATIVE_SHAPE_PDF_SUBTYPES = new Set(PDF_ANNOTATION_SHAPE_PDF_SUBTYPES);
@@ -22,57 +18,44 @@ function isFiniteNonNegativeNumber(value: unknown) {
 }
 
 function areNativeShapePointsEligible(points: IShapeAnnotation['points']) {
-    return Array.isArray(points)
-        && points.length >= 2
-        && points.every(point => isFiniteUnitNumber(point.x) && isFiniteUnitNumber(point.y));
+    return (
+        Array.isArray(points) && points.length >= 2 && points.every((point) => isFiniteUnitNumber(point.x) && isFiniteUnitNumber(point.y))
+    );
 }
 
 function areNativeShapeStrokesEligible(strokes: IShapeAnnotation['strokes']) {
-    return Array.isArray(strokes)
-        && strokes.length > 0
-        && strokes.every(points => areNativeShapePointsEligible(points));
+    return Array.isArray(strokes) && strokes.length > 0 && strokes.every((points) => areNativeShapePointsEligible(points));
 }
 
 function hasNativeShapeRectGeometry(shape: IShapeAnnotation) {
-    return isFiniteUnitNumber(shape.x)
-        && isFiniteUnitNumber(shape.y)
-        && isFiniteNonNegativeNumber(shape.width)
-        && isFiniteNonNegativeNumber(shape.height)
-        && shape.width > 0
-        && shape.height > 0
-        && shape.x + shape.width <= 1
-        && shape.y + shape.height <= 1;
+    return (
+        isFiniteUnitNumber(shape.x) &&
+        isFiniteUnitNumber(shape.y) &&
+        isFiniteNonNegativeNumber(shape.width) &&
+        isFiniteNonNegativeNumber(shape.height) &&
+        shape.width > 0 &&
+        shape.height > 0 &&
+        shape.x + shape.width <= 1 &&
+        shape.y + shape.height <= 1
+    );
 }
 
 function hasNativeShapeLineGeometry(shape: IShapeAnnotation) {
-    return isFiniteUnitNumber(shape.x)
-        && isFiniteUnitNumber(shape.y)
-        && isFiniteUnitNumber(shape.x2)
-        && isFiniteUnitNumber(shape.y2);
+    return isFiniteUnitNumber(shape.x) && isFiniteUnitNumber(shape.y) && isFiniteUnitNumber(shape.x2) && isFiniteUnitNumber(shape.y2);
 }
 
 export function isNativeShapeEligible(shape: IShapeAnnotation, totalPageCount: number) {
     if (
-        !NATIVE_SHAPE_TYPES.has(shape.type)
-        || !Number.isSafeInteger(shape.pageIndex)
-        || shape.pageIndex < 0
-        || shape.pageIndex >= totalPageCount
-        || typeof shape.color !== 'string'
-        || !isFiniteNonNegativeNumber(shape.strokeWidth)
-        || !isFiniteUnitNumber(shape.opacity)
-        || (
-            shape.pdfSubtype !== undefined
-            && shape.pdfSubtype !== null
-            && !NATIVE_SHAPE_PDF_SUBTYPES.has(shape.pdfSubtype)
-        )
-        || (
-            shape.lineStartStyle !== undefined
-            && !NATIVE_SHAPE_LINE_END_STYLES.has(shape.lineStartStyle)
-        )
-        || (
-            shape.lineEndStyle !== undefined
-            && !NATIVE_SHAPE_LINE_END_STYLES.has(shape.lineEndStyle)
-        )
+        !NATIVE_SHAPE_TYPES.has(shape.type) ||
+        !Number.isSafeInteger(shape.pageIndex) ||
+        shape.pageIndex < 0 ||
+        shape.pageIndex >= totalPageCount ||
+        typeof shape.color !== 'string' ||
+        !isFiniteNonNegativeNumber(shape.strokeWidth) ||
+        !isFiniteUnitNumber(shape.opacity) ||
+        (shape.pdfSubtype !== undefined && shape.pdfSubtype !== null && !NATIVE_SHAPE_PDF_SUBTYPES.has(shape.pdfSubtype)) ||
+        (shape.lineStartStyle !== undefined && !NATIVE_SHAPE_LINE_END_STYLES.has(shape.lineStartStyle)) ||
+        (shape.lineEndStyle !== undefined && !NATIVE_SHAPE_LINE_END_STYLES.has(shape.lineEndStyle))
     ) {
         return false;
     }
@@ -84,8 +67,7 @@ export function isNativeShapeEligible(shape: IShapeAnnotation, totalPageCount: n
         return hasNativeShapeLineGeometry(shape);
     }
     if (shape.pdfSubtype === 'Ink') {
-        return areNativeShapeStrokesEligible(shape.strokes)
-            || areNativeShapePointsEligible(shape.points);
+        return areNativeShapeStrokesEligible(shape.strokes) || areNativeShapePointsEligible(shape.points);
     }
     return areNativeShapePointsEligible(shape.points);
 }
@@ -114,19 +96,15 @@ export function toNativeShapeAnnotation(shape: IShapeAnnotation): IPdfNativeShap
         modifiedAt: parseEpochMs(shape.modifiedAt),
     };
     if (shape.points) {
-        nativeShape.points = shape.points.map(point => ({...point}));
+        nativeShape.points = shape.points.map((point) => ({...point}));
     }
     if (shape.strokes) {
-        nativeShape.strokes = shape.strokes.map(points => points.map(point => ({...point})));
+        nativeShape.strokes = shape.strokes.map((points) => points.map((point) => ({...point})));
     }
     return nativeShape;
 }
 
-function omitRetiredPdfRefForShape(
-    shape: IShapeAnnotation,
-    deletedAnnotationIds: Set<string>,
-    deletedStableKeys: Set<string>,
-) {
+function omitRetiredPdfRefForShape(shape: IShapeAnnotation, deletedAnnotationIds: Set<string>, deletedStableKeys: Set<string>) {
     const annotationId = normalizePdfJsAnnotationId(shape.annotationId);
     const targetsRetiredShape = [
         annotationId ? deletedAnnotationIds.has(annotationId) : false,
@@ -156,7 +134,7 @@ export function buildNativeShapesMutationForSave(opts: {
     if (!opts.shapes || opts.totalPageCount <= 0) {
         return null;
     }
-    if (!opts.shapes.every(shape => isNativeShapeEligible(shape, opts.totalPageCount))) {
+    if (!opts.shapes.every((shape) => isNativeShapeEligible(shape, opts.totalPageCount))) {
         return null;
     }
 
@@ -171,11 +149,9 @@ export function buildNativeShapesMutationForSave(opts: {
     return {
         totalPages: opts.totalPageCount,
         rewriteShapeState: opts.rewriteShapeState,
-        shapes: opts.shapes.map(shape => toNativeShapeAnnotation(omitRetiredPdfRefForShape(
-            shape,
-            deletedAnnotationIds,
-            deletedStableKeys,
-        ))),
+        shapes: opts.shapes.map((shape) =>
+            toNativeShapeAnnotation(omitRetiredPdfRefForShape(shape, deletedAnnotationIds, deletedStableKeys)),
+        ),
         deletedAnnotationIds: opts.deletedAnnotationIds,
         deletedStableKeys: opts.deletedStableKeys,
     };

@@ -18,50 +18,19 @@ import {
  * launch arguments and environment. Two Codex instances can use different
  * accounts or a proxy, exactly as T3 Code's provider instances do.
  */
-export const ASSISTANT_DRIVERS = [
-    'codex',
-    'claude',
-] as const;
+export const ASSISTANT_DRIVERS = ['codex', 'claude'] as const;
 export const ASSISTANT_DEFAULT_INSTANCE_IDS = {
     codex: 'codex',
     claude: 'claude',
 } as const;
-export const ASSISTANT_INSTANCE_STATES = [
-    'checking',
-    'ready',
-    'warning',
-    'error',
-    'disabled',
-    'missing',
-] as const;
-export const ASSISTANT_AUTH_STATES = [
-    'authenticated',
-    'unauthenticated',
-    'unknown',
-] as const;
-export const ASSISTANT_SPEED_MODES = [
-    'fast',
-    'standard',
-] as const;
-export const ASSISTANT_ITEM_KINDS = [
-    'user',
-    'assistant',
-    'reasoning',
-    'tool',
-    'system',
-] as const;
-export const ASSISTANT_ITEM_STATUSES = [
-    'streaming',
-    'completed',
-    'interrupted',
-    'failed',
-] as const;
+export const ASSISTANT_INSTANCE_STATES = ['checking', 'ready', 'warning', 'error', 'disabled', 'missing'] as const;
+export const ASSISTANT_AUTH_STATES = ['authenticated', 'unauthenticated', 'unknown'] as const;
+export const ASSISTANT_SPEED_MODES = ['fast', 'standard'] as const;
+export const ASSISTANT_ITEM_KINDS = ['user', 'assistant', 'reasoning', 'tool', 'system'] as const;
+export const ASSISTANT_ITEM_STATUSES = ['streaming', 'completed', 'interrupted', 'failed'] as const;
 export const ASSISTANT_INSTANCE_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/u;
 
-const instanceIdSchema = v.pipe(
-    v.string(),
-    v.regex(ASSISTANT_INSTANCE_ID_PATTERN, 'assistant instance id must be a lowercase slug'),
-);
+const instanceIdSchema = v.pipe(v.string(), v.regex(ASSISTANT_INSTANCE_ID_PATTERN, 'assistant instance id must be a lowercase slug'));
 const driverSchema = v.picklist(ASSISTANT_DRIVERS);
 const speedModeSchema = v.picklist(ASSISTANT_SPEED_MODES);
 const nonBlankString = v.pipe(v.string(), v.trim(), v.nonEmpty());
@@ -95,7 +64,7 @@ const instanceConfigSchema = v.object({
 
 const instancesSchema = v.pipe(
     v.array(instanceConfigSchema),
-    v.check(list => new Set(list.map(instance => instance.id)).size === list.length, 'assistant instance ids must be unique'),
+    v.check((list) => new Set(list.map((instance) => instance.id)).size === list.length, 'assistant instance ids must be unique'),
 );
 
 const instanceStatusSchema = v.object({
@@ -188,10 +157,7 @@ const instanceRequestSchema = v.object({instanceId: instanceIdSchema});
 
 const loginRequestSchema = v.object({
     instanceId: instanceIdSchema,
-    mode: v.picklist([
-        'chatgpt',
-        'device-code',
-    ]),
+    mode: v.picklist(['chatgpt', 'device-code']),
 });
 
 const operationResultSchema = v.object({
@@ -261,8 +227,8 @@ export const ASSISTANT_LOGIN_RESULT_SCHEMA = v.message(loginResultSchema, 'inval
 export const ASSISTANT_INSTANCES_RESULT_SCHEMA = v.message(instancesResultSchema, 'invalid assistant instances result');
 export const ASSISTANT_EVENT_SCHEMA = v.message(eventSchema, 'invalid assistant event');
 
-export type TAssistantDriver = typeof ASSISTANT_DRIVERS[number];
-export type TAssistantItemStatus = typeof ASSISTANT_ITEM_STATUSES[number];
+export type TAssistantDriver = (typeof ASSISTANT_DRIVERS)[number];
+export type TAssistantItemStatus = (typeof ASSISTANT_ITEM_STATUSES)[number];
 export type IAssistantEnvironmentEntry = v.InferOutput<typeof environmentEntrySchema>;
 export type IAssistantInstanceConfig = v.InferOutput<typeof instanceConfigSchema>;
 export type IAssistantInstanceStatus = v.InferOutput<typeof instanceStatusSchema>;

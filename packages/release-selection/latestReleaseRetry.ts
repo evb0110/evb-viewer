@@ -1,27 +1,31 @@
 import {waitForBoundedOperation} from '../node-runtime/waitForBoundedOperation';
 
-interface IHeadersLike {get: (name: string) => string | null}
-interface ITaggedRelease {tag_name: string}
+interface IHeadersLike {
+    get: (name: string) => string | null;
+}
+interface ITaggedRelease {
+    tag_name: string;
+}
 
 interface IReleaseDataRetryOptions<TResult> {
-    fetchResult: (signal: AbortSignal) => Promise<TResult>
-    shouldRetryResult?: (result: TResult) => boolean
-    sleep?: (delayMs: number) => Promise<void>
-    retries?: number
-    random?: () => number
-    totalTimeoutMs?: number
+    fetchResult: (signal: AbortSignal) => Promise<TResult>;
+    shouldRetryResult?: (result: TResult) => boolean;
+    sleep?: (delayMs: number) => Promise<void>;
+    retries?: number;
+    random?: () => number;
+    totalTimeoutMs?: number;
 }
 
 interface IReleaseCatalogLoaderOptions {
-    freshForMs?: number
-    staleForMs?: number
-    now?: () => number
+    freshForMs?: number;
+    staleForMs?: number;
+    now?: () => number;
 }
 
 interface IReleaseCatalogLoadOptions<TCatalog> {
-    cacheKey: string
-    fetchCatalog: () => Promise<TCatalog>
-    isUsableCatalog?: (catalog: TCatalog) => boolean
+    cacheKey: string;
+    fetchCatalog: () => Promise<TCatalog>;
+    isUsableCatalog?: (catalog: TCatalog) => boolean;
 }
 
 const DEFAULT_RETRIES = 2;
@@ -71,9 +75,7 @@ export function parseRetryAfterMs(value: string | null, now = Date.now()) {
     }
 
     const seconds = Number(value);
-    const parsedDelay = Number.isFinite(seconds)
-        ? seconds * 1_000
-        : Date.parse(value) - now;
+    const parsedDelay = Number.isFinite(seconds) ? seconds * 1_000 : Date.parse(value) - now;
 
     if (!Number.isFinite(parsedDelay)) {
         return null;
@@ -87,12 +89,9 @@ export function shouldRetryReleaseFetch(error: unknown) {
     return statusCode === null || statusCode === 429 || statusCode >= 500;
 }
 
-export function getMissingConfiguredReleaseTags(
-    releases: readonly ITaggedRelease[],
-    configuredTags: readonly string[],
-) {
-    const listedTags = new Set(releases.map(release => release.tag_name));
-    return Array.from(new Set(configuredTags)).filter(tag => !listedTags.has(tag));
+export function getMissingConfiguredReleaseTags(releases: readonly ITaggedRelease[], configuredTags: readonly string[]) {
+    const listedTags = new Set(releases.map((release) => release.tag_name));
+    return Array.from(new Set(configuredTags)).filter((tag) => !listedTags.has(tag));
 }
 
 function sleep(delayMs: number) {
@@ -114,15 +113,13 @@ function jitterDelay(delayMs: number, random: () => number) {
     return Math.round(delayMs * (lowerBound + normalizedRandom * span));
 }
 
-export async function fetchReleaseDataWithRetry<TResult>(
-    options: IReleaseDataRetryOptions<TResult>,
-) {
+export async function fetchReleaseDataWithRetry<TResult>(options: IReleaseDataRetryOptions<TResult>) {
     const retryCount = options.retries ?? DEFAULT_RETRIES;
     const wait = options.sleep ?? sleep;
     const random = options.random ?? Math.random;
     const totalTimeoutMs = options.totalTimeoutMs ?? DEFAULT_TOTAL_TIMEOUT_MS;
     const startedAt = Date.now();
-    let latestResult: { value: TResult } | null = null;
+    let latestResult: {value: TResult} | null = null;
 
     for (let attempt = 0; attempt <= retryCount; attempt += 1) {
         try {
@@ -137,7 +134,7 @@ export async function fetchReleaseDataWithRetry<TResult>(
             if (!options.shouldRetryResult?.(result) || attempt === retryCount) {
                 return result;
             }
-            latestResult = { value: result };
+            latestResult = {value: result};
         } catch (error) {
             if (!shouldRetryReleaseFetch(error)) {
                 throw error;
@@ -183,16 +180,16 @@ export function createReleaseCatalogLoader<TCatalog>(options: IReleaseCatalogLoa
     const staleForMs = options.staleForMs ?? DEFAULT_CATALOG_STALE_MS;
     const now = options.now ?? Date.now;
     let cached: {
-        cacheKey: string
-        catalog: TCatalog
-        fetchedAt: number
+        cacheKey: string;
+        catalog: TCatalog;
+        fetchedAt: number;
     } | null = null;
     let inFlight: {
-        cacheKey: string
+        cacheKey: string;
         promise: Promise<{
-            catalog: TCatalog
-            stale: boolean
-        }>
+            catalog: TCatalog;
+            stale: boolean;
+        }>;
     } | null = null;
 
     function isCurrentInFlight(promise: Promise<unknown>) {
@@ -204,8 +201,8 @@ export function createReleaseCatalogLoader<TCatalog>(options: IReleaseCatalogLoa
         fetchCatalog,
         isUsableCatalog = () => true,
     }: IReleaseCatalogLoadOptions<TCatalog>): Promise<{
-        catalog: TCatalog
-        stale: boolean
+        catalog: TCatalog;
+        stale: boolean;
     }> => {
         const ageMs = cached?.cacheKey === cacheKey ? now() - cached.fetchedAt : Number.POSITIVE_INFINITY;
         if (cached && cached.cacheKey === cacheKey && ageMs <= freshForMs) {

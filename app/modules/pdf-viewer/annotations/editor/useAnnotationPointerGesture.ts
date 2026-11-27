@@ -1,24 +1,20 @@
-import type { ComputedRef } from 'vue';
-import type { AnnotationId } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import type {
-    IAnnotationGesture,
-    IAnnotationEditorSurface,
-} from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
-import type { IAnnotationMarkerRect } from '@app/types/annotations';
+import type {ComputedRef} from 'vue';
+import type {AnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import type {IAnnotationGesture, IAnnotationEditorSurface} from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
+import type {IAnnotationMarkerRect} from '@app/types/annotations';
 import {
     annotationPageDimensions,
     clampAnnotationMoveDelta,
     resizeRotatedAnnotationRect,
     rotatedAnnotationBounds,
     createAnnotationRectFromPoints,
-
 } from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/annotationEditorGeometry';
 import type {
     IAnnotationEditorPoint,
     TAnnotationResizeHandle,
 } from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/annotationEditorGeometry';
-import { textNotePosition } from '@app/modules/pdf-viewer/engine/annotation-geometry/textNoteIconRect';
-import { hasPointerMovedPastThreshold } from '@app/modules/pdf-viewer/engine/pdf-shape-overlay-interactions/hasPointerMovedPastThreshold';
+import {textNotePosition} from '@app/modules/pdf-viewer/engine/annotation-geometry/textNoteIconRect';
+import {hasPointerMovedPastThreshold} from '@app/modules/pdf-viewer/engine/pdf-shape-overlay-interactions/hasPointerMovedPastThreshold';
 
 const ANNOTATION_POINTER_DRAG_THRESHOLD_PX = 6;
 
@@ -43,7 +39,7 @@ interface IActiveAnnotationPointerGesture {
     handle?: TAnnotationResizeHandle;
     moveBounds?: ReadonlyArray<{
         id: AnnotationId;
-        bounds: IAnnotationMarkerRect
+        bounds: IAnnotationMarkerRect;
     }>;
 }
 
@@ -99,10 +95,10 @@ interface IUseAnnotationPointerGestureOptions {
 
 export function rectForMovableEntity(entity: IAnnotationGesture['entity']): IAnnotationMarkerRect | null {
     if (entity.kind === 'text-markup') {
-        const left = Math.min(...entity.quadPoints.map(rect => rect.left));
-        const top = Math.min(...entity.quadPoints.map(rect => rect.top));
-        const right = Math.max(...entity.quadPoints.map(rect => rect.left + rect.width));
-        const bottom = Math.max(...entity.quadPoints.map(rect => rect.top + rect.height));
+        const left = Math.min(...entity.quadPoints.map((rect) => rect.left));
+        const top = Math.min(...entity.quadPoints.map((rect) => rect.top));
+        const right = Math.max(...entity.quadPoints.map((rect) => rect.left + rect.width));
+        const bottom = Math.max(...entity.quadPoints.map((rect) => rect.top + rect.height));
         return {
             left,
             top,
@@ -113,13 +109,11 @@ export function rectForMovableEntity(entity: IAnnotationGesture['entity']): IAnn
     return entity.kind === 'note' ? entity.position : entity.rect;
 }
 
-export const useAnnotationPointerGesture = (
-    options: IUseAnnotationPointerGestureOptions,
-): IAnnotationPointerGesture => {
+export const useAnnotationPointerGesture = (options: IUseAnnotationPointerGestureOptions): IAnnotationPointerGesture => {
     const active = shallowRef<IActiveAnnotationPointerGesture | null>(null);
     const textSelection = shallowRef<{
         start: IAnnotationPointerEvent;
-        hasMoved: boolean
+        hasMoved: boolean;
     } | null>(null);
     const isTextSelecting = computed(() => textSelection.value !== null);
     const isVerticalText = computed(() => {
@@ -128,16 +122,16 @@ export const useAnnotationPointerGesture = (
     });
     // Chromium decides native touch ownership before pointerdown. Keep pan
     // across the text line and pinch available, reserving along-line drags.
-    const textSelectionTouchAction = computed(() => options.surface.activeTool.value === 'none'
-        ? isVerticalText.value ? 'pan-x pinch-zoom' : 'pan-y pinch-zoom'
-        : 'auto');
+    const textSelectionTouchAction = computed(() =>
+        options.surface.activeTool.value === 'none' ? (isVerticalText.value ? 'pan-x pinch-zoom' : 'pan-y pinch-zoom') : 'auto',
+    );
     const isActive = computed(() => active.value?.pointerId != null);
     const mode = computed(() => active.value?.mode ?? null);
     const resizeHandle = computed(() => active.value?.handle ?? null);
     const start = computed(() => active.value?.start ?? null);
     const current = computed(() => active.value?.current ?? null);
     const hasMoved = computed(() => active.value?.hasMoved ?? false);
-    const movingIds = computed(() => new Set(active.value?.moveBounds?.map(entry => entry.id)));
+    const movingIds = computed(() => new Set(active.value?.moveBounds?.map((entry) => entry.id)));
     function pageDimensions(pageIndex = options.pageIndex) {
         const geometry = options.surface.getPageGeometry(pageIndex);
         return annotationPageDimensions(geometry?.pageView, geometry?.rotation ?? 0);
@@ -150,14 +144,12 @@ export const useAnnotationPointerGesture = (
         if (interaction.mode === 'create') {
             return createAnnotationRectFromPoints(interaction.start, interaction.current);
         }
-        const rect = interaction.gesture
-            ? rectForMovableEntity(interaction.gesture.entity)
-            : null;
+        const rect = interaction.gesture ? rectForMovableEntity(interaction.gesture.entity) : null;
         if (!rect) {
             return null;
         }
         if (interaction.mode === 'move') {
-            const delta = clampAnnotationMoveDelta(interaction.moveBounds?.map(entry => entry.bounds) ?? [rect], {
+            const delta = clampAnnotationMoveDelta(interaction.moveBounds?.map((entry) => entry.bounds) ?? [rect], {
                 x: interaction.current.x - interaction.start.x,
                 y: interaction.current.y - interaction.start.y,
             });
@@ -168,8 +160,13 @@ export const useAnnotationPointerGesture = (
             };
         }
         return interaction.handle
-            ? resizeRotatedAnnotationRect(rect, interaction.handle, interaction.current,
-                interaction.gesture && 'rotation' in interaction.gesture.entity ? interaction.gesture.entity.rotation : 0, pageDimensions())
+            ? resizeRotatedAnnotationRect(
+                  rect,
+                  interaction.handle,
+                  interaction.current,
+                  interaction.gesture && 'rotation' in interaction.gesture.entity ? interaction.gesture.entity.rotation : 0,
+                  pageDimensions(),
+              )
             : rect;
     });
 
@@ -202,17 +199,29 @@ export const useAnnotationPointerGesture = (
             return false;
         }
         active.value = {
-            moveBounds: [...options.surface.entitiesByPage.value.values()].flat().filter(entity => options.surface.movingIds.value.has(entity.identity.id) || entity.identity.id === annotationId).flatMap(entity => {
-                const moving = options.surface.beginMove(entity.identity.id)?.entity ?? entity;
-                const bounds = rectForMovableEntity(moving);
-                // A note is bounded by the icon its writer saves, so it stops where it will be saved.
-                return bounds ? [{
-                    id: entity.identity.id,
-                    bounds: moving.kind === 'note'
-                        ? textNotePosition(bounds, options.surface.getPageGeometry(entity.pageIndex))
-                        : rotatedAnnotationBounds(bounds, 'rotation' in entity ? entity.rotation : 0, pageDimensions(entity.pageIndex)),
-                }] : [];
-            }),
+            moveBounds: [...options.surface.entitiesByPage.value.values()]
+                .flat()
+                .filter((entity) => options.surface.movingIds.value.has(entity.identity.id) || entity.identity.id === annotationId)
+                .flatMap((entity) => {
+                    const moving = options.surface.beginMove(entity.identity.id)?.entity ?? entity;
+                    const bounds = rectForMovableEntity(moving);
+                    // A note is bounded by the icon its writer saves, so it stops where it will be saved.
+                    return bounds
+                        ? [
+                              {
+                                  id: entity.identity.id,
+                                  bounds:
+                                      moving.kind === 'note'
+                                          ? textNotePosition(bounds, options.surface.getPageGeometry(entity.pageIndex))
+                                          : rotatedAnnotationBounds(
+                                                bounds,
+                                                'rotation' in entity ? entity.rotation : 0,
+                                                pageDimensions(entity.pageIndex),
+                                            ),
+                              },
+                          ]
+                        : [];
+                }),
             mode: 'move',
             pageIndex: options.pageIndex,
             pointerId: event.pointerId,
@@ -259,7 +268,9 @@ export const useAnnotationPointerGesture = (
         active.value = {
             ...active.value!,
             current: point,
-            hasMoved: active.value!.hasMoved || hasPointerMovedPastThreshold(active.value!.startClient, event, ANNOTATION_POINTER_DRAG_THRESHOLD_PX),
+            hasMoved:
+                active.value!.hasMoved ||
+                hasPointerMovedPastThreshold(active.value!.startClient, event, ANNOTATION_POINTER_DRAG_THRESHOLD_PX),
         };
         return true;
     }
@@ -282,8 +293,9 @@ export const useAnnotationPointerGesture = (
         const start = textSelection.value.start;
         const dx = Math.abs(event.clientX - start.clientX);
         const dy = Math.abs(event.clientY - start.clientY);
-        textSelection.value.hasMoved ||= hasPointerMovedPastThreshold(start, event, ANNOTATION_POINTER_DRAG_THRESHOLD_PX)
-            && (start.pointerType !== 'touch' || (isVerticalText.value ? dy > dx : dx > dy));
+        textSelection.value.hasMoved ||=
+            hasPointerMovedPastThreshold(start, event, ANNOTATION_POINTER_DRAG_THRESHOLD_PX) &&
+            (start.pointerType !== 'touch' || (isVerticalText.value ? dy > dx : dx > dy));
         return {
             start: textSelection.value.start,
             hasMoved: textSelection.value.hasMoved,
@@ -292,7 +304,9 @@ export const useAnnotationPointerGesture = (
 
     function finishTextSelection(event: IAnnotationPointerEvent): ITextSelectionPointerGesture | null {
         const gesture = updateTextSelection(event);
-        if (gesture) {textSelection.value = null;}
+        if (gesture) {
+            textSelection.value = null;
+        }
         return gesture;
     }
 
@@ -317,17 +331,23 @@ export const useAnnotationPointerGesture = (
             hasMoved: interaction.hasMoved,
             ...(interaction.gesture ? {gesture: interaction.gesture} : {}),
         };
-        active.value = interaction.gesture ? {
-            ...interaction,
-            pointerId: null,
-        } : null;
+        active.value = interaction.gesture
+            ? {
+                  ...interaction,
+                  pointerId: null,
+              }
+            : null;
         return completion;
     }
 
     function cancel(gesture?: IAnnotationGesture) {
-        if (gesture && active.value?.gesture !== gesture) {return false;}
+        if (gesture && active.value?.gesture !== gesture) {
+            return false;
+        }
         active.value = null;
-        if (!gesture) {textSelection.value = null;}
+        if (!gesture) {
+            textSelection.value = null;
+        }
         return true;
     }
 
@@ -344,7 +364,9 @@ export const useAnnotationPointerGesture = (
         hasMoved,
         previewRect,
         movingIds,
-        get entity() {return active.value?.gesture?.entity ?? null;},
+        get entity() {
+            return active.value?.gesture?.entity ?? null;
+        },
         beginCreate,
         beginMove,
         beginResize,
@@ -352,7 +374,7 @@ export const useAnnotationPointerGesture = (
         updateTextSelection,
         finishTextSelection,
         update,
-        isActiveForPointer: pointerId => active.value?.pointerId === pointerId,
+        isActiveForPointer: (pointerId) => active.value?.pointerId === pointerId,
         finish,
         cancel,
     };

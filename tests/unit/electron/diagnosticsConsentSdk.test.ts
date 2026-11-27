@@ -1,11 +1,4 @@
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 const sdk = vi.hoisted(() => ({
     captureException: vi.fn(),
     client: null as {getOptions: () => {enabled?: boolean}} | null,
@@ -16,16 +9,18 @@ const sdk = vi.hoisted(() => ({
         transport?: (options: Record<string, unknown>) => {
             send: (envelope: unknown) => Promise<unknown>;
             flush: (timeout?: number) => Promise<boolean>;
-        }
+        };
     },
     send: vi.fn(),
 }));
 
-vi.mock('electron', () => ({app: {
-    getPath: () => '/tmp/evb-diagnostics-consent-test',
-    getVersion: () => '0.0.0',
-    isPackaged: true,
-}}));
+vi.mock('electron', () => ({
+    app: {
+        getPath: () => '/tmp/evb-diagnostics-consent-test',
+        getVersion: () => '0.0.0',
+        isPackaged: true,
+    },
+}));
 vi.mock('@sentry/core', () => ({
     captureException: sdk.captureException,
     getClient: () => {
@@ -66,10 +61,7 @@ describe('main diagnostics consent', () => {
         vi.unstubAllGlobals();
     });
 
-    it.each([
-        'unknown',
-        'denied',
-    ] as const)('never loads the SDK while consent is %s', async (preference) => {
+    it.each(['unknown', 'denied'] as const)('never loads the SDK while consent is %s', async (preference) => {
         const diagnostics = await importWithDsn();
 
         diagnostics.setMainDiagnosticsPreference(preference);
@@ -111,9 +103,7 @@ describe('main diagnostics consent', () => {
     });
 
     it('sends main-process failures captured during an authorized SDK load once ready', async () => {
-        const {
-            captureMainFailure, setMainFailureCaptureState,
-        } = await import('@electron/utils/captureMainFailure');
+        const {captureMainFailure, setMainFailureCaptureState} = await import('@electron/utils/captureMainFailure');
         let resolveLoad!: () => void;
         const load = new Promise<void>((resolve) => {
             resolveLoad = resolve;
@@ -135,9 +125,7 @@ describe('main diagnostics consent', () => {
     });
 
     it('discards main-process failures queued during SDK loading when consent is withdrawn', async () => {
-        const {
-            captureMainFailure, setMainFailureCaptureState,
-        } = await import('@electron/utils/captureMainFailure');
+        const {captureMainFailure, setMainFailureCaptureState} = await import('@electron/utils/captureMainFailure');
         let resolveLoad!: () => void;
         const load = new Promise<void>((resolve) => {
             resolveLoad = resolve;
@@ -158,11 +146,8 @@ describe('main diagnostics consent', () => {
     it('flushes queued main failures when granted state settles with load=null and skips @sentry/core with empty DSN', async () => {
         vi.stubGlobal('__EVB_SENTRY_DSN__', '');
         const diagnosticsNoDsn = await import('@electron/features/diagnostics/sentry');
-        const {
-            captureMainFailure,
-            registerMainFailureCaptureSender,
-            setMainFailureCaptureState,
-        } = await import('@electron/utils/captureMainFailure');
+        const {captureMainFailure, registerMainFailureCaptureSender, setMainFailureCaptureState} =
+            await import('@electron/utils/captureMainFailure');
 
         diagnosticsNoDsn.setMainDiagnosticsPreference('granted');
         captureMainFailure({

@@ -1,15 +1,9 @@
-import {
-    computed,
-    ref,
-} from 'vue';
+import {computed, ref} from 'vue';
 import {vi} from 'vitest';
 import type {TAnnotationTool} from '@app/types/annotations';
 import type {TPdfViewMode} from '@contracts/shared';
 import type {TPdfSource} from '@app/types/pdfUi';
-import {
-    createKeyboardEventFixture,
-    type IKeyboardEventFixtureOptions,
-} from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
+import {createKeyboardEventFixture, type IKeyboardEventFixtureOptions} from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 
 const pageShortcutsMocks = vi.hoisted(() => ({
     useEventListener: vi.fn(),
@@ -17,7 +11,9 @@ const pageShortcutsMocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@vueuse/core', () => ({useEventListener: pageShortcutsMocks.useEventListener}));
-vi.mock('@app/utils/shouldHandleRendererMenuAccelerators', () => ({shouldHandleRendererMenuAccelerators: pageShortcutsMocks.shouldHandleRendererMenuAccelerators}));
+vi.mock('@app/utils/shouldHandleRendererMenuAccelerators', () => ({
+    shouldHandleRendererMenuAccelerators: pageShortcutsMocks.shouldHandleRendererMenuAccelerators,
+}));
 
 export function getPageShortcutsMocks() {
     return pageShortcutsMocks;
@@ -70,7 +66,9 @@ export function resetPageShortcutsTest() {
     vi.clearAllMocks();
     const windowMock = {
         addEventListener: vi.fn((event: string, listener: EventListener, options?: boolean | AddEventListenerOptions) => {
-            if (event === 'pointerdown') {capturedPointerDown = listener as (event: PointerEvent) => void;}
+            if (event === 'pointerdown') {
+                capturedPointerDown = listener as (event: PointerEvent) => void;
+            }
             if (event === 'keydown') {
                 const isCapture = typeof options === 'boolean' ? options : Boolean(options?.capture);
                 if (isCapture) {
@@ -79,7 +77,9 @@ export function resetPageShortcutsTest() {
                     capturedOnEventFired = listener as (event: KeyboardEvent) => void;
                 }
             }
-            if (event === 'paste') {capturedPaste = listener as (event: ClipboardEvent) => void;}
+            if (event === 'paste') {
+                capturedPaste = listener as (event: ClipboardEvent) => void;
+            }
         }),
         removeEventListener: vi.fn(),
     };
@@ -89,15 +89,17 @@ export function resetPageShortcutsTest() {
     capturedKeyDown = undefined;
     capturedPaste = undefined;
     pageShortcutsMocks.shouldHandleRendererMenuAccelerators.mockReturnValue(false);
-    pageShortcutsMocks.useEventListener.mockImplementation((
-        target: {addEventListener?: (...args: unknown[]) => void} | null,
-        event: string,
-        listener: EventListener,
-        options?: AddEventListenerOptions,
-    ) => {
-        target?.addEventListener?.(event, listener, options);
-        return vi.fn();
-    });
+    pageShortcutsMocks.useEventListener.mockImplementation(
+        (
+            target: {addEventListener?: (...args: unknown[]) => void} | null,
+            event: string,
+            listener: EventListener,
+            options?: AddEventListenerOptions,
+        ) => {
+            target?.addEventListener?.(event, listener, options);
+            return vi.fn();
+        },
+    );
 }
 
 export function restorePageShortcutsTest() {
@@ -133,10 +135,12 @@ export function pressShortcut(
     if (!listener) {
         throw new Error('Expected a keyboard event listener.');
     }
-    listener(createKeyboardEventFixture({
-        key,
-        preventDefault,
-        ...overrides,
-    }));
+    listener(
+        createKeyboardEventFixture({
+            key,
+            preventDefault,
+            ...overrides,
+        }),
+    );
     return preventDefault;
 }

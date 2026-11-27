@@ -1,31 +1,30 @@
-import {
-    mkdirSync, readFileSync, writeFileSync,
-} from 'node:fs';
+import {mkdirSync, readFileSync, writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
-import {
-    PDFDocument, PDFArray, PDFDict, PDFName, PDFRawStream, PDFRef, PDFString, PDFHexString,
-} from 'pdf-lib';
-import {
-    describe, expect, it,
-} from 'vitest';
+import {PDFDocument, PDFArray, PDFDict, PDFName, PDFRawStream, PDFRef, PDFString, PDFHexString} from 'pdf-lib';
+import {describe, expect, it} from 'vitest';
 import type {IBrowserLifecycleTestApi} from './documentLifecycleTestHelpers';
 import {
-    lifecycle, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled, readPersistedDocumentBytes,
+    lifecycle,
+    waitForOpenFileReady,
+    collectConsoleProblems,
+    keepFileChooserInterceptionEnabled,
+    readPersistedDocumentBytes,
 } from './documentLifecycleTestHelpers';
 
 describe('browser document lifecycle UI', () => {
-
     it('explains the missing components of an indirect DjVu index, then opens it with them', async () => {
         const evidenceDir = resolve(process.cwd(), `.devkit/browser-djvu-index-only-${process.pid}`);
         mkdirSync(evidenceDir, {recursive: true});
-        const context = await lifecycle.browser.newContext({viewport: {
-            width: 1_280,
-            height: 900,
-        }});
+        const context = await lifecycle.browser.newContext({
+            viewport: {
+                width: 1_280,
+                height: 900,
+            },
+        });
         try {
             const page = await context.newPage();
             const pageErrors: string[] = [];
-            page.on('pageerror', error => pageErrors.push(error.message));
+            page.on('pageerror', (error) => pageErrors.push(error.message));
             await page.addInitScript(() => {
                 Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
                 Reflect.deleteProperty(window, 'showOpenFilePicker');
@@ -50,26 +49,34 @@ describe('browser document lifecycle UI', () => {
                 timeout: 30_000,
             });
             const text = await toast.innerText();
-            writeFileSync(resolve(evidenceDir, 'visible.json'), JSON.stringify({
-                text,
-                pageErrors,
-            }, null, 2));
+            writeFileSync(
+                resolve(evidenceDir, 'visible.json'),
+                JSON.stringify(
+                    {
+                        text,
+                        pageErrors,
+                    },
+                    null,
+                    2,
+                ),
+            );
             await page.screenshot({path: resolve(evidenceDir, 'toast.png')});
 
             // C4: the failure itself explains why and how to open the document.
-            expect(text).toContain('This DjVu index keeps its pages in separate files. Open it again and select the index together with the files next to it.');
+            expect(text).toContain(
+                'This DjVu index keeps its pages in separate files. Open it again and select the index together with the files next to it.',
+            );
             expect(text).not.toContain('The file could not be opened.');
             expect(await toast.count()).toBe(1);
 
             // Selecting the index with the files beside it opens its pages from them.
             const componentChooser = page.waitForEvent('filechooser');
             await page.locator('.start-open-panel .open-panel-cta').click();
-            await (await componentChooser).setFiles([
+            await (
+                await componentChooser
+            ).setFiles([
                 indexFile,
-                ...[
-                    'low-dpi.djvu',
-                    'high-dpi.djvu',
-                ].map(name => ({
+                ...['low-dpi.djvu', 'high-dpi.djvu'].map((name) => ({
                     name,
                     mimeType: 'image/vnd.djvu',
                     buffer: readFileSync(resolve(indirectDir, name)),
@@ -82,23 +89,26 @@ describe('browser document lifecycle UI', () => {
             });
             await expect.poll(() => sourceImage.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
             await expect.poll(() => page.locator('.page-controls').first().innerText()).toMatch(/\b2\b/u);
-            await expect.poll(() => page.locator('[data-tab-list] [role="tab"][aria-selected="true"]').textContent())
+            await expect
+                .poll(() => page.locator('[data-tab-list] [role="tab"][aria-selected="true"]').textContent())
                 .toContain('café-index.djvu');
             await page.screenshot({path: resolve(evidenceDir, 'opened-with-components.png')});
             expect(pageErrors).toEqual([]);
         } finally {
             await context.close();
-            await Promise.all(lifecycle.browser.contexts().map(context => context.close()));
+            await Promise.all(lifecycle.browser.contexts().map((context) => context.close()));
         }
     }, 120_000);
 
     it('opens and converts DjVu documents above the former browser limits', async () => {
         const evidenceDir = resolve(process.cwd(), `.devkit/browser-djvu-former-limits-${process.pid}`);
         mkdirSync(evidenceDir, {recursive: true});
-        const context = await lifecycle.browser.newContext({viewport: {
-            width: 1_280,
-            height: 900,
-        }});
+        const context = await lifecycle.browser.newContext({
+            viewport: {
+                width: 1_280,
+                height: 900,
+            },
+        });
         const openFixture = async (name: string) => {
             const page = await context.newPage();
             const problems = collectConsoleProblems(page);
@@ -111,10 +121,13 @@ describe('browser document lifecycle UI', () => {
             await waitForOpenFileReady(page);
             keepFileChooserInterceptionEnabled(page);
             const chooser = page.waitForEvent('filechooser');
-            await page.getByRole('button', {
-                name: 'Open File',
-                exact: true,
-            }).first().click();
+            await page
+                .getByRole('button', {
+                    name: 'Open File',
+                    exact: true,
+                })
+                .first()
+                .click();
             await (await chooser).setFiles(resolve(process.cwd(), 'tests/fixtures/djvu/sources', name));
             return {
                 page,
@@ -137,7 +150,11 @@ describe('browser document lifecycle UI', () => {
             const many = await openFixture('browser-boundary-501-pages.djvu');
             const pageControls = many.page.locator('.page-controls').first();
             await expect.poll(() => pageControls.innerText(), {timeout: 90_000}).toMatch(/\b501\b/u);
-            await many.page.getByRole('button', {name: /Convert to PDF/u}).filter({visible: true}).first().click();
+            await many.page
+                .getByRole('button', {name: /Convert to PDF/u})
+                .filter({visible: true})
+                .first()
+                .click();
             const dialog = many.page.getByRole('dialog');
             await dialog.waitFor({
                 state: 'visible',
@@ -153,7 +170,8 @@ describe('browser document lifecycle UI', () => {
                 state: 'visible',
                 timeout: 120_000,
             });
-            await expect.poll(() => many.page.locator('[data-tab-list] [role="tab"][aria-selected="true"]').textContent())
+            await expect
+                .poll(() => many.page.locator('[data-tab-list] [role="tab"][aria-selected="true"]').textContent())
                 .toContain('browser-boundary-501-pages.pdf');
             await expect.poll(() => pageControls.innerText()).toMatch(/\b501\b/u);
             await many.page.screenshot({path: resolve(evidenceDir, 'converted-501.png')});
@@ -166,10 +184,12 @@ describe('browser document lifecycle UI', () => {
     it('keeps the DjVu outline in a compact PDF at source detail', async () => {
         const evidenceDir = resolve(process.cwd(), `.devkit/browser-djvu-compact-outline-${process.pid}`);
         mkdirSync(evidenceDir, {recursive: true});
-        const context = await lifecycle.browser.newContext({viewport: {
-            width: 1_280,
-            height: 900,
-        }});
+        const context = await lifecycle.browser.newContext({
+            viewport: {
+                width: 1_280,
+                height: 900,
+            },
+        });
         try {
             const page = await context.newPage();
             const problems = collectConsoleProblems(page);
@@ -182,17 +202,24 @@ describe('browser document lifecycle UI', () => {
             await waitForOpenFileReady(page);
             keepFileChooserInterceptionEnabled(page);
             const chooser = page.waitForEvent('filechooser');
-            await page.getByRole('button', {
-                name: 'Open File',
-                exact: true,
-            }).first().click();
+            await page
+                .getByRole('button', {
+                    name: 'Open File',
+                    exact: true,
+                })
+                .first()
+                .click();
             // Three 96x96 pages; the outline names pages by component id and by number.
             await (await chooser).setFiles(resolve(process.cwd(), 'tests/fixtures/djvu/sources/bookmark-component-ids.djvu'));
             await page.locator('[data-testid="document-page-source-image"]').first().waitFor({
                 state: 'visible',
                 timeout: 60_000,
             });
-            await page.getByRole('button', {name: /Convert to PDF/u}).filter({visible: true}).first().click();
+            await page
+                .getByRole('button', {name: /Convert to PDF/u})
+                .filter({visible: true})
+                .first()
+                .click();
             const dialog = page.getByRole('dialog');
             await dialog.waitFor({
                 state: 'visible',
@@ -218,33 +245,28 @@ describe('browser document lifecycle UI', () => {
             const bytes = Uint8Array.from(await readPersistedDocumentBytes(page, pdfRef!));
             writeFileSync(resolve(evidenceDir, 'compact.pdf'), bytes);
             const pdf = await PDFDocument.load(bytes, {updateMetadata: false});
-            const pageRefs = pdf.getPages().map(pdfPage => pdfPage.ref.toString());
+            const pageRefs = pdf.getPages().map((pdfPage) => pdfPage.ref.toString());
             const outline: string[] = [];
             let node = pdf.context.lookup(pdf.context.lookup(pdf.catalog.get(PDFName.of('Outlines')), PDFDict).get(PDFName.of('First')));
             while (node instanceof PDFDict) {
                 const title = node.get(PDFName.of('Title'));
                 const destination = node.get(PDFName.of('Dest'));
                 const target = destination instanceof PDFArray ? destination.get(0) : null;
-                outline.push(`${title instanceof PDFHexString || title instanceof PDFString ? title.decodeText() : ''} -> ${target instanceof PDFRef ? pageRefs.indexOf(target.toString()) + 1 : 0}`);
+                outline.push(
+                    `${title instanceof PDFHexString || title instanceof PDFString ? title.decodeText() : ''} -> ${target instanceof PDFRef ? pageRefs.indexOf(target.toString()) + 1 : 0}`,
+                );
                 node = pdf.context.lookup(node.get(PDFName.of('Next')));
             }
-            expect(outline).toEqual([
-                'Page one -> 1',
-                'Page two component target -> 2',
-                'Page three numeric control -> 3',
-            ]);
+            expect(outline).toEqual(['Page one -> 1', 'Page two component target -> 2', 'Page three numeric control -> 3']);
             // Source detail: each page keeps its 96 pixels across.
             const imageWidths = [...pdf.context.enumerateIndirectObjects()]
-                .map(([
-                    , object,
-                ]) => object)
-                .filter((object): object is PDFRawStream => object instanceof PDFRawStream && object.dict.get(PDFName.of('Subtype'))?.toString() === '/Image')
-                .map(image => image.dict.get(PDFName.of('Width'))?.toString());
-            expect(imageWidths).toEqual([
-                '96',
-                '96',
-                '96',
-            ]);
+                .map(([, object]) => object)
+                .filter(
+                    (object): object is PDFRawStream =>
+                        object instanceof PDFRawStream && object.dict.get(PDFName.of('Subtype'))?.toString() === '/Image',
+                )
+                .map((image) => image.dict.get(PDFName.of('Width'))?.toString());
+            expect(imageWidths).toEqual(['96', '96', '96']);
             expect(problems).toEqual([]);
         } finally {
             await context.close();
@@ -254,10 +276,12 @@ describe('browser document lifecycle UI', () => {
     it('keeps a bitonal DjVu as bilevel masks in a compact PDF', async () => {
         const evidenceDir = resolve(process.cwd(), `.devkit/browser-djvu-compact-masks-${process.pid}`);
         mkdirSync(evidenceDir, {recursive: true});
-        const context = await lifecycle.browser.newContext({viewport: {
-            width: 1_280,
-            height: 900,
-        }});
+        const context = await lifecycle.browser.newContext({
+            viewport: {
+                width: 1_280,
+                height: 900,
+            },
+        });
         try {
             const page = await context.newPage();
             const problems = collectConsoleProblems(page);
@@ -270,17 +294,24 @@ describe('browser document lifecycle UI', () => {
             await waitForOpenFileReady(page);
             keepFileChooserInterceptionEnabled(page);
             const chooser = page.waitForEvent('filechooser');
-            await page.getByRole('button', {
-                name: 'Open File',
-                exact: true,
-            }).first().click();
+            await page
+                .getByRole('button', {
+                    name: 'Open File',
+                    exact: true,
+                })
+                .first()
+                .click();
             // Page 1 is a JB2 mask; page 2 is an IW44 background only.
             await (await chooser).setFiles(resolve(process.cwd(), 'tests/fixtures/djvu/sources/bitonal-faint-pencil.djvu'));
             await page.locator('[data-testid="document-page-source-image"]').first().waitFor({
                 state: 'visible',
                 timeout: 60_000,
             });
-            await page.getByRole('button', {name: /Convert to PDF/u}).filter({visible: true}).first().click();
+            await page
+                .getByRole('button', {name: /Convert to PDF/u})
+                .filter({visible: true})
+                .first()
+                .click();
             const dialog = page.getByRole('dialog');
             await dialog.waitFor({
                 state: 'visible',
@@ -308,13 +339,16 @@ describe('browser document lifecycle UI', () => {
             // mask at the source resolution; page 2, background only, is a photo.
             const pageImages = pdf.getPages().map((pdfPage) => {
                 const xObjects = pdfPage.node.Resources()?.lookup(PDFName.of('XObject'), PDFDict);
-                const image = xObjects?.values().map(value => pdf.context.lookup(value)).find(value => value instanceof PDFRawStream);
+                const image = xObjects
+                    ?.values()
+                    .map((value) => pdf.context.lookup(value))
+                    .find((value) => value instanceof PDFRawStream);
                 return image instanceof PDFRawStream
                     ? {
-                        width: image.dict.get(PDFName.of('Width'))?.toString(),
-                        mask: image.dict.get(PDFName.of('ImageMask'))?.toString() ?? null,
-                        filter: image.dict.get(PDFName.of('Filter'))?.toString() ?? null,
-                    }
+                          width: image.dict.get(PDFName.of('Width'))?.toString(),
+                          mask: image.dict.get(PDFName.of('ImageMask'))?.toString() ?? null,
+                          filter: image.dict.get(PDFName.of('Filter'))?.toString() ?? null,
+                      }
                     : null;
             });
             expect(pageImages).toEqual([
@@ -338,10 +372,12 @@ describe('browser document lifecycle UI', () => {
     it('prints a DjVu document through the browser print dialog', async () => {
         const evidenceDir = resolve(process.cwd(), `.devkit/browser-djvu-print-${process.pid}`);
         mkdirSync(evidenceDir, {recursive: true});
-        const context = await lifecycle.browser.newContext({viewport: {
-            width: 1_280,
-            height: 900,
-        }});
+        const context = await lifecycle.browser.newContext({
+            viewport: {
+                width: 1_280,
+                height: 900,
+            },
+        });
         try {
             const page = await context.newPage();
             const problems = collectConsoleProblems(page);
@@ -358,7 +394,9 @@ describe('browser document lifecycle UI', () => {
                         const pixels = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data;
                         let ink = 0;
                         for (let index = 0; index < pixels.length; index += 4) {
-                            if (pixels[index]! < 128 && pixels[index + 1]! < 128 && pixels[index + 2]! < 128) {ink += 1;}
+                            if (pixels[index]! < 128 && pixels[index + 1]! < 128 && pixels[index + 2]! < 128) {
+                                ink += 1;
+                            }
                         }
                         return {
                             ink,
@@ -372,33 +410,40 @@ describe('browser document lifecycle UI', () => {
             await waitForOpenFileReady(page);
             keepFileChooserInterceptionEnabled(page);
             const chooser = page.waitForEvent('filechooser');
-            await page.getByRole('button', {
-                name: 'Open File',
-                exact: true,
-            }).first().click();
+            await page
+                .getByRole('button', {
+                    name: 'Open File',
+                    exact: true,
+                })
+                .first()
+                .click();
             // Page 1 is a JB2 mask of four black lines; page 2 is faint pencil.
             await (await chooser).setFiles(resolve(process.cwd(), 'tests/fixtures/djvu/sources/bitonal-faint-pencil.djvu'));
             await page.locator('[data-testid="document-page-source-image"]').first().waitFor({
                 state: 'visible',
                 timeout: 60_000,
             });
-            await page.getByRole('button', {
-                name: 'Print',
-                exact: true,
-            }).click();
-            await page.getByRole('button', {
-                name: 'Print...',
-                exact: true,
-            }).click();
+            await page
+                .getByRole('button', {
+                    name: 'Print',
+                    exact: true,
+                })
+                .click();
+            await page
+                .getByRole('button', {
+                    name: 'Print...',
+                    exact: true,
+                })
+                .click();
             await expect.poll(() => page.evaluate(() => Boolean(Reflect.get(window, '__djvuPrint'))), {timeout: 60_000}).toBe(true);
-            const sheets = await page.evaluate(() => Reflect.get(window, '__djvuPrint') as Array<{
-                ink: number;
-                image: string;
-            }>);
-            for (const [
-                index,
-                sheet,
-            ] of sheets.entries()) {
+            const sheets = await page.evaluate(
+                () =>
+                    Reflect.get(window, '__djvuPrint') as Array<{
+                        ink: number;
+                        image: string;
+                    }>,
+            );
+            for (const [index, sheet] of sheets.entries()) {
                 writeFileSync(resolve(evidenceDir, `printed-${index + 1}.png`), Buffer.from(sheet.image.split(',')[1]!, 'base64'));
             }
             expect(sheets).toHaveLength(2);
@@ -412,10 +457,12 @@ describe('browser document lifecycle UI', () => {
 
     it('renders a DjVu open, conversion, and generated PDF reopen in the viewer', async () => {
         try {
-            const page = await lifecycle.browser.newPage({viewport: {
-                width: 1_280,
-                height: 900,
-            }});
+            const page = await lifecycle.browser.newPage({
+                viewport: {
+                    width: 1_280,
+                    height: 900,
+                },
+            });
             await page.addInitScript(() => {
                 Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
                 Reflect.set(window, 'showSaveFilePicker', undefined);
@@ -425,10 +472,14 @@ describe('browser document lifecycle UI', () => {
                 window.Worker = class extends NativeWorker {
                     public constructor(url: string | URL, options?: WorkerOptions) {
                         super(url, options);
-                        if (!String(url).includes('opfsStore')) {return;}
+                        if (!String(url).includes('opfsStore')) {
+                            return;
+                        }
                         const post = this.postMessage.bind(this) as (message: unknown, transfer?: Transferable[]) => void;
                         this.postMessage = ((message: unknown, transfer?: Transferable[]) => {
-                            if (!Reflect.get(window, '__storeGone')) {post(message, transfer);}
+                            if (!Reflect.get(window, '__storeGone')) {
+                                post(message, transfer);
+                            }
                         }) as Worker['postMessage'];
                     }
                 };
@@ -438,15 +489,15 @@ describe('browser document lifecycle UI', () => {
             keepFileChooserInterceptionEnabled(page);
 
             const chooserPromise = page.waitForEvent('filechooser');
-            await page.getByRole('button', {
-                name: 'Open File',
-                exact: true,
-            }).first().click();
+            await page
+                .getByRole('button', {
+                    name: 'Open File',
+                    exact: true,
+                })
+                .first()
+                .click();
             const chooser = await chooserPromise;
-            await chooser.setFiles(resolve(
-                process.cwd(),
-                'tests/fixtures/djvu/sources/bitonal-faint-pencil.djvu',
-            ));
+            await chooser.setFiles(resolve(process.cwd(), 'tests/fixtures/djvu/sources/bitonal-faint-pencil.djvu'));
 
             const sourceImage = page.locator('[data-testid="document-page-source-image"]').first();
             await sourceImage.waitFor({
@@ -455,7 +506,7 @@ describe('browser document lifecycle UI', () => {
             });
             await page.evaluate(async () => {
                 const testApi = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi | undefined;
-                if (!await testApi?.waitForActiveDocumentOpenSettled?.()) {
+                if (!(await testApi?.waitForActiveDocumentOpenSettled?.())) {
                     throw new Error('DjVu viewer open did not settle');
                 }
             });
@@ -471,7 +522,11 @@ describe('browser document lifecycle UI', () => {
                 fullPage: true,
             });
 
-            await page.getByRole('button', {name: /Convert to PDF/}).filter({visible: true}).first().click();
+            await page
+                .getByRole('button', {name: /Convert to PDF/})
+                .filter({visible: true})
+                .first()
+                .click();
             const dialog = page.getByRole('dialog');
             await dialog.waitFor({
                 state: 'visible',
@@ -481,11 +536,16 @@ describe('browser document lifecycle UI', () => {
                 name: 'Convert',
                 exact: true,
             });
-            await page.waitForFunction(() => {
-                const button = Array.from(document.querySelectorAll('[role="dialog"] button'))
-                    .find(candidate => candidate.textContent?.trim() === 'Convert');
-                return button instanceof HTMLButtonElement && !button.disabled;
-            }, null, {timeout: 90_000});
+            await page.waitForFunction(
+                () => {
+                    const button = Array.from(document.querySelectorAll('[role="dialog"] button')).find(
+                        (candidate) => candidate.textContent?.trim() === 'Convert',
+                    );
+                    return button instanceof HTMLButtonElement && !button.disabled;
+                },
+                null,
+                {timeout: 90_000},
+            );
             await conversionButton.click();
             await page.screenshot({
                 path: resolve(process.cwd(), '.devkit/browser-djvu-viewer-after-convert.png'),
@@ -494,7 +554,7 @@ describe('browser document lifecycle UI', () => {
 
             await page.evaluate(async () => {
                 const testApi = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi | undefined;
-                if (!await testApi?.waitForActiveDocumentOpenSettled?.()) {
+                if (!(await testApi?.waitForActiveDocumentOpenSettled?.())) {
                     throw new Error('Generated PDF reopen did not settle');
                 }
             });
@@ -512,20 +572,27 @@ describe('browser document lifecycle UI', () => {
                 path: resolve(process.cwd(), '.devkit/browser-djvu-viewer-pdf-reopen.png'),
                 fullPage: true,
             });
-            const recentPdf = page.locator('[data-recent-open-actionable="true"] .recent-open')
+            const recentPdf = page
+                .locator('[data-recent-open-actionable="true"] .recent-open')
                 .filter({hasText: 'bitonal-faint-pencil.pdf'});
             // The converted PDF is the conversion's output, not unsaved work: a reload, with its tab open or
             // closed a moment before, restores no tab to recover, whether or not the close finished.
             const reloadToStartPage = async () => {
                 await page.reload({waitUntil: 'domcontentloaded'});
                 await waitForOpenFileReady(page);
-                expect(await page.locator('[data-tab-list] [role="tab"]').evaluateAll(tabs => tabs.map(tab => ({
-                    name: tab.textContent?.trim(),
-                    state: tab.getAttribute('aria-description'),
-                })))).toEqual([{
-                    name: 'New Tab',
-                    state: null,
-                }]);
+                expect(
+                    await page.locator('[data-tab-list] [role="tab"]').evaluateAll((tabs) =>
+                        tabs.map((tab) => ({
+                            name: tab.textContent?.trim(),
+                            state: tab.getAttribute('aria-description'),
+                        })),
+                    ),
+                ).toEqual([
+                    {
+                        name: 'New Tab',
+                        state: null,
+                    },
+                ]);
                 await recentPdf.waitFor({
                     state: 'visible',
                     timeout: 60_000,
@@ -544,7 +611,8 @@ describe('browser document lifecycle UI', () => {
                 state: 'visible',
                 timeout: 60_000,
             });
-            await expect.poll(() => page.locator('[data-tab-list] [role="tab"][aria-selected="true"]').textContent())
+            await expect
+                .poll(() => page.locator('[data-tab-list] [role="tab"][aria-selected="true"]').textContent())
                 .toContain('bitonal-faint-pencil.pdf');
             await page.screenshot({
                 path: resolve(process.cwd(), '.devkit/browser-djvu-viewer-reloaded.png'),
@@ -553,38 +621,57 @@ describe('browser document lifecycle UI', () => {
 
             // A real edit of the converted PDF is unsaved work. It comes back under its name when the page goes away
             // the moment its revision commits, before the window's workspace record shows the edited tab.
-            const readWorkingCopy = () => page.evaluate(() => {
-                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi | undefined;
-                return api?.readActiveWorkspaceStateValues?.<{workingCopyPath: string | null}>(['workingCopyPath']).workingCopyPath ?? null;
-            });
+            const readWorkingCopy = () =>
+                page.evaluate(() => {
+                    const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi | undefined;
+                    return (
+                        api?.readActiveWorkspaceStateValues?.<{workingCopyPath: string | null}>(['workingCopyPath']).workingCopyPath ?? null
+                    );
+                });
             const editedCopy = await readWorkingCopy();
             expect(editedCopy).toMatch(/\.pdf$/u);
             const directoryId = editedCopy!.slice('browser://documents/'.length).split('/')[0]!;
             // The revision before the edit, read before the edit starts so the watch below cannot miss the commit.
             const opened = await page.evaluate(async (id) => {
                 const dir = await (await (await navigator.storage.getDirectory()).getDirectoryHandle('documents')).getDirectoryHandle(id);
-                const manifest = JSON.parse(await (await (await dir.getFileHandle('manifest.json')).getFile()).text()) as {current?: {id: number}};
+                const manifest = JSON.parse(await (await (await dir.getFileHandle('manifest.json')).getFile()).text()) as {
+                    current?: {id: number};
+                };
                 return manifest.current?.id ?? null;
             }, directoryId);
             const reloaded = page.waitForEvent('framenavigated');
-            const reloadOnCommit = page.evaluate(async ({id, opened}) => {
-                const dir = await (await (await navigator.storage.getDirectory()).getDirectoryHandle('documents')).getDirectoryHandle(id);
-                const revision = () => dir.getFileHandle('manifest.json')
-                    .then(async handle => (JSON.parse(await (await handle.getFile()).text()) as {current?: {id: number}}).current?.id ?? null)
-                    .catch(() => undefined);
-                for (const until = Date.now() + 60_000; Date.now() < until;) {
-                    const current = await revision();
-                    if (current !== undefined && current !== opened) {
-                        Reflect.set(window, '__storeGone', true);
-                        location.reload();
-                        return;
+            const reloadOnCommit = page
+                .evaluate(
+                    async ({id, opened}) => {
+                        const dir = await (
+                            await (await navigator.storage.getDirectory()).getDirectoryHandle('documents')
+                        ).getDirectoryHandle(id);
+                        const revision = () =>
+                            dir
+                                .getFileHandle('manifest.json')
+                                .then(
+                                    async (handle) =>
+                                        (JSON.parse(await (await handle.getFile()).text()) as {current?: {id: number}}).current?.id ?? null,
+                                )
+                                .catch(() => undefined);
+                        for (const until = Date.now() + 60_000; Date.now() < until;) {
+                            const current = await revision();
+                            if (current !== undefined && current !== opened) {
+                                Reflect.set(window, '__storeGone', true);
+                                location.reload();
+                                return;
+                            }
+                        }
+                        throw new Error('The rotation did not commit');
+                    },
+                    {id: directoryId, opened},
+                )
+                .catch((error: unknown) => {
+                    // The reload ends the script that made it.
+                    if (!/context was destroyed|navigat/iu.test(String(error))) {
+                        throw error;
                     }
-                }
-                throw new Error('The rotation did not commit');
-            }, {id: directoryId, opened}).catch((error: unknown) => {
-                // The reload ends the script that made it.
-                if (!/context was destroyed|navigat/iu.test(String(error))) {throw error;}
-            });
+                });
             await page.getByRole('button', {name: 'Toggle Sidebar', exact: true}).click();
             await page.getByRole('tab', {name: 'Pages', exact: true}).click();
             await page.locator('[data-thumbnail-page="1"]').first().click({button: 'right'});
@@ -593,20 +680,26 @@ describe('browser document lifecycle UI', () => {
             await reloaded;
             await page.waitForLoadState('domcontentloaded');
             await waitForOpenFileReady(page);
-            await expect.poll(() => page.locator('[data-tab-list] [role="tab"][aria-selected="true"]').evaluate(tab => ({
-                name: tab.textContent?.trim(),
-                state: tab.getAttribute('aria-description'),
-            })), {timeout: 30_000}).toEqual({
-                name: 'bitonal-faint-pencil.pdf',
-                state: 'Unsaved changes',
-            });
+            await expect
+                .poll(
+                    () =>
+                        page.locator('[data-tab-list] [role="tab"][aria-selected="true"]').evaluate((tab) => ({
+                            name: tab.textContent?.trim(),
+                            state: tab.getAttribute('aria-description'),
+                        })),
+                    {timeout: 30_000},
+                )
+                .toEqual({
+                    name: 'bitonal-faint-pencil.pdf',
+                    state: 'Unsaved changes',
+                });
             // The pages are square, so the rotation shows in the recovered working copy's bytes rather than its shape.
             const workingCopy = await readWorkingCopy();
             expect(workingCopy).toMatch(/\.pdf$/u);
             const recovered = await PDFDocument.load(Uint8Array.from(await readPersistedDocumentBytes(page, workingCopy!)));
             expect(recovered.getPage(0).getRotation().angle).toBe(90);
         } finally {
-            await Promise.all(lifecycle.browser.contexts().map(context => context.close()));
+            await Promise.all(lifecycle.browser.contexts().map((context) => context.close()));
         }
     }, 240_000);
 });

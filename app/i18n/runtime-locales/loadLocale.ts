@@ -1,7 +1,4 @@
-import {
-    resolveLocale,
-    type TLocale,
-} from '@i18n-core';
+import {resolveLocale, type TLocale} from '@i18n-core';
 
 const LOCALE_MESSAGE_LOADERS = {
     en: () => import('@i18n-app/messages/en'),
@@ -13,9 +10,9 @@ const LOCALE_MESSAGE_LOADERS = {
     pt: () => import('@i18n-app/messages/pt'),
     'pt-BR': () => import('@i18n-app/messages/ptBr'),
     nl: () => import('@i18n-app/messages/nl'),
-} satisfies Record<TLocale, () => Promise<{ default: Record<string, unknown> }>>;
+} satisfies Record<TLocale, () => Promise<{default: Record<string, unknown>}>>;
 
 export default defineI18nLocale(async (locale) => {
-    const { default: messages } = await LOCALE_MESSAGE_LOADERS[resolveLocale(locale)]();
+    const {default: messages} = await LOCALE_MESSAGE_LOADERS[resolveLocale(locale)]();
     return messages;
 });

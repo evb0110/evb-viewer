@@ -1,14 +1,7 @@
-import {
-    type IPageRectBounds,
-} from '@app/modules/pdf-viewer/engine/annotation-geometry/getPageRectBounds';
-import type { TPageRotation } from '@app/modules/pdf-viewer/engine/annotation-geometry/pageRotation';
+import {type IPageRectBounds} from '@app/modules/pdf-viewer/engine/annotation-geometry/getPageRectBounds';
+import type {TPageRotation} from '@app/modules/pdf-viewer/engine/annotation-geometry/pageRotation';
 
-export function toMarkerPointInPageBounds(
-    x: number,
-    y: number,
-    bounds: IPageRectBounds,
-    pageRotation: TPageRotation,
-) {
+export function toMarkerPointInPageBounds(x: number, y: number, bounds: IPageRectBounds, pageRotation: TPageRotation) {
     const normX = (x - bounds.xMin) / bounds.width;
     const normY = (y - bounds.yMin) / bounds.height;
 

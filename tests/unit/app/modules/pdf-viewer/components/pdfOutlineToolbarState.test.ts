@@ -1,58 +1,61 @@
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 
-import { requirePageIndex } from '@contracts/pageNumbers';
-import { requireDocumentRef } from '@contracts/documentRef';
+import {requirePageIndex} from '@contracts/pageNumbers';
+import {requireDocumentRef} from '@contracts/documentRef';
 // @vitest-environment happy-dom
 
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    createApp,
-    defineComponent,
-    h,
-    nextTick,
-    reactive,
-} from 'vue';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {createApp, defineComponent, h, nextTick, reactive} from 'vue';
 import type {PDFDocumentProxy} from 'pdfjs-dist';
 import PdfOutline from '@app/modules/pdf-viewer/components/PdfOutline.vue';
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
-import { cast } from '@tests/helpers/cast';
+import {cast} from '@tests/helpers/cast';
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
-    useTypedI18n: () => ({t: (key: string, parameters?: Record<string, string | number>) => parameters ? `${key} ${Object.values(parameters).join(' ')} retained read-only` : key}),
+    useTypedI18n: () => ({
+        t: (key: string, parameters?: Record<string, string | number>) =>
+            parameters ? `${key} ${Object.values(parameters).join(' ')} retained read-only` : key,
+    }),
 }));
 
 function stub(marker: string) {
-    return {default: defineComponent({
-        inheritAttrs: false,
-        setup: (_props, {attrs}) => () => h('div', {
-            ...attrs,
-            [marker]: '',
+    return {
+        default: defineComponent({
+            inheritAttrs: false,
+            setup:
+                (_props, {attrs}) =>
+                () =>
+                    h('div', {
+                        ...attrs,
+                        [marker]: '',
+                    }),
         }),
-    })};
+    };
 }
 
 let readOutline: (documentRef: string) => Promise<IPdfBookmarkEntry[]> = async () => [];
-vi.mock('@app/utils/platformDocuments', () => ({getPageOpsCapability: () => ({readOutline: (documentRef: string) => readOutline(documentRef)})}));
+vi.mock('@app/utils/platformDocuments', () => ({
+    getPageOpsCapability: () => ({readOutline: (documentRef: string) => readOutline(documentRef)}),
+}));
 vi.mock('@app/components/AppSpinner.vue', () => stub('data-spinner-stub'));
 vi.mock('@app/components/document-viewer/DocumentBookmarkToolbar.vue', () => stub('data-bookmark-toolbar-stub'));
-vi.mock('@app/components/document-viewer/DocumentBookmarkTree.vue', () => ({default: defineComponent({
-    props: {items: {
-        type: Array,
-        required: true,
-    }},
-    setup: props => () => h('div', {
-        'data-bookmark-tree-stub': '',
-        'data-item-count': String(props.items.length),
-        'data-first-title': (props.items[0] as {title?: string} | undefined)?.title,
+vi.mock('@app/components/document-viewer/DocumentBookmarkTree.vue', () => ({
+    default: defineComponent({
+        props: {
+            items: {
+                type: Array,
+                required: true,
+            },
+        },
+        setup: (props) => () =>
+            h('div', {
+                'data-bookmark-tree-stub': '',
+                'data-item-count': String(props.items.length),
+                'data-first-title': (props.items[0] as {title?: string} | undefined)?.title,
+            }),
     }),
-})}));
+}));
 vi.mock('@app/components/document-viewer/DocumentPanelEmptyState.vue', () => stub('data-empty-state-stub'));
 vi.mock('@app/modules/pdf-viewer/components/PdfOutlineContextMenu.vue', () => stub('data-context-menu-stub'));
 const activeUnmounts = new Set<() => void>();
@@ -70,10 +73,7 @@ function createPdfDocument(getDestination: () => Promise<unknown[] | null> = asy
     });
 }
 
-async function mountOutline(
-    readDocumentOutline: () => Promise<IPdfBookmarkEntry[]>,
-    getDestination?: () => Promise<unknown[] | null>,
-) {
+async function mountOutline(readDocumentOutline: () => Promise<IPdfBookmarkEntry[]>, getDestination?: () => Promise<unknown[] | null>) {
     readOutline = readDocumentOutline;
     const host = document.createElement('div');
     document.body.append(host);
@@ -88,11 +88,16 @@ async function mountOutline(
         pdfDocument: createPdfDocument(getDestination),
         documentRef: requireDocumentRef('/working/outline.pdf'),
     });
-    const app = createApp(defineComponent({setup: () => () => h(PdfOutline, {
-        ...viewProps,
-        'onUpdate:isEditMode': (value: boolean) => editModeUpdates.push(value),
-        'onBookmarks-change': (value: unknown) => bookmarkChanges.push(value),
-    })}));
+    const app = createApp(
+        defineComponent({
+            setup: () => () =>
+                h(PdfOutline, {
+                    ...viewProps,
+                    'onUpdate:isEditMode': (value: boolean) => editModeUpdates.push(value),
+                    'onBookmarks-change': (value: unknown) => bookmarkChanges.push(value),
+                }),
+        }),
+    );
     app.component('UButton', defineComponent({setup: () => () => h('button')}));
     app.mount(host);
     await nextTick();
@@ -106,7 +111,7 @@ async function mountOutline(
 
     async function settle() {
         await nextTick();
-        await new Promise(resolve => setTimeout(resolve, 0));
+        await new Promise((resolve) => setTimeout(resolve, 0));
         await nextTick();
     }
 
@@ -190,8 +195,7 @@ describe('PdfOutline bookmark toolbar state', () => {
         await outline.settle();
 
         expect(toolbar(outline.host)).toBeNull();
-        expect(outline.host.querySelector('[data-empty-state-stub]')?.getAttribute('title'))
-            .toBe('bookmarks.unavailable');
+        expect(outline.host.querySelector('[data-empty-state-stub]')?.getAttribute('title')).toBe('bookmarks.unavailable');
     });
 
     it('shows the toolbar once an empty outline has loaded successfully', async () => {
@@ -202,23 +206,28 @@ describe('PdfOutline bookmark toolbar state', () => {
 
         expect(toolbar(outline.host)).not.toBeNull();
         expect(outline.host.querySelector('[data-spinner-stub]')).toBeNull();
-        expect(outline.host.querySelector('[data-empty-state-stub]')?.getAttribute('title'))
-            .toBe('bookmarks.noBookmarks');
+        expect(outline.host.querySelector('[data-empty-state-stub]')?.getAttribute('title')).toBe('bookmarks.noBookmarks');
     });
 
     it('publishes the outline when its current-page selection stalls', async () => {
         vi.useFakeTimers();
         try {
             const getDestination = vi.fn(() => new Promise<unknown[]>(() => undefined));
-            const outline = await mountOutline(() => Promise.resolve([{
-                title: 'Chapter 1',
-                pageIndex: null,
-                namedDest: 'chapter-1',
-                bold: false,
-                italic: false,
-                color: null,
-                items: [],
-            }]), getDestination);
+            const outline = await mountOutline(
+                () =>
+                    Promise.resolve([
+                        {
+                            title: 'Chapter 1',
+                            pageIndex: null,
+                            namedDest: 'chapter-1',
+                            bold: false,
+                            italic: false,
+                            color: null,
+                            items: [],
+                        },
+                    ]),
+                getDestination,
+            );
 
             // Rows wait for the selection that decides their first layout.
             await vi.advanceTimersByTimeAsync(999);
@@ -229,10 +238,8 @@ describe('PdfOutline bookmark toolbar state', () => {
             // A lookup that never answers must not keep the outline hidden.
             await vi.advanceTimersByTimeAsync(1);
             await nextTick();
-            expect(outline.host.querySelector('[data-bookmark-tree-stub]')?.getAttribute('data-item-count'))
-                .toBe('1');
-            expect(outline.host.querySelector('[data-bookmark-tree-stub]')?.getAttribute('data-first-title'))
-                .toBe('Chapter 1');
+            expect(outline.host.querySelector('[data-bookmark-tree-stub]')?.getAttribute('data-item-count')).toBe('1');
+            expect(outline.host.querySelector('[data-bookmark-tree-stub]')?.getAttribute('data-first-title')).toBe('Chapter 1');
             expect(outline.host.querySelector('[data-spinner-stub]')).toBeNull();
         } finally {
             vi.useRealTimers();
@@ -245,15 +252,17 @@ describe('PdfOutline bookmark toolbar state', () => {
         outline.setEditMode(true);
         await outline.settle();
         outline.editModeUpdates.length = 0;
-        outline.applyExternalBookmarks(Array.from({length: 10_001}, (_, index) => ({
-            title: `Bookmark ${index}`,
-            pageIndex: requirePageIndex(index),
-            namedDest: null,
-            bold: false,
-            italic: false,
-            color: null,
-            items: [],
-        })));
+        outline.applyExternalBookmarks(
+            Array.from({length: 10_001}, (_, index) => ({
+                title: `Bookmark ${index}`,
+                pageIndex: requirePageIndex(index),
+                namedDest: null,
+                bold: false,
+                italic: false,
+                color: null,
+                items: [],
+            })),
+        );
 
         await outline.settle();
 
@@ -299,15 +308,17 @@ describe('PdfOutline bookmark toolbar state', () => {
         const outline = await mountOutline(() => Promise.reject(new Error('outline stream is corrupt')));
 
         await outline.settle();
-        outline.applyExternalBookmarks([{
-            title: 'Recovered bookmark',
-            pageIndex: requirePageIndex(0),
-            namedDest: null,
-            bold: false,
-            italic: false,
-            color: null,
-            items: [],
-        }]);
+        outline.applyExternalBookmarks([
+            {
+                title: 'Recovered bookmark',
+                pageIndex: requirePageIndex(0),
+                namedDest: null,
+                bold: false,
+                italic: false,
+                color: null,
+                items: [],
+            },
+        ]);
         await outline.settle();
 
         expect(toolbar(outline.host)).not.toBeNull();

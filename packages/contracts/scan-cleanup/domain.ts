@@ -12,64 +12,47 @@ import type {
     SCAN_CLEANUP_PAGE_OVERRIDE_SCHEMA,
 } from '@contracts/scan-cleanup/ipcRequestCodecs';
 
-export const SCAN_CLEANUP_PAGE_ROTATIONS = [
-    0,
-    90,
-    180,
-    270,
-] as const;
-export type TScanCleanupPageRotation = typeof SCAN_CLEANUP_PAGE_ROTATIONS[number];
+export const SCAN_CLEANUP_PAGE_ROTATIONS = [0, 90, 180, 270] as const;
+export type TScanCleanupPageRotation = (typeof SCAN_CLEANUP_PAGE_ROTATIONS)[number];
 
-export const SCAN_CLEANUP_LAYOUT_CLASSIFICATIONS = [
-    'single-uncut-page',
-    'page-with-offcut',
-    'two-page-spread',
-] as const;
-export type TScanCleanupLayoutClassification = typeof SCAN_CLEANUP_LAYOUT_CLASSIFICATIONS[number];
+export const SCAN_CLEANUP_LAYOUT_CLASSIFICATIONS = ['single-uncut-page', 'page-with-offcut', 'two-page-spread'] as const;
+export type TScanCleanupLayoutClassification = (typeof SCAN_CLEANUP_LAYOUT_CLASSIFICATIONS)[number];
 
 const safeFiniteNumber = v.pipe(
     v.number(),
     v.finite(),
-    v.check(value => Math.abs(value) <= Number.MAX_SAFE_INTEGER),
+    v.check((value) => Math.abs(value) <= Number.MAX_SAFE_INTEGER),
 );
 const positiveFiniteNumber = v.pipe(safeFiniteNumber, v.minValue(Number.MIN_VALUE));
 
-export const SCAN_CLEANUP_DOCUMENT_PRIOR_SCHEMA = v.message(v.pipe(v.strictObject({
-    dominantLayout: v.picklist(SCAN_CLEANUP_LAYOUT_CLASSIFICATIONS),
-    cutterRatioMedian: v.nullable(v.pipe(v.number(), v.finite(), v.minValue(0.2), v.maxValue(0.8))),
-    clusterDims: v.strictObject({
-        widthPx: positiveFiniteNumber,
-        heightPx: positiveFiniteNumber,
-    }),
-    agreementStrength: v.pipe(v.number(), v.finite(), v.minValue(0), v.maxValue(1)),
-    strokeWidthMedianPx: v.optional(positiveFiniteNumber),
-    xHeightMedianPx: v.optional(positiveFiniteNumber),
-}), v.check(value =>
-    value.dominantLayout !== 'two-page-spread' || value.cutterRatioMedian !== null,
-)), 'invalid scan-cleanup document prior');
+export const SCAN_CLEANUP_DOCUMENT_PRIOR_SCHEMA = v.message(
+    v.pipe(
+        v.strictObject({
+            dominantLayout: v.picklist(SCAN_CLEANUP_LAYOUT_CLASSIFICATIONS),
+            cutterRatioMedian: v.nullable(v.pipe(v.number(), v.finite(), v.minValue(0.2), v.maxValue(0.8))),
+            clusterDims: v.strictObject({
+                widthPx: positiveFiniteNumber,
+                heightPx: positiveFiniteNumber,
+            }),
+            agreementStrength: v.pipe(v.number(), v.finite(), v.minValue(0), v.maxValue(1)),
+            strokeWidthMedianPx: v.optional(positiveFiniteNumber),
+            xHeightMedianPx: v.optional(positiveFiniteNumber),
+        }),
+        v.check((value) => value.dominantLayout !== 'two-page-spread' || value.cutterRatioMedian !== null),
+    ),
+    'invalid scan-cleanup document prior',
+);
 
 export type IScanCleanupDocumentPrior = v.InferOutput<typeof SCAN_CLEANUP_DOCUMENT_PRIOR_SCHEMA>;
 
-export const SCAN_CLEANUP_LAYOUT_MODES = [
-    'auto',
-    'force-single',
-    'force-two-page',
-] as const;
-export type TScanCleanupLayoutMode = typeof SCAN_CLEANUP_LAYOUT_MODES[number];
+export const SCAN_CLEANUP_LAYOUT_MODES = ['auto', 'force-single', 'force-two-page'] as const;
+export type TScanCleanupLayoutMode = (typeof SCAN_CLEANUP_LAYOUT_MODES)[number];
 
-export const SCAN_CLEANUP_OUTPUT_MODES = [
-    'bw',
-    'mixed',
-    'grayscale',
-    'color',
-] as const;
-export type TScanCleanupOutputMode = typeof SCAN_CLEANUP_OUTPUT_MODES[number];
+export const SCAN_CLEANUP_OUTPUT_MODES = ['bw', 'mixed', 'grayscale', 'color'] as const;
+export type TScanCleanupOutputMode = (typeof SCAN_CLEANUP_OUTPUT_MODES)[number];
 
-export const SCAN_CLEANUP_OUTPUT_MODE_SETTINGS = [
-    'auto',
-    ...SCAN_CLEANUP_OUTPUT_MODES,
-] as const;
-export type TScanCleanupOutputModeSetting = typeof SCAN_CLEANUP_OUTPUT_MODE_SETTINGS[number];
+export const SCAN_CLEANUP_OUTPUT_MODE_SETTINGS = ['auto', ...SCAN_CLEANUP_OUTPUT_MODES] as const;
+export type TScanCleanupOutputModeSetting = (typeof SCAN_CLEANUP_OUTPUT_MODE_SETTINGS)[number];
 
 export const SCAN_CLEANUP_OUTPUT_MODE_RECOMMENDATION_REASONS = [
     'blank',
@@ -79,58 +62,28 @@ export const SCAN_CLEANUP_OUTPUT_MODE_RECOMMENDATION_REASONS = [
     'bimodal-text',
     'uncertain-tonal',
 ] as const;
-export type TScanCleanupOutputModeRecommendationReason =
-    typeof SCAN_CLEANUP_OUTPUT_MODE_RECOMMENDATION_REASONS[number];
+export type TScanCleanupOutputModeRecommendationReason = (typeof SCAN_CLEANUP_OUTPUT_MODE_RECOMMENDATION_REASONS)[number];
 
-export const SCAN_CLEANUP_BINARIZATION_METHODS = [
-    'auto',
-    'otsu',
-    'sauvola',
-    'wolf',
-] as const;
-export type TScanCleanupBinarizationMethod = typeof SCAN_CLEANUP_BINARIZATION_METHODS[number];
+export const SCAN_CLEANUP_BINARIZATION_METHODS = ['auto', 'otsu', 'sauvola', 'wolf'] as const;
+export type TScanCleanupBinarizationMethod = (typeof SCAN_CLEANUP_BINARIZATION_METHODS)[number];
 
-export const SCAN_CLEANUP_DESPECKLE_LEVELS = [
-    'off',
-    'cautious',
-    'normal',
-    'aggressive',
-] as const;
-export type TScanCleanupDespeckleLevel = typeof SCAN_CLEANUP_DESPECKLE_LEVELS[number];
+export const SCAN_CLEANUP_DESPECKLE_LEVELS = ['off', 'cautious', 'normal', 'aggressive'] as const;
+export type TScanCleanupDespeckleLevel = (typeof SCAN_CLEANUP_DESPECKLE_LEVELS)[number];
 
-export const SCAN_CLEANUP_READING_ORDERS = [
-    'ltr',
-    'rtl',
-] as const;
-export type TScanCleanupReadingOrder = typeof SCAN_CLEANUP_READING_ORDERS[number];
+export const SCAN_CLEANUP_READING_ORDERS = ['ltr', 'rtl'] as const;
+export type TScanCleanupReadingOrder = (typeof SCAN_CLEANUP_READING_ORDERS)[number];
 
-export const SCAN_CLEANUP_PAGE_LAYOUT_OVERRIDES = [
-    'auto',
-    'single',
-    'spread',
-    'keep-left',
-    'keep-right',
-] as const;
-export type TScanCleanupPageLayoutOverride = typeof SCAN_CLEANUP_PAGE_LAYOUT_OVERRIDES[number];
+export const SCAN_CLEANUP_PAGE_LAYOUT_OVERRIDES = ['auto', 'single', 'spread', 'keep-left', 'keep-right'] as const;
+export type TScanCleanupPageLayoutOverride = (typeof SCAN_CLEANUP_PAGE_LAYOUT_OVERRIDES)[number];
 
-export const SCAN_CLEANUP_OUTPUT_HALVES = [
-    'full',
-    'left',
-    'right',
-] as const;
-export type TScanCleanupOutputHalf = typeof SCAN_CLEANUP_OUTPUT_HALVES[number];
+export const SCAN_CLEANUP_OUTPUT_HALVES = ['full', 'left', 'right'] as const;
+export type TScanCleanupOutputHalf = (typeof SCAN_CLEANUP_OUTPUT_HALVES)[number];
 
-export const SCAN_CLEANUP_CANVAS_SCOPES = [
-    'page',
-    'document',
-] as const;
-export type TScanCleanupCanvasScope = typeof SCAN_CLEANUP_CANVAS_SCOPES[number];
+export const SCAN_CLEANUP_CANVAS_SCOPES = ['page', 'document'] as const;
+export type TScanCleanupCanvasScope = (typeof SCAN_CLEANUP_CANVAS_SCOPES)[number];
 
-export const SCAN_CLEANUP_CANVAS_POLICIES = [
-    'intrinsic',
-    'strict-maximum',
-] as const;
-export type TScanCleanupCanvasPolicy = typeof SCAN_CLEANUP_CANVAS_POLICIES[number];
+export const SCAN_CLEANUP_CANVAS_POLICIES = ['intrinsic', 'strict-maximum'] as const;
+export type TScanCleanupCanvasPolicy = (typeof SCAN_CLEANUP_CANVAS_POLICIES)[number];
 
 export const SCAN_CLEANUP_TEXT_TONE_RULES = [
     'applied',
@@ -139,28 +92,19 @@ export const SCAN_CLEANUP_TEXT_TONE_RULES = [
     'tonal-mass-outside-text',
     'already-dark',
 ] as const;
-export type TScanCleanupTextToneRule = typeof SCAN_CLEANUP_TEXT_TONE_RULES[number];
+export type TScanCleanupTextToneRule = (typeof SCAN_CLEANUP_TEXT_TONE_RULES)[number];
 
-export const SCAN_CLEANUP_CONTENT_TRIM_SIDES = [
-    'left',
-    'top',
-    'right',
-    'bottom',
-] as const;
-export type TScanCleanupContentTrimSide = typeof SCAN_CLEANUP_CONTENT_TRIM_SIDES[number];
+export const SCAN_CLEANUP_CONTENT_TRIM_SIDES = ['left', 'top', 'right', 'bottom'] as const;
+export type TScanCleanupContentTrimSide = (typeof SCAN_CLEANUP_CONTENT_TRIM_SIDES)[number];
 
-export const SCAN_CLEANUP_PICTURE_ZONE_LAYERS = [
-    'eraser1',
-    'painter2',
-    'eraser3',
-] as const;
+export const SCAN_CLEANUP_PICTURE_ZONE_LAYERS = ['eraser1', 'painter2', 'eraser3'] as const;
 export const SCAN_CLEANUP_SPREAD_BINARIZATION_DECISIONS = [
     'sharedJoint',
     'perLeafAnchorDrift',
     'perLeafRadiusDrift',
     'perLeafFaintInkDrift',
 ] as const;
-export type TScanCleanupSpreadBinarizationDecision = typeof SCAN_CLEANUP_SPREAD_BINARIZATION_DECISIONS[number];
+export type TScanCleanupSpreadBinarizationDecision = (typeof SCAN_CLEANUP_SPREAD_BINARIZATION_DECISIONS)[number];
 /**
  * The single source of truth every alignment validator, migration and picker
  * reads. `ink` is not a nine-way anchor: it asks each output to keep its
@@ -178,8 +122,8 @@ export const SCAN_CLEANUP_ALIGNMENTS = [
     'bottom-center',
     'bottom-right',
 ] as const;
-export type TScanCleanupPageAlignment = typeof SCAN_CLEANUP_ALIGNMENTS[number];
-export type TScanCleanupPictureZoneLayer = typeof SCAN_CLEANUP_PICTURE_ZONE_LAYERS[number];
+export type TScanCleanupPageAlignment = (typeof SCAN_CLEANUP_ALIGNMENTS)[number];
+export type TScanCleanupPictureZoneLayer = (typeof SCAN_CLEANUP_PICTURE_ZONE_LAYERS)[number];
 
 /**
  * What the renderer already knows about how each page will be cut, keyed by

@@ -1,17 +1,14 @@
-import { isAbortError } from '@contracts/isAbortError';
+import {isAbortError} from '@contracts/isAbortError';
 import type {
     IPdfSemanticAnchor,
     IDocumentNavigationRequest,
     IDocumentNavigationTicket,
     TDocumentNavigationReport,
 } from '@app/modules/document-viewer/public';
-import type { IResolvedPdfNavigationTarget } from '@app/modules/pdf-viewer/runtime/viewport/pdfNavigationRequestResolver';
+import type {IResolvedPdfNavigationTarget} from '@app/modules/pdf-viewer/runtime/viewport/pdfNavigationRequestResolver';
 
-export type TPdfViewportIntentKind =
-    | 'navigate' | 'user-scroll' | 'wheel-page' | 'search' | 'document-restore' | 'relayout';
-type TPdfViewportPhase =
-    | 'idle' | 'resolving' | 'awaiting-metrics'
-    | 'applying' | 'awaiting-visual' | 'settled' | 'cancelled';
+export type TPdfViewportIntentKind = 'navigate' | 'user-scroll' | 'wheel-page' | 'search' | 'document-restore' | 'relayout';
+type TPdfViewportPhase = 'idle' | 'resolving' | 'awaiting-metrics' | 'applying' | 'awaiting-visual' | 'settled' | 'cancelled';
 
 export interface IPdfViewportIntent {
     id: string;
@@ -69,9 +66,9 @@ export interface IPdfViewportPositionCommit {
  */
 export type TPdfRelayoutReceipt =
     | {
-        outcome: 'placed';
-        commit: IPdfViewportPositionCommit;
-    }
+          outcome: 'placed';
+          commit: IPdfViewportPositionCommit;
+      }
     | {outcome: 'superseded' | 'cancelled'};
 
 /**
@@ -82,7 +79,9 @@ export type TPdfRelayoutReceipt =
 export type TPdfViewportWorkKind = 'reload';
 
 /** `cancelRasters` cancels the in-flight rasters of the superseded layout. */
-export interface IPdfViewportWorkCancellation {cancelRasters: boolean;}
+export interface IPdfViewportWorkCancellation {
+    cancelRasters: boolean;
+}
 
 interface IPdfViewportWork {
     readonly id: number;
@@ -101,22 +100,26 @@ interface IViewportAuthorityDependencies {
     resolveIndicatorPage?(anchor: IPdfSemanticAnchor, previousPage: number): number;
     isIntentCurrent?(intent: IPdfViewportIntent): boolean;
     shouldStageNavigationVisual?(intent: IPdfViewportIntent): boolean;
-    reportNavigation?(
-        ticket: IDocumentNavigationTicket,
-        report: TDocumentNavigationReport,
-    ): boolean;
+    reportNavigation?(ticket: IDocumentNavigationTicket, report: TDocumentNavigationReport): boolean;
     resolve(intent: IPdfViewportIntent, signal: AbortSignal): Promise<IPdfViewportResolvedCommit>;
     awaitMetrics(intent: IPdfViewportIntent, signal: AbortSignal): Promise<unknown>;
     refine?(intent: IPdfViewportIntent, commit: IPdfViewportResolvedCommit, signal: AbortSignal): Promise<IPdfViewportResolvedCommit>;
-    refineAfterVisual?(intent: IPdfViewportIntent, commit: IPdfViewportResolvedCommit, signal: AbortSignal): Promise<IPdfViewportResolvedCommit>;
+    refineAfterVisual?(
+        intent: IPdfViewportIntent,
+        commit: IPdfViewportResolvedCommit,
+        signal: AbortSignal,
+    ): Promise<IPdfViewportResolvedCommit>;
     /** The offsets written; null when the view refused the write, which places nothing. */
     apply(
         intent: IPdfViewportIntent,
         commit: IPdfViewportResolvedCommit,
-    ): {
-        left: number;
-        top: number;
-    } | null | undefined;
+    ):
+        | {
+              left: number;
+              top: number;
+          }
+        | null
+        | undefined;
     /**
      * Settles once the layout that ends the handoff is patched, before paint:
      * the placement to write through it, or null when it moved nothing.
@@ -144,10 +147,7 @@ function createViewportAbortError() {
  * callback is deliberately left running: it owns its own cancellation and
  * must fence any later side effects against its captured document identity.
  */
-function awaitWithAbort<T>(
-    value: PromiseLike<T> | T,
-    signal: AbortSignal,
-) {
+function awaitWithAbort<T>(value: PromiseLike<T> | T, signal: AbortSignal) {
     const operation = Promise.resolve(value);
     if (signal.aborted) {
         void operation.then(undefined, () => undefined);
@@ -163,10 +163,7 @@ function awaitWithAbort<T>(
             onAbort();
         }
     });
-    return Promise.race([
-        operation,
-        abort,
-    ]).finally(removeAbortListener);
+    return Promise.race([operation, abort]).finally(removeAbortListener);
 }
 
 /**
@@ -192,10 +189,10 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
         if (handoffReleased.value) {
             return null;
         }
-        return intent?.documentContext?.page
-            ?? (intent?.navigation?.target && 'page' in intent.navigation.target
-                ? intent.navigation.target.page
-                : null);
+        return (
+            intent?.documentContext?.page ??
+            (intent?.navigation?.target && 'page' in intent.navigation.target ? intent.navigation.target.page : null)
+        );
     });
     const currentPage = ref(1);
     let controller: AbortController | null = null;
@@ -204,11 +201,11 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
     const placements = new WeakMap<IPdfViewportIntent, IPdfViewportPlacement>();
     const work = shallowRef<IPdfViewportWork | null>(null);
     let workSequence = 0;
-    const ownsNavigation = computed(() => pendingTargetPage.value !== null
-        || handoffReleased.value
-        || deps.hasPendingNavigationTicket?.() === true);
-    const activeWorkKind = computed(() => (ownsNavigation.value ? 'navigation' as const : work.value?.kind ?? null));
-    const targetPage = computed(() => pendingTargetPage.value ?? (ownsNavigation.value ? null : work.value?.page ?? null));
+    const ownsNavigation = computed(
+        () => pendingTargetPage.value !== null || handoffReleased.value || deps.hasPendingNavigationTicket?.() === true,
+    );
+    const activeWorkKind = computed(() => (ownsNavigation.value ? ('navigation' as const) : (work.value?.kind ?? null)));
+    const targetPage = computed(() => pendingTargetPage.value ?? (ownsNavigation.value ? null : (work.value?.page ?? null)));
 
     function cancelWork(cancellation: IPdfViewportWorkCancellation, workId?: number) {
         if (work.value && workId !== undefined && work.value.id !== workId) {
@@ -242,8 +239,9 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
 
     /** Admitted work still owes its placement, and the reader has not moved since. */
     function isWorkPlacementPending() {
-        return work.value !== null && !work.value.placed && !ownsNavigation.value
-            && work.value.interactionEpoch === deps.getInteractionEpoch();
+        return (
+            work.value !== null && !work.value.placed && !ownsNavigation.value && work.value.interactionEpoch === deps.getInteractionEpoch()
+        );
     }
 
     function settleWork(workId: number) {
@@ -252,17 +250,23 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
         }
     }
 
-    watch(ownsNavigation, (navigating) => {
-        if (navigating && work.value) {
-            cancelWork({cancelRasters: true});
-        }
-    }, {flush: 'sync'});
+    watch(
+        ownsNavigation,
+        (navigating) => {
+            if (navigating && work.value) {
+                cancelWork({cancelRasters: true});
+            }
+        },
+        {flush: 'sync'},
+    );
 
     function isCurrent(intent: IPdfViewportIntent, signal: AbortSignal) {
-        return !signal.aborted
-            && activeIntent.value?.id === intent.id
-            && intent.documentRevision === deps.getDocumentRevision()
-            && deps.isIntentCurrent?.(intent) !== false;
+        return (
+            !signal.aborted &&
+            activeIntent.value?.id === intent.id &&
+            intent.documentRevision === deps.getDocumentRevision() &&
+            deps.isIntentCurrent?.(intent) !== false
+        );
     }
 
     function assertCurrent(intent: IPdfViewportIntent, signal: AbortSignal) {
@@ -316,10 +320,12 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
     function commitPosition(
         intent: IPdfViewportIntent,
         commit: IPdfViewportResolvedCommit,
-        applied: {
-            left: number;
-            top: number;
-        } | undefined,
+        applied:
+            | {
+                  left: number;
+                  top: number;
+              }
+            | undefined,
     ) {
         commitAnchor(commit.anchor, intent.navigation || intent.kind === 'document-restore' ? commit.anchor.page : undefined);
         const positionCommit: IPdfViewportPositionCommit = Object.freeze({
@@ -363,7 +369,7 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
     function refineLayout(
         resolveForLayout: (anchor: IPdfSemanticAnchor) => IPdfViewportResolvedCommit | null,
         // Maps the shown point through the change, such as a page's turn.
-        transformShown: (anchor: IPdfSemanticAnchor) => IPdfSemanticAnchor = anchor => anchor,
+        transformShown: (anchor: IPdfSemanticAnchor) => IPdfSemanticAnchor = (anchor) => anchor,
     ): TPdfRelayoutReceipt | null {
         const intent = activeIntent.value;
         if (!intent) {
@@ -375,9 +381,7 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
         }
         const placement = placements.get(intent);
         if (!placement) {
-            const shownAnchor = phase.value === 'awaiting-visual' && committedAnchor.value
-                ? transformShown(committedAnchor.value)
-                : null;
+            const shownAnchor = phase.value === 'awaiting-visual' && committedAnchor.value ? transformShown(committedAnchor.value) : null;
             const shown = shownAnchor && resolveForLayout(shownAnchor);
             if (shownAnchor && shown && deps.apply(intent, shown) !== null && isCurrent(intent, signal)) {
                 committedAnchor.value = shownAnchor;
@@ -405,10 +409,10 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
         }
         // A ticket replayed after a renderer mount keeps its semantic ID; it
         // replaces its own earlier attempt instead of cancelling a command.
-        const isTicketReplay = intent.navigationTicket !== undefined && (
-            (activeIntent.value?.navigationTicket === intent.navigationTicket && activeIntent.value.id === intent.id)
-            || (activeIntent.value === null && terminal.get(intent.id) === 'cancelled')
-        );
+        const isTicketReplay =
+            intent.navigationTicket !== undefined &&
+            ((activeIntent.value?.navigationTicket === intent.navigationTicket && activeIntent.value.id === intent.id) ||
+                (activeIntent.value === null && terminal.get(intent.id) === 'cancelled'));
         if (isTicketReplay) {
             controller?.abort();
             terminal.delete(intent.id);
@@ -449,8 +453,8 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
             // shell and geometry are created by the initial raster mount, so
             // staging that canvas first avoids a circular wait for geometry
             // that the canvas callback itself commits.
-            const stagedNavigationVisual = next.navigation !== undefined
-                && (next.navigationTicket === undefined || deps.shouldStageNavigationVisual?.(next) === true);
+            const stagedNavigationVisual =
+                next.navigation !== undefined && (next.navigationTicket === undefined || deps.shouldStageNavigationVisual?.(next) === true);
             if (stagedNavigationVisual) {
                 phase.value = 'awaiting-visual';
                 try {
@@ -458,7 +462,9 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
                 } catch (error) {
                     // An aborted visual wait still places; the terminal report
                     // below remains the single owner of failure.
-                    if (signal.aborted || !isAbortError(error)) {throw error;}
+                    if (signal.aborted || !isAbortError(error)) {
+                        throw error;
+                    }
                 }
                 assertCurrent(next, signal);
                 if (deps.refineAfterVisual) {
@@ -550,21 +556,17 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
         phase.value = 'idle';
     }
 
-    function commitSettledPosition(input: Omit<
-        IPdfViewportPositionCommit,
-        'interactionEpoch'
-    > & {anchor?: IPdfSemanticAnchor | undefined}) {
+    function commitSettledPosition(
+        input: Omit<IPdfViewportPositionCommit, 'interactionEpoch'> & {anchor?: IPdfSemanticAnchor | undefined},
+    ) {
         if (
-            activeIntent.value !== null
-            || input.documentRevision !== deps.getDocumentRevision()
-            || input.geometryRevision !== deps.getGeometryRevision()
+            activeIntent.value !== null ||
+            input.documentRevision !== deps.getDocumentRevision() ||
+            input.geometryRevision !== deps.getGeometryRevision()
         ) {
             return null;
         }
-        const {
-            anchor,
-            ...position
-        } = input;
+        const {anchor, ...position} = input;
         if (anchor) {
             commitAnchor(anchor, input.intentKind === 'relayout' ? undefined : input.page);
         }

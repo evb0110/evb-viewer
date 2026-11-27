@@ -1,7 +1,4 @@
-import {
-    DEFAULT_TIFF_DECODE_LIMITS,
-    readTiffFrameDimensionsFromBytes,
-} from '@pdf-core/iterateDecodedTiffFrames';
+import {DEFAULT_TIFF_DECODE_LIMITS, readTiffFrameDimensionsFromBytes} from '@pdf-core/iterateDecodedTiffFrames';
 import type {
     IBrowserPdfCombineInput,
     IBrowserPdfCombineWasmImagePreprocessing,
@@ -17,22 +14,17 @@ import {
 } from '@contracts/browserPdfCombineWorker';
 import {
     BROWSER_COMBINE_IMAGE_EXTENSIONS,
-    getBrowserFileExtension, buildBrowserByteLimitError, 
+    getBrowserFileExtension,
+    buildBrowserByteLimitError,
 } from '@app/platform/browser-api/browserPlatformHelpers';
-import {
-    readPdfImageCombineEngineDigest,
-    tryCombineImageInputsWithWasm,
-} from '@app/platform/browser-api/tryCombineImageInputsWithWasm';
+import {readPdfImageCombineEngineDigest, tryCombineImageInputsWithWasm} from '@app/platform/browser-api/tryCombineImageInputsWithWasm';
 import {handlePrecompiledWasmModuleMessage} from '@app/platform/browser/loadWasmWithDeadline';
-import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
-import { getErrorMessage } from '@app/utils/error';
-import { readBrowserRasterImageMetadata } from '@app/platform/browser-api/browserRasterImageMetadata';
-import {
-    findSerializableErrorEnvelope,
-    SerializableError,
-} from '@contracts/serializableError';
+import {toTransferableUint8Array} from '@app/platform/browser-api/toTransferableUint8Array';
+import {getErrorMessage} from '@app/utils/error';
+import {readBrowserRasterImageMetadata} from '@app/platform/browser-api/browserRasterImageMetadata';
+import {findSerializableErrorEnvelope, SerializableError} from '@contracts/serializableError';
 import {NATIVE_ERROR_ENVELOPE_SCHEMA} from '@contracts/nativeErrors';
-import { createBrowserPdfCombineOutputError } from '@app/platform/browser-api/browserPdfCombineLimits';
+import {createBrowserPdfCombineOutputError} from '@app/platform/browser-api/browserPdfCombineLimits';
 import {createPdfCombineOutputTooLargeError} from '@contracts/pdfCombineOutputPolicy';
 
 const MAX_INPUT_BYTES = BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES;
@@ -57,9 +49,9 @@ async function convertWorkerImageBytesToPng(fileName: string, bytes: Uint8Array)
         throw new Error(`ERR_BROWSER_PDF_COMBINE_UNREADABLE_IMAGE_HEADER:${fileName}`);
     }
     assertImageDimensions(metadata.width, metadata.height, fileName);
-    const blob = new Blob([bytes.buffer instanceof ArrayBuffer
-        ? new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength)
-        : Uint8Array.from(bytes)]);
+    const blob = new Blob([
+        bytes.buffer instanceof ArrayBuffer ? new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength) : Uint8Array.from(bytes),
+    ]);
     const bitmap = await createImageBitmap(blob);
 
     try {
@@ -88,10 +80,7 @@ function validateWorkerInput(input: IBrowserPdfCombineInput) {
             ...DEFAULT_TIFF_DECODE_LIMITS,
             sourceLabel: input.fileName,
         });
-        for (const {
-            width,
-            height,
-        } of frames) {
+        for (const {width, height} of frames) {
             assertImageDimensions(width, height, input.fileName);
         }
         if (frames.length === 0) {
@@ -116,28 +105,38 @@ function getExifRotationDegrees(input: IBrowserPdfCombineInput): 0 | 90 | 180 | 
         return 0;
     }
     switch (metadata.orientation) {
-        case 1: return 0;
-        case 2: return 360;
-        case 3: return 180;
-        case 4: return 540;
-        case 5: return 450;
-        case 6: return 90;
-        case 7: return 630;
-        case 8: return 270;
+        case 1:
+            return 0;
+        case 2:
+            return 360;
+        case 3:
+            return 180;
+        case 4:
+            return 540;
+        case 5:
+            return 450;
+        case 6:
+            return 90;
+        case 7:
+            return 630;
+        case 8:
+            return 270;
     }
 }
 
 function buildExifRotationPreprocessing(inputs: IBrowserPdfCombineInput[]): IBrowserPdfCombineWasmImagePreprocessing | undefined {
-    if (!inputs.some(input => getExifRotationDegrees(input) !== 0)) {
+    if (!inputs.some((input) => getExifRotationDegrees(input) !== 0)) {
         return undefined;
     }
-    const pageSizes = inputs.map(input => {
+    const pageSizes = inputs.map((input) => {
         const metadata = readBrowserRasterImageMetadata(input.data, getBrowserFileExtension(input.fileName));
-        if (!metadata) {throw new Error(`ERR_BROWSER_PDF_COMBINE_UNREADABLE_IMAGE_HEADER:${input.fileName}`);}
+        if (!metadata) {
+            throw new Error(`ERR_BROWSER_PDF_COMBINE_UNREADABLE_IMAGE_HEADER:${input.fileName}`);
+        }
         const dpi = metadata.dpi > 0 ? metadata.dpi : 72;
         return {
-            widthPoints: metadata.width * 72 / dpi,
-            heightPoints: metadata.height * 72 / dpi,
+            widthPoints: (metadata.width * 72) / dpi,
+            heightPoints: (metadata.height * 72) / dpi,
         };
     });
     return {
@@ -154,11 +153,7 @@ function buildExifRotationPreprocessing(inputs: IBrowserPdfCombineInput[]): IBro
 async function prepareWorkerInput(input: IBrowserPdfCombineInput): Promise<IBrowserPdfCombineInput> {
     validateWorkerInput(input);
     const extension = getBrowserFileExtension(input.fileName);
-    if (
-        extension !== '.bmp'
-        && extension !== '.gif'
-        && extension !== '.webp'
-    ) {
+    if (extension !== '.bmp' && extension !== '.gif' && extension !== '.webp') {
         return input;
     }
 
@@ -201,9 +196,7 @@ async function handleCombinePdfsRequest(request: TBrowserPdfCombineWorkerRequest
         totalInputBytes = addInputBytes(totalInputBytes, input);
     }
 
-    const inputs = await Promise.all(
-        request.payload.inputs.map(input => prepareWorkerInput(input)),
-    );
+    const inputs = await Promise.all(request.payload.inputs.map((input) => prepareWorkerInput(input)));
     let wasmImagePreprocessing = request.payload.wasmImagePreprocessing;
     if (wasmImagePreprocessing?.pageSpecs) {
         const pageSpecs = [];
@@ -215,11 +208,7 @@ async function handleCombinePdfsRequest(request: TBrowserPdfCombineWorkerRequest
             pageSpecs,
         };
         for (const pageSpec of pageSpecs) {
-            for (const input of [
-                pageSpec.image,
-                pageSpec.background,
-                pageSpec.mask,
-            ]) {
+            for (const input of [pageSpec.image, pageSpec.background, pageSpec.mask]) {
                 if (input) {
                     totalInputBytes = addInputBytes(totalInputBytes, input, request.payload.inputs.length === 0);
                 }
@@ -252,14 +241,21 @@ async function handleCombinePdfsRequest(request: TBrowserPdfCombineWorkerRequest
 /** Posts a response; a success names the engine module that produced it. */
 async function postResponse(message: TBrowserPdfCombineWorkerResponse, transfer: Transferable[] = []) {
     const engineSha256 = message.ok ? await readPdfImageCombineEngineDigest()?.catch(() => null) : null;
-    self.postMessage(typeof engineSha256 === 'string' ? {
-        ...message,
-        engineSha256,
-    } : message, transfer);
+    self.postMessage(
+        typeof engineSha256 === 'string'
+            ? {
+                  ...message,
+                  engineSha256,
+              }
+            : message,
+        transfer,
+    );
 }
 
 self.addEventListener('message', async (event: MessageEvent<unknown>) => {
-    if (handlePrecompiledWasmModuleMessage(event.data)) {return;}
+    if (handlePrecompiledWasmModuleMessage(event.data)) {
+        return;
+    }
     const request = parseBrowserPdfCombineWorkerRequest(event.data);
     if (request === null) {
         const id = getBrowserPdfCombineWorkerRequestId(event.data);
@@ -288,10 +284,14 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
             id: request.id,
             ok: false,
             error: getErrorMessage(error),
-            ...(errorEnvelope === null ? {} : {errorEnvelope: {
-                code: errorEnvelope.code,
-                message: errorEnvelope.message,
-            }}),
+            ...(errorEnvelope === null
+                ? {}
+                : {
+                      errorEnvelope: {
+                          code: errorEnvelope.code,
+                          message: errorEnvelope.message,
+                      },
+                  }),
         } satisfies TBrowserPdfCombineWorkerResponse;
         await postResponse(response);
     }

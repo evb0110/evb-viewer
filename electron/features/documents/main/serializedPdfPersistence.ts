@@ -1,36 +1,16 @@
-import {
-    createHash,
-    type Hash,
-} from 'node:crypto';
-import {
-    open,
-    rm,
-} from 'fs/promises';
-import type { FileHandle } from 'fs/promises';
-import { isDeepStrictEqual } from 'node:util';
-import type {
-    IpcMainEvent,
-    MessagePortMain,
-    WebContents,
-} from 'electron';
-import { createAbortError } from '@contracts/isAbortError';
-import type { IPdfValidationResult } from '@contracts/pdfConformance';
-import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
-import {
-    parseDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
-import {
-    createSessionId,
-    parseSessionId,
-    type TSessionId,
-} from '@contracts/shared';
+import {createHash, type Hash} from 'node:crypto';
+import {open, rm} from 'fs/promises';
+import type {FileHandle} from 'fs/promises';
+import {isDeepStrictEqual} from 'node:util';
+import type {IpcMainEvent, MessagePortMain, WebContents} from 'electron';
+import {createAbortError} from '@contracts/isAbortError';
+import type {IPdfValidationResult} from '@contracts/pdfConformance';
+import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
+import {parseDocumentRef, type TDocumentRef} from '@contracts/documentRef';
+import {createSessionId, parseSessionId, type TSessionId} from '@contracts/shared';
 import type {IPdfSerializedSaveOptions} from '@contracts/electronApiDocuments';
-import {
-    parseDocumentRevisionToken,
-    type TDocumentRevisionToken,
-} from '@contracts/documentRevision';
-import { createMissingRevisionError } from '@contracts/documentMutationErrors';
+import {parseDocumentRevisionToken, type TDocumentRevisionToken} from '@contracts/documentRevision';
+import {createMissingRevisionError} from '@contracts/documentMutationErrors';
 import type {
     IBeginSerializedPdfPersistenceResult,
     ISerializedPdfPersistenceLimits,
@@ -54,31 +34,20 @@ import {
     normalizePdfPersistencePreloadToMainPayload,
 } from '@electron/features/documents/serializedPdfPersistenceContract';
 import {makeSiblingTempPath} from '@electron/utils/atomicReplace';
-import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
-import { syncFileHandleForDurability } from '@electron/utils/syncFileHandleForDurability';
-import { validatePdfFile } from '@electron/features/documents/main/pdfConformance';
-import {
-    allowOpenPath,
-    removeAllowedOpenPath,
-} from '@electron/file-access/openPathCapabilities';
-import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
+import {onSenderLifetimeEnd} from '@electron/utils/onSenderLifetimeEnd';
+import {syncFileHandleForDurability} from '@electron/utils/syncFileHandleForDurability';
+import {validatePdfFile} from '@electron/features/documents/main/pdfConformance';
+import {allowOpenPath, removeAllowedOpenPath} from '@electron/file-access/openPathCapabilities';
+import {enqueueWorkingCopyMutation} from '@electron/file-access/workingCopyMutationQueue';
 import {
     assertQueuedWorkingCopyMutationPreconditions,
     commitDocumentMutation,
     requireOpenDocument,
 } from '@electron/file-access/documentStore';
-import { verifyPdfTempFile } from '@electron/features/documents/main/verifyPdfTempFile';
-import type {
-    IDocumentsSenderIdContext,
-    IDocumentsWebContentsContext,
-} from '@electron/features/documents/documentsContexts';
-import {
-    registerMainOperation,
-    type IRegisteredMainOperation,
-} from '@electron/operation-lifecycle/mainOperationLifecycle';
-import {
-    createTypedStagedArtifact, releaseManagedTempFileHandle,
-} from '@electron/features/documents/main/managedTempFileHandles';
+import {verifyPdfTempFile} from '@electron/features/documents/main/verifyPdfTempFile';
+import type {IDocumentsSenderIdContext, IDocumentsWebContentsContext} from '@electron/features/documents/documentsContexts';
+import {registerMainOperation, type IRegisteredMainOperation} from '@electron/operation-lifecycle/mainOperationLifecycle';
+import {createTypedStagedArtifact, releaseManagedTempFileHandle} from '@electron/features/documents/main/managedTempFileHandles';
 import {writeFileHandleFully} from '@electron/file-access/writeFileHandleFully';
 
 const SERIALIZED_PDF_MAX_CHUNK_BYTES = PDF_PERSISTENCE_DEFAULT_CHUNK_BYTES;
@@ -154,10 +123,7 @@ function requireDocumentRef(value: unknown): TDocumentRef {
     return documentRef;
 }
 
-function normalizeExpectedDocumentRevisionToken(
-    workingPath: string,
-    options?: IPdfSerializedSaveOptions | null,
-) {
+function normalizeExpectedDocumentRevisionToken(workingPath: string, options?: IPdfSerializedSaveOptions | null) {
     const token = options?.expectedDocumentRevisionToken;
     if (token === undefined) {
         throw createMissingRevisionError({documentRef: requireDocumentRef(workingPath)});
@@ -262,15 +228,12 @@ function cleanupSession(session: ISerializedPdfPersistenceSession) {
         session.releaseSenderReservation();
         sessions.delete(session.id);
         if (session.stagedOutput !== null) {
-            releaseManagedTempFileHandle(
-                {senderId: session.senderId},
-                session.stagedOutput.leaseId,
-            );
+            releaseManagedTempFileHandle({senderId: session.senderId}, session.stagedOutput.leaseId);
             session.stagedOutput = null;
         }
         removeAllowedOpenPath(session.tempPath);
         await session.handle.close().catch(() => undefined);
-        await rm(session.tempPath, { force: true }).catch(() => undefined);
+        await rm(session.tempPath, {force: true}).catch(() => undefined);
         session.lifecycleOperation.complete();
     })();
     session.cleanupPromise = cleanupPromise;
@@ -288,10 +251,7 @@ function finishSessionLifecycle(session: ISerializedPdfPersistenceSession) {
     session.releaseSenderReservation();
     sessions.delete(session.id);
     if (session.stagedOutput !== null) {
-        releaseManagedTempFileHandle(
-            {senderId: session.senderId},
-            session.stagedOutput.leaseId,
-        );
+        releaseManagedTempFileHandle({senderId: session.senderId}, session.stagedOutput.leaseId);
         session.stagedOutput = null;
     }
     removeAllowedOpenPath(session.tempPath);
@@ -315,10 +275,7 @@ async function createSession(options: {
     serializedSaveOptions?: IPdfSerializedSaveOptions | undefined;
     totalBytes: number;
 }) {
-    const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(
-        options.workingPath,
-        options.serializedSaveOptions,
-    );
+    const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options.workingPath, options.serializedSaveOptions);
     const releaseSenderReservation = reserveSenderPersistenceCapacity(options.sender.id);
     const tempPath = `${makeSiblingTempPath(options.targetPath)}.pdf`;
     let handle: FileHandle;
@@ -404,23 +361,15 @@ function updateStreamedTail(currentTail: Buffer, bytes: Uint8Array) {
     if (bytes.byteLength >= PDF_EOF_TAIL_BYTES) {
         return Buffer.from(bytes.subarray(bytes.byteLength - PDF_EOF_TAIL_BYTES));
     }
-    const combined = Buffer.concat([
-        currentTail,
-        Buffer.from(bytes),
-    ]);
-    return combined.byteLength <= PDF_EOF_TAIL_BYTES
-        ? combined
-        : combined.subarray(combined.byteLength - PDF_EOF_TAIL_BYTES);
+    const combined = Buffer.concat([currentTail, Buffer.from(bytes)]);
+    return combined.byteLength <= PDF_EOF_TAIL_BYTES ? combined : combined.subarray(combined.byteLength - PDF_EOF_TAIL_BYTES);
 }
 
 function containsPdfEofMarker(bytes: Uint8Array) {
     return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).includes(Buffer.from('%%EOF'));
 }
 
-
-async function stageSession(
-    session: ISerializedPdfPersistenceSession,
-): Promise<ISerializedPdfPersistenceStageResult> {
+async function stageSession(session: ISerializedPdfPersistenceSession): Promise<ISerializedPdfPersistenceStageResult> {
     if (session.receivedBytes !== session.totalBytes) {
         return {
             validation: createEmptyPdfValidationResult(
@@ -484,35 +433,36 @@ async function commitSession(
     stagedOutput: ITypedStagedArtifact,
 ): Promise<ISerializedPdfPersistenceCommitResult> {
     if (
-        !session.isStaged
-        || session.stagedOutput === null
-        || session.stagedValidation === null
-        || !isDeepStrictEqual(stagedOutput, session.stagedOutput)
+        !session.isStaged ||
+        session.stagedOutput === null ||
+        session.stagedValidation === null ||
+        !isDeepStrictEqual(stagedOutput, session.stagedOutput)
     ) {
         throw new Error('Serialized PDF persistence session does not match the staged artifact');
     }
     const committedValidation = session.stagedValidation;
-    await enqueueWorkingCopyMutation(session.workingPath, async () => {
-        await assertQueuedWorkingCopyMutationPreconditions(
-            session.workingPath,
-            session.expectedDocumentRevisionToken,
-        );
-        await verifyPdfTempFile(session.tempPath, {
-            signal: session.lifecycleOperation.signal,
-            ownerId: `serialized-pdf:${session.id}`,
-            receipt: {
-                artifact: stagedOutput,
-                context: {senderId: session.senderId},
-            },
-            ...(session.changedObjectRefs.length ? {changedObjectRefs: session.changedObjectRefs} : {}),
-        });
-        await commitDocumentMutation(
-            requireOpenDocument(session.workingPath, session.senderId),
-            session.expectedDocumentRevisionToken,
-            {kind: 'move', file: session.tempPath},
-            'replace-working-copy',
-        );
-    }, {ownerWebContentsId: session.senderId});
+    await enqueueWorkingCopyMutation(
+        session.workingPath,
+        async () => {
+            await assertQueuedWorkingCopyMutationPreconditions(session.workingPath, session.expectedDocumentRevisionToken);
+            await verifyPdfTempFile(session.tempPath, {
+                signal: session.lifecycleOperation.signal,
+                ownerId: `serialized-pdf:${session.id}`,
+                receipt: {
+                    artifact: stagedOutput,
+                    context: {senderId: session.senderId},
+                },
+                ...(session.changedObjectRefs.length ? {changedObjectRefs: session.changedObjectRefs} : {}),
+            });
+            await commitDocumentMutation(
+                requireOpenDocument(session.workingPath, session.senderId),
+                session.expectedDocumentRevisionToken,
+                {kind: 'move', file: session.tempPath},
+                'replace-working-copy',
+            );
+        },
+        {ownerWebContentsId: session.senderId},
+    );
 
     return {
         validation: committedValidation,
@@ -533,10 +483,7 @@ function getSessionForPortEvent(event: IpcMainEvent, rawSessionId: unknown) {
     return session;
 }
 
-function getOwnedStagedSession(
-    context: IDocumentsSenderIdContext,
-    rawSessionId: unknown,
-) {
+function getOwnedStagedSession(context: IDocumentsSenderIdContext, rawSessionId: unknown) {
     const sessionId = parseSessionId(rawSessionId);
     const session = sessionId === null ? undefined : sessions.get(sessionId);
     if (!session) {
@@ -583,7 +530,10 @@ export async function commitStagedSerializedPdf(
         }
     };
     const commitPromise = session.queue.then(executeCommit, executeCommit);
-    session.queue = commitPromise.then(() => undefined, () => undefined);
+    session.queue = commitPromise.then(
+        () => undefined,
+        () => undefined,
+    );
     return commitPromise;
 }
 
@@ -614,7 +564,7 @@ export function attachSerializedPdfPersistencePort(event: IpcMainEvent, rawSessi
     }
     session.portAttached = true;
     let resolvePortClosed!: () => void;
-    const portClosed = new Promise<void>(resolve => {
+    const portClosed = new Promise<void>((resolve) => {
         resolvePortClosed = resolve;
     });
 
@@ -635,10 +585,7 @@ export function attachSerializedPdfPersistencePort(event: IpcMainEvent, rawSessi
                 session.pendingPortMessages = Math.max(0, session.pendingPortMessages - 1);
             }
         };
-        session.queue = session.queue.then(
-            processMessage,
-            processMessage,
-        );
+        session.queue = session.queue.then(processMessage, processMessage);
     });
     port.once('close', () => {
         if (sessions.get(session.id) === session && !session.isCommitting && !session.isStaged) {
@@ -655,11 +602,7 @@ export function attachSerializedPdfPersistencePort(event: IpcMainEvent, rawSessi
     return portClosed;
 }
 
-async function handlePortMessage(
-    session: ISerializedPdfPersistenceSession,
-    port: MessagePortMain,
-    message: unknown,
-) {
+async function handlePortMessage(session: ISerializedPdfPersistenceSession, port: MessagePortMain, message: unknown) {
     let errorPhase: TPdfPersistenceErrorPhase = 'streaming';
     let errorSeq: number | undefined;
     try {
@@ -667,9 +610,7 @@ async function handlePortMessage(
             return;
         }
         if (session.portQueueOverflowed) {
-            throw new Error(
-                `PDF persistence stream exceeded queued message limit (${SERIALIZED_PDF_MAX_IN_FLIGHT_CHUNKS + 2})`,
-            );
+            throw new Error(`PDF persistence stream exceeded queued message limit (${SERIALIZED_PDF_MAX_IN_FLIGHT_CHUNKS + 2})`);
         }
         if (session.lifecycleOperation.signal.aborted && !session.isCommitting) {
             throw createAbortError('PDF persistence stream canceled during shutdown');
@@ -722,21 +663,19 @@ async function handlePortMessage(
                 await cleanupSession(session);
                 port.postMessage(createPdfPersistenceResultFrame(null, stageResult.validation));
             } else {
-                port.postMessage(createPdfPersistenceStagedFrame(
-                    session.id,
-                    stageResult.stagedOutput,
-                    stageResult.validation,
-                ));
+                port.postMessage(createPdfPersistenceStagedFrame(session.id, stageResult.stagedOutput, stageResult.validation));
             }
             port.close();
             return;
         }
 
         await cleanupSession(session);
-        port.postMessage(createPdfPersistenceErrorFrame('PDF persistence stream canceled', {
-            phase: 'cancel',
-            expected: true,
-        }));
+        port.postMessage(
+            createPdfPersistenceErrorFrame('PDF persistence stream canceled', {
+                phase: 'cancel',
+                expected: true,
+            }),
+        );
         port.close();
         return;
     } catch (error) {
@@ -755,16 +694,13 @@ async function handlePortMessage(
 
 export async function shutdownSerializedPdfPersistence() {
     while (sessions.size > 0 || pendingCleanupPromises.size > 0) {
-        const activeSessionPromises = [...sessions.values()].map(async session => {
+        const activeSessionPromises = [...sessions.values()].map(async (session) => {
             if (session.isCommitting) {
                 await session.queue.catch(() => undefined);
                 return;
             }
             await cleanupSession(session);
         });
-        await Promise.all([
-            ...activeSessionPromises,
-            ...pendingCleanupPromises,
-        ].map(promise => promise.catch(() => undefined)));
+        await Promise.all([...activeSessionPromises, ...pendingCleanupPromises].map((promise) => promise.catch(() => undefined)));
     }
 }

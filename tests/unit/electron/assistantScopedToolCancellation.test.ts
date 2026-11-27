@@ -1,11 +1,7 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import type { IAssistantSessionScopeBinding } from '@electron/features/agent/assistantMcpSessionScope';
-import { abortAssistantToolRequestsForBinding } from '@electron/features/agent/mcpServer';
-import { requireTabId } from '@contracts/windowTabs';
+import {describe, expect, it} from 'vitest';
+import type {IAssistantSessionScopeBinding} from '@electron/features/agent/assistantMcpSessionScope';
+import {abortAssistantToolRequestsForBinding} from '@electron/features/agent/mcpServer';
+import {requireTabId} from '@contracts/windowTabs';
 
 function createBinding(sessionKey: string, generation: number, windowId = 1): IAssistantSessionScopeBinding {
     return {
@@ -28,22 +24,10 @@ describe('assistant scoped tool cancellation', () => {
         const anotherWindow = new AbortController();
         const binding = createBinding('session-a', 4);
         const calls = new Map([
-            [
-                active,
-                binding,
-            ],
-            [
-                concurrent,
-                createBinding('session-b', 4),
-            ],
-            [
-                previousGeneration,
-                createBinding('session-a', 3),
-            ],
-            [
-                anotherWindow,
-                createBinding('session-a', 4, 2),
-            ],
+            [active, binding],
+            [concurrent, createBinding('session-b', 4)],
+            [previousGeneration, createBinding('session-a', 3)],
+            [anotherWindow, createBinding('session-a', 4, 2)],
         ]);
 
         expect(abortAssistantToolRequestsForBinding(calls, binding)).toBe(1);

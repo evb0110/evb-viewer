@@ -1,13 +1,10 @@
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import pdfjsLib from '@app/services/pdfjs/runtimeLib';
 import {loadBrowserPdfjsDocument} from '@app/platform/browser-api/loadBrowserPdfjsDocument';
-import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
-import {
-    extractBrowserSearchPageData,
-    type IBrowserSearchPageData,
-} from '@app/platform/browser-api/extractBrowserSearchPageText';
+import {yieldToBrowser} from '@app/platform/browser-api/browserYield';
+import {extractBrowserSearchPageData, type IBrowserSearchPageData} from '@app/platform/browser-api/extractBrowserSearchPageText';
 import {hasRightToLeftSearchText} from '@pdf-core/pdfSearchAlgorithms';
-import { createEvbLayerTextReader } from '@app/platform/browser-api/browserOcrTextCatalog';
+import {createEvbLayerTextReader} from '@app/platform/browser-api/browserOcrTextCatalog';
 
 interface IExtractBrowserSearchDocumentTextOptions {
     shouldContinue?: () => Promise<boolean> | boolean;
@@ -15,12 +12,16 @@ interface IExtractBrowserSearchDocumentTextOptions {
     signal?: AbortSignal;
 }
 
-export interface IExtractedBrowserSearchPage extends IBrowserSearchPageData {pageNumber: number;}
+export interface IExtractedBrowserSearchPage extends IBrowserSearchPageData {
+    pageNumber: number;
+}
 
-export interface IBrowserSearchDocumentPageRecord extends IExtractedBrowserSearchPage {pageCount: number;}
+export interface IBrowserSearchDocumentPageRecord extends IExtractedBrowserSearchPage {
+    pageCount: number;
+}
 
 async function throwIfBrowserSearchCanceled(shouldContinue?: IExtractBrowserSearchDocumentTextOptions['shouldContinue']) {
-    if (await shouldContinue?.() === false) {
+    if ((await shouldContinue?.()) === false) {
         throw new Error('ERR_BROWSER_SEARCH_CANCELED');
     }
 }
@@ -52,9 +53,8 @@ async function extractBrowserSearchDocumentPage(
         options.shouldContinue ? {shouldContinue: options.shouldContinue} : {},
     );
     await throwIfBrowserSearchCanceled(options.shouldContinue);
-    const evbText = hasRightToLeftSearchText(pageData.text) && !pageData.croppedText
-        ? await readEvbLayerText(pageNumber, options.signal)
-        : undefined;
+    const evbText =
+        hasRightToLeftSearchText(pageData.text) && !pageData.croppedText ? await readEvbLayerText(pageNumber, options.signal) : undefined;
     await throwIfBrowserSearchCanceled(options.shouldContinue);
     return {
         pageNumber,
@@ -95,10 +95,7 @@ export async function iterateBrowserSearchDocumentPages(
 ) {
     let pageCount = 0;
     for await (const page of streamBrowserSearchDocumentPages(pdfPath, options)) {
-        const {
-            pageCount: totalPages,
-            ...pageData
-        } = page;
+        const {pageCount: totalPages, ...pageData} = page;
         pageCount = totalPages;
         await onPage(pageData, totalPages);
     }

@@ -30,7 +30,10 @@
                         @click.stop="deleteNote"
                         @dblclick.stop.prevent
                     >
-                        <UIcon name="i-ph-trash" class="size-3.5" />
+                        <UIcon
+                            name="i-ph-trash"
+                            class="size-3.5"
+                        />
                     </button>
                     <button
                         type="button"
@@ -38,7 +41,10 @@
                         :aria-label="t('noteWindow.minimizeNote')"
                         @click="minimizeNote"
                     >
-                        <UIcon name="i-ph-minus" class="size-3.5" />
+                        <UIcon
+                            name="i-ph-minus"
+                            class="size-3.5"
+                        />
                     </button>
                 </div>
                 <span class="note-window__date">{{ timestampText }}</span>
@@ -56,25 +62,27 @@
             @input="updateText"
         ></textarea>
 
-        <p v-if="saving" class="note-window__status" role="status" aria-live="polite">{{ t('noteWindow.saving') }}</p>
+        <p
+            v-if="saving"
+            class="note-window__status"
+            role="status"
+            aria-live="polite"
+            >{{ t('noteWindow.saving') }}</p
+        >
     </div>
 </template>
 
 <script setup lang="ts">
-import type { TPageNumber } from '@contracts/pageNumbers';
-import type { CSSProperties } from 'vue';
+import type {TPageNumber} from '@contracts/pageNumbers';
+import type {CSSProperties} from 'vue';
 
-
-import {
-    useEventListener,
-    useResizeObserver,
-} from '@vueuse/core';
-import type { IAnnotationMarkerRect } from '@app/types/annotations';
-import type { IAnnotationNotePosition } from '@app/types/annotationNoteWindow';
-import { NOTE_WINDOW } from '@app/constants/pdfLayout';
-import type { IAnnotationNoteWindowBounds } from '@app/modules/pdf-viewer/engine/annotation-note-window-bounds/annotationNoteWindowBounds';
-import { clampAnnotationNoteWindowPosition } from '@app/modules/pdf-viewer/engine/annotation-note-window-bounds/clampAnnotationNoteWindowPosition';
-import { clampAnnotationNoteWindowSize } from '@app/modules/pdf-viewer/engine/annotation-note-window-bounds/clampAnnotationNoteWindowSize';
+import {useEventListener, useResizeObserver} from '@vueuse/core';
+import type {IAnnotationMarkerRect} from '@app/types/annotations';
+import type {IAnnotationNotePosition} from '@app/types/annotationNoteWindow';
+import {NOTE_WINDOW} from '@app/constants/pdfLayout';
+import type {IAnnotationNoteWindowBounds} from '@app/modules/pdf-viewer/engine/annotation-note-window-bounds/annotationNoteWindowBounds';
+import {clampAnnotationNoteWindowPosition} from '@app/modules/pdf-viewer/engine/annotation-note-window-bounds/clampAnnotationNoteWindowPosition';
+import {clampAnnotationNoteWindowSize} from '@app/modules/pdf-viewer/engine/annotation-note-window-bounds/clampAnnotationNoteWindowSize';
 import {
     captureAnnotationNoteWindowPageAnchor,
     isAnnotationNoteWindowPageVisible,
@@ -82,8 +90,8 @@ import {
     resolveAnnotationNoteWindowPagePosition,
     type IAnnotationNoteWindowPageAnchor,
 } from '@app/modules/pdf-viewer/engine/annotation-note-window-bounds/annotationNoteWindowPageAnchor';
-import { createRafCoalescedCallback } from '@app/utils/createRafCoalescedCallback';
-import { PDF_NATIVE_MUTATION_LIMITS } from '@contracts/nativePdfMutations';
+import {createRafCoalescedCallback} from '@app/utils/createRafCoalescedCallback';
+import {PDF_NATIVE_MUTATION_LIMITS} from '@contracts/nativePdfMutations';
 
 interface IProps {
     annotationId: string;
@@ -126,10 +134,7 @@ const emit = defineEmits<{
     focus: [];
 }>();
 
-const {
-    t,
-    locale,
-} = useTypedI18n();
+const {t, locale} = useTypedI18n();
 
 const NOTE_WINDOW_INITIAL_OFFSET_X = 14;
 const NOTE_WINDOW_INITIAL_OFFSET_Y = 72;
@@ -176,12 +181,15 @@ function updateText(event: Event) {
 }
 
 // Dates read in the app's selected language, and follow a language switch.
-const timeFormatter = computed(() => new Intl.DateTimeFormat(locale.value, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-}));
+const timeFormatter = computed(
+    () =>
+        new Intl.DateTimeFormat(locale.value, {
+            dateStyle: 'medium',
+            timeStyle: 'short',
+        }),
+);
 
-const title = computed(() => t('noteWindow.popUpNote', { page: pageNumber }));
+const title = computed(() => t('noteWindow.popUpNote', {page: pageNumber}));
 const authorText = computed(() => {
     const commentAuthor = author?.trim();
     if (commentAuthor) {
@@ -208,10 +216,7 @@ const windowStyle = computed<CSSProperties>(() => ({
     zIndex: String(zIndex),
     clipPath: clipPath.value,
 }));
-const isPaneSizedPresentation = computed(() => (
-    width.value < NOTE_WINDOW.MIN_WIDTH
-    || height.value < NOTE_WINDOW.MIN_HEIGHT
-));
+const isPaneSizedPresentation = computed(() => width.value < NOTE_WINDOW.MIN_WIDTH || height.value < NOTE_WINDOW.MIN_HEIGHT);
 
 async function focusTextInput() {
     await nextTick();
@@ -219,7 +224,7 @@ async function focusTextInput() {
     if (!input) {
         return;
     }
-    input.focus({ preventScroll: true });
+    input.focus({preventScroll: true});
     const end = input.value.length;
     input.setSelectionRange(end, end);
 }
@@ -238,9 +243,7 @@ function scheduleInitialFocusRepair() {
     clearInitialFocusRepair();
     initialFocusRepairFrame = window.requestAnimationFrame(() => {
         initialFocusRepairFrame = null;
-        const activeElement = document.activeElement instanceof HTMLElement
-            ? document.activeElement
-            : null;
+        const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
         // A single post-mount repair covers focus dropped to the document
         // body during PDF.js DOM churn. Any explicit Tab/click target wins.
         if (!activeElement || activeElement === document.body) {
@@ -259,25 +262,13 @@ function syncPosition(position: IAnnotationNotePosition | null) {
         width: width.value,
         height: height.value,
     };
-    const nextSize = clampSize(
-        position?.width ?? width.value,
-        position?.height ?? height.value,
-    );
+    const nextSize = clampSize(position?.width ?? width.value, position?.height ?? height.value);
     width.value = nextSize.width;
     height.value = nextSize.height;
 
-    placeClamped(
-        position?.x ?? offsetX.value,
-        position?.y ?? offsetY.value,
-        nextSize.width,
-        nextSize.height,
-        pageAnchor === null,
-    );
+    placeClamped(position?.x ?? offsetX.value, position?.y ?? offsetY.value, nextSize.width, nextSize.height, pageAnchor === null);
     return (
-        previous.x !== offsetX.value
-        || previous.y !== offsetY.value
-        || previous.width !== width.value
-        || previous.height !== height.value
+        previous.x !== offsetX.value || previous.y !== offsetY.value || previous.width !== width.value || previous.height !== height.value
     );
 }
 
@@ -300,10 +291,9 @@ function getCurrentPosition(): IAnnotationNotePosition {
 }
 
 function positionChanged(previous: IAnnotationNotePosition) {
-    return previous.x !== offsetX.value
-        || previous.y !== offsetY.value
-        || previous.width !== width.value
-        || previous.height !== height.value;
+    return (
+        previous.x !== offsetX.value || previous.y !== offsetY.value || previous.width !== width.value || previous.height !== height.value
+    );
 }
 
 function clampSize(nextWidth: number, nextHeight: number) {
@@ -316,20 +306,15 @@ function clampPosition(x: number, y: number, nextWidth: number, nextHeight: numb
 
 function refreshClipPath() {
     const rootRect = paneBounds;
-    clipPath.value = rootRect && rootRect.width > 0 && rootRect.height > 0
-        ? resolveAnnotationNoteWindowClipPath(offsetX.value, offsetY.value, width.value, height.value, rootRect)
-        : undefined;
+    clipPath.value =
+        rootRect && rootRect.width > 0 && rootRect.height > 0
+            ? resolveAnnotationNoteWindowClipPath(offsetX.value, offsetY.value, width.value, height.value, rootRect)
+            : undefined;
 }
 
 // Every user-driven placement lands inside the viewer and becomes the spot the
 // window keeps on its page.
-function placeClamped(
-    x: number,
-    y: number,
-    nextWidth: number,
-    nextHeight: number,
-    captureAnchor = true,
-) {
+function placeClamped(x: number, y: number, nextWidth: number, nextHeight: number, captureAnchor = true) {
     const clamped = clampPosition(x, y, nextWidth, nextHeight);
     offsetX.value = clamped.x;
     offsetY.value = clamped.y;
@@ -438,9 +423,7 @@ function handleViewportResize() {
 }
 
 function measureObservedWindowSize(entry: ResizeObserverEntry) {
-    const target = entry.target instanceof HTMLElement
-        ? entry.target
-        : null;
+    const target = entry.target instanceof HTMLElement ? entry.target : null;
     if (!target) {
         return {
             width: entry.contentRect.width,
@@ -458,34 +441,41 @@ function measureObservedWindowSize(entry: ResizeObserverEntry) {
 // A release outside the window never reaches mouseup, and a window that loses
 // focus mid-drag may never see one: either ends the drag where it last was.
 useEventListener(dragWindowTarget, 'mousemove', (event: MouseEvent) => {
-    if ((event.buttons & 1) === 0) {stopDrag();}
-    else {noteDragMove.schedule(event);}
+    if ((event.buttons & 1) === 0) {
+        stopDrag();
+    } else {
+        noteDragMove.schedule(event);
+    }
 });
 useEventListener(dragWindowTarget, 'mouseup', stopDrag);
 useEventListener(dragWindowTarget, 'blur', () => stopDrag());
 
-useResizeObserver(noteWindowRef, (entries) => {
-    const entry = entries[0];
-    if (!entry || isDragging.value) {
-        return;
-    }
-    const measuredSize = measureObservedWindowSize(entry);
-    const nextSize = clampSize(measuredSize.width, measuredSize.height);
-    if (nextSize.width === width.value && nextSize.height === height.value) {
-        return;
-    }
-    const previous = getCurrentPosition();
-    width.value = nextSize.width;
-    height.value = nextSize.height;
-    if (pageAnchor) {
-        followPage();
-    } else {
-        placeClamped(offsetX.value, offsetY.value, nextSize.width, nextSize.height);
-    }
-    if (positionChanged(previous)) {
-        emitPositionUpdate();
-    }
-}, { box: 'border-box' });
+useResizeObserver(
+    noteWindowRef,
+    (entries) => {
+        const entry = entries[0];
+        if (!entry || isDragging.value) {
+            return;
+        }
+        const measuredSize = measureObservedWindowSize(entry);
+        const nextSize = clampSize(measuredSize.width, measuredSize.height);
+        if (nextSize.width === width.value && nextSize.height === height.value) {
+            return;
+        }
+        const previous = getCurrentPosition();
+        width.value = nextSize.width;
+        height.value = nextSize.height;
+        if (pageAnchor) {
+            followPage();
+        } else {
+            placeClamped(offsetX.value, offsetY.value, nextSize.width, nextSize.height);
+        }
+        if (positionChanged(previous)) {
+            emitPositionUpdate();
+        }
+    },
+    {box: 'border-box'},
+);
 
 // The overlay measures connectors from the rendered window. After the mount
 // tick the window is attached with its synced geometry and its textarea takes
@@ -499,7 +489,7 @@ onMounted(async () => {
     await focusTextInput();
     emit('position-applied');
 });
-watch(getCurrentPosition, () => emit('position-applied'), { flush: 'post' });
+watch(getCurrentPosition, () => emit('position-applied'), {flush: 'post'});
 
 onBeforeUnmount(() => {
     clearInitialFocusRepair();
@@ -531,14 +521,7 @@ watch(
 );
 
 watch(
-    [
-        () => paneBounds,
-        () => pageRect,
-        () => markerRect?.left,
-        () => markerRect?.top,
-        () => markerRect?.width,
-        () => markerRect?.height,
-    ],
+    [() => paneBounds, () => pageRect, () => markerRect?.left, () => markerRect?.top, () => markerRect?.width, () => markerRect?.height],
     ([bounds], [previousBounds]) => {
         if (bounds?.width !== previousBounds?.width || bounds?.height !== previousBounds?.height) {
             handleViewportResize();
@@ -688,6 +671,4 @@ watch(
     color: var(--note-text-status);
     padding: var(--app-pdf-note-status-padding);
 }
-
-
 </style>

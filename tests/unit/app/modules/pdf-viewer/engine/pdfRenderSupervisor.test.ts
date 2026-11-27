@@ -1,26 +1,19 @@
-import { requirePageNumber } from '@contracts/pageNumbers';
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import {afterEach, describe, expect, it, vi} from 'vitest';
 import {
     createPdfRenderSupervisor,
     type IPdfRenderSupervisorEvent,
 } from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
-import {
-    armPageStageDeadline,
-    withPageStageTimeout,
-} from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/withPageStageTimeout';
+import {armPageStageDeadline, withPageStageTimeout} from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/withPageStageTimeout';
 
 interface ITestPdfRenderTraceWindow {
     __pdfRenderTrace: boolean;
-    __getPdfRenderTrace?: (() => Array<{
-        event: string;
-        payload: Record<string, unknown>;
-    }>) | undefined;
+    __getPdfRenderTrace?:
+        | (() => Array<{
+              event: string;
+              payload: Record<string, unknown>;
+          }>)
+        | undefined;
 }
 
 describe('pdf render supervisor', () => {
@@ -34,7 +27,7 @@ describe('pdf render supervisor', () => {
         const events: IPdfRenderSupervisorEvent[] = [];
         const supervisor = createPdfRenderSupervisor({
             now: () => 123,
-            onEvent: event => events.push(event),
+            onEvent: (event) => events.push(event),
         });
         const onRenderStall = vi.fn();
         const stalledPromise = withPageStageTimeout(
@@ -64,21 +57,23 @@ describe('pdf render supervisor', () => {
             stage: 'canvas-render',
             timeoutMs: 25,
         });
-        expect(events).toContainEqual(expect.objectContaining({
-            cause: 'page-stage-timeout',
-            delayMs: 25,
-            metadata: {
-                pageNumber: 7,
-                stage: 'canvas-render',
-                timeoutMs: 25,
-            },
-        }));
+        expect(events).toContainEqual(
+            expect.objectContaining({
+                cause: 'page-stage-timeout',
+                delayMs: 25,
+                metadata: {
+                    pageNumber: 7,
+                    stage: 'canvas-render',
+                    timeoutMs: 25,
+                },
+            }),
+        );
     });
 
     it('clears a page-stage watchdog when its render lifecycle is aborted', async () => {
         vi.useFakeTimers();
         const events: IPdfRenderSupervisorEvent[] = [];
-        const supervisor = createPdfRenderSupervisor({onEvent: event => events.push(event)});
+        const supervisor = createPdfRenderSupervisor({onEvent: (event) => events.push(event)});
         const controller = new AbortController();
         const stalledPromise = withPageStageTimeout(
             new Promise<never>(() => {}),
@@ -105,11 +100,15 @@ describe('pdf render supervisor', () => {
         vi.useFakeTimers();
         const controller = new AbortController();
         const abortedStage = new Promise<never>((_resolve, reject) => {
-            controller.signal.addEventListener('abort', () => {
-                const error = new Error('underlying render aborted');
-                error.name = 'AbortError';
-                reject(error);
-            }, {once: true});
+            controller.signal.addEventListener(
+                'abort',
+                () => {
+                    const error = new Error('underlying render aborted');
+                    error.name = 'AbortError';
+                    reject(error);
+                },
+                {once: true},
+            );
         });
         const stalledPromise = withPageStageTimeout(
             abortedStage,
@@ -141,9 +140,9 @@ describe('pdf render supervisor', () => {
         const firstRecovery = vi.fn();
         const secondRecovery = vi.fn();
         const supervisor = createPdfRenderSupervisor({
-            clearTimeoutFn: handle => clearTimeout(handle),
+            clearTimeoutFn: (handle) => clearTimeout(handle),
             now: () => 456,
-            onEvent: event => events.push(event),
+            onEvent: (event) => events.push(event),
             setTimeoutFn: (callback, delayMs) => {
                 callbacks.push(callback);
                 const handle = setTimeout(() => {}, delayMs);
@@ -175,11 +174,13 @@ describe('pdf render supervisor', () => {
 
         expect(firstRecovery).not.toHaveBeenCalled();
         expect(secondRecovery).toHaveBeenCalledOnce();
-        expect(events).toEqual([expect.objectContaining({
-            delayMs: 20,
-            ownerKey: 'canvas-render',
-        })]);
-        handles.forEach(handle => clearTimeout(handle));
+        expect(events).toEqual([
+            expect.objectContaining({
+                delayMs: 20,
+                ownerKey: 'canvas-render',
+            }),
+        ]);
+        handles.forEach((handle) => clearTimeout(handle));
     });
 
     it('records actual elapsed time when the event loop fires a watchdog late', () => {
@@ -191,8 +192,8 @@ describe('pdf render supervisor', () => {
         const supervisor = createPdfRenderSupervisor({
             clearTimeoutFn: () => {},
             now: () => now,
-            onEvent: event => events.push(event),
-            setTimeoutFn: nextCallback => {
+            onEvent: (event) => events.push(event),
+            setTimeoutFn: (nextCallback) => {
                 callback = nextCallback;
                 // The supervisor treats this handle as opaque. A real zero
                 // delay handle keeps the timer type honest while the test
@@ -210,19 +211,23 @@ describe('pdf render supervisor', () => {
         now = 15_275;
         callback();
 
-        expect(events).toEqual([expect.objectContaining({
-            delayMs: 15_000,
-            elapsedMs: 15_175,
-            firedAtMs: 15_275,
-        })]);
-        expect(traceWindow.__getPdfRenderTrace?.()).toEqual([expect.objectContaining({
-            event: 'pdf-render-supervisor-watchdog',
-            payload: expect.objectContaining({
-                cause: 'page-stage-timeout',
+        expect(events).toEqual([
+            expect.objectContaining({
+                delayMs: 15_000,
                 elapsedMs: 15_175,
-                ownerKey: 'late-canvas-render',
+                firedAtMs: 15_275,
             }),
-        })]);
+        ]);
+        expect(traceWindow.__getPdfRenderTrace?.()).toEqual([
+            expect.objectContaining({
+                event: 'pdf-render-supervisor-watchdog',
+                payload: expect.objectContaining({
+                    cause: 'page-stage-timeout',
+                    elapsedMs: 15_175,
+                    ownerKey: 'late-canvas-render',
+                }),
+            }),
+        ]);
     });
 
     it('runs timeout work before notification and diagnoses callback failures', async () => {
@@ -257,20 +262,19 @@ describe('pdf render supervisor', () => {
         await vi.advanceTimersByTimeAsync(25);
         await rejection;
 
-        expect(order).toEqual([
-            'timeout',
-            'notify',
-        ]);
-        expect(traceWindow.__getPdfRenderTrace?.()).toEqual(expect.arrayContaining([
-            expect.objectContaining({event: 'pdf-render-supervisor-watchdog'}),
-            expect.objectContaining({
-                event: 'pdf-page-stage-deadline-callback-failed',
-                payload: expect.objectContaining({callback: 'on-timeout'}),
-            }),
-            expect.objectContaining({
-                event: 'pdf-page-stage-deadline-callback-failed',
-                payload: expect.objectContaining({callback: 'render-stall-recovery'}),
-            }),
-        ]));
+        expect(order).toEqual(['timeout', 'notify']);
+        expect(traceWindow.__getPdfRenderTrace?.()).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({event: 'pdf-render-supervisor-watchdog'}),
+                expect.objectContaining({
+                    event: 'pdf-page-stage-deadline-callback-failed',
+                    payload: expect.objectContaining({callback: 'on-timeout'}),
+                }),
+                expect.objectContaining({
+                    event: 'pdf-page-stage-deadline-callback-failed',
+                    payload: expect.objectContaining({callback: 'render-stall-recovery'}),
+                }),
+            ]),
+        );
     });
 });

@@ -1,12 +1,5 @@
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { waitForVisualFrames } from '@app/utils/asyncHelpers';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {waitForVisualFrames} from '@app/utils/asyncHelpers';
 
 describe('waitForVisualFrames', () => {
     beforeEach(() => {
@@ -23,19 +16,19 @@ describe('waitForVisualFrames', () => {
             callback(0);
             return 1;
         });
-        vi.stubGlobal('window', { requestAnimationFrame });
-        vi.stubGlobal('document', { hidden: false });
+        vi.stubGlobal('window', {requestAnimationFrame});
+        vi.stubGlobal('document', {hidden: false});
 
-        await waitForVisualFrames({ frames: 2 });
+        await waitForVisualFrames({frames: 2});
 
         expect(requestAnimationFrame).toHaveBeenCalledTimes(2);
     });
 
     it('falls back to a timeout when the document is hidden', async () => {
-        vi.stubGlobal('window', { requestAnimationFrame: vi.fn() });
+        vi.stubGlobal('window', {requestAnimationFrame: vi.fn()});
         vi.stubGlobal('document', {hidden: true});
 
-        const waitPromise = waitForVisualFrames({ hiddenFallbackMs: 25 });
+        const waitPromise = waitForVisualFrames({hiddenFallbackMs: 25});
         let settled = false;
         void waitPromise.then(() => {
             settled = true;
@@ -49,10 +42,10 @@ describe('waitForVisualFrames', () => {
 
     it('uses the watchdog when a visible animation frame never fires', async () => {
         const requestAnimationFrame = vi.fn(() => 1);
-        vi.stubGlobal('window', { requestAnimationFrame });
+        vi.stubGlobal('window', {requestAnimationFrame});
         vi.stubGlobal('document', {hidden: false});
 
-        const waitPromise = waitForVisualFrames({ timeoutMs: 64 });
+        const waitPromise = waitForVisualFrames({timeoutMs: 64});
         let settled = false;
         void waitPromise.then(() => {
             settled = true;

@@ -1,47 +1,35 @@
-import {
-    useStorage,
-    useTimeoutFn,
-} from '@vueuse/core';
-import type { Ref } from 'vue';
-import {
-    BROWSER_INSTALL_HINT_STORAGE_KEY,
-    migrateLegacyBrowserInstallHintCookie,
-} from '@app/utils/browserRuntimePersistence';
-import { getLocalStorageForVueUse } from '@app/utils/localStorage';
-import { trackWebEvent } from '@app/utils/trackWebEvent';
+import {useStorage, useTimeoutFn} from '@vueuse/core';
+import type {Ref} from 'vue';
+import {BROWSER_INSTALL_HINT_STORAGE_KEY, migrateLegacyBrowserInstallHintCookie} from '@app/utils/browserRuntimePersistence';
+import {getLocalStorageForVueUse} from '@app/utils/localStorage';
+import {trackWebEvent} from '@app/utils/trackWebEvent';
 
 const BROWSER_INSTALL_HINT_AUTO_DISMISS_MS = 60_000;
 
-interface IUseBrowserInstallHintOptions {isBrowserRuntime: Ref<boolean>;}
+interface IUseBrowserInstallHintOptions {
+    isBrowserRuntime: Ref<boolean>;
+}
 
 export const useBrowserInstallHint = (options: IUseBrowserInstallHintOptions) => {
     const runtimeConfig = useRuntimeConfig();
-    const browserInstallHintDismissed = useStorage(
-        BROWSER_INSTALL_HINT_STORAGE_KEY,
-        false,
-        getLocalStorageForVueUse(),
-    );
+    const browserInstallHintDismissed = useStorage(BROWSER_INSTALL_HINT_STORAGE_KEY, false, getLocalStorageForVueUse());
     const isBrowserInstallHintClientReady = ref(false);
-    const didTrackInstallHintShown = useState(
-        'analytics:install-hint-shown',
-        () => false,
-    );
+    const didTrackInstallHintShown = useState('analytics:install-hint-shown', () => false);
     const browserInstallUrl = computed(() => {
         if (!options.isBrowserRuntime.value) {
             return undefined;
         }
 
-        const url = typeof runtimeConfig.public.landingUrl === 'string'
-            ? runtimeConfig.public.landingUrl.trim()
-            : '';
+        const url = typeof runtimeConfig.public.landingUrl === 'string' ? runtimeConfig.public.landingUrl.trim() : '';
         return url || undefined;
     });
-    const showBrowserInstallHint = computed(() => (
-        options.isBrowserRuntime.value
-        && isBrowserInstallHintClientReady.value
-        && Boolean(browserInstallUrl.value)
-        && !browserInstallHintDismissed.value
-    ));
+    const showBrowserInstallHint = computed(
+        () =>
+            options.isBrowserRuntime.value &&
+            isBrowserInstallHintClientReady.value &&
+            Boolean(browserInstallUrl.value) &&
+            !browserInstallHintDismissed.value,
+    );
 
     function getBrowserInstallHost() {
         if (!browserInstallUrl.value) {
@@ -80,10 +68,10 @@ export const useBrowserInstallHint = (options: IUseBrowserInstallHintOptions) =>
         browserInstallHintDismissed.value = true;
     }
 
-    const { start: startBrowserInstallHintAutoDismiss } = useTimeoutFn(
+    const {start: startBrowserInstallHintAutoDismiss} = useTimeoutFn(
         () => dismissBrowserInstallHint('auto'),
         BROWSER_INSTALL_HINT_AUTO_DISMISS_MS,
-        { immediate: false },
+        {immediate: false},
     );
 
     onMounted(() => {
@@ -99,14 +87,18 @@ export const useBrowserInstallHint = (options: IUseBrowserInstallHintOptions) =>
         startBrowserInstallHintAutoDismiss();
     });
 
-    watch(showBrowserInstallHint, (isVisible) => {
-        if (!options.isBrowserRuntime.value || !isVisible || didTrackInstallHintShown.value) {
-            return;
-        }
+    watch(
+        showBrowserInstallHint,
+        (isVisible) => {
+            if (!options.isBrowserRuntime.value || !isVisible || didTrackInstallHintShown.value) {
+                return;
+            }
 
-        didTrackInstallHintShown.value = true;
-        trackBrowserInstallHint('shown');
-    }, { immediate: true });
+            didTrackInstallHintShown.value = true;
+            trackBrowserInstallHint('shown');
+        },
+        {immediate: true},
+    );
 
     return {
         browserInstallUrl,

@@ -4,24 +4,14 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import type {IAssistantEvent} from '@contracts/assistant';
 import {requireTabId} from '@contracts/windowTabs';
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {
     ClaudeAgentAssistantSession,
     normalizeClaudeSdkModelList,
     discoverClaudeAssistantModels,
     shouldRefuseClaudeContextContinuation,
 } from '@electron/features/agent/claudeAgentSdkAssistant';
-import {
-    getClaudeAgentSdkInfo,
-    resolveClaudeSdkExecutablePath,
-} from '@electron/features/agent/claudeProviderMetadata';
+import {getClaudeAgentSdkInfo, resolveClaudeSdkExecutablePath} from '@electron/features/agent/claudeProviderMetadata';
 
 const sdkMocks = vi.hoisted(() => ({
     readdir: vi.fn(),
@@ -30,18 +20,20 @@ const sdkMocks = vi.hoisted(() => ({
 
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({query: sdkMocks.query}));
 
-vi.mock('node:fs/promises', async importOriginal => ({
+vi.mock('node:fs/promises', async (importOriginal) => ({
     ...(await importOriginal<typeof FsPromises>()),
     readdir: sdkMocks.readdir,
 }));
 
-vi.mock('electron', () => ({ app: { getVersion: () => 'test' } }));
+vi.mock('electron', () => ({app: {getVersion: () => 'test'}}));
 
-vi.mock('@electron/utils/createLogger', () => ({ createLogger: () => ({
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-}) }));
+vi.mock('@electron/utils/createLogger', () => ({
+    createLogger: () => ({
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+    }),
+}));
 
 class FakeClaudeQuery {
     private readonly messages: unknown[] = [];
@@ -77,28 +69,30 @@ class FakeClaudeQuery {
     }
 
     [Symbol.asyncIterator](): AsyncIterator<unknown> {
-        return {next: () => {
-            if (this.closed) {
-                return Promise.resolve({
-                    value: undefined,
-                    done: true,
-                });
-            }
-            const message = this.messages.shift();
-            if (message) {
-                return Promise.resolve({
-                    value: message,
-                    done: false,
-                });
-            }
-            return new Promise<IteratorResult<unknown>>(resolve => this.resolvers.push(resolve));
-        }};
+        return {
+            next: () => {
+                if (this.closed) {
+                    return Promise.resolve({
+                        value: undefined,
+                        done: true,
+                    });
+                }
+                const message = this.messages.shift();
+                if (message) {
+                    return Promise.resolve({
+                        value: message,
+                        done: false,
+                    });
+                }
+                return new Promise<IteratorResult<unknown>>((resolve) => this.resolvers.push(resolve));
+            },
+        };
     }
 }
 
 async function settleAsyncTicks(count = 3) {
     for (let index = 0; index < count; index += 1) {
-        await new Promise(resolve => setImmediate(resolve));
+        await new Promise((resolve) => setImmediate(resolve));
     }
 }
 
@@ -108,7 +102,9 @@ describe('claudeAgentSdkAssistant', () => {
         try {
             expect(resolveClaudeSdkExecutablePath('claude-proxy.exe')).toBe('claude-proxy.exe');
             for (const extension of ['cmd', 'bat', 'ps1']) {
-                expect(() => resolveClaudeSdkExecutablePath(`claude-proxy.${extension}`)).toThrow('Select its native executable in Settings.');
+                expect(() => resolveClaudeSdkExecutablePath(`claude-proxy.${extension}`)).toThrow(
+                    'Select its native executable in Settings.',
+                );
             }
         } finally {
             vi.unstubAllGlobals();
@@ -117,81 +113,74 @@ describe('claudeAgentSdkAssistant', () => {
     afterEach(() => vi.useRealTimers());
     beforeEach(() => {
         sdkMocks.readdir.mockReset();
-        sdkMocks.readdir.mockImplementation(async (path: string) => path.endsWith('projects')
-            ? ['fixture-project']
-            : ['2c8c2b8a-6d31-4b77-a8c0-0aef9c8e2e5e.jsonl']);
+        sdkMocks.readdir.mockImplementation(async (path: string) =>
+            path.endsWith('projects') ? ['fixture-project'] : ['2c8c2b8a-6d31-4b77-a8c0-0aef9c8e2e5e.jsonl'],
+        );
         sdkMocks.query.mockReset();
     });
 
     it('keeps every reported family version in provider order', () => {
-        expect(normalizeClaudeSdkModelList([
-            {
-                value: 'fable',
-                resolvedModel: 'claude-fable-5-1',
-                displayName: 'Fable',
-            },
-            {
-                value: 'old-fable',
-                resolvedModel: 'claude-fable-5',
-                displayName: 'Fable',
-            },
-            {
-                value: 'older-opus',
-                resolvedModel: 'claude-opus-4-8',
-                displayName: 'Opus',
-            },
-            {
-                value: 'old-opus',
-                resolvedModel: 'claude-opus-5-5',
-                displayName: 'Opus',
-            },
-            {
-                value: 'opus',
-                resolvedModel: 'claude-opus-5-6',
-                displayName: 'Opus',
-            },
-        ]).map(model => model.label)).toEqual([
-            'Claude Fable 5.1',
-            'Claude Fable 5',
-            'Claude Opus 4.8',
-            'Claude Opus 5.5',
-            'Claude Opus 5.6',
-        ]);
+        expect(
+            normalizeClaudeSdkModelList([
+                {
+                    value: 'fable',
+                    resolvedModel: 'claude-fable-5-1',
+                    displayName: 'Fable',
+                },
+                {
+                    value: 'old-fable',
+                    resolvedModel: 'claude-fable-5',
+                    displayName: 'Fable',
+                },
+                {
+                    value: 'older-opus',
+                    resolvedModel: 'claude-opus-4-8',
+                    displayName: 'Opus',
+                },
+                {
+                    value: 'old-opus',
+                    resolvedModel: 'claude-opus-5-5',
+                    displayName: 'Opus',
+                },
+                {
+                    value: 'opus',
+                    resolvedModel: 'claude-opus-5-6',
+                    displayName: 'Opus',
+                },
+            ]).map((model) => model.label),
+        ).toEqual(['Claude Fable 5.1', 'Claude Fable 5', 'Claude Opus 4.8', 'Claude Opus 5.5', 'Claude Opus 5.6']);
     });
 
     it('lists the model the default pointer resolves to once, marked as the default', () => {
-        expect(normalizeClaudeSdkModelList([
-            {
-                value: 'default',
-                resolvedModel: 'claude-opus-5-5[1m]',
-                displayName: 'Default (recommended)',
-            },
-            {
-                value: 'opus[1m]',
-                resolvedModel: 'claude-opus-5-5[1m]',
-                displayName: 'Opus (1M context)',
-            },
-            {
-                value: 'fable',
-                resolvedModel: 'claude-fable-5-1',
-                displayName: 'Fable',
-            },
-            {
-                value: 'opus',
-                resolvedModel: 'claude-opus-5-5',
-                displayName: 'Opus',
-            },
-            {
-                value: 'custom',
-                resolvedModel: 'vendor-model',
-                displayName: 'Custom model',
-            },
-        ]).map(model => [
-            model.id,
-            model.label,
-            model.shortLabel,
-            model.isDefault === true,
-        ])).toEqual([
+        expect(
+            normalizeClaudeSdkModelList([
+                {
+                    value: 'default',
+                    resolvedModel: 'claude-opus-5-5[1m]',
+                    displayName: 'Default (recommended)',
+                },
+                {
+                    value: 'opus[1m]',
+                    resolvedModel: 'claude-opus-5-5[1m]',
+                    displayName: 'Opus (1M context)',
+                },
+                {
+                    value: 'fable',
+                    resolvedModel: 'claude-fable-5-1',
+                    displayName: 'Fable',
+                },
+                {
+                    value: 'opus',
+                    resolvedModel: 'claude-opus-5-5',
+                    displayName: 'Opus',
+                },
+                {
+                    value: 'custom',
+                    resolvedModel: 'vendor-model',
+                    displayName: 'Custom model',
+                },
+            ]).map((model) => [model.id, model.label, model.shortLabel, model.isDefault === true]),
+        ).toEqual([
             ['opus[1m]', 'Claude Opus 5.5 (1M context)', 'Opus 5.5 (1M context)', true],
             ['fable', 'Claude Fable 5.1', 'Fable 5.1', false],
             ['opus', 'Claude Opus 5.5', 'Opus 5.5', false],
@@ -200,46 +189,61 @@ describe('claudeAgentSdkAssistant', () => {
     });
 
     it('normalizes Claude SDK supportedModels metadata', () => {
-        expect(normalizeClaudeSdkModelList([
+        expect(
+            normalizeClaudeSdkModelList([
+                {
+                    value: 'claude-fable-5-1',
+                    resolvedModel: 'claude-fable-5-1',
+                    displayName: 'Claude Fable 5.1 Runtime',
+                    supportedEffortLevels: ['low', 'medium'],
+                },
+                {
+                    value: 'claude-fable-5-1',
+                    displayName: 'Duplicate',
+                },
+                {
+                    value: 'claude-sonnet-5',
+                    displayName: 'Claude Sonnet 5',
+                },
+                {
+                    value: 'opus',
+                    resolvedModel: 'claude-opus-5-5',
+                    displayName: 'Claude Opus 5.5 Runtime',
+                    supportedEffortLevels: ['medium', 'high'],
+                },
+                {
+                    value: 'future-model',
+                    resolvedModel: 'claude-haiku-5-0',
+                    displayName: 'Future model',
+                },
+                {
+                    value: '',
+                    displayName: 'Blank',
+                },
+            ]),
+        ).toEqual([
             {
-                value: 'claude-fable-5-1',
+                id: 'claude-fable-5-1',
+                label: 'Claude Fable 5.1',
+                shortLabel: 'Fable 5.1',
+                isLegacy: true,
                 resolvedModel: 'claude-fable-5-1',
-                displayName: 'Claude Fable 5.1 Runtime',
-                supportedEffortLevels: [
-                    'low',
-                    'medium',
+                reasoningEfforts: [
+                    {id: 'low', label: 'Low'},
+                    {id: 'medium', label: 'Medium', isDefault: true},
                 ],
             },
-            {
-                value: 'claude-fable-5-1',
-                displayName: 'Duplicate',
-            },
-            {
-                value: 'claude-sonnet-5',
-                displayName: 'Claude Sonnet 5',
-            },
-            {
-                value: 'opus',
-                resolvedModel: 'claude-opus-5-5',
-                displayName: 'Claude Opus 5.5 Runtime',
-                supportedEffortLevels: [
-                    'medium',
-                    'high',
-                ],
-            },
-            {
-                value: 'future-model',
-                resolvedModel: 'claude-haiku-5-0',
-                displayName: 'Future model',
-            },
-            {
-                value: '',
-                displayName: 'Blank',
-            },
-        ])).toEqual([
-            {id: 'claude-fable-5-1', label: 'Claude Fable 5.1', shortLabel: 'Fable 5.1', isLegacy: true, resolvedModel: 'claude-fable-5-1', reasoningEfforts: [{id: 'low', label: 'Low'}, {id: 'medium', label: 'Medium', isDefault: true}]},
             {id: 'claude-sonnet-5', label: 'Claude Sonnet 5', shortLabel: 'Claude Sonnet 5', isLegacy: true},
-            {id: 'opus', label: 'Claude Opus 5.5', shortLabel: 'Opus 5.5', resolvedModel: 'claude-opus-5-5', reasoningEfforts: [{id: 'medium', label: 'Medium', isDefault: true}, {id: 'high', label: 'High'}]},
+            {
+                id: 'opus',
+                label: 'Claude Opus 5.5',
+                shortLabel: 'Opus 5.5',
+                resolvedModel: 'claude-opus-5-5',
+                reasoningEfforts: [
+                    {id: 'medium', label: 'Medium', isDefault: true},
+                    {id: 'high', label: 'High'},
+                ],
+            },
             {id: 'future-model', label: 'Claude Haiku 5.0', shortLabel: 'Haiku 5.0', resolvedModel: 'claude-haiku-5-0'},
         ]);
         expect(normalizeClaudeSdkModelList({data: []})).toEqual([]);
@@ -260,7 +264,7 @@ describe('claudeAgentSdkAssistant', () => {
                 throw new Error('Cannot find module @anthropic-ai/claude-agent-sdk');
             },
             findClaudeOnPath: vi.fn(async () => null),
-            pathIsExecutable: vi.fn(async path => path === '/opt/claude/bin/claude'),
+            pathIsExecutable: vi.fn(async (path) => path === '/opt/claude/bin/claude'),
         });
 
         expect(result).toEqual({
@@ -289,7 +293,15 @@ describe('claudeAgentSdkAssistant', () => {
     });
 
     it('does not use an SDK-bundled executable when the machine has no Claude installation', async () => {
-        expect(await getClaudeAgentSdkInfo({env: {}, resolveSdkPackageDir: () => '/sdk', readSdkVersion: async () => '0.3.321', findClaudeOnPath: async () => null, pathIsExecutable: async () => false})).toMatchObject({installed: false, executablePath: null, version: '0.3.321'});
+        expect(
+            await getClaudeAgentSdkInfo({
+                env: {},
+                resolveSdkPackageDir: () => '/sdk',
+                readSdkVersion: async () => '0.3.321',
+                findClaudeOnPath: async () => null,
+                pathIsExecutable: async () => false,
+            }),
+        ).toMatchObject({installed: false, executablePath: null, version: '0.3.321'});
     });
 
     it.each(['success', 'error_during_execution'])('retains ordered snapshots and individual tool outcomes through %s', async (subtype) => {
@@ -336,35 +348,48 @@ describe('claudeAgentSdkAssistant', () => {
         fakeQuery.push({
             type: 'assistant',
             uuid: 'progress-1',
-            message: { content: [{
-                type: 'text',
-                text: 'Inspecting the document.',
-            }] },
+            message: {
+                content: [
+                    {
+                        type: 'text',
+                        text: 'Inspecting the document.',
+                    },
+                ],
+            },
         });
         fakeQuery.push({
             type: 'assistant',
             uuid: 'progress-2',
-            message: { content: [{
-                type: 'text',
-                text: 'Reading the pages.',
-            }, {
-                type: 'tool_use',
-                id: 'tool-1',
-                name: 'mcp__evb_viewer_embedded__evb_read_resource',
-                input: {},
-            }, {
-                type: 'tool_use',
-                id: 'tool-2',
-                name: 'mcp__evb_viewer_embedded__evb_run_action',
-                input: {},
-            }] },
+            message: {
+                content: [
+                    {
+                        type: 'text',
+                        text: 'Reading the pages.',
+                    },
+                    {
+                        type: 'tool_use',
+                        id: 'tool-1',
+                        name: 'mcp__evb_viewer_embedded__evb_read_resource',
+                        input: {},
+                    },
+                    {
+                        type: 'tool_use',
+                        id: 'tool-2',
+                        name: 'mcp__evb_viewer_embedded__evb_run_action',
+                        input: {},
+                    },
+                ],
+            },
         });
         await settleAsyncTicks();
-        const tool = (toolId: string, name: string, phase: string) => ({turnId, activity: {
-            toolId,
-            name: `mcp__evb_viewer_embedded__${name}`,
-            phase,
-        }});
+        const tool = (toolId: string, name: string, phase: string) => ({
+            turnId,
+            activity: {
+                toolId,
+                name: `mcp__evb_viewer_embedded__${name}`,
+                phase,
+            },
+        });
         expect(events).toEqual([
             {turnId, id: 'progress-1', text: 'Inspecting the document.'},
             {turnId, id: 'progress-2', text: 'Reading the pages.'},
@@ -399,10 +424,12 @@ describe('claudeAgentSdkAssistant', () => {
         fakeQuery.push({
             type: 'assistant',
             uuid: 'last-tool',
-            message: {content: [
-                {type: 'tool_use', id: 'tool-3', name: 'mcp__evb_viewer_embedded__evb_workspace_snapshot', input: {}},
-                {type: 'tool_result', tool_use_id: 'tool-3', content: 'Verified'},
-            ]},
+            message: {
+                content: [
+                    {type: 'tool_use', id: 'tool-3', name: 'mcp__evb_viewer_embedded__evb_workspace_snapshot', input: {}},
+                    {type: 'tool_result', tool_use_id: 'tool-3', content: 'Verified'},
+                ],
+            },
         });
         await settleAsyncTicks();
         expect(events.slice(-2)).toEqual([
@@ -501,7 +528,14 @@ describe('claudeAgentSdkAssistant', () => {
             model: 'opus',
             effort: 'medium',
             speedMode: 'fast',
-            modelOptions: [{id: 'opus', label: 'Opus', reasoningEfforts: [{id: 'medium', label: 'Medium'}], serviceTiers: [{id: 'fast', label: 'Fast'}]}],
+            modelOptions: [
+                {
+                    id: 'opus',
+                    label: 'Opus',
+                    reasoningEfforts: [{id: 'medium', label: 'Medium'}],
+                    serviceTiers: [{id: 'fast', label: 'Fast'}],
+                },
+            ],
             resumeSessionId,
             mcpServerName: 'evb_viewer_embedded',
             mcpServerUrl: 'http://127.0.0.1:3000',
@@ -523,14 +557,20 @@ describe('claudeAgentSdkAssistant', () => {
             },
         });
 
-        await session.sendMessage('Continue', [{
-            type: 'image',
-            id: 'image-1',
-            name: 'context.png',
-            mimeType: 'image/png',
-            sizeBytes: 1,
-            dataUrl: 'data:image/png;base64,AA==',
-        }], 'opus');
+        await session.sendMessage(
+            'Continue',
+            [
+                {
+                    type: 'image',
+                    id: 'image-1',
+                    name: 'context.png',
+                    mimeType: 'image/png',
+                    sizeBytes: 1,
+                    dataUrl: 'data:image/png;base64,AA==',
+                },
+            ],
+            'opus',
+        );
 
         const queryOptions = sdkMocks.query.mock.calls[0]?.[0]?.options;
         expect(queryOptions).toMatchObject({
@@ -550,27 +590,28 @@ describe('claudeAgentSdkAssistant', () => {
         });
         const prompt = sdkMocks.query.mock.calls[0]?.[0]?.prompt;
         const promptMessage = await prompt[Symbol.asyncIterator]().next();
-        expect(promptMessage.value).toMatchObject({message: {
-            role: 'user',
-            content: [
-                {
-                    type: 'text',
-                    text: 'Continue',
-                },
-                {
-                    type: 'image',
-                    source: {
-                        type: 'base64',
-                        media_type: 'image/png',
-                        data: 'AA==',
+        expect(promptMessage.value).toMatchObject({
+            message: {
+                role: 'user',
+                content: [
+                    {
+                        type: 'text',
+                        text: 'Continue',
                     },
-                },
-            ],
-        }});
+                    {
+                        type: 'image',
+                        source: {
+                            type: 'base64',
+                            media_type: 'image/png',
+                            data: 'AA==',
+                        },
+                    },
+                ],
+            },
+        });
         // A refreshed setup may withdraw capabilities the live query was created with.
         expect(await session.prepareForSettings('opus', 'medium', 'fast', [{id: 'opus', label: 'Opus'}])).toBe(false);
         expect(session.isUsable).toBe(false);
-
     });
 
     it('refuses an unavailable provider transcript before starting the SDK query', async () => {
@@ -601,17 +642,20 @@ describe('claudeAgentSdkAssistant', () => {
             },
         });
 
-        await expect(session.sendMessage('Do not submit', [], 'opus'))
-            .rejects.toThrow('Claude could not restore this chat context. Start a new chat to continue.');
+        await expect(session.sendMessage('Do not submit', [], 'opus')).rejects.toThrow(
+            'Claude could not restore this chat context. Start a new chat to continue.',
+        );
         expect(sdkMocks.readdir).toHaveBeenCalledWith('/fixture/claude-home/projects');
         expect(sdkMocks.query).not.toHaveBeenCalled();
     });
 
     it('does not create a resumed query after close wins during context verification', async () => {
         let resolveSessionInfo: ((value: unknown) => void) | undefined;
-        sdkMocks.readdir.mockReturnValueOnce(new Promise(resolve => {
-            resolveSessionInfo = resolve;
-        }));
+        sdkMocks.readdir.mockReturnValueOnce(
+            new Promise((resolve) => {
+                resolveSessionInfo = resolve;
+            }),
+        );
         const session = new ClaudeAgentAssistantSession({
             cwd: '/tmp',
             model: 'opus',
@@ -651,9 +695,11 @@ describe('claudeAgentSdkAssistant', () => {
 
     it('does not create a resumed query after interrupt wins during context verification', async () => {
         let resolveSessionInfo: ((value: unknown) => void) | undefined;
-        sdkMocks.readdir.mockReturnValueOnce(new Promise(resolve => {
-            resolveSessionInfo = resolve;
-        }));
+        sdkMocks.readdir.mockReturnValueOnce(
+            new Promise((resolve) => {
+                resolveSessionInfo = resolve;
+            }),
+        );
         const session = new ClaudeAgentAssistantSession({
             cwd: '/tmp',
             model: 'opus',
@@ -695,9 +741,12 @@ describe('claudeAgentSdkAssistant', () => {
         const firstQuery = new FakeClaudeQuery();
         const secondQuery = new FakeClaudeQuery();
         let rejectInterrupt: ((error: Error) => void) | undefined;
-        firstQuery.interrupt.mockImplementationOnce(() => new Promise((_, reject) => {
-            rejectInterrupt = reject;
-        }));
+        firstQuery.interrupt.mockImplementationOnce(
+            () =>
+                new Promise((_, reject) => {
+                    rejectInterrupt = reject;
+                }),
+        );
         sdkMocks.query.mockReturnValueOnce(firstQuery).mockReturnValueOnce(secondQuery);
         const callbacks = {
             onInitialized: vi.fn(),
@@ -740,18 +789,20 @@ describe('claudeAgentSdkAssistant', () => {
         firstQuery.push({
             type: 'assistant',
             uuid: 'retired-answer',
-            message: {content: [
-                {
-                    type: 'text',
-                    text: 'late assistant A',
-                },
-                {
-                    type: 'tool_use',
-                    id: 'late-tool',
-                    name: 'mcp__evb_viewer_embedded__evb_run_action',
-                    input: {},
-                },
-            ]},
+            message: {
+                content: [
+                    {
+                        type: 'text',
+                        text: 'late assistant A',
+                    },
+                    {
+                        type: 'tool_use',
+                        id: 'late-tool',
+                        name: 'mcp__evb_viewer_embedded__evb_run_action',
+                        input: {},
+                    },
+                ],
+            },
         });
         firstQuery.push({
             type: 'tool_progress',
@@ -794,9 +845,12 @@ describe('claudeAgentSdkAssistant', () => {
     it('keeps an unresolved interruption marked as retiring until the query closes', async () => {
         const query = new FakeClaudeQuery();
         let resolveInterrupt: (() => void) | undefined;
-        query.interrupt.mockImplementationOnce(() => new Promise<undefined>(resolve => {
-            resolveInterrupt = () => resolve(undefined);
-        }));
+        query.interrupt.mockImplementationOnce(
+            () =>
+                new Promise<undefined>((resolve) => {
+                    resolveInterrupt = () => resolve(undefined);
+                }),
+        );
         sdkMocks.query.mockReturnValue(query);
         const callbacks = {
             onInitialized: vi.fn(),
@@ -831,9 +885,7 @@ describe('claudeAgentSdkAssistant', () => {
         expect(session.isUsable).toBe(false);
         expect(session.isRetiring).toBe(true);
         expect(query.close).not.toHaveBeenCalled();
-        await expect(session.sendMessage('B', [], 'opus')).rejects.toThrow(
-            'Claude assistant session is still retiring a previous turn.',
-        );
+        await expect(session.sendMessage('B', [], 'opus')).rejects.toThrow('Claude assistant session is still retiring a previous turn.');
 
         resolveInterrupt?.();
         await interruptPromise;
@@ -921,11 +973,13 @@ describe('claudeAgentSdkAssistant', () => {
 
     it('discovers instance models and account with its environment and without submitting a prompt', async () => {
         const metadata = new FakeClaudeQuery();
-        metadata.supportedModels.mockResolvedValue([{
-            value: 'opus',
-            displayName: 'Opus',
-            resolvedModel: 'claude-opus-5-5',
-        }]);
+        metadata.supportedModels.mockResolvedValue([
+            {
+                value: 'opus',
+                displayName: 'Opus',
+                resolvedModel: 'claude-opus-5-5',
+            },
+        ]);
         metadata.accountInfo.mockResolvedValue({email: 'reader@example.test'});
         sdkMocks.query.mockReturnValue(metadata);
         const env = {
@@ -933,11 +987,13 @@ describe('claudeAgentSdkAssistant', () => {
             ANTHROPIC_BASE_URL: 'https://proxy.example.test',
         };
         expect(await discoverClaudeAssistantModels('/fixture/cwd', '/fixture/claude', env)).toMatchObject({
-            models: [{
-                id: 'opus',
-                label: 'Claude Opus 5.5',
-                shortLabel: 'Opus 5.5',
-            }],
+            models: [
+                {
+                    id: 'opus',
+                    label: 'Claude Opus 5.5',
+                    shortLabel: 'Opus 5.5',
+                },
+            ],
             account: {email: 'reader@example.test'},
         });
         const request = sdkMocks.query.mock.calls[0]![0];
@@ -960,103 +1016,165 @@ describe('claudeAgentSdkAssistant', () => {
         const metadata = new FakeClaudeQuery();
         metadata.supportedModels.mockReturnValue(new Promise(() => undefined));
         sdkMocks.query.mockReturnValue(metadata);
-        const result = expect(discoverClaudeAssistantModels('/fixture/cwd', '/fixture/claude', {})).rejects.toThrow('Claude did not finish its status check within 15 seconds.');
+        const result = expect(discoverClaudeAssistantModels('/fixture/cwd', '/fixture/claude', {})).rejects.toThrow(
+            'Claude did not finish its status check within 15 seconds.',
+        );
         await vi.advanceTimersByTimeAsync(15_000);
         await result;
         expect(metadata.close).toHaveBeenCalled();
         expect(vi.getTimerCount()).toBe(0);
     });
 
-    it.each(['success', 'error_during_execution'])('publishes completed snapshot items and preserves individual outcomes through %s', async (subtype) => {
-        vi.resetModules();
-        const root = await mkdtemp(join(tmpdir(), 'claude-item-events-'));
-        const events: IAssistantEvent[] = [];
-        const app = {getPath: () => root, getVersion: () => 'test', getName: () => 'EVB Viewer', isPackaged: false};
-        const config = {id: 'claude', driver: 'claude', displayName: 'Claude', enabled: true};
-        vi.doMock('electron', () => ({default: {app}, app}));
-        vi.doMock('@electron/settings', () => ({loadSettings: async () => ({assistantPanelEnabled: true})}));
-        vi.doMock('@electron/features/agent/assistantInstances', () => ({
-            getAssistantInstanceConfigs: async () => [config],
-            getAssistantInstanceFingerprints: async () => new Map([['claude', 'fixture']]),
-            assistantInstanceLabel: () => 'Claude',
-            onAssistantInstancesChanged: () => undefined,
-            refreshAssistantLocalSetups: async () => undefined,
-            resolveAssistantLaunchContext: async () => ({binaryPath: '/fixture/claude', env: {}, homePath: null, customEndpoint: false}),
-        }));
-        vi.doMock('@electron/features/agent/assistantLocalSetups', () => ({identifyAssistantExecutable: async () => 'fixture'}));
-        vi.doMock('@electron/features/agent/mcpServer', () => ({
-            startEmbeddedMcpServer: async () => ({descriptor: {url: 'http://127.0.0.1:3000'}, token: 'fixture'}),
-            shutdownEmbeddedMcpServer: async () => undefined,
-            abortActiveEmbeddedMcpRequests: () => undefined,
-        }));
-        vi.doMock('@electron/features/agent/assistantChatPersistence', () => ({AssistantChatPersistence: class {
-            getMaxSessionBytes() { return 1_000_000; }
-            recoverSessions() { return Promise.resolve([]); }
-            recoverSession() { return Promise.resolve(null); }
-            recordSessionSnapshot() { /* Persistence is outside this event-boundary test. */ }
-            flush() { return Promise.resolve(); }
-        }}));
-        vi.doMock('@electron/window/registry', () => ({getAllRegisteredAppWindows: () => [{}]}));
-        vi.doMock('@electron/utils/sendPlatformEvent', () => ({
-            sendPlatformEvent: (_window: unknown, _channel: unknown, event: IAssistantEvent) => events.push(structuredClone(event)),
-        }));
-        const metadata = new FakeClaudeQuery();
-        metadata.supportedModels.mockResolvedValue([{value: 'opus', displayName: 'Opus', resolvedModel: 'claude-opus-5-5'}]);
-        const query = new FakeClaudeQuery();
-        sdkMocks.query.mockReturnValueOnce(metadata).mockReturnValue(query);
-        const service = await import('@electron/features/agent/assistantService');
-        try {
-            const sent = await service.sendAgentAssistantMessage({
-                text: 'Inspect the document',
-                scope: {kind: 'document', key: 'fixture', title: 'fixture.pdf', tabId: requireTabId('fixture')},
-                selection: {instanceId: 'claude', model: 'opus', effort: 'low', speedMode: 'standard'},
-            }, {windowId: 1});
-            expect(sent.ok).toBe(true);
-            const text = (uuid: string, value: string) => ({type: 'assistant', uuid, message: {content: [{type: 'text', text: value}]}});
-            query.push(text('progress-one', 'Inspecting.'));
-            query.push({type: 'assistant', uuid: 'progress-two', message: {content: [
-                {type: 'text', text: 'Reading.'},
-                ...['read', 'write', 'unfinished'].map(id => ({type: 'tool_use', id, name: `mcp__evb_viewer_embedded__${id}`, input: {}})),
-            ]}});
-            query.push({type: 'user', message: {content: [{type: 'tool_result', tool_use_id: 'read', content: 'Text'}]}});
-            await settleAsyncTicks();
-            const items = () => events.flatMap(event => event.type === 'item' ? [event.item] : []);
-            expect(items().findLast(item => item.id === 'read')).toMatchObject({status: 'completed', completedAt: expect.any(String)});
-            expect(items().findLast(item => item.id === 'write')).toMatchObject({status: 'streaming'});
-            query.push({type: 'user', message: {content: [{type: 'tool_result', tool_use_id: 'write', is_error: true, content: 'Refused'}]}});
-            query.push({type: 'tool_use_summary', preceding_tool_use_ids: ['read', 'write', 'unfinished'], summary: 'Working'});
-            query.push(text('answer', 'Finished.'));
-            await settleAsyncTicks();
-            expect(items().findLast(item => item.id === 'write')).toMatchObject({status: 'failed', completedAt: expect.any(String)});
-            expect(items().findLast(item => item.id === 'unfinished')).toMatchObject({status: 'streaming'});
-            const messages = items().filter(item => item.kind === 'assistant');
-            expect(messages.map(item => [item.id, item.text, item.status])).toEqual([
-                ['progress-one', 'Inspecting.', 'completed'],
-                ['progress-two', 'Reading.', 'completed'],
-                ['answer', 'Finished.', 'completed'],
-            ]);
-            expect(messages.every(item => item.completedAt)).toBe(true);
-            expect(items().at(-1)?.id).toBe('answer');
-            query.push({type: 'result', subtype, is_error: subtype !== 'success', errors: subtype === 'success' ? [] : ['Turn failed'], usage: {
-                input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0,
-            }});
-            await settleAsyncTicks();
-            expect(items().findLast(item => item.id === 'read')?.status).toBe('completed');
-            expect(items().findLast(item => item.id === 'write')?.status).toBe('failed');
-            expect(items().findLast(item => item.id === 'unfinished')).toMatchObject({
-                status: subtype === 'success' ? 'completed' : 'failed', completedAt: expect.any(String),
-            });
-            expect(items().filter(item => item.kind === 'assistant')).toEqual(messages);
-        } finally {
-            await service.shutdownAgentAssistant();
-            await rm(root, {recursive: true, force: true});
-            for (const module of [
-                'electron', '@electron/settings', '@electron/features/agent/assistantInstances',
-                '@electron/features/agent/assistantLocalSetups', '@electron/features/agent/mcpServer',
-                '@electron/features/agent/assistantChatPersistence', '@electron/window/registry', '@electron/utils/sendPlatformEvent',
-            ]) {vi.doUnmock(module);}
+    it.each(['success', 'error_during_execution'])(
+        'publishes completed snapshot items and preserves individual outcomes through %s',
+        async (subtype) => {
             vi.resetModules();
-        }
-    });
-
+            const root = await mkdtemp(join(tmpdir(), 'claude-item-events-'));
+            const events: IAssistantEvent[] = [];
+            const app = {getPath: () => root, getVersion: () => 'test', getName: () => 'EVB Viewer', isPackaged: false};
+            const config = {id: 'claude', driver: 'claude', displayName: 'Claude', enabled: true};
+            vi.doMock('electron', () => ({default: {app}, app}));
+            vi.doMock('@electron/settings', () => ({loadSettings: async () => ({assistantPanelEnabled: true})}));
+            vi.doMock('@electron/features/agent/assistantInstances', () => ({
+                getAssistantInstanceConfigs: async () => [config],
+                getAssistantInstanceFingerprints: async () => new Map([['claude', 'fixture']]),
+                assistantInstanceLabel: () => 'Claude',
+                onAssistantInstancesChanged: () => undefined,
+                refreshAssistantLocalSetups: async () => undefined,
+                resolveAssistantLaunchContext: async () => ({
+                    binaryPath: '/fixture/claude',
+                    env: {},
+                    homePath: null,
+                    customEndpoint: false,
+                }),
+            }));
+            vi.doMock('@electron/features/agent/assistantLocalSetups', () => ({identifyAssistantExecutable: async () => 'fixture'}));
+            vi.doMock('@electron/features/agent/mcpServer', () => ({
+                startEmbeddedMcpServer: async () => ({descriptor: {url: 'http://127.0.0.1:3000'}, token: 'fixture'}),
+                shutdownEmbeddedMcpServer: async () => undefined,
+                abortActiveEmbeddedMcpRequests: () => undefined,
+            }));
+            vi.doMock('@electron/features/agent/assistantChatPersistence', () => ({
+                AssistantChatPersistence: class {
+                    getMaxSessionBytes() {
+                        return 1_000_000;
+                    }
+                    recoverSessions() {
+                        return Promise.resolve([]);
+                    }
+                    recoverSession() {
+                        return Promise.resolve(null);
+                    }
+                    recordSessionSnapshot() {
+                        /* Persistence is outside this event-boundary test. */
+                    }
+                    flush() {
+                        return Promise.resolve();
+                    }
+                },
+            }));
+            vi.doMock('@electron/window/registry', () => ({getAllRegisteredAppWindows: () => [{}]}));
+            vi.doMock('@electron/utils/sendPlatformEvent', () => ({
+                sendPlatformEvent: (_window: unknown, _channel: unknown, event: IAssistantEvent) => events.push(structuredClone(event)),
+            }));
+            const metadata = new FakeClaudeQuery();
+            metadata.supportedModels.mockResolvedValue([{value: 'opus', displayName: 'Opus', resolvedModel: 'claude-opus-5-5'}]);
+            const query = new FakeClaudeQuery();
+            sdkMocks.query.mockReturnValueOnce(metadata).mockReturnValue(query);
+            const service = await import('@electron/features/agent/assistantService');
+            try {
+                const sent = await service.sendAgentAssistantMessage(
+                    {
+                        text: 'Inspect the document',
+                        scope: {kind: 'document', key: 'fixture', title: 'fixture.pdf', tabId: requireTabId('fixture')},
+                        selection: {instanceId: 'claude', model: 'opus', effort: 'low', speedMode: 'standard'},
+                    },
+                    {windowId: 1},
+                );
+                expect(sent.ok).toBe(true);
+                const text = (uuid: string, value: string) => ({
+                    type: 'assistant',
+                    uuid,
+                    message: {content: [{type: 'text', text: value}]},
+                });
+                query.push(text('progress-one', 'Inspecting.'));
+                query.push({
+                    type: 'assistant',
+                    uuid: 'progress-two',
+                    message: {
+                        content: [
+                            {type: 'text', text: 'Reading.'},
+                            ...['read', 'write', 'unfinished'].map((id) => ({
+                                type: 'tool_use',
+                                id,
+                                name: `mcp__evb_viewer_embedded__${id}`,
+                                input: {},
+                            })),
+                        ],
+                    },
+                });
+                query.push({type: 'user', message: {content: [{type: 'tool_result', tool_use_id: 'read', content: 'Text'}]}});
+                await settleAsyncTicks();
+                const items = () => events.flatMap((event) => (event.type === 'item' ? [event.item] : []));
+                expect(items().findLast((item) => item.id === 'read')).toMatchObject({
+                    status: 'completed',
+                    completedAt: expect.any(String),
+                });
+                expect(items().findLast((item) => item.id === 'write')).toMatchObject({status: 'streaming'});
+                query.push({
+                    type: 'user',
+                    message: {content: [{type: 'tool_result', tool_use_id: 'write', is_error: true, content: 'Refused'}]},
+                });
+                query.push({type: 'tool_use_summary', preceding_tool_use_ids: ['read', 'write', 'unfinished'], summary: 'Working'});
+                query.push(text('answer', 'Finished.'));
+                await settleAsyncTicks();
+                expect(items().findLast((item) => item.id === 'write')).toMatchObject({status: 'failed', completedAt: expect.any(String)});
+                expect(items().findLast((item) => item.id === 'unfinished')).toMatchObject({status: 'streaming'});
+                const messages = items().filter((item) => item.kind === 'assistant');
+                expect(messages.map((item) => [item.id, item.text, item.status])).toEqual([
+                    ['progress-one', 'Inspecting.', 'completed'],
+                    ['progress-two', 'Reading.', 'completed'],
+                    ['answer', 'Finished.', 'completed'],
+                ]);
+                expect(messages.every((item) => item.completedAt)).toBe(true);
+                expect(items().at(-1)?.id).toBe('answer');
+                query.push({
+                    type: 'result',
+                    subtype,
+                    is_error: subtype !== 'success',
+                    errors: subtype === 'success' ? [] : ['Turn failed'],
+                    usage: {
+                        input_tokens: 1,
+                        output_tokens: 1,
+                        cache_read_input_tokens: 0,
+                        cache_creation_input_tokens: 0,
+                    },
+                });
+                await settleAsyncTicks();
+                expect(items().findLast((item) => item.id === 'read')?.status).toBe('completed');
+                expect(items().findLast((item) => item.id === 'write')?.status).toBe('failed');
+                expect(items().findLast((item) => item.id === 'unfinished')).toMatchObject({
+                    status: subtype === 'success' ? 'completed' : 'failed',
+                    completedAt: expect.any(String),
+                });
+                expect(items().filter((item) => item.kind === 'assistant')).toEqual(messages);
+            } finally {
+                await service.shutdownAgentAssistant();
+                await rm(root, {recursive: true, force: true});
+                for (const module of [
+                    'electron',
+                    '@electron/settings',
+                    '@electron/features/agent/assistantInstances',
+                    '@electron/features/agent/assistantLocalSetups',
+                    '@electron/features/agent/mcpServer',
+                    '@electron/features/agent/assistantChatPersistence',
+                    '@electron/window/registry',
+                    '@electron/utils/sendPlatformEvent',
+                ]) {
+                    vi.doUnmock(module);
+                }
+                vi.resetModules();
+            }
+        },
+    );
 });

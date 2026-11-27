@@ -1,17 +1,7 @@
 // fallow-ignore-file unused-file -- bundled by browserPageOpsAcceptance.test.ts.
 
-import {
-    PDFDocument,
-    PDFDict,
-    PDFHexString,
-    PDFName,
-    PDFNumber,
-    PDFString,
-} from 'pdf-lib';
-import type {
-    PDFArray,
-    PDFRef,
-} from 'pdf-lib';
+import {PDFDocument, PDFDict, PDFHexString, PDFName, PDFNumber, PDFString} from 'pdf-lib';
+import type {PDFArray, PDFRef} from 'pdf-lib';
 import {createBrowserPageOpsCapability} from '@app/platform/browser-api/createBrowserPageOpsCapability';
 import {repairBrowserWorkingCopy} from '@app/platform/browser-api/browserWorkingCopyService';
 import {createCombinedPdfFromPaths} from '@app/platform/browser-api/createCombinedPdfFromPaths';
@@ -36,13 +26,29 @@ function lookupDict(document: PDFDocument, value: unknown) {
 }
 
 function romanNumeral(value: number) {
-    const numerals = [[1000, 'M'], [900, 'CM'], [500, 'D'], [400, 'CD'], [100, 'C'], [90, 'XC'], [50, 'L'], [40, 'XL'], [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']] as const;
+    const numerals = [
+        [1000, 'M'],
+        [900, 'CM'],
+        [500, 'D'],
+        [400, 'CD'],
+        [100, 'C'],
+        [90, 'XC'],
+        [50, 'L'],
+        [40, 'XL'],
+        [10, 'X'],
+        [9, 'IX'],
+        [5, 'V'],
+        [4, 'IV'],
+        [1, 'I'],
+    ] as const;
     let rest = value;
-    return numerals.map(([amount, numeral]) => {
-        const count = Math.floor(rest / amount);
-        rest -= count * amount;
-        return numeral.repeat(count);
-    }).join('');
+    return numerals
+        .map(([amount, numeral]) => {
+            const count = Math.floor(rest / amount);
+            rest -= count * amount;
+            return numeral.repeat(count);
+        })
+        .join('');
 }
 
 /** Each page's displayed label, from the label ranges' style, prefix and first number. */
@@ -60,8 +66,10 @@ function readLabels(document: PDFDocument) {
         });
     }
     return document.getPages().map((_page, pageIndex) => {
-        const range = ranges.findLast(candidate => candidate.start <= pageIndex);
-        if (!range) {return String(pageIndex + 1);}
+        const range = ranges.findLast((candidate) => candidate.start <= pageIndex);
+        if (!range) {
+            return String(pageIndex + 1);
+        }
         const number = range.first + pageIndex - range.start;
         const numerals: Record<string, string> = {D: String(number), R: romanNumeral(number), r: romanNumeral(number).toLowerCase()};
         const numeral = numerals[range.style] ?? '';
@@ -76,55 +84,42 @@ function readOutlineDestination(document: PDFDocument) {
 }
 
 function pageNumberForRef(document: PDFDocument, pageRef: PDFRef) {
-    const pageIndex = document.getPages().findIndex(page => page.ref === pageRef);
+    const pageIndex = document.getPages().findIndex((page) => page.ref === pageRef);
     return pageIndex < 0 ? null : pageIndex + 1;
 }
 
 async function createFixture(outlinePageIndex = 2) {
     const document = await PDFDocument.create();
-    const pages = [
-        document.addPage([
-            200,
-            100,
-        ]),
-        document.addPage([
-            300,
-            100,
-        ]),
-        document.addPage([
-            400,
-            100,
-        ]),
-    ];
-    const decimalLabels = document.context.register(document.context.obj({
-        S: PDFName.of('D'),
-        St: PDFNumber.of(1),
-        P: PDFString.of(''),
-    }));
-    const romanLabels = document.context.register(document.context.obj({
-        S: PDFName.of('R'),
-        St: PDFNumber.of(1),
-        P: PDFString.of(''),
-    }));
-    const pageLabels = document.context.register(document.context.obj({Nums: [
-        0,
-        decimalLabels,
-        1,
-        romanLabels,
-    ]}));
-    const outlineItem = document.context.register(document.context.obj({
-        Title: PDFString.of('Page three'),
-        Dest: [
-            pages[outlinePageIndex]!.ref,
-            PDFName.of('Fit'),
-        ],
-    }));
-    const outlines = document.context.register(document.context.obj({
-        Type: PDFName.of('Outlines'),
-        First: outlineItem,
-        Last: outlineItem,
-        Count: PDFNumber.of(1),
-    }));
+    const pages = [document.addPage([200, 100]), document.addPage([300, 100]), document.addPage([400, 100])];
+    const decimalLabels = document.context.register(
+        document.context.obj({
+            S: PDFName.of('D'),
+            St: PDFNumber.of(1),
+            P: PDFString.of(''),
+        }),
+    );
+    const romanLabels = document.context.register(
+        document.context.obj({
+            S: PDFName.of('R'),
+            St: PDFNumber.of(1),
+            P: PDFString.of(''),
+        }),
+    );
+    const pageLabels = document.context.register(document.context.obj({Nums: [0, decimalLabels, 1, romanLabels]}));
+    const outlineItem = document.context.register(
+        document.context.obj({
+            Title: PDFString.of('Page three'),
+            Dest: [pages[outlinePageIndex]!.ref, PDFName.of('Fit')],
+        }),
+    );
+    const outlines = document.context.register(
+        document.context.obj({
+            Type: PDFName.of('Outlines'),
+            First: outlineItem,
+            Last: outlineItem,
+            Count: PDFNumber.of(1),
+        }),
+    );
     (document.context.lookup(outlineItem) as PDFDict).set(PDFName.of('Parent'), outlines);
     document.catalog.set(PDFName.of('PageLabels'), pageLabels);
     document.catalog.set(PDFName.of('Outlines'), outlines);
@@ -133,10 +128,7 @@ async function createFixture(outlinePageIndex = 2) {
 
 async function createInsertionFixture() {
     const document = await PDFDocument.create();
-    document.addPage([
-        500,
-        100,
-    ]);
+    document.addPage([500, 100]);
     return new Uint8Array(await document.save());
 }
 
@@ -146,26 +138,18 @@ async function runOperation(
     insertionBytes: Uint8Array,
     resurrectionRegression = false,
 ) {
-    const workingPath = await browserDocumentStore.createStoredDocument(
-        `${operation}-working.pdf`,
-        fixtureBytes,
-        {
-            mimeType: 'application/pdf',
-            kind: 'working',
-            retention: 'transient',
-            saveKind: 'pdf',
-        },
-    );
-    const insertionPath = await browserDocumentStore.createStoredDocument(
-        `${operation}-insertion.pdf`,
-        insertionBytes,
-        {
-            mimeType: 'application/pdf',
-            kind: 'source',
-            retention: 'transient',
-            saveKind: 'pdf',
-        },
-    );
+    const workingPath = await browserDocumentStore.createStoredDocument(`${operation}-working.pdf`, fixtureBytes, {
+        mimeType: 'application/pdf',
+        kind: 'working',
+        retention: 'transient',
+        saveKind: 'pdf',
+    });
+    const insertionPath = await browserDocumentStore.createStoredDocument(`${operation}-insertion.pdf`, insertionBytes, {
+        mimeType: 'application/pdf',
+        kind: 'source',
+        retention: 'transient',
+        saveKind: 'pdf',
+    });
     try {
         const pageOps = createBrowserPageOpsCapability({
             clearSearchCaches: async () => undefined,
@@ -188,14 +172,12 @@ async function runOperation(
         await (operation === 'delete'
             ? pageOps.delete(workingPath, [2], 3, mutationOptions)
             : operation === 'reorder'
-                ? pageOps.reorder(workingPath, [
-                    3,
-                    1,
-                    2,
-                ], mutationOptions)
-                : pageOps.insertFile(workingPath, 3, 1, [insertionPath], undefined, mutationOptions));
+              ? pageOps.reorder(workingPath, [3, 1, 2], mutationOptions)
+              : pageOps.insertFile(workingPath, 3, 1, [insertionPath], undefined, mutationOptions));
         const savedBytes = await browserDocumentStore.read(workingPath);
-        await browserDocumentStore.write(workingPath, savedBytes, {expectedDocumentRevisionToken: (await browserDocumentStore.getDocumentRevision(workingPath)).token});
+        await browserDocumentStore.write(workingPath, savedBytes, {
+            expectedDocumentRevisionToken: (await browserDocumentStore.getDocumentRevision(workingPath)).token,
+        });
         browserDocumentStore.unload(workingPath);
         const reopened = await browserDocumentStore.read(workingPath);
         const document = await PDFDocument.load(reopened);
@@ -233,41 +215,32 @@ async function runBrowserPageOpsAcceptance() {
 // labels keep the outline readable, and a broken outline keeps the labels.
 async function createCatalogPartsFixture(broken: 'page labels' | 'outline') {
     const document = await PDFDocument.create();
-    const pages = [
-        document.addPage([
-            200,
-            100,
-        ]),
-        document.addPage([
-            200,
-            100,
-        ]),
-    ];
-    const outlineItem = document.context.register(document.context.obj({
-        Title: PDFString.of('Chapter'),
-        Dest: [
-            pages[1]!.ref,
-            PDFName.of('Fit'),
-        ],
-    }));
-    const outlines = document.context.register(document.context.obj({
-        Type: PDFName.of('Outlines'),
-        First: outlineItem,
-        Last: outlineItem,
-        Count: PDFNumber.of(1),
-    }));
+    const pages = [document.addPage([200, 100]), document.addPage([200, 100])];
+    const outlineItem = document.context.register(
+        document.context.obj({
+            Title: PDFString.of('Chapter'),
+            Dest: [pages[1]!.ref, PDFName.of('Fit')],
+        }),
+    );
+    const outlines = document.context.register(
+        document.context.obj({
+            Type: PDFName.of('Outlines'),
+            First: outlineItem,
+            Last: outlineItem,
+            Count: PDFNumber.of(1),
+        }),
+    );
     (document.context.lookup(outlineItem) as PDFDict).set(PDFName.of('Parent'), outlines);
     document.catalog.set(PDFName.of('Outlines'), broken === 'outline' ? PDFNumber.of(5) : outlines);
-    document.catalog.set(PDFName.of('PageLabels'), document.context.obj(broken === 'page labels'
-        // An empty number tree is recoverable; a visible scalar label is not.
-        ? {Nums: [
-            0,
-            PDFNumber.of(5),
-        ]}
-        : {Nums: [
-            0,
-            {S: PDFName.of('r')},
-        ]}));
+    document.catalog.set(
+        PDFName.of('PageLabels'),
+        document.context.obj(
+            broken === 'page labels'
+                ? // An empty number tree is recoverable; a visible scalar label is not.
+                  {Nums: [0, PDFNumber.of(5)]}
+                : {Nums: [0, {S: PDFName.of('r')}]},
+        ),
+    );
     return new Uint8Array(await document.save());
 }
 
@@ -280,62 +253,59 @@ async function settleCatalogPart<T>(read: () => Promise<T>) {
 }
 
 async function runBrowserCatalogPartsAcceptance() {
-    return Promise.all(([
-        'page labels',
-        'outline',
-    ] as const).map(async (broken) => {
-        const bytes = await createCatalogPartsFixture(broken);
-        const workingPath = await browserDocumentStore.createStoredDocument(`catalog-${broken}.pdf`, bytes, {
-            mimeType: 'application/pdf',
-            kind: 'working',
-            retention: 'transient',
-            saveKind: 'pdf',
-        });
-        try {
-            const pageOps = createBrowserPageOpsCapability({
-                clearSearchCaches: async () => undefined,
-                openInputAccept: 'application/pdf',
-                pickFiles: async () => [],
-                buildOpenPdfPickerTypes: () => [],
-                createCombinedPdfFromPaths,
-                pickSaveTarget: async () => ({
-                    canceled: true,
-                    fileName: '',
-                }),
-                saveBytesToPickerOrDownload: async () => ({
-                    canceled: true,
-                    fileName: '',
-                }),
-                writeBytesToHandle: async () => undefined,
-                repairWorkingCopy: repairBrowserWorkingCopy,
+    return Promise.all(
+        (['page labels', 'outline'] as const).map(async (broken) => {
+            const bytes = await createCatalogPartsFixture(broken);
+            const workingPath = await browserDocumentStore.createStoredDocument(`catalog-${broken}.pdf`, bytes, {
+                mimeType: 'application/pdf',
+                kind: 'working',
+                retention: 'transient',
+                saveKind: 'pdf',
             });
-            return {
-                broken,
-                bookmarks: await settleCatalogPart(async () => (await pageOps.readOutline(workingPath)).map(entry => entry.title)),
-                pageLabels: await settleCatalogPart(async () => {
-                    const catalog = await readPdfCatalog(new Blob([bytes]));
-                    if (!catalog.pageLabels) {throw new Error(catalog.pageLabelsError);}
-                    return catalog.pageLabels.map(range => range.style ?? null);
-                }),
-            };
-        } finally {
-            await browserDocumentStore.cleanupDetachedDocument(workingPath);
-        }
-    }));
+            try {
+                const pageOps = createBrowserPageOpsCapability({
+                    clearSearchCaches: async () => undefined,
+                    openInputAccept: 'application/pdf',
+                    pickFiles: async () => [],
+                    buildOpenPdfPickerTypes: () => [],
+                    createCombinedPdfFromPaths,
+                    pickSaveTarget: async () => ({
+                        canceled: true,
+                        fileName: '',
+                    }),
+                    saveBytesToPickerOrDownload: async () => ({
+                        canceled: true,
+                        fileName: '',
+                    }),
+                    writeBytesToHandle: async () => undefined,
+                    repairWorkingCopy: repairBrowserWorkingCopy,
+                });
+                return {
+                    broken,
+                    bookmarks: await settleCatalogPart(async () => (await pageOps.readOutline(workingPath)).map((entry) => entry.title)),
+                    pageLabels: await settleCatalogPart(async () => {
+                        const catalog = await readPdfCatalog(new Blob([bytes]));
+                        if (!catalog.pageLabels) {
+                            throw new Error(catalog.pageLabelsError);
+                        }
+                        return catalog.pageLabels.map((range) => range.style ?? null);
+                    }),
+                };
+            } finally {
+                await browserDocumentStore.cleanupDetachedDocument(workingPath);
+            }
+        }),
+    );
 }
 
 async function runBrowserIncrementalGeometryAcceptance() {
     const fixture = await createFixture();
-    const workingPath = await browserDocumentStore.createStoredDocument(
-        'geometry-working.pdf',
-        fixture.bytes,
-        {
-            mimeType: 'application/pdf',
-            kind: 'working',
-            retention: 'transient',
-            saveKind: 'pdf',
-        },
-    );
+    const workingPath = await browserDocumentStore.createStoredDocument('geometry-working.pdf', fixture.bytes, {
+        mimeType: 'application/pdf',
+        kind: 'working',
+        retention: 'transient',
+        saveKind: 'pdf',
+    });
     try {
         const pageOps = createBrowserPageOpsCapability({
             clearSearchCaches: async () => undefined,
@@ -358,18 +328,26 @@ async function runBrowserIncrementalGeometryAcceptance() {
 
         await pageOps.rotate(workingPath, [1], 3, 90, await rev());
         const afterRotate = await browserDocumentStore.read(workingPath);
-        const rotatePreservesPrefix = afterRotate.length > fixture.bytes.length
-            && afterRotate.subarray(0, fixture.bytes.length).every((byte, index) => byte === fixture.bytes[index]);
+        const rotatePreservesPrefix =
+            afterRotate.length > fixture.bytes.length &&
+            afterRotate.subarray(0, fixture.bytes.length).every((byte, index) => byte === fixture.bytes[index]);
 
-        await pageOps.crop(workingPath, [1], 3, {
-            top: 4,
-            bottom: 6,
-            left: 8,
-            right: 10,
-        }, await rev());
+        await pageOps.crop(
+            workingPath,
+            [1],
+            3,
+            {
+                top: 4,
+                bottom: 6,
+                left: 8,
+                right: 10,
+            },
+            await rev(),
+        );
         const afterCrop = await browserDocumentStore.read(workingPath);
-        const cropPreservesPrefix = afterCrop.length > afterRotate.length
-            && afterCrop.subarray(0, afterRotate.length).every((byte, index) => byte === afterRotate[index]);
+        const cropPreservesPrefix =
+            afterCrop.length > afterRotate.length &&
+            afterCrop.subarray(0, afterRotate.length).every((byte, index) => byte === afterRotate[index]);
 
         const croppedDoc = await PDFDocument.load(afterCrop);
         const croppedRotation = croppedDoc.getPage(0).getRotation().angle;
@@ -378,8 +356,9 @@ async function runBrowserIncrementalGeometryAcceptance() {
         await pageOps.removeCrop(workingPath, [1], 3, await rev());
         browserDocumentStore.unload(workingPath);
         const afterRemove = await browserDocumentStore.read(workingPath);
-        const removePreservesPrefix = afterRemove.length > afterCrop.length
-            && afterRemove.subarray(0, afterCrop.length).every((byte, index) => byte === afterCrop[index]);
+        const removePreservesPrefix =
+            afterRemove.length > afterCrop.length &&
+            afterRemove.subarray(0, afterCrop.length).every((byte, index) => byte === afterCrop[index]);
         const uncroppedDoc = await PDFDocument.load(afterRemove);
         const uncroppedMedia = uncroppedDoc.getPage(0).getMediaBox();
         const uncroppedCrop = uncroppedDoc.getPage(0).getCropBox();
@@ -390,10 +369,11 @@ async function runBrowserIncrementalGeometryAcceptance() {
             removePreservesPrefix,
             croppedRotation,
             croppedBox,
-            cropRemovedMatchesMedia: uncroppedCrop.x === uncroppedMedia.x
-                && uncroppedCrop.y === uncroppedMedia.y
-                && uncroppedCrop.width === uncroppedMedia.width
-                && uncroppedCrop.height === uncroppedMedia.height,
+            cropRemovedMatchesMedia:
+                uncroppedCrop.x === uncroppedMedia.x &&
+                uncroppedCrop.y === uncroppedMedia.y &&
+                uncroppedCrop.width === uncroppedMedia.width &&
+                uncroppedCrop.height === uncroppedMedia.height,
         };
     } finally {
         await browserDocumentStore.cleanupDetachedDocument(workingPath);
@@ -407,35 +387,35 @@ Reflect.set(globalThis, '__evbRunBrowserCatalogPartsAcceptance', runBrowserCatal
 // Read the writer's saved bytes independently, including every unchanged title.
 async function runBrowserBookmarkSaveAcceptance() {
     const results = [];
-    for (const count of [
-        3,
-        10_000,
-    ]) {
+    for (const count of [3, 10_000]) {
         const source = await PDFDocument.create();
-        const page = source.addPage([
-            200,
-            100,
-        ]);
+        const page = source.addPage([200, 100]);
         const outline = source.context.nextRef();
-        const entries = Array.from({length: count}, (_, index) => source.context.obj({
-            Title: PDFString.of(`Section${index + 1}`),
-            Parent: outline,
-            Dest: [
-                page.ref,
-                PDFName.of('Fit'),
-            ],
-        }));
-        const refs = entries.map(entry => source.context.register(entry));
+        const entries = Array.from({length: count}, (_, index) =>
+            source.context.obj({
+                Title: PDFString.of(`Section${index + 1}`),
+                Parent: outline,
+                Dest: [page.ref, PDFName.of('Fit')],
+            }),
+        );
+        const refs = entries.map((entry) => source.context.register(entry));
         entries.forEach((entry, index) => {
-            if (index > 0) {entry.set(PDFName.of('Prev'), refs[index - 1]!);}
-            if (index + 1 < count) {entry.set(PDFName.of('Next'), refs[index + 1]!);}
+            if (index > 0) {
+                entry.set(PDFName.of('Prev'), refs[index - 1]!);
+            }
+            if (index + 1 < count) {
+                entry.set(PDFName.of('Next'), refs[index + 1]!);
+            }
         });
-        source.context.assign(outline, source.context.obj({
-            Type: PDFName.of('Outlines'),
-            First: refs[0],
-            Last: refs.at(-1),
-            Count: count,
-        }));
+        source.context.assign(
+            outline,
+            source.context.obj({
+                Type: PDFName.of('Outlines'),
+                First: refs[0],
+                Last: refs.at(-1),
+                Count: count,
+            }),
+        );
         source.catalog.set(PDFName.of('Outlines'), outline);
         const input = new Uint8Array(await source.save());
         const catalog = await readPdfCatalog(new Blob([input]));
@@ -445,11 +425,13 @@ async function runBrowserBookmarkSaveAcceptance() {
             title: 'Large web saved',
         };
         const saved = await appendPdfMutationsToBytes(input, {
-            mutations: {bookmarks: {
-                items,
-                totalPages: 1,
-                untitledLabel: 'Untitled',
-            }},
+            mutations: {
+                bookmarks: {
+                    items,
+                    totalPages: 1,
+                    untitledLabel: 'Untitled',
+                },
+            },
             modifiedAt: 'D:20261013000000Z',
         });
         if (isBrowserPageOpsWasmFailure(saved)) {
@@ -488,7 +470,9 @@ function writeLargeFixture() {
         const offsets: number[] = [];
         const write = (data: string | Uint8Array) => {
             const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;
-            if (handle.write(bytes, {at: offset}) !== bytes.byteLength) {throw new Error('The fixture did not fit');}
+            if (handle.write(bytes, {at: offset}) !== bytes.byteLength) {
+                throw new Error('The fixture did not fit');
+            }
             offset += bytes.byteLength;
         };
         const object = (id: number, body: string) => {
@@ -499,21 +483,31 @@ function writeLargeFixture() {
         const pageId = (index: number) => 7 + 2 * index;
         write('%PDF-1.7\n');
         object(1, '<< /Type /Catalog /Pages 2 0 R /Outlines 3 0 R /PageLabels << /Nums [0 5 0 R 2 6 0 R] >> >>');
-        object(2, `<< /Type /Pages /Count ${pageCount} /Kids [${Array.from({length: pageCount}, (_, index) => `${pageId(index)} 0 R`).join(' ')}] >>`);
+        object(
+            2,
+            `<< /Type /Pages /Count ${pageCount} /Kids [${Array.from({length: pageCount}, (_, index) => `${pageId(index)} 0 R`).join(' ')}] >>`,
+        );
         object(3, '<< /Type /Outlines /First 4 0 R /Last 4 0 R /Count 1 >>');
         object(4, `<< /Title (Third page) /Parent 3 0 R /Dest [${pageId(2)} 0 R /Fit] >>`);
         object(5, '<< /S /D >>');
         object(6, '<< /S /R >>');
         for (let index = 0; index < pageCount; index += 1) {
-            object(pageId(index), `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${100 + index} 200] /Contents ${pageId(index) + 1} 0 R /Resources << >> >>`);
+            object(
+                pageId(index),
+                `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${100 + index} 200] /Contents ${pageId(index) + 1} 0 R /Resources << >> >>`,
+            );
             offsets[pageId(index) + 1] = offset;
             write(`${pageId(index) + 1} 0 obj\n<< /Length ${streamBytes} >>\nstream\n`);
-            for (let left = streamBytes; left > 0; left -= filler.byteLength) {write(left >= filler.byteLength ? filler : filler.subarray(0, left));}
+            for (let left = streamBytes; left > 0; left -= filler.byteLength) {
+                write(left >= filler.byteLength ? filler : filler.subarray(0, left));
+            }
             write('\nendstream\nendobj\n');
         }
         const xref = offset;
         const size = pageId(pageCount);
-        write(`xref\n0 ${size}\n0000000000 65535 f \n${Array.from({length: size - 1}, (_, index) => `${String(offsets[index + 1]).padStart(10, '0')} 00000 n \n`).join('')}`);
+        write(
+            `xref\n0 ${size}\n0000000000 65535 f \n${Array.from({length: size - 1}, (_, index) => `${String(offsets[index + 1]).padStart(10, '0')} 00000 n \n`).join('')}`,
+        );
         write(`trailer\n<< /Size ${size} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
         handle.flush();
         handle.close();
@@ -525,8 +519,8 @@ async function createLargeFixture(name: string, pageCount: number, streamBytes: 
     const worker = new Worker(URL.createObjectURL(new Blob([`(${writeLargeFixture.toString()})()`], {type: 'text/javascript'})));
     try {
         return await new Promise<number>((resolve, reject) => {
-            worker.onmessage = event => resolve(event.data as number);
-            worker.onerror = event => reject(new Error(event.message));
+            worker.onmessage = (event) => resolve(event.data as number);
+            worker.onerror = (event) => reject(new Error(event.message));
             worker.postMessage({name, pageCount, streamBytes});
         });
     } finally {
@@ -544,7 +538,10 @@ async function readWithPdfjs(blob: Blob) {
     pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.mjs';
     class BlobRangeTransport extends pdfjs.PDFDataRangeTransport {
         public override requestDataRange(begin: number, end: number) {
-            void blob.slice(begin, end).arrayBuffer().then(buffer => this.onDataRange(begin, new Uint8Array(buffer)));
+            void blob
+                .slice(begin, end)
+                .arrayBuffer()
+                .then((buffer) => this.onDataRange(begin, new Uint8Array(buffer)));
         }
     }
     const loading = pdfjs.getDocument({
@@ -560,12 +557,12 @@ async function readWithPdfjs(blob: Blob) {
             widths.push((await document.getPage(pageNumber)).view[2]!);
         }
         const dest = (await document.getOutline())?.[0]?.dest;
-        const target = Array.isArray(dest) ? dest[0] as {num: number; gen: number} : null;
+        const target = Array.isArray(dest) ? (dest[0] as {num: number; gen: number}) : null;
         return {
             size: blob.size,
             pageCount: document.numPages,
             widths,
-            outlinePage: target ? await document.getPageIndex(target) + 1 : null,
+            outlinePage: target ? (await document.getPageIndex(target)) + 1 : null,
             labels: await document.getPageLabels(),
         };
     } finally {
@@ -610,7 +607,11 @@ const largeScenarios = {
     async storeSmallPdf(name: string) {
         const document = await PDFDocument.create();
         document.addPage([999, 200]);
-        return browserDocumentStore.createStoredDocument(name, new Uint8Array(await document.save()), {mimeType: 'application/pdf', kind: 'source', saveKind: 'pdf'});
+        return browserDocumentStore.createStoredDocument(name, new Uint8Array(await document.save()), {
+            mimeType: 'application/pdf',
+            kind: 'source',
+            saveKind: 'pdf',
+        });
     },
     async run(operation: 'delete' | 'reorder' | 'insert' | 'extract' | 'merge', ref: string, pageCount: number, other = '') {
         const pageOps = createLargePageOps(() => opfsFile(`${other || 'extract'}.pdf`));
@@ -618,11 +619,16 @@ const largeScenarios = {
         try {
             const {ms, result} = await timed(async (): Promise<unknown> => {
                 switch (operation) {
-                    case 'delete': return pageOps.delete(ref, [2], pageCount, await tokenOf(ref));
-                    case 'reorder': return pageOps.reorder(ref, pages.toReversed(), await tokenOf(ref));
-                    case 'insert': return pageOps.insertFile(ref, pageCount, 1, [other], undefined, await tokenOf(ref));
-                    case 'extract': return pageOps.extract(ref, [1, 3, pageCount]);
-                    case 'merge': return createCombinedPdfFromPaths([ref, other]);
+                    case 'delete':
+                        return pageOps.delete(ref, [2], pageCount, await tokenOf(ref));
+                    case 'reorder':
+                        return pageOps.reorder(ref, pages.toReversed(), await tokenOf(ref));
+                    case 'insert':
+                        return pageOps.insertFile(ref, pageCount, 1, [other], undefined, await tokenOf(ref));
+                    case 'extract':
+                        return pageOps.extract(ref, [1, 3, pageCount]);
+                    case 'merge':
+                        return createCombinedPdfFromPaths([ref, other]);
                 }
             });
             return {ms, result: JSON.parse(JSON.stringify(result ?? null)) as unknown};
@@ -639,11 +645,17 @@ const largeScenarios = {
     },
     async files(ref: string) {
         const doc = await browserDocumentStore.documentOf(ref);
-        if (!doc) {return null;}
+        if (!doc) {
+            return null;
+        }
         let dir = await navigator.storage.getDirectory();
-        for (const name of ['documents', doc.id]) {dir = await dir.getDirectoryHandle(name);}
+        for (const name of ['documents', doc.id]) {
+            dir = await dir.getDirectoryHandle(name);
+        }
         const files: Array<[string, number]> = [];
-        for await (const [name, handle] of dir as unknown as AsyncIterable<[string, FileSystemFileHandle]>) {files.push([name, (await handle.getFile()).size]);}
+        for await (const [name, handle] of dir as unknown as AsyncIterable<[string, FileSystemFileHandle]>) {
+            files.push([name, (await handle.getFile()).size]);
+        }
         return files.sort();
     },
     /** Saves the working copy to its file through the file's handle. */
@@ -653,7 +665,9 @@ const largeScenarios = {
     /** Starts a download of the document's bytes, for checks outside the browser. */
     async download(ref: string, fileName: string) {
         const link = document.createElement('a');
-        link.href = URL.createObjectURL(ref.includes('://') ? await browserDocumentStore.readableBlob(ref) : await (await opfsFile(ref)).getFile());
+        link.href = URL.createObjectURL(
+            ref.includes('://') ? await browserDocumentStore.readableBlob(ref) : await (await opfsFile(ref)).getFile(),
+        );
         link.download = fileName;
         link.click();
     },

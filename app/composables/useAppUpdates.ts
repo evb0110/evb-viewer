@@ -1,9 +1,5 @@
-import type {
-    IAppUpdateStatus,
-    TAppUpdatePhase,
-    TAppUpdateReason,
-} from '@contracts/updatesPlatformFeature';
-import type { TTranslationKey } from '@i18n-app';
+import type {IAppUpdateStatus, TAppUpdatePhase, TAppUpdateReason} from '@contracts/updatesPlatformFeature';
+import type {TTranslationKey} from '@i18n-app';
 import {
     computed,
     getCurrentInstance,
@@ -17,15 +13,12 @@ import {
     type InjectionKey,
     type Ref,
 } from 'vue';
-import { getFailureReceipt } from '@contracts/diagnostics/failureReceipt';
-import type { IPresentedFailureCapture } from '@app/utils/failureReporter';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { getErrorMessage } from '@app/utils/error';
-import { captureFailureForPresentation } from '@app/utils/failureReporter';
-import {
-    getUpdatesCapability,
-    isUpdatesCapabilitySupported,
-} from '@app/utils/platformUpdates';
+import {getFailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import type {IPresentedFailureCapture} from '@app/utils/failureReporter';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {getErrorMessage} from '@app/utils/error';
+import {captureFailureForPresentation} from '@app/utils/failureReporter';
+import {getUpdatesCapability, isUpdatesCapabilitySupported} from '@app/utils/platformUpdates';
 
 type TUpdateFailureCapture = IPresentedFailureCapture & {technicalDetails?: string};
 
@@ -122,11 +115,12 @@ function resolveFallbackUpdatesAppKey(): object {
 
 function registerAppUnmountCleanup(appKey: object, cleanup: () => void) {
     const candidate = appKey as IAppWithUnmountHook;
-    const onUnmount = typeof candidate.onUnmount === 'function'
-        ? candidate.onUnmount.bind(candidate)
-        : typeof candidate.vueApp?.onUnmount === 'function'
-            ? candidate.vueApp.onUnmount.bind(candidate.vueApp)
-            : null;
+    const onUnmount =
+        typeof candidate.onUnmount === 'function'
+            ? candidate.onUnmount.bind(candidate)
+            : typeof candidate.vueApp?.onUnmount === 'function'
+              ? candidate.vueApp.onUnmount.bind(candidate.vueApp)
+              : null;
     onUnmount?.(cleanup);
 }
 
@@ -138,23 +132,19 @@ function toErrorMessage(error: unknown) {
     return String(error);
 }
 
-function captureUpdateFailure(
-    error: unknown,
-    action: TUpdateFailureAction,
-    message: string,
-): TUpdateFailureCapture {
+function captureUpdateFailure(error: unknown, action: TUpdateFailureAction, message: string): TUpdateFailureCapture {
     const existingFailure = getFailureReceipt(error);
     const presentation = existingFailure
         ? {failure: existingFailure}
         : captureFailureForPresentation({
-            code: 'UPDATE_OPERATION_FAILED',
-            local: {
-                source: 'updates',
-                message,
-                cause: error,
-                data: {action},
-            },
-        });
+              code: 'UPDATE_OPERATION_FAILED',
+              local: {
+                  source: 'updates',
+                  message,
+                  cause: error,
+                  data: {action},
+              },
+          });
     BrowserLogger.error('updates', message, error, presentation.failure);
     return {
         ...presentation,
@@ -163,7 +153,7 @@ function captureUpdateFailure(
 }
 
 export function createAppUpdatesOwner(): IAppUpdatesOwner {
-    const status = ref<IAppUpdateStatus>({ ...DEFAULT_STATUS });
+    const status = ref<IAppUpdateStatus>({...DEFAULT_STATUS});
     const dialogOpen = ref(false);
     const initialized = ref(false);
     let statusUnsubscribe: (() => void) | null = null;
@@ -189,9 +179,10 @@ export function createAppUpdatesOwner(): IAppUpdatesOwner {
         status.value = nextStatus;
 
         if (nextStatus.phase === 'error' && nextStatus.reason !== 'install-permission-denied') {
-            activeUpdateFailure.value = failure
-                ?? activeUpdateFailure.value
-                ?? captureUpdateFailure(
+            activeUpdateFailure.value =
+                failure ??
+                activeUpdateFailure.value ??
+                captureUpdateFailure(
                     new Error(nextStatus.message ?? 'Update status reported an error.'),
                     'status',
                     'Update status reported an error',
@@ -219,14 +210,17 @@ export function createAppUpdatesOwner(): IAppUpdatesOwner {
             }
             const message = toErrorMessage(error);
             const failure = captureUpdateFailure(error, 'download', 'Failed to download update');
-            applyStatus({
-                phase: 'error',
-                reason: 'download-failed',
-                origin: 'manual',
-                version: status.value.version,
-                percent: null,
-                message,
-            }, failure);
+            applyStatus(
+                {
+                    phase: 'error',
+                    reason: 'download-failed',
+                    origin: 'manual',
+                    version: status.value.version,
+                    percent: null,
+                    message,
+                },
+                failure,
+            );
         }
     }
 
@@ -250,11 +244,16 @@ export function createAppUpdatesOwner(): IAppUpdatesOwner {
                 return;
             }
             if (!initialized.value || currentState.requestedHere === true) {
-                applyStatus(currentState.phase === 'downloaded'
-                    ? {
-                        ...currentState,
-                        origin: 'auto',
-                    } : currentState, null, currentState.requestedHere === true);
+                applyStatus(
+                    currentState.phase === 'downloaded'
+                        ? {
+                              ...currentState,
+                              origin: 'auto',
+                          }
+                        : currentState,
+                    null,
+                    currentState.requestedHere === true,
+                );
             }
         };
         const unsubscribe = updates.onStatus((nextStatus) => {
@@ -264,7 +263,7 @@ export function createAppUpdatesOwner(): IAppUpdatesOwner {
             initialized.value = true;
             applyStatus(nextStatus, null, nextStatus.origin === 'manual' && nextStatus.requestedHere === true);
             if (nextStatus.reason === 'install-failed' && nextStatus.requestedHere === false) {
-                void hydrateStatus().catch(error => BrowserLogger.warn('updates', 'Failed to claim startup update failure', error));
+                void hydrateStatus().catch((error) => BrowserLogger.warn('updates', 'Failed to claim startup update failure', error));
             }
         });
         if (statusUnsubscribe && statusUnsubscribe !== unsubscribe) {
@@ -290,14 +289,17 @@ export function createAppUpdatesOwner(): IAppUpdatesOwner {
                     return true;
                 }
 
-                applyStatus({
-                    phase: 'error',
-                    reason: 'check-failed',
-                    origin: 'manual',
-                    version: status.value.version,
-                    percent: null,
-                    message,
-                }, failure);
+                applyStatus(
+                    {
+                        phase: 'error',
+                        reason: 'check-failed',
+                        origin: 'manual',
+                        version: status.value.version,
+                        percent: null,
+                        message,
+                    },
+                    failure,
+                );
 
                 unsubscribe();
                 if (statusUnsubscribe === unsubscribe) {
@@ -319,7 +321,7 @@ export function createAppUpdatesOwner(): IAppUpdatesOwner {
     async function checkForUpdates() {
         const generation = ownerGeneration;
         try {
-            if (!await ensureInitialized() || generation !== ownerGeneration) {
+            if (!(await ensureInitialized()) || generation !== ownerGeneration) {
                 return;
             }
             await getUpdatesCapability()?.check();
@@ -329,14 +331,17 @@ export function createAppUpdatesOwner(): IAppUpdatesOwner {
             }
             const message = toErrorMessage(error);
             const failure = captureUpdateFailure(error, 'check', 'Failed to check for updates');
-            applyStatus({
-                phase: 'error',
-                reason: 'check-failed',
-                origin: 'manual',
-                version: status.value.version,
-                percent: null,
-                message,
-            }, failure);
+            applyStatus(
+                {
+                    phase: 'error',
+                    reason: 'check-failed',
+                    origin: 'manual',
+                    version: status.value.version,
+                    percent: null,
+                    message,
+                },
+                failure,
+            );
         }
     }
 
@@ -351,14 +356,17 @@ export function createAppUpdatesOwner(): IAppUpdatesOwner {
             }
             const message = toErrorMessage(error);
             const failure = captureUpdateFailure(error, 'install', 'Failed to install update');
-            applyStatus({
-                phase: 'error',
-                reason: 'install-failed',
-                origin: 'manual',
-                version: status.value.version,
-                percent: null,
-                message,
-            }, failure);
+            applyStatus(
+                {
+                    phase: 'error',
+                    reason: 'install-failed',
+                    origin: 'manual',
+                    version: status.value.version,
+                    percent: null,
+                    message,
+                },
+                failure,
+            );
         }
     }
 
@@ -373,14 +381,17 @@ export function createAppUpdatesOwner(): IAppUpdatesOwner {
             }
             const message = toErrorMessage(error);
             const failure = captureUpdateFailure(error, 'defer', 'Failed to defer update');
-            applyStatus({
-                phase: 'error',
-                reason: 'check-failed',
-                origin: 'manual',
-                version: status.value.version,
-                percent: null,
-                message,
-            }, failure);
+            applyStatus(
+                {
+                    phase: 'error',
+                    reason: 'check-failed',
+                    origin: 'manual',
+                    version: status.value.version,
+                    percent: null,
+                    message,
+                },
+                failure,
+            );
         }
     }
 
@@ -401,14 +412,17 @@ export function createAppUpdatesOwner(): IAppUpdatesOwner {
             }
             const message = toErrorMessage(error);
             const failure = captureUpdateFailure(error, 'skip', 'Failed to skip update version');
-            applyStatus({
-                phase: 'error',
-                reason: 'check-failed',
-                origin: 'manual',
-                version: status.value.version,
-                percent: null,
-                message,
-            }, failure);
+            applyStatus(
+                {
+                    phase: 'error',
+                    reason: 'check-failed',
+                    origin: 'manual',
+                    version: status.value.version,
+                    percent: null,
+                    message,
+                },
+                failure,
+            );
         }
     }
 
@@ -421,7 +435,7 @@ export function createAppUpdatesOwner(): IAppUpdatesOwner {
         initializationPromise = null;
         initialized.value = false;
         activeUpdateFailure.value = null;
-        status.value = { ...DEFAULT_STATUS };
+        status.value = {...DEFAULT_STATUS};
         closeDialog();
     }
 
@@ -497,7 +511,7 @@ const updateReasonKeys = {
 } as const satisfies Record<TAppUpdateReason, TTranslationKey>;
 
 function projectAppUpdates(owner: IAppUpdatesOwner) {
-    const { t } = useTypedI18n();
+    const {t} = useTypedI18n();
     const presentedDialog = computed<IUpdateDialogState>(() => {
         const current = owner.status.value;
         return Object.freeze({
@@ -508,12 +522,18 @@ function projectAppUpdates(owner: IAppUpdatesOwner) {
             percent: current.percent,
             reason: current.reason,
             failure: owner.activeUpdateFailure.value,
-            message: current.phase === 'error' || current.phase === 'unsupported'
-                ? current.reason === 'feed-unavailable'
-                    ? t('updates.feedUnavailable', {version: current.version ?? t('updates.unknownVersion')})
-                    : t(current.reason ? updateReasonKeys[current.reason]
-                        : current.phase === 'unsupported' ? 'updates.unsupportedDescription' : 'updates.unknownError')
-                : current.message,
+            message:
+                current.phase === 'error' || current.phase === 'unsupported'
+                    ? current.reason === 'feed-unavailable'
+                        ? t('updates.feedUnavailable', {version: current.version ?? t('updates.unknownVersion')})
+                        : t(
+                              current.reason
+                                  ? updateReasonKeys[current.reason]
+                                  : current.phase === 'unsupported'
+                                    ? 'updates.unsupportedDescription'
+                                    : 'updates.unknownError',
+                          )
+                    : current.message,
         });
     });
 
@@ -549,8 +569,7 @@ export const provideAppUpdates = () => {
 };
 
 export const useAppUpdates = () => {
-    const owner = (getCurrentInstance() ? inject(appUpdatesOwnerKey, null) : null)
-        ?? getFallbackUpdatesOwner();
+    const owner = (getCurrentInstance() ? inject(appUpdatesOwnerKey, null) : null) ?? getFallbackUpdatesOwner();
     return projectAppUpdates(owner);
 };
 

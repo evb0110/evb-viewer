@@ -2,25 +2,9 @@
 
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    createApp,
-    defineComponent,
-    h,
-    nextTick,
-    reactive,
-} from 'vue';
-import type {
-    IAnnotationCommentSummary,
-    IAnnotationInventoryCompleteness,
-    TAnnotationCommentsStatus,
-} from '@app/types/annotations';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {createApp, defineComponent, h, nextTick, reactive} from 'vue';
+import type {IAnnotationCommentSummary, IAnnotationInventoryCompleteness, TAnnotationCommentsStatus} from '@app/types/annotations';
 import PdfAnnotationCommentsList from '@app/modules/pdf-viewer/components/PdfAnnotationCommentsList.vue';
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
@@ -34,13 +18,17 @@ vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
 function stubElement(tag: string, marker: string) {
     return defineComponent({
         inheritAttrs: false,
-        setup: (_props, {
-            attrs,
-            slots,
-        }) => () => h(tag, {
-            ...attrs,
-            [marker]: '',
-        }, slots.default?.()),
+        setup:
+            (_props, {attrs, slots}) =>
+            () =>
+                h(
+                    tag,
+                    {
+                        ...attrs,
+                        [marker]: '',
+                    },
+                    slots.default?.(),
+                ),
     });
 }
 
@@ -52,11 +40,13 @@ afterEach(() => {
     }
 });
 
-function mountCommentsList(overrides: {
-    inventory?: IAnnotationInventoryCompleteness | null;
-    status?: TAnnotationCommentsStatus;
-    comments?: IAnnotationCommentSummary[];
-} = {}) {
+function mountCommentsList(
+    overrides: {
+        inventory?: IAnnotationInventoryCompleteness | null;
+        status?: TAnnotationCommentsStatus;
+        comments?: IAnnotationCommentSummary[];
+    } = {},
+) {
     const state = reactive<{
         inventory: IAnnotationInventoryCompleteness | null;
         status: TAnnotationCommentsStatus;
@@ -66,11 +56,16 @@ function mountCommentsList(overrides: {
     });
     const host = document.createElement('div');
     document.body.append(host);
-    const app = createApp(defineComponent({setup: () => () => h(PdfAnnotationCommentsList, {
-        comments: overrides.comments ?? [],
-        status: state.status,
-        inventory: state.inventory,
-    })}));
+    const app = createApp(
+        defineComponent({
+            setup: () => () =>
+                h(PdfAnnotationCommentsList, {
+                    comments: overrides.comments ?? [],
+                    status: state.status,
+                    inventory: state.inventory,
+                }),
+        }),
+    );
     app.component('UButton', stubElement('button', 'data-ubutton-stub'));
     app.component('UIcon', stubElement('span', 'data-uicon-stub'));
     app.mount(host);
@@ -89,9 +84,7 @@ function mountCommentsList(overrides: {
     };
 }
 
-function createCompleteness(
-    overrides: Partial<IAnnotationInventoryCompleteness> = {},
-): IAnnotationInventoryCompleteness {
+function createCompleteness(overrides: Partial<IAnnotationInventoryCompleteness> = {}): IAnnotationInventoryCompleteness {
     return {
         complete: false,
         omissions: ['page-parse-failure'],
@@ -104,7 +97,7 @@ function createCompleteness(
 
 describe('PdfAnnotationCommentsList incomplete inventory', () => {
     it('announces unreadable pages with accessible live-region copy', () => {
-        const { readNotice } = mountCommentsList({ inventory: createCompleteness() });
+        const {readNotice} = mountCommentsList({inventory: createCompleteness()});
 
         const notice = readNotice();
         expect(notice).not.toBeNull();
@@ -116,20 +109,19 @@ describe('PdfAnnotationCommentsList incomplete inventory', () => {
     });
 
     it('explains a cap-truncated scan without blaming unreadable pages', () => {
-        const { readNotice } = mountCommentsList({ inventory: createCompleteness({
-            omissions: ['page-cap'],
-            failedPageCount: 0,
-        }) });
+        const {readNotice} = mountCommentsList({
+            inventory: createCompleteness({
+                omissions: ['page-cap'],
+                failedPageCount: 0,
+            }),
+        });
 
         expect(readNotice()?.textContent).toContain('annotations.inventoryIncompleteScanLimit');
         expect(readNotice()?.textContent).not.toContain('annotations.inventoryIncompleteUnreadablePages');
     });
 
     it('lists both causes when a scan both failed a page and hit a cap', () => {
-        const { readNotice } = mountCommentsList({ inventory: createCompleteness({ omissions: [
-            'record-cap',
-            'page-parse-failure',
-        ] }) });
+        const {readNotice} = mountCommentsList({inventory: createCompleteness({omissions: ['record-cap', 'page-parse-failure']})});
 
         const text = readNotice()?.textContent ?? '';
         expect(text).toContain('annotations.inventoryIncompleteUnreadablePages');
@@ -137,7 +129,7 @@ describe('PdfAnnotationCommentsList incomplete inventory', () => {
     });
 
     it('stays visible while the list is still loading', () => {
-        const { readNotice } = mountCommentsList({
+        const {readNotice} = mountCommentsList({
             inventory: createCompleteness(),
             status: 'loading',
         });
@@ -146,10 +138,7 @@ describe('PdfAnnotationCommentsList incomplete inventory', () => {
     });
 
     it('shows nothing for an unreported or complete inventory', async () => {
-        const {
-            readNotice,
-            state,
-        } = mountCommentsList();
+        const {readNotice, state} = mountCommentsList();
         expect(readNotice()).toBeNull();
 
         state.inventory = {
@@ -164,10 +153,7 @@ describe('PdfAnnotationCommentsList incomplete inventory', () => {
     });
 
     it('clears the notice when a later scan recovers the missing pages', async () => {
-        const {
-            readNotice,
-            state,
-        } = mountCommentsList({ inventory: createCompleteness() });
+        const {readNotice, state} = mountCommentsList({inventory: createCompleteness()});
         expect(readNotice()).not.toBeNull();
 
         state.inventory = {

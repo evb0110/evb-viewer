@@ -1,7 +1,4 @@
-import type {
-    IShapePoint,
-    TDrawableShapeType,
-} from '@app/types/annotations';
+import type {IShapePoint, TDrawableShapeType} from '@app/types/annotations';
 
 export interface IShapeAnnotationConstructionOptions {
     tool: TDrawableShapeType;

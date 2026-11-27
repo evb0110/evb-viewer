@@ -29,7 +29,7 @@
           variant="ghost"
           size="md"
           icon="i-ph-globe"
-          :ui="{ label: 'max-sm:hidden' }"
+          :ui="{label: 'max-sm:hidden'}"
         />
 
         <UColorModeButton
@@ -129,17 +129,17 @@
 
             <div
               class="installer-list"
-              :class="{ 'installer-list-mirrored': hasMirrorForSelectedPlatform }"
+              :class="{'installer-list-mirrored': hasMirrorForSelectedPlatform}"
             >
               <div
                 v-for="installer in installersForSelectedPlatform"
                 :key="installer.id"
                 class="installer-row"
-                :class="{ 'installer-row-recommended': isRecommendedInstaller(installer) }"
+                :class="{'installer-row-recommended': isRecommendedInstaller(installer)}"
               >
                 <a
                   class="installer-item"
-                  :class="{ 'installer-item-recommended': isRecommendedInstaller(installer) }"
+                  :class="{'installer-item-recommended': isRecommendedInstaller(installer)}"
                   :href="installer.downloadUrl"
                   :aria-label="downloadAriaLabel(installer)"
                   @click="trackInstallerDownload(installer, 'github')"
@@ -226,7 +226,6 @@
             <p class="installer-hint">
               {{ installerPlatformHint }}
             </p>
-
           </div>
 
           <div
@@ -339,7 +338,8 @@
           :href="GITHUB_REPOSITORY_URL"
           target="_blank"
           rel="noreferrer"
-        >{{ t('footer.viewSource') }}</a>
+          >{{ t('footer.viewSource') }}</a
+        >
       </nav>
       <SentryAcknowledgement class="home-footer-acknowledgement" />
     </footer>
@@ -347,176 +347,163 @@
 </template>
 
 <script setup lang="ts">
-import { track } from '@vercel/analytics';
-import { GITHUB_REPOSITORY_URL } from '~/constants/githubRepositoryUrl';
-import { selectInstallersForPlatform } from '~~/shared/selectInstallersForPlatform';
+import {track} from '@vercel/analytics';
+import {GITHUB_REPOSITORY_URL} from '~/constants/githubRepositoryUrl';
+import {selectInstallersForPlatform} from '~~/shared/selectInstallersForPlatform';
 import SentryAcknowledgement from '~/components/SentryAcknowledgement.vue';
 import SiteCopyright from '~/components/SiteCopyright.vue';
 import {
-    buildClientProfile,
-    formatFileSize,
-    formatPlatform,
-    INSTALLER_PLATFORM_ORDER,
-    parseArchitectureHint,
-    parsePlatformHint,
-    recommendInstaller,
-    type IReleaseInstaller,
-    type TReleaseArch,
-    type IUserAgentProfile,
-    type TReleasePlatform,
+  buildClientProfile,
+  formatFileSize,
+  formatPlatform,
+  INSTALLER_PLATFORM_ORDER,
+  parseArchitectureHint,
+  parsePlatformHint,
+  recommendInstaller,
+  type IReleaseInstaller,
+  type TReleaseArch,
+  type IUserAgentProfile,
+  type TReleasePlatform,
 } from '@releaseSelection';
 
 interface INavigatorUADataLike {
-    platform?: string
-    getHighEntropyValues?: (hints: string[]) => Promise<{ architecture?: string }>
+  platform?: string;
+  getHighEntropyValues?: (hints: string[]) => Promise<{architecture?: string}>;
 }
 
-const {
-    t,
-    locale,
-} = useTypedI18n();
+const {t, locale} = useTypedI18n();
 const localePath = useLocalePath();
 const colorMode = useColorMode();
 const browserEntryUrl = new URL('/app', useRequestURL()).href;
 // The film mounts on the client, after color mode has resolved the system preference.
-const filmTheme = computed(() => colorMode.value === 'dark' ? 'dark' : 'light');
+const filmTheme = computed(() => (colorMode.value === 'dark' ? 'dark' : 'light'));
 
 const FEATURE_ICONS = [
-    {
-        key: 'cleanup',
-        icon: 'i-ph-broom',
-    },
-    {
-        key: 'ocr',
-        icon: 'i-ph-text-t',
-    },
-    {
-        key: 'search',
-        icon: 'i-ph-magnifying-glass',
-    },
-    {
-        key: 'annotate',
-        icon: 'i-ph-highlighter',
-    },
-    {
-        key: 'pages',
-        icon: 'i-ph-files',
-    },
-    {
-        key: 'export',
-        icon: 'i-ph-export',
-    },
+  {
+    key: 'cleanup',
+    icon: 'i-ph-broom',
+  },
+  {
+    key: 'ocr',
+    icon: 'i-ph-text-t',
+  },
+  {
+    key: 'search',
+    icon: 'i-ph-magnifying-glass',
+  },
+  {
+    key: 'annotate',
+    icon: 'i-ph-highlighter',
+  },
+  {
+    key: 'pages',
+    icon: 'i-ph-files',
+  },
+  {
+    key: 'export',
+    icon: 'i-ph-export',
+  },
 ] as const;
 const AUDIENCE_ICONS = [
-    {
-        key: 'archives',
-        icon: 'i-ph-archive',
-    },
-    {
-        key: 'scholars',
-        icon: 'i-ph-scroll',
-    },
-    {
-        key: 'students',
-        icon: 'i-ph-student',
-    },
-    {
-        key: 'personal',
-        icon: 'i-ph-books',
-    },
+  {
+    key: 'archives',
+    icon: 'i-ph-archive',
+  },
+  {
+    key: 'scholars',
+    icon: 'i-ph-scroll',
+  },
+  {
+    key: 'students',
+    icon: 'i-ph-student',
+  },
+  {
+    key: 'personal',
+    icon: 'i-ph-books',
+  },
 ] as const;
-const FAQ_KEYS = [
-    'free',
-    'files',
-    'languages',
-    'formats',
-    'browser',
-    'assistant',
-] as const;
+const FAQ_KEYS = ['free', 'files', 'languages', 'formats', 'browser', 'assistant'] as const;
 
-const features = computed(() => FEATURE_ICONS.map(({
-    key,
-    icon,
-}) => ({
+const features = computed(() =>
+  FEATURE_ICONS.map(({key, icon}) => ({
     key,
     icon,
     title: t(`home.features.items.${key}.title`),
     text: t(`home.features.items.${key}.text`),
-})));
-const audiences = computed(() => AUDIENCE_ICONS.map(({
-    key,
-    icon,
-}) => ({
+  })),
+);
+const audiences = computed(() =>
+  AUDIENCE_ICONS.map(({key, icon}) => ({
     key,
     icon,
     title: t(`home.audience.items.${key}.title`),
     text: t(`home.audience.items.${key}.text`),
-})));
-const faq = computed(() => FAQ_KEYS.map(key => ({
+  })),
+);
+const faq = computed(() =>
+  FAQ_KEYS.map((key) => ({
     key,
     question: t(`home.faq.items.${key}.question`),
     answer: t(`home.faq.items.${key}.answer`, {webAppUrl: browserEntryUrl.replace(/^https?:\/\//u, '')}),
-})));
+  })),
+);
 
 const MICROSOFT_STORE_URL = 'https://apps.microsoft.com/detail/9N3MB1WJGX1L';
 
 const pageDescription = computed(() => t('home.seo.ogDescription'));
 
-const {
-    canonicalUrl,
-    ogImage,
-} = useLandingPageSeo({
-    title: () => t('home.seo.title'),
-    description: () => pageDescription.value,
-    ogTitle: () => t('home.seo.ogTitle'),
+const {canonicalUrl, ogImage} = useLandingPageSeo({
+  title: () => t('home.seo.title'),
+  description: () => pageDescription.value,
+  ogTitle: () => t('home.seo.ogTitle'),
 });
 
 const clientProfile = useState<IUserAgentProfile>('landing-client-profile', () => {
-    return {
-        platform: 'unknown',
-        arch: 'unknown',
-    };
+  return {
+    platform: 'unknown',
+    arch: 'unknown',
+  };
 });
 
 const {
-    data: releaseData,
-    error,
-    refresh,
-    status,
+  data: releaseData,
+  error,
+  refresh,
+  status,
 } = await useFetch('/api/releases/latest', {
-    key: 'latest-release-data',
-    server: false,
+  key: 'latest-release-data',
+  server: false,
 });
 
 const installers = computed(() => releaseData.value?.assets ?? []);
 
-const selectablePlatforms = computed<TReleasePlatform[]>(() => INSTALLER_PLATFORM_ORDER.filter(
-    platform => installers.value.some(asset => asset.platform === platform),
-));
+const selectablePlatforms = computed<TReleasePlatform[]>(() =>
+  INSTALLER_PLATFORM_ORDER.filter((platform) => installers.value.some((asset) => asset.platform === platform)),
+);
 
 const installerTabs = computed<TReleasePlatform[]>(() => selectablePlatforms.value);
 
 const recommendedInstaller = computed<IReleaseInstaller | null>(() => {
-    if (!installers.value.length || clientProfile.value.platform === 'unknown') {
-        return null;
-    }
+  if (!installers.value.length || clientProfile.value.platform === 'unknown') {
+    return null;
+  }
 
-    return recommendInstaller(installers.value, clientProfile.value);
+  return recommendInstaller(installers.value, clientProfile.value);
 });
 
 const selectedInstallerTabOverride = ref<TReleasePlatform | null>(null);
 
 const selectedInstallerTab = computed<TReleasePlatform>(() => {
-    if (selectedInstallerTabOverride.value && installerTabs.value.includes(selectedInstallerTabOverride.value)) {
-        return selectedInstallerTabOverride.value;
-    }
+  if (selectedInstallerTabOverride.value && installerTabs.value.includes(selectedInstallerTabOverride.value)) {
+    return selectedInstallerTabOverride.value;
+  }
 
-    const recPlatform = recommendedInstaller.value?.platform ?? 'unknown';
-    if (selectablePlatforms.value.includes(recPlatform)) {
-        return recPlatform;
-    }
+  const recPlatform = recommendedInstaller.value?.platform ?? 'unknown';
+  if (selectablePlatforms.value.includes(recPlatform)) {
+    return recPlatform;
+  }
 
-    return selectablePlatforms.value[0] ?? 'unknown';
+  return selectablePlatforms.value[0] ?? 'unknown';
 });
 
 const installersForSelectedPlatform = computed(() => selectInstallersForPlatform(installers.value, selectedInstallerTab.value));
@@ -524,193 +511,198 @@ const installersForSelectedPlatform = computed(() => selectInstallersForPlatform
 // The mirror column is reserved for the whole list so every download chip lands
 // in the same place. Platforms whose assets are all absent from the mirror drop
 // the column instead of showing an empty strip.
-const hasMirrorForSelectedPlatform = computed(() => installersForSelectedPlatform.value
-    .some(installer => Boolean(installer.mirrorDownloadUrl)));
+const hasMirrorForSelectedPlatform = computed(() =>
+  installersForSelectedPlatform.value.some((installer) => Boolean(installer.mirrorDownloadUrl)),
+);
 
 const installerPlatformHint = computed(() => {
-    if (selectedInstallerTab.value === 'macos') {
-        return t('home.installers.platformHint.macos');
-    }
+  if (selectedInstallerTab.value === 'macos') {
+    return t('home.installers.platformHint.macos');
+  }
 
-    if (selectedInstallerTab.value === 'windows') {
-        return t('home.installers.platformHint.windows');
-    }
+  if (selectedInstallerTab.value === 'windows') {
+    return t('home.installers.platformHint.windows');
+  }
 
-    if (selectedInstallerTab.value === 'linux') {
-        return t('home.installers.platformHint.linux');
-    }
+  if (selectedInstallerTab.value === 'linux') {
+    return t('home.installers.platformHint.linux');
+  }
 
-    return t('home.installers.platformHint.default');
+  return t('home.installers.platformHint.default');
 });
 
 const fallbackReleaseUrl = computed(() => releaseData.value?.release.htmlUrl ?? `${GITHUB_REPOSITORY_URL}/releases`);
 const softwareApplicationSchema = computed(() => {
-    const latestRelease = releaseData.value?.release;
+  const latestRelease = releaseData.value?.release;
 
-    return {
-        '@context': 'https://schema.org',
-        '@type': 'SoftwareApplication',
-        name: t('app.title'),
-        applicationCategory: 'UtilitiesApplication',
-        operatingSystem: 'Web, macOS, Windows, Linux',
-        description: pageDescription.value,
-        url: canonicalUrl.value,
-        image: ogImage.value,
-        downloadUrl: fallbackReleaseUrl.value,
-        author: {
-            '@type': 'Person',
-            name: 'Eugene Barsky',
-        },
-        offers: {
-            '@type': 'Offer',
-            price: '0',
-            priceCurrency: 'USD',
-        },
-        softwareVersion: latestRelease?.tag,
-        datePublished: latestRelease?.publishedAt,
-    };
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'SoftwareApplication',
+    name: t('app.title'),
+    applicationCategory: 'UtilitiesApplication',
+    operatingSystem: 'Web, macOS, Windows, Linux',
+    description: pageDescription.value,
+    url: canonicalUrl.value,
+    image: ogImage.value,
+    downloadUrl: fallbackReleaseUrl.value,
+    author: {
+      '@type': 'Person',
+      name: 'Eugene Barsky',
+    },
+    offers: {
+      '@type': 'Offer',
+      price: '0',
+      priceCurrency: 'USD',
+    },
+    softwareVersion: latestRelease?.tag,
+    datePublished: latestRelease?.publishedAt,
+  };
 });
 
-useHead(() => ({ script: [{
-    key: 'software-application-schema',
-    type: 'application/ld+json',
-    textContent: JSON.stringify(softwareApplicationSchema.value),
-}] }));
+useHead(() => ({
+  script: [
+    {
+      key: 'software-application-schema',
+      type: 'application/ld+json',
+      textContent: JSON.stringify(softwareApplicationSchema.value),
+    },
+  ],
+}));
 
 onMounted(async () => {
-    clientProfile.value = await detectClientProfile();
+  clientProfile.value = await detectClientProfile();
 });
 
 async function detectClientProfile(): Promise<IUserAgentProfile> {
-    const uaData = (navigator as Navigator & { userAgentData?: INavigatorUADataLike }).userAgentData;
+  const uaData = (navigator as Navigator & {userAgentData?: INavigatorUADataLike}).userAgentData;
 
-    if (!uaData) {
-        return buildClientProfile(navigator.userAgent);
+  if (!uaData) {
+    return buildClientProfile(navigator.userAgent);
+  }
+
+  const hintedPlatform = parsePlatformHint(uaData.platform);
+  let hintedArch: TReleaseArch = 'unknown';
+
+  if (typeof uaData.getHighEntropyValues === 'function') {
+    try {
+      const entropyValues = await uaData.getHighEntropyValues(['architecture']);
+      hintedArch = parseArchitectureHint(entropyValues.architecture);
+    } catch {
+      hintedArch = 'unknown';
     }
+  }
 
-    const hintedPlatform = parsePlatformHint(uaData.platform);
-    let hintedArch: TReleaseArch = 'unknown';
-
-    if (typeof uaData.getHighEntropyValues === 'function') {
-        try {
-            const entropyValues = await uaData.getHighEntropyValues(['architecture']);
-            hintedArch = parseArchitectureHint(entropyValues.architecture);
-        } catch {
-            hintedArch = 'unknown';
-        }
-    }
-
-    return buildClientProfile(navigator.userAgent, hintedPlatform, hintedArch);
+  return buildClientProfile(navigator.userAgent, hintedPlatform, hintedArch);
 }
 
 function trackInstallerDownload(installer: IReleaseInstaller, source: 'github' | 'mirror') {
-    track('download', {
-        platform: installer.platform,
-        arch: installer.arch,
-        version: releaseData.value?.release.tag ?? 'unknown',
-        source,
-    });
+  track('download', {
+    platform: installer.platform,
+    arch: installer.arch,
+    version: releaseData.value?.release.tag ?? 'unknown',
+    source,
+  });
 }
 
 function isRecommendedInstaller(installer: IReleaseInstaller) {
-    return recommendedInstaller.value?.id === installer.id;
+  return recommendedInstaller.value?.id === installer.id;
 }
 
 function selectInstallerTab(tab: TReleasePlatform) {
-    selectedInstallerTabOverride.value = tab;
+  selectedInstallerTabOverride.value = tab;
 }
 
 function installerPlatformLabel(platform: TReleasePlatform): string {
-    if (platform === 'macos') {
-        return t('features.platforms.macOs');
-    }
+  if (platform === 'macos') {
+    return t('features.platforms.macOs');
+  }
 
-    if (platform === 'windows') {
-        return t('features.platforms.windows');
-    }
+  if (platform === 'windows') {
+    return t('features.platforms.windows');
+  }
 
-    if (platform === 'linux') {
-        return t('features.platforms.linux');
-    }
+  if (platform === 'linux') {
+    return t('features.platforms.linux');
+  }
 
-    return formatPlatform(platform);
+  return formatPlatform(platform);
 }
 
 function installerLabel(installer: IReleaseInstaller): string {
-    const arch = installer.arch;
+  const arch = installer.arch;
 
-    if (installer.platform === 'macos' && arch === 'arm64') {
-        return t('home.installers.arch.appleSilicon');
-    }
+  if (installer.platform === 'macos' && arch === 'arm64') {
+    return t('home.installers.arch.appleSilicon');
+  }
 
-    if (arch === 'x64') {
-        return t('home.installers.arch.x64');
-    }
+  if (arch === 'x64') {
+    return t('home.installers.arch.x64');
+  }
 
-    if (arch === 'arm64') {
-        return t('home.installers.arch.arm64');
-    }
+  if (arch === 'arm64') {
+    return t('home.installers.arch.arm64');
+  }
 
-    if (arch === 'universal') {
-        return t('home.installers.arch.universal');
-    }
+  if (arch === 'universal') {
+    return t('home.installers.arch.universal');
+  }
 
-    return packageLabel(installer);
+  return packageLabel(installer);
 }
 
 function packageLabel(installer: IReleaseInstaller): string {
-    if (installer.extension === 'deb') {
-        return t('home.installers.package.deb');
-    }
+  if (installer.extension === 'deb') {
+    return t('home.installers.package.deb');
+  }
 
-    if (installer.extension === 'dmg') {
-        return t('home.installers.package.dmg');
-    }
+  if (installer.extension === 'dmg') {
+    return t('home.installers.package.dmg');
+  }
 
-    if (installer.extension === 'exe') {
-        return t('home.installers.package.exe');
-    }
+  if (installer.extension === 'exe') {
+    return t('home.installers.package.exe');
+  }
 
-    return installer.extension.toUpperCase();
+  return installer.extension.toUpperCase();
 }
 
 function installerDetail(installer: IReleaseInstaller): string {
-    if (installer.platform === 'linux' && installer.extension === 'deb') {
-        return t('home.installers.detail.linuxDeb');
-    }
+  if (installer.platform === 'linux' && installer.extension === 'deb') {
+    return t('home.installers.detail.linuxDeb');
+  }
 
-    if (installer.platform === 'macos' && installer.arch === 'arm64') {
-        return t('home.installers.detail.macosArm64');
-    }
+  if (installer.platform === 'macos' && installer.arch === 'arm64') {
+    return t('home.installers.detail.macosArm64');
+  }
 
-    if (installer.platform === 'windows' && installer.arch === 'arm64') {
-        return t('home.installers.detail.windowsArm64');
-    }
+  if (installer.platform === 'windows' && installer.arch === 'arm64') {
+    return t('home.installers.detail.windowsArm64');
+  }
 
-    if (installer.platform === 'windows' && installer.arch === 'x64') {
-        return t('home.installers.detail.windowsX64');
-    }
+  if (installer.platform === 'windows' && installer.arch === 'x64') {
+    return t('home.installers.detail.windowsX64');
+  }
 
-    return packageLabel(installer);
+  return packageLabel(installer);
 }
 
 function installerMeta(installer: IReleaseInstaller): string {
-    return t('home.installers.packageSize', {
-        package: packageLabel(installer),
-        size: formatFileSize(installer.size),
-    });
+  return t('home.installers.packageSize', {
+    package: packageLabel(installer),
+    size: formatFileSize(installer.size),
+  });
 }
 
 function downloadAriaLabel(installer: IReleaseInstaller): string {
-    return t('home.hero.downloadInstaller', {installerLabel: `${installerLabel(installer)} ${packageLabel(installer)}`});
+  return t('home.hero.downloadInstaller', {installerLabel: `${installerLabel(installer)} ${packageLabel(installer)}`});
 }
 
 function mirrorDownloadAriaLabel(installer: IReleaseInstaller): string {
-    return `${t('home.installers.mirror')}: ${downloadAriaLabel(installer)}`;
+  return `${t('home.installers.mirror')}: ${downloadAriaLabel(installer)}`;
 }
 
 async function refreshReleaseData() {
-    await refresh();
+  await refresh();
 }
 </script>
 
@@ -731,8 +723,8 @@ async function refreshReleaseData() {
 .home-hero {
   display: grid;
   grid-template-areas:
-    "intro film"
-    "get film";
+    'intro film'
+    'get film';
   grid-template-rows: auto 1fr;
   grid-template-columns: minmax(18rem, 26rem) minmax(0, calc((100vh - 11rem) * 1.45));
   gap: 1.75rem clamp(2rem, 4vw, 3.5rem);
@@ -877,9 +869,9 @@ async function refreshReleaseData() {
 @media (width <= 64rem) {
   .home-hero {
     grid-template-areas:
-      "intro"
-      "film"
-      "get";
+      'intro'
+      'film'
+      'get';
     grid-template-rows: none;
     grid-template-columns: minmax(0, 1fr);
   }

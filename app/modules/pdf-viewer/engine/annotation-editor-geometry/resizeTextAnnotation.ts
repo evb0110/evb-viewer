@@ -1,4 +1,4 @@
-import type { IAnnotationMarkerRect } from '@app/types/annotations';
+import type {IAnnotationMarkerRect} from '@app/types/annotations';
 import type {
     IAnnotationEditorPoint,
     IAnnotationPageDimensions,
@@ -62,8 +62,9 @@ export function resizeTextAnnotation(
     }
     function inside(value: IAnnotationMarkerRect) {
         const bounds = rotatedAnnotationBounds(value, rotation, page);
-        return bounds.left >= -1e-8 && bounds.top >= -1e-8
-            && bounds.left + bounds.width <= 1 + 1e-8 && bounds.top + bounds.height <= 1 + 1e-8;
+        return (
+            bounds.left >= -1e-8 && bounds.top >= -1e-8 && bounds.left + bounds.width <= 1 + 1e-8 && bounds.top + bounds.height <= 1 + 1e-8
+        );
     }
     let scale = requested;
     if (!inside(candidate(scale))) {
@@ -77,8 +78,11 @@ export function resizeTextAnnotation(
         let upper = 1;
         for (let iteration = 0; iteration < 32; iteration += 1) {
             const fraction = (lower + upper) / 2;
-            if (inside(candidate(1 + (requested - 1) * fraction))) {lower = fraction;}
-            else {upper = fraction;}
+            if (inside(candidate(1 + (requested - 1) * fraction))) {
+                lower = fraction;
+            } else {
+                upper = fraction;
+            }
         }
         scale = 1 + (requested - 1) * lower;
     }

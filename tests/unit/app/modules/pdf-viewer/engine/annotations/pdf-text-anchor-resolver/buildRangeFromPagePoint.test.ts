@@ -1,13 +1,8 @@
 // @vitest-environment happy-dom
 
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { buildRangeFromPageText } from '@app/modules/pdf-viewer/engine/annotations/pdf-text-anchor-resolver/buildRangeFromPageText';
-import { highlightTextRunInPdfjsStyle } from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightDom';
+import {afterEach, describe, expect, it} from 'vitest';
+import {buildRangeFromPageText} from '@app/modules/pdf-viewer/engine/annotations/pdf-text-anchor-resolver/buildRangeFromPageText';
+import {highlightTextRunInPdfjsStyle} from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightDom';
 
 /**
  * A click on a page arrives as a normalized fraction of the page box, while the
@@ -36,10 +31,11 @@ interface ITextSpanFixture {
 }
 
 function stubRect(element: HTMLElement, rect: typeof PAGE_RECT) {
-    element.getBoundingClientRect = () => ({
-        ...rect,
-        toJSON: () => rect,
-    }) as DOMRect;
+    element.getBoundingClientRect = () =>
+        ({
+            ...rect,
+            toJSON: () => rect,
+        }) as DOMRect;
 }
 
 function createPage(spans: readonly ITextSpanFixture[]) {
@@ -75,36 +71,42 @@ afterEach(() => {
 });
 
 describe('buildRangeFromPageText', () => {
-    const line = (text: string) => createPage([{
-        height: 20,
-        left: 0,
-        node: document.createTextNode(text),
-        top: 0,
-        width: 160,
-    }]);
+    const line = (text: string) =>
+        createPage([
+            {
+                height: 20,
+                left: 0,
+                node: document.createTextNode(text),
+                top: 0,
+                width: 160,
+            },
+        ]);
 
     it('finds text inside and around a search highlight without disturbing it', () => {
         const page = line('Alpha beta');
         const span = page.querySelector<HTMLSpanElement>('.text-layer span')!;
-        highlightTextRunInPdfjsStyle({
-            kind: 'span',
-            span,
-            textNode: span.firstChild as Text,
-            text: 'Alpha beta',
-            startOffset: 0,
-            endOffset: 10,
-        }, [{
-            start: 0,
-            end: 5,
-            isCurrent: true,
-        }], 'highlight', 'selected');
+        highlightTextRunInPdfjsStyle(
+            {
+                kind: 'span',
+                span,
+                textNode: span.firstChild as Text,
+                text: 'Alpha beta',
+                startOffset: 0,
+                endOffset: 10,
+            },
+            [
+                {
+                    start: 0,
+                    end: 5,
+                    isCurrent: true,
+                },
+            ],
+            'highlight',
+            'selected',
+        );
         expect(span.querySelector('.highlight')?.textContent).toBe('Alpha');
 
-        for (const text of [
-            'Alpha',
-            'beta',
-            'pha be',
-        ]) {
+        for (const text of ['Alpha', 'beta', 'pha be']) {
             const result = buildRangeFromPageText(page, {text});
             expect(result?.range.toString(), text).toBe(text);
             expect(result?.matchedText).toBe(text);
@@ -113,42 +115,14 @@ describe('buildRangeFromPageText', () => {
     });
 
     it('keeps exact offsets after characters outside the BMP and case folds that lengthen', () => {
-        for (const [
-            text,
-            query,
-            expected,
-        ] of [
-                [
-                    '\u{1D49C}lpha beta',
-                    'beta',
-                    'beta',
-                ],
-                [
-                    '\u{1D49C}lpha beta',
-                    '\u{1D49C}lpha',
-                    '\u{1D49C}lpha',
-                ],
-                [
-                    '\u0130stanbul beta',
-                    'beta',
-                    'beta',
-                ],
-                [
-                    '\u0130stanbul beta',
-                    '\u0130STANBUL',
-                    '\u0130stanbul',
-                ],
-                [
-                    'plain ascii text',
-                    'ascii',
-                    'ascii',
-                ],
-                [
-                    'στην οδός Αθηνάς',
-                    'ΟΔΌΣ',
-                    'οδός',
-                ],
-            ] as const) {
+        for (const [text, query, expected] of [
+            ['\u{1D49C}lpha beta', 'beta', 'beta'],
+            ['\u{1D49C}lpha beta', '\u{1D49C}lpha', '\u{1D49C}lpha'],
+            ['\u0130stanbul beta', 'beta', 'beta'],
+            ['\u0130stanbul beta', '\u0130STANBUL', '\u0130stanbul'],
+            ['plain ascii text', 'ascii', 'ascii'],
+            ['στην οδός Αθηνάς', 'ΟΔΌΣ', 'οδός'],
+        ] as const) {
             document.body.innerHTML = '';
             const result = buildRangeFromPageText(line(text), {text: query});
             expect(result?.range.toString(), `${query} in ${text}`).toBe(expected);
@@ -184,18 +158,22 @@ describe('buildRangeFromPageText', () => {
     });
 
     it('honors case and whole-word matching while selecting an occurrence', () => {
-        const page = createPage([{
-            height: 20,
-            left: 0,
-            node: document.createTextNode('Catalog catalog'),
-            top: 0,
-            width: 120,
-        }]);
+        const page = createPage([
+            {
+                height: 20,
+                left: 0,
+                node: document.createTextNode('Catalog catalog'),
+                top: 0,
+                width: 120,
+            },
+        ]);
 
-        expect(buildRangeFromPageText(page, {
-            text: 'CATALOG',
-            caseSensitive: true,
-        })).toBeNull();
+        expect(
+            buildRangeFromPageText(page, {
+                text: 'CATALOG',
+                caseSensitive: true,
+            }),
+        ).toBeNull();
 
         const result = buildRangeFromPageText(page, {
             occurrence: 2,
@@ -205,9 +183,11 @@ describe('buildRangeFromPageText', () => {
         expect(result?.matchedText).toBe('catalog');
         expect(result?.range.toString()).toBe('catalog');
 
-        expect(buildRangeFromPageText(page, {
-            text: 'cat',
-            wholeWord: true,
-        })).toBeNull();
+        expect(
+            buildRangeFromPageText(page, {
+                text: 'cat',
+                wholeWord: true,
+            }),
+        ).toBeNull();
     });
 });

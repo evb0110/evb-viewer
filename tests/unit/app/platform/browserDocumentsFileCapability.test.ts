@@ -4,38 +4,22 @@ import type * as TBrowserWindowTabs from '@app/platform/browserWindowTabs';
 import {createHash} from 'node:crypto';
 import {requirePdfDateString} from '@contracts/pdfDateString';
 import {createBrowserStoreStagedArtifact} from '@app/platform/browser/browserStagedArtifact';
-import {
-    afterAll,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    onTestFinished,
-    vi,
-} from 'vitest';
-import {
-    mkdtemp, readFile, rm,
-} from 'node:fs/promises';
+import {afterAll, beforeEach, describe, expect, it, onTestFinished, vi} from 'vitest';
+import {mkdtemp, readFile, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {createNodeStorePort} from '@document-store/nodeStorePort';
 import {join} from 'node:path';
-import { PDFDocument } from 'pdf-lib';
-import type {
-    IDocumentsFileCapability,
-    IDocumentsOpenCapability,
-} from '@contracts/electronApiDocuments';
+import {PDFDocument} from 'pdf-lib';
+import type {IDocumentsFileCapability, IDocumentsOpenCapability} from '@contracts/electronApiDocuments';
 import type {TDocumentRef} from '@contracts/documentRef';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requireRequestId} from '@contracts/shared';
-import type { BrowserDocumentStore } from '@app/platform/browserDocumentStore';
+import type {BrowserDocumentStore} from '@app/platform/browserDocumentStore';
 import {BROWSER_MAX_FULL_READ_BYTES as BROWSER_FULL_READ_LIMIT} from '@app/platform/browser/browserDocumentConstants';
 import {BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES} from '@contracts/browserPdfCombineWorker';
 import {BROWSER_QPDF_MAX_INPUT_BYTES} from '@contracts/browserQpdfEngine';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
-import {
-    FakeLockManager,
-    MemoryStorage,
-} from '@tests/unit/app/platform/browserPlatformTestDoubles';
+import {FakeLockManager, MemoryStorage} from '@tests/unit/app/platform/browserPlatformTestDoubles';
 
 import type {IDocxExportFileCapability} from '@contracts/docxExport';
 
@@ -71,9 +55,7 @@ interface IFileSystemFileHandleFixtureOptions extends IFileSystemFileHandlePermi
     readonly isSameEntry?: FileSystemFileHandle['isSameEntry'];
 }
 
-function createFileSystemWritableFileStream(
-    options: IFileSystemWritableFileStreamFixtureOptions = {},
-): FileSystemWritableFileStream {
+function createFileSystemWritableFileStream(options: IFileSystemWritableFileStreamFixtureOptions = {}): FileSystemWritableFileStream {
     const writable = Object.assign(new WritableStream(), {
         abort: options.abort ?? (async (_reason?: unknown) => {}),
         close: options.close ?? (async () => {}),
@@ -105,8 +87,7 @@ function createFileSystemFileHandle(
         name: options.name,
         getFile: options.getFile ?? (async () => defaultFile),
         isSameEntry: options.isSameEntry ?? (async (_other: FileSystemHandle) => false),
-        createWritable: options.createWritable
-            ?? (async () => createFileSystemWritableFileStream()),
+        createWritable: options.createWritable ?? (async () => createFileSystemWritableFileStream()),
         createSyncAccessHandle: async () => {
             throw new Error('Synchronous access is not part of this file handle fixture');
         },
@@ -122,9 +103,9 @@ function createOversizedPdfFile(fileName: string, size: number): File {
         configurable: true,
         value: size,
     });
-    vi.spyOn(file, 'slice').mockImplementation((start = 0, end = size) => (
-        new Blob([new Uint8Array(Math.max(0, end - start))], {type: 'application/pdf'})
-    ));
+    vi.spyOn(file, 'slice').mockImplementation(
+        (start = 0, end = size) => new Blob([new Uint8Array(Math.max(0, end - start))], {type: 'application/pdf'}),
+    );
     return file;
 }
 
@@ -145,8 +126,8 @@ function aboveQpdfInputLimit(blob: Blob) {
 }
 
 const qpdfRun = vi.hoisted(() => vi.fn());
-vi.mock('@app/platform/browser-api/browserQpdfEngineClient', async importOriginal => ({
-    ...await importOriginal<typeof TBrowserQpdfEngineClient>(),
+vi.mock('@app/platform/browser-api/browserQpdfEngineClient', async (importOriginal) => ({
+    ...(await importOriginal<typeof TBrowserQpdfEngineClient>()),
     runBrowserQpdfCommand: qpdfRun,
 }));
 
@@ -181,7 +162,7 @@ const pdfjsModule = vi.hoisted(() => {
         GlobalWorkerOptions: {},
         PDFDataRangeTransport: MockPdfDataRangeTransport,
         VerbosityLevel: {ERRORS: 3},
-        getDocument: vi.fn((_rawInit: unknown) => (createLoadedPdfTask())),
+        getDocument: vi.fn((_rawInit: unknown) => createLoadedPdfTask()),
     };
 });
 
@@ -194,8 +175,8 @@ function createLoadedPdfTask() {
     };
 }
 
-vi.mock('@app/platform/browserWindowTabs', async importOriginal => ({
-    ...await importOriginal<typeof TBrowserWindowTabs>(),
+vi.mock('@app/platform/browserWindowTabs', async (importOriginal) => ({
+    ...(await importOriginal<typeof TBrowserWindowTabs>()),
     reserveBrowserDocumentWorkingCopy: async (fileName: string) => {
         const {createBrowserDocumentRef} = await import('@app/platform/browser/browserDocumentRefs');
         return createBrowserDocumentRef(fileName);
@@ -206,17 +187,19 @@ vi.mock('@app/platform/browserWindowTabs', async importOriginal => ({
 vi.mock('@app/platform/browser-api/browserPdfCombineWorkerClient', () => ({
     BrowserPdfCombineWorkerUnavailableError: class BrowserPdfCombineWorkerUnavailableError extends Error {},
     canUseBrowserPdfCombineWorker: () => browserPdfCombineWorkerMock.canUse(),
-    cloneCombineWorkerInput: (fileName: string, data: Uint8Array) =>
-        browserPdfCombineWorkerMock.cloneInput(fileName, data),
-    runBrowserPdfCombineWorkerRequest: (type: string, payload: unknown) =>
-        browserPdfCombineWorkerMock.run(type, payload),
+    cloneCombineWorkerInput: (fileName: string, data: Uint8Array) => browserPdfCombineWorkerMock.cloneInput(fileName, data),
+    runBrowserPdfCombineWorkerRequest: (type: string, payload: unknown) => browserPdfCombineWorkerMock.run(type, payload),
 }));
 vi.mock('@app/platform/browser-api/browserDjvuCapability', () => ({browserDjvuCapability: {cancel: browserDjvuCapabilityMock.cancel}}));
-vi.mock('@app/platform/browser-api/browserDjvuConversionPipeline', () => ({runBrowserDjvuConversion: browserDjvuCapabilityMock.runConversion}));
-vi.mock('@app/platform/browser-api/browserPageOpsWorkerClient', () => ({runBrowserPageOpsWorkerRequest: (...args: unknown[]) => browserAnnotationParseMock.run(...args)}));
+vi.mock('@app/platform/browser-api/browserDjvuConversionPipeline', () => ({
+    runBrowserDjvuConversion: browserDjvuCapabilityMock.runConversion,
+}));
+vi.mock('@app/platform/browser-api/browserPageOpsWorkerClient', () => ({
+    runBrowserPageOpsWorkerRequest: (...args: unknown[]) => browserAnnotationParseMock.run(...args),
+}));
 // The engine appends the tail after the document's bytes in its own file, as a native edit's revision.
-vi.mock('@app/platform/browser/browserStorePort', async importOriginal => ({
-    ...await importOriginal<typeof import('@app/platform/browser/browserStorePort')>(),
+vi.mock('@app/platform/browser/browserStorePort', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@app/platform/browser/browserStorePort')>()),
     appendPdfMutationsToStoreFile: async (file: {writeAt(offset: number, bytes: Uint8Array): Promise<void>}, base: number) => {
         await file.writeAt(base, nativeEditTail.bytes);
         return {pageCount: 1, length: base + nativeEditTail.bytes.byteLength, identityBindings: [], sha256: 'a'.repeat(64)};
@@ -252,12 +235,9 @@ async function createPdfBytes(pageSize?: [number, number]) {
     return new Uint8Array(await document.save());
 }
 
-async function getRevisionOptions(
-    browserDocumentStore: Pick<BrowserDocumentStore, 'getDocumentRevision'>,
-    ref: string,
-) {
+async function getRevisionOptions(browserDocumentStore: Pick<BrowserDocumentStore, 'getDocumentRevision'>, ref: string) {
     const revision = await browserDocumentStore.getDocumentRevision(ref);
-    return { expectedDocumentRevisionToken: revision.token };
+    return {expectedDocumentRevisionToken: revision.token};
 }
 
 function createMockElement(tagName: string) {
@@ -273,7 +253,11 @@ function createMockElement(tagName: string) {
             firstChild: null,
             appendChild() {},
         },
-        relList: { supports() { return true; } },
+        relList: {
+            supports() {
+                return true;
+            },
+        },
         setAttribute() {},
         appendChild() {},
         append() {},
@@ -311,9 +295,7 @@ async function loadCreateCombinedPdfFromPaths() {
     return module.createBrowserCombinedPdfFromPaths;
 }
 
-async function loadBrowserOpenProgressListener(): Promise<
-    IDocumentsOpenCapability['onOpenDocumentDirectBatchProgress']
-> {
+async function loadBrowserOpenProgressListener(): Promise<IDocumentsOpenCapability['onOpenDocumentDirectBatchProgress']> {
     const module = await import('@app/platform/browser-api/documentsMenuCapability');
     return module.onBrowserOpenDocumentDirectBatchProgress;
 }
@@ -343,7 +325,7 @@ async function loadBrowserDocumentsFileCapability(
         createElement(tagName: string) {
             const element = createMockElement(tagName);
             if (tagName === 'input' && options?.inputFiles) {
-                (element as { files: File[] | null }).files = options.inputFiles;
+                (element as {files: File[] | null}).files = options.inputFiles;
             }
             return element;
         },
@@ -351,10 +333,10 @@ async function loadBrowserDocumentsFileCapability(
             return createMockElement(tagName);
         },
         createTextNode(text: string) {
-            return { nodeValue: text };
+            return {nodeValue: text};
         },
         createComment(text: string) {
-            return { nodeValue: text };
+            return {nodeValue: text};
         },
         querySelector() {
             return null;
@@ -364,12 +346,8 @@ async function loadBrowserDocumentsFileCapability(
     // Its mock's factory is asynchronous: settle it before the modules that import it load.
     const {createMemoryStorePort} = await import('@app/platform/browser/browserStorePort');
     const [
-        { createBrowserDocumentsFileCapability },
-        {
-            BROWSER_DOCUMENT_CHUNK_SIZE,
-            BROWSER_MAX_FULL_READ_BYTES,
-            browserDocumentStore,
-        },
+        {createBrowserDocumentsFileCapability},
+        {BROWSER_DOCUMENT_CHUNK_SIZE, BROWSER_MAX_FULL_READ_BYTES, browserDocumentStore},
         {browserPublication},
     ] = await Promise.all([
         import('@app/platform/browser-api/createBrowserDocumentsFileCapability'),
@@ -386,7 +364,7 @@ async function loadBrowserDocumentsFileCapability(
     });
     // Revision files the test left open are closed with it, not by collection, which Node refuses.
     onTestFinished(async () => {
-        await Promise.all(browserDocumentStore.openEntries().map(entry => entry.doc?.close().catch(() => undefined)));
+        await Promise.all(browserDocumentStore.openEntries().map((entry) => entry.doc?.close().catch(() => undefined)));
     });
 
     return {
@@ -400,14 +378,14 @@ async function loadBrowserDocumentsFileCapability(
 const storeRoots: string[] = [];
 
 afterAll(async () => {
-    await Promise.all(storeRoots.map(root => rm(root, {recursive: true, force: true})));
+    await Promise.all(storeRoots.map((root) => rm(root, {recursive: true, force: true})));
 });
 
 describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
     beforeEach(() => {
         vi.unstubAllGlobals();
         qpdfRun.mockReset();
-        qpdfRun.mockImplementation(async command => ({
+        qpdfRun.mockImplementation(async (command) => ({
             exitCode: 0,
             stdout: command === 'page-count' ? '1' : '',
             stderr: '',
@@ -428,24 +406,20 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         pdfjsModule.getDocument.mockReturnValue(createLoadedPdfTask());
     });
 
-    it.each([
-        'commit',
-        'cancel',
-        'denied',
-        'large-download',
-    ])('preserves native Save bytes through %s', async (outcome) => {
-        const original = outcome === 'large-download'
-            ? new Uint8Array(FORMER_DOWNLOAD_FALLBACK_MAX_BYTES + 1)
-            : Uint8Array.of(37, 80, 68, 70, 1);
+    it.each(['commit', 'cancel', 'denied', 'large-download'])('preserves native Save bytes through %s', async (outcome) => {
+        const original =
+            outcome === 'large-download' ? new Uint8Array(FORMER_DOWNLOAD_FALLBACK_MAX_BYTES + 1) : Uint8Array.of(37, 80, 68, 70, 1);
         const edited = withNativeEditTail(original);
         const downloads: Blob[] = [];
         if (outcome === 'large-download') {
             class DownloadURL extends URL {}
             Object.defineProperties(DownloadURL, {
-                createObjectURL: {value: (blob: Blob) => {
-                    downloads.push(blob);
-                    return 'blob:staged-download';
-                }},
+                createObjectURL: {
+                    value: (blob: Blob) => {
+                        downloads.push(blob);
+                        return 'blob:staged-download';
+                    },
+                },
                 revokeObjectURL: {value: () => {}},
             });
             vi.stubGlobal('URL', DownloadURL);
@@ -455,18 +429,29 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             name: 'native.pdf',
             getFile: async () => new File([physical], 'native.pdf', {type: 'application/pdf'}),
             createWritable: async () => {
-                if (outcome === 'denied') {throw new DOMException('Write denied', 'NotAllowedError');}
-                return createFileSystemWritableFileStream({write: async chunk => {
-                    physical = new Uint8Array(requireArrayBufferChunk(chunk));
-                }});
+                if (outcome === 'denied') {
+                    throw new DOMException('Write denied', 'NotAllowedError');
+                }
+                return createFileSystemWritableFileStream({
+                    write: async (chunk) => {
+                        physical = new Uint8Array(requireArrayBufferChunk(chunk));
+                    },
+                });
             },
         });
-        const {
-            capability, browserDocumentStore: store,
-        } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: outcome === 'large-download' ? undefined : async () => {
-            if (outcome === 'cancel') {throw new DOMException('Canceled', 'AbortError');}
-            return handle;
-        }}});
+        const {capability, browserDocumentStore: store} = await loadBrowserDocumentsFileCapability({
+            windowOverrides: {
+                showSaveFilePicker:
+                    outcome === 'large-download'
+                        ? undefined
+                        : async () => {
+                              if (outcome === 'cancel') {
+                                  throw new DOMException('Canceled', 'AbortError');
+                              }
+                              return handle;
+                          },
+            },
+        });
         const source = await store.createStoredDocument('native.pdf', original, PDF_SOURCE_OPTIONS);
         const working = await store.cloneAsWorkingCopy(source);
         const revision = await store.getDocumentRevision(working);
@@ -476,12 +461,17 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             requirePdfDateString('D:20260102000000Z'),
             {expectedDocumentRevisionToken: revision.token},
         );
-        if (!receipt) {throw new Error('Expected the native edit to stage');}
+        if (!receipt) {
+            throw new Error('Expected the native edit to stage');
+        }
         // Staging appends to the working copy without committing: readers keep its revision.
         expect((await store.stat(working)).size).toBe(original.byteLength);
         const commit = capability.commitStagedPdfNativeMutations!(working, receipt, {expectedDocumentRevisionToken: revision.token});
-        if (outcome === 'denied') {await expect(commit).rejects.toThrow('Write denied');}
-        else {expect((await commit).applied).toBe(outcome === 'commit' || outcome === 'large-download');}
+        if (outcome === 'denied') {
+            await expect(commit).rejects.toThrow('Write denied');
+        } else {
+            expect((await commit).applied).toBe(outcome === 'commit' || outcome === 'large-download');
+        }
         const expected = outcome === 'commit' || outcome === 'large-download' ? edited : original;
         // Digests compare the 64 MiB case without rendering a diff of it.
         const digest = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
@@ -489,55 +479,40 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         if (outcome === 'large-download') {
             expect(downloads).toHaveLength(1);
             expect(digest(new Uint8Array(await downloads[0]!.arrayBuffer()))).toBe(digest(edited));
-        } else {expect(physical).toEqual(expected);}
+        } else {
+            expect(physical).toEqual(expected);
+        }
         // A Save the file refused keeps the edits it committed in the working copy, unsaved; a cancelled pick commits nothing.
         await expect(readAll(working)).resolves.toBe(digest(outcome === 'cancel' ? original : edited));
         await expect(readAll(source)).resolves.toBe(digest(expected));
         const token = (await store.getDocumentRevision(working)).token;
-        if (outcome === 'cancel') {expect(token).toBe(revision.token);}
-        if (outcome === 'denied') {expect(token).not.toBe(revision.token);}
+        if (outcome === 'cancel') {
+            expect(token).toBe(revision.token);
+        }
+        if (outcome === 'denied') {
+            expect(token).not.toBe(revision.token);
+        }
     });
 
     it.each([
-        [
-            'structured',
-            'download',
-            'proxy',
-        ],
-        [
-            'structured',
-            'download',
-            'edited',
-        ],
-        [
-            'structured',
-            'handle',
-            'proxy',
-        ],
-        [
-            'structured',
-            'handle',
-            'edited',
-        ],
-        [
-            'native',
-            'download',
-            'edited',
-        ],
-        [
-            'native',
-            'handle',
-            'edited',
-        ],
+        ['structured', 'download', 'proxy'],
+        ['structured', 'download', 'edited'],
+        ['structured', 'handle', 'proxy'],
+        ['structured', 'handle', 'edited'],
+        ['native', 'download', 'edited'],
+        ['native', 'handle', 'edited'],
     ] as const)('returns its committed revision after a reader write during %s %s %s settlement', async (path, target, content) => {
         let afterCommit = async () => {};
         let physical = Uint8Array.of(37, 80, 68, 70, 1);
         const handle = createFileSystemFileHandle({
             name: 'receipt.pdf',
             getFile: async () => new File([physical], 'receipt.pdf', {lastModified: 1}),
-            createWritable: async () => createFileSystemWritableFileStream({write: async chunk => {
-                physical = new Uint8Array(requireArrayBufferChunk(chunk));
-            }}),
+            createWritable: async () =>
+                createFileSystemWritableFileStream({
+                    write: async (chunk) => {
+                        physical = new Uint8Array(requireArrayBufferChunk(chunk));
+                    },
+                }),
         });
         if (target === 'download') {
             class DownloadURL extends URL {}
@@ -547,65 +522,92 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             });
             vi.stubGlobal('URL', DownloadURL);
         }
-        const {
-            capability, browserDocumentStore: store,
-        } = await loadBrowserDocumentsFileCapability({
+        const {capability, browserDocumentStore: store} = await loadBrowserDocumentsFileCapability({
             windowOverrides: {showSaveFilePicker: target === 'handle' ? async () => handle : undefined},
             clearSearchCaches: async () => afterCommit(),
         });
         const source = await store.createStoredDocument('receipt.pdf', physical, PDF_SOURCE_OPTIONS);
         const working = await store.cloneAsWorkingCopy(source);
-        if (content === 'edited') {await store.write(working, Uint8Array.of(37, 80, 68, 70, 2), await getRevisionOptions(store, working));}
+        if (content === 'edited') {
+            await store.write(working, Uint8Array.of(37, 80, 68, 70, 2), await getRevisionOptions(store, working));
+        }
         const revisionOptions = await getRevisionOptions(store, working);
         const committedBytes = withNativeEditTail(await store.read(working));
-        const stagedOutput = path === 'native'
-            ? (await capability.applyPdfNativeMutationsToWorkingCopy!(working, {}, requirePdfDateString('D:20260102000000Z'), revisionOptions)).stagedOutput!
-            : undefined;
+        const stagedOutput =
+            path === 'native'
+                ? (
+                      await capability.applyPdfNativeMutationsToWorkingCopy!(
+                          working,
+                          {},
+                          requirePdfDateString('D:20260102000000Z'),
+                          revisionOptions,
+                      )
+                  ).stagedOutput!
+                : undefined;
         let ownRevision: Awaited<ReturnType<typeof store.getDocumentRevision>> | undefined;
         afterCommit = async () => {
             ownRevision = await store.getDocumentRevision(working);
             await store.write(working, Uint8Array.of(37, 80, 68, 70, 4), {expectedDocumentRevisionToken: ownRevision.token});
         };
-        const result = path === 'structured'
-            ? await capability.saveFileStructured(working, revisionOptions)
-            : await capability.commitStagedPdfNativeMutations!(working, stagedOutput!, revisionOptions);
+        const result =
+            path === 'structured'
+                ? await capability.saveFileStructured(working, revisionOptions)
+                : await capability.commitStagedPdfNativeMutations!(working, stagedOutput!, revisionOptions);
         expect(result).toMatchObject({documentRevision: ownRevision});
         expect(ownRevision).toBeDefined();
         expect((await store.getDocumentRevision(working)).token).not.toBe(ownRevision?.token);
         await expect(store.read(working)).resolves.toEqual(Uint8Array.of(37, 80, 68, 70, 4));
-        if (path === 'native') {expect(physical).toEqual(target === 'handle' ? committedBytes : physical);}
+        if (path === 'native') {
+            expect(physical).toEqual(target === 'handle' ? committedBytes : physical);
+        }
     });
 
     it('returns typed unsupported results for desktop-only folder actions', async () => {
-        const { capability } = await loadBrowserDocumentsFileCapability();
+        const {capability} = await loadBrowserDocumentsFileCapability();
 
         await expect(capability.showItemInFolder(requireDocumentRef('browser://documents/source.pdf'))).resolves.toBe(false);
     });
 
     it('parses a working copy through WASM, which reads it by range', async () => {
-        const {
-            capability,
-            browserDocumentStore,
-        } = await loadBrowserDocumentsFileCapability();
-        const workingRef = await browserDocumentStore.createStoredDocument(
-            'writer-parse.pdf',
-            await createPdfBytes(),
-            {
-                ...PDF_SOURCE_OPTIONS,
-                kind: 'working',
-            },
-        );
+        const {capability, browserDocumentStore} = await loadBrowserDocumentsFileCapability();
+        const workingRef = await browserDocumentStore.createStoredDocument('writer-parse.pdf', await createPdfBytes(), {
+            ...PDF_SOURCE_OPTIONS,
+            kind: 'working',
+        });
         const revisionOptions = await getRevisionOptions(browserDocumentStore, workingRef);
-        browserAnnotationParseMock.run.mockResolvedValue({data: new TextEncoder().encode([
-            JSON.stringify({
-                format: 'evb-pdf-annotation-parse',
-                schemaVersion: 1,
-                pageCount: 1,
-                chunkBytes: 4 * 1024 * 1024,
-            }),
-            JSON.stringify({
-                chunkIndex: 0,
-                entries: [{
+        browserAnnotationParseMock.run.mockResolvedValue({
+            data: new TextEncoder().encode(
+                [
+                    JSON.stringify({
+                        format: 'evb-pdf-annotation-parse',
+                        schemaVersion: 1,
+                        pageCount: 1,
+                        chunkBytes: 4 * 1024 * 1024,
+                    }),
+                    JSON.stringify({
+                        chunkIndex: 0,
+                        entries: [
+                            {
+                                kind: 'foreign',
+                                pageIndex: 0,
+                                objectNumber: 4,
+                                generationNumber: 0,
+                                name: 'link',
+                                subtype: 'Link',
+                                reason: 'unsupported annotation subtype /Link',
+                            },
+                        ],
+                    }),
+                ].join('\n') + '\n',
+            ),
+        });
+
+        await expect(capability.parsePdfAnnotations(workingRef, revisionOptions)).resolves.toEqual({
+            documentRevisionToken: revisionOptions.expectedDocumentRevisionToken,
+            pageCount: 1,
+            entities: [],
+            foreign: [
+                {
                     kind: 'foreign',
                     pageIndex: 0,
                     objectNumber: 4,
@@ -613,23 +615,8 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
                     name: 'link',
                     subtype: 'Link',
                     reason: 'unsupported annotation subtype /Link',
-                }],
-            }),
-        ].join('\n') + '\n')});
-
-        await expect(capability.parsePdfAnnotations(workingRef, revisionOptions)).resolves.toEqual({
-            documentRevisionToken: revisionOptions.expectedDocumentRevisionToken,
-            pageCount: 1,
-            entities: [],
-            foreign: [{
-                kind: 'foreign',
-                pageIndex: 0,
-                objectNumber: 4,
-                generationNumber: 0,
-                name: 'link',
-                subtype: 'Link',
-                reason: 'unsupported annotation subtype /Link',
-            }],
+                },
+            ],
         });
         expect(browserAnnotationParseMock.run).toHaveBeenCalledWith(
             'parseAnnotations',
@@ -642,31 +629,28 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
     });
 
     it('reads page labels whatever happened to the outline, and reports their own failure', async () => {
-        const {
-            capability,
-            browserDocumentStore,
-        } = await loadBrowserDocumentsFileCapability();
-        const workingRef = await browserDocumentStore.createStoredDocument(
-            'page-label-parts.pdf',
-            await createPdfBytes(),
-            {
-                ...PDF_SOURCE_OPTIONS,
-                kind: 'working',
-            },
-        );
+        const {capability, browserDocumentStore} = await loadBrowserDocumentsFileCapability();
+        const workingRef = await browserDocumentStore.createStoredDocument('page-label-parts.pdf', await createPdfBytes(), {
+            ...PDF_SOURCE_OPTIONS,
+            kind: 'working',
+        });
         browserAnnotationParseMock.run.mockResolvedValueOnce({
             bookmarksError: 'PDF catalog /Outlines must be a dictionary',
-            pageLabels: [{
-                pageIndex: 0,
-                style: 'r',
-            }],
+            pageLabels: [
+                {
+                    pageIndex: 0,
+                    style: 'r',
+                },
+            ],
         });
-        await expect(capability.readPdfPageLabelRanges(workingRef)).resolves.toEqual([{
-            startPage: 1,
-            style: 'r',
-            prefix: '',
-            startNumber: 1,
-        }]);
+        await expect(capability.readPdfPageLabelRanges(workingRef)).resolves.toEqual([
+            {
+                startPage: 1,
+                style: 'r',
+                prefix: '',
+                startNumber: 1,
+            },
+        ]);
         browserAnnotationParseMock.run.mockResolvedValueOnce({
             bookmarks: [],
             pageLabelsError: 'PageLabels Nums must contain key/value pairs',
@@ -675,18 +659,11 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
     });
 
     it('reads compact page-label ranges through the browser catalog worker', async () => {
-        const {
-            capability,
-            browserDocumentStore,
-        } = await loadBrowserDocumentsFileCapability();
-        const workingRef = await browserDocumentStore.createStoredDocument(
-            'page-labels.pdf',
-            await createPdfBytes(),
-            {
-                ...PDF_SOURCE_OPTIONS,
-                kind: 'working',
-            },
-        );
+        const {capability, browserDocumentStore} = await loadBrowserDocumentsFileCapability();
+        const workingRef = await browserDocumentStore.createStoredDocument('page-labels.pdf', await createPdfBytes(), {
+            ...PDF_SOURCE_OPTIONS,
+            kind: 'working',
+        });
         browserAnnotationParseMock.run.mockResolvedValueOnce({
             bookmarks: [],
             pageLabels: [
@@ -716,19 +693,12 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
                 startNumber: 3,
             },
         ]);
-        expect(browserAnnotationParseMock.run).toHaveBeenCalledWith(
-            'readCatalog',
-            {source: expect.any(Blob)},
-            {dedicated: true},
-        );
+        expect(browserAnnotationParseMock.run).toHaveBeenCalledWith('readCatalog', {source: expect.any(Blob)}, {dedicated: true});
     });
 
     it('registers browser files for open after ingestion completes', async () => {
-        const file = new File([Uint8Array.of(1, 2, 3)], 'drop.pdf', { type: 'application/pdf' });
-        const {
-            capability,
-            browserDocumentStore,
-        } = await loadBrowserDocumentsFileCapability();
+        const file = new File([Uint8Array.of(1, 2, 3)], 'drop.pdf', {type: 'application/pdf'});
+        const {capability, browserDocumentStore} = await loadBrowserDocumentsFileCapability();
 
         const refs = await capability.registerFilesForOpen([file]);
 
@@ -743,10 +713,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             name: 'combine',
             open: (capability: IDocumentsFileCapability) => capability.openCombineDialog(),
             acceptKey: 'application/octet-stream',
-            expectedExtensions: [
-                '.djvu',
-                '.djv',
-            ],
+            expectedExtensions: ['.djvu', '.djv'],
         },
         {
             name: 'image',
@@ -754,17 +721,13 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             acceptKey: 'image/*',
             expectedExtensions: [],
         },
-    ])('applies the browser $name picker format policy', async ({
-        open,
-        acceptKey,
-        expectedExtensions,
-    }) => {
+    ])('applies the browser $name picker format policy', async ({open, acceptKey, expectedExtensions}) => {
         const showOpenFilePicker = vi.fn(async () => []);
-        const { capability } = await loadBrowserDocumentsFileCapability({ windowOverrides: { showOpenFilePicker } });
+        const {capability} = await loadBrowserDocumentsFileCapability({windowOverrides: {showOpenFilePicker}});
 
         await expect(open(capability)).resolves.toBeNull();
 
-        const firstCall = showOpenFilePicker.mock.calls[0] as [{types?: Array<{ accept: Record<string, string[]>; }>;}] | undefined;
+        const firstCall = showOpenFilePicker.mock.calls[0] as [{types?: Array<{accept: Record<string, string[]>}>}] | undefined;
         const accept = firstCall?.[0]?.types?.[0]?.accept;
         expect(showOpenFilePicker).toHaveBeenCalledTimes(1);
         expect(accept?.['image/*']).not.toContain('.svgz');
@@ -775,7 +738,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
 
     it('surfaces first file-handle denial before using the fallback on the next user action', async () => {
         const pdfBytes = await createPdfBytes();
-        const pickedPdf = new File([pdfBytes], 'fallback.pdf', { type: 'application/pdf' });
+        const pickedPdf = new File([pdfBytes], 'fallback.pdf', {type: 'application/pdf'});
         const deniedHandle = createFileSystemFileHandle({
             name: 'denied.pdf',
             getFile: vi.fn(async () => {
@@ -783,9 +746,9 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             }),
         });
         const showOpenFilePicker = vi.fn(async () => [deniedHandle]);
-        const { capability } = await loadBrowserDocumentsFileCapability({
+        const {capability} = await loadBrowserDocumentsFileCapability({
             inputFiles: [pickedPdf],
-            windowOverrides: { showOpenFilePicker },
+            windowOverrides: {showOpenFilePicker},
         });
 
         await expect(capability.openDocumentDialog()).rejects.toMatchObject({
@@ -811,7 +774,12 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         Object.defineProperty(file, 'size', {configurable: true, value: size});
         const slice = vi.spyOn(file, 'slice').mockImplementation((start = 0, end = size) => readSlice(start, Math.min(end, size)));
         vi.spyOn(file, 'arrayBuffer').mockRejectedValue(new Error('whole browser reads are forbidden for this test'));
-        vi.spyOn(browserDocumentStore, 'readableRevision').mockResolvedValue({blob: file, token: requireDocumentRevisionToken('large-revision'), byteRevision: undefined, instance: Symbol('test-entry')});
+        vi.spyOn(browserDocumentStore, 'readableRevision').mockResolvedValue({
+            blob: file,
+            token: requireDocumentRevisionToken('large-revision'),
+            byteRevision: undefined,
+            instance: Symbol('test-entry'),
+        });
         vi.spyOn(browserDocumentStore, 'assertDocumentRevisionCurrent').mockResolvedValue(undefined);
         const read = vi.spyOn(browserDocumentStore, 'read').mockRejectedValue(new Error('whole browser reads are forbidden for this test'));
         const readRange = vi.spyOn(browserDocumentStore, 'readRange');
@@ -819,10 +787,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
     }
 
     it('validates oversized browser PDFs through range reads without a full read', async () => {
-        const {
-            capability,
-            browserDocumentStore,
-        } = await loadBrowserDocumentsFileCapability();
+        const {capability, browserDocumentStore} = await loadBrowserDocumentsFileCapability();
         const path = requireDocumentRef('browser://documents/source/large-validation.pdf');
         const {slice, read, readRange} = oversizedRevision(browserDocumentStore);
         pdfjsModule.getDocument.mockReturnValue(createLoadedPdfTask());
@@ -839,33 +804,26 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         const chunkSize = 1024 * 1024;
         const size = BROWSER_QPDF_MAX_INPUT_BYTES + 1;
         expect(slice.mock.calls).toEqual([
-            [
-                0,
-                chunkSize,
-            ],
-            [
-                size - chunkSize,
-                size,
-            ],
+            [0, chunkSize],
+            [size - chunkSize, size],
         ]);
     });
 
     it('requests later PDF ranges through the public validator without reading the whole source', async () => {
-        const {
-            capability,
-            browserDocumentStore,
-        } = await loadBrowserDocumentsFileCapability();
+        const {capability, browserDocumentStore} = await loadBrowserDocumentsFileCapability();
         const path = requireDocumentRef('browser://documents/source/multi-range-validation.pdf');
         const chunkSize = 1024 * 1024;
         const size = BROWSER_QPDF_MAX_INPUT_BYTES + 1;
         const {slice, read, readRange} = oversizedRevision(browserDocumentStore);
         pdfjsModule.getDocument.mockImplementation((rawInit: unknown) => {
-            const init = rawInit as {range: {
-                requestDataRange: (begin: number, end: number) => void;
-                onDataRange: (...args: unknown[]) => void;
-            }};
+            const init = rawInit as {
+                range: {
+                    requestDataRange: (begin: number, end: number) => void;
+                    onDataRange: (...args: unknown[]) => void;
+                };
+            };
             const destroy = vi.fn(async () => {});
-            const promise = new Promise<{loadingTask: {destroy: typeof destroy}}>(resolve => {
+            const promise = new Promise<{loadingTask: {destroy: typeof destroy}}>((resolve) => {
                 init.range.onDataRange = () => resolve({loadingTask: {destroy}});
                 init.range.requestDataRange(chunkSize, chunkSize * 2);
             });
@@ -885,40 +843,32 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         expect(read).not.toHaveBeenCalled();
         expect(readRange).not.toHaveBeenCalled();
         expect(slice.mock.calls).toEqual([
-            [
-                0,
-                chunkSize,
-            ],
-            [
-                size - chunkSize,
-                size,
-            ],
-            [
-                chunkSize,
-                chunkSize * 2,
-            ],
+            [0, chunkSize],
+            [size - chunkSize, size],
+            [chunkSize, chunkSize * 2],
         ]);
     });
 
     it('propagates a failed later PDF range through the public validator without a whole read', async () => {
-        const {
-            capability,
-            browserDocumentStore,
-        } = await loadBrowserDocumentsFileCapability();
+        const {capability, browserDocumentStore} = await loadBrowserDocumentsFileCapability();
         const path = requireDocumentRef('browser://documents/source/failed-range-validation.pdf');
         const chunkSize = 1024 * 1024;
         const size = BROWSER_QPDF_MAX_INPUT_BYTES + 1;
         const rangeFailure = new Error('second PDF range failed');
         const {slice, read, readRange} = oversizedRevision(browserDocumentStore, (start, end) => {
             const piece = new Blob([new Uint8Array(end - start)]);
-            if (start === chunkSize) {vi.spyOn(piece, 'arrayBuffer').mockRejectedValue(rangeFailure);}
+            if (start === chunkSize) {
+                vi.spyOn(piece, 'arrayBuffer').mockRejectedValue(rangeFailure);
+            }
             return piece;
         });
         pdfjsModule.getDocument.mockImplementation((rawInit: unknown) => {
-            const init = rawInit as {range: {
-                requestDataRange: (begin: number, end: number) => void;
-                onDataRange: (...args: unknown[]) => void;
-            }};
+            const init = rawInit as {
+                range: {
+                    requestDataRange: (begin: number, end: number) => void;
+                    onDataRange: (...args: unknown[]) => void;
+                };
+            };
             const destroy = vi.fn(async () => {});
             const promise = new Promise<{loadingTask: {destroy: typeof destroy}}>(() => {
                 init.range.onDataRange = () => undefined;
@@ -940,40 +890,20 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         expect(read).not.toHaveBeenCalled();
         expect(readRange).not.toHaveBeenCalled();
         expect(slice.mock.calls).toEqual([
-            [
-                0,
-                chunkSize,
-            ],
-            [
-                size - chunkSize,
-                size,
-            ],
-            [
-                chunkSize,
-                chunkSize * 2,
-            ],
+            [0, chunkSize],
+            [size - chunkSize, size],
+            [chunkSize, chunkSize * 2],
         ]);
     });
 
     it('emits browser batch-open progress while combining multiple inputs', async () => {
-        const { browserDocumentStore } = await loadBrowserDocumentsFileCapability();
-        const [
-            createCombinedPdfFromPaths,
-            onOpenDocumentDirectBatchProgress,
-        ] = await Promise.all([
+        const {browserDocumentStore} = await loadBrowserDocumentsFileCapability();
+        const [createCombinedPdfFromPaths, onOpenDocumentDirectBatchProgress] = await Promise.all([
             loadCreateCombinedPdfFromPaths(),
             loadBrowserOpenProgressListener(),
         ]);
-        const firstRef = await browserDocumentStore.createStoredDocument(
-            'first.pdf',
-            Uint8Array.of(1, 2, 3),
-            {...PDF_SOURCE_OPTIONS},
-        );
-        const secondRef = await browserDocumentStore.createStoredDocument(
-            'second.pdf',
-            Uint8Array.of(4, 5, 6),
-            {...PDF_SOURCE_OPTIONS},
-        );
+        const firstRef = await browserDocumentStore.createStoredDocument('first.pdf', Uint8Array.of(1, 2, 3), {...PDF_SOURCE_OPTIONS});
+        const secondRef = await browserDocumentStore.createStoredDocument('second.pdf', Uint8Array.of(4, 5, 6), {...PDF_SOURCE_OPTIONS});
         browserPdfCombineWorkerMock.canUse.mockReturnValue(true);
         browserAnnotationParseMock.run.mockResolvedValue({status: 'written', pageCount: 2, length: 3, data: Uint8Array.of(9, 8, 7)});
 
@@ -991,141 +921,116 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         });
 
         try {
-            await createCombinedPdfFromPaths(
-                [
-                    firstRef,
-                    secondRef,
-                ],
-                { requestId: requireRequestId('browser-batch-1') },
-            );
+            await createCombinedPdfFromPaths([firstRef, secondRef], {requestId: requireRequestId('browser-batch-1')});
         } finally {
             stopListening();
         }
 
-        expect(progressEvents).toEqual(expect.arrayContaining([
-            expect.objectContaining({
-                operation: 'document-open',
-                requestId: 'browser-batch-1',
-                processed: 1,
-                total: 2,
-            }),
-            expect.objectContaining({
-                operation: 'document-open',
-                requestId: 'browser-batch-1',
-                processed: 2,
-                total: 2,
-                percent: 95,
-            }),
-        ]));
+        expect(progressEvents).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    operation: 'document-open',
+                    requestId: 'browser-batch-1',
+                    processed: 1,
+                    total: 2,
+                }),
+                expect.objectContaining({
+                    operation: 'document-open',
+                    requestId: 'browser-batch-1',
+                    processed: 2,
+                    total: 2,
+                    percent: 95,
+                }),
+            ]),
+        );
     });
 
     // PDFs are merged by range and have no such budget.
-    it.each([
-        [
-            'png',
-            BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES,
-        ],
-    ] as const)('rejects a %s selection exceeding its combined request budget before reading its files', async (extension, budget) => {
-        const {browserDocumentStore} = await loadBrowserDocumentsFileCapability();
-        const createCombinedPdfFromPaths = await loadCreateCombinedPdfFromPaths();
-        const refs = await Promise.all([
-            'first',
-            'second',
-        ].map(name => browserDocumentStore.createStoredDocument(
-            `${name}.${extension}`,
-            Uint8Array.of(1),
-            PDF_SOURCE_OPTIONS,
-        )));
-        browserPdfCombineWorkerMock.canUse.mockReturnValue(true);
-        const stat = vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({
-            size: Math.floor(budget / 2) + 1,
-            modifiedAt: 0,
-        });
-        const read = vi.spyOn(browserDocumentStore, 'read');
-        try {
-            await expect(createCombinedPdfFromPaths(refs)).rejects.toMatchObject({errorEnvelope: {
-                code: 'browser-byte-limit',
-                maxBytes: budget,
-            }});
-            expect(read).not.toHaveBeenCalled();
-            expect(browserPdfCombineWorkerMock.run).not.toHaveBeenCalled();
-        } finally {
-            stat.mockRestore();
-            read.mockRestore();
-        }
-        await expect(browserDocumentStore.read(refs[0]!)).resolves.toEqual(Uint8Array.of(1));
-    });
+    it.each([['png', BROWSER_PDF_COMBINE_MAX_REQUEST_BYTES]] as const)(
+        'rejects a %s selection exceeding its combined request budget before reading its files',
+        async (extension, budget) => {
+            const {browserDocumentStore} = await loadBrowserDocumentsFileCapability();
+            const createCombinedPdfFromPaths = await loadCreateCombinedPdfFromPaths();
+            const refs = await Promise.all(
+                ['first', 'second'].map((name) =>
+                    browserDocumentStore.createStoredDocument(`${name}.${extension}`, Uint8Array.of(1), PDF_SOURCE_OPTIONS),
+                ),
+            );
+            browserPdfCombineWorkerMock.canUse.mockReturnValue(true);
+            const stat = vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({
+                size: Math.floor(budget / 2) + 1,
+                modifiedAt: 0,
+            });
+            const read = vi.spyOn(browserDocumentStore, 'read');
+            try {
+                await expect(createCombinedPdfFromPaths(refs)).rejects.toMatchObject({
+                    errorEnvelope: {
+                        code: 'browser-byte-limit',
+                        maxBytes: budget,
+                    },
+                });
+                expect(read).not.toHaveBeenCalled();
+                expect(browserPdfCombineWorkerMock.run).not.toHaveBeenCalled();
+            } finally {
+                stat.mockRestore();
+                read.mockRestore();
+            }
+            await expect(browserDocumentStore.read(refs[0]!)).resolves.toEqual(Uint8Array.of(1));
+        },
+    );
 
     it('offloads supported mixed PDF and raster-image combine jobs to the browser worker', async () => {
-        const { browserDocumentStore } = await loadBrowserDocumentsFileCapability();
+        const {browserDocumentStore} = await loadBrowserDocumentsFileCapability();
         const createCombinedPdfFromPaths = await loadCreateCombinedPdfFromPaths();
-        const pdfRef = await browserDocumentStore.createStoredDocument(
-            'first.pdf',
-            Uint8Array.of(1, 2, 3),
-            {...PDF_SOURCE_OPTIONS},
-        );
-        const imageRef = await browserDocumentStore.createStoredDocument(
-            'photo.png',
-            Uint8Array.of(4, 5, 6),
-            {
-                mimeType: 'image/png',
-                kind: 'source',
-                saveKind: 'generic',
-            },
-        );
+        const pdfRef = await browserDocumentStore.createStoredDocument('first.pdf', Uint8Array.of(1, 2, 3), {...PDF_SOURCE_OPTIONS});
+        const imageRef = await browserDocumentStore.createStoredDocument('photo.png', Uint8Array.of(4, 5, 6), {
+            mimeType: 'image/png',
+            kind: 'source',
+            saveKind: 'generic',
+        });
         browserPdfCombineWorkerMock.canUse.mockReturnValue(true);
         browserPdfCombineWorkerMock.run.mockResolvedValue({data: Uint8Array.of(7, 8)});
         browserAnnotationParseMock.run.mockResolvedValue({status: 'written', pageCount: 2, length: 3, data: Uint8Array.of(7, 8, 9)});
 
-        const result = await createCombinedPdfFromPaths([
-            pdfRef,
-            imageRef,
-        ]);
+        const result = await createCombinedPdfFromPaths([pdfRef, imageRef]);
 
         await expect(browserDocumentStore.read(result)).resolves.toEqual(Uint8Array.of(7, 8, 9));
         // The image becomes a PDF in the combine worker; the page tool merges it after the PDF, read in place.
-        expect(browserPdfCombineWorkerMock.run).toHaveBeenCalledWith('combinePdfs', {inputs: [{
-            fileName: 'photo.png',
-            data: Uint8Array.of(4, 5, 6),
-        }]});
+        expect(browserPdfCombineWorkerMock.run).toHaveBeenCalledWith('combinePdfs', {
+            inputs: [
+                {
+                    fileName: 'photo.png',
+                    data: Uint8Array.of(4, 5, 6),
+                },
+            ],
+        });
         const [type, request] = browserAnnotationParseMock.run.mock.calls[0]!;
         expect(type).toBe('pageStructure');
         expect(request).toMatchObject({edit: {kind: 'merge'}, output: null});
         const sources = (request as {sources: Blob[]}).sources;
-        await expect(Promise.all(sources.map(async source => [...new Uint8Array(await source.arrayBuffer())])))
-            .resolves.toEqual([[1, 2, 3], [7, 8]]);
+        await expect(Promise.all(sources.map(async (source) => [...new Uint8Array(await source.arrayBuffer())]))).resolves.toEqual([
+            [1, 2, 3],
+            [7, 8],
+        ]);
     });
 
     it('does not publish a direct batch when the browser combine worker is unavailable', async () => {
-        const {
-            browserDocumentStore, capability,
-        } = await loadBrowserDocumentsFileCapability();
+        const {browserDocumentStore, capability} = await loadBrowserDocumentsFileCapability();
         const pdfBytes = await createPdfBytes();
-        const pdfRef = await browserDocumentStore.createStoredDocument(
-            'first.pdf',
-            pdfBytes,
-            {
-                ...PDF_SOURCE_OPTIONS,
-                retention: 'transient',
-            },
-        );
+        const pdfRef = await browserDocumentStore.createStoredDocument('first.pdf', pdfBytes, {
+            ...PDF_SOURCE_OPTIONS,
+            retention: 'transient',
+        });
         const imageBytes = Uint8Array.of(1, 2, 3);
-        const imageRef = await browserDocumentStore.createStoredDocument(
-            'photo.png',
-            imageBytes,
-            {
-                mimeType: 'image/png',
-                kind: 'source',
-                saveKind: 'generic',
-                retention: 'transient',
-            },
-        );
+        const imageRef = await browserDocumentStore.createStoredDocument('photo.png', imageBytes, {
+            mimeType: 'image/png',
+            kind: 'source',
+            saveKind: 'generic',
+            retention: 'transient',
+        });
         browserPdfCombineWorkerMock.canUse.mockReturnValue(false);
 
-        await expect(capability.openDocumentDirectBatch([
-            pdfRef,
-            imageRef,
-        ])).rejects.toThrow('Browser PDF combine worker is unavailable');
+        await expect(capability.openDocumentDirectBatch([pdfRef, imageRef])).rejects.toThrow('Browser PDF combine worker is unavailable');
 
         expect(browserPdfCombineWorkerMock.run).not.toHaveBeenCalled();
         await expect(browserDocumentStore.read(pdfRef)).resolves.toEqual(pdfBytes);
@@ -1134,43 +1039,20 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
     });
 
     it('converts DjVu files before combining mixed browser batches', async () => {
-        const {
-            browserDocumentStore, capability,
-        } = await loadBrowserDocumentsFileCapability();
-        const pdfBytes = await createPdfBytes([
-            100,
-            100,
-        ]);
-        const convertedPdfBytes = await createPdfBytes([
-            200,
-            100,
-        ]);
-        const djvuBytes = new Uint8Array(await readFile(join(
-            process.cwd(),
-            'tests/fixtures/djvu/sources/bitonal-faint-pencil.djvu',
-        )));
-        const pdfRef = await browserDocumentStore.createStoredDocument(
-            'first.pdf',
-            pdfBytes,
-            {...PDF_SOURCE_OPTIONS},
-        );
-        const djvuRef = await browserDocumentStore.createStoredDocument(
-            'scan.djvu',
-            djvuBytes,
-            {
-                mimeType: 'image/vnd.djvu',
-                kind: 'source',
-                saveKind: 'generic',
-            },
-        );
-        const existingRecentRef = await browserDocumentStore.createStoredDocument(
-            'existing.pdf',
-            await createPdfBytes(),
-            {
-                ...PDF_SOURCE_OPTIONS,
-                retention: 'durable',
-            },
-        );
+        const {browserDocumentStore, capability} = await loadBrowserDocumentsFileCapability();
+        const pdfBytes = await createPdfBytes([100, 100]);
+        const convertedPdfBytes = await createPdfBytes([200, 100]);
+        const djvuBytes = new Uint8Array(await readFile(join(process.cwd(), 'tests/fixtures/djvu/sources/bitonal-faint-pencil.djvu')));
+        const pdfRef = await browserDocumentStore.createStoredDocument('first.pdf', pdfBytes, {...PDF_SOURCE_OPTIONS});
+        const djvuRef = await browserDocumentStore.createStoredDocument('scan.djvu', djvuBytes, {
+            mimeType: 'image/vnd.djvu',
+            kind: 'source',
+            saveKind: 'generic',
+        });
+        const existingRecentRef = await browserDocumentStore.createStoredDocument('existing.pdf', await createPdfBytes(), {
+            ...PDF_SOURCE_OPTIONS,
+            retention: 'durable',
+        });
         await browserDocumentStore.touchRecentFile(existingRecentRef);
         let convertedRef: string | null = null;
         browserDjvuCapabilityMock.runConversion.mockImplementation(async (_djvuPath: string, outputPath: string) => {
@@ -1186,31 +1068,20 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             const combinedDocument = await PDFDocument.create();
             for (const source of (payload as {sources: Blob[]}).sources) {
                 const sourceDocument = await PDFDocument.load(await source.arrayBuffer());
-                const pages = await combinedDocument.copyPages(
-                    sourceDocument,
-                    sourceDocument.getPageIndices(),
-                );
-                pages.forEach(page => combinedDocument.addPage(page));
+                const pages = await combinedDocument.copyPages(sourceDocument, sourceDocument.getPageIndices());
+                pages.forEach((page) => combinedDocument.addPage(page));
             }
             const data = new Uint8Array(await combinedDocument.save());
             return {status: 'written', pageCount: combinedDocument.getPageCount(), length: data.byteLength, data};
         });
 
-        const result = await capability.openDocumentDirectBatch([
-            pdfRef,
-            djvuRef,
-        ]);
+        const result = await capability.openDocumentDirectBatch([pdfRef, djvuRef]);
         if (!result || !result.originalPath) {
             throw new Error('Expected a generated PDF result for the mixed browser batch');
         }
 
-        const generatedPdf = await PDFDocument.load(
-            await browserDocumentStore.read(result.originalPath),
-        );
-        expect(generatedPdf.getPages().map(page => page.getWidth())).toEqual([
-            100,
-            200,
-        ]);
+        const generatedPdf = await PDFDocument.load(await browserDocumentStore.read(result.originalPath));
+        expect(generatedPdf.getPages().map((page) => page.getWidth())).toEqual([100, 200]);
         expect(browserDjvuCapabilityMock.runConversion).toHaveBeenCalledWith(
             djvuRef,
             expect.stringMatching(/^browser:\/\/documents\//u),
@@ -1227,37 +1098,26 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
 
         const recentFiles = await capability.recentFiles.get();
         expect(recentFiles).toHaveLength(2);
-        expect(recentFiles).toEqual(expect.arrayContaining([
-            expect.objectContaining({originalPath: result.originalPath}),
-            expect.objectContaining({originalPath: existingRecentRef}),
-        ]));
-        expect(recentFiles.map(file => file.originalPath)).not.toContain(pdfRef);
-        expect(recentFiles.map(file => file.originalPath)).not.toContain(djvuRef);
-        expect(recentFiles.map(file => file.originalPath)).not.toContain(convertedRef);
+        expect(recentFiles).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({originalPath: result.originalPath}),
+                expect.objectContaining({originalPath: existingRecentRef}),
+            ]),
+        );
+        expect(recentFiles.map((file) => file.originalPath)).not.toContain(pdfRef);
+        expect(recentFiles.map((file) => file.originalPath)).not.toContain(djvuRef);
+        expect(recentFiles.map((file) => file.originalPath)).not.toContain(convertedRef);
     });
 
     it('cleans converted DjVu inputs when the browser worker combine fails', async () => {
-        const {
-            browserDocumentStore, capability,
-        } = await loadBrowserDocumentsFileCapability();
-        const pdfRef = await browserDocumentStore.createStoredDocument(
-            'first.pdf',
-            await createPdfBytes(),
-            {...PDF_SOURCE_OPTIONS},
-        );
-        const djvuBytes = new Uint8Array(await readFile(join(
-            process.cwd(),
-            'tests/fixtures/djvu/sources/bitonal-faint-pencil.djvu',
-        )));
-        const djvuRef = await browserDocumentStore.createStoredDocument(
-            'scan.djvu',
-            djvuBytes,
-            {
-                mimeType: 'image/vnd.djvu',
-                kind: 'source',
-                saveKind: 'generic',
-            },
-        );
+        const {browserDocumentStore, capability} = await loadBrowserDocumentsFileCapability();
+        const pdfRef = await browserDocumentStore.createStoredDocument('first.pdf', await createPdfBytes(), {...PDF_SOURCE_OPTIONS});
+        const djvuBytes = new Uint8Array(await readFile(join(process.cwd(), 'tests/fixtures/djvu/sources/bitonal-faint-pencil.djvu')));
+        const djvuRef = await browserDocumentStore.createStoredDocument('scan.djvu', djvuBytes, {
+            mimeType: 'image/vnd.djvu',
+            kind: 'source',
+            saveKind: 'generic',
+        });
         let convertedRef: string | null = null;
         browserDjvuCapabilityMock.runConversion.mockImplementation(async (_djvuPath: string, outputPath: string) => {
             convertedRef = outputPath;
@@ -1270,11 +1130,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         browserPdfCombineWorkerMock.canUse.mockReturnValue(true);
         browserAnnotationParseMock.run.mockRejectedValue(new Error('browser worker failed'));
 
-        await expect(capability.openDocumentDirectBatch([
-            pdfRef,
-            djvuRef,
-        ]))
-            .rejects.toThrow('browser worker failed');
+        await expect(capability.openDocumentDirectBatch([pdfRef, djvuRef])).rejects.toThrow('browser worker failed');
 
         expect(convertedRef).not.toBeNull();
         await expect(browserDocumentStore.exists(convertedRef!)).resolves.toBe(false);
@@ -1285,25 +1141,20 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
     it('cancels browser DjVu pre-conversion when the combine signal aborts', async () => {
         const {browserDocumentStore} = await loadBrowserDocumentsFileCapability();
         const createCombinedPdfFromPaths = await loadCreateCombinedPdfFromPaths();
-        const djvuRef = await browserDocumentStore.createStoredDocument(
-            'scan.djvu',
-            Uint8Array.of(1, 2, 3),
-            {
-                mimeType: 'application/octet-stream',
-                kind: 'source',
-                saveKind: 'generic',
-            },
-        );
+        const djvuRef = await browserDocumentStore.createStoredDocument('scan.djvu', Uint8Array.of(1, 2, 3), {
+            mimeType: 'application/octet-stream',
+            kind: 'source',
+            saveKind: 'generic',
+        });
         let finishConversion: (() => void) | undefined;
         let conversionJobId: string | undefined;
-        browserDjvuCapabilityMock.runConversion.mockImplementationOnce(async (
-            _djvuPath: string,
-            _outputPath: string,
-            options: {jobId?: string},
-        ) => new Promise(resolve => {
-            conversionJobId = options.jobId;
-            finishConversion = () => resolve({success: true});
-        }));
+        browserDjvuCapabilityMock.runConversion.mockImplementationOnce(
+            async (_djvuPath: string, _outputPath: string, options: {jobId?: string}) =>
+                new Promise((resolve) => {
+                    conversionJobId = options.jobId;
+                    finishConversion = () => resolve({success: true});
+                }),
+        );
         browserDjvuCapabilityMock.cancel.mockImplementationOnce(async () => {
             finishConversion?.();
             return {canceled: true};
@@ -1322,17 +1173,13 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
     });
 
     it('rejects unsupported image combine formats before worker admission', async () => {
-        const { browserDocumentStore } = await loadBrowserDocumentsFileCapability();
+        const {browserDocumentStore} = await loadBrowserDocumentsFileCapability();
         const createCombinedPdfFromPaths = await loadCreateCombinedPdfFromPaths();
-        const svgRef = await browserDocumentStore.createStoredDocument(
-            'vector.svg',
-            Uint8Array.of(60, 115, 118, 103, 62),
-            {
-                mimeType: 'image/svg+xml',
-                kind: 'source',
-                saveKind: 'generic',
-            },
-        );
+        const svgRef = await browserDocumentStore.createStoredDocument('vector.svg', Uint8Array.of(60, 115, 118, 103, 62), {
+            mimeType: 'image/svg+xml',
+            kind: 'source',
+            saveKind: 'generic',
+        });
         browserPdfCombineWorkerMock.canUse.mockReturnValue(true);
 
         await expect(createCombinedPdfFromPaths([svgRef])).rejects.toThrow();
@@ -1342,11 +1189,8 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
     it('cleans up transient combine refs when opening picked browser inputs fails', async () => {
         const uuid = vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('00000000-0000-4000-8000-000000000006');
         onTestFinished(() => uuid.mockRestore());
-        const brokenPng = new File([Uint8Array.of(1, 2, 3)], 'broken.png', { type: 'image/png' });
-        const {
-            capability,
-            browserDocumentStore,
-        } = await loadBrowserDocumentsFileCapability({ inputFiles: [brokenPng] });
+        const brokenPng = new File([Uint8Array.of(1, 2, 3)], 'broken.png', {type: 'image/png'});
+        const {capability, browserDocumentStore} = await loadBrowserDocumentsFileCapability({inputFiles: [brokenPng]});
         const failedRef = 'browser://documents/00000000-0000-4000-8000-000000000006/broken.png';
 
         await expect(capability.openCombineDialog()).rejects.toThrow();
@@ -1354,25 +1198,14 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
     });
 
     it('publishes only the generated PDF to recents when opening a direct-batch PDF and DjVu', async () => {
-        const {
-            capability,
-            browserDocumentStore,
-        } = await loadBrowserDocumentsFileCapability();
+        const {capability, browserDocumentStore} = await loadBrowserDocumentsFileCapability();
         const pdfBytes = await createPdfBytes();
-        const pdfRef = await browserDocumentStore.createStoredDocument(
-            'first.pdf',
-            pdfBytes,
-            {...PDF_SOURCE_OPTIONS},
-        );
-        const djvuRef = await browserDocumentStore.createStoredDocument(
-            'second.djvu',
-            Uint8Array.of(1),
-            {
-                mimeType: 'image/vnd.djvu',
-                kind: 'source',
-                saveKind: 'generic',
-            },
-        );
+        const pdfRef = await browserDocumentStore.createStoredDocument('first.pdf', pdfBytes, {...PDF_SOURCE_OPTIONS});
+        const djvuRef = await browserDocumentStore.createStoredDocument('second.djvu', Uint8Array.of(1), {
+            mimeType: 'image/vnd.djvu',
+            kind: 'source',
+            saveKind: 'generic',
+        });
         browserDjvuCapabilityMock.runConversion.mockImplementation(async (_path: string, outputRef: string) => {
             await browserDocumentStore.write(outputRef, pdfBytes);
             return {success: true};
@@ -1380,49 +1213,45 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         browserPdfCombineWorkerMock.canUse.mockReturnValue(true);
         browserAnnotationParseMock.run.mockResolvedValue({status: 'written', pageCount: 2, length: pdfBytes.byteLength, data: pdfBytes});
 
-        const result = await capability.openDocumentDirectBatch([
-            pdfRef,
-            djvuRef,
-        ]);
+        const result = await capability.openDocumentDirectBatch([pdfRef, djvuRef]);
 
-        expect(result).toEqual(expect.objectContaining({
-            kind: 'pdf',
-            isGenerated: true,
-        }));
-        await expect(capability.recentFiles.get()).resolves.toEqual([expect.objectContaining({
-            originalPath: result!.originalPath,
-            fileName: expect.stringMatching(/^combined-\d+\.pdf$/u),
-        })]);
+        expect(result).toEqual(
+            expect.objectContaining({
+                kind: 'pdf',
+                isGenerated: true,
+            }),
+        );
+        await expect(capability.recentFiles.get()).resolves.toEqual([
+            expect.objectContaining({
+                originalPath: result!.originalPath,
+                fileName: expect.stringMatching(/^combined-\d+\.pdf$/u),
+            }),
+        ]);
     });
 
     it('keeps recent entries when direct browser handle reopen is denied', async () => {
-        const {
-            capability,
-            browserDocumentStore,
-        } = await loadBrowserDocumentsFileCapability();
+        const {capability, browserDocumentStore} = await loadBrowserDocumentsFileCapability();
         const handle = createFileSystemFileHandle({
             name: 'denied.pdf',
             getFile: vi.fn(async () => {
                 throw new DOMException('Not allowed', 'NotAllowedError');
             }),
         });
-        const sourceRef = await browserDocumentStore.createStoredDocument(
-            'denied.pdf',
-            new Uint8Array(),
-            {
-                ...PDF_SOURCE_OPTIONS,
-                saveHandle: handle,
-                storageMode: 'handle',
-            },
-        );
+        const sourceRef = await browserDocumentStore.createStoredDocument('denied.pdf', new Uint8Array(), {
+            ...PDF_SOURCE_OPTIONS,
+            saveHandle: handle,
+            storageMode: 'handle',
+        });
         await browserDocumentStore.touchRecentFile(sourceRef);
 
         await expect(capability.openDocumentDirect(sourceRef)).rejects.toThrow('Not allowed');
         const recentFiles = await capability.recentFiles.get();
-        expect(recentFiles).toEqual([expect.objectContaining({
-            originalPath: sourceRef,
-            fileName: 'denied.pdf',
-        })]);
+        expect(recentFiles).toEqual([
+            expect.objectContaining({
+                originalPath: sourceRef,
+                fileName: 'denied.pdf',
+            }),
+        ]);
     });
 
     it('names an optimized dot-file without dropping its name', () => {
@@ -1431,9 +1260,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
     });
 
     it('remembers a DjVu source reading view only while its file is the version it was left on', async () => {
-        const {
-            capability, browserDocumentStore,
-        } = await loadBrowserDocumentsFileCapability();
+        const {capability, browserDocumentStore} = await loadBrowserDocumentsFileCapability();
         const {browserSettingsCapability} = await import('@app/platform/browser-api/browserSettingsCapability');
         await browserSettingsCapability.save({rememberDocumentView: true});
         let physical = new File([Uint8Array.of(65, 84, 38, 84)], 'book.djvu', {lastModified: 1_000});
@@ -1481,32 +1308,36 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             name: 'book.pdf',
             getFile: async () => physical,
         });
-        const {
-            capability, browserDocumentStore,
-        } = await loadBrowserDocumentsFileCapability({windowOverrides: {showOpenFilePicker: async () => [handle]}});
+        const {capability, browserDocumentStore} = await loadBrowserDocumentsFileCapability({
+            windowOverrides: {showOpenFilePicker: async () => [handle]},
+        });
         const {browserSettingsCapability} = await import('@app/platform/browser-api/browserSettingsCapability');
         const opened = await capability.openDocumentDialog();
-        if (opened?.kind !== 'pdf') {throw new Error('Expected the picked PDF to open');}
+        if (opened?.kind !== 'pdf') {
+            throw new Error('Expected the picked PDF to open');
+        }
         const workingCopy = requireDocumentRef(opened.workingPath);
         await capability.recentFiles.rememberReadingView(workingCopy, view);
         // Another document's open rewrites the list; the entry keeps its view.
-        await browserDocumentStore.touchRecentFile(await browserDocumentStore.createStoredDocument('other.pdf', await createPdfBytes(), PDF_SOURCE_OPTIONS));
+        await browserDocumentStore.touchRecentFile(
+            await browserDocumentStore.createStoredDocument('other.pdf', await createPdfBytes(), PDF_SOURCE_OPTIONS),
+        );
         const reopen = async () => {
             const reopened = await capability.openDocumentDirect(requireDocumentRef(opened.originalPath));
-            if (reopened?.kind !== 'pdf') {throw new Error('Expected the Recent PDF to reopen');}
+            if (reopened?.kind !== 'pdf') {
+                throw new Error('Expected the Recent PDF to reopen');
+            }
             return requireDocumentRef(reopened.workingPath);
         };
 
         await expect(capability.recentFiles.readingView(await reopen())).resolves.toBeNull();
         await browserSettingsCapability.save({rememberDocumentView: true});
         await expect(capability.recentFiles.readingView(await reopen())).resolves.toEqual(view);
-        expect((await capability.recentFiles.get()).find(file => file.originalPath === opened.originalPath))
-            .not.toHaveProperty('readingView');
+        expect((await capability.recentFiles.get()).find((file) => file.originalPath === opened.originalPath)).not.toHaveProperty(
+            'readingView',
+        );
 
-        physical = new File([await createPdfBytes([
-            300,
-            400,
-        ])], 'book.pdf', {
+        physical = new File([await createPdfBytes([300, 400])], 'book.pdf', {
             type: 'application/pdf',
             lastModified: 2_000,
         });
@@ -1516,10 +1347,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
     // An ordinary Save writes the reader's own bytes to the file it opened, or
     // downloads them where the browser has no file access; the view left on
     // them must survive the next Recent reopen.
-    it.each([
-        'file handle',
-        'download',
-    ] as const)('keeps the Recent reading view across an ordinary Save to a %s', async (target) => {
+    it.each(['file handle', 'download'] as const)('keeps the Recent reading view across an ordinary Save to a %s', async (target) => {
         const view = {
             currentPage: 1,
             pageCount: 1,
@@ -1559,91 +1387,83 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             });
             vi.stubGlobal('URL', DownloadURL);
         }
-        const {
-            capability, browserDocumentStore,
-        } = await loadBrowserDocumentsFileCapability(target === 'download'
-            ? {inputFiles: [physical]}
-            : {windowOverrides: {showOpenFilePicker: async () => [handle]}});
+        const {capability, browserDocumentStore} = await loadBrowserDocumentsFileCapability(
+            target === 'download' ? {inputFiles: [physical]} : {windowOverrides: {showOpenFilePicker: async () => [handle]}},
+        );
         const {browserSettingsCapability} = await import('@app/platform/browser-api/browserSettingsCapability');
         await browserSettingsCapability.save({rememberDocumentView: true});
         const opened = await capability.openDocumentDialog();
-        if (opened?.kind !== 'pdf') {throw new Error('Expected the picked PDF to open');}
+        if (opened?.kind !== 'pdf') {
+            throw new Error('Expected the picked PDF to open');
+        }
         const workingCopy = requireDocumentRef(opened.workingPath);
-        await browserDocumentStore.write(workingCopy, await createPdfBytes([
-            300,
-            400,
-        ]), await getRevisionOptions(browserDocumentStore, workingCopy));
-        await expect(capability.saveFileStructured(workingCopy, await getRevisionOptions(browserDocumentStore, workingCopy)))
-            .resolves.toMatchObject({ok: true});
+        await browserDocumentStore.write(
+            workingCopy,
+            await createPdfBytes([300, 400]),
+            await getRevisionOptions(browserDocumentStore, workingCopy),
+        );
+        await expect(
+            capability.saveFileStructured(workingCopy, await getRevisionOptions(browserDocumentStore, workingCopy)),
+        ).resolves.toMatchObject({ok: true});
         await capability.recentFiles.rememberReadingView(workingCopy, view);
 
         const reopened = await capability.openDocumentDirect(requireDocumentRef(opened.originalPath));
-        if (reopened?.kind !== 'pdf') {throw new Error('Expected the Recent PDF to reopen');}
+        if (reopened?.kind !== 'pdf') {
+            throw new Error('Expected the Recent PDF to reopen');
+        }
         expect(reopened.originalPath).toBe(opened.originalPath);
         await expect(capability.recentFiles.readingView(requireDocumentRef(reopened.workingPath))).resolves.toEqual(view);
     });
 
     it('opens oversized sources with range-backed working copies', async () => {
-        const {
-            BROWSER_MAX_FULL_READ_BYTES,
-            capability,
-            browserDocumentStore,
-        } = await loadBrowserDocumentsFileCapability();
-        const getFile = vi.fn(async () => createOversizedPdfFile(
-            'huge.pdf',
-            BROWSER_MAX_FULL_READ_BYTES + 1,
-        ));
+        const {BROWSER_MAX_FULL_READ_BYTES, capability, browserDocumentStore} = await loadBrowserDocumentsFileCapability();
+        const getFile = vi.fn(async () => createOversizedPdfFile('huge.pdf', BROWSER_MAX_FULL_READ_BYTES + 1));
         const handle = createFileSystemFileHandle({
             name: 'huge.pdf',
             getFile,
         });
-        const sourceRef = await browserDocumentStore.createStoredDocument(
-            'huge.pdf',
-            new Uint8Array(),
-            {
-                ...PDF_SOURCE_OPTIONS,
-                saveHandle: handle,
-                storageMode: 'handle',
-            },
-        );
+        const sourceRef = await browserDocumentStore.createStoredDocument('huge.pdf', new Uint8Array(), {
+            ...PDF_SOURCE_OPTIONS,
+            saveHandle: handle,
+            storageMode: 'handle',
+        });
 
         await expect(capability.openDocumentDirect(sourceRef)).resolves.toMatchObject({kind: 'pdf'});
     });
 
     it('streams oversized browser saves to an existing file handle', async () => {
-        const {
-            BROWSER_MAX_FULL_READ_BYTES,
-            capability,
-            browserDocumentStore,
-        } = await loadBrowserDocumentsFileCapability();
+        const {BROWSER_MAX_FULL_READ_BYTES, capability, browserDocumentStore} = await loadBrowserDocumentsFileCapability();
         const writes: Uint8Array[] = [];
         const savedBytes = new Uint8Array(BROWSER_MAX_FULL_READ_BYTES + 1);
         const queryPermission = vi.fn(async () => 'granted' as const);
         const requestPermission = vi.fn(async () => 'granted' as const);
         const handle = createFileSystemFileHandle({
             name: 'large-save.pdf',
-            getFile: vi.fn(async () => new File([savedBytes], 'large-save.pdf', {
-                type: 'application/pdf',
-                lastModified: 1,
-            })),
+            getFile: vi.fn(
+                async () =>
+                    new File([savedBytes], 'large-save.pdf', {
+                        type: 'application/pdf',
+                        lastModified: 1,
+                    }),
+            ),
             queryPermission,
             requestPermission,
-            createWritable: vi.fn(async () => createFileSystemWritableFileStream({write: vi.fn(async (chunk: FileSystemWriteChunkType) => {
-                const chunkBytes = new Uint8Array(requireArrayBufferChunk(chunk));
-                const offset = writes.reduce((sum, current) => sum + current.byteLength, 0);
-                savedBytes.set(chunkBytes, offset);
-                writes.push(chunkBytes);
-            })})),
+            createWritable: vi.fn(async () =>
+                createFileSystemWritableFileStream({
+                    write: vi.fn(async (chunk: FileSystemWriteChunkType) => {
+                        const chunkBytes = new Uint8Array(requireArrayBufferChunk(chunk));
+                        const offset = writes.reduce((sum, current) => sum + current.byteLength, 0);
+                        savedBytes.set(chunkBytes, offset);
+                        writes.push(chunkBytes);
+                    }),
+                }),
+            ),
         });
-        const sourceRef = await browserDocumentStore.createStoredDocument(
-            'large-save.pdf',
-            new Uint8Array(),
-            {
-                ...PDF_SOURCE_OPTIONS,
-                saveHandle: handle,
-                storageMode: 'handle',
-            },
-        );
+        const sourceRef = await browserDocumentStore.createStoredDocument('large-save.pdf', new Uint8Array(), {
+            ...PDF_SOURCE_OPTIONS,
+            saveHandle: handle,
+            storageMode: 'handle',
+        });
         const workingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
         const oversizedBytes = new Uint8Array(BROWSER_MAX_FULL_READ_BYTES + 1);
         oversizedBytes[0] = 37;
@@ -1652,12 +1472,11 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         oversizedBytes[3] = 70;
         await browserDocumentStore.write(workingRef, oversizedBytes, await getRevisionOptions(browserDocumentStore, workingRef));
 
-        await expect(capability.saveFileStructured(
-            workingRef,
-            await getRevisionOptions(browserDocumentStore, workingRef),
-        )).resolves.toMatchObject({ ok: true });
+        await expect(
+            capability.saveFileStructured(workingRef, await getRevisionOptions(browserDocumentStore, workingRef)),
+        ).resolves.toMatchObject({ok: true});
 
-        expect(queryPermission).toHaveBeenCalledWith({ mode: 'readwrite' });
+        expect(queryPermission).toHaveBeenCalledWith({mode: 'readwrite'});
         expect(requestPermission).not.toHaveBeenCalled();
         const savedEntry = await browserDocumentStore.requireEntry(sourceRef);
         expect(savedEntry.saveHandle).toBe(handle);
@@ -1670,65 +1489,63 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
     });
 
     it('requests browser write permission before saving to an existing file handle', async () => {
-        const {
-            capability,
-            browserDocumentStore,
-        } = await loadBrowserDocumentsFileCapability();
+        const {capability, browserDocumentStore} = await loadBrowserDocumentsFileCapability();
         // The opened source has read access; saving still needs readwrite permission.
         const grantedModes = new Set<string>(['read']);
-        const queryPermission = vi.fn(async (descriptor?: {mode?: string}) => (
-            grantedModes.has(descriptor?.mode ?? '') ? 'granted' as const : 'prompt' as const
-        ));
+        const queryPermission = vi.fn(async (descriptor?: {mode?: string}) =>
+            grantedModes.has(descriptor?.mode ?? '') ? ('granted' as const) : ('prompt' as const),
+        );
         const requestPermission = vi.fn(async (descriptor?: {mode?: string}) => {
             grantedModes.add(descriptor?.mode ?? '');
             return 'granted' as const;
         });
         let physical = Uint8Array.of(1);
-        const createWritable = vi.fn(async () => createFileSystemWritableFileStream({write: vi.fn(async (chunk: FileSystemWriteChunkType) => {
-            physical = new Uint8Array(requireArrayBufferChunk(chunk));
-        })}));
+        const createWritable = vi.fn(async () =>
+            createFileSystemWritableFileStream({
+                write: vi.fn(async (chunk: FileSystemWriteChunkType) => {
+                    physical = new Uint8Array(requireArrayBufferChunk(chunk));
+                }),
+            }),
+        );
         const handle = createFileSystemFileHandle({
             name: 'needs-permission.pdf',
-            getFile: vi.fn(async () => new File([physical], 'needs-permission.pdf', {
-                type: 'application/pdf',
-                lastModified: 1,
-            })),
+            getFile: vi.fn(
+                async () =>
+                    new File([physical], 'needs-permission.pdf', {
+                        type: 'application/pdf',
+                        lastModified: 1,
+                    }),
+            ),
             queryPermission,
             requestPermission,
             createWritable,
         });
-        const sourceRef = await browserDocumentStore.createStoredDocument(
-            'needs-permission.pdf',
-            new Uint8Array(),
-            {
-                ...PDF_SOURCE_OPTIONS,
-                saveHandle: handle,
-                storageMode: 'handle',
-            },
-        );
+        const sourceRef = await browserDocumentStore.createStoredDocument('needs-permission.pdf', new Uint8Array(), {
+            ...PDF_SOURCE_OPTIONS,
+            saveHandle: handle,
+            storageMode: 'handle',
+        });
         const workingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
-        await browserDocumentStore.write(workingRef, Uint8Array.of(37, 80, 68, 70), await getRevisionOptions(browserDocumentStore, workingRef));
-
-        await expect(capability.saveFileStructured(
+        await browserDocumentStore.write(
             workingRef,
+            Uint8Array.of(37, 80, 68, 70),
             await getRevisionOptions(browserDocumentStore, workingRef),
-        )).resolves.toMatchObject({ ok: true });
+        );
 
-        expect(queryPermission).toHaveBeenCalledWith({ mode: 'readwrite' });
-        expect(requestPermission).toHaveBeenCalledWith({ mode: 'readwrite' });
+        await expect(
+            capability.saveFileStructured(workingRef, await getRevisionOptions(browserDocumentStore, workingRef)),
+        ).resolves.toMatchObject({ok: true});
+
+        expect(queryPermission).toHaveBeenCalledWith({mode: 'readwrite'});
+        expect(requestPermission).toHaveBeenCalledWith({mode: 'readwrite'});
         expect(createWritable).toHaveBeenCalledOnce();
     });
 
     it('rejects browser structured saves without a revision token', async () => {
-        const {
-            capability,
-            browserDocumentStore,
-        } = await loadBrowserDocumentsFileCapability();
-        const sourceRef = await browserDocumentStore.createStoredDocument(
-            'missing-revision.pdf',
-            Uint8Array.of(37, 80, 68, 70),
-            {...PDF_SOURCE_OPTIONS},
-        );
+        const {capability, browserDocumentStore} = await loadBrowserDocumentsFileCapability();
+        const sourceRef = await browserDocumentStore.createStoredDocument('missing-revision.pdf', Uint8Array.of(37, 80, 68, 70), {
+            ...PDF_SOURCE_OPTIONS,
+        });
         const workingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
 
         await expect(capability.saveFileStructured(workingRef)).resolves.toMatchObject({
@@ -1739,18 +1556,17 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
     });
 
     it('rejects browser structured saves with a stale revision token', async () => {
-        const {
-            capability,
-            browserDocumentStore,
-        } = await loadBrowserDocumentsFileCapability();
-        const sourceRef = await browserDocumentStore.createStoredDocument(
-            'stale-revision.pdf',
-            Uint8Array.of(37, 80, 68, 70),
-            {...PDF_SOURCE_OPTIONS},
-        );
+        const {capability, browserDocumentStore} = await loadBrowserDocumentsFileCapability();
+        const sourceRef = await browserDocumentStore.createStoredDocument('stale-revision.pdf', Uint8Array.of(37, 80, 68, 70), {
+            ...PDF_SOURCE_OPTIONS,
+        });
         const workingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
         const staleRevisionOptions = await getRevisionOptions(browserDocumentStore, workingRef);
-        await browserDocumentStore.write(workingRef, Uint8Array.of(37, 80, 68, 70, 10), await getRevisionOptions(browserDocumentStore, workingRef));
+        await browserDocumentStore.write(
+            workingRef,
+            Uint8Array.of(37, 80, 68, 70, 10),
+            await getRevisionOptions(browserDocumentStore, workingRef),
+        );
 
         await expect(capability.saveFileStructured(workingRef, staleRevisionOptions)).resolves.toMatchObject({
             ok: false,
@@ -1784,33 +1600,21 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
                 errors: [],
             },
         },
-    ])('preserves caches when a browser $name is canceled', async ({
-        invoke,
-        expected,
-    }) => {
+    ])('preserves caches when a browser $name is canceled', async ({invoke, expected}) => {
         const showSaveFilePicker = vi.fn(async () => {
             throw new DOMException('Canceled', 'AbortError');
         });
         const clearSearchCaches = vi.fn();
-        const {
-            capability,
-            browserDocumentStore,
-        } = await loadBrowserDocumentsFileCapability({
+        const {capability, browserDocumentStore} = await loadBrowserDocumentsFileCapability({
             clearSearchCaches,
-            windowOverrides: { showSaveFilePicker },
+            windowOverrides: {showSaveFilePicker},
         });
-        const sourceRef = await browserDocumentStore.createStoredDocument(
-            'cancel-save.pdf',
-            await createPdfBytes(),
-            PDF_SOURCE_OPTIONS,
-        );
+        const sourceRef = await browserDocumentStore.createStoredDocument('cancel-save.pdf', await createPdfBytes(), PDF_SOURCE_OPTIONS);
         const workingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
 
-        await expect(invoke(
-            capability,
-            workingRef,
-            await getRevisionOptions(browserDocumentStore, workingRef),
-        )).resolves.toMatchObject(expected);
+        await expect(invoke(capability, workingRef, await getRevisionOptions(browserDocumentStore, workingRef))).resolves.toMatchObject(
+            expected,
+        );
         expect(clearSearchCaches).not.toHaveBeenCalled();
     });
 
@@ -1819,31 +1623,29 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             throw new Error('Working-copy-only staging must not open a save picker');
         });
         const sourceBytes = await createPdfBytes();
-        const createWritable = vi.fn(async () => createFileSystemWritableFileStream({write: vi.fn(async (_chunk: FileSystemWriteChunkType) => {})}));
+        const createWritable = vi.fn(async () =>
+            createFileSystemWritableFileStream({write: vi.fn(async (_chunk: FileSystemWriteChunkType) => {})}),
+        );
         const sourceHandle = createFileSystemFileHandle({
             name: 'working-copy-only.pdf',
-            getFile: vi.fn(async () => new File([sourceBytes], 'working-copy-only.pdf', {
-                type: 'application/pdf',
-                lastModified: 1,
-            })),
+            getFile: vi.fn(
+                async () =>
+                    new File([sourceBytes], 'working-copy-only.pdf', {
+                        type: 'application/pdf',
+                        lastModified: 1,
+                    }),
+            ),
             createWritable,
         });
         const clearSearchCaches = vi.fn();
-        const {
-            capability,
-            browserDocumentStore,
-        } = await loadBrowserDocumentsFileCapability({
+        const {capability, browserDocumentStore} = await loadBrowserDocumentsFileCapability({
             clearSearchCaches,
             windowOverrides: {showSaveFilePicker},
         });
-        const sourceRef = await browserDocumentStore.createStoredDocument(
-            'working-copy-only.pdf',
-            sourceBytes,
-            {
-                ...PDF_SOURCE_OPTIONS,
-                saveHandle: sourceHandle,
-            },
-        );
+        const sourceRef = await browserDocumentStore.createStoredDocument('working-copy-only.pdf', sourceBytes, {
+            ...PDF_SOURCE_OPTIONS,
+            saveHandle: sourceHandle,
+        });
         const workingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
         const stagedDocument = await PDFDocument.create();
         stagedDocument.addPage();
@@ -1851,14 +1653,10 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         const stagedBytes = new Uint8Array(await stagedDocument.save());
         const revisionOptions = await getRevisionOptions(browserDocumentStore, workingRef);
 
-        const result = await capability.savePdfData(
-            workingRef,
-            stagedBytes,
-            {
-                ...revisionOptions,
-                workingCopyOnly: true,
-            },
-        );
+        const result = await capability.savePdfData(workingRef, stagedBytes, {
+            ...revisionOptions,
+            workingCopyOnly: true,
+        });
 
         expect(result).toMatchObject({
             isValid: true,
@@ -1873,9 +1671,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
     });
 
     it('uses the user filename at the savePdfData boundary and never opens a writer after refusal', async () => {
-        const {
-            capability, browserDocumentStore,
-        } = await loadBrowserDocumentsFileCapability();
+        const {capability, browserDocumentStore} = await loadBrowserDocumentsFileCapability();
         const bytes = await createPdfBytes();
         const source = await browserDocumentStore.createStoredDocument('User $& name.pdf', bytes, PDF_SOURCE_OPTIONS);
         const working = await browserDocumentStore.cloneAsWorkingCopy(source);
@@ -1887,7 +1683,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         });
         const write = vi.spyOn(browserDocumentStore, 'write');
         const result = await capability.savePdfData(working, bytes, {
-            ...await getRevisionOptions(browserDocumentStore, working),
+            ...(await getRevisionOptions(browserDocumentStore, working)),
             workingCopyOnly: true,
         });
         expect(result.errors).toEqual(['qpdf(validate-pdf) failed with exit code 2. User $& name.pdf: damaged']);
@@ -1896,41 +1692,42 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
     });
 
     it('fails browser saves without opening the writer when write permission is denied', async () => {
-        const {
-            capability,
-            browserDocumentStore,
-        } = await loadBrowserDocumentsFileCapability();
-        const queryPermission = vi.fn(async (descriptor?: {mode?: string}) => (
-            descriptor?.mode === 'read' ? 'granted' as const : 'prompt' as const
-        ));
+        const {capability, browserDocumentStore} = await loadBrowserDocumentsFileCapability();
+        const queryPermission = vi.fn(async (descriptor?: {mode?: string}) =>
+            descriptor?.mode === 'read' ? ('granted' as const) : ('prompt' as const),
+        );
         const requestPermission = vi.fn(async () => 'denied' as const);
-        const createWritable = vi.fn(async () => createFileSystemWritableFileStream({write: vi.fn(async (_chunk: FileSystemWriteChunkType) => {})}));
+        const createWritable = vi.fn(async () =>
+            createFileSystemWritableFileStream({write: vi.fn(async (_chunk: FileSystemWriteChunkType) => {})}),
+        );
         const handle = createFileSystemFileHandle({
             name: 'denied.pdf',
-            getFile: vi.fn(async () => new File([Uint8Array.of(1)], 'denied.pdf', {
-                type: 'application/pdf',
-                lastModified: 1,
-            })),
+            getFile: vi.fn(
+                async () =>
+                    new File([Uint8Array.of(1)], 'denied.pdf', {
+                        type: 'application/pdf',
+                        lastModified: 1,
+                    }),
+            ),
             queryPermission,
             requestPermission,
             createWritable,
         });
-        const sourceRef = await browserDocumentStore.createStoredDocument(
-            'denied.pdf',
-            new Uint8Array(),
-            {
-                ...PDF_SOURCE_OPTIONS,
-                saveHandle: handle,
-                storageMode: 'handle',
-            },
-        );
+        const sourceRef = await browserDocumentStore.createStoredDocument('denied.pdf', new Uint8Array(), {
+            ...PDF_SOURCE_OPTIONS,
+            saveHandle: handle,
+            storageMode: 'handle',
+        });
         const workingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
-        await browserDocumentStore.write(workingRef, Uint8Array.of(37, 80, 68, 70), await getRevisionOptions(browserDocumentStore, workingRef));
-
-        await expect(capability.saveFileStructured(
+        await browserDocumentStore.write(
             workingRef,
+            Uint8Array.of(37, 80, 68, 70),
             await getRevisionOptions(browserDocumentStore, workingRef),
-        )).resolves.toMatchObject({
+        );
+
+        await expect(
+            capability.saveFileStructured(workingRef, await getRevisionOptions(browserDocumentStore, workingRef)),
+        ).resolves.toMatchObject({
             ok: false,
             reason: 'write-failed',
             message: expect.stringContaining('Browser write permission was not granted for this file.'),
@@ -1939,29 +1736,37 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         expect(createWritable).not.toHaveBeenCalled();
     });
 
-    it.each([
-        'save',
-        'cancel',
-        'stale',
-        'altered-stage',
-    ])('publishes only the admitted Save As bytes when %s', async (outcome) => {
+    it.each(['save', 'cancel', 'stale', 'altered-stage'])('publishes only the admitted Save As bytes when %s', async (outcome) => {
         const originalBytes = Uint8Array.of(37, 80, 68, 70, 1);
         const stagedBytes = Uint8Array.of(37, 80, 68, 70, 2, 3);
         let savedBytes: Uint8Array<ArrayBuffer> | null = null;
         const handle = createFileSystemFileHandle({
             name: 'frontier-save-as.pdf',
             getFile: async () => new File([savedBytes ?? originalBytes], 'frontier-save-as.pdf', {type: 'application/pdf'}),
-            createWritable: async () => createFileSystemWritableFileStream({write: async (chunk) => {
-                savedBytes = new Uint8Array(requireArrayBufferChunk(chunk));
-            }}),
+            createWritable: async () =>
+                createFileSystemWritableFileStream({
+                    write: async (chunk) => {
+                        savedBytes = new Uint8Array(requireArrayBufferChunk(chunk));
+                    },
+                }),
         });
-        const {
-            capability, browserDocumentStore,
-        } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: async () => {
-            if (outcome === 'cancel') {throw new DOMException('Canceled', 'AbortError');}
-            if (outcome === 'stale') {await browserDocumentStore.write(workingRef, Uint8Array.of(9), await getRevisionOptions(browserDocumentStore, workingRef));}
-            return handle;
-        }}});
+        const {capability, browserDocumentStore} = await loadBrowserDocumentsFileCapability({
+            windowOverrides: {
+                showSaveFilePicker: async () => {
+                    if (outcome === 'cancel') {
+                        throw new DOMException('Canceled', 'AbortError');
+                    }
+                    if (outcome === 'stale') {
+                        await browserDocumentStore.write(
+                            workingRef,
+                            Uint8Array.of(9),
+                            await getRevisionOptions(browserDocumentStore, workingRef),
+                        );
+                    }
+                    return handle;
+                },
+            },
+        });
         const sourceRef = await browserDocumentStore.createStoredDocument('frontier-original.pdf', originalBytes, PDF_SOURCE_OPTIONS);
         await browserDocumentStore.touchRecentFile(sourceRef);
         const workingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
@@ -1981,7 +1786,9 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
                 semanticScopeSha256: 'a'.repeat(64),
             },
         });
-        if (outcome === 'altered-stage') {await browserDocumentStore.write(stagedRef, Uint8Array.of(7), await getRevisionOptions(browserDocumentStore, stagedRef));}
+        if (outcome === 'altered-stage') {
+            await browserDocumentStore.write(stagedRef, Uint8Array.of(7), await getRevisionOptions(browserDocumentStore, stagedRef));
+        }
         const revisionOptions = await getRevisionOptions(browserDocumentStore, workingRef);
         const save = capability.savePdfAs(workingRef, {stagedOutput}, revisionOptions);
         if (outcome === 'save') {
@@ -2027,24 +1834,35 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         'preflight-abort',
         'rewrite-abort',
         'candidate-abort',
-    ])('preserves the Save As frontier and published/adopted bytes: %s', async outcome => {
+    ])('preserves the Save As frontier and published/adopted bytes: %s', async (outcome) => {
         const original = Uint8Array.of(37, 80, 68, 70, 1, 2, 3, 4);
-        const frontier = outcome === 'pdfa' ? new TextEncoder().encode('<pdfaid:part>2</pdfaid:part>') : Uint8Array.of(37, 80, 68, 70, 5, 6, 7);
+        const frontier =
+            outcome === 'pdfa' ? new TextEncoder().encode('<pdfaid:part>2</pdfaid:part>') : Uint8Array.of(37, 80, 68, 70, 5, 6, 7);
         const candidate = Uint8Array.of(37, 80, 68, 70, 9);
         const downloads: Blob[] = [];
         let physical = new Uint8Array();
         const handle = createFileSystemFileHandle({
             name: 'optimized.pdf',
             getFile: async () => new File([physical], 'optimized.pdf', {type: 'application/pdf'}),
-            createWritable: async () => createFileSystemWritableFileStream({write: async chunk => {physical = new Uint8Array(requireArrayBufferChunk(chunk));}}),
+            createWritable: async () =>
+                createFileSystemWritableFileStream({
+                    write: async (chunk) => {
+                        physical = new Uint8Array(requireArrayBufferChunk(chunk));
+                    },
+                }),
         });
-        const {
-            capability, browserDocumentStore: store,
-        } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: outcome === 'smaller-download' ? undefined : async () => handle}});
+        const {capability, browserDocumentStore: store} = await loadBrowserDocumentsFileCapability({
+            windowOverrides: {showSaveFilePicker: outcome === 'smaller-download' ? undefined : async () => handle},
+        });
         if (outcome === 'smaller-download') {
             class DownloadURL extends URL {}
             Object.defineProperties(DownloadURL, {
-                createObjectURL: {value: (blob: Blob) => {downloads.push(blob); return 'blob:optimized';}},
+                createObjectURL: {
+                    value: (blob: Blob) => {
+                        downloads.push(blob);
+                        return 'blob:optimized';
+                    },
+                },
                 revokeObjectURL: {value: () => {}},
             });
             vi.stubGlobal('URL', DownloadURL);
@@ -2067,8 +1885,12 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             },
         });
         browserAnnotationParseMock.run.mockImplementation(async () => {
-            if (outcome === 'preflight-abort') {throw new DOMException('reset', 'AbortError');}
-            if (outcome === 'preflight-failed') {throw new Error('structure unavailable');}
+            if (outcome === 'preflight-abort') {
+                throw new DOMException('reset', 'AbortError');
+            }
+            if (outcome === 'preflight-failed') {
+                throw new Error('structure unavailable');
+            }
             return {
                 isSigned: outcome === 'signed',
                 isEncrypted: outcome === 'encrypted',
@@ -2078,15 +1900,26 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             };
         });
         let checks = 0;
-        qpdfRun.mockImplementation(async command => {
+        qpdfRun.mockImplementation(async (command) => {
             if (command === 'lossless-rewrite') {
-                if (outcome === 'rewrite-abort') {throw new DOMException('reset', 'AbortError');}
-                if (outcome === 'rewrite-timeout' || outcome === 'output-limit') {throw new Error(outcome);}
+                if (outcome === 'rewrite-abort') {
+                    throw new DOMException('reset', 'AbortError');
+                }
+                if (outcome === 'rewrite-timeout' || outcome === 'output-limit') {
+                    throw new Error(outcome);
+                }
                 return {
                     exitCode: outcome === 'rewrite-failed' ? 2 : outcome === 'warnings' ? 3 : 0,
                     stdout: '',
                     stderr: '',
-                    output: outcome === 'equal' ? frontier.slice() : outcome === 'larger' ? original.slice() : outcome === 'empty' ? new Uint8Array() : candidate.slice(),
+                    output:
+                        outcome === 'equal'
+                            ? frontier.slice()
+                            : outcome === 'larger'
+                              ? original.slice()
+                              : outcome === 'empty'
+                                ? new Uint8Array()
+                                : candidate.slice(),
                 };
             }
             checks += 1;
@@ -2094,7 +1927,9 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
                 const {BrowserQpdfEngineUnavailableError} = await import('@app/platform/browser-api/browserQpdfEngineClient');
                 throw new BrowserQpdfEngineUnavailableError('download unavailable');
             }
-            if (checks === 2 && outcome === 'candidate-abort') {throw new DOMException('reset', 'AbortError');}
+            if (checks === 2 && outcome === 'candidate-abort') {
+                throw new DOMException('reset', 'AbortError');
+            }
             return {
                 exitCode: (checks === 1 && outcome === 'source-invalid') || (checks === 2 && outcome === 'candidate-invalid') ? 2 : 0,
                 stdout: '',
@@ -2107,30 +1942,32 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             const readableRevision = store.readableRevision.bind(store);
             vi.spyOn(store, 'readableRevision').mockImplementation(async (ref, expected) => {
                 const revision = await readableRevision(ref, expected);
-                return ref === working ? {...revision, blob: Object.defineProperty(revision.blob.slice(), 'size', {value: 64 * 1024 ** 2})} : revision;
+                return ref === working
+                    ? {...revision, blob: Object.defineProperty(revision.blob.slice(), 'size', {value: 64 * 1024 ** 2})}
+                    : revision;
             });
             // Use an unchanged frontier here; receipt size intentionally pins the real stage.
         }
-        const save = capability.savePdfAs(working, {
-            optimizeLossless: outcome !== 'off' && outcome !== 'automatic',
-            ...(outcome === 'automatic' ? {} : {stagedOutput}),
-        }, await getRevisionOptions(store, working));
+        const save = capability.savePdfAs(
+            working,
+            {
+                optimizeLossless: outcome !== 'off' && outcome !== 'automatic',
+                ...(outcome === 'automatic' ? {} : {stagedOutput}),
+            },
+            await getRevisionOptions(store, working),
+        );
         if (outcome.endsWith('abort') || outcome === 'source-invalid' || outcome === 'source-unavailable') {
             await expect(save).rejects.toThrow();
             expect(physical).toEqual(new Uint8Array());
         } else {
             const saved = await save;
-            const optimized = [
-                'smaller-handle',
-                'smaller-download',
-                'warnings',
-                'tagged',
-                'acroform',
-                'automatic',
-            ].includes(outcome);
+            const optimized = ['smaller-handle', 'smaller-download', 'warnings', 'tagged', 'acroform', 'automatic'].includes(outcome);
             const expected = optimized ? candidate : outcome === 'automatic' ? original : frontier;
-            if (outcome === 'smaller-download') {expect(new Uint8Array(await downloads[0]!.arrayBuffer())).toEqual(expected);}
-            else {expect(physical).toEqual(expected);}
+            if (outcome === 'smaller-download') {
+                expect(new Uint8Array(await downloads[0]!.arrayBuffer())).toEqual(expected);
+            } else {
+                expect(physical).toEqual(expected);
+            }
             await expect(store.read(saved!)).resolves.toEqual(expected);
             const adopted = await capability.createWorkingCopyFromPath(saved!);
             await expect(store.read(adopted)).resolves.toEqual(expected);
@@ -2140,201 +1977,228 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         await expect(store.read(staged)).resolves.toEqual(frontier);
     });
 
-    it.each([
-        'handle',
-        'download',
-        'queued-abort',
-        'writing-abort',
-        'closing-abort',
-    ] as const)('publishes a finalized Optimize frontier to its picked target: %s', async outcome => {
-        const original = Uint8Array.of(37, 80, 68, 70, 1, 2, 3, 4);
-        const frontier = Uint8Array.of(37, 80, 68, 70, 5);
-        const sentinel = Uint8Array.of(83, 69, 78);
-        const downloads: Blob[] = [];
-        const controller = new AbortController();
-        let physical = sentinel;
-        const handle = createFileSystemFileHandle({
-            name: 'report-optimized.pdf',
-            getFile: async () => new File([physical], 'report-optimized.pdf', {type: 'application/pdf'}),
-            createWritable: async () => {
-                const chunks: Uint8Array[] = [];
-                return createFileSystemWritableFileStream({
-                    write: async chunk => {
-                        chunks.push(new Uint8Array(requireArrayBufferChunk(chunk)));
-                        if (outcome === 'writing-abort') {controller.abort(new DOMException('Optimize canceled', 'AbortError'));}
-                    },
-                    // A writer publishes only at close; abort discards its chunks.
-                    close: async () => {
-                        if (outcome === 'closing-abort') {controller.abort(new DOMException('Optimize canceled', 'AbortError'));}
-                        physical = Uint8Array.from(chunks.flatMap(chunk => [...chunk]));
-                    },
-                });
-            },
-        });
-        const {browserDocumentStore: store} = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: async () => {
-            throw new Error('A finalized publication must not open a picker');
-        }}});
-        class DownloadURL extends URL {}
-        Object.defineProperties(DownloadURL, {
-            createObjectURL: {value: (blob: Blob) => {downloads.push(blob); return 'blob:optimized';}},
-            revokeObjectURL: {value: () => {}},
-        });
-        vi.stubGlobal('URL', DownloadURL);
-        const locks = new FakeLockManager();
-        vi.stubGlobal('navigator', {locks});
-        const source = await store.createStoredDocument('original.pdf', original, PDF_SOURCE_OPTIONS);
-        const working = await store.cloneAsWorkingCopy(source);
-        const staged = await store.createStoredDocument('stage.pdf', frontier, {
-            ...PDF_SOURCE_OPTIONS,
-            kind: 'output',
-        });
-        const stagedOutput = await createBrowserStoreStagedArtifact(store, staged, {
-            leaseId: 'optimize-frontier',
-            sha256: createHash('sha256').update(frontier).digest('hex'),
-            validations: {
-                qpdfCheck: false,
-                tailCheck: true,
-                semanticCheck: true,
-                fsynced: true,
-                semanticScopeSha256: 'a'.repeat(64),
-            },
-        });
-        const revisionOptions = await getRevisionOptions(store, working);
-        const {savePdfAsFromWorkingCopy} = await import('@app/platform/browser-api/browserSaveTargets');
-        if (outcome === 'queued-abort') {locks.holdElsewhere('evb-viewer:browser-publish');}
-
-        const publishing = savePdfAsFromWorkingCopy(working, {
-            stagedOutput,
-            optimizeLossless: true,
-        }, revisionOptions, {
-            kind: 'finalized',
-            target: {
-                canceled: false,
-                fileName: 'report-optimized',
-                handle: outcome === 'download' ? null : handle,
-            },
-            sourceRef: source,
-            signal: controller.signal,
-        });
-        if (outcome === 'queued-abort') {
-            await Promise.resolve();
-            controller.abort(new DOMException('Optimize canceled', 'AbortError'));
-            locks.releaseElsewhere('evb-viewer:browser-publish');
-        }
-
-        if (outcome === 'queued-abort' || outcome === 'writing-abort') {
-            await expect(publishing).rejects.toMatchObject({name: 'AbortError'});
-            expect(physical).toEqual(sentinel);
-            expect(downloads).toEqual([]);
-        } else {
-            const saved = await publishing;
-            if (outcome === 'download') {
-                expect(new Uint8Array(await downloads[0]!.arrayBuffer())).toEqual(frontier);
-                expect(physical).toEqual(sentinel);
-            } else {
-                expect(physical).toEqual(frontier);
-            }
-            await expect(store.read(saved!)).resolves.toEqual(frontier);
-            await expect(store.getSaveTarget(saved!)).resolves.toMatchObject({saveName: 'report-optimized.pdf'});
-        }
-        // The finalized frontier is published as it is: no check, no second optimization.
-        expect(qpdfRun).not.toHaveBeenCalled();
-        await expect(store.read(source)).resolves.toEqual(original);
-        await expect(store.read(working)).resolves.toEqual(original);
-        await expect(store.read(staged)).resolves.toEqual(frontier);
-    });
-
-    it.each([
-        'saved',
-        'not-smaller',
-        'invalid',
-        'signed',
-        'picker-cancel',
-    ] as const)('optimizes a browser copy to the target picked in the submit task: %s', async outcome => {
-        const original = Uint8Array.of(37, 80, 68, 70, 1, 2, 3, 4);
-        const candidate = Uint8Array.of(37, 80, 68, 70, 9);
-        let physical = new Uint8Array();
-        let pickerCalls = 0;
-        const handle = createFileSystemFileHandle({
-            name: 'report-optimized.pdf',
-            getFile: async () => new File([physical], 'report-optimized.pdf', {type: 'application/pdf'}),
-            createWritable: async () => createFileSystemWritableFileStream({write: async chunk => {physical = new Uint8Array(requireArrayBufferChunk(chunk));}}),
-        });
-        const {
-            capability, browserDocumentStore: store,
-        } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: async () => {
-            pickerCalls += 1;
-            if (outcome === 'picker-cancel') {throw new DOMException('Canceled', 'AbortError');}
-            return handle;
-        }}});
-        const {onPdfOptimizeProgress} = (await import('@app/platform/browser-api/documentsMenuCapability')).browserDocumentsMenuCapability;
-        const phases: string[] = [];
-        onPdfOptimizeProgress(progress => phases.push(`${progress.phase}:${progress.percent}`));
-        const source = await store.createStoredDocument('report.pdf', original, PDF_SOURCE_OPTIONS);
-        const working = await store.cloneAsWorkingCopy(source);
-        browserAnnotationParseMock.run.mockImplementation(async () => ({
-            isSigned: outcome === 'signed',
-            isEncrypted: false,
-            isTagged: false,
-            hasAcroForm: false,
-            hasXfa: false,
-        }));
-        let checks = 0;
-        qpdfRun.mockImplementation(async command => {
-            if (command === 'lossless-rewrite') {
-                return {
-                    exitCode: 0,
-                    stdout: '',
-                    stderr: '',
-                    output: outcome === 'not-smaller' ? original.slice() : candidate.slice(),
-                };
-            }
-            checks += 1;
-            return {
-                exitCode: outcome === 'invalid' && checks === 2 ? 2 : 0,
-                stdout: '',
-                stderr: outcome === 'invalid' && checks === 2 ? 'damaged' : '',
-                output: null,
-            };
-        });
-
-        const selection = capability.prepareOptimizePdfAsCopy!(working);
-        // The picker opened in this task, before any await.
-        expect(pickerCalls).toBe(1);
-        const prepared = await selection;
-        if (outcome === 'picker-cancel') {
-            expect(prepared).toBeNull();
-            expect(qpdfRun).not.toHaveBeenCalled();
-        } else if (outcome === 'signed') {
-            await expect(prepared!(working, {preset: 'lossless'}, undefined, await getRevisionOptions(store, working)))
-                .rejects.toThrow('does not rewrite a signed PDF');
-            expect(qpdfRun).not.toHaveBeenCalled();
-        } else {
-            const result = await prepared!(working, {preset: 'lossless'}, undefined, await getRevisionOptions(store, working));
-            expect(result).toMatchObject({
-                outcome,
-                preset: 'lossless',
-                originalBytes: original.byteLength,
-                pageCount: null,
-                optimizedPages: 0,
+    it.each(['handle', 'download', 'queued-abort', 'writing-abort', 'closing-abort'] as const)(
+        'publishes a finalized Optimize frontier to its picked target: %s',
+        async (outcome) => {
+            const original = Uint8Array.of(37, 80, 68, 70, 1, 2, 3, 4);
+            const frontier = Uint8Array.of(37, 80, 68, 70, 5);
+            const sentinel = Uint8Array.of(83, 69, 78);
+            const downloads: Blob[] = [];
+            const controller = new AbortController();
+            let physical = sentinel;
+            const handle = createFileSystemFileHandle({
+                name: 'report-optimized.pdf',
+                getFile: async () => new File([physical], 'report-optimized.pdf', {type: 'application/pdf'}),
+                createWritable: async () => {
+                    const chunks: Uint8Array[] = [];
+                    return createFileSystemWritableFileStream({
+                        write: async (chunk) => {
+                            chunks.push(new Uint8Array(requireArrayBufferChunk(chunk)));
+                            if (outcome === 'writing-abort') {
+                                controller.abort(new DOMException('Optimize canceled', 'AbortError'));
+                            }
+                        },
+                        // A writer publishes only at close; abort discards its chunks.
+                        close: async () => {
+                            if (outcome === 'closing-abort') {
+                                controller.abort(new DOMException('Optimize canceled', 'AbortError'));
+                            }
+                            physical = Uint8Array.from(chunks.flatMap((chunk) => [...chunk]));
+                        },
+                    });
+                },
             });
-            if (outcome === 'saved') {
-                expect(result.optimizedBytes).toBe(candidate.byteLength);
-                expect(physical).toEqual(candidate);
-                await expect(store.read(result.path!)).resolves.toEqual(candidate);
-                const adopted = await capability.createWorkingCopyFromPath(result.path!);
-                await expect(store.read(adopted)).resolves.toEqual(candidate);
-                expect(phases.at(-1)).toBe('complete:100');
-            } else {
-                expect(result.path).toBeNull();
-                expect(physical).toEqual(new Uint8Array());
-                expect(phases.at(-1)).toBe(outcome === 'invalid' ? 'validating:90' : 'complete:100');
+            const {browserDocumentStore: store} = await loadBrowserDocumentsFileCapability({
+                windowOverrides: {
+                    showSaveFilePicker: async () => {
+                        throw new Error('A finalized publication must not open a picker');
+                    },
+                },
+            });
+            class DownloadURL extends URL {}
+            Object.defineProperties(DownloadURL, {
+                createObjectURL: {
+                    value: (blob: Blob) => {
+                        downloads.push(blob);
+                        return 'blob:optimized';
+                    },
+                },
+                revokeObjectURL: {value: () => {}},
+            });
+            vi.stubGlobal('URL', DownloadURL);
+            const locks = new FakeLockManager();
+            vi.stubGlobal('navigator', {locks});
+            const source = await store.createStoredDocument('original.pdf', original, PDF_SOURCE_OPTIONS);
+            const working = await store.cloneAsWorkingCopy(source);
+            const staged = await store.createStoredDocument('stage.pdf', frontier, {
+                ...PDF_SOURCE_OPTIONS,
+                kind: 'output',
+            });
+            const stagedOutput = await createBrowserStoreStagedArtifact(store, staged, {
+                leaseId: 'optimize-frontier',
+                sha256: createHash('sha256').update(frontier).digest('hex'),
+                validations: {
+                    qpdfCheck: false,
+                    tailCheck: true,
+                    semanticCheck: true,
+                    fsynced: true,
+                    semanticScopeSha256: 'a'.repeat(64),
+                },
+            });
+            const revisionOptions = await getRevisionOptions(store, working);
+            const {savePdfAsFromWorkingCopy} = await import('@app/platform/browser-api/browserSaveTargets');
+            if (outcome === 'queued-abort') {
+                locks.holdElsewhere('evb-viewer:browser-publish');
             }
-        }
-        if (outcome !== 'saved') {expect(physical).toEqual(new Uint8Array());}
-        await expect(store.read(source)).resolves.toEqual(original);
-        await expect(store.read(working)).resolves.toEqual(original);
-    });
+
+            const publishing = savePdfAsFromWorkingCopy(
+                working,
+                {
+                    stagedOutput,
+                    optimizeLossless: true,
+                },
+                revisionOptions,
+                {
+                    kind: 'finalized',
+                    target: {
+                        canceled: false,
+                        fileName: 'report-optimized',
+                        handle: outcome === 'download' ? null : handle,
+                    },
+                    sourceRef: source,
+                    signal: controller.signal,
+                },
+            );
+            if (outcome === 'queued-abort') {
+                await Promise.resolve();
+                controller.abort(new DOMException('Optimize canceled', 'AbortError'));
+                locks.releaseElsewhere('evb-viewer:browser-publish');
+            }
+
+            if (outcome === 'queued-abort' || outcome === 'writing-abort') {
+                await expect(publishing).rejects.toMatchObject({name: 'AbortError'});
+                expect(physical).toEqual(sentinel);
+                expect(downloads).toEqual([]);
+            } else {
+                const saved = await publishing;
+                if (outcome === 'download') {
+                    expect(new Uint8Array(await downloads[0]!.arrayBuffer())).toEqual(frontier);
+                    expect(physical).toEqual(sentinel);
+                } else {
+                    expect(physical).toEqual(frontier);
+                }
+                await expect(store.read(saved!)).resolves.toEqual(frontier);
+                await expect(store.getSaveTarget(saved!)).resolves.toMatchObject({saveName: 'report-optimized.pdf'});
+            }
+            // The finalized frontier is published as it is: no check, no second optimization.
+            expect(qpdfRun).not.toHaveBeenCalled();
+            await expect(store.read(source)).resolves.toEqual(original);
+            await expect(store.read(working)).resolves.toEqual(original);
+            await expect(store.read(staged)).resolves.toEqual(frontier);
+        },
+    );
+
+    it.each(['saved', 'not-smaller', 'invalid', 'signed', 'picker-cancel'] as const)(
+        'optimizes a browser copy to the target picked in the submit task: %s',
+        async (outcome) => {
+            const original = Uint8Array.of(37, 80, 68, 70, 1, 2, 3, 4);
+            const candidate = Uint8Array.of(37, 80, 68, 70, 9);
+            let physical = new Uint8Array();
+            let pickerCalls = 0;
+            const handle = createFileSystemFileHandle({
+                name: 'report-optimized.pdf',
+                getFile: async () => new File([physical], 'report-optimized.pdf', {type: 'application/pdf'}),
+                createWritable: async () =>
+                    createFileSystemWritableFileStream({
+                        write: async (chunk) => {
+                            physical = new Uint8Array(requireArrayBufferChunk(chunk));
+                        },
+                    }),
+            });
+            const {capability, browserDocumentStore: store} = await loadBrowserDocumentsFileCapability({
+                windowOverrides: {
+                    showSaveFilePicker: async () => {
+                        pickerCalls += 1;
+                        if (outcome === 'picker-cancel') {
+                            throw new DOMException('Canceled', 'AbortError');
+                        }
+                        return handle;
+                    },
+                },
+            });
+            const {onPdfOptimizeProgress} = (await import('@app/platform/browser-api/documentsMenuCapability'))
+                .browserDocumentsMenuCapability;
+            const phases: string[] = [];
+            onPdfOptimizeProgress((progress) => phases.push(`${progress.phase}:${progress.percent}`));
+            const source = await store.createStoredDocument('report.pdf', original, PDF_SOURCE_OPTIONS);
+            const working = await store.cloneAsWorkingCopy(source);
+            browserAnnotationParseMock.run.mockImplementation(async () => ({
+                isSigned: outcome === 'signed',
+                isEncrypted: false,
+                isTagged: false,
+                hasAcroForm: false,
+                hasXfa: false,
+            }));
+            let checks = 0;
+            qpdfRun.mockImplementation(async (command) => {
+                if (command === 'lossless-rewrite') {
+                    return {
+                        exitCode: 0,
+                        stdout: '',
+                        stderr: '',
+                        output: outcome === 'not-smaller' ? original.slice() : candidate.slice(),
+                    };
+                }
+                checks += 1;
+                return {
+                    exitCode: outcome === 'invalid' && checks === 2 ? 2 : 0,
+                    stdout: '',
+                    stderr: outcome === 'invalid' && checks === 2 ? 'damaged' : '',
+                    output: null,
+                };
+            });
+
+            const selection = capability.prepareOptimizePdfAsCopy!(working);
+            // The picker opened in this task, before any await.
+            expect(pickerCalls).toBe(1);
+            const prepared = await selection;
+            if (outcome === 'picker-cancel') {
+                expect(prepared).toBeNull();
+                expect(qpdfRun).not.toHaveBeenCalled();
+            } else if (outcome === 'signed') {
+                await expect(prepared!(working, {preset: 'lossless'}, undefined, await getRevisionOptions(store, working))).rejects.toThrow(
+                    'does not rewrite a signed PDF',
+                );
+                expect(qpdfRun).not.toHaveBeenCalled();
+            } else {
+                const result = await prepared!(working, {preset: 'lossless'}, undefined, await getRevisionOptions(store, working));
+                expect(result).toMatchObject({
+                    outcome,
+                    preset: 'lossless',
+                    originalBytes: original.byteLength,
+                    pageCount: null,
+                    optimizedPages: 0,
+                });
+                if (outcome === 'saved') {
+                    expect(result.optimizedBytes).toBe(candidate.byteLength);
+                    expect(physical).toEqual(candidate);
+                    await expect(store.read(result.path!)).resolves.toEqual(candidate);
+                    const adopted = await capability.createWorkingCopyFromPath(result.path!);
+                    await expect(store.read(adopted)).resolves.toEqual(candidate);
+                    expect(phases.at(-1)).toBe('complete:100');
+                } else {
+                    expect(result.path).toBeNull();
+                    expect(physical).toEqual(new Uint8Array());
+                    expect(phases.at(-1)).toBe(outcome === 'invalid' ? 'validating:90' : 'complete:100');
+                }
+            }
+            if (outcome !== 'saved') {
+                expect(physical).toEqual(new Uint8Array());
+            }
+            await expect(store.read(source)).resolves.toEqual(original);
+            await expect(store.read(working)).resolves.toEqual(original);
+        },
+    );
 
     it('streams oversized browser save-as to a picked file handle', async () => {
         const writes: Uint8Array[] = [];
@@ -2342,20 +2206,22 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         const savedBytes = new Uint8Array(BROWSER_FULL_READ_LIMIT + 1);
         const handle = createFileSystemFileHandle({
             name: 'exported-large.pdf',
-            getFile: vi.fn(async () => new File([savedBytes], 'exported-large.pdf', { type: 'application/pdf' })),
-            createWritable: vi.fn(async () => createFileSystemWritableFileStream({write: vi.fn(async (chunk: FileSystemWriteChunkType) => {
-                streamed.push(chunk instanceof Blob);
-                const chunkBytes = await writtenChunkBytes(chunk);
-                const offset = writes.reduce((sum, current) => sum + current.byteLength, 0);
-                savedBytes.set(chunkBytes, offset);
-                writes.push(chunkBytes);
-            })})),
+            getFile: vi.fn(async () => new File([savedBytes], 'exported-large.pdf', {type: 'application/pdf'})),
+            createWritable: vi.fn(async () =>
+                createFileSystemWritableFileStream({
+                    write: vi.fn(async (chunk: FileSystemWriteChunkType) => {
+                        streamed.push(chunk instanceof Blob);
+                        const chunkBytes = await writtenChunkBytes(chunk);
+                        const offset = writes.reduce((sum, current) => sum + current.byteLength, 0);
+                        savedBytes.set(chunkBytes, offset);
+                        writes.push(chunkBytes);
+                    }),
+                }),
+            ),
         });
-        const {
-            BROWSER_MAX_FULL_READ_BYTES,
-            capability,
-            browserDocumentStore,
-        } = await loadBrowserDocumentsFileCapability({ windowOverrides: { showSaveFilePicker: vi.fn(async () => handle) } });
+        const {BROWSER_MAX_FULL_READ_BYTES, capability, browserDocumentStore} = await loadBrowserDocumentsFileCapability({
+            windowOverrides: {showSaveFilePicker: vi.fn(async () => handle)},
+        });
         expect(BROWSER_MAX_FULL_READ_BYTES).toBe(BROWSER_FULL_READ_LIMIT);
         const workingRef = await browserDocumentStore.createStoredDocument(
             'oversized.pdf',
@@ -2367,16 +2233,10 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             },
         );
 
-        const sourceRef = await capability.savePdfAs(
-            workingRef,
-            undefined,
-            await getRevisionOptions(browserDocumentStore, workingRef),
-        );
+        const sourceRef = await capability.savePdfAs(workingRef, undefined, await getRevisionOptions(browserDocumentStore, workingRef));
 
         expect(sourceRef).not.toBeNull();
-        const sourceEntry = sourceRef
-            ? await browserDocumentStore.requireEntry(sourceRef)
-            : null;
+        const sourceEntry = sourceRef ? await browserDocumentStore.requireEntry(sourceRef) : null;
         expect(sourceEntry?.saveHandle).not.toBeNull();
         expect(sourceEntry?.saveHandle).toBe(handle);
         await expect(browserDocumentStore.stat(sourceRef!)).resolves.toEqual({
@@ -2394,13 +2254,14 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         const handle = createFileSystemFileHandle({
             name: 'snapshot.pdf',
             getFile: async () => new File([physicalBytes], 'snapshot.pdf', {lastModified: modifiedAt}),
-            createWritable: async () => createFileSystemWritableFileStream({write: async chunk => {
-                physicalBytes = new Uint8Array(requireArrayBufferChunk(chunk));
-            }}),
+            createWritable: async () =>
+                createFileSystemWritableFileStream({
+                    write: async (chunk) => {
+                        physicalBytes = new Uint8Array(requireArrayBufferChunk(chunk));
+                    },
+                }),
         });
-        const {
-            capability, browserDocumentStore,
-        } = await loadBrowserDocumentsFileCapability();
+        const {capability, browserDocumentStore} = await loadBrowserDocumentsFileCapability();
         const sourceRef = await browserDocumentStore.createStoredDocument('snapshot.pdf', physicalBytes, {
             ...PDF_SOURCE_OPTIONS,
             saveHandle: handle,
@@ -2408,76 +2269,77 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         const snapshot = await capability.createWorkingCopyFromData('snapshot.pdf', Uint8Array.of(37, 80, 68, 70, 9), sourceRef);
         physicalBytes = Uint8Array.of(37, 80, 68, 70, 8);
         modifiedAt = 2_000;
-        await expect(capability.saveFileStructured(snapshot, await getRevisionOptions(browserDocumentStore, snapshot)))
-            .resolves.toMatchObject({
-                ok: false,
-                reason: 'original-changed',
-            });
+        await expect(
+            capability.saveFileStructured(snapshot, await getRevisionOptions(browserDocumentStore, snapshot)),
+        ).resolves.toMatchObject({
+            ok: false,
+            reason: 'original-changed',
+        });
         expect(physicalBytes).toEqual(Uint8Array.of(37, 80, 68, 70, 8));
         await expect(browserDocumentStore.read(snapshot)).resolves.toEqual(Uint8Array.of(37, 80, 68, 70, 9));
     });
 
-    it('refuses the later of two working copies\' saves to one file', async () => {
+    it("refuses the later of two working copies' saves to one file", async () => {
         const firstWriteStarted = Promise.withResolvers<undefined>();
         const releaseFirstWrite = Promise.withResolvers<undefined>();
         let writableIndex = 0;
         let sharedBytes = Uint8Array.of(37, 80, 68, 70);
         const createWritable = vi.fn(async () => {
             const index = writableIndex++;
-            return createFileSystemWritableFileStream({write: vi.fn(async (chunk: FileSystemWriteChunkType) => {
-                const nextBytes = new Uint8Array(requireArrayBufferChunk(chunk));
-                if (index === 0) {
-                    firstWriteStarted.resolve(undefined);
-                    await releaseFirstWrite.promise;
-                }
-                sharedBytes = nextBytes;
-            })});
+            return createFileSystemWritableFileStream({
+                write: vi.fn(async (chunk: FileSystemWriteChunkType) => {
+                    const nextBytes = new Uint8Array(requireArrayBufferChunk(chunk));
+                    if (index === 0) {
+                        firstWriteStarted.resolve(undefined);
+                        await releaseFirstWrite.promise;
+                    }
+                    sharedBytes = nextBytes;
+                }),
+            });
         });
         const handle = createFileSystemFileHandle({
             name: 'shared.pdf',
-            getFile: vi.fn(async () => new File([sharedBytes], 'shared.pdf', {
-                type: 'application/pdf',
-                lastModified: 1,
-            })),
+            getFile: vi.fn(
+                async () =>
+                    new File([sharedBytes], 'shared.pdf', {
+                        type: 'application/pdf',
+                        lastModified: 1,
+                    }),
+            ),
             createWritable,
         });
-        const {
-            capability,
-            browserDocumentStore,
-        } = await loadBrowserDocumentsFileCapability();
-        const sourceRef = await browserDocumentStore.createStoredDocument(
-            'shared.pdf',
-            Uint8Array.of(37, 80, 68, 70),
-            {
-                ...PDF_SOURCE_OPTIONS,
-                saveHandle: handle,
-            },
-        );
+        const {capability, browserDocumentStore} = await loadBrowserDocumentsFileCapability();
+        const sourceRef = await browserDocumentStore.createStoredDocument('shared.pdf', Uint8Array.of(37, 80, 68, 70), {
+            ...PDF_SOURCE_OPTIONS,
+            saveHandle: handle,
+        });
         const firstWorkingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
         const secondWorkingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
-        await browserDocumentStore.write(firstWorkingRef, Uint8Array.of(37, 80, 68, 70, 1), await getRevisionOptions(browserDocumentStore, firstWorkingRef));
-        await browserDocumentStore.write(secondWorkingRef, Uint8Array.of(37, 80, 68, 70, 2), await getRevisionOptions(browserDocumentStore, secondWorkingRef));
-
-        const firstSave = capability.saveFileStructured(
+        await browserDocumentStore.write(
             firstWorkingRef,
+            Uint8Array.of(37, 80, 68, 70, 1),
             await getRevisionOptions(browserDocumentStore, firstWorkingRef),
         );
+        await browserDocumentStore.write(
+            secondWorkingRef,
+            Uint8Array.of(37, 80, 68, 70, 2),
+            await getRevisionOptions(browserDocumentStore, secondWorkingRef),
+        );
+
+        const firstSave = capability.saveFileStructured(firstWorkingRef, await getRevisionOptions(browserDocumentStore, firstWorkingRef));
         const secondSave = capability.saveFileStructured(
             secondWorkingRef,
             await getRevisionOptions(browserDocumentStore, secondWorkingRef),
         );
         await firstWriteStarted.promise;
-        await new Promise<undefined>(resolve => setImmediate(() => resolve(undefined)));
+        await new Promise<undefined>((resolve) => setImmediate(() => resolve(undefined)));
         expect(createWritable).toHaveBeenCalledOnce();
 
         releaseFirstWrite.resolve(undefined);
         // Whichever save publishes first writes the file; the other finds it changed and offers Save As.
-        const results = await Promise.all([
-            firstSave,
-            secondSave,
-        ]);
-        expect(results.map(result => result.ok).sort()).toEqual([false, true]);
-        expect(results.find(result => !result.ok)).toMatchObject({reason: 'original-changed'});
+        const results = await Promise.all([firstSave, secondSave]);
+        expect(results.map((result) => result.ok).sort()).toEqual([false, true]);
+        expect(results.find((result) => !result.ok)).toMatchObject({reason: 'original-changed'});
         expect(createWritable).toHaveBeenCalledOnce();
     });
 
@@ -2488,44 +2350,50 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         const saveAsHandle = createFileSystemFileHandle({
             name: 'save-as.pdf',
             getFile: vi.fn(async () => new File([saveAsWrittenBytes ?? new Uint8Array()], 'save-as.pdf', {type: 'application/pdf'})),
-            createWritable: vi.fn(async () => createFileSystemWritableFileStream({write: vi.fn(async (chunk: FileSystemWriteChunkType) => {
-                saveAsWriteStarted.resolve(undefined);
-                await releaseSaveAsWrite.promise;
-                saveAsWrittenBytes = await writtenChunkBytes(chunk);
-            })})),
+            createWritable: vi.fn(async () =>
+                createFileSystemWritableFileStream({
+                    write: vi.fn(async (chunk: FileSystemWriteChunkType) => {
+                        saveAsWriteStarted.resolve(undefined);
+                        await releaseSaveAsWrite.promise;
+                        saveAsWrittenBytes = await writtenChunkBytes(chunk);
+                    }),
+                }),
+            ),
         });
         let originalWrittenBytes: Uint8Array | null = null;
-        const originalCreateWritable = vi.fn(async () => createFileSystemWritableFileStream({write: async (chunk: FileSystemWriteChunkType) => {
-            originalWrittenBytes = new Uint8Array(requireArrayBufferChunk(chunk));
-        }}));
+        const originalCreateWritable = vi.fn(async () =>
+            createFileSystemWritableFileStream({
+                write: async (chunk: FileSystemWriteChunkType) => {
+                    originalWrittenBytes = new Uint8Array(requireArrayBufferChunk(chunk));
+                },
+            }),
+        );
         const originalBytes = Uint8Array.of(37, 80, 68, 70);
         const originalHandle = createFileSystemFileHandle({
             name: 'original.pdf',
-            getFile: vi.fn(async () => new File([originalBytes], 'original.pdf', {
-                type: 'application/pdf',
-                lastModified: 1,
-            })),
+            getFile: vi.fn(
+                async () =>
+                    new File([originalBytes], 'original.pdf', {
+                        type: 'application/pdf',
+                        lastModified: 1,
+                    }),
+            ),
             createWritable: originalCreateWritable,
         });
-        const {
-            capability,
-            browserDocumentStore,
-        } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: vi.fn(async () => saveAsHandle)}});
-        const sourceRef = await browserDocumentStore.createStoredDocument(
-            'original.pdf',
-            originalBytes,
-            {
-                ...PDF_SOURCE_OPTIONS,
-                saveHandle: originalHandle,
-            },
-        );
+        const {capability, browserDocumentStore} = await loadBrowserDocumentsFileCapability({
+            windowOverrides: {showSaveFilePicker: vi.fn(async () => saveAsHandle)},
+        });
+        const sourceRef = await browserDocumentStore.createStoredDocument('original.pdf', originalBytes, {
+            ...PDF_SOURCE_OPTIONS,
+            saveHandle: originalHandle,
+        });
         const workingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
         const revisionOptions = await getRevisionOptions(browserDocumentStore, workingRef);
 
         const saveAsPromise = capability.savePdfAs(workingRef, undefined, revisionOptions);
         await saveAsWriteStarted.promise;
         const regularSavePromise = capability.saveFileStructured(workingRef, revisionOptions);
-        await new Promise<undefined>(resolve => setImmediate(() => resolve(undefined)));
+        await new Promise<undefined>((resolve) => setImmediate(() => resolve(undefined)));
         releaseSaveAsWrite.resolve(undefined);
 
         await expect(saveAsPromise).resolves.not.toBeNull();
@@ -2536,28 +2404,35 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         expect(originalCreateWritable).not.toHaveBeenCalled();
     });
 
-    it('writes a Save As file only once another document\'s Save to it has let go of the origin\'s publication lock', async () => {
+    it("writes a Save As file only once another document's Save to it has let go of the origin's publication lock", async () => {
         let written: Uint8Array<ArrayBuffer> | null = null;
-        const createWritable = vi.fn(async () => createFileSystemWritableFileStream({write: vi.fn(async (chunk: FileSystemWriteChunkType) => {
-            written = await writtenChunkBytes(chunk);
-        })}));
+        const createWritable = vi.fn(async () =>
+            createFileSystemWritableFileStream({
+                write: vi.fn(async (chunk: FileSystemWriteChunkType) => {
+                    written = await writtenChunkBytes(chunk);
+                }),
+            }),
+        );
         const handle = createFileSystemFileHandle({
             name: 'shared.pdf',
             getFile: vi.fn(async () => new File([written ?? new Uint8Array()], 'shared.pdf', {type: 'application/pdf'})),
             createWritable,
         });
-        const {
-            capability,
-            browserDocumentStore,
-        } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: vi.fn(async () => handle)}});
+        const {capability, browserDocumentStore} = await loadBrowserDocumentsFileCapability({
+            windowOverrides: {showSaveFilePicker: vi.fn(async () => handle)},
+        });
         const original = Uint8Array.of(37, 80, 68, 70);
-        const working = await browserDocumentStore.cloneAsWorkingCopy(await browserDocumentStore.createStoredDocument('original.pdf', original, PDF_SOURCE_OPTIONS));
+        const working = await browserDocumentStore.cloneAsWorkingCopy(
+            await browserDocumentStore.createStoredDocument('original.pdf', original, PDF_SOURCE_OPTIONS),
+        );
         const revisionOptions = await getRevisionOptions(browserDocumentStore, working);
         const locks = new FakeLockManager();
         const requested = Promise.withResolvers<undefined>();
         const request = locks.request.bind(locks);
         locks.request = (async (name: string, ...rest: [never, never]) => {
-            if (name === 'evb-viewer:browser-publish') {requested.resolve(undefined);}
+            if (name === 'evb-viewer:browser-publish') {
+                requested.resolve(undefined);
+            }
             return request(name, ...rest);
         }) as typeof locks.request;
         vi.stubGlobal('navigator', {locks});
@@ -2566,7 +2441,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
 
         const saveAs = capability.savePdfAs(working, undefined, revisionOptions);
         await Promise.race([requested.promise, saveAs]);
-        await new Promise<undefined>(resolve => setImmediate(() => resolve(undefined)));
+        await new Promise<undefined>((resolve) => setImmediate(() => resolve(undefined)));
         expect(createWritable).not.toHaveBeenCalled();
 
         locks.releaseElsewhere('evb-viewer:browser-publish');
@@ -2578,15 +2453,16 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
     it.each([
         {size: 'checked in memory', large: false},
         {size: 'above the qpdf input limit, written from its stored file', large: true},
-    ])('refuses a Save As whose working copy was edited while it waited for the origin\'s publication lock ($size)', async ({large}) => {
+    ])("refuses a Save As whose working copy was edited while it waited for the origin's publication lock ($size)", async ({large}) => {
         const createWritable = vi.fn(async () => createFileSystemWritableFileStream({}));
         const handle = createFileSystemFileHandle({name: 'shared.pdf', createWritable});
-        const {
-            capability,
-            browserDocumentStore,
-        } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: vi.fn(async () => handle)}});
+        const {capability, browserDocumentStore} = await loadBrowserDocumentsFileCapability({
+            windowOverrides: {showSaveFilePicker: vi.fn(async () => handle)},
+        });
         const original = Uint8Array.of(37, 80, 68, 70);
-        const working = await browserDocumentStore.cloneAsWorkingCopy(await browserDocumentStore.createStoredDocument('original.pdf', original, PDF_SOURCE_OPTIONS));
+        const working = await browserDocumentStore.cloneAsWorkingCopy(
+            await browserDocumentStore.createStoredDocument('original.pdf', original, PDF_SOURCE_OPTIONS),
+        );
         const revisionOptions = await getRevisionOptions(browserDocumentStore, working);
         if (large) {
             // Too large for qpdf: PDF.js admits it, and the write streams it from its stored file.
@@ -2601,7 +2477,9 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         const requested = Promise.withResolvers<undefined>();
         const request = locks.request.bind(locks);
         locks.request = (async (name: string, ...rest: [never, never]) => {
-            if (name === 'evb-viewer:browser-publish') {requested.resolve(undefined);}
+            if (name === 'evb-viewer:browser-publish') {
+                requested.resolve(undefined);
+            }
             return request(name, ...rest);
         }) as typeof locks.request;
         vi.stubGlobal('navigator', {locks});
@@ -2624,14 +2502,17 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         const handle = createFileSystemFileHandle({
             name: 'large.pdf',
             getFile: vi.fn(async () => new File([written ?? new Uint8Array()], 'large.pdf', {type: 'application/pdf'})),
-            createWritable: vi.fn(async () => createFileSystemWritableFileStream({write: vi.fn(async (chunk: FileSystemWriteChunkType) => {
-                written = await writtenChunkBytes(chunk);
-            })})),
+            createWritable: vi.fn(async () =>
+                createFileSystemWritableFileStream({
+                    write: vi.fn(async (chunk: FileSystemWriteChunkType) => {
+                        written = await writtenChunkBytes(chunk);
+                    }),
+                }),
+            ),
         });
-        const {
-            capability,
-            browserDocumentStore: store,
-        } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: vi.fn(async () => handle)}});
+        const {capability, browserDocumentStore: store} = await loadBrowserDocumentsFileCapability({
+            windowOverrides: {showSaveFilePicker: vi.fn(async () => handle)},
+        });
         const revisionA = new TextEncoder().encode('%PDF-1.7 revision A');
         const revisionB = new TextEncoder().encode('%PDF-1.7 revision B');
         const working = await store.cloneAsWorkingCopy(await store.createStoredDocument('large.pdf', revisionA, PDF_SOURCE_OPTIONS));
@@ -2641,7 +2522,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         // Report both revisions above the qpdf limit even to callers that use `stat` instead of `readableRevision`.
         const stat = store.stat.bind(store);
         vi.spyOn(store, 'stat').mockImplementation(async (ref) => ({
-            ...await stat(ref),
+            ...(await stat(ref)),
             size: BROWSER_QPDF_MAX_INPUT_BYTES + 1,
         }));
         const readableBlob = store.readableBlob.bind(store);
@@ -2654,15 +2535,18 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         });
         let checked: Uint8Array | null = null;
         pdfjsModule.getDocument.mockImplementationOnce((rawInit: unknown) => {
-            const {range} = rawInit as {range: {
-                requestDataRange: (begin: number, end: number) => void;
-                onDataRange: (begin: number, chunk: Uint8Array) => void;
-            }};
+            const {range} = rawInit as {
+                range: {
+                    requestDataRange: (begin: number, end: number) => void;
+                    onDataRange: (begin: number, chunk: Uint8Array) => void;
+                };
+            };
             const destroy = vi.fn(async () => {});
             const promise = new Promise<{loadingTask: {destroy: typeof destroy}}>((resolve, reject) => {
                 range.onDataRange = (_begin, chunk) => {
                     checked = chunk.slice();
-                    void store.getDocumentRevision(working)
+                    void store
+                        .getDocumentRevision(working)
                         .then(({token}) => store.restoreRevision(working, tokenA, token))
                         .then(() => resolve({loadingTask: {destroy}}), reject);
                 };
@@ -2695,15 +2579,16 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             name: 'saved-copy.pdf',
             getFile: vi.fn(async () => new File([written ?? new Uint8Array()], 'saved-copy.pdf', {type: 'application/pdf'})),
             createWritable: vi.fn(async () => ({
-                write: async (chunk: Uint8Array) => { written = new Uint8Array(chunk); },
+                write: async (chunk: Uint8Array) => {
+                    written = new Uint8Array(chunk);
+                },
                 close: async () => {},
                 abort: async () => {},
             })),
         } as unknown as FileSystemFileHandle;
-        const {
-            capability,
-            browserDocumentStore: store,
-        } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: vi.fn(async () => saveAsHandle)}});
+        const {capability, browserDocumentStore: store} = await loadBrowserDocumentsFileCapability({
+            windowOverrides: {showSaveFilePicker: vi.fn(async () => saveAsHandle)},
+        });
 
         // Case A: concurrent stageAppend materializes changed picked file B as :1:s before Save As publishes.
         const pickedA = await store.registerFile(currentFile, {
@@ -2719,11 +2604,16 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
                 type: 'application/pdf',
                 lastModified: 2,
             });
-            await store.stageAppend(workingA, revOptsA.expectedDocumentRevisionToken, async (file, base) => {
-                const tail = new TextEncoder().encode('%tail');
-                await file.writeAt(base, tail);
-                return base + tail.byteLength;
-            }, {allowForeignBase: true});
+            await store.stageAppend(
+                workingA,
+                revOptsA.expectedDocumentRevisionToken,
+                async (file, base) => {
+                    const tail = new TextEncoder().encode('%tail');
+                    await file.writeAt(base, tail);
+                    return base + tail.byteLength;
+                },
+                {allowForeignBase: true},
+            );
             return revision;
         });
 
@@ -2761,16 +2651,20 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         const downloads: Blob[] = [];
         class DownloadURL extends URL {}
         Object.defineProperties(DownloadURL, {
-            createObjectURL: {value: (blob: Blob) => {
-                downloads.push(blob);
-                return 'blob:docx-download';
-            }},
+            createObjectURL: {
+                value: (blob: Blob) => {
+                    downloads.push(blob);
+                    return 'blob:docx-download';
+                },
+            },
             revokeObjectURL: {value: () => {}},
         });
         vi.stubGlobal('URL', DownloadURL);
         const {capability} = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: undefined}});
         const outputPath = await capability.saveDocxAs(requireDocumentRef('/tmp/work.pdf'));
-        if (!outputPath) {throw new Error('Expected browser DOCX output path');}
+        if (!outputPath) {
+            throw new Error('Expected browser DOCX output path');
+        }
         const hash = createHash('sha256');
         const {sessionId} = await capability.beginDocxFileStream(outputPath);
         // Seventeen 1 MiB chunks of distinct bytes, sized like the desktop transport's chunks.
@@ -2783,81 +2677,96 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
 
         expect(downloads).toHaveLength(1);
         expect(downloads[0]!.type).toBe('application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-        expect(createHash('sha256').update(new Uint8Array(await downloads[0]!.arrayBuffer())).digest('hex')).toBe(hash.digest('hex'));
+        expect(
+            createHash('sha256')
+                .update(new Uint8Array(await downloads[0]!.arrayBuffer()))
+                .digest('hex'),
+        ).toBe(hash.digest('hex'));
     });
 
-    it.each([
-        'writeStream',
-        'readRange',
-    ] as const)('cancels a DOCX while commit waits for %s, without publishing a download', async (phase) => {
-        const downloads: Blob[] = [];
-        class DownloadURL extends URL {}
-        Object.defineProperties(DownloadURL, {
-            createObjectURL: {value: (blob: Blob) => {
-                downloads.push(blob);
-                return 'blob:canceled-docx';
-            }},
-            revokeObjectURL: {value: () => {}},
-        });
-        vi.stubGlobal('URL', DownloadURL);
-        const {
-            capability, browserDocumentStore,
-        } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: undefined}});
-        const outputPath = await capability.saveDocxAs(requireDocumentRef('/tmp/work.pdf'));
-        if (!outputPath) {throw new Error('Expected browser DOCX output path');}
-        const entered = Promise.withResolvers<undefined>();
-        const release = Promise.withResolvers<undefined>();
-        // Both waits occur after commit starts and before the download is published: the stored bytes' commit, and the download's read.
-        const writeStream = browserDocumentStore.writeStream.bind(browserDocumentStore);
-        const readRange = browserDocumentStore.readRange.bind(browserDocumentStore);
-        const pending = phase === 'writeStream'
-            ? vi.spyOn(browserDocumentStore, 'writeStream').mockImplementationOnce(async (...args) => {
-                const stream = await writeStream(...args);
-                return {...stream, close: async (...closeArgs) => {
-                    entered.resolve(undefined);
-                    await release.promise;
-                    return stream.close(...closeArgs);
-                }};
-            })
-            : vi.spyOn(browserDocumentStore, 'readRange').mockImplementationOnce(async (...args) => {
-                entered.resolve(undefined);
-                await release.promise;
-                return readRange(...args);
+    it.each(['writeStream', 'readRange'] as const)(
+        'cancels a DOCX while commit waits for %s, without publishing a download',
+        async (phase) => {
+            const downloads: Blob[] = [];
+            class DownloadURL extends URL {}
+            Object.defineProperties(DownloadURL, {
+                createObjectURL: {
+                    value: (blob: Blob) => {
+                        downloads.push(blob);
+                        return 'blob:canceled-docx';
+                    },
+                },
+                revokeObjectURL: {value: () => {}},
             });
-        try {
-            const {sessionId} = await capability.beginDocxFileStream(outputPath);
-            await capability.writeDocxFileStreamChunk(sessionId, Uint8Array.of(80, 75, 3, 4));
-            const commit = capability.commitDocxFileStream(sessionId);
-            const commitResult = commit.then(() => 'published', (error: unknown) => error);
-            await entered.promise;
-            const canceled = capability.cancelDocxFileStream(sessionId);
-            release.resolve(undefined);
+            vi.stubGlobal('URL', DownloadURL);
+            const {capability, browserDocumentStore} = await loadBrowserDocumentsFileCapability({
+                windowOverrides: {showSaveFilePicker: undefined},
+            });
+            const outputPath = await capability.saveDocxAs(requireDocumentRef('/tmp/work.pdf'));
+            if (!outputPath) {
+                throw new Error('Expected browser DOCX output path');
+            }
+            const entered = Promise.withResolvers<undefined>();
+            const release = Promise.withResolvers<undefined>();
+            // Both waits occur after commit starts and before the download is published: the stored bytes' commit, and the download's read.
+            const writeStream = browserDocumentStore.writeStream.bind(browserDocumentStore);
+            const readRange = browserDocumentStore.readRange.bind(browserDocumentStore);
+            const pending =
+                phase === 'writeStream'
+                    ? vi.spyOn(browserDocumentStore, 'writeStream').mockImplementationOnce(async (...args) => {
+                          const stream = await writeStream(...args);
+                          return {
+                              ...stream,
+                              close: async (...closeArgs) => {
+                                  entered.resolve(undefined);
+                                  await release.promise;
+                                  return stream.close(...closeArgs);
+                              },
+                          };
+                      })
+                    : vi.spyOn(browserDocumentStore, 'readRange').mockImplementationOnce(async (...args) => {
+                          entered.resolve(undefined);
+                          await release.promise;
+                          return readRange(...args);
+                      });
+            try {
+                const {sessionId} = await capability.beginDocxFileStream(outputPath);
+                await capability.writeDocxFileStreamChunk(sessionId, Uint8Array.of(80, 75, 3, 4));
+                const commit = capability.commitDocxFileStream(sessionId);
+                const commitResult = commit.then(
+                    () => 'published',
+                    (error: unknown) => error,
+                );
+                await entered.promise;
+                const canceled = capability.cancelDocxFileStream(sessionId);
+                release.resolve(undefined);
 
-            expect.soft(await canceled).toBe(true);
-            expect.soft(await commitResult).toMatchObject({name: 'AbortError'});
-            expect(downloads).toHaveLength(0);
-        } finally {
-            release.resolve(undefined);
-            pending.mockRestore();
-        }
-    });
+                expect.soft(await canceled).toBe(true);
+                expect.soft(await commitResult).toMatchObject({name: 'AbortError'});
+                expect(downloads).toHaveLength(0);
+            } finally {
+                release.resolve(undefined);
+                pending.mockRestore();
+            }
+        },
+    );
 
-    it.each([
-        'pdf',
-        'docx',
-    ] as const)('refuses an incompatible %s Save As through the real picker without publishing', async kind => {
+    it.each(['pdf', 'docx'] as const)('refuses an incompatible %s Save As through the real picker without publishing', async (kind) => {
         const handle = createFileSystemFileHandle({
             name: 'report.txt',
             getFile: async () => new File(['sentinel bytes'], 'report.txt'),
         });
         const writer = vi.spyOn(handle, 'createWritable');
-        const {
-            capability, browserDocumentStore: store,
-        } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: async () => handle}});
+        const {capability, browserDocumentStore: store} = await loadBrowserDocumentsFileCapability({
+            windowOverrides: {showSaveFilePicker: async () => handle},
+        });
         const source = await store.createStoredDocument('source.pdf', await createPdfBytes(), PDF_SOURCE_OPTIONS);
         const working = await store.cloneAsWorkingCopy(source);
         const sourceBefore = await store.getSourceRef(working);
-        const operation = kind === 'pdf' ? capability.savePdfAs(working, undefined, await getRevisionOptions(store, working)) : capability.saveDocxAs(working);
+        const operation =
+            kind === 'pdf'
+                ? capability.savePdfAs(working, undefined, await getRevisionOptions(store, working))
+                : capability.saveDocxAs(working);
         await expect(operation).rejects.toThrow(`Choose a file name ending in .${kind}`);
         expect(await (await handle.getFile()).text()).toBe('sentinel bytes');
         expect(writer).not.toHaveBeenCalled();
@@ -2872,11 +2781,16 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             const handle = createFileSystemFileHandle({
                 name: 'damaged.pdf',
                 getFile: async () => new File([physical], 'damaged.pdf', {type: 'application/pdf'}),
-                createWritable: async () => createFileSystemWritableFileStream({write: async chunk => {physical = new Uint8Array(requireArrayBufferChunk(chunk));}}),
+                createWritable: async () =>
+                    createFileSystemWritableFileStream({
+                        write: async (chunk) => {
+                            physical = new Uint8Array(requireArrayBufferChunk(chunk));
+                        },
+                    }),
             });
-            const {
-                capability, browserDocumentStore: store,
-            } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: async () => handle}});
+            const {capability, browserDocumentStore: store} = await loadBrowserDocumentsFileCapability({
+                windowOverrides: {showSaveFilePicker: async () => handle},
+            });
             const working = await store.cloneAsWorkingCopy(await store.createStoredDocument('damaged.pdf', damaged, PDF_SOURCE_OPTIONS));
             qpdfRun.mockImplementation(async (command: string, input: Uint8Array) => ({
                 exitCode: command !== 'rewrite' && (!repairPasses || Buffer.from(input).equals(Buffer.from(damaged))) ? 2 : 0,
@@ -2907,18 +2821,24 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             createWritable: async () => {
                 const chunks: Uint8Array[] = [];
                 return createFileSystemWritableFileStream({
-                    write: async chunk => {chunks.push(await writtenChunkBytes(chunk));},
-                    close: async () => {bytes = new Uint8Array(Buffer.concat(chunks));},
+                    write: async (chunk) => {
+                        chunks.push(await writtenChunkBytes(chunk));
+                    },
+                    close: async () => {
+                        bytes = new Uint8Array(Buffer.concat(chunks));
+                    },
                 });
             },
         });
-        const {
-            capability, browserDocumentStore: store,
-        } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: async () => handle}});
+        const {capability, browserDocumentStore: store} = await loadBrowserDocumentsFileCapability({
+            windowOverrides: {showSaveFilePicker: async () => handle},
+        });
         const source = await store.createStoredDocument('source.pdf', bytes, PDF_SOURCE_OPTIONS);
         const working = await store.cloneAsWorkingCopy(source);
         const saved = await capability.savePdfAs(working, undefined, await getRevisionOptions(store, working));
-        if (!saved) {throw new Error('Expected saved PDF');}
+        if (!saved) {
+            throw new Error('Expected saved PDF');
+        }
         expect((await PDFDocument.load(await (await handle.getFile()).arrayBuffer())).getPageCount()).toBe(1);
         expect((await store.requireEntry(saved)).fileName).toBe(name);
         expect(await store.getSaveTarget(saved)).toMatchObject({
@@ -2929,7 +2849,9 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         updated.setTitle('Ordinary Save reaches the physical PDF');
         await store.write(working, await updated.save(), await getRevisionOptions(store, working));
         await expect(capability.saveFileStructured(working, await getRevisionOptions(store, working))).resolves.toMatchObject({ok: true});
-        expect((await PDFDocument.load(await (await handle.getFile()).arrayBuffer())).getTitle()).toBe('Ordinary Save reaches the physical PDF');
+        expect((await PDFDocument.load(await (await handle.getFile()).arrayBuffer())).getTitle()).toBe(
+            'Ordinary Save reaches the physical PDF',
+        );
         expect(await store.getSaveTarget(source)).toMatchObject({
             saveName: name,
             saveHandle: handle,
@@ -2945,17 +2867,23 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             createWritable: async () => {
                 const chunks: Uint8Array[] = [];
                 return createFileSystemWritableFileStream({
-                    write: async chunk => {chunks.push(new Uint8Array(requireArrayBufferChunk(chunk)));},
-                    close: async () => {bytes = new Uint8Array(Buffer.concat(chunks));},
+                    write: async (chunk) => {
+                        chunks.push(new Uint8Array(requireArrayBufferChunk(chunk)));
+                    },
+                    close: async () => {
+                        bytes = new Uint8Array(Buffer.concat(chunks));
+                    },
                 });
             },
         });
-        const {
-            capability, browserDocumentStore: store,
-        } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: async () => handle}});
+        const {capability, browserDocumentStore: store} = await loadBrowserDocumentsFileCapability({
+            windowOverrides: {showSaveFilePicker: async () => handle},
+        });
         const {createDocxFromTextChunks} = await import('@app/utils/docxStreaming');
         const output = await capability.saveDocxAs(requireDocumentRef('/tmp/work.pdf'));
-        if (!output) {throw new Error('Expected DOCX target');}
+        if (!output) {
+            throw new Error('Expected DOCX target');
+        }
         const {sessionId} = await capability.beginDocxFileStream(output);
         const expected: Uint8Array[] = [];
         for await (const chunk of createDocxFromTextChunks(['Saved text'])) {
@@ -2984,94 +2912,84 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         const written: Uint8Array[] = [];
         const handle = createFileSystemFileHandle({
             name: 'export.docx',
-            createWritable: async () => createFileSystemWritableFileStream({write: async (chunk) => {
-                written.push(new Uint8Array(requireArrayBufferChunk(chunk)));
-            }}),
+            createWritable: async () =>
+                createFileSystemWritableFileStream({
+                    write: async (chunk) => {
+                        written.push(new Uint8Array(requireArrayBufferChunk(chunk)));
+                    },
+                }),
         });
         const {capability} = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: async () => handle}});
         const outputPath = await capability.saveDocxAs(requireDocumentRef('/tmp/work.pdf'));
-        if (!outputPath) {throw new Error('Expected browser DOCX output path');}
+        if (!outputPath) {
+            throw new Error('Expected browser DOCX output path');
+        }
         const {sessionId} = await capability.beginDocxFileStream(outputPath);
         await capability.writeDocxFileStreamChunk(sessionId, Uint8Array.of(80, 75, 3, 4));
         await capability.writeDocxFileStreamChunk(sessionId, Uint8Array.of(5, 6));
         await capability.commitDocxFileStream(sessionId);
 
-        expect(Buffer.concat(written)).toEqual(Buffer.from([
-            80,
-            75,
-            3,
-            4,
-            5,
-            6,
-        ]));
+        expect(Buffer.concat(written)).toEqual(Buffer.from([80, 75, 3, 4, 5, 6]));
         expect(createObjectURL).not.toHaveBeenCalled();
     });
 
-    it.each([
-        'save',
-        'save-as',
-    ] as const)('downloads every byte of a working copy above the former 64 MiB fallback through %s without a handle', async (mode) => {
-        const downloads: Blob[] = [];
-        class DownloadURL extends URL {}
-        Object.defineProperties(DownloadURL, {
-            createObjectURL: {value: (blob: Blob) => {
-                downloads.push(blob);
-                return 'blob:large-download';
-            }},
-            revokeObjectURL: {value: () => {}},
-        });
-        vi.stubGlobal('URL', DownloadURL);
-        const {
-            capability,
-            browserDocumentStore,
-        } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: undefined}});
-        const sourceRef = await browserDocumentStore.createStoredDocument(
-            'source.pdf',
-            Uint8Array.of(1),
-            {...PDF_SOURCE_OPTIONS},
-        );
-        const workingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
-        const edited = new Uint8Array(FORMER_DOWNLOAD_FALLBACK_MAX_BYTES + 3);
-        for (let offset = 0; offset < edited.byteLength; offset += 4096) {edited[offset] = (offset / 4096) % 251;}
-        edited[edited.byteLength - 1] = 7;
-        await browserDocumentStore.write(workingRef, edited, await getRevisionOptions(browserDocumentStore, workingRef));
-        const digest = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
-        const readStored = async (ref: string) => {
-            const {size} = await browserDocumentStore.stat(ref);
-            const hash = createHash('sha256');
-            for (let offset = 0; offset < size; offset += 4 * 1024 * 1024) {
-                hash.update(await browserDocumentStore.readRange(ref, offset, Math.min(4 * 1024 * 1024, size - offset)));
+    it.each(['save', 'save-as'] as const)(
+        'downloads every byte of a working copy above the former 64 MiB fallback through %s without a handle',
+        async (mode) => {
+            const downloads: Blob[] = [];
+            class DownloadURL extends URL {}
+            Object.defineProperties(DownloadURL, {
+                createObjectURL: {
+                    value: (blob: Blob) => {
+                        downloads.push(blob);
+                        return 'blob:large-download';
+                    },
+                },
+                revokeObjectURL: {value: () => {}},
+            });
+            vi.stubGlobal('URL', DownloadURL);
+            const {capability, browserDocumentStore} = await loadBrowserDocumentsFileCapability({
+                windowOverrides: {showSaveFilePicker: undefined},
+            });
+            const sourceRef = await browserDocumentStore.createStoredDocument('source.pdf', Uint8Array.of(1), {...PDF_SOURCE_OPTIONS});
+            const workingRef = await browserDocumentStore.cloneAsWorkingCopy(sourceRef);
+            const edited = new Uint8Array(FORMER_DOWNLOAD_FALLBACK_MAX_BYTES + 3);
+            for (let offset = 0; offset < edited.byteLength; offset += 4096) {
+                edited[offset] = (offset / 4096) % 251;
             }
-            return hash.digest('hex');
-        };
+            edited[edited.byteLength - 1] = 7;
+            await browserDocumentStore.write(workingRef, edited, await getRevisionOptions(browserDocumentStore, workingRef));
+            const digest = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
+            const readStored = async (ref: string) => {
+                const {size} = await browserDocumentStore.stat(ref);
+                const hash = createHash('sha256');
+                for (let offset = 0; offset < size; offset += 4 * 1024 * 1024) {
+                    hash.update(await browserDocumentStore.readRange(ref, offset, Math.min(4 * 1024 * 1024, size - offset)));
+                }
+                return hash.digest('hex');
+            };
 
-        const savedRef = mode === 'save'
-            ? ((await capability.saveFileStructured(workingRef, await getRevisionOptions(browserDocumentStore, workingRef))).ok ? sourceRef : null)
-            : await capability.savePdfAs(workingRef, undefined, await getRevisionOptions(browserDocumentStore, workingRef));
+            const savedRef =
+                mode === 'save'
+                    ? (await capability.saveFileStructured(workingRef, await getRevisionOptions(browserDocumentStore, workingRef))).ok
+                        ? sourceRef
+                        : null
+                    : await capability.savePdfAs(workingRef, undefined, await getRevisionOptions(browserDocumentStore, workingRef));
 
-        expect(savedRef).not.toBeNull();
-        expect(downloads).toHaveLength(1);
-        expect(downloads[0]!.type).toBe('application/pdf');
-        expect(digest(new Uint8Array(await downloads[0]!.arrayBuffer()))).toBe(digest(edited));
-        await expect(readStored(savedRef!)).resolves.toBe(digest(edited));
-    });
+            expect(savedRef).not.toBeNull();
+            expect(downloads).toHaveLength(1);
+            expect(downloads[0]!.type).toBe('application/pdf');
+            expect(digest(new Uint8Array(await downloads[0]!.arrayBuffer()))).toBe(digest(edited));
+            await expect(readStored(savedRef!)).resolves.toBe(digest(edited));
+        },
+    );
 
     it('reads exact native page sizes through the page-ops worker and enforces strict revision invariants', async () => {
-        const {
-            capability,
-            browserDocumentStore,
-        } = await loadBrowserDocumentsFileCapability();
-        const workingRef = await browserDocumentStore.createStoredDocument(
-            'geometry-table.pdf',
-            await createPdfBytes([
-                612,
-                792,
-            ]),
-            {
-                ...PDF_SOURCE_OPTIONS,
-                kind: 'working',
-            },
-        );
+        const {capability, browserDocumentStore} = await loadBrowserDocumentsFileCapability();
+        const workingRef = await browserDocumentStore.createStoredDocument('geometry-table.pdf', await createPdfBytes([612, 792]), {
+            ...PDF_SOURCE_OPTIONS,
+            kind: 'working',
+        });
         const revision = await browserDocumentStore.getDocumentRevision(workingRef);
         browserAnnotationParseMock.run.mockResolvedValueOnce({
             pageCount: 2,
@@ -3097,10 +3015,12 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             ],
         });
 
-        await expect(capability.getPdfNativePageSizes!(workingRef, {
-            mode: 'exact',
-            expectedDocumentRevisionToken: revision.token,
-        })).resolves.toEqual({
+        await expect(
+            capability.getPdfNativePageSizes!(workingRef, {
+                mode: 'exact',
+                expectedDocumentRevisionToken: revision.token,
+            }),
+        ).resolves.toEqual({
             kind: 'exact',
             documentRef: workingRef,
             documentRevisionToken: revision.token,
@@ -3136,41 +3056,40 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         );
 
         // Stale revision token before read is rejected.
-        await expect(capability.getPdfNativePageSizes!(workingRef, {
-            mode: 'exact',
-            expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-stale-token'),
-        })).rejects.toThrow();
+        await expect(
+            capability.getPdfNativePageSizes!(workingRef, {
+                mode: 'exact',
+                expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-stale-token'),
+            }),
+        ).rejects.toThrow();
 
         // An edit + undo that restores the same revision token while readPageSizes is in flight
         // advances byteRevision and must be rejected as stale.
         browserAnnotationParseMock.run.mockImplementationOnce(async () => {
-            await browserDocumentStore.write(
-                workingRef,
-                await createPdfBytes([
-                    300,
-                    400,
-                ]),
-                {expectedDocumentRevisionToken: revision.token},
-            );
+            await browserDocumentStore.write(workingRef, await createPdfBytes([300, 400]), {expectedDocumentRevisionToken: revision.token});
             const editedRev = await browserDocumentStore.getDocumentRevision(workingRef);
             await browserDocumentStore.restoreRevision(workingRef, revision.token, editedRev.token);
             return {
                 pageCount: 1,
-                pages: [{
-                    pageNumber: 1,
-                    xPoints: 0,
-                    yPoints: 0,
-                    widthPoints: 612,
-                    heightPoints: 792,
-                    rotation: 0,
-                    userUnit: 1,
-                }],
+                pages: [
+                    {
+                        pageNumber: 1,
+                        xPoints: 0,
+                        yPoints: 0,
+                        widthPoints: 612,
+                        heightPoints: 792,
+                        rotation: 0,
+                        userUnit: 1,
+                    },
+                ],
             };
         });
-        await expect(capability.getPdfNativePageSizes!(workingRef, {
-            mode: 'exact',
-            expectedDocumentRevisionToken: revision.token,
-        })).rejects.toThrow();
+        await expect(
+            capability.getPdfNativePageSizes!(workingRef, {
+                mode: 'exact',
+                expectedDocumentRevisionToken: revision.token,
+            }),
+        ).rejects.toThrow();
 
         // Structured WASM failures propagate cleanly so the viewer can fall back.
         const currentRev = await browserDocumentStore.getDocumentRevision(workingRef);
@@ -3181,10 +3100,12 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
                 message: 'PDF is encrypted',
             },
         });
-        await expect(capability.getPdfNativePageSizes!(workingRef, {
-            mode: 'exact',
-            expectedDocumentRevisionToken: currentRev.token,
-        })).rejects.toThrow('PDF is encrypted');
+        await expect(
+            capability.getPdfNativePageSizes!(workingRef, {
+                mode: 'exact',
+                expectedDocumentRevisionToken: currentRev.token,
+            }),
+        ).rejects.toThrow('PDF is encrypted');
     });
 
     it('refuses replaceWorkingCopyFromStagedPdfNativeMutation on a foreign-staged base while keeping Save As rescue working', async () => {
@@ -3192,34 +3113,41 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         let lastModified = 1_000;
         const handle = createFileSystemFileHandle({
             name: 'annotation-flush.pdf',
-            getFile: async () => new File([physical], 'annotation-flush.pdf', {
-                type: 'application/pdf',
-                lastModified,
-            }),
+            getFile: async () =>
+                new File([physical], 'annotation-flush.pdf', {
+                    type: 'application/pdf',
+                    lastModified,
+                }),
         });
         let savedAsBytes: Uint8Array<ArrayBuffer> | null = null;
         const saveAsHandle = createFileSystemFileHandle({
             name: 'rescued-copy.pdf',
             getFile: async () => new File([savedAsBytes ?? new Uint8Array()], 'rescued-copy.pdf', {type: 'application/pdf'}),
-            createWritable: async () => createFileSystemWritableFileStream({write: async chunk => {
-                savedAsBytes = chunk instanceof Blob
-                    ? new Uint8Array(await chunk.arrayBuffer())
-                    : chunk instanceof Uint8Array
-                        ? new Uint8Array(chunk)
-                        : new Uint8Array(requireArrayBufferChunk(chunk));
-            }}),
+            createWritable: async () =>
+                createFileSystemWritableFileStream({
+                    write: async (chunk) => {
+                        savedAsBytes =
+                            chunk instanceof Blob
+                                ? new Uint8Array(await chunk.arrayBuffer())
+                                : chunk instanceof Uint8Array
+                                  ? new Uint8Array(chunk)
+                                  : new Uint8Array(requireArrayBufferChunk(chunk));
+                    },
+                }),
         });
-        const {
-            capability,
-            browserDocumentStore: store,
-        } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: async () => saveAsHandle}});
-        const source = await store.registerFile(new File([physical], 'annotation-flush.pdf', {
-            type: 'application/pdf',
-            lastModified,
-        }), {
-            ...PDF_SOURCE_OPTIONS,
-            saveHandle: handle,
+        const {capability, browserDocumentStore: store} = await loadBrowserDocumentsFileCapability({
+            windowOverrides: {showSaveFilePicker: async () => saveAsHandle},
         });
+        const source = await store.registerFile(
+            new File([physical], 'annotation-flush.pdf', {
+                type: 'application/pdf',
+                lastModified,
+            }),
+            {
+                ...PDF_SOURCE_OPTIONS,
+                saveHandle: handle,
+            },
+        );
         const working = await store.cloneAsWorkingCopy(source);
         const entry = await store.requireEntry(working);
         const initialRevision = await store.getDocumentRevision(working);
@@ -3230,29 +3158,23 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         lastModified = 2_000;
 
         // 1. Working-copy replacement (e.g. annotation flush before Rotate/Crop) refuses committing onto :1:s.
-        const flushed = await capability.applyPdfNativeMutationsToWorkingCopy!(
-            working,
-            {},
-            requirePdfDateString('D:20260102000000Z'),
-            {expectedDocumentRevisionToken: initialRevision.token},
-        );
+        const flushed = await capability.applyPdfNativeMutationsToWorkingCopy!(working, {}, requirePdfDateString('D:20260102000000Z'), {
+            expectedDocumentRevisionToken: initialRevision.token,
+        });
         expect(flushed.applied).toBe(true);
-        await expect(capability.replaceWorkingCopyFromStagedPdfNativeMutation!(
-            working,
-            flushed.stagedOutput!,
-            {expectedDocumentRevisionToken: initialRevision.token},
-        )).rejects.toMatchObject({code: 'STALE_REVISION'});
+        await expect(
+            capability.replaceWorkingCopyFromStagedPdfNativeMutation!(working, flushed.stagedOutput!, {
+                expectedDocumentRevisionToken: initialRevision.token,
+            }),
+        ).rejects.toMatchObject({code: 'STALE_REVISION'});
         // Uncommitted append was discarded; working copy did not advance to r2.
         expect(entry.doc?.state().current?.id).toBe(1);
         expect(entry.doc?.state().current?.foreign).toBe('staged');
 
         // 2. Save As rescue still builds on the current file with the staged annotation edits.
-        const rescued = await capability.applyPdfNativeMutationsToWorkingCopy!(
-            working,
-            {},
-            requirePdfDateString('D:20260102000001Z'),
-            {expectedDocumentRevisionToken: initialRevision.token},
-        );
+        const rescued = await capability.applyPdfNativeMutationsToWorkingCopy!(working, {}, requirePdfDateString('D:20260102000001Z'), {
+            expectedDocumentRevisionToken: initialRevision.token,
+        });
         expect(rescued.applied).toBe(true);
         const savedRef = await capability.savePdfAs(
             working,
@@ -3265,36 +3187,60 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
     });
 });
 
-it.each(['save', 'save-as'] as const)('#1609 reports a failed Recent write after successful %s without losing saved bytes', async mode => {
-    const {capability, browserDocumentStore: store} = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: undefined}});
-    const {BrowserLogger} = await import('@app/utils/browserLogger');
-    const {BROWSER_RECENT_FILES_STORAGE_KEY} = await import('@app/utils/browserRuntimePersistence');
-    const warn = vi.spyOn(BrowserLogger, 'warn').mockImplementation(() => undefined);
-    const error = vi.spyOn(BrowserLogger, 'error');
-    onTestFinished(() => {vi.restoreAllMocks();});
-    qpdfRun.mockImplementation(async command => ({exitCode: 0, stdout: command === 'page-count' ? '1' : 'No syntax or stream encoding errors found', stderr: '', output: null}));
-    const bytes = await createPdfBytes();
-    const source = await store.createStoredDocument('recent-write.pdf', bytes, PDF_SOURCE_OPTIONS);
-    const working = await store.cloneAsWorkingCopy(source);
-    const downloads: Blob[] = [];
-    class DownloadURL extends URL {}
-    Object.defineProperties(DownloadURL, {
-        createObjectURL: {value: (blob: Blob) => {downloads.push(blob); return 'blob:recent-write';}},
-        revokeObjectURL: {value: () => {}},
-    });
-    vi.stubGlobal('URL', DownloadURL);
-    const storage = window.localStorage;
-    const setItem = storage.setItem.bind(storage);
-    vi.spyOn(storage, 'setItem').mockImplementation((key, value) => {
-        if (key === BROWSER_RECENT_FILES_STORAGE_KEY) {throw new Error('QuotaExceededError injected Recent write');}
-        setItem(key, value);
-    });
-    const saved = mode === 'save'
-        ? ((await capability.saveFileStructured(working, await getRevisionOptions(store, working))).ok ? source : null)
-        : await capability.savePdfAs(working, undefined, await getRevisionOptions(store, working));
-    expect(saved).not.toBeNull();
-    expect(new Uint8Array(await downloads[0]!.arrayBuffer())).toEqual(bytes);
-    const diagnostics = [...warn.mock.calls, ...error.mock.calls].map(args => JSON.stringify(args, (_key, value: unknown) => value instanceof Error ? value.message : value)).join('\n');
-    expect.soft(diagnostics).toContain(saved!);
-    expect(diagnostics).toMatch(/recent.*(?:unavailable|persist|storage|writ)|QuotaExceededError/iu);
-});
+it.each(['save', 'save-as'] as const)(
+    '#1609 reports a failed Recent write after successful %s without losing saved bytes',
+    async (mode) => {
+        const {capability, browserDocumentStore: store} = await loadBrowserDocumentsFileCapability({
+            windowOverrides: {showSaveFilePicker: undefined},
+        });
+        const {BrowserLogger} = await import('@app/utils/browserLogger');
+        const {BROWSER_RECENT_FILES_STORAGE_KEY} = await import('@app/utils/browserRuntimePersistence');
+        const warn = vi.spyOn(BrowserLogger, 'warn').mockImplementation(() => undefined);
+        const error = vi.spyOn(BrowserLogger, 'error');
+        onTestFinished(() => {
+            vi.restoreAllMocks();
+        });
+        qpdfRun.mockImplementation(async (command) => ({
+            exitCode: 0,
+            stdout: command === 'page-count' ? '1' : 'No syntax or stream encoding errors found',
+            stderr: '',
+            output: null,
+        }));
+        const bytes = await createPdfBytes();
+        const source = await store.createStoredDocument('recent-write.pdf', bytes, PDF_SOURCE_OPTIONS);
+        const working = await store.cloneAsWorkingCopy(source);
+        const downloads: Blob[] = [];
+        class DownloadURL extends URL {}
+        Object.defineProperties(DownloadURL, {
+            createObjectURL: {
+                value: (blob: Blob) => {
+                    downloads.push(blob);
+                    return 'blob:recent-write';
+                },
+            },
+            revokeObjectURL: {value: () => {}},
+        });
+        vi.stubGlobal('URL', DownloadURL);
+        const storage = window.localStorage;
+        const setItem = storage.setItem.bind(storage);
+        vi.spyOn(storage, 'setItem').mockImplementation((key, value) => {
+            if (key === BROWSER_RECENT_FILES_STORAGE_KEY) {
+                throw new Error('QuotaExceededError injected Recent write');
+            }
+            setItem(key, value);
+        });
+        const saved =
+            mode === 'save'
+                ? (await capability.saveFileStructured(working, await getRevisionOptions(store, working))).ok
+                    ? source
+                    : null
+                : await capability.savePdfAs(working, undefined, await getRevisionOptions(store, working));
+        expect(saved).not.toBeNull();
+        expect(new Uint8Array(await downloads[0]!.arrayBuffer())).toEqual(bytes);
+        const diagnostics = [...warn.mock.calls, ...error.mock.calls]
+            .map((args) => JSON.stringify(args, (_key, value: unknown) => (value instanceof Error ? value.message : value)))
+            .join('\n');
+        expect.soft(diagnostics).toContain(saved!);
+        expect(diagnostics).toMatch(/recent.*(?:unavailable|persist|storage|writ)|QuotaExceededError/iu);
+    },
+);

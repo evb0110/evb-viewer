@@ -1,8 +1,4 @@
-import type {
-    IDocumentPageLabelRange,
-    IDocumentPageRange,
-    TDocumentPageLabelLookup,
-} from '@pdf-core/pdfPageLabels';
+import type {IDocumentPageLabelRange, IDocumentPageRange, TDocumentPageLabelLookup} from '@pdf-core/pdfPageLabels';
 import {
     buildPageLabelsFromRanges,
     buildPageLabelSegments,
@@ -20,12 +16,7 @@ import {pageLabelMatchesText} from '@pdf-core/pdfPageLabelFormatting';
 export const PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES = 200;
 export const PAGE_LABEL_DENSE_READ_MAX_PAGES = 100_000;
 
-export type {
-    IDocumentPageLabelModel,
-    IDocumentPageLabelRange,
-    IDocumentPageRange,
-    TDocumentPageLabelLookup,
-} from '@pdf-core/pdfPageLabels';
+export type {IDocumentPageLabelModel, IDocumentPageLabelRange, IDocumentPageRange, TDocumentPageLabelLookup} from '@pdf-core/pdfPageLabels';
 export {
     applyPageLabelRange,
     applySparsePageLabelUpdates,
@@ -41,9 +32,7 @@ export {
     normalizePageLabelRanges,
 } from '@pdf-core/pdfPageLabels';
 
-function isPageLabelArray(
-    pageLabels: TDocumentPageLabelLookup,
-): pageLabels is readonly string[] {
+function isPageLabelArray(pageLabels: TDocumentPageLabelLookup): pageLabels is readonly string[] {
     return Array.isArray(pageLabels);
 }
 
@@ -53,19 +42,18 @@ export function materializePageLabelsForCompatibility(
     ranges: readonly IDocumentPageLabelRange[],
     existingLabels: readonly string[] | null = null,
 ): string[] | null {
-    if (
-        totalPages <= 0
-        || totalPages > PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES
-        || isImplicitDefaultPageLabels(ranges, totalPages)
-    ) {
+    if (totalPages <= 0 || totalPages > PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES || isImplicitDefaultPageLabels(ranges, totalPages)) {
         return null;
     }
 
-    const fitsPresentation = buildPageLabelSegments(totalPages, ranges).every(segment => [
-        0,
-        segment.endPage - segment.startPage,
-    ].every(offset => pageLabelMatchesText(segment, offset, formatPageLabelForDisplay(segment, offset))));
-    if (!fitsPresentation) {return null;}
+    const fitsPresentation = buildPageLabelSegments(totalPages, ranges).every((segment) =>
+        [0, segment.endPage - segment.startPage].every((offset) =>
+            pageLabelMatchesText(segment, offset, formatPageLabelForDisplay(segment, offset)),
+        ),
+    );
+    if (!fitsPresentation) {
+        return null;
+    }
 
     if (existingLabels && existingLabels.length === totalPages) {
         return [...existingLabels];
@@ -82,7 +70,9 @@ export function getVisiblePageLabel(page: number, pageLabels: TDocumentPageLabel
     return segment ? formatPageLabelForDisplay(segment, page - segment.startPage).trim() || null : null;
 }
 
-export interface IPageIndicatorFormatOptions { compactPhysicalPage?: boolean; }
+export interface IPageIndicatorFormatOptions {
+    compactPhysicalPage?: boolean;
+}
 
 export function formatPageIndicatorWithOptions(
     page: number,
@@ -97,9 +87,7 @@ function formatPageIndicatorLabel(page: number, logical: string | null, options:
         return String(page);
     }
 
-    const physicalPage = options.compactPhysicalPage
-        ? `(${page})`
-        : ` (${page})`;
+    const physicalPage = options.compactPhysicalPage ? `(${page})` : ` (${page})`;
 
     return `${logical}${physicalPage}`;
 }
@@ -113,7 +101,7 @@ export function getMaxPageIndicatorLength(
         return 0;
     }
 
-    if (!pageLabels || isPageLabelArray(pageLabels) && pageLabels.length !== totalPages) {
+    if (!pageLabels || (isPageLabelArray(pageLabels) && pageLabels.length !== totalPages)) {
         return String(totalPages).length;
     }
 
@@ -121,11 +109,7 @@ export function getMaxPageIndicatorLength(
         let maxLength = String(totalPages).length;
         for (const segment of pageLabels.segments) {
             // A one-page segment, the usual shape of literal labels, has one candidate.
-            const candidatePages = new Set([
-                segment.startPage,
-                segment.endPage,
-                Math.min(segment.endPage, segment.startPage + 1),
-            ]);
+            const candidatePages = new Set([segment.startPage, segment.endPage, Math.min(segment.endPage, segment.startPage + 1)]);
             for (const page of candidatePages) {
                 maxLength = Math.max(
                     maxLength,
@@ -164,10 +148,7 @@ export function getPageIndicatorLayoutMetrics(
         };
     }
 
-    const totalWidthCh = Math.max(
-        PAGE_INDICATOR_MIN_TOTAL_WIDTH_CH,
-        String(totalPages).length,
-    );
+    const totalWidthCh = Math.max(PAGE_INDICATOR_MIN_TOTAL_WIDTH_CH, String(totalPages).length);
     const separatorWidthCh = 1;
 
     return {
@@ -183,11 +164,7 @@ export function parsePageRangeInput(input: string, totalPages: number): IDocumen
         return null;
     }
 
-    const normalized = input
-        .trim()
-        .replace(/[–—]/g, '-')
-        .replace(/\.\./g, '-')
-        .replace(/\s+/g, '');
+    const normalized = input.trim().replace(/[–—]/g, '-').replace(/\.\./g, '-').replace(/\s+/g, '');
 
     if (!normalized) {
         return null;

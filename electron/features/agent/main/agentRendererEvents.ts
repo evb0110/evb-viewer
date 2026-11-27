@@ -1,11 +1,5 @@
-import type {
-    BrowserWindow,
-    WebContents,
-} from 'electron';
-import {
-    AGENT_PLATFORM_FEATURE,
-    type IAgentEventMap,
-} from '@contracts/agentPlatformFeature';
+import type {BrowserWindow, WebContents} from 'electron';
+import {AGENT_PLATFORM_FEATURE, type IAgentEventMap} from '@contracts/agentPlatformFeature';
 
 type TAgentRendererEventChannel = Extract<keyof IAgentEventMap, string>;
 const eventChannels = AGENT_PLATFORM_FEATURE.eventChannels;
@@ -25,10 +19,7 @@ export function sendAgentWorkspaceSnapshotRequest(
     sendAgentRendererEvent(targetWindow.webContents, eventChannels.onWorkspaceSnapshotRequest, request);
 }
 
-export function sendAgentCommandRequest(
-    targetWindow: BrowserWindow,
-    request: IAgentEventMap[typeof eventChannels.onCommandRequest],
-) {
+export function sendAgentCommandRequest(targetWindow: BrowserWindow, request: IAgentEventMap[typeof eventChannels.onCommandRequest]) {
     sendAgentRendererEvent(targetWindow.webContents, eventChannels.onCommandRequest, request);
 }
 

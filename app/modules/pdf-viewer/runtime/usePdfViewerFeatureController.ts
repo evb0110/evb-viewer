@@ -1,49 +1,33 @@
 import {requirePageNumber} from '@contracts/pageNumbers';
-import type { TPageNumber } from '@contracts/pageNumbers';
+import type {TPageNumber} from '@contracts/pageNumbers';
 
-import type { IDocumentViewerRuntime } from '@app/modules/document-viewer/public';
-import { getPerformanceProfile } from '@app/utils/performanceProfile';
-import { resolvePdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
-import { summarizeViewerMetrics } from '@app/modules/pdf-viewer/engine/pdf-viewer-metrics/summarizeViewerMetrics';
-import { isStandaloneSpreadPage } from '@app/utils/pdfViewMode';
-import { usePdfRenderViewModel } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRenderViewModel';
-import { createPdfRenderPagePredicate } from '@app/modules/pdf-viewer/runtime/rendering/createPdfRenderPagePredicate';
-import { createPdfDocumentSession } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
-import { pdfDocumentSessionSlotKey } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSessionSlot';
-import {
-    createPdfViewportSession,
-    type TPdfViewportSession,
-} from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
-import {
-    createPdfRenderingSession,
-    type TPdfRenderingSession,
-} from '@app/modules/pdf-viewer/runtime/sessions/createPdfRenderingSession';
-import {
-    createPdfAnnotationSession,
-    type TPdfAnnotationSession,
-} from '@app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession';
-import { usePdfViewerPublicApiController } from '@app/modules/pdf-viewer/runtime/usePdfViewerPublicApiController';
-import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
-import { usePdfViewerNavigationDiagnostics } from '@app/modules/pdf-viewer/runtime/lifecycle/usePdfViewerNavigationDiagnostics';
-import { usePdfViewerMouseInteractions } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerMouseInteractions';
-import { usePdfViewerWheelZoom } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerWheelZoom';
-import { usePdfViewerOutputScale } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerOutputScale';
-import { usePdfCropSelection } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfCropSelection';
-import { usePdfImagePlacement } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfImagePlacement';
-import { usePdfRegionSnip } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfRegionSnip';
-import { usePdfViewerSelectionToolState } from '@app/modules/pdf-viewer/tools/public';
-import { usePdfViewerPropModel } from '@app/modules/pdf-viewer/runtime/contracts/usePdfViewerPropModel';
-import type {
-    IPdfViewerProps,
-    IPdfViewerEmit,
-} from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerComponent.types';
-import type { ILinkAnnotation } from '@app/types/annotations';
+import type {IDocumentViewerRuntime} from '@app/modules/document-viewer/public';
+import {getPerformanceProfile} from '@app/utils/performanceProfile';
+import {resolvePdfRenderPerformancePolicy} from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
+import {summarizeViewerMetrics} from '@app/modules/pdf-viewer/engine/pdf-viewer-metrics/summarizeViewerMetrics';
+import {isStandaloneSpreadPage} from '@app/utils/pdfViewMode';
+import {usePdfRenderViewModel} from '@app/modules/pdf-viewer/runtime/rendering/usePdfRenderViewModel';
+import {createPdfRenderPagePredicate} from '@app/modules/pdf-viewer/runtime/rendering/createPdfRenderPagePredicate';
+import {createPdfDocumentSession} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
+import {pdfDocumentSessionSlotKey} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSessionSlot';
+import {createPdfViewportSession, type TPdfViewportSession} from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
+import {createPdfRenderingSession, type TPdfRenderingSession} from '@app/modules/pdf-viewer/runtime/sessions/createPdfRenderingSession';
+import {createPdfAnnotationSession, type TPdfAnnotationSession} from '@app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession';
+import {usePdfViewerPublicApiController} from '@app/modules/pdf-viewer/runtime/usePdfViewerPublicApiController';
+import type {IBrowserPrintDocument} from '@app/utils/pdfPrintShared';
+import {usePdfViewerNavigationDiagnostics} from '@app/modules/pdf-viewer/runtime/lifecycle/usePdfViewerNavigationDiagnostics';
+import {usePdfViewerMouseInteractions} from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerMouseInteractions';
+import {usePdfViewerWheelZoom} from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerWheelZoom';
+import {usePdfViewerOutputScale} from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerOutputScale';
+import {usePdfCropSelection} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfCropSelection';
+import {usePdfImagePlacement} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfImagePlacement';
+import {usePdfRegionSnip} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfRegionSnip';
+import {usePdfViewerSelectionToolState} from '@app/modules/pdf-viewer/tools/public';
+import {usePdfViewerPropModel} from '@app/modules/pdf-viewer/runtime/contracts/usePdfViewerPropModel';
+import type {IPdfViewerProps, IPdfViewerEmit} from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerComponent.types';
+import type {ILinkAnnotation} from '@app/types/annotations';
 
-export const usePdfViewerFeatureController = (
-    props: IPdfViewerProps,
-    emit: IPdfViewerEmit,
-    chassisAuthority: IDocumentViewerRuntime,
-) => {
+export const usePdfViewerFeatureController = (props: IPdfViewerProps, emit: IPdfViewerEmit, chassisAuthority: IDocumentViewerRuntime) => {
     const openSurfaceRenderOwner = chassisAuthority.openSurface.claimRenderOwner();
     const {
         src,
@@ -72,7 +56,7 @@ export const usePdfViewerFeatureController = (
         authorName,
         readZoom,
     } = usePdfViewerPropModel(props);
-    const { t } = useTypedI18n();
+    const {t} = useTypedI18n();
     const viewerHost = ref<HTMLElement | null>(null);
     const viewerContainer = ref<HTMLElement | null>(null);
     const summarizeViewerStateForLog = () => summarizeViewerMetrics(viewerContainer.value);
@@ -101,18 +85,18 @@ export const usePdfViewerFeatureController = (
         chassisAuthority,
         openSurfaceDocumentId: () => {
             const source = src.value;
-            return props.originalPath
-                ?? workingCopyPath.value
-                ?? (typeof source === 'object' && source !== null && 'path' in source
-                    ? source.path
-                    : 'pdf-open');
+            return (
+                props.originalPath ??
+                workingCopyPath.value ??
+                (typeof source === 'object' && source !== null && 'path' in source ? source.path : 'pdf-open')
+            );
         },
         originalDocumentId: computed(() => props.originalPath ?? null),
         currentPage: viewerCurrentPage,
         isActive,
-        emitDocument: document => emit('update:document', document),
-        emitTotalPages: total => emit('update:totalPages', total),
-        emitLoadError: error => emit('load-error', error),
+        emitDocument: (document) => emit('update:document', document),
+        emitTotalPages: (total) => emit('update:totalPages', total),
+        emitLoadError: (error) => emit('load-error', error),
         onPageRotationGeometry: (pages, rotationDelta) => {
             if (rotationDelta === null) {
                 renderingSession.cancelPageRotationPreview(pages);
@@ -137,9 +121,8 @@ export const usePdfViewerFeatureController = (
         numPages: documentSession.numPages,
         effectiveScale: viewerEffectiveScale,
         viewRotation,
-        getPageDimensions: pageNumber => documentSession.pageMetrics.value[pageNumber - 1] ?? null,
-        finalizePlacement: payload => annotationSessionRef.value?.finalizeImagePlacement(payload)
-            ?? Promise.resolve(false),
+        getPageDimensions: (pageNumber) => documentSession.pageMetrics.value[pageNumber - 1] ?? null,
+        finalizePlacement: (payload) => annotationSessionRef.value?.finalizeImagePlacement(payload) ?? Promise.resolve(false),
     });
 
     const {
@@ -178,18 +161,12 @@ export const usePdfViewerFeatureController = (
         isActive,
         isResizing,
         outputScale,
-        isPageFreshlyRenderedForNavigation: pageNumber => (
-            renderingSessionRef.value?.isPageVisualReady(pageNumber) ?? false
-        ),
-        waitForPageTextLayerReady: (pageNumber, signal) => (
-            renderingSessionRef.value?.waitForPageTextLayerReady(pageNumber, signal)
-                ?? Promise.resolve(false)
-        ),
-        getCommittedPageScale: pageNumber => (
-            renderingSessionRef.value?.getCommittedPageScale(pageNumber) ?? null
-        ),
+        isPageFreshlyRenderedForNavigation: (pageNumber) => renderingSessionRef.value?.isPageVisualReady(pageNumber) ?? false,
+        waitForPageTextLayerReady: (pageNumber, signal) =>
+            renderingSessionRef.value?.waitForPageTextLayerReady(pageNumber, signal) ?? Promise.resolve(false),
+        getCommittedPageScale: (pageNumber) => renderingSessionRef.value?.getCommittedPageScale(pageNumber) ?? null,
         cancelSupersededRasters: () => renderingSessionRef.value?.cancelSupersededRasters(),
-        adoptResidentCanvas: pageNumber => renderingSessionRef.value?.adoptResidentCanvas(pageNumber),
+        adoptResidentCanvas: (pageNumber) => renderingSessionRef.value?.adoptResidentCanvas(pageNumber),
         reconcileCommittedVisual: () => renderingSessionRef.value?.reconcileCommittedVisual(),
         selectionMarkupStyle,
         classState: {
@@ -201,7 +178,7 @@ export const usePdfViewerFeatureController = (
             fitMode,
             zoomMode,
         },
-        emitZoomState: state => readZoom().set(state),
+        emitZoomState: (state) => readZoom().set(state),
         summarizeViewerStateForLog,
     });
     viewportSessionRef.value = viewportSession;
@@ -226,13 +203,13 @@ export const usePdfViewerFeatureController = (
         workingCopyPath,
         documentRevisionToken,
         maxBufferCanvasPixels: performanceProfile.maxBufferCanvasPixels,
-        emitInitialVisualReady: payload => emit('initial-visual-ready', payload),
-        emitLoadError: error => emit('load-error', error),
+        emitInitialVisualReady: (payload) => emit('initial-visual-ready', payload),
+        emitLoadError: (error) => emit('load-error', error),
         linkAnnotations,
     });
     renderingSessionRef.value = renderingSession;
 
-    const { handleViewerWheel } = usePdfViewerWheelZoom({
+    const {handleViewerWheel} = usePdfViewerWheelZoom({
         viewerContainer,
         isReady: () => Boolean(src.value) && !documentSession.isLoading.value,
         effectiveScale: viewportSession.scale.effectiveScale,
@@ -264,17 +241,17 @@ export const usePdfViewerFeatureController = (
         annotationSettings,
         authorName,
         clearPendingImagePlacement,
-        emitAnnotationModified: payload => emit('annotation-modified', payload),
-        emitAnnotationState: state => emit('annotation-state', state),
-        emitAnnotationOpenNote: comment => emit('annotation-open-note', comment),
-        emitAnnotationContextMenu: payload => emit('annotation-context-menu', payload),
+        emitAnnotationModified: (payload) => emit('annotation-modified', payload),
+        emitAnnotationState: (state) => emit('annotation-state', state),
+        emitAnnotationOpenNote: (comment) => emit('annotation-open-note', comment),
+        emitAnnotationContextMenu: (payload) => emit('annotation-context-menu', payload),
         viewRotation,
         emitAnnotationToolAutoReset: () => emit('annotation-tool-auto-reset'),
         emitAnnotationToolCancel: () => emit('annotation-tool-cancel'),
-        emitAnnotationSetting: payload => emit('annotation-setting', payload),
-        emitAnnotationCommentClick: comment => emit('annotation-comment-click', comment),
-        reportAnnotationFailure: failure => emit('annotation-failure', failure),
-        emitShapeContextMenu: payload => emit('shape-context-menu', payload),
+        emitAnnotationSetting: (payload) => emit('annotation-setting', payload),
+        emitAnnotationCommentClick: (comment) => emit('annotation-comment-click', comment),
+        reportAnnotationFailure: (failure) => emit('annotation-failure', failure),
+        emitShapeContextMenu: (payload) => emit('shape-context-menu', payload),
         linkAnnotations,
     });
     annotationSessionRef.value = annotationSession;
@@ -285,10 +262,8 @@ export const usePdfViewerFeatureController = (
         viewState: props,
     });
 
-    const pagePredicate = (predicate: (pageNumber: TPageNumber) => boolean) => createPdfRenderPagePredicate(
-        () => documentSession.numPages.value,
-        predicate,
-    );
+    const pagePredicate = (predicate: (pageNumber: TPageNumber) => boolean) =>
+        createPdfRenderPagePredicate(() => documentSession.numPages.value, predicate);
     const isPageBuffered = pagePredicate(viewportSession.viewModel.isPageBuffered);
     const isPageRenderedForClass = pagePredicate(renderingSession.isPageRenderedForClass);
     const isPagePainted = pagePredicate(renderingSession.isPagePainted);
@@ -298,9 +273,7 @@ export const usePdfViewerFeatureController = (
         src,
         isLoading: documentSession.isLoading,
         pdfDocument: documentSession.pdfDocument,
-        getPage: pageNumber => documentSession.getPage(
-            requirePageNumber(pageNumber, documentSession.numPages.value),
-        ),
+        getPage: (pageNumber) => documentSession.getPage(requirePageNumber(pageNumber, documentSession.numPages.value)),
         openSurface: chassisAuthority.openSurface,
         isVisualReloadTransitionActive: viewportSession.reloadTransition.isVisualReloadTransitionActive,
         skeletonContentInsets: viewportSession.skeletonInsets.skeletonContentInsets,
@@ -322,9 +295,7 @@ export const usePdfViewerFeatureController = (
     function isPageNearVisibleAndUnrendered(pageNumber: TPageNumber) {
         const start = Math.max(1, viewportSession.visibleRange.value.start - SKELETON_BUFFER);
         const end = Math.min(documentSession.numPages.value, viewportSession.visibleRange.value.end + SKELETON_BUFFER);
-        return pageNumber >= start
-            && pageNumber <= end
-            && !isPageRenderedForClass(pageNumber);
+        return pageNumber >= start && pageNumber <= end && !isPageRenderedForClass(pageNumber);
     }
 
     const {
@@ -341,12 +312,12 @@ export const usePdfViewerFeatureController = (
         isViewerPanDragModeActive,
         markUserViewportInteraction: viewportSession.markUserViewportInteraction,
         cancelPendingSearchScroll: () => renderingSession.cancelPendingSearchScroll(),
-        handleDragStart: event => startDrag(event, viewerContainer.value),
-        handleDragMove: event => onDrag(event, viewerContainer.value),
+        handleDragStart: (event) => startDrag(event, viewerContainer.value),
+        handleDragMove: (event) => onDrag(event, viewerContainer.value),
         stopDrag,
-        handleViewerClickAnnotation: event => annotationSession.commentCrud.handleAnnotationCommentClick(event),
-        handleViewerDblClickAnnotation: event => annotationSession.commentCrud.handleAnnotationEditorDblClick(event),
-        handleViewerContextMenuAnnotation: event => annotationSession.commentCrud.handleAnnotationCommentContextMenu(event),
+        handleViewerClickAnnotation: (event) => annotationSession.commentCrud.handleAnnotationCommentClick(event),
+        handleViewerDblClickAnnotation: (event) => annotationSession.commentCrud.handleAnnotationEditorDblClick(event),
+        handleViewerContextMenuAnnotation: (event) => annotationSession.commentCrud.handleAnnotationCommentContextMenu(event),
     });
 
     usePdfViewerNavigationDiagnostics({
@@ -370,13 +341,13 @@ export const usePdfViewerFeatureController = (
     async function renderLoadedPdfPagesForBrowserPrint(
         targetDocument: IBrowserPrintDocument,
         pageNumbers: TPageNumber[],
-        renderOptions?: { signal?: AbortSignal },
+        renderOptions?: {signal?: AbortSignal},
     ) {
         const pdfDocument = documentSession.pdfDocument.value;
         if (!pdfDocument) {
             throw new Error('Missing loaded PDF document');
         }
-        const { renderPdfDocumentPagesForBrowserPrint } = await import('@app/utils/pdfPrint');
+        const {renderPdfDocumentPagesForBrowserPrint} = await import('@app/utils/pdfPrint');
         await renderPdfDocumentPagesForBrowserPrint(targetDocument, pdfDocument, pageNumbers, renderOptions);
     }
 
@@ -384,22 +355,23 @@ export const usePdfViewerFeatureController = (
     // the reader, whose reading point turns with its page; the revision swap
     // then carries that point.
     function updatePageMutationFitWidth(pages?: readonly number[], rotationDelta?: 90 | 180 | 270 | null) {
-        viewportSession.relayoutRotation(() => {
-            if (zoomMode.value === 'fit-width') {
-                viewportSession.scale.invalidateScaleCache();
-                viewportSession.scale.computeFitWidthScale(viewerContainer.value, {
-                    page: requirePageNumber(viewportSession.currentPage.value, documentSession.numPages.value),
-                });
-            }
-        }, rotationDelta ?? 0, pages);
+        viewportSession.relayoutRotation(
+            () => {
+                if (zoomMode.value === 'fit-width') {
+                    viewportSession.scale.invalidateScaleCache();
+                    viewportSession.scale.computeFitWidthScale(viewerContainer.value, {
+                        page: requirePageNumber(viewportSession.currentPage.value, documentSession.numPages.value),
+                    });
+                }
+            },
+            rotationDelta ?? 0,
+            pages,
+        );
     }
 
     // The rotation preview changes the geometry every view shares; the
     // document has each view keep its place and preview its own rasters.
-    async function beginPageRotationPreview(input: {
-        invalidatedPages: readonly number[];
-        rotationDelta: 90 | 180 | 270;
-    }) {
+    async function beginPageRotationPreview(input: {invalidatedPages: readonly number[]; rotationDelta: 90 | 180 | 270}) {
         if (!documentSession.beginPageMutationRotationPreview(input.invalidatedPages, input.rotationDelta)) {
             return false;
         }
@@ -408,8 +380,7 @@ export const usePdfViewerFeatureController = (
     }
 
     function cancelPageRotationPreview(input: {invalidatedPages: readonly number[]}) {
-        return documentSession.cancelPageMutationRotationPreview()
-            || renderingSession.cancelPageRotationPreview(input.invalidatedPages);
+        return documentSession.cancelPageMutationRotationPreview() || renderingSession.cancelPageRotationPreview(input.invalidatedPages);
     }
 
     const pdfViewerPublicApi = usePdfViewerPublicApiController({
@@ -436,9 +407,9 @@ export const usePdfViewerFeatureController = (
                 return false;
             }
             if (
-                input.rotationDelta !== undefined
-                && documentSession.pendingPageMutationRevisionSwap?.rotationDelta !== undefined
-                && documentSession.pendingPageMutationRevisionSwap.revision === String(input.documentRevision)
+                input.rotationDelta !== undefined &&
+                documentSession.pendingPageMutationRevisionSwap?.rotationDelta !== undefined &&
+                documentSession.pendingPageMutationRevisionSwap.revision === String(input.documentRevision)
             ) {
                 updatePageMutationFitWidth();
                 await nextTick();
@@ -459,8 +430,7 @@ export const usePdfViewerFeatureController = (
         viewerClass: viewportSession.viewModel.viewerClass,
         containerStyle: viewportSession.viewModel.containerStyle,
         scaledMargin: viewportSession.scale.scaledMargin,
-        openingVirtualExtentMinimumScrollHeight:
-            viewportSession.openVirtualSurfaceGeometry.openingVirtualExtentMinimumScrollHeight,
+        openingVirtualExtentMinimumScrollHeight: viewportSession.openVirtualSurfaceGeometry.openingVirtualExtentMinimumScrollHeight,
         pagesToRender: viewportSession.viewModel.pagesToRender,
         virtualPageSegments: viewportSession.viewModel.virtualPageSegments,
         shouldShowPageSkeleton: renderViewModel.shouldShowPageSkeleton,
@@ -469,9 +439,8 @@ export const usePdfViewerFeatureController = (
         isPageBuffered,
         isPageRendered: isPageRenderedForClass,
         // Pixels only; a painted page may still lack its text.
-        pageRaster: (pageNumber: TPageNumber) => !isPagePainted(pageNumber)
-            ? null
-            : renderingSession.isPageVisualReady(pageNumber) ? 'current' as const : 'stale' as const,
+        pageRaster: (pageNumber: TPageNumber) =>
+            !isPagePainted(pageNumber) ? null : renderingSession.isPageVisualReady(pageNumber) ? ('current' as const) : ('stale' as const),
         getPageScale: viewportSession.viewModel.getPageScale,
         getPagePlaceholderStyle: viewportSession.viewModel.getPagePlaceholderStyle,
         getExactPagePlaceholderStyle: viewportSession.openVirtualSurfaceGeometry.getExactPagePlaceholderStyle,
@@ -504,6 +473,8 @@ export const usePdfViewerFeatureController = (
         isViewerLoadingOverlayVisible: renderViewModel.isViewerLoadingOverlayVisible,
         handleLinkDestination: viewportSession.handleLinkDestination,
         handleViewerContainerRef: viewportSession.handleViewerContainerRef,
-        pdfViewerPublicApi: Object.assign(pdfViewerPublicApi, regionSnip.captureApi, {isDocumentLoading: () => documentSession.isViewLoading.value}),
+        pdfViewerPublicApi: Object.assign(pdfViewerPublicApi, regionSnip.captureApi, {
+            isDocumentLoading: () => documentSession.isViewLoading.value,
+        }),
     };
 };

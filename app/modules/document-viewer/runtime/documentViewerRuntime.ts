@@ -2,34 +2,26 @@ import type {
     IDocumentNavigationRequest,
     IDocumentNavigationTicket,
 } from '@app/modules/document-viewer/navigation/documentNavigationRequest';
-import type {
-    HTMLAttributes,
-    Ref,
-    ShallowRef,
-    StyleValue,
-} from 'vue';
+import type {HTMLAttributes, Ref, ShallowRef, StyleValue} from 'vue';
 import {
     createDocumentPageSlotRegistry,
     type IDocumentPageSlotRegistry,
 } from '@app/modules/document-viewer/page-slots/createDocumentPageSlotRegistry';
-import type {
-    IDocumentPageSource,
-    TDocumentPageSourceKind,
-} from '@app/modules/document-viewer/source/documentPageSource';
-import { workspaceSurfaceBudgetController } from '@app/modules/document-viewer/runtime/workspaceSurfaceBudgetController';
+import type {IDocumentPageSource, TDocumentPageSourceKind} from '@app/modules/document-viewer/source/documentPageSource';
+import {workspaceSurfaceBudgetController} from '@app/modules/document-viewer/runtime/workspaceSurfaceBudgetController';
 import {
     createDocumentViewportWritePort,
     type IDocumentViewportWritePort,
 } from '@app/modules/document-viewer/runtime/documentViewportWritePort';
-import { createDocumentViewerRenderCoordinator } from '@app/modules/document-viewer/runtime/createDocumentViewerRenderCoordinator';
+import {createDocumentViewerRenderCoordinator} from '@app/modules/document-viewer/runtime/createDocumentViewerRenderCoordinator';
 import {
     createDocumentOpenSurfaceSession,
     type IDocumentOpenSurfaceSession,
     resolveDocumentViewportCurrentPage,
 } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
-import type { IDocumentWheelInteraction } from '@app/modules/document-viewer/input/documentWheelInteraction';
-import type { IDocumentViewportFlingBackdrop } from '@app/modules/document-viewer/runtime/documentViewportFlingBackdrop';
-import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
+import type {IDocumentWheelInteraction} from '@app/modules/document-viewer/input/documentWheelInteraction';
+import type {IDocumentViewportFlingBackdrop} from '@app/modules/document-viewer/runtime/documentViewportFlingBackdrop';
+import {logPdfRenderTrace} from '@app/utils/pdfRenderTrace';
 
 export interface IDocumentViewerRuntime {
     readonly instanceId: string;
@@ -60,8 +52,8 @@ export interface IDocumentViewerRuntime {
     observePage(pageNumber: number, options?: {supersedeNavigation?: boolean}): number;
 }
 
-export type TDocumentViewportEventType = 'scroll' | 'mousedown' | 'mousemove' | 'mouseup'
-    | 'mouseleave' | 'click' | 'dblclick' | 'contextmenu' | 'selectstart';
+export type TDocumentViewportEventType =
+    'scroll' | 'mousedown' | 'mousemove' | 'mouseup' | 'mouseleave' | 'click' | 'dblclick' | 'contextmenu' | 'selectstart';
 export type TDocumentOpeningPageVisual = 'none' | 'skeleton' | 'fresh';
 
 export interface IDocumentViewportFeatureBinding {
@@ -72,9 +64,7 @@ export interface IDocumentViewportFeatureBinding {
     wheel?: (interaction: IDocumentWheelInteraction) => void;
 }
 
-export const documentViewerRuntimeKey = Symbol('document-viewer-runtime') as InjectionKey<
-    IDocumentViewerRuntime
->;
+export const documentViewerRuntimeKey = Symbol('document-viewer-runtime') as InjectionKey<IDocumentViewerRuntime>;
 
 let nextDocumentViewerChassisInstanceId = 0;
 
@@ -89,17 +79,17 @@ export function createDocumentViewerRuntime(
     const openSurface = sharedOpenSurface ?? createDocumentOpenSurfaceSession();
     const currentPage = computed(() => resolveDocumentViewportCurrentPage(openSurface.viewportSession.value));
     const navigationTicket = openSurface.navigationTicket;
-    const navigationPage = computed(() => navigationTicket.value
-        ? openSurface.viewportSession.value.viewportIntent?.pageNumber ?? currentPage.value
-        : currentPage.value);
+    const navigationPage = computed(() =>
+        navigationTicket.value ? (openSurface.viewportSession.value.viewportIntent?.pageNumber ?? currentPage.value) : currentPage.value,
+    );
     const openingPageElement = shallowRef<HTMLElement | null>(null);
     const openingPageVisual = computed<TDocumentOpeningPageVisual>(() => {
         const visual = openSurface.viewportSession.value.visual;
         return visual.kind === 'page' && visual.presentation === 'canvas'
             ? 'fresh'
             : visual.kind === 'page' && visual.presentation === 'skeleton'
-                ? 'skeleton'
-                : 'none';
+              ? 'skeleton'
+              : 'none';
     });
     const source = shallowRef<IDocumentPageSource | null>(null);
     const viewportElement = shallowRef<HTMLElement | null>(null);
@@ -140,22 +130,9 @@ export function createDocumentViewerRuntime(
     );
     let resetOpeningViewportGeneration = 0;
     watch(
-        [
-            () => openSurface.snapshot.value.generation,
-            () => openSurface.snapshot.value.phase,
-            () => viewportElement.value,
-        ],
-        ([
-            generation,
-            phase,
-            viewport,
-        ]) => {
-            if (
-                phase !== 'pending'
-                || generation <= 0
-                || generation === resetOpeningViewportGeneration
-                || !viewport
-            ) {
+        [() => openSurface.snapshot.value.generation, () => openSurface.snapshot.value.phase, () => viewportElement.value],
+        ([generation, phase, viewport]) => {
+            if (phase !== 'pending' || generation <= 0 || generation === resetOpeningViewportGeneration || !viewport) {
                 return;
             }
             // A new document generation starts at the canonical viewport
@@ -216,7 +193,9 @@ export function createDocumentViewerRuntime(
             }
             source.value = nextSource;
             pageCount.value = nextSource?.pageCount ?? 0;
-            if (pageCount.value > 0) {openSurface.metadataReady(pageCount.value);}
+            if (pageCount.value > 0) {
+                openSurface.metadataReady(pageCount.value);
+            }
         },
         bindOpeningPageElement(element) {
             openingPageElement.value = element;

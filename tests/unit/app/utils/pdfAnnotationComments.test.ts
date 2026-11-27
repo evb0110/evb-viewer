@@ -1,14 +1,6 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import {
-    getAnnotationCommentPreviewText,
-    matchesCommentQuery,
-    splitByQueryMatches,
-} from '@app/utils/pdfAnnotationComments';
+import {describe, expect, it} from 'vitest';
+import type {IAnnotationCommentSummary} from '@app/types/annotations';
+import {getAnnotationCommentPreviewText, matchesCommentQuery, splitByQueryMatches} from '@app/utils/pdfAnnotationComments';
 import {requireEpochMs} from '@contracts/timestamps';
 
 function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
@@ -136,10 +128,12 @@ describe('pdfAnnotationComments', () => {
     });
 
     it('returns a single plain part when query is empty', () => {
-        expect(splitByQueryMatches('Eugene', '')).toEqual([{
-            text: 'Eugene',
-            match: false,
-        }]);
+        expect(splitByQueryMatches('Eugene', '')).toEqual([
+            {
+                text: 'Eugene',
+                match: false,
+            },
+        ]);
     });
 
     it('highlights the matched characters when lowercasing changes a character length', () => {
@@ -176,9 +170,11 @@ describe('pdfAnnotationComments', () => {
 
     it('highlights a word ending in a capital sigma for its lowercase query', () => {
         // ΟΔΟΣ lowercases to οδος as a whole: the final sigma is ς, not σ.
-        expect(splitByQueryMatches('ΟΔΟΣ', 'οδος')).toEqual([{
-            text: 'ΟΔΟΣ',
-            match: true,
-        }]);
+        expect(splitByQueryMatches('ΟΔΟΣ', 'οδος')).toEqual([
+            {
+                text: 'ΟΔΟΣ',
+                match: true,
+            },
+        ]);
     });
 });

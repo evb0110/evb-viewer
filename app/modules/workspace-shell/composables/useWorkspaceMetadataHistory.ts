@@ -1,8 +1,5 @@
-import { isEqual } from 'es-toolkit/predicate';
-import type {
-    IPdfBookmarkEntry,
-    IPdfPageLabelRange,
-} from '@app/types/pdfContracts';
+import {isEqual} from 'es-toolkit/predicate';
+import type {IPdfBookmarkEntry, IPdfPageLabelRange} from '@app/types/pdfContracts';
 import type {IWorkspaceCommandSink} from '@app/types/workspaceCommand';
 
 interface IWorkspaceMetadataSnapshot {
@@ -18,9 +15,7 @@ const PAGE_LABEL_RANGE_FIXED_BYTES = 64;
 function estimateBookmarkBytes(entries: readonly IPdfBookmarkEntry[]): number {
     let total = 0;
     for (const entry of entries) {
-        total += BOOKMARK_ENTRY_FIXED_BYTES
-            + entry.title.length
-            + estimateBookmarkBytes(entry.items);
+        total += BOOKMARK_ENTRY_FIXED_BYTES + entry.title.length + estimateBookmarkBytes(entry.items);
     }
     return total;
 }
@@ -58,8 +53,11 @@ export const useWorkspaceMetadataHistory = (deps: {
         return (field?: keyof IWorkspaceMetadataSnapshot) => {
             cleanSnapshot.value = baseline;
             // A catalog read reconciles its own field; file history restores both.
-            if (field) {markCurrentStateClean(field, baseline?.[field]);}
-            else {syncDirtyFlags(currentSnapshot.value ?? captureCurrentSnapshot());}
+            if (field) {
+                markCurrentStateClean(field, baseline?.[field]);
+            } else {
+                syncDirtyFlags(currentSnapshot.value ?? captureCurrentSnapshot());
+            }
         };
     }
 
@@ -118,19 +116,24 @@ export const useWorkspaceMetadataHistory = (deps: {
     ) {
         const snapshot = captureCurrentSnapshot();
         const clean = written === undefined ? snapshot[field!] : structuredClone(written);
-        cleanSnapshot.value = field && cleanSnapshot.value
-            ? {
-                ...cleanSnapshot.value,
-                [field]: clean,
-            }
-            : snapshot;
+        cleanSnapshot.value =
+            field && cleanSnapshot.value
+                ? {
+                      ...cleanSnapshot.value,
+                      [field]: clean,
+                  }
+                : snapshot;
         currentSnapshot.value = snapshot;
         // A field read clears only its own flag. The other field may be
         // between a reload's clear and its own read, which is no edit.
         const dirty = field !== undefined && !isEqual(snapshot[field], clean);
-        if (field === 'bookmarkItems') {deps.bookmarksDirty.value = dirty;}
-        else if (field === 'pageLabelRanges') {deps.pageLabelsDirty.value = dirty;}
-        else {syncDirtyFlags(snapshot);}
+        if (field === 'bookmarkItems') {
+            deps.bookmarksDirty.value = dirty;
+        } else if (field === 'pageLabelRanges') {
+            deps.pageLabelsDirty.value = dirty;
+        } else {
+            syncDirtyFlags(snapshot);
+        }
     }
 
     function recordCurrentState() {
@@ -160,12 +163,16 @@ export const useWorkspaceMetadataHistory = (deps: {
         deps.commandSink.register({
             source: 'metadata',
             undo: () => {
-                if (!before || !after) {return false;}
+                if (!before || !after) {
+                    return false;
+                }
                 applySnapshot(before, after);
                 return true;
             },
             cmd: () => {
-                if (!after || !before) {return false;}
+                if (!after || !before) {
+                    return false;
+                }
                 applySnapshot(after, before);
                 return true;
             },

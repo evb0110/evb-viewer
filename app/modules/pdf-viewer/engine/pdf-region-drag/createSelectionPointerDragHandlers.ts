@@ -1,7 +1,7 @@
-import type { IClientPoint } from '@app/modules/document-viewer/public';
-import { hasActiveSelectionDrag } from '@app/modules/pdf-viewer/engine/pdf-region-drag/hasActiveSelectionDrag';
-import type { ISnipPointerPayload } from '@app/modules/pdf-viewer/engine/pdf-region-drag/snipPointerPayload';
-import { toClientPoint } from '@app/modules/pdf-viewer/engine/pdf-region-drag/toClientPoint';
+import type {IClientPoint} from '@app/modules/document-viewer/public';
+import {hasActiveSelectionDrag} from '@app/modules/pdf-viewer/engine/pdf-region-drag/hasActiveSelectionDrag';
+import type {ISnipPointerPayload} from '@app/modules/pdf-viewer/engine/pdf-region-drag/snipPointerPayload';
+import {toClientPoint} from '@app/modules/pdf-viewer/engine/pdf-region-drag/toClientPoint';
 
 interface ISelectionPointerDragHandlersOptions {
     getState: () => string;
@@ -12,14 +12,10 @@ interface ISelectionPointerDragHandlersOptions {
     onEnd: (payload: ISnipPointerPayload, startPoint: IClientPoint) => void;
 }
 
-export function createSelectionPointerDragHandlers(
-    options: ISelectionPointerDragHandlersOptions,
-) {
+export function createSelectionPointerDragHandlers(options: ISelectionPointerDragHandlersOptions) {
     function getActiveStartPoint() {
         const startPoint = options.getStartPoint();
-        return hasActiveSelectionDrag(options.getState(), startPoint)
-            ? startPoint
-            : null;
+        return hasActiveSelectionDrag(options.getState(), startPoint) ? startPoint : null;
     }
 
     return {

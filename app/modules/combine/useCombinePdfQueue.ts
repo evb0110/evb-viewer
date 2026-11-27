@@ -53,11 +53,7 @@ export const useCombinePdfQueue = <T>(options: {
             return true;
         }
         const withoutItem = files.value.filter((_file, fileIndex) => fileIndex !== index);
-        files.value = [
-            ...withoutItem.slice(0, targetIndex),
-            item,
-            ...withoutItem.slice(targetIndex),
-        ];
+        files.value = [...withoutItem.slice(0, targetIndex), item, ...withoutItem.slice(targetIndex)];
         return true;
     }
 

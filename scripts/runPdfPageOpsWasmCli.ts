@@ -19,9 +19,10 @@ async function main() {
         return;
     }
     const envPath = process.env.EVB_PDF_PAGE_OPS_PATH?.trim();
-    const wasmPath = resolvePdfPageOpsWasmPath({
-        ...(envPath && isPdfPageOpsWasmPath(envPath) ? {envOverridePath: envPath} : {}),
-    }) ?? undefined;
+    const wasmPath =
+        resolvePdfPageOpsWasmPath({
+            ...(envPath && isPdfPageOpsWasmPath(envPath) ? {envOverridePath: envPath} : {}),
+        }) ?? undefined;
     const wasmModule = await loadPdfPageOpsWasmModule(wasmPath);
     const runner = createPdfPageOpsWasmRunner(wasmModule);
     try {
@@ -40,10 +41,12 @@ async function main() {
 main().catch((error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
     if (hasNativeErrorCode(error)) {
-        process.stderr.write(`${JSON.stringify({
-            code: error.code,
-            message,
-        })}\n`);
+        process.stderr.write(
+            `${JSON.stringify({
+                code: error.code,
+                message,
+            })}\n`,
+        );
     } else {
         process.stderr.write(`${message}\n`);
     }

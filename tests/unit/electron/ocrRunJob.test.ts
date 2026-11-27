@@ -1,21 +1,8 @@
 import {createHash} from 'node:crypto';
-import {
-    mkdtemp,
-    readdir,
-    rm,
-    stat,
-    writeFile,
-} from 'node:fs/promises';
+import {mkdtemp, readdir, rm, stat, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {parseDocumentRevisionToken} from '@contracts/documentRevision';
 import type {IOcrDiagnostic} from '@contracts/electronApiOcr';
 import {requirePageNumber} from '@contracts/pageNumbers';
@@ -41,8 +28,8 @@ vi.mock('@electron/pdf/sourceDpiDetection', () => ({
 vi.mock('@electron/features/ocr/pipeline/pdfPageSizeProbe', () => ({
     createOcrPageSizeSource: mocks.createOcrPageSizeSource,
 }));
-vi.mock('@electron/features/ocr/pipeline/popplerStage', async importOriginal => ({
-    ...await importOriginal<Record<string, unknown>>(),
+vi.mock('@electron/features/ocr/pipeline/popplerStage', async (importOriginal) => ({
+    ...(await importOriginal<Record<string, unknown>>()),
     preparePdfForPoppler: mocks.preparePdfForPoppler,
     renderOcrPageToPpm: mocks.renderOcrPageToPpm,
 }));
@@ -54,28 +41,29 @@ vi.mock('@electron/features/ocr/pipeline/writeSearchablePdf', () => ({
 }));
 
 const {runOcrJob} = await import('@electron/features/ocr/pipeline/runOcrJob');
-const {
-    getHostResourceProfileSnapshot,
-    initializeHostResourceProfile,
-} = await import('@electron/resources/hostResourceProfile');
+const {getHostResourceProfileSnapshot, initializeHostResourceProfile} = await import('@electron/resources/hostResourceProfile');
 const {configureMainJobBroker} = await import('@electron/resources/jobBroker');
 
 try {
     getHostResourceProfileSnapshot();
 } catch {
-    configureMainJobBroker(initializeHostResourceProfile({
-        app: {getGPUFeatureStatus: () => ({})} as never,
-        performanceMode: 'auto',
-    }));
+    configureMainJobBroker(
+        initializeHostResourceProfile({
+            app: {getGPUFeatureStatus: () => ({})} as never,
+            performanceMode: 'auto',
+        }),
+    );
 }
 
 const REVISION_TOKEN = parseDocumentRevisionToken('rev-original-1')!;
 const FAKE_PAGE_PDF = new TextEncoder().encode('%PDF-1.4\n%%EOF\n');
-const FAKE_TSV = new TextEncoder().encode([
-    'level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext',
-    '4\t1\t1\t1\t1\t0\t10\t10\t80\t20\t-1\t',
-    '5\t1\t1\t1\t1\t1\t10\t10\t80\t20\t95\thello',
-].join('\n'));
+const FAKE_TSV = new TextEncoder().encode(
+    [
+        'level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext',
+        '4\t1\t1\t1\t1\t0\t10\t10\t80\t20\t-1\t',
+        '5\t1\t1\t1\t1\t1\t10\t10\t80\t20\t95\thello',
+    ].join('\n'),
+);
 
 let tempDir: string;
 let sourcePdfPath: string;
@@ -146,21 +134,20 @@ describe('runOcrJob', () => {
             height: 100,
             image: {kind: 'file', path: renderedPath, width: 100, height: 100},
         }));
-        mocks.writeSearchablePdf.mockImplementation(async ({sessionId, pages}: {
-            sessionId: string;
-            pages: AsyncIterable<{page: {pageNumber: number}}>;
-        }) => {
-            await onMergeStart?.();
-            for await (const checkpoint of pages) {
-                mergedPageNumbers.push(checkpoint.page.pageNumber);
-            }
-            if (mergedPageNumbers.length === 0) {
-                throw new Error('Cannot write searchable PDF without recognized page checkpoints');
-            }
-            const mergedPath = join(tempDir, `${sessionId}-merged.pdf`);
-            await writeFile(mergedPath, '%PDF-1.7\nmerged\n%%EOF\n');
-            return mergedPath;
-        });
+        mocks.writeSearchablePdf.mockImplementation(
+            async ({sessionId, pages}: {sessionId: string; pages: AsyncIterable<{page: {pageNumber: number}}>}) => {
+                await onMergeStart?.();
+                for await (const checkpoint of pages) {
+                    mergedPageNumbers.push(checkpoint.page.pageNumber);
+                }
+                if (mergedPageNumbers.length === 0) {
+                    throw new Error('Cannot write searchable PDF without recognized page checkpoints');
+                }
+                const mergedPath = join(tempDir, `${sessionId}-merged.pdf`);
+                await writeFile(mergedPath, '%PDF-1.7\nmerged\n%%EOF\n');
+                return mergedPath;
+            },
+        );
     });
 
     afterEach(async () => {
@@ -231,33 +218,36 @@ describe('runOcrJob', () => {
             renderedPaths.push(renderedPath);
             await writeFile(renderedPath, 'P5\n1 1\n255\n\x00');
         });
-        mocks.prepareOcrPageRasterFile.mockImplementation(async ({renderedPath, pageNumber}: {
-            renderedPath: string;
-            pageNumber: number;
-        }) => {
-            if (pageNumber === 1) {
-                throw new Error('raster cleanup crashed');
-            }
-            return {
-                width: 100,
-                height: 100,
-                image: {kind: 'file', path: renderedPath, width: 100, height: 100},
-                diagnostic: pageDiagnostic,
-            };
-        });
+        mocks.prepareOcrPageRasterFile.mockImplementation(
+            async ({renderedPath, pageNumber}: {renderedPath: string; pageNumber: number}) => {
+                if (pageNumber === 1) {
+                    throw new Error('raster cleanup crashed');
+                }
+                return {
+                    width: 100,
+                    height: 100,
+                    image: {kind: 'file', path: renderedPath, width: 100, height: 100},
+                    diagnostic: pageDiagnostic,
+                };
+            },
+        );
         onMergeStart = async () => {
             rasterStatCodesAtMerge = await Promise.all(
-                renderedPaths.map(path => stat(path).then(
-                    () => 'EXISTS',
-                    (error: NodeJS.ErrnoException) => error.code,
-                )),
+                renderedPaths.map((path) =>
+                    stat(path).then(
+                        () => 'EXISTS',
+                        (error: NodeJS.ErrnoException) => error.code,
+                    ),
+                ),
             );
         };
 
         const result = await runOcrJob(createJob());
 
         expect(result.success).toBe(true);
-        if (!result.success) {throw new Error('expected partial success');}
+        if (!result.success) {
+            throw new Error('expected partial success');
+        }
         expect(mergedPageNumbers).toEqual([2]);
         expect(result.sourceDocumentRevisionToken).toBe(REVISION_TOKEN);
         expect(result.requiresCleanupAck).toBe(true);
@@ -279,13 +269,17 @@ describe('runOcrJob', () => {
         });
         mocks.prepareOcrPageRasterFile.mockRejectedValueOnce(unprovenError);
 
-        await expect(runOcrJob(createJob({
-            pages: [{pageNumber: requirePageNumber(1), languages: ['eng']}],
-        }))).rejects.toBe(unprovenError);
+        await expect(
+            runOcrJob(
+                createJob({
+                    pages: [{pageNumber: requirePageNumber(1), languages: ['eng']}],
+                }),
+            ),
+        ).rejects.toBe(unprovenError);
 
         await expect(stat(renderedPath)).resolves.toBeDefined();
         const files = await readdir(tempDir);
-        expect(files.some(name => name.endsWith('.ppm'))).toBe(true);
+        expect(files.some((name) => name.endsWith('.ppm'))).toBe(true);
         expect(pageSizeClose).toHaveBeenCalledOnce();
     });
 
@@ -313,25 +307,26 @@ describe('runOcrJob', () => {
             pageSizes: new Map(),
         }));
 
-        const result = await runOcrJob(createJob({
-            pages: {
-                kind: 'range',
-                firstPage: requirePageNumber(1),
-                lastPage: requirePageNumber(5001),
-                languages: ['eng'],
-            },
-        }));
+        const result = await runOcrJob(
+            createJob({
+                pages: {
+                    kind: 'range',
+                    firstPage: requirePageNumber(1),
+                    lastPage: requirePageNumber(5001),
+                    languages: ['eng'],
+                },
+            }),
+        );
 
         expect(result.success).toBe(true);
-        if (!result.success) {throw new Error('expected success');}
+        if (!result.success) {
+            throw new Error('expected success');
+        }
         expect(mocks.selectOcrPagesForSupersession).toHaveBeenCalledTimes(2);
         expect(mocks.preparePdfForPoppler).toHaveBeenCalledOnce();
         expect(renderedPdfPaths).toEqual([repairedPdfPath, repairedPdfPath]);
         expect(mergedPageNumbers).toEqual([1, 5001]);
-        expect(result.errors).toEqual([
-            'Normalized PDF for Poppler',
-            'Native PDF page-size inspection failed',
-        ]);
+        expect(result.errors).toEqual(['Normalized PDF for Poppler', 'Native PDF page-size inspection failed']);
         expect(pageSizeClose).toHaveBeenCalledOnce();
     });
 });

@@ -1,12 +1,8 @@
-import { parsePageIndex } from '@contracts/pageNumbers';
-import type { TPageIndex } from '@contracts/pageNumbers';
+import {parsePageIndex} from '@contracts/pageNumbers';
+import type {TPageIndex} from '@contracts/pageNumbers';
 
-import {
-    formatPdfJsAnnotationRef,
-    parsePdfAnnotationRef,
-    type IPdfAnnotationRef,
-} from '@app/utils/pdfAnnotationRefs';
-import type { TAnnotationStableKey } from '@app/types/annotations';
+import {formatPdfJsAnnotationRef, parsePdfAnnotationRef, type IPdfAnnotationRef} from '@app/utils/pdfAnnotationRefs';
+import type {TAnnotationStableKey} from '@app/types/annotations';
 
 type TPdfAnnotationStableKey = Extract<TAnnotationStableKey, `ann:${string}`>;
 
@@ -31,9 +27,7 @@ function parseStableKeyPageIndex(value: string | undefined) {
     return parsePageIndex(Number(value));
 }
 
-export function parsePdfAnnotationStableKey(
-    stableKey: string | null | undefined,
-): IPdfAnnotationStableKey | null {
+export function parsePdfAnnotationStableKey(stableKey: string | null | undefined): IPdfAnnotationStableKey | null {
     const trimmed = stableKey?.trim();
     if (!trimmed) {
         return null;
@@ -53,9 +47,7 @@ export function parsePdfAnnotationStableKey(
     };
 }
 
-export function parsePdfAnnotationStableKeyRef(
-    stableKey: string | null | undefined,
-): IPdfAnnotationStableKeyRef | null {
+export function parsePdfAnnotationStableKeyRef(stableKey: string | null | undefined): IPdfAnnotationStableKeyRef | null {
     const trimmed = stableKey?.trim();
     if (!trimmed) {
         return null;
@@ -78,8 +70,6 @@ export function parsePdfAnnotationStableKeyRef(
     };
 }
 
-export function getPdfAnnotationIdFromStableKey(
-    stableKey: string | null | undefined,
-) {
+export function getPdfAnnotationIdFromStableKey(stableKey: string | null | undefined) {
     return parsePdfAnnotationStableKey(stableKey)?.annotationId ?? null;
 }

@@ -1,5 +1,8 @@
 <template>
-    <aside class="scan-thumbnail-rail" :aria-label="t('scanCleanup.pages.title')">
+    <aside
+        class="scan-thumbnail-rail"
+        :aria-label="t('scanCleanup.pages.title')"
+    >
         <header class="scan-thumbnail-rail-header">
             <div class="scan-thumbnail-rail-heading">
                 <strong>{{ t('scanCleanup.pages.title') }}</strong>
@@ -17,7 +20,10 @@
                     :disabled="disabled"
                     :aria-label="t('scanCleanup.pages.sort.label')"
                 />
-                <AppTooltip :text="t('scanCleanup.detectAll.action')" usefulness="always">
+                <AppTooltip
+                    :text="t('scanCleanup.detectAll.action')"
+                    usefulness="always"
+                >
                     <UButton
                         class="scan-thumbnail-redetect"
                         type="button"
@@ -45,9 +51,7 @@
                 :name="sourcePending ? 'i-ph-circle-notch' : 'i-ph-warning-circle'"
                 :class="{'is-spinning': sourcePending}"
             />
-            <strong>{{ sourcePending
-                ? t('scanCleanup.pages.sourceLoading')
-                : t('scanCleanup.pages.sourceUnavailable') }}</strong>
+            <strong>{{ sourcePending ? t('scanCleanup.pages.sourceLoading') : t('scanCleanup.pages.sourceUnavailable') }}</strong>
             <span v-if="!sourcePending">{{ t('scanCleanup.pages.sourceUnavailableHint') }}</span>
         </div>
 
@@ -71,7 +75,10 @@
             @keydown="handleKeydown"
         >
             <template #overlay="{pageNumber: position}">
-                <template v-for="overlay in [resolveOverlayProjection(position)]" :key="position">
+                <template
+                    v-for="overlay in [resolveOverlayProjection(position)]"
+                    :key="position"
+                >
                     <div v-bind="overlay.containerAttrs">
                         <div
                             class="scan-thumbnail-actions"
@@ -93,13 +100,17 @@
                 </template>
             </template>
             <template #label="{pageNumber: position}">
-                <template v-for="label in [resolveLabelProjection(position)]" :key="position">
+                <template
+                    v-for="label in [resolveLabelProjection(position)]"
+                    :key="position"
+                >
                     <span class="scan-thumbnail-label-band">
                         <span class="scan-thumbnail-label-row">
                             <span
                                 class="scan-thumbnail-page-number"
                                 :class="{'is-excluded': label.excluded}"
-                            >{{ label.page }}</span>
+                                >{{ label.page }}</span
+                            >
                             <span class="scan-thumbnail-markers">
                                 <span
                                     v-if="label.customized"
@@ -133,7 +144,10 @@
                                         @click.stop="emit('inspect-page', label.page)"
                                         @pointerdown.stop
                                     >
-                                        <UIcon name="i-ph-warning" aria-hidden="true" />
+                                        <UIcon
+                                            name="i-ph-warning"
+                                            aria-hidden="true"
+                                        />
                                     </button>
                                 </AppTooltip>
                             </span>
@@ -144,14 +158,19 @@
                             role="status"
                             :aria-label="label.detectionPendingLabel"
                         >
-                            <UIcon name="i-ph-circle-notch" class="is-spinning" aria-hidden="true" />
+                            <UIcon
+                                name="i-ph-circle-notch"
+                                class="is-spinning"
+                                aria-hidden="true"
+                            />
                             <span>{{ t('scanCleanup.pages.detecting') }}</span>
                         </span>
                         <span
                             v-else
                             class="scan-thumbnail-status"
                             :class="{'is-excluded': label.excluded}"
-                        >{{ label.summary }}</span>
+                            >{{ label.summary }}</span
+                        >
                     </span>
                 </template>
             </template>
@@ -241,7 +260,7 @@ const {
 }>();
 const emit = defineEmits<{
     'inspect-page': [page: number];
-    'redetect': [];
+    redetect: [];
     'select-page': [page: number, intent: TScanCleanupSelectionIntent, orderedPages: TScanCleanupOrderedPages];
     'update:override': [page: number, value: IScanCleanupPageOverride];
 }>();
@@ -273,34 +292,26 @@ const railPageCount = computed(() => source?.pageCount ?? totalPages);
 const orderedPages = computed<IScanCleanupPageOrder>(() => {
     const pageCount = railPageCount.value;
     if (sortMode.value === 'classification') {
-        return createScanCleanupSparsePageOrder(
-            pageCount,
-            classifications.keys(),
-            (left, right) => {
-                const leftValue = classifications.get(left);
-                const rightValue = classifications.get(right);
-                return (leftValue === undefined ? Number.POSITIVE_INFINITY : classificationRank[leftValue])
-                    - (rightValue === undefined ? Number.POSITIVE_INFINITY : classificationRank[rightValue])
-                    || left - right;
-            },
-        );
+        return createScanCleanupSparsePageOrder(pageCount, classifications.keys(), (left, right) => {
+            const leftValue = classifications.get(left);
+            const rightValue = classifications.get(right);
+            return (
+                (leftValue === undefined ? Number.POSITIVE_INFINITY : classificationRank[leftValue]) -
+                    (rightValue === undefined ? Number.POSITIVE_INFINITY : classificationRank[rightValue]) || left - right
+            );
+        });
     }
     if (sortMode.value === 'confidence') {
-        return createScanCleanupSparsePageOrder(
-            pageCount,
-            confidences.keys(),
-            (left, right) => {
-                const leftValue = confidences.get(left);
-                const rightValue = confidences.get(right);
-                return (leftValue ?? Number.POSITIVE_INFINITY) - (rightValue ?? Number.POSITIVE_INFINITY)
-                    || left - right;
-            },
-        );
+        return createScanCleanupSparsePageOrder(pageCount, confidences.keys(), (left, right) => {
+            const leftValue = confidences.get(left);
+            const rightValue = confidences.get(right);
+            return (leftValue ?? Number.POSITIVE_INFINITY) - (rightValue ?? Number.POSITIVE_INFINITY) || left - right;
+        });
     }
     return {
         length: pageCount,
-        pageAt: position => position >= 1 && position <= pageCount ? position : undefined,
-        positionOf: page => page >= 1 && page <= pageCount ? page : -1,
+        pageAt: (position) => (position >= 1 && position <= pageCount ? position : undefined),
+        positionOf: (page) => (page >= 1 && page <= pageCount ? page : -1),
     };
 });
 const orderedSource = computed<IDocumentPageSource | null>(() => {
@@ -326,9 +337,13 @@ const orderedSource = computed<IDocumentPageSource | null>(() => {
         renderPage(request) {
             return currentSource.renderPage(mapRequest(request));
         },
-        thumbnailProvider: thumbnailProvider ? {renderThumbnail(request) {
-            return thumbnailProvider.renderThumbnail(mapRequest(request));
-        }} : undefined,
+        thumbnailProvider: thumbnailProvider
+            ? {
+                  renderThumbnail(request) {
+                      return thumbnailProvider.renderThumbnail(mapRequest(request));
+                  },
+              }
+            : undefined,
         dispose() {},
     };
 });
@@ -337,7 +352,9 @@ const selectedPositions = computed(() => {
     const positions = new Set<number>();
     for (const page of selectedPages) {
         const position = orderedPages.value.positionOf(page);
-        if (position >= 1) {positions.add(position);}
+        if (position >= 1) {
+            positions.add(position);
+        }
     }
     return positions;
 });
@@ -359,26 +376,30 @@ function isCustomized(override: IScanCleanupPageOverride) {
     return !isScanCleanupPageOverrideInherited(overrides, override);
 }
 
-function updateOverride(
-    page: number,
-    patch: Partial<IScanCleanupPageOverride>,
-    currentOverride = pageOverride(page),
-) {
+function updateOverride(page: number, patch: Partial<IScanCleanupPageOverride>, currentOverride = pageOverride(page)) {
     if (disabled) {
         return;
     }
-    emit('update:override', page, createScanCleanupPageOverride({
-        ...currentOverride,
-        ...patch,
-    }));
+    emit(
+        'update:override',
+        page,
+        createScanCleanupPageOverride({
+            ...currentOverride,
+            ...patch,
+        }),
+    );
 }
 
 function toggleExcluded(position: number) {
     const page = naturalPage(position);
     const override = pageOverride(page);
-    updateOverride(page, {
-        excluded: !override.excluded,
-    }, override);
+    updateOverride(
+        page,
+        {
+            excluded: !override.excluded,
+        },
+        override,
+    );
 }
 
 function displayedOutputMode(page: number, override: IScanCleanupPageOverride) {
@@ -418,7 +439,9 @@ function statusSummary(page: number, override: IScanCleanupPageOverride) {
         scanCleanupLayoutLabel(t, override, classifications.get(page)),
         scanCleanupOutputModeShortLabel(t, displayedOutputMode(page, override)),
         rotation === 0 ? '' : `${rotation}°`,
-    ].filter(Boolean).join(' · ');
+    ]
+        .filter(Boolean)
+        .join(' · ');
 }
 
 function attentionText(page: number, override: IScanCleanupPageOverride) {
@@ -431,24 +454,18 @@ function attentionText(page: number, override: IScanCleanupPageOverride) {
 }
 
 function isPageActive(page: number, override: IScanCleanupPageOverride) {
-    return activePages?.has(page) === true
-        && processedPages?.has(page) !== true
-        && !override.excluded;
+    return activePages?.has(page) === true && processedPages?.has(page) !== true && !override.excluded;
 }
 
 // A page keeps its spinner only while its own detection work is outstanding:
 // once the running job reports that page as read or analyzed it settles, even
 // though the rest of the batch is still going.
 function isDetectionPending(page: number) {
-    return detectionActive
-        && !classifications.has(page)
-        && settledPages?.has(page) !== true;
+    return detectionActive && !classifications.has(page) && settledPages?.has(page) !== true;
 }
 
 function includeLabel(override: IScanCleanupPageOverride) {
-    return t(override.excluded
-        ? 'scanCleanup.pages.excludedFromOutput'
-        : 'scanCleanup.pages.includeInOutput');
+    return t(override.excluded ? 'scanCleanup.pages.excludedFromOutput' : 'scanCleanup.pages.includeInOutput');
 }
 
 function resolveOverlayProjection(position: number) {
@@ -457,20 +474,14 @@ function resolveOverlayProjection(position: number) {
     const label = includeLabel(override);
     return {
         containerAttrs: {
-            class: [
-                'scan-thumbnail-overlay',
-                {'is-excluded': override.excluded},
-            ],
+            class: ['scan-thumbnail-overlay', {'is-excluded': override.excluded}],
             'data-page-number': page,
             'data-classification': classificationKind(page),
         },
         includeLabel: label,
         toggleProps: {
             type: 'button' as const,
-            class: [
-                'scan-thumbnail-exclude-toggle',
-                {'is-excluded': override.excluded},
-            ],
+            class: ['scan-thumbnail-exclude-toggle', {'is-excluded': override.excluded}],
             color: (override.excluded ? 'neutral' : 'primary') as 'neutral' | 'primary',
             variant: 'soft' as const,
             size: 'xs' as const,
@@ -508,35 +519,38 @@ function handleRowClick(position: number, event?: MouseEvent) {
     if (disabled) {
         return;
     }
-    const intent: TScanCleanupSelectionIntent = event?.shiftKey
-        ? 'range'
-        : event?.ctrlKey || event?.metaKey ? 'toggle' : 'single';
+    const intent: TScanCleanupSelectionIntent = event?.shiftKey ? 'range' : event?.ctrlKey || event?.metaKey ? 'toggle' : 'single';
     emit('select-page', naturalPage(position), intent, orderedPages.value);
 }
 
 const KEY_TARGETS: Readonly<Record<string, (position: number, count: number) => number>> = {
-    ArrowUp: position => position - 1,
-    ArrowDown: position => position + 1,
+    ArrowUp: (position) => position - 1,
+    ArrowDown: (position) => position + 1,
     Home: () => 1,
     End: (_, count) => count,
-    PageUp: position => position - PAGE_KEYBOARD_STEP,
-    PageDown: position => position + PAGE_KEYBOARD_STEP,
+    PageUp: (position) => position - PAGE_KEYBOARD_STEP,
+    PageDown: (position) => position + PAGE_KEYBOARD_STEP,
 };
 function handleKeydown(event: KeyboardEvent) {
-    if (disabled || (event.target instanceof Element && event.target.closest('button, input, select'))) {return;}
+    if (disabled || (event.target instanceof Element && event.target.closest('button, input, select'))) {
+        return;
+    }
     const pages = orderedPages.value;
     if (event.key === ' ') {
         event.preventDefault();
-        if (!event.repeat) {emit('select-page', selectionLeader, 'toggle', pages);}
+        if (!event.repeat) {
+            emit('select-page', selectionLeader, 'toggle', pages);
+        }
         return;
     }
     const target = KEY_TARGETS[event.key]?.(Math.max(1, pages.positionOf(selectionLeader)), pages.length);
     const page = target === undefined ? undefined : pages.pageAt(Math.min(pages.length, Math.max(1, target)));
-    if (page === undefined) {return;}
+    if (page === undefined) {
+        return;
+    }
     event.preventDefault();
     emit('select-page', page, event.shiftKey ? 'range' : 'single', pages);
 }
-
 </script>
 
 <style lang="scss" scoped>

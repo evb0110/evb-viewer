@@ -1,4 +1,4 @@
-import type { InjectionKey } from 'vue';
+import type {InjectionKey} from 'vue';
 import {createWorkspaceDocumentRecovery} from '@app/modules/workspace-shell/checkpoint/createWorkspaceDocumentRecovery';
 import {BrowserLogger} from '@app/utils/browserLogger';
 import {getErrorMessage} from '@app/utils/error';
@@ -10,48 +10,42 @@ import {
     useOcrTextContent,
     usePdfHistory,
 } from '@app/modules/pdf-viewer/public';
-import { useWorkspaceSaveService } from '@app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService';
-import { hasViewerShapeChanges } from '@app/modules/workspace-shell/annotations/hasViewerShapeChanges';
-import { useUnencryptedSaveNotice } from '@app/modules/workspace-shell/composables/useUnencryptedSaveNotice';
-import { useShutdownSaveFlushReporting } from '@app/modules/workspace-shell/composables/useShutdownSaveFlushReporting';
-import { useWorkspaceDocumentLifecycleEffects } from '@app/modules/workspace-shell/composables/useWorkspaceDocumentLifecycleEffects';
-import { useDocumentWorkspaceOptimizeDialog } from '@app/modules/workspace-shell/composables/useDocumentWorkspaceOptimizeDialog';
-import { useWorkspaceExport } from '@app/modules/workspace-shell/composables/useWorkspaceExport';
-import { useWorkspaceFailureSurface } from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
-import { useWorkspaceFileLifecycleController } from '@app/modules/workspace-shell/composables/useWorkspaceFileLifecycleController';
-import { useWorkspaceAnnotationSession } from '@app/modules/workspace-shell/composables/useWorkspaceAnnotationSession';
-import { prepareDocumentViewsForHistorySwap } from '@app/modules/workspace-shell/document-sessions/prepareDocumentViewsForRevisionSwap';
-import { usePageOpsHandlers } from '@app/modules/workspace-shell/composables/usePageOpsHandlers';
-import { useWorkspaceSplitPayload } from '@app/modules/workspace-shell/composables/useWorkspaceSplitPayload';
-import { requirePageNumber } from '@contracts/pageNumbers';
-import {
-    getDocumentFilesCapability,
-    getDocumentPdfCapability,
-} from '@app/utils/platformDocuments';
-import { useDocxExport } from '@app/composables/useDocxExport';
-import { useWorkspacePrint } from '@app/modules/workspace-shell/composables/useWorkspacePrint';
-import { useMetadataSession } from '@app/modules/workspace-shell/composables/useMetadataSession';
-import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import { createPrintableSourceDataResolver } from '@app/modules/workspace-shell/composables/createPrintableSourceDataResolver';
-import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
-import {
-    useWorkspaceDocumentDriver,
-    type IWorkspaceDriverPrintRequest,
-} from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
-import type { IDocumentSourceCapabilities } from '@app/modules/document-viewer/public';
-import { EMPTY_SOURCE_CAPABILITIES } from '@app/modules/workspace-shell/document-sessions/useDocumentSourceSession';
+import {useWorkspaceSaveService} from '@app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService';
+import {hasViewerShapeChanges} from '@app/modules/workspace-shell/annotations/hasViewerShapeChanges';
+import {useUnencryptedSaveNotice} from '@app/modules/workspace-shell/composables/useUnencryptedSaveNotice';
+import {useShutdownSaveFlushReporting} from '@app/modules/workspace-shell/composables/useShutdownSaveFlushReporting';
+import {useWorkspaceDocumentLifecycleEffects} from '@app/modules/workspace-shell/composables/useWorkspaceDocumentLifecycleEffects';
+import {useDocumentWorkspaceOptimizeDialog} from '@app/modules/workspace-shell/composables/useDocumentWorkspaceOptimizeDialog';
+import {useWorkspaceExport} from '@app/modules/workspace-shell/composables/useWorkspaceExport';
+import {useWorkspaceFailureSurface} from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
+import {useWorkspaceFileLifecycleController} from '@app/modules/workspace-shell/composables/useWorkspaceFileLifecycleController';
+import {useWorkspaceAnnotationSession} from '@app/modules/workspace-shell/composables/useWorkspaceAnnotationSession';
+import {prepareDocumentViewsForHistorySwap} from '@app/modules/workspace-shell/document-sessions/prepareDocumentViewsForRevisionSwap';
+import {usePageOpsHandlers} from '@app/modules/workspace-shell/composables/usePageOpsHandlers';
+import {useWorkspaceSplitPayload} from '@app/modules/workspace-shell/composables/useWorkspaceSplitPayload';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import {getDocumentFilesCapability, getDocumentPdfCapability} from '@app/utils/platformDocuments';
+import {useDocxExport} from '@app/composables/useDocxExport';
+import {useWorkspacePrint} from '@app/modules/workspace-shell/composables/useWorkspacePrint';
+import {useMetadataSession} from '@app/modules/workspace-shell/composables/useMetadataSession';
+import type {IWorkspaceDocumentController} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import {createPrintableSourceDataResolver} from '@app/modules/workspace-shell/composables/createPrintableSourceDataResolver';
+import type {IBrowserPrintDocument} from '@app/utils/pdfPrintShared';
+import {useWorkspaceDocumentDriver, type IWorkspaceDriverPrintRequest} from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
+import type {IDocumentSourceCapabilities} from '@app/modules/document-viewer/public';
+import {EMPTY_SOURCE_CAPABILITIES} from '@app/modules/workspace-shell/document-sessions/useDocumentSourceSession';
 import {
     discardScanCleanupDocumentState,
     flushScanCleanupDocumentPreferencesStore,
     flushScanCleanupPreferencesStore,
 } from '@app/modules/scan-cleanup/public/runtime';
-import { useScanCleanupSourceSha256 } from '@app/modules/scan-cleanup/public/workspace';
-import { captureFailureForPresentation } from '@app/utils/failureReporter';
-import { useFailureToast } from '@app/composables/useFailureToast';
-import { createDocumentViews } from '@app/modules/workspace-shell/document-sessions/createDocumentViews';
-import { createReadingViewLifecycleHooks } from '@app/modules/workspace-shell/document-sessions/recentReadingView';
-import { createDocumentJobReleaser } from '@app/modules/workspace-shell/document-sessions/documentJobRelease';
-import { beginOpenSurfaceWithPageShape } from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
+import {useScanCleanupSourceSha256} from '@app/modules/scan-cleanup/public/workspace';
+import {captureFailureForPresentation} from '@app/utils/failureReporter';
+import {useFailureToast} from '@app/composables/useFailureToast';
+import {createDocumentViews} from '@app/modules/workspace-shell/document-sessions/createDocumentViews';
+import {createReadingViewLifecycleHooks} from '@app/modules/workspace-shell/document-sessions/recentReadingView';
+import {createDocumentJobReleaser} from '@app/modules/workspace-shell/document-sessions/documentJobRelease';
+import {beginOpenSurfaceWithPageShape} from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
 
 /**
  * One document's context: the controller, the working copy and its
@@ -63,7 +57,7 @@ import { beginOpenSurfaceWithPageShape } from '@app/modules/workspace-shell/comp
  * own place through what the document does.
  */
 export const createDocumentContext = ({controller}: {controller: IWorkspaceDocumentController}) => {
-    const { t } = useTypedI18n();
+    const {t} = useTypedI18n();
     const openingTransaction = computed(() => {
         const transaction = controller.snapshot.value.activeTransaction;
         return transaction && transaction.kind !== 'close' ? transaction : null;
@@ -77,7 +71,7 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
     const pdfDocument = views.presentedPdfDocument;
     const totalPages = views.reportedPageCount;
     // A document source change resets every view's search.
-    const resetSearchCaches = () => views.forEachView(port => port.search.resetSearchCache());
+    const resetSearchCaches = () => views.forEachView((port) => port.search.resetSearchCache());
     // Save and annotation failures reach the user through this surface; an
     // open's failure is told by the tab's document session.
     const failure = useWorkspaceFailureSurface();
@@ -92,33 +86,44 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         document: controller,
         // A saved revision reopens each view where its reader is, before its job is admitted.
         admitPdfSource: (intent) => {
-            if (intent === 'adopt' && !isOpeningDocument.value) {views.forEachView((port) => {
-                const identity = port.openSurface.snapshot.value.identity;
-                if (identity) {beginOpenSurfaceWithPageShape(port.openSurface, {documentId: identity.documentId, documentRevision: String(file.documentRevisionToken.value ?? identity.documentRevision), provisional: true},
-                    controller.getView(port.tabId)?.captureReadingAnchor() ?? port.view.currentPage.value, null);}
-            });}
+            if (intent === 'adopt' && !isOpeningDocument.value) {
+                views.forEachView((port) => {
+                    const identity = port.openSurface.snapshot.value.identity;
+                    if (identity) {
+                        beginOpenSurfaceWithPageShape(
+                            port.openSurface,
+                            {
+                                documentId: identity.documentId,
+                                documentRevision: String(file.documentRevisionToken.value ?? identity.documentRevision),
+                                provisional: true,
+                            },
+                            controller.getView(port.tabId)?.captureReadingAnchor() ?? port.view.currentPage.value,
+                            null,
+                        );
+                    }
+                });
+            }
             return pdfDocumentSessionSlot.admit(intent);
         },
         resetDocumentPresentation: () => resetDocumentPresentation(),
     });
     // Scan Cleanup's source hash, acquired while a view shows it and kept until the revision changes.
     const scanCleanupSource = useScanCleanupSourceSha256({
-        enabled: computed(() => [...views.viewPorts.value.values()].some(port => port.isActive.value
-            && controller.getView(port.tabId)?.viewState.value.surfaceMode === 'scan-cleanup')),
+        enabled: computed(() =>
+            [...views.viewPorts.value.values()].some(
+                (port) => port.isActive.value && controller.getView(port.tabId)?.viewState.value.surfaceMode === 'scan-cleanup',
+            ),
+        ),
         sourcePath: file.workingCopyPath,
         documentRevision: file.documentRevisionToken,
         // The controller keeps it with the file it was read from, through an evicted tab's remount.
         sha256: computed({
             get: () => controller.file.value.sourceSha256,
-            set: sourceSha256 => controller.commitFile({sourceSha256}),
+            set: (sourceSha256) => controller.commitFile({sourceSha256}),
         }),
     });
-    const { presentFailureToast } = useFailureToast();
-    const {
-        settings: appSettings,
-        save: saveSettings,
-        updateSetting,
-    } = useSettings();
+    const {presentFailureToast} = useFailureToast();
+    const {settings: appSettings, save: saveSettings, updateSetting} = useSettings();
     const sourceCapabilitiesReceipt = shallowRef<{
         sourceKey: string;
         capabilities: IDocumentSourceCapabilities;
@@ -127,10 +132,11 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
     const isSavingAs = ref(false);
     const runExclusive = controller.operationLease.runExclusive;
     // A byte mutation clears the drafts, so it starts once they hold the unsaved state, recovered drafts included.
-    const runAfterDrafts: typeof runExclusive = (kind, operation) => runExclusive(kind, async (ownership) => {
-        await recovery.commitDrafts();
-        return operation(ownership);
-    });
+    const runAfterDrafts: typeof runExclusive = (kind, operation) =>
+        runExclusive(kind, async (ownership) => {
+            await recovery.commitDrafts();
+            return operation(ownership);
+        });
     const pdfDocumentSessionSlot = createPdfDocumentSessionSlot({
         documentRevisionToken: file.documentRevisionToken,
         workingCopyPath: file.workingCopyPath,
@@ -144,7 +150,9 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
     const reportRecoveryFailure = (cause: unknown) => {
         const message = getErrorMessage(cause);
         const presentation = {
-            failure: getFailureReceipt(cause) ?? BrowserLogger.error('annotations', 'Failed to store unsaved work', cause, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'}),
+            failure:
+                getFailureReceipt(cause) ??
+                BrowserLogger.error('annotations', 'Failed to store unsaved work', cause, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'}),
             title: t('errors.workspace.recoveryProtectionTitle'),
             description: t('errors.workspace.recoveryProtectionDescription', {
                 fileName: file.fileName.value ?? controller.snapshot.value.identity.workingCopyPath ?? '',
@@ -169,7 +177,7 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         documentSession: computed(() => controller.snapshot.value.identity.documentSessionKey),
         isSaving: computed(() => isSaving.value || isSavingAs.value),
     });
-    const { clearCache: clearOcrCache } = useOcrTextContent();
+    const {clearCache: clearOcrCache} = useOcrTextContent();
 
     const annotations = useWorkspaceAnnotationSession({
         views,
@@ -185,15 +193,16 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         metadata,
         reportFailure: reportRecoveryFailure,
     });
-    const hasPendingUnsavedChanges = computed(() => (
-        pdfViewerRef.value?.hasCanonicalAnnotationChanges?.() === true
-        || annotations.annotationNoteWindows.value.some(note => note.dirty)
-        || file.isDirty.value
-        // Set with the working copy, before history reports a restored document dirty.
-        || file.recoveryDirtyBaseline.value
-        || metadata.pageLabelState.pageLabelsDirty.value
-        || metadata.bookmarkState.bookmarksDirty.value
-    ));
+    const hasPendingUnsavedChanges = computed(
+        () =>
+            pdfViewerRef.value?.hasCanonicalAnnotationChanges?.() === true ||
+            annotations.annotationNoteWindows.value.some((note) => note.dirty) ||
+            file.isDirty.value ||
+            // Set with the working copy, before history reports a restored document dirty.
+            file.recoveryDirtyBaseline.value ||
+            metadata.pageLabelState.pageLabelsDirty.value ||
+            metadata.bookmarkState.bookmarksDirty.value,
+    );
 
     // Close and window close end the document's jobs so no reader holds their decision (#1598),
     // while Save republishes a released revision inside its own document operation lease turn.
@@ -209,23 +218,24 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
     // This is authored state, including edits made while already dirty and drafts
     // outside the store. Parsed clean annotations are projections of the bytes.
     controller.bindMutationFrontier({
-        read: () => JSON.stringify({
-            revision: file.documentRevisionToken.value,
-            annotations: pdfDocumentAnnotations.application.value.store.dirtyEntities().map(entity => [
-                entity.identity.id,
-                entity.revision,
-                entity.deleted,
-            ]),
-            textBoxDrafts: [...pdfDocumentAnnotations.textBoxDrafts],
-            noteDrafts: annotations.getAnnotationNoteDraftsChangeSignature(),
-            metadata: metadata.captureRecovery(),
-            operation: controller.operationLease.activeKind.value,
-        }),
+        read: () =>
+            JSON.stringify({
+                revision: file.documentRevisionToken.value,
+                annotations: pdfDocumentAnnotations.application.value.store
+                    .dirtyEntities()
+                    .map((entity) => [entity.identity.id, entity.revision, entity.deleted]),
+                textBoxDrafts: [...pdfDocumentAnnotations.textBoxDrafts],
+                noteDrafts: annotations.getAnnotationNoteDraftsChangeSignature(),
+                metadata: metadata.captureRecovery(),
+                operation: controller.operationLease.activeKind.value,
+            }),
         isDirty: () => hasPendingUnsavedChanges.value,
         prepare: async (assertCurrent) => {
             await pdfDocumentAnnotations.commitPendingDraftsForSave().then(assertCurrent);
             await recovery.commitDrafts().then(assertCurrent);
-            if (!await annotations.persistAllAnnotationNotes()) {throw new Error(t('tabs.transferErrors.restoreFailed'));}
+            if (!(await annotations.persistAllAnnotationNotes())) {
+                throw new Error(t('tabs.transferErrors.restoreFailed'));
+            }
         },
         close: async (assertCurrent) => {
             await file.handleDjvuCancel();
@@ -240,12 +250,17 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         retire: () => {
             sourceCapabilitiesReceipt.value = null;
             views.forEachView((port) => {
-                if (port.openSurface.snapshot.value.phase !== 'idle') {port.openSurface.reset();}
+                if (port.openSurface.snapshot.value.phase !== 'idle') {
+                    port.openSurface.reset();
+                }
             });
             void discardScanCleanupDocumentState(file.documentKey.value, scanCleanupSource.sha256.value).catch((error: unknown) => {
                 BrowserLogger.warn('scan-cleanup', 'Failed to discard saved cleanup settings', error);
                 presentFailureToast({
-                    ...captureFailureForPresentation({code: 'RENDERER_WORKSPACE_OPERATION_FAILED', local: {source: 'scan-cleanup', message: 'Failed to discard saved cleanup settings', cause: error}}),
+                    ...captureFailureForPresentation({
+                        code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
+                        local: {source: 'scan-cleanup', message: 'Failed to discard saved cleanup settings', cause: error},
+                    }),
                     title: t('errors.settings.save'),
                 });
             });
@@ -323,19 +338,21 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
                         jobReleaser.republishForSave();
                         await pdfDocumentSessionSlot.running()?.finished;
                     }
-                    return pdfViewerRef.value?.runSaveTransaction(request) ?? Promise.reject(new Error('Missing PDF viewer save transaction'));
+                    return (
+                        pdfViewerRef.value?.runSaveTransaction(request) ?? Promise.reject(new Error('Missing PDF viewer save transaction'))
+                    );
                 },
                 getSourceData: getSourcePdfData,
             },
             persistence: {
-                validatePdfPath: path => getDocumentPdfCapability().validatePdfPath(path, {purpose: 'save'}),
+                validatePdfPath: (path) => getDocumentPdfCapability().validatePdfPath(path, {purpose: 'save'}),
                 saveWorkingCopy: file.saveWorkingCopy,
                 saveAs: file.saveWorkingCopyAs,
                 ...(file.repairWorkingCopy ? {repairWorkingCopy: file.repairWorkingCopy} : {}),
                 ...(file.optimizeWorkingCopy ? {optimizeWorkingCopy: file.optimizeWorkingCopy} : {}),
                 ...(file.optimizeWorkingCopyAsCopy ? {optimizeWorkingCopyAsCopy: file.optimizeWorkingCopyAsCopy} : {}),
                 trySavePdfNativeMutations: file.trySavePdfNativeMutations,
-                getWorkingCopySize: async path => (await getDocumentFilesCapability().statFile(path)).size,
+                getWorkingCopySize: async (path) => (await getDocumentFilesCapability().statFile(path)).size,
             },
             shapes: {
                 hasChanges: () => hasViewerShapeChanges(pdfViewerRef.value),
@@ -343,7 +360,10 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
             },
             lifecycle: {
                 loadRecentFiles: () => void file.loadRecentFiles(),
-                acceptAdoption: adoption => (views.viewPorts.value.size ? adoption.then(outcome => outcome.status === 'presented' && resetSearchCaches()) : undefined),
+                acceptAdoption: (adoption) =>
+                    views.viewPorts.value.size
+                        ? adoption.then((outcome) => outcome.status === 'presented' && resetSearchCaches())
+                        : undefined,
                 commitDrafts: recovery.commitDrafts,
             },
             runWithDocumentOperationLease: runExclusive,
@@ -373,10 +393,7 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         }
         return `${active.id}:${path ?? ''}`;
     });
-    function reportSourceCapabilities(
-        sourceKey: string | null,
-        capabilities: IDocumentSourceCapabilities,
-    ) {
+    function reportSourceCapabilities(sourceKey: string | null, capabilities: IDocumentSourceCapabilities) {
         if (sourceKey === null || sourceKey !== sourceCapabilitiesKey.value) {
             return;
         }
@@ -430,12 +447,14 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
             return;
         }
         const cancellationVersion = docxExportCancellationVersion;
-        const exported = await runExclusive('docx-export', () => docx.exportDocx({
-            workingCopyPath: file.workingCopyPath.value,
-            documentRevisionToken: file.documentRevisionToken.value,
-            pdfDocument: pdfDocument.value,
-            ...(selectedLanguages === undefined ? {} : {selectedLanguages}),
-        }));
+        const exported = await runExclusive('docx-export', () =>
+            docx.exportDocx({
+                workingCopyPath: file.workingCopyPath.value,
+                documentRevisionToken: file.documentRevisionToken.value,
+                pdfDocument: pdfDocument.value,
+                ...(selectedLanguages === undefined ? {} : {selectedLanguages}),
+            }),
+        );
         if (!exported && cancellationVersion === docxExportCancellationVersion) {
             onFailed?.();
         }
@@ -469,17 +488,19 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         undoHistory: metadata.workspaceUndoTimeline.undoTimeline,
         redoHistory: metadata.workspaceUndoTimeline.redoTimeline,
     });
-    const hasOpenDocument = computed(() => (
-        file.hasPdf.value
-        || (
-            driver.activeDocumentDriver.value?.capabilities.closeableDocument === true
-            && driver.activeDocumentDriver.value.source.path !== null
-        )
-    ));
-    const preparePageOperationWorkingCopy = () => metadata.runWithPreservedMetadataReload(saveService.createPageMutationWriterSave({
-        waitForPdfReload: () => views.prepareReload().promise,
-        reloadWorkingCopyRevision: file.reloadWorkingCopyRevision,
-    }));
+    const hasOpenDocument = computed(
+        () =>
+            file.hasPdf.value ||
+            (driver.activeDocumentDriver.value?.capabilities.closeableDocument === true &&
+                driver.activeDocumentDriver.value.source.path !== null),
+    );
+    const preparePageOperationWorkingCopy = () =>
+        metadata.runWithPreservedMetadataReload(
+            saveService.createPageMutationWriterSave({
+                waitForPdfReload: () => views.prepareReload().promise,
+                reloadWorkingCopyRevision: file.reloadWorkingCopyRevision,
+            }),
+        );
     const pageOps = usePageOpsHandlers({
         workingCopyPath: file.workingCopyPath,
         documentRevisionToken: file.documentRevisionToken,
@@ -499,8 +520,8 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
             }
         },
         // Every view shows this document's thumbnails.
-        invalidateThumbnailPages: (...args) => views.forEachView(port => port.view.requestThumbnailInvalidation(...args)),
-        onExportPages: pages => void exportWorkflow.handleExportImages(pages),
+        invalidateThumbnailPages: (...args) => views.forEachView((port) => port.view.requestThumbnailInvalidation(...args)),
+        onExportPages: (pages) => void exportWorkflow.handleExportImages(pages),
         canMutatePages: computed(() => sourceCapabilities.value.pageEdits),
         ensureHistoryBaselineForMutation: file.ensureHistoryBaselineForMutation,
         saveAnnotationsForPageMutation: preparePageOperationWorkingCopy,
@@ -529,25 +550,23 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         fileName: file.fileName,
         hasPendingUnsavedChanges,
         hasPendingPrintSerializationChanges: annotations.hasUnsavedAnnotationChanges,
-        ensurePrintReady: async () => (
-            !annotations.hasOpenAnnotationNotes.value || annotations.persistAllAnnotationNotes()
-        ),
+        ensurePrintReady: async () => !annotations.hasOpenAnnotationNotes.value || annotations.persistAllAnnotationNotes(),
         ...printableSource,
         // Prints the pages of the PDF.js document the document's session holds.
         renderLoadedPdfPagesForBrowserPrint: async (
             targetDocument: IBrowserPrintDocument,
             pageNumbers: number[],
-            options?: { signal?: AbortSignal },
+            options?: {signal?: AbortSignal},
         ) => {
             const loadedDocument = pdfDocumentSessionSlot.session.value?.document.value;
             if (!loadedDocument) {
                 throw new Error('Missing loaded PDF document');
             }
-            const { renderPdfDocumentPagesForBrowserPrint } = await import('@app/utils/pdfPrint');
+            const {renderPdfDocumentPagesForBrowserPrint} = await import('@app/utils/pdfPrint');
             await renderPdfDocumentPagesForBrowserPrint(
                 targetDocument,
                 loadedDocument,
-                pageNumbers.map(pageNumber => requirePageNumber(pageNumber, totalPages.value)),
+                pageNumbers.map((pageNumber) => requirePageNumber(pageNumber, totalPages.value)),
                 options,
             );
         },
@@ -555,18 +574,20 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
             payload: IWorkspaceDriverPrintRequest,
             options?: {
                 onNativePrintHandoffStart?: () => void;
-                signal?: AbortSignal
+                signal?: AbortSignal;
             },
-        ) => driver.activeDocumentDriver.value?.run({
-            kind: 'prepare-print',
-            request: payload,
-            fileName: file.fileName.value,
-            sourceCapabilities: sourceCapabilities.value,
-            ...options,
-        }) ?? Promise.resolve({
-            status: 'unavailable' as const,
-            capability: 'print' as const,
-        }),
+        ) =>
+            driver.activeDocumentDriver.value?.run({
+                kind: 'prepare-print',
+                request: payload,
+                fileName: file.fileName.value,
+                sourceCapabilities: sourceCapabilities.value,
+                ...options,
+            }) ??
+            Promise.resolve({
+                status: 'unavailable' as const,
+                capability: 'print' as const,
+            }),
     });
 
     const splitPayload = useWorkspaceSplitPayload({
@@ -589,35 +610,35 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         runWithDocumentOperationLease: runExclusive,
     });
 
-    const {
-        ocr, resetDocumentPresentation,
-    } = useWorkspaceDocumentLifecycleEffects({
+    const {ocr, resetDocumentPresentation} = useWorkspaceDocumentLifecycleEffects({
         documentAnnotations: pdfDocumentAnnotations,
         totalPages,
         // The OCR panel opens in the toolbar of the active tab.
-        ocrCurrentPage: () => [...views.viewPorts.value.values()].find(port => port.isActive.value)?.view.currentPage.value ?? 1,
+        ocrCurrentPage: () => [...views.viewPorts.value.values()].find((port) => port.isActive.value)?.view.currentPage.value ?? 1,
         views,
         pdfSrc: file.pdfSrc,
         workingCopyPath: file.workingCopyPath,
         documentRevisionInfo: file.documentRevisionInfo,
         documentRevisionToken: file.documentRevisionToken,
         pdfError: file.pdfError,
-        clearViews: () => views.forEachView((port) => {
-            port.view.pdfDocument.value = null;
-            port.view.showSidebar.value = false;
-            port.annotationTool.value = 'none';
-        }),
+        clearViews: () =>
+            views.forEachView((port) => {
+                port.view.pdfDocument.value = null;
+                port.view.showSidebar.value = false;
+                port.annotationTool.value = 'none';
+            }),
         annotationComments: annotations.annotationComments,
         annotationActiveCommentStableKey: annotations.annotationActiveCommentStableKey,
         annotationEditorState: annotations.annotationEditorState,
         metadata,
         resetAnnotationTracking: annotations.resetAnnotationTracking,
         resetSearchCache: resetSearchCaches,
-        closeSearch: () => views.forEachView(port => port.search.closeSearch()),
-        closeContextMenus: () => views.forEachView((port) => {
-            port.closeAnnotationContextMenu();
-            port.pageContextMenu.closePageContextMenu();
-        }),
+        closeSearch: () => views.forEachView((port) => port.search.closeSearch()),
+        closeContextMenus: () =>
+            views.forEachView((port) => {
+                port.closeAnnotationContextMenu();
+                port.pageContextMenu.closePageContextMenu();
+            }),
         closeAllAnnotationNotes: annotations.closeAllAnnotationNotes,
         // OCR waits for document writers; a background recovery copy only reads.
         isBusy: computed(() => controller.operationLease.isForegroundBusy.value || saveService.isAnySaving.value),

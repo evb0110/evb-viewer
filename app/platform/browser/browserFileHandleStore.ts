@@ -35,8 +35,8 @@ async function run<T>(mode: IDBTransactionMode, operation: (store: IDBObjectStor
 }
 
 export const fileHandleStore = {
-    get: (key: string) => run<IStoredFileHandle | undefined>('readonly', store => store.get(key)),
-    put: (key: string, value: IStoredFileHandle) => run('readwrite', store => store.put(value, key)).then(() => undefined),
-    delete: (key: string) => run('readwrite', store => store.delete(key)).then(() => undefined),
-    keys: () => run('readonly', store => store.getAllKeys()).then(keys => keys.filter((key): key is string => typeof key === 'string')),
+    get: (key: string) => run<IStoredFileHandle | undefined>('readonly', (store) => store.get(key)),
+    put: (key: string, value: IStoredFileHandle) => run('readwrite', (store) => store.put(value, key)).then(() => undefined),
+    delete: (key: string) => run('readwrite', (store) => store.delete(key)).then(() => undefined),
+    keys: () => run('readonly', (store) => store.getAllKeys()).then((keys) => keys.filter((key): key is string => typeof key === 'string')),
 };

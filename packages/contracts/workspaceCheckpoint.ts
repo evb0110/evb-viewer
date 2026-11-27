@@ -16,10 +16,7 @@ import {isRecord} from '@contracts/runtimeGuards';
 export const ANNOTATION_RASTER_MAX_BYTES = 128 * 1024 * 1024;
 const recoveryRasterSchema = v.object({
     kind: v.literal('raster'),
-    mimeType: v.picklist([
-        'image/png',
-        'image/jpeg',
-    ]),
+    mimeType: v.picklist(['image/png', 'image/jpeg']),
     dataBase64: v.pipe(v.string(), v.maxLength(Math.ceil(ANNOTATION_RASTER_MAX_BYTES / 3) * 4)),
     byteLength: v.pipe(v.number(), v.safeInteger(), v.minValue(1), v.maxValue(ANNOTATION_RASTER_MAX_BYTES)),
     sha256: v.pipe(v.string(), v.regex(/^[a-f0-9]{64}$/u)),
@@ -33,31 +30,53 @@ const editRevisionSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
 
 /** Metadata travels in the existing identity-bound document recovery artifact. */
 export const workspaceMetadataRecoverySchema = v.object({
-    bookmarks: v.optional(v.object({
-        revision: editRevisionSchema,
-        dirty: v.literal(true),
-        items: v.array(PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA),
-    })),
-    pageLabels: v.optional(v.object({
-        revision: editRevisionSchema,
-        dirty: v.literal(true),
-        ranges: v.array(v.object({
-            startPage: v.pipe(v.number(), v.safeInteger(), v.minValue(1)),
-            style: v.nullable(v.picklist(PDF_PAGE_LABEL_STYLE_VALUES)),
-            prefix: v.string(),
-            startNumber: v.pipe(v.number(), v.safeInteger(), v.minValue(1)),
-        })),
-    })),
+    bookmarks: v.optional(
+        v.object({
+            revision: editRevisionSchema,
+            dirty: v.literal(true),
+            items: v.array(PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA),
+        }),
+    ),
+    pageLabels: v.optional(
+        v.object({
+            revision: editRevisionSchema,
+            dirty: v.literal(true),
+            ranges: v.array(
+                v.object({
+                    startPage: v.pipe(v.number(), v.safeInteger(), v.minValue(1)),
+                    style: v.nullable(v.picklist(PDF_PAGE_LABEL_STYLE_VALUES)),
+                    prefix: v.string(),
+                    startNumber: v.pipe(v.number(), v.safeInteger(), v.minValue(1)),
+                }),
+            ),
+        }),
+    ),
 });
 export type IWorkspaceMetadataRecovery = v.InferOutput<typeof workspaceMetadataRecoverySchema>;
 
 const documentRecoveryMetadataSchema = v.object({metadata: v.optional(workspaceMetadataRecoverySchema)});
 export const readWorkspaceRecoveryMetadata = (value: unknown) => v.parse(documentRecoveryMetadataSchema, value).metadata;
 
-const paneIdSchema = v.pipe(v.string(), v.check(value => parsePaneId(value) !== null), v.transform(value => parsePaneId(value)!));
-const tabIdSchema = v.pipe(v.string(), v.check(value => parseTabId(value) !== null), v.transform(value => parseTabId(value)!));
-const documentRefSchema = v.pipe(v.string(), v.check(value => parseDocumentRef(value) !== null), v.transform(value => parseDocumentRef(value)!));
-const epochMsSchema = v.pipe(v.number(), v.check(value => parseEpochMs(value) !== null), v.transform(value => parseEpochMs(value)!));
+const paneIdSchema = v.pipe(
+    v.string(),
+    v.check((value) => parsePaneId(value) !== null),
+    v.transform((value) => parsePaneId(value)!),
+);
+const tabIdSchema = v.pipe(
+    v.string(),
+    v.check((value) => parseTabId(value) !== null),
+    v.transform((value) => parseTabId(value)!),
+);
+const documentRefSchema = v.pipe(
+    v.string(),
+    v.check((value) => parseDocumentRef(value) !== null),
+    v.transform((value) => parseDocumentRef(value)!),
+);
+const epochMsSchema = v.pipe(
+    v.number(),
+    v.check((value) => parseEpochMs(value) !== null),
+    v.transform((value) => parseEpochMs(value)!),
+);
 function createLayoutNodeSchema(depth: number): v.GenericSchema<unknown, TEditorLayoutNode> {
     const leafSchema = v.object({
         type: v.literal('leaf'),
@@ -66,20 +85,19 @@ function createLayoutNodeSchema(depth: number): v.GenericSchema<unknown, TEditor
     if (depth === 16) {
         return v.lazy(() => leafSchema);
     }
-    return v.lazy(() => v.union([
-        leafSchema,
-        v.object({
-            type: v.literal('split'),
-            id: v.string(),
-            orientation: v.picklist([
-                'horizontal',
-                'vertical',
-            ]),
-            ratio: v.pipe(v.number(), v.finite()),
-            first: createLayoutNodeSchema(depth + 1),
-            second: createLayoutNodeSchema(depth + 1),
-        }),
-    ]));
+    return v.lazy(() =>
+        v.union([
+            leafSchema,
+            v.object({
+                type: v.literal('split'),
+                id: v.string(),
+                orientation: v.picklist(['horizontal', 'vertical']),
+                ratio: v.pipe(v.number(), v.finite()),
+                first: createLayoutNodeSchema(depth + 1),
+                second: createLayoutNodeSchema(depth + 1),
+            }),
+        ]),
+    );
 }
 const layoutSchema: v.GenericSchema<unknown, TEditorLayoutNode | null> = v.lazy(() => v.nullable(createLayoutNodeSchema(0)));
 
@@ -88,7 +106,11 @@ export const workspaceAnnotationRecoveryRefSchema = v.object({
     documentInstanceId: v.pipe(v.string(), v.minLength(1), v.maxLength(512)),
     workingCopyRef: v.nullable(documentRefSchema),
     workingByteRevision: v.pipe(v.string(), v.minLength(1), v.maxLength(512)),
-    annotationMutationGeneration: v.pipe(v.number(), v.check(value => Number.isSafeInteger(value)), v.minValue(0)),
+    annotationMutationGeneration: v.pipe(
+        v.number(),
+        v.check((value) => Number.isSafeInteger(value)),
+        v.minValue(0),
+    ),
 });
 /** A document's unsaved annotations and metadata, bound to the revision they apply to; no payload clears them. */
 export const workspaceAnnotationRecoverySchema = v.object({
@@ -116,7 +138,13 @@ const checkpointTabSchema = v.object({
     requiresSaveAsOnFirstSave: v.optional(v.boolean()),
     isDirty: v.boolean(),
     isDjvu: v.boolean(),
-    currentPage: v.nullable(v.pipe(v.number(), v.check(value => Number.isSafeInteger(value)), v.minValue(1))),
+    currentPage: v.nullable(
+        v.pipe(
+            v.number(),
+            v.check((value) => Number.isSafeInteger(value)),
+            v.minValue(1),
+        ),
+    ),
     zoom: v.nullable(v.pipe(v.number(), v.finite(), v.minValue(Number.MIN_VALUE))),
     zoomMode: v.nullable(zoomModeSchema),
     continuousScroll: v.optional(v.nullable(v.boolean())),
@@ -126,10 +154,7 @@ const checkpointTabSchema = v.object({
     // Set by a claim when persisted drafts exist on disk but fail schema validation, so restore holds them untouched.
     annotationRecoveryInvalid: v.optional(v.literal(true)),
     workingCopyLost: v.optional(v.literal(true)),
-    surfaceMode: v.optional(v.picklist([
-        'reader',
-        'scan-cleanup',
-    ])),
+    surfaceMode: v.optional(v.picklist(['reader', 'scan-cleanup'])),
 });
 
 export const workspaceCheckpointSchema = v.object({
@@ -140,10 +165,14 @@ export const workspaceCheckpointSchema = v.object({
     layout: layoutSchema,
     panes: v.pipe(v.array(paneSchema), v.maxLength(32)),
     tabs: v.array(checkpointTabSchema),
-    notReopened: v.optional(v.array(v.object({
-        fileName: v.nullable(v.string()),
-        sourceRef: v.nullable(documentRefSchema),
-    }))),
+    notReopened: v.optional(
+        v.array(
+            v.object({
+                fileName: v.nullable(v.string()),
+                sourceRef: v.nullable(documentRefSchema),
+            }),
+        ),
+    ),
 });
 
 export type IWorkspaceCheckpointAnnotationRecovery = v.InferOutput<typeof workspaceAnnotationRecoverySchema>;
@@ -155,9 +184,9 @@ export function decodeWorkspaceCheckpoint(value: unknown): IWorkspaceCheckpoint 
     return result.success ? result.output : null;
 }
 
-export function decodeWorkspaceAnnotationRecovery(value: unknown):
-    | {success: true; output: IWorkspaceCheckpointAnnotationRecovery}
-    | {success: false; issue: string} {
+export function decodeWorkspaceAnnotationRecovery(
+    value: unknown,
+): {success: true; output: IWorkspaceCheckpointAnnotationRecovery} | {success: false; issue: string} {
     const result = v.safeParse(workspaceAnnotationRecoverySchema, value, {abortEarly: true});
     return result.success
         ? {success: true, output: result.output}
@@ -169,7 +198,9 @@ export function decodeWorkspaceTabDrafts(
     onInvalid: (issue: string) => void,
     workingCopyRef?: TDocumentRef,
 ): Pick<IWorkspaceCheckpointTab, 'annotationRecovery' | 'annotationRecoveryInvalid'> {
-    if (raw === undefined) {return {};}
+    if (raw === undefined) {
+        return {};
+    }
     const parsed = decodeWorkspaceAnnotationRecovery(raw);
     if (!parsed.success) {
         onInvalid(parsed.issue);
@@ -183,8 +214,16 @@ export function createBlankWorkspaceCheckpointTab(
     paneId: IWorkspaceCheckpointTab['paneId'],
 ): IWorkspaceCheckpointTab {
     return {
-        tabId, paneId, fileName: null, sourceRef: null, workingCopyRef: null,
-        isDirty: false, isDjvu: false, currentPage: null, zoom: null, zoomMode: null,
+        tabId,
+        paneId,
+        fileName: null,
+        sourceRef: null,
+        workingCopyRef: null,
+        isDirty: false,
+        isDjvu: false,
+        currentPage: null,
+        zoom: null,
+        zoomMode: null,
     };
 }
 
@@ -195,14 +234,16 @@ export function createBlankWorkspaceCheckpointTab(
 export function toStoredWorkspaceCheckpoint(checkpoint: IWorkspaceCheckpoint) {
     return {
         ...checkpoint,
-        tabs: checkpoint.tabs.map(({
-            isDirty: _dirty,
-            keptOriginalPath: _kept,
-            annotationRecovery: _drafts,
-            annotationRecoveryInvalid: _invalidDrafts,
-            workingCopyLost: _lost,
-            ...tab
-        }) => tab),
+        tabs: checkpoint.tabs.map(
+            ({
+                isDirty: _dirty,
+                keptOriginalPath: _kept,
+                annotationRecovery: _drafts,
+                annotationRecoveryInvalid: _invalidDrafts,
+                workingCopyLost: _lost,
+                ...tab
+            }) => tab,
+        ),
     };
 }
 

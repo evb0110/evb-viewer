@@ -1,21 +1,13 @@
-import {
-    BrowserWorkerClientLifecycle,
-    BrowserWorkerResetError,
-} from '@app/platform/browser-api/browserWorkerClientLifecycle';
+import {BrowserWorkerClientLifecycle, BrowserWorkerResetError} from '@app/platform/browser-api/browserWorkerClientLifecycle';
 export {BrowserWorkerResetError} from '@app/platform/browser-api/browserWorkerClientLifecycle';
-import {
-    handlePrecompiledWasmModuleMessage,
-    postPrecompiledWasmModules,
-} from '@app/platform/browser/loadWasmWithDeadline';
+import {handlePrecompiledWasmModuleMessage, postPrecompiledWasmModules} from '@app/platform/browser/loadWasmWithDeadline';
 import {getPerformanceProfile} from '@app/utils/performanceProfile';
 import type {IResolvedStreamingRasterHandoffBudget} from '@evb/scan-cleanup/core/streamingRasterHandoff';
 
 const DEFAULT_WARM_CANCEL_DRAIN_TIMEOUT_MS = 5_000;
 
 function isMatchingResponseId(response: unknown, requestId: number) {
-    return typeof response === 'object'
-        && response !== null
-        && Reflect.get(response, 'id') === requestId;
+    return typeof response === 'object' && response !== null && Reflect.get(response, 'id') === requestId;
 }
 
 interface IBrowserWorkerClientOptions<TPendingRequest> {
@@ -34,11 +26,7 @@ interface IBrowserWorkerClientOptions<TPendingRequest> {
     budget?: BrowserWorkerBudget;
     idleTtlMs: number;
     requestTimeoutMs?: number;
-    handleMessage: (
-        pendingRequests: Map<number, TPendingRequest>,
-        response: unknown,
-        scheduleIdleWorkerTermination: () => void,
-    ) => void;
+    handleMessage: (pendingRequests: Map<number, TPendingRequest>, response: unknown, scheduleIdleWorkerTermination: () => void) => void;
     /** Optional observer called when a stale reply from a warm-canceled request finishes draining. */
     onDrainedMessage?: (response: unknown) => void;
     /** Identifies non-terminal progress frames so they never release a warm-canceled draining worker. */
@@ -65,19 +53,15 @@ const MAX_PAGE_LANES = 8;
  */
 export function resolveBrowserPageLanes(): IResolvedStreamingRasterHandoffBudget {
     const cores = typeof navigator === 'undefined' ? 2 : navigator.hardwareConcurrency || 2;
-    const memoryGb = typeof navigator === 'undefined'
-        ? undefined
-        : (navigator as Navigator & {deviceMemory?: number}).deviceMemory;
-    const lanes = getPerformanceProfile().lowMemory
-        ? 1
-        : Math.max(1, Math.min(MAX_PAGE_LANES, cores - 2));
+    const memoryGb = typeof navigator === 'undefined' ? undefined : (navigator as Navigator & {deviceMemory?: number}).deviceMemory;
+    const lanes = getPerformanceProfile().lowMemory ? 1 : Math.max(1, Math.min(MAX_PAGE_LANES, cores - 2));
     return {
         producerConcurrency: lanes,
         // A finished page is committed as soon as every page before it is.
         maxChunkPages: 1,
         // Finished pages waiting on an earlier one leave the other lanes working.
         maxInFlightPages: lanes * 2,
-        maxInFlightBytes: (memoryGb ?? 4) * 1024 ** 3 / 4,
+        maxInFlightBytes: ((memoryGb ?? 4) * 1024 ** 3) / 4,
     };
 }
 
@@ -161,7 +145,7 @@ export class BrowserWorkerClient<
         const pending = Array.from(this.pendingRequests.values());
         this.pendingRequests.clear();
         this.clearIdleTerminateTimer();
-        pending.forEach(request => this.clearRequestTimeout(request));
+        pending.forEach((request) => this.clearRequestTimeout(request));
 
         this.workerGeneration += 1;
         const worker = this.worker;
@@ -182,7 +166,7 @@ export class BrowserWorkerClient<
 
         if (pending.length > 0) {
             const resetError = error ?? new BrowserWorkerResetError();
-            pending.forEach(request => request.reject(resetError));
+            pending.forEach((request) => request.reject(resetError));
         }
 
         if (wasDraining) {
@@ -199,15 +183,19 @@ export class BrowserWorkerClient<
             this.clearIdleTerminateTimer();
             return this.worker;
         }
-        if (this.worker) {this.resetWorker();}
+        if (this.worker) {
+            this.resetWorker();
+        }
 
         // A worker started for a request that takes any worker has no key, and counts for nothing.
         const worker = this.options.createWorker(key);
         this.currentWorkerKey = key;
-        if (this.options.budget?.counts(key)) {this.options.budget.hold(this);}
+        if (this.options.budget?.counts(key)) {
+            this.options.budget.hold(this);
+        }
         const generation = this.workerGeneration + 1;
         const workerEventListeners: IWorkerEventListeners = {
-            message: event => {
+            message: (event) => {
                 if (this.worker !== worker || this.workerGeneration !== generation) {
                     return;
                 }
@@ -227,13 +215,9 @@ export class BrowserWorkerClient<
                     return;
                 }
 
-                this.options.handleMessage(
-                    this.pendingRequests,
-                    event.data,
-                    this.scheduleIdleWorkerTermination,
-                );
+                this.options.handleMessage(this.pendingRequests, event.data, this.scheduleIdleWorkerTermination);
             },
-            error: event => {
+            error: (event) => {
                 if (this.worker !== worker || this.workerGeneration !== generation) {
                     return;
                 }
@@ -257,7 +241,9 @@ export class BrowserWorkerClient<
 
     /** Posts a control message to the live worker, if one is running, without starting one. */
     public postControlMessage(message: unknown) {
-        if (!this.worker) {return;}
+        if (!this.worker) {
+            return;
+        }
         try {
             this.worker.postMessage(message);
         } catch {
@@ -296,20 +282,11 @@ export class BrowserWorkerClient<
     ) {
         this.clearIdleTerminateTimer();
         this.pendingRequests.set(requestId, pendingRequest);
-        this.armRequestTimeout(
-            requestId,
-            pendingRequest,
-            createTimeoutError,
-            requestTimeoutMs ?? this.options.requestTimeoutMs,
-        );
+        this.armRequestTimeout(requestId, pendingRequest, createTimeoutError, requestTimeoutMs ?? this.options.requestTimeoutMs);
     }
 
     /** Replaces a pending request's timeout, measured from now. */
-    public restartRequestTimeout(
-        requestId: number,
-        createTimeoutError: () => Error,
-        timeoutMs: number,
-    ) {
+    public restartRequestTimeout(requestId: number, createTimeoutError: () => Error, timeoutMs: number) {
         const pendingRequest = this.pendingRequests.get(requestId);
         if (!pendingRequest) {
             return;
@@ -428,7 +405,9 @@ export class BrowserWorkerBudget {
     public admits(keepFree: number) {
         let busy = 0;
         for (const holder of this.holders) {
-            if (!holder.idle) {busy += 1;}
+            if (!holder.idle) {
+                busy += 1;
+            }
         }
         return busy + 1 + keepFree <= this.limit();
     }
@@ -441,8 +420,12 @@ export class BrowserWorkerBudget {
     /** Ends idle counted workers until one more worker fits; call only after `admits`. */
     public makeRoom() {
         for (const holder of [...this.holders]) {
-            if (this.hasRoom()) {break;}
-            if (holder.idle) {holder.resetWorker();}
+            if (this.hasRoom()) {
+                break;
+            }
+            if (holder.idle) {
+                holder.resetWorker();
+            }
         }
     }
 
@@ -451,7 +434,9 @@ export class BrowserWorkerBudget {
     }
 
     public release(client: object) {
-        if (this.holders.delete(client as TAnyBrowserWorkerClient)) {this.wake();}
+        if (this.holders.delete(client as TAnyBrowserWorkerClient)) {
+            this.wake();
+        }
     }
 
     /**
@@ -459,11 +444,15 @@ export class BrowserWorkerBudget {
      * released, or a request ended and left its worker idle for reclaiming.
      */
     public wake() {
-        if (this.wakeQueued) {return;}
+        if (this.wakeQueued) {
+            return;
+        }
         this.wakeQueued = true;
         queueMicrotask(() => {
             this.wakeQueued = false;
-            for (const wake of this.waiters) {wake();}
+            for (const wake of this.waiters) {
+                wake();
+            }
         });
     }
 
@@ -508,10 +497,12 @@ export interface IBrowserWorkerAdmission {
     terminateDrainingWhenFull?: boolean;
 }
 
-interface IOwnedRequest<TPendingRequest extends {
-    reject: (error: Error) => void;
-    timeoutTimer?: ReturnType<typeof setTimeout> | null;
-}> {
+interface IOwnedRequest<
+    TPendingRequest extends {
+        reject: (error: Error) => void;
+        timeoutTimer?: ReturnType<typeof setTimeout> | null;
+    },
+> {
     client: BrowserWorkerClient<TPendingRequest> | null;
     admission: IBrowserWorkerAdmission;
     start: (client: BrowserWorkerClient<TPendingRequest>, workerKey: string | undefined) => void;
@@ -522,10 +513,12 @@ interface IOwnedRequest<TPendingRequest extends {
  * Admission and cancellation for synchronous engines, one request per worker.
  * Each slot keeps its worker until the worker's idle lifetime ends.
  */
-export class BrowserWorkerRequestOwner<TPendingRequest extends {
-    reject: (error: Error) => void;
-    timeoutTimer?: ReturnType<typeof setTimeout> | null;
-}> {
+export class BrowserWorkerRequestOwner<
+    TPendingRequest extends {
+        reject: (error: Error) => void;
+        timeoutTimer?: ReturnType<typeof setTimeout> | null;
+    },
+> {
     private readonly clients: Array<BrowserWorkerClient<TPendingRequest>>;
     private readonly lifecycle = new BrowserWorkerClientLifecycle();
     private readonly requests = new Map<number, IOwnedRequest<TPendingRequest>>();
@@ -534,15 +527,15 @@ export class BrowserWorkerRequestOwner<TPendingRequest extends {
 
     public constructor(
         createClient: () => BrowserWorkerClient<TPendingRequest>,
-        slots = Math.min(2, Math.max(1, Math.floor(
-            (typeof navigator === 'undefined' ? 4 : navigator.hardwareConcurrency || 4) / 2,
-        ))),
+        slots = Math.min(2, Math.max(1, Math.floor((typeof navigator === 'undefined' ? 4 : navigator.hardwareConcurrency || 4) / 2))),
         private readonly budget?: BrowserWorkerBudget,
     ) {
         this.clients = Array.from({length: slots}, () => {
             const client = createClient();
             client.setDrainSettledListener(() => {
-                if (client.idle && this.budget?.retired(client.workerKey)) {client.resetWorker();}
+                if (client.idle && this.budget?.retired(client.workerKey)) {
+                    client.resetWorker();
+                }
                 this.admitWaitingRequests();
                 this.budget?.wake();
             });
@@ -566,11 +559,7 @@ export class BrowserWorkerRequestOwner<TPendingRequest extends {
      */
     public run<TResult>(
         requestId: number,
-        run: (
-            client: BrowserWorkerClient<TPendingRequest>,
-            isAdmitted: () => boolean,
-            workerKey: string | undefined,
-        ) => Promise<TResult>,
+        run: (client: BrowserWorkerClient<TPendingRequest>, isAdmitted: () => boolean, workerKey: string | undefined) => Promise<TResult>,
         admission: IBrowserWorkerAdmission = {},
     ): Promise<TResult> {
         const request: IOwnedRequest<TPendingRequest> = {
@@ -601,8 +590,12 @@ export class BrowserWorkerRequestOwner<TPendingRequest extends {
         });
         return promise.finally(() => {
             this.releaseClient(request, requestId);
-            if (this.requests.get(requestId) === request) {this.requests.delete(requestId);}
-            if (this.requests.size === 0) {this.lifecycle.clear();}
+            if (this.requests.get(requestId) === request) {
+                this.requests.delete(requestId);
+            }
+            if (this.requests.size === 0) {
+                this.lifecycle.clear();
+            }
             this.admitWaitingRequests();
             this.budget?.wake();
         });
@@ -610,7 +603,9 @@ export class BrowserWorkerRequestOwner<TPendingRequest extends {
 
     public cancel(requestId: number, error: Error) {
         const request = this.requests.get(requestId);
-        if (!request) {return;}
+        if (!request) {
+            return;
+        }
         const client = request.client;
         this.requests.delete(requestId);
         let canceledPending = false;
@@ -624,22 +619,33 @@ export class BrowserWorkerRequestOwner<TPendingRequest extends {
                         : {resetWorker: true},
                 );
             } catch {
-                if (!request.admission.keepWarmOnCancel) {client.resetWorker(new BrowserWorkerResetError());}
+                if (!request.admission.keepWarmOnCancel) {
+                    client.resetWorker(new BrowserWorkerResetError());
+                }
             } finally {
                 this.releaseClient(request, requestId);
             }
         }
-        if (!canceledPending) {request.reject(error);}
+        if (!canceledPending) {
+            request.reject(error);
+        }
     }
 
     private releaseClient(request: IOwnedRequest<TPendingRequest>, requestId: number) {
         const client = request.client;
         request.client = null;
-        if (!client || client.leasedBy !== requestId) {return;}
+        if (!client || client.leasedBy !== requestId) {
+            return;
+        }
         client.leasedBy = null;
-        if (!client.idle) {return;}
-        if (this.budget?.retired(client.workerKey)) {client.resetWorker();}
-        else {client.scheduleIdleWorkerTermination();}
+        if (!client.idle) {
+            return;
+        }
+        if (this.budget?.retired(client.workerKey)) {
+            client.resetWorker();
+        } else {
+            client.scheduleIdleWorkerTermination();
+        }
     }
 
     /** Sends a control message to every currently live worker in the pool without spawning new ones. */
@@ -655,21 +661,27 @@ export class BrowserWorkerRequestOwner<TPendingRequest extends {
     /** Ends the workers of the clients that run nothing now; busy ones keep theirs until replaced. */
     public resetIdleWorkers() {
         for (const client of this.clients) {
-            if (client.idle) {client.resetWorker();}
+            if (client.idle) {
+                client.resetWorker();
+            }
         }
     }
 
     /** Immediately terminates any warm-canceled workers that are still draining. */
     public resetDrainingWorkers() {
         for (const client of this.clients) {
-            if (client.draining) {client.resetWorker();}
+            if (client.draining) {
+                client.resetWorker();
+            }
         }
     }
 
     private reset() {
         const requests = [...this.requests.values()];
         for (const request of requests) {
-            if (request.client) {request.client.leasedBy = null;}
+            if (request.client) {
+                request.client.leasedBy = null;
+            }
         }
         this.requests.clear();
         this.lifecycle.clear();
@@ -698,7 +710,9 @@ export class BrowserWorkerRequestOwner<TPendingRequest extends {
 
     private admitWaitingRequestsPass() {
         for (const request of this.requests.values()) {
-            if (request.client) {continue;}
+            if (request.client) {
+                continue;
+            }
             const workerKey = request.admission.workerKey?.();
             if (request.admission.terminateDrainingSameKey && workerKey !== undefined) {
                 for (const candidate of this.clients) {
@@ -707,15 +721,17 @@ export class BrowserWorkerRequestOwner<TPendingRequest extends {
                     }
                 }
             }
-            let free = this.clients.filter(candidate => candidate.leasedBy === null && !candidate.draining);
+            let free = this.clients.filter((candidate) => candidate.leasedBy === null && !candidate.draining);
             if (free.length === 0 && request.admission.terminateDrainingWhenFull) {
-                const draining = this.clients.find(candidate => candidate.leasedBy === null && candidate.draining);
+                const draining = this.clients.find((candidate) => candidate.leasedBy === null && candidate.draining);
                 if (draining) {
                     draining.resetWorker();
                     free = [draining];
                 }
             }
-            if (free.length === 0) {continue;}
+            if (free.length === 0) {
+                continue;
+            }
             const client = this.chooseClient(
                 free,
                 workerKey,
@@ -724,7 +740,9 @@ export class BrowserWorkerRequestOwner<TPendingRequest extends {
                 request.admission.waitForDrainingSameKey,
             );
             // A request waiting for a budget place or draining same-key worker lets later independent ones start.
-            if (!client) {continue;}
+            if (!client) {
+                continue;
+            }
             request.start(client, workerKey);
         }
     }
@@ -738,29 +756,39 @@ export class BrowserWorkerRequestOwner<TPendingRequest extends {
     ) {
         if (workerKey === undefined) {
             if (affinityKey !== undefined) {
-                return free.find(candidate => candidate.hasWorker() && candidate.affinityKey === affinityKey)
-                    ?? free.find(candidate => candidate.hasWorker() && candidate.affinityKey === null)
-                    ?? free.find(candidate => !candidate.hasWorker())
-                    ?? free[0];
+                return (
+                    free.find((candidate) => candidate.hasWorker() && candidate.affinityKey === affinityKey) ??
+                    free.find((candidate) => candidate.hasWorker() && candidate.affinityKey === null) ??
+                    free.find((candidate) => !candidate.hasWorker()) ??
+                    free[0]
+                );
             }
-            return free.find(candidate => candidate.hasWorker()) ?? free[0];
+            return free.find((candidate) => candidate.hasWorker()) ?? free[0];
         }
         const budget = this.budget?.counts(workerKey) ? this.budget : null;
-        if (budget && !budget.admits(keepFree)) {return null;}
-        const same = free.find(candidate => candidate.workerKey === workerKey);
-        if (same) {return same;}
+        if (budget && !budget.admits(keepFree)) {
+            return null;
+        }
+        const same = free.find((candidate) => candidate.workerKey === workerKey);
+        if (same) {
+            return same;
+        }
         // Wait for a warm counted/threaded worker of the exact same key that is
         // finishing a warm-canceled request rather than cold-booting a duplicate
         // multi-thread pool; uncounted single-threaded lanes can use free capacity.
-        const shouldWaitForDraining = waitForDrainingSameKey ?? (budget !== null);
-        if (shouldWaitForDraining && this.clients.some(candidate => candidate.draining && candidate.workerKey === workerKey)) {
+        const shouldWaitForDraining = waitForDrainingSameKey ?? budget !== null;
+        if (shouldWaitForDraining && this.clients.some((candidate) => candidate.draining && candidate.workerKey === workerKey)) {
             return null;
         }
-        const empty = free.find(candidate => !candidate.hasWorker()) ?? free[0];
-        if (!budget || budget.hasRoom()) {return empty;}
+        const empty = free.find((candidate) => !candidate.hasWorker()) ?? free[0];
+        if (!budget || budget.hasRoom()) {
+            return empty;
+        }
         // Replacing an idle counted worker of this pool keeps the count.
-        const holder = free.find(candidate => budget.holds(candidate));
-        if (holder) {return holder;}
+        const holder = free.find((candidate) => budget.holds(candidate));
+        if (holder) {
+            return holder;
+        }
         budget.makeRoom();
         return empty;
     }

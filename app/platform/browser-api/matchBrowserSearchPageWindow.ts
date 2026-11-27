@@ -1,11 +1,5 @@
-import {
-    SearchRegexLimitError,
-    type IResolvedSearchMatchOptions,
-} from '@pdf-core/pdfSearchCore';
-import {
-    SEARCH_REGEX_MAX_EXECUTION_MS,
-    type TSearchResultOffset,
-} from '@contracts/search';
+import {SearchRegexLimitError, type IResolvedSearchMatchOptions} from '@pdf-core/pdfSearchCore';
+import {SEARCH_REGEX_MAX_EXECUTION_MS, type TSearchResultOffset} from '@contracts/search';
 import type {IPdfSearchMatchPageResponse} from '@contracts/searchIndexWire';
 import {
     BROWSER_SEARCH_REGEX_WORKER_TIMEOUT_MS,
@@ -17,9 +11,7 @@ import {
 } from '@app/platform/browser-api/browserSearchWorkerClient';
 
 function createRegexBudgetError() {
-    return new SearchRegexLimitError(
-        `Search regex exceeded the ${SEARCH_REGEX_MAX_EXECUTION_MS}ms matching budget`,
-    );
+    return new SearchRegexLimitError(`Search regex exceeded the ${SEARCH_REGEX_MAX_EXECUTION_MS}ms matching budget`);
 }
 
 /**
@@ -35,15 +27,7 @@ export async function matchBrowserSearchPageWindow(
     regexBudget: {remainingMs: number},
     signal: AbortSignal,
 ): Promise<IPdfSearchMatchPageResponse> {
-    return matchBrowserSearchPageWindowInWorker(
-        text,
-        query,
-        options,
-        maxMatches,
-        resultOffset,
-        regexBudget,
-        signal,
-    );
+    return matchBrowserSearchPageWindowInWorker(text, query, options, maxMatches, resultOffset, regexBudget, signal);
 }
 
 /**
@@ -63,9 +47,7 @@ export async function matchBrowserSearchPageWindowInWorker(
         throw createRegexBudgetError();
     }
     if (!canUseBrowserSearchWorker()) {
-        throw new BrowserSearchWorkerUnavailableError(
-            'Browser search worker is required for page-text matching',
-        );
+        throw new BrowserSearchWorkerUnavailableError('Browser search worker is required for page-text matching');
     }
 
     signal.throwIfAborted();
@@ -84,11 +66,10 @@ export async function matchBrowserSearchPageWindowInWorker(
     const cancelWorkerRequest = () => cancelBrowserSearchWorkerRequest(workerRequest.requestId);
     signal.addEventListener('abort', cancelWorkerRequest, {once: true});
     try {
-        const {
-            matchingMs,
-            ...result
-        } = await workerRequest.promise;
-        if (options.useRegex) {regexBudget.remainingMs -= matchingMs;}
+        const {matchingMs, ...result} = await workerRequest.promise;
+        if (options.useRegex) {
+            regexBudget.remainingMs -= matchingMs;
+        }
         return result;
     } catch (error) {
         throw error instanceof BrowserSearchWorkerTimeoutError ? createRegexBudgetError() : error;

@@ -1,9 +1,9 @@
-import { execFile } from 'node:child_process';
-import { dirname } from 'node:path';
-import { promisify } from 'node:util';
-import { app } from 'electron';
-import { createLogger } from '@electron/utils/createLogger';
-import { getErrorMessage } from '@electron/utils/error';
+import {execFile} from 'node:child_process';
+import {dirname} from 'node:path';
+import {promisify} from 'node:util';
+import {app} from 'electron';
+import {createLogger} from '@electron/utils/createLogger';
+import {getErrorMessage} from '@electron/utils/error';
 
 const logger = createLogger('mac-app-copies');
 const execFileAsync = promisify(execFile);
@@ -21,16 +21,9 @@ async function listRegisteredCopies() {
         }
         JSON.stringify(paths);
     `;
-    const {stdout} = await execFileAsync('osascript', [
-        '-l',
-        'JavaScript',
-        '-e',
-        script,
-    ], {timeout: 10_000});
+    const {stdout} = await execFileAsync('osascript', ['-l', 'JavaScript', '-e', script], {timeout: 10_000});
     const paths: unknown = JSON.parse(stdout.trim());
-    return Array.isArray(paths)
-        ? paths.filter((path): path is string => typeof path === 'string')
-        : [];
+    return Array.isArray(paths) ? paths.filter((path): path is string => typeof path === 'string') : [];
 }
 
 /**
@@ -52,10 +45,7 @@ export async function unregisterOtherMacAppCopies() {
             if (path === currentBundle) {
                 continue;
             }
-            await execFileAsync(LSREGISTER, [
-                '-u',
-                path,
-            ], {timeout: 10_000});
+            await execFileAsync(LSREGISTER, ['-u', path], {timeout: 10_000});
             logger.info(`Unregistered another copy of the app: ${path}`);
         }
     } catch (error) {

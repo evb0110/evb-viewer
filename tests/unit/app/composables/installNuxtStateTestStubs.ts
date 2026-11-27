@@ -1,13 +1,10 @@
-import { ref } from 'vue';
-import { vi } from 'vitest';
+import {ref} from 'vue';
+import {vi} from 'vitest';
 
 export type TRefStore = Map<string, ReturnType<typeof ref>>;
 
-export function installNuxtStateTestStubs(
-    cookieStore: TRefStore,
-    stateStore: TRefStore,
-) {
-    vi.stubGlobal('useCookie', <T>(key: string, options?: { default?: () => T; }) => {
+export function installNuxtStateTestStubs(cookieStore: TRefStore, stateStore: TRefStore) {
+    vi.stubGlobal('useCookie', <T>(key: string, options?: {default?: () => T}) => {
         const existing = cookieStore.get(key);
         if (existing) {
             return existing;

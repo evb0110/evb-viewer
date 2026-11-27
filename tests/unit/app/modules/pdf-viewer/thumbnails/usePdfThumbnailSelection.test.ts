@@ -1,26 +1,12 @@
 // @vitest-environment happy-dom
 
-import {
-    describe,
-    expect,
-    it,
-    onTestFinished,
-    vi,
-} from 'vitest';
-import {
-    computed,
-    createApp,
-    defineComponent,
-    h,
-    shallowRef,
-    nextTick,
-    ref,
-} from 'vue';
-import type { TPageSelection } from '@contracts/pageNumbers';
-import { usePdfThumbnailSelection } from '@app/modules/pdf-viewer/thumbnails/usePdfThumbnailSelection';
+import {describe, expect, it, onTestFinished, vi} from 'vitest';
+import {computed, createApp, defineComponent, h, shallowRef, nextTick, ref} from 'vue';
+import type {TPageSelection} from '@contracts/pageNumbers';
+import {usePdfThumbnailSelection} from '@app/modules/pdf-viewer/thumbnails/usePdfThumbnailSelection';
 
 import PdfSidebarPageNumbering from '@app/modules/pdf-viewer/components/PdfSidebarPageNumbering.vue';
-import { createEmptyPageSelection, createRangePageSelection, pageSelectionCount } from '@app/utils/pdfPageSelection';
+import {createEmptyPageSelection, createRangePageSelection, pageSelectionCount} from '@app/utils/pdfPageSelection';
 
 vi.mock('@app/composables/useTypedI18n', () => ({
     useTypedI18n: () => ({t: (key: string, params?: {range?: string; total?: number}) => `${key}${params ? JSON.stringify(params) : ''}`}),
@@ -33,31 +19,69 @@ async function mountNumberingPanel() {
     const selected = shallowRef<TPageSelection>(createEmptyPageSelection(20));
     const host = document.createElement('div');
     document.body.append(host);
-    const app = createApp({setup: () => () => h('div', [
-        h(PdfSidebarPageNumbering, {
-            totalPages: 20,
-            selectedPageSelection: selected.value,
-            'onUpdate:selectedPageSelection': (selection: TPageSelection) => {selected.value = selection;},
+    const app = createApp({
+        setup: () => () =>
+            h('div', [
+                h(PdfSidebarPageNumbering, {
+                    totalPages: 20,
+                    selectedPageSelection: selected.value,
+                    'onUpdate:selectedPageSelection': (selection: TPageSelection) => {
+                        selected.value = selection;
+                    },
+                }),
+                h('output', {class: 'selection-count'}, String(pageSelectionCount(selected.value))),
+            ]),
+    });
+    app.component(
+        'UCollapsible',
+        defineComponent({
+            setup:
+                (_props, {slots}) =>
+                () =>
+                    h('div', slots.content?.()),
         }),
-        h('output', {class: 'selection-count'}, String(pageSelectionCount(selected.value))),
-    ])});
-    app.component('UCollapsible', defineComponent({setup: (_props, {slots}) => () => h('div', slots.content?.())}));
+    );
     app.component('UIcon', {render: () => h('span')});
     for (const name of ['UFormField', 'URadioGroup', 'USelect', 'UInputNumber']) {
-        app.component(name, defineComponent({setup: (_props, {slots}) => () => h('div', slots.default?.())}));
+        app.component(
+            name,
+            defineComponent({
+                setup:
+                    (_props, {slots}) =>
+                    () =>
+                        h('div', slots.default?.()),
+            }),
+        );
     }
-    app.component('UButton', defineComponent({setup: (_props, {attrs, slots}) => () => h('button', attrs, slots.default?.())}));
-    app.component('UInput', defineComponent({
-        props: {modelValue: {type: String, default: ''}},
-        emits: ['update:modelValue'],
-        setup: (props, {attrs, emit}) => () => h('input', {
-            ...attrs,
-            value: props.modelValue,
-            onInput: (event: Event) => emit('update:modelValue', (event.target as HTMLInputElement).value),
+    app.component(
+        'UButton',
+        defineComponent({
+            setup:
+                (_props, {attrs, slots}) =>
+                () =>
+                    h('button', attrs, slots.default?.()),
         }),
-    }));
+    );
+    app.component(
+        'UInput',
+        defineComponent({
+            props: {modelValue: {type: String, default: ''}},
+            emits: ['update:modelValue'],
+            setup:
+                (props, {attrs, emit}) =>
+                () =>
+                    h('input', {
+                        ...attrs,
+                        value: props.modelValue,
+                        onInput: (event: Event) => emit('update:modelValue', (event.target as HTMLInputElement).value),
+                    }),
+        }),
+    );
     app.mount(host);
-    onTestFinished(() => {app.unmount(); host.remove();});
+    onTestFinished(() => {
+        app.unmount();
+        host.remove();
+    });
     await nextTick();
     const input = host.querySelector<HTMLInputElement>('#page-label-range-input')!;
     async function type(text: string) {
@@ -98,20 +122,19 @@ describe('page numbering selection input', () => {
     });
 });
 
-function createSelectionHarness(options: {
-    currentPage?: number;
-    keyboardMove?: 'move' | 'reorder';
-    scrollPageIntoKeyboardView?: (page: number) => void | Promise<void>;
-    selectedPages?: number[];
-    totalPages?: number;
-    pageSelection?: TPageSelection | null;
-} = {}) {
+function createSelectionHarness(
+    options: {
+        currentPage?: number;
+        keyboardMove?: 'move' | 'reorder';
+        scrollPageIntoKeyboardView?: (page: number) => void | Promise<void>;
+        selectedPages?: number[];
+        totalPages?: number;
+        pageSelection?: TPageSelection | null;
+    } = {},
+) {
     const totalPages = ref(options.totalPages ?? 5);
     const currentPage = ref(options.currentPage ?? 2);
-    const selectedPages = ref(options.selectedPages ?? [
-        2,
-        4,
-    ]);
+    const selectedPages = ref(options.selectedPages ?? [2, 4]);
     const selectedPageSelection = ref<TPageSelection | null>(options.pageSelection ?? null);
     const onSelectedPagesChange = vi.fn((pages: number[]) => {
         selectedPages.value = pages;
@@ -142,9 +165,9 @@ function createSelectionHarness(options: {
         ...(options.pageSelection === undefined
             ? {}
             : {
-                onPageSelectionChange,
-                selectedPageSelection: computed(() => selectedPageSelection.value),
-            }),
+                  onPageSelectionChange,
+                  selectedPageSelection: computed(() => selectedPageSelection.value),
+              }),
         scrollPageIntoKeyboardView,
         selectedPages: computed(() => selectedPages.value),
         totalPages: computed(() => totalPages.value),
@@ -183,26 +206,22 @@ describe('usePdfThumbnailSelection', () => {
             startPage: 2,
             endPage: 100_002,
         } satisfies TPageSelection;
-        const {
-            onContextMenu,
-            selection,
-        } = createSelectionHarness({
+        const {onContextMenu, selection} = createSelectionHarness({
             pageSelection,
             totalPages: 1_000_000,
         });
 
         selection.handleThumbnailContextMenu(new MouseEvent('contextmenu'), 50_000);
 
-        expect(onContextMenu).toHaveBeenCalledWith(expect.objectContaining({
-            clickedPage: 50_000,
-            selection: pageSelection,
-        }));
+        expect(onContextMenu).toHaveBeenCalledWith(
+            expect.objectContaining({
+                clickedPage: 50_000,
+                selection: pageSelection,
+            }),
+        );
     });
     it('roves the tab stop from the current page and drops it for an empty document', () => {
-        const {
-            selection,
-            totalPages,
-        } = createSelectionHarness({currentPage: 2});
+        const {selection, totalPages} = createSelectionHarness({currentPage: 2});
 
         expect(selection.rovingFocusPage.value).toBe(2);
 
@@ -211,14 +230,8 @@ describe('usePdfThumbnailSelection', () => {
     });
 
     it('moves keyboard focus with arrow keys without changing selection or the page', () => {
-        const {
-            focusPageElement,
-            onGoToPage,
-            onSelectedPagesChange,
-            scrollPageIntoKeyboardView,
-            selectedPages,
-            selection,
-        } = createSelectionHarness({currentPage: 2});
+        const {focusPageElement, onGoToPage, onSelectedPagesChange, scrollPageIntoKeyboardView, selectedPages, selection} =
+            createSelectionHarness({currentPage: 2});
         onSelectedPagesChange.mockClear();
 
         const event = keyEvent('ArrowDown');
@@ -229,10 +242,7 @@ describe('usePdfThumbnailSelection', () => {
         expect(scrollPageIntoKeyboardView).toHaveBeenCalledWith(3);
         expect(focusPageElement).toHaveBeenCalledWith(3);
         expect(onSelectedPagesChange).not.toHaveBeenCalled();
-        expect(selectedPages.value).toEqual([
-            2,
-            4,
-        ]);
+        expect(selectedPages.value).toEqual([2, 4]);
         expect(onGoToPage).not.toHaveBeenCalled();
     });
 
@@ -274,11 +284,7 @@ describe('usePdfThumbnailSelection', () => {
             key: 'PageDown',
             targetPage: 20,
         },
-    ])('waits for a cross-segment $key scroll before focusing its target row', async ({
-        currentPage,
-        key,
-        targetPage,
-    }) => {
+    ])('waits for a cross-segment $key scroll before focusing its target row', async ({currentPage, key, targetPage}) => {
         const harness = createSelectionHarness({
             currentPage,
             scrollPageIntoKeyboardView: () => Promise.resolve(),
@@ -295,11 +301,7 @@ describe('usePdfThumbnailSelection', () => {
     });
 
     it('activates the focused row with Enter and Space without selecting it', () => {
-        const {
-            onGoToPage,
-            onSelectedPagesChange,
-            selection,
-        } = createSelectionHarness({currentPage: 2});
+        const {onGoToPage, onSelectedPagesChange, selection} = createSelectionHarness({currentPage: 2});
         onSelectedPagesChange.mockClear();
 
         selection.handleContainerKeyDown(keyEvent('ArrowDown'));
@@ -316,23 +318,14 @@ describe('usePdfThumbnailSelection', () => {
     });
 
     it('keeps Shift+Arrow range selection and moves the roving focus with it', () => {
-        const {
-            focusPageElement,
-            onGoToPage,
-            onSelectedPagesChange,
-            selectedPages,
-            selection,
-        } = createSelectionHarness({currentPage: 2});
+        const {focusPageElement, onGoToPage, onSelectedPagesChange, selectedPages, selection} = createSelectionHarness({currentPage: 2});
         onSelectedPagesChange.mockClear();
 
         const event = keyEvent('ArrowDown', {shiftKey: true});
         selection.handleContainerKeyDown(event);
 
         expect(event.defaultPrevented).toBe(true);
-        expect(selectedPages.value).toEqual([
-            4,
-            5,
-        ]);
+        expect(selectedPages.value).toEqual([4, 5]);
         expect(onGoToPage).toHaveBeenCalledWith(5);
         expect(focusPageElement).toHaveBeenCalledWith(5);
         expect(selection.rovingFocusPage.value).toBe(5);
@@ -365,10 +358,7 @@ describe('usePdfThumbnailSelection', () => {
     });
 
     it('ignores key presses raised by controls nested inside a row', () => {
-        const {
-            onGoToPage,
-            selection,
-        } = createSelectionHarness({currentPage: 2});
+        const {onGoToPage, selection} = createSelectionHarness({currentPage: 2});
         const row = document.createElement('div');
         row.dataset.thumbnailPage = '2';
         const toggle = document.createElement('button');
@@ -394,12 +384,7 @@ describe('usePdfThumbnailSelection', () => {
     });
 
     it('ignores keyboard navigation before the document has pages', () => {
-        const {
-            focusPageElement,
-            onGoToPage,
-            scrollPageIntoKeyboardView,
-            selection,
-        } = createSelectionHarness({
+        const {focusPageElement, onGoToPage, scrollPageIntoKeyboardView, selection} = createSelectionHarness({
             currentPage: 2,
             totalPages: 0,
         });
@@ -431,16 +416,9 @@ describe('usePdfThumbnailSelection', () => {
     });
 
     it('leaves navigation keys alone while a modifier chord is held', () => {
-        const {
-            focusPageElement,
-            selection,
-        } = createSelectionHarness({currentPage: 2});
+        const {focusPageElement, selection} = createSelectionHarness({currentPage: 2});
 
-        for (const modifier of [
-            'ctrlKey',
-            'metaKey',
-            'altKey',
-        ]) {
+        for (const modifier of ['ctrlKey', 'metaKey', 'altKey']) {
             const event = keyEvent('ArrowDown', {[modifier]: true});
             selection.handleContainerKeyDown(event);
             expect(event.defaultPrevented).toBe(false);
@@ -451,19 +429,13 @@ describe('usePdfThumbnailSelection', () => {
     });
 
     it('moves the focused selected pages with Alt+ArrowDown in the page model', () => {
-        const {
-            onMove,
-            selection,
-        } = createSelectionHarness({
+        const {onMove, selection} = createSelectionHarness({
             currentPage: 2,
             keyboardMove: 'move',
             pageSelection: {
                 kind: 'explicit',
                 pageCount: 5,
-                pages: [
-                    2,
-                    4,
-                ],
+                pages: [2, 4],
             },
         });
 
@@ -488,39 +460,21 @@ describe('usePdfThumbnailSelection', () => {
     });
 
     it('builds the legacy reorder permutation for Alt+ArrowUp', () => {
-        const {
-            onReorder,
-            selection,
-        } = createSelectionHarness({
+        const {onReorder, selection} = createSelectionHarness({
             currentPage: 2,
             keyboardMove: 'reorder',
-            selectedPages: [
-                2,
-                3,
-            ],
+            selectedPages: [2, 3],
         });
 
         const event = keyEvent('ArrowUp', {altKey: true});
         selection.handleContainerKeyDown(event);
 
         expect(event.defaultPrevented).toBe(true);
-        expect(onReorder).toHaveBeenCalledWith([
-            2,
-            3,
-            1,
-            4,
-            5,
-        ]);
+        expect(onReorder).toHaveBeenCalledWith([2, 3, 1, 4, 5]);
     });
 
     it('keeps a million-page shift selection in the model instead of a legacy array', () => {
-        const {
-            onPageSelectionChange,
-            onSelectedPagesChange,
-            selectedPageSelection,
-            selectedPages,
-            selection,
-        } = createSelectionHarness({
+        const {onPageSelectionChange, onSelectedPagesChange, selectedPageSelection, selectedPages, selection} = createSelectionHarness({
             currentPage: 2,
             pageSelection: {
                 kind: 'none',
@@ -531,10 +485,7 @@ describe('usePdfThumbnailSelection', () => {
         onPageSelectionChange.mockClear();
         onSelectedPagesChange.mockClear();
 
-        selection.handleThumbnailClick(
-            new MouseEvent('click', { shiftKey: true }),
-            1_000_000,
-        );
+        selection.handleThumbnailClick(new MouseEvent('click', {shiftKey: true}), 1_000_000);
 
         expect(onPageSelectionChange).toHaveBeenCalledOnce();
         expect(onPageSelectionChange.mock.calls[0]?.[0]).toEqual({
@@ -545,26 +496,15 @@ describe('usePdfThumbnailSelection', () => {
         });
         expect(selectedPageSelection.value).toEqual(onPageSelectionChange.mock.calls[0]?.[0]);
         expect(onSelectedPagesChange).not.toHaveBeenCalled();
-        expect(selectedPages.value).toEqual([
-            2,
-            4,
-        ]);
+        expect(selectedPages.value).toEqual([2, 4]);
         expect(selection.isSelected(1_000_000)).toBe(true);
     });
 
     it('refuses a million-page legacy shift selection before allocating an all-pages array', () => {
-        const {
-            onSelectedPagesChange,
-            onSelectionRefused,
-            selectedPages,
-            selection,
-        } = createSelectionHarness({totalPages: 1_000_000});
+        const {onSelectedPagesChange, onSelectionRefused, selectedPages, selection} = createSelectionHarness({totalPages: 1_000_000});
         onSelectedPagesChange.mockClear();
 
-        selection.handleThumbnailClick(
-            new MouseEvent('click', {shiftKey: true}),
-            1_000_000,
-        );
+        selection.handleThumbnailClick(new MouseEvent('click', {shiftKey: true}), 1_000_000);
 
         expect(onSelectionRefused).toHaveBeenCalledWith({
             kind: 'page-count-limit',
@@ -572,9 +512,6 @@ describe('usePdfThumbnailSelection', () => {
             limit: 100_000,
         });
         expect(onSelectedPagesChange).not.toHaveBeenCalled();
-        expect(selectedPages.value).toEqual([
-            2,
-            4,
-        ]);
+        expect(selectedPages.value).toEqual([2, 4]);
     });
 });

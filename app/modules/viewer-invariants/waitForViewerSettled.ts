@@ -1,7 +1,7 @@
-import { getAutomationEvents } from '@app/modules/workspace-shell/public/automationEvents';
-import { readLastViewerInputAt } from '@app/modules/viewer-invariants/viewerActionLog';
-import { findActiveWorkspaceHost } from '@app/modules/viewer-invariants/readViewerSurface';
-import { waitForVisualFrames } from '@app/utils/asyncHelpers';
+import {getAutomationEvents} from '@app/modules/workspace-shell/public/automationEvents';
+import {readLastViewerInputAt} from '@app/modules/viewer-invariants/viewerActionLog';
+import {findActiveWorkspaceHost} from '@app/modules/viewer-invariants/readViewerSurface';
+import {waitForVisualFrames} from '@app/utils/asyncHelpers';
 
 /** The quiet window that makes an interaction finished rather than paused. */
 const INPUT_QUIET_MS = 500;
@@ -40,9 +40,7 @@ export interface IViewerSettleOptions {
  */
 function hasNavigationIdleSinceLastInput() {
     const lastInputAt = readLastViewerInputAt();
-    return getAutomationEvents().some(event => (
-        event.type === 'navigation-idle' && event.timestamp >= lastInputAt
-    ));
+    return getAutomationEvents().some((event) => event.type === 'navigation-idle' && event.timestamp >= lastInputAt);
 }
 
 /**
@@ -64,10 +62,12 @@ function findPageRenderPending(host: HTMLElement) {
     const pending = [...track.querySelectorAll<HTMLElement>(VISIBLE_PAGE_SELECTOR)]
         .filter((container) => {
             const rect = container.getBoundingClientRect();
-            return rect.bottom > viewportRect.top
-                && rect.top < viewportRect.bottom
-                && rect.right > viewportRect.left
-                && rect.left < viewportRect.right;
+            return (
+                rect.bottom > viewportRect.top &&
+                rect.top < viewportRect.bottom &&
+                rect.right > viewportRect.left &&
+                rect.left < viewportRect.right
+            );
         })
         .filter((container) => {
             const skeleton = container.querySelector<HTMLElement>(PAGE_SKELETON_SELECTOR);
@@ -76,15 +76,15 @@ function findPageRenderPending(host: HTMLElement) {
             }
             const style = window.getComputedStyle(skeleton);
             const rect = skeleton.getBoundingClientRect();
-            return style.display !== 'none'
-                && style.visibility !== 'hidden'
-                && Number(style.opacity || '1') !== 0
-                && rect.width > 0
-                && rect.height > 0;
+            return (
+                style.display !== 'none' &&
+                style.visibility !== 'hidden' &&
+                Number(style.opacity || '1') !== 0 &&
+                rect.width > 0 &&
+                rect.height > 0
+            );
         });
-    return pending.length > 0
-        ? `${String(pending.length)} visible pages were still showing a skeleton`
-        : null;
+    return pending.length > 0 ? `${String(pending.length)} visible pages were still showing a skeleton` : null;
 }
 
 /**
@@ -121,9 +121,7 @@ function sampleViewerGeometry(host: HTMLElement) {
  * an outcome so it can be raised as a violation, never as a reason to skip a
  * check.
  */
-export async function waitForViewerSettled(
-    options: IViewerSettleOptions = {},
-): Promise<IViewerSettleOutcome> {
+export async function waitForViewerSettled(options: IViewerSettleOptions = {}): Promise<IViewerSettleOutcome> {
     const timeoutMs = options.timeoutMs ?? DEFAULT_SETTLE_TIMEOUT_MS;
     const requireNavigationIdle = options.requireNavigationIdle ?? false;
     const startedAt = Date.now();
@@ -133,7 +131,9 @@ export async function waitForViewerSettled(
 
     while (!options.signal?.aborted) {
         const remainingMs = deadline - Date.now();
-        if (remainingMs <= 0) {break;}
+        if (remainingMs <= 0) {
+            break;
+        }
 
         await waitForVisualFrames({
             timeoutMs: Math.min(64, remainingMs),

@@ -1,9 +1,5 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { areByteArraysEqual } from '@app/utils/areByteArraysEqual';
+import {describe, expect, it} from 'vitest';
+import {areByteArraysEqual} from '@app/utils/areByteArraysEqual';
 
 describe('areByteArraysEqual', () => {
     it('compares equal aligned byte arrays', () => {
@@ -29,21 +25,7 @@ describe('areByteArraysEqual', () => {
     });
 
     it('handles matching misaligned slices and differing offsets', () => {
-        const source = Uint8Array.from([
-            99,
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            9,
-            10,
-            11,
-            12,
-        ]);
+        const source = Uint8Array.from([99, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
         const left = source.subarray(1, 12);
         const right = new Uint8Array(left);
 
@@ -52,9 +34,6 @@ describe('areByteArraysEqual', () => {
 
     it('preserves null and length mismatch behavior', () => {
         expect(areByteArraysEqual(null, null)).toBe(false);
-        expect(areByteArraysEqual(new Uint8Array([1]), new Uint8Array([
-            1,
-            2,
-        ]))).toBe(false);
+        expect(areByteArraysEqual(new Uint8Array([1]), new Uint8Array([1, 2]))).toBe(false);
     });
 });

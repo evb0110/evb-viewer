@@ -1,11 +1,6 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { ref } from 'vue';
-import { useViewAnnotationTool } from '@app/modules/workspace-shell/composables/useViewAnnotationTool';
+import {describe, expect, it, vi} from 'vitest';
+import {ref} from 'vue';
+import {useViewAnnotationTool} from '@app/modules/workspace-shell/composables/useViewAnnotationTool';
 
 function createHarness() {
     const viewer = {prepareAnnotationToolChange: vi.fn<() => void | Promise<void>>()};
@@ -17,7 +12,9 @@ function createHarness() {
         showSidebar: ref(false),
         sidebarTab: ref<'thumbnails' | 'annotations'>('thumbnails'),
         annotationKeepActive: keepActive,
-        closeAnnotationContextMenu: () => {menuOpen.value = false;},
+        closeAnnotationContextMenu: () => {
+            menuOpen.value = false;
+        },
     };
 
     return {
@@ -42,28 +39,17 @@ describe('useViewAnnotationTool', () => {
         'strikethrough',
         'squiggly',
         'stamp',
-    ] as const)(
-        'applies Keep active consistently after completed %s creation', (tool) => {
-            const {
-                keepActive,
-                tools,
-            } = createHarness();
-            tools.annotationTool.value = tool;
-            tools.handleAnnotationToolAutoReset();
-            expect(tools.annotationTool.value).toBe(tool);
-            keepActive.value = false;
-            tools.handleAnnotationToolAutoReset();
-            expect(tools.annotationTool.value).toBe('select');
-        },
-    );
-    it.each([
-        true,
-        false,
-    ])('exits note placement after creation with Keep active=%s', (setting) => {
-        const {
-            keepActive,
-            tools,
-        } = createHarness();
+    ] as const)('applies Keep active consistently after completed %s creation', (tool) => {
+        const {keepActive, tools} = createHarness();
+        tools.annotationTool.value = tool;
+        tools.handleAnnotationToolAutoReset();
+        expect(tools.annotationTool.value).toBe(tool);
+        keepActive.value = false;
+        tools.handleAnnotationToolAutoReset();
+        expect(tools.annotationTool.value).toBe('select');
+    });
+    it.each([true, false])('exits note placement after creation with Keep active=%s', (setting) => {
+        const {keepActive, tools} = createHarness();
         keepActive.value = setting;
         tools.handleAnnotationToolChange('note');
         tools.handleAnnotationToolAutoReset();
@@ -71,11 +57,7 @@ describe('useViewAnnotationTool', () => {
         expect(keepActive.value).toBe(setting);
     });
     it('switches tools and clears context state', () => {
-        const {
-            deps,
-            viewer,
-            tools,
-        } = createHarness();
+        const {deps, viewer, tools} = createHarness();
 
         expect(tools.handleAnnotationToolChange('highlight')).toBe(true);
 
@@ -84,26 +66,15 @@ describe('useViewAnnotationTool', () => {
         expect(viewer.prepareAnnotationToolChange).toHaveBeenCalledOnce();
     });
 
-    it.each([
-        'highlight',
-        'note',
-        'stamp',
-    ] as const)(
-        'keeps explicit %s activation idempotent for action and agent commands', (tool) => {
-            const {tools} = createHarness();
-            tools.handleAnnotationToolChange(tool);
-            tools.handleAnnotationToolChange(tool);
-            expect(tools.annotationTool.value).toBe(tool);
-        },
-    );
+    it.each(['highlight', 'note', 'stamp'] as const)('keeps explicit %s activation idempotent for action and agent commands', (tool) => {
+        const {tools} = createHarness();
+        tools.handleAnnotationToolChange(tool);
+        tools.handleAnnotationToolChange(tool);
+        expect(tools.annotationTool.value).toBe(tool);
+    });
 
-    it.each([
-        true,
-        false,
-    ])('waits for text protection before changing the tool (accepted: %s)', async accepted => {
-        const {
-            viewer, deps, menuOpen, tools,
-        } = createHarness();
+    it.each([true, false])('waits for text protection before changing the tool (accepted: %s)', async (accepted) => {
+        const {viewer, deps, menuOpen, tools} = createHarness();
         const protection = Promise.withResolvers<undefined>();
         viewer.prepareAnnotationToolChange.mockReturnValue(protection.promise);
         tools.annotationTool.value = 'text';
@@ -111,8 +82,11 @@ describe('useViewAnnotationTool', () => {
         expect.soft(tools.annotationTool.value).toBe('text');
         expect.soft(deps.dragMode.value).toBe(true);
         expect.soft(menuOpen.value).toBe(true);
-        if (accepted) {protection.resolve(undefined);}
-        else {protection.reject(new Error('ENOSPC'));}
+        if (accepted) {
+            protection.resolve(undefined);
+        } else {
+            protection.reject(new Error('ENOSPC'));
+        }
         expect(await changing).toBe(accepted);
         expect(tools.annotationTool.value).toBe(accepted ? 'rectangle' : 'text');
         expect(deps.dragMode.value).toBe(!accepted);
@@ -128,11 +102,7 @@ describe('useViewAnnotationTool', () => {
     });
 
     it('auto-resets draw tools into select mode without touching the view selection', () => {
-        const {
-            keepActive,
-            viewer,
-            tools,
-        } = createHarness();
+        const {keepActive, viewer, tools} = createHarness();
 
         keepActive.value = false;
         tools.annotationTool.value = 'draw';

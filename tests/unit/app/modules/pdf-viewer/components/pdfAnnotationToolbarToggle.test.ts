@@ -2,20 +2,8 @@
 
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 
-import {
-    describe,
-    expect,
-    it,
-    onTestFinished,
-    vi,
-} from 'vitest';
-import {
-    createApp,
-    defineComponent,
-    h,
-    nextTick,
-    ref,
-} from 'vue';
+import {describe, expect, it, onTestFinished, vi} from 'vitest';
+import {createApp, defineComponent, h, nextTick, ref} from 'vue';
 import PdfAnnotationToolbar from '@app/modules/pdf-viewer/components/PdfAnnotationToolbar.vue';
 import {useViewAnnotationTool} from '@app/modules/workspace-shell/composables/useViewAnnotationTool';
 import type {TAnnotationTool} from '@app/types/annotations';
@@ -37,20 +25,36 @@ function mountToolbar() {
     });
     const host = document.createElement('div');
     document.body.append(host);
-    const app = createApp(defineComponent({setup: () => () => h(PdfAnnotationToolbar, {
-        tool: tools.annotationTool.value,
-        'onSet-tool': tools.handleAnnotationToolChange,
-    })}));
-    app.component('AppTooltip', defineComponent({
-        inheritAttrs: false,
-        setup: (_props, {slots}) => () => slots.default?.(),
-    }));
+    const app = createApp(
+        defineComponent({
+            setup: () => () =>
+                h(PdfAnnotationToolbar, {
+                    tool: tools.annotationTool.value,
+                    'onSet-tool': tools.handleAnnotationToolChange,
+                }),
+        }),
+    );
+    app.component(
+        'AppTooltip',
+        defineComponent({
+            inheritAttrs: false,
+            setup:
+                (_props, {slots}) =>
+                () =>
+                    slots.default?.(),
+        }),
+    );
     app.component('UIcon', defineComponent({setup: () => () => h('span')}));
     app.mount(host);
-    onTestFinished(() => { app.unmount(); host.remove(); });
+    onTestFinished(() => {
+        app.unmount();
+        host.remove();
+    });
     function button(tool: TAnnotationTool) {
         const element = host.querySelector<HTMLButtonElement>(`[data-tool="${tool}"]`);
-        if (!element) {throw new Error(`Missing tool button: ${tool}`);}
+        if (!element) {
+            throw new Error(`Missing tool button: ${tool}`);
+        }
         return element;
     }
     async function click(tool: TAnnotationTool) {

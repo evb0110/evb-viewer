@@ -1,14 +1,5 @@
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    markStartupMetricOnce,
-    resetStartupMetricsForTests,
-} from '@app/utils/startupMetrics';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
+import {markStartupMetricOnce, resetStartupMetricsForTests} from '@app/utils/startupMetrics';
 
 describe('startup metrics', () => {
     beforeEach(() => resetStartupMetricsForTests());

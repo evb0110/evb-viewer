@@ -4,18 +4,15 @@ import {
     mapPageNumberThroughPageIdentityDelta,
     type IPageIdentityDelta,
 } from '@contracts/electronApiPageOps';
-import { requirePageNumber } from '@contracts/pageNumbers';
-import type { TPdfSource } from '@app/types/pdfUi';
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import type {
-    IDocumentsFileIoCapability,
-    IDocumentsWorkingCopyCapability,
-} from '@contracts/electronApiDocuments';
-import type { IDocumentSessionState } from '@app/modules/workspace-shell/composables/document-session/documentSessionState';
-import { BrowserLogger } from '@app/utils/browserLogger';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import type {TPdfSource} from '@app/types/pdfUi';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {TDocumentRevisionToken} from '@contracts/documentRevision';
+import type {IDocumentsFileIoCapability, IDocumentsWorkingCopyCapability} from '@contracts/electronApiDocuments';
+import type {IDocumentSessionState} from '@app/modules/workspace-shell/composables/document-session/documentSessionState';
+import {BrowserLogger} from '@app/utils/browserLogger';
 import type {IWorkspaceCommandSink} from '@app/types/workspaceCommand';
-import type { TPdfDocumentAnnotations } from '@app/modules/pdf-viewer/public';
+import type {TPdfDocumentAnnotations} from '@app/modules/pdf-viewer/public';
 
 export interface IPdfLoadedState {
     pdfData: Uint8Array | null;
@@ -50,7 +47,10 @@ type TDocumentHistoryWorkingCopyDeps = Pick<
 
 export interface IHistoryRevisionSwapOptions {
     documentAnnotations?: () => TPdfDocumentAnnotations;
-    prepareHistoryRevisionSwap?: (revision: TDocumentRevisionToken, delta: IPageIdentityDelta | undefined) => Promise<(() => void) | undefined>;
+    prepareHistoryRevisionSwap?: (
+        revision: TDocumentRevisionToken,
+        delta: IPageIdentityDelta | undefined,
+    ) => Promise<(() => void) | undefined>;
 }
 
 interface ICreateDocumentHistoryDeps extends IHistoryRevisionSwapOptions {
@@ -73,10 +73,7 @@ interface ICreateDocumentHistoryDeps extends IHistoryRevisionSwapOptions {
 // The working copy keeps exactly the revisions these states name.
 const MAX_HISTORY_ENTRIES = 20;
 
-export function createDocumentHistory(
-    state: IDocumentSessionState,
-    deps: ICreateDocumentHistoryDeps,
-) {
+export function createDocumentHistory(state: IDocumentSessionState, deps: ICreateDocumentHistoryDeps) {
     const commands = shallowRef<IFileCommand[]>([]);
     const currentFileState = shallowRef<object>({});
     let savedFileState = currentFileState.value;
@@ -93,14 +90,18 @@ export function createDocumentHistory(
     /** Tells the working copy which revisions history names; it lets the others go. */
     function retainRevisions() {
         const path = state.workingCopyPath.value;
-        if (!path) {return;}
+        if (!path) {
+            return;
+        }
         const revisions = new Set([
-            ...commands.value.flatMap(command => [command.before, command.after]),
-            ...[currentCheckpoint, stagedBaseline].filter(revision => revision !== null),
+            ...commands.value.flatMap((command) => [command.before, command.after]),
+            ...[currentCheckpoint, stagedBaseline].filter((revision) => revision !== null),
         ]);
-        deps.documentWorkingCopy().retainDocumentRevisions(path, [...revisions]).catch((error: unknown) => {
-            BrowserLogger.warn('pdf-file', 'Failed to retain the undo revisions', {path, error});
-        });
+        deps.documentWorkingCopy()
+            .retainDocumentRevisions(path, [...revisions])
+            .catch((error: unknown) => {
+                BrowserLogger.warn('pdf-file', 'Failed to retain the undo revisions', {path, error});
+            });
     }
 
     function clearHistory() {
@@ -112,7 +113,9 @@ export function createDocumentHistory(
 
     /** History starts over at the revision the document has now. */
     function resetHistory(options?: {isCurrent?: (() => boolean) | undefined}) {
-        if (options?.isCurrent?.() === false) {return Promise.resolve(false);}
+        if (options?.isCurrent?.() === false) {
+            return Promise.resolve(false);
+        }
         clearHistory();
         currentFileState.value = {};
         savedFileState = currentFileState.value;
@@ -133,14 +136,10 @@ export function createDocumentHistory(
         try {
             await deps.documentWorkingCopy().cleanupFile(path);
         } catch (cleanupError) {
-            BrowserLogger.warn(
-                'pdf-file',
-                'Failed to cleanup previous working copy',
-                {
-                    path,
-                    error: cleanupError,
-                },
-            );
+            BrowserLogger.warn('pdf-file', 'Failed to cleanup previous working copy', {
+                path,
+                error: cleanupError,
+            });
         }
     }
 
@@ -164,11 +163,18 @@ export function createDocumentHistory(
     /** The revision a mutation is about to replace becomes the `before` of its history entry. */
     async function stageHistoryBaselineForMutation() {
         const path = state.workingCopyPath.value;
-        if (!path) {return false;}
+        if (!path) {
+            return false;
+        }
         const session = deps.readDocumentSessionKey();
         const {token} = await deps.documentFiles().getDocumentRevision(path);
-        if (!state.isActiveWorkingCopy(path) || session !== deps.readDocumentSessionKey()
-            || (state.documentRevisionToken.value !== null && state.documentRevisionToken.value !== token)) {return false;}
+        if (
+            !state.isActiveWorkingCopy(path) ||
+            session !== deps.readDocumentSessionKey() ||
+            (state.documentRevisionToken.value !== null && state.documentRevisionToken.value !== token)
+        ) {
+            return false;
+        }
         stagedBaseline = token;
         retainRevisions();
         return true;
@@ -198,29 +204,42 @@ export function createDocumentHistory(
 
     async function reloadWorkingCopyRevision() {
         const path = state.workingCopyPath.value;
-        if (!path) {return false;}
+        if (!path) {
+            return false;
+        }
         const nextState = await deps.readPdfStateFromPath(path);
-        return state.isActiveWorkingCopy(path) && await deps.applyLoadedPdfState(path, nextState, {
-            preserveHistory: true,
-            isCurrent: () => state.isActiveWorkingCopy(path),
-        }) !== false;
+        return (
+            state.isActiveWorkingCopy(path) &&
+            (await deps.applyLoadedPdfState(path, nextState, {
+                preserveHistory: true,
+                isCurrent: () => state.isActiveWorkingCopy(path),
+            })) !== false
+        );
     }
 
     /** The revision a byte mutation wrote becomes a history entry; returns the job that loads it, or null. */
     async function reloadWorkingCopyIntoHistory(opts?: {pageIdentityDelta?: IPageIdentityDelta}) {
         const path = state.workingCopyPath.value;
-        if (!path) {return null;}
+        if (!path) {
+            return null;
+        }
         const nextState = await deps.readPdfStateFromPath(path);
-        if (!state.isActiveWorkingCopy(path)) {return null;}
+        if (!state.isActiveWorkingCopy(path)) {
+            return null;
+        }
         const {token} = await deps.documentFiles().getDocumentRevision(path);
-        if (!state.isActiveWorkingCopy(path) || !pushHistoryEntry(token, opts?.pageIdentityDelta)) {return null;}
+        if (!state.isActiveWorkingCopy(path) || !pushHistoryEntry(token, opts?.pageIdentityDelta)) {
+            return null;
+        }
         state.pdfData.value = nextState.pdfData;
         return state.publishPdfSource(nextState.pdfSrc, 'reload');
     }
 
     function pushHistoryEntry(after: TDocumentRevisionToken, pageIdentityDelta?: IPageIdentityDelta) {
         const before = stagedBaseline ?? currentCheckpoint;
-        if (!before || !workspaceCommandSink) {return false;}
+        if (!before || !workspaceCommandSink) {
+            return false;
+        }
         const command: IFileCommand = {
             id: crypto.randomUUID(),
             before,
@@ -231,24 +250,27 @@ export function createDocumentHistory(
         };
         currentCheckpoint = after;
         stagedBaseline = null;
-        commands.value = [
-            ...commands.value,
-            command,
-        ];
+        commands.value = [...commands.value, command];
         const store = deps.documentAnnotations?.().application.value.store;
         const releaseAnnotations = store?.retainHistoryTargets();
         // A page operation's Undo shows the annotations as they were right before it, its Redo as they were
         // right after it: each swaps the current state with the one the other side left.
         const pageStore = pageIdentityDelta ? store : undefined;
         let otherAnnotations = pageStore?.snapshotState();
-        if (pageIdentityDelta) {pageStore?.remapPages(pageIdentityDelta);}
+        if (pageIdentityDelta) {
+            pageStore?.remapPages(pageIdentityDelta);
+        }
         const swapAnnotations = () => {
-            if (pageStore && otherAnnotations) {otherAnnotations = pageStore.exchangeState(otherAnnotations);}
+            if (pageStore && otherAnnotations) {
+                otherAnnotations = pageStore.exchangeState(otherAnnotations);
+            }
         };
         const replay = async (direction: 'undo' | 'redo') => {
-            const restored = await restoreRevision(direction === 'undo' ? before : after,
+            const restored = await restoreRevision(
+                direction === 'undo' ? before : after,
                 direction === 'undo' && pageIdentityDelta ? invertPageIdentityDelta(pageIdentityDelta) : pageIdentityDelta,
-                swapAnnotations);
+                swapAnnotations,
+            );
             if (restored) {
                 currentFileState.value = direction === 'undo' ? command.beforeState : command.afterState;
                 currentCheckpoint = direction === 'undo' ? before : after;
@@ -264,7 +286,7 @@ export function createDocumentHistory(
             cmd: () => replay('redo'),
             onDiscard: () => {
                 releaseAnnotations?.();
-                commands.value = commands.value.filter(retained => retained !== command);
+                commands.value = commands.value.filter((retained) => retained !== command);
                 retainRevisions();
             },
         });
@@ -284,28 +306,47 @@ export function createDocumentHistory(
         const openTransactionId = deps.readOpenTransactionId();
         const canApplyRestore = () => session === deps.readDocumentSessionKey() && deps.readOpenTransactionId() === openTransactionId;
         const path = state.workingCopyPath.value;
-        if (!path || !canApplyRestore()) {return false;}
+        if (!path || !canApplyRestore()) {
+            return false;
+        }
         const expected = state.documentRevisionToken.value;
-        await deps.documentWorkingCopy().restoreDocumentRevision(path, revision, expected ? {expectedDocumentRevisionToken: expected} : undefined);
-        if (!canApplyRestore()) {return false;}
+        await deps
+            .documentWorkingCopy()
+            .restoreDocumentRevision(path, revision, expected ? {expectedDocumentRevisionToken: expected} : undefined);
+        if (!canApplyRestore()) {
+            return false;
+        }
         const nextState = await deps.readPdfStateFromPath(path);
-        if (!canApplyRestore()) {return false;}
-        return await deps.applyLoadedPdfState(path, nextState, {
-            preserveHistory: true,
-            isCurrent: canApplyRestore,
-            beforeSourceCommit: async (token) => {
-                const commit = token ? await deps.prepareHistoryRevisionSwap?.(token, delta) : undefined;
-                return () => { commit?.(); applyAnnotations?.(); };
-            },
-        }) !== false;
+        if (!canApplyRestore()) {
+            return false;
+        }
+        return (
+            (await deps.applyLoadedPdfState(path, nextState, {
+                preserveHistory: true,
+                isCurrent: canApplyRestore,
+                beforeSourceCommit: async (token) => {
+                    const commit = token ? await deps.prepareHistoryRevisionSwap?.(token, delta) : undefined;
+                    return () => {
+                        commit?.();
+                        applyAnnotations?.();
+                    };
+                },
+            })) !== false
+        );
     }
 
     function mapHistoryPage(direction: 'undo' | 'redo', page: number) {
-        const command = commands.value.find(entry => (direction === 'undo' ? entry.afterState : entry.beforeState) === currentFileState.value);
-        const delta = direction === 'undo' && command?.pageIdentityDelta
-            ? invertPageIdentityDelta(command.pageIdentityDelta) : command?.pageIdentityDelta;
-        return delta ? mapPageNumberThroughPageIdentityDelta(delta, requirePageNumber(page))
-            ?? Math.max(1, Math.min(page, getPageIdentityDeltaNextPageCount(delta) ?? page)) : page;
+        const command = commands.value.find(
+            (entry) => (direction === 'undo' ? entry.afterState : entry.beforeState) === currentFileState.value,
+        );
+        const delta =
+            direction === 'undo' && command?.pageIdentityDelta
+                ? invertPageIdentityDelta(command.pageIdentityDelta)
+                : command?.pageIdentityDelta;
+        return delta
+            ? (mapPageNumberThroughPageIdentityDelta(delta, requirePageNumber(page)) ??
+                  Math.max(1, Math.min(page, getPageIdentityDeltaNextPageCount(delta) ?? page)))
+            : page;
     }
 
     function resetCommandSink() {

@@ -1,24 +1,18 @@
-import { join } from 'path';
-import { randomUUID } from 'crypto';
+import {join} from 'path';
+import {randomUUID} from 'crypto';
 import type {
     IScanCleanupPreviewMetadata,
     IScanCleanupPreviewRequest,
     IScanCleanupPreviewResult,
     TScanCleanupPreviewWireResult,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
-import { decodeNativeScanCleanupPreviewOutputMetadataJson } from '@contracts/scan-cleanup/nativeArtifactCodecs';
-import {
-    planScanCleanupDetailPreview,
-    projectScanCleanupDetailOutputMetadata,
-} from '@evb/scan-cleanup/core/policy/scanCleanupPreviewPolicy';
-import {
-    logRasterHandoff,
-    resolveRasterHandoff,
-} from '@evb/scan-cleanup/core/resolveRasterHandoff';
+import {decodeNativeScanCleanupPreviewOutputMetadataJson} from '@contracts/scan-cleanup/nativeArtifactCodecs';
+import {planScanCleanupDetailPreview, projectScanCleanupDetailOutputMetadata} from '@evb/scan-cleanup/core/policy/scanCleanupPreviewPolicy';
+import {logRasterHandoff, resolveRasterHandoff} from '@evb/scan-cleanup/core/resolveRasterHandoff';
 import {renderScanCleanupRasterToDisk as renderRasterToDisk} from '@evb/scan-cleanup/core/rasterValidation';
-import { getErrorMessage } from '@electron/utils/error';
+import {getErrorMessage} from '@electron/utils/error';
 import {createLogger} from '@electron/utils/createLogger';
-import { buildRunnableNativeScanCleanupManifest } from '@evb/scan-cleanup/core/policy/buildRunnableNativeScanCleanupManifest';
+import {buildRunnableNativeScanCleanupManifest} from '@evb/scan-cleanup/core/policy/buildRunnableNativeScanCleanupManifest';
 import {SCAN_CLEANUP_MAX_DIMENSION_PX} from '@evb/scan-cleanup/core/policy/effectiveOptions';
 import type {
     IRawPreview,
@@ -26,10 +20,7 @@ import type {
     IScanCleanupRenderingDependencies,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import {readPreviewBytes} from '@electron/features/scan-cleanup/scanCleanupRasterRetentionIo';
-import {
-    BASE_ANALYSIS_CACHE_PAGE_LIMIT,
-    BASE_ANALYSIS_CACHE_BYTE_LIMIT,
-} from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
+import {BASE_ANALYSIS_CACHE_PAGE_LIMIT, BASE_ANALYSIS_CACHE_BYTE_LIMIT} from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 const logger = createLogger('scan-cleanup-preview-pipeline');
 export function logScanCleanupMessage(level: 'debug' | 'error' | 'info' | 'warn', message: string) {
     if (level === 'error') {
@@ -45,24 +36,23 @@ export async function persistBaseAnalysisArtifacts(
     dependencies: IScanCleanupRenderingDependencies,
 ) {
     const fileSystem = dependencies.fileSystem;
-    if (!fileSystem) {throw new Error('Scan cleanup pipeline requires injected filesystem capabilities');}
-    if (!dependencies.readFile) {throw new Error('Scan cleanup pipeline requires injected readFile capability');}
-    const analysisDirectory = join(
-        dependencies.getTempDir(),
-        `scan-cleanup-base-analysis-${randomUUID()}-${process.pid}`,
-    );
+    if (!fileSystem) {
+        throw new Error('Scan cleanup pipeline requires injected filesystem capabilities');
+    }
+    if (!dependencies.readFile) {
+        throw new Error('Scan cleanup pipeline requires injected readFile capability');
+    }
+    const analysisDirectory = join(dependencies.getTempDir(), `scan-cleanup-base-analysis-${randomUUID()}-${process.pid}`);
     await fileSystem.mkdir(analysisDirectory, {recursive: true});
     const canonicalRasterPaths: IBasePreviewAnalysis['canonicalRasterPaths'] = {};
     const baseMetadataPaths: IBasePreviewAnalysis['baseMetadataPaths'] = {};
     try {
-        for (const half of [
-            'full',
-            'left',
-            'right',
-        ] as const) {
+        for (const half of ['full', 'left', 'right'] as const) {
             const raster = canonicalRasters[half];
             const metadata = outputs[half];
-            if (!raster || !metadata) {continue;}
+            if (!raster || !metadata) {
+                continue;
+            }
             signal.throwIfAborted();
             const rasterPath = join(analysisDirectory, `base-cleaned-${half}.png`);
             const metadataPath = join(analysisDirectory, `base-metadata-${half}.json`);
@@ -90,24 +80,22 @@ export function removeBaseAnalysisArtifacts(analysis: IBasePreviewAnalysis, depe
     if (!fileSystem) {
         return Promise.reject(new Error('Scan cleanup pipeline requires injected filesystem capabilities'));
     }
-    return fileSystem.rm(analysis.analysisDirectory, {
-        recursive: true,
-        force: true,
-    }).catch(error => {
-        logger.warn(`Failed to drop scan cleanup base analysis artifacts: ${getErrorMessage(error)}`);
-    });
+    return fileSystem
+        .rm(analysis.analysisDirectory, {
+            recursive: true,
+            force: true,
+        })
+        .catch((error) => {
+            logger.warn(`Failed to drop scan cleanup base analysis artifacts: ${getErrorMessage(error)}`);
+        });
 }
 export async function pruneBaseAnalysisCache(
     cache: Map<string, IBasePreviewAnalysis>,
     pinnedKeys: ReadonlySet<string> = new Set(),
     dependencies: IScanCleanupRenderingDependencies,
 ) {
-    let retainedBytes = [...cache.values()]
-        .reduce((total, analysis) => total + analysis.retainedBytes, 0);
-    while (
-        cache.size > BASE_ANALYSIS_CACHE_PAGE_LIMIT
-        || retainedBytes > BASE_ANALYSIS_CACHE_BYTE_LIMIT
-    ) {
+    let retainedBytes = [...cache.values()].reduce((total, analysis) => total + analysis.retainedBytes, 0);
+    while (cache.size > BASE_ANALYSIS_CACHE_PAGE_LIMIT || retainedBytes > BASE_ANALYSIS_CACHE_BYTE_LIMIT) {
         const oldest = [...cache.entries()].find(([key]) => !pinnedKeys.has(key));
         if (!oldest) {
             return;
@@ -130,10 +118,16 @@ export async function runDetailPreview(
     rasterMaxPixels?: number,
 ): Promise<TScanCleanupPreviewWireResult> {
     const fileSystem = dependencies.fileSystem;
-    if (!fileSystem) {throw new Error('Scan cleanup pipeline requires injected filesystem capabilities');}
+    if (!fileSystem) {
+        throw new Error('Scan cleanup pipeline requires injected filesystem capabilities');
+    }
     const getAvailableScratchBytes = dependencies.getAvailableScratchBytes;
-    if (!getAvailableScratchBytes) {throw new Error('Scan cleanup pipeline requires injected scratch-budget capability');}
-    if (!dependencies.readFile) {throw new Error('Scan cleanup pipeline requires injected readFile capability');}
+    if (!getAvailableScratchBytes) {
+        throw new Error('Scan cleanup pipeline requires injected scratch-budget capability');
+    }
+    if (!dependencies.readFile) {
+        throw new Error('Scan cleanup pipeline requires injected readFile capability');
+    }
     const plan = planScanCleanupDetailPreview({
         request,
         baseRaw,
@@ -154,30 +148,36 @@ export async function runDetailPreview(
         };
     }
     const binary = dependencies.resolveBinary();
-    if (!binary) {throw new Error('Scan cleanup native tool is unavailable');}
+    if (!binary) {
+        throw new Error('Scan cleanup native tool is unavailable');
+    }
     const effectiveOptions = request.options.matchPageSize
         ? {
-            ...request.options,
-            matchPageSize: false,
-        }
+              ...request.options,
+              matchPageSize: false,
+          }
         : request.options;
     const pageInputs = [];
     const outputFiles: Array<{
         outputPath: string;
         metadataPath: string;
     }> = [];
-    for (const {
-        half, renderRegion, sampledRegion, sourceCrop: plannedCrop,
-    } of plan.halves) {
+    for (const {half, renderRegion, sampledRegion, sourceCrop: plannedCrop} of plan.halves) {
         const sourceCrop = {...plannedCrop};
-        const handoff = await resolveRasterHandoff([{
-            renderDpi: plan.renderDpi,
-            raster: {
-                dpi: plan.renderDpi,
-                width: sourceCrop.width,
-                height: sourceCrop.height,
-            },
-        }], scratch, getAvailableScratchBytes);
+        const handoff = await resolveRasterHandoff(
+            [
+                {
+                    renderDpi: plan.renderDpi,
+                    raster: {
+                        dpi: plan.renderDpi,
+                        width: sourceCrop.width,
+                        height: sourceCrop.height,
+                    },
+                },
+            ],
+            scratch,
+            getAvailableScratchBytes,
+        );
         logRasterHandoff(logScanCleanupMessage, 'detail tile', handoff);
         const inputPath = join(scratch, `detail-source-${half}.${handoff.format}`);
         const renderedSource = await renderRasterToDisk(
@@ -256,14 +256,9 @@ export async function runDetailPreview(
     });
     const manifestPath = join(scratch, 'detail-manifest.json');
     await fileSystem.writeFile(manifestPath, JSON.stringify(manifest));
-    await dependencies.runSidecar(
-        binary,
-        manifestPath,
-        signal,
-        logScanCleanupMessage,
-        () => undefined,
-        {allowedPathRoot: dependencies.nativeAllowedPathRoot ?? dependencies.getTempDir()},
-    );
+    await dependencies.runSidecar(binary, manifestPath, signal, logScanCleanupMessage, () => undefined, {
+        allowedPathRoot: dependencies.nativeAllowedPathRoot ?? dependencies.getTempDir(),
+    });
     const cleaned = [] as IScanCleanupPreviewResult['outputs'];
     for (const output of outputFiles) {
         const nativeMetadata = decodeNativeScanCleanupPreviewOutputMetadataJson(

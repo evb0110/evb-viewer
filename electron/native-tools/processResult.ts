@@ -1,5 +1,5 @@
-import { describeProcessExitCode } from '@electron/utils/describeProcessExitCode';
-export { createAbortError } from '@electron/utils/abort';
+import {describeProcessExitCode} from '@electron/utils/describeProcessExitCode';
+export {createAbortError} from '@electron/utils/abort';
 
 export interface IProcessResult {
     stdout: string;
@@ -61,9 +61,7 @@ export function formatCommandFailureMessage(
     const displayCommand = `${command} ${args.map(formatArgForLog).join(' ')}`.trim();
 
     return {
-        message: `${displayName} ${termination}. ${
-            details || 'No process output was captured.'
-        }`,
+        message: `${displayName} ${termination}. ${details || 'No process output was captured.'}`,
         displayCommand,
     };
 }

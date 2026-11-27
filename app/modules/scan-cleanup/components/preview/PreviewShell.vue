@@ -37,7 +37,11 @@
                 />
             </div>
             <div class="preview-controls">
-                <AppTooltip :disabled="disabled" :text="t('scanCleanup.zones.toggleHint')" usefulness="always">
+                <AppTooltip
+                    :disabled="disabled"
+                    :text="t('scanCleanup.zones.toggleHint')"
+                    usefulness="always"
+                >
                     <UButton
                         class="preview-zone-editor-toggle"
                         type="button"
@@ -69,7 +73,10 @@
                             :disabled="zoomControlsDisabled || !canZoomOut"
                             @click="stepPreviewZoom(-1)"
                         >
-                            <UIcon name="i-ph-minus" class="preview-zoom-icon" />
+                            <UIcon
+                                name="i-ph-minus"
+                                class="preview-zoom-icon"
+                            />
                         </button>
                     </AppTooltip>
                     <AppTooltip
@@ -99,7 +106,10 @@
                             :disabled="zoomControlsDisabled || !canZoomIn"
                             @click="stepPreviewZoom(1)"
                         >
-                            <UIcon name="i-ph-plus" class="preview-zoom-icon" />
+                            <UIcon
+                                name="i-ph-plus"
+                                class="preview-zoom-icon"
+                            />
                         </button>
                     </AppTooltip>
                     <AppTooltip
@@ -116,7 +126,10 @@
                             :disabled="zoomControlsDisabled"
                             @click="fitPreview"
                         >
-                            <UIcon name="i-ph-frame-corners" class="preview-zoom-icon" />
+                            <UIcon
+                                name="i-ph-frame-corners"
+                                class="preview-zoom-icon"
+                            />
                         </button>
                     </AppTooltip>
                 </div>
@@ -197,7 +210,10 @@
                 >
                     <span>{{ emptyResultMessage }}</span>
                 </div>
-                <div v-else class="preview-viewport-layout">
+                <div
+                    v-else
+                    class="preview-viewport-layout"
+                >
                     <div
                         ref="cutterStage"
                         class="cutter-stage"
@@ -234,7 +250,10 @@
                             @set-canvas="setOutputCanvas"
                             @set-fit-area="setOutputFitArea"
                         >
-                            <template v-if="previewEditsEnabled" #paper-overlay="{output}">
+                            <template
+                                v-if="previewEditsEnabled"
+                                #paper-overlay="{output}"
+                            >
                                 <PlacementOverlay
                                     :anchors="placementAnchors"
                                     :enabled="matchPageSize"
@@ -274,29 +293,55 @@
                         :data-processing-stage="liveStageStatus?.stage"
                     >
                         <template v-if="liveStageStatus !== null">
-                            <UIcon name="i-ph-circle-notch" class="preview-viewport-spinner is-spinning" aria-hidden="true" />
+                            <UIcon
+                                name="i-ph-circle-notch"
+                                class="preview-viewport-spinner is-spinning"
+                                aria-hidden="true"
+                            />
                             <span class="preview-viewport-stage">{{ liveStageStatus.label }}</span>
                             <span
                                 v-if="liveStageStatus.elapsed"
                                 class="preview-viewport-elapsed"
                                 aria-hidden="true"
-                            >{{ liveStageStatus.elapsed }}</span>
-                            <span v-if="canvasNotice" class="preview-viewport-notice">· {{ canvasNotice }}</span>
+                                >{{ liveStageStatus.elapsed }}</span
+                            >
+                            <span
+                                v-if="canvasNotice"
+                                class="preview-viewport-notice"
+                                >· {{ canvasNotice }}</span
+                            >
                         </template>
                         <template v-else-if="canvasNotice">
                             {{ canvasNotice }}
                         </template>
                     </span>
                 </div>
-                <div v-if="loading && isStalePage" class="page-loading-overlay" role="status">
-                    <UIcon name="i-ph-circle-notch" class="size-6 is-spinning" />
+                <div
+                    v-if="loading && isStalePage"
+                    class="page-loading-overlay"
+                    role="status"
+                >
+                    <UIcon
+                        name="i-ph-circle-notch"
+                        class="size-6 is-spinning"
+                    />
                     <span>{{ t('scanCleanup.preview.loadingPage', {page: pageNumber}) }}</span>
                 </div>
-                <div v-else-if="loading" class="refresh-indicator">
-                    <UIcon name="i-ph-circle-notch" class="size-4 is-spinning" />
+                <div
+                    v-else-if="loading"
+                    class="refresh-indicator"
+                >
+                    <UIcon
+                        name="i-ph-circle-notch"
+                        class="size-4 is-spinning"
+                    />
                     <span class="sr-only">{{ t('scanCleanup.preview.refreshing') }}</span>
                 </div>
-                <div v-if="refreshErrorVisible" class="preview-refresh-error" role="alert">
+                <div
+                    v-if="refreshErrorVisible"
+                    class="preview-refresh-error"
+                    role="alert"
+                >
                     <span>{{ t('scanCleanup.preview.unavailable') }}</span>
                     <UButton
                         type="button"
@@ -317,8 +362,15 @@
                 v-if="emptyLayerVisible"
                 class="preview-empty-layer"
             >
-                <div v-if="!effectiveError" class="preview-viewport-layout preview-loading" role="status">
-                    <div ref="cutterStage" class="cutter-stage">
+                <div
+                    v-if="!effectiveError"
+                    class="preview-viewport-layout preview-loading"
+                    role="status"
+                >
+                    <div
+                        ref="cutterStage"
+                        class="cutter-stage"
+                    >
                         <div
                             class="cleaned-outputs preview-skeleton-outputs"
                             :class="{'is-spread': loadingFrames.length > 1}"
@@ -329,7 +381,7 @@
                                 class="output-column"
                             >
                                 <div
-                                    :ref="element => setOutputFitArea(output.half, element)"
+                                    :ref="(element) => setOutputFitArea(output.half, element)"
                                     class="output-fit-area"
                                     :data-output-half="output.half"
                                 >
@@ -351,21 +403,33 @@
                         :data-processing-stage="skeletonLiveStageStatus?.stage"
                     >
                         <template v-if="skeletonLiveStageStatus !== null">
-                            <UIcon name="i-ph-circle-notch" class="preview-viewport-spinner is-spinning" aria-hidden="true" />
+                            <UIcon
+                                name="i-ph-circle-notch"
+                                class="preview-viewport-spinner is-spinning"
+                                aria-hidden="true"
+                            />
                             <span class="preview-viewport-stage">{{ skeletonLiveStageStatus.label }}</span>
                             <span
                                 v-if="skeletonLiveStageStatus.elapsed"
                                 class="preview-viewport-elapsed"
                                 aria-hidden="true"
-                            >{{ skeletonLiveStageStatus.elapsed }}</span>
+                                >{{ skeletonLiveStageStatus.elapsed }}</span
+                            >
                         </template>
                         <template v-else>
                             {{ t('scanCleanup.preview.loading') }}
                         </template>
                     </span>
                 </div>
-                <div v-else class="preview-message is-error" role="alert">
-                    <UIcon name="i-ph-warning-circle" class="size-6" />
+                <div
+                    v-else
+                    class="preview-message is-error"
+                    role="alert"
+                >
+                    <UIcon
+                        name="i-ph-warning-circle"
+                        class="size-6"
+                    />
                     <span>{{ t('scanCleanup.preview.unavailable') }}</span>
                     <UButton
                         type="button"
@@ -394,7 +458,10 @@
                     :style="cutterSourceFrameStyle"
                     aria-hidden="true"
                 >
-                    <img :src="rawPixelSwap.currentUrl" :style="cutterSourceImageStyle">
+                    <img
+                        :src="rawPixelSwap.currentUrl"
+                        :style="cutterSourceImageStyle"
+                    />
                 </div>
 
                 <CutterOverlay
@@ -468,18 +535,13 @@
             aria-hidden="true"
             @error="failCleanedPixelSwap(pending.half, pending.url)"
             @load="loadCleanedPixelSwap(pending.half, pending.url)"
-        >
-
+        />
     </section>
 </template>
 
 <script setup lang="ts">
-import {
-    useIntervalFn,
-    useNow,
-    useTimeoutFn,
-} from '@vueuse/core';
-import { SCAN_CLEANUP_DETAIL_REQUEST_DEBOUNCE_MS } from '@app/constants/timeouts';
+import {useIntervalFn, useNow, useTimeoutFn} from '@vueuse/core';
+import {SCAN_CLEANUP_DETAIL_REQUEST_DEBOUNCE_MS} from '@app/constants/timeouts';
 import {useWindowDevicePixelRatio} from '@app/composables/useWindowDevicePixelRatio';
 import type {
     IScanCleanupManualZones,
@@ -497,10 +559,7 @@ import type {
     TScanCleanupPageAlignment,
     TScanCleanupPageRotation,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
-import type {
-    CSSProperties,
-    MaybeRefOrGetter,
-} from 'vue';
+import type {CSSProperties, MaybeRefOrGetter} from 'vue';
 import type {IDocumentPageSource} from '@app/modules/document-viewer/public';
 import ScanCleanupSegmented from '@app/modules/scan-cleanup/components/ScanCleanupSegmented.vue';
 import ScanCleanupStableWidthText from '@app/modules/scan-cleanup/components/ScanCleanupStableWidthText.vue';
@@ -542,24 +601,14 @@ import {
     transformPreviewSourceHalfRect,
     unrotatePreviewRect,
 } from '@app/modules/scan-cleanup/geometry/coordinates';
-import {
-    SCAN_CLEANUP_MANUAL_SPLIT_MAX,
-    SCAN_CLEANUP_MANUAL_SPLIT_MIN,
-} from '@contracts/scan-cleanup/geometry';
+import {SCAN_CLEANUP_MANUAL_SPLIT_MAX, SCAN_CLEANUP_MANUAL_SPLIT_MIN} from '@contracts/scan-cleanup/geometry';
 import {
     resolvePreviewCutterStyle,
     resolvePreviewFitPlacement,
     resolvePreviewOutputFitSizes,
 } from '@app/modules/scan-cleanup/geometry/viewport';
-import {
-    resolvePreviewMetadataPlacement,
-    toPreviewSourceCropStyle,
-    toPreviewStyleRect,
-} from '@app/modules/scan-cleanup/geometry/placement';
-import {
-    createPreviewImageSwap,
-    useScanCleanupPreviewImages,
-} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewImages';
+import {resolvePreviewMetadataPlacement, toPreviewSourceCropStyle, toPreviewStyleRect} from '@app/modules/scan-cleanup/geometry/placement';
+import {createPreviewImageSwap, useScanCleanupPreviewImages} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewImages';
 import {useScanCleanupPreviewZoom} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewZoom';
 import {useScanCleanupPreviewOverlayGeometry} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewOverlayGeometry';
 import type {IScanCleanupActivityTimeline} from '@app/modules/scan-cleanup/composables/useScanCleanupActivityTimeline';
@@ -576,8 +625,9 @@ interface IUseScanCleanupZoneEditorOptions {
 const useScanCleanupZoneEditor = (options: IUseScanCleanupZoneEditorOptions) => {
     const selectedZone = ref<IScanCleanupZoneSelection | null>(null);
     const zoneKind = ref<TScanCleanupZoneKind>('picture');
-    const zoneCount = computed(() => (toValue(options.manualZones)?.picture.length ?? 0)
-        + (toValue(options.manualZones)?.fill.length ?? 0));
+    const zoneCount = computed(
+        () => (toValue(options.manualZones)?.picture.length ?? 0) + (toValue(options.manualZones)?.fill.length ?? 0),
+    );
     const selectedPictureLayer = computed<TScanCleanupPictureZoneLayer | null>(() => {
         if (selectedZone.value?.kind !== 'picture') {
             return null;
@@ -591,7 +641,7 @@ const useScanCleanupZoneEditor = (options: IUseScanCleanupZoneEditorOptions) => 
         }
         const manualZones = toValue(options.manualZones);
         const next = {
-            picture: (manualZones?.picture ?? []).map(zone => ({
+            picture: (manualZones?.picture ?? []).map((zone) => ({
                 layer: zone.layer,
                 polygon: cloneScanCleanupZonePolygon(zone.polygon),
             })),
@@ -608,9 +658,8 @@ const useScanCleanupZoneEditor = (options: IUseScanCleanupZoneEditorOptions) => 
         options.updateManualZones(next);
     }
 
-    const zonePolygonSignature = (polygon: IScanCleanupNormalizedZonePolygon) => (
-        `${polygon.rotationDegrees}:${polygon.points.map(point => `${point.xNormalized},${point.yNormalized}`).join(';')}`
-    );
+    const zonePolygonSignature = (polygon: IScanCleanupNormalizedZonePolygon) =>
+        `${polygon.rotationDegrees}:${polygon.points.map((point) => `${point.xNormalized},${point.yNormalized}`).join(';')}`;
 
     watch(
         () => {
@@ -618,21 +667,14 @@ const useScanCleanupZoneEditor = (options: IUseScanCleanupZoneEditorOptions) => 
             return [
                 toValue(options.pageNumber),
                 toValue(options.editing),
-                (manualZones?.picture ?? []).map(zone => `${zone.layer}:${zonePolygonSignature(zone.polygon)}`),
+                (manualZones?.picture ?? []).map((zone) => `${zone.layer}:${zonePolygonSignature(zone.polygon)}`),
                 (manualZones?.fill ?? []).map(zonePolygonSignature),
             ] as const;
         },
-        ([
-            pageNumber,
-            editing,
-            pictureSignatures,
-            fillSignatures,
-        ], [
-            previousPageNumber,
-            previousEditing,
-            previousPictureSignatures,
-            previousFillSignatures,
-        ]) => {
+        (
+            [pageNumber, editing, pictureSignatures, fillSignatures],
+            [previousPageNumber, previousEditing, previousPictureSignatures, previousFillSignatures],
+        ) => {
             if (pageNumber !== previousPageNumber || editing !== previousEditing) {
                 selectedZone.value = null;
                 return;
@@ -642,9 +684,7 @@ const useScanCleanupZoneEditor = (options: IUseScanCleanupZoneEditorOptions) => 
                 return;
             }
             const signatures = selection.kind === 'picture' ? pictureSignatures : fillSignatures;
-            const previousSignatures = selection.kind === 'picture'
-                ? previousPictureSignatures
-                : previousFillSignatures;
+            const previousSignatures = selection.kind === 'picture' ? previousPictureSignatures : previousFillSignatures;
             if (signatures.length < previousSignatures.length || selection.index >= signatures.length) {
                 selectedZone.value = null;
                 return;
@@ -653,15 +693,14 @@ const useScanCleanupZoneEditor = (options: IUseScanCleanupZoneEditorOptions) => 
                 const selectedSignature = previousSignatures[selection.index];
                 if (selectedSignature !== undefined && signatures[selection.index] !== selectedSignature) {
                     const relocatedIndex = signatures.indexOf(selectedSignature, selection.index + 1);
-                    const fallbackIndex = relocatedIndex >= 0
-                        ? relocatedIndex
-                        : signatures.indexOf(selectedSignature);
-                    selectedZone.value = fallbackIndex >= 0
-                        ? {
-                            kind: selection.kind,
-                            index: fallbackIndex,
-                        }
-                        : null;
+                    const fallbackIndex = relocatedIndex >= 0 ? relocatedIndex : signatures.indexOf(selectedSignature);
+                    selectedZone.value =
+                        fallbackIndex >= 0
+                            ? {
+                                  kind: selection.kind,
+                                  index: fallbackIndex,
+                              }
+                            : null;
                 }
             }
         },
@@ -773,16 +812,7 @@ const {t} = useTypedI18n();
 const previewSurface = ref<HTMLElement | null>(null);
 const cutterStage = ref<HTMLElement | null>(null);
 const dragTransaction = useScanCleanupDragTransaction<TScanCleanupDragGeometry>();
-const contentHandles: readonly TScanCleanupContentHandle[] = [
-    'n',
-    'ne',
-    'e',
-    'se',
-    's',
-    'sw',
-    'w',
-    'nw',
-];
+const contentHandles: readonly TScanCleanupContentHandle[] = ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'];
 // The unscaled cutter stage, positioned in the preview surface; its width and
 // height are the stage size.
 const dragOverlayBounds = reactive<IScanCleanupDragRect>({
@@ -820,44 +850,51 @@ const {
     pendingCleanedPixelUrls,
     rawPixelSwap,
     revealLatestFrame,
-} = useScanCleanupPreviewImages(() => result, (hadPreviousResult) => {
-    void nextTick(() => {
-        pruneOutputElementRefs();
-        if (!hadPreviousResult) {
-            observeCutterStage();
-        }
-    });
-}, () => rawResult ?? null, () => detailResult ?? null,
-() => captureFramePresentation(),
-resultPresentationKey === undefined ? undefined : () => resultPresentationKey ?? '',
-presentation => presentation.resultCurrent && presentation.settled);
+} = useScanCleanupPreviewImages(
+    () => result,
+    (hadPreviousResult) => {
+        void nextTick(() => {
+            pruneOutputElementRefs();
+            if (!hadPreviousResult) {
+                observeCutterStage();
+            }
+        });
+    },
+    () => rawResult ?? null,
+    () => detailResult ?? null,
+    () => captureFramePresentation(),
+    resultPresentationKey === undefined ? undefined : () => resultPresentationKey ?? '',
+    (presentation) => presentation.resultCurrent && presentation.settled,
+);
 const presentationResult = computed(() => displayedCleanedFrame.value?.result ?? null);
 const effectiveError = computed(() => cleanedFrameError.value || error);
-const displayedPresentation = computed(
-    () => displayedCleanedFrame.value?.presentation ?? captureFramePresentation(),
-);
+const displayedPresentation = computed(() => displayedCleanedFrame.value?.presentation ?? captureFramePresentation());
 // The displayed frame is the live session frame: its result and its
 // presentation key are both the ones the session publishes now.
-const displayedFrameIdentityCurrent = computed(() => resultPresentationKey === undefined
-    || displayedCleanedFrame.value?.transitionKey === resultPresentationKey);
+const displayedFrameIdentityCurrent = computed(
+    () => resultPresentationKey === undefined || displayedCleanedFrame.value?.transitionKey === resultPresentationKey,
+);
 // This is the only renderer-facing presentation-current decision. The preview
 // request coordinator owns request freshness, while the image owner owns the
 // displayed frame; the pane combines those facts once for edits, notices, and
 // detail tiles.
-const previewPresentationCurrent = computed(() => resultCurrent !== false
-    && displayedFrameIdentityCurrent.value
-    && (resultPresentationKey === undefined
-        ? displayedCleanedFrame.value?.result.pageNumber === pageNumber
-        : displayedCleanedFrameCurrent.value));
-const previewPresentationNoticeCurrent = computed(() => resultCurrent !== false
-    && (resultPresentationKey === undefined
-        || displayedPresentation.value.resultCurrent && displayedFrameIdentityCurrent.value));
+const previewPresentationCurrent = computed(
+    () =>
+        resultCurrent !== false &&
+        displayedFrameIdentityCurrent.value &&
+        (resultPresentationKey === undefined
+            ? displayedCleanedFrame.value?.result.pageNumber === pageNumber
+            : displayedCleanedFrameCurrent.value),
+);
+const previewPresentationNoticeCurrent = computed(
+    () =>
+        resultCurrent !== false &&
+        (resultPresentationKey === undefined || (displayedPresentation.value.resultCurrent && displayedFrameIdentityCurrent.value)),
+);
 // The source-frame editors stay on screen while a same-page edit refreshes the
 // preview, so a zone or cut the user just placed does not vanish, but they take
 // input only once the shown frame is current.
-const previewEditsShown = computed(() => presentationResult.value?.pageNumber === pageNumber
-    && effectiveError.value === ''
-    && !disabled);
+const previewEditsShown = computed(() => presentationResult.value?.pageNumber === pageNumber && effectiveError.value === '' && !disabled);
 const previewEditsEnabled = computed(() => previewEditsShown.value && previewPresentationCurrent.value);
 const {
     canPanPreview,
@@ -883,7 +920,7 @@ const {
     disabled: () => disabled === true,
     dragActive: dragTransaction.active,
     formatFitLabel: () => t('scanCleanup.preview.zoomFit'),
-    formatZoomLabel: zoom => t('scanCleanup.preview.zoomValue', {zoom}),
+    formatZoomLabel: (zoom) => t('scanCleanup.preview.zoomValue', {zoom}),
     overlayBounds: dragOverlayBounds,
     result: () => presentationResult.value ?? rawResult ?? null,
     surface: previewSurface,
@@ -910,29 +947,28 @@ const {
     result: () => presentationResult.value,
     transformScale: previewTransformScale,
 });
-const effectiveViewMode = computed(() => lossless
-    ? 'original'
-    : viewMode ?? 'cleaned');
-const zoomControlsDisabled = computed(() => disabled === true
-    || (presentationResult.value ?? rawResult ?? null) === null);
+const effectiveViewMode = computed(() => (lossless ? 'original' : (viewMode ?? 'cleaned')));
+const zoomControlsDisabled = computed(() => disabled === true || (presentationResult.value ?? rawResult ?? null) === null);
 const devicePixelScale = useWindowDevicePixelRatio();
 // Detail rendering starts as soon as the fixed-DPI base raster is stretched
 // past one device pixel per raster pixel; the display density (not a zoom
 // percentage) decides when the base bitmap runs out of resolution.
-const detailDensityExceeded = computed(
-    () => previewEffectiveZoom.value * devicePixelScale.value > 1.001,
+const detailDensityExceeded = computed(() => previewEffectiveZoom.value * devicePixelScale.value > 1.001);
+const detailLayerEligible = computed(
+    () =>
+        effectiveViewMode.value === 'cleaned' &&
+        lossless !== true &&
+        // Deliberate degradation while pinned: detail tiles describe the live
+        // generation and must not be composited onto a different displayed base.
+        previewPresentationCurrent.value &&
+        displayedCleanedFrameCurrent.value &&
+        Boolean(presentationResult.value?.outputs.length) &&
+        detailDensityExceeded.value,
 );
-const detailLayerEligible = computed(() => effectiveViewMode.value === 'cleaned'
-    && lossless !== true
-    // Deliberate degradation while pinned: detail tiles describe the live
-    // generation and must not be composited onto a different displayed base.
-    && previewPresentationCurrent.value
-    && displayedCleanedFrameCurrent.value
-    && Boolean(presentationResult.value?.outputs.length)
-    && detailDensityExceeded.value);
-const detailResultMatchesPage = computed(() => detailLayerEligible.value
-    && detailResult?.pageNumber === presentationResult.value?.pageNumber);
-const activeDetailPixelUrls = computed(() => detailResultMatchesPage.value ? detailPixelUrls : {});
+const detailResultMatchesPage = computed(
+    () => detailLayerEligible.value && detailResult?.pageNumber === presentationResult.value?.pageNumber,
+);
+const activeDetailPixelUrls = computed(() => (detailResultMatchesPage.value ? detailPixelUrls : {}));
 const detailRegionStyles = computed<Partial<Record<TScanCleanupOutputHalf, CSSProperties>>>(() => {
     if (!detailResultMatchesPage.value) {
         return {};
@@ -945,10 +981,10 @@ const detailRegionStyles = computed<Partial<Record<TScanCleanupOutputHalf, CSSPr
             continue;
         }
         styles[output.metadata.half] = {
-            left: `${region.xPx / output.metadata.outputWidthPx * 100}%`,
-            top: `${region.yPx / output.metadata.outputHeightPx * 100}%`,
-            width: `${region.widthPx / output.metadata.outputWidthPx * 100}%`,
-            height: `${region.heightPx / output.metadata.outputHeightPx * 100}%`,
+            left: `${(region.xPx / output.metadata.outputWidthPx) * 100}%`,
+            top: `${(region.yPx / output.metadata.outputHeightPx) * 100}%`,
+            width: `${(region.widthPx / output.metadata.outputWidthPx) * 100}%`,
+            height: `${(region.heightPx / output.metadata.outputHeightPx) * 100}%`,
         };
     }
     return styles;
@@ -958,37 +994,35 @@ const isStalePage = computed(() => Boolean(result && result.pageNumber !== pageN
 // exists, Cleaned mode owns a topology-aware loading shell; the raw sheet is
 // available only through Original mode. This prevents an unsplit landscape
 // raster from ever masquerading as the first portrait output.
-const requestedPageLoadingVisible = computed(() => effectiveViewMode.value === 'cleaned'
-    && error === ''
-    && presentationResult.value?.pageNumber !== pageNumber);
-const rawLayerVisible = computed(() => rawResult?.pageNumber === pageNumber && (
-    effectiveViewMode.value === 'original'
-    || (
-        result?.pageNumber === pageNumber
-        && rawResult.pageNumber === pageNumber
-    )
-) || Boolean(lossless && result));
-const resultLayerVisible = computed(() => !requestedPageLoadingVisible.value
-    && (Boolean(presentationResult.value) || rawLayerVisible.value));
-const emptyLayerVisible = computed(() => requestedPageLoadingVisible.value
-    || (!result && !rawLayerVisible.value));
-const resultLayerTestId = computed(() => (
-    presentationResult.value ? undefined : 'scan-cleanup-original-only'
-));
-const emptyResultVisible = computed(() => Boolean(presentationResult.value)
-    && presentationResult.value?.outputs.length === 0
-    && effectiveViewMode.value === 'cleaned');
-const emptyResultMessage = computed(() => presentationResult.value?.pageMetadata.excluded
-    ? t('scanCleanup.preview.excluded')
-    : t('scanCleanup.preview.blankSkipped'));
-const originalAltText = computed(() => t('scanCleanup.preview.originalAlt', {
-    page: (rawResult ?? result)?.pageNumber ?? pageNumber,
-}));
+const requestedPageLoadingVisible = computed(
+    () => effectiveViewMode.value === 'cleaned' && error === '' && presentationResult.value?.pageNumber !== pageNumber,
+);
+const rawLayerVisible = computed(
+    () =>
+        (rawResult?.pageNumber === pageNumber &&
+            (effectiveViewMode.value === 'original' || (result?.pageNumber === pageNumber && rawResult.pageNumber === pageNumber))) ||
+        Boolean(lossless && result),
+);
+const resultLayerVisible = computed(
+    () => !requestedPageLoadingVisible.value && (Boolean(presentationResult.value) || rawLayerVisible.value),
+);
+const emptyLayerVisible = computed(() => requestedPageLoadingVisible.value || (!result && !rawLayerVisible.value));
+const resultLayerTestId = computed(() => (presentationResult.value ? undefined : 'scan-cleanup-original-only'));
+const emptyResultVisible = computed(
+    () => Boolean(presentationResult.value) && presentationResult.value?.outputs.length === 0 && effectiveViewMode.value === 'cleaned',
+);
+const emptyResultMessage = computed(() =>
+    presentationResult.value?.pageMetadata.excluded ? t('scanCleanup.preview.excluded') : t('scanCleanup.preview.blankSkipped'),
+);
+const originalAltText = computed(() =>
+    t('scanCleanup.preview.originalAlt', {
+        page: (rawResult ?? result)?.pageNumber ?? pageNumber,
+    }),
+);
 const cleanedCanvasVisible = computed(() => Boolean(presentationResult.value) && !lossless);
 const refreshErrorVisible = computed(() => Boolean(effectiveError.value) && effectiveViewMode.value === 'cleaned');
 const previewZoomPercent = computed(() => Math.round(previewEffectiveZoom.value * 100));
-const originalLayerVisible = computed(() => rawLayerVisible.value
-    && effectiveViewMode.value === 'original');
+const originalLayerVisible = computed(() => rawLayerVisible.value && effectiveViewMode.value === 'original');
 const cleanedLayerVisible = computed(() => Boolean(presentationResult.value) && !originalLayerVisible.value);
 /**
  * Why the page the user is looking at may not be on the size they asked for.
@@ -1010,14 +1044,9 @@ const canvasNoticeKind = computed(() => {
         return 'provisional';
     }
     if (
-        dragTransaction.active.value
-        || (
-            resultPresentationKey !== undefined
-            && (
-                displayedCleanedFrame.value?.transitionKey !== resultPresentationKey
-                || !previewPresentationNoticeCurrent.value
-            )
-        )
+        dragTransaction.active.value ||
+        (resultPresentationKey !== undefined &&
+            (displayedCleanedFrame.value?.transitionKey !== resultPresentationKey || !previewPresentationNoticeCurrent.value))
     ) {
         return 'updating';
     }
@@ -1026,7 +1055,7 @@ const canvasNoticeKind = computed(() => {
     }
     // The main process could not measure this document, so it dropped matching
     // for the request and drew the page at its own size.
-    if (presentationResult.value.outputs.some(output => output.metadata.canvasPolicy === 'intrinsic')) {
+    if (presentationResult.value.outputs.some((output) => output.metadata.canvasPolicy === 'intrinsic')) {
         return 'unavailable';
     }
     return '';
@@ -1038,9 +1067,7 @@ const canvasNotice = computed(() => {
     if (canvasNoticeKind.value === 'updating') {
         return t('scanCleanup.preview.updatingPreviousPlacement');
     }
-    return canvasNoticeKind.value === 'provisional'
-        ? t('scanCleanup.preview.matchedCanvasProvisional')
-        : '';
+    return canvasNoticeKind.value === 'provisional' ? t('scanCleanup.preview.matchedCanvasProvisional') : '';
 });
 const {
     now: liveClock,
@@ -1048,7 +1075,7 @@ const {
     resume: resumeLiveClock,
 } = useNow({
     controls: true,
-    scheduler: callback => useIntervalFn(callback, 1000, {immediate: false}),
+    scheduler: (callback) => useIntervalFn(callback, 1000, {immediate: false}),
 });
 watch(
     () => activity !== null && activity !== undefined,
@@ -1064,19 +1091,19 @@ watch(
 );
 const liveStageStatus = computed(() => {
     const currentActivity = activity;
-    if (!currentActivity) {return null;}
+    if (!currentActivity) {
+        return null;
+    }
     if (!currentActivity.run && (currentActivity.activeSubPageStage === undefined || canvasNotice.value !== '')) {
         return null;
     }
     const stage = currentActivity.activeSubPageStage ?? currentActivity.detail;
-    const label = currentActivity.activeSubPageStage === undefined
-        ? t(`scanCleanup.activity.detail.${currentActivity.detail}`)
-        : t(`scanCleanup.activity.subPageStage.${currentActivity.activeSubPageStage}`);
-    const startedAtMs = activityTimeline?.steps[currentActivity.step]?.startedAtMs
-        ?? activityTimeline?.startedAtMs;
-    const elapsed = startedAtMs === undefined
-        ? ''
-        : formatScanCleanupDuration(liveClock.value.getTime() - startedAtMs);
+    const label =
+        currentActivity.activeSubPageStage === undefined
+            ? t(`scanCleanup.activity.detail.${currentActivity.detail}`)
+            : t(`scanCleanup.activity.subPageStage.${currentActivity.activeSubPageStage}`);
+    const startedAtMs = activityTimeline?.steps[currentActivity.step]?.startedAtMs ?? activityTimeline?.startedAtMs;
+    const elapsed = startedAtMs === undefined ? '' : formatScanCleanupDuration(liveClock.value.getTime() - startedAtMs);
     return {
         stage,
         label,
@@ -1085,39 +1112,35 @@ const liveStageStatus = computed(() => {
 });
 // Keep the initial preview skeleton's "Building cleanup preview…" caption during
 // background detection; only replace it when an active cleanup run is underway.
-const skeletonLiveStageStatus = computed(() => (
-    activity?.run === true ? liveStageStatus.value : null
-));
+const skeletonLiveStageStatus = computed(() => (activity?.run === true ? liveStageStatus.value : null));
 const viewportCaptionHidden = computed(() => liveStageStatus.value === null && canvasNotice.value === '');
-const viewportCaptionNoticeKind = computed(() => (
-    liveStageStatus.value !== null ? 'cleaning' : canvasNoticeKind.value
-));
-const viewModes = computed(() => lossless ? [{
-    value: 'original' as const,
-    label: t('scanCleanup.preview.preview'),
-}] : [
-    {
-        value: 'original' as const,
-        label: t('scanCleanup.preview.original'),
-    },
-    {
-        value: 'cleaned' as const,
-        label: t('scanCleanup.preview.cleaned'),
-    },
-]);
+const viewportCaptionNoticeKind = computed(() => (liveStageStatus.value !== null ? 'cleaning' : canvasNoticeKind.value));
+const viewModes = computed(() =>
+    lossless
+        ? [
+              {
+                  value: 'original' as const,
+                  label: t('scanCleanup.preview.preview'),
+              },
+          ]
+        : [
+              {
+                  value: 'original' as const,
+                  label: t('scanCleanup.preview.original'),
+              },
+              {
+                  value: 'cleaned' as const,
+                  label: t('scanCleanup.preview.cleaned'),
+              },
+          ],
+);
 const dragOutputSnapshot = ref<IRenderedScanCleanupOutput[] | null>(null);
 
-const {
-    selectedPictureLayer,
-    selectedZone,
-    updateSelectedPictureLayer,
-    zoneCount,
-    zoneKind,
-} = useScanCleanupZoneEditor({
+const {selectedPictureLayer, selectedZone, updateSelectedPictureLayer, zoneCount, zoneKind} = useScanCleanupZoneEditor({
     editing: () => zoneEditing,
     manualZones: () => manualZones,
     pageNumber: () => pageNumber,
-    updateManualZones: value => emit('update:manualZones', value),
+    updateManualZones: (value) => emit('update:manualZones', value),
 });
 const {
     frame: frozenViewportFrame,
@@ -1133,10 +1156,9 @@ const {
 });
 
 const loadingFrames = computed(() => {
-    const orderedHalves = readingOrder === 'rtl' && placeholderHalves.value.length > 1
-        ? [...placeholderHalves.value].reverse()
-        : placeholderHalves.value;
-    const frames = orderedHalves.map(half => ({
+    const orderedHalves =
+        readingOrder === 'rtl' && placeholderHalves.value.length > 1 ? [...placeholderHalves.value].reverse() : placeholderHalves.value;
+    const frames = orderedHalves.map((half) => ({
         half,
         ...(frozenViewportFrame.value.outputs[half] ?? {
             width: 1,
@@ -1144,10 +1166,13 @@ const loadingFrames = computed(() => {
         }),
     }));
     const sizes = resolvePreviewOutputFitSizes(
-        frames.map(frame => outputFitAreaSizes[frame.half] ?? {
-            width: 0,
-            height: 0,
-        }),
+        frames.map(
+            (frame) =>
+                outputFitAreaSizes[frame.half] ?? {
+                    width: 0,
+                    height: 0,
+                },
+        ),
         frames,
     );
     return frames.map((frame, index) => {
@@ -1155,25 +1180,24 @@ const loadingFrames = computed(() => {
         const size = sizes[index];
         const width = size?.width ?? 0;
         const height = size?.height ?? 0;
-        const measured = (fitArea?.width ?? 0) > 0
-            && (fitArea?.height ?? 0) > 0
-            && width > 0
-            && height > 0;
+        const measured = (fitArea?.width ?? 0) > 0 && (fitArea?.height ?? 0) > 0 && width > 0 && height > 0;
         const visibility: CSSProperties['visibility'] = sourceMetricsReady.value ? undefined : 'hidden';
         return {
             ...frame,
-            style: measured ? {
-                width: `${width}px`,
-                height: `${height}px`,
-                visibility,
-            } : {
-                width: 'auto',
-                maxWidth: '100%',
-                height: 'var(--app-scan-preview-skeleton-height)',
-                maxHeight: '100%',
-                aspectRatio: `${frame.width} / ${frame.height}`,
-                visibility,
-            },
+            style: measured
+                ? {
+                      width: `${width}px`,
+                      height: `${height}px`,
+                      visibility,
+                  }
+                : {
+                      width: 'auto',
+                      maxWidth: '100%',
+                      height: 'var(--app-scan-preview-skeleton-height)',
+                      maxHeight: '100%',
+                      aspectRatio: `${frame.width} / ${frame.height}`,
+                      visibility,
+                  },
         };
     });
 });
@@ -1183,31 +1207,26 @@ const analysisWidth = computed(() => {
     if (!metadata) {
         return 1;
     }
-    return scanCleanupAnalysisWidth(
-        metadata,
-        presentationResult.value.rawWidthPx,
-        presentationResult.value.rawHeightPx,
-    );
+    return scanCleanupAnalysisWidth(metadata, presentationResult.value.rawWidthPx, presentationResult.value.rawHeightPx);
 });
 const analysisHeight = computed(() => {
     const rotation = presentationResult.value?.pageMetadata.rotationDegrees ?? 0;
-    return rotation === 90 || rotation === 270
-        ? presentationResult.value?.rawWidthPx ?? 1
-        : presentationResult.value?.rawHeightPx ?? 1;
+    return rotation === 90 || rotation === 270 ? (presentationResult.value?.rawWidthPx ?? 1) : (presentationResult.value?.rawHeightPx ?? 1);
 });
 const draftGeometry = computed(() => dragTransaction.draftGeometry.value);
-const activeCutterDraft = computed(() => draftGeometry.value?.kind === 'cutter'
-    ? draftGeometry.value
-    : null);
-const activePlacementHalf = computed(() => draftGeometry.value?.kind === 'placement'
-    ? draftGeometry.value.half
-    : null);
-const cutterXPx = computed(() => resolveNormalizedManualSplitX(manualSplit, analysisWidth.value)
-    ?? presentationResult.value?.pageMetadata.cutterXPx
-    ?? analysisWidth.value / 2);
-const displayedCutterX = computed(() => activeCutterDraft.value
-    ? resolveNormalizedManualSplitX(activeCutterDraft.value.value, analysisWidth.value) ?? cutterXPx.value
-    : cutterXPx.value);
+const activeCutterDraft = computed(() => (draftGeometry.value?.kind === 'cutter' ? draftGeometry.value : null));
+const activePlacementHalf = computed(() => (draftGeometry.value?.kind === 'placement' ? draftGeometry.value.half : null));
+const cutterXPx = computed(
+    () =>
+        resolveNormalizedManualSplitX(manualSplit, analysisWidth.value) ??
+        presentationResult.value?.pageMetadata.cutterXPx ??
+        analysisWidth.value / 2,
+);
+const displayedCutterX = computed(() =>
+    activeCutterDraft.value
+        ? (resolveNormalizedManualSplitX(activeCutterDraft.value.value, analysisWidth.value) ?? cutterXPx.value)
+        : cutterXPx.value,
+);
 // The split is a column of the rotated analysis plane, but Original shows the
 // raw scan. After a quarter turn that column is a raw row, read from raw Y; a
 // clockwise quarter turn and a half turn also reverse the raw axis.
@@ -1219,28 +1238,25 @@ const originalCutterAxis = computed(() => {
         mirrored: original && (cutterRotation.value === 90 || cutterRotation.value === 180),
     };
 });
-const showCutter = computed(() => zoneEditing !== true
-    && (
-        activeCutterDraft.value !== null
-        || Boolean(presentationResult.value) && (
-            presentationResult.value?.pageMetadata.layoutClassification === 'two-page-spread'
-            || manualSplit !== null
-        )
-    ));
-const originalFitPlacement = computed(() => resolvePreviewFitPlacement(
-    dragOverlayBounds.width,
-    dragOverlayBounds.height,
-    presentationResult.value?.rawWidthPx ?? 1,
-    presentationResult.value?.rawHeightPx ?? 1,
-));
-const cutterSourceFitPlacement = computed(() => resolvePreviewFitPlacement(
-    dragOverlayBounds.width,
-    dragOverlayBounds.height,
-    analysisWidth.value,
-    analysisHeight.value,
-));
-const cutterSourceUnderlayVisible = computed(() => activeCutterDraft.value !== null
-    && effectiveViewMode.value === 'cleaned');
+const showCutter = computed(
+    () =>
+        zoneEditing !== true &&
+        (activeCutterDraft.value !== null ||
+            (Boolean(presentationResult.value) &&
+                (presentationResult.value?.pageMetadata.layoutClassification === 'two-page-spread' || manualSplit !== null))),
+);
+const originalFitPlacement = computed(() =>
+    resolvePreviewFitPlacement(
+        dragOverlayBounds.width,
+        dragOverlayBounds.height,
+        presentationResult.value?.rawWidthPx ?? 1,
+        presentationResult.value?.rawHeightPx ?? 1,
+    ),
+);
+const cutterSourceFitPlacement = computed(() =>
+    resolvePreviewFitPlacement(dragOverlayBounds.width, dragOverlayBounds.height, analysisWidth.value, analysisHeight.value),
+);
+const cutterSourceUnderlayVisible = computed(() => activeCutterDraft.value !== null && effectiveViewMode.value === 'cleaned');
 const sourceUnderlayVisible = computed(() => zoneEditing === true || cutterSourceUnderlayVisible.value);
 const dragOverlayStyle = computed<CSSProperties>(() => ({
     left: `${dragOverlayBounds.x}px`,
@@ -1268,27 +1284,31 @@ const losslessCropOverlayStyles = computed(() => {
     if (!lossless || !currentResult || originalFitPlacement.value.width <= 0) {
         return [];
     }
-    return currentResult.outputs.map(output => {
+    return currentResult.outputs.map((output) => {
         const metadata = output.metadata;
-        const content = resolveNormalizedContentBox(metadata, manualContentBoxes?.[metadata.half])
-            ?? metadata.contentBox;
-        const local = content ? expandPreviewRectByMargins(content, metadata.appliedMargins) : {
-            xPx: 0,
-            yPx: 0,
-            widthPx: metadata.sourceRegion.widthPx,
-            heightPx: metadata.sourceRegion.heightPx,
-        };
-        const rawRect = unrotatePreviewRect({
-            xPx: metadata.sourceRegion.xPx + local.xPx,
-            yPx: metadata.sourceRegion.yPx + local.yPx,
-            widthPx: local.widthPx,
-            heightPx: local.heightPx,
-        }, metadata);
+        const content = resolveNormalizedContentBox(metadata, manualContentBoxes?.[metadata.half]) ?? metadata.contentBox;
+        const local = content
+            ? expandPreviewRectByMargins(content, metadata.appliedMargins)
+            : {
+                  xPx: 0,
+                  yPx: 0,
+                  widthPx: metadata.sourceRegion.widthPx,
+                  heightPx: metadata.sourceRegion.heightPx,
+              };
+        const rawRect = unrotatePreviewRect(
+            {
+                xPx: metadata.sourceRegion.xPx + local.xPx,
+                yPx: metadata.sourceRegion.yPx + local.yPx,
+                widthPx: local.widthPx,
+                heightPx: local.heightPx,
+            },
+            metadata,
+        );
         return {
-            insetInlineStart: `${originalFitPlacement.value.left + rawRect.xPx / currentResult.rawWidthPx * originalFitPlacement.value.width}px`,
-            insetBlockStart: `${originalFitPlacement.value.top + rawRect.yPx / currentResult.rawHeightPx * originalFitPlacement.value.height}px`,
-            width: `${rawRect.widthPx / currentResult.rawWidthPx * originalFitPlacement.value.width}px`,
-            height: `${rawRect.heightPx / currentResult.rawHeightPx * originalFitPlacement.value.height}px`,
+            insetInlineStart: `${originalFitPlacement.value.left + (rawRect.xPx / currentResult.rawWidthPx) * originalFitPlacement.value.width}px`,
+            insetBlockStart: `${originalFitPlacement.value.top + (rawRect.yPx / currentResult.rawHeightPx) * originalFitPlacement.value.height}px`,
+            width: `${(rawRect.widthPx / currentResult.rawWidthPx) * originalFitPlacement.value.width}px`,
+            height: `${(rawRect.heightPx / currentResult.rawHeightPx) * originalFitPlacement.value.height}px`,
         };
     });
 });
@@ -1314,7 +1334,7 @@ const cutterStyle = computed(() => {
         fitAreas: outputFitAreaSizes,
         originalPlacement: originalFitPlacement.value,
         originalVisible: effectiveViewMode.value === 'original' && originalFitPlacement.value.width > 0,
-        outputs: outputs.map(output => output.metadata.half),
+        outputs: outputs.map((output) => output.metadata.half),
         readingOrder,
         sourcePlacement: cutterSourceFitPlacement.value,
         sourceRatio,
@@ -1325,8 +1345,12 @@ function navigateFromKeyboard(direction: 'previous' | 'next') {
     if (disabled) {
         return;
     }
-    if (direction === 'previous' && pageNumber > 1) {emit('previous');}
-    if (direction === 'next' && pageNumber < totalPages) {emit('next');}
+    if (direction === 'previous' && pageNumber > 1) {
+        emit('previous');
+    }
+    if (direction === 'next' && pageNumber < totalPages) {
+        emit('next');
+    }
 }
 function handlePaneKeydown(event: KeyboardEvent) {
     if (event.target !== event.currentTarget) {
@@ -1342,7 +1366,7 @@ function handlePaneKeydown(event: KeyboardEvent) {
 }
 
 function captureDragOutputSnapshot() {
-    dragOutputSnapshot.value = renderedOutputs.value.map(output => ({
+    dragOutputSnapshot.value = renderedOutputs.value.map((output) => ({
         ...output,
         canvasStyle: {...output.canvasStyle},
         imageStyle: {...output.imageStyle},
@@ -1361,38 +1385,37 @@ function contentHandleLabel(handle: TScanCleanupContentHandle, half: TScanCleanu
     });
 }
 
-const outputHalves = computed(
-    () => presentationResult.value?.outputs.map(output => output.metadata.half) ?? [],
+const outputHalves = computed(() => presentationResult.value?.outputs.map((output) => output.metadata.half) ?? []);
+const cleanedAltByHalf = computed(() =>
+    Object.fromEntries(
+        outputHalves.value.map((half) => [
+            half,
+            t('scanCleanup.preview.cleanedAlt', {
+                page: presentationResult.value?.pageNumber ?? pageNumber,
+                half: outputHalfLabel(half),
+            }),
+        ]),
+    ),
 );
-const cleanedAltByHalf = computed(() => Object.fromEntries(outputHalves.value.map(half => [
-    half,
-    t('scanCleanup.preview.cleanedAlt', {
-        page: presentationResult.value?.pageNumber ?? pageNumber,
-        half: outputHalfLabel(half),
-    }),
-])));
-const placementLabels = computed(() => Object.fromEntries(outputHalves.value.map(half => [
-    half,
-    t('scanCleanup.preview.placement', {half: outputHalfLabel(half)}),
-])));
-const contentGroupLabels = computed(() => Object.fromEntries(outputHalves.value.map(half => [
-    half,
-    t('scanCleanup.preview.contentBoxFor', {half: outputHalfLabel(half)}),
-])));
-const contentHandleLabels = computed(() => Object.fromEntries(outputHalves.value.map(half => [
-    half,
-    Object.fromEntries(contentHandles.map(handle => [
-        handle,
-        contentHandleLabel(handle, half),
-    ])),
-])));
+const placementLabels = computed(() =>
+    Object.fromEntries(outputHalves.value.map((half) => [half, t('scanCleanup.preview.placement', {half: outputHalfLabel(half)})])),
+);
+const contentGroupLabels = computed(() =>
+    Object.fromEntries(outputHalves.value.map((half) => [half, t('scanCleanup.preview.contentBoxFor', {half: outputHalfLabel(half)})])),
+);
+const contentHandleLabels = computed(() =>
+    Object.fromEntries(
+        outputHalves.value.map((half) => [
+            half,
+            Object.fromEntries(contentHandles.map((handle) => [handle, contentHandleLabel(handle, half)])),
+        ]),
+    ),
+);
 
 function startCutterDrag(event: PointerEvent) {
     updateOverlayGeometry(true);
     const stageRect = currentStageRect();
-    const sourceFrame = effectiveViewMode.value === 'cleaned'
-        ? cutterSourceFitPlacement.value
-        : originalFitPlacement.value;
+    const sourceFrame = effectiveViewMode.value === 'cleaned' ? cutterSourceFitPlacement.value : originalFitPlacement.value;
     if (!stageRect || sourceFrame.width <= 0) {
         return;
     }
@@ -1400,36 +1423,26 @@ function startCutterDrag(event: PointerEvent) {
     const transformScale = Math.max(0.001, previewTransformScale.value);
     const canonicalGeometry: ICutterDragGeometry = {
         kind: 'cutter',
-        value: manualSplit
-            ? {...manualSplit}
-            : normalizeManualSplitX(cutterXPx.value, analysisWidth.value, rotation),
+        value: manualSplit ? {...manualSplit} : normalizeManualSplitX(cutterXPx.value, analysisWidth.value, rotation),
     };
     const started = dragTransaction.start(event, {
         canonicalGeometry,
         stageRect,
-        fitScale: sourceFrame.width * transformScale / Math.max(1, analysisWidth.value),
+        fitScale: (sourceFrame.width * transformScale) / Math.max(1, analysisWidth.value),
         update: (pointerEvent, snapshot) => {
-            const {
-                horizontal, mirrored,
-            } = originalCutterAxis.value;
+            const {horizontal, mirrored} = originalCutterAxis.value;
             const frameRatio = horizontal
-                ? (pointerEvent.clientY - snapshot.stageRect.y) / (sourceFrame.height * transformScale)
-                    - sourceFrame.top / Math.max(1, sourceFrame.height)
-                : (
-                    (pointerEvent.clientX - snapshot.stageRect.x) / snapshot.fitScale
-                    / Math.max(1, analysisWidth.value)
-                ) - sourceFrame.left / sourceFrame.width;
+                ? (pointerEvent.clientY - snapshot.stageRect.y) / (sourceFrame.height * transformScale) -
+                  sourceFrame.top / Math.max(1, sourceFrame.height)
+                : (pointerEvent.clientX - snapshot.stageRect.x) / snapshot.fitScale / Math.max(1, analysisWidth.value) -
+                  sourceFrame.left / sourceFrame.width;
             const ratio = mirrored ? 1 - frameRatio : frameRatio;
             return {
                 kind: 'cutter',
-                value: normalizeManualSplitX(
-                    scanCleanupCutterXFromRatio(ratio, analysisWidth.value),
-                    analysisWidth.value,
-                    rotation,
-                ),
+                value: normalizeManualSplitX(scanCleanupCutterXFromRatio(ratio, analysisWidth.value), analysisWidth.value, rotation),
             };
         },
-        commit: geometry => {
+        commit: (geometry) => {
             if (geometry.kind === 'cutter') {
                 emit('update:manualSplit', geometry.value);
             }
@@ -1444,33 +1457,29 @@ function startCutterDrag(event: PointerEvent) {
 function nudgeCutter(direction: -1 | 1, coarse: boolean) {
     // An arrow moves the line the way it points on screen.
     const step = analysisWidth.value * (coarse ? 0.05 : 0.01) * (originalCutterAxis.value.mirrored ? -1 : 1);
-    emit('update:manualSplit', normalizeManualSplitX(Math.min(
-        analysisWidth.value * SCAN_CLEANUP_MANUAL_SPLIT_MAX,
-        Math.max(analysisWidth.value * SCAN_CLEANUP_MANUAL_SPLIT_MIN, cutterXPx.value + direction * step),
-    ), analysisWidth.value, presentationResult.value?.pageMetadata.rotationDegrees ?? 0));
+    emit(
+        'update:manualSplit',
+        normalizeManualSplitX(
+            Math.min(
+                analysisWidth.value * SCAN_CLEANUP_MANUAL_SPLIT_MAX,
+                Math.max(analysisWidth.value * SCAN_CLEANUP_MANUAL_SPLIT_MIN, cutterXPx.value + direction * step),
+            ),
+            analysisWidth.value,
+            presentationResult.value?.pageMetadata.rotationDegrees ?? 0,
+        ),
+    );
 }
 
-function sourcePointFromClient(
-    clientX: number,
-    clientY: number,
-    output: IRenderedScanCleanupOutput,
-    rect: IScanCleanupDragRect,
-) {
+function sourcePointFromClient(clientX: number, clientY: number, output: IRenderedScanCleanupOutput, rect: IScanCleanupDragRect) {
     // Back through the normalization the page is presented under, so a pointer
     // lands on the raster pixel the metadata is written in.
     return previewPointToSourceHalf(output.metadata, {
-        x: ((clientX - rect.x) / rect.width * output.placement.canvasWidthPx - output.placement.left)
-            / output.placement.scaleX,
-        y: ((clientY - rect.y) / rect.height * output.placement.canvasHeightPx - output.placement.top)
-            / output.placement.scaleY,
+        x: (((clientX - rect.x) / rect.width) * output.placement.canvasWidthPx - output.placement.left) / output.placement.scaleX,
+        y: (((clientY - rect.y) / rect.height) * output.placement.canvasHeightPx - output.placement.top) / output.placement.scaleY,
     });
 }
 
-function startContentDrag(
-    event: PointerEvent,
-    output: IScanCleanupContentOverlayOutput,
-    handle: TScanCleanupContentHandle,
-) {
+function startContentDrag(event: PointerEvent, output: IScanCleanupContentOverlayOutput, handle: TScanCleanupContentHandle) {
     updateOverlayGeometry(true);
     const canvasClientRect = outputCanvasRects[output.metadata.half] ?? output.canvasClientRect;
     if (!output.contentRect || canvasClientRect.width <= 0 || canvasClientRect.height <= 0) {
@@ -1481,9 +1490,7 @@ function startContentDrag(
     const canonicalGeometry: IContentDragGeometry = {
         kind: 'content',
         half: output.metadata.half,
-        value: manualContentBox
-            ? {...manualContentBox}
-            : normalizePreviewContentBox(output.metadata, startRect),
+        value: manualContentBox ? {...manualContentBox} : normalizePreviewContentBox(output.metadata, startRect),
     };
     const stageRect = currentStageRect();
     if (!stageRect) {
@@ -1493,25 +1500,18 @@ function startContentDrag(
         canonicalGeometry,
         stageRect,
         fitScale: canvasClientRect.width / Math.max(1, output.placement.canvasWidthPx),
-        update: pointerEvent => {
-            const point = sourcePointFromClient(
-                pointerEvent.clientX,
-                pointerEvent.clientY,
-                output,
-                canvasClientRect,
-            );
+        update: (pointerEvent) => {
+            const point = sourcePointFromClient(pointerEvent.clientX, pointerEvent.clientY, output, canvasClientRect);
             return {
                 kind: 'content',
                 half: output.metadata.half,
                 value: normalizePreviewContentBox(
                     output.metadata,
-                    point
-                        ? resizedContentRect(startRect, handle, point, output.metadata)
-                        : startRect,
+                    point ? resizedContentRect(startRect, handle, point, output.metadata) : startRect,
                 ),
             };
         },
-        commit: geometry => {
+        commit: (geometry) => {
             if (geometry.kind === 'content') {
                 emit('update:manualContentBox', geometry.half, geometry.value);
             }
@@ -1528,7 +1528,7 @@ function resizedContentRect(
     handle: TScanCleanupContentHandle,
     point: {
         x: number;
-        y: number
+        y: number;
     },
     metadata: IScanCleanupPreviewMetadata,
 ) {
@@ -1537,81 +1537,85 @@ function resizedContentRect(
     let top = rect.yPx;
     let right = rect.xPx + rect.widthPx;
     let bottom = rect.yPx + rect.heightPx;
-    if (handle.includes('w')) {left = Math.min(right - minimum, point.x);}
-    if (handle.includes('e')) {right = Math.max(left + minimum, point.x);}
-    if (handle.includes('n')) {top = Math.min(bottom - minimum, point.y);}
-    if (handle.includes('s')) {bottom = Math.max(top + minimum, point.y);}
+    if (handle.includes('w')) {
+        left = Math.min(right - minimum, point.x);
+    }
+    if (handle.includes('e')) {
+        right = Math.max(left + minimum, point.x);
+    }
+    if (handle.includes('n')) {
+        top = Math.min(bottom - minimum, point.y);
+    }
+    if (handle.includes('s')) {
+        bottom = Math.max(top + minimum, point.y);
+    }
     left = Math.max(0, left);
     top = Math.max(0, top);
     right = Math.min(metadata.sourceRegion.widthPx, right);
     bottom = Math.min(metadata.sourceRegion.heightPx, bottom);
-    return clampPreviewRect({
-        xPx: left,
-        yPx: top,
-        widthPx: Math.max(minimum, right - left),
-        heightPx: Math.max(minimum, bottom - top),
-    }, metadata.sourceRegion.widthPx, metadata.sourceRegion.heightPx);
+    return clampPreviewRect(
+        {
+            xPx: left,
+            yPx: top,
+            widthPx: Math.max(minimum, right - left),
+            heightPx: Math.max(minimum, bottom - top),
+        },
+        metadata.sourceRegion.widthPx,
+        metadata.sourceRegion.heightPx,
+    );
 }
 
-function nudgeContentBox(
-    event: KeyboardEvent,
-    output: IRenderedScanCleanupOutput,
-    handle: TScanCleanupContentHandle,
-) {
+function nudgeContentBox(event: KeyboardEvent, output: IRenderedScanCleanupOutput, handle: TScanCleanupContentHandle) {
     if (!output.contentRect || !event.key.startsWith('Arrow')) {
         return;
     }
     event.preventDefault();
     event.stopPropagation();
-    const step = Math.max(1, Math.min(output.metadata.sourceRegion.widthPx, output.metadata.sourceRegion.heightPx)
-        * (event.shiftKey ? 0.05 : 0.01));
+    const step = Math.max(
+        1,
+        Math.min(output.metadata.sourceRegion.widthPx, output.metadata.sourceRegion.heightPx) * (event.shiftKey ? 0.05 : 0.01),
+    );
     const point = {
         x: handle.includes('w') ? output.contentRect.xPx : output.contentRect.xPx + output.contentRect.widthPx,
         y: handle.includes('n') ? output.contentRect.yPx : output.contentRect.yPx + output.contentRect.heightPx,
     };
-    if (event.key === 'ArrowLeft') {point.x -= step;}
-    if (event.key === 'ArrowRight') {point.x += step;}
-    if (event.key === 'ArrowUp') {point.y -= step;}
-    if (event.key === 'ArrowDown') {point.y += step;}
-    emit('update:manualContentBox', output.metadata.half, normalizePreviewContentBox(
-        output.metadata,
-        resizedContentRect(output.contentRect, handle, point, output.metadata),
-    ));
+    if (event.key === 'ArrowLeft') {
+        point.x -= step;
+    }
+    if (event.key === 'ArrowRight') {
+        point.x += step;
+    }
+    if (event.key === 'ArrowUp') {
+        point.y -= step;
+    }
+    if (event.key === 'ArrowDown') {
+        point.y += step;
+    }
+    emit(
+        'update:manualContentBox',
+        output.metadata.half,
+        normalizePreviewContentBox(output.metadata, resizedContentRect(output.contentRect, handle, point, output.metadata)),
+    );
 }
 
-function alignmentFromOffset(
-    left: number,
-    top: number,
-    reference: ReturnType<typeof resolvePlacementDragReferenceRect>,
-) {
+function alignmentFromOffset(left: number, top: number, reference: ReturnType<typeof resolvePlacementDragReferenceRect>) {
     const relativeLeft = left - reference.originX;
     const relativeTop = top - reference.originY;
-    const horizontal = reference.spanX <= 0 || relativeLeft / reference.spanX < 0.25
-        ? 'left'
-        : relativeLeft / reference.spanX > 0.75 ? 'right' : 'center';
-    const vertical = reference.spanY <= 0 || relativeTop / reference.spanY < 0.25
-        ? 'top'
-        : relativeTop / reference.spanY > 0.75 ? 'bottom' : 'center';
+    const horizontal =
+        reference.spanX <= 0 || relativeLeft / reference.spanX < 0.25 ? 'left' : relativeLeft / reference.spanX > 0.75 ? 'right' : 'center';
+    const vertical =
+        reference.spanY <= 0 || relativeTop / reference.spanY < 0.25 ? 'top' : relativeTop / reference.spanY > 0.75 ? 'bottom' : 'center';
     return vertical === 'center' && horizontal === 'center'
-        ? 'center' as const
-        : `${vertical}-${horizontal}` as TScanCleanupPageAlignment;
+        ? ('center' as const)
+        : (`${vertical}-${horizontal}` as TScanCleanupPageAlignment);
 }
 
-function resolvePlacementDragReferenceRect(
-    metadata: IScanCleanupPreviewMetadata,
-    retainedWidthPx: number,
-    contentHeightPx: number,
-) {
-    const matchedCanvas = metadata.matchedCanvasContentWidthPx != null
-        || metadata.matchedCanvasContentHeightPx != null;
+function resolvePlacementDragReferenceRect(metadata: IScanCleanupPreviewMetadata, retainedWidthPx: number, contentHeightPx: number) {
+    const matchedCanvas = metadata.matchedCanvasContentWidthPx != null || metadata.matchedCanvasContentHeightPx != null;
     const originX = matchedCanvas ? metadata.appliedMargins.leftPx : 0;
     const originY = matchedCanvas ? metadata.appliedMargins.topPx : 0;
-    const horizontalInsets = matchedCanvas
-        ? metadata.appliedMargins.leftPx + metadata.appliedMargins.rightPx
-        : 0;
-    const verticalInsets = matchedCanvas
-        ? metadata.appliedMargins.topPx + metadata.appliedMargins.bottomPx
-        : 0;
+    const horizontalInsets = matchedCanvas ? metadata.appliedMargins.leftPx + metadata.appliedMargins.rightPx : 0;
+    const verticalInsets = matchedCanvas ? metadata.appliedMargins.topPx + metadata.appliedMargins.bottomPx : 0;
     return {
         originX,
         originY,
@@ -1623,18 +1627,11 @@ function resolvePlacementDragReferenceRect(
 function resolveRetainedPlacementGeometry(output: IRenderedScanCleanupOutput) {
     const foldClipLeftPx = output.metadata.foldClipLeftPx ?? 0;
     const foldClipRightPx = output.metadata.foldClipRightPx ?? 0;
-    const retainedWidthPx = Math.max(
-        1,
-        output.placement.contentWidthPx - foldClipLeftPx - foldClipRightPx,
-    );
+    const retainedWidthPx = Math.max(1, output.placement.contentWidthPx - foldClipLeftPx - foldClipRightPx);
     return {
         foldClipLeftPx,
         retainedWidthPx,
-        reference: resolvePlacementDragReferenceRect(
-            output.metadata,
-            retainedWidthPx,
-            output.placement.contentHeightPx,
-        ),
+        reference: resolvePlacementDragReferenceRect(output.metadata, retainedWidthPx, output.placement.contentHeightPx),
     };
 }
 
@@ -1649,10 +1646,7 @@ function startPlacementDrag(event: PointerEvent, output: IScanCleanupPlacementOv
     if (!matchPageSize || canvasClientRect.width <= 0 || canvasClientRect.height <= 0) {
         return;
     }
-    const {
-        foldClipLeftPx,
-        reference: alignmentReference,
-    } = resolveRetainedPlacementGeometry(output);
+    const {foldClipLeftPx, reference: alignmentReference} = resolveRetainedPlacementGeometry(output);
     const initialRetainedLeft = output.placement.left + foldClipLeftPx;
     const canonicalGeometry: IPlacementDragGeometry = {
         kind: 'placement',
@@ -1675,8 +1669,7 @@ function startPlacementDrag(event: PointerEvent, output: IScanCleanupPlacementOv
                 alignmentReference.originX + alignmentReference.spanX,
                 Math.max(
                     alignmentReference.originX,
-                    initialRetainedLeft
-                    + (pointerEvent.clientX - snapshot.pointerStart.x) / snapshot.fitScale,
+                    initialRetainedLeft + (pointerEvent.clientX - snapshot.pointerStart.x) / snapshot.fitScale,
                 ),
             );
             const left = retainedLeft - foldClipLeftPx;
@@ -1695,7 +1688,7 @@ function startPlacementDrag(event: PointerEvent, output: IScanCleanupPlacementOv
                 top,
             };
         },
-        commit: geometry => {
+        commit: (geometry) => {
             if (geometry.kind === 'placement') {
                 emit('update:placement', geometry.half, geometry.alignment);
             }
@@ -1712,12 +1705,12 @@ function finishPlacementDrag(event: PointerEvent) {
     dragTransaction.move(event);
     const draft = dragTransaction.draftGeometry.value;
     if (
-        snapshot?.pointerId === event.pointerId
-        && snapshot.canonicalGeometry.kind === 'placement'
-        && draft?.kind === 'placement'
-        && draft.half === snapshot.canonicalGeometry.half
-        && draft.left === snapshot.canonicalGeometry.left
-        && draft.top === snapshot.canonicalGeometry.top
+        snapshot?.pointerId === event.pointerId &&
+        snapshot.canonicalGeometry.kind === 'placement' &&
+        draft?.kind === 'placement' &&
+        draft.half === snapshot.canonicalGeometry.half &&
+        draft.left === snapshot.canonicalGeometry.left &&
+        draft.top === snapshot.canonicalGeometry.top
     ) {
         dragTransaction.cancel();
         return;
@@ -1735,36 +1728,26 @@ function nudgePlacement(event: KeyboardEvent, output: IRenderedScanCleanupOutput
     // `ink` is not on the nine-way compass. A nudge steps off it from the
     // compass position nearest to where the output was actually placed.
     const resolvedInkAlignment = () => {
-        const {
-            foldClipLeftPx,
-            reference,
-        } = resolveRetainedPlacementGeometry(output);
-        return alignmentFromOffset(
-            output.placement.left + foldClipLeftPx,
-            output.placement.top,
-            reference,
-        );
+        const {foldClipLeftPx, reference} = resolveRetainedPlacementGeometry(output);
+        return alignmentFromOffset(output.placement.left + foldClipLeftPx, output.placement.top, reference);
     };
-    const [
-        vertical,
-        horizontal = vertical,
-    ] = (current === 'ink' ? resolvedInkAlignment() : current).split('-');
-    const axes = [
-        'left',
-        'center',
-        'right',
-    ] as const;
-    const verticalAxes = [
-        'top',
-        'center',
-        'bottom',
-    ] as const;
-    let x = axes.indexOf(horizontal as typeof axes[number]);
-    let y = verticalAxes.indexOf(vertical as typeof verticalAxes[number]);
-    if (event.key === 'ArrowLeft') {x = Math.max(0, x - 1);}
-    if (event.key === 'ArrowRight') {x = Math.min(2, x + 1);}
-    if (event.key === 'ArrowUp') {y = Math.max(0, y - 1);}
-    if (event.key === 'ArrowDown') {y = Math.min(2, y + 1);}
+    const [vertical, horizontal = vertical] = (current === 'ink' ? resolvedInkAlignment() : current).split('-');
+    const axes = ['left', 'center', 'right'] as const;
+    const verticalAxes = ['top', 'center', 'bottom'] as const;
+    let x = axes.indexOf(horizontal as (typeof axes)[number]);
+    let y = verticalAxes.indexOf(vertical as (typeof verticalAxes)[number]);
+    if (event.key === 'ArrowLeft') {
+        x = Math.max(0, x - 1);
+    }
+    if (event.key === 'ArrowRight') {
+        x = Math.min(2, x + 1);
+    }
+    if (event.key === 'ArrowUp') {
+        y = Math.max(0, y - 1);
+    }
+    if (event.key === 'ArrowDown') {
+        y = Math.min(2, y + 1);
+    }
     const nextVertical = verticalAxes[y] ?? 'center';
     const nextHorizontal = axes[x] ?? 'center';
     const next = x === 1 && y === 1 ? 'center' : `${nextVertical}-${nextHorizontal}`;
@@ -1775,153 +1758,129 @@ defineExpose({
     revealLatestFrame,
     scheduleDetailRequest,
 });
-const pendingCleanedPixels = computed(() => (
-    Object.entries(pendingCleanedPixelUrls) as Array<[TScanCleanupOutputHalf, string]>
-).map(([
-    half,
-    url,
-]) => ({
-    half,
-    url,
-})));
+const pendingCleanedPixels = computed(() =>
+    (Object.entries(pendingCleanedPixelUrls) as Array<[TScanCleanupOutputHalf, string]>).map(([half, url]) => ({
+        half,
+        url,
+    })),
+);
 
-const detailRequest = useTimeoutFn(() => {
-    updateOverlayGeometry();
-    const surfaceRect = previewSurface.value?.getBoundingClientRect();
-    if (!surfaceRect) {
-        return;
-    }
-    const quantizeDown = (value: number) => Math.floor(value * 64) / 64;
-    const quantizeUp = (value: number) => Math.ceil(value * 64) / 64;
-    const viewports: NonNullable<IScanCleanupPreviewRequest['detail']>['viewports'] = {};
-    for (const output of renderedOutputs.value) {
-        const canvasRect = outputCanvasRects[output.metadata.half];
-        if (!canvasRect || canvasRect.width <= 0 || canvasRect.height <= 0) {continue;}
-        const imageRect = {
-            x: canvasRect.x
-                + output.placement.left / output.placement.canvasWidthPx * canvasRect.width,
-            y: canvasRect.y
-                + output.placement.top / output.placement.canvasHeightPx * canvasRect.height,
-            width: output.placement.contentWidthPx
-                / output.placement.canvasWidthPx * canvasRect.width,
-            height: output.placement.contentHeightPx
-                / output.placement.canvasHeightPx * canvasRect.height,
-        };
-        const left = Math.max(0, Math.min(1, (surfaceRect.left - imageRect.x) / imageRect.width));
-        const top = Math.max(0, Math.min(1, (surfaceRect.top - imageRect.y) / imageRect.height));
-        const right = Math.max(left, Math.min(
-            1,
-            (surfaceRect.right - imageRect.x) / imageRect.width,
-        ));
-        const bottom = Math.max(top, Math.min(
-            1,
-            (surfaceRect.bottom - imageRect.y) / imageRect.height,
-        ));
-        if (right <= left || bottom <= top) {continue;}
-        const xNormalized = quantizeDown(left);
-        const yNormalized = quantizeDown(top);
-        viewports[output.metadata.half] = {
-            xNormalized,
-            yNormalized,
-            widthNormalized: Math.max(1 / 64, Math.min(1, quantizeUp(right)) - xNormalized),
-            heightNormalized: Math.max(1 / 64, Math.min(1, quantizeUp(bottom)) - yNormalized),
-            rotationDegrees: presentationResult.value?.pageMetadata.rotationDegrees ?? 0,
-        };
-    }
-    if (Object.keys(viewports).length > 0) {emit('requestDetail', viewports);}
-}, SCAN_CLEANUP_DETAIL_REQUEST_DEBOUNCE_MS, {immediate: false});
+const detailRequest = useTimeoutFn(
+    () => {
+        updateOverlayGeometry();
+        const surfaceRect = previewSurface.value?.getBoundingClientRect();
+        if (!surfaceRect) {
+            return;
+        }
+        const quantizeDown = (value: number) => Math.floor(value * 64) / 64;
+        const quantizeUp = (value: number) => Math.ceil(value * 64) / 64;
+        const viewports: NonNullable<IScanCleanupPreviewRequest['detail']>['viewports'] = {};
+        for (const output of renderedOutputs.value) {
+            const canvasRect = outputCanvasRects[output.metadata.half];
+            if (!canvasRect || canvasRect.width <= 0 || canvasRect.height <= 0) {
+                continue;
+            }
+            const imageRect = {
+                x: canvasRect.x + (output.placement.left / output.placement.canvasWidthPx) * canvasRect.width,
+                y: canvasRect.y + (output.placement.top / output.placement.canvasHeightPx) * canvasRect.height,
+                width: (output.placement.contentWidthPx / output.placement.canvasWidthPx) * canvasRect.width,
+                height: (output.placement.contentHeightPx / output.placement.canvasHeightPx) * canvasRect.height,
+            };
+            const left = Math.max(0, Math.min(1, (surfaceRect.left - imageRect.x) / imageRect.width));
+            const top = Math.max(0, Math.min(1, (surfaceRect.top - imageRect.y) / imageRect.height));
+            const right = Math.max(left, Math.min(1, (surfaceRect.right - imageRect.x) / imageRect.width));
+            const bottom = Math.max(top, Math.min(1, (surfaceRect.bottom - imageRect.y) / imageRect.height));
+            if (right <= left || bottom <= top) {
+                continue;
+            }
+            const xNormalized = quantizeDown(left);
+            const yNormalized = quantizeDown(top);
+            viewports[output.metadata.half] = {
+                xNormalized,
+                yNormalized,
+                widthNormalized: Math.max(1 / 64, Math.min(1, quantizeUp(right)) - xNormalized),
+                heightNormalized: Math.max(1 / 64, Math.min(1, quantizeUp(bottom)) - yNormalized),
+                rotationDegrees: presentationResult.value?.pageMetadata.rotationDegrees ?? 0,
+            };
+        }
+        if (Object.keys(viewports).length > 0) {
+            emit('requestDetail', viewports);
+        }
+    },
+    SCAN_CLEANUP_DETAIL_REQUEST_DEBOUNCE_MS,
+    {immediate: false},
+);
 
 function scheduleDetailRequest() {
     emit('invalidateDetail');
     detailRequest.stop();
     if (
-        effectiveViewMode.value !== 'cleaned'
-        || lossless === true
-        || !presentationResult.value
-        || presentationResult.value.outputs.length === 0
-        || !previewPresentationCurrent.value
-        || !displayedCleanedFrameCurrent.value
-        || loading
-        || isStalePage.value
-        || !detailDensityExceeded.value
-        || panGesture.value !== null
-        || dragTransaction.active.value
-        || dragOverlayBounds.width <= 0
-        || dragOverlayBounds.height <= 0
+        effectiveViewMode.value !== 'cleaned' ||
+        lossless === true ||
+        !presentationResult.value ||
+        presentationResult.value.outputs.length === 0 ||
+        !previewPresentationCurrent.value ||
+        !displayedCleanedFrameCurrent.value ||
+        loading ||
+        isStalePage.value ||
+        !detailDensityExceeded.value ||
+        panGesture.value !== null ||
+        dragTransaction.active.value ||
+        dragOverlayBounds.width <= 0 ||
+        dragOverlayBounds.height <= 0
     ) {
         return;
     }
     detailRequest.start();
 }
 
-watch([
-    effectiveViewMode,
-    isStalePage,
-    previewEffectiveZoom,
-    devicePixelScale,
-    () => previewPan.x,
-    () => previewPan.y,
-    panGesture,
-    () => dragTransaction.active.value,
-    () => loading,
-    () => presentationResult.value?.pageNumber,
-    previewPresentationCurrent,
-    () => displayedCleanedFrame.value?.transitionKey,
-], scheduleDetailRequest);
-
-watch(() => dragTransaction.active.value, active => {
-    if (!active) {
-        dragOutputSnapshot.value = null;
-        void nextTick(updateOverlayGeometry);
-    }
-});
 watch(
     [
-        () => disabled,
-        () => pageNumber,
-        () => resultPresentationKey,
-        () => displayedCleanedFrame.value?.result,
-        previewEditsEnabled,
+        effectiveViewMode,
+        isStalePage,
+        previewEffectiveZoom,
+        devicePixelScale,
+        () => previewPan.x,
+        () => previewPan.y,
+        panGesture,
+        () => dragTransaction.active.value,
+        () => loading,
+        () => presentationResult.value?.pageNumber,
+        previewPresentationCurrent,
+        () => displayedCleanedFrame.value?.transitionKey,
     ],
+    scheduleDetailRequest,
+);
+
+watch(
+    () => dragTransaction.active.value,
+    (active) => {
+        if (!active) {
+            dragOutputSnapshot.value = null;
+            void nextTick(updateOverlayGeometry);
+        }
+    },
+);
+watch(
+    [() => disabled, () => pageNumber, () => resultPresentationKey, () => displayedCleanedFrame.value?.result, previewEditsEnabled],
     (
-        [
-            isDisabled,
-            currentPageNumber,
-            currentResultPresentationKey,
-            displayedResult,
-            editsEnabled,
-        ],
-        [
-            ,
-            previousPageNumber,
-            previousResultPresentationKey,
-            previousDisplayedResult,
-            previousEditsEnabled,
-        ],
+        [isDisabled, currentPageNumber, currentResultPresentationKey, displayedResult, editsEnabled],
+        [, previousPageNumber, previousResultPresentationKey, previousDisplayedResult, previousEditsEnabled],
     ) => {
         if (
-            isDisabled
-            || currentPageNumber !== previousPageNumber
-            || currentResultPresentationKey !== previousResultPresentationKey
-            || displayedResult !== previousDisplayedResult
-            || editsEnabled !== previousEditsEnabled
+            isDisabled ||
+            currentPageNumber !== previousPageNumber ||
+            currentResultPresentationKey !== previousResultPresentationKey ||
+            displayedResult !== previousDisplayedResult ||
+            editsEnabled !== previousEditsEnabled
         ) {
             dragTransaction.cancel();
         }
     },
 );
 watch(
-    [
-        previewTransformScale,
-        () => presentationResult.value?.pageNumber,
-    ],
-    ([
-        scale,
-        currentPageNumber,
-    ], [
-        previousScale,
-        previousPageNumber,
-    ]) => {
+    [previewTransformScale, () => presentationResult.value?.pageNumber],
+    ([scale, currentPageNumber], [previousScale, previousPageNumber]) => {
         const scaleChanged = scale !== previousScale;
         const pageChanged = currentPageNumber !== previousPageNumber;
         void nextTick(() => {
@@ -1945,26 +1904,24 @@ const renderedOutputs = computed(() => {
     const outputs = presentationResult.value.outputs.map((output): IRenderedScanCleanupOutput => {
         const metadata = output.metadata;
         const placement = resolvePreviewMetadataPlacement(metadata);
-        const imageStyle = toPreviewStyleRect({
-            xPx: 0,
-            yPx: 0,
-            widthPx: metadata.outputWidthPx,
-            heightPx: metadata.outputHeightPx,
-        }, placement);
-        const marginBoundaryStyle = {
-            left: `${metadata.appliedMargins.leftPx / Math.max(1, metadata.canvasWidthPx) * 100}%`,
-            top: `${metadata.appliedMargins.topPx / Math.max(1, metadata.canvasHeightPx) * 100}%`,
-            right: `${metadata.appliedMargins.rightPx / Math.max(1, metadata.canvasWidthPx) * 100}%`,
-            bottom: `${metadata.appliedMargins.bottomPx / Math.max(1, metadata.canvasHeightPx) * 100}%`,
-        };
-        const manualContentRect = resolveNormalizedContentBox(
-            metadata,
-            manualContentBoxes?.[metadata.half],
+        const imageStyle = toPreviewStyleRect(
+            {
+                xPx: 0,
+                yPx: 0,
+                widthPx: metadata.outputWidthPx,
+                heightPx: metadata.outputHeightPx,
+            },
+            placement,
         );
+        const marginBoundaryStyle = {
+            left: `${(metadata.appliedMargins.leftPx / Math.max(1, metadata.canvasWidthPx)) * 100}%`,
+            top: `${(metadata.appliedMargins.topPx / Math.max(1, metadata.canvasHeightPx)) * 100}%`,
+            right: `${(metadata.appliedMargins.rightPx / Math.max(1, metadata.canvasWidthPx)) * 100}%`,
+            bottom: `${(metadata.appliedMargins.bottomPx / Math.max(1, metadata.canvasHeightPx)) * 100}%`,
+        };
+        const manualContentRect = resolveNormalizedContentBox(metadata, manualContentBoxes?.[metadata.half]);
         const contentRect = manualContentRect ?? metadata.contentBox;
-        const content = manualContentRect
-            ? transformPreviewSourceHalfRect(metadata, contentRect)
-            : transformPreviewContentBox(metadata);
+        const content = manualContentRect ? transformPreviewSourceHalfRect(metadata, contentRect) : transformPreviewContentBox(metadata);
         return {
             metadata,
             pixelSwap: cleanedPixelSwaps[metadata.half] ?? createPreviewImageSwap(),
@@ -1977,15 +1934,16 @@ const renderedOutputs = computed(() => {
             canvasStyle: {},
         };
     });
-    const ordered = readingOrder === 'rtl' && outputs.length > 1
-        ? outputs.reverse()
-        : outputs;
+    const ordered = readingOrder === 'rtl' && outputs.length > 1 ? outputs.reverse() : outputs;
     const sizes = resolvePreviewOutputFitSizes(
-        ordered.map(output => outputFitAreaSizes[output.metadata.half] ?? {
-            width: 0,
-            height: 0,
-        }),
-        ordered.map(output => ({
+        ordered.map(
+            (output) =>
+                outputFitAreaSizes[output.metadata.half] ?? {
+                    width: 0,
+                    height: 0,
+                },
+        ),
+        ordered.map((output) => ({
             width: output.placement.canvasWidthPx,
             height: output.placement.canvasHeightPx,
         })),
@@ -2000,12 +1958,15 @@ const renderedOutputs = computed(() => {
 });
 
 function activeStageRect() {
-    return dragTransaction.snapshot.value?.stageRect ?? currentStageRect() ?? {
-        x: 0,
-        y: 0,
-        width: dragOverlayBounds.width,
-        height: dragOverlayBounds.height,
-    };
+    return (
+        dragTransaction.snapshot.value?.stageRect ??
+        currentStageRect() ?? {
+            x: 0,
+            y: 0,
+            width: dragOverlayBounds.width,
+            height: dragOverlayBounds.height,
+        }
+    );
 }
 
 const contentOverlayOutputs = computed<IScanCleanupContentOverlayOutput[]>(() => {
@@ -2014,16 +1975,14 @@ const contentOverlayOutputs = computed<IScanCleanupContentOverlayOutput[]>(() =>
     }
     const stageRect = activeStageRect();
     const draft = draftGeometry.value?.kind === 'content' ? draftGeometry.value : null;
-    return renderedOutputs.value.flatMap(output => {
+    return renderedOutputs.value.flatMap((output) => {
         const canvasClientRect = outputCanvasRects[output.metadata.half] ?? {
             x: stageRect.x,
             y: stageRect.y,
             width: 0,
             height: 0,
         };
-        const normalized = draft?.half === output.metadata.half
-            ? draft.value
-            : manualContentBoxes?.[output.metadata.half];
+        const normalized = draft?.half === output.metadata.half ? draft.value : manualContentBoxes?.[output.metadata.half];
         const contentRect = resolveNormalizedContentBox(output.metadata, normalized) ?? output.contentRect;
         const transformed = normalized
             ? transformPreviewSourceHalfRect(output.metadata, contentRect)
@@ -2031,12 +1990,14 @@ const contentOverlayOutputs = computed<IScanCleanupContentOverlayOutput[]>(() =>
         if (!contentRect || !transformed) {
             return [];
         }
-        return [{
-            ...output,
-            canvasClientRect: {...canvasClientRect},
-            contentRect,
-            style: toPreviewStyleRect(transformed, output.placement),
-        }];
+        return [
+            {
+                ...output,
+                canvasClientRect: {...canvasClientRect},
+                contentRect,
+                style: toPreviewStyleRect(transformed, output.placement),
+            },
+        ];
     });
 });
 
@@ -2046,7 +2007,7 @@ const placementOverlayOutputs = computed<IScanCleanupPlacementOverlayOutput[]>((
         return [];
     }
     const draft = draftGeometry.value?.kind === 'placement' ? draftGeometry.value : null;
-    return renderedOutputs.value.flatMap(output => {
+    return renderedOutputs.value.flatMap((output) => {
         const canvasClientRect = outputCanvasRects[output.metadata.half] ?? {
             x: stageRect.x,
             y: stageRect.y,
@@ -2054,77 +2015,75 @@ const placementOverlayOutputs = computed<IScanCleanupPlacementOverlayOutput[]>((
             height: 0,
         };
         const active = draft?.half === output.metadata.half;
-        const placement = active ? {
-            ...output.placement,
-            left: draft.left,
-            top: draft.top,
-        } : output.placement;
-        return [{
-            ...output,
-            pixelSwap: cleanedPixelSwaps[output.metadata.half] ?? output.pixelSwap,
-            active,
-            alignment: active
-                ? draft.alignment
-                : placementOverrides?.[output.metadata.half] ?? alignment,
-            canvasClientRect: {...canvasClientRect},
-            canvasStyle: {inset: '0'},
-            imageStyle: toPreviewStyleRect({
-                xPx: 0,
-                yPx: 0,
-                widthPx: output.metadata.outputWidthPx,
-                heightPx: output.metadata.outputHeightPx,
-            }, placement),
-        }];
+        const placement = active
+            ? {
+                  ...output.placement,
+                  left: draft.left,
+                  top: draft.top,
+              }
+            : output.placement;
+        return [
+            {
+                ...output,
+                pixelSwap: cleanedPixelSwaps[output.metadata.half] ?? output.pixelSwap,
+                active,
+                alignment: active ? draft.alignment : (placementOverrides?.[output.metadata.half] ?? alignment),
+                canvasClientRect: {...canvasClientRect},
+                canvasStyle: {inset: '0'},
+                imageStyle: toPreviewStyleRect(
+                    {
+                        xPx: 0,
+                        yPx: 0,
+                        widthPx: output.metadata.outputWidthPx,
+                        heightPx: output.metadata.outputHeightPx,
+                    },
+                    placement,
+                ),
+            },
+        ];
     });
 });
 
 function placementAnchorPosition(axis: string, origin: number, span: number, contentSize: number) {
-    const ratio = axis === 'left' || axis === 'top'
-        ? 0
-        : axis === 'right' || axis === 'bottom' ? 1 : 0.5;
+    const ratio = axis === 'left' || axis === 'top' ? 0 : axis === 'right' || axis === 'bottom' ? 1 : 0.5;
     return origin + (span + contentSize) * ratio;
 }
 
 const placementAnchors = computed(() => {
-    const output = placementOverlayOutputs.value.find(candidate => candidate.active);
+    const output = placementOverlayOutputs.value.find((candidate) => candidate.active);
     if (!output) {
         return outerPlacementAnchors;
     }
-    const {
-        reference,
-        retainedWidthPx,
-    } = resolveRetainedPlacementGeometry(output);
-    return outerPlacementAnchors.map(anchor => {
+    const {reference, retainedWidthPx} = resolveRetainedPlacementGeometry(output);
+    return outerPlacementAnchors.map((anchor) => {
         const axes = anchor.alignment.split('-');
         const vertical = axes[0] ?? 'center';
         const horizontal = axes[1] ?? vertical;
         return {
             alignment: anchor.alignment,
             style: {
-                left: `${placementAnchorPosition(
-                    horizontal,
-                    reference.originX,
-                    reference.spanX,
-                    retainedWidthPx,
-                ) / Math.max(1, output.placement.canvasWidthPx) * 100}%`,
-                top: `${placementAnchorPosition(
-                    vertical,
-                    reference.originY,
-                    reference.spanY,
-                    output.placement.contentHeightPx,
-                ) / Math.max(1, output.placement.canvasHeightPx) * 100}%`,
+                left: `${
+                    (placementAnchorPosition(horizontal, reference.originX, reference.spanX, retainedWidthPx) /
+                        Math.max(1, output.placement.canvasWidthPx)) *
+                    100
+                }%`,
+                top: `${
+                    (placementAnchorPosition(vertical, reference.originY, reference.spanY, output.placement.contentHeightPx) /
+                        Math.max(1, output.placement.canvasHeightPx)) *
+                    100
+                }%`,
             },
         };
     });
 });
 
 function contentOverlayOutputFor(half: TScanCleanupOutputHalf) {
-    const output = contentOverlayOutputs.value.find(candidate => candidate.metadata.half === half);
+    const output = contentOverlayOutputs.value.find((candidate) => candidate.metadata.half === half);
     return output ? [output] : [];
 }
 
 function placementOverlayOutputFor(half: TScanCleanupOutputHalf) {
-    const output = placementOverlayOutputs.value.find(candidate => candidate.metadata.half === half);
+    const output = placementOverlayOutputs.value.find((candidate) => candidate.metadata.half === half);
     return output ? [output] : [];
 }
 </script>

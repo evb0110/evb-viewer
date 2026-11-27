@@ -1,6 +1,6 @@
-import type { IOcrWord } from '@contracts/shared';
-import type { TOcrIndexRotation } from '@contracts/ocrIndex';
-import type { IDocumentSearchMatch } from '@app/modules/document-viewer/search/documentSearch';
+import type {IOcrWord} from '@contracts/shared';
+import type {TOcrIndexRotation} from '@contracts/ocrIndex';
+import type {IDocumentSearchMatch} from '@app/modules/document-viewer/search/documentSearch';
 
 export interface IDocumentPageSourceSearchHighlight {
     current: boolean;
@@ -24,22 +24,12 @@ function clampUnit(value: number) {
     return Math.min(1, Math.max(0, value));
 }
 
-function normalizeWordRect(
-    word: IOcrWord,
-    pageWidth: number,
-    pageHeight: number,
-    rotation: TOcrIndexRotation,
-) {
+function normalizeWordRect(word: IOcrWord, pageWidth: number, pageHeight: number, rotation: TOcrIndexRotation) {
     const rawLeft = word.x / pageWidth;
     const rawTop = word.y / pageHeight;
     const rawRight = (word.x + word.width) / pageWidth;
     const rawBottom = (word.y + word.height) / pageHeight;
-    if (![
-        rawLeft,
-        rawTop,
-        rawRight,
-        rawBottom,
-    ].every(Number.isFinite)) {
+    if (![rawLeft, rawTop, rawRight, rawBottom].every(Number.isFinite)) {
         return null;
     }
 
@@ -98,22 +88,17 @@ export function resolveDocumentPageSourceSearchHighlights(options: {
         const pageHeight = result.pageHeight;
         const words = result.words;
         if (
-            result.pageIndex !== options.pageNumber - 1
-            || !words
-            || words.length === 0
-            || !isFinitePositive(pageWidth)
-            || !isFinitePositive(pageHeight)
+            result.pageIndex !== options.pageNumber - 1 ||
+            !words ||
+            words.length === 0 ||
+            !isFinitePositive(pageWidth) ||
+            !isFinitePositive(pageHeight)
         ) {
             return;
         }
 
         words.forEach((word, wordIndex) => {
-            const rect = normalizeWordRect(
-                word,
-                pageWidth,
-                pageHeight,
-                result.rotation ?? 0,
-            );
+            const rect = normalizeWordRect(word, pageWidth, pageHeight, result.rotation ?? 0);
             if (!rect) {
                 return;
             }

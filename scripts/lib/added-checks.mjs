@@ -44,10 +44,7 @@ const ADDED_CHECK_FILE_PATTERNS = [
 
 const TEST_FILE_PATTERN = /^tests\/.*\.(?:test|spec|e2e)\.[cm]?[jt]sx?$/su;
 const ELECTRON_E2E_LANE_PATH_PATTERN = /^tests\/e2e\/electron\/(nightly\/[^/]+|[^/]+)\//u;
-const NON_LANE_ELECTRON_E2E_DIRS = new Set([
-    'helpers',
-    'nightly',
-]);
+const NON_LANE_ELECTRON_E2E_DIRS = new Set(['helpers', 'nightly']);
 const VITEST_CONFIG_PATTERN = /^vitest[A-Za-z.-]*\.config\.[cm]?[jt]s$/u;
 const WORKFLOW_PATTERN = /^\.github\/workflows\/.*\.ya?ml$/su;
 
@@ -149,27 +146,24 @@ export function readAddsChecksTrailer(message) {
 export function findAddedChecks(entries, readAddedLines) {
     /** @type {string[]} */
     const found = [];
-    for (const {
-        path,
-        status,
-    } of entries) {
+    for (const {path, status} of entries) {
         if (status === 'D') {
             continue;
         }
         if (status === 'A') {
-            const rule = ADDED_CHECK_FILE_PATTERNS.find(candidate => candidate.pattern.test(path));
+            const rule = ADDED_CHECK_FILE_PATTERNS.find((candidate) => candidate.pattern.test(path));
             if (rule) {
                 found.push(`${rule.label}: ${path}`);
                 continue;
             }
         }
-        const lineRules = ADDED_CHECK_LINE_PATTERNS.filter(candidate => candidate.file.test(path));
+        const lineRules = ADDED_CHECK_LINE_PATTERNS.filter((candidate) => candidate.file.test(path));
         if (lineRules.length === 0) {
             continue;
         }
         const addedLines = readAddedLines(path);
         for (const rule of lineRules) {
-            const line = addedLines.find(candidate => rule.pattern.test(candidate));
+            const line = addedLines.find((candidate) => rule.pattern.test(candidate));
             if (line) {
                 found.push(`${rule.label}: ${path} (${line.trim()})`);
             }
@@ -182,9 +176,9 @@ export function findAddedChecks(entries, readAddedLines) {
 export function describeMissingTrailer(added) {
     return [
         `commit adds check infrastructure or flake tolerance without an \`${ADDS_CHECKS_TRAILER}:\` trailer: ${added.join('; ')}`,
-        `Add \`${ADDS_CHECKS_TRAILER}: <the user's words that asked for this>\` to the message, `
-        + 'or drop the new check infrastructure. A retry, sleep, raised timeout, or allowed failure hides a defect: '
-        + 'fix the flake or delete the check instead. A test file in an existing lane and edits or deletions of existing checks need no trailer.',
+        `Add \`${ADDS_CHECKS_TRAILER}: <the user's words that asked for this>\` to the message, ` +
+            'or drop the new check infrastructure. A retry, sleep, raised timeout, or allowed failure hides a defect: ' +
+            'fix the flake or delete the check instead. A test file in an existing lane and edits or deletions of existing checks need no trailer.',
     ];
 }
 
@@ -230,13 +224,15 @@ const JSON_KEY_PATTERN = /^\s*("[^"]+"):/u;
 // whose command changed) edits an existing check rather than adding one.
 /** @param {string[]} lines @returns {string[]} */
 function addedLinesOf(lines) {
-    const removedKeys = new Set(lines
-        .filter(line => line.startsWith('-') && !line.startsWith('---'))
-        .map(line => JSON_KEY_PATTERN.exec(line.slice(1))?.[1] ?? ''));
+    const removedKeys = new Set(
+        lines
+            .filter((line) => line.startsWith('-') && !line.startsWith('---'))
+            .map((line) => JSON_KEY_PATTERN.exec(line.slice(1))?.[1] ?? ''),
+    );
     return lines
-        .filter(line => line.startsWith('+') && !line.startsWith('+++'))
-        .map(line => line.slice(1))
-        .filter(line => !removedKeys.has(JSON_KEY_PATTERN.exec(line)?.[1] ?? '\0'));
+        .filter((line) => line.startsWith('+') && !line.startsWith('+++'))
+        .map((line) => line.slice(1))
+        .filter((line) => !removedKeys.has(JSON_KEY_PATTERN.exec(line)?.[1] ?? '\0'));
 }
 
 /** @param {string} escaped @returns {string} */
@@ -255,7 +251,7 @@ function unquoteGitPath(escaped) {
         t: 0x09,
         v: 0x0b,
     };
-    for (let index = 0; index < escaped.length; ) {
+    for (let index = 0; index < escaped.length;) {
         const char = escaped[index];
         if (char !== '\\' || index + 1 >= escaped.length) {
             const codePoint = escaped.codePointAt(index);
@@ -331,10 +327,7 @@ function parseAddedLinesByPath(diff) {
 
     /** @type {Map<string, string[]>} */
     const addedByPath = new Map();
-    for (const [
-        filePath,
-        lines,
-    ] of rawDiffByPath) {
+    for (const [filePath, lines] of rawDiffByPath) {
         addedByPath.set(filePath, addedLinesOf(lines));
     }
     return addedByPath;
@@ -343,12 +336,12 @@ function parseAddedLinesByPath(diff) {
 /** @param {INameStatusEntry[]} entries @returns {string[]} */
 function selectLineRulePaths(entries) {
     return entries
-        .filter(({
-            path,
-            status,
-        }) => status !== 'D'
-            && !(status === 'A' && ADDED_CHECK_FILE_PATTERNS.some(rule => rule.pattern.test(path)))
-            && ADDED_CHECK_LINE_PATTERNS.some(rule => rule.file.test(path)))
+        .filter(
+            ({path, status}) =>
+                status !== 'D' &&
+                !(status === 'A' && ADDED_CHECK_FILE_PATTERNS.some((rule) => rule.pattern.test(path))) &&
+                ADDED_CHECK_LINE_PATTERNS.some((rule) => rule.file.test(path)),
+        )
         .map(({path}) => path);
 }
 
@@ -389,13 +382,11 @@ export function readCommitMetadata(commits, cwd) {
     if (commits.length === 0) {
         return metadata;
     }
-    const output = gitOrThrow([
-        'log',
-        '--no-walk=unsorted',
-        '--stdin',
-        '-z',
-        '--format=%H%x09%P%x09%ct%x09%s%n%B',
-    ], cwd, `${commits.join('\n')}\n`);
+    const output = gitOrThrow(
+        ['log', '--no-walk=unsorted', '--stdin', '-z', '--format=%H%x09%P%x09%ct%x09%s%n%B'],
+        cwd,
+        `${commits.join('\n')}\n`,
+    );
     for (const record of output.split('\0')) {
         if (record.length === 0) {
             continue;
@@ -403,12 +394,7 @@ export function readCommitMetadata(commits, cwd) {
         const newline = record.indexOf('\n');
         const header = newline === -1 ? record : record.slice(0, newline);
         const body = newline === -1 ? '' : record.slice(newline + 1);
-        const [
-            oid = '',
-            parentsField = '',
-            committedAtField = '0',
-            ...subjectParts
-        ] = header.split('\t');
+        const [oid = '', parentsField = '', committedAtField = '0', ...subjectParts] = header.split('\t');
         if (!oid) {
             continue;
         }
@@ -432,10 +418,7 @@ export function readCommitMetadata(commits, cwd) {
 function findNewElectronE2ELanes(entries, baseRevision, cwd) {
     /** @type {Set<string>} */
     const candidateLanes = new Set();
-    for (const {
-        path,
-        status,
-    } of entries) {
+    for (const {path, status} of entries) {
         if (status !== 'A') {
             continue;
         }
@@ -452,17 +435,8 @@ function findNewElectronE2ELanes(entries, baseRevision, cwd) {
     const found = [];
     for (const lane of [...candidateLanes].sort()) {
         const laneDir = `tests/e2e/electron/${lane}`;
-        const existingTree = baseRevision === null
-            ? ''
-            : (git([
-                'ls-tree',
-                baseRevision,
-                '--',
-                laneDir,
-            ], cwd) ?? '');
-        const hasExistingTree = existingTree
-            .split('\n')
-            .some(line => /^\d+\s+tree\s+/u.test(line));
+        const existingTree = baseRevision === null ? '' : (git(['ls-tree', baseRevision, '--', laneDir], cwd) ?? '');
+        const hasExistingTree = existingTree.split('\n').some((line) => /^\d+\s+tree\s+/u.test(line));
         if (!hasExistingTree) {
             found.push(`new Electron E2E lane: ${laneDir}`);
         }
@@ -472,48 +446,42 @@ function findNewElectronE2ELanes(entries, baseRevision, cwd) {
 
 /** @param {string} cwd @param {string[]} base @returns {string[]} */
 function findStagedAddedChecksAgainst(cwd, base) {
-    const names = git([
-        'diff',
-        '--cached',
-        '--name-status',
-        '-z',
-        '--no-renames',
-        ...base,
-    ], cwd);
+    const names = git(['diff', '--cached', '--name-status', '-z', '--no-renames', ...base], cwd);
     if (names === null) {
         return [];
     }
     const entries = parseNameStatus(names);
     const baseRef = base[0] ?? 'HEAD';
-    const hasBaseRevision = git([
-        'rev-parse',
-        '-q',
-        '--verify',
-        `${baseRef}^{tree}`,
-    ], cwd) !== null;
+    const hasBaseRevision = git(['rev-parse', '-q', '--verify', `${baseRef}^{tree}`], cwd) !== null;
     const lineRulePaths = selectLineRulePaths(entries);
-    const addedByPath = lineRulePaths.length === 0
-        ? new Map()
-        : parseAddedLinesByPath(gitOrThrow([
-            '-c',
-            'core.quotePath=false',
-            '-c',
-            'diff.noprefix=false',
-            '-c',
-            'diff.mnemonicPrefix=false',
-            'diff',
-            '--cached',
-            '--src-prefix=a/',
-            '--dst-prefix=b/',
-            '-U0',
-            '--no-renames',
-            ...base,
-            '--',
-            ...lineRulePaths,
-        ], cwd));
+    const addedByPath =
+        lineRulePaths.length === 0
+            ? new Map()
+            : parseAddedLinesByPath(
+                  gitOrThrow(
+                      [
+                          '-c',
+                          'core.quotePath=false',
+                          '-c',
+                          'diff.noprefix=false',
+                          '-c',
+                          'diff.mnemonicPrefix=false',
+                          'diff',
+                          '--cached',
+                          '--src-prefix=a/',
+                          '--dst-prefix=b/',
+                          '-U0',
+                          '--no-renames',
+                          ...base,
+                          '--',
+                          ...lineRulePaths,
+                      ],
+                      cwd,
+                  ),
+              );
     return [
         ...findNewElectronE2ELanes(entries, hasBaseRevision ? baseRef : null, cwd),
-        ...findAddedChecks(entries, path => addedByPath.get(path) ?? []),
+        ...findAddedChecks(entries, (path) => addedByPath.get(path) ?? []),
     ];
 }
 
@@ -522,58 +490,47 @@ function findStagedAddedChecksAgainst(cwd, base) {
 /** @param {string} cwd @returns {string[]} */
 export function findStagedAddedChecks(cwd) {
     const againstHead = findStagedAddedChecksAgainst(cwd, []);
-    if (git([
-        'rev-parse',
-        '-q',
-        '--verify',
-        'MERGE_HEAD',
-    ], cwd) === null) {
+    if (git(['rev-parse', '-q', '--verify', 'MERGE_HEAD'], cwd) === null) {
         return againstHead;
     }
     const againstMergeHead = new Set(findStagedAddedChecksAgainst(cwd, ['MERGE_HEAD']));
-    return againstHead.filter(check => againstMergeHead.has(check));
+    return againstHead.filter((check) => againstMergeHead.has(check));
 }
 
 /** @param {string} commit @param {string | null} parent @param {string} cwd @returns {string[]} */
 function findCommitAddedChecks(commit, parent, cwd) {
-    const names = gitOrThrow([
-        'diff-tree',
-        '--no-commit-id',
-        '-r',
-        '--root',
-        '--name-status',
-        '-z',
-        '--no-renames',
-        commit,
-    ], cwd);
+    const names = gitOrThrow(['diff-tree', '--no-commit-id', '-r', '--root', '--name-status', '-z', '--no-renames', commit], cwd);
     const entries = parseNameStatus(names);
     const lineRulePaths = selectLineRulePaths(entries);
-    const addedByPath = lineRulePaths.length === 0
-        ? new Map()
-        : parseAddedLinesByPath(gitOrThrow([
-            '-c',
-            'core.quotePath=false',
-            '-c',
-            'diff.noprefix=false',
-            '-c',
-            'diff.mnemonicPrefix=false',
-            'diff-tree',
-            '--no-commit-id',
-            '--root',
-            '-r',
-            '-p',
-            '--src-prefix=a/',
-            '--dst-prefix=b/',
-            '-U0',
-            '--no-renames',
-            commit,
-            '--',
-            ...lineRulePaths,
-        ], cwd));
-    return [
-        ...findNewElectronE2ELanes(entries, parent, cwd),
-        ...findAddedChecks(entries, path => addedByPath.get(path) ?? []),
-    ];
+    const addedByPath =
+        lineRulePaths.length === 0
+            ? new Map()
+            : parseAddedLinesByPath(
+                  gitOrThrow(
+                      [
+                          '-c',
+                          'core.quotePath=false',
+                          '-c',
+                          'diff.noprefix=false',
+                          '-c',
+                          'diff.mnemonicPrefix=false',
+                          'diff-tree',
+                          '--no-commit-id',
+                          '--root',
+                          '-r',
+                          '-p',
+                          '--src-prefix=a/',
+                          '--dst-prefix=b/',
+                          '-U0',
+                          '--no-renames',
+                          commit,
+                          '--',
+                          ...lineRulePaths,
+                      ],
+                      cwd,
+                  ),
+              );
+    return [...findNewElectronE2ELanes(entries, parent, cwd), ...findAddedChecks(entries, (path) => addedByPath.get(path) ?? [])];
 }
 
 /** @param {string[]} commits @param {string} cwd @param {Map<string, ICommitMetadata>} [commitMetadata] @returns {{matches: string[], subject: string}[]} */
@@ -591,9 +548,13 @@ export function findAddedCheckViolations(commits, cwd, commitMetadata = readComm
             return [];
         }
         const added = findCommitAddedChecks(commit, metadata.parents[0] ?? null, cwd);
-        return added.length > 0 ? [{
-            matches: describeMissingTrailer(added),
-            subject: commit,
-        }] : [];
+        return added.length > 0
+            ? [
+                  {
+                      matches: describeMissingTrailer(added),
+                      subject: commit,
+                  },
+              ]
+            : [];
     });
 }

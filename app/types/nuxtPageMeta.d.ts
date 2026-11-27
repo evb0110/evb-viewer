@@ -1,5 +1,7 @@
-
-
-declare module '#app' { interface PageMeta { preloadWorkspaceShell?: boolean; } }
+declare module '#app' {
+    interface PageMeta {
+        preloadWorkspaceShell?: boolean;
+    }
+}
 
 export {};

@@ -1,30 +1,18 @@
-import {
-    BrowserWindow,
-    app,
-} from 'electron';
-import {
-    createServer,
-    type Server,
-} from 'http';
-import type { AddressInfo } from 'net';
-import { randomBytes } from 'node:crypto';
+import {BrowserWindow, app} from 'electron';
+import {createServer, type Server} from 'http';
+import type {AddressInfo} from 'net';
+import {randomBytes} from 'node:crypto';
 import {join} from 'node:path';
-import { createAbortError } from '@contracts/isAbortError';
-import type { IAgentTabSnapshot } from '@contracts/agent';
-import type { IAssistantSessionScopeBinding } from '@electron/features/agent/assistantMcpSessionScope';
+import {createAbortError} from '@contracts/isAbortError';
+import type {IAgentTabSnapshot} from '@contracts/agent';
+import type {IAssistantSessionScopeBinding} from '@electron/features/agent/assistantMcpSessionScope';
 import type {
     ILocalMcpServerDescriptor,
     ILocalMcpServerIdentity,
     IProcessMcpRequestOptions,
 } from '@electron/features/agent/mcp/mcpServerCore';
-import {
-    getRegisteredMainWindow,
-    getWindowByIdFromRegistry,
-} from '@electron/window/registry';
-import {
-    requestAgentCommand,
-    requestAgentWorkspaceSnapshot,
-} from '@electron/features/agent/workspaceBridge';
+import {getRegisteredMainWindow, getWindowByIdFromRegistry} from '@electron/window/registry';
+import {requestAgentCommand, requestAgentWorkspaceSnapshot} from '@electron/features/agent/workspaceBridge';
 import {
     adoptAssistantTurnSuccessor,
     assertAssistantMcpSnapshotMatchesScope,
@@ -34,22 +22,15 @@ import {
     getActiveAssistantMcpSessionScope,
     resolveAssistantMcpSessionScope,
 } from '@electron/features/agent/assistantMcpSessionScope';
-import {
-    inspectAgentDocumentText,
-    readAgentDocumentPages,
-    searchAgentDocument,
-} from '@electron/features/agent/documentText';
-import { createLogger } from '@electron/utils/createLogger';
-import { getErrorMessage } from '@electron/utils/error';
-import { createHttpHandler } from '@electron/features/agent/mcp/createHttpHandler';
-import {
-    ASSISTANT_MCP_SERVER_NAME,
-    ASSISTANT_MCP_TOKEN_ENV,
-} from '@electron/features/agent/codexAssistantConfig';
-import { ensureSecurePersistentLocalMcpToken } from '@electron/features/agent/localMcpTokenStore';
+import {inspectAgentDocumentText, readAgentDocumentPages, searchAgentDocument} from '@electron/features/agent/documentText';
+import {createLogger} from '@electron/utils/createLogger';
+import {getErrorMessage} from '@electron/utils/error';
+import {createHttpHandler} from '@electron/features/agent/mcp/createHttpHandler';
+import {ASSISTANT_MCP_SERVER_NAME, ASSISTANT_MCP_TOKEN_ENV} from '@electron/features/agent/codexAssistantConfig';
+import {ensureSecurePersistentLocalMcpToken} from '@electron/features/agent/localMcpTokenStore';
 import {runtimeConfig} from '@electron/runtimeConfig';
 
-export { processMcpRequest } from '@electron/features/agent/mcp/mcpServerCore';
+export {processMcpRequest} from '@electron/features/agent/mcp/mcpServerCore';
 
 const logger = createLogger('agent-mcp');
 const DEFAULT_MCP_HOST = '127.0.0.1';
@@ -107,9 +88,7 @@ function getDefaultAgentWindow() {
 }
 
 function resolveAgentWindow(windowId?: number) {
-    return windowId === undefined
-        ? getDefaultAgentWindow()
-        : getWindowByIdFromRegistry(windowId);
+    return windowId === undefined ? getDefaultAgentWindow() : getWindowByIdFromRegistry(windowId);
 }
 
 export function resolveDefaultLocalMcpPort(isPackaged: boolean) {
@@ -166,9 +145,10 @@ async function ensureLocalMcpServerBearerToken() {
 
     const tokenPromise = (async () => {
         const configuredToken = runtimeConfig.mcpToken;
-        const token = configuredToken && configuredToken.length > 0
-            ? configuredToken
-            : await ensureSecurePersistentLocalMcpToken(app.getPath('userData'));
+        const token =
+            configuredToken && configuredToken.length > 0
+                ? configuredToken
+                : await ensureSecurePersistentLocalMcpToken(app.getPath('userData'));
         localMcpToken = token;
         localMcpTokenEnvOwned = !(configuredToken && configuredToken.length > 0);
         process.env[ASSISTANT_MCP_TOKEN_ENV] = token;
@@ -200,10 +180,7 @@ function resolveLocalMcpProxyScriptPath() {
     return join(getAppRootPath(), LOCAL_MCP_PROXY_SCRIPT_PATH);
 }
 
-function createLocalMcpProxyLaunchConfig(
-    descriptor: ILocalMcpServerDescriptor,
-    token: string,
-): ILocalMcpProxyLaunchConfig {
+function createLocalMcpProxyLaunchConfig(descriptor: ILocalMcpServerDescriptor, token: string): ILocalMcpProxyLaunchConfig {
     return {
         command: process.execPath,
         args: [resolveLocalMcpProxyScriptPath()],
@@ -219,29 +196,14 @@ function shellQuote(value: string) {
     if (process.platform === 'win32') {
         return `"${value.replace(/"/gu, '\\"')}"`;
     }
-    return `'${value.replace(/'/gu, '\'\\\'\'')}'`;
+    return `'${value.replace(/'/gu, "'\\''")}'`;
 }
 
-function createSetupSnippet(
-    provider: 'claude' | 'codex',
-    descriptor: ILocalMcpServerDescriptor,
-    launchConfig: ILocalMcpProxyLaunchConfig,
-) {
-    const commandPrefix = provider === 'codex'
-        ? [
-            'codex',
-            'mcp',
-            'add',
-            shellQuote(descriptor.name),
-        ]
-        : [
-            'claude',
-            'mcp',
-            'add',
-            '--scope',
-            'user',
-            shellQuote(descriptor.name),
-        ];
+function createSetupSnippet(provider: 'claude' | 'codex', descriptor: ILocalMcpServerDescriptor, launchConfig: ILocalMcpProxyLaunchConfig) {
+    const commandPrefix =
+        provider === 'codex'
+            ? ['codex', 'mcp', 'add', shellQuote(descriptor.name)]
+            : ['claude', 'mcp', 'add', '--scope', 'user', shellQuote(descriptor.name)];
     const environmentFlag = provider === 'codex' ? '--env' : '-e';
     return [
         ...commandPrefix,
@@ -264,11 +226,19 @@ export async function getLocalMcpSetupSnippets() {
     return {
         codex: createSetupSnippet('codex', descriptor, launchConfig),
         claude: createSetupSnippet('claude', descriptor, launchConfig),
-        cursor: JSON.stringify({mcpServers: { [descriptor.name]: {
-            command: launchConfig.command,
-            args: launchConfig.args,
-            env: launchConfig.env,
-        } }}, null, 2),
+        cursor: JSON.stringify(
+            {
+                mcpServers: {
+                    [descriptor.name]: {
+                        command: launchConfig.command,
+                        args: launchConfig.args,
+                        env: launchConfig.env,
+                    },
+                },
+            },
+            null,
+            2,
+        ),
     };
 }
 
@@ -306,13 +276,19 @@ function createTrackedHttpServer(
     } = {},
 ) {
     const activeRequestControllers = new Map<AbortController, IAssistantSessionScopeBinding | null>();
-    const server = createServer(createHttpHandler(options, {
-        bearerToken,
-        activeRequestControllers,
-        ...(requestOptions.getBinding ? {getRequestContext: requestOptions.getBinding} : {}),
-        ...(requestOptions.createOptions ? {createRequestOptions: (context: unknown) =>
-            requestOptions.createOptions?.(context as IAssistantSessionScopeBinding | null) ?? options} : {}),
-    }));
+    const server = createServer(
+        createHttpHandler(options, {
+            bearerToken,
+            activeRequestControllers,
+            ...(requestOptions.getBinding ? {getRequestContext: requestOptions.getBinding} : {}),
+            ...(requestOptions.createOptions
+                ? {
+                      createRequestOptions: (context: unknown) =>
+                          requestOptions.createOptions?.(context as IAssistantSessionScopeBinding | null) ?? options,
+                  }
+                : {}),
+        }),
+    );
     activeMcpRequestsByServer.set(server, activeRequestControllers);
     return server;
 }
@@ -356,10 +332,7 @@ function closeHttpServer(server: Server | null) {
     });
 }
 
-function resolveInternalAssistantWindow(
-    windowId?: number,
-    requestBinding?: IAssistantSessionScopeBinding | null,
-) {
+function resolveInternalAssistantWindow(windowId?: number, requestBinding?: IAssistantSessionScopeBinding | null) {
     const binding = requestBinding === undefined ? resolveAssistantMcpSessionScope(windowId) : requestBinding;
     if (!binding) {
         throw new Error('No active assistant turn is bound to the internal EVB MCP session.');
@@ -377,10 +350,7 @@ function resolveInternalAssistantWindow(
     };
 }
 
-function assertInternalInputTabMatchesBinding(
-    tab: IAgentTabSnapshot,
-    binding: ReturnType<typeof resolveAssistantMcpSessionScope>,
-) {
+function assertInternalInputTabMatchesBinding(tab: IAgentTabSnapshot, binding: ReturnType<typeof resolveAssistantMcpSessionScope>) {
     assertAssistantMcpTabMatchesBinding(tab, binding);
 }
 
@@ -394,61 +364,35 @@ function createDefaultMcpRequestOptions(
             identity,
             callerKind,
             getWorkspaceSnapshot: async (windowId) => {
-                const {
-                    binding,
-                    window,
-                } = resolveInternalAssistantWindow(windowId, requestBinding);
-                const snapshot = await requestAgentWorkspaceSnapshot(
-                    window,
-                    undefined,
-                    createAssistantCommandExecutionScope(binding),
-                );
+                const {binding, window} = resolveInternalAssistantWindow(windowId, requestBinding);
+                const snapshot = await requestAgentWorkspaceSnapshot(window, undefined, createAssistantCommandExecutionScope(binding));
                 assertAssistantMcpSnapshotMatchesScope(snapshot, binding);
                 return snapshot;
             },
             runCommand: async (command, windowId, signal) => {
-                const {
-                    binding,
-                    window,
-                } = resolveInternalAssistantWindow(windowId, requestBinding);
+                const {binding, window} = resolveInternalAssistantWindow(windowId, requestBinding);
                 const scope = createAssistantCommandExecutionScope(binding);
                 const snapshot = await requestAgentWorkspaceSnapshot(window, undefined, scope, signal);
                 assertAssistantMcpSnapshotMatchesScope(snapshot, binding);
-                return requestAgentCommand(
-                    window,
-                    command,
-                    undefined,
-                    scope,
-                    signal,
-                    successor => {
-                        if (adoptAssistantTurnSuccessor(binding, successor) && requestBinding) {
-                            requestBinding.commandTarget = {...successor.commandTarget};
-                            requestBinding.documentIdentity = successor.documentIdentity && {...successor.documentIdentity};
-                        }
-                    },
-                );
+                return requestAgentCommand(window, command, undefined, scope, signal, (successor) => {
+                    if (adoptAssistantTurnSuccessor(binding, successor) && requestBinding) {
+                        requestBinding.commandTarget = {...successor.commandTarget};
+                        requestBinding.documentIdentity = successor.documentIdentity && {...successor.documentIdentity};
+                    }
+                });
             },
             inspectDocumentText: async (input, windowId, signal) => {
-                const {
-                    binding,
-                    window,
-                } = resolveInternalAssistantWindow(windowId, requestBinding);
+                const {binding, window} = resolveInternalAssistantWindow(windowId, requestBinding);
                 assertInternalInputTabMatchesBinding(input.tab, binding);
                 return inspectAgentDocumentText(window, input, signal);
             },
             searchDocument: async (input, windowId, signal) => {
-                const {
-                    binding,
-                    window,
-                } = resolveInternalAssistantWindow(windowId, requestBinding);
+                const {binding, window} = resolveInternalAssistantWindow(windowId, requestBinding);
                 assertInternalInputTabMatchesBinding(input.tab, binding);
                 return searchAgentDocument(window, input, signal);
             },
             readDocumentPages: async (input, windowId, signal) => {
-                const {
-                    binding,
-                    window,
-                } = resolveInternalAssistantWindow(windowId, requestBinding);
+                const {binding, window} = resolveInternalAssistantWindow(windowId, requestBinding);
                 assertInternalInputTabMatchesBinding(input.tab, binding);
                 return readAgentDocumentPages(window, input, signal);
             },
@@ -543,9 +487,7 @@ export function startLocalMcpServer() {
                     });
                     return;
                 }
-                const isCurrentStartup = localMcpDesiredRunning
-                    && localMcpGeneration === generation
-                    && localMcpServer === server;
+                const isCurrentStartup = localMcpDesiredRunning && localMcpGeneration === generation && localMcpServer === server;
                 failStartup(normalizedError, isCurrentStartup);
             });
             server.on('close', () => {
@@ -555,11 +497,7 @@ export function startLocalMcpServer() {
                 if (settled) {
                     return;
                 }
-                if (
-                    !localMcpDesiredRunning
-                    || localMcpGeneration !== generation
-                    || localMcpServer !== server
-                ) {
+                if (!localMcpDesiredRunning || localMcpGeneration !== generation || localMcpServer !== server) {
                     void closeHttpServer(server);
                     failStartup(createStartupCanceledError('Local'), false);
                     return;
@@ -610,14 +548,12 @@ export function isEmbeddedMcpServerRunning() {
     return embeddedMcpServer?.listening === true;
 }
 
-export function abortActiveEmbeddedMcpRequests(
-    binding: IAssistantSessionScopeBinding | null,
-    reason = 'Assistant turn interrupted.',
-) {
+export function abortActiveEmbeddedMcpRequests(binding: IAssistantSessionScopeBinding | null, reason = 'Assistant turn interrupted.') {
     if (!embeddedMcpServer || !binding) {
         return 0;
     }
-    const controllers = activeMcpRequestsByServer.get(embeddedMcpServer) ?? new Map<AbortController, IAssistantSessionScopeBinding | null>();
+    const controllers =
+        activeMcpRequestsByServer.get(embeddedMcpServer) ?? new Map<AbortController, IAssistantSessionScopeBinding | null>();
     return abortAssistantToolRequestsForBinding(controllers, binding, reason);
 }
 
@@ -627,15 +563,12 @@ export function abortAssistantToolRequestsForBinding(
     reason = 'Assistant turn interrupted.',
 ) {
     let aborted = 0;
-    for (const [
-        controller,
-        requestBinding,
-    ] of controllers) {
+    for (const [controller, requestBinding] of controllers) {
         if (
-            requestBinding?.sessionKey === binding.sessionKey
-            && requestBinding.turnGeneration === binding.turnGeneration
-            && requestBinding.windowId === binding.windowId
-            && !controller.signal.aborted
+            requestBinding?.sessionKey === binding.sessionKey &&
+            requestBinding.turnGeneration === binding.turnGeneration &&
+            requestBinding.windowId === binding.windowId &&
+            !controller.signal.aborted
         ) {
             controller.abort(createAbortError(reason));
             aborted += 1;
@@ -679,7 +612,7 @@ export function startEmbeddedMcpServer(): Promise<IEmbeddedMcpServerHandle> {
             const options = createDefaultMcpRequestOptions(identity, 'internal');
             const server = createTrackedHttpServer(options, token, {
                 getBinding: getActiveAssistantMcpSessionScope,
-                createOptions: binding => createDefaultMcpRequestOptions(identity, 'internal', binding),
+                createOptions: (binding) => createDefaultMcpRequestOptions(identity, 'internal', binding),
             });
             // Track the binding server immediately so a shutdown racing the bind can always close it.
             embeddedMcpServer = server;
@@ -712,9 +645,7 @@ export function startEmbeddedMcpServer(): Promise<IEmbeddedMcpServerHandle> {
                     });
                     return;
                 }
-                const isCurrentStartup = embeddedMcpDesiredRunning
-                && embeddedMcpGeneration === generation
-                && embeddedMcpServer === server;
+                const isCurrentStartup = embeddedMcpDesiredRunning && embeddedMcpGeneration === generation && embeddedMcpServer === server;
                 failStartup(normalizedError, isCurrentStartup);
             });
             // If a shutdown closes the server mid-bind, Node aborts the bind and fires neither the
@@ -727,11 +658,7 @@ export function startEmbeddedMcpServer(): Promise<IEmbeddedMcpServerHandle> {
                     return;
                 }
                 // A shutdown that raced this bind has already detached the server.
-                if (
-                    !embeddedMcpDesiredRunning
-                || embeddedMcpGeneration !== generation
-                || embeddedMcpServer !== server
-                ) {
+                if (!embeddedMcpDesiredRunning || embeddedMcpGeneration !== generation || embeddedMcpServer !== server) {
                     void closeHttpServer(server);
                     failStartup(createStartupCanceledError('Embedded'), false);
                     return;
@@ -781,10 +708,7 @@ export function shutdownEmbeddedMcpServer() {
     embeddedMcpToken = null;
     const pendingStart = embeddedMcpStartPromise;
     const stopPromise = (async () => {
-        await Promise.allSettled([
-            closeHttpServer(server),
-            ...(pendingStart ? [pendingStart] : []),
-        ]);
+        await Promise.allSettled([closeHttpServer(server), ...(pendingStart ? [pendingStart] : [])]);
         if (isEmbeddedMcpStopCurrent(generation)) {
             embeddedMcpToken = null;
         }

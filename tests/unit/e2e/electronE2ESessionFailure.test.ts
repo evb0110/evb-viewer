@@ -1,9 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {describe, expect, it, vi} from 'vitest';
 import * as detachedSession from '@scripts/electron-run/startSessionDetached';
 import * as sessionArtifacts from '@scripts/electron-run/electronRunSessionArtifacts';
 import * as sessionCommands from '@scripts/electron-run/sendCommand';
@@ -11,10 +6,7 @@ import * as sessionStop from '@scripts/electron-run/stopSession';
 import {startElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {spawn} from 'node:child_process';
 import {join} from 'node:path';
-import {
-    createDetachedSessionReadinessFailure,
-    waitForDetachedChildSpawn,
-} from '@scripts/electron-run/startSessionDetached';
+import {createDetachedSessionReadinessFailure, waitForDetachedChildSpawn} from '@scripts/electron-run/startSessionDetached';
 import {isProcessAlive} from '@scripts/electron-run/electronRunProcessTree';
 import {
     createElectronE2EHealthReadinessFailure,
@@ -28,13 +20,18 @@ describe('Electron E2E session failure classification', () => {
     it('stops an acquired session when application health fails before the outer deadline', async () => {
         vi.useFakeTimers();
         let sessionRunning = false;
-        vi.spyOn(detachedSession, 'startSessionDetached').mockImplementation(async () => { sessionRunning = true; });
+        vi.spyOn(detachedSession, 'startSessionDetached').mockImplementation(async () => {
+            sessionRunning = true;
+        });
         vi.spyOn(sessionArtifacts, 'waitForSessionReady').mockResolvedValue(true);
         vi.spyOn(sessionCommands, 'sendCommand').mockResolvedValue({ready: false});
-        vi.spyOn(sessionStop, 'stopSingleSession').mockImplementation(async () => { sessionRunning = false; });
+        vi.spyOn(sessionStop, 'stopSingleSession').mockImplementation(async () => {
+            sessionRunning = false;
+        });
         try {
-            const failure = startElectronE2ESession(`e2e-unit-health-failure-${process.pid}`, {clean: false})
-                .catch((error: unknown) => error);
+            const failure = startElectronE2ESession(`e2e-unit-health-failure-${process.pid}`, {clean: false}).catch(
+                (error: unknown) => error,
+            );
             await vi.advanceTimersByTimeAsync(0);
             expect(sessionRunning).toBe(true);
             await vi.advanceTimersByTimeAsync(detachedSession.E2E_SESSION_START_TIMEOUT_MS);
@@ -46,29 +43,25 @@ describe('Electron E2E session failure classification', () => {
         }
     });
 
-    it.each([
-        'process-launch',
-        'transport',
-        'cdp-connection',
-        'session-runner',
-    ] as const)('marks a typed %s failure as retryable infrastructure', async (kind) => {
-        const cause = new Error('connection refused');
+    it.each(['process-launch', 'transport', 'cdp-connection', 'session-runner'] as const)(
+        'marks a typed %s failure as retryable infrastructure',
+        async (kind) => {
+            const cause = new Error('connection refused');
 
-        const failure = await runElectronE2EInfrastructureStage(
-            kind,
-            'Connecting to the Electron session',
-            async () => Promise.reject(cause),
-        ).catch((error: unknown) => error);
-        const formatted = formatElectronE2ESessionFailure('Electron E2E session boot failed.', failure);
+            const failure = await runElectronE2EInfrastructureStage(kind, 'Connecting to the Electron session', async () =>
+                Promise.reject(cause),
+            ).catch((error: unknown) => error);
+            const formatted = formatElectronE2ESessionFailure('Electron E2E session boot failed.', failure);
 
-        expect(failure).toBeInstanceOf(ElectronE2EInfrastructureError);
-        expect(failure).toMatchObject({
-            cause,
-            kind,
-        });
-        expect(formatted.message).toMatch(/^\[INFRA\] Electron E2E session boot failed\./u);
-        expect(formatted.message).toContain('connection refused');
-    });
+            expect(failure).toBeInstanceOf(ElectronE2EInfrastructureError);
+            expect(failure).toMatchObject({
+                cause,
+                kind,
+            });
+            expect(formatted.message).toMatch(/^\[INFRA\] Electron E2E session boot failed\./u);
+            expect(formatted.message).toContain('connection refused');
+        },
+    );
 
     it.each([
         'Electron preload bridge is unavailable',
@@ -86,10 +79,7 @@ describe('Electron E2E session failure classification', () => {
     });
 
     it('preserves infrastructure classification through nested fixture context', async () => {
-        const failure = new ElectronE2EInfrastructureError(
-            'session-runner',
-            'The session runner exited before publishing metadata',
-        );
+        const failure = new ElectronE2EInfrastructureError('session-runner', 'The session runner exited before publishing metadata');
 
         const bootFailure = formatElectronE2ESessionFailure('Electron E2E session boot failed.', failure);
         const restartFailure = formatElectronE2ESessionFailure('Electron E2E session restart failed.', bootFailure);
@@ -101,16 +91,12 @@ describe('Electron E2E session failure classification', () => {
     });
 
     it('retains sanitized AggregateError diagnostics in typed infrastructure failures', () => {
-        const aggregate = new AggregateError([
-            new Error('session runner cleanup failed'),
-            new Error('[INFRA] nested diagnostic marker'),
-        ], 'session runner reported multiple failures');
-
-        const failure = new ElectronE2EInfrastructureError(
-            'session-runner',
-            'Electron E2E session runner failed',
-            aggregate,
+        const aggregate = new AggregateError(
+            [new Error('session runner cleanup failed'), new Error('[INFRA] nested diagnostic marker')],
+            'session runner reported multiple failures',
         );
+
+        const failure = new ElectronE2EInfrastructureError('session-runner', 'Electron E2E session runner failed', aggregate);
 
         expect(failure.message).toContain('session runner reported multiple failures');
         expect(failure.message).toContain('Contained error 1: session runner cleanup failed');
@@ -132,17 +118,8 @@ describe('Electron E2E session failure classification', () => {
     it('classifies an unavailable health transport separately from renderer readiness', () => {
         const transportCause = new Error('command socket refused the connection');
         const applicationCause = new Error('preload bridge evaluation failed');
-        const noHealthResponse = createElectronE2EHealthReadinessFailure(
-            'e2e-session',
-            0,
-            transportCause,
-        );
-        const rendererNotReady = createElectronE2EHealthReadinessFailure(
-            'e2e-session',
-            3,
-            transportCause,
-            applicationCause,
-        );
+        const noHealthResponse = createElectronE2EHealthReadinessFailure('e2e-session', 0, transportCause);
+        const rendererNotReady = createElectronE2EHealthReadinessFailure('e2e-session', 3, transportCause, applicationCause);
 
         expect(noHealthResponse).toBeInstanceOf(ElectronE2EInfrastructureError);
         expect(noHealthResponse).toMatchObject({
@@ -156,13 +133,10 @@ describe('Electron E2E session failure classification', () => {
     });
 
     it('does not mark a detached-start product readiness failure as infrastructure', async () => {
-        const productFailure = new Error(
-            'Detached session failed after renderer readiness: preload bindings are unavailable',
-        );
+        const productFailure = new Error('Detached session failed after renderer readiness: preload bindings are unavailable');
 
-        const failure = await runElectronE2EProcessLaunchStage(
-            'Starting the detached Electron E2E session',
-            async () => Promise.reject(productFailure),
+        const failure = await runElectronE2EProcessLaunchStage('Starting the detached Electron E2E session', async () =>
+            Promise.reject(productFailure),
         ).catch((error: unknown) => error);
 
         expect(failure).toBe(productFailure);
@@ -176,9 +150,8 @@ describe('Electron E2E session failure classification', () => {
             syscall: 'spawn',
         });
 
-        const failure = await runElectronE2EProcessLaunchStage(
-            'Starting the detached Electron E2E session',
-            async () => Promise.reject(systemFailure),
+        const failure = await runElectronE2EProcessLaunchStage('Starting the detached Electron E2E session', async () =>
+            Promise.reject(systemFailure),
         ).catch((error: unknown) => error);
 
         expect(failure).toBeInstanceOf(ElectronE2EInfrastructureError);
@@ -189,17 +162,12 @@ describe('Electron E2E session failure classification', () => {
     });
 
     it('observes a real detached spawn error before classifying it as infrastructure', async () => {
-        const missingExecutable = join(
-            process.cwd(),
-            '.devkit',
-            `missing-electron-e2e-executable-${String(process.pid)}`,
-        );
+        const missingExecutable = join(process.cwd(), '.devkit', `missing-electron-e2e-executable-${String(process.pid)}`);
         const child = spawn(missingExecutable, [], {stdio: 'ignore'});
 
         try {
-            const failure = await runElectronE2EProcessLaunchStage(
-                'Starting the detached Electron E2E session',
-                async () => waitForDetachedChildSpawn(child),
+            const failure = await runElectronE2EProcessLaunchStage('Starting the detached Electron E2E session', async () =>
+                waitForDetachedChildSpawn(child),
             ).catch((error: unknown) => error);
 
             expect(failure).toBeInstanceOf(ElectronE2EInfrastructureError);
@@ -222,14 +190,12 @@ describe('Electron E2E session failure classification', () => {
             errno: -1,
             syscall: 'kill',
         });
-        const readinessFailure = createDetachedSessionReadinessFailure(
-            'Detached session failed after application readiness checks',
-            [cleanupFailure],
-        );
+        const readinessFailure = createDetachedSessionReadinessFailure('Detached session failed after application readiness checks', [
+            cleanupFailure,
+        ]);
 
-        const failure = await runElectronE2EProcessLaunchStage(
-            'Starting the detached Electron E2E session',
-            async () => Promise.reject(readinessFailure),
+        const failure = await runElectronE2EProcessLaunchStage('Starting the detached Electron E2E session', async () =>
+            Promise.reject(readinessFailure),
         ).catch((error: unknown) => error);
 
         expect(failure).toBe(readinessFailure);
@@ -240,10 +206,7 @@ describe('Electron E2E session failure classification', () => {
             cleanupFailure,
         ]);
 
-        const formatted = formatElectronE2ESessionFailure(
-            'Electron E2E session boot failed.',
-            failure,
-        );
+        const formatted = formatElectronE2ESessionFailure('Electron E2E session boot failed.', failure);
         expect(formatted.message).not.toContain('[INFRA]');
         expect(formatted.message).toContain('Contained error 2: cleanup denied');
         expect(formatted.cause).toBeUndefined();

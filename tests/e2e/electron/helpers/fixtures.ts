@@ -1,25 +1,10 @@
-import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import {
-    copyFileSync,
-    existsSync,
-    mkdtempSync,
-    mkdirSync,
-    readFileSync,
-    renameSync,
-    rmSync,
-    statSync,
-    writeFileSync,
-} from 'node:fs';
-import { tmpdir } from 'node:os';
-import {
-    basename,
-    dirname,
-    join,
-    resolve,
-} from 'node:path';
-import { readFile } from 'node:fs/promises';
-import { deflateSync } from 'node:zlib';
+import {execFileSync} from 'node:child_process';
+import {createHash} from 'node:crypto';
+import {copyFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {basename, dirname, join, resolve} from 'node:path';
+import {readFile} from 'node:fs/promises';
+import {deflateSync} from 'node:zlib';
 import {
     PDFArray,
     PDFDict,
@@ -44,18 +29,15 @@ import {
 } from 'pdf-lib';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import {createCanvas} from '@napi-rs/canvas';
-import {
-    FIXTURE_SANS_FONT_FAMILY,
-    FIXTURE_SERIF_FONT_FAMILY,
-} from '@tests/e2e/electron/helpers/fixtureFonts';
-import { getE2ERunId } from '@scripts/electron-run/electronRunRunId';
-import { getCurrentSessionName } from '@scripts/electron-run/electronRunSessionPaths';
+import {FIXTURE_SANS_FONT_FAMILY, FIXTURE_SERIF_FONT_FAMILY} from '@tests/e2e/electron/helpers/fixtureFonts';
+import {getE2ERunId} from '@scripts/electron-run/electronRunRunId';
+import {getCurrentSessionName} from '@scripts/electron-run/electronRunSessionPaths';
 import {createPdfjsNodeDocumentOptions} from '@electron/features/search/pdfjsPageTexts';
-import { runDesktopQpdfWasm } from '@electron/native-tools/qpdfWasmWorkerClient';
-import { MAX_EAGER_PDF_CONFORMANCE_BYTES } from '@app/modules/workspace-shell/composables/document-session/createDocumentConformance';
-import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
-import type { IPdfNativeMutationSet } from '@contracts/electronApiDocuments';
-import { getAnnotationAuthor } from '@app/services/pdf/getAnnotationAuthor';
+import {runDesktopQpdfWasm} from '@electron/native-tools/qpdfWasmWorkerClient';
+import {MAX_EAGER_PDF_CONFORMANCE_BYTES} from '@app/modules/workspace-shell/composables/document-session/createDocumentConformance';
+import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
+import type {IPdfNativeMutationSet} from '@contracts/electronApiDocuments';
+import {getAnnotationAuthor} from '@app/services/pdf/getAnnotationAuthor';
 import {requirePageIndex} from '@contracts/pageNumbers';
 
 const FIXTURE_ROOT_DIR = resolve(process.cwd(), '.devkit', 'tmp', 'e2e-fixtures');
@@ -63,54 +45,46 @@ const FIXTURE_ROOT_DIR = resolve(process.cwd(), '.devkit', 'tmp', 'e2e-fixtures'
 /** Imported objects whose raw dictionaries carry more than the editable model. */
 export async function createAnnotationFidelityFixtureBytes() {
     const document = await PDFDocument.create();
-    const page = document.addPage([
-        200,
-        200,
-    ]);
+    const page = document.addPage([200, 200]);
     const context = document.context;
-    const appearance = (content: string) => context.register(context.stream(content, {
-        Type: 'XObject',
-        Subtype: 'Form',
-        BBox: [
-            0,
-            0,
-            200,
-            200,
-        ],
-        Resources: context.register(context.obj({ExtGState: {GS0: {
-            Type: 'ExtGState',
-            CA: 1,
-            ca: 1,
-        }}})),
-    }));
-    const annot = (fields: NonNullable<Parameters<typeof context.stream>[1]>) => context.register(context.obj({
-        Type: 'Annot',
-        P: page.ref,
-        F: 4,
-        ...fields,
-    }));
+    const appearance = (content: string) =>
+        context.register(
+            context.stream(content, {
+                Type: 'XObject',
+                Subtype: 'Form',
+                BBox: [0, 0, 200, 200],
+                Resources: context.register(
+                    context.obj({
+                        ExtGState: {
+                            GS0: {
+                                Type: 'ExtGState',
+                                CA: 1,
+                                ca: 1,
+                            },
+                        },
+                    }),
+                ),
+            }),
+        );
+    const annot = (fields: NonNullable<Parameters<typeof context.stream>[1]>) =>
+        context.register(
+            context.obj({
+                Type: 'Annot',
+                P: page.ref,
+                F: 4,
+                ...fields,
+            }),
+        );
     const foreign = annot({
         Subtype: 'Square',
         NM: PDFString.of('foreign-dashed'),
-        Rect: [
-            15,
-            20,
-            65,
-            55,
-        ],
-        C: [
-            1,
-            0,
-            0,
-        ],
+        Rect: [15, 20, 65, 55],
+        C: [1, 0, 0],
         CA: 1,
         BS: {
             W: 2,
             S: 'D',
-            D: [
-                3,
-                2,
-            ],
+            D: [3, 2],
         },
         Contents: PDFString.of('Foreign discussion'),
         VendorKey: PDFString.of('retain me'),
@@ -119,82 +93,34 @@ export async function createAnnotationFidelityFixtureBytes() {
     const popup = annot({
         Subtype: 'Popup',
         Parent: foreign,
-        Rect: [
-            5,
-            5,
-            60,
-            60,
-        ],
+        Rect: [5, 5, 60, 60],
     });
     context.lookup(foreign, PDFDict).set(PDFName.of('Popup'), popup);
     const reply = annot({
         Subtype: 'Text',
         IRT: foreign,
-        Rect: [
-            15,
-            20,
-            30,
-            35,
-        ],
+        Rect: [15, 20, 30, 35],
         Contents: PDFString.of('Important reply'),
     });
     const sibling = annot({
         Subtype: 'Square',
         NM: PDFString.of('evb-shape:sibling'),
-        Rect: [
-            100,
-            20,
-            155,
-            55,
-        ],
-        C: [
-            0,
-            0,
-            1,
-        ],
+        Rect: [100, 20, 155, 55],
+        C: [0, 0, 1],
         CA: 1,
-        Border: [
-            0,
-            0,
-            2,
-        ],
+        Border: [0, 0, 2],
         AP: {N: appearance('q 0 0 1 RG 100 20 55 35 re S Q\n')},
     });
     const arrow = annot({
         Subtype: 'Line',
         NM: PDFString.of('evb-shape:closed-arrow'),
-        Rect: [
-            18,
-            68,
-            162,
-            92,
-        ],
-        L: [
-            20,
-            80,
-            160,
-            80,
-        ],
-        LE: [
-            'None',
-            'ClosedArrow',
-        ],
-        C: [
-            1,
-            0,
-            0,
-        ],
-        IC: [
-            0,
-            1,
-            0,
-        ],
+        Rect: [18, 68, 162, 92],
+        L: [20, 80, 160, 80],
+        LE: ['None', 'ClosedArrow'],
+        C: [1, 0, 0],
+        IC: [0, 1, 0],
         CA: 1,
-        Border: [
-            0,
-            0,
-            2,
-        ],
+        Border: [0, 0, 2],
         CreationDate: PDFString.of('D:20260101000000Z'),
         M: PDFString.of('D:20260102000000Z'),
         AP: {N: appearance('q 1 0 0 RG 0 1 0 rg 20 80 m 160 80 l S 160 80 m 150 85 l 150 75 l h B Q\n')},
@@ -202,40 +128,15 @@ export async function createAnnotationFidelityFixtureBytes() {
     const markup = annot({
         Subtype: 'Highlight',
         NM: PDFString.of('skewed-markup'),
-        Rect: [
-            20,
-            130,
-            120,
-            160,
-        ],
-        QuadPoints: [
-            20,
-            140,
-            120,
-            160,
-            20,
-            130,
-            120,
-            150,
-        ],
-        C: [
-            1,
-            0,
-            0,
-        ],
+        Rect: [20, 130, 120, 160],
+        QuadPoints: [20, 140, 120, 160, 20, 130, 120, 150],
+        C: [1, 0, 0],
         CA: 1,
         Contents: PDFString.of('Skewed original comment'),
         CreationDate: PDFString.of('D:20260101000000Z'),
         AP: {N: appearance('q 1 0 0 rg 20 140 m 120 160 l 120 150 l 20 130 l h f Q\n')},
     });
-    page.node.set(PDFName.of('Annots'), context.obj([
-        foreign,
-        popup,
-        reply,
-        sibling,
-        arrow,
-        markup,
-    ]));
+    page.node.set(PDFName.of('Annots'), context.obj([foreign, popup, reply, sibling, arrow, markup]));
     return document.save({useObjectStreams: false});
 }
 
@@ -281,14 +182,7 @@ const NATIVE_LARGE_PDF_FIXTURE_BYTES = 513 * 1024 * 1024;
 const ANNOTATION_LARGE_PDF_FIXTURE_BYTES = MAX_EAGER_PDF_CONFORMANCE_BYTES + 1024 * 1024;
 const DJVU_FIXTURE_ENV_VAR = 'EVB_E2E_DJVU_FIXTURE';
 const DEFAULT_DJVU_FIXTURE = 'djvu-fixtures/viewer-smoke.djvu';
-const TRACKED_DJVU_CORPUS_FIXTURE = resolve(
-    process.cwd(),
-    'tests',
-    'fixtures',
-    'djvu',
-    'sources',
-    'browser-boundary-501-pages.djvu',
-);
+const TRACKED_DJVU_CORPUS_FIXTURE = resolve(process.cwd(), 'tests', 'fixtures', 'djvu', 'sources', 'browser-boundary-501-pages.djvu');
 const NATIVE_DJVU_SEARCH_FIXTURE_PAGE_COUNT = 501;
 const NATIVE_DJVU_SEARCH_FIXTURE_LATE_PAGE = 450;
 const NATIVE_DJVU_SEARCH_FIXTURE_SENTINEL = 'EVB_LATE_DJVU_SENTINEL_450';
@@ -406,10 +300,7 @@ export function resolvePathFixtureAvailability(options: IPathFixtureAvailability
     };
 }
 
-export function selectFixtureDescribe<TDescribe extends IFixtureDescribeSelector>(
-    describeFn: TDescribe,
-    fixture: IFixtureAvailability,
-) {
+export function selectFixtureDescribe<TDescribe extends IFixtureDescribeSelector>(describeFn: TDescribe, fixture: IFixtureAvailability) {
     if (fixture.path) {
         return describeFn;
     }
@@ -441,7 +332,7 @@ function getRunFixtureDir(owner: string, runId = getE2ERunId()) {
 }
 
 function ensureFixtureDir(sessionName = getCurrentSessionName()) {
-    mkdirSync(getFixtureDir(sessionName), { recursive: true });
+    mkdirSync(getFixtureDir(sessionName), {recursive: true});
 }
 
 export function cleanupSessionFixtures(sessionName = getCurrentSessionName()) {
@@ -470,7 +361,7 @@ export async function createNativeDjvuLatePageSearchFixture(
         throw new Error(`Tracked native DjVu search fixture is missing: ${TRACKED_DJVU_CORPUS_FIXTURE}`);
     }
 
-    const { setDjvuPageTextInFile } = await import('@tests/e2e/electron/helpers/djvuFixtureWriter');
+    const {setDjvuPageTextInFile} = await import('@tests/e2e/electron/helpers/djvuFixtureWriter');
     const targetPath = createFixturePath(targetFilename);
     copyFileSync(TRACKED_DJVU_CORPUS_FIXTURE, targetPath);
     try {
@@ -532,10 +423,7 @@ export function copyProjectFixture(sourceFilename: string, targetFilename?: stri
 }
 
 function resolveProjectFixturePath(sourceFilename: string) {
-    const candidatePaths = [
-        join(TRACKED_PROJECT_FIXTURE_DIR, sourceFilename),
-        join(LEGACY_PROJECT_FIXTURE_DIR, sourceFilename),
-    ];
+    const candidatePaths = [join(TRACKED_PROJECT_FIXTURE_DIR, sourceFilename), join(LEGACY_PROJECT_FIXTURE_DIR, sourceFilename)];
     const sourcePath = candidatePaths.find(existsSync);
 
     if (sourcePath) {
@@ -545,17 +433,12 @@ function resolveProjectFixturePath(sourceFilename: string) {
     throw new Error(`Fixture does not exist in any known location: ${candidatePaths.join(', ')}`);
 }
 
-
-
 function resolveLargePdfFixturePath() {
     const overridePath = process.env[LARGE_PDF_FIXTURE_ENV_VAR]?.trim();
     const candidatePaths = overridePath
         ? [resolve(overridePath)]
-        : [
-            resolve(TRACKED_PROJECT_FIXTURE_DIR, DEFAULT_LARGE_PDF_FIXTURE),
-            resolve(PROJECT_ROOT_FIXTURE_DIR, DEFAULT_LARGE_PDF_FIXTURE),
-        ];
-    const candidatePath = candidatePaths.find(candidate => existsSync(candidate) && statSync(candidate).isFile());
+        : [resolve(TRACKED_PROJECT_FIXTURE_DIR, DEFAULT_LARGE_PDF_FIXTURE), resolve(PROJECT_ROOT_FIXTURE_DIR, DEFAULT_LARGE_PDF_FIXTURE)];
+    const candidatePath = candidatePaths.find((candidate) => existsSync(candidate) && statSync(candidate).isFile());
 
     if (!candidatePath) {
         return null;
@@ -564,9 +447,7 @@ function resolveLargePdfFixturePath() {
 }
 
 function formatFixtureSize(value: number) {
-    return value < 1024 * 1024
-        ? `${value} bytes`
-        : `${Math.round(value / 1024 / 1024 * 10) / 10} MiB`;
+    return value < 1024 * 1024 ? `${value} bytes` : `${Math.round((value / 1024 / 1024) * 10) / 10} MiB`;
 }
 
 // Both large-PDF lanes need a document larger than anything that may enter the
@@ -574,26 +455,23 @@ function formatFixtureSize(value: number) {
 // small pdf-lib document — including the existing FreeText note the
 // annotation-save lane asserts — and sparse-pads it, so the file costs a few
 // hundred KiB of real disk whatever its declared size.
-function provisionLargePdfFixture(
-    label: string,
-    targetBytes: number,
-    pageCount?: number,
-): IFixtureAvailability {
+function provisionLargePdfFixture(label: string, targetBytes: number, pageCount?: number): IFixtureAvailability {
     const required = isEnvFlagEnabled(LARGE_PDF_REQUIRE_ENV_VAR);
-    const fixturePath = join(
-        FIXTURE_CACHE_DIR,
-        `${label}-${targetBytes}${pageCount === undefined ? '' : `-${pageCount}p`}.pdf`,
-    );
+    const fixturePath = join(FIXTURE_CACHE_DIR, `${label}-${targetBytes}${pageCount === undefined ? '' : `-${pageCount}p`}.pdf`);
 
     try {
         if (!existsSync(fixturePath) || statSync(fixturePath).size !== targetBytes) {
             mkdirSync(FIXTURE_CACHE_DIR, {recursive: true});
-            execFileSync(process.execPath, [
-                resolve(process.cwd(), 'scripts', 'generate-large-pdf-e2e-fixture.mjs'),
-                `--output=${fixturePath}`,
-                `--bytes=${targetBytes}`,
-                ...(pageCount === undefined ? [] : [`--pages=${pageCount}`]),
-            ], {stdio: 'pipe'});
+            execFileSync(
+                process.execPath,
+                [
+                    resolve(process.cwd(), 'scripts', 'generate-large-pdf-e2e-fixture.mjs'),
+                    `--output=${fixturePath}`,
+                    `--bytes=${targetBytes}`,
+                    ...(pageCount === undefined ? [] : [`--pages=${pageCount}`]),
+                ],
+                {stdio: 'pipe'},
+            );
         }
 
         const size = statSync(fixturePath).size;
@@ -608,8 +486,9 @@ function provisionLargePdfFixture(
     } catch (error) {
         return {
             path: null,
-            reason: `Generated ${label} large PDF fixture is not available`
-                + ` (scripts/generate-large-pdf-e2e-fixture.mjs): ${error instanceof Error ? error.message : String(error)}`,
+            reason:
+                `Generated ${label} large PDF fixture is not available` +
+                ` (scripts/generate-large-pdf-e2e-fixture.mjs): ${error instanceof Error ? error.message : String(error)}`,
             required,
         };
     }
@@ -658,7 +537,6 @@ export function copyLargePdfFixture(targetFilename?: string) {
     return targetPath;
 }
 
-
 export async function createMultiPageTextFixturePdf(filename: string, pageCount = 3) {
     ensureFixtureDir();
     const filePath = join(getFixtureDir(), filename);
@@ -667,10 +545,7 @@ export async function createMultiPageTextFixturePdf(filename: string, pageCount 
     const font = await doc.embedFont(StandardFonts.Helvetica);
 
     for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
-        const page = doc.addPage([
-            612,
-            792,
-        ]);
+        const page = doc.addPage([612, 792]);
         page.drawText(`E2E Multi Page Fixture ${pageNumber}/${pageCount}`, {
             x: 70,
             y: 710,
@@ -703,20 +578,15 @@ export async function createPhraseSearchFixturePdf(filename: string) {
     const filePath = join(getFixtureDir(), filename);
     const doc = await PDFDocument.create();
     const font = await doc.embedFont(StandardFonts.Helvetica);
-    const page = doc.addPage([
-        612,
-        792,
-    ]);
-    [
-        'The scholar\u2019s notes end with alpha',
-        'beta and gamma on the next line.',
-        'A red\u00A0blue swatch.',
-    ].forEach((line, index) => page.drawText(line, {
-        x: 72,
-        y: 700 - index * 28,
-        size: 18,
-        font,
-    }));
+    const page = doc.addPage([612, 792]);
+    ['The scholar\u2019s notes end with alpha', 'beta and gamma on the next line.', 'A red\u00A0blue swatch.'].forEach((line, index) =>
+        page.drawText(line, {
+            x: 72,
+            y: 700 - index * 28,
+            size: 18,
+            font,
+        }),
+    );
     writeFileSync(filePath, await doc.save());
     return filePath;
 }
@@ -733,10 +603,7 @@ export function createDenseTextFixturePdf(
     pageCount: number,
     wordAt: (pageNumber: number, line: number, word: number) => string,
 ) {
-    const objects = new Map<number, Buffer>([[
-        3,
-        Buffer.from('<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>'),
-    ]]);
+    const objects = new Map<number, Buffer>([[3, Buffer.from('<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>')]]);
     const pageIds: number[] = [];
     let nextId = 4;
     for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
@@ -750,25 +617,29 @@ export function createDenseTextFixturePdf(
         const contentId = nextId;
         const pageId = nextId + 1;
         nextId += 2;
-        objects.set(contentId, Buffer.concat([
-            Buffer.from(`<< /Length ${content.length} /Filter /FlateDecode >>\nstream\n`),
-            content,
-            Buffer.from('\nendstream'),
-        ]));
-        objects.set(pageId, Buffer.from(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents ${contentId} 0 R >>`));
+        objects.set(
+            contentId,
+            Buffer.concat([
+                Buffer.from(`<< /Length ${content.length} /Filter /FlateDecode >>\nstream\n`),
+                content,
+                Buffer.from('\nendstream'),
+            ]),
+        );
+        objects.set(
+            pageId,
+            Buffer.from(
+                `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents ${contentId} 0 R >>`,
+            ),
+        );
         pageIds.push(pageId);
     }
     objects.set(1, Buffer.from('<< /Type /Catalog /Pages 2 0 R >>'));
-    objects.set(2, Buffer.from(`<< /Type /Pages /Kids [${pageIds.map(id => `${id} 0 R`).join(' ')}] /Count ${pageIds.length} >>`));
+    objects.set(2, Buffer.from(`<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(' ')}] /Count ${pageIds.length} >>`));
     const parts: Buffer[] = [Buffer.from('%PDF-1.7\n')];
     let offset = parts[0]!.length;
     const offsets: number[] = [];
     for (let id = 1; id < nextId; id += 1) {
-        const object = Buffer.concat([
-            Buffer.from(`${id} 0 obj\n`),
-            objects.get(id)!,
-            Buffer.from('\nendobj\n'),
-        ]);
+        const object = Buffer.concat([Buffer.from(`${id} 0 obj\n`), objects.get(id)!, Buffer.from('\nendobj\n')]);
         offsets[id] = offset;
         offset += object.length;
         parts.push(object);
@@ -796,10 +667,7 @@ export async function createNonEmbeddedCjkSearchFixturePdf(filename: string) {
     const filePath = join(getFixtureDir(), filename);
     const doc = await PDFDocument.create();
     const latinFont = await doc.embedFont(StandardFonts.Helvetica);
-    doc.addPage([
-        612,
-        792,
-    ]).drawText('Latin page before the CJK page', {
+    doc.addPage([612, 792]).drawText('Latin page before the CJK page', {
         x: 70,
         y: 700,
         size: 20,
@@ -809,12 +677,7 @@ export async function createNonEmbeddedCjkSearchFixturePdf(filename: string) {
         Type: 'FontDescriptor',
         FontName: 'STSong-Light',
         Flags: 6,
-        FontBBox: [
-            -25,
-            -254,
-            1000,
-            880,
-        ],
+        FontBBox: [-25, -254, 1000, 880],
         ItalicAngle: 0,
         Ascent: 880,
         Descent: -120,
@@ -833,26 +696,28 @@ export async function createNonEmbeddedCjkSearchFixturePdf(filename: string) {
         FontDescriptor: doc.context.register(descriptor),
         DW: 1000,
     });
-    const cjkFont = doc.context.register(doc.context.obj({
-        Type: 'Font',
-        Subtype: 'Type0',
-        BaseFont: 'STSong-Light',
-        Encoding: 'UniGB-UCS2-H',
-        DescendantFonts: [doc.context.register(descendant)],
-    }));
-    const cjkPage = doc.addPage([
-        612,
-        792,
-    ]);
+    const cjkFont = doc.context.register(
+        doc.context.obj({
+            Type: 'Font',
+            Subtype: 'Type0',
+            BaseFont: 'STSong-Light',
+            Encoding: 'UniGB-UCS2-H',
+            DescendantFonts: [doc.context.register(descendant)],
+        }),
+    );
+    const cjkPage = doc.addPage([612, 792]);
     cjkPage.node.setFontDictionary(PDFName.of('FCjk'), cjkFont);
     cjkPage.pushOperators(
         beginText(),
         setFontAndSize('FCjk', 36),
         moveText(72, 700),
-        showText(PDFHexString.of(Array.from(
-            NON_EMBEDDED_CJK_SEARCH_FIXTURE_QUERY,
-            character => character.codePointAt(0)!.toString(16).padStart(4, '0'),
-        ).join(''))),
+        showText(
+            PDFHexString.of(
+                Array.from(NON_EMBEDDED_CJK_SEARCH_FIXTURE_QUERY, (character) =>
+                    character.codePointAt(0)!.toString(16).padStart(4, '0'),
+                ).join(''),
+            ),
+        ),
         endText(),
     );
     writeFileSync(filePath, await doc.save());
@@ -865,10 +730,7 @@ export async function createCroppedSearchFixturePdf(filename: string) {
     const filePath = join(getFixtureDir(), filename);
     const doc = await PDFDocument.create();
     const font = await doc.embedFont(StandardFonts.Helvetica);
-    const page = doc.addPage([
-        600,
-        800,
-    ]);
+    const page = doc.addPage([600, 800]);
     page.setCropBox(100, 100, 300, 400);
     page.drawText('CROP_SHOWN', {
         x: 150,
@@ -892,29 +754,14 @@ export async function createMixedPageSizeTextFixturePdf(filename: string) {
     const doc = await PDFDocument.create();
     const font = await doc.embedFont(StandardFonts.Helvetica);
     const pageSizes = [
-        [
-            612,
-            900,
-        ],
-        [
-            612,
-            792,
-        ],
-        [
-            612,
-            820,
-        ],
+        [612, 900],
+        [612, 792],
+        [612, 820],
     ] as const;
 
     pageSizes.forEach((pageSize, index) => {
-        const [
-            width,
-            height,
-        ] = pageSize;
-        const page = doc.addPage([
-            width,
-            height,
-        ]);
+        const [width, height] = pageSize;
+        const page = doc.addPage([width, height]);
         page.drawText(`E2E Mixed Page Fixture ${index + 1}/${pageSizes.length}`, {
             x: 70,
             y: height - 72,
@@ -950,17 +797,8 @@ export async function createMixedSize66FixturePdf(filename: string) {
         const scale = 0.24 + (((index * 37) % 100) / 100) * 0.76;
         const width = Math.round(1736 * scale);
         const height = Math.round(2456 * scale);
-        const page = doc.addPage([
-            width,
-            height,
-        ]);
-        for (const fraction of [
-            0.06,
-            0.28,
-            0.5,
-            0.72,
-            0.92,
-        ]) {
+        const page = doc.addPage([width, height]);
+        for (const fraction of [0.06, 0.28, 0.5, 0.72, 0.92]) {
             page.drawText(`Page ${index + 1}`, {
                 font,
                 size: Math.max(8, Math.round(width / 9)),
@@ -982,10 +820,7 @@ export async function createRotated90FixturePdf(filename: string, pageCount = 3)
     const font = await doc.embedFont(StandardFonts.Helvetica);
 
     for (let index = 0; index < pageCount; index += 1) {
-        const page = doc.addPage([
-            680,
-            963,
-        ]);
+        const page = doc.addPage([680, 963]);
         page.setRotation(degrees(90));
         page.drawText(`Rotated page ${index + 1}`, {
             font,
@@ -1015,10 +850,7 @@ export async function createAnnotatedLinkFixturePdf(filename: string, pageCount 
     const font = await doc.embedFont(StandardFonts.Helvetica);
 
     for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
-        const page = doc.addPage([
-            612,
-            792,
-        ]);
+        const page = doc.addPage([612, 792]);
         page.drawText(`E2E close-tab fixture page ${pageNumber}/${pageCount}`, {
             x: 72,
             y: 720,
@@ -1039,22 +871,9 @@ export async function createAnnotatedLinkFixturePdf(filename: string, pageCount 
     const link = doc.context.obj({
         Type: PDFName.of('Annot'),
         Subtype: PDFName.of('Link'),
-        Rect: [
-            72,
-            620,
-            280,
-            650,
-        ],
-        Border: [
-            0,
-            0,
-            1,
-        ],
-        C: [
-            0,
-            0,
-            1,
-        ],
+        Rect: [72, 620, 280, 650],
+        Border: [0, 0, 1],
+        C: [0, 0, 1],
         A: doc.context.obj({
             Type: PDFName.of('Action'),
             S: PDFName.of('URI'),
@@ -1066,48 +885,37 @@ export async function createAnnotatedLinkFixturePdf(filename: string, pageCount 
     const annotationRef = doc.context.nextRef();
     const popupRef = doc.context.nextRef();
     const noteText = 'EVB close-tab regression note';
-    doc.context.assign(annotationRef, doc.context.obj({
-        Type: PDFName.of('Annot'),
-        Subtype: PDFName.of('Text'),
-        Rect: [
-            310,
-            620,
-            334,
-            644,
-        ],
-        NM: PDFHexString.fromText('evb-close-tab-regression-note'),
-        Contents: PDFHexString.fromText(noteText),
-        Popup: popupRef,
-        Open: false,
-        F: 4,
-        C: [
-            1,
-            0.8,
-            0,
-        ],
-        T: PDFHexString.fromText('EVB close-tab regression'),
-        M: PDFString.of('D:20260905000000Z'),
-    }));
-    doc.context.assign(popupRef, doc.context.obj({
-        Type: PDFName.of('Annot'),
-        Subtype: PDFName.of('Popup'),
-        Rect: [
-            340,
-            520,
-            540,
-            640,
-        ],
-        Parent: annotationRef,
-        Contents: PDFHexString.fromText(noteText),
-        Open: false,
-        F: 4,
-        M: PDFString.of('D:20260905000000Z'),
-    }));
-
-    page.node.set(PDFName.of('Annots'), doc.context.obj([
-        linkRef,
+    doc.context.assign(
         annotationRef,
-    ]));
+        doc.context.obj({
+            Type: PDFName.of('Annot'),
+            Subtype: PDFName.of('Text'),
+            Rect: [310, 620, 334, 644],
+            NM: PDFHexString.fromText('evb-close-tab-regression-note'),
+            Contents: PDFHexString.fromText(noteText),
+            Popup: popupRef,
+            Open: false,
+            F: 4,
+            C: [1, 0.8, 0],
+            T: PDFHexString.fromText('EVB close-tab regression'),
+            M: PDFString.of('D:20260905000000Z'),
+        }),
+    );
+    doc.context.assign(
+        popupRef,
+        doc.context.obj({
+            Type: PDFName.of('Annot'),
+            Subtype: PDFName.of('Popup'),
+            Rect: [340, 520, 540, 640],
+            Parent: annotationRef,
+            Contents: PDFHexString.fromText(noteText),
+            Open: false,
+            F: 4,
+            M: PDFString.of('D:20260905000000Z'),
+        }),
+    );
+
+    page.node.set(PDFName.of('Annots'), doc.context.obj([linkRef, annotationRef]));
     writeFileSync(filePath, await doc.save({useObjectStreams: false}));
     return filePath;
 }
@@ -1124,10 +932,7 @@ export async function createTextMarkupAcceptanceFixturePdf(filename: string, pag
     const font = await document.embedFont(StandardFonts.Helvetica);
 
     for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
-        const page = document.addPage([
-            612,
-            792,
-        ]);
+        const page = document.addPage([612, 792]);
         [
             {
                 label: 'Markup page',
@@ -1141,10 +946,7 @@ export async function createTextMarkupAcceptanceFixturePdf(filename: string, pag
                 label: 'third line',
                 y: 620,
             },
-        ].forEach(({
-            label,
-            y,
-        }) => {
+        ].forEach(({label, y}) => {
             page.drawText(`${label} ${pageNumber}`, {
                 x: 72,
                 y,
@@ -1169,10 +971,7 @@ export const SEARCH_MATCH_SCROLL_FIXTURE_TARGET_MATCH = 4;
  * test. The last page has four identical matches, with the selected fourth
  * match close to the bottom edge so a page-only jump leaves it out of view.
  */
-export async function createSearchMatchScrollFixturePdf(
-    filename: string,
-    pageCount = SEARCH_MATCH_SCROLL_FIXTURE_PAGE_COUNT,
-) {
+export async function createSearchMatchScrollFixturePdf(filename: string, pageCount = SEARCH_MATCH_SCROLL_FIXTURE_PAGE_COUNT) {
     if (pageCount < 2) {
         throw new Error('Search match scroll fixture requires at least two pages');
     }
@@ -1183,10 +982,7 @@ export async function createSearchMatchScrollFixturePdf(
     const font = await doc.embedFont(StandardFonts.Helvetica);
 
     for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
-        const page = doc.addPage([
-            612,
-            792,
-        ]);
+        const page = doc.addPage([612, 792]);
         page.drawText(`E2E search match scroll fixture page ${pageNumber}/${pageCount}`, {
             x: 60,
             y: 735,
@@ -1206,12 +1002,7 @@ export async function createSearchMatchScrollFixturePdf(
             continue;
         }
 
-        [
-            700,
-            600,
-            500,
-            100,
-        ].forEach((y, index) => {
+        [700, 600, 500, 100].forEach((y, index) => {
             page.drawText(`${SEARCH_MATCH_SCROLL_FIXTURE_QUERY} match ${index + 1}`, {
                 x: 60,
                 y,
@@ -1236,10 +1027,7 @@ export async function createForeignHighlightNoTextFixturePdf(filename: string) {
     ensureFixtureDir();
     const filePath = join(getFixtureDir(), filename);
     const document = await PDFDocument.create();
-    const page = document.addPage([
-        612,
-        792,
-    ]);
+    const page = document.addPage([612, 792]);
     const font = await document.embedFont(StandardFonts.Helvetica);
     page.drawText('Foreign highlight fixture text is elsewhere', {
         x: 72,
@@ -1249,37 +1037,21 @@ export async function createForeignHighlightNoTextFixturePdf(filename: string) {
         color: rgb(0.13, 0.13, 0.13),
     });
 
-    const annotation = document.context.register(document.context.obj({
-        Type: PDFName.of('Annot'),
-        Subtype: PDFName.of('Highlight'),
-        P: page.ref,
-        F: PDFNumber.of(4),
-        M: PDFString.of('D:20260902000000Z'),
-        NM: PDFHexString.fromText('foreign-highlight-without-text'),
-        Rect: [
-            420,
-            100,
-            500,
-            116,
-        ],
-        QuadPoints: [
-            420,
-            116,
-            500,
-            116,
-            420,
-            100,
-            500,
-            100,
-        ],
-        C: [
-            1,
-            0.8,
-            0,
-        ],
-        CA: PDFNumber.of(0.45),
-        Contents: PDFString.of(''),
-    }));
+    const annotation = document.context.register(
+        document.context.obj({
+            Type: PDFName.of('Annot'),
+            Subtype: PDFName.of('Highlight'),
+            P: page.ref,
+            F: PDFNumber.of(4),
+            M: PDFString.of('D:20260902000000Z'),
+            NM: PDFHexString.fromText('foreign-highlight-without-text'),
+            Rect: [420, 100, 500, 116],
+            QuadPoints: [420, 116, 500, 116, 420, 100, 500, 100],
+            C: [1, 0.8, 0],
+            CA: PDFNumber.of(0.45),
+            Contents: PDFString.of(''),
+        }),
+    );
     page.node.set(PDFName.of('Annots'), document.context.obj([annotation]));
 
     writeFileSync(filePath, await document.save());
@@ -1290,10 +1062,7 @@ export async function createForeignNoteReplyFixturePdf(filename: string): Promis
     ensureFixtureDir();
     const filePath = join(getFixtureDir(), filename);
     const document = await PDFDocument.create();
-    const page = document.addPage([
-        612,
-        792,
-    ]);
+    const page = document.addPage([612, 792]);
     const font = await document.embedFont(StandardFonts.Helvetica);
     page.drawText('Foreign note reply fixture', {
         font,
@@ -1305,81 +1074,64 @@ export async function createForeignNoteReplyFixturePdf(filename: string): Promis
     const context = document.context;
     const parentName = 'foreign-note-with-replies';
     const parentText = 'Foreign parent note';
-    const replyTexts = [
-        'First foreign reply',
-        'Second foreign reply',
-    ] as const;
-    const replyNames = [
-        'foreign-reply-1',
-        'foreign-reply-2',
-    ] as const;
+    const replyTexts = ['First foreign reply', 'Second foreign reply'] as const;
+    const replyNames = ['foreign-reply-1', 'foreign-reply-2'] as const;
     const parentRef = context.nextRef();
     const popupRef = context.nextRef();
     const replyRefs = replyTexts.map(() => context.nextRef());
-    context.assign(parentRef, context.obj({
-        Type: PDFName.of('Annot'),
-        Subtype: PDFName.of('Text'),
-        Rect: [
-            280,
-            600,
-            312,
-            632,
-        ],
-        NM: PDFHexString.fromText(parentName),
-        Contents: PDFHexString.fromText(parentText),
-        Popup: popupRef,
-        Open: false,
-        C: [
-            1,
-            0.8,
-            0,
-        ],
-        T: PDFHexString.fromText('Foreign author'),
-        M: PDFString.of('D:20260902090000Z'),
-        P: page.ref,
-    }));
-    context.assign(popupRef, context.obj({
-        Type: PDFName.of('Annot'),
-        Subtype: PDFName.of('Popup'),
-        Rect: [
-            280,
-            600,
-            312,
-            632,
-        ],
-        Parent: parentRef,
-        Contents: PDFHexString.fromText(parentText),
-        Open: false,
-        P: page.ref,
-    }));
-    replyRefs.forEach((replyRef, index) => {
-        context.assign(replyRef, context.obj({
+    context.assign(
+        parentRef,
+        context.obj({
             Type: PDFName.of('Annot'),
             Subtype: PDFName.of('Text'),
-            Rect: [
-                280,
-                560 - index * 40,
-                312,
-                592 - index * 40,
-            ],
-            NM: PDFHexString.fromText(replyNames[index] ?? ''),
-            Contents: PDFHexString.fromText(replyTexts[index] ?? ''),
-            IRT: parentRef,
-            RT: PDFName.of('R'),
-            T: PDFHexString.fromText(`Reply author ${index + 1}`),
-            M: PDFString.of(`D:2026090209${String(index + 1).padStart(2, '0')}00Z`),
+            Rect: [280, 600, 312, 632],
+            NM: PDFHexString.fromText(parentName),
+            Contents: PDFHexString.fromText(parentText),
+            Popup: popupRef,
+            Open: false,
+            C: [1, 0.8, 0],
+            T: PDFHexString.fromText('Foreign author'),
+            M: PDFString.of('D:20260902090000Z'),
             P: page.ref,
-        }));
-    });
-    page.node.set(PDFName.of('Annots'), context.obj([
-        parentRef,
+        }),
+    );
+    context.assign(
         popupRef,
-        ...replyRefs,
-    ]));
-    writeFileSync(filePath, await document.save({
-        addDefaultPage: false,
-        useObjectStreams: false,
-    }));
+        context.obj({
+            Type: PDFName.of('Annot'),
+            Subtype: PDFName.of('Popup'),
+            Rect: [280, 600, 312, 632],
+            Parent: parentRef,
+            Contents: PDFHexString.fromText(parentText),
+            Open: false,
+            P: page.ref,
+        }),
+    );
+    replyRefs.forEach((replyRef, index) => {
+        context.assign(
+            replyRef,
+            context.obj({
+                Type: PDFName.of('Annot'),
+                Subtype: PDFName.of('Text'),
+                Rect: [280, 560 - index * 40, 312, 592 - index * 40],
+                NM: PDFHexString.fromText(replyNames[index] ?? ''),
+                Contents: PDFHexString.fromText(replyTexts[index] ?? ''),
+                IRT: parentRef,
+                RT: PDFName.of('R'),
+                T: PDFHexString.fromText(`Reply author ${index + 1}`),
+                M: PDFString.of(`D:2026090209${String(index + 1).padStart(2, '0')}00Z`),
+                P: page.ref,
+            }),
+        );
+    });
+    page.node.set(PDFName.of('Annots'), context.obj([parentRef, popupRef, ...replyRefs]));
+    writeFileSync(
+        filePath,
+        await document.save({
+            addDefaultPage: false,
+            useObjectStreams: false,
+        }),
+    );
 
     return {
         filePath,
@@ -1393,10 +1145,7 @@ export async function createForeignNoteReplyFixturePdf(filename: string): Promis
 export async function createPasswordProtectedFixturePdf(filename: string) {
     ensureFixtureDir();
     const filePath = join(getFixtureDir(), filename);
-    const encoded = readFileSync(
-        join(TRACKED_PROJECT_FIXTURE_DIR, 'password-protected.pdf.b64'),
-        'utf8',
-    );
+    const encoded = readFileSync(join(TRACKED_PROJECT_FIXTURE_DIR, 'password-protected.pdf.b64'), 'utf8');
     writeFileSync(filePath, Buffer.from(encoded.trim(), 'base64'));
     return filePath;
 }
@@ -1430,37 +1179,35 @@ async function writeFixtureCatalog(filePath: string, catalog: Pick<IPdfNativeMut
     const mutationsPath = `${filePath}.catalog.json`;
     writeFileSync(mutationsPath, JSON.stringify(catalog));
     try {
-        await runNativeToolCommand(pageOps, [
-            'save-mutations',
-            '--input',
-            filePath,
-            '--output',
-            filePath,
-            '--mutations-file',
-            mutationsPath,
-            '--modified-at',
-            'D:20260101000000Z',
-            '--append',
-        ], {commandLabel: 'pdf-page-ops E2E fixture catalog'});
+        await runNativeToolCommand(
+            pageOps,
+            [
+                'save-mutations',
+                '--input',
+                filePath,
+                '--output',
+                filePath,
+                '--mutations-file',
+                mutationsPath,
+                '--modified-at',
+                'D:20260101000000Z',
+                '--append',
+            ],
+            {commandLabel: 'pdf-page-ops E2E fixture catalog'},
+        );
     } finally {
         rmSync(mutationsPath, {force: true});
     }
 }
 
-export async function createOutlinePageLabelFixturePdf(
-    filename: string,
-    bookmarks: IPdfBookmarkEntry[] = OUTLINE_FIXTURE_BOOKMARKS,
-) {
+export async function createOutlinePageLabelFixturePdf(filename: string, bookmarks: IPdfBookmarkEntry[] = OUTLINE_FIXTURE_BOOKMARKS) {
     ensureFixtureDir();
     const filePath = join(getFixtureDir(), filename);
     const doc = await PDFDocument.create();
     const font = await doc.embedFont(StandardFonts.Helvetica);
 
     for (let pageNumber = 1; pageNumber <= 4; pageNumber += 1) {
-        const page = doc.addPage([
-            612,
-            792,
-        ]);
+        const page = doc.addPage([612, 792]);
         page.drawText(`Metadata matrix page ${pageNumber}`, {
             x: 70,
             y: 710,
@@ -1503,10 +1250,7 @@ export async function createCompactPageLabelsFixturePdf(filename: string, pageCo
     const font = await doc.embedFont(StandardFonts.Helvetica);
 
     for (let pageNumber = 0; pageNumber < pageCount; pageNumber += 1) {
-        const page = doc.addPage([
-            612,
-            792,
-        ]);
+        const page = doc.addPage([612, 792]);
         page.drawText(`Compact page label fixture ${pageNumber + 1}/${pageCount}`, {
             x: 72,
             y: 720,
@@ -1516,30 +1260,42 @@ export async function createCompactPageLabelsFixturePdf(filename: string, pageCo
     }
 
     const {context} = doc;
-    const pageLabels = context.register(context.obj({Nums: [
-        0,
-        context.register(context.obj({
-            S: PDFName.of('r'),
-            St: PDFNumber.of(1),
-        })),
-        40,
-        context.register(context.obj({
-            P: PDFString.of('Main-'),
-            S: PDFName.of('D'),
-            St: PDFNumber.of(1),
-        })),
-        100,
-        context.register(context.obj({
-            S: PDFName.of('R'),
-            St: PDFNumber.of(1),
-        })),
-        150,
-        context.register(context.obj({
-            P: PDFString.of('Appendix-'),
-            S: PDFName.of('a'),
-            St: PDFNumber.of(1),
-        })),
-    ]}));
+    const pageLabels = context.register(
+        context.obj({
+            Nums: [
+                0,
+                context.register(
+                    context.obj({
+                        S: PDFName.of('r'),
+                        St: PDFNumber.of(1),
+                    }),
+                ),
+                40,
+                context.register(
+                    context.obj({
+                        P: PDFString.of('Main-'),
+                        S: PDFName.of('D'),
+                        St: PDFNumber.of(1),
+                    }),
+                ),
+                100,
+                context.register(
+                    context.obj({
+                        S: PDFName.of('R'),
+                        St: PDFNumber.of(1),
+                    }),
+                ),
+                150,
+                context.register(
+                    context.obj({
+                        P: PDFString.of('Appendix-'),
+                        S: PDFName.of('a'),
+                        St: PDFNumber.of(1),
+                    }),
+                ),
+            ],
+        }),
+    );
     doc.catalog.set(PDFName.of('PageLabels'), pageLabels);
     writeFileSync(filePath, await doc.save());
     return filePath;
@@ -1553,21 +1309,14 @@ export interface IPageLabelRangeFixture {
 }
 
 /** Text pages whose /PageLabels number tree holds exactly the given ranges. */
-export async function createPageLabelRangesFixturePdf(
-    filename: string,
-    pageCount: number,
-    ranges: readonly IPageLabelRangeFixture[],
-) {
+export async function createPageLabelRangesFixturePdf(filename: string, pageCount: number, ranges: readonly IPageLabelRangeFixture[]) {
     ensureFixtureDir();
     const filePath = join(getFixtureDir(), filename);
     const doc = await PDFDocument.create();
     const font = await doc.embedFont(StandardFonts.Helvetica);
 
     for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
-        const page = doc.addPage([
-            612,
-            792,
-        ]);
+        const page = doc.addPage([612, 792]);
         page.drawText(`Page ${pageNumber} sample text for labels`, {
             x: 70,
             y: 660,
@@ -1578,13 +1327,15 @@ export async function createPageLabelRangesFixturePdf(
     }
 
     const {context} = doc;
-    const nums = ranges.flatMap(range => [
+    const nums = ranges.flatMap((range) => [
         range.startPage - 1,
-        context.register(context.obj({
-            ...(range.prefix === undefined ? {} : {P: PDFString.of(range.prefix)}),
-            S: PDFName.of(range.style),
-            St: PDFNumber.of(range.startNumber),
-        })),
+        context.register(
+            context.obj({
+                ...(range.prefix === undefined ? {} : {P: PDFString.of(range.prefix)}),
+                S: PDFName.of(range.style),
+                St: PDFNumber.of(range.startNumber),
+            }),
+        ),
     ]);
     doc.catalog.set(PDFName.of('PageLabels'), context.register(context.obj({Nums: nums})));
     writeFileSync(filePath, await doc.save());
@@ -1615,18 +1366,9 @@ export async function createMixedSizeTextFixturePdf(filename: string) {
         },
     ] as const;
 
-    for (const [
-        index,
-        pageSize,
-    ] of pageSizes.entries()) {
-        const {
-            height,
-            width,
-        } = pageSize;
-        const page = doc.addPage([
-            width,
-            height,
-        ]);
+    for (const [index, pageSize] of pageSizes.entries()) {
+        const {height, width} = pageSize;
+        const page = doc.addPage([width, height]);
         page.drawText(`Mixed-size page ${index + 1}`, {
             x: 40,
             y: height - 70,
@@ -1648,9 +1390,6 @@ export async function createMixedSizeTextFixturePdf(filename: string) {
     return filePath;
 }
 
-
-
-
 export async function createLargeScannedFixturePdf(
     filename: string,
     pageCount = 431,
@@ -1658,14 +1397,10 @@ export async function createLargeScannedFixturePdf(
     rasterScale = 1,
     options: {runOwner?: string} = {},
 ) {
-    const fixtureDir = options.runOwner
-        ? getRunFixtureDir(options.runOwner)
-        : getFixtureDir();
+    const fixtureDir = options.runOwner ? getRunFixtureDir(options.runOwner) : getFixtureDir();
     mkdirSync(fixtureDir, {recursive: true});
     const filePath = join(fixtureDir, filename);
-    const cacheKey = createHash('sha256')
-        .update(`large-scanned-v4:${pageCount}:${attachmentSizeBytes}:${rasterScale}`)
-        .digest('hex');
+    const cacheKey = createHash('sha256').update(`large-scanned-v4:${pageCount}:${attachmentSizeBytes}:${rasterScale}`).digest('hex');
     const cachePath = join(FIXTURE_CACHE_DIR, `${cacheKey}.pdf`);
     if (existsSync(cachePath)) {
         copyFileSync(cachePath, filePath);
@@ -1682,21 +1417,14 @@ export async function createLargeScannedFixturePdf(
     context.fillText('E2E scanned PDF fixture', 110, 150);
     context.font = `28px ${FIXTURE_SERIF_FONT_FAMILY}`;
     for (let line = 0; line < 34; line += 1) {
-        context.fillText(
-            `Scanned page sample row ${String(line + 1).padStart(2, '0')}`,
-            110,
-            250 + (line * 34),
-        );
+        context.fillText(`Scanned page sample row ${String(line + 1).padStart(2, '0')}`, 110, 250 + line * 34);
     }
 
     const doc = await PDFDocument.create();
     const scannedPageImage = await doc.embedJpg(canvas.toBuffer('image/jpeg', 0.78));
     for (let pageNumber = 0; pageNumber < pageCount; pageNumber += 1) {
         const marker = resolveScannedFixturePageMarkerRgb(pageNumber + 1);
-        const page = doc.addPage([
-            612,
-            792,
-        ]);
+        const page = doc.addPage([612, 792]);
         page.drawImage(scannedPageImage, {
             x: 0,
             y: 0,
@@ -1753,8 +1481,7 @@ export function createPngFixture(filename: string) {
     ensureFixtureDir();
     const filePath = join(getFixtureDir(), filename);
     const bytes = Buffer.from(
-        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4'
-        + 'z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC',
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4' + 'z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC',
         'base64',
     );
     writeFileSync(filePath, bytes);
@@ -1767,17 +1494,22 @@ export function createCorruptPdfFixture(filename: string) {
     // The PDF signature makes the direct-open route claim this as a PDF, but
     // the truncated object and missing cross-reference table make it
     // impossible for either preflight validation or PDF.js to accept.
-    writeFileSync(filePath, Buffer.from([
-        '%PDF-1.7',
-        '1 0 obj',
-        '<< /Type /Catalog /Pages 2 0 R >>',
-        'endobj',
-        '2 0 obj',
-        '<< /Type /Pages /Count 1 /Kids [3 0 R] >>',
-        'endobj',
-        '3 0 obj',
-        '<< /Type /Page /Parent 2 0 R',
-    ].join('\n')));
+    writeFileSync(
+        filePath,
+        Buffer.from(
+            [
+                '%PDF-1.7',
+                '1 0 obj',
+                '<< /Type /Catalog /Pages 2 0 R >>',
+                'endobj',
+                '2 0 obj',
+                '<< /Type /Pages /Count 1 /Kids [3 0 R] >>',
+                'endobj',
+                '3 0 obj',
+                '<< /Type /Page /Parent 2 0 R',
+            ].join('\n'),
+        ),
+    );
     return filePath;
 }
 
@@ -1787,10 +1519,7 @@ export async function createBlankFixturePdf(filename: string, pageCount = 1) {
 
     const doc = await PDFDocument.create();
     for (let pageNumber = 0; pageNumber < pageCount; pageNumber += 1) {
-        doc.addPage([
-            612,
-            792,
-        ]);
+        doc.addPage([612, 792]);
     }
 
     const bytes = await doc.save();
@@ -1803,10 +1532,7 @@ export async function createLinkOnlyFixturePdf(filename: string) {
     ensureFixtureDir();
     const filePath = join(getFixtureDir(), filename);
     const doc = await PDFDocument.create();
-    const page = doc.addPage([
-        612,
-        792,
-    ]);
+    const page = doc.addPage([612, 792]);
     const font = await doc.embedFont(StandardFonts.Helvetica);
     page.drawText('Link-only annotation fixture', {
         font,
@@ -1814,31 +1540,20 @@ export async function createLinkOnlyFixturePdf(filename: string) {
         x: 100,
         y: 650,
     });
-    const link = doc.context.register(doc.context.obj({
-        Type: PDFName.of('Annot'),
-        Subtype: PDFName.of('Link'),
-        Rect: [
-            100,
-            580,
-            320,
-            610,
-        ],
-        Border: [
-            0,
-            0,
-            1,
-        ],
-        C: [
-            0,
-            0,
-            1,
-        ],
-        A: {
-            S: PDFName.of('URI'),
-            URI: PDFString.of('https://example.com/evb-viewer-link-fixture'),
-        },
-        P: page.ref,
-    }));
+    const link = doc.context.register(
+        doc.context.obj({
+            Type: PDFName.of('Annot'),
+            Subtype: PDFName.of('Link'),
+            Rect: [100, 580, 320, 610],
+            Border: [0, 0, 1],
+            C: [0, 0, 1],
+            A: {
+                S: PDFName.of('URI'),
+                URI: PDFString.of('https://example.com/evb-viewer-link-fixture'),
+            },
+            P: page.ref,
+        }),
+    );
     page.node.set(PDFName.of('Annots'), doc.context.obj([link]));
     writeFileSync(filePath, await doc.save({useObjectStreams: false}));
     return filePath;
@@ -1849,10 +1564,7 @@ export async function createLinkedTextFixturePdf(filename: string) {
     ensureFixtureDir();
     const filePath = join(getFixtureDir(), filename);
     const doc = await PDFDocument.create();
-    const page = doc.addPage([
-        612,
-        792,
-    ]);
+    const page = doc.addPage([612, 792]);
     const font = await doc.embedFont(StandardFonts.Helvetica);
     const text = 'Open the project at Example Workspace';
     const size = 18;
@@ -1868,26 +1580,19 @@ export async function createLinkedTextFixturePdf(filename: string) {
         x: 72,
         y: 600,
     });
-    const link = doc.context.register(doc.context.obj({
-        Type: PDFName.of('Annot'),
-        Subtype: PDFName.of('Link'),
-        Rect: [
-            70,
-            594,
-            74 + font.widthOfTextAtSize(text, size),
-            620,
-        ],
-        Border: [
-            0,
-            0,
-            0,
-        ],
-        A: {
-            S: PDFName.of('URI'),
-            URI: PDFString.of('https://example.com/evb-viewer-linked-text'),
-        },
-        P: page.ref,
-    }));
+    const link = doc.context.register(
+        doc.context.obj({
+            Type: PDFName.of('Annot'),
+            Subtype: PDFName.of('Link'),
+            Rect: [70, 594, 74 + font.widthOfTextAtSize(text, size), 620],
+            Border: [0, 0, 0],
+            A: {
+                S: PDFName.of('URI'),
+                URI: PDFString.of('https://example.com/evb-viewer-linked-text'),
+            },
+            P: page.ref,
+        }),
+    );
     page.node.set(PDFName.of('Annots'), doc.context.obj([link]));
     writeFileSync(filePath, await doc.save({useObjectStreams: false}));
     return filePath;
@@ -1899,10 +1604,7 @@ export async function createAnnotationSidebarFixturePdf(filename: string) {
     const filePath = join(getFixtureDir(), filename);
     const document = await PDFDocument.create();
     for (let index = 0; index < 3; index += 1) {
-        const page = document.addPage([
-            612,
-            792,
-        ]);
+        const page = document.addPage([612, 792]);
         page.drawText(`Sidebar selection, page ${index + 1}`, {
             x: 70,
             y: 700,
@@ -1920,91 +1622,54 @@ export async function createAnnotationSidebarFixturePdf(filename: string) {
             subtype: 'Squiggly',
             id: 'sidebar-squiggly',
             text: 'Title squiggly',
-            rect: [
-                70,
-                640,
-                240,
-                668,
-            ],
+            rect: [70, 640, 240, 668],
         },
         {
             page: 0,
             subtype: 'Text',
             id: 'sidebar-note',
             text: 'A note to review',
-            rect: [
-                250,
-                640,
-                278,
-                668,
-            ],
+            rect: [250, 640, 278, 668],
         },
         {
             page: 0,
             subtype: 'Square',
             id: 'evb-shape:sidebar-square',
             text: '',
-            rect: [
-                300,
-                440,
-                430,
-                565,
-            ],
+            rect: [300, 440, 430, 565],
         },
         {
             page: 2,
             subtype: 'Squiggly',
             id: 'sidebar-distant',
             text: 'Long squiggly annotation with enough text to wrap across several lines. The third line must stay hidden while both blue waves remain visible.',
-            rect: [
-                70,
-                640,
-                240,
-                668,
-            ],
+            rect: [70, 640, 240, 668],
         },
     ];
     const context = document.context;
     for (const spec of specs) {
         const page = document.getPage(spec.page);
-        const annotation = context.register(context.obj({
-            Type: PDFName.of('Annot'),
-            P: page.ref,
-            F: 4,
-            Subtype: PDFName.of(spec.subtype),
-            NM: PDFHexString.fromText(spec.id),
-            Contents: PDFHexString.fromText(spec.text),
-            T: PDFHexString.fromText('Sidebar fixture'),
-            M: PDFString.of('D:20260919000000Z'),
-            Rect: spec.rect,
-            C: spec.page === 2 ? [
-                0.2,
-                0.45,
-                1,
-            ] : [
-                1,
-                0.8,
-                0,
-            ],
-            ...(spec.subtype === 'Squiggly' ? {QuadPoints: [
-                70,
-                668,
-                240,
-                668,
-                70,
-                640,
-                240,
-                640,
-            ]} : {}),
-            ...(spec.subtype === 'Square' ? {
-                EVBShapeKey: PDFHexString.fromText(spec.id),
-                Border: [
-                    0,
-                    0,
-                    2,
-                ],
-            } : {}),
-        }));
+        const annotation = context.register(
+            context.obj({
+                Type: PDFName.of('Annot'),
+                P: page.ref,
+                F: 4,
+                Subtype: PDFName.of(spec.subtype),
+                NM: PDFHexString.fromText(spec.id),
+                Contents: PDFHexString.fromText(spec.text),
+                T: PDFHexString.fromText('Sidebar fixture'),
+                M: PDFString.of('D:20260919000000Z'),
+                Rect: spec.rect,
+                C: spec.page === 2 ? [0.2, 0.45, 1] : [1, 0.8, 0],
+                ...(spec.subtype === 'Squiggly' ? {QuadPoints: [70, 668, 240, 668, 70, 640, 240, 640]} : {}),
+                ...(spec.subtype === 'Square'
+                    ? {
+                          EVBShapeKey: PDFHexString.fromText(spec.id),
+                          Border: [0, 0, 2],
+                      }
+                    : {}),
+            }),
+        );
         const annotations = page.node.Annots() ?? context.obj([]);
         annotations.push(annotation);
         page.node.set(PDFName.of('Annots'), annotations);
@@ -2013,10 +1678,12 @@ export async function createAnnotationSidebarFixturePdf(filename: string) {
     return filePath;
 }
 
-const ANNOTATION_SURFACE_STAMP_JPEG = Uint8Array.from(Buffer.from(
-    '/9j/4AAQSkZJRgABAQAAAAAAAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/2wBDAQMDAwQDBAgEBAgQCwkLEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBD/wAARCAAoAEADAREAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAf/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFgEBAQEAAAAAAAAAAAAAAAAAAAcI/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8Al7UCSAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP//Z',
-    'base64',
-));
+const ANNOTATION_SURFACE_STAMP_JPEG = Uint8Array.from(
+    Buffer.from(
+        '/9j/4AAQSkZJRgABAQAAAAAAAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/2wBDAQMDAwQDBAgEBAgQCwkLEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBD/wAARCAAoAEADAREAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAf/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFgEBAQEAAAAAAAAAAAAAAAAAAAcI/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8Al7UCSAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP//Z',
+        'base64',
+    ),
+);
 
 /**
  * A single-page document containing each canonical annotation kind and one
@@ -2025,20 +1692,12 @@ const ANNOTATION_SURFACE_STAMP_JPEG = Uint8Array.from(Buffer.from(
  */
 export async function createCanonicalAnnotationSurfaceFixturePdf(
     filename: string,
-    noteRect: [number, number, number, number] = [
-        280,
-        610,
-        312,
-        642,
-    ],
+    noteRect: [number, number, number, number] = [280, 610, 312, 642],
 ) {
     ensureFixtureDir();
     const filePath = join(getFixtureDir(), filename);
     const document = await PDFDocument.create();
-    const page = document.addPage([
-        612,
-        792,
-    ]);
+    const page = document.addPage([612, 792]);
     const font = await document.embedFont(StandardFonts.Helvetica);
     page.drawText('Canonical annotation surface fixture', {
         font,
@@ -2054,22 +1713,20 @@ export async function createCanonicalAnnotationSurfaceFixturePdf(
     });
 
     const context = document.context;
-    const annotation = (fields: NonNullable<Parameters<typeof context.stream>[1]>) => context.register(context.obj({
-        Type: PDFName.of('Annot'),
-        P: page.ref,
-        F: PDFNumber.of(4),
-        M: PDFString.of('D:20260901000000Z'),
-        ...fields,
-    }));
+    const annotation = (fields: NonNullable<Parameters<typeof context.stream>[1]>) =>
+        context.register(
+            context.obj({
+                Type: PDFName.of('Annot'),
+                P: page.ref,
+                F: PDFNumber.of(4),
+                M: PDFString.of('D:20260901000000Z'),
+                ...fields,
+            }),
+        );
 
     const textBox = annotation({
         Subtype: PDFName.of('FreeText'),
-        Rect: [
-            72,
-            610,
-            250,
-            660,
-        ],
+        Rect: [72, 610, 250, 660],
         NM: PDFHexString.fromText('surface-text-box'),
         Contents: PDFHexString.fromText('Store-owned text box'),
         DA: PDFString.of('/Helvetica 18 Tf 0 0 1 rg'),
@@ -2079,134 +1736,74 @@ export async function createCanonicalAnnotationSurfaceFixturePdf(
         Rect: noteRect,
         NM: PDFHexString.fromText('surface-note'),
         Contents: PDFHexString.fromText('Store-owned note'),
-        C: [
-            1,
-            0.75,
-            0,
-        ],
+        C: [1, 0.75, 0],
         Open: false,
         T: PDFHexString.fromText('EVB fixture'),
     });
     const highlight = annotation({
         Subtype: PDFName.of('Highlight'),
-        Rect: [
-            72,
-            510,
-            250,
-            535,
-        ],
-        QuadPoints: [
-            72,
-            535,
-            250,
-            535,
-            72,
-            510,
-            250,
-            510,
-        ],
+        Rect: [72, 510, 250, 535],
+        QuadPoints: [72, 535, 250, 535, 72, 510, 250, 510],
         NM: PDFHexString.fromText('surface-highlight'),
         Contents: PDFHexString.fromText('Store-owned highlight'),
-        C: [
-            1,
-            0.8,
-            0,
-        ],
+        C: [1, 0.8, 0],
         CA: PDFNumber.of(0.45),
     });
     const shape = annotation({
         Subtype: PDFName.of('Square'),
-        Rect: [
-            350,
-            510,
-            470,
-            570,
-        ],
+        Rect: [350, 510, 470, 570],
         NM: PDFHexString.fromText('evb-shape:surface-square'),
         EVBShapeKey: PDFHexString.fromText('evb-shape:surface-square'),
-        C: [
-            0.1,
-            0.4,
-            0.9,
-        ],
-        IC: [
-            0.8,
-            0.9,
-            1,
-        ],
+        C: [0.1, 0.4, 0.9],
+        IC: [0.8, 0.9, 1],
         CA: PDFNumber.of(0.5),
-        Border: [
-            0,
-            0,
-            2,
-        ],
+        Border: [0, 0, 2],
     });
 
     const stampImage = await document.embedJpg(ANNOTATION_SURFACE_STAMP_JPEG);
     const stampImageName = context.addRandomSuffix('SurfaceImage', 10);
-    const stampAppearance = context.register(context.formXObject(
-        drawImage(stampImageName, {
-            x: 0,
-            y: 0,
-            width: 80,
-            height: 70,
-            rotate: degrees(0),
-            xSkew: degrees(0),
-            ySkew: degrees(0),
-        }),
-        {
-            Resources: {XObject: {[stampImageName]: stampImage.ref}},
-            BBox: context.obj([
-                0,
-                0,
-                80,
-                70,
-            ]),
-        },
-    ));
+    const stampAppearance = context.register(
+        context.formXObject(
+            drawImage(stampImageName, {
+                x: 0,
+                y: 0,
+                width: 80,
+                height: 70,
+                rotate: degrees(0),
+                xSkew: degrees(0),
+                ySkew: degrees(0),
+            }),
+            {
+                Resources: {XObject: {[stampImageName]: stampImage.ref}},
+                BBox: context.obj([0, 0, 80, 70]),
+            },
+        ),
+    );
     const stamp = annotation({
         Subtype: PDFName.of('Stamp'),
-        Rect: [
-            500,
-            510,
-            580,
-            580,
-        ],
+        Rect: [500, 510, 580, 580],
         NM: PDFHexString.fromText('surface-stamp'),
         AP: context.obj({N: stampAppearance}),
         Name: PDFName.of('Approved'),
     });
     const link = annotation({
         Subtype: PDFName.of('Link'),
-        Rect: [
-            390,
-            685,
-            540,
-            715,
-        ],
-        Border: [
-            0,
-            0,
-            1,
-        ],
+        Rect: [390, 685, 540, 715],
+        Border: [0, 0, 1],
         A: context.obj({
             S: PDFName.of('URI'),
             URI: PDFString.of('https://example.com/evb-viewer-surface'),
         }),
     });
 
-    page.node.set(PDFName.of('Annots'), context.obj([
-        textBox,
-        note,
-        highlight,
-        shape,
-        stamp,
-        link,
-    ]));
-    writeFileSync(filePath, await document.save({
-        addDefaultPage: false,
-        useObjectStreams: false,
-    }));
+    page.node.set(PDFName.of('Annots'), context.obj([textBox, note, highlight, shape, stamp, link]));
+    writeFileSync(
+        filePath,
+        await document.save({
+            addDefaultPage: false,
+            useObjectStreams: false,
+        }),
+    );
     return filePath;
 }
 
@@ -2214,75 +1811,30 @@ export async function createManagedInkStrokeFixturePdf(filename: string) {
     ensureFixtureDir();
     const filePath = join(getFixtureDir(), filename);
     const doc = await PDFDocument.create();
-    const page = doc.addPage([
-        612,
-        792,
-    ]);
+    const page = doc.addPage([612, 792]);
     const ink = doc.context.obj({
         Type: PDFName.of('Annot'),
         Subtype: PDFName.of('Ink'),
-        Rect: [
-            122.4,
-            491.04,
-            397.8,
-            554.4,
-        ],
-        InkList: [[
-            122.4,
-            554.4,
-            214.2,
-            522.72,
-            306,
-            546.48,
-            397.8,
-            491.04,
-        ]],
-        C: [
-            37 / 255,
-            99 / 255,
-            235 / 255,
-        ],
+        Rect: [122.4, 491.04, 397.8, 554.4],
+        InkList: [[122.4, 554.4, 214.2, 522.72, 306, 546.48, 397.8, 491.04]],
+        C: [37 / 255, 99 / 255, 235 / 255],
         CA: 0.55,
-        Border: [
-            0,
-            0,
-            1,
-        ],
+        Border: [0, 0, 1],
         EVBShapeKey: PDFHexString.fromText('evb-shape:annotation-stroke-parity'),
     });
     const fill = doc.context.obj({
         Type: PDFName.of('Annot'),
         Subtype: PDFName.of('Square'),
-        Rect: [
-            420,
-            500,
-            500,
-            580,
-        ],
-        C: [
-            37 / 255,
-            99 / 255,
-            235 / 255,
-        ],
-        IC: [
-            37 / 255,
-            99 / 255,
-            235 / 255,
-        ],
+        Rect: [420, 500, 500, 580],
+        C: [37 / 255, 99 / 255, 235 / 255],
+        IC: [37 / 255, 99 / 255, 235 / 255],
         CA: 0.55,
-        Border: [
-            0,
-            0,
-            1,
-        ],
+        Border: [0, 0, 1],
         EVBShapeKey: PDFHexString.fromText('evb-shape:annotation-fill-parity'),
     });
     const inkRef = doc.context.register(ink);
     const fillRef = doc.context.register(fill);
-    page.node.set(PDFName.of('Annots'), doc.context.obj([
-        inkRef,
-        fillRef,
-    ]));
+    page.node.set(PDFName.of('Annots'), doc.context.obj([inkRef, fillRef]));
     writeFileSync(filePath, await doc.save());
     return filePath;
 }
@@ -2303,10 +1855,7 @@ export async function createScannedTextFixturePdf(filename: string, text: string
     context.fillText(text, 60, 270);
 
     const doc = await PDFDocument.create();
-    const page = doc.addPage([
-        canvas.width / 2,
-        canvas.height / 2,
-    ]);
+    const page = doc.addPage([canvas.width / 2, canvas.height / 2]);
     const image = await doc.embedPng(canvas.toBuffer('image/png'));
     page.drawImage(image, {
         x: 0,
@@ -2348,7 +1897,7 @@ function getPdfStringValue(value: unknown) {
 }
 
 export async function readPdfTextAnnotationRecords(filePath: string): Promise<IPdfTextAnnotationRecord[]> {
-    const document = await PDFDocument.load(readFileSync(filePath), { updateMetadata: false });
+    const document = await PDFDocument.load(readFileSync(filePath), {updateMetadata: false});
     const records: IPdfTextAnnotationRecord[] = [];
 
     for (let pageIndex = 0; pageIndex < document.getPageCount(); pageIndex += 1) {
@@ -2421,7 +1970,7 @@ async function runQpdf(
 }
 
 function parseQpdfObjectRefs(value: string): IQpdfObjectRef[] {
-    return Array.from(value.matchAll(/(\d+)\s+(\d+)\s+R/gu)).map(match => ({
+    return Array.from(value.matchAll(/(\d+)\s+(\d+)\s+R/gu)).map((match) => ({
         objectNumber: Number(match[1]),
         generationNumber: Number(match[2]),
     }));
@@ -2430,10 +1979,7 @@ function parseQpdfObjectRefs(value: string): IQpdfObjectRef[] {
 async function readQpdfObject(filePath: string, objectRef: IQpdfObjectRef) {
     const result = await runQpdf(
         filePath,
-        [
-            `--show-object=${objectRef.objectNumber},${objectRef.generationNumber}`,
-            filePath,
-        ],
+        [`--show-object=${objectRef.objectNumber},${objectRef.generationNumber}`, filePath],
         'object read',
         {
             maxStderrBytes: 32 * 1024,
@@ -2444,18 +1990,10 @@ async function readQpdfObject(filePath: string, objectRef: IQpdfObjectRef) {
 }
 
 export async function readFreeTextObjectByName(filePath: string, name: string) {
-    const pagesResult = await runQpdf(
-        filePath,
-        [
-            '--show-pages',
-            filePath,
-        ],
-        'page listing',
-        {
-            maxStderrBytes: 32 * 1024,
-            maxStdoutBytes: 1024 * 1024,
-        },
-    );
+    const pagesResult = await runQpdf(filePath, ['--show-pages', filePath], 'page listing', {
+        maxStderrBytes: 32 * 1024,
+        maxStdoutBytes: 1024 * 1024,
+    });
     const pageRefMatch = pagesResult.stdout.match(/^page 1: (\d+) (\d+) R$/mu);
     if (!pageRefMatch) {
         throw new Error(`qpdf did not report the first page object for ${filePath}`);
@@ -2478,10 +2016,7 @@ export async function readFreeTextObjectByName(filePath: string, name: string) {
     }
     for (const objectRef of parseQpdfObjectRefs(annotsValue)) {
         const object = await readQpdfObject(filePath, objectRef);
-        if (
-            /\/Subtype\s*\/FreeText(?:\s|$)/u.test(object)
-            && object.includes(`/NM (${name})`)
-        ) {
+        if (/\/Subtype\s*\/FreeText(?:\s|$)/u.test(object) && object.includes(`/NM (${name})`)) {
             return {
                 object,
                 objectRef,
@@ -2530,19 +2065,13 @@ export async function readPdfPageSnapshots(filePath: string | Uint8Array): Promi
 }
 
 export async function readPdfMetadataWithQpdf(filePath: string) {
-    await runDesktopQpdfWasm([
-        '--check',
-        filePath,
-    ], {
+    await runDesktopQpdfWasm(['--check', filePath], {
         commandLabel: 'qpdf metadata matrix check',
         maxStderrBytes: 32 * 1024,
         maxStdoutBytes: 32 * 1024,
         timeoutMs: 30_000,
     });
-    const result = await runDesktopQpdfWasm([
-        '--json',
-        filePath,
-    ], {
+    const result = await runDesktopQpdfWasm(['--json', filePath], {
         commandLabel: 'qpdf metadata matrix JSON',
         maxStderrBytes: 64 * 1024,
         maxStdoutBytes: 512 * 1024,
@@ -2560,8 +2089,6 @@ export async function readPdfMetadataWithQpdf(filePath: string) {
     };
 }
 
-
-
 function getGeneratedDjvuFixturePath() {
     return join(FIXTURE_ROOT_DIR, 'generated', GENERATED_DJVU_FIXTURE_FILENAME);
 }
@@ -2570,12 +2097,7 @@ function createGeneratedDjvuPagePbm() {
     const rowBytes = Math.ceil(GENERATED_DJVU_FIXTURE_WIDTH / 8);
     const bitmap = Buffer.alloc(rowBytes * GENERATED_DJVU_FIXTURE_HEIGHT, 0);
     const setPixel = (x: number, y: number) => {
-        if (
-            x < 0
-            || y < 0
-            || x >= GENERATED_DJVU_FIXTURE_WIDTH
-            || y >= GENERATED_DJVU_FIXTURE_HEIGHT
-        ) {
+        if (x < 0 || y < 0 || x >= GENERATED_DJVU_FIXTURE_WIDTH || y >= GENERATED_DJVU_FIXTURE_HEIGHT) {
             return;
         }
         const byteIndex = y * rowBytes + (x >> 3);
@@ -2602,10 +2124,7 @@ function createGeneratedDjvuPagePbm() {
     drawVerticalLine(80, 96, 1500);
     drawVerticalLine(1120, 96, 1500);
 
-    return Buffer.concat([
-        Buffer.from(`P4\n${GENERATED_DJVU_FIXTURE_WIDTH} ${GENERATED_DJVU_FIXTURE_HEIGHT}\n`, 'ascii'),
-        bitmap,
-    ]);
+    return Buffer.concat([Buffer.from(`P4\n${GENERATED_DJVU_FIXTURE_WIDTH} ${GENERATED_DJVU_FIXTURE_HEIGHT}\n`, 'ascii'), bitmap]);
 }
 
 function generateDjvuFixture(targetPath = getGeneratedDjvuFixturePath()) {
@@ -2613,7 +2132,7 @@ function generateDjvuFixture(targetPath = getGeneratedDjvuFixturePath()) {
         return targetPath;
     }
 
-    mkdirSync(dirname(targetPath), { recursive: true });
+    mkdirSync(dirname(targetPath), {recursive: true});
     const workDir = mkdtempSync(join(tmpdir(), 'evb-djvu-fixture-'));
     const pagePbmPath = join(workDir, 'page.pbm');
     const pageDjvuPath = join(workDir, 'page.djvu');
@@ -2621,17 +2140,10 @@ function generateDjvuFixture(targetPath = getGeneratedDjvuFixturePath()) {
 
     try {
         writeFileSync(pagePbmPath, createGeneratedDjvuPagePbm());
-        execFileSync('cjb2', [
-            '-dpi',
-            String(GENERATED_DJVU_FIXTURE_DPI),
-            pagePbmPath,
-            pageDjvuPath,
-        ], { stdio: 'pipe' });
-        execFileSync('djvm', [
-            '-create',
-            outputPath,
-            ...Array.from({ length: GENERATED_DJVU_FIXTURE_PAGE_COUNT }, () => pageDjvuPath),
-        ], { stdio: 'pipe' });
+        execFileSync('cjb2', ['-dpi', String(GENERATED_DJVU_FIXTURE_DPI), pagePbmPath, pageDjvuPath], {stdio: 'pipe'});
+        execFileSync('djvm', ['-create', outputPath, ...Array.from({length: GENERATED_DJVU_FIXTURE_PAGE_COUNT}, () => pageDjvuPath)], {
+            stdio: 'pipe',
+        });
 
         const output = statSync(outputPath);
         if (!output.isFile() || output.size <= 0) {
@@ -2670,9 +2182,7 @@ export function resolveDjvuFixturePath(options: IDjvuFixtureAvailabilityOptions 
     const env = options.env ?? process.env;
     const trackedFixtureDir = options.trackedFixtureDir ?? TRACKED_PROJECT_FIXTURE_DIR;
     const devkitFixtureDir = options.devkitFixtureDir ?? PROJECT_ROOT_FIXTURE_DIR;
-    const corpusFixturePath = options.corpusFixturePath === undefined
-        ? TRACKED_DJVU_CORPUS_FIXTURE
-        : options.corpusFixturePath;
+    const corpusFixturePath = options.corpusFixturePath === undefined ? TRACKED_DJVU_CORPUS_FIXTURE : options.corpusFixturePath;
     const required = isDjvuFixtureRequired();
     const overridePath = env[DJVU_FIXTURE_ENV_VAR]?.trim();
     if (overridePath) {
@@ -2721,9 +2231,7 @@ export function resolveDjvuFixturePath(options: IDjvuFixtureAvailabilityOptions 
 
     if (options.generate !== false) {
         try {
-            const generatedPath = options.generatedFixtureFactory
-                ? options.generatedFixtureFactory()
-                : generateDjvuFixture();
+            const generatedPath = options.generatedFixtureFactory ? options.generatedFixtureFactory() : generateDjvuFixture();
             if (!existsSync(generatedPath) || !statSync(generatedPath).isFile()) {
                 throw new Error(`Generated DjVu fixture was not created: ${generatedPath}`);
             }
@@ -2746,8 +2254,9 @@ export function resolveDjvuFixturePath(options: IDjvuFixtureAvailabilityOptions 
 
     return {
         path: null,
-        reason: `DjVu fixture is not available. Set ${DJVU_FIXTURE_ENV_VAR}`
-            + ` or place ${DEFAULT_DJVU_FIXTURE} under tests/fixtures/electron or .devkit.`,
+        reason:
+            `DjVu fixture is not available. Set ${DJVU_FIXTURE_ENV_VAR}` +
+            ` or place ${DEFAULT_DJVU_FIXTURE} under tests/fixtures/electron or .devkit.`,
         required,
     };
 }
@@ -2781,13 +2290,13 @@ export async function readPdfCatalogWithPdfjs(filePath: string | Uint8Array) {
     const document = await task.promise;
     try {
         const summarize = async (items: Awaited<ReturnType<typeof document.getOutline>>): Promise<IPdfjsOutlineSummary[]> =>
-            Promise.all((items ?? []).map(async item => ({
-                title: item.title,
-                pageIndex: Array.isArray(item.dest) && item.dest[0]
-                    ? await document.getPageIndex(item.dest[0])
-                    : null,
-                items: await summarize(item.items),
-            })));
+            Promise.all(
+                (items ?? []).map(async (item) => ({
+                    title: item.title,
+                    pageIndex: Array.isArray(item.dest) && item.dest[0] ? await document.getPageIndex(item.dest[0]) : null,
+                    items: await summarize(item.items),
+                })),
+            );
         return {
             pageLabels: await document.getPageLabels(),
             bookmarks: await summarize(await document.getOutline()),

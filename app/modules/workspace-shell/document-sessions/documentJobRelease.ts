@@ -1,12 +1,6 @@
-import {
-    watch,
-    type Ref,
-} from 'vue';
-import type {
-    IPdfSourceJob,
-    TPdfSourceJobIntent,
-} from '@app/modules/pdf-viewer/public';
-import type { TPdfSource } from '@app/types/pdfUi';
+import {watch, type Ref} from 'vue';
+import type {IPdfSourceJob, TPdfSourceJobIntent} from '@app/modules/pdf-viewer/public';
+import type {TPdfSource} from '@app/types/pdfUi';
 
 /** Stops ending a document's jobs; `true` publishes the revision again when one was ended. */
 export type TEndDocumentJobRelease = (republish: boolean) => void;

@@ -36,8 +36,11 @@
                     :src="output.pixelSwap.currentUrl"
                     :style="output.sourceCropStyle"
                     alt=""
-                >
-                <span class="margin-overlay" aria-hidden="true" />
+                />
+                <span
+                    class="margin-overlay"
+                    aria-hidden="true"
+                />
             </template>
         </div>
     </div>
@@ -45,16 +48,13 @@
 
 <script setup lang="ts">
 import type {CSSProperties} from 'vue';
-import type {
-    TScanCleanupOutputHalf,
-    TScanCleanupPageAlignment,
-} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import type {TScanCleanupOutputHalf, TScanCleanupPageAlignment} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {IScanCleanupPlacementOverlayOutput} from '@app/modules/scan-cleanup/runtime/scanCleanupPreviewPresentation';
 
 defineProps<{
     anchors: Array<{
         alignment: TScanCleanupPageAlignment;
-        style: CSSProperties
+        style: CSSProperties;
     }>;
     enabled: boolean;
     labels: Partial<Record<TScanCleanupOutputHalf, string>>;

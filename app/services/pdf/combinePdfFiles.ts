@@ -1,29 +1,13 @@
-import type {
-    IDocumentsBatchProgress,
-    TOpenFileResult,
-} from '@contracts/electronApiDocuments';
-import { hasElectronAPI } from '@app/utils/platform';
-import {
-    getDocumentOpenCapability,
-    getDocumentPickerCapability,
-    getDocumentWorkingCopyCapability,
-} from '@app/utils/platformDocuments';
-import { getErrorMessage } from '@app/utils/error';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import {
-    getFailureReceipt,
-    type FailureReceipt,
-} from '@contracts/diagnostics/failureReceipt';
-import {
-    createRequestId,
-    type TRequestId,
-} from '@contracts/shared';
+import type {IDocumentsBatchProgress, TOpenFileResult} from '@contracts/electronApiDocuments';
+import {hasElectronAPI} from '@app/utils/platform';
+import {getDocumentOpenCapability, getDocumentPickerCapability, getDocumentWorkingCopyCapability} from '@app/utils/platformDocuments';
+import {getErrorMessage} from '@app/utils/error';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {getFailureReceipt, type FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import {createRequestId, type TRequestId} from '@contracts/shared';
 import {findSerializableErrorEnvelope} from '@contracts/serializableError';
 import {DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA} from '@contracts/documentOpenErrors';
-import {
-    hasNativeErrorCode,
-    NATIVE_ERROR_ENVELOPE_SCHEMA,
-} from '@contracts/nativeErrors';
+import {hasNativeErrorCode, NATIVE_ERROR_ENVELOPE_SCHEMA} from '@contracts/nativeErrors';
 
 export type TCombinePdfErrorCode = 'canceled' | 'invalid-input' | 'limit' | 'unsupported' | 'open-failed';
 
@@ -34,7 +18,7 @@ export class CombinePdfError extends Error {
         public readonly code: TCombinePdfErrorCode,
         options?: {
             cause?: unknown;
-            failure?: FailureReceipt
+            failure?: FailureReceipt;
         },
     ) {
         super(`PDF combine failed (${code})`, options);
@@ -44,9 +28,7 @@ export class CombinePdfError extends Error {
 }
 
 function getCombineAbortReason(signal: AbortSignal): Error {
-    return signal.reason instanceof Error
-        ? signal.reason
-        : new DOMException('PDF combine was canceled.', 'AbortError');
+    return signal.reason instanceof Error ? signal.reason : new DOMException('PDF combine was canceled.', 'AbortError');
 }
 
 function throwIfCombineAborted(signal?: AbortSignal): void {
@@ -84,9 +66,13 @@ function classifyCombineError(error: unknown, signal?: AbortSignal): TCombinePdf
     }
 }
 
-interface ICombinePdfInputFile {file: File;}
+interface ICombinePdfInputFile {
+    file: File;
+}
 
-export interface ICombinePdfCapabilities {supportedExtensions: readonly string[];}
+export interface ICombinePdfCapabilities {
+    supportedExtensions: readonly string[];
+}
 
 const COMBINE_PDF_EXTENSIONS = [
     '.pdf',
@@ -111,8 +97,7 @@ export function getCombinePdfCapabilities(): ICombinePdfCapabilities {
 }
 
 export function isCombineCancellationSupported() {
-    return !hasElectronAPI()
-        || typeof getDocumentOpenCapability().cancelOpenDocumentDirectBatch === 'function';
+    return !hasElectronAPI() || typeof getDocumentOpenCapability().cancelOpenDocumentDirectBatch === 'function';
 }
 
 function assertCombineInputsWithinCapabilities(options: ICombinePdfFilesOptions) {
@@ -132,10 +117,7 @@ export interface ICombinePdfFilesOptions {
     signal?: AbortSignal;
 }
 
-function emitCompleteProgress(
-    options: ICombinePdfFilesOptions,
-    previousProgress?: IDocumentsBatchProgress | null,
-) {
+function emitCompleteProgress(options: ICombinePdfFilesOptions, previousProgress?: IDocumentsBatchProgress | null) {
     options.onProgress?.({
         processed: options.files.length,
         total: options.files.length,
@@ -145,10 +127,7 @@ function emitCompleteProgress(
     });
 }
 
-function toMonotonicInProgress(
-    next: IDocumentsBatchProgress,
-    previous: IDocumentsBatchProgress | null,
-) {
+function toMonotonicInProgress(next: IDocumentsBatchProgress, previous: IDocumentsBatchProgress | null) {
     return {
         ...next,
         processed: Math.max(previous?.processed ?? 0, next.processed),
@@ -160,8 +139,7 @@ function toMonotonicInProgress(
 async function combineElectronFiles(options: ICombinePdfFilesOptions): Promise<TOpenFileResult> {
     const documentPicker = getDocumentPickerCapability();
     const documentOpen = getDocumentOpenCapability();
-    const inputPaths = documentPicker.getPathsForFiles(options.files.map(entry => entry.file))
-        .filter(path => path.length > 0);
+    const inputPaths = documentPicker.getPathsForFiles(options.files.map((entry) => entry.file)).filter((path) => path.length > 0);
 
     if (inputPaths.length !== options.files.length) {
         throw new Error(options.openErrorMessage);
@@ -170,20 +148,20 @@ async function combineElectronFiles(options: ICombinePdfFilesOptions): Promise<T
     const requestId: TRequestId = createRequestId('pdf-combine');
     let latestProgress: IDocumentsBatchProgress | null = null;
     const stopProgress = documentOpen.onOpenDocumentDirectBatchProgress((nextProgress) => {
-        if (
-            nextProgress.operation !== 'document-open'
-            || nextProgress.requestId !== requestId
-        ) {
+        if (nextProgress.operation !== 'document-open' || nextProgress.requestId !== requestId) {
             return;
         }
 
-        latestProgress = toMonotonicInProgress({
-            processed: nextProgress.processed,
-            total: nextProgress.total,
-            percent: nextProgress.percent,
-            elapsedMs: nextProgress.elapsedMs,
-            estimatedRemainingMs: nextProgress.estimatedRemainingMs,
-        }, latestProgress);
+        latestProgress = toMonotonicInProgress(
+            {
+                processed: nextProgress.processed,
+                total: nextProgress.total,
+                percent: nextProgress.percent,
+                elapsedMs: nextProgress.elapsedMs,
+                estimatedRemainingMs: nextProgress.estimatedRemainingMs,
+            },
+            latestProgress,
+        );
         options.onProgress?.(latestProgress);
     });
     const abort = () => {
@@ -203,7 +181,9 @@ async function combineElectronFiles(options: ICombinePdfFilesOptions): Promise<T
         // user asked for no result, so it is discarded, as in the browser.
         if (options.signal?.aborted) {
             if ('workingPath' in result && result.workingPath) {
-                await getDocumentWorkingCopyCapability().cleanupFile(result.workingPath).catch(() => undefined);
+                await getDocumentWorkingCopyCapability()
+                    .cleanupFile(result.workingPath)
+                    .catch(() => undefined);
             }
             throw getCombineAbortReason(options.signal);
         }
@@ -224,7 +204,7 @@ async function combineBrowserFiles(options: ICombinePdfFilesOptions): Promise<TO
     }
 
     const combinedPdf = await documentPicker.createCombinedPdfFromFiles(
-        options.files.map(entry => entry.file),
+        options.files.map((entry) => entry.file),
         {
             onProgress: (nextProgress) => {
                 latestProgress = toMonotonicInProgress(nextProgress, latestProgress);
@@ -235,10 +215,7 @@ async function combineBrowserFiles(options: ICombinePdfFilesOptions): Promise<TO
     );
     throwIfCombineAborted(options.signal);
     const documentWorkingCopy = getDocumentWorkingCopyCapability();
-    const workingPath = await documentWorkingCopy.createWorkingCopyFromData(
-        options.outputName,
-        combinedPdf,
-    );
+    const workingPath = await documentWorkingCopy.createWorkingCopyFromData(options.outputName, combinedPdf);
     if (options.signal?.aborted) {
         await documentWorkingCopy.cleanupFile(workingPath).catch(() => undefined);
         throw getCombineAbortReason(options.signal);
@@ -256,24 +233,26 @@ export async function combinePdfFiles(options: ICombinePdfFilesOptions): Promise
     assertCombineInputsWithinCapabilities(options);
     throwIfCombineAborted(options.signal);
     try {
-        return await (hasElectronAPI()
-            ? combineElectronFiles(options)
-            : combineBrowserFiles(options));
+        return await (hasElectronAPI() ? combineElectronFiles(options) : combineBrowserFiles(options));
     } catch (error) {
-        if (error instanceof CombinePdfError) {throw error;}
+        if (error instanceof CombinePdfError) {
+            throw error;
+        }
         const code = classifyCombineError(error, options.signal);
         if (code === 'canceled' || code === 'invalid-input' || code === 'limit' || code === 'unsupported') {
             throw new CombinePdfError(code, {cause: error});
         }
-        const failure = getFailureReceipt(error) ?? BrowserLogger.error(
-            'pdf-combine',
-            'PDF combine operation failed',
-            {
-                code,
-                detail: getErrorMessage(error),
-            },
-            {code: 'RENDERER_PDF_COMBINE_OPERATION_FAILED'},
-        );
+        const failure =
+            getFailureReceipt(error) ??
+            BrowserLogger.error(
+                'pdf-combine',
+                'PDF combine operation failed',
+                {
+                    code,
+                    detail: getErrorMessage(error),
+                },
+                {code: 'RENDERER_PDF_COMBINE_OPERATION_FAILED'},
+            );
         throw new CombinePdfError(code, {
             cause: error,
             failure,

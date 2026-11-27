@@ -1,25 +1,10 @@
-import type { WebContents } from 'electron';
-import {
-    isSearchErrorEnvelope,
-    type IPdfSearchProgress,
-    type IPdfSearchResponse,
-    type ISearchErrorEnvelope,
-} from '@contracts/search';
-import { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
-import {
-    createRequestId,
-    type TRequestId,
-} from '@contracts/shared';
+import type {WebContents} from 'electron';
+import {isSearchErrorEnvelope, type IPdfSearchProgress, type IPdfSearchResponse, type ISearchErrorEnvelope} from '@contracts/search';
+import {SEARCH_PLATFORM_FEATURE} from '@contracts/searchPlatformFeature';
+import {createRequestId, type TRequestId} from '@contracts/shared';
 import {normalizePathForLookup} from '@electron/file-access/normalizePathForLookup';
-import {
-    createMainJobRegistry,
-    type TMainJobErrorKind,
-} from '@electron/operation-lifecycle/createMainJobRegistry';
-import {
-    buildSearchErrorEnvelope,
-    SearchIpcError,
-    toSearchIpcError,
-} from '@electron/features/search/main/searchErrors';
+import {createMainJobRegistry, type TMainJobErrorKind} from '@electron/operation-lifecycle/createMainJobRegistry';
+import {buildSearchErrorEnvelope, SearchIpcError, toSearchIpcError} from '@electron/features/search/main/searchErrors';
 import {
     cancelSearchIndexBuilds,
     ensureSearchIndex,
@@ -30,7 +15,7 @@ import {
     type IProvisionalSearchMatches,
 } from '@electron/features/search/searchIndex';
 import {shutdownPdfSearchWorkers} from '@electron/features/search/pdfSearchWorkerClient';
-import { getErrorMessage } from '@electron/utils/error';
+import {getErrorMessage} from '@electron/utils/error';
 
 export interface ISearchSenderContext {
     sender: WebContents;
@@ -77,7 +62,7 @@ export function createSearchService() {
         progress: {
             channel: SEARCH_PLATFORM_FEATURE.eventChannels.onProgress,
             intervalMs: replay.intervalMs,
-            getEventKey: progress => replay.key(progress) || null,
+            getEventKey: (progress) => replay.key(progress) || null,
         },
         toError: toSearchRegistryError,
         terminalProgress: {
@@ -88,7 +73,7 @@ export function createSearchService() {
                 ...(result.coverage ? {coverage: result.coverage} : {}),
                 status: 'success',
             }),
-            canceled: latest => ({
+            canceled: (latest) => ({
                 requestId: latest.requestId,
                 processed: 0,
                 total: latest.total,
@@ -126,26 +111,27 @@ export function createSearchService() {
                 total,
                 status: 'running',
             },
-            run: async ({
-                publish, signal,
-            }) => {
+            run: async ({publish, signal}) => {
                 const document = await request.resolveDocument(signal);
                 let processed = 0;
                 let provisional: IProvisionalSearchMatches | null = null;
                 // Progress is delivered latest-first, so every event carries
                 // the whole provisional window: one that only moved the page
                 // count must not drop matches an earlier event announced.
-                const publishRunning = () => publish({
-                    requestId,
-                    processed,
-                    total: Math.max(total, processed),
-                    status: 'running',
-                    ...(provisional === null ? {} : {
-                        results: provisional.results,
-                        resultsStartIndex: 0,
-                        truncated: provisional.truncated,
-                    }),
-                });
+                const publishRunning = () =>
+                    publish({
+                        requestId,
+                        processed,
+                        total: Math.max(total, processed),
+                        status: 'running',
+                        ...(provisional === null
+                            ? {}
+                            : {
+                                  results: provisional.results,
+                                  resultsStartIndex: 0,
+                                  truncated: provisional.truncated,
+                              }),
+                    });
                 const onIndexProgress = (pagesScanned: number) => {
                     processed = pagesScanned;
                     publishRunning();
@@ -204,16 +190,19 @@ export function createSearchService() {
         },
         /** Without a request id, cancels every search the renderer still runs. */
         cancel(context: ISearchSenderContext, requestId?: TRequestId) {
-            return {canceled: requestId === undefined
-                ? jobs.cancelWhere(snapshot => snapshot.owner.webContentsId === context.sender.id, 'explicit cancel request') > 0
-                : jobs.cancel(requestId, {sender: context.sender}, 'explicit cancel request')};
+            return {
+                canceled:
+                    requestId === undefined
+                        ? jobs.cancelWhere((snapshot) => snapshot.owner.webContentsId === context.sender.id, 'explicit cancel request') > 0
+                        : jobs.cancel(requestId, {sender: context.sender}, 'explicit cancel request'),
+            };
         },
         /** Cancels searches and index builds for a document whose revision moved on. */
         cancelRequestsForPdfPath(pdfPath: string, reason: string) {
             const key = getSearchPdfPathKey(pdfPath);
             cancelSearchIndexBuilds(getSearchIndexPath(pdfPath));
             return jobs.cancelWhere(
-                snapshot => snapshot.workingCopyPath !== undefined && getSearchPdfPathKey(snapshot.workingCopyPath) === key,
+                (snapshot) => snapshot.workingCopyPath !== undefined && getSearchPdfPathKey(snapshot.workingCopyPath) === key,
                 reason,
             );
         },
@@ -226,8 +215,7 @@ export function createSearchService() {
 }
 
 export function searchPathDeniedError() {
-    return new SearchIpcError(buildSearchErrorEnvelope(
-        'SEARCH_PATH_DENIED',
-        'Invalid PDF path: search only allowed within temp directory',
-    ));
+    return new SearchIpcError(
+        buildSearchErrorEnvelope('SEARCH_PATH_DENIED', 'Invalid PDF path: search only allowed within temp directory'),
+    );
 }

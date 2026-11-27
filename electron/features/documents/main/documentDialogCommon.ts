@@ -1,22 +1,13 @@
-import { getErrorMessage } from '@electron/utils/error';
-import { stringifyJson } from '@contracts/stringifyJson';
-import { dialog } from 'electron';
-import type { BrowserWindow } from 'electron';
-import {
-    basename,
-    extname,
-} from 'path';
-import { te } from '@electron/te';
-import {
-    IPC_FILENAME_MAX_LENGTH,
-    truncateForIpc,
-} from '@electron/utils/ipcLimits';
-import {
-    getAutomationSaveDialogPath,
-    getDocumentsDialogDefaultPath,
-} from '@electron/utils/dialogDefaultPaths';
+import {getErrorMessage} from '@electron/utils/error';
+import {stringifyJson} from '@contracts/stringifyJson';
+import {dialog} from 'electron';
+import type {BrowserWindow} from 'electron';
+import {basename, extname} from 'path';
+import {te} from '@electron/te';
+import {IPC_FILENAME_MAX_LENGTH, truncateForIpc} from '@electron/utils/ipcLimits';
+import {getAutomationSaveDialogPath, getDocumentsDialogDefaultPath} from '@electron/utils/dialogDefaultPaths';
 import {runtimeConfig} from '@electron/runtimeConfig';
-import type { IDocumentsDialogContext } from '@electron/features/documents/documentsContexts';
+import type {IDocumentsDialogContext} from '@electron/features/documents/documentsContexts';
 
 interface IOpenDocumentDialogOptions {
     title: string;
@@ -75,41 +66,32 @@ function normalizeSaveDefaultPath(defaultPath: string, extension: string) {
             return codePoint > 31 && codePoint !== 127;
         })
         .join('');
-    const sanitizedName = filteredName.trim().length > 0
-        ? filteredName
-        : `document${suffix}`;
+    const sanitizedName = filteredName.trim().length > 0 ? filteredName : `document${suffix}`;
     const extensionProbeName = sanitizedName.replace(/\s+$/u, '');
     const hasRequestedExtension = extname(extensionProbeName).toLowerCase() === suffix;
     const normalizedName = hasRequestedExtension ? extensionProbeName : sanitizedName;
-    const baseName = hasRequestedExtension
-        ? normalizedName.slice(0, -suffix.length)
-        : normalizedName;
+    const baseName = hasRequestedExtension ? normalizedName.slice(0, -suffix.length) : normalizedName;
     const maxBaseLength = Math.max(1, IPC_FILENAME_MAX_LENGTH - suffix.length);
     return `${truncateForIpc(baseName, maxBaseLength)}${suffix}`;
 }
 
-export async function showOpenDocumentDialogForContext(
-    context: IOpenDocumentDialogContext,
-    options: IOpenDocumentDialogOptions,
-) {
+export async function showOpenDocumentDialogForContext(context: IOpenDocumentDialogContext, options: IOpenDocumentDialogOptions) {
     const dialogOptions = {
         title: options.title,
         defaultPath: getDocumentsDialogDefaultPath(),
-        filters: [{
-            name: te('dialogs.documentsFilter'),
-            extensions: options.extensions,
-        }],
-        properties: [
-            'openFile',
-            'multiSelections',
+        filters: [
+            {
+                name: te('dialogs.documentsFilter'),
+                extensions: options.extensions,
+            },
         ],
+        properties: ['openFile', 'multiSelections'],
     } satisfies Electron.OpenDialogOptions;
 
     // Automation sessions answer the Open dialog like the Save dialog below:
     // hidden runs cannot drive the native picker, and the path still goes
     // through the same open pipeline as a user's choice.
-    const automationOpenPath = runtimeConfig.automationUserDataDir
-        && runtimeConfig.test.e2eOpenDialogPath;
+    const automationOpenPath = runtimeConfig.automationUserDataDir && runtimeConfig.test.e2eOpenDialogPath;
     if (automationOpenPath) {
         return {
             canceled: false,
@@ -117,15 +99,12 @@ export async function showOpenDocumentDialogForContext(
         } satisfies Electron.OpenDialogReturnValue;
     }
 
-    return withSingleActiveDialogForSender(context.senderId, () => context.parentWindow
-        ? dialog.showOpenDialog(context.parentWindow, dialogOptions)
-        : dialog.showOpenDialog(dialogOptions));
+    return withSingleActiveDialogForSender(context.senderId, () =>
+        context.parentWindow ? dialog.showOpenDialog(context.parentWindow, dialogOptions) : dialog.showOpenDialog(dialogOptions),
+    );
 }
 
-export async function showSaveDialogWithExtension(
-    context: IDocumentsDialogContext,
-    options: ISaveDialogOptions,
-) {
+export async function showSaveDialogWithExtension(context: IDocumentsDialogContext, options: ISaveDialogOptions) {
     const automationTargetPath = getAutomationSaveDialogPath();
     if (automationTargetPath) {
         return automationTargetPath;
@@ -134,14 +113,16 @@ export async function showSaveDialogWithExtension(
     const dialogOptions = {
         title: options.title,
         defaultPath: normalizeSaveDefaultPath(options.defaultPath, options.extension),
-        filters: [{
-            name: options.filterName,
-            extensions: [options.extension],
-        }],
+        filters: [
+            {
+                name: options.filterName,
+                extensions: [options.extension],
+            },
+        ],
     };
-    const result = await withSingleActiveDialogForSender(context.senderId, () => context.parentWindow
-        ? dialog.showSaveDialog(context.parentWindow, dialogOptions)
-        : dialog.showSaveDialog(dialogOptions));
+    const result = await withSingleActiveDialogForSender(context.senderId, () =>
+        context.parentWindow ? dialog.showSaveDialog(context.parentWindow, dialogOptions) : dialog.showSaveDialog(dialogOptions),
+    );
 
     if (result.canceled || !result.filePath) {
         return null;
@@ -149,7 +130,5 @@ export async function showSaveDialogWithExtension(
 
     const extension = `.${options.extension}`;
     const extensionProbePath = result.filePath.replace(/\s+$/u, '');
-    return extname(extensionProbePath).toLowerCase() === extension
-        ? result.filePath
-        : `${result.filePath}${extension}`;
+    return extname(extensionProbePath).toLowerCase() === extension ? result.filePath : `${result.filePath}${extension}`;
 }

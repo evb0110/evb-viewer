@@ -25,10 +25,7 @@ import {
     withBoundedDetectionFields,
     type TScanCleanupDocumentCanvas,
 } from '@evb/scan-cleanup/core/scanCleanupConversionPlan';
-import {
-    reportScanCleanupNativeWarnings,
-    type IScanCleanupRenderedOutput,
-} from '@evb/scan-cleanup/core/scanCleanupOutputComposition';
+import {reportScanCleanupNativeWarnings, type IScanCleanupRenderedOutput} from '@evb/scan-cleanup/core/scanCleanupOutputComposition';
 import {
     buildScanCleanupPagePlanDigest,
     buildScanCleanupProvenanceStamp,
@@ -36,11 +33,7 @@ import {
     materializeScanCleanupStampOptions,
     type TScanCleanupStampBuildIds,
 } from '@evb/scan-cleanup/core/provenanceStamp';
-import {
-    mapScanCleanupPageScope,
-    resolveScanCleanupPageScopeLazy,
-    type TScanCleanupPageScope,
-} from '@evb/scan-cleanup/core/pageScope';
+import {mapScanCleanupPageScope, resolveScanCleanupPageScopeLazy, type TScanCleanupPageScope} from '@evb/scan-cleanup/core/pageScope';
 import {ScanCleanupContractError} from '@evb/scan-cleanup/core/errors';
 import type {IPdfPageSizeStore} from '@evb/scan-cleanup/core/pdfPageSizes';
 import type {
@@ -51,11 +44,7 @@ import type {
     TScanCleanupLog,
 } from '@evb/scan-cleanup/core/types';
 
-export type TScanCleanupWarnEvent = (
-    event: TScanCleanupWarningEvent,
-    pageNumber?: number,
-    half?: TScanCleanupOutputHalf,
-) => void;
+export type TScanCleanupWarnEvent = (event: TScanCleanupWarningEvent, pageNumber?: number, half?: TScanCleanupOutputHalf) => void;
 
 export interface IScanCleanupCoordinatedQualityPlan {
     documentCanvas: TScanCleanupDocumentCanvas | null;
@@ -135,9 +124,7 @@ export interface IScanCleanupConversionHost<
         prepared: TPrepared;
         signal: AbortSignal;
     }) => Promise<IScanCleanupGeometryAndProbeResult<TPageSizeStore, TRasterSource>>;
-    executeConversion: (
-        context: IScanCleanupCoordinatedConversionContext<TPageSizeStore, TRasterSource, TPrepared>,
-    ) => Promise<TExecution>;
+    executeConversion: (context: IScanCleanupCoordinatedConversionContext<TPageSizeStore, TRasterSource, TPrepared>) => Promise<TExecution>;
     validateAndPublish: (
         context: IScanCleanupCoordinatedConversionContext<TPageSizeStore, TRasterSource, TPrepared>,
         execution: TExecution,
@@ -186,11 +173,7 @@ export async function coordinateScanCleanupConversion<
     const emitProgress = createScanCleanupProgressReporter(onProgress, () => losslessRun);
     try {
         emitProgress('normalizing', 0, 1, []);
-        const {
-            documentPageCount,
-            preparedWarnings,
-            prepared,
-        } = await host.prepareSource({
+        const {documentPageCount, preparedWarnings, prepared} = await host.prepareSource({
             request: inputRequest,
             signal,
             emitProgress,
@@ -201,38 +184,37 @@ export async function coordinateScanCleanupConversion<
             inputRequest.sourcePageRange,
         );
         const pageCount = pageNumbers.length;
-        assertScanCleanupInkAnchorCapacity(
-            pageCount,
-            inputRequest.options,
-            inputRequest.placementAnchorSummary,
-        );
+        assertScanCleanupInkAnchorCapacity(pageCount, inputRequest.options, inputRequest.placementAnchorSummary);
         const largeStreamingRun = documentPageCount > SCAN_CLEANUP_STREAMING_BATCH_PAGES;
-        const fullDocumentRun = inputRequest.sourcePageNumbers === undefined
-            && inputRequest.sourcePageRange === undefined;
+        const fullDocumentRun = inputRequest.sourcePageNumbers === undefined && inputRequest.sourcePageRange === undefined;
         // A detection store is the decision owner at every document size. A
         // document small enough for one batch materializes its bounded maps
         // from it once, identically across desktop and browser.
-        const smallStoreFields = !largeStreamingRun && inputRequest.detectionResultStore !== undefined
-            ? await (async (store, documentPages) => buildBoundedDetectionRequestFields(
-                inputRequest,
-                await readDetectionResultsForPageNumbers(store, documentPages, signal),
-                documentPages,
-            ))(
-                inputRequest.detectionResultStore,
-                Array.from({length: documentPageCount}, (_, index) => index + 1),
-            )
-            : null;
-        const request = smallStoreFields === null
-            ? inputRequest
-            : withBoundedDetectionFields(inputRequest, smallStoreFields);
+        const smallStoreFields =
+            !largeStreamingRun && inputRequest.detectionResultStore !== undefined
+                ? await (async (store, documentPages) =>
+                      buildBoundedDetectionRequestFields(
+                          inputRequest,
+                          await readDetectionResultsForPageNumbers(store, documentPages, signal),
+                          documentPages,
+                      ))(
+                      inputRequest.detectionResultStore,
+                      Array.from({length: documentPageCount}, (_, index) => index + 1),
+                  )
+                : null;
+        const request = smallStoreFields === null ? inputRequest : withBoundedDetectionFields(inputRequest, smallStoreFields);
         const summary = createEmptyScanCleanupSummary(pageCount, preparedWarnings);
         const warn = createScanCleanupSummaryWarningReporter(summary, log);
         const warnEvent: TScanCleanupWarnEvent = (event, pageNumber, half) => {
-            reportScanCleanupSummaryWarningEvent(summary, {
-                event,
-                ...(pageNumber === undefined ? {} : {pageNumber: requirePageNumber(pageNumber)}),
-                ...(half === undefined ? {} : {half}),
-            }, warn);
+            reportScanCleanupSummaryWarningEvent(
+                summary,
+                {
+                    event,
+                    ...(pageNumber === undefined ? {} : {pageNumber: requirePageNumber(pageNumber)}),
+                    ...(half === undefined ? {} : {half}),
+                },
+                warn,
+            );
         };
         emitProgress('normalizing', 1, 1);
 
@@ -264,9 +246,7 @@ export async function coordinateScanCleanupConversion<
                 signal,
                 warn,
                 warnEvent,
-                ...(probed.onGeometryPage === undefined
-                    ? {}
-                    : {onGeometryPage: page => Promise.resolve(probed.onGeometryPage!(page))}),
+                ...(probed.onGeometryPage === undefined ? {} : {onGeometryPage: (page) => Promise.resolve(probed.onGeometryPage!(page))}),
             });
         } catch (error) {
             if (probed.afterQualityPlan !== undefined) {
@@ -319,9 +299,7 @@ export async function coordinateScanCleanupConversion<
             } catch (cleanupError) {
                 log(
                     'warn',
-                    `Scan cleanup post-run cleanup failed: ${
-                        cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
-                    }`,
+                    `Scan cleanup post-run cleanup failed: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
                 );
             }
         }
@@ -343,18 +321,13 @@ export interface IScanCleanupAnalyzedLosslessPage {
  * Strips planned PDF placement from lossless page metadata so provenance
  * hashing depends only on the observed page analysis.
  */
-export function stripScanCleanupLosslessPlacement(
-    metadata: INativeScanCleanupPageMetadataV3,
-): INativeScanCleanupPageMetadataV3 {
+export function stripScanCleanupLosslessPlacement(metadata: INativeScanCleanupPageMetadataV3): INativeScanCleanupPageMetadataV3 {
     return metadata.outputs === undefined
         ? metadata
         : {
-            ...metadata,
-            outputs: metadata.outputs.map(({
-                pdfPlacement: _pdfPlacement,
-                ...rest
-            }) => rest),
-        };
+              ...metadata,
+              outputs: metadata.outputs.map(({pdfPlacement: _pdfPlacement, ...rest}) => rest),
+          };
 }
 
 /**
@@ -370,27 +343,21 @@ export function reduceScanCleanupLosslessPage(input: {
     summary: TScanCleanupSummary;
     pageMetadataBySource: Map<number, INativeScanCleanupPageMetadataV3>;
 }): IScanCleanupAnalyzedLosslessPage | null {
-    const {
-        request,
-        pageNumber,
-        metadata,
-        sourceDpi,
-        sourceRasterDetected,
-        summary,
-        pageMetadataBySource,
-    } = input;
+    const {request, pageNumber, metadata, sourceDpi, sourceRasterDetected, summary, pageMetadataBySource} = input;
     pageMetadataBySource.set(pageNumber, stripScanCleanupLosslessPlacement(metadata));
     if (metadata.excluded) {
         summary.excludedPages += 1;
         return null;
     }
-    if (metadata.layoutClassification === 'two-page-spread') {summary.spreadsSplit += 1;}
-    if (metadata.layoutClassification === 'page-with-offcut') {summary.offcutsDiscarded += 1;}
-    const outputs = (metadata.outputs ?? []).map(output => {
+    if (metadata.layoutClassification === 'two-page-spread') {
+        summary.spreadsSplit += 1;
+    }
+    if (metadata.layoutClassification === 'page-with-offcut') {
+        summary.offcutsDiscarded += 1;
+    }
+    const outputs = (metadata.outputs ?? []).map((output) => {
         if (output.pdfPlacement === undefined) {
-            throw new ScanCleanupContractError(
-                `evb-scan-cleanup returned no placement for page ${String(pageNumber)}`,
-            );
+            throw new ScanCleanupContractError(`evb-scan-cleanup returned no placement for page ${String(pageNumber)}`);
         }
         return {
             half: output.half,
@@ -428,37 +395,24 @@ export function finalizeScanCleanupLosslessOutputs(input: {
     warnEvent: TScanCleanupWarnEvent;
     allowEmptyOutputs?: boolean;
 }) {
-    const {
-        request,
-        pageNumbers,
-        analyzedPages,
-        pageMetadataBySource,
-        summary,
-        warnEvent,
-        allowEmptyOutputs = false,
-    } = input;
-    const allOutputs = analyzedPages.flatMap(page => page.outputs.map(output => ({
-        ...output,
-        sourcePageIndex: page.sourcePageIndex,
-        sourceDpi: page.sourceDpi,
-        sourceRasterDetected: page.sourceRasterDetected,
-    })));
+    const {request, pageNumbers, analyzedPages, pageMetadataBySource, summary, warnEvent, allowEmptyOutputs = false} = input;
+    const allOutputs = analyzedPages.flatMap((page) =>
+        page.outputs.map((output) => ({
+            ...output,
+            sourcePageIndex: page.sourcePageIndex,
+            sourceDpi: page.sourceDpi,
+            sourceRasterDetected: page.sourceRasterDetected,
+        })),
+    );
     if (allOutputs.length === 0 && !allowEmptyOutputs) {
         throw new ScanCleanupContractError('evb-scan-cleanup analysis produced no output pages');
     }
     const scaledRasterPages = new Set<number>();
     const placementEvents: Array<[TScanCleanupWarningEvent, number, TScanCleanupOutputHalf]> = [];
     for (const page of analyzedPages) {
-        for (const {
-            half,
-            placement,
-        } of page.outputs) {
+        for (const {half, placement} of page.outputs) {
             for (const event of placement.warningEvents ?? []) {
-                placementEvents.push([
-                    event,
-                    page.sourcePageIndex + 1,
-                    half,
-                ]);
+                placementEvents.push([event, page.sourcePageIndex + 1, half]);
             }
             if (placement.contentScaled && page.sourceRasterDetected) {
                 scaledRasterPages.add(page.sourcePageIndex + 1);
@@ -468,14 +422,10 @@ export function finalizeScanCleanupLosslessOutputs(input: {
     if (scaledRasterPages.size > 0) {
         warnEvent({
             code: 'matched-canvas-pages-scaled-in-place',
-            pages: [...scaledRasterPages].map(pageNumber => requirePageNumber(pageNumber)),
+            pages: [...scaledRasterPages].map((pageNumber) => requirePageNumber(pageNumber)),
         });
     }
-    for (const [
-        event,
-        pageNumber,
-        half,
-    ] of placementEvents) {
+    for (const [event, pageNumber, half] of placementEvents) {
         warnEvent(event, pageNumber, half);
     }
     summary.outputPages = allOutputs.length;
@@ -491,20 +441,24 @@ export function finalizeScanCleanupLosslessOutputs(input: {
             blank: false,
         };
     });
-    const coveredPages = new Set(outputMappings.map(mapping => mapping.sourcePage));
+    const coveredPages = new Set(outputMappings.map((mapping) => mapping.sourcePage));
     for (const pageNumber of pageNumbers) {
-        if (coveredPages.has(pageNumber)) {continue;}
+        if (coveredPages.has(pageNumber)) {
+            continue;
+        }
         const metadata = pageMetadataBySource.get(pageNumber);
         outputMappings.push({
             sourcePage: pageNumber,
             half: 'full',
             outputOrdinal: null,
-            rotationDegrees: metadata?.rotationDegrees ?? getScanCleanupPageOverride(
-                request.options.pageOverrides,
-                requirePageNumber(pageNumber),
-                request.options.pageOverrideDefaults,
-                request.options.marginsMm,
-            ).rotationDegrees,
+            rotationDegrees:
+                metadata?.rotationDegrees ??
+                getScanCleanupPageOverride(
+                    request.options.pageOverrides,
+                    requirePageNumber(pageNumber),
+                    request.options.pageOverrideDefaults,
+                    request.options.marginsMm,
+                ).rotationDegrees,
             excluded: metadata?.excluded === true,
             blank: metadata?.excluded !== true,
         });
@@ -529,22 +483,11 @@ export function buildScanCleanupConversionProvenanceStamp(input: {
     outputMappings: readonly IScanCleanupOutputMapping[];
     buildIds: TScanCleanupStampBuildIds;
 }) {
-    const {
-        options,
-        pageNumbers,
-        qualityPath,
-        sourceSha256,
-        nativeOptionsBySource,
-        pageMetadataBySource,
-        outputMappings,
-        buildIds,
-    } = input;
-    const effectiveOptions = mapScanCleanupPageScope(pageNumbers, sourcePage => {
+    const {options, pageNumbers, qualityPath, sourceSha256, nativeOptionsBySource, pageMetadataBySource, outputMappings, buildIds} = input;
+    const effectiveOptions = mapScanCleanupPageScope(pageNumbers, (sourcePage) => {
         const nativeOptions = nativeOptionsBySource.get(sourcePage);
         if (nativeOptions === undefined) {
-            throw new ScanCleanupContractError(
-                `Scan cleanup lost manifest page ${String(sourcePage)} during batching`,
-            );
+            throw new ScanCleanupContractError(`Scan cleanup lost manifest page ${String(sourcePage)} during batching`);
         }
         return {
             sourcePage,
@@ -559,11 +502,13 @@ export function buildScanCleanupConversionProvenanceStamp(input: {
         sourceSha256,
         effectiveOptions,
         outputMappings: [...outputMappings],
-        pagePlanDigests: effectiveOptions.map(record => buildScanCleanupPagePlanDigest(
-            record.sourcePage,
-            record.options,
-            pageMetadataBySource.get(record.sourcePage) ?? {excluded: true},
-        )),
+        pagePlanDigests: effectiveOptions.map((record) =>
+            buildScanCleanupPagePlanDigest(
+                record.sourcePage,
+                record.options,
+                pageMetadataBySource.get(record.sourcePage) ?? {excluded: true},
+            ),
+        ),
         buildIds,
     });
     return {
@@ -615,6 +560,10 @@ export function commitScanCleanupRenderedPageSummary<TPath>(input: {
     for (const output of pageOutputs) {
         reportScanCleanupNativeWarnings(summary, output.metadata, pageNumber, fittedMarginBoxPages, warn);
     }
-    if (pageMetadata.layoutClassification === 'two-page-spread') {summary.spreadsSplit += 1;}
-    if (pageMetadata.layoutClassification === 'page-with-offcut') {summary.offcutsDiscarded += 1;}
+    if (pageMetadata.layoutClassification === 'two-page-spread') {
+        summary.spreadsSplit += 1;
+    }
+    if (pageMetadata.layoutClassification === 'page-with-offcut') {
+        summary.offcutsDiscarded += 1;
+    }
 }

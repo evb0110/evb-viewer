@@ -28,9 +28,9 @@ export function completedPageProgress(
     return completedPageNumbers.length === completedUnits
         ? {completedPageNumbers}
         : {
-            completedPageNumbers,
-            completedPageNumbersTruncated: true,
-        };
+              completedPageNumbers,
+              completedPageNumbersTruncated: true,
+          };
 }
 
 function normalizeDetectionContentBox(
@@ -39,31 +39,21 @@ function normalizeDetectionContentBox(
 ) {
     const contentBox = output.contentBox;
     if (
-        contentBox === null
-        || contentBox === undefined
-        || output.inputWidthPx <= 0
-        || output.inputHeightPx <= 0
-        || output.sourceRegion.widthPx <= 0
-        || output.sourceRegion.heightPx <= 0
+        contentBox === null ||
+        contentBox === undefined ||
+        output.inputWidthPx <= 0 ||
+        output.inputHeightPx <= 0 ||
+        output.sourceRegion.widthPx <= 0 ||
+        output.sourceRegion.heightPx <= 0
     ) {
         return undefined;
     }
-    const analysisWidth = rotationDegrees === 90 || rotationDegrees === 270
-        ? output.inputHeightPx
-        : output.inputWidthPx;
-    const analysisHeight = rotationDegrees === 90 || rotationDegrees === 270
-        ? output.inputWidthPx
-        : output.inputHeightPx;
+    const analysisWidth = rotationDegrees === 90 || rotationDegrees === 270 ? output.inputHeightPx : output.inputWidthPx;
+    const analysisHeight = rotationDegrees === 90 || rotationDegrees === 270 ? output.inputWidthPx : output.inputHeightPx;
     const left = Math.max(0, Math.min(output.sourceRegion.widthPx, contentBox.xPx));
     const top = Math.max(0, Math.min(output.sourceRegion.heightPx, contentBox.yPx));
-    const right = Math.max(
-        left,
-        Math.min(output.sourceRegion.widthPx, contentBox.xPx + contentBox.widthPx),
-    );
-    const bottom = Math.max(
-        top,
-        Math.min(output.sourceRegion.heightPx, contentBox.yPx + contentBox.heightPx),
-    );
+    const right = Math.max(left, Math.min(output.sourceRegion.widthPx, contentBox.xPx + contentBox.widthPx));
+    const bottom = Math.max(top, Math.min(output.sourceRegion.heightPx, contentBox.yPx + contentBox.heightPx));
     if (right <= left || bottom <= top) {
         return undefined;
     }
@@ -91,35 +81,29 @@ function createDetectionPagePlanEvidence(
 ): IScanCleanupPagePlanEvidence {
     const rotationDegrees = metadata.rotationDegrees;
     const firstOutput = metadata.outputs?.[0];
-    const analysisWidth = firstOutput === undefined
-        ? 0
-        : rotationDegrees === 90 || rotationDegrees === 270
-            ? firstOutput.inputHeightPx
-            : firstOutput.inputWidthPx;
-    const splitXNormalized = result.cutterXPx === null || analysisWidth <= 0
-        ? undefined
-        : result.cutterXPx / analysisWidth;
-    const automaticSplit = splitXNormalized === undefined
-        || splitXNormalized <= 0
-        || splitXNormalized >= 1
-        ? undefined
-        : {
-            xNormalized: splitXNormalized,
-            rotationDegrees,
-        };
+    const analysisWidth =
+        firstOutput === undefined
+            ? 0
+            : rotationDegrees === 90 || rotationDegrees === 270
+              ? firstOutput.inputHeightPx
+              : firstOutput.inputWidthPx;
+    const splitXNormalized = result.cutterXPx === null || analysisWidth <= 0 ? undefined : result.cutterXPx / analysisWidth;
+    const automaticSplit =
+        splitXNormalized === undefined || splitXNormalized <= 0 || splitXNormalized >= 1
+            ? undefined
+            : {
+                  xNormalized: splitXNormalized,
+                  rotationDegrees,
+              };
     const outputs: IScanCleanupPagePlanEvidence['outputs'] = {};
     for (const output of metadata.outputs ?? []) {
-        const contentBox = includeContentBoxes
-            ? normalizeDetectionContentBox(output, rotationDegrees)
-            : undefined;
+        const contentBox = includeContentBoxes ? normalizeDetectionContentBox(output, rotationDegrees) : undefined;
         if (contentBox === undefined && output.textToneDiagnostics === undefined) {
             continue;
         }
         outputs[output.half] = {
             ...(contentBox === undefined ? {} : {contentBox}),
-            ...(output.textToneDiagnostics === undefined
-                ? {}
-                : {textToneDiagnostics: output.textToneDiagnostics}),
+            ...(output.textToneDiagnostics === undefined ? {} : {textToneDiagnostics: output.textToneDiagnostics}),
         };
     }
     return {
@@ -162,26 +146,24 @@ export function deriveScanCleanupAnalysisVerdict(metadata: INativeScanCleanupPag
     return {
         classification: metadata.layoutClassification,
         confidence: metadata.layoutConfidence,
-        ...(metadata.layoutClassification === 'two-page-spread' && metadata.cutterXPx != null
-            ? {cutterXPx: metadata.cutterXPx}
-            : {}),
+        ...(metadata.layoutClassification === 'two-page-spread' && metadata.cutterXPx != null ? {cutterXPx: metadata.cutterXPx} : {}),
         tier1Verdict: metadata.tier1Verdict,
         reconciled: metadata.reconciled,
         clusterAgreement: metadata.clusterAgreement,
         ...(metadata.documentPrior == null
             ? {}
-            : {documentPrior: {
-                dominantLayout: metadata.documentPrior.dominantLayout,
-                cutterRatioMedian: metadata.documentPrior.cutterRatioMedian ?? null,
-                clusterDims: metadata.documentPrior.clusterDims,
-                agreementStrength: metadata.documentPrior.agreementStrength,
-                ...(metadata.documentPrior.strokeWidthMedianPx == null
-                    ? {}
-                    : {strokeWidthMedianPx: metadata.documentPrior.strokeWidthMedianPx}),
-                ...(metadata.documentPrior.xHeightMedianPx == null
-                    ? {}
-                    : {xHeightMedianPx: metadata.documentPrior.xHeightMedianPx}),
-            }}),
+            : {
+                  documentPrior: {
+                      dominantLayout: metadata.documentPrior.dominantLayout,
+                      cutterRatioMedian: metadata.documentPrior.cutterRatioMedian ?? null,
+                      clusterDims: metadata.documentPrior.clusterDims,
+                      agreementStrength: metadata.documentPrior.agreementStrength,
+                      ...(metadata.documentPrior.strokeWidthMedianPx == null
+                          ? {}
+                          : {strokeWidthMedianPx: metadata.documentPrior.strokeWidthMedianPx}),
+                      ...(metadata.documentPrior.xHeightMedianPx == null ? {} : {xHeightMedianPx: metadata.documentPrior.xHeightMedianPx}),
+                  },
+              }),
         ...(metadata.textAxis == null ? {} : {textAxis: metadata.textAxis}),
         // The engine recommends a concrete mode; `auto` is only a request.
         ...(metadata.recommendedOutputMode == null || metadata.recommendedOutputMode === 'auto'
@@ -190,15 +172,11 @@ export function deriveScanCleanupAnalysisVerdict(metadata: INativeScanCleanupPag
         ...(metadata.recommendedOutputModeConfidence == null
             ? {}
             : {recommendedOutputModeConfidence: metadata.recommendedOutputModeConfidence}),
-        ...(metadata.recommendedOutputModeReason == null
-            ? {}
-            : {recommendedOutputModeReason: metadata.recommendedOutputModeReason}),
+        ...(metadata.recommendedOutputModeReason == null ? {} : {recommendedOutputModeReason: metadata.recommendedOutputModeReason}),
         ...(metadata.softAlphaForegroundRecommendation == null
             ? {}
             : {softAlphaForegroundRecommendation: metadata.softAlphaForegroundRecommendation}),
-        ...(metadata.outputModeDiagnostics == null
-            ? {}
-            : {outputModeDiagnostics: metadata.outputModeDiagnostics}),
+        ...(metadata.outputModeDiagnostics == null ? {} : {outputModeDiagnostics: metadata.outputModeDiagnostics}),
     };
 }
 
@@ -206,21 +184,15 @@ export function deriveScanCleanupAnalysisVerdict(metadata: INativeScanCleanupPag
 function recommendationFields(verdict: TScanCleanupAnalysisVerdict) {
     return {
         ...(verdict.textAxis === undefined ? {} : {textAxis: verdict.textAxis}),
-        ...(verdict.recommendedOutputMode === undefined
-            ? {}
-            : {recommendedOutputMode: verdict.recommendedOutputMode}),
+        ...(verdict.recommendedOutputMode === undefined ? {} : {recommendedOutputMode: verdict.recommendedOutputMode}),
         ...(verdict.recommendedOutputModeConfidence === undefined
             ? {}
             : {recommendedOutputModeConfidence: verdict.recommendedOutputModeConfidence}),
-        ...(verdict.recommendedOutputModeReason === undefined
-            ? {}
-            : {recommendedOutputModeReason: verdict.recommendedOutputModeReason}),
+        ...(verdict.recommendedOutputModeReason === undefined ? {} : {recommendedOutputModeReason: verdict.recommendedOutputModeReason}),
         ...(verdict.softAlphaForegroundRecommendation === undefined
             ? {}
             : {softAlphaForegroundRecommendation: verdict.softAlphaForegroundRecommendation}),
-        ...(verdict.outputModeDiagnostics === undefined
-            ? {}
-            : {outputModeDiagnostics: verdict.outputModeDiagnostics}),
+        ...(verdict.outputModeDiagnostics === undefined ? {} : {outputModeDiagnostics: verdict.outputModeDiagnostics}),
     };
 }
 
@@ -261,24 +233,29 @@ export function projectScanCleanupDetectionResult({
         tier1Verdict: metadata.tier1Verdict ?? verdict.tier1Verdict ?? metadata.layoutClassification,
         reconciled: metadata.reconciled ?? verdict.reconciled ?? false,
         clusterAgreement: metadata.clusterAgreement ?? verdict.clusterAgreement ?? 0,
-        documentPrior: metadata.documentPrior == null
-            ? verdict.documentPrior ?? null
-            : {
-                ...metadata.documentPrior,
-                cutterRatioMedian: metadata.documentPrior.cutterRatioMedian ?? null,
-                strokeWidthMedianPx: metadata.documentPrior.strokeWidthMedianPx ?? undefined,
-                xHeightMedianPx: metadata.documentPrior.xHeightMedianPx ?? undefined,
-            },
+        documentPrior:
+            metadata.documentPrior == null
+                ? (verdict.documentPrior ?? null)
+                : {
+                      ...metadata.documentPrior,
+                      cutterRatioMedian: metadata.documentPrior.cutterRatioMedian ?? null,
+                      strokeWidthMedianPx: metadata.documentPrior.strokeWidthMedianPx ?? undefined,
+                      xHeightMedianPx: metadata.documentPrior.xHeightMedianPx ?? undefined,
+                  },
         ...recommendationFields(verdict),
         ...(sourceDpi === undefined
             ? {}
-            : {sourcePageMetadata: {
-                ...sourcePage,
-                pageNumber: requirePageNumber(sourcePage.pageNumber),
-                sourceDpi,
-            }}),
+            : {
+                  sourcePageMetadata: {
+                      ...sourcePage,
+                      pageNumber: requirePageNumber(sourcePage.pageNumber),
+                      sourceDpi,
+                  },
+              }),
     };
     result.pagePlanEvidence = createDetectionPagePlanEvidence(result, metadata, includeContentBoxes);
-    if (metadata.splitDiagnostics !== undefined) {result.splitDiagnostics = metadata.splitDiagnostics;}
+    if (metadata.splitDiagnostics !== undefined) {
+        result.splitDiagnostics = metadata.splitDiagnostics;
+    }
     return result;
 }

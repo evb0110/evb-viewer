@@ -31,32 +31,28 @@ export const PDF_NATIVE_TEXT_BOX_APPEARANCE_LIMITS = {
 
 const textBoxSourceNumber = v.pipe(v.number(), v.finite(), v.check(isNativeF32, 'must fit a native PDF number'));
 const textBoxSourceInset = v.pipe(textBoxSourceNumber, v.minValue(0));
-const textBoxSourceRect = v.strictTuple([
-    textBoxSourceNumber,
-    textBoxSourceNumber,
-    textBoxSourceNumber,
-    textBoxSourceNumber,
-]);
-const textBoxSourceColor = v.pipe(v.array(v.pipe(textBoxSourceNumber, v.minValue(0), v.maxValue(1))),
-    v.check(value => [
-        1,
-        3,
-        4,
-    ].includes(value.length), 'must have one, three or four color components'));
-export const PDF_NATIVE_TEXT_BOX_SOURCE_DESCRIPTOR_SCHEMA = v.pipe(v.strictObject({
-    version: v.literal(1),
-    settlementRect: v.exactOptional(v.pipe(textBoxSourceRect, v.check(r => r[2] > r[0] && r[3] > r[1], 'must have positive dimensions'))),
-    rawRD: v.exactOptional(v.strictTuple([
-        textBoxSourceInset,
-        textBoxSourceInset,
-        textBoxSourceInset,
-        textBoxSourceInset,
-    ])),
-    borderWidth: textBoxSourceInset,
-    borderColor: v.exactOptional(textBoxSourceColor),
-    background: v.exactOptional(textBoxSourceColor),
-    staleFill: v.boolean(),
-}), v.check(value => (value.borderWidth > 0) === (value.borderColor !== undefined), 'border color must match a positive border width'));
+const textBoxSourceRect = v.strictTuple([textBoxSourceNumber, textBoxSourceNumber, textBoxSourceNumber, textBoxSourceNumber]);
+const textBoxSourceColor = v.pipe(
+    v.array(v.pipe(textBoxSourceNumber, v.minValue(0), v.maxValue(1))),
+    v.check((value) => [1, 3, 4].includes(value.length), 'must have one, three or four color components'),
+);
+export const PDF_NATIVE_TEXT_BOX_SOURCE_DESCRIPTOR_SCHEMA = v.pipe(
+    v.strictObject({
+        version: v.literal(1),
+        settlementRect: v.exactOptional(
+            v.pipe(
+                textBoxSourceRect,
+                v.check((r) => r[2] > r[0] && r[3] > r[1], 'must have positive dimensions'),
+            ),
+        ),
+        rawRD: v.exactOptional(v.strictTuple([textBoxSourceInset, textBoxSourceInset, textBoxSourceInset, textBoxSourceInset])),
+        borderWidth: textBoxSourceInset,
+        borderColor: v.exactOptional(textBoxSourceColor),
+        background: v.exactOptional(textBoxSourceColor),
+        staleFill: v.boolean(),
+    }),
+    v.check((value) => value.borderWidth > 0 === (value.borderColor !== undefined), 'border color must match a positive border width'),
+);
 
 export type IPdfNativeTextBoxSourceDescriptor = v.InferOutput<typeof PDF_NATIVE_TEXT_BOX_SOURCE_DESCRIPTOR_SCHEMA>;
 
@@ -64,29 +60,45 @@ export function normalizePdfNativeTextBoxAppearanceRequest(
     value: unknown,
     options: IPdfNativeValidationOptions = {},
 ): IPdfNativeTextBoxAppearanceRequest {
-    if (!isRecord(value) || !isRecord(value.page) || !Array.isArray(value.textBoxes)
-        || value.textBoxes.length === 0 || value.textBoxes.length > PDF_NATIVE_TEXT_BOX_APPEARANCE_LIMITS.textBoxes) {
+    if (
+        !isRecord(value) ||
+        !isRecord(value.page) ||
+        !Array.isArray(value.textBoxes) ||
+        value.textBoxes.length === 0 ||
+        value.textBoxes.length > PDF_NATIVE_TEXT_BOX_APPEARANCE_LIMITS.textBoxes
+    ) {
         fail('Text box appearance requires a page and 1 to 256 text boxes', options);
     }
     const page = value.page;
     const pageView = v.safeParse(textBoxSourceRect, page.view);
-    if (!pageView.success || pageView.output[2] <= pageView.output[0] || pageView.output[3] <= pageView.output[1]
-        || !isPdfRotation(page.rotation) || typeof page.userUnit !== 'number' || !isNativeF32(page.userUnit) || page.userUnit <= 0 || page.userUnit > 75_000) {
+    if (
+        !pageView.success ||
+        pageView.output[2] <= pageView.output[0] ||
+        pageView.output[3] <= pageView.output[1] ||
+        !isPdfRotation(page.rotation) ||
+        typeof page.userUnit !== 'number' ||
+        !isNativeF32(page.userUnit) ||
+        page.userUnit <= 0 ||
+        page.userUnit > 75_000
+    ) {
         fail('Invalid text box appearance page', options);
     }
     let totalBytes = 0;
     const keys = new Set<string>();
     const textBoxes = value.textBoxes.map((input, index) => {
-        if (!isRecord(input)) {fail('Invalid text box appearance input', options);}
+        if (!isRecord(input)) {
+            fail('Invalid text box appearance input', options);
+        }
         const textBox = normalizeTextBoxes([input.textBox], `textBoxes[${index}]`, options)[0]!;
         if (textBox.originalAppearance?.sourceAnnotationId !== undefined || keys.has(textBox.stableKey)) {
             fail('Text box appearance input must have unique keys and inline or derived paint', options);
         }
         keys.add(textBox.stableKey);
         totalBytes += new TextEncoder().encode(textBox.text).byteLength;
-        const source = input.source === undefined
-            ? undefined : v.safeParse(PDF_NATIVE_TEXT_BOX_SOURCE_DESCRIPTOR_SCHEMA, input.source);
-        if (source && !source.success) {fail(`textBoxes[${index}].source must be a valid text box source descriptor`, options);}
+        const source = input.source === undefined ? undefined : v.safeParse(PDF_NATIVE_TEXT_BOX_SOURCE_DESCRIPTOR_SCHEMA, input.source);
+        if (source && !source.success) {
+            fail(`textBoxes[${index}].source must be a valid text box source descriptor`, options);
+        }
         return {
             textBox,
             ...(source === undefined ? {} : {source: source.output}),
@@ -109,16 +121,38 @@ export function normalizePdfNativeTextBoxAppearanceMetadata(
     value: unknown,
     options: IPdfNativeValidationOptions = {},
 ): IPdfNativeTextBoxAppearanceMetadata {
-    const positiveRect = v.pipe(textBoxSourceRect, v.check(r => r[2] > r[0] && r[3] > r[1]));
-    const metadata = v.safeParse(v.strictObject({textBoxes: v.pipe(v.array(v.strictObject({
-        stableKey: v.pipe(v.string(), v.check(key => key.trim().length > 0 && new TextEncoder().encode(key).byteLength <= 512)),
-        annotationId: v.pipe(v.string(), v.check(id => parsePdfAnnotationRef(id) !== null)),
-        rect: positiveRect,
-        fittedFontSize: v.pipe(textBoxSourceNumber, v.minValue(Number.MIN_VALUE), v.maxValue(512)),
-        lineCount: v.nullable(v.pipe(v.number(), v.safeInteger(), v.minValue(0), v.maxValue(65_537))),
-        textBounds: v.nullable(positiveRect),
-    })), v.minLength(1), v.maxLength(PDF_NATIVE_TEXT_BOX_APPEARANCE_LIMITS.textBoxes))}), value);
-    if (!metadata.success) {fail('Invalid text box appearance fit metadata', options);}
+    const positiveRect = v.pipe(
+        textBoxSourceRect,
+        v.check((r) => r[2] > r[0] && r[3] > r[1]),
+    );
+    const metadata = v.safeParse(
+        v.strictObject({
+            textBoxes: v.pipe(
+                v.array(
+                    v.strictObject({
+                        stableKey: v.pipe(
+                            v.string(),
+                            v.check((key) => key.trim().length > 0 && new TextEncoder().encode(key).byteLength <= 512),
+                        ),
+                        annotationId: v.pipe(
+                            v.string(),
+                            v.check((id) => parsePdfAnnotationRef(id) !== null),
+                        ),
+                        rect: positiveRect,
+                        fittedFontSize: v.pipe(textBoxSourceNumber, v.minValue(Number.MIN_VALUE), v.maxValue(512)),
+                        lineCount: v.nullable(v.pipe(v.number(), v.safeInteger(), v.minValue(0), v.maxValue(65_537))),
+                        textBounds: v.nullable(positiveRect),
+                    }),
+                ),
+                v.minLength(1),
+                v.maxLength(PDF_NATIVE_TEXT_BOX_APPEARANCE_LIMITS.textBoxes),
+            ),
+        }),
+        value,
+    );
+    if (!metadata.success) {
+        fail('Invalid text box appearance fit metadata', options);
+    }
     return metadata.output;
 }
 
@@ -129,11 +163,7 @@ function normalizeNativeColorComponent(value: unknown, label: string, options: I
     return value;
 }
 
-export function normalizeTextBoxes(
-    value: unknown,
-    label: string,
-    options: IPdfNativeValidationOptions,
-) {
+export function normalizeTextBoxes(value: unknown, label: string, options: IPdfNativeValidationOptions) {
     if (value === undefined) {
         return [];
     }
@@ -145,11 +175,7 @@ export function normalizeTextBoxes(
         if (!isRecord(editor)) {
             fail(`${label}[${index}] must be an object`, options);
         }
-        if (
-            typeof editor.pageIndex !== 'number'
-            || !Number.isSafeInteger(editor.pageIndex)
-            || editor.pageIndex < 0
-        ) {
+        if (typeof editor.pageIndex !== 'number' || !Number.isSafeInteger(editor.pageIndex) || editor.pageIndex < 0) {
             fail(`${label}[${index}].pageIndex must be a non-negative safe integer`, options);
         }
         const stableKey = normalizeOptionalString(editor.stableKey, `${label}[${index}].stableKey`, options, 512)?.trim() ?? '';
@@ -171,23 +197,42 @@ export function normalizeTextBoxes(
         let originalAppearance: IPdfNativeTextBoxMutation['originalAppearance'];
         if (editor.originalAppearance !== undefined) {
             const original = editor.originalAppearance;
-            if (!isRecord(original)) {fail(`${label}[${index}].originalAppearance must be an object`, options);}
-            if (original.sourceAnnotationId !== undefined && original.recoveryData === undefined
-                && typeof original.sourceAnnotationId === 'string' && parsePdfAnnotationRef(original.sourceAnnotationId) !== null) {
+            if (!isRecord(original)) {
+                fail(`${label}[${index}].originalAppearance must be an object`, options);
+            }
+            if (
+                original.sourceAnnotationId !== undefined &&
+                original.recoveryData === undefined &&
+                typeof original.sourceAnnotationId === 'string' &&
+                parsePdfAnnotationRef(original.sourceAnnotationId) !== null
+            ) {
                 originalAppearance = {sourceAnnotationId: original.sourceAnnotationId};
-            } else if (original.sourceAnnotationId === undefined && typeof original.recoveryData === 'string'
-                && original.recoveryData.length <= 2 * 1024 * 1024 && original.recoveryData.length % 2 === 0 && /^[0-9a-f]+$/u.test(original.recoveryData)) {
+            } else if (
+                original.sourceAnnotationId === undefined &&
+                typeof original.recoveryData === 'string' &&
+                original.recoveryData.length <= 2 * 1024 * 1024 &&
+                original.recoveryData.length % 2 === 0 &&
+                /^[0-9a-f]+$/u.test(original.recoveryData)
+            ) {
                 originalAppearance = {recoveryData: original.recoveryData};
             } else {
-                fail(`${label}[${index}].originalAppearance must identify one bounded recovery graph or retained source annotation`, options);
+                fail(
+                    `${label}[${index}].originalAppearance must identify one bounded recovery graph or retained source annotation`,
+                    options,
+                );
             }
         }
         const source = editor.source === undefined ? undefined : v.safeParse(PDF_NATIVE_TEXT_BOX_SOURCE_DESCRIPTOR_SCHEMA, editor.source);
-        if (source && !source.success) {fail(`${label}[${index}].source must be a valid text box source descriptor`, options);}
+        if (source && !source.success) {
+            fail(`${label}[${index}].source must be a valid text box source descriptor`, options);
+        }
         const unsupportedCharacter = originalAppearance === undefined ? firstUnsupportedAnnotationCharacter(editor.text) : undefined;
         if (unsupportedCharacter !== undefined) {
             const codepoint = unsupportedCharacter.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0');
-            fail(`${label}[${index}].text uses U+${codepoint}, which the text box fonts DejaVu Sans, Noto Sans Hebrew, Noto Sans Syriac do not support`, options);
+            fail(
+                `${label}[${index}].text uses U+${codepoint}, which the text box fonts DejaVu Sans, Noto Sans Hebrew, Noto Sans Syriac do not support`,
+                options,
+            );
         }
         if (!Array.isArray(editor.rect) || editor.rect.length !== 4) {
             fail(`${label}[${index}].rect must be a finite PDF rectangle with positive width and height`, options);
@@ -226,9 +271,7 @@ export function normalizeTextBoxes(
             rotation: editor.rotation,
             fontSize: editor.fontSize,
             color,
-            ...(editor.author === undefined
-                ? {}
-                : {author: normalizeOptionalString(editor.author, `${label}[${index}].author`, options)}),
+            ...(editor.author === undefined ? {} : {author: normalizeOptionalString(editor.author, `${label}[${index}].author`, options)}),
             ...(editor.createdAt === undefined
                 ? {}
                 : {createdAt: normalizeOptionalTimestamp(editor.createdAt, `${label}[${index}].createdAt`, options)}),

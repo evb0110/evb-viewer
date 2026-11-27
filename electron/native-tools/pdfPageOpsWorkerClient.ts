@@ -1,22 +1,10 @@
-import {
-    existsSync,
-    statSync,
-} from 'node:fs';
-import {
-    truncate,
-    unlink,
-} from 'node:fs/promises';
-import {
-    dirname,
-    join,
-} from 'node:path';
+import {existsSync, statSync} from 'node:fs';
+import {truncate, unlink} from 'node:fs/promises';
+import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {Worker} from 'node:worker_threads';
 import {WORKER_BUNDLES_BY_ID} from '@electron-worker-bundles/electronWorkerBundles.js';
-import {
-    NATIVE_ERROR_CODES,
-    type TNativeErrorCode,
-} from '@contracts/nativeErrors';
+import {NATIVE_ERROR_CODES, type TNativeErrorCode} from '@contracts/nativeErrors';
 import {
     createPdfPageOpsWasmRunner,
     createTempSiblingPath,
@@ -95,11 +83,15 @@ function parseVisibilitySessionArgs(args: readonly string[]): {
     for (let i = 1; i + 1 < args.length; i += 1) {
         if (args[i] === '--session-id') {
             const parsed = Number(args[i + 1]);
-            if (Number.isSafeInteger(parsed) && parsed > 0) {visibilitySessionId = parsed;}
+            if (Number.isSafeInteger(parsed) && parsed > 0) {
+                visibilitySessionId = parsed;
+            }
             i += 1;
         } else if (args[i] === '--close-session') {
             const parsed = Number(args[i + 1]);
-            if (Number.isSafeInteger(parsed) && parsed > 0) {closeVisibilitySessionId = parsed;}
+            if (Number.isSafeInteger(parsed) && parsed > 0) {
+                closeVisibilitySessionId = parsed;
+            }
             i += 1;
         }
     }
@@ -126,13 +118,8 @@ function getAbortReason(signal: AbortSignal) {
 }
 
 function decodeWorkerError(reply: IWorkerReply) {
-    const message = typeof reply.error === 'string' && reply.error.length > 0
-        ? reply.error
-        : 'evb-pdf-page-ops worker failed';
-    if (
-        typeof reply.nativeErrorCode === 'string'
-        && (NATIVE_ERROR_CODES as readonly string[]).includes(reply.nativeErrorCode)
-    ) {
+    const message = typeof reply.error === 'string' && reply.error.length > 0 ? reply.error : 'evb-pdf-page-ops worker failed';
+    if (typeof reply.nativeErrorCode === 'string' && (NATIVE_ERROR_CODES as readonly string[]).includes(reply.nativeErrorCode)) {
         return new PdfPageOpsNativeError(reply.nativeErrorCode, message);
     }
     return new Error(message);
@@ -212,7 +199,9 @@ function createPageOpsWorkerPool() {
     let nextRequestId = 0;
 
     function trackPendingGroupProof(cancelGroup: string | undefined, proof: Promise<boolean>) {
-        if (!cancelGroup) {return;}
+        if (!cancelGroup) {
+            return;
+        }
         let proofs = pendingGroupProofs.get(cancelGroup);
         if (!proofs) {
             proofs = new Set();
@@ -221,7 +210,9 @@ function createPageOpsWorkerPool() {
         proofs.add(proof);
         void proof.finally(() => {
             const current = pendingGroupProofs.get(cancelGroup);
-            if (!current) {return;}
+            if (!current) {
+                return;
+            }
             current.delete(proof);
             if (current.size === 0) {
                 pendingGroupProofs.delete(cancelGroup);
@@ -230,7 +221,9 @@ function createPageOpsWorkerPool() {
     }
 
     function registerCancel(cancelGroup: string | undefined, handler: () => Promise<boolean>) {
-        if (!cancelGroup) {return;}
+        if (!cancelGroup) {
+            return;
+        }
         let handlers = activeCancelHandlers.get(cancelGroup);
         if (!handlers) {
             handlers = new Set();
@@ -240,9 +233,13 @@ function createPageOpsWorkerPool() {
     }
 
     function unregisterCancel(cancelGroup: string | undefined, handler: () => Promise<boolean>) {
-        if (!cancelGroup) {return;}
+        if (!cancelGroup) {
+            return;
+        }
         const handlers = activeCancelHandlers.get(cancelGroup);
-        if (!handlers) {return;}
+        if (!handlers) {
+            return;
+        }
         handlers.delete(handler);
         if (handlers.size === 0) {
             activeCancelHandlers.delete(cancelGroup);
@@ -274,7 +271,10 @@ function createPageOpsWorkerPool() {
         entry.visibilitySessions.clear();
         clearIdleTimer(entry);
         workers.delete(entry);
-        return entry.worker.terminate().then(() => true, () => false);
+        return entry.worker.terminate().then(
+            () => true,
+            () => false,
+        );
     }
 
     function scheduleIdleEviction(entry: IWarmPageOpsWorker) {
@@ -330,16 +330,19 @@ function createPageOpsWorkerPool() {
                 continue;
             }
             const targetSessionId = next.visibilitySessionId ?? next.closeVisibilitySessionId;
-            const idleSameSession = targetSessionId === undefined
-                ? undefined
-                : [...workers].find(
-                    entry => !entry.busy && !entry.closed && entry.wasmPath === next.wasmPath
-                        && entry.visibilitySessions.has(targetSessionId),
-                );
-            const idleSamePath = idleSameSession ?? [...workers].find(
-                entry => !entry.busy && !entry.closed && entry.wasmPath === next.wasmPath,
-            );
-            const idleAny = idleSamePath ?? [...workers].find(entry => !entry.busy && !entry.closed);
+            const idleSameSession =
+                targetSessionId === undefined
+                    ? undefined
+                    : [...workers].find(
+                          (entry) =>
+                              !entry.busy &&
+                              !entry.closed &&
+                              entry.wasmPath === next.wasmPath &&
+                              entry.visibilitySessions.has(targetSessionId),
+                      );
+            const idleSamePath =
+                idleSameSession ?? [...workers].find((entry) => !entry.busy && !entry.closed && entry.wasmPath === next.wasmPath);
+            const idleAny = idleSamePath ?? [...workers].find((entry) => !entry.busy && !entry.closed);
             const activeSlots = workers.size + startingWorkers;
             if (!idleSamePath && activeSlots >= MAX_WARM_WORKERS) {
                 if (idleAny) {
@@ -486,7 +489,9 @@ function createPageOpsWorkerPool() {
         };
 
         const finishSuccess = (data: IProcessResult) => {
-            if (settled) {return;}
+            if (settled) {
+                return;
+            }
             settled = true;
             cleanup();
             if (task.closeVisibilitySessionId !== undefined) {
@@ -494,12 +499,7 @@ function createPageOpsWorkerPool() {
             }
             entry.busy = false;
             try {
-                const checked = applyStdoutLimit(
-                    data,
-                    task.maxStdoutBytes,
-                    task.rejectOnStdoutTruncation,
-                    task.commandLabel,
-                );
+                const checked = applyStdoutLimit(data, task.maxStdoutBytes, task.rejectOnStdoutTruncation, task.commandLabel);
                 task.resolve(checked);
             } catch (error) {
                 task.reject(error);
@@ -522,7 +522,7 @@ function createPageOpsWorkerPool() {
                 // Keep termination and rollback under this main-thread owner:
                 // wait for the worker to actually stop writing before rolling
                 // back any in-place append or staging sibling and rejecting.
-                const proof = destroyWorker(entry).then(async terminated => {
+                const proof = destroyWorker(entry).then(async (terminated) => {
                     if (terminated) {
                         await rollbackAbortedWrite(rollback);
                     }
@@ -580,15 +580,10 @@ function createPageOpsWorkerPool() {
             }
             task.signal.addEventListener('abort', onAbort, {once: true});
         }
-        const effectiveTimeoutMs = task.timeoutMs === undefined
-            ? DEFAULT_PAGE_OPS_TIMEOUT_MS
-            : task.timeoutMs;
+        const effectiveTimeoutMs = task.timeoutMs === undefined ? DEFAULT_PAGE_OPS_TIMEOUT_MS : task.timeoutMs;
         if (effectiveTimeoutMs > 0) {
             timeoutHandle = setTimeout(() => {
-                void finishError(
-                    new Error(`${task.commandLabel ?? 'evb-pdf-page-ops'} timed out after ${effectiveTimeoutMs}ms`),
-                    true,
-                );
+                void finishError(new Error(`${task.commandLabel ?? 'evb-pdf-page-ops'} timed out after ${effectiveTimeoutMs}ms`), true);
             }, effectiveTimeoutMs);
             timeoutHandle.unref();
         }
@@ -604,16 +599,12 @@ function createPageOpsWorkerPool() {
         }
     }
 
-    async function runInlineFallback(
-        wasmPath: string,
-        args: string[],
-        options: IRunDesktopPageOpsWasmOptions,
-    ): Promise<IProcessResult> {
+    async function runInlineFallback(wasmPath: string, args: string[], options: IRunDesktopPageOpsWasmOptions): Promise<IProcessResult> {
         options.signal?.throwIfAborted();
         let runnerPromise = inlineRunners.get(wasmPath);
         if (!runnerPromise) {
             runnerPromise = loadPdfPageOpsWasmModule(wasmPath)
-                .then(mod => createPdfPageOpsWasmRunner(mod))
+                .then((mod) => createPdfPageOpsWasmRunner(mod))
                 .catch((error: unknown) => {
                     if (inlineRunners.get(wasmPath) === runnerPromise) {
                         inlineRunners.delete(wasmPath);
@@ -626,19 +617,10 @@ function createPageOpsWorkerPool() {
         options.signal?.throwIfAborted();
         const result = executeDesktopPageOpsCommand(runner, args);
         options.signal?.throwIfAborted();
-        return applyStdoutLimit(
-            result,
-            options.maxStdoutBytes,
-            options.rejectOnStdoutTruncation,
-            options.commandLabel,
-        );
+        return applyStdoutLimit(result, options.maxStdoutBytes, options.rejectOnStdoutTruncation, options.commandLabel);
     }
 
-    function run(
-        wasmPath: string,
-        args: string[],
-        options: IRunDesktopPageOpsWasmOptions = {},
-    ): Promise<IProcessResult> {
+    function run(wasmPath: string, args: string[], options: IRunDesktopPageOpsWasmOptions = {}): Promise<IProcessResult> {
         if (options.signal?.aborted) {
             return Promise.reject(getAbortReason(options.signal));
         }
@@ -651,61 +633,59 @@ function createPageOpsWorkerPool() {
             }
             return runInlineFallback(wasmPath, args, options);
         }
-        const {
-            visibilitySessionId,
-            closeVisibilitySessionId,
-        } = parseVisibilitySessionArgs(args);
-        const enqueueTask = (targetWorker?: IWarmPageOpsWorker) => new Promise<IProcessResult>((resolve, reject) => {
-            const task: IQueuedTask = {
-                wasmPath,
-                args: [...args],
-                visibilitySessionId,
-                closeVisibilitySessionId,
-                ...(targetWorker === undefined ? {} : {targetWorker}),
-                signal: options.signal,
-                timeoutMs: options.timeoutMs,
-                cancelGroup: options.cancelGroup,
-                commandLabel: options.commandLabel,
-                maxStdoutBytes: options.maxStdoutBytes,
-                rejectOnStdoutTruncation: options.rejectOnStdoutTruncation,
-                onTerminationProof: options.onTerminationProof,
-                resolve,
-                reject,
-            };
-            const removeFromQueue = (reason: unknown): Promise<boolean> => {
-                const index = queue.indexOf(task);
-                if (index >= 0) {
-                    queue.splice(index, 1);
-                    if (task.onAbort) {
-                        task.signal?.removeEventListener('abort', task.onAbort);
-                    }
-                    if (task.onCancelGroup) {
-                        unregisterCancel(task.cancelGroup, task.onCancelGroup);
-                    }
-                    const proof = Promise.resolve(true);
-                    task.onTerminationProof?.(proof);
-                    reject(reason);
-                    return proof;
-                }
-                return Promise.resolve(true);
-            };
-            if (options.signal) {
-                task.onAbort = () => {
-                    void removeFromQueue(getAbortReason(options.signal!));
+        const {visibilitySessionId, closeVisibilitySessionId} = parseVisibilitySessionArgs(args);
+        const enqueueTask = (targetWorker?: IWarmPageOpsWorker) =>
+            new Promise<IProcessResult>((resolve, reject) => {
+                const task: IQueuedTask = {
+                    wasmPath,
+                    args: [...args],
+                    visibilitySessionId,
+                    closeVisibilitySessionId,
+                    ...(targetWorker === undefined ? {} : {targetWorker}),
+                    signal: options.signal,
+                    timeoutMs: options.timeoutMs,
+                    cancelGroup: options.cancelGroup,
+                    commandLabel: options.commandLabel,
+                    maxStdoutBytes: options.maxStdoutBytes,
+                    rejectOnStdoutTruncation: options.rejectOnStdoutTruncation,
+                    onTerminationProof: options.onTerminationProof,
+                    resolve,
+                    reject,
                 };
-                options.signal.addEventListener('abort', task.onAbort, {once: true});
-            }
-            if (options.cancelGroup) {
-                task.onCancelGroup = () => removeFromQueue(createAbortError('Operation canceled'));
-                registerCancel(options.cancelGroup, task.onCancelGroup);
-            }
-            queue.push(task);
-            pumpQueue();
-        });
+                const removeFromQueue = (reason: unknown): Promise<boolean> => {
+                    const index = queue.indexOf(task);
+                    if (index >= 0) {
+                        queue.splice(index, 1);
+                        if (task.onAbort) {
+                            task.signal?.removeEventListener('abort', task.onAbort);
+                        }
+                        if (task.onCancelGroup) {
+                            unregisterCancel(task.cancelGroup, task.onCancelGroup);
+                        }
+                        const proof = Promise.resolve(true);
+                        task.onTerminationProof?.(proof);
+                        reject(reason);
+                        return proof;
+                    }
+                    return Promise.resolve(true);
+                };
+                if (options.signal) {
+                    task.onAbort = () => {
+                        void removeFromQueue(getAbortReason(options.signal!));
+                    };
+                    options.signal.addEventListener('abort', task.onAbort, {once: true});
+                }
+                if (options.cancelGroup) {
+                    task.onCancelGroup = () => removeFromQueue(createAbortError('Operation canceled'));
+                    registerCancel(options.cancelGroup, task.onCancelGroup);
+                }
+                queue.push(task);
+                pumpQueue();
+            });
 
         if (closeVisibilitySessionId !== undefined) {
             const holders = [...workers].filter(
-                entry => !entry.closed && entry.wasmPath === wasmPath && entry.visibilitySessions.has(closeVisibilitySessionId),
+                (entry) => !entry.closed && entry.wasmPath === wasmPath && entry.visibilitySessions.has(closeVisibilitySessionId),
             );
             if (holders.length === 0) {
                 return Promise.resolve({
@@ -714,7 +694,7 @@ function createPageOpsWorkerPool() {
                     exitCode: 0,
                 });
             }
-            return Promise.all(holders.map(holder => enqueueTask(holder))).then(() => ({
+            return Promise.all(holders.map((holder) => enqueueTask(holder))).then(() => ({
                 stdout: '{}',
                 stderr: '',
                 exitCode: 0,
@@ -771,7 +751,7 @@ function createPageOpsWorkerPool() {
             void destroyWorker(entry);
         }
         for (const runnerPromise of inlineRunners.values()) {
-            void runnerPromise.then(runner => runner.dispose()).catch(() => undefined);
+            void runnerPromise.then((runner) => runner.dispose()).catch(() => undefined);
         }
         inlineRunners.clear();
     }
@@ -786,11 +766,7 @@ function createPageOpsWorkerPool() {
 
 const pageOpsWorkerPool = createPageOpsWorkerPool();
 
-export function runDesktopPageOpsWasm(
-    wasmPath: string,
-    args: string[],
-    options: IRunDesktopPageOpsWasmOptions = {},
-) {
+export function runDesktopPageOpsWasm(wasmPath: string, args: string[], options: IRunDesktopPageOpsWasmOptions = {}) {
     return pageOpsWorkerPool.run(wasmPath, args, options);
 }
 

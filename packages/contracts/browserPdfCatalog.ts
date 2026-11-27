@@ -52,9 +52,7 @@ export function readBrowserPdfCatalogPart<K extends 'bookmarks' | 'pageLabels'>(
 }
 
 function isCatalogPart(part: unknown, error: unknown, maxItems: number) {
-    return Array.isArray(part)
-        ? part.length <= maxItems && error === undefined
-        : part === undefined && typeof error === 'string';
+    return Array.isArray(part) ? part.length <= maxItems && error === undefined : part === undefined && typeof error === 'string';
 }
 
 // The native catalog reader returns at most this many bookmarks or label
@@ -67,31 +65,30 @@ function isNonNegativeInteger(value: unknown): value is number {
     return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
 
-function decodeBookmark(
-    value: unknown,
-    depth: number,
-    state: {count: number},
-): IBrowserPdfCatalogBookmark | null {
+function decodeBookmark(value: unknown, depth: number, state: {count: number}): IBrowserPdfCatalogBookmark | null {
     if (
-        !isRecord(value)
-        || depth >= BROWSER_PDF_CATALOG_MAX_BOOKMARK_DEPTH
-        || state.count >= BROWSER_PDF_CATALOG_MAX_BOOKMARK_ITEMS
-        || typeof value.title !== 'string'
-        || (value.pageIndex !== null && !isNonNegativeInteger(value.pageIndex))
-        || (value.namedDest !== null && typeof value.namedDest !== 'string')
-        || typeof value.bold !== 'boolean'
-        || typeof value.italic !== 'boolean'
-        || (value.color !== null && typeof value.color !== 'string')
-        || (value.pageYRatio !== undefined && value.pageYRatio !== null
-            && (typeof value.pageYRatio !== 'number' || !Number.isFinite(value.pageYRatio)))
-        || !Array.isArray(value.items)
+        !isRecord(value) ||
+        depth >= BROWSER_PDF_CATALOG_MAX_BOOKMARK_DEPTH ||
+        state.count >= BROWSER_PDF_CATALOG_MAX_BOOKMARK_ITEMS ||
+        typeof value.title !== 'string' ||
+        (value.pageIndex !== null && !isNonNegativeInteger(value.pageIndex)) ||
+        (value.namedDest !== null && typeof value.namedDest !== 'string') ||
+        typeof value.bold !== 'boolean' ||
+        typeof value.italic !== 'boolean' ||
+        (value.color !== null && typeof value.color !== 'string') ||
+        (value.pageYRatio !== undefined &&
+            value.pageYRatio !== null &&
+            (typeof value.pageYRatio !== 'number' || !Number.isFinite(value.pageYRatio))) ||
+        !Array.isArray(value.items)
     ) {
         return null;
     }
     let sourceIntent: ReturnType<typeof decodeBookmarkSourceIntent>;
     try {
         sourceIntent = decodeBookmarkSourceIntent(value);
-    } catch { return null; }
+    } catch {
+        return null;
+    }
     state.count += 1;
     const items: IBrowserPdfCatalogBookmark[] = [];
     for (const item of value.items) {
@@ -116,9 +113,9 @@ function decodeBookmark(
 
 export function decodeBrowserPdfCatalog(value: unknown): IBrowserPdfCatalog | null {
     if (
-        !isRecord(value)
-        || !isCatalogPart(value.bookmarks, value.bookmarksError, BROWSER_PDF_CATALOG_MAX_BOOKMARK_ITEMS)
-        || !isCatalogPart(value.pageLabels, value.pageLabelsError, BROWSER_PDF_CATALOG_MAX_PAGE_LABELS)
+        !isRecord(value) ||
+        !isCatalogPart(value.bookmarks, value.bookmarksError, BROWSER_PDF_CATALOG_MAX_BOOKMARK_ITEMS) ||
+        !isCatalogPart(value.pageLabels, value.pageLabelsError, BROWSER_PDF_CATALOG_MAX_PAGE_LABELS)
     ) {
         return null;
     }
@@ -134,11 +131,11 @@ export function decodeBrowserPdfCatalog(value: unknown): IBrowserPdfCatalog | nu
     const pageLabels: IBrowserPdfCatalogPageLabelRange[] = [];
     for (const range of Array.isArray(value.pageLabels) ? value.pageLabels : []) {
         if (
-            !isRecord(range)
-            || !isNonNegativeInteger(range.pageIndex)
-            || (range.style !== undefined && typeof range.style !== 'string')
-            || (range.prefix !== undefined && typeof range.prefix !== 'string')
-            || (range.start !== undefined && !isNonNegativeInteger(range.start))
+            !isRecord(range) ||
+            !isNonNegativeInteger(range.pageIndex) ||
+            (range.style !== undefined && typeof range.style !== 'string') ||
+            (range.prefix !== undefined && typeof range.prefix !== 'string') ||
+            (range.start !== undefined && !isNonNegativeInteger(range.start))
         ) {
             return null;
         }

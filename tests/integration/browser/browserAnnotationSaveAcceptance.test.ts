@@ -1,37 +1,12 @@
-import {
-    mkdir,
-    mkdtemp,
-    readFile,
-    rm,
-} from 'node:fs/promises';
-import {
-    createServer,
-    type Server,
-} from 'node:http';
-import {
-    join,
-    resolve,
-} from 'node:path';
+import {mkdir, mkdtemp, readFile, rm} from 'node:fs/promises';
+import {createServer, type Server} from 'node:http';
+import {join, resolve} from 'node:path';
 import {build} from 'esbuild';
-import {
-    closeChromiumBrowser,
-    connectOrLaunchChromium,
-} from './browserIntegrationChromium';
+import {closeChromiumBrowser, connectOrLaunchChromium} from './browserIntegrationChromium';
 import {clickCenter} from './clickCenter';
-import {
-    createAnnotationFidelityFixtureBytes,
-    readAnnotationFidelitySnapshot,
-} from '@tests/e2e/electron/helpers/fixtures';
-import {
-    PDFDocument, PDFArray, PDFDict, PDFName, PDFString, PDFHexString,
-} from 'pdf-lib';
-import {
-    afterAll,
-    beforeAll,
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {createAnnotationFidelityFixtureBytes, readAnnotationFidelitySnapshot} from '@tests/e2e/electron/helpers/fixtures';
+import {PDFDocument, PDFArray, PDFDict, PDFName, PDFString, PDFHexString} from 'pdf-lib';
+import {afterAll, beforeAll, describe, expect, it} from 'vitest';
 
 let server: Server;
 let origin = '';
@@ -92,7 +67,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
     if (server) {
-        await new Promise<void>(resolveClose => server.close(() => resolveClose()));
+        await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
     }
     await rm(temporaryDirectory, {
         force: true,
@@ -107,49 +82,57 @@ describe('browser annotation save acceptance in Chromium', () => {
         const sourcePdf = await PDFDocument.load(source);
         const annots = sourcePdf.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
         const refFor = (name: string) => {
-            const index = before.findIndex(row => row.name === name);
+            const index = before.findIndex((row) => row.name === name);
             return annots.get(index).toString();
         };
         const mutations = {
             shapes: {
                 totalPages: 1,
                 rewriteShapeState: false,
-                shapes: [{
-                    type: 'rectangle',
-                    pageIndex: 0,
-                    annotationId: refFor('evb-shape:sibling'),
-                    stableKey: 'evb-shape:sibling',
-                    x: 0.51,
-                    y: 0.725,
-                    width: 0.275,
-                    height: 0.175,
-                    color: '#0000ff',
-                    opacity: 1,
-                    strokeWidth: 2,
-                }],
+                shapes: [
+                    {
+                        type: 'rectangle',
+                        pageIndex: 0,
+                        annotationId: refFor('evb-shape:sibling'),
+                        stableKey: 'evb-shape:sibling',
+                        x: 0.51,
+                        y: 0.725,
+                        width: 0.275,
+                        height: 0.175,
+                        color: '#0000ff',
+                        opacity: 1,
+                        strokeWidth: 2,
+                    },
+                ],
                 deletedAnnotationIds: [],
                 deletedStableKeys: [],
             },
-            markup: {hints: [{
-                subtype: 'Highlight',
-                pageIndex: 0,
-                annotationId: refFor('skewed-markup'),
-                markerRect: {
-                    left: 0.1,
-                    top: 0.2,
-                    width: 0.5,
-                    height: 0.15,
-                },
-                markupGeometry: [{
-                    left: 0.1,
-                    top: 0.2,
-                    width: 0.5,
-                    height: 0.15,
-                }],
-                color: '#ff0000',
-                opacity: 1,
-                contents: 'Browser edited skewed comment',
-            }]},
+            markup: {
+                hints: [
+                    {
+                        subtype: 'Highlight',
+                        pageIndex: 0,
+                        annotationId: refFor('skewed-markup'),
+                        markerRect: {
+                            left: 0.1,
+                            top: 0.2,
+                            width: 0.5,
+                            height: 0.15,
+                        },
+                        markupGeometry: [
+                            {
+                                left: 0.1,
+                                top: 0.2,
+                                width: 0.5,
+                                height: 0.15,
+                            },
+                        ],
+                        color: '#ff0000',
+                        opacity: 1,
+                        contents: 'Browser edited skewed comment',
+                    },
+                ],
+            },
         };
         const browser = await connectOrLaunchChromium();
         try {
@@ -161,44 +144,42 @@ describe('browser annotation save acceptance in Chromium', () => {
             });
             const [download] = await Promise.all([
                 page.waitForEvent('download'),
-                page.evaluate(async ({
-                    bytes, mutation,
-                }) => {
-                    const save = Reflect.get(globalThis, '__evbSaveAnnotationFidelity');
-                    if (typeof save !== 'function') {throw new Error('Missing browser fidelity entry');}
-                    return save(bytes, mutation);
-                }, {
-                    bytes: Array.from(source),
-                    mutation: mutations,
-                }),
+                page.evaluate(
+                    async ({bytes, mutation}) => {
+                        const save = Reflect.get(globalThis, '__evbSaveAnnotationFidelity');
+                        if (typeof save !== 'function') {
+                            throw new Error('Missing browser fidelity entry');
+                        }
+                        return save(bytes, mutation);
+                    },
+                    {
+                        bytes: Array.from(source),
+                        mutation: mutations,
+                    },
+                ),
             ]);
             const evidence = resolve(process.cwd(), '.devkit/checks/browser-fidelity.pdf');
             await download.saveAs(evidence);
             const after = await readAnnotationFidelitySnapshot(await readFile(evidence));
             expect(after).toHaveLength(before.length);
-            for (const name of [
-                'foreign-dashed',
-                'evb-shape:closed-arrow',
-            ]) {
-                expect(after.find(row => row.name === name), name).toEqual(before.find(row => row.name === name));
+            for (const name of ['foreign-dashed', 'evb-shape:closed-arrow']) {
+                expect(
+                    after.find((row) => row.name === name),
+                    name,
+                ).toEqual(before.find((row) => row.name === name));
             }
-            for (const thread of before.filter(row => row.name === null)) {
-                expect(after.find(row => row.ref === thread.ref)).toEqual(thread);
+            for (const thread of before.filter((row) => row.name === null)) {
+                expect(after.find((row) => row.ref === thread.ref)).toEqual(thread);
             }
-            const oldMarkup = before.find(row => row.name === 'skewed-markup')!;
-            const newMarkup = after.find(row => row.name === 'skewed-markup')!;
-            for (const key of [
-                'quads',
-                'rect',
-                'appearance',
-                'appearanceStream',
-                'appearanceDictionary',
-                'resources',
-            ] as const) {
+            const oldMarkup = before.find((row) => row.name === 'skewed-markup')!;
+            const newMarkup = after.find((row) => row.name === 'skewed-markup')!;
+            for (const key of ['quads', 'rect', 'appearance', 'appearanceStream', 'appearanceDictionary', 'resources'] as const) {
                 expect(newMarkup[key], key).toEqual(oldMarkup[key]);
             }
             expect(newMarkup.contents).toBe('Browser edited skewed comment');
-            expect(after.find(row => row.name === 'evb-shape:sibling')?.rect).not.toEqual(before.find(row => row.name === 'evb-shape:sibling')?.rect);
+            expect(after.find((row) => row.name === 'evb-shape:sibling')?.rect).not.toEqual(
+                before.find((row) => row.name === 'evb-shape:sibling')?.rect,
+            );
         } finally {
             await closeChromiumBrowser(browser);
         }
@@ -225,9 +206,11 @@ describe('browser annotation save acceptance in Chromium', () => {
             await (await savedDownload).saveAs(savedPath);
             const savedPdf = await PDFDocument.load(await readFile(savedPath));
             const annots = savedPdf.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
-            expect(Array.from({length: annots.size()}, (_value, index) => annots.lookup(index, PDFDict)
-                .lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString)?.decodeText()))
-                .toContain('после Привет café');
+            expect(
+                Array.from({length: annots.size()}, (_value, index) =>
+                    annots.lookup(index, PDFDict).lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString)?.decodeText(),
+                ),
+            ).toContain('после Привет café');
             const saved = {
                 rangeReadsPreserved: true,
                 openedWithAnnotations: true,
@@ -255,10 +238,7 @@ describe('browser annotation save acceptance in Chromium', () => {
         pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));
         pdf.setModificationDate(new Date('2026-01-01T00:00:00Z'));
         for (let index = 0; index < 4_000; index += 1) {
-            pdf.addPage([
-                200,
-                100,
-            ]).drawText(`Page ${index + 1}`, {
+            pdf.addPage([200, 100]).drawText(`Page ${index + 1}`, {
                 x: 10,
                 y: 30,
                 size: 12,
@@ -275,7 +255,9 @@ describe('browser annotation save acceptance in Chromium', () => {
             });
             await page.evaluate(async (bytes) => {
                 const prepare = Reflect.get(globalThis, '__evbPreparePrintResponsivenessAcceptance');
-                if (typeof prepare !== 'function') {throw new Error('Missing print acceptance entry');}
+                if (typeof prepare !== 'function') {
+                    throw new Error('Missing print acceptance entry');
+                }
                 await prepare(new Uint8Array(bytes));
             }, Array.from(input));
             const cdp = await page.context().newCDPSession(page);
@@ -293,5 +275,4 @@ describe('browser annotation save acceptance in Chromium', () => {
             await closeChromiumBrowser(browser);
         }
     }, 120_000);
-
 });

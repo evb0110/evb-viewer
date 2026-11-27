@@ -1,12 +1,9 @@
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { ensurePdfjsSsrGlobals } from '@app/services/pdfjs/ensurePdfjsSsrGlobals';
+import {afterEach, describe, expect, it} from 'vitest';
+import {ensurePdfjsSsrGlobals} from '@app/services/pdfjs/ensurePdfjsSsrGlobals';
 
-interface IGlobalWithDomMatrix {DOMMatrix?: unknown;}
+interface IGlobalWithDomMatrix {
+    DOMMatrix?: unknown;
+}
 
 const globalScope = globalThis as IGlobalWithDomMatrix;
 const originalDomMatrix = globalScope.DOMMatrix;
@@ -27,6 +24,6 @@ describe('ensurePdfjsSsrGlobals', () => {
         ensurePdfjsSsrGlobals();
 
         expect(globalScope.DOMMatrix).toBeTypeOf('function');
-        expect(new (globalScope.DOMMatrix as new () => {a: number;})().a).toBe(1);
+        expect(new (globalScope.DOMMatrix as new () => {a: number})().a).toBe(1);
     });
 });

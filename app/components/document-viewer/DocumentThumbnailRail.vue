@@ -10,16 +10,13 @@
 </template>
 
 <script setup lang="ts">
-const {
-    scrollSuppressed = false,
-    setRoot = undefined,
-} = defineProps<{
+const {scrollSuppressed = false, setRoot = undefined} = defineProps<{
     scrollSuppressed?: boolean;
     setRoot?: ((element: HTMLElement | null) => void) | undefined;
 }>();
 const root = useTemplateRef<HTMLElement>('root');
 
-watch(root, element => setRoot?.(element), {
+watch(root, (element) => setRoot?.(element), {
     immediate: true,
     flush: 'post',
 });

@@ -3,7 +3,9 @@ interface ICommandLineLike {
     hasSwitch?: (name: string) => boolean;
 }
 
-interface IAppLike {commandLine: ICommandLineLike;}
+interface IAppLike {
+    commandLine: ICommandLineLike;
+}
 
 export const MAC_SAFE_STORAGE_KEYCHAIN_SWITCH = 'use-mock-keychain';
 

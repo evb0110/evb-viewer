@@ -1,7 +1,4 @@
-import type {
-    AnnotationEntity,
-    AnnotationId,
-} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import type {AnnotationEntity, AnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 
 /**
  * What the last acknowledged save wrote for an entity: the revision the file
@@ -22,23 +19,19 @@ interface IPersistenceIdentity {
  * semantic fingerprint and `exactOptionalPropertyTypes` all read absence, not
  * an own undefined property, as unbound.
  */
-export function rebaseAnnotationPersistenceIdentity(
-    identity: AnnotationEntity['identity'],
-    pdfRef: string | undefined,
-) {
+export function rebaseAnnotationPersistenceIdentity(identity: AnnotationEntity['identity'], pdfRef: string | undefined) {
     if (pdfRef !== undefined) {
-        return pdfRef === identity.pdfRef ? identity : {
-            ...identity,
-            pdfRef,
-        };
+        return pdfRef === identity.pdfRef
+            ? identity
+            : {
+                  ...identity,
+                  pdfRef,
+              };
     }
     if (!('pdfRef' in identity)) {
         return identity;
     }
-    const {
-        pdfRef: _retired,
-        ...retained
-    } = identity;
+    const {pdfRef: _retired, ...retained} = identity;
     return retained;
 }
 
@@ -76,10 +69,7 @@ export class AnnotationPersistenceIdentityLedger {
      * Rebases one replayed batch onto the persistence identity of record and
      * remembers what the replay removes, in the order the entries apply.
      */
-    rebaseReplay(
-        entries: readonly IAnnotationSnapshotEntry[],
-        live: (id: AnnotationId) => AnnotationEntity | undefined,
-    ) {
+    rebaseReplay(entries: readonly IAnnotationSnapshotEntry[], live: (id: AnnotationId) => AnnotationEntity | undefined) {
         return entries.map((entry) => {
             const current = live(entry.id);
             const after = this.#rebase(entry.after, current);
@@ -95,11 +85,7 @@ export class AnnotationPersistenceIdentityLedger {
     /** Returns the snapshot with the persistence identity of record applied. */
     #rebase(snapshot: AnnotationEntity | null, live: AnnotationEntity | undefined) {
         if (!snapshot) {
-            if (
-                live
-                && !live.deleted
-                && (live.persistedRevision >= 0 || live.identity.pdfRef !== undefined)
-            ) {
+            if (live && !live.deleted && (live.persistedRevision >= 0 || live.identity.pdfRef !== undefined)) {
                 // History recorded a creation as null -> entity. Once a save
                 // materializes that entity, undo must describe a persisted
                 // deletion so the next save can remove the object from the
@@ -122,14 +108,9 @@ export class AnnotationPersistenceIdentityLedger {
         // revision while it waits to be serialized. Never let the retired
         // revision make the restored entity look clean.
         const restoredAfterSavedDelete = Boolean(
-            live?.deleted
-            && !snapshot.deleted
-            && live.persistedRevision >= 0
-            && live.identity.pdfRef === undefined,
+            live?.deleted && !snapshot.deleted && live.persistedRevision >= 0 && live.identity.pdfRef === undefined,
         );
-        const persistedRevision = restoredAfterSavedDelete
-            ? -1
-            : persisted.persistedRevision;
+        const persistedRevision = restoredAfterSavedDelete ? -1 : persisted.persistedRevision;
         if (identity === snapshot.identity && persistedRevision === snapshot.persistedRevision) {
             return snapshot;
         }

@@ -1,11 +1,6 @@
 import {execFileSync} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
-import {
-    mkdir,
-    open,
-    rename,
-    rm,
-} from 'node:fs/promises';
+import {mkdir, open, rename, rm} from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {getErrorMessage} from '@contracts/getErrorMessage';
@@ -41,13 +36,8 @@ function usage() {
 }
 
 function hostTarget(): TNativeResourcePlatformArch {
-    const platform = process.platform === 'darwin'
-        ? 'darwin'
-        : process.platform === 'win32'
-            ? 'win32'
-            : process.platform === 'linux'
-                ? 'linux'
-                : null;
+    const platform =
+        process.platform === 'darwin' ? 'darwin' : process.platform === 'win32' ? 'win32' : process.platform === 'linux' ? 'linux' : null;
     const arch = process.arch === 'arm64' ? 'arm64' : process.arch === 'x64' ? 'x64' : null;
     if (!platform || !arch) {
         throw new Error(`Unsupported runtime binary host: ${process.platform}/${process.arch}.`);
@@ -57,14 +47,18 @@ function hostTarget(): TNativeResourcePlatformArch {
 
 function archiveUrlForTransport(url: string, env: NodeJS.ProcessEnv) {
     const baseUrl = env.EVB_RUNTIME_BINARY_ARCHIVE_BASE_URL;
-    if (!baseUrl) {return url;}
+    if (!baseUrl) {
+        return url;
+    }
 
     const base = new URL(baseUrl);
     if (base.protocol !== 'file:' && base.protocol !== 'http:' && base.protocol !== 'https:') {
         throw new Error('EVB_RUNTIME_BINARY_ARCHIVE_BASE_URL must use file, HTTP, or HTTPS.');
     }
     const fileName = new URL(url).pathname.split('/').at(-1);
-    if (!fileName) {throw new Error(`Runtime archive URL has no file name: ${url}`);}
+    if (!fileName) {
+        throw new Error(`Runtime archive URL has no file name: ${url}`);
+    }
     return new URL(fileName, base.href.endsWith('/') ? base.href : `${base.href}/`).href;
 }
 
@@ -78,20 +72,21 @@ async function runtimeArchiveTransport(url: string, env: NodeJS.ProcessEnv) {
 }
 
 async function cancelResponseBody(response: Response | null) {
-    if (response?.body === null || response?.body === undefined) {return;}
+    if (response?.body === null || response?.body === undefined) {
+        return;
+    }
     await response.body.cancel().catch(() => undefined);
 }
 
 export function assertAllowedRuntimeBinaryDownloadRedirect(fromUrl: string, toUrl: string) {
     const from = new URL(fromUrl);
     const to = new URL(toUrl, from);
-    const allowed = to.protocol === 'https:'
-        && to.username === ''
-        && to.password === ''
-        && (
-            from.origin === GITHUB_RELEASE_ORIGIN && to.origin === GITHUB_RELEASE_ASSET_ORIGIN
-            || from.origin === GITHUB_RELEASE_ASSET_ORIGIN && to.origin === GITHUB_RELEASE_ASSET_ORIGIN
-        );
+    const allowed =
+        to.protocol === 'https:' &&
+        to.username === '' &&
+        to.password === '' &&
+        ((from.origin === GITHUB_RELEASE_ORIGIN && to.origin === GITHUB_RELEASE_ASSET_ORIGIN) ||
+            (from.origin === GITHUB_RELEASE_ASSET_ORIGIN && to.origin === GITHUB_RELEASE_ASSET_ORIGIN));
     if (!allowed) {
         throw new Error(`Runtime archive redirect to untrusted origin ${to.origin} was rejected.`);
     }
@@ -106,16 +101,14 @@ export async function* fetchRuntimeBinaryArchiveResponseBody(url: string) {
     try {
         let currentUrl = url;
         let response: Response | null = null;
-        for (
-            let redirectCount = 0;
-            redirectCount <= MAX_RUNTIME_BINARY_DOWNLOAD_REDIRECTS;
-            redirectCount += 1
-        ) {
+        for (let redirectCount = 0; redirectCount <= MAX_RUNTIME_BINARY_DOWNLOAD_REDIRECTS; redirectCount += 1) {
             response = await fetch(currentUrl, {
                 redirect: 'manual',
                 signal: abortController.signal,
             });
-            if (response.status < 300 || response.status >= 400) {break;}
+            if (response.status < 300 || response.status >= 400) {
+                break;
+            }
             const location = response.headers.get('location');
             if (!location || redirectCount === MAX_RUNTIME_BINARY_DOWNLOAD_REDIRECTS) {
                 await cancelResponseBody(response);
@@ -131,9 +124,7 @@ export async function* fetchRuntimeBinaryArchiveResponseBody(url: string) {
         }
         reader = response.body.getReader();
         for (;;) {
-            const {
-                done, value,
-            } = await reader.read();
+            const {done, value} = await reader.read();
             if (done) {
                 readerCompleted = true;
                 return;
@@ -141,31 +132,26 @@ export async function* fetchRuntimeBinaryArchiveResponseBody(url: string) {
             yield value;
         }
     } finally {
-        if (reader && !readerCompleted) {await reader.cancel().catch(() => undefined);}
+        if (reader && !readerCompleted) {
+            await reader.cancel().catch(() => undefined);
+        }
         reader?.releaseLock();
         clearTimeout(timeout);
     }
 }
 
 function archiveMembers(archivePath: string) {
-    const output = execFileSync('tar', [
-        '-tzf',
-        path.basename(archivePath),
-    ], {
+    const output = execFileSync('tar', ['-tzf', path.basename(archivePath)], {
         cwd: path.dirname(archivePath),
         encoding: 'utf8',
     });
     return validateRuntimeBinaryArchivePaths(output.split(/\r?\n/u).filter(Boolean));
 }
 
-async function stageArchive(
-    projectRoot: string,
-    archivePath: string,
-    resourceRoot: string,
-) {
+async function stageArchive(projectRoot: string, archivePath: string, resourceRoot: string) {
     const members = archiveMembers(archivePath);
     const expectedPrefix = `${resourceRoot}/`;
-    if (!members.some(member => member === resourceRoot || member.startsWith(expectedPrefix))) {
+    if (!members.some((member) => member === resourceRoot || member.startsWith(expectedPrefix))) {
         throw new Error(`Runtime archive does not contain its expected resource root ${resourceRoot}.`);
     }
 
@@ -174,12 +160,7 @@ async function stageArchive(
     await mkdir(extractionRoot, {recursive: true});
     try {
         // Relative paths keep Git Bash's GNU tar from reading a Windows drive letter as a remote host.
-        execFileSync('tar', [
-            '-xzf',
-            path.relative(extractionRoot, archivePath),
-            '--no-same-owner',
-            '--no-same-permissions',
-        ], {
+        execFileSync('tar', ['-xzf', path.relative(extractionRoot, archivePath), '--no-same-owner', '--no-same-permissions'], {
             cwd: extractionRoot,
             stdio: 'inherit',
         });
@@ -219,17 +200,20 @@ export async function fetchRuntimeBinaries({
     validateRuntimeBinaryManifest(RUNTIME_BINARY_MANIFEST);
     const target = parseNativeResourcePlatformArch(targetTag);
     const requestedFamilies = familyIds ? new Set(familyIds) : null;
-    if (requestedFamilies?.size === 0) {throw new Error('At least one runtime family is required.');}
-    const entries = dataOnly ? [] : RUNTIME_BINARY_MANIFEST.entries.filter(entry => (
-        entry.target.platformArch === target.platformArch
-        && (!requestedFamilies || requestedFamilies.has(entry.familyId))
-    ));
+    if (requestedFamilies?.size === 0) {
+        throw new Error('At least one runtime family is required.');
+    }
+    const entries = dataOnly
+        ? []
+        : RUNTIME_BINARY_MANIFEST.entries.filter(
+              (entry) => entry.target.platformArch === target.platformArch && (!requestedFamilies || requestedFamilies.has(entry.familyId)),
+          );
     console.log(`Fetching verified runtime archives for ${target.platformArch}.`);
     if (!dataOnly) {
-        const allFamilies = new Set(RUNTIME_BINARY_MANIFEST.entries.map(entry => entry.familyId));
+        const allFamilies = new Set(RUNTIME_BINARY_MANIFEST.entries.map((entry) => entry.familyId));
         const requiredFamilies = requestedFamilies ?? allFamilies;
-        const availableFamilies = new Set(entries.map(entry => entry.familyId));
-        const missingFamilies = [...requiredFamilies].filter(family => !availableFamilies.has(family));
+        const availableFamilies = new Set(entries.map((entry) => entry.familyId));
+        const missingFamilies = [...requiredFamilies].filter((family) => !availableFamilies.has(family));
         if (missingFamilies.length > 0) {
             if (skipUnpublished) {
                 console.log(`No published ${target.platformArch} archives for: ${missingFamilies.join(', ')}.`);
@@ -280,7 +264,7 @@ export async function fetchRuntimeBinaries({
     }
 
     return {
-        dataEntries: requestedFamilies && !dataOnly ? 0 : RUNTIME_BINARY_MANIFEST.dataEntries?.length ?? 0,
+        dataEntries: requestedFamilies && !dataOnly ? 0 : (RUNTIME_BINARY_MANIFEST.dataEntries?.length ?? 0),
         entries: entries.length,
         manifestSha256: RUNTIME_BINARY_MANIFEST.manifestSha256,
         target: target.platformArch,
@@ -299,12 +283,18 @@ function parseArguments(argv: readonly string[]) {
         const argument = argv[index];
         if (argument === '--target' || argument === '--cache' || argument === '--family') {
             const value = argv[index + 1];
-            if (!value) {throw new Error(usage());}
-            if (argument === '--target') {targetTag = value;}
-            else if (argument === '--cache') {cacheDirectory = value;}
-            else {
-                const familyId = RUNTIME_FAMILIES.find(candidate => candidate === value);
-                if (!familyId) {throw new Error(usage());}
+            if (!value) {
+                throw new Error(usage());
+            }
+            if (argument === '--target') {
+                targetTag = value;
+            } else if (argument === '--cache') {
+                cacheDirectory = value;
+            } else {
+                const familyId = RUNTIME_FAMILIES.find((candidate) => candidate === value);
+                if (!familyId) {
+                    throw new Error(usage());
+                }
                 familyIds.push(familyId);
             }
             index += 1;
@@ -319,7 +309,9 @@ function parseArguments(argv: readonly string[]) {
             throw new Error(usage());
         }
     }
-    if (dataOnly && familyIds.length > 0) {throw new Error(usage());}
+    if (dataOnly && familyIds.length > 0) {
+        throw new Error(usage());
+    }
     return {
         cacheDirectory,
         dataOnly,
@@ -329,8 +321,7 @@ function parseArguments(argv: readonly string[]) {
     };
 }
 
-const isDirectCliRun = process.argv[1] !== undefined
-    && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
+const isDirectCliRun = process.argv[1] !== undefined && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
 
 if (isDirectCliRun) {
     try {
@@ -343,7 +334,9 @@ if (isDirectCliRun) {
                 skipUnpublished: options.ifPublished,
                 ...(options.targetTag === undefined ? {} : {targetTag: options.targetTag}),
             });
-            if (!result && !options.ifPublished) {process.exitCode = 1;}
+            if (!result && !options.ifPublished) {
+                process.exitCode = 1;
+            }
         }
     } catch (error) {
         console.error(`Runtime binary fetch failed: ${getErrorMessage(error)}`);

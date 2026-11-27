@@ -1,12 +1,7 @@
 // @vitest-environment happy-dom
 
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { captureDocumentViewportResizeAnchor } from '@app/modules/document-viewer/runtime/captureDocumentViewportResizeAnchor';
+import {afterEach, describe, expect, it} from 'vitest';
+import {captureDocumentViewportResizeAnchor} from '@app/modules/document-viewer/runtime/captureDocumentViewportResizeAnchor';
 
 function rect(left: number, top: number, width: number, height: number): DOMRect {
     return {
@@ -46,10 +41,14 @@ describe('document viewport resize anchor', () => {
             pageRatioX: 0.5,
             pageRatioY: 0.5,
         });
-        expect(captureDocumentViewportResizeAnchor(viewport, {viewportPoint: {
-            x: 195,
-            y: 435,
-        }})).toMatchObject({
+        expect(
+            captureDocumentViewportResizeAnchor(viewport, {
+                viewportPoint: {
+                    x: 195,
+                    y: 435,
+                },
+            }),
+        ).toMatchObject({
             pageRatioX: 0.25,
             pageRatioY: 0.75,
             viewportRatioX: 0.25,

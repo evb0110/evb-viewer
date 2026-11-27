@@ -50,22 +50,22 @@
         "1": {"mode": "color", "reason": "color-chroma", "minConfidence": 0.95, "outputCount": 1},
         "2": {"mode": "bw", "reason": "blank", "minConfidence": 0.85, "outputCount": 1},
         "3": {"mode": "bw", "reason": "bimodal-text", "minConfidence": 0.75, "outputCount": 1},
-        "4": {"mode": "bw", "reason": "bimodal-text", "minConfidence": 0.70, "outputCount": 1},
+        "4": {"mode": "bw", "reason": "bimodal-text", "minConfidence": 0.7, "outputCount": 1},
         "5": {"mode": "bw", "reason": "bimodal-text", "minConfidence": 0.75, "outputCount": 1},
         "6": {"mode": "mixed", "reason": "text-with-pictures", "minConfidence": 0.85, "outputCount": 1},
-        "7": {"mode": "bw", "reason": "bimodal-text", "minConfidence": 0.70, "outputCount": 1},
+        "7": {"mode": "bw", "reason": "bimodal-text", "minConfidence": 0.7, "outputCount": 1},
         "8": {"mode": "bw", "reason": "bimodal-text", "minConfidence": 0.55, "outputCount": 1},
         "9": {"mode": "mixed", "reason": "text-with-pictures", "minConfidence": 0.85, "outputCount": 1},
-        "10": {"mode": "bw", "reason": "bimodal-text", "minConfidence": 0.80, "outputCount": 1},
+        "10": {"mode": "bw", "reason": "bimodal-text", "minConfidence": 0.8, "outputCount": 1},
         "11": {"mode": "mixed", "reason": "text-with-pictures", "minConfidence": 0.85, "outputCount": 1},
         "12": {"mode": "mixed", "reason": "text-with-pictures", "minConfidence": 0.85, "outputCount": 1},
         "13": {"mode": "mixed", "reason": "text-with-pictures", "minConfidence": 0.85, "outputCount": 1},
         "14": {"mode": "mixed", "reason": "text-with-pictures", "minConfidence": 0.85, "outputCount": 1},
-        "15": {"mode": "mixed", "reason": "text-with-pictures", "minConfidence": 0.80, "outputCount": 1},
-        "16": {"mode": "mixed", "reason": "text-with-pictures", "minConfidence": 0.80, "outputCount": 1},
-        "17": {"mode": "bw", "reason": "bimodal-text", "minConfidence": 0.80, "outputCount": 1},
-        "18": {"mode": "bw", "reason": "bimodal-text", "minConfidence": 0.80, "outputCount": 1},
-        "19": {"mode": "bw", "reason": "bimodal-text", "minConfidence": 0.80, "outputCount": 1},
+        "15": {"mode": "mixed", "reason": "text-with-pictures", "minConfidence": 0.8, "outputCount": 1},
+        "16": {"mode": "mixed", "reason": "text-with-pictures", "minConfidence": 0.8, "outputCount": 1},
+        "17": {"mode": "bw", "reason": "bimodal-text", "minConfidence": 0.8, "outputCount": 1},
+        "18": {"mode": "bw", "reason": "bimodal-text", "minConfidence": 0.8, "outputCount": 1},
+        "19": {"mode": "bw", "reason": "bimodal-text", "minConfidence": 0.8, "outputCount": 1},
         "20": {"mode": "color", "reason": "color-chroma", "minConfidence": 0.95, "outputCount": 1}
       }
     },
@@ -84,14 +84,14 @@
         "4": {"mode": "grayscale", "reason": "uncertain-tonal", "minConfidence": 0.55, "outputCount": 1},
         "33": {"mode": "grayscale", "reason": "uncertain-tonal", "minConfidence": 0.55, "outputCount": 1},
         "34": {"mode": "bw", "reason": "bimodal-text", "minConfidence": 0.75, "outputCount": 1},
-        "46": {"mode": "mixed", "reason": "text-with-pictures", "minConfidence": 0.90, "outputCount": 1},
+        "46": {"mode": "mixed", "reason": "text-with-pictures", "minConfidence": 0.9, "outputCount": 1},
         "197": {"mode": "mixed", "reason": "text-with-pictures", "minConfidence": 0.85, "outputCount": 1},
-        "255": {"mode": "mixed", "reason": "text-with-pictures", "minConfidence": 0.90, "outputCount": 1},
-        "268": {"mode": "mixed", "reason": "text-with-pictures", "minConfidence": 0.90, "outputCount": 1},
-        "282": {"mode": "mixed", "reason": "text-with-pictures", "minConfidence": 0.90, "outputCount": 1},
-        "300": {"mode": "mixed", "reason": "text-with-pictures", "minConfidence": 0.90, "outputCount": 1},
+        "255": {"mode": "mixed", "reason": "text-with-pictures", "minConfidence": 0.9, "outputCount": 1},
+        "268": {"mode": "mixed", "reason": "text-with-pictures", "minConfidence": 0.9, "outputCount": 1},
+        "282": {"mode": "mixed", "reason": "text-with-pictures", "minConfidence": 0.9, "outputCount": 1},
+        "300": {"mode": "mixed", "reason": "text-with-pictures", "minConfidence": 0.9, "outputCount": 1},
         "307": {"mode": "grayscale", "reason": "uncertain-tonal", "minConfidence": 0.55, "outputCount": 1},
-        "353": {"mode": "mixed", "reason": "text-with-pictures", "minConfidence": 0.80, "outputCount": 1},
+        "353": {"mode": "mixed", "reason": "text-with-pictures", "minConfidence": 0.8, "outputCount": 1},
         "389": {"mode": "grayscale", "reason": "uncertain-tonal", "minConfidence": 0.55, "outputCount": 1},
         "392": {"mode": "color", "reason": "color-chroma", "minConfidence": 0.95, "outputCount": 1}
       }
@@ -102,12 +102,12 @@
         "grayscale": 12
       },
       "pages": {
-        "1": {"mode": "grayscale", "reason": "uncertain-tonal", "minConfidence": 0.80, "outputCount": 2},
-        "2": {"mode": "grayscale", "reason": "uncertain-tonal", "minConfidence": 0.80, "outputCount": 2},
-        "32": {"mode": "grayscale", "reason": "uncertain-tonal", "minConfidence": 0.80, "outputCount": 2},
-        "64": {"mode": "grayscale", "reason": "uncertain-tonal", "minConfidence": 0.80, "outputCount": 2},
-        "97": {"mode": "grayscale", "reason": "uncertain-tonal", "minConfidence": 0.80, "outputCount": 2},
-        "129": {"mode": "grayscale", "reason": "uncertain-tonal", "minConfidence": 0.80, "outputCount": 2}
+        "1": {"mode": "grayscale", "reason": "uncertain-tonal", "minConfidence": 0.8, "outputCount": 2},
+        "2": {"mode": "grayscale", "reason": "uncertain-tonal", "minConfidence": 0.8, "outputCount": 2},
+        "32": {"mode": "grayscale", "reason": "uncertain-tonal", "minConfidence": 0.8, "outputCount": 2},
+        "64": {"mode": "grayscale", "reason": "uncertain-tonal", "minConfidence": 0.8, "outputCount": 2},
+        "97": {"mode": "grayscale", "reason": "uncertain-tonal", "minConfidence": 0.8, "outputCount": 2},
+        "129": {"mode": "grayscale", "reason": "uncertain-tonal", "minConfidence": 0.8, "outputCount": 2}
       }
     },
     "linguae-arabic-wright": {
@@ -117,12 +117,12 @@
         "grayscale": 5
       },
       "pages": {
-        "1": {"mode": "bw", "reason": "bimodal-text", "minConfidence": 0.90, "outputCount": 1},
-        "2": {"mode": "grayscale", "reason": "uncertain-tonal", "minConfidence": 0.80, "outputCount": 1},
-        "82": {"mode": "grayscale", "reason": "uncertain-tonal", "minConfidence": 0.80, "outputCount": 1},
-        "165": {"mode": "grayscale", "reason": "uncertain-tonal", "minConfidence": 0.80, "outputCount": 1},
-        "248": {"mode": "grayscale", "reason": "uncertain-tonal", "minConfidence": 0.80, "outputCount": 1},
-        "330": {"mode": "grayscale", "reason": "uncertain-tonal", "minConfidence": 0.80, "outputCount": 1}
+        "1": {"mode": "bw", "reason": "bimodal-text", "minConfidence": 0.9, "outputCount": 1},
+        "2": {"mode": "grayscale", "reason": "uncertain-tonal", "minConfidence": 0.8, "outputCount": 1},
+        "82": {"mode": "grayscale", "reason": "uncertain-tonal", "minConfidence": 0.8, "outputCount": 1},
+        "165": {"mode": "grayscale", "reason": "uncertain-tonal", "minConfidence": 0.8, "outputCount": 1},
+        "248": {"mode": "grayscale", "reason": "uncertain-tonal", "minConfidence": 0.8, "outputCount": 1},
+        "330": {"mode": "grayscale", "reason": "uncertain-tonal", "minConfidence": 0.8, "outputCount": 1}
       }
     },
     "linguae-jpa-sokoloff": {
@@ -131,12 +131,12 @@
         "bw": 6
       },
       "pages": {
-        "1": {"mode": "bw", "reason": "bimodal-text", "minConfidence": 0.80, "outputCount": 1},
-        "2": {"mode": "bw", "reason": "blank", "minConfidence": 0.90, "outputCount": 1},
-        "183": {"mode": "bw", "reason": "bimodal-text", "minConfidence": 0.80, "outputCount": 1},
-        "366": {"mode": "bw", "reason": "bimodal-text", "minConfidence": 0.80, "outputCount": 1},
-        "550": {"mode": "bw", "reason": "bimodal-text", "minConfidence": 0.80, "outputCount": 1},
-        "733": {"mode": "bw", "reason": "bimodal-text", "minConfidence": 0.80, "outputCount": 1}
+        "1": {"mode": "bw", "reason": "bimodal-text", "minConfidence": 0.8, "outputCount": 1},
+        "2": {"mode": "bw", "reason": "blank", "minConfidence": 0.9, "outputCount": 1},
+        "183": {"mode": "bw", "reason": "bimodal-text", "minConfidence": 0.8, "outputCount": 1},
+        "366": {"mode": "bw", "reason": "bimodal-text", "minConfidence": 0.8, "outputCount": 1},
+        "550": {"mode": "bw", "reason": "bimodal-text", "minConfidence": 0.8, "outputCount": 1},
+        "733": {"mode": "bw", "reason": "bimodal-text", "minConfidence": 0.8, "outputCount": 1}
       }
     },
     "linguae-scripts-auto-crop": {

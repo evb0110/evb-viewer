@@ -1,11 +1,8 @@
-import type {
-    ComputedRef,
-    Ref,
-} from 'vue';
-import { whenever } from '@vueuse/core';
-import type { IAppUpdateStatus } from '@contracts/updatesPlatformFeature';
-import { useFailureToast } from '@app/composables/useFailureToast';
-import type { IUpdateDialogState } from '@app/composables/useAppUpdates';
+import type {ComputedRef, Ref} from 'vue';
+import {whenever} from '@vueuse/core';
+import type {IAppUpdateStatus} from '@contracts/updatesPlatformFeature';
+import {useFailureToast} from '@app/composables/useFailureToast';
+import type {IUpdateDialogState} from '@app/composables/useAppUpdates';
 
 interface IUseAppShellUpdatesDialogOptions {
     updatesStatus: Ref<IAppUpdateStatus>;
@@ -20,12 +17,9 @@ interface IUseAppShellUpdatesDialogOptions {
 }
 
 export const useAppShellUpdatesDialog = (options: IUseAppShellUpdatesDialogOptions) => {
-    const { t } = useTypedI18n();
+    const {t} = useTypedI18n();
     const toast = useToast();
-    const {
-        presentFailureToast,
-        presentNoticeToast,
-    } = useFailureToast();
+    const {presentFailureToast, presentNoticeToast} = useFailureToast();
 
     // An offer found by the scheduled check must not take the window from the
     // reader, so it waits in a notice that opens the dialog on request.
@@ -41,34 +35,34 @@ export const useAppShellUpdatesDialog = (options: IUseAppShellUpdatesDialogOptio
             offerToastId = null;
         }
     };
-    watch([
-        () => options.updatesStatus.value.phase,
-        () => options.updatesStatus.value.origin,
-        () => options.updatesStatus.value.version,
-    ], ([
-        phase,
-        origin,
-        version,
-    ]) => {
-        removeOfferToast();
-        if (origin !== 'auto' || (phase !== 'available' && phase !== 'downloaded')) {
-            return;
-        }
-        const ready = phase === 'downloaded';
-        offerToastId = toast.add({
-            color: 'neutral',
-            title: t(ready ? 'updates.readyTitle' : 'updates.availableTitle'),
-            description: t(ready ? 'updates.readyDescription' : 'updates.offerDescription', {version: version ?? t('updates.unknownVersion')}),
-            duration: Number.POSITIVE_INFINITY,
-            progress: false,
-            actions: [{
-                label: t('updates.viewAction'),
+    watch(
+        [() => options.updatesStatus.value.phase, () => options.updatesStatus.value.origin, () => options.updatesStatus.value.version],
+        ([phase, origin, version]) => {
+            removeOfferToast();
+            if (origin !== 'auto' || (phase !== 'available' && phase !== 'downloaded')) {
+                return;
+            }
+            const ready = phase === 'downloaded';
+            offerToastId = toast.add({
                 color: 'neutral',
-                variant: 'outline',
-                onClick: () => void options.checkForUpdates(),
-            }],
-        }).id;
-    }, { immediate: true });
+                title: t(ready ? 'updates.readyTitle' : 'updates.availableTitle'),
+                description: t(ready ? 'updates.readyDescription' : 'updates.offerDescription', {
+                    version: version ?? t('updates.unknownVersion'),
+                }),
+                duration: Number.POSITIVE_INFINITY,
+                progress: false,
+                actions: [
+                    {
+                        label: t('updates.viewAction'),
+                        color: 'neutral',
+                        variant: 'outline',
+                        onClick: () => void options.checkForUpdates(),
+                    },
+                ],
+            }).id;
+        },
+        {immediate: true},
+    );
     onScopeDispose(removeOfferToast);
 
     const updatesDialogTitle = computed(() => {
@@ -99,15 +93,15 @@ export const useAppShellUpdatesDialog = (options: IUseAppShellUpdatesDialogOptio
         const version = options.updatesDialogVersion.value ?? t('updates.unknownVersion');
 
         if (options.updatesDialog.value.kind === 'ready') {
-            return t('updates.readyDescription', { version });
+            return t('updates.readyDescription', {version});
         }
         if (options.updatesDialog.value.kind === 'available') {
-            return t('updates.availableDescription', { version });
+            return t('updates.availableDescription', {version});
         }
 
         switch (options.updatesDialog.value.phase) {
             case 'available':
-                return t('updates.availableDescription', { version });
+                return t('updates.availableDescription', {version});
             case 'checking':
                 return t('updates.checkingDescription');
             case 'downloading': {
@@ -118,9 +112,9 @@ export const useAppShellUpdatesDialog = (options: IUseAppShellUpdatesDialogOptio
                 });
             }
             case 'no-update':
-                return t('updates.upToDateDescription', { version });
+                return t('updates.upToDateDescription', {version});
             case 'error':
-                return t('updates.errorDescription', { message: options.updatesDialog.value.message ?? t('updates.unknownError') });
+                return t('updates.errorDescription', {message: options.updatesDialog.value.message ?? t('updates.unknownError')});
             case 'unsupported':
                 return options.updatesDialog.value.message ?? t('updates.unsupportedDescription');
         }
@@ -128,25 +122,28 @@ export const useAppShellUpdatesDialog = (options: IUseAppShellUpdatesDialogOptio
 
     // A check the user asked for that fails ends the dialog and is told the
     // way every failure is.
-    whenever(() => options.updatesDialog.value.open && options.updatesDialog.value.phase === 'error', () => {
-        const failure = options.updatesDialog.value.failure;
-        const report = {
-            title: updatesDialogTitle.value,
-            description: updatesDialogDescription.value,
-        };
-        options.closeUpdatesDialog();
-        if (failure) {
-            presentFailureToast({
-                ...failure,
-                ...report,
-            });
-        } else {
-            presentNoticeToast({
-                tone: 'warning',
-                ...report,
-            });
-        }
-    });
+    whenever(
+        () => options.updatesDialog.value.open && options.updatesDialog.value.phase === 'error',
+        () => {
+            const failure = options.updatesDialog.value.failure;
+            const report = {
+                title: updatesDialogTitle.value,
+                description: updatesDialogDescription.value,
+            };
+            options.closeUpdatesDialog();
+            if (failure) {
+                presentFailureToast({
+                    ...failure,
+                    ...report,
+                });
+            } else {
+                presentNoticeToast({
+                    tone: 'warning',
+                    ...report,
+                });
+            }
+        },
+    );
 
     return {
         handleDeferUpdate() {

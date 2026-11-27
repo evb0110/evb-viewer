@@ -1,17 +1,10 @@
-import {
-    basename,
-    dirname,
-    extname,
-    join,
-} from 'path';
-import { stageNativeCombineInputs } from '@electron/image/pdfCombineShared';
-import { tryWritePdfFromInputPathsNative } from '@electron/image/tryCreatePdfFromInputPathsNative';
+import {basename, dirname, extname, join} from 'path';
+import {stageNativeCombineInputs} from '@electron/image/pdfCombineShared';
+import {tryWritePdfFromInputPathsNative} from '@electron/image/tryCreatePdfFromInputPathsNative';
 import {PdfCombineCapabilityError} from '@electron/image/pdfCombineErrors';
-import type { IJobBrokerRunContext } from '@electron/resources/jobBroker';
-import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
-export {
-    isPdfPath, isDjvuPath, isPdfOrImagePath, isSupportedOpenPath,
-} from '@electron/utils/documentFileTypes';
+import type {IJobBrokerRunContext} from '@electron/resources/jobBroker';
+import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
+export {isPdfPath, isDjvuPath, isPdfOrImagePath, isSupportedOpenPath} from '@electron/utils/documentFileTypes';
 
 export interface ICreatePdfFromInputPathsProgress {
     processed: number;
@@ -38,19 +31,13 @@ export function buildCombinedPdfOutputPath(inputPaths: string[]) {
     }
     const dir = dirname(firstPath);
     const stem = basename(firstPath, extname(firstPath));
-    const outputName =
-        inputPaths.length === 1 ? `${stem}.pdf` : `combined-${Date.now()}.pdf`;
+    const outputName = inputPaths.length === 1 ? `${stem}.pdf` : `combined-${Date.now()}.pdf`;
 
     return join(dir, outputName);
 }
 
-export async function createPdfFileFromInputPaths(
-    inputPaths: string[],
-    outputPath: string,
-    options?: ICreatePdfFromInputPathsOptions,
-) {
-    const normalizedPaths = inputPaths
-        .filter((path) => path.length > 0);
+export async function createPdfFileFromInputPaths(inputPaths: string[], outputPath: string, options?: ICreatePdfFromInputPathsOptions) {
+    const normalizedPaths = inputPaths.filter((path) => path.length > 0);
     const normalizedOutputPath = typeof outputPath === 'string' ? outputPath : '';
 
     if (normalizedPaths.length === 0) {
@@ -67,11 +54,7 @@ export async function createPdfFileFromInputPaths(
     const staged = await stageNativeCombineInputs(normalizedPaths, options?.signal);
     let retainStagedInputs = false;
     try {
-        const nativeWrote = await tryWritePdfFromInputPathsNative(
-            staged.inputPaths,
-            normalizedOutputPath,
-            nativeOptions,
-        );
+        const nativeWrote = await tryWritePdfFromInputPathsNative(staged.inputPaths, normalizedOutputPath, nativeOptions);
         if (nativeWrote) {
             return normalizedOutputPath;
         }

@@ -1,9 +1,6 @@
-import type { TPdfViewMode } from '@contracts/shared';
-import { stepBySpread } from '@app/utils/pdfViewMode';
-import {
-    getVisiblePageLabel,
-    type TDocumentPageLabelLookup,
-} from '@app/modules/document-viewer/public';
+import type {TPdfViewMode} from '@contracts/shared';
+import {stepBySpread} from '@app/utils/pdfViewMode';
+import {getVisiblePageLabel, type TDocumentPageLabelLookup} from '@app/modules/document-viewer/public';
 
 export interface IPdfPageDropdownDisplayPageOptions {
     currentPage: number;
@@ -24,31 +21,20 @@ function normalizePdfPageDropdownPage(page: number, totalPages: number) {
     if (totalPages <= 0) {
         return Math.max(Math.trunc(page), 1);
     }
-    const maxPage = Number.isFinite(totalPages)
-        ? Math.max(Math.trunc(totalPages), 1)
-        : 1;
+    const maxPage = Number.isFinite(totalPages) ? Math.max(Math.trunc(totalPages), 1) : 1;
 
     return Math.min(Math.max(Math.trunc(page), 1), maxPage);
 }
 
-export function stepPdfPageDropdownCommand(
-    page: number,
-    viewMode: TPdfViewMode,
-    totalPages: number,
-    direction: -1 | 1,
-) {
-    return stepBySpread(
-        Math.max(1, Math.trunc(page)),
-        viewMode,
-        totalPages > 0 ? totalPages : Number.MAX_SAFE_INTEGER,
-        direction,
-    );
+export function stepPdfPageDropdownCommand(page: number, viewMode: TPdfViewMode, totalPages: number, direction: -1 | 1) {
+    return stepBySpread(Math.max(1, Math.trunc(page)), viewMode, totalPages > 0 ? totalPages : Number.MAX_SAFE_INTEGER, direction);
 }
 
 export function resolvePdfPageDropdownDisplayPage(options: IPdfPageDropdownDisplayPageOptions) {
-    const page = typeof options.navigationPage === 'number' && Number.isFinite(options.navigationPage)
-        ? options.navigationPage
-        : options.currentPage;
+    const page =
+        typeof options.navigationPage === 'number' && Number.isFinite(options.navigationPage)
+            ? options.navigationPage
+            : options.currentPage;
 
     return normalizePdfPageDropdownPage(page, options.totalPages);
 }

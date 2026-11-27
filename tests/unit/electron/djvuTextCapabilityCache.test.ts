@@ -1,17 +1,5 @@
-import {
-    afterAll,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    appendFile,
-    mkdtemp,
-    rm,
-    writeFile,
-} from 'node:fs/promises';
+import {afterAll, beforeEach, describe, expect, it, vi} from 'vitest';
+import {appendFile, mkdtemp, rm, writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 
@@ -54,17 +42,19 @@ describe('DjVu text capability cache', () => {
     });
 
     afterAll(async () => {
-        await Promise.all(temporaryDirectories.map(directory => rm(directory, {
-            force: true,
-            recursive: true,
-        })));
+        await Promise.all(
+            temporaryDirectories.map((directory) =>
+                rm(directory, {
+                    force: true,
+                    recursive: true,
+                }),
+            ),
+        );
     });
 
     it('caches both capability outcomes and invalidates them when the source changes', async () => {
         const filePath = await createSource('mutable.djvu');
-        mocks.detectDjvuHasText
-            .mockResolvedValueOnce(false)
-            .mockResolvedValueOnce(true);
+        mocks.detectDjvuHasText.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
         const {getCachedDjvuHasText} = await loadCacheModule();
 
         await expect(getCachedDjvuHasText(filePath)).resolves.toBe(false);
@@ -78,9 +68,7 @@ describe('DjVu text capability cache', () => {
     });
 
     it('uses bounded least-recently-used retention', async () => {
-        const sources = await Promise.all(Array.from({length: 65}, (_unused, index) => (
-            createSource(`${String(index)}.djvu`)
-        )));
+        const sources = await Promise.all(Array.from({length: 65}, (_unused, index) => createSource(`${String(index)}.djvu`)));
         mocks.detectDjvuHasText.mockResolvedValue(true);
         const {getCachedDjvuHasText} = await loadCacheModule();
 
@@ -106,13 +94,7 @@ describe('DjVu text capability cache', () => {
         await vi.waitFor(() => expect(mocks.detectDjvuHasText).toHaveBeenCalledTimes(1));
         scan.resolve(true);
 
-        await expect(Promise.all([
-            first,
-            second,
-        ])).resolves.toEqual([
-            true,
-            true,
-        ]);
+        await expect(Promise.all([first, second])).resolves.toEqual([true, true]);
     });
 
     it('cancels only the departing consumer while another consumer still needs the scan', async () => {
@@ -141,12 +123,13 @@ describe('DjVu text capability cache', () => {
     it('aborts the streaming scan when every consumer leaves', async () => {
         const filePath = await createSource('abandoned.djvu');
         let sharedSignal: AbortSignal | undefined;
-        mocks.detectDjvuHasText.mockImplementation((_path: string, signal: AbortSignal) => (
-            new Promise((_resolve, reject) => {
-                sharedSignal = signal;
-                signal.addEventListener('abort', () => reject(signal.reason), {once: true});
-            })
-        ));
+        mocks.detectDjvuHasText.mockImplementation(
+            (_path: string, signal: AbortSignal) =>
+                new Promise((_resolve, reject) => {
+                    sharedSignal = signal;
+                    signal.addEventListener('abort', () => reject(signal.reason), {once: true});
+                }),
+        );
         const {getCachedDjvuHasText} = await loadCacheModule();
         const firstController = new AbortController();
         const secondController = new AbortController();
@@ -165,9 +148,7 @@ describe('DjVu text capability cache', () => {
     it('does not cache a scan result if the source mutates while it is running', async () => {
         const filePath = await createSource('mid-scan-mutation.djvu');
         const firstScan = createDeferred<boolean>();
-        mocks.detectDjvuHasText
-            .mockReturnValueOnce(firstScan.promise)
-            .mockResolvedValueOnce(false);
+        mocks.detectDjvuHasText.mockReturnValueOnce(firstScan.promise).mockResolvedValueOnce(false);
         const {getCachedDjvuHasText} = await loadCacheModule();
 
         const pending = getCachedDjvuHasText(filePath);

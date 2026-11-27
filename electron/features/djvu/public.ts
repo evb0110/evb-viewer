@@ -6,11 +6,7 @@ export {
     getDjvuPageSizeForViewing,
     renderDjvuPagePreview,
 } from '@electron/features/djvu/main/pagePreview';
-export {
-    cancelConversion,
-    convertDjvuPageToImage,
-    convertDjvuToPdfFile,
-} from '@electron/features/djvu/main/ddjvuConversion';
+export {cancelConversion, convertDjvuPageToImage, convertDjvuToPdfFile} from '@electron/features/djvu/main/ddjvuConversion';
 export {
     handleDjvuCancel,
     handleDjvuConvertToPdf,
@@ -27,10 +23,6 @@ export {
 } from '@electron/features/djvu/main/viewing';
 export {pruneStaleDjvuArtifactJobs} from '@electron/features/djvu/main/djvuArtifactManifest';
 export {buildCompactDjvuAwarePdfFromDjvu} from '@electron/features/djvu/main/buildCompactDjvuAwarePdfFromDjvu';
-export {
-    getDjvuOutlineBookmarks,
-    getDjvuPageCount,
-    getDjvuResolution,
-} from '@electron/features/djvu/main/metadata';
+export {getDjvuOutlineBookmarks, getDjvuPageCount, getDjvuResolution} from '@electron/features/djvu/main/metadata';
 export {shutdownDjvuEnginePool} from '@electron/features/djvu/main/djvuEnginePool';
 export {allowDjvuWritePath} from '@electron/features/djvu/main/exportPaths';

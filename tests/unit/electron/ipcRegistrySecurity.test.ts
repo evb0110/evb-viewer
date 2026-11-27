@@ -1,25 +1,15 @@
-import { EventEmitter } from 'node:events';
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import type {
-    IRegisteredEvent,
-    TRegisteredHandler,
-} from '@tests/unit/electron/helpers/ipcRegistryHarness';
-import {
-    ASSISTANT_MAX_IMAGE_ATTACHMENTS,
-    ASSISTANT_MAX_IMAGE_BYTES,
-} from '@contracts/agent';
-import { SCAN_CLEANUP_PLATFORM_FEATURE } from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
+import {EventEmitter} from 'node:events';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
+import type {IRegisteredEvent, TRegisteredHandler} from '@tests/unit/electron/helpers/ipcRegistryHarness';
+import {ASSISTANT_MAX_IMAGE_ATTACHMENTS, ASSISTANT_MAX_IMAGE_BYTES} from '@contracts/agent';
+import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import {createRawIpcRegistrationAudit} from '@electron/platform-ipc/rawIpcRegistration';
 import {cast} from '@tests/helpers/cast';
 
 const ipcRegistrySecurityImportTimeoutMs = 10_000;
-interface IRegisterRendererLogBridgeMock { registerListener?: (channel: string, handler: (...args: unknown[]) => void) => void; }
+interface IRegisterRendererLogBridgeMock {
+    registerListener?: (channel: string, handler: (...args: unknown[]) => void) => void;
+}
 
 const mocks = vi.hoisted(() => {
     const agentState = {
@@ -28,7 +18,6 @@ const mocks = vi.hoisted(() => {
         instances: [],
         selection: null,
         chat: null,
-
     };
     const agentService = {
         getMcpIntegrationStatus: vi.fn(async () => ({
@@ -75,18 +64,23 @@ const mocks = vi.hoisted(() => {
         shutdownAssistant: vi.fn(async () => undefined),
     };
     const scanCleanupDispose = vi.fn(async () => undefined);
-    const scanCleanupMainBindings = new Proxy({pruneGeneratedOutputs: vi.fn(async () => 0)}, {get(target, property, receiver) {
-        if (property === 'then') {
-            return undefined;
-        }
-        if (property === 'disposeScanCleanupMainBindings') {
-            return scanCleanupDispose;
-        }
-        if (Reflect.has(target, property)) {
-            return Reflect.get(target, property, receiver);
-        }
-        return vi.fn(async () => undefined);
-    }});
+    const scanCleanupMainBindings = new Proxy(
+        {pruneGeneratedOutputs: vi.fn(async () => 0)},
+        {
+            get(target, property, receiver) {
+                if (property === 'then') {
+                    return undefined;
+                }
+                if (property === 'disposeScanCleanupMainBindings') {
+                    return scanCleanupDispose;
+                }
+                if (Reflect.has(target, property)) {
+                    return Reflect.get(target, property, receiver);
+                }
+                return vi.fn(async () => undefined);
+            },
+        },
+    );
 
     return {
         events: new Map<string, (event: IRegisteredEvent, ...args: unknown[]) => void>(),
@@ -152,8 +146,8 @@ vi.mock('@electron/file-access/openPathCapabilities', () => ({
     requireOpenPath: (...args: unknown[]) => mocks.requireOpenPath(...args),
 }));
 vi.mock('@electron/image/pdfConversion', () => ({isSupportedOpenPath: (path: unknown) => mocks.isSupportedOpenPath(path)}));
-vi.mock('@electron/file-access/documentStore', async importOriginal => ({
-    ...await importOriginal<Record<string, unknown>>(),
+vi.mock('@electron/file-access/documentStore', async (importOriginal) => ({
+    ...(await importOriginal<Record<string, unknown>>()),
     requireManagedWorkingCopyPath: (path: unknown, owner: unknown) => mocks.requireManagedWorkingCopyPath(path, owner),
 }));
 vi.mock('@electron/features/image-export/public', () => ({imageExportMainBindings: new Proxy({}, {get: () => vi.fn()})}));
@@ -189,9 +183,9 @@ vi.mock('@electron/te', () => ({
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
 vi.mock('@electron/platform-ipc/rendererLogBridge', () => ({
     normalizeRendererLogEntry: vi.fn(),
-    registerRendererLogBridge: vi.fn((options: IRegisterRendererLogBridgeMock) => (
-        options.registerListener?.('renderer:log', () => undefined)
-    )),
+    registerRendererLogBridge: vi.fn((options: IRegisterRendererLogBridgeMock) =>
+        options.registerListener?.('renderer:log', () => undefined),
+    ),
 }));
 
 let nextSenderId = 7;
@@ -239,7 +233,7 @@ function createSubframeEvent(url = 'http://127.0.0.1:41001/electron'): IRegister
 }
 
 async function getSettingsHandler() {
-    const { registerIpcHandlers } = await import('@electron/platform-ipc/registerIpcHandlers');
+    const {registerIpcHandlers} = await import('@electron/platform-ipc/registerIpcHandlers');
     registerIpcHandlers({rawIpcRegistrationAudit});
 
     const handler = mocks.handlers.get('settings:get');
@@ -258,18 +252,16 @@ describe('IPC registry sender trust', () => {
         nextSenderId = 7;
         rawIpcRegistrationAudit = createRawIpcRegistrationAudit();
         mocks.sanitizeAllowedExternalUrl.mockImplementation((value: unknown) => value);
-        mocks.browserWindowFromWebContents.mockImplementation((sender: {id?: number}) => (
+        mocks.browserWindowFromWebContents.mockImplementation((sender: {id?: number}) =>
             typeof sender.id === 'number'
-                ? mocks.registeredWindowsById.get(sender.id) ?? {
-                    id: sender.id,
-                    webContents: sender,
-                    isDestroyed: () => false,
-                }
-                : null
-        ));
-        mocks.getWindowByIdFromRegistry.mockImplementation((windowId: number) => (
-            mocks.registeredWindowsById.get(windowId) ?? null
-        ));
+                ? (mocks.registeredWindowsById.get(sender.id) ?? {
+                      id: sender.id,
+                      webContents: sender,
+                      isDestroyed: () => false,
+                  })
+                : null,
+        );
+        mocks.getWindowByIdFromRegistry.mockImplementation((windowId: number) => mocks.registeredWindowsById.get(windowId) ?? null);
         mocks.updateSettings.mockImplementation(async (updater: (settings: Record<string, unknown>) => unknown) => {
             const current = {
                 locale: 'en',
@@ -285,268 +277,266 @@ describe('IPC registry sender trust', () => {
         });
     });
 
-    it('disposes retained bindings when lazy registration fails after loading', async () => {
-        const {FEATURE_REGISTRATION_DESCRIPTORS} = await import('@electron/platform-ipc/featureRegistrationDescriptors');
-        const {registerLazyPlatformFeature} = await import('@electron/platform-ipc/registerFeatureIpcAdapters');
-        const scanCleanupDescriptor = FEATURE_REGISTRATION_DESCRIPTORS
-            .find(descriptor => descriptor.name === 'scan-cleanup')!;
-        const handlers = new Map<string, TRegisteredHandler>();
-        const ipcMain = {handle(channel: string, handler: TRegisteredHandler) {
-            handlers.set(channel, handler);
-        }} as Electron.IpcMain;
-        const descriptor = {
-            ...scanCleanupDescriptor,
-            feature: {
+    it(
+        'disposes retained bindings when lazy registration fails after loading',
+        async () => {
+            const {FEATURE_REGISTRATION_DESCRIPTORS} = await import('@electron/platform-ipc/featureRegistrationDescriptors');
+            const {registerLazyPlatformFeature} = await import('@electron/platform-ipc/registerFeatureIpcAdapters');
+            const scanCleanupDescriptor = FEATURE_REGISTRATION_DESCRIPTORS.find((descriptor) => descriptor.name === 'scan-cleanup')!;
+            const handlers = new Map<string, TRegisteredHandler>();
+            const ipcMain = {
+                handle(channel: string, handler: TRegisteredHandler) {
+                    handlers.set(channel, handler);
+                },
+            } as Electron.IpcMain;
+            const descriptor = {
+                ...scanCleanupDescriptor,
+                feature: {
+                    ...SCAN_CLEANUP_PLATFORM_FEATURE,
+                    methods: {
+                        first: SCAN_CLEANUP_PLATFORM_FEATURE.methods.pruneGeneratedOutputs,
+                        second: SCAN_CLEANUP_PLATFORM_FEATURE.methods.pruneGeneratedOutputs,
+                    },
+                },
+                create: async () => ({disposeScanCleanupMainBindings: mocks.scanCleanupDispose}),
+            } as never;
+            const dispose = registerLazyPlatformFeature(ipcMain, descriptor, {agentService: mocks.agentService as never});
+            const channel = SCAN_CLEANUP_PLATFORM_FEATURE.methods.pruneGeneratedOutputs.channel;
+            const handler = handlers.get(channel);
+            expect(handler).toBeTypeOf('function');
+
+            await expect(handler?.(createEvent('http://127.0.0.1:41001/electron/viewer'))).rejects.toThrow('Duplicate lazy IPC handler');
+            await expect(dispose()).rejects.toThrow('Duplicate lazy IPC handler');
+            expect(mocks.scanCleanupDispose).toHaveBeenCalledOnce();
+        },
+        ipcRegistrySecurityImportTimeoutMs,
+    );
+
+    it(
+        'keeps a failed generation deterministic and retries only in a fresh generation',
+        async () => {
+            const {registerLazyPlatformFeature} = await import('@electron/platform-ipc/registerFeatureIpcAdapters');
+            let attempts = 0;
+            const handlers = new Map<string, TRegisteredHandler>();
+            const handle = vi.fn((channel: string, handler: TRegisteredHandler) => {
+                handlers.set(channel, handler);
+            });
+            const ipcMain = cast<Electron.IpcMain>({handle});
+            const descriptor = {
+                name: 'scan-cleanup-retry-fixture',
+                kind: 'platform',
+                feature: SCAN_CLEANUP_PLATFORM_FEATURE,
+                disposeBindingKey: 'disposeScanCleanupMainBindings',
+                lifecycle: {
+                    create: 'fixture',
+                    ipcRegistration: 'fixture',
+                    shutdown: 'fixture',
+                },
+                create: async () => {
+                    attempts += 1;
+                    if (attempts === 1) {
+                        throw new Error('first lazy load failed');
+                    }
+                    return {
+                        pruneGeneratedOutputs: vi.fn(async () => 0),
+                        disposeScanCleanupMainBindings: mocks.scanCleanupDispose,
+                    };
+                },
+            } as never;
+            const channel = SCAN_CLEANUP_PLATFORM_FEATURE.methods.pruneGeneratedOutputs.channel;
+            const firstDispose = registerLazyPlatformFeature(ipcMain, descriptor, {agentService: mocks.agentService as never});
+            const firstHandler = handlers.get(channel);
+            expect(firstHandler).toBeTypeOf('function');
+            const firstHandleCallCount = handle.mock.calls.length;
+            await expect(firstHandler?.(createEvent('http://127.0.0.1:41001/electron/viewer'))).rejects.toThrow('first lazy load failed');
+            await expect(firstHandler?.(createEvent('http://127.0.0.1:41001/electron/viewer'))).rejects.toThrow('first lazy load failed');
+            expect(attempts).toBe(1);
+            await expect(firstDispose()).rejects.toThrow('first lazy load failed');
+            await expect(firstHandler?.(createEvent('http://127.0.0.1:41001/electron/viewer'))).rejects.toThrow('no longer active');
+
+            const secondDispose = registerLazyPlatformFeature(ipcMain, descriptor, {agentService: mocks.agentService as never});
+            expect(handle).toHaveBeenCalledTimes(firstHandleCallCount);
+            const secondHandler = handlers.get(channel);
+            expect(secondHandler).toBe(firstHandler);
+            await expect(
+                Promise.all([
+                    secondHandler?.(createEvent('http://127.0.0.1:41001/electron/viewer')),
+                    secondHandler?.(createEvent('http://127.0.0.1:41001/electron/viewer')),
+                ]),
+            ).resolves.toEqual([0, 0]);
+            await expect(secondDispose()).resolves.toBeUndefined();
+            expect(attempts).toBe(2);
+            expect(mocks.scanCleanupDispose).toHaveBeenCalledOnce();
+        },
+        ipcRegistrySecurityImportTimeoutMs,
+    );
+
+    it(
+        'fences held requests and shares concurrent disposal completion',
+        async () => {
+            const {registerLazyPlatformFeature} = await import('@electron/platform-ipc/registerFeatureIpcAdapters');
+            let resolveCreate!: (bindings: Record<string, unknown>) => void;
+            const createCompletion = new Promise<Record<string, unknown>>((resolve) => {
+                resolveCreate = resolve;
+            });
+            const bindingCall = vi.fn(async () => 0);
+            const disposeBinding = vi.fn(async () => {
+                throw new Error('held disposal failed');
+            });
+            const handlers = new Map<string, TRegisteredHandler>();
+            const handle = vi.fn((channel: string, handler: TRegisteredHandler) => {
+                handlers.set(channel, handler);
+            });
+            const ipcMain = cast<Electron.IpcMain>({handle});
+            const descriptor = {
+                name: 'scan-cleanup-held-load-fixture',
+                kind: 'platform',
+                feature: SCAN_CLEANUP_PLATFORM_FEATURE,
+                disposeBindingKey: 'disposeScanCleanupMainBindings',
+                lifecycle: {
+                    create: 'fixture',
+                    ipcRegistration: 'fixture',
+                    shutdown: 'fixture',
+                },
+                create: () => createCompletion,
+            } as never;
+            const dispose = registerLazyPlatformFeature(ipcMain, descriptor, {agentService: mocks.agentService as never});
+            const channel = SCAN_CLEANUP_PLATFORM_FEATURE.methods.pruneGeneratedOutputs.channel;
+            const handler = handlers.get(channel);
+            expect(handler).toBeTypeOf('function');
+
+            const heldRequest = handler?.(createEvent('http://127.0.0.1:41001/electron/viewer'));
+            await Promise.resolve();
+            const firstDisposal = dispose();
+            const secondDisposal = dispose();
+            expect(secondDisposal).toBe(firstDisposal);
+            await expect(handler?.(createEvent('http://127.0.0.1:41001/electron/viewer'))).rejects.toThrow('no longer active');
+
+            resolveCreate({
+                pruneGeneratedOutputs: bindingCall,
+                disposeScanCleanupMainBindings: disposeBinding,
+            });
+            await expect(heldRequest).rejects.toThrow('no longer active');
+            await expect(firstDisposal).rejects.toThrow('held disposal failed');
+            await expect(secondDisposal).rejects.toThrow('held disposal failed');
+            expect(bindingCall).not.toHaveBeenCalled();
+            expect(disposeBinding).toHaveBeenCalledOnce();
+        },
+        ipcRegistrySecurityImportTimeoutMs,
+    );
+
+    it(
+        'tombstones every channel when multi-channel registration rolls back partially',
+        async () => {
+            const {registerLazyPlatformFeature} = await import('@electron/platform-ipc/registerFeatureIpcAdapters');
+            const handlers = new Map<string, TRegisteredHandler>();
+            const handle = vi.fn((channel: string, handler: TRegisteredHandler) => {
+                handlers.set(channel, handler);
+            });
+            const ipcMain = cast<Electron.IpcMain>({handle});
+            const firstChannel = SCAN_CLEANUP_PLATFORM_FEATURE.methods.pruneGeneratedOutputs.channel;
+            const secondChannel = 'scan-cleanup:partial-rollback';
+            const firstDescriptor = {
+                name: 'partial-rollback-first',
+                kind: 'platform',
+                feature: SCAN_CLEANUP_PLATFORM_FEATURE,
+                lifecycle: {
+                    create: 'fixture',
+                    ipcRegistration: 'fixture',
+                    shutdown: 'fixture',
+                },
+                create: async () => ({pruneGeneratedOutputs: vi.fn(async () => 0)}),
+            } as never;
+            registerLazyPlatformFeature(ipcMain, firstDescriptor, {agentService: mocks.agentService as never});
+
+            const partialFeature = {
+                ...SCAN_CLEANUP_PLATFORM_FEATURE,
+                invokeChannels: {
+                    second: secondChannel,
+                    first: firstChannel,
+                },
+                ipcCodecs: {
+                    ...SCAN_CLEANUP_PLATFORM_FEATURE.ipcCodecs,
+                    [secondChannel]: SCAN_CLEANUP_PLATFORM_FEATURE.ipcCodecs[firstChannel],
+                },
+            };
+            const partialDescriptor = {
+                name: 'partial-rollback',
+                kind: 'platform',
+                feature: partialFeature,
+                lifecycle: {
+                    create: 'fixture',
+                    ipcRegistration: 'fixture',
+                    shutdown: 'fixture',
+                },
+                create: async () => ({pruneGeneratedOutputs: vi.fn(async () => 0)}),
+            } as never;
+            expect(() => registerLazyPlatformFeature(ipcMain, partialDescriptor, {agentService: mocks.agentService as never})).toThrow(
+                'Duplicate lazy IPC handler',
+            );
+
+            const partialHandler = handlers.get(secondChannel);
+            expect(partialHandler).toBeTypeOf('function');
+            await expect(partialHandler?.(createEvent('http://127.0.0.1:41001/electron/viewer'))).rejects.toThrow('no longer active');
+
+            const recoveryFeature = {
                 ...SCAN_CLEANUP_PLATFORM_FEATURE,
                 methods: {
-                    first: SCAN_CLEANUP_PLATFORM_FEATURE.methods.pruneGeneratedOutputs,
-                    second: SCAN_CLEANUP_PLATFORM_FEATURE.methods.pruneGeneratedOutputs,
+                    pruneGeneratedOutputs: {
+                        ...SCAN_CLEANUP_PLATFORM_FEATURE.methods.pruneGeneratedOutputs,
+                        channel: secondChannel,
+                    },
                 },
-            },
-            create: async () => ({disposeScanCleanupMainBindings: mocks.scanCleanupDispose}),
-        } as never;
-        const dispose = registerLazyPlatformFeature(ipcMain, descriptor, {agentService: mocks.agentService as never});
-        const channel = SCAN_CLEANUP_PLATFORM_FEATURE.methods.pruneGeneratedOutputs.channel;
-        const handler = handlers.get(channel);
-        expect(handler).toBeTypeOf('function');
+                invokeChannels: {pruneGeneratedOutputs: secondChannel},
+                ipcCodecs: {[secondChannel]: SCAN_CLEANUP_PLATFORM_FEATURE.ipcCodecs[firstChannel]},
+            };
+            const recoveryDescriptor = {
+                name: 'partial-rollback',
+                kind: 'platform',
+                feature: recoveryFeature,
+                lifecycle: {
+                    create: 'fixture',
+                    ipcRegistration: 'fixture',
+                    shutdown: 'fixture',
+                },
+                create: async () => ({pruneGeneratedOutputs: vi.fn(async () => 0)}),
+            } as never;
+            const dispose = registerLazyPlatformFeature(ipcMain, recoveryDescriptor, {agentService: mocks.agentService as never});
+            await expect(handlers.get(secondChannel)?.(createEvent('http://127.0.0.1:41001/electron/viewer'))).resolves.toBe(0);
+            await expect(dispose()).resolves.toBeUndefined();
+        },
+        ipcRegistrySecurityImportTimeoutMs,
+    );
 
-        await expect(handler?.(createEvent('http://127.0.0.1:41001/electron/viewer')))
-            .rejects
-            .toThrow('Duplicate lazy IPC handler');
-        await expect(dispose()).rejects.toThrow('Duplicate lazy IPC handler');
-        expect(mocks.scanCleanupDispose).toHaveBeenCalledOnce();
-    }, ipcRegistrySecurityImportTimeoutMs);
+    it(
+        'rejects same-origin senders outside the configured renderer route',
+        async () => {
+            const handler = await getSettingsHandler();
 
-    it('keeps a failed generation deterministic and retries only in a fresh generation', async () => {
-        const {registerLazyPlatformFeature} = await import('@electron/platform-ipc/registerFeatureIpcAdapters');
-        let attempts = 0;
-        const handlers = new Map<string, TRegisteredHandler>();
-        const handle = vi.fn((channel: string, handler: TRegisteredHandler) => {
-            handlers.set(channel, handler);
-        });
-        const ipcMain = cast<Electron.IpcMain>({handle});
-        const descriptor = {
-            name: 'scan-cleanup-retry-fixture',
-            kind: 'platform',
-            feature: SCAN_CLEANUP_PLATFORM_FEATURE,
-            disposeBindingKey: 'disposeScanCleanupMainBindings',
-            lifecycle: {
-                create: 'fixture',
-                ipcRegistration: 'fixture',
-                shutdown: 'fixture',
-            },
-            create: async () => {
-                attempts += 1;
-                if (attempts === 1) {
-                    throw new Error('first lazy load failed');
-                }
-                return {
-                    pruneGeneratedOutputs: vi.fn(async () => 0),
-                    disposeScanCleanupMainBindings: mocks.scanCleanupDispose,
-                };
-            },
-        } as never;
-        const channel = SCAN_CLEANUP_PLATFORM_FEATURE.methods.pruneGeneratedOutputs.channel;
-        const firstDispose = registerLazyPlatformFeature(
-            ipcMain,
-            descriptor,
-            {agentService: mocks.agentService as never},
-        );
-        const firstHandler = handlers.get(channel);
-        expect(firstHandler).toBeTypeOf('function');
-        const firstHandleCallCount = handle.mock.calls.length;
-        await expect(firstHandler?.(createEvent('http://127.0.0.1:41001/electron/viewer')))
-            .rejects.toThrow('first lazy load failed');
-        await expect(firstHandler?.(createEvent('http://127.0.0.1:41001/electron/viewer')))
-            .rejects.toThrow('first lazy load failed');
-        expect(attempts).toBe(1);
-        await expect(firstDispose()).rejects.toThrow('first lazy load failed');
-        await expect(firstHandler?.(createEvent('http://127.0.0.1:41001/electron/viewer')))
-            .rejects.toThrow('no longer active');
+            await expect(handler(createEvent('http://127.0.0.1:41001/admin'))).rejects.toThrow('IPC sender is not trusted');
 
-        const secondDispose = registerLazyPlatformFeature(
-            ipcMain,
-            descriptor,
-            {agentService: mocks.agentService as never},
-        );
-        expect(handle).toHaveBeenCalledTimes(firstHandleCallCount);
-        const secondHandler = handlers.get(channel);
-        expect(secondHandler).toBe(firstHandler);
-        await expect(Promise.all([
-            secondHandler?.(createEvent('http://127.0.0.1:41001/electron/viewer')),
-            secondHandler?.(createEvent('http://127.0.0.1:41001/electron/viewer')),
-        ])).resolves.toEqual([
-            0,
-            0,
-        ]);
-        await expect(secondDispose()).resolves.toBeUndefined();
-        expect(attempts).toBe(2);
-        expect(mocks.scanCleanupDispose).toHaveBeenCalledOnce();
-    }, ipcRegistrySecurityImportTimeoutMs);
+            expect(mocks.loadSettings).not.toHaveBeenCalled();
+            expect(mocks.logger.warn).toHaveBeenCalledWith(
+                '[ipc] rejected settings:get: untrusted sender URL http://127.0.0.1:41001/admin (expected http://127.0.0.1:41001/electron)',
+            );
+        },
+        ipcRegistrySecurityImportTimeoutMs,
+    );
 
-    it('fences held requests and shares concurrent disposal completion', async () => {
-        const {registerLazyPlatformFeature} = await import('@electron/platform-ipc/registerFeatureIpcAdapters');
-        let resolveCreate!: (bindings: Record<string, unknown>) => void;
-        const createCompletion = new Promise<Record<string, unknown>>(resolve => {
-            resolveCreate = resolve;
-        });
-        const bindingCall = vi.fn(async () => 0);
-        const disposeBinding = vi.fn(async () => {
-            throw new Error('held disposal failed');
-        });
-        const handlers = new Map<string, TRegisteredHandler>();
-        const handle = vi.fn((channel: string, handler: TRegisteredHandler) => {
-            handlers.set(channel, handler);
-        });
-        const ipcMain = cast<Electron.IpcMain>({handle});
-        const descriptor = {
-            name: 'scan-cleanup-held-load-fixture',
-            kind: 'platform',
-            feature: SCAN_CLEANUP_PLATFORM_FEATURE,
-            disposeBindingKey: 'disposeScanCleanupMainBindings',
-            lifecycle: {
-                create: 'fixture',
-                ipcRegistration: 'fixture',
-                shutdown: 'fixture',
-            },
-            create: () => createCompletion,
-        } as never;
-        const dispose = registerLazyPlatformFeature(
-            ipcMain,
-            descriptor,
-            {agentService: mocks.agentService as never},
-        );
-        const channel = SCAN_CLEANUP_PLATFORM_FEATURE.methods.pruneGeneratedOutputs.channel;
-        const handler = handlers.get(channel);
-        expect(handler).toBeTypeOf('function');
+    it(
+        'records the core diagnostic bridge at its real registration site',
+        async () => {
+            await getSettingsHandler();
 
-        const heldRequest = handler?.(createEvent('http://127.0.0.1:41001/electron/viewer'));
-        await Promise.resolve();
-        const firstDisposal = dispose();
-        const secondDisposal = dispose();
-        expect(secondDisposal).toBe(firstDisposal);
-        await expect(handler?.(createEvent('http://127.0.0.1:41001/electron/viewer')))
-            .rejects.toThrow('no longer active');
-
-        resolveCreate({
-            pruneGeneratedOutputs: bindingCall,
-            disposeScanCleanupMainBindings: disposeBinding,
-        });
-        await expect(heldRequest).rejects.toThrow('no longer active');
-        await expect(firstDisposal).rejects.toThrow('held disposal failed');
-        await expect(secondDisposal).rejects.toThrow('held disposal failed');
-        expect(bindingCall).not.toHaveBeenCalled();
-        expect(disposeBinding).toHaveBeenCalledOnce();
-    }, ipcRegistrySecurityImportTimeoutMs);
-
-    it('tombstones every channel when multi-channel registration rolls back partially', async () => {
-        const {registerLazyPlatformFeature} = await import('@electron/platform-ipc/registerFeatureIpcAdapters');
-        const handlers = new Map<string, TRegisteredHandler>();
-        const handle = vi.fn((channel: string, handler: TRegisteredHandler) => {
-            handlers.set(channel, handler);
-        });
-        const ipcMain = cast<Electron.IpcMain>({handle});
-        const firstChannel = SCAN_CLEANUP_PLATFORM_FEATURE.methods.pruneGeneratedOutputs.channel;
-        const secondChannel = 'scan-cleanup:partial-rollback';
-        const firstDescriptor = {
-            name: 'partial-rollback-first',
-            kind: 'platform',
-            feature: SCAN_CLEANUP_PLATFORM_FEATURE,
-            lifecycle: {
-                create: 'fixture',
-                ipcRegistration: 'fixture',
-                shutdown: 'fixture',
-            },
-            create: async () => ({pruneGeneratedOutputs: vi.fn(async () => 0)}),
-        } as never;
-        registerLazyPlatformFeature(ipcMain, firstDescriptor, {agentService: mocks.agentService as never});
-
-        const partialFeature = {
-            ...SCAN_CLEANUP_PLATFORM_FEATURE,
-            invokeChannels: {
-                second: secondChannel,
-                first: firstChannel,
-            },
-            ipcCodecs: {
-                ...SCAN_CLEANUP_PLATFORM_FEATURE.ipcCodecs,
-                [secondChannel]: SCAN_CLEANUP_PLATFORM_FEATURE.ipcCodecs[firstChannel],
-            },
-        };
-        const partialDescriptor = {
-            name: 'partial-rollback',
-            kind: 'platform',
-            feature: partialFeature,
-            lifecycle: {
-                create: 'fixture',
-                ipcRegistration: 'fixture',
-                shutdown: 'fixture',
-            },
-            create: async () => ({pruneGeneratedOutputs: vi.fn(async () => 0)}),
-        } as never;
-        expect(() => registerLazyPlatformFeature(
-            ipcMain,
-            partialDescriptor,
-            {agentService: mocks.agentService as never},
-        )).toThrow('Duplicate lazy IPC handler');
-
-        const partialHandler = handlers.get(secondChannel);
-        expect(partialHandler).toBeTypeOf('function');
-        await expect(partialHandler?.(createEvent('http://127.0.0.1:41001/electron/viewer')))
-            .rejects.toThrow('no longer active');
-
-        const recoveryFeature = {
-            ...SCAN_CLEANUP_PLATFORM_FEATURE,
-            methods: {pruneGeneratedOutputs: {
-                ...SCAN_CLEANUP_PLATFORM_FEATURE.methods.pruneGeneratedOutputs,
-                channel: secondChannel,
-            }},
-            invokeChannels: {pruneGeneratedOutputs: secondChannel},
-            ipcCodecs: {[secondChannel]: SCAN_CLEANUP_PLATFORM_FEATURE.ipcCodecs[firstChannel]},
-        };
-        const recoveryDescriptor = {
-            name: 'partial-rollback',
-            kind: 'platform',
-            feature: recoveryFeature,
-            lifecycle: {
-                create: 'fixture',
-                ipcRegistration: 'fixture',
-                shutdown: 'fixture',
-            },
-            create: async () => ({pruneGeneratedOutputs: vi.fn(async () => 0)}),
-        } as never;
-        const dispose = registerLazyPlatformFeature(
-            ipcMain,
-            recoveryDescriptor,
-            {agentService: mocks.agentService as never},
-        );
-        await expect(handlers.get(secondChannel)?.(createEvent('http://127.0.0.1:41001/electron/viewer')))
-            .resolves.toBe(0);
-        await expect(dispose()).resolves.toBeUndefined();
-    }, ipcRegistrySecurityImportTimeoutMs);
-
-    it('rejects same-origin senders outside the configured renderer route', async () => {
-        const handler = await getSettingsHandler();
-
-        await expect(handler(createEvent('http://127.0.0.1:41001/admin')))
-            .rejects.toThrow('IPC sender is not trusted');
-
-        expect(mocks.loadSettings).not.toHaveBeenCalled();
-        expect(mocks.logger.warn).toHaveBeenCalledWith(
-            '[ipc] rejected settings:get: untrusted sender URL http://127.0.0.1:41001/admin (expected http://127.0.0.1:41001/electron)',
-        );
-    }, ipcRegistrySecurityImportTimeoutMs);
-
-    it('records the core diagnostic bridge at its real registration site', async () => {
-        await getSettingsHandler();
-
-        expect(rawIpcRegistrationAudit.getRegisteredNames()).toEqual(['renderer-log']);
-    }, ipcRegistrySecurityImportTimeoutMs);
+            expect(rawIpcRegistrationAudit.getRegisteredNames()).toEqual(['renderer-log']);
+        },
+        ipcRegistrySecurityImportTimeoutMs,
+    );
 
     it('allows senders under the configured renderer route', async () => {
         const handler = await getSettingsHandler();
 
-        await expect(handler(createEvent('http://127.0.0.1:41001/electron/settings')))
-            .resolves.toMatchObject({theme: 'dark'});
+        await expect(handler(createEvent('http://127.0.0.1:41001/electron/settings'))).resolves.toMatchObject({theme: 'dark'});
 
         expect(mocks.loadSettings).toHaveBeenCalledOnce();
     });
@@ -559,300 +549,338 @@ describe('IPC registry sender trust', () => {
         await expect(handler(event)).rejects.toThrow('IPC sender is not trusted');
 
         expect(mocks.loadSettings).not.toHaveBeenCalled();
-        expect(mocks.logger.warn).toHaveBeenCalledWith(
-            '[ipc] rejected settings:get: sender window is not registered',
-        );
+        expect(mocks.logger.warn).toHaveBeenCalledWith('[ipc] rejected settings:get: sender window is not registered');
     });
 
-    it('requires a trusted sender and a valid startup phase on rendererReady', async () => {
-        const onRendererReady = vi.fn();
-        const shellInteractive = {phase: 'shell-interactive'};
-        const rendererFailure = {phase: 'failed', reason: 'renderer-error'};
-        const { registerIpcHandlers } = await import('@electron/platform-ipc/registerIpcHandlers');
-        registerIpcHandlers({onRendererReady});
+    it(
+        'requires a trusted sender and a valid startup phase on rendererReady',
+        async () => {
+            const onRendererReady = vi.fn();
+            const shellInteractive = {phase: 'shell-interactive'};
+            const rendererFailure = {phase: 'failed', reason: 'renderer-error'};
+            const {registerIpcHandlers} = await import('@electron/platform-ipc/registerIpcHandlers');
+            registerIpcHandlers({onRendererReady});
 
-        const filePortHandler = mocks.events.get('file:savePdfData:port');
-        const rendererReadyHandler = mocks.events.get('app:rendererReady');
-        expect(filePortHandler).toBeTypeOf('function');
-        expect(rendererReadyHandler).toBeTypeOf('function');
+            const filePortHandler = mocks.events.get('file:savePdfData:port');
+            const rendererReadyHandler = mocks.events.get('app:rendererReady');
+            expect(filePortHandler).toBeTypeOf('function');
+            expect(rendererReadyHandler).toBeTypeOf('function');
 
-        filePortHandler?.(createEvent('http://127.0.0.1:41001/admin'), 'session-1');
-        filePortHandler?.(createDestroyedEvent(), 'session-2');
-        rendererReadyHandler?.(createSubframeEvent(), shellInteractive);
-        const trustedReadyEvent = createEvent('http://127.0.0.1:41001/electron/viewer');
-        rendererReadyHandler?.(trustedReadyEvent);
-        rendererReadyHandler?.(trustedReadyEvent, {phase: 'failed', reason: 'timed-out'});
+            filePortHandler?.(createEvent('http://127.0.0.1:41001/admin'), 'session-1');
+            filePortHandler?.(createDestroyedEvent(), 'session-2');
+            rendererReadyHandler?.(createSubframeEvent(), shellInteractive);
+            const trustedReadyEvent = createEvent('http://127.0.0.1:41001/electron/viewer');
+            rendererReadyHandler?.(trustedReadyEvent);
+            rendererReadyHandler?.(trustedReadyEvent, {phase: 'failed', reason: 'timed-out'});
 
-        expect(mocks.attachSerializedPdfPersistencePort).not.toHaveBeenCalled();
-        expect(onRendererReady).not.toHaveBeenCalled();
+            expect(mocks.attachSerializedPdfPersistencePort).not.toHaveBeenCalled();
+            expect(onRendererReady).not.toHaveBeenCalled();
 
-        const trustedFileEvent = createEvent('http://127.0.0.1:41001/electron/viewer');
-        filePortHandler?.(trustedFileEvent, 'session-3');
-        rendererReadyHandler?.(trustedReadyEvent, shellInteractive);
-        rendererReadyHandler?.(trustedReadyEvent, rendererFailure);
-        await vi.dynamicImportSettled();
-
-        expect(mocks.attachSerializedPdfPersistencePort).toHaveBeenCalledWith(trustedFileEvent, 'session-3');
-        expect(onRendererReady).toHaveBeenCalledWith(trustedReadyEvent, shellInteractive);
-        expect(onRendererReady).toHaveBeenCalledWith(trustedReadyEvent, rendererFailure);
-    }, ipcRegistrySecurityImportTimeoutMs);
-
-    it('defers agent service creation until a trusted agent IPC call arrives', async () => {
-        const { registerIpcHandlers } = await import('@electron/platform-ipc/registerIpcHandlers');
-        registerIpcHandlers();
-
-        expect(mocks.createAgentService).not.toHaveBeenCalled();
-
-        const handler = mocks.handlers.get('agent:getMcpIntegrationStatus');
-        expect(handler).toBeTypeOf('function');
-
-        await expect(handler?.(createEvent('http://127.0.0.1:41001/admin')))
-            .rejects.toThrow('IPC sender is not trusted');
-        expect(mocks.createAgentService).not.toHaveBeenCalled();
-
-        await expect(handler?.(createEvent('http://127.0.0.1:41001/electron/viewer')))
-            .resolves.toMatchObject({enabled: false});
-        expect(mocks.createAgentService).toHaveBeenCalledOnce();
-    }, ipcRegistrySecurityImportTimeoutMs);
-
-    it('validates lazy documents-direct invoke channels and rejects untrusted senders before loading', async () => {
-        const { registerIpcHandlers } = await import('@electron/platform-ipc/registerIpcHandlers');
-        registerIpcHandlers();
-
-        const handler = mocks.handlers.get('dialog:registerRendererFileOpenToken');
-        expect(handler).toBeTypeOf('function');
-
-        await expect(handler?.(createEvent('http://127.0.0.1:41001/admin'), 'not-trusted'))
-            .rejects.toThrow('IPC sender is not trusted');
-        expect(mocks.registerDocumentRevisionEventBridge).not.toHaveBeenCalled();
-
-        const trustedEvent = createEvent('http://127.0.0.1:41001/electron/viewer');
-        await expect(handler?.(trustedEvent, 123))
-            .rejects.toThrow('Invalid IPC arguments for dialog:registerRendererFileOpenToken');
-        expect(mocks.registerDocumentRevisionEventBridge).toHaveBeenCalledOnce();
-        await expect(handler?.(trustedEvent, '00000000-0000-4000-8000-000000000001'))
-            .resolves.toBe(true);
-    }, ipcRegistrySecurityImportTimeoutMs);
-
-    it('routes updates IPC through a shared lazy loader and preserves noArgumentChannels with lazyCodecs', async () => {
-        const sharedUpdatesModule = {
-            deferDownloadedUpdate: vi.fn(),
-            downloadAvailableUpdate: vi.fn(),
-            getUpdateStatus: vi.fn(() => ({phase: 'idle'})),
-            installDownloadedUpdate: vi.fn(),
-            skipUpdateVersion: vi.fn(),
-            triggerManualUpdateCheck: vi.fn(),
-        };
-        const loadUpdatesModule = vi.fn(async () => sharedUpdatesModule as never);
-        const { registerIpcHandlers } = await import('@electron/platform-ipc/registerIpcHandlers');
-        registerIpcHandlers({loadUpdatesModule});
-
-        const updatesHandler = mocks.handlers.get('updates:getState');
-        expect(updatesHandler).toBeTypeOf('function');
-        expect(loadUpdatesModule).not.toHaveBeenCalled();
-
-        await expect(updatesHandler?.(createEvent('http://127.0.0.1:41001/electron/viewer')))
-            .resolves.toMatchObject({phase: 'idle'});
-        expect(loadUpdatesModule).toHaveBeenCalledOnce();
-
-        const { createValidatedIpcMainRegistrar } = await import('@electron/platform-ipc/validatedIpcRegistrar');
-        const lazyCodecs = vi.fn(async () => ({}));
-        const customHandlers = new Map<string, TRegisteredHandler>();
-        const registrar = createValidatedIpcMainRegistrar(
-            {handle: (channel, handler) => customHandlers.set(channel, handler as TRegisteredHandler)},
-            {
-                allowedChannels: new Set(['test:no-arg']),
-                argumentValidation: {noArgumentChannels: new Set(['test:no-arg'])},
-                lazyCodecs,
-            },
-        );
-        const noArgImpl = vi.fn(() => 'ok');
-        registrar.handle('test:no-arg', noArgImpl);
-
-        await expect(customHandlers.get('test:no-arg')?.(createEvent('http://127.0.0.1:41001/electron/viewer')))
-            .resolves.toBe('ok');
-        expect(lazyCodecs).not.toHaveBeenCalled();
-        await expect(customHandlers.get('test:no-arg')?.(createEvent('http://127.0.0.1:41001/electron/viewer'), 'extra'))
-            .rejects.toThrow('Invalid IPC arguments for test:no-arg');
-    }, ipcRegistrySecurityImportTimeoutMs);
-
-    it('does not consume shell open rate-limit quota for invalid external URLs', async () => {
-        mocks.sanitizeAllowedExternalUrl
-            .mockImplementationOnce(() => {
-                throw new Error('Invalid external URL');
-            })
-            .mockImplementation((value: unknown) => value);
-        const { registerIpcHandlers } = await import('@electron/platform-ipc/registerIpcHandlers');
-        registerIpcHandlers();
-        const handler = mocks.handlers.get('shell:openExternal');
-        expect(handler).toBeTypeOf('function');
-        const event = createEvent('http://127.0.0.1:41001/electron/viewer');
-
-        await expect(handler?.(event, 'javascript:alert(1)')).rejects.toThrow('Invalid external URL');
-        await expect(handler?.(event, 'https://example.test/')).resolves.toBeUndefined();
-
-        expect(mocks.shellOpenExternal).toHaveBeenCalledOnce();
-        expect(mocks.shellOpenExternal).toHaveBeenCalledWith('https://example.test/');
-    }, ipcRegistrySecurityImportTimeoutMs);
-
-    it('clears shell open rate-limit state when the sender is destroyed', async () => {
-        const { registerIpcHandlers } = await import('@electron/platform-ipc/registerIpcHandlers');
-        registerIpcHandlers();
-        const handler = mocks.handlers.get('shell:openExternal');
-        expect(handler).toBeTypeOf('function');
-        const event = createEvent('http://127.0.0.1:41001/electron/viewer');
-
-        await expect(handler?.(event, 'https://example.test/first')).resolves.toBeUndefined();
-        await expect(handler?.(event, 'https://example.test/second'))
-            .rejects
-            .toThrow('External URL opens are being requested too frequently.');
-
-        (event.sender as EventEmitter).emit('destroyed');
-
-        await expect(handler?.(event, 'https://example.test/after-destroy')).resolves.toBeUndefined();
-        expect(mocks.shellOpenExternal).toHaveBeenCalledTimes(2);
-    }, ipcRegistrySecurityImportTimeoutMs);
-
-    it('rejects assistant image payloads that exceed IPC attachment budgets', async () => {
-        const { registerIpcHandlers } = await import('@electron/platform-ipc/registerIpcHandlers');
-        registerIpcHandlers();
-        const handler = mocks.handlers.get('agent:sendAssistantMessage');
-        expect(handler).toBeTypeOf('function');
-        const event = createEvent('http://127.0.0.1:41001/electron/viewer');
-        const imageAttachment = {
-            type: 'image',
-            id: 'image-1',
-            name: 'image.png',
-            mimeType: 'image/png',
-            sizeBytes: 4,
-            dataUrl: 'data:image/png;base64,AAAA',
-        };
-
-        const request = {
-            text: 'hello',
-            scope: {
-                kind: 'document',
-                key: 'document:a',
-                title: 'a.pdf',
-            },
-            selection: {
-                instanceId: 'codex',
-                model: 'gpt-5.4',
-                effort: 'high',
-                speedMode: 'standard',
-            },
-        };
-
-        await expect(handler?.(event, {
-            ...request,
-            attachments: Array.from(
-                { length: ASSISTANT_MAX_IMAGE_ATTACHMENTS + 1 },
-                (_, index) => ({
-                    ...imageAttachment,
-                    id: `image-${index}`,
-                }),
-            ),
-        })).rejects.toThrow('Invalid IPC arguments for agent:sendAssistantMessage');
-
-        await expect(handler?.(event, {
-            ...request,
-            attachments: [{
-                ...imageAttachment,
-                sizeBytes: ASSISTANT_MAX_IMAGE_BYTES + 1,
-            }],
-        })).rejects.toThrow('Invalid IPC arguments for agent:sendAssistantMessage');
-
-        await expect(handler?.(event, {
-            ...request,
-            attachments: [{
-                ...imageAttachment,
-                dataUrl: `data:image/png;base64,${'A'.repeat(Math.ceil(ASSISTANT_MAX_IMAGE_BYTES / 3) * 4 + 129)}`,
-            }],
-        })).rejects.toThrow('Invalid IPC arguments for agent:sendAssistantMessage');
-        expect(mocks.agentService.sendAssistantMessage).not.toHaveBeenCalled();
-        await expect(handler?.(event, {
-            ...request,
-            attachments: [imageAttachment],
-        })).resolves.toMatchObject({ok: true});
-    }, ipcRegistrySecurityImportTimeoutMs);
-
-    it('rejects malformed tab transfer payloads before calling the transfer broker', async () => {
-        const { registerIpcHandlers } = await import('@electron/platform-ipc/registerIpcHandlers');
-        registerIpcHandlers();
-        const handler = mocks.handlers.get('tabs:transfer');
-        expect(handler).toBeTypeOf('function');
-        const event = createEvent('http://127.0.0.1:41001/electron/viewer');
-        const validTab = {
-            fileName: 'doc.pdf',
-            originalPath: '/tmp/doc.pdf',
-            isDirty: false,
-            isDjvu: false,
-        };
-
-        await expect(handler?.(event, {
-            target: {
-                kind: 'window',
-                windowId: 42,
-            },
-            payload: { kind: 'empty' },
-        })).rejects.toThrow('Invalid IPC arguments for tabs:transfer');
-
-        await expect(handler?.(event, {
-            target: {
-                kind: 'window',
-                windowId: 42,
-            },
-            tab: validTab,
-            payload: { kind: 'unsupported' },
-        })).rejects.toThrow('Invalid IPC arguments for tabs:transfer');
-
-        expect(mocks.requestWindowTabTransfer).not.toHaveBeenCalled();
-    }, ipcRegistrySecurityImportTimeoutMs);
-
-    it('coalesces trusted settings saves per sender before writing settings', async () => {
-        vi.useFakeTimers();
-        try {
-            const { registerIpcHandlers } = await import('@electron/platform-ipc/registerIpcHandlers');
-            registerIpcHandlers();
-            const handler = mocks.handlers.get('settings:save');
-            expect(handler).toBeTypeOf('function');
-            const event = createEvent('http://127.0.0.1:41001/electron/settings');
-
-            await expect(handler?.(event, {skippedUpdateVersion: 'renderer-stale'}))
-                .rejects
-                .toThrow('Invalid IPC arguments for settings:save');
-            await expect(handler?.(event, {agentMcpEnabled: false}))
-                .rejects
-                .toThrow('Invalid IPC arguments for settings:save');
-
-            const firstSave = handler?.(event, {theme: 'dark'});
-            const secondSave = handler?.(event, {assistantPanelEnabled: true});
-
-            expect(mocks.updateSettings).not.toHaveBeenCalled();
-
+            const trustedFileEvent = createEvent('http://127.0.0.1:41001/electron/viewer');
+            filePortHandler?.(trustedFileEvent, 'session-3');
+            rendererReadyHandler?.(trustedReadyEvent, shellInteractive);
+            rendererReadyHandler?.(trustedReadyEvent, rendererFailure);
             await vi.dynamicImportSettled();
-            await vi.advanceTimersByTimeAsync(25);
-            await expect(Promise.all([
-                firstSave,
-                secondSave,
-            ])).resolves.toEqual([
-                undefined,
-                undefined,
-            ]);
 
-            expect(mocks.updateSettings).toHaveBeenCalledOnce();
-            expect(mocks.setElectronLocale).toHaveBeenCalledWith('en');
-            expect(mocks.setElectronLocale.mock.invocationCallOrder[0]!)
-                .toBeLessThan(mocks.updateRecentFilesMenu.mock.invocationCallOrder[0]!);
-            const persistedSettings = await (mocks.updateSettings.mock.results[0]?.value as Promise<Record<string, unknown>>);
-            expect(persistedSettings).toEqual(expect.objectContaining({
-                theme: 'dark',
-                assistantPanelEnabled: true,
-                skippedUpdateVersion: 'keep-version',
-                agentMcpEnabled: true,
-            }));
-        } finally {
-            vi.useRealTimers();
-        }
-    }, ipcRegistrySecurityImportTimeoutMs);
+            expect(mocks.attachSerializedPdfPersistencePort).toHaveBeenCalledWith(trustedFileEvent, 'session-3');
+            expect(onRendererReady).toHaveBeenCalledWith(trustedReadyEvent, shellInteractive);
+            expect(onRendererReady).toHaveBeenCalledWith(trustedReadyEvent, rendererFailure);
+        },
+        ipcRegistrySecurityImportTimeoutMs,
+    );
+
+    it(
+        'defers agent service creation until a trusted agent IPC call arrives',
+        async () => {
+            const {registerIpcHandlers} = await import('@electron/platform-ipc/registerIpcHandlers');
+            registerIpcHandlers();
+
+            expect(mocks.createAgentService).not.toHaveBeenCalled();
+
+            const handler = mocks.handlers.get('agent:getMcpIntegrationStatus');
+            expect(handler).toBeTypeOf('function');
+
+            await expect(handler?.(createEvent('http://127.0.0.1:41001/admin'))).rejects.toThrow('IPC sender is not trusted');
+            expect(mocks.createAgentService).not.toHaveBeenCalled();
+
+            await expect(handler?.(createEvent('http://127.0.0.1:41001/electron/viewer'))).resolves.toMatchObject({enabled: false});
+            expect(mocks.createAgentService).toHaveBeenCalledOnce();
+        },
+        ipcRegistrySecurityImportTimeoutMs,
+    );
+
+    it(
+        'validates lazy documents-direct invoke channels and rejects untrusted senders before loading',
+        async () => {
+            const {registerIpcHandlers} = await import('@electron/platform-ipc/registerIpcHandlers');
+            registerIpcHandlers();
+
+            const handler = mocks.handlers.get('dialog:registerRendererFileOpenToken');
+            expect(handler).toBeTypeOf('function');
+
+            await expect(handler?.(createEvent('http://127.0.0.1:41001/admin'), 'not-trusted')).rejects.toThrow(
+                'IPC sender is not trusted',
+            );
+            expect(mocks.registerDocumentRevisionEventBridge).not.toHaveBeenCalled();
+
+            const trustedEvent = createEvent('http://127.0.0.1:41001/electron/viewer');
+            await expect(handler?.(trustedEvent, 123)).rejects.toThrow('Invalid IPC arguments for dialog:registerRendererFileOpenToken');
+            expect(mocks.registerDocumentRevisionEventBridge).toHaveBeenCalledOnce();
+            await expect(handler?.(trustedEvent, '00000000-0000-4000-8000-000000000001')).resolves.toBe(true);
+        },
+        ipcRegistrySecurityImportTimeoutMs,
+    );
+
+    it(
+        'routes updates IPC through a shared lazy loader and preserves noArgumentChannels with lazyCodecs',
+        async () => {
+            const sharedUpdatesModule = {
+                deferDownloadedUpdate: vi.fn(),
+                downloadAvailableUpdate: vi.fn(),
+                getUpdateStatus: vi.fn(() => ({phase: 'idle'})),
+                installDownloadedUpdate: vi.fn(),
+                skipUpdateVersion: vi.fn(),
+                triggerManualUpdateCheck: vi.fn(),
+            };
+            const loadUpdatesModule = vi.fn(async () => sharedUpdatesModule as never);
+            const {registerIpcHandlers} = await import('@electron/platform-ipc/registerIpcHandlers');
+            registerIpcHandlers({loadUpdatesModule});
+
+            const updatesHandler = mocks.handlers.get('updates:getState');
+            expect(updatesHandler).toBeTypeOf('function');
+            expect(loadUpdatesModule).not.toHaveBeenCalled();
+
+            await expect(updatesHandler?.(createEvent('http://127.0.0.1:41001/electron/viewer'))).resolves.toMatchObject({phase: 'idle'});
+            expect(loadUpdatesModule).toHaveBeenCalledOnce();
+
+            const {createValidatedIpcMainRegistrar} = await import('@electron/platform-ipc/validatedIpcRegistrar');
+            const lazyCodecs = vi.fn(async () => ({}));
+            const customHandlers = new Map<string, TRegisteredHandler>();
+            const registrar = createValidatedIpcMainRegistrar(
+                {handle: (channel, handler) => customHandlers.set(channel, handler as TRegisteredHandler)},
+                {
+                    allowedChannels: new Set(['test:no-arg']),
+                    argumentValidation: {noArgumentChannels: new Set(['test:no-arg'])},
+                    lazyCodecs,
+                },
+            );
+            const noArgImpl = vi.fn(() => 'ok');
+            registrar.handle('test:no-arg', noArgImpl);
+
+            await expect(customHandlers.get('test:no-arg')?.(createEvent('http://127.0.0.1:41001/electron/viewer'))).resolves.toBe('ok');
+            expect(lazyCodecs).not.toHaveBeenCalled();
+            await expect(
+                customHandlers.get('test:no-arg')?.(createEvent('http://127.0.0.1:41001/electron/viewer'), 'extra'),
+            ).rejects.toThrow('Invalid IPC arguments for test:no-arg');
+        },
+        ipcRegistrySecurityImportTimeoutMs,
+    );
+
+    it(
+        'does not consume shell open rate-limit quota for invalid external URLs',
+        async () => {
+            mocks.sanitizeAllowedExternalUrl
+                .mockImplementationOnce(() => {
+                    throw new Error('Invalid external URL');
+                })
+                .mockImplementation((value: unknown) => value);
+            const {registerIpcHandlers} = await import('@electron/platform-ipc/registerIpcHandlers');
+            registerIpcHandlers();
+            const handler = mocks.handlers.get('shell:openExternal');
+            expect(handler).toBeTypeOf('function');
+            const event = createEvent('http://127.0.0.1:41001/electron/viewer');
+
+            await expect(handler?.(event, 'javascript:alert(1)')).rejects.toThrow('Invalid external URL');
+            await expect(handler?.(event, 'https://example.test/')).resolves.toBeUndefined();
+
+            expect(mocks.shellOpenExternal).toHaveBeenCalledOnce();
+            expect(mocks.shellOpenExternal).toHaveBeenCalledWith('https://example.test/');
+        },
+        ipcRegistrySecurityImportTimeoutMs,
+    );
+
+    it(
+        'clears shell open rate-limit state when the sender is destroyed',
+        async () => {
+            const {registerIpcHandlers} = await import('@electron/platform-ipc/registerIpcHandlers');
+            registerIpcHandlers();
+            const handler = mocks.handlers.get('shell:openExternal');
+            expect(handler).toBeTypeOf('function');
+            const event = createEvent('http://127.0.0.1:41001/electron/viewer');
+
+            await expect(handler?.(event, 'https://example.test/first')).resolves.toBeUndefined();
+            await expect(handler?.(event, 'https://example.test/second')).rejects.toThrow(
+                'External URL opens are being requested too frequently.',
+            );
+
+            (event.sender as EventEmitter).emit('destroyed');
+
+            await expect(handler?.(event, 'https://example.test/after-destroy')).resolves.toBeUndefined();
+            expect(mocks.shellOpenExternal).toHaveBeenCalledTimes(2);
+        },
+        ipcRegistrySecurityImportTimeoutMs,
+    );
+
+    it(
+        'rejects assistant image payloads that exceed IPC attachment budgets',
+        async () => {
+            const {registerIpcHandlers} = await import('@electron/platform-ipc/registerIpcHandlers');
+            registerIpcHandlers();
+            const handler = mocks.handlers.get('agent:sendAssistantMessage');
+            expect(handler).toBeTypeOf('function');
+            const event = createEvent('http://127.0.0.1:41001/electron/viewer');
+            const imageAttachment = {
+                type: 'image',
+                id: 'image-1',
+                name: 'image.png',
+                mimeType: 'image/png',
+                sizeBytes: 4,
+                dataUrl: 'data:image/png;base64,AAAA',
+            };
+
+            const request = {
+                text: 'hello',
+                scope: {
+                    kind: 'document',
+                    key: 'document:a',
+                    title: 'a.pdf',
+                },
+                selection: {
+                    instanceId: 'codex',
+                    model: 'gpt-5.4',
+                    effort: 'high',
+                    speedMode: 'standard',
+                },
+            };
+
+            await expect(
+                handler?.(event, {
+                    ...request,
+                    attachments: Array.from({length: ASSISTANT_MAX_IMAGE_ATTACHMENTS + 1}, (_, index) => ({
+                        ...imageAttachment,
+                        id: `image-${index}`,
+                    })),
+                }),
+            ).rejects.toThrow('Invalid IPC arguments for agent:sendAssistantMessage');
+
+            await expect(
+                handler?.(event, {
+                    ...request,
+                    attachments: [
+                        {
+                            ...imageAttachment,
+                            sizeBytes: ASSISTANT_MAX_IMAGE_BYTES + 1,
+                        },
+                    ],
+                }),
+            ).rejects.toThrow('Invalid IPC arguments for agent:sendAssistantMessage');
+
+            await expect(
+                handler?.(event, {
+                    ...request,
+                    attachments: [
+                        {
+                            ...imageAttachment,
+                            dataUrl: `data:image/png;base64,${'A'.repeat(Math.ceil(ASSISTANT_MAX_IMAGE_BYTES / 3) * 4 + 129)}`,
+                        },
+                    ],
+                }),
+            ).rejects.toThrow('Invalid IPC arguments for agent:sendAssistantMessage');
+            expect(mocks.agentService.sendAssistantMessage).not.toHaveBeenCalled();
+            await expect(
+                handler?.(event, {
+                    ...request,
+                    attachments: [imageAttachment],
+                }),
+            ).resolves.toMatchObject({ok: true});
+        },
+        ipcRegistrySecurityImportTimeoutMs,
+    );
+
+    it(
+        'rejects malformed tab transfer payloads before calling the transfer broker',
+        async () => {
+            const {registerIpcHandlers} = await import('@electron/platform-ipc/registerIpcHandlers');
+            registerIpcHandlers();
+            const handler = mocks.handlers.get('tabs:transfer');
+            expect(handler).toBeTypeOf('function');
+            const event = createEvent('http://127.0.0.1:41001/electron/viewer');
+            const validTab = {
+                fileName: 'doc.pdf',
+                originalPath: '/tmp/doc.pdf',
+                isDirty: false,
+                isDjvu: false,
+            };
+
+            await expect(
+                handler?.(event, {
+                    target: {
+                        kind: 'window',
+                        windowId: 42,
+                    },
+                    payload: {kind: 'empty'},
+                }),
+            ).rejects.toThrow('Invalid IPC arguments for tabs:transfer');
+
+            await expect(
+                handler?.(event, {
+                    target: {
+                        kind: 'window',
+                        windowId: 42,
+                    },
+                    tab: validTab,
+                    payload: {kind: 'unsupported'},
+                }),
+            ).rejects.toThrow('Invalid IPC arguments for tabs:transfer');
+
+            expect(mocks.requestWindowTabTransfer).not.toHaveBeenCalled();
+        },
+        ipcRegistrySecurityImportTimeoutMs,
+    );
+
+    it(
+        'coalesces trusted settings saves per sender before writing settings',
+        async () => {
+            vi.useFakeTimers();
+            try {
+                const {registerIpcHandlers} = await import('@electron/platform-ipc/registerIpcHandlers');
+                registerIpcHandlers();
+                const handler = mocks.handlers.get('settings:save');
+                expect(handler).toBeTypeOf('function');
+                const event = createEvent('http://127.0.0.1:41001/electron/settings');
+
+                await expect(handler?.(event, {skippedUpdateVersion: 'renderer-stale'})).rejects.toThrow(
+                    'Invalid IPC arguments for settings:save',
+                );
+                await expect(handler?.(event, {agentMcpEnabled: false})).rejects.toThrow('Invalid IPC arguments for settings:save');
+
+                const firstSave = handler?.(event, {theme: 'dark'});
+                const secondSave = handler?.(event, {assistantPanelEnabled: true});
+
+                expect(mocks.updateSettings).not.toHaveBeenCalled();
+
+                await vi.dynamicImportSettled();
+                await vi.advanceTimersByTimeAsync(25);
+                await expect(Promise.all([firstSave, secondSave])).resolves.toEqual([undefined, undefined]);
+
+                expect(mocks.updateSettings).toHaveBeenCalledOnce();
+                expect(mocks.setElectronLocale).toHaveBeenCalledWith('en');
+                expect(mocks.setElectronLocale.mock.invocationCallOrder[0]!).toBeLessThan(
+                    mocks.updateRecentFilesMenu.mock.invocationCallOrder[0]!,
+                );
+                const persistedSettings = await (mocks.updateSettings.mock.results[0]?.value as Promise<Record<string, unknown>>);
+                expect(persistedSettings).toEqual(
+                    expect.objectContaining({
+                        theme: 'dark',
+                        assistantPanelEnabled: true,
+                        skippedUpdateVersion: 'keep-version',
+                        agentMcpEnabled: true,
+                    }),
+                );
+            } finally {
+                vi.useRealTimers();
+            }
+        },
+        ipcRegistrySecurityImportTimeoutMs,
+    );
 });

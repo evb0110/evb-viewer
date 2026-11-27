@@ -1,5 +1,5 @@
-import type { IPdfViewerRegionCaptureExpose } from '@app/modules/pdf-viewer/engine/pdf-region-capture/pdfRegionCaptureTypes';
-import type { TPageNumber } from '@contracts/pageNumbers';
+import type {IPdfViewerRegionCaptureExpose} from '@app/modules/pdf-viewer/engine/pdf-region-capture/pdfRegionCaptureTypes';
+import type {TPageNumber} from '@contracts/pageNumbers';
 
 import type {
     IAnnotationCommentSummary,
@@ -10,29 +10,26 @@ import type {
     TMarkupSubtype,
 } from '@app/types/annotations';
 import type {IPageIdentityDelta} from '@contracts/electronApiPageOps';
-import type { IShapeAnnotationConstructionOptions } from '@app/types/shapeAnnotationConstructionOptions';
-import type { ICropSelectionResult } from '@app/types/crop';
-import type { IPdfPageMetric } from '@app/types/pdfUi';
-import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
-import type {
-    IPdfSemanticAnchor,
-    TDocumentSidebarTab,
-} from '@app/modules/document-viewer/public';
-import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
+import type {IShapeAnnotationConstructionOptions} from '@app/types/shapeAnnotationConstructionOptions';
+import type {ICropSelectionResult} from '@app/types/crop';
+import type {IPdfPageMetric} from '@app/types/pdfUi';
+import type {IScrollToPageOptions} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
+import type {IPdfSemanticAnchor, TDocumentSidebarTab} from '@app/modules/document-viewer/public';
+import type {IBrowserPrintDocument} from '@app/utils/pdfPrintShared';
 import type {
     IPdfViewerNativeMaterializationRequest,
     IPdfViewerSaveTransactionResult,
 } from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
 import type {IWorkspaceCommandSink} from '@app/types/workspaceCommand';
-import type { TAnnotationCreationFailureReason } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import type { IPdfReloadWaiterViewer } from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/pdfReloadWaiterViewer';
-import type { AnnotationEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import type {TAnnotationCreationFailureReason} from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
+import type {TDocumentRevisionToken} from '@contracts/documentRevision';
+import type {IPdfReloadWaiterViewer} from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/pdfReloadWaiterViewer';
+import type {AnnotationEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type {
     ICanonicalAnnotationRecovery,
     TAnnotationRecoveryDraftInput,
 } from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
-export type { IPdfViewerRegionCaptureExpose } from '@app/modules/pdf-viewer/engine/pdf-region-capture/pdfRegionCaptureTypes';
+export type {IPdfViewerRegionCaptureExpose} from '@app/modules/pdf-viewer/engine/pdf-region-capture/pdfRegionCaptureTypes';
 
 export type TPdfSidebarTab = TDocumentSidebarTab;
 export type TAgentTextMarkupKind = 'highlight' | 'underline' | 'strikethrough' | 'squiggly';
@@ -71,13 +68,17 @@ export interface ICreatePointNoteAnnotationOptions {
     preferTextAnchor?: boolean | undefined;
 }
 
-export interface ICreatePointNoteAnnotationResult extends Pick<ICreateTextMarkupFromTextResult,
-    'created' | 'pageNumber' | 'reason' | 'failureReason' | 'pendingEditor'> {
+export interface ICreatePointNoteAnnotationResult extends Pick<
+    ICreateTextMarkupFromTextResult,
+    'created' | 'pageNumber' | 'reason' | 'failureReason' | 'pendingEditor'
+> {
     pageX: number;
     pageY: number;
 }
 
-export interface ICreateShapeAnnotationOptions extends IShapeAnnotationConstructionOptions {pageNumber: TPageNumber;}
+export interface ICreateShapeAnnotationOptions extends IShapeAnnotationConstructionOptions {
+    pageNumber: TPageNumber;
+}
 
 export interface ICreateShapeAnnotationResult {
     created: boolean;
@@ -116,13 +117,9 @@ export interface IDocumentViewerExpose {
         /** How the mutation renumbers pages: a view keeps reading the page it was on. */
         pageIdentityDelta?: IPageIdentityDelta;
     }) => boolean | Promise<boolean>;
-    beginPageRotationPreview?: (input: {
-        invalidatedPages: readonly number[];
-        rotationDelta: 90 | 180 | 270;
-    }) => boolean | Promise<boolean>;
+    beginPageRotationPreview?: (input: {invalidatedPages: readonly number[]; rotationDelta: 90 | 180 | 270}) => boolean | Promise<boolean>;
     cancelPageRotationPreview?: (input: {invalidatedPages: readonly number[]}) => boolean | Promise<boolean>;
 }
-
 
 export interface IPdfViewerCropExpose {
     startCropSelection: () => Promise<ICropSelectionResult | null>;
@@ -136,11 +133,13 @@ export interface IPdfViewerSaveExpose {
     commitPdfEditorsForSave?: () => Promise<void>;
 }
 
-export interface IPdfViewerBrowserPrintExpose {renderLoadedPdfPagesForBrowserPrint?: (
-    targetDocument: IBrowserPrintDocument,
-    pageNumbers: TPageNumber[],
-    options?: { signal?: AbortSignal },
-) => Promise<void>;}
+export interface IPdfViewerBrowserPrintExpose {
+    renderLoadedPdfPagesForBrowserPrint?: (
+        targetDocument: IBrowserPrintDocument,
+        pageNumbers: TPageNumber[],
+        options?: {signal?: AbortSignal},
+    ) => Promise<void>;
+}
 
 export interface IPdfViewerAnnotationCommandExpose {
     hasCanonicalAnnotationChanges?: (() => boolean) | undefined;
@@ -152,25 +151,11 @@ export interface IPdfViewerAnnotationCommandExpose {
     /** Marks the selection with the tool named, else with this viewer's tool. */
     highlightSelection: (tool?: TAnnotationTool) => Promise<boolean>;
     commentSelection: () => Promise<boolean>;
-    createTextMarkupFromText: (
-        options: ICreateTextMarkupFromTextOptions,
-    ) => Promise<ICreateTextMarkupFromTextResult>;
-    commentAtPoint: (
-        pageNumber: TPageNumber,
-        pageX: number,
-        pageY: number,
-        options?: { preferTextAnchor?: boolean },
-    ) => Promise<boolean>;
-    createPointNoteAnnotation: (
-        options: ICreatePointNoteAnnotationOptions,
-    ) => Promise<ICreatePointNoteAnnotationResult>;
-    createShapeAnnotation: (
-        options: ICreateShapeAnnotationOptions,
-    ) => Promise<ICreateShapeAnnotationResult>;
-    registerAnnotationHistoryCommand?: (command: {
-        cmd: () => void;
-        undo: () => void;
-    }) => void;
+    createTextMarkupFromText: (options: ICreateTextMarkupFromTextOptions) => Promise<ICreateTextMarkupFromTextResult>;
+    commentAtPoint: (pageNumber: TPageNumber, pageX: number, pageY: number, options?: {preferTextAnchor?: boolean}) => Promise<boolean>;
+    createPointNoteAnnotation: (options: ICreatePointNoteAnnotationOptions) => Promise<ICreatePointNoteAnnotationResult>;
+    createShapeAnnotation: (options: ICreateShapeAnnotationOptions) => Promise<ICreateShapeAnnotationResult>;
+    registerAnnotationHistoryCommand?: (command: {cmd: () => void; undo: () => void}) => void;
     selectedAnnotations?: readonly AnnotationEntity[];
     selectAllAnnotations?: () => boolean;
     selectAnnotationById?: (annotationId: string) => boolean;
@@ -188,10 +173,7 @@ export interface IPdfViewerAnnotationCommandExpose {
 
 export interface IPdfViewerAnnotationCommentExpose {
     focusAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<void>;
-    updateAnnotationComment: (
-        comment: IAnnotationCommentSummary,
-        text: string,
-    ) => boolean | Promise<boolean>;
+    updateAnnotationComment: (comment: IAnnotationCommentSummary, text: string) => boolean | Promise<boolean>;
     moveAnnotationMarker: (comment: IAnnotationCommentSummary, rect: IAnnotationMarkerRect) => boolean;
     deleteAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<boolean>;
     /** Remove a reopened editor and tombstone its canonical entity in one history transaction. */
@@ -223,16 +205,17 @@ export interface IPdfViewerImagePlacementExpose {
     ) => Promise<boolean>;
 }
 
-export interface IPdfViewerExpose extends
-    IDocumentViewerExpose,
-    IPdfViewerRegionCaptureExpose,
-    IPdfViewerCropExpose,
-    IPdfViewerSaveExpose,
-    IPdfViewerBrowserPrintExpose,
-    IPdfViewerAnnotationCommandExpose,
-    IPdfViewerAnnotationCommentExpose,
-    IPdfViewerShapeExpose,
-    IPdfViewerImagePlacementExpose {
+export interface IPdfViewerExpose
+    extends
+        IDocumentViewerExpose,
+        IPdfViewerRegionCaptureExpose,
+        IPdfViewerCropExpose,
+        IPdfViewerSaveExpose,
+        IPdfViewerBrowserPrintExpose,
+        IPdfViewerAnnotationCommandExpose,
+        IPdfViewerAnnotationCommentExpose,
+        IPdfViewerShapeExpose,
+        IPdfViewerImagePlacementExpose {
     ensurePageMetricsInRange?: (startPage: number, endPage: number) => Promise<boolean>;
     admitReload?: IPdfReloadWaiterViewer['admitReload'];
     pageMetrics?: readonly IPdfPageMetric[];

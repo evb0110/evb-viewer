@@ -1,10 +1,6 @@
-import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
-import { waitForFunctionInPage } from '@tests/e2e/electron/helpers/pageRuntime';
-import {
-    clickVisibleToolbarButton,
-    goToPageViaToolbar,
-    waitForToolbarCurrentPage,
-} from '@tests/e2e/electron/helpers/viewerCore';
+import type {IElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
+import {clickVisibleToolbarButton, goToPageViaToolbar, waitForToolbarCurrentPage} from '@tests/e2e/electron/helpers/viewerCore';
 
 export interface IDocumentThumbnailParitySnapshot {
     activeTab: string;
@@ -40,13 +36,13 @@ interface IDocumentThumbnailParityProbe {
     currentPages: Array<number | null>;
 }
 
-interface IDocumentThumbnailParityWindow extends Window {__documentThumbnailParityProbe?: IDocumentThumbnailParityProbe;}
+interface IDocumentThumbnailParityWindow extends Window {
+    __documentThumbnailParityProbe?: IDocumentThumbnailParityProbe;
+}
 
 async function ensureDocumentSidebarClosed(session: IElectronE2ESession) {
     const visible = await session.page.evaluate(() => {
-        const sidebar = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active [data-testid="document-sidebar"]',
-        );
+        const sidebar = document.querySelector<HTMLElement>('.editor-pane.is-active [data-testid="document-sidebar"]');
         const rect = sidebar?.getBoundingClientRect();
         return Boolean(rect && rect.width > 10 && rect.height > 10);
     });
@@ -54,13 +50,15 @@ async function ensureDocumentSidebarClosed(session: IElectronE2ESession) {
         return;
     }
     await clickVisibleToolbarButton(session.page, 'Toggle Sidebar');
-    await waitForFunctionInPage(session.page, () => {
-        const sidebar = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active [data-testid="document-sidebar"]',
-        );
-        const rect = sidebar?.getBoundingClientRect();
-        return !rect || rect.width <= 10 || rect.height <= 10;
-    }, {timeout: 10_000});
+    await waitForFunctionInPage(
+        session.page,
+        () => {
+            const sidebar = document.querySelector<HTMLElement>('.editor-pane.is-active [data-testid="document-sidebar"]');
+            const rect = sidebar?.getBoundingClientRect();
+            return !rect || rect.width <= 10 || rect.height <= 10;
+        },
+        {timeout: 10_000},
+    );
 }
 
 export async function captureDocumentThumbnailParitySnapshot(
@@ -79,9 +77,7 @@ export async function captureDocumentThumbnailParitySnapshot(
             if (!probe.active) {
                 return;
             }
-            const rail = document.querySelector<HTMLElement>(
-                '.editor-pane.is-active [data-document-thumbnail-rail]',
-            );
+            const rail = document.querySelector<HTMLElement>('.editor-pane.is-active [data-document-thumbnail-rail]');
             const rect = rail?.getBoundingClientRect();
             if (rail && rect && rect.width > 10 && rect.height > 100) {
                 const current = rail.querySelector<HTMLElement>('[aria-current="page"]');
@@ -95,27 +91,28 @@ export async function captureDocumentThumbnailParitySnapshot(
     });
 
     await clickVisibleToolbarButton(session.page, 'Toggle Sidebar');
-    await waitForFunctionInPage(session.page, (targetPage: number) => {
-        const rail = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active [data-document-thumbnail-rail]',
-        );
-        const current = rail?.querySelector<HTMLElement>('[aria-current="page"]');
-        const value = current?.dataset.page ?? current?.dataset.thumbnailPage ?? '';
-        if (!rail || Number.parseInt(value, 10) !== targetPage) {
-            return false;
-        }
-        const railRect = rail.getBoundingClientRect();
-        const currentRect = current!.getBoundingClientRect();
-        return currentRect.bottom > railRect.top && currentRect.top < railRect.bottom;
-    }, {timeout: 20_000}, currentPage);
+    await waitForFunctionInPage(
+        session.page,
+        (targetPage: number) => {
+            const rail = document.querySelector<HTMLElement>('.editor-pane.is-active [data-document-thumbnail-rail]');
+            const current = rail?.querySelector<HTMLElement>('[aria-current="page"]');
+            const value = current?.dataset.page ?? current?.dataset.thumbnailPage ?? '';
+            if (!rail || Number.parseInt(value, 10) !== targetPage) {
+                return false;
+            }
+            const railRect = rail.getBoundingClientRect();
+            const currentRect = current!.getBoundingClientRect();
+            return currentRect.bottom > railRect.top && currentRect.top < railRect.bottom;
+        },
+        {timeout: 20_000},
+        currentPage,
+    );
     await session.page.evaluate(async () => {
-        await new Promise(resolve => setTimeout(resolve, 250));
+        await new Promise((resolve) => setTimeout(resolve, 250));
     });
 
     return session.page.evaluate(() => {
-        const rail = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active [data-document-thumbnail-rail]',
-        );
+        const rail = document.querySelector<HTMLElement>('.editor-pane.is-active [data-document-thumbnail-rail]');
         const current = rail?.querySelector<HTMLElement>('[aria-current="page"]') ?? null;
         const frame = current?.querySelector<HTMLElement>('[data-document-thumbnail-frame]') ?? null;
         const label = current?.querySelector<HTMLElement>('[data-document-thumbnail-label]') ?? null;
@@ -132,7 +129,9 @@ export async function captureDocumentThumbnailParitySnapshot(
         const frameStyle = getComputedStyle(frame);
         const labelStyle = getComputedStyle(label);
         const probe = (window as IDocumentThumbnailParityWindow).__documentThumbnailParityProbe;
-        if (probe) {probe.active = false;}
+        if (probe) {
+            probe.active = false;
+        }
         const value = current.dataset.page ?? current.dataset.thumbnailPage ?? '';
         return {
             activeTab: activeTab?.textContent?.trim() ?? '',

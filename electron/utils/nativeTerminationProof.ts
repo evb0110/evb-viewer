@@ -1,4 +1,1 @@
-export {
-    markUnprovenNativeTermination,
-    getUnprovenNativeTerminationDetail,
-} from '@contracts/nativeErrors';
+export {markUnprovenNativeTermination, getUnprovenNativeTerminationDetail} from '@contracts/nativeErrors';

@@ -1,17 +1,10 @@
 import packageJson from '@root-package';
-import type { IHostBugReportWriteResult } from '@contracts/hostPlatformFeature';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { captureViewerBugReport } from '@app/modules/viewer-invariants/captureViewerBugReport';
-import {
-    checkViewerInvariants,
-    resetViewerInvariantMemory,
-} from '@app/modules/viewer-invariants/checkViewerInvariants';
-import {
-    disposeViewerActionLog,
-    installViewerActionLog,
-    readViewerUserActions,
-} from '@app/modules/viewer-invariants/viewerActionLog';
-import { disposeViewerDiagnosticLog } from '@app/modules/viewer-invariants/viewerDiagnosticLog';
+import type {IHostBugReportWriteResult} from '@contracts/hostPlatformFeature';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {captureViewerBugReport} from '@app/modules/viewer-invariants/captureViewerBugReport';
+import {checkViewerInvariants, resetViewerInvariantMemory} from '@app/modules/viewer-invariants/checkViewerInvariants';
+import {disposeViewerActionLog, installViewerActionLog, readViewerUserActions} from '@app/modules/viewer-invariants/viewerActionLog';
+import {disposeViewerDiagnosticLog} from '@app/modules/viewer-invariants/viewerDiagnosticLog';
 import {
     waitForViewerSettled,
     type IViewerSettleOptions,
@@ -41,17 +34,18 @@ export interface IViewerInvariantMonitorHandle {
 }
 
 /** Shows the confirmation for a written bundle. */
-export interface IViewerInvariantMonitorOptions {announceBugReport?: (result: IHostBugReportWriteResult) => void;}
+export interface IViewerInvariantMonitorOptions {
+    announceBugReport?: (result: IHostBugReportWriteResult) => void;
+}
 
-interface IViewerInvariantWindow extends Window {__evbViewerInvariants?: IViewerInvariantMonitorHandle;}
+interface IViewerInvariantWindow extends Window {
+    __evbViewerInvariants?: IViewerInvariantMonitorHandle;
+}
 
 let installed: IViewerInvariantMonitorHandle | null = null;
 
 function isBugReportShortcut(event: KeyboardEvent) {
-    return event.code === BUG_REPORT_SHORTCUT_CODE
-        && event.altKey
-        && (event.metaKey || event.ctrlKey)
-        && !event.shiftKey;
+    return event.code === BUG_REPORT_SHORTCUT_CODE && event.altKey && (event.metaKey || event.ctrlKey) && !event.shiftKey;
 }
 
 /**
@@ -60,9 +54,7 @@ function isBugReportShortcut(event: KeyboardEvent) {
  * what broke, and logs one structured warning per violation. Nothing intrusive
  * appears on screen.
  */
-export function installViewerInvariantMonitor(
-    options: IViewerInvariantMonitorOptions = {},
-): IViewerInvariantMonitorHandle {
+export function installViewerInvariantMonitor(options: IViewerInvariantMonitorOptions = {}): IViewerInvariantMonitorHandle {
     if (installed) {
         return installed;
     }
@@ -152,11 +144,7 @@ export function installViewerInvariantMonitor(
     };
 
     window.addEventListener('keydown', handleKeydown, {capture: true});
-    for (const type of [
-        'pointerup',
-        'keyup',
-        'wheel',
-    ] as const) {
+    for (const type of ['pointerup', 'keyup', 'wheel'] as const) {
         window.addEventListener(type, handleSettleTrigger, {
             capture: true,
             passive: true,
@@ -170,11 +158,7 @@ export function installViewerInvariantMonitor(
         dispose: () => {
             lifetime.abort();
             window.removeEventListener('keydown', handleKeydown, {capture: true});
-            for (const type of [
-                'pointerup',
-                'keyup',
-                'wheel',
-            ] as const) {
+            for (const type of ['pointerup', 'keyup', 'wheel'] as const) {
                 window.removeEventListener(type, handleSettleTrigger, {capture: true});
             }
             window.removeEventListener('resize', handleSettleTrigger);
@@ -194,10 +178,11 @@ export function installViewerInvariantMonitor(
             unresolved.length = 0;
             resetViewerInvariantMemory();
         },
-        waitForSettled: settleOptions => waitForViewerSettled({
-            ...settleOptions,
-            signal: lifetime.signal,
-        }),
+        waitForSettled: (settleOptions) =>
+            waitForViewerSettled({
+                ...settleOptions,
+                signal: lifetime.signal,
+            }),
     };
 
     // Installed next to `__evbTestApi` so automation reaches the same checker

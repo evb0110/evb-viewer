@@ -6,8 +6,8 @@ import type * as TScanCleanupInputLimits from '@contracts/scan-cleanup/inputLimi
 // module graph is fresh only for this load; other tests keep the production batch.
 export async function loadScanCleanupPipelineWithBatchPages(batchPages: number) {
     vi.resetModules();
-    vi.doMock('@contracts/scan-cleanup/inputLimits', async importOriginal => ({
-        ...await importOriginal<typeof TScanCleanupInputLimits>(),
+    vi.doMock('@contracts/scan-cleanup/inputLimits', async (importOriginal) => ({
+        ...(await importOriginal<typeof TScanCleanupInputLimits>()),
         SCAN_CLEANUP_STREAMING_BATCH_PAGES: batchPages,
     }));
     try {

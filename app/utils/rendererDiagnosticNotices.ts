@@ -8,11 +8,7 @@
  * Notices carry a redacted signature, never the raw message, because the
  * subscribers persist them into diagnostics bundles.
  */
-export type TRendererDiagnosticSource =
-    | 'console-error'
-    | 'unhandled-rejection'
-    | 'vue'
-    | 'window';
+export type TRendererDiagnosticSource = 'console-error' | 'unhandled-rejection' | 'vue' | 'window';
 
 export interface IRendererDiagnosticNotice {
     occurredAt: number;
@@ -33,11 +29,7 @@ const listeners = new Set<TRendererDiagnosticNoticeListener>();
  * location can never reach a persisted bundle through an error message.
  */
 export function redactRendererDiagnosticSignature(value: string) {
-    return value
-        .replace(PATH_LIKE_PATTERN, '<path>')
-        .replace(/\s+/gu, ' ')
-        .trim()
-        .slice(0, MAX_SIGNATURE_LENGTH);
+    return value.replace(PATH_LIKE_PATTERN, '<path>').replace(/\s+/gu, ' ').trim().slice(0, MAX_SIGNATURE_LENGTH);
 }
 
 export function onRendererDiagnosticNotice(listener: TRendererDiagnosticNoticeListener) {

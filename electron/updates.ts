@@ -1,51 +1,37 @@
-import {
-    app, systemPreferences,
-} from 'electron';
-import {
-    accessSync, constants,
-} from 'node:fs';
+import {app, systemPreferences} from 'electron';
+import {accessSync, constants} from 'node:fs';
 import {resolve} from 'node:path';
 import electronUpdater, {CancellationToken} from 'electron-updater';
-import { clamp } from 'es-toolkit/math';
-import type {
-    ProgressInfo,
-    UpdateDownloadedEvent,
-    UpdateInfo,
-} from 'electron-updater';
+import {clamp} from 'es-toolkit/math';
+import type {ProgressInfo, UpdateDownloadedEvent, UpdateInfo} from 'electron-updater';
 import {
     UPDATES_PLATFORM_FEATURE,
     type IAppUpdateStatus,
     type TAppUpdateCheckOrigin,
     type TAppUpdateReason,
 } from '@contracts/updatesPlatformFeature';
-import { config } from '@electron/config';
-import {
-    loadSettings,
-    updateSettings,
-} from '@electron/settings';
-import { isAbortError } from '@electron/utils/abort';
-import { createLogger } from '@electron/utils/createLogger';
-import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
-import { getErrorMessage } from '@electron/utils/error';
-import { redactLogText } from '@contracts/redactLogText';
-import { waitForBoundedOperation } from '@node-runtime/waitForBoundedOperation';
-import { isExpectedUpdateNetworkError } from '@electron/utils/isExpectedUpdateNetworkError';
-import {
-    compareVersions,
-    normalizeVersion,
-} from '@electron/updates/versionCompare';
-import { checkMacCodeSignature } from '@electron/updates/checkMacCodeSignature';
+import {config} from '@electron/config';
+import {loadSettings, updateSettings} from '@electron/settings';
+import {isAbortError} from '@electron/utils/abort';
+import {createLogger} from '@electron/utils/createLogger';
+import {createIpcProgressPump} from '@electron/utils/createIpcProgressPump';
+import {getErrorMessage} from '@electron/utils/error';
+import {redactLogText} from '@contracts/redactLogText';
+import {waitForBoundedOperation} from '@node-runtime/waitForBoundedOperation';
+import {isExpectedUpdateNetworkError} from '@electron/utils/isExpectedUpdateNetworkError';
+import {compareVersions, normalizeVersion} from '@electron/updates/versionCompare';
+import {checkMacCodeSignature} from '@electron/updates/checkMacCodeSignature';
 import {
     getSuppressedUpdateVersion,
     markUpdateInstallPending,
     recordPendingUpdateStartup,
     UPDATE_STARTUP_FAILURE_THRESHOLD,
 } from '@electron/updateHealthMarker';
-import { runDetached } from '@electron/utils/runDetached';
-import { resolveApplicationVersion } from '@electron/appVersion';
-import { fetchLatestReleaseMetadataVersion } from '@electron/updates/fetchLatestReleaseMetadataVersion';
+import {runDetached} from '@electron/utils/runDetached';
+import {resolveApplicationVersion} from '@electron/appVersion';
+import {fetchLatestReleaseMetadataVersion} from '@electron/updates/fetchLatestReleaseMetadataVersion';
 
-const { autoUpdater } = electronUpdater;
+const {autoUpdater} = electronUpdater;
 
 const logger = createLogger('updates');
 const METADATA_REQUEST_TIMEOUT_MS = 10_000;
@@ -73,10 +59,12 @@ const defaultStatus: IAppUpdateStatus = {
     message: null,
 };
 
-let status: IAppUpdateStatus = { ...defaultStatus };
+let status: IAppUpdateStatus = {...defaultStatus};
 // Each window gets its own copy of the status, built from its webContents id.
 export type TUpdateStatusBroadcast = (status: IAppUpdateStatus) => void;
-export interface IUpdateRequester {senderId: number;}
+export interface IUpdateRequester {
+    senderId: number;
+}
 let emitStatus: TUpdateStatusBroadcast = () => {};
 // Requesters belong to the operation, including its asynchronous install callback.
 let operationRequesters: Set<number> | null = null;
@@ -100,7 +88,7 @@ const progressPump = createIpcProgressPump<IAppUpdateStatus>({
     channel: UPDATES_PLATFORM_FEATURE.eventChannels.onStatus,
     getTarget: () => ({send: (_channel, next) => emitStatus(next)}),
     getKey: () => 'update',
-    isTerminal: next => next.phase !== 'downloading',
+    isTerminal: (next) => next.phase !== 'downloading',
     intervalMs: UPDATE_PROGRESS_BROADCAST_THROTTLE_MS,
     replayMode: {kind: 'external', getReplayPayloads: () => []},
 });
@@ -109,7 +97,7 @@ type TUpdateInstallShutdownRequester = (install: () => Promise<void>) => void;
 function runUpdateInstallImmediately(install: () => Promise<void>) {
     // No coordinator is wired up, so nothing awaits the install; its failure has
     // to be reported here or it becomes an unhandled rejection.
-    void install().catch(error => {
+    void install().catch((error) => {
         logger.error(`Update installation action failed: ${getErrorMessage(error)}`, {
             code: 'MAIN_UPDATE_INSTALL_FAILED',
             cause: error,
@@ -142,21 +130,20 @@ export function projectUpdateStatusForWindow(snapshot: IAppUpdateStatus, senderI
     const requestedHere = statusRequesters?.has(senderId) === true;
     return {
         ...snapshot,
-        ...(snapshot.phase === 'downloading' && !requestedHere ? {
-            phase: 'available' as const,
-            percent: null,
-        } : {}),
+        ...(snapshot.phase === 'downloading' && !requestedHere
+            ? {
+                  phase: 'available' as const,
+                  percent: null,
+              }
+            : {}),
         requestedHere,
     };
 }
 
 function updateStatus(next: Partial<IAppUpdateStatus>, requesters = operationRequesters) {
     statusRequesters = requesters;
-    const message = next.message === undefined
-        ? status.message
-        : typeof next.message === 'string'
-            ? redactLogText(next.message)
-            : next.message;
+    const message =
+        next.message === undefined ? status.message : typeof next.message === 'string' ? redactLogText(next.message) : next.message;
     status = {
         ...status,
         ...next,
@@ -183,16 +170,25 @@ function setIdleStatus(origin: TAppUpdateCheckOrigin, version: string | null = g
 // Store builds use Store updates. Standalone Windows installers have separate
 // architecture feeds; electron-updater verifies publisher signatures when configured.
 function isUpdaterRuntimeSupported() {
-    return app.isPackaged
-        && process.windowsStore !== true
-        && ((process.platform === 'darwin' && process.arch === 'arm64')
-            || (process.platform === 'win32' && (process.arch === 'x64' || process.arch === 'arm64')));
+    return (
+        app.isPackaged &&
+        process.windowsStore !== true &&
+        ((process.platform === 'darwin' && process.arch === 'arm64') ||
+            (process.platform === 'win32' && (process.arch === 'x64' || process.arch === 'arm64')))
+    );
 }
 
 function getUpdateFailureReason(error: unknown, operation: 'check' | 'download' | 'install'): TAppUpdateReason {
     const cause = error instanceof Error && error.cause ? error.cause : error;
-    if (operation === 'install' && process.platform === 'darwin' && cause instanceof Error && 'code' in cause
-        && (cause.code === 'EACCES' || cause.code === 'EPERM' || cause.code === 'EROFS')) {return 'install-permission-denied';}
+    if (
+        operation === 'install' &&
+        process.platform === 'darwin' &&
+        cause instanceof Error &&
+        'code' in cause &&
+        (cause.code === 'EACCES' || cause.code === 'EPERM' || cause.code === 'EROFS')
+    ) {
+        return 'install-permission-denied';
+    }
     if (isAbortError(cause) || (cause instanceof Error && cause.name === 'TimeoutError')) {
         return operation === 'check' ? 'check-timed-out' : `${operation}-failed`;
     }
@@ -287,12 +283,9 @@ async function hasUpdaterMetadataForVersion(version: string) {
 
     const errors: Array<{
         baseUrl: string;
-        error: unknown
+        error: unknown;
     }> = [];
-    for (const baseUrl of [
-        GITHUB_RELEASE_DOWNLOAD_BASE_URL,
-        config.updates.mirrorReleaseBaseUrl,
-    ]) {
+    for (const baseUrl of [GITHUB_RELEASE_DOWNLOAD_BASE_URL, config.updates.mirrorReleaseBaseUrl]) {
         try {
             const url = `${getUpdaterReleaseFeedUrl(version, baseUrl)}/${assetName}`;
             const response = await fetch(url, {
@@ -315,9 +308,12 @@ async function hasUpdaterMetadataForVersion(version: string) {
         }
     }
     if (errors.length > 0) {
-        throw new Error(`Updater feed verification was inconclusive (${errors.map(({
-            baseUrl, error,
-        }) => `${baseUrl}: ${getErrorMessage(error)}`).join('; ')})`, {cause: errors[0]?.error});
+        throw new Error(
+            `Updater feed verification was inconclusive (${errors
+                .map(({baseUrl, error}) => `${baseUrl}: ${getErrorMessage(error)}`)
+                .join('; ')})`,
+            {cause: errors[0]?.error},
+        );
     }
     return false;
 }
@@ -352,9 +348,7 @@ function discardDownloadedCandidateIfNotNewer(context: string) {
 
     const invalidVersion = downloadedVersion;
     clearDownloadedCandidate(invalidVersion);
-    logger.warn(
-        `Discarding downloaded update ${invalidVersion} during ${context}; running version is ${currentVersion}`,
-    );
+    logger.warn(`Discarding downloaded update ${invalidVersion} during ${context}; running version is ${currentVersion}`);
     return true;
 }
 
@@ -367,19 +361,15 @@ async function maybeClearSupersededDownloadedVersion() {
         const latestVersion = await fetchLatestReleaseMetadataVersion(config.updates.metadataUrl, logger);
         const comparison = compareVersions(latestVersion, downloadedVersion);
         if (comparison < 0) {
-            logger.warn(
-                `Discarding cached downloaded update ${downloadedVersion}; current metadata rolled back to ${latestVersion}`,
-            );
+            logger.warn(`Discarding cached downloaded update ${downloadedVersion}; current metadata rolled back to ${latestVersion}`);
             downloadedVersion = null;
             pendingVersion = latestVersion;
             return true;
         }
 
         if (comparison === 0) {
-            if (!await hasUpdaterMetadataForVersion(downloadedVersion)) {
-                logger.warn(
-                    `Discarding cached downloaded update ${downloadedVersion}; its updater feed is no longer published`,
-                );
+            if (!(await hasUpdaterMetadataForVersion(downloadedVersion))) {
+                logger.warn(`Discarding cached downloaded update ${downloadedVersion}; its updater feed is no longer published`);
                 downloadedVersion = null;
                 pendingVersion = null;
                 return true;
@@ -387,25 +377,19 @@ async function maybeClearSupersededDownloadedVersion() {
             return false;
         }
 
-        if (!await hasUpdaterMetadataForVersion(latestVersion)) {
+        if (!(await hasUpdaterMetadataForVersion(latestVersion))) {
             logger.info(
                 `Keeping cached downloaded update ${downloadedVersion}; newer release ${latestVersion} has no ${getUpdaterMetadataAssetName() ?? '<unsupported platform>'} updater feed`,
             );
             return false;
         }
 
-        logger.info(
-            `Discarding cached downloaded update ${downloadedVersion} in favor of newer metadata release ${latestVersion}`,
-        );
+        logger.info(`Discarding cached downloaded update ${downloadedVersion} in favor of newer metadata release ${latestVersion}`);
         downloadedVersion = null;
         pendingVersion = latestVersion;
         return true;
     } catch (error) {
-        logger.warn(
-            `Unable to verify whether downloaded update ${downloadedVersion ?? '<unknown>'} is current: ${
-                getErrorMessage(error)
-            }`,
-        );
+        logger.warn(`Unable to verify whether downloaded update ${downloadedVersion ?? '<unknown>'} is current: ${getErrorMessage(error)}`);
         return false;
     }
 }
@@ -424,7 +408,7 @@ function scheduleNextPoll() {
     }
 
     const baseInterval = clamp(config.updates.pollIntervalMs, MIN_POLL_INTERVAL_MS, Number.POSITIVE_INFINITY);
-    const jitter = Math.round(baseInterval * ((Math.random() * 2 * MAX_JITTER_RATIO) - MAX_JITTER_RATIO));
+    const jitter = Math.round(baseInterval * (Math.random() * 2 * MAX_JITTER_RATIO - MAX_JITTER_RATIO));
     const delay = clamp(baseInterval + jitter, MIN_POLL_INTERVAL_MS, Number.POSITIVE_INFINITY);
 
     pollTimer = schedulePollTimer(delay, 'Automatic update poll failed');
@@ -531,16 +515,21 @@ function setAutoUpdaterListeners() {
         }
         logUpdateCheckFailure(error, currentCheckOrigin);
         const version = downloadedVersion;
-        if (!version) {return;}
+        if (!version) {
+            return;
+        }
         clearDownloadedCandidate(version);
-        updateStatus({
-            phase: 'error',
-            reason: getUpdateFailureReason(error, 'install'),
-            origin: 'manual',
-            version,
-            percent: null,
-            message: getErrorMessage(error),
-        }, statusRequesters);
+        updateStatus(
+            {
+                phase: 'error',
+                reason: getUpdateFailureReason(error, 'install'),
+                origin: 'manual',
+                version,
+                percent: null,
+                message: getErrorMessage(error),
+            },
+            statusRequesters,
+        );
     };
     autoUpdater.on('error', onUpdaterError);
     autoUpdaterListenerUnsubscribe.push(() => {
@@ -558,33 +547,37 @@ function setAutoUpdaterListeners() {
 
 async function finishDownloadedUpdate(requesters: Set<number> | null) {
     const version = downloadedVersion;
-    if (!version) {return;}
+    if (!version) {
+        return;
+    }
     try {
         if (discardDownloadedCandidateIfNotNewer('download event')) {
-            updateStatus({
-                phase: currentCheckOrigin === 'manual' ? 'no-update' : 'idle',
-                origin: currentCheckOrigin,
-                version: getCurrentVersion(),
-                percent: null,
-                message: null,
-            }, requesters);
+            updateStatus(
+                {
+                    phase: currentCheckOrigin === 'manual' ? 'no-update' : 'idle',
+                    origin: currentCheckOrigin,
+                    version: getCurrentVersion(),
+                    percent: null,
+                    message: null,
+                },
+                requesters,
+            );
             return;
         }
 
         const skippedVersion = await readSkippedVersion();
-        if (
-            currentCheckOrigin === 'auto'
-            && skippedVersion
-            && skippedVersion === version
-        ) {
+        if (currentCheckOrigin === 'auto' && skippedVersion && skippedVersion === version) {
             logger.info(`Update ${version} downloaded but skipped for automatic prompts`);
-            updateStatus({
-                phase: 'idle',
-                origin: 'auto',
-                version,
-                percent: null,
-                message: null,
-            }, requesters);
+            updateStatus(
+                {
+                    phase: 'idle',
+                    origin: 'auto',
+                    version,
+                    percent: null,
+                    message: null,
+                },
+                requesters,
+            );
             return;
         }
 
@@ -593,27 +586,33 @@ async function finishDownloadedUpdate(requesters: Set<number> | null) {
             return;
         }
 
-        updateStatus({
-            phase: 'downloaded',
-            origin: currentCheckOrigin,
-            version,
-            percent: 100,
-            message: null,
-        }, requesters);
+        updateStatus(
+            {
+                phase: 'downloaded',
+                origin: currentCheckOrigin,
+                version,
+                percent: 100,
+                message: null,
+            },
+            requesters,
+        );
     } catch (error) {
         const message = `Update install preparation failed: ${getErrorMessage(error)}`;
         logger.error(message, {
             code: 'MAIN_UPDATE_INSTALL_PREPARATION_FAILED',
             cause: error,
         });
-        updateStatus({
-            phase: 'error',
-            reason: 'install-preparation-failed',
-            origin: currentCheckOrigin,
-            version: pendingVersion,
-            percent: null,
-            message,
-        }, requesters);
+        updateStatus(
+            {
+                phase: 'error',
+                reason: 'install-preparation-failed',
+                origin: currentCheckOrigin,
+                version: pendingVersion,
+                percent: null,
+                message,
+            },
+            requesters,
+        );
     }
 }
 
@@ -625,9 +624,7 @@ async function resolveUpdaterCheckDecision(): Promise<IUpdaterCheckDecision> {
     try {
         latestVersion = await fetchLatestReleaseMetadataVersion(config.updates.metadataUrl, logger);
     } catch (error) {
-        const message = isAbortError(error)
-            ? 'Timed out while checking for updates.'
-            : `Update check failed: ${getErrorMessage(error)}`;
+        const message = isAbortError(error) ? 'Timed out while checking for updates.' : `Update check failed: ${getErrorMessage(error)}`;
         logger.warn(`Unable to query update metadata: ${message}`);
         return {
             shouldCheck: false,
@@ -656,8 +653,10 @@ async function resolveUpdaterCheckDecision(): Promise<IUpdaterCheckDecision> {
     }
 
     try {
-        if (!await hasUpdaterMetadataForVersion(latestVersion)) {
-            logger.info(`Release ${latestVersion} has no ${getUpdaterMetadataAssetName() ?? '<unsupported platform>'} updater feed; skipping in-app updater check`);
+        if (!(await hasUpdaterMetadataForVersion(latestVersion))) {
+            logger.info(
+                `Release ${latestVersion} has no ${getUpdaterMetadataAssetName() ?? '<unsupported platform>'} updater feed; skipping in-app updater check`,
+            );
             pendingVersion = null;
             return {
                 shouldCheck: false,
@@ -680,10 +679,7 @@ async function resolveUpdaterCheckDecision(): Promise<IUpdaterCheckDecision> {
     }
 
     const skippedVersion = await readSkippedVersion();
-    if (
-        skippedVersion
-        && compareVersions(latestVersion, skippedVersion) > 0
-    ) {
+    if (skippedVersion && compareVersions(latestVersion, skippedVersion) > 0) {
         // Newer release exists; stale skip can be dropped.
         await writeSkippedVersion(null);
     }
@@ -740,7 +736,7 @@ async function checkForUpdates(origin: TAppUpdateCheckOrigin) {
             }
             return;
         }
-        if (!await ensureUpdaterSupported()) {
+        if (!(await ensureUpdaterSupported())) {
             if (origin === 'manual') {
                 updateStatus({
                     phase: 'unsupported',
@@ -816,19 +812,24 @@ async function checkForUpdates(origin: TAppUpdateCheckOrigin) {
         configureUpdaterFeed(decision.targetVersion);
         await autoUpdater.checkForUpdates();
         await finishDownloadedUpdate(requesters);
-    })().catch(error => {
-        logUpdateCheckFailure(error, origin);
-        updateStatus({
-            phase: 'error',
-            reason: getUpdateFailureReason(error, 'check'),
-            origin,
-            version: pendingVersion,
-            percent: null,
-            message: `Update check failed: ${getErrorMessage(error)}`,
-        }, requesters);
-    }).finally(() => {
-        currentCheckPromise = null;
-    });
+    })()
+        .catch((error) => {
+            logUpdateCheckFailure(error, origin);
+            updateStatus(
+                {
+                    phase: 'error',
+                    reason: getUpdateFailureReason(error, 'check'),
+                    origin,
+                    version: pendingVersion,
+                    percent: null,
+                    message: `Update check failed: ${getErrorMessage(error)}`,
+                },
+                requesters,
+            );
+        })
+        .finally(() => {
+            currentCheckPromise = null;
+        });
     return currentCheckPromise;
 }
 
@@ -862,7 +863,6 @@ export function initializeUpdates(broadcast: TUpdateStatusBroadcast) {
                         message,
                     };
                     updateStatus(pendingStartupFailure, new Set());
-
                 } else if (marker && marker.startupAttempts >= UPDATE_STARTUP_FAILURE_THRESHOLD) {
                     logger.error(
                         `Update ${currentVersion} failed to reach renderer readiness on ${marker.startupAttempts} consecutive startups`,
@@ -926,7 +926,7 @@ export function initializeUpdates(broadcast: TUpdateStatusBroadcast) {
 
 export async function triggerManualUpdateCheck(requester: IUpdateRequester) {
     if (isShuttingDown) {
-        return { started: false };
+        return {started: false};
     }
     if (currentDownloadPromise && status.phase !== 'downloading') {
         await currentDownloadPromise;
@@ -947,7 +947,7 @@ export async function triggerManualUpdateCheck(requester: IUpdateRequester) {
             }
         }
     }
-    return { started: true };
+    return {started: true};
 }
 
 export function getUpdateStatus(requester?: IUpdateRequester) {
@@ -968,7 +968,7 @@ export function getUpdateStatus(requester?: IUpdateRequester) {
 
 export function downloadAvailableUpdate(requester: IUpdateRequester) {
     if (isShuttingDown || !pendingVersion || downloadedVersion) {
-        return { started: false };
+        return {started: false};
     }
 
     if (currentDownloadPromise) {
@@ -1014,14 +1014,17 @@ export function downloadAvailableUpdate(requester: IUpdateRequester) {
                     cause: error,
                 });
             }
-            updateStatus({
-                phase: 'error',
-                reason: getUpdateFailureReason(error, 'download'),
-                origin: 'manual',
-                version: candidateVersion,
-                percent: null,
-                message,
-            }, requesters);
+            updateStatus(
+                {
+                    phase: 'error',
+                    reason: getUpdateFailureReason(error, 'download'),
+                    origin: 'manual',
+                    version: candidateVersion,
+                    percent: null,
+                    message,
+                },
+                requesters,
+            );
         })
         .finally(() => {
             downloadCancellationToken.dispose();
@@ -1029,16 +1032,18 @@ export function downloadAvailableUpdate(requester: IUpdateRequester) {
                 currentDownloadCancellationToken = null;
             }
             currentDownloadPromise = null;
-            if (operationRequesters === requesters) {operationRequesters = null;}
+            if (operationRequesters === requesters) {
+                operationRequesters = null;
+            }
         });
 
-    return { started: true };
+    return {started: true};
 }
 
 // A null requester is the approved download finishing: its window already asked.
 export async function installDownloadedUpdate(requester: IUpdateRequester | null, requesters = operationRequesters) {
     if (!downloadedVersion) {
-        return { started: false };
+        return {started: false};
     }
 
     if (requester) {
@@ -1062,15 +1067,18 @@ export async function installDownloadedUpdate(requester: IUpdateRequester | null
         clearDownloadedCandidate(downloadedVersion);
         const message = `Update installation failed: ${getErrorMessage(error)}`;
         logger.warn(message);
-        updateStatus({
-            phase: 'error',
-            reason: getUpdateFailureReason(error, 'install'),
-            origin: 'manual',
-            version: candidateVersion,
-            percent: null,
-            message,
-        }, requesters);
-        return { started: false };
+        updateStatus(
+            {
+                phase: 'error',
+                reason: getUpdateFailureReason(error, 'install'),
+                origin: 'manual',
+                version: candidateVersion,
+                percent: null,
+                message,
+            },
+            requesters,
+        );
+        return {started: false};
     }
 
     try {
@@ -1092,21 +1100,24 @@ export async function installDownloadedUpdate(requester: IUpdateRequester | null
                 code: 'MAIN_UPDATE_INSTALL_PREPARATION_FAILED',
                 cause: error,
             });
-            updateStatus({
-                phase: 'error',
-                reason: 'install-preparation-failed',
-                origin: 'manual',
-                version: candidateVersion,
-                percent: null,
-                message,
-            }, requesters);
+            updateStatus(
+                {
+                    phase: 'error',
+                    reason: 'install-preparation-failed',
+                    origin: 'manual',
+                    version: candidateVersion,
+                    percent: null,
+                    message,
+                },
+                requesters,
+            );
             // Cleanup has already shut the app's services down; failing here
             // lets the shutdown coordinator finish the quit.
             throw error;
         }
         autoUpdater.quitAndInstall(false, true);
     });
-    return { started: true };
+    return {started: true};
 }
 
 // fallow-ignore-next-line unused-export
@@ -1157,11 +1168,10 @@ export async function shutdownUpdates() {
     progressPump.clear();
     currentDownloadCancellationToken?.cancel();
 
-    for (const pending of [
-        currentCheckPromise,
-        currentDownloadPromise,
-    ]) {
-        if (!pending) {continue;}
+    for (const pending of [currentCheckPromise, currentDownloadPromise]) {
+        if (!pending) {
+            continue;
+        }
         try {
             await waitForBoundedOperation(pending, {
                 timeoutMs: UPDATER_SHUTDOWN_WAIT_TIMEOUT_MS,

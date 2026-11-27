@@ -1,28 +1,11 @@
 import {execFile} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {
-    mkdir,
-    mkdtemp,
-    readFile,
-    rm,
-    writeFile,
-} from 'node:fs/promises';
-import {
-    createReadStream,
-    existsSync,
-} from 'node:fs';
-import {
-    dirname,
-    join,
-    resolve,
-} from 'node:path';
+import {mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
+import {createReadStream, existsSync} from 'node:fs';
+import {dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {promisify} from 'node:util';
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import type {Page} from 'puppeteer-core';
 import {
     readPdfAnnotationIndex,
@@ -32,17 +15,10 @@ import {
 import {getErrorMessage} from '@contracts/getErrorMessage';
 import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
 import {getPdfPageCount} from '@electron/pdf/pdfPageCount';
-import {
-    EXACT_PDF_FIXTURE_MANIFEST,
-    stageExactPdfFixture,
-    type TExactPdfFixtureCopyMode,
-} from '@scripts/ci/stageExactPdfFixture';
+import {EXACT_PDF_FIXTURE_MANIFEST, stageExactPdfFixture, type TExactPdfFixtureCopyMode} from '@scripts/ci/stageExactPdfFixture';
 import {getSessionInfo} from '@scripts/electron-run/electronRunSessionArtifacts';
 import {runElectronE2ETeardown} from '@tests/e2e/electron/helpers/electronE2ESessionFailure';
-import {
-    startElectronE2ESession,
-    type IElectronE2ESession,
-} from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import {startElectronE2ESession, type IElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {
     openAnnotationsTab,
     saveViaVisibleToolbarWithDeadline,
@@ -50,12 +26,8 @@ import {
     waitForPdfLoaded,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
-import {
-    callWorkspaceCommand,
-    readWorkspaceStateValues,
-    requireWorkspaceCommand,
-} from '@tests/e2e/electron/helpers/workspaceExpose';
-import { runDesktopQpdfWasm } from '@electron/native-tools/qpdfWasmWorkerClient';
+import {callWorkspaceCommand, readWorkspaceStateValues, requireWorkspaceCommand} from '@tests/e2e/electron/helpers/workspaceExpose';
+import {runDesktopQpdfWasm} from '@electron/native-tools/qpdfWasmWorkerClient';
 
 /**
  * Opt in explicitly with:
@@ -79,11 +51,7 @@ const XLARGE_PAGE_COUNT = XLARGE_FIXTURE_EXPECTATION.pages;
 const XLARGE_FIRST_PAGE = 1;
 const XLARGE_MIDDLE_PAGE = 1_323;
 const XLARGE_LAST_PAGE = 2_646;
-const XLARGE_RENDER_PAGES = [
-    XLARGE_FIRST_PAGE,
-    XLARGE_MIDDLE_PAGE,
-    XLARGE_LAST_PAGE,
-] as const;
+const XLARGE_RENDER_PAGES = [XLARGE_FIRST_PAGE, XLARGE_MIDDLE_PAGE, XLARGE_LAST_PAGE] as const;
 const XLARGE_HEARTBEAT_INTERVAL_MS = 100;
 // CI telemetry recorded a 9,231.1 ms maximum heartbeat gap in this lane.
 // Keep the blocking limit at 14 seconds, at least 1.5x that observed maximum.
@@ -104,16 +72,8 @@ const XLARGE_RSS_SAMPLE_INTERVAL_MS = 250;
 const configuredFixture = process.env[XLARGE_FIXTURE_ENV]?.trim() ?? '';
 const xlargeDescribe = configuredFixture ? describe : describe.skip;
 
-const defaultArtifactPath = resolve(
-    process.cwd(),
-    '.devkit',
-    'test',
-    'electron-e2e-artifacts',
-    'xlarge-document-acceptance.json',
-);
-const artifactPath = resolve(
-    process.env[XLARGE_ARTIFACT_ENV]?.trim() || defaultArtifactPath,
-);
+const defaultArtifactPath = resolve(process.cwd(), '.devkit', 'test', 'electron-e2e-artifacts', 'xlarge-document-acceptance.json');
+const artifactPath = resolve(process.env[XLARGE_ARTIFACT_ENV]?.trim() || defaultArtifactPath);
 const acceptanceSourcePath = fileURLToPath(import.meta.url);
 
 const BASELINE_NOTE_NAME = 'evb-note:uid:0:pdfjs_internal_editor_0:created:1787771262040';
@@ -230,9 +190,7 @@ interface ISaveReceiptProbe {
 }
 
 interface ISaveReceiptProbeWindow extends Window {
-    __stagedPdfNativeMutationCommitBarrierForAutomation?: (
-        stagedArtifact: ITypedStagedArtifact,
-    ) => Promise<void> | void;
+    __stagedPdfNativeMutationCommitBarrierForAutomation?: (stagedArtifact: ITypedStagedArtifact) => Promise<void> | void;
     __resumeSaveReceiptCommit?: () => void;
     __saveReceiptProbe?: ISaveReceiptProbe;
 }
@@ -312,7 +270,9 @@ interface IRendererPlacementSamplingState {
     mutationObserver: MutationObserver | null;
 }
 
-interface IRendererPlacementSamplingWindow extends Window {__evbXlargePlacementSampling?: IRendererPlacementSamplingState;}
+interface IRendererPlacementSamplingWindow extends Window {
+    __evbXlargePlacementSampling?: IRendererPlacementSamplingState;
+}
 
 interface IRendererRssSample {
     atMs: number;
@@ -337,7 +297,9 @@ interface IRendererRssTelemetry {
     samples: IRendererRssSample[];
 }
 
-interface IRssSampler {stop: () => Promise<IRendererRssTelemetry>;}
+interface IRssSampler {
+    stop: () => Promise<IRendererRssTelemetry>;
+}
 
 interface IPhaseTiming {
     durationMs: number;
@@ -380,10 +342,12 @@ interface IXlargeAcceptanceTelemetry {
         cloneMode: TExactPdfFixtureCopyMode | null;
     };
     phases: IPhaseTiming[];
-    heartbeats: Array<IHeartbeatSnapshot & {
-        session: 'A' | 'B';
-        stage: string
-    }>;
+    heartbeats: Array<
+        IHeartbeatSnapshot & {
+            session: 'A' | 'B';
+            stage: string;
+        }
+    >;
     rendererLongTasks: IRendererLongTask[];
     rendererPlacementSampling: IRendererPlacementSampling | null;
     windowHosting: {
@@ -409,7 +373,7 @@ interface IXlargeAcceptanceTelemetry {
     } | null;
     failure: {
         message: string;
-        stack: string | null
+        stack: string | null;
     } | null;
 }
 
@@ -444,7 +408,8 @@ function createTelemetry(): IXlargeAcceptanceTelemetry {
         rendererIpcPayloadProbe: null,
         heartbeatPolicy: {
             maxGapMs: XLARGE_HEARTBEAT_MAX_GAP_MS,
-            rationale: 'The interval heartbeat is the hard renderer pause budget. MessageChannel gaps remain diagnostic because Chromium can deliver them from a different task source after the timer queue resumes.',
+            rationale:
+                'The interval heartbeat is the hard renderer pause budget. MessageChannel gaps remain diagnostic because Chromium can deliver them from a different task source after the timer queue resumes.',
         },
         structuralComparison: null,
         failure: null,
@@ -452,10 +417,7 @@ function createTelemetry(): IXlargeAcceptanceTelemetry {
 }
 
 function rendererJsHeapBudgetBytes(sourceBytes: number) {
-    const invariantBudgetBytes = Math.min(
-        XLARGE_RENDERER_JS_HEAP_MAX_DELTA_BYTES,
-        Math.floor(sourceBytes / 4),
-    );
+    const invariantBudgetBytes = Math.min(XLARGE_RENDERER_JS_HEAP_MAX_DELTA_BYTES, Math.floor(sourceBytes / 4));
     return Math.ceil(invariantBudgetBytes * (1 + XLARGE_RENDERER_JS_HEAP_RUNNER_TOLERANCE));
 }
 
@@ -465,40 +427,18 @@ describe('Electron E2E - xlarge document acceptance source contract', () => {
         const source = await readFile(acceptanceSourcePath, 'utf8');
         expect(source).toContain('stageExactPdfFixture');
         expect(source).toContain('copyMode');
-        const forcedCloneToken = [
-            'COPYFILE',
-            'FICLONE_FORCE',
-        ].join('_');
+        const forcedCloneToken = ['COPYFILE', 'FICLONE_FORCE'].join('_');
         expect(source).not.toContain(forcedCloneToken);
         expect(source).toContain('getPdfPageCount');
         expect(source).toContain('XLARGE_MIN_BYTES');
         expect(source).toContain('XLARGE_PAGE_COUNT');
         const forbiddenExpressions = [
-            [
-                'readFile',
-                'Sync',
-            ].join(''),
-            [
-                'PDFDocument',
-                '.load',
-            ].join(''),
-            [
-                'getData',
-                '(',
-            ].join(''),
-            [
-                'arrayBuffer',
-                '(',
-            ].join(''),
-            [
-                'copyPages',
-                '(',
-            ].join(''),
-            [
-                'merge',
-                'Pdf',
-                '(',
-            ].join(''),
+            ['readFile', 'Sync'].join(''),
+            ['PDFDocument', '.load'].join(''),
+            ['getData', '('].join(''),
+            ['arrayBuffer', '('].join(''),
+            ['copyPages', '('].join(''),
+            ['merge', 'Pdf', '('].join(''),
         ];
         for (const expression of forbiddenExpressions) {
             expect(source).not.toContain(expression);
@@ -506,11 +446,7 @@ describe('Electron E2E - xlarge document acceptance source contract', () => {
     });
 });
 
-async function timed<T>(
-    telemetry: IXlargeAcceptanceTelemetry,
-    phase: string,
-    operation: () => Promise<T>,
-) {
+async function timed<T>(telemetry: IXlargeAcceptanceTelemetry, phase: string, operation: () => Promise<T>) {
     const startedAt = performance.now();
     const startedAtEpochMs = Date.now();
     try {
@@ -531,12 +467,7 @@ async function readResidentBytes(pid: number | null) {
         return null;
     }
     try {
-        const {stdout} = await execFileAsync('ps', [
-            '-o',
-            'rss=',
-            '-p',
-            String(pid),
-        ], {encoding: 'utf8'});
+        const {stdout} = await execFileAsync('ps', ['-o', 'rss=', '-p', String(pid)], {encoding: 'utf8'});
         const kib = Number.parseInt(stdout.trim(), 10);
         return Number.isFinite(kib) ? kib * 1_024 : null;
     } catch {
@@ -552,14 +483,10 @@ interface IRendererJsHeapSample {
 async function readRendererJsHeap(page: Page): Promise<IRendererJsHeapSample> {
     try {
         const metrics = await page.metrics();
-        const usedBytes = typeof metrics.JSHeapUsedSize === 'number'
-            && Number.isFinite(metrics.JSHeapUsedSize)
-            ? metrics.JSHeapUsedSize
-            : null;
-        const totalBytes = typeof metrics.JSHeapTotalSize === 'number'
-            && Number.isFinite(metrics.JSHeapTotalSize)
-            ? metrics.JSHeapTotalSize
-            : null;
+        const usedBytes =
+            typeof metrics.JSHeapUsedSize === 'number' && Number.isFinite(metrics.JSHeapUsedSize) ? metrics.JSHeapUsedSize : null;
+        const totalBytes =
+            typeof metrics.JSHeapTotalSize === 'number' && Number.isFinite(metrics.JSHeapTotalSize) ? metrics.JSHeapTotalSize : null;
         if (usedBytes !== null || totalBytes !== null) {
             return {
                 totalBytes,
@@ -572,18 +499,18 @@ async function readRendererJsHeap(page: Page): Promise<IRendererJsHeapSample> {
 
     try {
         return await page.evaluate(() => {
-            const memory = (performance as Performance & {memory?: {
-                totalJSHeapSize?: unknown;
-                usedJSHeapSize?: unknown;
-            };}).memory;
-            const usedBytes = typeof memory?.usedJSHeapSize === 'number'
-                && Number.isFinite(memory.usedJSHeapSize)
-                ? memory.usedJSHeapSize
-                : null;
-            const totalBytes = typeof memory?.totalJSHeapSize === 'number'
-                && Number.isFinite(memory.totalJSHeapSize)
-                ? memory.totalJSHeapSize
-                : null;
+            const memory = (
+                performance as Performance & {
+                    memory?: {
+                        totalJSHeapSize?: unknown;
+                        usedJSHeapSize?: unknown;
+                    };
+                }
+            ).memory;
+            const usedBytes =
+                typeof memory?.usedJSHeapSize === 'number' && Number.isFinite(memory.usedJSHeapSize) ? memory.usedJSHeapSize : null;
+            const totalBytes =
+                typeof memory?.totalJSHeapSize === 'number' && Number.isFinite(memory.totalJSHeapSize) ? memory.totalJSHeapSize : null;
             return {
                 totalBytes,
                 usedBytes,
@@ -604,13 +531,7 @@ function createRssSampler(page: Page, electronPid: number | null): IRssSampler {
     let result: IRendererRssTelemetry | null = null;
 
     const sample = async () => {
-        const [
-            electronBytes,
-            rendererJsHeap,
-        ] = await Promise.all([
-            readResidentBytes(electronPid),
-            readRendererJsHeap(page),
-        ]);
+        const [electronBytes, rendererJsHeap] = await Promise.all([readResidentBytes(electronPid), readRendererJsHeap(page)]);
         if (running) {
             samples.push({
                 atMs: Math.round((performance.now() - startedAt) * 10) / 10,
@@ -626,49 +547,49 @@ function createRssSampler(page: Page, electronPid: number | null): IRssSampler {
         while (running) {
             await sample();
             if (running) {
-                await new Promise<void>(resolvePromise => {
+                await new Promise<void>((resolvePromise) => {
                     setTimeout(resolvePromise, XLARGE_RSS_SAMPLE_INTERVAL_MS);
                 });
             }
         }
     })();
 
-    return {stop: async () => {
-        if (result) {
+    return {
+        stop: async () => {
+            if (result) {
+                return result;
+            }
+            running = false;
+            await loop;
+            const electronValues = samples
+                .map((sampleValue) => sampleValue.electronBytes)
+                .filter((value): value is number => value !== null);
+            const rendererJsHeapValues = samples
+                .map((sampleValue) => sampleValue.rendererJsHeapUsedBytes)
+                .filter((value): value is number => value !== null);
+            const runnerValues = samples.map((sampleValue) => sampleValue.runnerBytes);
+            const baselineRendererJsHeapUsedBytes = rendererJsHeapValues[0] ?? null;
+            const peakRendererJsHeapUsedBytes = rendererJsHeapValues.length > 0 ? Math.max(...rendererJsHeapValues) : null;
+            result = {
+                electronPid,
+                baselineElectronBytes: electronValues[0] ?? null,
+                peakElectronBytes: electronValues.length > 0 ? Math.max(...electronValues) : null,
+                lastElectronBytes: electronValues.at(-1) ?? null,
+                baselineRunnerBytes: runnerValues[0] ?? null,
+                peakRunnerBytes: runnerValues.length > 0 ? Math.max(...runnerValues) : null,
+                lastRunnerBytes: runnerValues.at(-1) ?? null,
+                baselineRendererJsHeapUsedBytes,
+                peakRendererJsHeapUsedBytes,
+                lastRendererJsHeapUsedBytes: rendererJsHeapValues.at(-1) ?? null,
+                rendererJsHeapDeltaBytes:
+                    baselineRendererJsHeapUsedBytes !== null && peakRendererJsHeapUsedBytes !== null
+                        ? Math.max(0, peakRendererJsHeapUsedBytes - baselineRendererJsHeapUsedBytes)
+                        : null,
+                samples,
+            };
             return result;
-        }
-        running = false;
-        await loop;
-        const electronValues = samples
-            .map(sampleValue => sampleValue.electronBytes)
-            .filter((value): value is number => value !== null);
-        const rendererJsHeapValues = samples
-            .map(sampleValue => sampleValue.rendererJsHeapUsedBytes)
-            .filter((value): value is number => value !== null);
-        const runnerValues = samples.map(sampleValue => sampleValue.runnerBytes);
-        const baselineRendererJsHeapUsedBytes = rendererJsHeapValues[0] ?? null;
-        const peakRendererJsHeapUsedBytes = rendererJsHeapValues.length > 0
-            ? Math.max(...rendererJsHeapValues)
-            : null;
-        result = {
-            electronPid,
-            baselineElectronBytes: electronValues[0] ?? null,
-            peakElectronBytes: electronValues.length > 0 ? Math.max(...electronValues) : null,
-            lastElectronBytes: electronValues.at(-1) ?? null,
-            baselineRunnerBytes: runnerValues[0] ?? null,
-            peakRunnerBytes: runnerValues.length > 0 ? Math.max(...runnerValues) : null,
-            lastRunnerBytes: runnerValues.at(-1) ?? null,
-            baselineRendererJsHeapUsedBytes,
-            peakRendererJsHeapUsedBytes,
-            lastRendererJsHeapUsedBytes: rendererJsHeapValues.at(-1) ?? null,
-            rendererJsHeapDeltaBytes: baselineRendererJsHeapUsedBytes !== null
-                && peakRendererJsHeapUsedBytes !== null
-                ? Math.max(0, peakRendererJsHeapUsedBytes - baselineRendererJsHeapUsedBytes)
-                : null,
-            samples,
-        };
-        return result;
-    }};
+        },
+    };
 }
 
 async function stageFixture(sourcePath: string): Promise<IStagedFixture> {
@@ -697,18 +618,12 @@ async function stageFixture(sourcePath: string): Promise<IStagedFixture> {
             force: true,
             recursive: true,
         });
-        throw new Error(
-            `Could not stage the xlarge fixture with the clone-or-stream fixture copier: ${stagedPath}`,
-            {cause: error},
-        );
+        throw new Error(`Could not stage the xlarge fixture with the clone-or-stream fixture copier: ${stagedPath}`, {cause: error});
     }
 }
 
 async function assertQpdfCheck(pdfPath: string) {
-    await runDesktopQpdfWasm([
-        '--check',
-        pdfPath,
-    ], {commandLabel: 'qpdf(e2e-xlarge-check)'});
+    await runDesktopQpdfWasm(['--check', pdfPath], {commandLabel: 'qpdf(e2e-xlarge-check)'});
 }
 
 async function startRendererHeartbeat(page: Page) {
@@ -790,14 +705,20 @@ async function startRendererHeartbeat(page: Page) {
                 }
                 const now = performance.now();
                 const nowEpochMs = Date.now();
-                recordGap(now, nowEpochMs, state.lastMessageChannelAt, state.lastMessageChannelEpochMs, (gapMs, gapStartEpochMs, gapEndEpochMs) => {
-                    if (gapMs <= state.messageChannelMaxGapMs) {
-                        return;
-                    }
-                    state.messageChannelMaxGapMs = gapMs;
-                    state.messageChannelMaxGapStartEpochMs = gapStartEpochMs;
-                    state.messageChannelMaxGapEndEpochMs = gapEndEpochMs;
-                });
+                recordGap(
+                    now,
+                    nowEpochMs,
+                    state.lastMessageChannelAt,
+                    state.lastMessageChannelEpochMs,
+                    (gapMs, gapStartEpochMs, gapEndEpochMs) => {
+                        if (gapMs <= state.messageChannelMaxGapMs) {
+                            return;
+                        }
+                        state.messageChannelMaxGapMs = gapMs;
+                        state.messageChannelMaxGapStartEpochMs = gapStartEpochMs;
+                        state.messageChannelMaxGapEndEpochMs = gapEndEpochMs;
+                    },
+                );
                 state.lastMessageChannelAt = now;
                 state.lastMessageChannelEpochMs = nowEpochMs;
                 state.messageChannelTimerId = window.setTimeout(() => channel.port2.postMessage(null), intervalMs);
@@ -812,10 +733,12 @@ async function startRendererHeartbeat(page: Page) {
             const workerUrl = URL.createObjectURL(new Blob([workerSource], {type: 'text/javascript'}));
             const worker = new Worker(workerUrl);
             state.worker = worker;
-            worker.onmessage = (event: MessageEvent<{
-                at: number;
-                epochMs: number;
-            }>) => {
+            worker.onmessage = (
+                event: MessageEvent<{
+                    at: number;
+                    epochMs: number;
+                }>,
+            ) => {
                 if (!state.running) {
                     return;
                 }
@@ -841,7 +764,7 @@ async function startRendererHeartbeat(page: Page) {
     }, XLARGE_HEARTBEAT_INTERVAL_MS);
 
     return async () => {
-        await new Promise<void>(resolvePromise => {
+        await new Promise<void>((resolvePromise) => {
             setTimeout(resolvePromise, XLARGE_HEARTBEAT_INTERVAL_MS * 2);
         });
         return page.evaluate(() => {
@@ -896,8 +819,8 @@ async function startRendererLongTaskProbe(page: Page) {
         if (typeof PerformanceObserver !== 'function') {
             return;
         }
-        const observer = new PerformanceObserver(list => {
-            list.getEntries().forEach(entry => {
+        const observer = new PerformanceObserver((list) => {
+            list.getEntries().forEach((entry) => {
                 longTasks.push({
                     durationMs: Math.round(entry.duration * 10) / 10,
                     name: entry.name,
@@ -932,9 +855,12 @@ async function startRendererPlacementSampling(page: Page) {
             maxAnimationFrameGapMs: 0,
             animationFrameSampleCount: 0,
             domMutationCount: 0,
-            mutationObserver: typeof MutationObserver === 'function' ? new MutationObserver((records) => {
-                state.domMutationCount += records.length;
-            }) : null,
+            mutationObserver:
+                typeof MutationObserver === 'function'
+                    ? new MutationObserver((records) => {
+                          state.domMutationCount += records.length;
+                      })
+                    : null,
         };
         state.mutationObserver?.observe(document.body, {
             attributes: true,
@@ -942,10 +868,7 @@ async function startRendererPlacementSampling(page: Page) {
             subtree: true,
         });
         const sampleAnimationFrame = (at: number) => {
-            state.maxAnimationFrameGapMs = Math.max(
-                state.maxAnimationFrameGapMs,
-                at - state.lastAnimationFrameAt,
-            );
+            state.maxAnimationFrameGapMs = Math.max(state.maxAnimationFrameGapMs, at - state.lastAnimationFrameAt);
             state.lastAnimationFrameAt = at;
             state.animationFrameSampleCount += 1;
             state.animationFrameId = window.requestAnimationFrame(sampleAnimationFrame);
@@ -976,66 +899,57 @@ async function readRendererPlacementSampling(page: Page) {
 
 async function waitForRenderedPage(page: Page, pageNumber: number, timeoutMs: number) {
     await setupScrollToPage(page, pageNumber);
-    await page.waitForFunction((targetPageNumber: number) => {
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const host = activeHost ?? document.querySelector<HTMLElement>('.workspace-host');
-        const pageElement = host?.querySelector<HTMLElement>(
-            `.page_container[data-page="${targetPageNumber}"]`,
-        );
-        if (!pageElement || !pageElement.classList.contains('page_container--rendered')) {
-            return false;
-        }
-        const canvas = pageElement.querySelector<HTMLCanvasElement>(
-            '.page_canvas__render-layer canvas, .page_canvas canvas, canvas',
-        );
-        if (!canvas || canvas.width <= 0 || canvas.height <= 0) {
-            return false;
-        }
-        const context = canvas.getContext('2d', {willReadFrequently: true});
-        if (!context) {
-            return false;
-        }
-        const samplePoints = [
-            0.15,
-            0.35,
-            0.5,
-            0.65,
-            0.85,
-        ];
-        // A rendered PDF page must contain a current pixel sample. Dimensions
-        // and the rendered CSS class alone also match blank and stale canvases.
-        let hasInk = false;
-        for (const xRatio of samplePoints) {
-            for (const yRatio of samplePoints) {
-                const sample = context.getImageData(
-                    Math.min(canvas.width - 1, Math.floor(canvas.width * xRatio)),
-                    Math.min(canvas.height - 1, Math.floor(canvas.height * yRatio)),
-                    1,
-                    1,
-                ).data;
-                if (sample[3] !== 0 && (
-                    sample[0] !== 255 || sample[1] !== 255 || sample[2] !== 255
-                )) {
-                    hasInk = true;
+    await page.waitForFunction(
+        (targetPageNumber: number) => {
+            const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+            const host = activeHost ?? document.querySelector<HTMLElement>('.workspace-host');
+            const pageElement = host?.querySelector<HTMLElement>(`.page_container[data-page="${targetPageNumber}"]`);
+            if (!pageElement || !pageElement.classList.contains('page_container--rendered')) {
+                return false;
+            }
+            const canvas = pageElement.querySelector<HTMLCanvasElement>('.page_canvas__render-layer canvas, .page_canvas canvas, canvas');
+            if (!canvas || canvas.width <= 0 || canvas.height <= 0) {
+                return false;
+            }
+            const context = canvas.getContext('2d', {willReadFrequently: true});
+            if (!context) {
+                return false;
+            }
+            const samplePoints = [0.15, 0.35, 0.5, 0.65, 0.85];
+            // A rendered PDF page must contain a current pixel sample. Dimensions
+            // and the rendered CSS class alone also match blank and stale canvases.
+            let hasInk = false;
+            for (const xRatio of samplePoints) {
+                for (const yRatio of samplePoints) {
+                    const sample = context.getImageData(
+                        Math.min(canvas.width - 1, Math.floor(canvas.width * xRatio)),
+                        Math.min(canvas.height - 1, Math.floor(canvas.height * yRatio)),
+                        1,
+                        1,
+                    ).data;
+                    if (sample[3] !== 0 && (sample[0] !== 255 || sample[1] !== 255 || sample[2] !== 255)) {
+                        hasInk = true;
+                        break;
+                    }
+                }
+                if (hasInk) {
                     break;
                 }
             }
-            if (hasInk) {
-                break;
+            if (!hasInk) {
+                return false;
             }
-        }
-        if (!hasInk) {
-            return false;
-        }
-        const viewer = host?.querySelector<HTMLElement>('.pdfViewer');
-        if (!viewer) {
-            return false;
-        }
-        const pageRect = pageElement.getBoundingClientRect();
-        const viewerRect = viewer.getBoundingClientRect();
-        return Math.min(pageRect.bottom, viewerRect.bottom)
-            - Math.max(pageRect.top, viewerRect.top) > 8;
-    }, {timeout: timeoutMs}, pageNumber);
+            const viewer = host?.querySelector<HTMLElement>('.pdfViewer');
+            if (!viewer) {
+                return false;
+            }
+            const pageRect = pageElement.getBoundingClientRect();
+            const viewerRect = viewer.getBoundingClientRect();
+            return Math.min(pageRect.bottom, viewerRect.bottom) - Math.max(pageRect.top, viewerRect.top) > 8;
+        },
+        {timeout: timeoutMs},
+        pageNumber,
+    );
 }
 
 interface IStructuralObjectSummary {
@@ -1045,23 +959,19 @@ interface IStructuralObjectSummary {
     subtype: string;
 }
 
-async function readStructuralObjectSummary(
-    pdfPath: string,
-    index: IPdfAnnotationIndex,
-): Promise<IStructuralObjectSummary[]> {
-    const summaries = await Promise.all(index.entries.map(async entry => {
-        const object = await readAnnotationObjectContents(pdfPath, entry);
-        return {
-            appearanceHash: createHash('sha256').update(object.stdout).digest('hex'),
-            generationNumber: entry.generationNumber,
-            objectNumber: entry.objectNumber,
-            subtype: entry.subtype,
-        };
-    }));
-    return summaries.sort((left, right) => (
-        left.objectNumber - right.objectNumber
-        || left.generationNumber - right.generationNumber
-    ));
+async function readStructuralObjectSummary(pdfPath: string, index: IPdfAnnotationIndex): Promise<IStructuralObjectSummary[]> {
+    const summaries = await Promise.all(
+        index.entries.map(async (entry) => {
+            const object = await readAnnotationObjectContents(pdfPath, entry);
+            return {
+                appearanceHash: createHash('sha256').update(object.stdout).digest('hex'),
+                generationNumber: entry.generationNumber,
+                objectNumber: entry.objectNumber,
+                subtype: entry.subtype,
+            };
+        }),
+    );
+    return summaries.sort((left, right) => left.objectNumber - right.objectNumber || left.generationNumber - right.generationNumber);
 }
 
 function assertBoundedStructuralChange(
@@ -1069,10 +979,7 @@ function assertBoundedStructuralChange(
     baseline: IStructuralObjectSummary[],
     final: IStructuralObjectSummary[],
 ) {
-    const finalByRef = new Map(final.map(entry => [
-        `${entry.objectNumber}:${entry.generationNumber}`,
-        entry,
-    ]));
+    const finalByRef = new Map(final.map((entry) => [`${entry.objectNumber}:${entry.generationNumber}`, entry]));
     const unchangedObjectRefs: string[] = [];
     const changedObjectRefs: string[] = [];
     for (const baselineEntry of baseline) {
@@ -1085,10 +992,8 @@ function assertBoundedStructuralChange(
             changedObjectRefs.push(ref);
         }
     }
-    const baselineRefs = new Set(baseline.map(entry => `${entry.objectNumber}:${entry.generationNumber}`));
-    const addedObjectRefs = final
-        .map(entry => `${entry.objectNumber}:${entry.generationNumber}`)
-        .filter(ref => !baselineRefs.has(ref));
+    const baselineRefs = new Set(baseline.map((entry) => `${entry.objectNumber}:${entry.generationNumber}`));
+    const addedObjectRefs = final.map((entry) => `${entry.objectNumber}:${entry.generationNumber}`).filter((ref) => !baselineRefs.has(ref));
     expect(changedObjectRefs).toEqual([]);
     expect(addedObjectRefs.length).toBeGreaterThan(0);
     telemetry.structuralComparison = {
@@ -1123,28 +1028,21 @@ function assertBaselineAnnotationIndex(index: IPdfAnnotationIndex) {
     expect(index.entries).toEqual(expect.arrayContaining(EXPECTED_BASELINE_ENTRIES));
 }
 
-function annotationRefEquals(
-    left: IAnnotationObjectRef | null,
-    right: IAnnotationObjectRef | null,
-) {
-    return left?.objectNumber === right?.objectNumber
-        && left?.generationNumber === right?.generationNumber;
+function annotationRefEquals(left: IAnnotationObjectRef | null, right: IAnnotationObjectRef | null) {
+    return left?.objectNumber === right?.objectNumber && left?.generationNumber === right?.generationNumber;
 }
 
 function annotationRefKey(ref: IAnnotationObjectRef) {
     return `${ref.objectNumber}:${ref.generationNumber}`;
 }
 
-async function waitForDetachedEditorLayers(
-    page: Page,
-    timeout = XLARGE_SAVE_TIMEOUT_MS,
-) {
-    await page.waitForFunction(() => (
-        document.querySelectorAll(
-            '.editor-pane.is-active .annotationEditorLayer, '
-            + '.editor-pane.is-active .annotation-editor-layer',
-        ).length === 0
-    ), {timeout});
+async function waitForDetachedEditorLayers(page: Page, timeout = XLARGE_SAVE_TIMEOUT_MS) {
+    await page.waitForFunction(
+        () =>
+            document.querySelectorAll('.editor-pane.is-active .annotationEditorLayer, ' + '.editor-pane.is-active .annotation-editor-layer')
+                .length === 0,
+        {timeout},
+    );
 }
 
 function assertFinalAnnotationIndex(index: IPdfAnnotationIndex) {
@@ -1153,49 +1051,49 @@ function assertFinalAnnotationIndex(index: IPdfAnnotationIndex) {
     expect(index.entries).toHaveLength(10);
     expect(index.entries).toEqual(expect.arrayContaining(EXPECTED_BASELINE_ENTRIES));
 
-    const canonicalNotes = index.entries.filter(entry => (
-        entry.pageIndex === XLARGE_MIDDLE_PAGE - 1
-        && entry.subtype === 'Text'
-        && entry.name !== BASELINE_NOTE_NAME
-        && entry.popupRef !== null
-        && entry.parentRef === null
-    ));
-    expect(canonicalNotes).toHaveLength(2);
-    expect(new Set(canonicalNotes.map(entry => entry.name)).size).toBe(2);
-    expect(new Set(canonicalNotes.map(entry => (
-        `${entry.objectNumber}:${entry.generationNumber}`
-    ))).size).toBe(2);
-
-    const toolbarPopups = index.entries.filter(entry => (
-        entry.pageIndex === XLARGE_MIDDLE_PAGE - 1
-        && entry.subtype === 'Popup'
-    ));
-    expect(toolbarPopups).toHaveLength(2);
-    const canonicalPopupKeys = new Set(
-        canonicalNotes.map(entry => annotationRefKey(entry.popupRef!)),
+    const canonicalNotes = index.entries.filter(
+        (entry) =>
+            entry.pageIndex === XLARGE_MIDDLE_PAGE - 1 &&
+            entry.subtype === 'Text' &&
+            entry.name !== BASELINE_NOTE_NAME &&
+            entry.popupRef !== null &&
+            entry.parentRef === null,
     );
+    expect(canonicalNotes).toHaveLength(2);
+    expect(new Set(canonicalNotes.map((entry) => entry.name)).size).toBe(2);
+    expect(new Set(canonicalNotes.map((entry) => `${entry.objectNumber}:${entry.generationNumber}`)).size).toBe(2);
+
+    const toolbarPopups = index.entries.filter((entry) => entry.pageIndex === XLARGE_MIDDLE_PAGE - 1 && entry.subtype === 'Popup');
+    expect(toolbarPopups).toHaveLength(2);
+    const canonicalPopupKeys = new Set(canonicalNotes.map((entry) => annotationRefKey(entry.popupRef!)));
     const toolbarPopupKeys = new Set(
-        toolbarPopups.map(entry => annotationRefKey({
-            objectNumber: entry.objectNumber,
-            generationNumber: entry.generationNumber,
-        })),
+        toolbarPopups.map((entry) =>
+            annotationRefKey({
+                objectNumber: entry.objectNumber,
+                generationNumber: entry.generationNumber,
+            }),
+        ),
     );
     expect(canonicalPopupKeys.size).toBe(canonicalNotes.length);
     expect(toolbarPopupKeys).toEqual(canonicalPopupKeys);
     for (const canonicalNote of canonicalNotes) {
-        expect(toolbarPopups.some(entry => annotationRefEquals(canonicalNote.popupRef, {
-            objectNumber: entry.objectNumber,
-            generationNumber: entry.generationNumber,
-        }))).toBe(true);
+        expect(
+            toolbarPopups.some((entry) =>
+                annotationRefEquals(canonicalNote.popupRef, {
+                    objectNumber: entry.objectNumber,
+                    generationNumber: entry.generationNumber,
+                }),
+            ),
+        ).toBe(true);
     }
-    expect(toolbarPopups.every(entry => entry.parentRef !== null)).toBe(true);
+    expect(toolbarPopups.every((entry) => entry.parentRef !== null)).toBe(true);
 
     return {canonicalNotes};
 }
 
 function toPdfUtf16BeHex(value: string) {
     return `feff${Array.from(value)
-        .map(character => character.charCodeAt(0).toString(16).padStart(4, '0'))
+        .map((character) => character.charCodeAt(0).toString(16).padStart(4, '0'))
         .join('')}`;
 }
 
@@ -1203,11 +1101,10 @@ async function readAnnotationObjectContents(
     pdfPath: string,
     annotation: Pick<IPdfAnnotationIndexEntry, 'generationNumber' | 'objectNumber'>,
 ) {
-    const {stdout} = await runDesktopQpdfWasm([
-        `--show-object=${annotation.objectNumber},${annotation.generationNumber}`,
-        '--raw-stream-data',
-        pdfPath,
-    ], {commandLabel: 'qpdf(e2e-xlarge-read-object)'});
+    const {stdout} = await runDesktopQpdfWasm(
+        [`--show-object=${annotation.objectNumber},${annotation.generationNumber}`, '--raw-stream-data', pdfPath],
+        {commandLabel: 'qpdf(e2e-xlarge-read-object)'},
+    );
     return {
         stdout,
         normalized: stdout.toLowerCase().replace(/\s+/gu, ''),
@@ -1219,18 +1116,12 @@ async function assertAnnotationObjectsContainTexts(
     annotations: Array<Pick<IPdfAnnotationIndexEntry, 'generationNumber' | 'objectNumber'>>,
     expectedTexts: string[],
 ) {
-    const objectContents = await Promise.all(
-        annotations.map(annotation => readAnnotationObjectContents(pdfPath, annotation)),
-    );
+    const objectContents = await Promise.all(annotations.map((annotation) => readAnnotationObjectContents(pdfPath, annotation)));
     const matchedObjectIndexes = new Set<number>();
     for (const expectedText of expectedTexts) {
-        const matchingObjectIndexes = objectContents.flatMap(({
-            stdout,
-            normalized,
-        }, index) => (
-            stdout.includes(expectedText)
-            || normalized.includes(toPdfUtf16BeHex(expectedText))
-        ) ? [index] : []);
+        const matchingObjectIndexes = objectContents.flatMap(({stdout, normalized}, index) =>
+            stdout.includes(expectedText) || normalized.includes(toPdfUtf16BeHex(expectedText)) ? [index] : [],
+        );
         expect(matchingObjectIndexes).toHaveLength(1);
         const matchingObjectIndex = matchingObjectIndexes[0];
         expect(matchingObjectIndex).toBeDefined();
@@ -1244,86 +1135,76 @@ async function assertAnnotationObjectsContainTexts(
 
 function assertMeasuredIpcPayloadBudget(telemetry: IXlargeAcceptanceTelemetry) {
     expect(telemetry.ipcPayloadMeasurements).not.toHaveLength(0);
-    expect(telemetry.ipcPayloadMeasurements.every(measurement => (
-        measurement.bytes > 0 && measurement.bytes <= XLARGE_IPC_PAYLOAD_MAX_BYTES
-    ))).toBe(true);
+    expect(
+        telemetry.ipcPayloadMeasurements.every((measurement) => measurement.bytes > 0 && measurement.bytes <= XLARGE_IPC_PAYLOAD_MAX_BYTES),
+    ).toBe(true);
 }
 
-async function waitForWorkspaceComment(
-    page: Page,
-    text: string,
-    pageNumber: number,
-    source: 'editor' | 'pdf' = 'editor',
-) {
-    await page.waitForFunction((input: {
-        pageNumber: number;
-        text: string
-        source: 'editor' | 'pdf';
-    }) => {
-        const values = window.__evbTestApi?.readActiveWorkspaceStateValues?.(['annotationComments']) as {annotationComments?: unknown;} | undefined;
-        const comments = Array.isArray(values?.annotationComments)
-            ? values.annotationComments
-            : [];
-        return comments.some(comment => {
-            if (!comment || typeof comment !== 'object') {
-                return false;
-            }
-            const record = comment as Record<string, unknown>;
-            return record.text === input.text
-                && record.source === input.source
-                && record.subtype === 'Text'
-                && typeof record.appAnnotationId === 'string'
-                && record.appAnnotationId.length > 0
-                && (record.pageNumber === input.pageNumber || record.pageIndex === input.pageNumber - 1);
-        });
-    }, {timeout: 20_000}, {
-        pageNumber,
-        text,
-        source,
-    });
+async function waitForWorkspaceComment(page: Page, text: string, pageNumber: number, source: 'editor' | 'pdf' = 'editor') {
+    await page.waitForFunction(
+        (input: {pageNumber: number; text: string; source: 'editor' | 'pdf'}) => {
+            const values = window.__evbTestApi?.readActiveWorkspaceStateValues?.(['annotationComments']) as
+                {annotationComments?: unknown} | undefined;
+            const comments = Array.isArray(values?.annotationComments) ? values.annotationComments : [];
+            return comments.some((comment) => {
+                if (!comment || typeof comment !== 'object') {
+                    return false;
+                }
+                const record = comment as Record<string, unknown>;
+                return (
+                    record.text === input.text &&
+                    record.source === input.source &&
+                    record.subtype === 'Text' &&
+                    typeof record.appAnnotationId === 'string' &&
+                    record.appAnnotationId.length > 0 &&
+                    (record.pageNumber === input.pageNumber || record.pageIndex === input.pageNumber - 1)
+                );
+            });
+        },
+        {timeout: 20_000},
+        {
+            pageNumber,
+            text,
+            source,
+        },
+    );
 }
 
-async function createCanonicalNoteViaAgentAction(
-    page: Page,
-    text: string,
-    pageNumber: number,
-    pageX: number,
-    pageY: number,
-) {
-    const tabIdBeforeCreate = await page.evaluate(() => (
-        document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .tab-list .tab.is-active[data-tab-id]',
-        )?.dataset.tabId ?? null
-    ));
+async function createCanonicalNoteViaAgentAction(page: Page, text: string, pageNumber: number, pageX: number, pageY: number) {
+    const tabIdBeforeCreate = await page.evaluate(
+        () => document.querySelector<HTMLElement>('.editor-pane.is-active .tab-list .tab.is-active[data-tab-id]')?.dataset.tabId ?? null,
+    );
     if (!tabIdBeforeCreate) {
         throw new Error('Could not identify the active document before canonical note creation');
     }
     const notesUri = `evb://document/${encodeURIComponent(tabIdBeforeCreate)}/notes`;
     const readNotes = async () => {
-        const resourceResult = await callWorkspaceCommand<Record<string, unknown>>(
-            page,
-            'readAgentResource',
-            [notesUri],
-            {requiredMethods: ['readAgentResource']},
-        );
+        const resourceResult = await callWorkspaceCommand<Record<string, unknown>>(page, 'readAgentResource', [notesUri], {
+            requiredMethods: ['readAgentResource'],
+        });
         return Array.isArray(resourceResult.value?.notes) ? resourceResult.value.notes : [];
     };
     const existingStableKeys = new Set(
-        (await readNotes()).flatMap(note => (
+        (await readNotes()).flatMap((note) =>
             note && typeof note === 'object' && typeof (note as Record<string, unknown>).stableKey === 'string'
                 ? [(note as Record<string, unknown>).stableKey as string]
-                : []
-        )),
+                : [],
+        ),
     );
-    const created = await requireWorkspaceCommand<IAgentActionResult>(page, 'runAgentAction', [
-        'annotation.create_note_at_point',
-        {
-            page: pageNumber,
-            pageX,
-            pageY,
-            preferTextAnchor: false,
-        },
-    ], {requiredMethods: ['runAgentAction']});
+    const created = await requireWorkspaceCommand<IAgentActionResult>(
+        page,
+        'runAgentAction',
+        [
+            'annotation.create_note_at_point',
+            {
+                page: pageNumber,
+                pageX,
+                pageY,
+                preferTextAnchor: false,
+            },
+        ],
+        {requiredMethods: ['runAgentAction']},
+    );
     expect(created?.created).toBe(true);
     if (created?.created !== true) {
         throw new Error('Canonical note creation action did not create a note');
@@ -1343,14 +1224,8 @@ async function createCanonicalNoteViaAgentAction(
                 continue;
             }
             const candidate = note as Record<string, unknown>;
-            const candidatePage = typeof candidate.pageNumber === 'number'
-                ? candidate.pageNumber
-                : Number(candidate.pageIndex) + 1;
-            if (
-                candidatePage === pageNumber
-                && typeof candidate.stableKey === 'string'
-                && !existingStableKeys.has(candidate.stableKey)
-            ) {
+            const candidatePage = typeof candidate.pageNumber === 'number' ? candidate.pageNumber : Number(candidate.pageIndex) + 1;
+            if (candidatePage === pageNumber && typeof candidate.stableKey === 'string' && !existingStableKeys.has(candidate.stableKey)) {
                 newPageStableKeys.add(candidate.stableKey);
             }
         }
@@ -1361,7 +1236,7 @@ async function createCanonicalNoteViaAgentAction(
         if (!stableKey) {
             const remainingMs = stableKeyDeadline - Date.now();
             if (remainingMs > 0) {
-                await new Promise(resolve => setTimeout(resolve, Math.min(100, remainingMs)));
+                await new Promise((resolve) => setTimeout(resolve, Math.min(100, remainingMs)));
             }
         }
     }
@@ -1369,14 +1244,19 @@ async function createCanonicalNoteViaAgentAction(
         throw new Error(`Canonical note ${text} did not publish a stable key`);
     }
 
-    const updatedResult = await requireWorkspaceCommand<IAgentActionResult>(page, 'runAgentAction', [
-        'annotation.update_note',
-        {
-            markerRect: created.markerRect,
-            stableKey,
-            text,
-        },
-    ], {requiredMethods: ['runAgentAction']});
+    const updatedResult = await requireWorkspaceCommand<IAgentActionResult>(
+        page,
+        'runAgentAction',
+        [
+            'annotation.update_note',
+            {
+                markerRect: created.markerRect,
+                stableKey,
+                text,
+            },
+        ],
+        {requiredMethods: ['runAgentAction']},
+    );
     expect(updatedResult?.updated).toBe(true);
     await waitForWorkspaceComment(page, text, pageNumber);
 }
@@ -1385,76 +1265,51 @@ async function readOptionalRendererIpcPayloadProbe(page: Page): Promise<IRendere
     return page.evaluate(() => {
         const target = window as IRendererIpcPayloadProbeWindow;
         const candidates: Array<readonly [string, unknown]> = [
-            [
-                '__evbIpcPayloadProbe',
-                target.__evbIpcPayloadProbe,
-            ],
-            [
-                '__evbRendererIpcPayloadProbe',
-                target.__evbRendererIpcPayloadProbe,
-            ],
-            [
-                '__evbIpcPayloads',
-                target.__evbIpcPayloads,
-            ],
+            ['__evbIpcPayloadProbe', target.__evbIpcPayloadProbe],
+            ['__evbRendererIpcPayloadProbe', target.__evbRendererIpcPayloadProbe],
+            ['__evbIpcPayloads', target.__evbIpcPayloads],
         ];
-        for (const [
-            name,
-            value,
-        ] of candidates) {
+        for (const [name, value] of candidates) {
             if (!value || typeof value !== 'object') {
                 continue;
             }
             const record = value as Record<string, unknown>;
-            const directMax = [
-                record.maxPayloadBytes,
-                record.maxPayloadSizeBytes,
-                record.maxBytes,
-            ].find(candidate => typeof candidate === 'number' && Number.isFinite(candidate));
-            const samples = [
-                record.payloadBytes,
-                record.payloadSizes,
-                record.payloads,
-                record.samples,
-            ].find(Array.isArray) ?? (Array.isArray(value) ? value : null);
+            const directMax = [record.maxPayloadBytes, record.maxPayloadSizeBytes, record.maxBytes].find(
+                (candidate) => typeof candidate === 'number' && Number.isFinite(candidate),
+            );
+            const samples =
+                [record.payloadBytes, record.payloadSizes, record.payloads, record.samples].find(Array.isArray) ??
+                (Array.isArray(value) ? value : null);
             const sampleNumbers = Array.isArray(samples)
-                ? samples.flatMap(sample => {
-                    if (typeof sample === 'number' && Number.isFinite(sample)) {
-                        return [sample];
-                    }
-                    if (sample && typeof sample === 'object') {
-                        const sampleRecord = sample as Record<string, unknown>;
-                        const sampleValue = [
-                            sampleRecord.payloadBytes,
-                            sampleRecord.payloadSizeBytes,
-                            sampleRecord.bytes,
-                            sampleRecord.size,
-                        ].find(candidate => typeof candidate === 'number' && Number.isFinite(candidate));
-                        if (typeof sampleValue === 'number') {
-                            return [sampleValue];
-                        }
-                        try {
-                            const serialized = JSON.stringify(sample);
-                            return serialized === undefined
-                                ? []
-                                : [new TextEncoder().encode(serialized).byteLength];
-                        } catch {
-                            return [];
-                        }
-                    }
-                    return [];
-                })
+                ? samples.flatMap((sample) => {
+                      if (typeof sample === 'number' && Number.isFinite(sample)) {
+                          return [sample];
+                      }
+                      if (sample && typeof sample === 'object') {
+                          const sampleRecord = sample as Record<string, unknown>;
+                          const sampleValue = [
+                              sampleRecord.payloadBytes,
+                              sampleRecord.payloadSizeBytes,
+                              sampleRecord.bytes,
+                              sampleRecord.size,
+                          ].find((candidate) => typeof candidate === 'number' && Number.isFinite(candidate));
+                          if (typeof sampleValue === 'number') {
+                              return [sampleValue];
+                          }
+                          try {
+                              const serialized = JSON.stringify(sample);
+                              return serialized === undefined ? [] : [new TextEncoder().encode(serialized).byteLength];
+                          } catch {
+                              return [];
+                          }
+                      }
+                      return [];
+                  })
                 : [];
-            const maxPayloadBytes = typeof directMax === 'number'
-                ? directMax
-                : sampleNumbers.length > 0
-                    ? Math.max(...sampleNumbers)
-                    : null;
-            const sampleCount = typeof record.sampleCount === 'number'
-                ? record.sampleCount
-                : Array.isArray(samples)
-                    ? samples.length
-                    : null;
+            const maxPayloadBytes =
+                typeof directMax === 'number' ? directMax : sampleNumbers.length > 0 ? Math.max(...sampleNumbers) : null;
+            const sampleCount =
+                typeof record.sampleCount === 'number' ? record.sampleCount : Array.isArray(samples) ? samples.length : null;
             return {
                 name,
                 maxPayloadBytes,
@@ -1465,11 +1320,7 @@ async function readOptionalRendererIpcPayloadProbe(page: Page): Promise<IRendere
     });
 }
 
-function recordRendererIpcPayloadProbe(
-    telemetry: IXlargeAcceptanceTelemetry,
-    session: 'A' | 'B',
-    probe: IRendererIpcPayloadProbe | null,
-) {
+function recordRendererIpcPayloadProbe(telemetry: IXlargeAcceptanceTelemetry, session: 'A' | 'B', probe: IRendererIpcPayloadProbe | null) {
     if (!probe) {
         return;
     }
@@ -1488,10 +1339,14 @@ async function writeTelemetry(telemetry: IXlargeAcceptanceTelemetry) {
     await mkdir(dirname(artifactPath), {recursive: true});
     await writeFile(
         artifactPath,
-        `${JSON.stringify({
-            ...telemetry,
-            generatedAt: new Date().toISOString(),
-        }, null, 2)}\n`,
+        `${JSON.stringify(
+            {
+                ...telemetry,
+                generatedAt: new Date().toISOString(),
+            },
+            null,
+            2,
+        )}\n`,
         'utf8',
     );
 }
@@ -1505,448 +1360,366 @@ async function hashPath(path: string) {
 }
 
 xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
-    it('keeps embedded annotations across two sessions and a fresh renderer save/reopen', async () => {
-        const telemetry = createTelemetry();
-        const sourcePath = resolve(configuredFixture);
-        let stagedFixture: IStagedFixture | null = null;
-        let sessionA: IElectronE2ESession | null = null;
-        let sessionB: IElectronE2ESession | null = null;
-        let activeHeartbeat: (() => Promise<IHeartbeatSnapshot>) | null = null;
-        let activeRssSampler: IRssSampler | null = null;
-        let bodyFailure: unknown = null;
+    it(
+        'keeps embedded annotations across two sessions and a fresh renderer save/reopen',
+        async () => {
+            const telemetry = createTelemetry();
+            const sourcePath = resolve(configuredFixture);
+            let stagedFixture: IStagedFixture | null = null;
+            let sessionA: IElectronE2ESession | null = null;
+            let sessionB: IElectronE2ESession | null = null;
+            let activeHeartbeat: (() => Promise<IHeartbeatSnapshot>) | null = null;
+            let activeRssSampler: IRssSampler | null = null;
+            let bodyFailure: unknown = null;
 
-        try {
-            stagedFixture = await timed(telemetry, 'fixture-stage-bounded', () => stageFixture(sourcePath));
-            telemetry.fixture.sourcePath = stagedFixture.sourcePath;
-            telemetry.fixture.stagedPath = stagedFixture.stagedPath;
-            telemetry.fixture.sourceBytes = stagedFixture.sourceBytes;
-            telemetry.fixture.stagedBytes = stagedFixture.stagedBytes;
-            telemetry.fixture.cloneMode = stagedFixture.copyMode;
-            telemetry.rendererJsHeapBudgetBytes = rendererJsHeapBudgetBytes(stagedFixture.sourceBytes);
+            try {
+                stagedFixture = await timed(telemetry, 'fixture-stage-bounded', () => stageFixture(sourcePath));
+                telemetry.fixture.sourcePath = stagedFixture.sourcePath;
+                telemetry.fixture.stagedPath = stagedFixture.stagedPath;
+                telemetry.fixture.sourceBytes = stagedFixture.sourceBytes;
+                telemetry.fixture.stagedBytes = stagedFixture.stagedBytes;
+                telemetry.fixture.cloneMode = stagedFixture.copyMode;
+                telemetry.rendererJsHeapBudgetBytes = rendererJsHeapBudgetBytes(stagedFixture.sourceBytes);
 
-            const pageCount = await timed(
-                telemetry,
-                'fixture-admission-qpdf-page-count',
-                () => getPdfPageCount(stagedFixture!.stagedPath),
-            );
-            telemetry.fixture.pageCount = pageCount;
-            expect(pageCount).toBe(XLARGE_PAGE_COUNT);
-
-            // Session A is a normal open/render/index confirmation. It closes
-            // cleanly before session B starts, so this does not claim crash
-            // checkpoint recovery.
-            sessionA = await timed(
-                telemetry,
-                'session-a-start',
-                () => startElectronE2ESession(`e2e-xlarge-document-a-${Date.now()}`, {
-                    clean: true,
-                    initialOpenPaths: [stagedFixture!.stagedPath],
-                }),
-            );
-            activeRssSampler = createRssSampler(
-                sessionA.page,
-                getSessionInfo(sessionA.name)?.electronPid ?? null,
-            );
-            activeHeartbeat = await startRendererHeartbeat(sessionA.page);
-            await timed(telemetry, 'session-a-open', async () => {
-                await waitForPdfLoaded(sessionA!.page, XLARGE_SAVE_TIMEOUT_MS);
-                await waitForViewerInteractive(sessionA!.page, XLARGE_SAVE_TIMEOUT_MS);
-            });
-            for (const pageNumber of XLARGE_RENDER_PAGES) {
-                await timed(
-                    telemetry,
-                    `session-a-render-page-${pageNumber}`,
-                    () => waitForRenderedPage(sessionA!.page, pageNumber, XLARGE_SAVE_TIMEOUT_MS),
+                const pageCount = await timed(telemetry, 'fixture-admission-qpdf-page-count', () =>
+                    getPdfPageCount(stagedFixture!.stagedPath),
                 );
-            }
+                telemetry.fixture.pageCount = pageCount;
+                expect(pageCount).toBe(XLARGE_PAGE_COUNT);
 
-            const sessionAState = await readWorkspaceStateValues<{
-                pdfSourceState?: IPdfSourceStateSnapshot;
-                workingCopyPath?: string | null;
-            }>(sessionA.page, [
-                'pdfSourceState',
-                'workingCopyPath',
-            ]);
-            expect(sessionAState.pdfSourceState).toEqual({
-                hasInMemoryData: false,
-                reloadKind: 'path',
-                reloadPath: sessionAState.workingCopyPath,
-            });
-            const sessionAPath = stagedFixture.stagedPath;
-            const baselineIndex = await timed(
-                telemetry,
-                'session-a-read-baseline-annotation-index',
-                () => readPdfAnnotationIndex(sessionAPath),
-            );
-            assertBaselineAnnotationIndex(baselineIndex);
-            const baselineStructuralSummary = await timed(
-                telemetry,
-                'session-a-read-baseline-structural-summary',
-                () => readStructuralObjectSummary(stagedFixture!.stagedPath, baselineIndex),
-            );
-
-            const closedA = await callWorkspaceCommand<boolean>(sessionA.page, 'handleCloseFileFromUi', [{persist: false}]);
-            expect(closedA).toEqual({
-                called: true,
-                value: true,
-            });
-            const heartbeatA = await activeHeartbeat();
-            telemetry.heartbeats.push({
-                session: 'A',
-                stage: 'open-render-confirm-close',
-                ...heartbeatA,
-            });
-            activeHeartbeat = null;
-            const rssA = await activeRssSampler.stop();
-            telemetry.rss.push({
-                session: 'A',
-                ...rssA,
-            });
-            activeRssSampler = null;
-            await sessionA.stop();
-            sessionA = null;
-
-            // Session B is a fresh Electron process opening the same staged
-            // path, then creating two notes through the EVB-owned surface.
-            sessionB = await timed(
-                telemetry,
-                'session-b-start',
-                () => startElectronE2ESession(`e2e-xlarge-document-b-${Date.now()}`, {
-                    clean: true,
-                    initialOpenPaths: [stagedFixture!.stagedPath],
-                }),
-            );
-            activeRssSampler = createRssSampler(
-                sessionB.page,
-                getSessionInfo(sessionB.name)?.electronPid ?? null,
-            );
-            activeHeartbeat = await startRendererHeartbeat(sessionB.page);
-            await timed(telemetry, 'session-b-open', async () => {
-                await waitForPdfLoaded(sessionB!.page, XLARGE_SAVE_TIMEOUT_MS);
-                await waitForViewerInteractive(sessionB!.page, XLARGE_SAVE_TIMEOUT_MS);
-            });
-            const sessionBOpenState = await readWorkspaceStateValues<{
-                originalPath?: string | null;
-                pdfSourceState?: IPdfSourceStateSnapshot;
-                workingCopyPath?: string | null;
-            }>(sessionB.page, [
-                'originalPath',
-                'pdfSourceState',
-                'workingCopyPath',
-            ]);
-            expect(sessionBOpenState.pdfSourceState).toEqual({
-                hasInMemoryData: false,
-                reloadKind: 'path',
-                reloadPath: sessionBOpenState.workingCopyPath,
-            });
-            await waitForRenderedPage(sessionB.page, XLARGE_MIDDLE_PAGE, XLARGE_SAVE_TIMEOUT_MS);
-            await openAnnotationsTab(sessionB.page, XLARGE_SAVE_TIMEOUT_MS);
-            await startRendererPlacementSampling(sessionB.page);
-            await startRendererLongTaskProbe(sessionB.page);
-            await waitForDetachedEditorLayers(sessionB.page);
-            const canonicalNoteOne = `xlarge canonical note one ${Date.now()}`;
-            await timed(
-                telemetry,
-                'session-b-canonical-note-one',
-                () => createCanonicalNoteViaAgentAction(
-                    sessionB!.page,
-                    canonicalNoteOne,
-                    XLARGE_MIDDLE_PAGE,
-                    0.28,
-                    0.31,
-                ),
-            );
-            const canonicalNoteTwo = `xlarge canonical note two ${Date.now()}`;
-            await timed(
-                telemetry,
-                'session-b-canonical-note-two',
-                () => createCanonicalNoteViaAgentAction(
-                    sessionB!.page,
-                    canonicalNoteTwo,
-                    XLARGE_MIDDLE_PAGE,
-                    0.57,
-                    0.42,
-                ),
-            );
-            telemetry.rendererPlacementSampling = await readRendererPlacementSampling(sessionB.page);
-            const dirtyState = await readWorkspaceStateValues<{
-                annotationDirty?: boolean;
-                dirtyState?: {annotationDirtyEntityCount?: number;};
-            }>(sessionB.page, [
-                'annotationDirty',
-                'dirtyState',
-            ]);
-            expect(dirtyState.annotationDirty).toBe(true);
-            expect(dirtyState.dirtyState?.annotationDirtyEntityCount ?? 0).toBeGreaterThan(0);
-            await waitForDetachedEditorLayers(sessionB.page);
-
-            if (activeHeartbeat) {
-                const heartbeatBeforeSave = await activeHeartbeat();
-                telemetry.heartbeats.push({
-                    session: 'B',
-                    stage: 'session-b-before-save',
-                    ...heartbeatBeforeSave,
+                // Session A is a normal open/render/index confirmation. It closes
+                // cleanly before session B starts, so this does not claim crash
+                // checkpoint recovery.
+                sessionA = await timed(telemetry, 'session-a-start', () =>
+                    startElectronE2ESession(`e2e-xlarge-document-a-${Date.now()}`, {
+                        clean: true,
+                        initialOpenPaths: [stagedFixture!.stagedPath],
+                    }),
+                );
+                activeRssSampler = createRssSampler(sessionA.page, getSessionInfo(sessionA.name)?.electronPid ?? null);
+                activeHeartbeat = await startRendererHeartbeat(sessionA.page);
+                await timed(telemetry, 'session-a-open', async () => {
+                    await waitForPdfLoaded(sessionA!.page, XLARGE_SAVE_TIMEOUT_MS);
+                    await waitForViewerInteractive(sessionA!.page, XLARGE_SAVE_TIMEOUT_MS);
                 });
-            }
-            activeHeartbeat = await startRendererHeartbeat(sessionB.page);
-            await installSaveReceiptProbe(sessionB.page);
-            const saveTargetPath = sessionBOpenState.pdfSourceState?.reloadPath
-                ?? sessionBOpenState.workingCopyPath
-                ?? stagedFixture.stagedPath;
-            const saveEventPath = sessionBOpenState.originalPath
-                ?? saveTargetPath;
-            const saveEvent = await timed(
-                telemetry,
-                'session-b-save-window-handle',
-                () => saveViaVisibleToolbarWithDeadline(
-                    sessionB!.page,
-                    XLARGE_SAVE_TIMEOUT_MS,
-                    saveEventPath,
-                    {
+                for (const pageNumber of XLARGE_RENDER_PAGES) {
+                    await timed(telemetry, `session-a-render-page-${pageNumber}`, () =>
+                        waitForRenderedPage(sessionA!.page, pageNumber, XLARGE_SAVE_TIMEOUT_MS),
+                    );
+                }
+
+                const sessionAState = await readWorkspaceStateValues<{
+                    pdfSourceState?: IPdfSourceStateSnapshot;
+                    workingCopyPath?: string | null;
+                }>(sessionA.page, ['pdfSourceState', 'workingCopyPath']);
+                expect(sessionAState.pdfSourceState).toEqual({
+                    hasInMemoryData: false,
+                    reloadKind: 'path',
+                    reloadPath: sessionAState.workingCopyPath,
+                });
+                const sessionAPath = stagedFixture.stagedPath;
+                const baselineIndex = await timed(telemetry, 'session-a-read-baseline-annotation-index', () =>
+                    readPdfAnnotationIndex(sessionAPath),
+                );
+                assertBaselineAnnotationIndex(baselineIndex);
+                const baselineStructuralSummary = await timed(telemetry, 'session-a-read-baseline-structural-summary', () =>
+                    readStructuralObjectSummary(stagedFixture!.stagedPath, baselineIndex),
+                );
+
+                const closedA = await callWorkspaceCommand<boolean>(sessionA.page, 'handleCloseFileFromUi', [{persist: false}]);
+                expect(closedA).toEqual({
+                    called: true,
+                    value: true,
+                });
+                const heartbeatA = await activeHeartbeat();
+                telemetry.heartbeats.push({
+                    session: 'A',
+                    stage: 'open-render-confirm-close',
+                    ...heartbeatA,
+                });
+                activeHeartbeat = null;
+                const rssA = await activeRssSampler.stop();
+                telemetry.rss.push({
+                    session: 'A',
+                    ...rssA,
+                });
+                activeRssSampler = null;
+                await sessionA.stop();
+                sessionA = null;
+
+                // Session B is a fresh Electron process opening the same staged
+                // path, then creating two notes through the EVB-owned surface.
+                sessionB = await timed(telemetry, 'session-b-start', () =>
+                    startElectronE2ESession(`e2e-xlarge-document-b-${Date.now()}`, {
+                        clean: true,
+                        initialOpenPaths: [stagedFixture!.stagedPath],
+                    }),
+                );
+                activeRssSampler = createRssSampler(sessionB.page, getSessionInfo(sessionB.name)?.electronPid ?? null);
+                activeHeartbeat = await startRendererHeartbeat(sessionB.page);
+                await timed(telemetry, 'session-b-open', async () => {
+                    await waitForPdfLoaded(sessionB!.page, XLARGE_SAVE_TIMEOUT_MS);
+                    await waitForViewerInteractive(sessionB!.page, XLARGE_SAVE_TIMEOUT_MS);
+                });
+                const sessionBOpenState = await readWorkspaceStateValues<{
+                    originalPath?: string | null;
+                    pdfSourceState?: IPdfSourceStateSnapshot;
+                    workingCopyPath?: string | null;
+                }>(sessionB.page, ['originalPath', 'pdfSourceState', 'workingCopyPath']);
+                expect(sessionBOpenState.pdfSourceState).toEqual({
+                    hasInMemoryData: false,
+                    reloadKind: 'path',
+                    reloadPath: sessionBOpenState.workingCopyPath,
+                });
+                await waitForRenderedPage(sessionB.page, XLARGE_MIDDLE_PAGE, XLARGE_SAVE_TIMEOUT_MS);
+                await openAnnotationsTab(sessionB.page, XLARGE_SAVE_TIMEOUT_MS);
+                await startRendererPlacementSampling(sessionB.page);
+                await startRendererLongTaskProbe(sessionB.page);
+                await waitForDetachedEditorLayers(sessionB.page);
+                const canonicalNoteOne = `xlarge canonical note one ${Date.now()}`;
+                await timed(telemetry, 'session-b-canonical-note-one', () =>
+                    createCanonicalNoteViaAgentAction(sessionB!.page, canonicalNoteOne, XLARGE_MIDDLE_PAGE, 0.28, 0.31),
+                );
+                const canonicalNoteTwo = `xlarge canonical note two ${Date.now()}`;
+                await timed(telemetry, 'session-b-canonical-note-two', () =>
+                    createCanonicalNoteViaAgentAction(sessionB!.page, canonicalNoteTwo, XLARGE_MIDDLE_PAGE, 0.57, 0.42),
+                );
+                telemetry.rendererPlacementSampling = await readRendererPlacementSampling(sessionB.page);
+                const dirtyState = await readWorkspaceStateValues<{
+                    annotationDirty?: boolean;
+                    dirtyState?: {annotationDirtyEntityCount?: number};
+                }>(sessionB.page, ['annotationDirty', 'dirtyState']);
+                expect(dirtyState.annotationDirty).toBe(true);
+                expect(dirtyState.dirtyState?.annotationDirtyEntityCount ?? 0).toBeGreaterThan(0);
+                await waitForDetachedEditorLayers(sessionB.page);
+
+                if (activeHeartbeat) {
+                    const heartbeatBeforeSave = await activeHeartbeat();
+                    telemetry.heartbeats.push({
+                        session: 'B',
+                        stage: 'session-b-before-save',
+                        ...heartbeatBeforeSave,
+                    });
+                }
+                activeHeartbeat = await startRendererHeartbeat(sessionB.page);
+                await installSaveReceiptProbe(sessionB.page);
+                const saveTargetPath =
+                    sessionBOpenState.pdfSourceState?.reloadPath ?? sessionBOpenState.workingCopyPath ?? stagedFixture.stagedPath;
+                const saveEventPath = sessionBOpenState.originalPath ?? saveTargetPath;
+                const saveEvent = await timed(telemetry, 'session-b-save-window-handle', () =>
+                    saveViaVisibleToolbarWithDeadline(sessionB!.page, XLARGE_SAVE_TIMEOUT_MS, saveEventPath, {
                         label: 'xlarge PDF session B visible toolbar save',
                         onTimeout: () => sessionB!.stop(),
                         diagnostics: () => 'phase=session-b-save-window-handle',
+                    }),
+                );
+                expect(saveEvent.detail.path).toBe(saveEventPath);
+                expect(saveEvent.detail.documentRevisionToken).toEqual(expect.any(String));
+                await waitForViewerInteractive(sessionB.page, XLARGE_SAVE_TIMEOUT_MS);
+
+                const saveReceipt = await sessionB.page.evaluate(() => (window as ISaveReceiptProbeWindow).__saveReceiptProbe ?? null);
+                expect(saveReceipt?.nativeProjectionEngaged).toBe(true);
+                expect(saveReceipt?.barrierFinished).toBe(true);
+                expect(saveReceipt?.stagedArtifact).toMatchObject({
+                    artifactKind: 'pdf',
+                    receiptVersion: 2,
+                });
+                const saveReceiptPayloadBytes = await sessionB.page.evaluate(() => {
+                    const receipt = (window as ISaveReceiptProbeWindow).__saveReceiptProbe;
+                    if (!receipt) {
+                        throw new Error('Save receipt probe did not produce a payload');
+                    }
+                    const serialized = JSON.stringify(receipt);
+                    if (serialized === undefined) {
+                        throw new Error('Save receipt probe payload was not serializable');
+                    }
+                    return new TextEncoder().encode(serialized).byteLength;
+                });
+                expect(saveReceiptPayloadBytes).toBeGreaterThan(0);
+                expect(saveReceiptPayloadBytes).toBeLessThanOrEqual(XLARGE_IPC_PAYLOAD_MAX_BYTES);
+                telemetry.ipcPayloadMeasurements.push({
+                    bytes: saveReceiptPayloadBytes,
+                    operation: 'save-receipt',
+                    session: 'B',
+                });
+                const rendererIpcPayloadProbeBeforeReload = await readOptionalRendererIpcPayloadProbe(sessionB.page);
+                telemetry.rendererIpcPayloadProbe = rendererIpcPayloadProbeBeforeReload;
+                recordRendererIpcPayloadProbe(telemetry, 'B', rendererIpcPayloadProbeBeforeReload);
+                const savedState = await readWorkspaceStateValues<{
+                    documentRevisionToken?: string | null;
+                    pdfSourceState?: IPdfSourceStateSnapshot;
+                    workingCopyPath?: string | null;
+                }>(sessionB.page, ['documentRevisionToken', 'pdfSourceState', 'workingCopyPath']);
+                expect(savedState.pdfSourceState).toEqual({
+                    hasInMemoryData: false,
+                    reloadKind: 'path',
+                    reloadPath: savedState.workingCopyPath,
+                });
+                const savedPath = savedState.pdfSourceState?.reloadPath ?? savedState.workingCopyPath ?? stagedFixture.stagedPath;
+                expect(savedPath).toBe(saveTargetPath);
+                const heartbeatBeforeReload = await activeHeartbeat();
+                telemetry.rendererLongTasks = await readRendererLongTaskProbe(sessionB.page);
+                telemetry.heartbeats.push({
+                    session: 'B',
+                    stage: 'save-before-fresh-renderer-reopen',
+                    ...heartbeatBeforeReload,
+                });
+                activeHeartbeat = null;
+                await timed(telemetry, 'saved-output-qpdf-check', () => assertQpdfCheck(saveEventPath));
+                const savedContentHash = await hashPath(saveEventPath);
+                await timed(telemetry, 'fresh-renderer-reload', async () => {
+                    await sessionB!.page.reload({waitUntil: 'domcontentloaded'});
+                    activeHeartbeat = await startRendererHeartbeat(sessionB!.page);
+                    await waitForPdfLoaded(sessionB!.page, XLARGE_SAVE_TIMEOUT_MS);
+                    await waitForViewerInteractive(sessionB!.page, XLARGE_SAVE_TIMEOUT_MS);
+                });
+
+                await expect
+                    .poll(
+                        async () => {
+                            const state = await readWorkspaceStateValues<{
+                                documentRevisionToken?: string | null;
+                                pdfSourceState?: IPdfSourceStateSnapshot;
+                                workingCopyPath?: string | null;
+                            }>(sessionB!.page, ['documentRevisionToken', 'pdfSourceState', 'workingCopyPath']);
+                            const reopenedPath = state.pdfSourceState?.reloadPath ?? state.workingCopyPath ?? null;
+                            return typeof reopenedPath === 'string' && existsSync(reopenedPath);
+                        },
+                        {timeout: XLARGE_SAVE_TIMEOUT_MS},
+                    )
+                    .toBe(true);
+                const reopenedState = await readWorkspaceStateValues<{
+                    documentRevisionToken?: string | null;
+                    pdfSourceState?: IPdfSourceStateSnapshot;
+                    workingCopyPath?: string | null;
+                }>(sessionB.page, ['documentRevisionToken', 'pdfSourceState', 'workingCopyPath']);
+                expect(reopenedState.documentRevisionToken).toBe(savedState.documentRevisionToken);
+                expect(reopenedState.pdfSourceState).toEqual({
+                    hasInMemoryData: false,
+                    reloadKind: 'path',
+                    reloadPath: reopenedState.workingCopyPath,
+                });
+                const reopenedPath = reopenedState.pdfSourceState?.reloadPath ?? reopenedState.workingCopyPath ?? null;
+                expect(reopenedPath).toEqual(expect.any(String));
+                if (!reopenedPath) {
+                    throw new Error('Reopened workspace state did not expose a working-copy path');
+                }
+                expect(existsSync(reopenedPath)).toBe(true);
+                // A fresh renderer reload may rematerialize the disposable working
+                // copy, so its path is not a durable identity. The saved bytes and
+                // revision remain the real save/reopen contract.
+                expect(await hashPath(saveEventPath)).toBe(savedContentHash);
+                await waitForDetachedEditorLayers(sessionB.page);
+                const finalIndex = await timed(telemetry, 'fresh-renderer-read-final-annotation-index', () =>
+                    readPdfAnnotationIndex(saveEventPath),
+                );
+                const finalStructuralSummary = await timed(telemetry, 'fresh-renderer-read-final-structural-summary', () =>
+                    readStructuralObjectSummary(saveEventPath, finalIndex),
+                );
+                assertBoundedStructuralChange(telemetry, baselineStructuralSummary, finalStructuralSummary);
+                const {canonicalNotes} = assertFinalAnnotationIndex(finalIndex);
+                await waitForRenderedPage(sessionB.page, XLARGE_MIDDLE_PAGE, XLARGE_SAVE_TIMEOUT_MS);
+                await timed(telemetry, 'fresh-renderer-read-annotation-objects', () =>
+                    assertAnnotationObjectsContainTexts(saveEventPath, canonicalNotes, [canonicalNoteOne, canonicalNoteTwo]),
+                );
+                await waitForWorkspaceComment(sessionB.page, canonicalNoteOne, XLARGE_MIDDLE_PAGE, 'pdf');
+                await waitForWorkspaceComment(sessionB.page, canonicalNoteTwo, XLARGE_MIDDLE_PAGE, 'pdf');
+
+                const rendererIpcPayloadProbeAfterReload = await readOptionalRendererIpcPayloadProbe(sessionB.page);
+                recordRendererIpcPayloadProbe(telemetry, 'B', rendererIpcPayloadProbeAfterReload);
+                if (rendererIpcPayloadProbeAfterReload) {
+                    telemetry.rendererIpcPayloadProbe = rendererIpcPayloadProbeAfterReload;
+                }
+
+                const heartbeatB = await activeHeartbeat!();
+                telemetry.heartbeats.push({
+                    session: 'B',
+                    stage: 'fresh-renderer-reopen-final-index',
+                    ...heartbeatB,
+                });
+                activeHeartbeat = null;
+                const rssB = await activeRssSampler.stop();
+                telemetry.rss.push({
+                    session: 'B',
+                    ...rssB,
+                });
+                activeRssSampler = null;
+                for (const heartbeat of telemetry.heartbeats) {
+                    expect(heartbeat.sampleCount).toBeGreaterThan(0);
+                    expect(heartbeat.maxGapMs).toBeLessThan(XLARGE_HEARTBEAT_MAX_GAP_MS);
+                    expect(heartbeat.messageChannelMaxGapStartEpochMs).not.toBeNull();
+                    expect(heartbeat.messageChannelMaxGapEndEpochMs).not.toBeNull();
+                }
+                for (const rss of telemetry.rss) {
+                    expect(rss.rendererJsHeapDeltaBytes).not.toBeNull();
+                    expect(rss.rendererJsHeapDeltaBytes).toBeLessThanOrEqual(telemetry.rendererJsHeapBudgetBytes);
+                }
+                assertMeasuredIpcPayloadBudget(telemetry);
+            } catch (error) {
+                telemetry.failure = {
+                    message: getErrorMessage(error),
+                    stack: error instanceof Error ? (error.stack ?? null) : null,
+                };
+                bodyFailure = error;
+            }
+            await runElectronE2ETeardown(bodyFailure, [
+                {
+                    label: 'session B heartbeat',
+                    run: async () => {
+                        if (!activeHeartbeat || !sessionB) {
+                            return;
+                        }
+                        const heartbeat = await activeHeartbeat();
+                        telemetry.heartbeats.push({
+                            session: 'B',
+                            stage: 'failure-cleanup',
+                            ...heartbeat,
+                        });
                     },
-                ),
-            );
-            expect(saveEvent.detail.path).toBe(saveEventPath);
-            expect(saveEvent.detail.documentRevisionToken).toEqual(expect.any(String));
-            await waitForViewerInteractive(sessionB.page, XLARGE_SAVE_TIMEOUT_MS);
-
-            const saveReceipt = await sessionB.page.evaluate(
-                () => (window as ISaveReceiptProbeWindow).__saveReceiptProbe ?? null,
-            );
-            expect(saveReceipt?.nativeProjectionEngaged).toBe(true);
-            expect(saveReceipt?.barrierFinished).toBe(true);
-            expect(saveReceipt?.stagedArtifact).toMatchObject({
-                artifactKind: 'pdf',
-                receiptVersion: 2,
-            });
-            const saveReceiptPayloadBytes = await sessionB.page.evaluate(() => {
-                const receipt = (window as ISaveReceiptProbeWindow).__saveReceiptProbe;
-                if (!receipt) {
-                    throw new Error('Save receipt probe did not produce a payload');
-                }
-                const serialized = JSON.stringify(receipt);
-                if (serialized === undefined) {
-                    throw new Error('Save receipt probe payload was not serializable');
-                }
-                return new TextEncoder().encode(serialized).byteLength;
-            });
-            expect(saveReceiptPayloadBytes).toBeGreaterThan(0);
-            expect(saveReceiptPayloadBytes).toBeLessThanOrEqual(XLARGE_IPC_PAYLOAD_MAX_BYTES);
-            telemetry.ipcPayloadMeasurements.push({
-                bytes: saveReceiptPayloadBytes,
-                operation: 'save-receipt',
-                session: 'B',
-            });
-            const rendererIpcPayloadProbeBeforeReload = await readOptionalRendererIpcPayloadProbe(sessionB.page);
-            telemetry.rendererIpcPayloadProbe = rendererIpcPayloadProbeBeforeReload;
-            recordRendererIpcPayloadProbe(telemetry, 'B', rendererIpcPayloadProbeBeforeReload);
-            const savedState = await readWorkspaceStateValues<{
-                documentRevisionToken?: string | null;
-                pdfSourceState?: IPdfSourceStateSnapshot;
-                workingCopyPath?: string | null;
-            }>(sessionB.page, [
-                'documentRevisionToken',
-                'pdfSourceState',
-                'workingCopyPath',
+                },
+                {
+                    label: 'RSS sampler',
+                    run: async () => {
+                        if (!activeRssSampler) {
+                            return;
+                        }
+                        const rss = await activeRssSampler.stop();
+                        telemetry.rss.push({
+                            session: sessionB ? 'B' : 'A',
+                            ...rss,
+                        });
+                    },
+                },
+                {
+                    label: 'session B stop',
+                    run: async () => {
+                        await sessionB?.stop();
+                    },
+                },
+                {
+                    label: 'session A stop',
+                    run: async () => {
+                        await sessionA?.stop();
+                    },
+                },
+                {
+                    label: 'staged fixture removal',
+                    run: async () => {
+                        if (!stagedFixture) {
+                            return;
+                        }
+                        await rm(stagedFixture.stagingDirectory, {
+                            force: true,
+                            recursive: true,
+                        });
+                    },
+                },
+                {
+                    label: 'telemetry write',
+                    run: () => writeTelemetry(telemetry),
+                },
             ]);
-            expect(savedState.pdfSourceState).toEqual({
-                hasInMemoryData: false,
-                reloadKind: 'path',
-                reloadPath: savedState.workingCopyPath,
-            });
-            const savedPath = savedState.pdfSourceState?.reloadPath
-                ?? savedState.workingCopyPath
-                ?? stagedFixture.stagedPath;
-            expect(savedPath).toBe(saveTargetPath);
-            const heartbeatBeforeReload = await activeHeartbeat();
-            telemetry.rendererLongTasks = await readRendererLongTaskProbe(sessionB.page);
-            telemetry.heartbeats.push({
-                session: 'B',
-                stage: 'save-before-fresh-renderer-reopen',
-                ...heartbeatBeforeReload,
-            });
-            activeHeartbeat = null;
-            await timed(telemetry, 'saved-output-qpdf-check', () => assertQpdfCheck(saveEventPath));
-            const savedContentHash = await hashPath(saveEventPath);
-            await timed(telemetry, 'fresh-renderer-reload', async () => {
-                await sessionB!.page.reload({waitUntil: 'domcontentloaded'});
-                activeHeartbeat = await startRendererHeartbeat(sessionB!.page);
-                await waitForPdfLoaded(sessionB!.page, XLARGE_SAVE_TIMEOUT_MS);
-                await waitForViewerInteractive(sessionB!.page, XLARGE_SAVE_TIMEOUT_MS);
-            });
-
-            await expect.poll(
-                async () => {
-                    const state = await readWorkspaceStateValues<{
-                        documentRevisionToken?: string | null;
-                        pdfSourceState?: IPdfSourceStateSnapshot;
-                        workingCopyPath?: string | null;
-                    }>(sessionB!.page, [
-                        'documentRevisionToken',
-                        'pdfSourceState',
-                        'workingCopyPath',
-                    ]);
-                    const reopenedPath = state.pdfSourceState?.reloadPath
-                        ?? state.workingCopyPath
-                        ?? null;
-                    return typeof reopenedPath === 'string' && existsSync(reopenedPath);
-                },
-                {timeout: XLARGE_SAVE_TIMEOUT_MS},
-            ).toBe(true);
-            const reopenedState = await readWorkspaceStateValues<{
-                documentRevisionToken?: string | null;
-                pdfSourceState?: IPdfSourceStateSnapshot;
-                workingCopyPath?: string | null;
-            }>(sessionB.page, [
-                'documentRevisionToken',
-                'pdfSourceState',
-                'workingCopyPath',
-            ]);
-            expect(reopenedState.documentRevisionToken).toBe(savedState.documentRevisionToken);
-            expect(reopenedState.pdfSourceState).toEqual({
-                hasInMemoryData: false,
-                reloadKind: 'path',
-                reloadPath: reopenedState.workingCopyPath,
-            });
-            const reopenedPath = reopenedState.pdfSourceState?.reloadPath
-                ?? reopenedState.workingCopyPath
-                ?? null;
-            expect(reopenedPath).toEqual(expect.any(String));
-            if (!reopenedPath) {
-                throw new Error('Reopened workspace state did not expose a working-copy path');
-            }
-            expect(existsSync(reopenedPath)).toBe(true);
-            // A fresh renderer reload may rematerialize the disposable working
-            // copy, so its path is not a durable identity. The saved bytes and
-            // revision remain the real save/reopen contract.
-            expect(await hashPath(saveEventPath)).toBe(savedContentHash);
-            await waitForDetachedEditorLayers(sessionB.page);
-            const finalIndex = await timed(
-                telemetry,
-                'fresh-renderer-read-final-annotation-index',
-                () => readPdfAnnotationIndex(saveEventPath),
-            );
-            const finalStructuralSummary = await timed(
-                telemetry,
-                'fresh-renderer-read-final-structural-summary',
-                () => readStructuralObjectSummary(saveEventPath, finalIndex),
-            );
-            assertBoundedStructuralChange(
-                telemetry,
-                baselineStructuralSummary,
-                finalStructuralSummary,
-            );
-            const {canonicalNotes} = assertFinalAnnotationIndex(finalIndex);
-            await waitForRenderedPage(sessionB.page, XLARGE_MIDDLE_PAGE, XLARGE_SAVE_TIMEOUT_MS);
-            await timed(telemetry, 'fresh-renderer-read-annotation-objects', () => (
-                assertAnnotationObjectsContainTexts(
-                    saveEventPath,
-                    canonicalNotes,
-                    [
-                        canonicalNoteOne,
-                        canonicalNoteTwo,
-                    ],
-                )
-            ));
-            await waitForWorkspaceComment(sessionB.page, canonicalNoteOne, XLARGE_MIDDLE_PAGE, 'pdf');
-            await waitForWorkspaceComment(sessionB.page, canonicalNoteTwo, XLARGE_MIDDLE_PAGE, 'pdf');
-
-            const rendererIpcPayloadProbeAfterReload = await readOptionalRendererIpcPayloadProbe(sessionB.page);
-            recordRendererIpcPayloadProbe(telemetry, 'B', rendererIpcPayloadProbeAfterReload);
-            if (rendererIpcPayloadProbeAfterReload) {
-                telemetry.rendererIpcPayloadProbe = rendererIpcPayloadProbeAfterReload;
-            }
-
-            const heartbeatB = await activeHeartbeat!();
-            telemetry.heartbeats.push({
-                session: 'B',
-                stage: 'fresh-renderer-reopen-final-index',
-                ...heartbeatB,
-            });
-            activeHeartbeat = null;
-            const rssB = await activeRssSampler.stop();
-            telemetry.rss.push({
-                session: 'B',
-                ...rssB,
-            });
-            activeRssSampler = null;
-            for (const heartbeat of telemetry.heartbeats) {
-                expect(heartbeat.sampleCount).toBeGreaterThan(0);
-                expect(heartbeat.maxGapMs).toBeLessThan(XLARGE_HEARTBEAT_MAX_GAP_MS);
-                expect(heartbeat.messageChannelMaxGapStartEpochMs).not.toBeNull();
-                expect(heartbeat.messageChannelMaxGapEndEpochMs).not.toBeNull();
-            }
-            for (const rss of telemetry.rss) {
-                expect(rss.rendererJsHeapDeltaBytes).not.toBeNull();
-                expect(rss.rendererJsHeapDeltaBytes).toBeLessThanOrEqual(telemetry.rendererJsHeapBudgetBytes);
-            }
-            assertMeasuredIpcPayloadBudget(telemetry);
-        } catch (error) {
-            telemetry.failure = {
-                message: getErrorMessage(error),
-                stack: error instanceof Error ? error.stack ?? null : null,
-            };
-            bodyFailure = error;
-        }
-        await runElectronE2ETeardown(bodyFailure, [
-            {
-                label: 'session B heartbeat',
-                run: async () => {
-                    if (!activeHeartbeat || !sessionB) {
-                        return;
-                    }
-                    const heartbeat = await activeHeartbeat();
-                    telemetry.heartbeats.push({
-                        session: 'B',
-                        stage: 'failure-cleanup',
-                        ...heartbeat,
-                    });
-                },
-            },
-            {
-                label: 'RSS sampler',
-                run: async () => {
-                    if (!activeRssSampler) {
-                        return;
-                    }
-                    const rss = await activeRssSampler.stop();
-                    telemetry.rss.push({
-                        session: sessionB ? 'B' : 'A',
-                        ...rss,
-                    });
-                },
-            },
-            {
-                label: 'session B stop',
-                run: async () => {
-                    await sessionB?.stop();
-                },
-            },
-            {
-                label: 'session A stop',
-                run: async () => {
-                    await sessionA?.stop();
-                },
-            },
-            {
-                label: 'staged fixture removal',
-                run: async () => {
-                    if (!stagedFixture) {
-                        return;
-                    }
-                    await rm(stagedFixture.stagingDirectory, {
-                        force: true,
-                        recursive: true,
-                    });
-                },
-            },
-            {
-                label: 'telemetry write',
-                run: () => writeTelemetry(telemetry),
-            },
-        ]);
-    }, XLARGE_TEST_TIMEOUT_MS);
+        },
+        XLARGE_TEST_TIMEOUT_MS,
+    );
 });

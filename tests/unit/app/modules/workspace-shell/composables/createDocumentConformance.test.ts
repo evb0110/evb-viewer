@@ -1,28 +1,18 @@
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { ref } from 'vue';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
+import {ref} from 'vue';
 import {
     createDocumentConformance,
     type IPdfConformanceIdleScheduler,
 } from '@app/modules/workspace-shell/composables/document-session/createDocumentConformance';
-import { createDocumentSessionState } from '@app/modules/workspace-shell/composables/document-session/documentSessionState';
-import { requireDocumentRef } from '@contracts/documentRef';
+import {createDocumentSessionState} from '@app/modules/workspace-shell/composables/document-session/documentSessionState';
+import {requireDocumentRef} from '@contracts/documentRef';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
-import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import { createPdfSourceJob } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSessionSlot';
+import {createWorkspaceDocumentController} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import {createPdfSourceJob} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSessionSlot';
 
-const { mockReadPdfConformanceProfile } = vi.hoisted(() => (
-    {mockReadPdfConformanceProfile: vi.fn()}
-));
+const {mockReadPdfConformanceProfile} = vi.hoisted(() => ({mockReadPdfConformanceProfile: vi.fn()}));
 
-vi.mock('@app/utils/platformDocuments', () => (
-    {getDocumentPdfCapability: () => ({analyzePdfConformance: mockReadPdfConformanceProfile})}
-));
+vi.mock('@app/utils/platformDocuments', () => ({getDocumentPdfCapability: () => ({analyzePdfConformance: mockReadPdfConformanceProfile})}));
 
 const unsignedProfile = {
     isSigned: false,
@@ -53,7 +43,7 @@ function createIdleScheduler() {
     let nextHandle = 0;
     const callbacks = new Map<number, () => void>();
     const scheduler: IPdfConformanceIdleScheduler = {
-        cancel: handle => callbacks.delete(handle),
+        cancel: (handle) => callbacks.delete(handle),
         schedule(callback) {
             const handle = ++nextHandle;
             callbacks.set(handle, callback);
@@ -65,10 +55,7 @@ function createIdleScheduler() {
         flush() {
             const entries = [...callbacks.entries()];
             callbacks.clear();
-            entries.forEach(([
-                ,
-                callback,
-            ]) => callback());
+            entries.forEach(([, callback]) => callback());
         },
         scheduler,
     };
@@ -77,10 +64,10 @@ function createIdleScheduler() {
 function createHarness(path = '/tmp/book.pdf') {
     const documentRef = requireDocumentRef(path);
     const state = createDocumentSessionState({
-            isDesktopRuntime: ref(true),
-            document: createWorkspaceDocumentController({tabId: 'tab-1'}),
-            admitPdfSource: intent => createPdfSourceJob(intent, {}),
-        });
+        isDesktopRuntime: ref(true),
+        document: createWorkspaceDocumentController({tabId: 'tab-1'}),
+        admitPdfSource: (intent) => createPdfSourceJob(intent, {}),
+    });
     state.workingCopyPath.value = documentRef;
     const idle = createIdleScheduler();
     const conformance = createDocumentConformance(state, idle.scheduler);
@@ -99,12 +86,7 @@ describe('createDocumentConformance', () => {
     });
 
     it('waits for the matching initial visual and idle slot', async () => {
-        const {
-            conformance,
-            idle,
-            path,
-            state,
-        } = createHarness();
+        const {conformance, idle, path, state} = createHarness();
 
         conformance.deferPdfConformanceProfile(path, {fileSize: 1024});
         expect(state.pdfConformanceAnalysisState.value).toBe('waiting-initial-visual');
@@ -127,15 +109,8 @@ describe('createDocumentConformance', () => {
             ...unsignedProfile,
             isTagged: true,
         };
-        mockReadPdfConformanceProfile
-            .mockImplementationOnce(() => first.promise)
-            .mockResolvedValueOnce(secondProfile);
-        const {
-            conformance,
-            idle,
-            path,
-            state,
-        } = createHarness();
+        mockReadPdfConformanceProfile.mockImplementationOnce(() => first.promise).mockResolvedValueOnce(secondProfile);
+        const {conformance, idle, path, state} = createHarness();
 
         conformance.deferPdfConformanceProfile(path);
         conformance.notifyPdfInitialVisualReady(path);
@@ -160,11 +135,7 @@ describe('createDocumentConformance', () => {
     it('shares scheduled and in-flight work with an immediate mutation check', async () => {
         const gate = deferred<typeof unsignedProfile>();
         mockReadPdfConformanceProfile.mockImplementation(() => gate.promise);
-        const {
-            conformance,
-            idle,
-            path,
-        } = createHarness();
+        const {conformance, idle, path} = createHarness();
 
         conformance.deferPdfConformanceProfile(path);
         conformance.notifyPdfInitialVisualReady(path);
@@ -174,27 +145,14 @@ describe('createDocumentConformance', () => {
         expect(mockReadPdfConformanceProfile).toHaveBeenCalledTimes(1);
 
         gate.resolve(unsignedProfile);
-        await expect(Promise.all([
-            firstRefresh,
-            secondRefresh,
-        ])).resolves.toEqual([
-            unsignedProfile,
-            unsignedProfile,
-        ]);
+        await expect(Promise.all([firstRefresh, secondRefresh])).resolves.toEqual([unsignedProfile, unsignedProfile]);
         expect(mockReadPdfConformanceProfile).toHaveBeenCalledTimes(1);
     });
 
     it('keeps large files on demand and retries a failed analysis', async () => {
         const failure = new Error('analysis failed');
-        mockReadPdfConformanceProfile
-            .mockRejectedValueOnce(failure)
-            .mockResolvedValueOnce(unsignedProfile);
-        const {
-            conformance,
-            idle,
-            path,
-            state,
-        } = createHarness();
+        mockReadPdfConformanceProfile.mockRejectedValueOnce(failure).mockResolvedValueOnce(unsignedProfile);
+        const {conformance, idle, path, state} = createHarness();
 
         conformance.deferPdfConformanceProfile(path, {fileSize: 64 * 1024 * 1024 + 1});
         expect(state.pdfConformanceAnalysisState.value).toBe('on-demand-only');
@@ -210,14 +168,9 @@ describe('createDocumentConformance', () => {
         expect(mockReadPdfConformanceProfile).toHaveBeenCalledTimes(2);
     });
 
-    it('reads a large document\'s save restrictions when it saves, not when it becomes visible', async () => {
+    it("reads a large document's save restrictions when it saves, not when it becomes visible", async () => {
         mockReadPdfConformanceProfile.mockResolvedValue(unsignedProfile);
-        const {
-            conformance,
-            idle,
-            path,
-            state,
-        } = createHarness();
+        const {conformance, idle, path, state} = createHarness();
 
         conformance.deferPdfConformanceProfile(path, {fileSize: 64 * 1024 * 1024 + 1});
         conformance.notifyPdfInitialVisualReady(path);
@@ -231,9 +184,7 @@ describe('createDocumentConformance', () => {
     });
 
     it('uses current-content restrictions over an unsigned full profile', async () => {
-        const {
-            conformance, path, state,
-        } = createHarness();
+        const {conformance, path, state} = createHarness();
         const signedProfile = {
             ...unsignedProfile,
             isSigned: true,
@@ -249,9 +200,7 @@ describe('createDocumentConformance', () => {
     });
 
     it('refuses a stale same-path result and separately checks the new revision', async () => {
-        const {
-            conformance, path, state,
-        } = createHarness();
+        const {conformance, path, state} = createHarness();
         const oldRead = deferred<typeof unsignedProfile>();
         const currentRead = deferred<typeof unsignedProfile>();
         mockReadPdfConformanceProfile.mockReturnValueOnce(oldRead.promise).mockReturnValueOnce(currentRead.promise);
@@ -271,21 +220,14 @@ describe('createDocumentConformance', () => {
     });
 
     it('saves a copy when the current save restrictions cannot be read, even with an older unsigned profile', async () => {
-        const {
-            conformance, path, state,
-        } = createHarness();
+        const {conformance, path, state} = createHarness();
         state.pdfConformanceProfile.value = unsignedProfile;
         mockReadPdfConformanceProfile.mockRejectedValue(new Error('current bytes could not be read'));
         await expect(conformance.shouldForceSaveAsForWorkingCopy('rewrite', path)).resolves.toBe(true);
     });
 
     it('cancels idle work when cleared', () => {
-        const {
-            conformance,
-            idle,
-            path,
-            state,
-        } = createHarness();
+        const {conformance, idle, path, state} = createHarness();
 
         conformance.deferPdfConformanceProfile(path);
         conformance.notifyPdfInitialVisualReady(path);

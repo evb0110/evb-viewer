@@ -1,23 +1,15 @@
 import type * as electronRunLaunchConfig from '@scripts/electron-run/electronRunLaunchConfig';
 import {join} from 'node:path';
-import {
-    mkdtemp, rm,
-} from 'node:fs/promises';
+import {mkdtemp, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {findFreePort} from '@scripts/electron-run/electronRunProcessTree';
 import {createMultiPageTextFixturePdf} from '@tests/e2e/electron/helpers/fixtures';
-import {
-    openDocumentSidebarTab, openPdfInApp, waitForViewerInteractive,
-} from '@tests/e2e/electron/helpers/viewerCore';
+import {openDocumentSidebarTab, openPdfInApp, waitForViewerInteractive} from '@tests/e2e/electron/helpers/viewerCore';
 import {readToolbarPageIndicator} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
-import {
-    afterAll, describe, expect, it, vi,
-} from 'vitest';
+import {afterAll, describe, expect, it, vi} from 'vitest';
 import type {Page} from 'puppeteer-core';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
-import {
-    clickAsUser, clickFoundAsUser,
-} from '@tests/e2e/electron/helpers/userInput';
+import {clickAsUser, clickFoundAsUser} from '@tests/e2e/electron/helpers/userInput';
 
 // This branch defaults Linux E2E to a mapped window on private Xvfb.
 // The diagnosis specifically requires an unmapped hidden window.
@@ -25,15 +17,15 @@ vi.mock('@scripts/electron-run/electronRunLaunchConfig', async (importOriginal) 
     const original = await importOriginal<typeof electronRunLaunchConfig>();
     return {
         ...original,
-        buildElectronE2EAutomationEnv:(env:NodeJS.ProcessEnv)=>({
+        buildElectronE2EAutomationEnv: (env: NodeJS.ProcessEnv) => ({
             ...original.buildElectronE2EAutomationEnv(env),
-            EVB_AUTOMATION_HIDE_WINDOW:'1',
+            EVB_AUTOMATION_HIDE_WINDOW: '1',
         }),
     };
 });
 
 interface IInspectorResult {
-    result?: { value?: unknown };
+    result?: {value?: unknown};
     exceptionDetails?: unknown;
 }
 
@@ -45,7 +37,7 @@ interface IInspectorResponse {
 
 async function connectMain(port: number) {
     const response = await fetch(`http://127.0.0.1:${port}/json/list`);
-    const targets = await response.json() as Array<{ webSocketDebuggerUrl: string }>;
+    const targets = (await response.json()) as Array<{webSocketDebuggerUrl: string}>;
     const target = targets[0];
     if (!response.ok || !target) {
         throw new Error('The task-owned Electron main inspector is unavailable');
@@ -56,11 +48,14 @@ async function connectMain(port: number) {
         socket.onerror = reject;
     });
     let requestId = 0;
-    const pending = new Map<number, {
-        resolve: (value: IInspectorResult) => void;
-        reject: (error: unknown) => void;
-    }>();
-    socket.onmessage = ({ data }) => {
+    const pending = new Map<
+        number,
+        {
+            resolve: (value: IInspectorResult) => void;
+            reject: (error: unknown) => void;
+        }
+    >();
+    socket.onmessage = ({data}) => {
         const message = JSON.parse(String(data)) as IInspectorResponse;
         const callback = pending.get(message.id);
         if (!callback) {
@@ -81,15 +76,17 @@ async function connectMain(port: number) {
                     resolve,
                     reject,
                 });
-                socket.send(JSON.stringify({
-                    id,
-                    method: 'Runtime.evaluate',
-                    params: {
-                        expression,
-                        awaitPromise: true,
-                        returnByValue: true,
-                    },
-                }));
+                socket.send(
+                    JSON.stringify({
+                        id,
+                        method: 'Runtime.evaluate',
+                        params: {
+                            expression,
+                            awaitPromise: true,
+                            returnByValue: true,
+                        },
+                    }),
+                );
             });
             if (result.exceptionDetails) {
                 throw new Error(JSON.stringify(result.exceptionDetails));
@@ -102,11 +99,12 @@ async function connectMain(port: number) {
 
 const inspectorPort = await findFreePort();
 const stateDirectory = await mkdtemp(join(tmpdir(), 'select-all-state-'));
-afterAll(() => rm(stateDirectory, {
-    recursive: true,
-    force: true,
-}));
-
+afterAll(() =>
+    rm(stateDirectory, {
+        recursive: true,
+        force: true,
+    }),
+);
 
 // These are pointer fixtures inside the real hidden window. The helper is the
 // subject: DOM setup supplies the layout, and only trusted input can record
@@ -156,11 +154,14 @@ describe('trusted pointer harness', () => {
 
     it('clicks the visible portion of a target wider and taller than its scroll panel without scrolling it away', async () => {
         const {page} = sessions.getSession();
-        await mountPointerFixture(page, `
+        await mountPointerFixture(
+            page,
+            `
             <div data-scroller style="position:absolute;left:40px;top:40px;width:240px;height:180px;overflow:auto">
                 <button data-target="oversized" style="display:block;width:1000px;height:800px">Large target</button>
             </div>
-        `);
+        `,
+        );
         await clickAsUser(page, '[data-target="oversized"]', {timeoutMs: 2000});
         expect(await readPointerOutcome(page)).toEqual({
             clicked: 'oversized',
@@ -172,7 +173,9 @@ describe('trusted pointer harness', () => {
 
     it('reveals an offscreen nested scroll panel before wheeling its target', async () => {
         const {page} = sessions.getSession();
-        await mountPointerFixture(page, `
+        await mountPointerFixture(
+            page,
+            `
             <div data-scroller style="position:absolute;left:40px;top:40px;width:260px;height:180px;overflow:auto">
                 <div style="height:800px;padding-top:400px">
                     <div style="width:220px;height:140px;overflow:auto">
@@ -181,7 +184,8 @@ describe('trusted pointer harness', () => {
                     </div>
                 </div>
             </div>
-        `);
+        `,
+        );
         await clickAsUser(page, '[data-target="nested"]', {timeoutMs: 3000});
         expect(await readPointerOutcome(page)).toMatchObject({
             clicked: 'nested',
@@ -194,7 +198,13 @@ describe('trusted pointer harness', () => {
         await mountPointerFixture(page, '<button data-target="hover" style="position:absolute;left:40px;top:40px">Moving target</button>');
         await page.evaluate(() => {
             const target = document.querySelector<HTMLElement>('[data-target="hover"]')!;
-            target.addEventListener('pointerenter', () => {target.style.left = '350px';}, {once: true});
+            target.addEventListener(
+                'pointerenter',
+                () => {
+                    target.style.left = '350px';
+                },
+                {once: true},
+            );
         });
         await clickAsUser(page, '[data-target="hover"]');
         expect(await readPointerOutcome(page)).toMatchObject({
@@ -205,13 +215,16 @@ describe('trusted pointer harness', () => {
 
     it('wheels the outer panel at a point where a nested panel cannot consume its wheel', async () => {
         const {page} = sessions.getSession();
-        await mountPointerFixture(page, `
+        await mountPointerFixture(
+            page,
+            `
             <div data-scroller style="position:absolute;left:40px;top:40px;width:260px;height:180px;overflow:auto">
                 <div style="width:220px;height:140px;overflow:auto"><div style="height:600px"></div></div>
                 <div style="height:250px"></div>
                 <button data-target="outer">Outer target</button>
             </div>
-        `);
+        `,
+        );
         await clickAsUser(page, '[data-target="outer"]', {timeoutMs: 3000});
         expect(await readPointerOutcome(page)).toMatchObject({
             clicked: 'outer',
@@ -221,12 +234,15 @@ describe('trusted pointer harness', () => {
 
     it('refuses a target covered by a dialog and clicks it after the dialog is dismissed', async () => {
         const {page} = sessions.getSession();
-        await mountPointerFixture(page, `
+        await mountPointerFixture(
+            page,
+            `
             <button data-target="covered" style="position:absolute;left:50px;top:50px">Covered target</button>
             <div id="pointer-cover" style="position:absolute;inset:0;background:white">
                 <button data-target="dismiss" style="margin:200px">Dismiss</button>
             </div>
-        `);
+        `,
+        );
         await expect(clickAsUser(page, '[data-target="covered"]', {timeoutMs: 250})).rejects.toThrow('covered by');
         expect((await readPointerOutcome(page)).clicked).toBeNull();
         await clickAsUser(page, '[data-target="dismiss"]');
@@ -239,14 +255,21 @@ describe('trusted pointer harness', () => {
 
     it('wheels a target into view and resolves a found target in the page', async () => {
         const {page} = sessions.getSession();
-        await mountPointerFixture(page, `
+        await mountPointerFixture(
+            page,
+            `
             <div data-scroller style="position:absolute;left:40px;top:40px;width:240px;height:180px;overflow:auto;scroll-behavior:smooth">
                 <div style="height:450px"></div>
                 <button data-target="found">Find me</button>
             </div>
-        `);
-        await clickFoundAsUser(page, (label) => Array.from(document.querySelectorAll('button'))
-            .find(button => button.textContent === label), 'Find me', {description: 'the found button'});
+        `,
+        );
+        await clickFoundAsUser(
+            page,
+            (label) => Array.from(document.querySelectorAll('button')).find((button) => button.textContent === label),
+            'Find me',
+            {description: 'the found button'},
+        );
         expect(await readPointerOutcome(page)).toMatchObject({
             clicked: 'found',
             trusted: 'true',
@@ -255,23 +278,22 @@ describe('trusted pointer harness', () => {
 
     it('restores native content size, scale and focus after viewport emulation and a real resize', async () => {
         const session = sessions.getSession();
-        await session.command('windowResize', [
-            600,
-            500,
-        ]);
+        await session.command('windowResize', [600, 500]);
         await session.page.setViewport({
             width: 1200,
             height: 800,
             deviceScaleFactor: 3,
         });
         await session.resetForE2E();
-        expect(await session.page.evaluate(() => ({
-            width: innerWidth,
-            height: innerHeight,
-            scale: devicePixelRatio,
-            focus: document.hasFocus(),
-            visibility: document.visibilityState,
-        }))).toEqual({
+        expect(
+            await session.page.evaluate(() => ({
+                width: innerWidth,
+                height: innerHeight,
+                scale: devicePixelRatio,
+                focus: document.hasFocus(),
+                visibility: document.visibilityState,
+            })),
+        ).toEqual({
             width: 900,
             height: 672,
             scale: 1,
@@ -312,13 +334,13 @@ describe('Select All input ordering', () => {
         },
     });
     it('keeps typing after a menu Select All in the focused page-label field', async () => {
-        const { page } = sessions.getSession();
+        const {page} = sessions.getSession();
         await openPdfInApp(page, await createMultiPageTextFixturePdf('select-all-ordering.pdf', 2));
         await waitForViewerInteractive(page);
         await openDocumentSidebarTab(page, 'Pages');
         const scope = '.workspace-host[data-workspace-active="true"]';
         const disclosure = `${scope} .pdf-sidebar-pages-disclosure`;
-        if (await page.$eval(disclosure, button => button.getAttribute('aria-expanded')) !== 'true') {
+        if ((await page.$eval(disclosure, (button) => button.getAttribute('aria-expanded'))) !== 'true') {
             await clickAsUser(page, disclosure);
         }
         await clickAsUser(page, '#page-label-prefix-input');
@@ -326,7 +348,7 @@ describe('Select All input ordering', () => {
         await page.$eval('#page-label-prefix-input', (element) => {
             const input = element as HTMLInputElement;
             input.value = 'Accepted-';
-            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new Event('input', {bubbles: true}));
             input.setSelectionRange(input.value.length, input.value.length);
         });
 
@@ -334,19 +356,13 @@ describe('Select All input ordering', () => {
             // AppKit translates Control+A to line navigation on macOS. Keep
             // that native edit command available rather than treating it as Cmd+A.
             await page.keyboard.down('Control');
-            await page.keyboard.press('a', { commands: ['MoveToBeginningOfLine'] });
+            await page.keyboard.press('a', {commands: ['MoveToBeginningOfLine']});
             await page.keyboard.up('Control');
             const selection = await page.$eval('#page-label-prefix-input', (element) => {
                 const input = element as HTMLInputElement;
-                return [
-                    input.selectionStart,
-                    input.selectionEnd,
-                ];
+                return [input.selectionStart, input.selectionEnd];
             });
-            expect(selection).toEqual([
-                0,
-                0,
-            ]);
+            expect(selection).toEqual([0, 0]);
             await page.$eval('#page-label-prefix-input', (element) => {
                 const input = element as HTMLInputElement;
                 input.setSelectionRange(input.value.length, input.value.length);
@@ -391,9 +407,9 @@ describe('Select All input ordering', () => {
                     }
                 });
             })()`);
-            await page.waitForFunction(() => (
-                (document.querySelector('#page-label-prefix-input') as HTMLInputElement)?.value === 'Late-'
-            ), { timeout: 10_000 });
+            await page.waitForFunction(() => (document.querySelector('#page-label-prefix-input') as HTMLInputElement)?.value === 'Late-', {
+                timeout: 10_000,
+            });
             await clickAsUser(page, `${scope} .pdf-sidebar-pages-primary-button`);
             await expect.poll(async () => (await readToolbarPageIndicator(page)).primaryText).toBe('Late-1');
         } finally {

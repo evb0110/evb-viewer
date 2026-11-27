@@ -1,27 +1,13 @@
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    computed,
-    effectScope,
-    shallowRef,
-} from 'vue';
-import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
-import { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annotationApplication';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {computed, effectScope, shallowRef} from 'vue';
+import {DEFAULT_ANNOTATION_SETTINGS} from '@app/constants/annotationDefaults';
+import {AnnotationApplication} from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import {usePdfAnnotationEditorSurface} from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
 import {useAnnotationStoreSnapshot} from '@app/modules/pdf-viewer/runtime/sessions/createPdfDocumentAnnotations';
-import type {
-    IAnnotationMarkerRect,
-    TAnnotationTool,
-} from '@app/types/annotations';
-
+import type {IAnnotationMarkerRect, TAnnotationTool} from '@app/types/annotations';
 
 import {useAnnotationKeyboardCommands} from '@app/modules/pdf-viewer/annotations/editor/useAnnotationKeyboardCommands';
-import type { ITextBoxEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import type {ITextBoxEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 
 const rect: IAnnotationMarkerRect = {
     left: 0.1,
@@ -37,25 +23,22 @@ function createSurfaceHarness(rotation: 0 | 90 | 180 | 270 = 0, viewRotation: 0 
     const onCreationCompleted = vi.fn();
     const scope = effectScope();
     activeScopes.add(scope);
-    const surface = scope.run(() => usePdfAnnotationEditorSurface({
-        annotationApplication,
-        entitiesByPage: useAnnotationStoreSnapshot(annotationApplication).entitiesByPage,
-        getPageGeometry: () => ({
-            pageView: [
-                0,
-                0,
-                600,
-                800,
-            ],
-            rotation,
-            viewRotation,
+    const surface = scope.run(() =>
+        usePdfAnnotationEditorSurface({
+            annotationApplication,
+            entitiesByPage: useAnnotationStoreSnapshot(annotationApplication).entitiesByPage,
+            getPageGeometry: () => ({
+                pageView: [0, 0, 600, 800],
+                rotation,
+                viewRotation,
+            }),
+            activeTool: computed<TAnnotationTool>(() => 'select'),
+            settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
+            emitAnnotationModified,
+            emitShapeContextMenu,
+            onCreationCompleted,
         }),
-        activeTool: computed<TAnnotationTool>(() => 'select'),
-        settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
-        emitAnnotationModified,
-        emitShapeContextMenu,
-        onCreationCompleted,
-    }))!;
+    )!;
     const stop = () => {
         if (!activeScopes.delete(scope)) {
             return;
@@ -74,7 +57,12 @@ function createSurfaceHarness(rotation: 0 | 90 | 180 | 270 = 0, viewRotation: 0 
 
 const activeScopes = new Set<ReturnType<typeof effectScope>>();
 describe('actual keyboard to Surface nudge integration', () => {
-    afterEach(() => { for (const scope of activeScopes) {scope.stop();} activeScopes.clear(); });
+    afterEach(() => {
+        for (const scope of activeScopes) {
+            scope.stop();
+        }
+        activeScopes.clear();
+    });
 
     const directions = [
         {
@@ -98,35 +86,16 @@ describe('actual keyboard to Surface nudge integration', () => {
             dy: 0,
         },
     ];
-    for (const rotation of [
-        0,
-        90,
-        180,
-        270,
-    ] as const) {
-        for (const viewRotation of [
-            0,
-            90,
-            180,
-            270,
-        ] as const) {
-            for (const {
-                key,
-                dx,
-                dy,
-            } of directions) {
+    for (const rotation of [0, 90, 180, 270] as const) {
+        for (const viewRotation of [0, 90, 180, 270] as const) {
+            for (const {key, dx, dy} of directions) {
                 it(`${key} obeys screen direction at intrinsic ${rotation} and viewer ${viewRotation}`, () => {
                     const {surface} = createSurfaceHarness(rotation, viewRotation);
                     const box = surface.createTextBoxAt(0, rect);
                     surface.select([box.identity.id]);
                     const keyboard = useAnnotationKeyboardCommands({
                         surface,
-                        pageView: () => [
-                            0,
-                            0,
-                            600,
-                            800,
-                        ],
+                        pageView: () => [0, 0, 600, 800],
                         pageRotation: () => rotation,
                     });
                     keyboard.handleKeydown({
@@ -144,7 +113,7 @@ describe('actual keyboard to Surface nudge integration', () => {
                     const height = rotation === 90 || rotation === 270 ? 600 : 800;
                     const planeDx = (moved.rect.left - box.rect.left) * width;
                     const planeDy = (moved.rect.top - box.rect.top) * height;
-                    const angle = viewRotation * Math.PI / 180;
+                    const angle = (viewRotation * Math.PI) / 180;
                     const screenDx = planeDx * Math.cos(angle) - planeDy * Math.sin(angle);
                     const screenDy = planeDx * Math.sin(angle) + planeDy * Math.cos(angle);
                     expect(screenDx).toBeCloseTo(dx);

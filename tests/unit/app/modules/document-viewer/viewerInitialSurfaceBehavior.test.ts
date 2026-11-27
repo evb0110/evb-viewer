@@ -2,22 +2,11 @@
 
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    createApp,
-    defineComponent,
-    h,
-} from 'vue';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {createApp, defineComponent, h} from 'vue';
 import DocumentPageSkeleton from '@app/components/document-viewer/DocumentPageSkeleton.vue';
 import PdfInitialSurfacePlaceholder from '@app/modules/pdf-viewer/components/PdfInitialSurfacePlaceholder.vue';
-import { WORKSPACE_VIEWER_ADAPTERS } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
+import {WORKSPACE_VIEWER_ADAPTERS} from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
@@ -27,11 +16,13 @@ vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
 const SkeletonStub = defineComponent({setup: () => () => h('span', {'data-ui-skeleton': ''})});
 const ButtonStub = defineComponent({
     inheritAttrs: true,
-    props: {label: {
-        type: String,
-        default: '',
-    }},
-    setup: props => () => h('button', props.label),
+    props: {
+        label: {
+            type: String,
+            default: '',
+        },
+    },
+    setup: (props) => () => h('button', props.label),
 });
 const activeUnmounts = new Set<() => void>();
 
@@ -61,20 +52,29 @@ describe('viewer initial-surface behavior', () => {
     });
 
     afterEach(() => {
-        for (const unmount of activeUnmounts) {unmount();}
+        for (const unmount of activeUnmounts) {
+            unmount();
+        }
         vi.unstubAllGlobals();
         vi.useRealTimers();
     });
 
     it('routes every document renderer through the shared chassis adapter', () => {
-        expect(new Set(WORKSPACE_VIEWER_ADAPTERS.map(adapter => adapter.component))).toHaveLength(1);
+        expect(new Set(WORKSPACE_VIEWER_ADAPTERS.map((adapter) => adapter.component))).toHaveLength(1);
     });
 
     it('renders a measured PDF opening shell with the real page skeleton', () => {
-        const harness = mount(defineComponent({setup: () => () => h(PdfInitialSurfacePlaceholder, {pageStyle: {
-            width: '612px',
-            height: '792px',
-        }})}));
+        const harness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(PdfInitialSurfacePlaceholder, {
+                        pageStyle: {
+                            width: '612px',
+                            height: '792px',
+                        },
+                    }),
+            }),
+        );
 
         const placeholder = harness.host.querySelector('[data-evb-initial-visual-placeholder="true"]');
         const shell = harness.host.querySelector<HTMLElement>('.pdf-initial-surface-placeholder__page-shell');
@@ -91,9 +91,11 @@ describe('viewer initial-surface behavior', () => {
     });
 
     it('omits inline padding by default and applies explicit padding and paragraph budgets', () => {
-        const defaultHarness = mount(defineComponent({
-            setup: () => () => h(DocumentPageSkeleton, {contentHeight: 760}),
-        }));
+        const defaultHarness = mount(
+            defineComponent({
+                setup: () => () => h(DocumentPageSkeleton, {contentHeight: 760}),
+            }),
+        );
         const defaultSkeleton = defaultHarness.host.querySelector<HTMLElement>('.document-page-skeleton');
         expect(defaultSkeleton?.getAttribute('style')).toBeNull();
         // Fixed 2 paragraphs + repeatParagraphs for 760px with 0 explicit paddingY:
@@ -101,17 +103,20 @@ describe('viewer initial-surface behavior', () => {
         expect(defaultHarness.host.querySelectorAll('.document-page-skeleton .paragraph')).toHaveLength(7);
         defaultHarness.unmount();
 
-        const paddedHarness = mount(defineComponent({
-            setup: () => () => h(DocumentPageSkeleton, {
-                contentHeight: 760,
-                padding: {
-                    top: 56,
-                    right: 40,
-                    bottom: 56,
-                    left: 40,
-                },
+        const paddedHarness = mount(
+            defineComponent({
+                setup: () => () =>
+                    h(DocumentPageSkeleton, {
+                        contentHeight: 760,
+                        padding: {
+                            top: 56,
+                            right: 40,
+                            bottom: 56,
+                            left: 40,
+                        },
+                    }),
             }),
-        }));
+        );
         const paddedSkeleton = paddedHarness.host.querySelector<HTMLElement>('.document-page-skeleton');
         expect(paddedSkeleton?.style.padding).toBe('56px 40px');
         // floor((760 - 112 - 278.4) / 80.8) = floor(369.6 / 80.8) = 4 -> 6 total paragraphs.

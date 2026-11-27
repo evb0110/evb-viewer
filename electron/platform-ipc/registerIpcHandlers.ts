@@ -1,12 +1,9 @@
-import { ipcMain } from 'electron';
-import type { ICoreIpcHandlerOptions } from '@electron/platform-ipc/registerCoreIpcHandlers';
-import type {
-    TLoadUpdatesModule,
-    TLazyMainSubsystem,
-} from '@electron/platform-ipc/featureRegistrationDescriptors';
-import { registerFeatureIpcAdapters } from '@electron/platform-ipc/featureIpcAdapters';
+import {ipcMain} from 'electron';
+import type {ICoreIpcHandlerOptions} from '@electron/platform-ipc/registerCoreIpcHandlers';
+import type {TLoadUpdatesModule, TLazyMainSubsystem} from '@electron/platform-ipc/featureRegistrationDescriptors';
+import {registerFeatureIpcAdapters} from '@electron/platform-ipc/featureIpcAdapters';
 
-export { normalizeRendererLogEntry } from '@electron/platform-ipc/rendererLogBridge';
+export {normalizeRendererLogEntry} from '@electron/platform-ipc/rendererLogBridge';
 
 export interface IRegisterIpcHandlersOptions extends ICoreIpcHandlerOptions {
     loadUpdatesModule?: TLoadUpdatesModule;
@@ -15,12 +12,7 @@ export interface IRegisterIpcHandlersOptions extends ICoreIpcHandlerOptions {
 }
 
 export function registerIpcHandlers(options: IRegisterIpcHandlersOptions = {}) {
-    const {
-        loadUpdatesModule,
-        onSubsystemLoaded,
-        isSubsystemLoaded,
-        ...coreIpcOptions
-    } = options;
+    const {loadUpdatesModule, onSubsystemLoaded, isSubsystemLoaded, ...coreIpcOptions} = options;
     return registerFeatureIpcAdapters(ipcMain, {
         coreIpcOptions,
         ...(loadUpdatesModule ? {loadUpdatesModule} : {}),

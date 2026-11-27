@@ -1,5 +1,1 @@
-export type {
-    IPdfNeedsPasswordResult,
-    IPdfUnsupportedEncryptionResult,
-    TPdfOpenFileFailureResult,
-} from '@contracts/pdfOpenFileSchemas';
+export type {IPdfNeedsPasswordResult, IPdfUnsupportedEncryptionResult, TPdfOpenFileFailureResult} from '@contracts/pdfOpenFileSchemas';

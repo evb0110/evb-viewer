@@ -1,19 +1,11 @@
-import {
-    afterAll,
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterAll, afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {resolve} from 'node:path';
 
 const mocks = vi.hoisted(() => ({
     tempDir: '/tmp/electron-test',
     userDataDir: '/profiles/electron-test',
     existsSync: vi.fn<(path: string) => boolean>(),
-    lstatSync: vi.fn<(path: string) => { isSymbolicLink: () => boolean; }>(),
+    lstatSync: vi.fn<(path: string) => {isSymbolicLink: () => boolean}>(),
     realpathSync: vi.fn<(path: string) => string>(),
     statSync: vi.fn<(path: string, options?: unknown) => unknown>(),
 }));
@@ -22,18 +14,22 @@ function createStat(isSymlink: boolean) {
     return {isSymbolicLink: () => isSymlink};
 }
 
-vi.mock('electron', () => ({app: {getPath: (name: string) => {
-    if (name === 'temp') {
-        return mocks.tempDir;
-    }
-    if (name === 'userData') {
-        return mocks.userDataDir;
-    }
-    throw new Error(`Unknown path name: ${name}`);
-}}}));
+vi.mock('electron', () => ({
+    app: {
+        getPath: (name: string) => {
+            if (name === 'temp') {
+                return mocks.tempDir;
+            }
+            if (name === 'userData') {
+                return mocks.userDataDir;
+            }
+            throw new Error(`Unknown path name: ${name}`);
+        },
+    },
+}));
 
-vi.mock('os', async importOriginal => ({
-    ...await importOriginal<Record<string, unknown>>(),
+vi.mock('os', async (importOriginal) => ({
+    ...(await importOriginal<Record<string, unknown>>()),
     tmpdir: () => mocks.tempDir,
 }));
 
@@ -99,8 +95,9 @@ describe('isAllowedWritePath', () => {
             return path;
         });
 
-        expect(isAllowedWritePath('\\\\?\\C:\\Users\\Alice\\AppData\\Local\\Temp\\evb-viewer-test-profile\\pdf-work-1\\work.pdf'))
-            .toBe(true);
+        expect(isAllowedWritePath('\\\\?\\C:\\Users\\Alice\\AppData\\Local\\Temp\\evb-viewer-test-profile\\pdf-work-1\\work.pdf')).toBe(
+            true,
+        );
     });
 
     it('rejects symlink targets', () => {
@@ -141,8 +138,9 @@ describe('isAllowedReadPath', () => {
             return path;
         });
 
-        expect(isAllowedReadPath('\\\\?\\C:\\Users\\Alice\\AppData\\Local\\Temp\\evb-viewer-test-profile\\pdf-work-1\\work.pdf'))
-            .toBe(true);
+        expect(isAllowedReadPath('\\\\?\\C:\\Users\\Alice\\AppData\\Local\\Temp\\evb-viewer-test-profile\\pdf-work-1\\work.pdf')).toBe(
+            true,
+        );
     });
 
     it('rejects symlink targets', () => {
@@ -179,7 +177,9 @@ describe('resolveAllowedReadPath', () => {
             return path;
         });
 
-        await expect(resolveAllowedReadPath(resolve('/var/folders/abc/T/evb-viewer-test-profile/file.pdf'))).resolves.toBe(resolve('/private/var/folders/abc/T/evb-viewer-test-profile/file.pdf'));
+        await expect(resolveAllowedReadPath(resolve('/var/folders/abc/T/evb-viewer-test-profile/file.pdf'))).resolves.toBe(
+            resolve('/private/var/folders/abc/T/evb-viewer-test-profile/file.pdf'),
+        );
     });
 
     it('recovers when the temp directory becomes canonicalizable only after the first validation', async () => {
@@ -208,8 +208,9 @@ describe('resolveAllowedReadPath', () => {
         expect(isAllowedWritePath(`${configuredBase}\\early-log.txt`)).toBe(true);
 
         tempDirExists = true;
-        await expect(resolveAllowedReadPath(`${configuredBase}\\pdf-work-1\\work.pdf`))
-            .resolves.toBe(`${canonicalBase}\\pdf-work-1\\work.pdf`);
+        await expect(resolveAllowedReadPath(`${configuredBase}\\pdf-work-1\\work.pdf`)).resolves.toBe(
+            `${canonicalBase}\\pdf-work-1\\work.pdf`,
+        );
     });
 
     it('allows Windows paths when realpath returns native namespaced paths', async () => {
@@ -224,8 +225,9 @@ describe('resolveAllowedReadPath', () => {
             return path;
         });
 
-        await expect(resolveAllowedReadPath('C:\\Users\\Alice\\AppData\\Local\\Temp\\evb-viewer-test-profile\\pdf-work-1\\work.pdf'))
-            .resolves.toBe('\\\\?\\C:\\Users\\Alice\\AppData\\Local\\Temp\\evb-viewer-test-profile\\pdf-work-1\\work.pdf');
+        await expect(
+            resolveAllowedReadPath('C:\\Users\\Alice\\AppData\\Local\\Temp\\evb-viewer-test-profile\\pdf-work-1\\work.pdf'),
+        ).resolves.toBe('\\\\?\\C:\\Users\\Alice\\AppData\\Local\\Temp\\evb-viewer-test-profile\\pdf-work-1\\work.pdf');
     });
 });
 
@@ -256,8 +258,9 @@ describe('resolveAllowedWritePath', () => {
             return path;
         });
 
-        await expect(resolveAllowedWritePath('C:\\Users\\Alice\\AppData\\Local\\Temp\\evb-viewer-test-profile\\pdf-work-1\\new-output.pdf'))
-            .resolves.toBe('C:\\Users\\Alice\\AppData\\Local\\Temp\\evb-viewer-test-profile\\pdf-work-1\\new-output.pdf');
+        await expect(
+            resolveAllowedWritePath('C:\\Users\\Alice\\AppData\\Local\\Temp\\evb-viewer-test-profile\\pdf-work-1\\new-output.pdf'),
+        ).resolves.toBe('C:\\Users\\Alice\\AppData\\Local\\Temp\\evb-viewer-test-profile\\pdf-work-1\\new-output.pdf');
     });
 
     it('allows existing Windows native namespaced targets inside the temp directory', async () => {
@@ -275,8 +278,9 @@ describe('resolveAllowedWritePath', () => {
             return path;
         });
 
-        await expect(resolveAllowedWritePath('\\\\?\\C:\\Users\\Alice\\AppData\\Local\\Temp\\evb-viewer-test-profile\\pdf-work-1\\work.pdf'))
-            .resolves.toBe('\\\\?\\C:\\Users\\Alice\\AppData\\Local\\Temp\\evb-viewer-test-profile\\pdf-work-1\\work.pdf');
+        await expect(
+            resolveAllowedWritePath('\\\\?\\C:\\Users\\Alice\\AppData\\Local\\Temp\\evb-viewer-test-profile\\pdf-work-1\\work.pdf'),
+        ).resolves.toBe('\\\\?\\C:\\Users\\Alice\\AppData\\Local\\Temp\\evb-viewer-test-profile\\pdf-work-1\\work.pdf');
     });
 });
 
@@ -286,7 +290,7 @@ describe('pinned document revisions', () => {
     it('refuses the pinned revisions folder to every generic read and write, by any spelling', async () => {
         const pinned = inRoot('pinned-revisions/0b7c1a.pdf');
         const alias = inRoot('alias.pdf');
-        mocks.realpathSync.mockImplementation((path: string) => path === alias ? pinned : path);
+        mocks.realpathSync.mockImplementation((path: string) => (path === alias ? pinned : path));
 
         expect(isAllowedReadPath(pinned)).toBe(false);
         expect(isAllowedWritePath(pinned)).toBe(false);
@@ -303,11 +307,7 @@ describe('pinned document revisions', () => {
         const upperPinned = inRoot('PINNED-REVISIONS/0b7c1a.pdf');
         const upperNew = inRoot('PINNED-REVISIONS/new.pdf');
         const upperDir = inRoot('PINNED-REVISIONS');
-        for (const candidate of [
-            upperPinned,
-            upperNew,
-            upperDir,
-        ]) {
+        for (const candidate of [upperPinned, upperNew, upperDir]) {
             expect(isAllowedReadPath(candidate)).toBe(false);
             expect(isAllowedWritePath(candidate)).toBe(false);
             await expect(resolveAllowedReadPath(candidate)).resolves.toBeNull();

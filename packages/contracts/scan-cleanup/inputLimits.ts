@@ -1,4 +1,4 @@
-import { requirePageNumber } from '@contracts/pageNumbers';
+import {requirePageNumber} from '@contracts/pageNumbers';
 
 // IPC payloads are renderer-controlled. These ceilings are intentionally far
 // above legitimate document/UI sizes while keeping validation work and native
@@ -44,60 +44,35 @@ export function scanCleanupUtf8ByteLength(value: string) {
     return UTF8_ENCODER.encode(value).byteLength;
 }
 
-export function decodeBoundedScanCleanupString(
-    value: unknown,
-    label: string,
-    maxBytes: number,
-) {
-    if (
-        typeof value !== 'string'
-        || value.trim().length === 0
-        || value.includes('\0')
-        || scanCleanupUtf8ByteLength(value) > maxBytes
-    ) {
+export function decodeBoundedScanCleanupString(value: unknown, label: string, maxBytes: number) {
+    if (typeof value !== 'string' || value.trim().length === 0 || value.includes('\0') || scanCleanupUtf8ByteLength(value) > maxBytes) {
         throw new Error(`invalid scan-cleanup ${label}`);
     }
     return value;
 }
 
 export function decodeScanCleanupPageNumber(value: unknown, label: string) {
-    if (
-        !Number.isSafeInteger(value)
-        || Number(value) < 1
-        || Number(value) > SCAN_CLEANUP_INPUT_MAX_PAGE_NUMBER
-    ) {
+    if (!Number.isSafeInteger(value) || Number(value) < 1 || Number(value) > SCAN_CLEANUP_INPUT_MAX_PAGE_NUMBER) {
         throw new Error(`invalid scan-cleanup ${label}`);
     }
     return requirePageNumber(Number(value));
 }
 
-export function consumeScanCleanupPages(
-    budget: IScanCleanupInputBudget,
-    count: number,
-    label: string,
-) {
+export function consumeScanCleanupPages(budget: IScanCleanupInputBudget, count: number, label: string) {
     budget.pages += count;
     if (!Number.isSafeInteger(budget.pages) || budget.pages > SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES) {
         throw new Error(`too many scan-cleanup ${label}`);
     }
 }
 
-export function consumeScanCleanupZones(
-    budget: IScanCleanupInputBudget,
-    count: number,
-    label: string,
-) {
+export function consumeScanCleanupZones(budget: IScanCleanupInputBudget, count: number, label: string) {
     budget.zones += count;
     if (!Number.isSafeInteger(budget.zones) || budget.zones > SCAN_CLEANUP_INPUT_MAX_ZONES) {
         throw new Error(`too many scan-cleanup ${label}`);
     }
 }
 
-export function consumeScanCleanupVertices(
-    budget: IScanCleanupInputBudget,
-    count: number,
-    label: string,
-) {
+export function consumeScanCleanupVertices(budget: IScanCleanupInputBudget, count: number, label: string) {
     budget.vertices += count;
     if (!Number.isSafeInteger(budget.vertices) || budget.vertices > SCAN_CLEANUP_INPUT_MAX_VERTICES) {
         throw new Error(`too many scan-cleanup ${label}`);

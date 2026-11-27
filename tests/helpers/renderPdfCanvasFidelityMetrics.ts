@@ -1,12 +1,7 @@
-import { readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
-import {
-    DOMMatrix,
-    ImageData,
-    Path2D,
-    createCanvas,
-} from '@napi-rs/canvas';
-import { isRecord } from '@contracts/runtimeGuards';
+import {readFile} from 'node:fs/promises';
+import {resolve} from 'node:path';
+import {DOMMatrix, ImageData, Path2D, createCanvas} from '@napi-rs/canvas';
+import {isRecord} from '@contracts/runtimeGuards';
 
 export interface IPdfCanvasFidelityMetrics {
     darkPixelRatio: number;
@@ -21,8 +16,7 @@ const PDF_CANVAS_INK_RATIO_MIN = 0.01;
 const PDF_CANVAS_INK_RATIO_MAX = 0.2;
 
 export function isPdfCanvasInkCoverageSane(metrics: IPdfCanvasFidelityMetrics) {
-    return metrics.inkPixelRatio >= PDF_CANVAS_INK_RATIO_MIN
-        && metrics.inkPixelRatio <= PDF_CANVAS_INK_RATIO_MAX;
+    return metrics.inkPixelRatio >= PDF_CANVAS_INK_RATIO_MIN && metrics.inkPixelRatio <= PDF_CANVAS_INK_RATIO_MAX;
 }
 
 // PDF.js in Node reads assets with fs.readFile(`${directory}${name}`), which
@@ -80,12 +74,14 @@ export async function renderPdfCanvasFidelityMetrics(
         if (typeof renderFunction !== 'function') {
             throw new TypeError('PDF.js page render method is unavailable');
         }
-        const renderTask: unknown = Reflect.apply(renderFunction, page, [{
-            canvas,
-            canvasContext: context,
-            viewport,
-            optionalContentConfigPromise: Promise.resolve(optionalContentConfig),
-        }]);
+        const renderTask: unknown = Reflect.apply(renderFunction, page, [
+            {
+                canvas,
+                canvasContext: context,
+                viewport,
+                optionalContentConfigPromise: Promise.resolve(optionalContentConfig),
+            },
+        ]);
         if (!isRecord(renderTask) || !(renderTask.promise instanceof Promise)) {
             throw new TypeError('PDF.js page render task is invalid');
         }
@@ -95,9 +91,7 @@ export async function renderPdfCanvasFidelityMetrics(
         let inkPixels = 0;
         let luminanceTotal = 0;
         for (let offset = 0; offset < pixels.length; offset += 4) {
-            const luminance = (pixels[offset]! * 0.2126)
-                + (pixels[offset + 1]! * 0.7152)
-                + (pixels[offset + 2]! * 0.0722);
+            const luminance = pixels[offset]! * 0.2126 + pixels[offset + 1]! * 0.7152 + pixels[offset + 2]! * 0.0722;
             luminanceTotal += luminance;
             if (luminance < 245) {
                 inkPixels += 1;

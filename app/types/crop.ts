@@ -1,15 +1,8 @@
-import type { ILocalRect } from '@app/modules/document-viewer/public';
-import type {
-    ICropMargins,
-    TPdfViewRotation,
-} from '@contracts/shared';
-import type { TPageSelection } from '@contracts/pageNumbers';
+import type {ILocalRect} from '@app/modules/document-viewer/public';
+import type {ICropMargins, TPdfViewRotation} from '@contracts/shared';
+import type {TPageSelection} from '@contracts/pageNumbers';
 
-export type {
-    ICropMargins,
-    IPdfBox,
-    IPageGeometry,
-} from '@contracts/shared';
+export type {ICropMargins, IPdfBox, IPageGeometry} from '@contracts/shared';
 
 export interface ICropSelectionResult {
     pageNumber: number;

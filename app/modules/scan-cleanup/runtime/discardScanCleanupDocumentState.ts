@@ -14,10 +14,7 @@ import {
  * reach that store too — the browser repository alone only covers the legacy
  * localStorage entry.
  */
-export async function discardScanCleanupDocumentState(
-    documentKey: string | null | undefined,
-    sourceSha256?: string | null,
-) {
+export async function discardScanCleanupDocumentState(documentKey: string | null | undefined, sourceSha256?: string | null) {
     if (!documentKey && !sourceSha256) {
         return;
     }
@@ -25,18 +22,11 @@ export async function discardScanCleanupDocumentState(
     // durable entry. Otherwise scope disposal can flush the old overrides
     // after the close and silently recreate the state that was just discarded.
     invalidateScanCleanupDocumentPersistence(sourceSha256, documentKey);
-    discardScanCleanupDetectionStateForAliases([
-        documentKey,
-        sourceSha256,
-    ]);
+    discardScanCleanupDetectionStateForAliases([documentKey, sourceSha256]);
     if (documentKey) {
         await resetScanCleanupDocumentOverrides(documentKey);
     }
     if (sourceSha256) {
-        await saveScanCleanupDocumentPreferencesInStore(
-            sourceSha256,
-            documentKey ?? null,
-            {resetOverrides: true},
-        );
+        await saveScanCleanupDocumentPreferencesInStore(sourceSha256, documentKey ?? null, {resetOverrides: true});
     }
 }

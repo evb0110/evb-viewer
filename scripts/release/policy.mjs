@@ -5,32 +5,25 @@ export function hasDeveloperIdSigningCredentials(env = process.env) {
 const GATE_POLICY_MANIFEST = Object.freeze({
     release: {
         localChecks: {
-            gateGroups: [{
-                id: 'lint-static',
-                owner: 'release',
-                scripts: [
-                    'check:electron:install',
-                    'check:electron-builder:asar-unpack',
-                ],
-            }],
+            gateGroups: [
+                {
+                    id: 'lint-static',
+                    owner: 'release',
+                    scripts: ['check:electron:install', 'check:electron-builder:asar-unpack'],
+                },
+            ],
             owner: 'release',
         },
         localVerify: {
             gates: [
                 {
-                    args: [
-                        'run',
-                        'release:verify:checks',
-                    ],
+                    args: ['run', 'release:verify:checks'],
                     command: 'pnpm',
                     id: 'checks',
                     owner: 'release',
                 },
                 {
-                    args: [
-                        'run',
-                        'release:verify:package:local',
-                    ],
+                    args: ['run', 'release:verify:package:local'],
                     command: 'pnpm',
                     id: 'package-local',
                     owner: 'release',
@@ -54,7 +47,7 @@ export function getGatePolicyManifest() {
     return {
         release: {
             localChecks: {
-                gateGroups: GATE_POLICY_MANIFEST.release.localChecks.gateGroups.map(group => ({
+                gateGroups: GATE_POLICY_MANIFEST.release.localChecks.gateGroups.map((group) => ({
                     id: group.id,
                     owner: group.owner,
                     scripts: [...group.scripts],
@@ -62,7 +55,7 @@ export function getGatePolicyManifest() {
                 owner: GATE_POLICY_MANIFEST.release.localChecks.owner,
             },
             localVerify: {
-                gates: GATE_POLICY_MANIFEST.release.localVerify.gates.map(gate => ({
+                gates: GATE_POLICY_MANIFEST.release.localVerify.gates.map((gate) => ({
                     ...cloneGateCommand(gate),
                     id: gate.id,
                     owner: gate.owner,
@@ -75,8 +68,7 @@ export function getGatePolicyManifest() {
 }
 
 export function getLocalReleaseCheckGateScripts() {
-    return GATE_POLICY_MANIFEST.release.localChecks.gateGroups
-        .flatMap(group => group.scripts);
+    return GATE_POLICY_MANIFEST.release.localChecks.gateGroups.flatMap((group) => group.scripts);
 }
 
 export function getLocalReleaseVerifyGateCommands() {
@@ -126,10 +118,7 @@ export function getLocalReleaseTargets(options = {}) {
 
     return targetArchs.map((targetArch) => ({
         arch: targetArch,
-        expectsUpdaterMetadata: (
-            (platform === 'mac' && targetArch === 'arm64')
-            || platform === 'win'
-        ),
+        expectsUpdaterMetadata: (platform === 'mac' && targetArch === 'arm64') || platform === 'win',
         isPrimaryHostTarget: targetArch === arch,
         platform,
     }));
@@ -141,16 +130,11 @@ export function getRequiredArtifactPatterns(target, env = process.env) {
         case 'mac':
             // Unsigned local mac verification prunes updater metadata; the DMG
             // is the release-critical manual-install artifact in that mode.
-            return expectsUpdaterMetadata(target, env)
-                ? [
-                    /\.dmg$/,
-                    /\.zip$/,
-                ]
-                : [ /\.dmg$/ ];
+            return expectsUpdaterMetadata(target, env) ? [/\.dmg$/, /\.zip$/] : [/\.dmg$/];
         case 'linux':
-            return [ /\.deb$/ ];
+            return [/\.deb$/];
         case 'win':
-            return [ /\.exe$/ ];
+            return [/\.exe$/];
         default:
             return [];
     }
@@ -195,23 +179,18 @@ export function assertPublishUpdaterMetadataPolicy(artifactNames, env = process.
     });
 
     if (forbidden.length > 0) {
-        throw new Error(
-            'Release artifacts include updater metadata forbidden by publish policy: '
-            + forbidden.sort().join(', '),
-        );
+        throw new Error('Release artifacts include updater metadata forbidden by publish policy: ' + forbidden.sort().join(', '));
     }
 }
 
 /** @param {Iterable<string>} artifactNames @returns {string[]} */
 export function getUpdaterMetadataFileNames(artifactNames) {
-    return [...artifactNames].filter(fileName => /^latest.*\.yml$/u.test(fileName));
+    return [...artifactNames].filter((fileName) => /^latest.*\.yml$/u.test(fileName));
 }
 
 /** @param {string} metadataFileName @param {string} metadataText @returns {string} */
 export function parseUpdaterMetadataVersion(metadataFileName, metadataText) {
-    const versionLine = metadataText
-        .split(/\r?\n/u)
-        .find(line => /^version:\s*/u.test(line));
+    const versionLine = metadataText.split(/\r?\n/u).find((line) => /^version:\s*/u.test(line));
     if (!versionLine) {
         throw new Error(`Missing version entry in ${metadataFileName}`);
     }
@@ -231,9 +210,7 @@ export function assertUpdaterMetadataVersion(artifactNames, readMetadataText, ex
     for (const metadataFileName of getUpdaterMetadataFileNames(artifactNames)) {
         const actualVersion = parseUpdaterMetadataVersion(metadataFileName, readMetadataText(metadataFileName));
         if (actualVersion !== expectedVersion) {
-            throw new Error(
-                `Updater metadata version mismatch in ${metadataFileName}: expected ${expectedVersion}, got ${actualVersion}`,
-            );
+            throw new Error(`Updater metadata version mismatch in ${metadataFileName}: expected ${expectedVersion}, got ${actualVersion}`);
         }
     }
 }
@@ -241,9 +218,9 @@ export function assertUpdaterMetadataVersion(artifactNames, readMetadataText, ex
 /** @param {string} metadataFileName @param {string} artifactPath @returns {string} */
 function assertSafeArtifactReference(metadataFileName, artifactPath) {
     if (
-        artifactPath.startsWith('/')
-        || /^[A-Za-z]:[\\/]/u.test(artifactPath)
-        || artifactPath.split(/[\\/]/u).some(segment => segment === '' || segment === '.' || segment === '..')
+        artifactPath.startsWith('/') ||
+        /^[A-Za-z]:[\\/]/u.test(artifactPath) ||
+        artifactPath.split(/[\\/]/u).some((segment) => segment === '' || segment === '.' || segment === '..')
     ) {
         throw new Error(`Unsafe path entry in ${metadataFileName}: ${artifactPath}`);
     }
@@ -253,9 +230,7 @@ function assertSafeArtifactReference(metadataFileName, artifactPath) {
 
 /** @param {string} metadataFileName @param {string} metadataText @returns {string} */
 export function parseUpdaterMetadataPath(metadataFileName, metadataText) {
-    const pathLine = metadataText
-        .split(/\r?\n/u)
-        .find(line => /^path:\s*/u.test(line));
+    const pathLine = metadataText.split(/\r?\n/u).find((line) => /^path:\s*/u.test(line));
 
     if (!pathLine) {
         throw new Error(`Missing path entry in ${metadataFileName}`);
@@ -311,8 +286,8 @@ export function assertPublishUpdaterMetadataReferences(artifactNames, readMetada
         for (const artifactPath of referencedArtifacts) {
             if (!artifactSet.has(artifactPath)) {
                 throw new Error(
-                    `Updater metadata mismatch in ${metadataFileName} -> ${artifactPath} not found. `
-                    + `Available artifacts: ${files.sort().join(', ')}`,
+                    `Updater metadata mismatch in ${metadataFileName} -> ${artifactPath} not found. ` +
+                        `Available artifacts: ${files.sort().join(', ')}`,
                 );
             }
         }

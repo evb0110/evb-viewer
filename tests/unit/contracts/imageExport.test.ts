@@ -1,15 +1,11 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {
     assertCaptureImageBudget,
     CAPTURE_MAX_EDGE_PX,
     CAPTURE_MAX_PIXELS,
     IMAGE_EXPORT_PLATFORM_FEATURE,
 } from '@contracts/imageExportPlatformFeature';
-import { requireRequestId } from '@contracts/shared';
+import {requireRequestId} from '@contracts/shared';
 import * as v from 'valibot';
 import {normalizeImageExportFileName} from '@pdf-core/imageExportFileName';
 
@@ -18,15 +14,7 @@ describe('image export platform feature schemas', () => {
     const codecs = IMAGE_EXPORT_PLATFORM_FEATURE.ipcCodecs;
 
     it('round-trips source kinds and normalized page-list arguments', () => {
-        const args = [
-            '/tmp/book.djvu',
-            [
-                3,
-                1,
-            ],
-            'export-1',
-            'djvu',
-        ];
+        const args = ['/tmp/book.djvu', [3, 1], 'export-1', 'djvu'];
         const codec = codecs[channels.exportPdfToImages]!;
 
         expect(codec.decodeArgs(codec.encodeArgs(args))).toEqual(args);
@@ -43,84 +31,89 @@ describe('image export platform feature schemas', () => {
         const captureArgs = IMAGE_EXPORT_PLATFORM_FEATURE.methods.captureCurrentView.client.mapArgs(region);
         expect(capture.decodeArgs(capture.encodeArgs([...captureArgs]))).toEqual([region]);
         expect(capture.decodeResult(null)).toBeNull();
-        expect(() => capture.decodeArgs([{
-            ...region,
-            width: 4096,
-            viewportWidth: 8192,
-        }])).toThrow('Capture exceeds the pixel limit');
-        expect(() => capture.decodeArgs([{
-            ...region,
-            x: 990,
-        }])).toThrow('Capture must fit the current viewport');
+        expect(() =>
+            capture.decodeArgs([
+                {
+                    ...region,
+                    width: 4096,
+                    viewportWidth: 8192,
+                },
+            ]),
+        ).toThrow('Capture exceeds the pixel limit');
+        expect(() =>
+            capture.decodeArgs([
+                {
+                    ...region,
+                    x: 990,
+                },
+            ]),
+        ).toThrow('Capture must fit the current viewport');
 
         expect(CAPTURE_MAX_PIXELS).toBe(CAPTURE_MAX_EDGE_PX * CAPTURE_MAX_EDGE_PX);
         expect(() => assertCaptureImageBudget(CAPTURE_MAX_EDGE_PX, CAPTURE_MAX_EDGE_PX)).not.toThrow();
         expect(() => assertCaptureImageBudget(CAPTURE_MAX_EDGE_PX + 1, 1)).toThrow('Capture exceeds the 4096 edge or 16 Mi-pixel limit');
         expect(() => assertCaptureImageBudget(1, CAPTURE_MAX_EDGE_PX + 1)).toThrow('Capture exceeds the 4096 edge or 16 Mi-pixel limit');
-        expect(capture.decodeArgs([{
-            x: 0,
-            y: 0,
-            width: CAPTURE_MAX_EDGE_PX,
-            height: CAPTURE_MAX_EDGE_PX,
-            viewportWidth: CAPTURE_MAX_EDGE_PX,
-            viewportHeight: CAPTURE_MAX_EDGE_PX,
-            pixelRatio: 1,
-        }])).toHaveLength(1);
-        expect(() => capture.decodeArgs([{
-            x: 0,
-            y: 0,
-            width: CAPTURE_MAX_EDGE_PX + 1,
-            height: 1,
-            viewportWidth: CAPTURE_MAX_EDGE_PX + 1,
-            viewportHeight: 1,
-            pixelRatio: 1,
-        }])).toThrow();
+        expect(
+            capture.decodeArgs([
+                {
+                    x: 0,
+                    y: 0,
+                    width: CAPTURE_MAX_EDGE_PX,
+                    height: CAPTURE_MAX_EDGE_PX,
+                    viewportWidth: CAPTURE_MAX_EDGE_PX,
+                    viewportHeight: CAPTURE_MAX_EDGE_PX,
+                    pixelRatio: 1,
+                },
+            ]),
+        ).toHaveLength(1);
+        expect(() =>
+            capture.decodeArgs([
+                {
+                    x: 0,
+                    y: 0,
+                    width: CAPTURE_MAX_EDGE_PX + 1,
+                    height: 1,
+                    viewportWidth: CAPTURE_MAX_EDGE_PX + 1,
+                    viewportHeight: 1,
+                    pixelRatio: 1,
+                },
+            ]),
+        ).toThrow();
     });
 
     it('keeps validation and result envelopes stable', () => {
-        expect(() => codecs[channels.exportPdfToImages]!.decodeArgs([
-            '/tmp/book.pdf',
-            [0],
-        ])).toThrow('pageNumbers must contain positive safe integers');
-        expect(() => codecs[channels.exportPdfToImages]!.decodeArgs([
-            '/tmp/book.pdf',
-            [
-                1,
-                1,
-            ],
-        ])).toThrow('pageNumbers must contain unique pages');
-        expect(() => codecs[channels.exportPdfToImages]!.decodeArgs([
-            '/tmp/book.pdf',
-            [1],
-            'x'.repeat(129),
-        ])).toThrow('requestId exceeds maximum length (128)');
-        expect(codecs[channels.exportPdfToImages]!.decodeArgs([
-            '/tmp/book.pdf',
-            [1],
-            ' export-1 ',
-        ])).toEqual([
+        expect(() => codecs[channels.exportPdfToImages]!.decodeArgs(['/tmp/book.pdf', [0]])).toThrow(
+            'pageNumbers must contain positive safe integers',
+        );
+        expect(() => codecs[channels.exportPdfToImages]!.decodeArgs(['/tmp/book.pdf', [1, 1]])).toThrow(
+            'pageNumbers must contain unique pages',
+        );
+        expect(() => codecs[channels.exportPdfToImages]!.decodeArgs(['/tmp/book.pdf', [1], 'x'.repeat(129)])).toThrow(
+            'requestId exceeds maximum length (128)',
+        );
+        expect(codecs[channels.exportPdfToImages]!.decodeArgs(['/tmp/book.pdf', [1], ' export-1 '])).toEqual([
             '/tmp/book.pdf',
             [1],
             'export-1',
             undefined,
         ]);
-        expect(() => codecs[channels.exportPdfToImages]!.decodeArgs([
-            '/tmp/book.pdf',
-            [1],
-            undefined,
-            'epub',
-        ])).toThrow('sourceKind must be pdf or djvu');
-        expect(() => codecs[channels.exportPdfToImages]!.decodeResult({success: 'yes'}))
-            .toThrow('invalid image export result');
-        expect(() => codecs[channels.exportPdfToImages]!.decodeResult({
-            success: true,
-            outputPaths: Array.from({length: 100_001}, () => '/tmp/export.jpg'),
-        })).toThrow('outputPaths exceeds maximum item count (100000)');
-        expect(codecs[channels.exportPdfToMultiPageTiff]!.decodeResult({
-            success: true,
-            outputPath: '/tmp/export.tiff',
-            outputPaths: ['/tmp/export.tiff'],
-        })).toEqual({
+        expect(() => codecs[channels.exportPdfToImages]!.decodeArgs(['/tmp/book.pdf', [1], undefined, 'epub'])).toThrow(
+            'sourceKind must be pdf or djvu',
+        );
+        expect(() => codecs[channels.exportPdfToImages]!.decodeResult({success: 'yes'})).toThrow('invalid image export result');
+        expect(() =>
+            codecs[channels.exportPdfToImages]!.decodeResult({
+                success: true,
+                outputPaths: Array.from({length: 100_001}, () => '/tmp/export.jpg'),
+            }),
+        ).toThrow('outputPaths exceeds maximum item count (100000)');
+        expect(
+            codecs[channels.exportPdfToMultiPageTiff]!.decodeResult({
+                success: true,
+                outputPath: '/tmp/export.tiff',
+                outputPaths: ['/tmp/export.tiff'],
+            }),
+        ).toEqual({
             success: true,
             outputPath: '/tmp/export.tiff',
             outputPaths: ['/tmp/export.tiff'],
@@ -142,48 +135,34 @@ describe('image export platform feature schemas', () => {
         expect(v.parse(event.payload, progress, {abortEarly: true})).toEqual(progress);
         expect(event.subscription.replay.key(progress)).toBe('export-1');
         expect(event.subscription.replay.terminal(progress)).toBe(false);
-        expect(event.subscription.replay.terminal({
-            ...progress,
-            status: 'success',
-        })).toBe(true);
-        expect(() => v.parse(event.payload, {
-            ...progress,
-            processed: '1',
-        }, {abortEarly: true}))
-            .toThrow('invalid image export progress');
+        expect(
+            event.subscription.replay.terminal({
+                ...progress,
+                status: 'success',
+            }),
+        ).toBe(true);
+        expect(() =>
+            v.parse(
+                event.payload,
+                {
+                    ...progress,
+                    processed: '1',
+                },
+                {abortEarly: true},
+            ),
+        ).toThrow('invalid image export progress');
     });
 });
 
 describe('image export filename suggestions', () => {
     it.each([
-        [
-            'doc.png',
-            'doc.tif',
-        ],
-        [
-            'page.',
-            'page.tif',
-        ],
-        [
-            'x.tif.png',
-            'x.tif.tif',
-        ],
-        [
-            'document',
-            'document.tif',
-        ],
-        [
-            'doc.TIF',
-            'doc.TIF',
-        ],
-        [
-            'doc.TiFf',
-            'doc.TiFf',
-        ],
-        [
-            'document.tiff ',
-            'document.tiff',
-        ],
+        ['doc.png', 'doc.tif'],
+        ['page.', 'page.tif'],
+        ['x.tif.png', 'x.tif.tif'],
+        ['document', 'document.tif'],
+        ['doc.TIF', 'doc.TIF'],
+        ['doc.TiFf', 'doc.TiFf'],
+        ['document.tiff ', 'document.tiff'],
     ])('suggests %s as %s before choosing a TIFF destination', (name, expected) => {
         expect(normalizeImageExportFileName(name, 'tiff')).toBe(expected);
     });

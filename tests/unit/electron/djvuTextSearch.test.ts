@@ -1,30 +1,17 @@
-import { readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { requirePageNumber } from '@contracts/pageNumbers';
-import {
-    createDjvuLibreEngine,
-    type TDjvuLibreModuleFactory,
-} from '@djvu-core/djvuLibreEngine';
-import { mainJobBroker } from '@electron/resources/jobBroker';
+import {readFile} from 'node:fs/promises';
+import {resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import {createDjvuLibreEngine, type TDjvuLibreModuleFactory} from '@djvu-core/djvuLibreEngine';
+import {mainJobBroker} from '@electron/resources/jobBroker';
 
-const mocks = vi.hoisted(() => ({ runDjvuEngine: vi.fn() }));
+const mocks = vi.hoisted(() => ({runDjvuEngine: vi.fn()}));
 
-vi.mock('@electron/features/djvu/main/djvuEnginePool', () => ({ runDjvuEngine: mocks.runDjvuEngine }));
+vi.mock('@electron/features/djvu/main/djvuEnginePool', () => ({runDjvuEngine: mocks.runDjvuEngine}));
 
-const {
-    addDjvuMatchGeometry,
-    detectDjvuHasText,
-    djvuSearchDocument,
-    readDjvuPageText,
-} = await import('@electron/features/djvu/main/textSearch');
+const {addDjvuMatchGeometry, detectDjvuHasText, djvuSearchDocument, readDjvuPageText} =
+    await import('@electron/features/djvu/main/textSearch');
 
 describe('DjVu text search (DjVuLibre WASM)', () => {
     beforeEach(() => {
@@ -58,39 +45,48 @@ describe('DjVu text search (DjVuLibre WASM)', () => {
             ],
         });
 
-        const results = await addDjvuMatchGeometry('/library/book.djvu', [{
-            pageNumber: requirePageNumber(2),
-            pageMatchIndex: 0,
-            matchIndex: 0,
-            startOffset: 5,
-            endOffset: 11,
-            excerpt: {
-                prefix: false,
-                suffix: false,
-                before: 'Late ',
-                match: 'Needle',
-                after: '',
+        const results = await addDjvuMatchGeometry('/library/book.djvu', [
+            {
+                pageNumber: requirePageNumber(2),
+                pageMatchIndex: 0,
+                matchIndex: 0,
+                startOffset: 5,
+                endOffset: 11,
+                excerpt: {
+                    prefix: false,
+                    suffix: false,
+                    before: 'Late ',
+                    match: 'Needle',
+                    after: '',
+                },
             },
-        }]);
+        ]);
 
-        expect(mocks.runDjvuEngine).toHaveBeenCalledWith({
-            type: 'getPageText',
-            djvuPath: '/library/book.djvu',
-            pageNumber: 2,
-            includeZones: true,
-        }, expect.anything());
-        expect(results).toMatchObject([{
-            pageNumber: 2,
-            pageWidth: 1000,
-            pageHeight: 2000,
-            words: [{
-                text: 'Needle',
-                x: 150,
-                y: 400,
-                width: 200,
-                height: 100,
-            }],
-        }]);
+        expect(mocks.runDjvuEngine).toHaveBeenCalledWith(
+            {
+                type: 'getPageText',
+                djvuPath: '/library/book.djvu',
+                pageNumber: 2,
+                includeZones: true,
+            },
+            expect.anything(),
+        );
+        expect(results).toMatchObject([
+            {
+                pageNumber: 2,
+                pageWidth: 1000,
+                pageHeight: 2000,
+                words: [
+                    {
+                        text: 'Needle',
+                        x: 150,
+                        y: 400,
+                        width: 200,
+                        height: 100,
+                    },
+                ],
+            },
+        ]);
     });
 
     it('detects source text and propagates errors instead of treating unreadable text as empty', async () => {
@@ -175,17 +171,16 @@ describe('DjVu text search (DjVuLibre WASM)', () => {
 
         const controller = new AbortController();
         controller.abort();
-        await expect(readDjvuPageText('/library/book.djvu', 1, controller.signal)).rejects.toMatchObject({ name: 'AbortError' });
+        await expect(readDjvuPageText('/library/book.djvu', 1, controller.signal)).rejects.toMatchObject({name: 'AbortError'});
     });
 
     it('matches full-stream djvuSearchDocument output on a real multi-page DjVu fixture via WASM', async () => {
         const engine = createDjvuLibreEngine({
             loadEngine: async () => {
-                const [
-                    imported,
-                    wasmBytes,
-                ] = await Promise.all([
-                    import(pathToFileURL(resolve(process.cwd(), 'public/wasm/evb-djvulibre.mjs')).href) as Promise<{ default: TDjvuLibreModuleFactory }>,
+                const [imported, wasmBytes] = await Promise.all([
+                    import(pathToFileURL(resolve(process.cwd(), 'public/wasm/evb-djvulibre.mjs')).href) as Promise<{
+                        default: TDjvuLibreModuleFactory;
+                    }>,
                     readFile(resolve(process.cwd(), 'public/wasm/evb-djvulibre.wasm')),
                 ]);
                 return {
@@ -196,22 +191,18 @@ describe('DjVu text search (DjVuLibre WASM)', () => {
         });
         const fixturePath = resolve('tests/fixtures/djvu/sources/searchable-mixed-dpi.djvu');
         const fixtureBytes = new Uint8Array(await readFile(fixturePath));
-        const docHandle = await engine.openDocument({ initBytes: fixtureBytes });
+        const docHandle = await engine.openDocument({initBytes: fixtureBytes});
 
         try {
-            mocks.runDjvuEngine.mockImplementation(async (request: {
-                type: string;
-                pageNumber?: number;
-                includeZones?: boolean;
-            }) => {
+            mocks.runDjvuEngine.mockImplementation(async (request: {type: string; pageNumber?: number; includeZones?: boolean}) => {
                 if (request.type === 'getDocInfo') {
                     return {
-                        ...await docHandle.getDocInfo(),
+                        ...(await docHandle.getDocInfo()),
                         sourceDpi: 72,
                     };
                 }
                 if (request.type === 'getPageText') {
-                    return docHandle.getPageText(request.pageNumber!, { includeZones: Boolean(request.includeZones) });
+                    return docHandle.getPageText(request.pageNumber!, {includeZones: Boolean(request.includeZones)});
                 }
                 if (request.type === 'hasText') {
                     return docHandle.hasText();

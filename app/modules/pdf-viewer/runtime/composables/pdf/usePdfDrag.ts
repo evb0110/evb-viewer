@@ -1,10 +1,6 @@
+import type {IPdfViewportWritePort} from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
 
-import type { IPdfViewportWritePort } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
-
-export const usePdfDrag = (
-    dragModeEnabled: () => boolean,
-    viewportWritePort: IPdfViewportWritePort,
-) => {
+export const usePdfDrag = (dragModeEnabled: () => boolean, viewportWritePort: IPdfViewportWritePort) => {
     const isDragging = ref(false);
     const dragStart = ref({
         x: 0,

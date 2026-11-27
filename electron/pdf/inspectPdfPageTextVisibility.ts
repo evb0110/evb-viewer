@@ -1,19 +1,12 @@
 import {getUnprovenNativeTerminationDetail} from '@contracts/nativeErrors';
 import {randomUUID} from 'node:crypto';
-import {
-    rm,
-    stat,
-    writeFile,
-} from 'node:fs/promises';
+import {rm, stat, writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import {isPdfPageOpsWasmPath} from '@node-runtime/pdfPageOpsWasmRunner';
 import {isAbortError} from '@electron/utils/abort';
 import {getErrorMessage} from '@electron/utils/error';
-import {
-    hasNativeErrorCode,
-    type TNativeErrorCode,
-} from '@contracts/nativeErrors';
+import {hasNativeErrorCode, type TNativeErrorCode} from '@contracts/nativeErrors';
 import {
     decodePdfOcrTextVisibilityReport,
     PDF_OCR_TEXT_VISIBILITY_REPORT_MAX_BYTES,
@@ -28,11 +21,7 @@ const OCR_TEXT_VISIBILITY_WITH_TEXT_MAX_STDOUT_BYTES = PDF_OCR_TEXT_VISIBILITY_R
 // Failures to read the document itself, which every later request repeats:
 // qpdf's whole-document structure limits and an unreadable PDF structure.
 const DOCUMENT_FAILURE = /qpdf (?:structure|structural|object)|Failed to parse PDF structure/u;
-const DOCUMENT_FAILURE_CODES: ReadonlySet<TNativeErrorCode> = new Set([
-    'encrypted',
-    'needs-password',
-    'corrupt-xref',
-]);
+const DOCUMENT_FAILURE_CODES: ReadonlySet<TNativeErrorCode> = new Set(['encrypted', 'needs-password', 'corrupt-xref']);
 
 // A failure the bytes alone decide repeats for every later request: the
 // 760 MB report's structure exceeded qpdf's memory estimate on each of five
@@ -41,10 +30,7 @@ const DOCUMENT_FAILURE_CODES: ReadonlySet<TNativeErrorCode> = new Set([
 // A qpdf run that timed out, was killed or failed to start also reports a
 // document failure, and a later request can pass, so it is not remembered.
 const PERSISTENT_DOCUMENT_FAILURE = /qpdf (?:structure|structural|object)\b.*\b(?:exceeds|overflow)\b/u;
-const PERSISTENT_DOCUMENT_FAILURE_CODES: ReadonlySet<TNativeErrorCode> = new Set([
-    'encrypted',
-    'needs-password',
-]);
+const PERSISTENT_DOCUMENT_FAILURE_CODES: ReadonlySet<TNativeErrorCode> = new Set(['encrypted', 'needs-password']);
 const UNREADABLE_DOCUMENTS_REMEMBERED = 8;
 const unreadableDocuments = new Map<string, string>();
 let nextVisibilitySessionId = 0;
@@ -56,28 +42,23 @@ function allocateVisibilitySessionId() {
 
 async function readDocumentIdentity(pdfPath: string) {
     const fileStat = await stat(pdfPath, {bigint: true}).catch(() => null);
-    return fileStat
-        ? `${pdfPath}\0${fileStat.dev}:${fileStat.ino}:${fileStat.size}:${fileStat.mtimeNs}:${fileStat.ctimeNs}`
-        : null;
+    return fileStat ? `${pdfPath}\0${fileStat.dev}:${fileStat.ino}:${fileStat.size}:${fileStat.mtimeNs}:${fileStat.ctimeNs}` : null;
 }
 
 export type TOcrPdfTextVisibilityAnalysis =
     | {
-        status: 'available';
-        visibility: Map<number, IPdfOcrPageTextVisibility>;
-    }
+          status: 'available';
+          visibility: Map<number, IPdfOcrPageTextVisibility>;
+      }
     | {
-        status: 'degraded';
-        reason: 'native-tool-unavailable' | 'native-tool-failed' | 'document-unreadable';
-        message: string;
-        visibility: Map<number, IPdfOcrPageTextVisibility>;
-    };
+          status: 'degraded';
+          reason: 'native-tool-unavailable' | 'native-tool-failed' | 'document-unreadable';
+          message: string;
+          visibility: Map<number, IPdfOcrPageTextVisibility>;
+      };
 
 export interface IPdfPageTextVisibilitySession {
-    inspectPages(
-        pageNumbers: readonly number[],
-        signal?: AbortSignal,
-    ): Promise<TOcrPdfTextVisibilityAnalysis>;
+    inspectPages(pageNumbers: readonly number[], signal?: AbortSignal): Promise<TOcrPdfTextVisibilityAnalysis>;
     close(): Promise<void>;
 }
 
@@ -94,9 +75,8 @@ export function openPdfPageTextVisibilitySession(input: {
     withEvbOcrText?: boolean;
     reuseSession?: boolean;
 }): IPdfPageTextVisibilitySession {
-    const canReuseSession = input.reuseSession !== false
-        && input.pdfPageOpsBinary !== undefined
-        && isPdfPageOpsWasmPath(input.pdfPageOpsBinary);
+    const canReuseSession =
+        input.reuseSession !== false && input.pdfPageOpsBinary !== undefined && isPdfPageOpsWasmPath(input.pdfPageOpsBinary);
     const sessionId = canReuseSession ? allocateVisibilitySessionId() : undefined;
     let opened = false;
     let closed = false;
@@ -135,17 +115,15 @@ export function openPdfPageTextVisibilitySession(input: {
             if (inFlightSessionInspections.size > 0) {
                 await Promise.allSettled([...inFlightSessionInspections]);
             }
-            await runNativeToolCommand(input.pdfPageOpsBinary, [
-                'ocr-text-visibility',
-                '--input',
-                input.pdfPath,
-                '--close-session',
-                String(sessionId),
-            ], {
-                commandLabel: 'evb-pdf-page-ops(ocr-text-visibility:close)',
-                timeoutMs: 5_000,
-                maxStdoutBytes: 1024,
-            }).catch(() => undefined);
+            await runNativeToolCommand(
+                input.pdfPageOpsBinary,
+                ['ocr-text-visibility', '--input', input.pdfPath, '--close-session', String(sessionId)],
+                {
+                    commandLabel: 'evb-pdf-page-ops(ocr-text-visibility:close)',
+                    timeoutMs: 5_000,
+                    maxStdoutBytes: 1024,
+                },
+            ).catch(() => undefined);
         },
     };
 }
@@ -202,33 +180,30 @@ async function inspectPdfPageTextVisibilityWithSession(input: {
     let failure: unknown;
     try {
         await writeFile(pagesPath, `${[...new Set(input.pageNumbers)].join('\n')}\n`);
-        const result = await runNativeToolCommand(input.pdfPageOpsBinary, [
-            'ocr-text-visibility',
-            '--input',
-            input.pdfPath,
-            '--pages-file',
-            pagesPath,
-            ...(input.sessionId === undefined ? [] : [
-                '--session-id',
-                String(input.sessionId),
-            ]),
-            ...(input.withEvbOcrText === true ? ['--with-evb-ocr-text'] : []),
-        ], {
-            commandLabel: 'evb-pdf-page-ops(ocr-text-visibility)',
-            timeoutMs: OCR_TEXT_VISIBILITY_TIMEOUT_MS,
-            maxStdoutBytes: input.withEvbOcrText === true
-                ? OCR_TEXT_VISIBILITY_WITH_TEXT_MAX_STDOUT_BYTES
-                : OCR_TEXT_VISIBILITY_MAX_STDOUT_BYTES,
-            rejectOnStdoutTruncation: true,
-            ...(input.signal ? {signal: input.signal} : {}),
-        });
+        const result = await runNativeToolCommand(
+            input.pdfPageOpsBinary,
+            [
+                'ocr-text-visibility',
+                '--input',
+                input.pdfPath,
+                '--pages-file',
+                pagesPath,
+                ...(input.sessionId === undefined ? [] : ['--session-id', String(input.sessionId)]),
+                ...(input.withEvbOcrText === true ? ['--with-evb-ocr-text'] : []),
+            ],
+            {
+                commandLabel: 'evb-pdf-page-ops(ocr-text-visibility)',
+                timeoutMs: OCR_TEXT_VISIBILITY_TIMEOUT_MS,
+                maxStdoutBytes:
+                    input.withEvbOcrText === true ? OCR_TEXT_VISIBILITY_WITH_TEXT_MAX_STDOUT_BYTES : OCR_TEXT_VISIBILITY_MAX_STDOUT_BYTES,
+                rejectOnStdoutTruncation: true,
+                ...(input.signal ? {signal: input.signal} : {}),
+            },
+        );
         const report = decodePdfOcrTextVisibilityReport(JSON.parse(result.stdout));
         return {
             status: 'available',
-            visibility: new Map(report.pages.map(page => [
-                page.pageNumber,
-                page,
-            ])),
+            visibility: new Map(report.pages.map((page) => [page.pageNumber, page])),
         };
     } catch (error) {
         failure = error;
@@ -236,15 +211,18 @@ async function inspectPdfPageTextVisibilityWithSession(input: {
             throw error;
         }
         const message = `Existing OCR layers could not be inspected: ${getErrorMessage(error)}`;
-        const documentUnreadable = hasNativeErrorCode(error) && DOCUMENT_FAILURE_CODES.has(error.code)
-            || DOCUMENT_FAILURE.test(getErrorMessage(error));
-        const persistent = hasNativeErrorCode(error) && PERSISTENT_DOCUMENT_FAILURE_CODES.has(error.code)
-            || PERSISTENT_DOCUMENT_FAILURE.test(getErrorMessage(error));
+        const documentUnreadable =
+            (hasNativeErrorCode(error) && DOCUMENT_FAILURE_CODES.has(error.code)) || DOCUMENT_FAILURE.test(getErrorMessage(error));
+        const persistent =
+            (hasNativeErrorCode(error) && PERSISTENT_DOCUMENT_FAILURE_CODES.has(error.code)) ||
+            PERSISTENT_DOCUMENT_FAILURE.test(getErrorMessage(error));
         if (persistent && identity !== null) {
             unreadableDocuments.delete(identity);
             unreadableDocuments.set(identity, message);
             for (const oldest of unreadableDocuments.keys()) {
-                if (unreadableDocuments.size <= UNREADABLE_DOCUMENTS_REMEMBERED) {break;}
+                if (unreadableDocuments.size <= UNREADABLE_DOCUMENTS_REMEMBERED) {
+                    break;
+                }
                 unreadableDocuments.delete(oldest);
             }
         }
@@ -255,6 +233,8 @@ async function inspectPdfPageTextVisibilityWithSession(input: {
             visibility: new Map(),
         };
     } finally {
-        if (getUnprovenNativeTerminationDetail(failure) === undefined) {await rm(pagesPath, {force: true}).catch(() => undefined);}
+        if (getUnprovenNativeTerminationDetail(failure) === undefined) {
+            await rm(pagesPath, {force: true}).catch(() => undefined);
+        }
     }
 }

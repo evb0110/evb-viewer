@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {
@@ -20,28 +16,20 @@ describe('Linux glibc release baseline', () => {
     });
 
     it('extracts and sorts required GLIBC symbol versions', () => {
-        expect(extractRequiredGlibcVersions(`
+        expect(
+            extractRequiredGlibcVersions(`
           Name: GLIBC_2.38
           Name: GLIBC_2.2.5
           Name: GLIBC_2.35
           Name: GLIBC_2.38
-        `)).toEqual([
-            '2.2.5',
-            '2.35',
-            '2.38',
-        ]);
+        `),
+        ).toEqual(['2.2.5', '2.35', '2.38']);
     });
 
     it('fails closed when readelf cannot inspect a file with ELF magic', async () => {
         const directory = await createTestTemporaryDirectory('evb-glibc-malformed-elf-');
         const malformedElfPath = join(directory, 'broken');
-        await writeFile(malformedElfPath, Buffer.from([
-            0x7f,
-            0x45,
-            0x4c,
-            0x46,
-            0x00,
-        ]));
+        await writeFile(malformedElfPath, Buffer.from([0x7f, 0x45, 0x4c, 0x46, 0x00]));
         const runReadelf = (args: string[]) => {
             if (args[0] === '--version') {
                 return '';

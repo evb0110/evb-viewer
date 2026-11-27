@@ -13,13 +13,14 @@ if (!bundledApplicationVersion) {
  * the version compiled from the repository manifest because the generic
  * Electron.app bundle otherwise reports the Electron runtime version.
  */
-export function resolveApplicationVersion(app: {
-    getVersion(): string;
-    isPackaged: boolean;
-}, buildGitSha = embeddedBuildGitSha) {
-    return app.isPackaged
-        ? app.getVersion()
-        : formatDevelopmentApplicationVersion(buildGitSha);
+export function resolveApplicationVersion(
+    app: {
+        getVersion(): string;
+        isPackaged: boolean;
+    },
+    buildGitSha = embeddedBuildGitSha,
+) {
+    return app.isPackaged ? app.getVersion() : formatDevelopmentApplicationVersion(buildGitSha);
 }
 
 export const canonicalBundledApplicationVersion = bundledApplicationVersion;
@@ -31,7 +32,5 @@ function normalizeGitSha(value: string | undefined) {
 }
 
 function formatDevelopmentApplicationVersion(commitSha: string | null) {
-    return commitSha === null
-        ? bundledApplicationVersion
-        : `${bundledApplicationVersion}+${commitSha}`;
+    return commitSha === null ? bundledApplicationVersion : `${bundledApplicationVersion}+${commitSha}`;
 }

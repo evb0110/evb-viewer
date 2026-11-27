@@ -7,11 +7,8 @@ import {
     type TWorkspaceViewerChunkTarget,
     workspaceViewerChunkLoaders,
 } from '@app/modules/workspace-shell/viewers/workspaceViewerChunkLoaders';
-import {
-    scheduleIdleWork,
-    type TCancelIdleWork,
-} from '@app/utils/scheduleIdleWork';
-import type { TDesktopViewerWarmupStrategy } from '@app/utils/startupWorkProfile';
+import {scheduleIdleWork, type TCancelIdleWork} from '@app/utils/scheduleIdleWork';
+import type {TDesktopViewerWarmupStrategy} from '@app/utils/startupWorkProfile';
 
 export interface IDesktopViewerChunkWarmupOptions {
     isDesktopRuntime: boolean;
@@ -24,8 +21,7 @@ export interface IPrioritizedViewerChunkWarmupOptions {
     loaderOverrides?: Partial<Record<TWorkspaceViewerChunkTarget, TWorkspaceViewerChunkLoader>>;
 }
 
-export interface IScheduleDesktopViewerWarmupOptions
-    extends IDesktopViewerChunkWarmupOptions {
+export interface IScheduleDesktopViewerWarmupOptions extends IDesktopViewerChunkWarmupOptions {
     strategy: TDesktopViewerWarmupStrategy;
     scheduleIdle?: typeof scheduleIdleWork;
 }
@@ -49,7 +45,7 @@ function loadViewerChunkTargets(
     overrides?: Partial<Record<TWorkspaceViewerChunkTarget, TWorkspaceViewerChunkLoader>>,
 ) {
     const loaders = resolveViewerChunkLoaders(overrides);
-    return Promise.all(targets.map(target => loaders[target]()));
+    return Promise.all(targets.map((target) => loaders[target]()));
 }
 
 interface IViewerChunkTargetWarmupOptions {
@@ -61,20 +57,21 @@ function warmupDesktopViewerChunkTargets(options: IViewerChunkTargetWarmupOption
     return loadViewerChunkTargets(options.targets, options.loaderOverrides);
 }
 
-export function getWorkspaceViewerChunkTargetsForPaths(
-    paths: readonly string[],
-): TWorkspaceViewerChunkTarget[] {
+export function getWorkspaceViewerChunkTargetsForPaths(paths: readonly string[]): TWorkspaceViewerChunkTarget[] {
     const requiredTargets = new Set<TWorkspaceViewerChunkTarget>();
     for (const path of paths) {
         const normalizedPath = path.toLowerCase().split(/[?#]/u, 1)[0] ?? '';
-        const targets = normalizedPath.endsWith('.djvu') || normalizedPath.endsWith('.djv')
-            ? DJVU_WORKSPACE_VIEWER_CHUNK_TARGETS
-            : normalizedPath.endsWith('.pdf') ? PDF_WORKSPACE_VIEWER_CHUNK_TARGETS : [];
+        const targets =
+            normalizedPath.endsWith('.djvu') || normalizedPath.endsWith('.djv')
+                ? DJVU_WORKSPACE_VIEWER_CHUNK_TARGETS
+                : normalizedPath.endsWith('.pdf')
+                  ? PDF_WORKSPACE_VIEWER_CHUNK_TARGETS
+                  : [];
         for (const target of targets) {
             requiredTargets.add(target);
         }
     }
-    return ALL_WORKSPACE_VIEWER_CHUNK_TARGETS.filter(target => requiredTargets.has(target));
+    return ALL_WORKSPACE_VIEWER_CHUNK_TARGETS.filter((target) => requiredTargets.has(target));
 }
 
 /** Loads only the viewer engine required by paths already handed to this renderer. */
@@ -116,16 +113,14 @@ export function warmupDesktopViewerChunks(options: IDesktopViewerChunkWarmupOpti
     return loadViewerChunkTargets(ALL_WORKSPACE_VIEWER_CHUNK_TARGETS, options.loaderOverrides);
 }
 
-export function scheduleDesktopViewerWarmup(
-    options: IScheduleDesktopViewerWarmupOptions,
-): IDesktopViewerWarmupHandle | null {
+export function scheduleDesktopViewerWarmup(options: IScheduleDesktopViewerWarmupOptions): IDesktopViewerWarmupHandle | null {
     if (!options.isDesktopRuntime || options.strategy === 'skip') {
         return null;
     }
 
     const scheduleIdle = options.scheduleIdle ?? scheduleIdleWork;
     let cancelScheduled: TCancelIdleWork = () => {};
-    const lifecycle: { cancelled: boolean } = {cancelled: false};
+    const lifecycle: {cancelled: boolean} = {cancelled: false};
     let stageRunning = false;
     let settled = false;
     let resolveCompletion: () => void = () => {};

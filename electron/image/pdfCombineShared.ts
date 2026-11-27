@@ -1,14 +1,7 @@
-import {
-    getInputFileExtension, isImagePath, isDjvuPath,
-} from '@electron/utils/documentFileTypes';
-import {
-    open,
-    stat,
-} from 'fs/promises';
-import { readTiffFrameDimensions } from '@pdf-core/iterateDecodedTiffFrames';
-export {
-    isImagePath, PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS,
-} from '@electron/utils/documentFileTypes';
+import {getInputFileExtension, isImagePath, isDjvuPath} from '@electron/utils/documentFileTypes';
+import {open, stat} from 'fs/promises';
+import {readTiffFrameDimensions} from '@pdf-core/iterateDecodedTiffFrames';
+export {isImagePath, PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS} from '@electron/utils/documentFileTypes';
 
 interface IPdfCombineResourceLimits {
     maxInputBytes: number;
@@ -43,17 +36,11 @@ async function assertInputByteLimit(sourcePath: string, limits: IPdfCombineResou
 
 function throwIfAborted(signal: AbortSignal | undefined) {
     if (signal?.aborted) {
-        throw signal.reason instanceof Error
-            ? signal.reason
-            : new DOMException('PDF combine was canceled.', 'AbortError');
+        throw signal.reason instanceof Error ? signal.reason : new DOMException('PDF combine was canceled.', 'AbortError');
     }
 }
 
-async function preflightImageInput(
-    sourcePath: string,
-    limits: IPdfCombineResourceLimits,
-    signal?: AbortSignal,
-) {
+async function preflightImageInput(sourcePath: string, limits: IPdfCombineResourceLimits, signal?: AbortSignal) {
     const extension = getInputFileExtension(sourcePath);
     await assertInputByteLimit(sourcePath, limits);
     throwIfAborted(signal);
@@ -63,23 +50,23 @@ async function preflightImageInput(
         const file = await open(sourcePath, 'r');
         let frames;
         try {
-            frames = await readTiffFrameDimensions(async (offset, length) => {
-                throwIfAborted(signal);
-                const bytes = new Uint8Array(length);
-                const {bytesRead} = await file.read(bytes, 0, length, offset);
-                return bytes.subarray(0, bytesRead);
-            }, {
-                maxFrames: limits.maxTiffFrames,
-                maxPixels: limits.maxImagePixels,
-                sourceLabel: sourcePath,
-            });
+            frames = await readTiffFrameDimensions(
+                async (offset, length) => {
+                    throwIfAborted(signal);
+                    const bytes = new Uint8Array(length);
+                    const {bytesRead} = await file.read(bytes, 0, length, offset);
+                    return bytes.subarray(0, bytesRead);
+                },
+                {
+                    maxFrames: limits.maxTiffFrames,
+                    maxPixels: limits.maxImagePixels,
+                    sourceLabel: sourcePath,
+                },
+            );
         } finally {
             await file.close();
         }
-        frames.forEach(({
-            width,
-            height,
-        }) => {
+        frames.forEach(({width, height}) => {
             assertPixelLimit(width, height, sourcePath, limits);
         });
         if (frames.length === 0) {
@@ -88,11 +75,7 @@ async function preflightImageInput(
     }
 }
 
-async function preflightCombineInputs(
-    inputPaths: string[],
-    limits: IPdfCombineResourceLimits,
-    signal?: AbortSignal,
-) {
+async function preflightCombineInputs(inputPaths: string[], limits: IPdfCombineResourceLimits, signal?: AbortSignal) {
     for (const sourcePath of inputPaths) {
         throwIfAborted(signal);
         const extension = getInputFileExtension(sourcePath);
@@ -107,10 +90,7 @@ async function preflightCombineInputs(
     }
 }
 
-export async function stageNativeCombineInputs(
-    inputPaths: string[],
-    signal?: AbortSignal,
-) {
+export async function stageNativeCombineInputs(inputPaths: string[], signal?: AbortSignal) {
     await preflightCombineInputs(inputPaths, RESOURCE_LIMITS, signal);
     return {
         inputPaths,

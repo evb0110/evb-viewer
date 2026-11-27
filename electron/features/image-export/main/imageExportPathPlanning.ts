@@ -1,10 +1,7 @@
-import { existsSync } from 'fs';
-import {
-    dirname,
-    resolve,
-} from 'path';
+import {existsSync} from 'fs';
+import {dirname, resolve} from 'path';
 import {normalizePathForLookup} from '@electron/file-access/normalizePathForLookup';
-import { buildOutputPathWithSuffix } from '@electron/utils/boundedPathComponent';
+import {buildOutputPathWithSuffix} from '@electron/utils/boundedPathComponent';
 
 interface IImageExportTarget {
     // The template and protected page/part suffix, before conflict resolution.
@@ -14,15 +11,12 @@ interface IImageExportTarget {
     stagedPath?: string;
 }
 
-export interface IStagedImageFile extends IImageExportTarget {stagedPath: string;}
+export interface IStagedImageFile extends IImageExportTarget {
+    stagedPath: string;
+}
 
-export function resolveOutputPathConflict(
-    file: IImageExportTarget,
-    reservedPaths: Set<string>,
-) {
-    const {
-        targetPath, suffix: protectedSuffix, allowOverwrite, stagedPath,
-    } = file;
+export function resolveOutputPathConflict(file: IImageExportTarget, reservedPaths: Set<string>) {
+    const {targetPath, suffix: protectedSuffix, allowOverwrite, stagedPath} = file;
     if (stagedPath !== undefined && resolve(dirname(stagedPath)) !== resolve(dirname(targetPath))) {
         throw new Error(`Image export staged output is not beside its target: ${targetPath}`);
     }
@@ -54,11 +48,14 @@ export function resolveSuffixedOutputPathConflicts(
     allowSingleOverwrite = true,
     reservedPaths = new Set<string>(),
 ) {
-    return targets.map(({
-        path, suffix, 
-    }) => resolveOutputPathConflict({
-        targetPath: path,
-        suffix,
-        allowOverwrite: targets.length === 1 && allowSingleOverwrite,
-    }, reservedPaths));
+    return targets.map(({path, suffix}) =>
+        resolveOutputPathConflict(
+            {
+                targetPath: path,
+                suffix,
+                allowOverwrite: targets.length === 1 && allowSingleOverwrite,
+            },
+            reservedPaths,
+        ),
+    );
 }

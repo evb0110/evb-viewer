@@ -1,7 +1,4 @@
-import type {
-    IPdfOptimizeProgress,
-    TPdfOptimizePreset,
-} from '@contracts/electronApiDocuments';
+import type {IPdfOptimizeProgress, TPdfOptimizePreset} from '@contracts/electronApiDocuments';
 
 /**
  * Optimize PDF's policy, shared by desktop and the browser: what each raster
@@ -18,11 +15,11 @@ import type {
  */
 export type TRasterPageEncoding =
     | {
-        kind: 'jpeg';
-        quality: number;
-        grayscale: boolean;
-    }
-    | {kind: 'black-and-white';};
+          kind: 'jpeg';
+          quality: number;
+          grayscale: boolean;
+      }
+    | {kind: 'black-and-white'};
 
 /**
  * How a preset recompresses the JPEG images that pages draw, such as the
@@ -114,10 +111,7 @@ export interface IPdfOptimizePageWork {
 }
 
 /** Percent of the whole optimization, not of the current stage. */
-export function resolvePdfOptimizePercent(
-    phase: IPdfOptimizeProgress['phase'],
-    pages?: IPdfOptimizePageWork,
-) {
+export function resolvePdfOptimizePercent(phase: IPdfOptimizeProgress['phase'], pages?: IPdfOptimizePageWork) {
     if (phase !== 'rendering' && phase !== 'assembling') {
         return OPTIMIZE_STAGE_PERCENT[phase];
     }
@@ -126,5 +120,5 @@ export function resolvePdfOptimizePercent(
     }
     const work = OPTIMIZE_RENDER_WEIGHT * pages.rendered + OPTIMIZE_ASSEMBLE_WEIGHT * pages.assembled;
     const totalWork = (OPTIMIZE_RENDER_WEIGHT + OPTIMIZE_ASSEMBLE_WEIGHT) * pages.total;
-    return Math.min(OPTIMIZE_PAGE_WORK_PERCENT, Math.floor(OPTIMIZE_PAGE_WORK_PERCENT * work / totalWork));
+    return Math.min(OPTIMIZE_PAGE_WORK_PERCENT, Math.floor((OPTIMIZE_PAGE_WORK_PERCENT * work) / totalWork));
 }

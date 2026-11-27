@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {AnnotationStore} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 import {
     asAnnotationId,
@@ -98,14 +94,20 @@ function shape(id = 'shape'): IShapeEntity {
         kind: 'shape',
         tool: 'rectangle',
         rect,
-        points: [{
-            x: 0.1,
-            y: 0.2,
-        }],
-        strokes: [[{
-            x: 0.1,
-            y: 0.2,
-        }]],
+        points: [
+            {
+                x: 0.1,
+                y: 0.2,
+            },
+        ],
+        strokes: [
+            [
+                {
+                    x: 0.1,
+                    y: 0.2,
+                },
+            ],
+        ],
         strokeColor: '#123456',
         strokeWidth: 2,
         fill: '#ffffff',
@@ -113,36 +115,12 @@ function shape(id = 'shape'): IShapeEntity {
     };
 }
 
-const creators: ReadonlyArray<[
-    string,
-    (store: AnnotationStore, entity: AnnotationEntity) => AnnotationEntity,
-    () => AnnotationEntity,
-]> = [
-    [
-        'text box',
-        (store, entity) => store.createTextBox(entity as ITextBoxEntity),
-        textBox,
-    ],
-    [
-        'note',
-        (store, entity) => store.createNote(entity as INoteEntity),
-        note,
-    ],
-    [
-        'text markup',
-        (store, entity) => store.createTextMarkup(entity as ITextMarkupEntity),
-        markup,
-    ],
-    [
-        'placed image',
-        (store, entity) => store.createPlacedImage(entity as IPlacedImageEntity),
-        placedImage,
-    ],
-    [
-        'shape',
-        (store, entity) => store.createShape(entity as IShapeEntity),
-        shape,
-    ],
+const creators: ReadonlyArray<[string, (store: AnnotationStore, entity: AnnotationEntity) => AnnotationEntity, () => AnnotationEntity]> = [
+    ['text box', (store, entity) => store.createTextBox(entity as ITextBoxEntity), textBox],
+    ['note', (store, entity) => store.createNote(entity as INoteEntity), note],
+    ['text markup', (store, entity) => store.createTextMarkup(entity as ITextMarkupEntity), markup],
+    ['placed image', (store, entity) => store.createPlacedImage(entity as IPlacedImageEntity), placedImage],
+    ['shape', (store, entity) => store.createShape(entity as IShapeEntity), shape],
 ];
 
 /** The payload as version 1 stored it: every annotation and the foreign list, without read revision or changed fields. */
@@ -187,34 +165,42 @@ describe('AnnotationStore public API', () => {
         source.updateNote(original.identity.id, {contents: 'changed'});
         source.delete(deleted.identity.id);
         const pendingShape = source.createShape(shape('recovery-shape'));
-        const recovery = captureCanonicalAnnotationRecovery(source, [{
-            annotationId: original.identity.id,
-            kind: 'note',
-            canonicalRevision: original.revision + 1,
-            text: 'typed but not committed',
-            generation: 4,
-        }]);
+        const recovery = captureCanonicalAnnotationRecovery(source, [
+            {
+                annotationId: original.identity.id,
+                kind: 'note',
+                canonicalRevision: original.revision + 1,
+                text: 'typed but not committed',
+                generation: 4,
+            },
+        ]);
 
-        expect(recovery).toMatchObject({version: 3, changedFields: {
-            'recovery-note': ['contents'],
-            'deleted-note': ['deleted'],
-            'recovery-shape': expect.arrayContaining(['kind', 'rect']),
-        }});
+        expect(recovery).toMatchObject({
+            version: 3,
+            changedFields: {
+                'recovery-note': ['contents'],
+                'deleted-note': ['deleted'],
+                'recovery-shape': expect.arrayContaining(['kind', 'rect']),
+            },
+        });
         expect(recovery).not.toHaveProperty('foreign');
         const restored = new AnnotationStore();
         const read = {...foreign, name: 'parsed-baseline-widget'};
-        restored.replaceFromDocument([
-            {
-                ...original,
-                revision: 0,
-                persistedRevision: 0,
-            },
-            {
-                ...deleted,
-                revision: 0,
-                persistedRevision: 0,
-            },
-        ], [read]);
+        restored.replaceFromDocument(
+            [
+                {
+                    ...original,
+                    revision: 0,
+                    persistedRevision: 0,
+                },
+                {
+                    ...deleted,
+                    revision: 0,
+                    persistedRevision: 0,
+                },
+            ],
+            [read],
+        );
         const result = restoreCanonicalAnnotationRecovery(restored, recovery);
 
         expect(result.annotationMutationGeneration).toBe(recovery.annotationMutationGeneration);
@@ -239,7 +225,11 @@ describe('AnnotationStore public API', () => {
     });
 
     it('replays an undone saved deletion as an annotation of its own, beside an identical one', () => {
-        const twin = (id: string, pdfRef: string): INoteEntity => ({...note(id), identity: {id: asAnnotationId(id), pdfRef}, persistedRevision: 0});
+        const twin = (id: string, pdfRef: string): INoteEntity => ({
+            ...note(id),
+            identity: {id: asAnnotationId(id), pdfRef},
+            persistedRevision: 0,
+        });
         const store = new AnnotationStore();
         readInto(store, [twin('first', '5 0 R'), twin('second', '6 0 R')], 'rev-1');
         store.delete(asAnnotationId('first'));
@@ -252,7 +242,12 @@ describe('AnnotationStore public API', () => {
         restoreCanonicalAnnotationRecovery(recovered, recovery);
 
         expect(recovery.heldFields).toEqual({});
-        expect(recovered.list().map(entity => entity.identity.id).sort()).toEqual(['first', 'second']);
+        expect(
+            recovered
+                .list()
+                .map((entity) => entity.identity.id)
+                .sort(),
+        ).toEqual(['first', 'second']);
     });
 
     it('keeps what the bytes held of changed fields as bounded digests', () => {
@@ -260,7 +255,7 @@ describe('AnnotationStore public API', () => {
         const notes = Array.from({length: 48}, (_, index) => ({...note(`long-${index}`), contents: long, persistedRevision: 0}));
         const store = new AnnotationStore();
         readInto(store, notes, 'rev-1');
-        notes.forEach(entry => store.updateNote(entry.identity.id, {contents: `${long}y`}));
+        notes.forEach((entry) => store.updateNote(entry.identity.id, {contents: `${long}y`}));
         const recovery = captureCanonicalAnnotationRecovery(store);
 
         expect(Object.values(recovery.heldFields ?? {})).toHaveLength(48);
@@ -269,16 +264,21 @@ describe('AnnotationStore public API', () => {
     });
 
     it('refuses an entity missing a field its kind needs before replay reads it', () => {
-        const recovery = captureCanonicalAnnotationRecovery((() => {
-            const store = new AnnotationStore();
-            store.createNote(note('corrupt'));
-            return store;
-        })());
-        const corrupt = {...recovery, entities: recovery.entities.map(entity => ({...entity, contents: null}))};
+        const recovery = captureCanonicalAnnotationRecovery(
+            (() => {
+                const store = new AnnotationStore();
+                store.createNote(note('corrupt'));
+                return store;
+            })(),
+        );
+        const corrupt = {...recovery, entities: recovery.entities.map((entity) => ({...entity, contents: null}))};
         expect(() => restoreCanonicalAnnotationRecovery(new AnnotationStore(), corrupt)).toThrow('Recovery entity is invalid');
-        expect(() => restoreCanonicalAnnotationRecovery(new AnnotationStore(), {
-            ...recovery, entities: recovery.entities.map(entity => ({...entity, identity: {...entity.identity, pdfRef: 5}})),
-        })).toThrow('Recovery entity is invalid');
+        expect(() =>
+            restoreCanonicalAnnotationRecovery(new AnnotationStore(), {
+                ...recovery,
+                entities: recovery.entities.map((entity) => ({...entity, identity: {...entity.identity, pdfRef: 5}})),
+            }),
+        ).toThrow('Recovery entity is invalid');
     });
 
     it('stores only the pending changes of an annotation-heavy document', () => {
@@ -300,50 +300,65 @@ describe('AnnotationStore public API', () => {
         expect(recovered.get(asAnnotationId('markup-7'))).toMatchObject({color: '#00ff00'});
         expect(recovered.list()).toHaveLength(30_001);
         // Save writes the replayed plan: the same two annotations.
-        expect(recovered.pendingChanges().map(change => change.entity.identity.id).sort()).toEqual(['markup-7', 'new-stroke']);
+        expect(
+            recovered
+                .pendingChanges()
+                .map((change) => change.entity.identity.id)
+                .sort(),
+        ).toEqual(['markup-7', 'new-stroke']);
     });
 
     it('resolves drafts against the detached final capture without retaining mutable store bytes', () => {
         const store = new AnnotationStore();
         const entity = store.createNote(note('captured-note'));
-        const recovery = captureCanonicalAnnotationRecovery(store, revisionOf => [{
-            annotationId: entity.identity.id,
-            kind: 'note' as const,
-            canonicalRevision: revisionOf(entity.identity.id)!,
-            text: 'uncommitted note draft',
-            generation: 3,
-        }]);
+        const recovery = captureCanonicalAnnotationRecovery(store, (revisionOf) => [
+            {
+                annotationId: entity.identity.id,
+                kind: 'note' as const,
+                canonicalRevision: revisionOf(entity.identity.id)!,
+                text: 'uncommitted note draft',
+                generation: 3,
+            },
+        ]);
         store.updateNote(entity.identity.id, {contents: 'later edit'});
         expect(recovery.entities).toEqual([entity]);
         const restored = new AnnotationStore();
         const result = restoreCanonicalAnnotationRecovery(restored, recovery);
         expect(result.draftErrors).toEqual([]);
-        expect(result.drafts).toEqual([{
-            annotationId: entity.identity.id,
-            kind: 'note',
-            canonicalRevision: entity.revision,
-            text: 'uncommitted note draft',
-            generation: 3,
-        }]);
+        expect(result.drafts).toEqual([
+            {
+                annotationId: entity.identity.id,
+                kind: 'note',
+                canonicalRevision: entity.revision,
+                text: 'uncommitted note draft',
+                generation: 3,
+            },
+        ]);
         expect(restored.get(entity.identity.id)).toEqual(entity);
     });
 
     it('rejects malformed and over-sized recovery drafts before admission', () => {
         const store = new AnnotationStore();
-        expect(() => captureCanonicalAnnotationRecovery(store, [{
-            annotationId: asAnnotationId('draft'),
-            kind: 'text-box',
-            canonicalRevision: 0,
-            text: 'x'.repeat(1_000_001),
-            generation: 1,
-        }])).toThrow(/supported limit/u);
-        expect(() => restoreCanonicalAnnotationRecovery(store, {
-            version: 99,
-            annotationMutationGeneration: 1,
-            entities: [],
-            foreign: [],
-            drafts: [],
-        })).toThrow(/unsupported version/u);
+        expect(() =>
+            captureCanonicalAnnotationRecovery(store, [
+                {
+                    annotationId: asAnnotationId('draft'),
+                    kind: 'text-box',
+                    canonicalRevision: 0,
+                    text: 'x'.repeat(1_000_001),
+                    generation: 1,
+                },
+            ]),
+        ).toThrow(/supported limit/u);
+        expect(() =>
+            restoreCanonicalAnnotationRecovery(store, {
+                version: 99,
+                annotationMutationGeneration: 1,
+                entities: [],
+                foreign: [],
+                drafts: [],
+            }),
+        ).toThrow(/unsupported version/u);
     });
 
     it('retains an incompatible draft as an error without applying its text', () => {
@@ -354,21 +369,25 @@ describe('AnnotationStore public API', () => {
             annotationMutationGeneration: 1,
             entities: [entity],
             foreign: [],
-            drafts: [{
-                annotationId: entity.identity.id,
-                kind: 'text-box',
-                canonicalRevision: entity.revision + 1,
-                text: 'Retained text',
-                generation: 2,
-            }],
+            drafts: [
+                {
+                    annotationId: entity.identity.id,
+                    kind: 'text-box',
+                    canonicalRevision: entity.revision + 1,
+                    text: 'Retained text',
+                    generation: 2,
+                },
+            ],
         });
 
         expect(result.drafts).toEqual([]);
-        expect(result.draftErrors).toMatchObject([{
-            annotationId: entity.identity.id,
-            text: 'Retained text',
-            error: expect.stringContaining('active canonical entity'),
-        }]);
+        expect(result.draftErrors).toMatchObject([
+            {
+                annotationId: entity.identity.id,
+                text: 'Retained text',
+                error: expect.stringContaining('active canonical entity'),
+            },
+        ]);
         expect(store.get(entity.identity.id)).toMatchObject({text: 'Text'});
     });
 
@@ -408,35 +427,43 @@ describe('AnnotationStore public API', () => {
         // The recovered bytes' read has every entity in a rotated frame, and one note on the page that moved up.
         function captureDuringReread() {
             const captured = new AnnotationStore();
-            readInto(captured, [
-                ...['saved-note', 'moved-note', 'typed-note', 'moved-up-note', 'deleted-note'].map(id => note(id)),
-                textBox('label'), textBox('moved-label'), textBox('free-text'),
-            ], 'rev-1');
+            readInto(
+                captured,
+                [
+                    ...['saved-note', 'moved-note', 'typed-note', 'moved-up-note', 'deleted-note'].map((id) => note(id)),
+                    textBox('label'),
+                    textBox('moved-label'),
+                    textBox('free-text'),
+                ],
+                'rev-1',
+            );
             captured.updateNote(asAnnotationId('moved-note'), {position: moved});
             captured.updateNote(asAnnotationId('typed-note'), {contents: 'Typed'});
             captured.updateNote(asAnnotationId('moved-up-note'), {contents: 'Typed'});
             captured.delete(asAnnotationId('deleted-note'));
             captured.updateTextBox(asAnnotationId('moved-label'), {rect: moved});
             const created = captured.createShape(shape('new-shape'));
-            const drafts = [
-                editorDraft('label', 0, rect),
-                editorDraft('moved-label', 1, moved),
-            ];
+            const drafts = [editorDraft('label', 0, rect), editorDraft('moved-label', 1, moved)];
             const recovery = captureCanonicalAnnotationRecovery(captured, drafts);
             const legacy = legacyVersion1(captured, drafts);
             const recovered = new AnnotationStore();
-            readInto(recovered, [
-                ...['saved-note', 'moved-note', 'typed-note', 'deleted-note'].map(id => ({...note(id), position: rotated})),
-                {...note('moved-up-note'), position: rotated, pageIndex: requirePageIndex(0)},
-                {...textBox('label'), rect: rotated, rotation: 90},
-                {...textBox('moved-label'), rect: rotated, rotation: 90},
-                // On a page the recovered bytes added after the capture.
-                {...note('read-only-note'), position: rotated},
-            ], 'rev-2', [foreignFreeText]);
+            readInto(
+                recovered,
+                [
+                    ...['saved-note', 'moved-note', 'typed-note', 'deleted-note'].map((id) => ({...note(id), position: rotated})),
+                    {...note('moved-up-note'), position: rotated, pageIndex: requirePageIndex(0)},
+                    {...textBox('label'), rect: rotated, rotation: 90},
+                    {...textBox('moved-label'), rect: rotated, rotation: 90},
+                    // On a page the recovered bytes added after the capture.
+                    {...note('read-only-note'), position: rotated},
+                ],
+                'rev-2',
+                [foreignFreeText],
+            );
             return {recovery, legacy, recovered, created};
         }
 
-        it('replays a version 1 snapshot of every annotation as captured, beside the read\'s foreign annotations', () => {
+        it("replays a version 1 snapshot of every annotation as captured, beside the read's foreign annotations", () => {
             const {legacy, recovered} = captureDuringReread();
             const result = restoreCanonicalAnnotationRecovery(recovered, JSON.parse(JSON.stringify(legacy)));
 
@@ -449,7 +476,10 @@ describe('AnnotationStore public API', () => {
 
         it('replays a plan taken after the read of the recovered bytes as captured, over that read', () => {
             const {recovery, recovered} = captureDuringReread();
-            const result = restoreCanonicalAnnotationRecovery(recovered, JSON.parse(JSON.stringify({...recovery, annotationReadRevision: 'rev-2'})));
+            const result = restoreCanonicalAnnotationRecovery(
+                recovered,
+                JSON.parse(JSON.stringify({...recovery, annotationReadRevision: 'rev-2'})),
+            );
 
             expect(recovered.get(asAnnotationId('saved-note'))).toMatchObject({position: rotated, contents: 'Contents'});
             expect(recovered.get(asAnnotationId('typed-note'))).toMatchObject({position: rect, contents: 'Typed'});
@@ -461,11 +491,17 @@ describe('AnnotationStore public API', () => {
         it('replays a version 2 snapshot of every annotation as it replays the plan', () => {
             const {recovery, legacy, recovered} = captureDuringReread();
             const {recovered: fromLegacy} = captureDuringReread();
-            const version2 = {...legacy, version: 2, annotationReadRevision: recovery.annotationReadRevision, changedFields: recovery.changedFields};
+            const version2 = {
+                ...legacy,
+                version: 2,
+                annotationReadRevision: recovery.annotationReadRevision,
+                changedFields: recovery.changedFields,
+            };
             const planDrafts = restoreCanonicalAnnotationRecovery(recovered, JSON.parse(JSON.stringify(recovery))).drafts;
             const legacyDrafts = restoreCanonicalAnnotationRecovery(fromLegacy, JSON.parse(JSON.stringify(version2))).drafts;
 
-            const state = (store: AnnotationStore) => store.list({includeDeleted: true}).map(({modifiedAt: _modifiedAt, ...entity}) => entity);
+            const state = (store: AnnotationStore) =>
+                store.list({includeDeleted: true}).map(({modifiedAt: _modifiedAt, ...entity}) => entity);
             expect(state(fromLegacy)).toEqual(state(recovered));
             expect(legacyDrafts).toEqual(planDrafts);
             expect(fromLegacy.foreign).toEqual([foreignFreeText]);
@@ -473,8 +509,14 @@ describe('AnnotationStore public API', () => {
 
         it('records the revision of the read the plan holds, and only the annotations it changes or drafts name', () => {
             const {recovery} = captureDuringReread();
-            expect(recovery.entities.map(entity => entity.identity.id)).toEqual([
-                'moved-note', 'typed-note', 'moved-up-note', 'deleted-note', 'moved-label', 'new-shape', 'label',
+            expect(recovery.entities.map((entity) => entity.identity.id)).toEqual([
+                'moved-note',
+                'typed-note',
+                'moved-up-note',
+                'deleted-note',
+                'moved-label',
+                'new-shape',
+                'label',
             ]);
             expect(recovery).toMatchObject({
                 version: 3,
@@ -489,7 +531,7 @@ describe('AnnotationStore public API', () => {
             });
         });
 
-        it('takes the recovered read\'s entity for an unchanged one and drops its editor rectangle', () => {
+        it("takes the recovered read's entity for an unchanged one and drops its editor rectangle", () => {
             const {recovery, recovered, created} = captureDuringReread();
             const read = recovered.get(asAnnotationId('saved-note'));
             const result = restoreCanonicalAnnotationRecovery(recovered, recovery);
@@ -507,7 +549,7 @@ describe('AnnotationStore public API', () => {
             });
         });
 
-        it('keeps the fields the user changed and takes the read\'s position and page for the others', () => {
+        it("keeps the fields the user changed and takes the read's position and page for the others", () => {
             const {recovery, recovered} = captureDuringReread();
             restoreCanonicalAnnotationRecovery(recovered, recovery);
 
@@ -530,7 +572,11 @@ describe('AnnotationStore public API', () => {
             const {recovery} = captureDuringReread();
             const readOfSameBytes = () => {
                 const store = new AnnotationStore();
-                readInto(store, [note('saved-note'), note('moved-note'), note('typed-note'), textBox('label'), textBox('moved-label')], 'rev-1');
+                readInto(
+                    store,
+                    [note('saved-note'), note('moved-note'), note('typed-note'), textBox('label'), textBox('moved-label')],
+                    'rev-1',
+                );
                 return store;
             };
             const firstRestore = readOfSameBytes();
@@ -570,7 +616,11 @@ describe('AnnotationStore public API', () => {
             captured.updateNote(asAnnotationId('edited-note'), {contents: 'Typed'});
             const recovery = JSON.parse(JSON.stringify(captureCanonicalAnnotationRecovery(captured)));
             const recovered = new AnnotationStore();
-            readInto(recovered, notes.map(entry => ({...entry, position: rotated})), 'rev-2');
+            readInto(
+                recovered,
+                notes.map((entry) => ({...entry, position: rotated})),
+                'rev-2',
+            );
             restoreCanonicalAnnotationRecovery(recovered, recovery);
 
             expect(recovered.get(asAnnotationId('edited-note'))).toMatchObject({contents: 'Typed', position: rotated});
@@ -599,7 +649,9 @@ describe('AnnotationStore public API', () => {
             readInto(live, [onPage('first-read-id', 1)], 'rev-1');
             edit(live);
             live.remapPages(swapPages);
-            if (rereadLanded) {readInto(live, [onPage('reordered-read-id', 0)], 'rev-2', [], true);}
+            if (rereadLanded) {
+                readInto(live, [onPage('reordered-read-id', 0)], 'rev-2', [], true);
+            }
             const recovery = JSON.parse(JSON.stringify(captureCanonicalAnnotationRecovery(live, [noteDraft(live)])));
             const recovered = new AnnotationStore();
             readInto(recovered, [onPage('reordered-read-id', 0)], 'rev-2');
@@ -616,10 +668,10 @@ describe('AnnotationStore public API', () => {
             const result = restoreCanonicalAnnotationRecovery(recovered, recovery);
 
             expect(result.drafts).toEqual([{...noteDraft(live), annotationId: asAnnotationId('reordered-read-id')}]);
-            expect(recovered.list({includeDeleted: true}).map(entity => entity.identity.id)).toEqual(['reordered-read-id']);
+            expect(recovered.list({includeDeleted: true}).map((entity) => entity.identity.id)).toEqual(['reordered-read-id']);
         });
 
-        it('takes the recovered read\'s page for an edited note captured on the page it left', () => {
+        it("takes the recovered read's page for an edited note captured on the page it left", () => {
             const live = new AnnotationStore();
             readInto(live, [onPage('first-read-id', 1)], 'rev-1');
             live.updateNote(asAnnotationId('first-read-id'), {contents: 'Committed'});
@@ -639,16 +691,21 @@ describe('AnnotationStore public API', () => {
             ['after the re-read', true, 2],
             ['after the re-read, from version 1', true, 1],
         ])('keeps a committed edit and a deletion through a reorder whose crash came %s', (_label, rereadLanded, version) => {
-            const edited = reorder(store => store.updateNote(asAnnotationId('first-read-id'), {contents: 'Committed'}), rereadLanded);
-            restoreCanonicalAnnotationRecovery(edited.recovered, version === 1 ? legacyVersion1(edited.live, edited.recovery.drafts) : edited.recovery);
+            const edited = reorder((store) => store.updateNote(asAnnotationId('first-read-id'), {contents: 'Committed'}), rereadLanded);
+            restoreCanonicalAnnotationRecovery(
+                edited.recovered,
+                version === 1 ? legacyVersion1(edited.live, edited.recovery.drafts) : edited.recovery,
+            );
             expect(edited.recovered.list({includeDeleted: true})).toEqual([
                 expect.objectContaining({identity: {id: 'reordered-read-id', pdfRef: '5 0 R'}, pageIndex: 0, contents: 'Committed'}),
             ]);
             expect(edited.recovered.hasChangesSinceSavedBaseline('note')).toBe(true);
 
             // A version 1 snapshot names no changed fields, so its tombstones bind to nothing.
-            if (version === 1) {return;}
-            const deleted = reorder(store => store.delete(asAnnotationId('first-read-id')), rereadLanded);
+            if (version === 1) {
+                return;
+            }
+            const deleted = reorder((store) => store.delete(asAnnotationId('first-read-id')), rereadLanded);
             restoreCanonicalAnnotationRecovery(deleted.recovered, {...deleted.recovery, drafts: []});
             expect(deleted.recovered.list()).toEqual([]);
             expect(deleted.recovered.dirtyEntities()).toEqual([
@@ -676,22 +733,33 @@ describe('AnnotationStore public API', () => {
             edit(store);
             return store;
         }
-        const summary = (store: AnnotationStore) => store.list({includeDeleted: true})
-            .map(entity => [entity.identity.id, entity.identity.pdfRef, entity.pageIndex, entity.deleted, (entity as INoteEntity).contents])
-            .sort();
+        const summary = (store: AnnotationStore) =>
+            store
+                .list({includeDeleted: true})
+                .map((entity) => [
+                    entity.identity.id,
+                    entity.identity.pdfRef,
+                    entity.pageIndex,
+                    entity.deleted,
+                    (entity as INoteEntity).contents,
+                ])
+                .sort();
 
-        it.each([false, true])('keeps a note deleted while the read was pending deleted and the other note live (saved baseline kept: %s)', (preserveSavedBaseline) => {
-            const store = liveStore(live => live.delete(asAnnotationId('a-first')));
-            readInto(store, reorderedRead, 'rev-2', [], preserveSavedBaseline);
+        it.each([false, true])(
+            'keeps a note deleted while the read was pending deleted and the other note live (saved baseline kept: %s)',
+            (preserveSavedBaseline) => {
+                const store = liveStore((live) => live.delete(asAnnotationId('a-first')));
+                readInto(store, reorderedRead, 'rev-2', [], preserveSavedBaseline);
 
-            expect(summary(store)).toEqual([
-                ['a-first', '6 0 R', 2, true, 'A text'],
-                ['b-first', '5 0 R', 1, false, 'B text'],
-            ]);
-        });
+                expect(summary(store)).toEqual([
+                    ['a-first', '6 0 R', 2, true, 'A text'],
+                    ['b-first', '5 0 R', 1, false, 'B text'],
+                ]);
+            },
+        );
 
         it('merges a note edited while the read was pending into its own object', () => {
-            const store = liveStore(live => live.updateNote(asAnnotationId('a-first'), {contents: 'A edited'}));
+            const store = liveStore((live) => live.updateNote(asAnnotationId('a-first'), {contents: 'A edited'}));
             readInto(store, reorderedRead, 'rev-2', [], true);
 
             expect(summary(store)).toEqual([
@@ -700,8 +768,8 @@ describe('AnnotationStore public API', () => {
             ]);
         });
 
-        it('keeps an edit off the annotation a reorder gave the edited one\'s id', () => {
-            const live = liveStore(store => store.updateNote(asAnnotationId('a-first'), {contents: 'A edited'}));
+        it("keeps an edit off the annotation a reorder gave the edited one's id", () => {
+            const live = liveStore((store) => store.updateNote(asAnnotationId('a-first'), {contents: 'A edited'}));
             const recovery = JSON.parse(JSON.stringify(captureCanonicalAnnotationRecovery(live)));
             const recovered = new AnnotationStore();
             // The new read names note B by note A's minted id.
@@ -716,10 +784,14 @@ describe('AnnotationStore public API', () => {
 
         it('binds an edited note that a rotation moved and a reorder renamed', () => {
             const rotated = {left: 0.76, top: 0.1, width: 0.04, height: 0.3};
-            const live = liveStore(store => store.updateNote(asAnnotationId('a-first'), {contents: 'A edited'}));
+            const live = liveStore((store) => store.updateNote(asAnnotationId('a-first'), {contents: 'A edited'}));
             const recovery = JSON.parse(JSON.stringify(captureCanonicalAnnotationRecovery(live)));
             const recovered = new AnnotationStore();
-            readInto(recovered, [noteAt('b-second', '5 0 R', 1, 'B text'), {...noteAt('a-second', '6 0 R', 2, 'A text'), position: rotated}], 'rev-2');
+            readInto(
+                recovered,
+                [noteAt('b-second', '5 0 R', 1, 'B text'), {...noteAt('a-second', '6 0 R', 2, 'A text'), position: rotated}],
+                'rev-2',
+            );
             restoreCanonicalAnnotationRecovery(recovered, recovery);
 
             expect(summary(recovered)).toEqual([
@@ -729,19 +801,34 @@ describe('AnnotationStore public API', () => {
             expect(recovered.get(asAnnotationId('a-second'))).toMatchObject({position: rotated});
         });
 
-        it('gives an open editor\'s text to its ref-less annotation that a new read of the same bytes names anew', () => {
+        it("gives an open editor's text to its ref-less annotation that a new read of the same bytes names anew", () => {
             const unbound = (id: string, contents: string): INoteEntity => ({...note(id), contents, persistedRevision: 0});
             const live = new AnnotationStore();
             readInto(live, [unbound('x-first', 'X text'), unbound('y-first', 'Y text')], 'rev-1');
-            const recovery = JSON.parse(JSON.stringify(captureCanonicalAnnotationRecovery(live, [{
-                annotationId: asAnnotationId('x-first'), kind: 'note', canonicalRevision: 0, text: 'X typed', generation: 1,
-            }])));
+            const recovery = JSON.parse(
+                JSON.stringify(
+                    captureCanonicalAnnotationRecovery(live, [
+                        {
+                            annotationId: asAnnotationId('x-first'),
+                            kind: 'note',
+                            canonicalRevision: 0,
+                            text: 'X typed',
+                            generation: 1,
+                        },
+                    ]),
+                ),
+            );
             const recovered = new AnnotationStore();
             readInto(recovered, [unbound('y-second', 'Y text'), unbound('x-second', 'X text')], 'rev-1');
             const result = restoreCanonicalAnnotationRecovery(recovered, recovery);
 
             expect(result.drafts).toEqual([expect.objectContaining({annotationId: 'x-second', text: 'X typed'})]);
-            expect(recovered.list().map(entity => entity.identity.id).sort()).toEqual(['x-second', 'y-second']);
+            expect(
+                recovered
+                    .list()
+                    .map((entity) => entity.identity.id)
+                    .sort(),
+            ).toEqual(['x-second', 'y-second']);
         });
 
         it('tells an edited note from an unchanged one stacked on it by what the bytes held', () => {
@@ -786,7 +873,12 @@ describe('AnnotationStore public API', () => {
             readInto(recovered, [unbound('y-second', 'Y text'), unbound('x-second', 'X text')], 'rev-1');
             restoreCanonicalAnnotationRecovery(recovered, recovery);
 
-            expect(recovered.list().map(entity => [entity.identity.id, (entity as INoteEntity).contents]).sort()).toEqual([
+            expect(
+                recovered
+                    .list()
+                    .map((entity) => [entity.identity.id, (entity as INoteEntity).contents])
+                    .sort(),
+            ).toEqual([
                 ['x-second', 'X edited'],
                 ['y-second', 'Y text'],
             ]);
@@ -797,7 +889,15 @@ describe('AnnotationStore public API', () => {
             readInto(live, firstRead, 'rev-1');
             live.updateNote(asAnnotationId('a-first'), {contents: 'A edited'});
             const recovery = JSON.parse(JSON.stringify(captureCanonicalAnnotationRecovery(live)));
-            const foreign = {kind: 'foreign' as const, pageIndex: 0, subtype: 'Widget', name: 'field', objectNumber: 12, generationNumber: 0, reason: 'form field'};
+            const foreign = {
+                kind: 'foreign' as const,
+                pageIndex: 0,
+                subtype: 'Widget',
+                name: 'field',
+                objectNumber: 12,
+                generationNumber: 0,
+                reason: 'form field',
+            };
             const recovered = new AnnotationStore();
             restoreCanonicalAnnotationRecovery(recovered, recovery);
             readInto(recovered, firstRead, 'rev-1', [foreign]);
@@ -807,7 +907,7 @@ describe('AnnotationStore public API', () => {
                 ['b-first', '9 0 R', 2, false, 'B text'],
             ]);
             expect(recovered.foreign).toEqual([foreign]);
-            expect(recovered.pendingChanges().map(change => change.entity.identity.id)).toEqual(['a-first']);
+            expect(recovered.pendingChanges().map((change) => change.entity.identity.id)).toEqual(['a-first']);
         });
 
         it('gives an inserted note whose minted id names another annotation an id of its own', () => {
@@ -817,8 +917,11 @@ describe('AnnotationStore public API', () => {
             store.remapPages({previousPageCount: 1, pages: [{insertedId: 'inserted-page'}, {fromPageNumber: 1}]});
             readInto(store, [noteAt('minted-a', '5 0 R', 0, 'Inserted'), noteAt('minted-moved', '7 0 R', 1, 'A text')], 'rev-2', [], true);
 
-            const notes = store.list().map(entity => [entity.identity.pdfRef, entity.pageIndex, (entity as INoteEntity).contents]);
-            expect(notes.sort()).toEqual([['5 0 R', 0, 'Inserted'], ['7 0 R', 1, 'A text']]);
+            const notes = store.list().map((entity) => [entity.identity.pdfRef, entity.pageIndex, (entity as INoteEntity).contents]);
+            expect(notes.sort()).toEqual([
+                ['5 0 R', 0, 'Inserted'],
+                ['7 0 R', 1, 'A text'],
+            ]);
             expect(store.get(asAnnotationId('minted-a'))).toMatchObject({contents: 'A text', identity: {pdfRef: '7 0 R'}});
         });
 
@@ -828,47 +931,86 @@ describe('AnnotationStore public API', () => {
             readInto(store, [twin('t1-first', '5 0 R'), twin('t2-first', '6 0 R')], 'rev-1');
             store.remapPages({previousPageCount: 2, pages: [{fromPageNumber: 2}, {fromPageNumber: 1}]});
             store.delete(asAnnotationId('t1-first'));
-            readInto(store, [{...twin('t-x', '3 0 R'), pageIndex: requirePageIndex(0)}, {...twin('t-y', '4 0 R'), pageIndex: requirePageIndex(0)}], 'rev-2', [], true);
+            readInto(
+                store,
+                [
+                    {...twin('t-x', '3 0 R'), pageIndex: requirePageIndex(0)},
+                    {...twin('t-y', '4 0 R'), pageIndex: requirePageIndex(0)},
+                ],
+                'rev-2',
+                [],
+                true,
+            );
 
-            expect(store.list().map(entity => entity.identity.pdfRef).sort()).toEqual(['3 0 R', '4 0 R']);
+            expect(
+                store
+                    .list()
+                    .map((entity) => entity.identity.pdfRef)
+                    .sort(),
+            ).toEqual(['3 0 R', '4 0 R']);
         });
 
-        it('takes the read\'s replies and recovery graph for a note edited while the read was pending', () => {
-            const reply = (objectNumber: number) => ({objectNumber, generationNumber: 0, contents: 'Reply', author: null, createdAt: null, modifiedAt: null});
+        it("takes the read's replies and recovery graph for a note edited while the read was pending", () => {
+            const reply = (objectNumber: number) => ({
+                objectNumber,
+                generationNumber: 0,
+                contents: 'Reply',
+                author: null,
+                createdAt: null,
+                modifiedAt: null,
+            });
             const store = new AnnotationStore();
-            readInto(store, [{...noteAt('parent-first', '5 0 R', 0, 'Parent'), replies: [reply(7)], recoveryData: 'graph-before'}], 'rev-1');
+            readInto(
+                store,
+                [{...noteAt('parent-first', '5 0 R', 0, 'Parent'), replies: [reply(7)], recoveryData: 'graph-before'}],
+                'rev-1',
+            );
             store.remapPages({previousPageCount: 2, pages: [{fromPageNumber: 2}, {fromPageNumber: 1}]});
             store.updateNote(asAnnotationId('parent-first'), {contents: 'Parent edited'});
             const recovery = JSON.parse(JSON.stringify(captureCanonicalAnnotationRecovery(store)));
             const reread = {...noteAt('parent-second', '3 0 R', 1, 'Parent'), replies: [reply(4)], recoveryData: 'graph-after'};
             readInto(store, [reread], 'rev-2', [], true);
-            expect(store.get(asAnnotationId('parent-first'))).toMatchObject({contents: 'Parent edited', replies: [reply(4)], recoveryData: 'graph-after'});
+            expect(store.get(asAnnotationId('parent-first'))).toMatchObject({
+                contents: 'Parent edited',
+                replies: [reply(4)],
+                recoveryData: 'graph-after',
+            });
 
             const recovered = new AnnotationStore();
             readInto(recovered, [reread], 'rev-2');
             restoreCanonicalAnnotationRecovery(recovered, recovery);
-            expect(recovered.list()).toEqual([expect.objectContaining({
-                identity: {id: 'parent-second', pdfRef: '3 0 R'}, contents: 'Parent edited', replies: [reply(4)], recoveryData: 'graph-after',
-            })]);
+            expect(recovered.list()).toEqual([
+                expect.objectContaining({
+                    identity: {id: 'parent-second', pdfRef: '3 0 R'},
+                    contents: 'Parent edited',
+                    replies: [reply(4)],
+                    recoveryData: 'graph-after',
+                }),
+            ]);
         });
 
         describe('recovered after the app stopped while the read was pending', () => {
             function recoverReordered(edit: (store: AnnotationStore) => void, draftText: string | null) {
                 const live = liveStore(edit);
-                const draft = draftText === null ? [] : [{
-                    annotationId: asAnnotationId('a-first'),
-                    kind: 'note' as const,
-                    canonicalRevision: live.get(asAnnotationId('a-first'))!.revision,
-                    text: draftText,
-                    generation: 1,
-                }];
+                const draft =
+                    draftText === null
+                        ? []
+                        : [
+                              {
+                                  annotationId: asAnnotationId('a-first'),
+                                  kind: 'note' as const,
+                                  canonicalRevision: live.get(asAnnotationId('a-first'))!.revision,
+                                  text: draftText,
+                                  generation: 1,
+                              },
+                          ];
                 const recovery = JSON.parse(JSON.stringify(captureCanonicalAnnotationRecovery(live, draft)));
                 const recovered = new AnnotationStore();
                 readInto(recovered, reorderedRead, 'rev-2');
                 return {recovered, result: restoreCanonicalAnnotationRecovery(recovered, recovery)};
             }
 
-            it('gives a draft typed into note A, in note B\'s words, to note A and leaves B as read', () => {
+            it("gives a draft typed into note A, in note B's words, to note A and leaves B as read", () => {
                 const {recovered, result} = recoverReordered(() => {}, 'B text');
 
                 expect(result.drafts).toEqual([expect.objectContaining({annotationId: 'a-second', text: 'B text'})]);
@@ -878,18 +1020,18 @@ describe('AnnotationStore public API', () => {
                 ]);
             });
 
-            it('keeps an edit committed to note A, in note B\'s words, on note A', () => {
-                const {recovered} = recoverReordered(live => live.updateNote(asAnnotationId('a-first'), {contents: 'B text'}), null);
+            it("keeps an edit committed to note A, in note B's words, on note A", () => {
+                const {recovered} = recoverReordered((live) => live.updateNote(asAnnotationId('a-first'), {contents: 'B text'}), null);
 
                 expect(summary(recovered)).toEqual([
                     ['a-second', '6 0 R', 2, false, 'B text'],
                     ['b-second', '5 0 R', 1, false, 'B text'],
                 ]);
-                expect(recovered.dirtyEntities().map(entity => entity.identity.id)).toEqual(['a-second']);
+                expect(recovered.dirtyEntities().map((entity) => entity.identity.id)).toEqual(['a-second']);
             });
 
-            it('keeps note A\'s deletion on note A', () => {
-                const {recovered} = recoverReordered(live => live.delete(asAnnotationId('a-first')), null);
+            it("keeps note A's deletion on note A", () => {
+                const {recovered} = recoverReordered((live) => live.delete(asAnnotationId('a-first')), null);
 
                 expect(summary(recovered)).toEqual([
                     ['a-second', '6 0 R', 2, true, 'A text'],
@@ -902,9 +1044,19 @@ describe('AnnotationStore public API', () => {
                 const live = new AnnotationStore();
                 readInto(live, [twin('t1-first', '5 0 R', 1), twin('t2-first', '6 0 R', 1)], 'rev-1');
                 live.remapPages({previousPageCount: 2, pages: [{fromPageNumber: 2}, {fromPageNumber: 1}]});
-                const recovery = JSON.parse(JSON.stringify(captureCanonicalAnnotationRecovery(live, [{
-                    annotationId: asAnnotationId('t1-first'), kind: 'note', canonicalRevision: 0, text: 'Typed', generation: 1,
-                }])));
+                const recovery = JSON.parse(
+                    JSON.stringify(
+                        captureCanonicalAnnotationRecovery(live, [
+                            {
+                                annotationId: asAnnotationId('t1-first'),
+                                kind: 'note',
+                                canonicalRevision: 0,
+                                text: 'Typed',
+                                generation: 1,
+                            },
+                        ]),
+                    ),
+                );
                 const recovered = new AnnotationStore();
                 const reread = [twin('t-x', '5 0 R', 0), twin('t-y', '6 0 R', 0)];
                 readInto(recovered, reread, 'rev-2');
@@ -928,8 +1080,17 @@ describe('AnnotationStore public API', () => {
             store.remapPages({previousPageCount: 2, pages: [{fromPageNumber: 2}, {fromPageNumber: 1}]});
             expect(store.readRevision).toBe('rev-1');
             // A read of some pages that cannot stand for the document commits nothing.
-            expect(store.replaceFromDocument([{...note('note'), pageIndex: requirePageIndex(0)}], [], [1], [], [], false,
-                requireDocumentRevisionToken('rev-2'))).toBe(false);
+            expect(
+                store.replaceFromDocument(
+                    [{...note('note'), pageIndex: requirePageIndex(0)}],
+                    [],
+                    [1],
+                    [],
+                    [],
+                    false,
+                    requireDocumentRevisionToken('rev-2'),
+                ),
+            ).toBe(false);
             expect(store.readRevision).toBe('rev-1');
             readInto(store, [{...note('note'), pageIndex: requirePageIndex(0)}], 'rev-2');
             expect(store.readRevision).toBe('rev-2');
@@ -965,10 +1126,19 @@ describe('AnnotationStore public API', () => {
             }
         });
 
-        it('admits a placed image\'s raster only in the shape its storage takes', () => {
-            const image = {...placedImage('pasted'), image: {
-                kind: 'raster', mimeType: 'image/png', dataBase64: 'iVBO', byteLength: 3, sha256: 'a'.repeat(64), width: 1, height: 1,
-            }};
+        it("admits a placed image's raster only in the shape its storage takes", () => {
+            const image = {
+                ...placedImage('pasted'),
+                image: {
+                    kind: 'raster',
+                    mimeType: 'image/png',
+                    dataBase64: 'iVBO',
+                    byteLength: 3,
+                    sha256: 'a'.repeat(64),
+                    width: 1,
+                    height: 1,
+                },
+            };
             const planOf = (entity: unknown) => ({
                 ...captureCanonicalAnnotationRecovery(new AnnotationStore()),
                 entities: [entity],
@@ -976,28 +1146,39 @@ describe('AnnotationStore public API', () => {
             });
 
             restoreCanonicalAnnotationRecovery(new AnnotationStore(), planOf(image));
-            expect(() => restoreCanonicalAnnotationRecovery(new AnnotationStore(), planOf({...image, image: {...image.image, mimeType: 'image/gif'}})))
-                .toThrow('Recovery entity is invalid');
-            expect(() => restoreCanonicalAnnotationRecovery(new AnnotationStore(), planOf({...image, image: {...image.image, dataBase64: 7}})))
-                .toThrow('Recovery entity is invalid');
+            expect(() =>
+                restoreCanonicalAnnotationRecovery(
+                    new AnnotationStore(),
+                    planOf({...image, image: {...image.image, mimeType: 'image/gif'}}),
+                ),
+            ).toThrow('Recovery entity is invalid');
+            expect(() =>
+                restoreCanonicalAnnotationRecovery(new AnnotationStore(), planOf({...image, image: {...image.image, dataBase64: 7}})),
+            ).toThrow('Recovery entity is invalid');
         });
 
         it('refuses changed-field names past their own bound, and held fields of no captured entity', () => {
             const {store} = editedStore(1);
             const recovery = captureCanonicalAnnotationRecovery(store);
 
-            expect(() => restoreCanonicalAnnotationRecovery(new AnnotationStore(), {
-                ...recovery,
-                changedFields: {'note-0': Array.from({length: 33}, (_, index) => `field-${index}`)},
-            })).toThrow('Recovery changed fields are invalid');
-            expect(() => restoreCanonicalAnnotationRecovery(new AnnotationStore(), {
-                ...recovery,
-                changedFields: {'not-captured': ['contents']},
-            })).toThrow('Recovery changed fields are invalid');
-            expect(() => restoreCanonicalAnnotationRecovery(new AnnotationStore(), {
-                ...recovery,
-                heldFields: {'not-captured': {contents: 'Contents'}},
-            })).toThrow('Recovery held fields are invalid');
+            expect(() =>
+                restoreCanonicalAnnotationRecovery(new AnnotationStore(), {
+                    ...recovery,
+                    changedFields: {'note-0': Array.from({length: 33}, (_, index) => `field-${index}`)},
+                }),
+            ).toThrow('Recovery changed fields are invalid');
+            expect(() =>
+                restoreCanonicalAnnotationRecovery(new AnnotationStore(), {
+                    ...recovery,
+                    changedFields: {'not-captured': ['contents']},
+                }),
+            ).toThrow('Recovery changed fields are invalid');
+            expect(() =>
+                restoreCanonicalAnnotationRecovery(new AnnotationStore(), {
+                    ...recovery,
+                    heldFields: {'not-captured': {contents: 'Contents'}},
+                }),
+            ).toThrow('Recovery held fields are invalid');
         });
     });
 
@@ -1037,15 +1218,17 @@ describe('AnnotationStore public API', () => {
         });
 
         const noteEntity = store.createNote(note());
-        expect(store.updateNote(noteEntity.identity.id, {
-            contents: 'Changed',
-            position: {
-                ...rect,
-                top: 0.5,
-            },
-            color: '#abcdef',
-            open: true,
-        })).toMatchObject({
+        expect(
+            store.updateNote(noteEntity.identity.id, {
+                contents: 'Changed',
+                position: {
+                    ...rect,
+                    top: 0.5,
+                },
+                color: '#abcdef',
+                open: true,
+            }),
+        ).toMatchObject({
             contents: 'Changed',
             position: {
                 ...rect,
@@ -1057,39 +1240,47 @@ describe('AnnotationStore public API', () => {
         });
 
         const markupEntity = store.createTextMarkup(markup());
-        expect(store.updateTextMarkup(markupEntity.identity.id, {
+        expect(
+            store.updateTextMarkup(markupEntity.identity.id, {
+                subtype: 'Underline',
+                contents: 'Changed',
+                quadPoints: [
+                    {
+                        ...rect,
+                        height: 0.08,
+                    },
+                ],
+                color: '#abcdef',
+                opacity: 0.75,
+            }),
+        ).toMatchObject({
             subtype: 'Underline',
             contents: 'Changed',
-            quadPoints: [{
-                ...rect,
-                height: 0.08,
-            }],
-            color: '#abcdef',
-            opacity: 0.75,
-        })).toMatchObject({
-            subtype: 'Underline',
-            contents: 'Changed',
-            quadPoints: [{
-                ...rect,
-                height: 0.08,
-            }],
+            quadPoints: [
+                {
+                    ...rect,
+                    height: 0.08,
+                },
+            ],
             color: '#abcdef',
             opacity: 0.75,
             revision: 1,
         });
 
         const imageEntity = store.createPlacedImage(placedImage());
-        expect(store.updatePlacedImage(imageEntity.identity.id, {
-            rect: {
-                ...rect,
-                width: 0.6,
-            },
-            rotation: 270,
-            image: {
-                ...imageEntity.image,
-                byteLength: 32,
-            },
-        })).toMatchObject({
+        expect(
+            store.updatePlacedImage(imageEntity.identity.id, {
+                rect: {
+                    ...rect,
+                    width: 0.6,
+                },
+                rotation: 270,
+                image: {
+                    ...imageEntity.image,
+                    byteLength: 32,
+                },
+            }),
+        ).toMatchObject({
             rect: {
                 ...rect,
                 width: 0.6,
@@ -1103,38 +1294,52 @@ describe('AnnotationStore public API', () => {
         });
 
         const shapeEntity = store.createShape(shape());
-        expect(store.updateShape(shapeEntity.identity.id, {
+        expect(
+            store.updateShape(shapeEntity.identity.id, {
+                tool: 'arrow',
+                rect: {
+                    ...rect,
+                    width: 0.6,
+                },
+                points: [
+                    {
+                        x: 0.3,
+                        y: 0.4,
+                    },
+                ],
+                strokes: [
+                    [
+                        {
+                            x: 0.3,
+                            y: 0.4,
+                        },
+                    ],
+                ],
+                strokeColor: '#abcdef',
+                strokeWidth: 4,
+                fill: null,
+                opacity: 0.75,
+            }),
+        ).toMatchObject({
             tool: 'arrow',
             rect: {
                 ...rect,
                 width: 0.6,
             },
-            points: [{
-                x: 0.3,
-                y: 0.4,
-            }],
-            strokes: [[{
-                x: 0.3,
-                y: 0.4,
-            }]],
-            strokeColor: '#abcdef',
-            strokeWidth: 4,
-            fill: null,
-            opacity: 0.75,
-        })).toMatchObject({
-            tool: 'arrow',
-            rect: {
-                ...rect,
-                width: 0.6,
-            },
-            points: [{
-                x: 0.3,
-                y: 0.4,
-            }],
-            strokes: [[{
-                x: 0.3,
-                y: 0.4,
-            }]],
+            points: [
+                {
+                    x: 0.3,
+                    y: 0.4,
+                },
+            ],
+            strokes: [
+                [
+                    {
+                        x: 0.3,
+                        y: 0.4,
+                    },
+                ],
+            ],
             strokeColor: '#abcdef',
             strokeWidth: 4,
             fill: null,
@@ -1208,10 +1413,14 @@ describe('AnnotationStore public API', () => {
         };
         store.import(label);
         expect(() => store.updateTextBox(label.identity.id, {color: '#f59e0b'})).toThrow('Annotation dashed-label is read-only');
-        expect(() => store.updateTextBox(label.identity.id, {rect: {
-            ...rect,
-            left: 0.2,
-        }})).toThrow('is read-only');
+        expect(() =>
+            store.updateTextBox(label.identity.id, {
+                rect: {
+                    ...rect,
+                    left: 0.2,
+                },
+            }),
+        ).toThrow('is read-only');
         expect(() => store.delete(label.identity.id)).toThrow('is read-only');
         expect(store.get(label.identity.id)).toEqual(label);
         expect(store.hasChangesSinceSavedBaseline()).toBe(false);
@@ -1219,17 +1428,17 @@ describe('AnnotationStore public API', () => {
 
     it('rejects creators with a non-zero initial revision', () => {
         const store = new AnnotationStore();
-        expect(() => store.createTextBox({
-            ...textBox(),
-            revision: 1,
-        })).toThrow(
-            'New annotations must start at revision 0 with persistedRevision -1',
-        );
-        expect(() => store.createNote({
-            ...note(),
-            persistedRevision: 0,
-        })).toThrow(
-            'New annotations must start at revision 0 with persistedRevision -1',
-        );
+        expect(() =>
+            store.createTextBox({
+                ...textBox(),
+                revision: 1,
+            }),
+        ).toThrow('New annotations must start at revision 0 with persistedRevision -1');
+        expect(() =>
+            store.createNote({
+                ...note(),
+                persistedRevision: 0,
+            }),
+        ).toThrow('New annotations must start at revision 0 with persistedRevision -1');
     });
 });

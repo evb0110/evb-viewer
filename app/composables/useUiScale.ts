@@ -1,19 +1,11 @@
-import type {
-    IHostEnvironmentSnapshot,
-    THostPlatform,
-} from '@contracts/hostPlatformFeature';
-import type {
-    ISettingsData,
-    TUiScalePreference,
-} from '@contracts/shared';
-import { clamp } from 'es-toolkit/math';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { getHostCapability } from '@app/utils/getHostCapability';
-import { getRawElectronPlatformApi } from '@app/utils/electronPlatformBridge';
+import type {IHostEnvironmentSnapshot, THostPlatform} from '@contracts/hostPlatformFeature';
+import type {ISettingsData, TUiScalePreference} from '@contracts/shared';
+import {clamp} from 'es-toolkit/math';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {getHostCapability} from '@app/utils/getHostCapability';
+import {getRawElectronPlatformApi} from '@app/utils/electronPlatformBridge';
 
-const FALLBACK_PLATFORM: THostPlatform = typeof process !== 'undefined' && process.platform === 'darwin'
-    ? 'darwin'
-    : 'linux';
+const FALLBACK_PLATFORM: THostPlatform = typeof process !== 'undefined' && process.platform === 'darwin' ? 'darwin' : 'linux';
 
 const DEFAULT_HOST_SNAPSHOT: IHostEnvironmentSnapshot = {
     platform: FALLBACK_PLATFORM,
@@ -44,10 +36,7 @@ function resolveAutoScale(snapshot: IHostEnvironmentSnapshot) {
     return clamp(compensated, MIN_AUTO_SCALE, MAX_AUTO_SCALE);
 }
 
-function resolveEffectiveUiScale(
-    preference: TUiScalePreference,
-    snapshot: IHostEnvironmentSnapshot,
-) {
+function resolveEffectiveUiScale(preference: TUiScalePreference, snapshot: IHostEnvironmentSnapshot) {
     if (preference === 'auto') {
         return resolveAutoScale(snapshot);
     }
@@ -72,14 +61,9 @@ export const useUiScale = () => {
         () => getRawElectronPlatformApi()?.startupHostEnvironment ?? DEFAULT_HOST_SNAPSHOT,
     );
 
-    const preference = useState<TUiScalePreference>(
-        'ui-scale:preference',
-        () => 'auto',
-    );
+    const preference = useState<TUiScalePreference>('ui-scale:preference', () => 'auto');
 
-    const effectiveScale = computed(() =>
-        resolveEffectiveUiScale(preference.value, hostSnapshot.value),
-    );
+    const effectiveScale = computed(() => resolveEffectiveUiScale(preference.value, hostSnapshot.value));
 
     function setPreferenceFromSettings(settings: Pick<ISettingsData, 'uiScale'>) {
         preference.value = settings.uiScale;

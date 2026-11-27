@@ -1,4 +1,1 @@
-export {
-    detectSourceDpi,
-    detectSourceDpiDetails,
-} from '@electron/pdf/sourceDpiDetection';
+export {detectSourceDpi, detectSourceDpiDetails} from '@electron/pdf/sourceDpiDetection';

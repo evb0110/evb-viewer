@@ -1,6 +1,6 @@
-import type { ILogger } from '@electron/utils/createLogger';
-import { isTimeoutError } from '@contracts/isTimeoutError';
-import { getErrorMessage } from '@electron/utils/error';
+import type {ILogger} from '@electron/utils/createLogger';
+import {isTimeoutError} from '@contracts/isTimeoutError';
+import {getErrorMessage} from '@electron/utils/error';
 
 // Preservation is bounded by the timeout of each preservation step. The cleanup
 // deadline starts only after preservation has settled, so it can never make an
@@ -11,9 +11,8 @@ export const SHUTDOWN_STEP_TIMEOUT_MS = 8_000;
 const GRACEFUL_QUIT_FORCE_EXIT_DELAY_MS = 3_000;
 // This covers the 30.5s critical-write drain and the other bounded preservation steps.
 const SHUTDOWN_PRESERVATION_TIMEOUT_MS = 90_000;
-const FATAL_SHUTDOWN_FORCE_EXIT_DELAY_MS = SHUTDOWN_PRESERVATION_TIMEOUT_MS
-    + SHUTDOWN_CLEANUP_TIMEOUT_MS
-    + GRACEFUL_QUIT_FORCE_EXIT_DELAY_MS;
+const FATAL_SHUTDOWN_FORCE_EXIT_DELAY_MS =
+    SHUTDOWN_PRESERVATION_TIMEOUT_MS + SHUTDOWN_CLEANUP_TIMEOUT_MS + GRACEFUL_QUIT_FORCE_EXIT_DELAY_MS;
 const SYSTEM_SHUTDOWN_TIMEOUT_MS = 4_500;
 
 interface IAppLike {
@@ -71,7 +70,9 @@ export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOpt
             return;
         }
         fatalShutdownForceTimer = setTimeout(() => {
-            options.logger.error(`Fatal shutdown exceeded deadline (${FATAL_SHUTDOWN_FORCE_EXIT_DELAY_MS}ms); forcing exit`, {code: 'MAIN_SHUTDOWN_FAILED'});
+            options.logger.error(`Fatal shutdown exceeded deadline (${FATAL_SHUTDOWN_FORCE_EXIT_DELAY_MS}ms); forcing exit`, {
+                code: 'MAIN_SHUTDOWN_FAILED',
+            });
             fatalShutdownForceTimer = null;
             isQuittingAfterCleanup = true;
             options.app.exit(exitCode);
@@ -84,7 +85,10 @@ export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOpt
             return;
         }
         gracefulQuitForceTimer = setTimeout(() => {
-            options.logger.error(`Best-effort shutdown cleanup exceeded deadline (${SHUTDOWN_CLEANUP_TIMEOUT_MS + GRACEFUL_QUIT_FORCE_EXIT_DELAY_MS}ms); forcing exit`, {code: 'MAIN_SHUTDOWN_FAILED'});
+            options.logger.error(
+                `Best-effort shutdown cleanup exceeded deadline (${SHUTDOWN_CLEANUP_TIMEOUT_MS + GRACEFUL_QUIT_FORCE_EXIT_DELAY_MS}ms); forcing exit`,
+                {code: 'MAIN_SHUTDOWN_FAILED'},
+            );
             isQuittingAfterCleanup = true;
             options.app.exit(1);
         }, SHUTDOWN_CLEANUP_TIMEOUT_MS + GRACEFUL_QUIT_FORCE_EXIT_DELAY_MS);
@@ -143,11 +147,7 @@ export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOpt
         if (shutdownPromise && shutdownContext?.retryablePreservationFailure === true) {
             const pendingShutdown = shutdownPromise;
             void pendingShutdown.then(() => {
-                if (
-                    shutdownPromise !== pendingShutdown
-                    || isQuittingAfterCleanup
-                    || isFatalShutdownInProgress
-                ) {
+                if (shutdownPromise !== pendingShutdown || isQuittingAfterCleanup || isFatalShutdownInProgress) {
                     return;
                 }
                 shutdownPromise = null;
@@ -156,43 +156,50 @@ export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOpt
             return;
         }
         isGracefulQuitRequested = true;
-        const cleanupPromise = shutdownPromise ?? startShutdown({
-            preserveRecoveryState: shutdownContext?.reason === 'system-shutdown' || quitOptions?.preserveRecoveryState === true,
-            reason: shutdownContext?.reason === 'system-shutdown' ? 'system-shutdown' : quitOptions?.reason ?? 'graceful',
-        }, true);
+        const cleanupPromise =
+            shutdownPromise ??
+            startShutdown(
+                {
+                    preserveRecoveryState: shutdownContext?.reason === 'system-shutdown' || quitOptions?.preserveRecoveryState === true,
+                    reason: shutdownContext?.reason === 'system-shutdown' ? 'system-shutdown' : (quitOptions?.reason ?? 'graceful'),
+                },
+                true,
+            );
         const cleanupContext = shutdownContext;
 
-        void cleanupPromise.catch((error: unknown) => {
-            options.logger.error(`Shutdown cleanup rejected unexpectedly: ${getErrorMessage(error)}`, {
-                code: 'MAIN_SHUTDOWN_FAILED',
-                cause: error,
-            });
-        }).then(async () => {
-            clearGracefulQuitForceTimer();
-            if (isQuittingAfterCleanup || isFatalShutdownInProgress) {
-                return;
-            }
-            if (cleanupContext?.retryablePreservationFailure === true) {
-                return;
-            }
-            clearSystemShutdownForceTimer();
-            isQuittingAfterCleanup = true;
-            const afterCleanup = gracefulQuitAfterCleanup;
-            gracefulQuitAfterCleanup = null;
-            if (afterCleanup) {
-                try {
-                    await afterCleanup();
-                } catch (error) {
-                    options.logger.error(`Graceful quit post-cleanup action failed: ${getErrorMessage(error)}`, {
-                        code: 'MAIN_SHUTDOWN_FAILED',
-                        cause: error,
-                    });
-                    options.app.quit();
+        void cleanupPromise
+            .catch((error: unknown) => {
+                options.logger.error(`Shutdown cleanup rejected unexpectedly: ${getErrorMessage(error)}`, {
+                    code: 'MAIN_SHUTDOWN_FAILED',
+                    cause: error,
+                });
+            })
+            .then(async () => {
+                clearGracefulQuitForceTimer();
+                if (isQuittingAfterCleanup || isFatalShutdownInProgress) {
+                    return;
                 }
-                return;
-            }
-            options.app.quit();
-        });
+                if (cleanupContext?.retryablePreservationFailure === true) {
+                    return;
+                }
+                clearSystemShutdownForceTimer();
+                isQuittingAfterCleanup = true;
+                const afterCleanup = gracefulQuitAfterCleanup;
+                gracefulQuitAfterCleanup = null;
+                if (afterCleanup) {
+                    try {
+                        await afterCleanup();
+                    } catch (error) {
+                        options.logger.error(`Graceful quit post-cleanup action failed: ${getErrorMessage(error)}`, {
+                            code: 'MAIN_SHUTDOWN_FAILED',
+                            cause: error,
+                        });
+                        options.app.quit();
+                    }
+                    return;
+                }
+                options.app.quit();
+            });
     }
 
     return {
@@ -201,10 +208,13 @@ export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOpt
         isGracefulQuitInProgress: () => isGracefulQuitRequested && !isFatalShutdownInProgress,
         isQuittingAfterCleanup: () => isQuittingAfterCleanup,
         async performCleanup() {
-            shutdownPromise ??= startShutdown({
-                preserveRecoveryState: false,
-                reason: 'graceful',
-            }, false);
+            shutdownPromise ??= startShutdown(
+                {
+                    preserveRecoveryState: false,
+                    reason: 'graceful',
+                },
+                false,
+            );
             await shutdownPromise;
         },
         requestFatalShutdown(reason: string, exitCode = 1) {
@@ -224,10 +234,13 @@ export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOpt
             if (heldContext && shutdownPromise) {
                 shutdownPromise = shutdownPromise.then(() => performCleanup(heldContext, false));
             } else {
-                shutdownPromise ??= startShutdown({
-                    preserveRecoveryState: true,
-                    reason: 'fatal',
-                }, false);
+                shutdownPromise ??= startShutdown(
+                    {
+                        preserveRecoveryState: true,
+                        reason: 'fatal',
+                    },
+                    false,
+                );
             }
             void shutdownPromise.finally(() => {
                 clearFatalShutdownForceTimer();
@@ -261,7 +274,10 @@ export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOpt
             }
             if (!systemShutdownForceTimer) {
                 systemShutdownForceTimer = setTimeout(() => {
-                    options.logger.error(`System shutdown preservation exceeded deadline (${SYSTEM_SHUTDOWN_TIMEOUT_MS}ms); forcing exit with recovery state retained`, {code: 'MAIN_SHUTDOWN_FAILED'});
+                    options.logger.error(
+                        `System shutdown preservation exceeded deadline (${SYSTEM_SHUTDOWN_TIMEOUT_MS}ms); forcing exit with recovery state retained`,
+                        {code: 'MAIN_SHUTDOWN_FAILED'},
+                    );
                     clearGracefulQuitForceTimer();
                     systemShutdownForceTimer = null;
                     const exitCode = isFatalShutdownInProgress ? 1 : 0;

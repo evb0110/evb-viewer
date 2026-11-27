@@ -1,22 +1,9 @@
 import {readFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {gunzipSync} from 'node:zlib';
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    canReadEarlyPrint,
-    createEarlyPrintDictionary,
-    hasLongSSignature,
-    planEarlyPrintWordEdits,
-} from '@ocr-core/earlyPrintReading';
-import {
-    hocrWordText,
-    readHocrLines,
-    type IHocrLine,
-} from '@ocr-core/hocrReading';
+import {describe, expect, it} from 'vitest';
+import {canReadEarlyPrint, createEarlyPrintDictionary, hasLongSSignature, planEarlyPrintWordEdits} from '@ocr-core/earlyPrintReading';
+import {hocrWordText, readHocrLines, type IHocrLine} from '@ocr-core/hocrReading';
 import {readTraineddataWordList} from '@ocr-core/readTraineddataWordList';
 import type {IOcrWordEdit} from '@ocr-core/types';
 
@@ -27,12 +14,9 @@ function readReading(model: string) {
 }
 
 function pageText(lines: readonly IHocrLine[], edits: readonly IOcrWordEdit[] = []) {
-    const edited = new Map(edits.map(edit => [
-        edit.word,
-        edit.to,
-    ]));
+    const edited = new Map(edits.map((edit) => [edit.word, edit.to]));
     let ordinal = 0;
-    return lines.map(line => line.words.map(word => edited.get(ordinal++) ?? hocrWordText(word)).join(' ')).join('\n');
+    return lines.map((line) => line.words.map((word) => edited.get(ordinal++) ?? hocrWordText(word)).join(' ')).join('\n');
 }
 
 const words = (text: string) => text.replace(/-\n/gu, '').match(/[\p{L}&]+/gu) ?? [];
@@ -67,15 +51,20 @@ describe('early-print reading', () => {
     });
 
     it('reads the long s, æ, œ and the ct ligature as the page prints them', () => {
-        const {
-            base, ...others
-        } = readings();
-        expect(hasLongSSignature(base.flatMap(line => line.words.map(hocrWordText)))).toBe(true);
+        const {base, ...others} = readings();
+        expect(hasLongSSignature(base.flatMap((line) => line.words.map(hocrWordText)))).toBe(true);
         const before = pageText(base);
-        const after = pageText(base, planEarlyPrintWordEdits({
+        const after = pageText(
             base,
-            ...others,
-        }, dictionary, {latin: true}));
+            planEarlyPrintWordEdits(
+                {
+                    base,
+                    ...others,
+                },
+                dictionary,
+                {latin: true},
+            ),
+        );
 
         for (const word of [
             'uſque',
@@ -102,14 +91,18 @@ describe('early-print reading', () => {
     });
 
     it('keeps the page as its own model read it when the early-print model finds no long s', () => {
-        const {
-            base, ligatures,
-        } = readings();
-        expect(planEarlyPrintWordEdits({
-            base,
-            longS: base,
-            ligatures,
-        }, dictionary, {latin: true})).toEqual([]);
+        const {base, ligatures} = readings();
+        expect(
+            planEarlyPrintWordEdits(
+                {
+                    base,
+                    longS: base,
+                    ligatures,
+                },
+                dictionary,
+                {latin: true},
+            ),
+        ).toEqual([]);
     });
 
     it('sees long-s print only where f outnumbers s inside words', () => {
@@ -119,14 +112,8 @@ describe('early-print reading', () => {
 
     it('reads early print in Latin-script languages only', () => {
         expect(canReadEarlyPrint(['lat'])).toBe(true);
-        expect(canReadEarlyPrint([
-            'lat',
-            'eng',
-        ])).toBe(true);
-        expect(canReadEarlyPrint([
-            'lat',
-            'ell',
-        ])).toBe(false);
+        expect(canReadEarlyPrint(['lat', 'eng'])).toBe(true);
+        expect(canReadEarlyPrint(['lat', 'ell'])).toBe(false);
         expect(canReadEarlyPrint([])).toBe(false);
     });
 });

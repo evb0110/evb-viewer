@@ -1,19 +1,11 @@
-import type { ChildProcessByStdio } from 'child_process';
-import {
-    basename,
-    isAbsolute,
-} from 'node:path';
-import {
-    createManagedScratchTempDir,
-    removeManagedScratchTempDir,
-} from '@electron/utils/managedScratchTemp';
-import { isProcessTreeAlive } from '@electron/utils/processTree';
-import { getAppTempNamespacePathForNamespace } from '@node-runtime/appTempNamespace';
-import { StringDecoder } from 'string_decoder';
-import {
-    Readable, type Writable,
-} from 'stream';
-import { pipeline } from 'stream/promises';
+import type {ChildProcessByStdio} from 'child_process';
+import {basename, isAbsolute} from 'node:path';
+import {createManagedScratchTempDir, removeManagedScratchTempDir} from '@electron/utils/managedScratchTemp';
+import {isProcessTreeAlive} from '@electron/utils/processTree';
+import {getAppTempNamespacePathForNamespace} from '@node-runtime/appTempNamespace';
+import {StringDecoder} from 'string_decoder';
+import {Readable, type Writable} from 'stream';
+import {pipeline} from 'stream/promises';
 import {
     formatArgForLog,
     formatCommandFailureMessage,
@@ -22,33 +14,21 @@ import {
     type IProcessResult,
     type TProcessLog,
 } from '@electron/native-tools/processResult';
-import { abortErrorFromSignal } from '@electron/utils/abort';
-import {
-    getCommandDirectory,
-    prependDirectoryToPath,
-} from '@electron/native-tools/toolRegistry';
-import { getErrorMessage } from '@electron/utils/error';
-import { createTextChunkAccumulator } from '@electron/native-tools/createTextChunkAccumulator';
+import {abortErrorFromSignal} from '@electron/utils/abort';
+import {getCommandDirectory, prependDirectoryToPath} from '@electron/native-tools/toolRegistry';
+import {getErrorMessage} from '@electron/utils/error';
+import {createTextChunkAccumulator} from '@electron/native-tools/createTextChunkAccumulator';
 import {runtimeConfig} from '@electron/runtimeConfig';
-import {
-    registerManagedProcess,
-    type IManagedProcessRegistration,
-} from '@electron/native-tools/managedProcessRegistry';
+import {registerManagedProcess, type IManagedProcessRegistration} from '@electron/native-tools/managedProcessRegistry';
 import {
     getNativeChildProcessTerminationProof,
     spawnNativeChildProcess,
     terminateDetachedChildProcess,
 } from '@electron/utils/nativeChildProcess';
-import { markUnprovenNativeTermination } from '@electron/utils/nativeTerminationProof';
-import { createLogger } from '@electron/utils/createLogger';
-import {
-    isNativeErrorEnvelope,
-    type TNativeErrorCode,
-} from '@contracts/nativeErrors';
-import {
-    getNativeCommandMemoryLimitBytes,
-    POPPLER_MEMORY_LIMIT_BYTES,
-} from '@electron/native-tools/popplerMemoryLimit';
+import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
+import {createLogger} from '@electron/utils/createLogger';
+import {isNativeErrorEnvelope, type TNativeErrorCode} from '@contracts/nativeErrors';
+import {getNativeCommandMemoryLimitBytes, POPPLER_MEMORY_LIMIT_BYTES} from '@electron/native-tools/popplerMemoryLimit';
 import {
     PDF_IMAGE_COMBINE_BINARY,
     PDF_IMAGE_COMBINE_THREADS_ENV,
@@ -64,14 +44,8 @@ import {
     type IJobResourceVector,
     type TTerminationProofSink,
 } from '@electron/resources/jobBroker';
-import {
-    cancelDesktopPageOpsWasmGroup,
-    cancelDesktopPageOpsWasmGroupAndWait,
-} from '@electron/native-tools/pdfPageOpsWorkerClient';
-import {
-    cancelDesktopQpdfWasmGroup,
-    cancelDesktopQpdfWasmGroupAndWait,
-} from '@electron/native-tools/qpdfWasmWorkerClient';
+import {cancelDesktopPageOpsWasmGroup, cancelDesktopPageOpsWasmGroupAndWait} from '@electron/native-tools/pdfPageOpsWorkerClient';
+import {cancelDesktopQpdfWasmGroup, cancelDesktopQpdfWasmGroupAndWait} from '@electron/native-tools/qpdfWasmWorkerClient';
 
 export interface IRunCommandOptions {
     cwd?: string;
@@ -131,7 +105,9 @@ const NATIVE_COMMAND_RESOURCES: Readonly<IJobResourceVector> = {
 };
 
 function getCommandBinaryName(command: string) {
-    return basename(command).toLowerCase().replace(/\.exe$/u, '');
+    return basename(command)
+        .toLowerCase()
+        .replace(/\.exe$/u, '');
 }
 
 /**
@@ -145,10 +121,10 @@ function withLeaseCommandEnv(
     lease: Pick<IJobBrokerLease, 'resources'> | undefined,
 ): IRunCommandOptions {
     if (
-        lease === undefined
-        || getCommandBinaryName(command) !== PDF_IMAGE_COMBINE_BINARY
-        || options.env?.[PDF_IMAGE_COMBINE_THREADS_ENV] !== undefined
-        || ((options.includeProcessEnv ?? true) && process.env[PDF_IMAGE_COMBINE_THREADS_ENV] !== undefined)
+        lease === undefined ||
+        getCommandBinaryName(command) !== PDF_IMAGE_COMBINE_BINARY ||
+        options.env?.[PDF_IMAGE_COMBINE_THREADS_ENV] !== undefined ||
+        ((options.includeProcessEnv ?? true) && process.env[PDF_IMAGE_COMBINE_THREADS_ENV] !== undefined)
     ) {
         return options;
     }
@@ -184,34 +160,32 @@ async function runNativeCommandUnderLease(
     }
     let admitted = false;
     try {
-        return await broker.run({
-            ownerId: `native-command:${options.cancelGroup ?? getCommandBinaryName(command)}`,
-            kind: 'native-command',
-            priority: 'user',
-            admissionClass: 'leaf',
-            resources: {
-                ...NATIVE_COMMAND_RESOURCES,
-                ...(isImageCombine
-                    ? {estimatedResidentBytes: resolvePdfImageCombineResidentBytes(broker.getSnapshot().capacity)}
-                    : {}),
-            },
-            ...(signal === undefined ? {} : {signal}),
-        }, ({
-            lease,
-            onTerminationProof,
-        }) => {
-            admitted = true;
-            return runNativeCommandCore(command, args, {
-                ...withLeaseCommandEnv(command, options, lease),
-                onTerminationProof: (proof) => {
-                    try {
-                        onTerminationProof(proof);
-                    } finally {
-                        options.onTerminationProof?.(proof);
-                    }
+        return await broker.run(
+            {
+                ownerId: `native-command:${options.cancelGroup ?? getCommandBinaryName(command)}`,
+                kind: 'native-command',
+                priority: 'user',
+                admissionClass: 'leaf',
+                resources: {
+                    ...NATIVE_COMMAND_RESOURCES,
+                    ...(isImageCombine ? {estimatedResidentBytes: resolvePdfImageCombineResidentBytes(broker.getSnapshot().capacity)} : {}),
                 },
-            });
-        });
+                ...(signal === undefined ? {} : {signal}),
+            },
+            ({lease, onTerminationProof}) => {
+                admitted = true;
+                return runNativeCommandCore(command, args, {
+                    ...withLeaseCommandEnv(command, options, lease),
+                    onTerminationProof: (proof) => {
+                        try {
+                            onTerminationProof(proof);
+                        } finally {
+                            options.onTerminationProof?.(proof);
+                        }
+                    },
+                });
+            },
+        );
     } catch (error) {
         throw !admitted && signal?.aborted ? abortErrorFromSignal(signal) : error;
     }
@@ -232,7 +206,10 @@ interface ICommandRunContext {
 }
 
 class NativeToolError extends Error {
-    constructor(readonly code: TNativeErrorCode, message: string) {
+    constructor(
+        readonly code: TNativeErrorCode,
+        message: string,
+    ) {
         super(message);
         this.name = 'NativeToolError';
     }
@@ -245,9 +222,7 @@ function parseNativeErrorEnvelope(stderr: string): NativeToolError | null {
     }
     try {
         const value: unknown = JSON.parse(line);
-        return isNativeErrorEnvelope(value)
-            ? new NativeToolError(value.code, value.message)
-            : null;
+        return isNativeErrorEnvelope(value) ? new NativeToolError(value.code, value.message) : null;
     } catch {
         // Only the last line is trusted: the tool writes its envelope last, and
         // scanning earlier lines let document content that happens to be a valid
@@ -257,26 +232,19 @@ function parseNativeErrorEnvelope(stderr: string): NativeToolError | null {
 }
 
 function createCommandRunContext(command: string, args: string[], options: IRunCommandOptions): ICommandRunContext {
-    const {
-        cwd,
-        env,
-        commandLabel,
-        defaultCwdToCommandDir = false,
-        prependCommandDirToPath = false,
-        includeProcessEnv = true,
-    } = options;
+    const {cwd, env, commandLabel, defaultCwdToCommandDir = false, prependCommandDirToPath = false, includeProcessEnv = true} = options;
     const commandDir = getCommandDirectory(command);
-    const effectiveCwd = cwd ?? (defaultCwdToCommandDir ? commandDir ?? undefined : undefined);
-    const baseEnv: NodeJS.ProcessEnv = includeProcessEnv ? { ...process.env } : {};
+    const effectiveCwd = cwd ?? (defaultCwdToCommandDir ? (commandDir ?? undefined) : undefined);
+    const baseEnv: NodeJS.ProcessEnv = includeProcessEnv ? {...process.env} : {};
     const mergedEnv = env
         ? {
-            ...baseEnv,
-            ...env,
-        }
-        : (includeProcessEnv ? process.env : undefined);
-    const effectiveEnv = commandDir && prependCommandDirToPath && mergedEnv
-        ? prependDirectoryToPath(commandDir, mergedEnv)
-        : mergedEnv;
+              ...baseEnv,
+              ...env,
+          }
+        : includeProcessEnv
+          ? process.env
+          : undefined;
+    const effectiveEnv = commandDir && prependCommandDirToPath && mergedEnv ? prependDirectoryToPath(commandDir, mergedEnv) : mergedEnv;
     return {
         effectiveCwd,
         effectiveEnv,
@@ -324,18 +292,14 @@ function spawnNativeProcess(
         ...(memoryLimitBytes === undefined
             ? {}
             : {
-                memoryLimitBytes,
-                onMemoryLimitExceeded,
-            }),
+                  memoryLimitBytes,
+                  onMemoryLimitExceeded,
+              }),
     };
     return spawnNativeChildProcess(command, args, {
         shell: false,
         windowsHide,
-        stdio: [
-            pipeStdin ? 'pipe' : 'ignore',
-            'pipe',
-            'pipe',
-        ],
+        stdio: [pipeStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'],
         ...location,
     });
 }
@@ -344,47 +308,37 @@ function spawnNativeProcess(
 // sent. A rejected or non-affirmative termination is treated as "still alive"
 // because that is the only assumption that cannot lose a user's file.
 async function terminateNativeProcessBestEffort(proc: TNativeProcess, graceMs: number) {
-    return await terminateDetachedChildProcess(proc, graceMs) === true;
+    return (await terminateDetachedChildProcess(proc, graceMs)) === true;
 }
 
 function getTruncatedOutputMessage(label: 'stdout' | 'stderr', truncated: boolean, maxBytes: number, text: string) {
-    return truncated
-        ? `[${label} truncated to ${maxBytes} bytes]\n${text}`
-        : text;
+    return truncated ? `[${label} truncated to ${maxBytes} bytes]\n${text}` : text;
 }
 
 function resolveNativeCommandAdmission(options: IRunCommandOptions) {
     const configuredBroker = getConfiguredMainJobBroker();
     const heldLease = getActiveJobBrokerLease(options.brokerRun, configuredBroker ?? undefined);
-    const callerTerminationProof = heldLease === undefined
-        ? options.onTerminationProof
-        : mergeTerminationProofSinks(
-            options.brokerRun?.onTerminationProof,
-            options.onTerminationProof,
-        );
+    const callerTerminationProof =
+        heldLease === undefined
+            ? options.onTerminationProof
+            : mergeTerminationProofSinks(options.brokerRun?.onTerminationProof, options.onTerminationProof);
     return {
         heldLease,
         callerTerminationProof,
     };
 }
 
-export async function runNativeCommand(
-    command: string,
-    args: string[],
-    options: IRunCommandOptions = {},
-): Promise<IProcessResult> {
+export async function runNativeCommand(command: string, args: string[], options: IRunCommandOptions = {}): Promise<IProcessResult> {
     const appTempNamespace = runtimeConfig.appTempNamespace;
     if (!appTempNamespace || !/^[a-z\d][a-z\d-]{0,63}$/u.test(appTempNamespace) || !isAbsolute(command)) {
-        const {
-            heldLease,
-            callerTerminationProof,
-        } = resolveNativeCommandAdmission(options);
-        const effectiveOptions = callerTerminationProof === options.onTerminationProof
-            ? options
-            : {
-                ...options,
-                ...(callerTerminationProof === undefined ? {} : {onTerminationProof: callerTerminationProof}),
-            };
+        const {heldLease, callerTerminationProof} = resolveNativeCommandAdmission(options);
+        const effectiveOptions =
+            callerTerminationProof === options.onTerminationProof
+                ? options
+                : {
+                      ...options,
+                      ...(callerTerminationProof === undefined ? {} : {onTerminationProof: callerTerminationProof}),
+                  };
         return runNativeCommandUnderLease(command, args, effectiveOptions, heldLease);
     }
     const namespacePath = getAppTempNamespacePathForNamespace(appTempNamespace);
@@ -392,10 +346,7 @@ export async function runNativeCommand(
     // Revalidate the caller's lease after scratch-dir creation so a lease that
     // ended or became retained while awaiting disk I/O falls back to a fresh
     // leaf lease without routing the new child's proof to the rejected lease.
-    const {
-        heldLease,
-        callerTerminationProof,
-    } = resolveNativeCommandAdmission(options);
+    const {heldLease, callerTerminationProof} = resolveNativeCommandAdmission(options);
     const manifestIndex = args.indexOf('--manifest');
     const manifestPath = manifestIndex < 0 ? undefined : args[manifestIndex + 1];
     let registration: Promise<IManagedProcessRegistration | null> | null = null;
@@ -406,19 +357,27 @@ export async function runNativeCommand(
     let unregistration: Promise<void> | null = null;
     const settledRegistration = () => registration ?? Promise.resolve(null);
     const unregister = () => {
-        if (registration === null) {return Promise.resolve();}
-        unregistration ??= registration.then(child => child?.unregister()).then(() => undefined, (error: unknown) => options.log?.('warn', `Could not remove a managed process record: ${getErrorMessage(error)}`));
+        if (registration === null) {
+            return Promise.resolve();
+        }
+        unregistration ??= registration
+            .then((child) => child?.unregister())
+            .then(
+                () => undefined,
+                (error: unknown) => options.log?.('warn', `Could not remove a managed process record: ${getErrorMessage(error)}`),
+            );
         return unregistration;
     };
     let scratchCleanup: Promise<void> | null = null;
     const cleanupScratchIfProven = () => {
         scratchCleanup ??= (async () => {
-            const processTreeGone = terminationProof !== null
-                ? await terminationProof
-                : processId === null || (childClosed && !isProcessTreeAlive(processId));
-            if (!processTreeGone) {return;}
+            const processTreeGone =
+                terminationProof !== null ? await terminationProof : processId === null || (childClosed && !isProcessTreeAlive(processId));
+            if (!processTreeGone) {
+                return;
+            }
             try {
-                if (!await removeManagedScratchTempDir(scratchPath, NATIVE_COMMAND_SCRATCH_PREFIX, namespacePath)) {
+                if (!(await removeManagedScratchTempDir(scratchPath, NATIVE_COMMAND_SCRATCH_PREFIX, namespacePath))) {
                     options.log?.('warn', `Could not remove managed native scratch directory "${scratchPath}"`);
                     return;
                 }
@@ -430,46 +389,53 @@ export async function runNativeCommand(
         return scratchCleanup;
     };
     try {
-        const result = await runNativeCommandUnderLease(command, args, {
-            ...options,
-            env: {
-                ...options.env,
-                TMPDIR: scratchPath,
-                TMP: scratchPath,
-                TEMP: scratchPath,
+        const result = await runNativeCommandUnderLease(
+            command,
+            args,
+            {
+                ...options,
+                env: {
+                    ...options.env,
+                    TMPDIR: scratchPath,
+                    TMP: scratchPath,
+                    TEMP: scratchPath,
+                },
+                onSpawn: (pid, hasExited, binaryPath) => {
+                    processId = pid;
+                    registration = registerManagedProcess(namespacePath, {
+                        pid,
+                        hasExited,
+                        binaryPath: binaryPath ?? command,
+                        ...(manifestPath === undefined ? {} : {manifestPath}),
+                        scratchPath,
+                    }).catch((error) => {
+                        options.log?.('warn', `Could not record managed process pid ${String(pid)}: ${getErrorMessage(error)}`);
+                        return null;
+                    });
+                    options.onSpawn?.(pid, hasExited);
+                },
+                onClose: () => {
+                    childClosed = true;
+                    // A close can precede recording an abnormal Windows tree outcome.
+                    if (terminationProof !== null) {
+                        void cleanupScratchIfProven();
+                    }
+                    options.onClose?.();
+                },
+                onTerminationProof: (proof) => {
+                    terminationProof = proof;
+                    void proof.then(() => {
+                        terminationProofSettled = true;
+                    });
+                    try {
+                        callerTerminationProof?.(proof);
+                    } finally {
+                        void cleanupScratchIfProven();
+                    }
+                },
             },
-            onSpawn: (pid, hasExited, binaryPath) => {
-                processId = pid;
-                registration = registerManagedProcess(namespacePath, {
-                    pid,
-                    hasExited,
-                    binaryPath: binaryPath ?? command,
-                    ...(manifestPath === undefined ? {} : {manifestPath}),
-                    scratchPath,
-                }).catch(error => {
-                    options.log?.('warn', `Could not record managed process pid ${String(pid)}: ${getErrorMessage(error)}`);
-                    return null;
-                });
-                options.onSpawn?.(pid, hasExited);
-            },
-            onClose: () => {
-                childClosed = true;
-                // A close can precede recording an abnormal Windows tree outcome.
-                if (terminationProof !== null) {void cleanupScratchIfProven();}
-                options.onClose?.();
-            },
-            onTerminationProof: proof => {
-                terminationProof = proof;
-                void proof.then(() => {
-                    terminationProofSettled = true;
-                });
-                try {
-                    callerTerminationProof?.(proof);
-                } finally {
-                    void cleanupScratchIfProven();
-                }
-            },
-        }, heldLease);
+            heldLease,
+        );
         await cleanupScratchIfProven();
         // Registering the child reads its identity through a short-lived
         // probe process. The command settles only after that probe has, or a
@@ -485,11 +451,7 @@ export async function runNativeCommand(
     }
 }
 
-function runNativeCommandCore(
-    command: string,
-    args: string[],
-    options: IRunCommandOptions,
-): Promise<IProcessResult> {
+function runNativeCommandCore(command: string, args: string[], options: IRunCommandOptions): Promise<IProcessResult> {
     const {
         cwd,
         env,
@@ -564,7 +526,9 @@ function runNativeCommandCore(
         let closeCallbackCalled = false;
         const ignoreLateProcessError = () => undefined;
         const notifyClose = () => {
-            if (closeCallbackCalled) {return;}
+            if (closeCallbackCalled) {
+                return;
+            }
             closeCallbackCalled = true;
             try {
                 onClose?.();
@@ -614,11 +578,12 @@ function runNativeCommandCore(
         // evidence the child died. Whichever path settles first records what it
         // actually knows, so a caller that owns files the child was reading can
         // tell "stopped" from "gave up waiting".
-        const markTerminationUnproven = (error: Error) => markUnprovenNativeTermination(
-            error,
-            `${context.displayName} process tree (pid=${String(proc?.pid)}) was not proven dead within `
-            + `${terminationGraceMs + 2_000}ms of termination; its inputs may still be open`,
-        );
+        const markTerminationUnproven = (error: Error) =>
+            markUnprovenNativeTermination(
+                error,
+                `${context.displayName} process tree (pid=${String(proc?.pid)}) was not proven dead within ` +
+                    `${terminationGraceMs + 2_000}ms of termination; its inputs may still be open`,
+            );
 
         const recordTerminationProof = (proof: Promise<boolean>) => {
             terminationPromise = proof;
@@ -642,20 +607,19 @@ function runNativeCommandCore(
             }
 
             cleanupProcessOutput(targetProc, true);
-            void recordTerminationProof(Promise.resolve().then(() => (
-                terminateNativeProcessBestEffort(targetProc, terminationGraceMs)
-            )).then(
-                terminated => terminated,
-                () => false,
-            )).then((terminated) => {
+            void recordTerminationProof(
+                Promise.resolve()
+                    .then(() => terminateNativeProcessBestEffort(targetProc, terminationGraceMs))
+                    .then(
+                        (terminated) => terminated,
+                        () => false,
+                    ),
+            ).then((terminated) => {
                 if (pendingTerminationError !== error) {
                     return;
                 }
                 if (!terminated) {
-                    log?.(
-                        'warn',
-                        `${context.displayName} did not confirm process-tree termination; cmd=${context.displayCommand}`,
-                    );
+                    log?.('warn', `${context.displayName} did not confirm process-tree termination; cmd=${context.displayCommand}`);
                     finalizeReject(markTerminationUnproven(error));
                     return;
                 }
@@ -730,7 +694,7 @@ function runNativeCommandCore(
             abortHandler = () => {
                 requestTermination(abortErrorFromSignal(signal));
             };
-            signal.addEventListener('abort', abortHandler, { once: true });
+            signal.addEventListener('abort', abortHandler, {once: true});
         }
         if (cancelGroup) {
             cancelGroupHandler = () => {
@@ -745,18 +709,11 @@ function runNativeCommandCore(
         }
 
         try {
-            proc = spawnNativeProcess(
-                command,
-                args,
-                context,
-                windowsHide,
-                stdin !== undefined,
-                (bytes) => {
-                    const message = `${context.displayName} stopped after using more than ${POPPLER_MEMORY_LIMIT_BYTES / 1024 ** 3} GiB of memory`;
-                    log?.('error', `${message} (${bytes} bytes); cmd=${context.displayCommand}`);
-                    requestTermination(new Error(message));
-                },
-            );
+            proc = spawnNativeProcess(command, args, context, windowsHide, stdin !== undefined, (bytes) => {
+                const message = `${context.displayName} stopped after using more than ${POPPLER_MEMORY_LIMIT_BYTES / 1024 ** 3} GiB of memory`;
+                log?.('error', `${message} (${bytes} bytes); cmd=${context.displayCommand}`);
+                requestTermination(new Error(message));
+            });
             processAdmitted = true;
             activeNativeProcessCount += 1;
         } catch (error) {
@@ -779,9 +736,7 @@ function runNativeCommandCore(
                 // attached. Keep late child errors from becoming uncaught
                 // exceptions while the failed spawn hook is being cleaned up.
                 proc.on('error', ignoreLateProcessError);
-                requestTermination(new Error(
-                    `${context.displayName} spawn handler failed: ${getErrorMessage(error)}`,
-                ));
+                requestTermination(new Error(`${context.displayName} spawn handler failed: ${getErrorMessage(error)}`));
                 return;
             }
         }
@@ -798,7 +753,9 @@ function runNativeCommandCore(
                 // The output captured before the deadline, within the byte caps,
                 // travels on the plain timeout error so classification is unchanged.
                 const {stdout, stderr} = output.snapshot();
-                requestTermination(Object.assign(new Error(`${context.displayName} timed out after ${timeoutMs}ms${idle}`), {stdout, stderr}));
+                requestTermination(
+                    Object.assign(new Error(`${context.displayName} timed out after ${timeoutMs}ms${idle}`), {stdout, stderr}),
+                );
             }, timeoutMs);
         }
         const appendDecodedStdout = (text: string) => {
@@ -808,9 +765,7 @@ function runNativeCommandCore(
             try {
                 onStdout?.(text);
             } catch (error) {
-                requestTermination(new Error(
-                    `${context.displayName} stdout handler failed: ${getErrorMessage(error)}`,
-                ));
+                requestTermination(new Error(`${context.displayName} stdout handler failed: ${getErrorMessage(error)}`));
             }
         };
         const appendDecodedStderr = (text: string) => {
@@ -820,9 +775,7 @@ function runNativeCommandCore(
             try {
                 onStderr?.(text);
             } catch (error) {
-                requestTermination(new Error(
-                    `${context.displayName} stderr handler failed: ${getErrorMessage(error)}`,
-                ));
+                requestTermination(new Error(`${context.displayName} stderr handler failed: ${getErrorMessage(error)}`));
             }
         };
         // The raw chunk goes to the capture and the decoder separately, rather
@@ -869,7 +822,7 @@ function runNativeCommandCore(
                 const jobProof = getNativeChildProcessTerminationProof(proc);
                 if (!pendingTerminationError && jobProof) {
                     void recordTerminationProof(jobProof);
-                    if (!await jobProof) {
+                    if (!(await jobProof)) {
                         const supervisorLabel = process.platform === 'win32' ? 'Windows job' : 'supervised process';
                         requestTermination(new Error(`${context.displayName} ${supervisorLabel} exit was not proven`));
                         return;
@@ -907,8 +860,11 @@ function runNativeCommandCore(
                     if (!closeSignal) {
                         const structuredError = parseNativeErrorEnvelope(outputSnapshot.stderr);
                         if (structuredError) {
-                            if (process.platform === 'win32') {requestTermination(structuredError);}
-                            else {finalizeReject(structuredError);}
+                            if (process.platform === 'win32') {
+                                requestTermination(structuredError);
+                            } else {
+                                finalizeReject(structuredError);
+                            }
                             return;
                         }
                     }
@@ -930,8 +886,11 @@ function runNativeCommandCore(
                         outputSnapshot.stdout,
                         outputSnapshot.stderr,
                     );
-                    if (process.platform === 'win32') {requestTermination(error);}
-                    else {finalizeReject(error);}
+                    if (process.platform === 'win32') {
+                        requestTermination(error);
+                    } else {
+                        finalizeReject(error);
+                    }
                     return;
                 }
                 if (rejectOnStdoutTruncation && outputSnapshot.stdoutTruncated) {
@@ -1016,10 +975,7 @@ export async function cancelNativeCommandGroupAndWait(cancelGroup: string) {
     const wasmPromise = Promise.all([
         cancelDesktopPageOpsWasmGroupAndWait(cancelGroup),
         cancelDesktopQpdfWasmGroupAndWait(cancelGroup),
-    ]).then(([
-        pageOpsSettled,
-        qpdfSettled,
-    ]) => {
+    ]).then(([pageOpsSettled, qpdfSettled]) => {
         if (pageOpsSettled === null && qpdfSettled === null) {
             return null;
         }
@@ -1033,12 +989,9 @@ export async function cancelNativeCommandGroupAndWait(cancelGroup: string) {
     for (const handler of Array.from(handlers)) {
         handler();
     }
-    const [
-        wasmSettled,
-        nativeResults,
-    ] = await Promise.all([
+    const [wasmSettled, nativeResults] = await Promise.all([
         wasmPromise,
-        Promise.all(Array.from(completions, completion => completion())),
+        Promise.all(Array.from(completions, (completion) => completion())),
     ]);
     const nativeSettled = nativeResults.every(Boolean);
     return wasmSettled !== null ? wasmSettled && nativeSettled : nativeSettled;

@@ -1,11 +1,5 @@
 import {PDF_LOSSLESS_OPTIMIZE_MIN_BYTES} from '@pdf-core/pdfConformanceHelpers';
-function integer(
-    raw: string | undefined,
-    fallback: number,
-    minimum: number,
-    maximum?: number,
-    clampMaximum = true,
-) {
+function integer(raw: string | undefined, fallback: number, minimum: number, maximum?: number, clampMaximum = true) {
     if (!raw) {
         return fallback;
     }
@@ -28,19 +22,24 @@ export const runtimeConfig = {
     get allowMultipleAutomationSessions() {
         return boolean(process.env.EVB_ALLOW_MULTI_AUTOMATION_SESSIONS);
     },
-    get appTempNamespace() { // unset; per-process namespace shared with workers and child tools
+    get appTempNamespace() {
+        // unset; per-process namespace shared with workers and child tools
         return process.env.EVB_APP_TEMP_NAMESPACE?.trim().toLowerCase();
     },
-    get automationBootstrapDevProfile() { // false; seed one isolated automation profile from dev recents
+    get automationBootstrapDevProfile() {
+        // false; seed one isolated automation profile from dev recents
         return boolean(process.env.EVB_AUTOMATION_BOOTSTRAP_DEV_PROFILE);
     },
-    get automationEnableRendererFileOpenHelper() { // false; expose the renderer harness hooks (file open, update status, menu items)
+    get automationEnableRendererFileOpenHelper() {
+        // false; expose the renderer harness hooks (file open, update status, menu items)
         return boolean(process.env.EVB_ENABLE_RENDERER_FILE_OPEN_HELPER);
     },
-    get automationRendererHooksEnabled() { // false; only an isolated automation session that asked for the renderer harness hooks
+    get automationRendererHooksEnabled() {
+        // false; only an isolated automation session that asked for the renderer harness hooks
         return Boolean(this.automationUserDataDir && this.automationSessionName && this.automationEnableRendererFileOpenHelper);
     },
-    get automationHideWindow() { // follows no-focus when unset; keep hidden automation renderers active
+    get automationHideWindow() {
+        // follows no-focus when unset; keep hidden automation renderers active
         return boolean(process.env.EVB_AUTOMATION_HIDE_WINDOW, this.automationNoFocus);
     },
     get automationNoFocus() {
@@ -55,41 +54,52 @@ export const runtimeConfig = {
     get automationWaitRendererReady() {
         return boolean(process.env.EVB_WAIT_RENDERER_READY);
     },
-    get buildGitSha() { // empty; embed the source revision in diagnostics when the build supplies it
+    get buildGitSha() {
+        // empty; embed the source revision in diagnostics when the build supplies it
         return process.env.EVB_BUILD_GIT_SHA?.trim() ?? '';
     },
-    get builtRenderer() { // false; serve the generated renderer in an unpackaged run
+    get builtRenderer() {
+        // false; serve the generated renderer in an unpackaged run
         return boolean(process.env.EVB_BUILT_RENDERER);
     },
-    get fileLogDir() { // unset; use the per-user Electron logs directory
+    get fileLogDir() {
+        // unset; use the per-user Electron logs directory
         return process.env.EVB_FILE_LOG_DIR?.trim();
     },
-    get logStdout() { // disabled; enable NDJSON mirroring only when requested by the launcher
+    get logStdout() {
+        // disabled; enable NDJSON mirroring only when requested by the launcher
         return process.env.EVB_LOG_STDOUT === 'ndjson';
     },
-    get logStdoutLevel() { // info; set the minimum level for launcher NDJSON output
+    get logStdoutLevel() {
+        // info; set the minimum level for launcher NDJSON output
         return process.env.EVB_LOG_STDOUT_LEVEL;
     },
     mcpPort(isPackaged: boolean) {
         return integer(process.env.EVB_MCP_PORT, isPackaged ? 38671 : 38672, 1, 65535, false);
     },
-    get mcpToken() { // unset; use the configured token before generating a profile token
+    get mcpToken() {
+        // unset; use the configured token before generating a profile token
         return process.env.EVB_MCP_TOKEN?.trim();
     },
-    get ocrModelDownloadConcurrency() { // 0 means tier default (1 low, 3 otherwise); bound simultaneous model downloads
+    get ocrModelDownloadConcurrency() {
+        // 0 means tier default (1 low, 3 otherwise); bound simultaneous model downloads
         const raw = process.env.EVB_OCR_MODEL_DOWNLOAD_CONCURRENCY;
         return raw === undefined ? 0 : integer(raw, 0, 1, 8);
     },
-    get pdfImageCombinePath() { // unset; let native tool discovery choose the image combiner
+    get pdfImageCombinePath() {
+        // unset; let native tool discovery choose the image combiner
         return process.env.EVB_PDF_IMAGE_COMBINE_PATH?.trim();
     },
-    get pdfPageOpsPath() { // unset; let native tool discovery choose the page operations tool
+    get pdfPageOpsPath() {
+        // unset; let native tool discovery choose the page operations tool
         return process.env.EVB_PDF_PAGE_OPS_PATH?.trim();
     },
-    get scanCleanupPath() { // unset; let native tool discovery choose scan cleanup
+    get scanCleanupPath() {
+        // unset; let native tool discovery choose scan cleanup
         return process.env.EVB_SCAN_CLEANUP_PATH?.trim();
     },
-    get serverPath() { // /electron; route the development renderer request
+    get serverPath() {
+        // /electron; route the development renderer request
         return process.env.EVB_SERVER_PATH;
     },
     get serverPort() {
@@ -100,22 +110,28 @@ export const runtimeConfig = {
     },
     get test() {
         return {
-            get e2eOpenDialogPath() { // unset; answer the native open dialog in automation
+            get e2eOpenDialogPath() {
+                // unset; answer the native open dialog in automation
                 return process.env.EVB_E2E_OPEN_DIALOG_PATH?.trim();
             },
-            get e2eOpenImagePath() { // unset; provide the image opened by the stamp-picker E2E
+            get e2eOpenImagePath() {
+                // unset; provide the image opened by the stamp-picker E2E
                 return process.env.EVB_E2E_OPEN_IMAGE_PATH?.trim();
             },
-            get e2eSaveDialogPath() { // unset; answer the native save dialog in automation
+            get e2eSaveDialogPath() {
+                // unset; answer the native save dialog in automation
                 return process.env.EVB_E2E_SAVE_DIALOG_PATH?.trim();
             },
-            get holdDjvuOpenMs() { // 0; pause unpackaged DjVu open probes in cancellation tests
+            get holdDjvuOpenMs() {
+                // 0; pause unpackaged DjVu open probes in cancellation tests
                 return integer(process.env.EVB_E2E_HOLD_DJVU_OPEN_MS, 0, 0, 60_000);
             },
-            get issue124Acceptance() { // false; enable the selected-page print cancellation test hook
+            get issue124Acceptance() {
+                // false; enable the selected-page print cancellation test hook
                 return boolean(process.env.EVB_E2E_ISSUE_124_ACCEPTANCE);
             },
-            get largePdfSaveOptimizeMinBytes() { // 64 MiB; let the save benchmark exercise optimization with its small fixture
+            get largePdfSaveOptimizeMinBytes() {
+                // 64 MiB; let the save benchmark exercise optimization with its small fixture
                 return integer(
                     process.env.EVB_LARGE_PDF_SAVE_OPTIMIZE_MIN_BYTES,
                     PDF_LOSSLESS_OPTIMIZE_MIN_BYTES,
@@ -133,19 +149,22 @@ export const runtimeConfig = {
             get nativeTiffCombineEnabled() {
                 return boolean(process.env.EVB_TIFF_COMBINE_NATIVE_ENABLE);
             },
-            get nativeToolAllowPackagedDiagnosticPaths() { // false; allow release verification to use a diagnostic native tool
+            get nativeToolAllowPackagedDiagnosticPaths() {
+                // false; allow release verification to use a diagnostic native tool
                 return boolean(process.env.EVB_NATIVE_TOOL_ALLOW_PACKAGED_DIAGNOSTIC_PATHS);
             },
             get performanceMode() {
                 return process.env.EVB_TEST_PERFORMANCE_MODE;
             },
-            get printDialogMode() { // unset; replace the native print dialog in E2E
+            get printDialogMode() {
+                // unset; replace the native print dialog in E2E
                 return process.env.EVB_PRINT_DIALOG_TEST_MODE;
             },
             get printDialogOutputPath() {
                 return process.env.EVB_PRINT_DIALOG_TEST_OUTPUT_PATH;
             },
-            get scanCleanupEvidenceDirectory() { // unset; preserve scan cleanup evidence for release diagnostics
+            get scanCleanupEvidenceDirectory() {
+                // unset; preserve scan cleanup evidence for release diagnostics
                 return process.env.EVB_SCAN_CLEANUP_EVIDENCE_DIR?.trim();
             },
         };

@@ -1,7 +1,7 @@
-import { uniq } from 'es-toolkit/array';
-import { range as createRange } from 'es-toolkit/math';
-import type { IPdfPageRange } from '@app/types/pdfUi';
-import type { TPageSelection } from '@pdf-core/pdfPageSelection';
+import {uniq} from 'es-toolkit/array';
+import {range as createRange} from 'es-toolkit/math';
+import type {IPdfPageRange} from '@app/types/pdfUi';
+import type {TPageSelection} from '@pdf-core/pdfPageSelection';
 import {
     createExplicitPageSelection as createCompactExplicitPageSelection,
     createRangePageSelection as createCompactRangePageSelection,
@@ -65,11 +65,7 @@ export function shouldSelectPageFromThumbnailClick(modifiers: IPageThumbnailClic
     return modifiers.shiftKey === true || modifiers.metaKey === true || modifiers.ctrlKey === true;
 }
 
-export function resolveThumbnailContextMenuPages(
-    page: number,
-    selectedPages: number[],
-    totalPages: number,
-) {
+export function resolveThumbnailContextMenuPages(page: number, selectedPages: number[], totalPages: number) {
     const normalizedSelection = normalizeSelectedPageNumbers(selectedPages, totalPages);
     if (normalizedSelection.includes(page)) {
         return normalizedSelection;
@@ -78,11 +74,7 @@ export function resolveThumbnailContextMenuPages(
     return normalizeSelectedPageNumbers([page], totalPages);
 }
 
-export function resolveThumbnailContextMenuSelection(
-    page: number,
-    selection: TPageSelection,
-    totalPages: number,
-): TPageSelection {
+export function resolveThumbnailContextMenuSelection(page: number, selection: TPageSelection, totalPages: number): TPageSelection {
     if (selection.pageCount === totalPages && isPageInSelection(selection, page)) {
         return selection;
     }
@@ -91,7 +83,7 @@ export function resolveThumbnailContextMenuSelection(
 
 export function normalizeSelectedPageNumbers(selectedPages: number[], totalPages: number): number[] {
     return uniq(selectedPages)
-        .filter(page => Number.isInteger(page) && page >= 1 && page <= totalPages)
+        .filter((page) => Number.isInteger(page) && page >= 1 && page <= totalPages)
         .sort((left, right) => left - right);
 }
 
@@ -110,10 +102,7 @@ export function expandPageRange(range: IPdfPageRange | null): number[] | null {
     return createRange(range.startPage, range.endPage + 1);
 }
 
-export function createPageSelectionFromRange(
-    range: IPdfPageRange | null,
-    totalPages: number,
-): TPageSelection | null {
+export function createPageSelectionFromRange(range: IPdfPageRange | null, totalPages: number): TPageSelection | null {
     if (!range) {
         return null;
     }

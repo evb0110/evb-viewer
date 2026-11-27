@@ -65,12 +65,7 @@ function hasGlyphGeometry(item: IPdfjsTextItem) {
 
 /** A logical-order right-to-left glyph: mirrored, so it advances leftwards. */
 function isLogicalOrderRtlGlyph(item: IPdfjsTextItem) {
-    const [
-        a = 1,
-        b = 0,
-        c = 0,
-        d = 1,
-    ] = item.transform ?? [];
+    const [a = 1, b = 0, c = 0, d = 1] = item.transform ?? [];
     return item.dir === 'rtl' && (item.transform ? a * d - b * c < 0 : item.mirrored === true);
 }
 
@@ -78,41 +73,27 @@ function isLogicalOrderRtlGlyph(item: IPdfjsTextItem) {
  * Whether `current` is drawn where `previous` ends, in the same font. Items
  * without geometry are taken to touch.
  */
-function areAdjacentPdfjsGlyphs(
-    previous: IPdfjsTextItem,
-    previousText: string,
-    current: IPdfjsTextItem,
-) {
+function areAdjacentPdfjsGlyphs(previous: IPdfjsTextItem, previousText: string, current: IPdfjsTextItem) {
     if (previous.separatorAfter === 'line') {
         return false;
     }
     if (!hasGlyphGeometry(previous) || !hasGlyphGeometry(current)) {
         return true;
     }
-    if (
-        previous.fontName !== current.fontName
-        || !Number.isFinite(previous.width)
-        || !Number.isFinite(current.width)
-    ) {
+    if (previous.fontName !== current.fontName || !Number.isFinite(previous.width) || !Number.isFinite(current.width)) {
         return false;
     }
-    const [
-        a,
-        b,
-        , previousVerticalScale,
-        previousX,
-        previousY,
-    ] = previous.transform!;
+    const [a, b, , previousVerticalScale, previousX, previousY] = previous.transform!;
     const currentX = current.transform![4];
     const currentY = current.transform![5];
     if (
-        a === undefined
-        || b === undefined
-        || previousX === undefined
-        || previousY === undefined
-        || currentX === undefined
-        || currentY === undefined
-        || previousVerticalScale === undefined
+        a === undefined ||
+        b === undefined ||
+        previousX === undefined ||
+        previousY === undefined ||
+        currentX === undefined ||
+        currentY === undefined ||
+        previousVerticalScale === undefined
     ) {
         return false;
     }
@@ -120,8 +101,8 @@ function areAdjacentPdfjsGlyphs(
     if (!Number.isFinite(scale) || scale <= Number.EPSILON) {
         return false;
     }
-    const expectedX = previousX + a / scale * previous.width!;
-    const expectedY = previousY + b / scale * previous.width!;
+    const expectedX = previousX + (a / scale) * previous.width!;
+    const expectedY = previousY + (b / scale) * previous.width!;
     // A mark with an advance moves the next letter further than the item's width.
     const tolerance = /\p{M}$/u.test(previousText)
         ? Math.max(0.75, Math.abs(previousVerticalScale) * 0.75)
@@ -140,16 +121,17 @@ function isPdfjsMarkAdvanceSpace(
     item: IPdfjsTextItem,
     nextText: string | undefined,
 ) {
-    return /^ +$/u.test(item.text)
-        && previous !== undefined
-        && isLogicalOrderRtlGlyph(previous)
-        && previousText !== undefined
-        && /\p{M}$/u.test(previousText)
-        && nextText !== undefined
-        && isPdfjsGlyphRun(nextText)
-        && !/^\s/u.test(nextText)
-        && (!hasGlyphGeometry(item) || !hasGlyphGeometry(previous)
-            || item.width! <= Math.max(0.75, previous.width! * 1.25));
+    return (
+        /^ +$/u.test(item.text) &&
+        previous !== undefined &&
+        isLogicalOrderRtlGlyph(previous) &&
+        previousText !== undefined &&
+        /\p{M}$/u.test(previousText) &&
+        nextText !== undefined &&
+        isPdfjsGlyphRun(nextText) &&
+        !/^\s/u.test(nextText) &&
+        (!hasGlyphGeometry(item) || !hasGlyphGeometry(previous) || item.width! <= Math.max(0.75, previous.width! * 1.25))
+    );
 }
 
 /**
@@ -158,7 +140,7 @@ function isPdfjsMarkAdvanceSpace(
  * The result has one entry per item, so callers keep their own item offsets.
  */
 export function restorePdfjsRtlItemTexts(items: readonly IPdfjsTextItem[]) {
-    const texts = items.map(item => restorePdfjsCombiningMarkOrder(item.text, item.dir));
+    const texts = items.map((item) => restorePdfjsCombiningMarkOrder(item.text, item.dir));
     return texts.map((text, index) => {
         const item = items[index]!;
         const next = items[index + 1];
@@ -166,18 +148,15 @@ export function restorePdfjsRtlItemTexts(items: readonly IPdfjsTextItem[]) {
         if (isPdfjsMarkAdvanceSpace(items[index - 1], texts[index - 1], item, nextText)) {
             return '';
         }
-        const [
-            , glyph,
-            space,
-        ] = (isLogicalOrderRtlGlyph(item) ? /^(\S\p{M}*)(\s+)$/u.exec(text) : null) ?? [];
+        const [, glyph, space] = (isLogicalOrderRtlGlyph(item) ? /^(\S\p{M}*)(\s+)$/u.exec(text) : null) ?? [];
         if (
-            glyph !== undefined
-            && space !== undefined
-            && next !== undefined
-            && nextText !== undefined
-            && isPdfjsGlyphRun(nextText)
-            && !/^\s/u.test(nextText)
-            && areAdjacentPdfjsGlyphs(item, text, next)
+            glyph !== undefined &&
+            space !== undefined &&
+            next !== undefined &&
+            nextText !== undefined &&
+            isPdfjsGlyphRun(nextText) &&
+            !/^\s/u.test(nextText) &&
+            areAdjacentPdfjsGlyphs(item, text, next)
         ) {
             return `${space}${glyph}`;
         }
@@ -202,13 +181,13 @@ export function mergePositionedPdfjsGlyphItems<TItem extends IPdfjsTextItem>(ite
         const isGlyphRun = isPdfjsGlyphRun(text);
         const previous = merged.at(-1);
         if (
-            previous !== undefined
-            && previousIsGlyphRun
-            && isGlyphRun
-            && !/^\s/u.test(text)
-            && hasGlyphGeometry(previous)
-            && hasGlyphGeometry(item)
-            && areAdjacentPdfjsGlyphs(previous, previous.text, item)
+            previous !== undefined &&
+            previousIsGlyphRun &&
+            isGlyphRun &&
+            !/^\s/u.test(text) &&
+            hasGlyphGeometry(previous) &&
+            hasGlyphGeometry(item) &&
+            areAdjacentPdfjsGlyphs(previous, previous.text, item)
         ) {
             merged[merged.length - 1] = {
                 ...previous,
@@ -234,49 +213,43 @@ export function pdfjsTextItemIntersectsBox(
     style?: IPdfjsTextRunStyle,
 ) {
     // TextLayer may leave a single glyph unscaled, so its advance is not a bound.
-    if (item.str.length === 1) {return true;}
+    if (item.str.length === 1) {
+        return true;
+    }
     const transform = item.transform;
     // Missing metrics do not prove that a run is outside the visible page.
-    if (transform.length !== 6 || !transform.every(Number.isFinite) || typeof style?.vertical !== 'boolean') {return true;}
-    const [
-        a,
-        b,
-        c,
-        d,
-        x,
-        y,
-    ] = transform as [number, number, number, number, number, number];
+    if (transform.length !== 6 || !transform.every(Number.isFinite) || typeof style?.vertical !== 'boolean') {
+        return true;
+    }
+    const [a, b, c, d, x, y] = transform as [number, number, number, number, number, number];
     const baselineScale = Math.hypot(a, b);
     const fontHeight = Math.hypot(c, d);
     const advance = style.vertical ? item.height : item.width;
-    if (baselineScale === 0 || fontHeight === 0 || !Number.isFinite(advance) || advance <= 0) {return true;}
+    if (baselineScale === 0 || fontHeight === 0 || !Number.isFinite(advance) || advance <= 0) {
+        return true;
+    }
     // TextLayer uses atan2(b, a), adds a quarter turn for vertical fonts,
     // and uses height (not width) as the vertical run's already-scaled advance.
     const ux = (style.vertical ? b : a) / baselineScale;
     const uy = (style.vertical ? -a : b) / baselineScale;
     // Its ascent can come from browser font metrics instead of the PDF style.
     // Enclose both sides of the baseline, including outlying fallback metrics.
-    const metrics = [
-        style.ascent ?? 0,
-        1 + (style.descent ?? 0),
-    ];
-    if (!metrics.every(Number.isFinite)) {return true;}
-    const crossExtent = fontHeight * Math.max(1, ...metrics.flatMap(value => [
-        Math.abs(value),
-        Math.abs(value - 1),
-    ]));
+    const metrics = [style.ascent ?? 0, 1 + (style.descent ?? 0)];
+    if (!metrics.every(Number.isFinite)) {
+        return true;
+    }
+    const crossExtent = fontHeight * Math.max(1, ...metrics.flatMap((value) => [Math.abs(value), Math.abs(value - 1)]));
     const xRadius = Math.abs(uy) * crossExtent;
     const yRadius = Math.abs(ux) * crossExtent;
     const endX = x + ux * advance;
     const endY = y + uy * advance;
-    if (![
-        endX,
-        endY,
-        xRadius,
-        yRadius,
-    ].every(Number.isFinite)) {return true;}
-    return Math.max(x, endX) + xRadius >= box.xMin
-        && Math.min(x, endX) - xRadius <= box.xMax
-        && Math.max(y, endY) + yRadius >= box.yMin
-        && Math.min(y, endY) - yRadius <= box.yMax;
+    if (![endX, endY, xRadius, yRadius].every(Number.isFinite)) {
+        return true;
+    }
+    return (
+        Math.max(x, endX) + xRadius >= box.xMin &&
+        Math.min(x, endX) - xRadius <= box.xMax &&
+        Math.max(y, endY) + yRadius >= box.yMin &&
+        Math.min(y, endY) - yRadius <= box.yMax
+    );
 }

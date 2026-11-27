@@ -1,23 +1,14 @@
-import {
-    rename,
-    rm,
-} from 'fs/promises';
+import {rename, rm} from 'fs/promises';
 import * as v from 'valibot';
-import {
-    PDF_APPEND_ADMISSION_SCHEMA,
-    type TPdfAppendAdmission,
-} from '@contracts/pdfAppendAdmission';
+import {PDF_APPEND_ADMISSION_SCHEMA, type TPdfAppendAdmission} from '@contracts/pdfAppendAdmission';
 import {DocumentOpenRefusalError} from '@contracts/documentOpenErrors';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
-import { runDesktopQpdfWasm } from '@electron/native-tools/qpdfWasmWorkerClient';
-import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
-import {
-    getQpdfRewriteArgs,
-    QPDF_SUCCESS_EXIT_CODES,
-} from '@pdf-core/qpdfCommands';
-import { isAbortError } from '@electron/utils/abort';
-import { createLogger } from '@electron/utils/createLogger';
-import { getErrorMessage } from '@electron/utils/error';
+import {runDesktopQpdfWasm} from '@electron/native-tools/qpdfWasmWorkerClient';
+import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
+import {getQpdfRewriteArgs, QPDF_SUCCESS_EXIT_CODES} from '@pdf-core/qpdfCommands';
+import {isAbortError} from '@electron/utils/abort';
+import {createLogger} from '@electron/utils/createLogger';
+import {getErrorMessage} from '@electron/utils/error';
 
 const logger = createLogger('pdf-append-base');
 
@@ -40,10 +31,12 @@ export async function rewritePdfWithQpdf(
         allowedExitCodes: QPDF_SUCCESS_EXIT_CODES,
         commandLabel: 'qpdf(rewrite)',
         timeoutMs: QPDF_REWRITE_TIMEOUT_MS,
-        ...(operation === undefined ? {} : {
-            signal: operation.signal,
-            ...(operation.cancelGroup === undefined ? {} : {cancelGroup: operation.cancelGroup}),
-        }),
+        ...(operation === undefined
+            ? {}
+            : {
+                  signal: operation.signal,
+                  ...(operation.cancelGroup === undefined ? {} : {cancelGroup: operation.cancelGroup}),
+              }),
     });
 }
 
@@ -51,16 +44,8 @@ export async function rewritePdfWithQpdf(
  * What the append path would make of this PDF. The native writer answers with
  * its append loaders' own structural acceptance.
  */
-async function readPdfAppendAdmission(
-    binaryPath: string,
-    filePath: string,
-    signal?: AbortSignal,
-): Promise<TPdfAppendAdmission> {
-    const {stdout} = await runNativeToolCommand(binaryPath, [
-        'append-admission',
-        '--input',
-        filePath,
-    ], {
+async function readPdfAppendAdmission(binaryPath: string, filePath: string, signal?: AbortSignal): Promise<TPdfAppendAdmission> {
+    const {stdout} = await runNativeToolCommand(binaryPath, ['append-admission', '--input', filePath], {
         timeoutMs: APPEND_ADMISSION_TIMEOUT_MS,
         maxStdoutBytes: APPEND_ADMISSION_MAX_OUTPUT_BYTES,
         rejectOnStdoutTruncation: true,
@@ -94,11 +79,7 @@ export interface INormalizePdfAppendBaseOptions {
  *
  * Returns whether `workingPath` now holds a rewritten base.
  */
-export async function normalizePdfAppendBase(
-    sourcePath: string,
-    workingPath: string,
-    options: INormalizePdfAppendBaseOptions = {},
-) {
+export async function normalizePdfAppendBase(sourcePath: string, workingPath: string, options: INormalizePdfAppendBaseOptions = {}) {
     const {signal} = options;
     const binaryPath = resolveNativePageOpsPath();
     if (!binaryPath) {

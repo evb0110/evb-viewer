@@ -1,13 +1,5 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    OPEN_BATCH_PROGRESS_SCHEMA,
-    PDF_OPTIMIZE_PROGRESS_SCHEMA,
-} from '@contracts/electronApiDocuments';
+import {describe, expect, it, vi} from 'vitest';
+import {OPEN_BATCH_PROGRESS_SCHEMA, PDF_OPTIMIZE_PROGRESS_SCHEMA} from '@contracts/electronApiDocuments';
 import {PDF_IMAGE_COMBINE_PROGRESS_SCHEMA} from '@contracts/pdfImageCombineProgress';
 import {DOCUMENT_FILES_PLATFORM_FEATURE} from '@contracts/documentsPlatformFeature';
 import {createPlatformFeaturePreloadClient} from '@electron/preload/ipcClient';
@@ -73,10 +65,12 @@ describe('progress event payload schemas', () => {
 
     it('round-trips well-formed open-batch progress', () => {
         expect(v.parse(OPEN_BATCH_PROGRESS_SCHEMA, openBatchPayload)).toEqual(openBatchPayload);
-        expect(v.parse(OPEN_BATCH_PROGRESS_SCHEMA, {
-            ...openBatchPayload,
-            estimatedRemainingMs: 340,
-        })).toEqual({
+        expect(
+            v.parse(OPEN_BATCH_PROGRESS_SCHEMA, {
+                ...openBatchPayload,
+                estimatedRemainingMs: 340,
+            }),
+        ).toEqual({
             ...openBatchPayload,
             estimatedRemainingMs: 340,
         });
@@ -118,10 +112,12 @@ describe('progress event payload schemas', () => {
     };
 
     it('reads the image combiner estimate, and a missing one as unknown', () => {
-        expect(v.parse(PDF_IMAGE_COMBINE_PROGRESS_SCHEMA, {
-            ...combineLine,
-            estimatedRemainingMs: 90,
-        })).toMatchObject({estimatedRemainingMs: 90});
+        expect(
+            v.parse(PDF_IMAGE_COMBINE_PROGRESS_SCHEMA, {
+                ...combineLine,
+                estimatedRemainingMs: 90,
+            }),
+        ).toMatchObject({estimatedRemainingMs: 90});
         expect(v.parse(PDF_IMAGE_COMBINE_PROGRESS_SCHEMA, combineLine)).toMatchObject({estimatedRemainingMs: null});
     });
 
@@ -133,29 +129,30 @@ describe('progress event payload schemas', () => {
         [{elapsedMs: Infinity}],
         [{estimatedRemainingMs: Infinity}],
     ])('rejects an image combiner progress line with %j', (bad) => {
-        expect(v.safeParse(PDF_IMAGE_COMBINE_PROGRESS_SCHEMA, {
-            ...combineLine,
-            ...bad,
-        }).success).toBe(false);
+        expect(
+            v.safeParse(PDF_IMAGE_COMBINE_PROGRESS_SCHEMA, {
+                ...combineLine,
+                ...bad,
+            }).success,
+        ).toBe(false);
     });
 
-    it.each([
-        '90',
-        true,
-        {ms: 90},
-    ])('rejects an image combiner estimate of %j', (estimatedRemainingMs) => {
-        expect(v.safeParse(PDF_IMAGE_COMBINE_PROGRESS_SCHEMA, {
-            ...combineLine,
-            estimatedRemainingMs,
-        }, {abortEarly: true}).success).toBe(false);
+    it.each(['90', true, {ms: 90}])('rejects an image combiner estimate of %j', (estimatedRemainingMs) => {
+        expect(
+            v.safeParse(
+                PDF_IMAGE_COMBINE_PROGRESS_SCHEMA,
+                {
+                    ...combineLine,
+                    estimatedRemainingMs,
+                },
+                {abortEarly: true},
+            ).success,
+        ).toBe(false);
     });
 });
 
 describe('document save revision through preload', () => {
-    it.each([
-        'structured',
-        'native',
-    ] as const)('retains the %s commit identity through the existing binding', async (path) => {
+    it.each(['structured', 'native'] as const)('retains the %s commit identity through the existing binding', async (path) => {
         const working = requireDocumentRef('/tmp/receipt.pdf');
         const documentRevision = {
             version: 1 as const,
@@ -165,49 +162,60 @@ describe('document save revision through preload', () => {
             contentRevision: 2,
             mintedAt: requireEpochMs(2),
         };
-        const response = path === 'structured'
-            ? {
-                ok: true,
-                externalWriteCommitted: true,
-                workingCopyRefreshed: true,
-                documentRevision,
-            }
-            : {
-                applied: true,
-                validation: null,
-                documentRevision,
-            };
-        const channel = path === 'structured'
-            ? DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.saveFileStructured
-            : DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.commitStagedPdfNativeMutations;
-        const client = createPlatformFeaturePreloadClient({
-            invoke: vi.fn(async () => DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[channel].decodeResult(response)),
-            on: vi.fn(),
-            removeListener: vi.fn(),
-            send: vi.fn(),
-        }, DOCUMENT_FILES_PLATFORM_FEATURE, {savePdfData: vi.fn()});
+        const response =
+            path === 'structured'
+                ? {
+                      ok: true,
+                      externalWriteCommitted: true,
+                      workingCopyRefreshed: true,
+                      documentRevision,
+                  }
+                : {
+                      applied: true,
+                      validation: null,
+                      documentRevision,
+                  };
+        const channel =
+            path === 'structured'
+                ? DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.saveFileStructured
+                : DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.commitStagedPdfNativeMutations;
+        const client = createPlatformFeaturePreloadClient(
+            {
+                invoke: vi.fn(async () => DOCUMENT_FILES_PLATFORM_FEATURE.ipcCodecs[channel].decodeResult(response)),
+                on: vi.fn(),
+                removeListener: vi.fn(),
+                send: vi.fn(),
+            },
+            DOCUMENT_FILES_PLATFORM_FEATURE,
+            {savePdfData: vi.fn()},
+        );
         const options = {expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-before')};
-        const result = path === 'structured'
-            ? await client.saveFileStructured(working, options)
-            : await client.commitStagedPdfNativeMutations!(working, {
-                receiptVersion: 2,
-                artifactKind: 'pdf',
-                path: requireDocumentRef('/tmp/staged.pdf'),
-                size: 4,
-                leaseId: requireLeaseId('receipt-lease'),
-                revision: null,
-                fileIdentity: {
-                    platform: 'posix',
-                    deviceId: '1',
-                    inode: '2',
-                },
-                validations: {
-                    qpdfCheck: false,
-                    tailCheck: true,
-                    semanticCheck: false,
-                    fsynced: true,
-                },
-            }, options);
+        const result =
+            path === 'structured'
+                ? await client.saveFileStructured(working, options)
+                : await client.commitStagedPdfNativeMutations!(
+                      working,
+                      {
+                          receiptVersion: 2,
+                          artifactKind: 'pdf',
+                          path: requireDocumentRef('/tmp/staged.pdf'),
+                          size: 4,
+                          leaseId: requireLeaseId('receipt-lease'),
+                          revision: null,
+                          fileIdentity: {
+                              platform: 'posix',
+                              deviceId: '1',
+                              inode: '2',
+                          },
+                          validations: {
+                              qpdfCheck: false,
+                              tailCheck: true,
+                              semanticCheck: false,
+                              fsynced: true,
+                          },
+                      },
+                      options,
+                  );
         expect(result).toMatchObject({documentRevision});
     });
 });

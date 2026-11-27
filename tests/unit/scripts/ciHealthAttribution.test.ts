@@ -1,12 +1,5 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    classifyShaJobs,
-    formatShaReport,
-} from '@scripts/ci/ci-health.mjs';
+import {describe, expect, it} from 'vitest';
+import {classifyShaJobs, formatShaReport} from '@scripts/ci/ci-health.mjs';
 
 interface IRecordedRun {
     created_at: string;
@@ -29,17 +22,9 @@ interface IRecordedInspection {
 }
 
 /** The shape `gh api .../actions/workflows/<file>/runs` and `/jobs` return. */
-function recordRun(
-    index: number,
-    sha: string,
-    conclusion: string,
-    jobs: Record<string, string | null>,
-): IRecordedInspection {
+function recordRun(index: number, sha: string, conclusion: string, jobs: Record<string, string | null>): IRecordedInspection {
     return {
-        jobs: Object.entries(jobs).map(([
-            name,
-            jobConclusion,
-        ], jobIndex) => ({
+        jobs: Object.entries(jobs).map(([name, jobConclusion], jobIndex) => ({
             conclusion: jobConclusion,
             id: index * 100 + jobIndex,
             name,
@@ -62,7 +47,7 @@ const GREEN_JOBS = {
 };
 
 function requireJob(report: ReturnType<typeof classifyShaJobs>, name: string) {
-    const job = report.jobs.find(candidate => candidate.name === name);
+    const job = report.jobs.find((candidate) => candidate.name === name);
     if (job === undefined) {
         throw new Error(`Attribution report has no job named ${name}.`);
     }
@@ -156,17 +141,18 @@ describe('ci-health commit attribution', () => {
 
         expect(regression.attribution).toBe('UNDETERMINED');
         expect(regression.lastGood).toBe('a'.repeat(10));
-        expect(regression.candidates).toEqual([
-            'b'.repeat(10),
-            'c'.repeat(10),
-            'd'.repeat(10),
-        ]);
+        expect(regression.candidates).toEqual(['b'.repeat(10), 'c'.repeat(10), 'd'.repeat(10)]);
 
-        const text = formatShaReport([{
-            ...report,
-            tier: 'required',
-            workflow: 'ci.yml',
-        }], 'd'.repeat(40));
+        const text = formatShaReport(
+            [
+                {
+                    ...report,
+                    tier: 'required',
+                    workflow: 'ci.yml',
+                },
+            ],
+            'd'.repeat(40),
+        );
         expect(text).toContain('UNDETERMINED Electron E2E Regression: last green aaaaaaaaaa');
         expect(text).not.toContain('this commit broke');
         expect(text).toContain('bisect the candidates before blaming this commit');
@@ -196,18 +182,18 @@ describe('ci-health commit attribution', () => {
         expect(native.attribution).toBe('INHERITED');
         expect(native.firstBad?.sha).toBe('c'.repeat(10));
         expect(native.lastGood).toBe('a'.repeat(10));
-        expect(native.firstBadCandidates).toEqual([
-            'b'.repeat(10),
-            'c'.repeat(10),
-        ]);
-        const text = formatShaReport([{
-            ...report,
-            tier: 'required',
-            workflow: 'ci.yml',
-        }], 'd'.repeat(40));
-        expect(text).toContain(
-            'INHERITED Native And Build Safety: broke in one of bbbbbbbbbb, cccccccccc (last green aaaaaaaaaa',
+        expect(native.firstBadCandidates).toEqual(['b'.repeat(10), 'c'.repeat(10)]);
+        const text = formatShaReport(
+            [
+                {
+                    ...report,
+                    tier: 'required',
+                    workflow: 'ci.yml',
+                },
+            ],
+            'd'.repeat(40),
         );
+        expect(text).toContain('INHERITED Native And Build Safety: broke in one of bbbbbbbbbb, cccccccccc (last green aaaaaaaaaa');
         expect(text).toContain('verdict: every failure is inherited');
     });
 
@@ -241,11 +227,18 @@ describe('ci-health commit attribution', () => {
 
         expect(qualityGates.attribution).toBe('INHERITED');
         expect(qualityGates.olderThanWindow).toBe(true);
-        expect(formatShaReport([{
-            ...report,
-            tier: 'required',
-            workflow: 'ci.yml',
-        }], 'b'.repeat(40))).toContain('first bad at or before');
+        expect(
+            formatShaReport(
+                [
+                    {
+                        ...report,
+                        tier: 'required',
+                        workflow: 'ci.yml',
+                    },
+                ],
+                'b'.repeat(40),
+            ),
+        ).toContain('first bad at or before');
     });
 
     it('judges the newest attempt when a commit was rerun', () => {
@@ -262,56 +255,80 @@ describe('ci-health commit attribution', () => {
         const report = classifyShaJobs(inspected, 'b'.repeat(40));
 
         expect(report.run?.id).toBe(rerun.run.id);
-        expect(report.jobs.every(job => job.conclusion === 'success')).toBe(true);
+        expect(report.jobs.every((job) => job.conclusion === 'success')).toBe(true);
     });
 
     it('reports no run rather than guessing when the commit has none', () => {
-        const report = classifyShaJobs(
-            [recordRun(1, 'a'.repeat(40), 'success', GREEN_JOBS)],
-            'f'.repeat(40),
-        );
+        const report = classifyShaJobs([recordRun(1, 'a'.repeat(40), 'success', GREEN_JOBS)], 'f'.repeat(40));
 
         expect(report).toEqual({
             found: false,
             jobs: [],
             run: null,
         });
-        expect(formatShaReport([{
-            ...report,
-            tier: 'required',
-            workflow: 'ci.yml',
-        }], 'f'.repeat(40))).toContain('no run for this commit');
+        expect(
+            formatShaReport(
+                [
+                    {
+                        ...report,
+                        tier: 'required',
+                        workflow: 'ci.yml',
+                    },
+                ],
+                'f'.repeat(40),
+            ),
+        ).toContain('no run for this commit');
     });
 
     it('names a new failure in the verdict line and never asks for an inherited one', () => {
-        const inherited = classifyShaJobs([
-            recordRun(1, 'a'.repeat(40), 'failure', {
-                ...GREEN_JOBS,
-                'Quality Gates': 'failure',
-            }),
-            recordRun(2, 'b'.repeat(40), 'failure', {
-                ...GREEN_JOBS,
-                'Quality Gates': 'failure',
-            }),
-        ], 'b'.repeat(40));
-        const introduced = classifyShaJobs([
-            recordRun(1, 'a'.repeat(40), 'success', GREEN_JOBS),
-            recordRun(2, 'b'.repeat(40), 'failure', {
-                ...GREEN_JOBS,
-                'Quality Gates': 'failure',
-            }),
-        ], 'b'.repeat(40));
+        const inherited = classifyShaJobs(
+            [
+                recordRun(1, 'a'.repeat(40), 'failure', {
+                    ...GREEN_JOBS,
+                    'Quality Gates': 'failure',
+                }),
+                recordRun(2, 'b'.repeat(40), 'failure', {
+                    ...GREEN_JOBS,
+                    'Quality Gates': 'failure',
+                }),
+            ],
+            'b'.repeat(40),
+        );
+        const introduced = classifyShaJobs(
+            [
+                recordRun(1, 'a'.repeat(40), 'success', GREEN_JOBS),
+                recordRun(2, 'b'.repeat(40), 'failure', {
+                    ...GREEN_JOBS,
+                    'Quality Gates': 'failure',
+                }),
+            ],
+            'b'.repeat(40),
+        );
 
-        expect(formatShaReport([{
-            ...inherited,
-            tier: 'required',
-            workflow: 'ci.yml',
-        }], 'b'.repeat(40))).toContain('verdict: every failure is inherited');
-        expect(formatShaReport([{
-            ...introduced,
-            tier: 'required',
-            workflow: 'ci.yml',
-        }], 'b'.repeat(40))).toContain('verdict: this commit broke Quality Gates');
+        expect(
+            formatShaReport(
+                [
+                    {
+                        ...inherited,
+                        tier: 'required',
+                        workflow: 'ci.yml',
+                    },
+                ],
+                'b'.repeat(40),
+            ),
+        ).toContain('verdict: every failure is inherited');
+        expect(
+            formatShaReport(
+                [
+                    {
+                        ...introduced,
+                        tier: 'required',
+                        workflow: 'ci.yml',
+                    },
+                ],
+                'b'.repeat(40),
+            ),
+        ).toContain('verdict: this commit broke Quality Gates');
     });
 
     it('marks a cancelled run as something other than a verdict', () => {
@@ -322,34 +339,46 @@ describe('ci-health commit attribution', () => {
         cancelled.run.conclusion = 'cancelled';
 
         const report = classifyShaJobs([cancelled], 'b'.repeat(40));
-        const text = formatShaReport([{
-            ...report,
-            tier: 'required',
-            workflow: 'ci.yml',
-        }], 'b'.repeat(40));
+        const text = formatShaReport(
+            [
+                {
+                    ...report,
+                    tier: 'required',
+                    workflow: 'ci.yml',
+                },
+            ],
+            'b'.repeat(40),
+        );
 
         expect(text).toContain('superseded, not a verdict');
         expect(text).toContain('verdict: no failing job attributable to this commit');
     });
 
     it('leaves the aggregate out of the per-job attribution', () => {
-        const report = classifyShaJobs([
-            recordRun(1, 'a'.repeat(40), 'success', GREEN_JOBS),
-            recordRun(2, 'b'.repeat(40), 'failure', {
-                ...GREEN_JOBS,
-                'Quality Gates': 'failure',
-                gates_ok: 'failure',
-            }),
-        ], 'b'.repeat(40));
-        const text = formatShaReport([{
-            ...report,
-            tier: 'required',
-            workflow: 'ci.yml',
-        }], 'b'.repeat(40));
+        const report = classifyShaJobs(
+            [
+                recordRun(1, 'a'.repeat(40), 'success', GREEN_JOBS),
+                recordRun(2, 'b'.repeat(40), 'failure', {
+                    ...GREEN_JOBS,
+                    'Quality Gates': 'failure',
+                    gates_ok: 'failure',
+                }),
+            ],
+            'b'.repeat(40),
+        );
+        const text = formatShaReport(
+            [
+                {
+                    ...report,
+                    tier: 'required',
+                    workflow: 'ci.yml',
+                },
+            ],
+            'b'.repeat(40),
+        );
 
-        expect(report.jobs.map(job => job.name)).not.toContain('gates_ok');
+        expect(report.jobs.map((job) => job.name)).not.toContain('gates_ok');
         expect(text).toContain('run 1002: failure');
         expect(text).toContain('verdict: this commit broke Quality Gates');
     });
-
 });

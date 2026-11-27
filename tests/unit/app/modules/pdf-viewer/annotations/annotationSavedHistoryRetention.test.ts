@@ -1,14 +1,6 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {describe, expect, it, vi} from 'vitest';
 import {AnnotationStore} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
-import {
-    asAnnotationId,
-    type INoteEntity,
-} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {asAnnotationId, type INoteEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {usePdfAppAnnotationHistory} from '@app/modules/pdf-viewer/runtime/annotations/usePdfAppAnnotationHistory';
 import {
     AnnotationHistoryIndeterminateError,
@@ -29,8 +21,12 @@ function setup() {
         forget: ledger.forgetSourceEntries,
     });
     const store = new AnnotationStore({
-        get canUndo() { return history.canUndo.value; },
-        get canRedo() { return history.canRedo.value; },
+        get canUndo() {
+            return history.canUndo.value;
+        },
+        get canRedo() {
+            return history.canRedo.value;
+        },
         registerCommand: history.registerCommand,
         forgetCommands: history.forgetCommands,
         undo: history.undo,
@@ -77,7 +73,9 @@ describe('saved annotation history retention', () => {
     it('releases every command without masking the original replay failure', () => {
         const history = new LocalAnnotationHistoryAuthority();
         const failure = new AnnotationHistoryIndeterminateError(new Error('replay failed'));
-        const firstRelease = vi.fn(() => { throw new Error('release failed'); });
+        const firstRelease = vi.fn(() => {
+            throw new Error('release failed');
+        });
         const secondRelease = vi.fn();
         history.registerCommand({
             cmd: vi.fn(),
@@ -86,7 +84,9 @@ describe('saved annotation history retention', () => {
         });
         history.registerCommand({
             cmd: vi.fn(),
-            undo: () => { throw failure; },
+            undo: () => {
+                throw failure;
+            },
             onDiscard: secondRelease,
         });
         expect(() => history.undo()).toThrow(failure);
@@ -113,11 +113,7 @@ describe('saved annotation history retention', () => {
     });
 
     it('releases a saved deleted graph when the shared workspace byte budget evicts its final command', async () => {
-        const {
-            ledger,
-            store,
-            note,
-        } = setup();
+        const {ledger, store, note} = setup();
         store.delete(note.identity.id);
         saveDeletion(store);
         expect(store.get(note.identity.id)?.deleted).toBe(true);
@@ -138,11 +134,7 @@ describe('saved annotation history retention', () => {
     });
 
     it('keeps recovery while any command can restore it, then releases it on history reset', async () => {
-        const {
-            ledger,
-            store,
-            note,
-        } = setup();
+        const {ledger, store, note} = setup();
         store.updateNote(note.identity.id, {contents: 'edited thread'});
         store.delete(note.identity.id);
         saveDeletion(store);
@@ -162,11 +154,7 @@ describe('saved annotation history retention', () => {
     });
 
     it('retains an unsaved deletion until it is committed even when its command expires', () => {
-        const {
-            ledger,
-            store,
-            note,
-        } = setup();
+        const {ledger, store, note} = setup();
         store.delete(note.identity.id);
         ledger.resetTimeline();
         expect(store.dirtyEntities()).toHaveLength(1);

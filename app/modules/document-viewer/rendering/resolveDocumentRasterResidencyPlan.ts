@@ -22,15 +22,11 @@ function normalizePixels(value: number) {
 }
 
 function normalizePages(pages: readonly number[]) {
-    return [...new Set(pages)]
-        .filter(pageNumber => Number.isInteger(pageNumber) && pageNumber > 0);
+    return [...new Set(pages)].filter((pageNumber) => Number.isInteger(pageNumber) && pageNumber > 0);
 }
 
 function getDistanceFromVisiblePages(pageNumber: number, visiblePages: readonly number[]) {
-    return visiblePages.reduce(
-        (nearest, visiblePage) => Math.min(nearest, Math.abs(pageNumber - visiblePage)),
-        Number.POSITIVE_INFINITY,
-    );
+    return visiblePages.reduce((nearest, visiblePage) => Math.min(nearest, Math.abs(pageNumber - visiblePage)), Number.POSITIVE_INFINITY);
 }
 
 /**
@@ -39,12 +35,9 @@ function getDistanceFromVisiblePages(pageNumber: number, visiblePages: readonly 
  * decoded raster surfaces. Visible pages are unconditional, while nearby
  * surfaces share one aggregate pixel budget and are admitted nearest-first.
  */
-export function resolveDocumentRasterResidencyPlan(
-    options: IDocumentRasterResidencyPlanOptions,
-): IDocumentRasterResidencyPlan {
+export function resolveDocumentRasterResidencyPlan(options: IDocumentRasterResidencyPlanOptions): IDocumentRasterResidencyPlan {
     const mountedPages = normalizePages(options.mountedPages);
-    const visiblePages = normalizePages(options.visiblePages)
-        .sort((left, right) => left - right);
+    const visiblePages = normalizePages(options.visiblePages).sort((left, right) => left - right);
     const visiblePageSet = new Set(visiblePages);
     const firstVisiblePage = visiblePages.at(0) ?? null;
     const lastVisiblePage = visiblePages.at(-1) ?? null;
@@ -68,26 +61,24 @@ export function resolveDocumentRasterResidencyPlan(
                 }
                 return 0;
             };
-            return directionRank(left) - directionRank(right)
-                || getDistanceFromVisiblePages(left, visiblePages)
-                - getDistanceFromVisiblePages(right, visiblePages)
-                || (preferredDirection < 0 ? left - right : right - left);
+            return (
+                directionRank(left) - directionRank(right) ||
+                getDistanceFromVisiblePages(left, visiblePages) - getDistanceFromVisiblePages(right, visiblePages) ||
+                (preferredDirection < 0 ? left - right : right - left)
+            );
         });
     const maxBufferPixels = Number.isFinite(options.maxBufferPixels)
         ? Math.max(0, Math.trunc(options.maxBufferPixels))
         : Number.MAX_SAFE_INTEGER;
-    const maximumResidentPages = options.maximumResidentPages === undefined
-        ? Number.MAX_SAFE_INTEGER
-        : Math.max(0, Math.trunc(options.maximumResidentPages));
+    const maximumResidentPages =
+        options.maximumResidentPages === undefined ? Number.MAX_SAFE_INTEGER : Math.max(0, Math.trunc(options.maximumResidentPages));
     const maximumBufferPages = Math.max(0, maximumResidentPages - visiblePages.length);
     const guaranteedNeighborCount = Math.min(
         Math.max(0, Math.trunc(options.minimumBufferPages ?? 2)),
         candidates.length,
         maximumBufferPages,
     );
-    const maxPixelsPerBufferSurface = guaranteedNeighborCount > 0
-        ? Math.max(1, Math.floor(maxBufferPixels / guaranteedNeighborCount))
-        : 0;
+    const maxPixelsPerBufferSurface = guaranteedNeighborCount > 0 ? Math.max(1, Math.floor(maxBufferPixels / guaranteedNeighborCount)) : 0;
     const bufferPages: number[] = [];
     let estimatedBufferPixels = 0;
 
@@ -95,10 +86,7 @@ export function resolveDocumentRasterResidencyPlan(
         if (bufferPages.length >= maximumBufferPages) {
             break;
         }
-        const estimatedPixels = Math.min(
-            normalizePixels(options.estimatePagePixels(pageNumber)),
-            maxPixelsPerBufferSurface,
-        );
+        const estimatedPixels = Math.min(normalizePixels(options.estimatePagePixels(pageNumber)), maxPixelsPerBufferSurface);
         if (estimatedBufferPixels + estimatedPixels > maxBufferPixels) {
             break;
         }
@@ -109,10 +97,7 @@ export function resolveDocumentRasterResidencyPlan(
     return {
         visiblePages,
         bufferPages,
-        residentPages: [
-            ...visiblePages,
-            ...bufferPages,
-        ],
+        residentPages: [...visiblePages, ...bufferPages],
         maxPixelsPerBufferSurface,
         estimatedBufferPixels,
     };

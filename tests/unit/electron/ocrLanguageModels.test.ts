@@ -1,25 +1,13 @@
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { join } from 'path';
-import { escapeRegExp } from 'es-toolkit/string';
-import {
-    Readable,
-    Writable,
-} from 'node:stream';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {createHash} from 'node:crypto';
+import {readFileSync} from 'node:fs';
+import {join} from 'path';
+import {escapeRegExp} from 'es-toolkit/string';
+import {Readable, Writable} from 'node:stream';
 import type * as NodeFs from 'fs';
 import type * as NodeFsPromises from 'node:fs/promises';
 import type * as NodeOs from 'node:os';
-import {
-    OCR_LANGUAGE_MODEL_SHA256, OCR_LANGUAGE_MODEL_BYTES,
-} from '@contracts/ocrLanguages';
+import {OCR_LANGUAGE_MODEL_SHA256, OCR_LANGUAGE_MODEL_BYTES} from '@contracts/ocrLanguages';
 import type {IOcrModelDownloadProgress} from '@contracts/electronApiOcr';
 
 const tessdataFixtureRoot = join(process.cwd(), 'resources', 'tesseract', 'tessdata');
@@ -57,7 +45,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('electron', () => ({app: mocks.app}));
 vi.mock('os', () => ({homedir: () => join('/tmp/home')}));
 vi.mock('url', () => ({fileURLToPath: () => mocks.fileUrl}));
-vi.mock('fs', async importOriginal => {
+vi.mock('fs', async (importOriginal) => {
     const actual = await importOriginal<typeof NodeFs>();
     return {
         ...actual,
@@ -84,28 +72,36 @@ vi.mock('@electron/features/ocr/main/ocrRuntimePolicy', () => ({getOcrRuntimePol
 
 // A response body that sends one chunk per interval and, after `stallAfter`
 // chunks, stops sending without ending.
-function pacedBody(bytes: Buffer, {
-    chunks, intervalMs, stallAfter = chunks,
-}: {
-    chunks: number;
-    intervalMs: number;
-    stallAfter?: number;
-}) {
+function pacedBody(
+    bytes: Buffer,
+    {
+        chunks,
+        intervalMs,
+        stallAfter = chunks,
+    }: {
+        chunks: number;
+        intervalMs: number;
+        stallAfter?: number;
+    },
+) {
     const chunkSize = Math.ceil(bytes.length / chunks);
     let sent = 0;
-    return new ReadableStream<Uint8Array>({pull: controller => new Promise<void>((delivered) => {
-        if (sent === stallAfter) {
-            return;
-        }
-        setTimeout(() => {
-            controller.enqueue(bytes.subarray(sent * chunkSize, (sent + 1) * chunkSize));
-            sent++;
-            if (sent === chunks) {
-                controller.close();
-            }
-            delivered();
-        }, intervalMs);
-    })});
+    return new ReadableStream<Uint8Array>({
+        pull: (controller) =>
+            new Promise<void>((delivered) => {
+                if (sent === stallAfter) {
+                    return;
+                }
+                setTimeout(() => {
+                    controller.enqueue(bytes.subarray(sent * chunkSize, (sent + 1) * chunkSize));
+                    sent++;
+                    if (sent === chunks) {
+                        controller.close();
+                    }
+                    delivered();
+                }, intervalMs);
+            }),
+    });
 }
 
 describe('ensureRuntimeTessdataSeeded', () => {
@@ -126,13 +122,14 @@ describe('ensureRuntimeTessdataSeeded', () => {
             value: join('/tmp/resources'),
         });
         vi.stubGlobal('fetch', mocks.fetch);
-        mocks.existsSync.mockImplementation((path: string) =>
-            path === join('/tmp/resources/tesseract/tessdata')
-            || path.startsWith(join('/tmp/resources/tesseract/tessdata/'))
-            || path.includes('.traineddata.seed-')
-            || path.includes('.traineddata.restore-')
-            || path.includes('.traineddata.download-')
-            || mocks.installedPaths.has(path),
+        mocks.existsSync.mockImplementation(
+            (path: string) =>
+                path === join('/tmp/resources/tesseract/tessdata') ||
+                path.startsWith(join('/tmp/resources/tesseract/tessdata/')) ||
+                path.includes('.traineddata.seed-') ||
+                path.includes('.traineddata.restore-') ||
+                path.includes('.traineddata.download-') ||
+                mocks.installedPaths.has(path),
         );
         mocks.openSync.mockReturnValue(10);
         mocks.closeSync.mockReturnValue(undefined);
@@ -147,21 +144,22 @@ describe('ensureRuntimeTessdataSeeded', () => {
         });
         mocks.mkdir.mockResolvedValue(undefined);
         mocks.rm.mockResolvedValue(undefined);
-        mocks.readdir.mockResolvedValue([
-            'eng.traineddata',
-            'rus.traineddata',
-            'notes.txt',
-        ]);
-        mocks.createReadStream.mockImplementation((path: string) => (
+        mocks.readdir.mockResolvedValue(['eng.traineddata', 'rus.traineddata', 'notes.txt']);
+        mocks.createReadStream.mockImplementation((path: string) =>
             path.includes('eng.traineddata')
                 ? Readable.from([readFileSync(join(tessdataFixtureRoot, 'eng.traineddata'))])
                 : path.includes('rus.traineddata')
-                    ? Readable.from([readFileSync(join(tessdataFixtureRoot, 'rus.traineddata'))])
-                    : undefined
-        ));
-        mocks.createWriteStream.mockImplementation(() => new Writable({write(_chunk, _encoding, callback) {
-            callback();
-        }}));
+                  ? Readable.from([readFileSync(join(tessdataFixtureRoot, 'rus.traineddata'))])
+                  : undefined,
+        );
+        mocks.createWriteStream.mockImplementation(
+            () =>
+                new Writable({
+                    write(_chunk, _encoding, callback) {
+                        callback();
+                    },
+                }),
+        );
         mocks.copyFile.mockResolvedValue(undefined);
         mocks.rename.mockImplementation(async (_source: string, destination: string) => {
             mocks.installedPaths.add(destination);
@@ -176,30 +174,24 @@ describe('ensureRuntimeTessdataSeeded', () => {
     });
 
     it('shares one async seed of the bundled models', async () => {
-        const {
-            ensureRuntimeTessdataSeeded,
-            getRuntimeTessdataDir,
-        } = await import('@electron/features/ocr/languageModels');
+        const {ensureRuntimeTessdataSeeded, getRuntimeTessdataDir} = await import('@electron/features/ocr/languageModels');
         const runtimeDir = getRuntimeTessdataDir();
 
-        await Promise.all([
-            ensureRuntimeTessdataSeeded(),
-            ensureRuntimeTessdataSeeded(),
-        ]);
+        await Promise.all([ensureRuntimeTessdataSeeded(), ensureRuntimeTessdataSeeded()]);
         await ensureRuntimeTessdataSeeded();
 
         expect(mocks.readdir).toHaveBeenCalledTimes(1);
         expect(mocks.mkdir).toHaveBeenCalledTimes(1);
         expect(mocks.copyFile).toHaveBeenCalledTimes(2);
-        expect(mocks.copyFile.mock.calls.map(call => call[0])).toEqual([
+        expect(mocks.copyFile.mock.calls.map((call) => call[0])).toEqual([
             join('/tmp/resources/tesseract/tessdata/eng.traineddata'),
             join('/tmp/resources/tesseract/tessdata/rus.traineddata'),
         ]);
-        expect(mocks.copyFile.mock.calls.every(call => (
-            typeof call[1] === 'string'
-            && call[1].startsWith(join(runtimeDir, ''))
-            && call[1].includes('.seed-')
-        ))).toBe(true);
+        expect(
+            mocks.copyFile.mock.calls.every(
+                (call) => typeof call[1] === 'string' && call[1].startsWith(join(runtimeDir, '')) && call[1].includes('.seed-'),
+            ),
+        ).toBe(true);
         expect(mocks.writeFile).toHaveBeenCalledWith(
             expect.stringMatching(/\.evb-seeded-e12c65a915945e4c28e237a9b52bc4a8f39a0cec-[a-f0-9]+\..+[.]tmp$/u),
             expect.stringContaining('"bundledFiles":["eng.traineddata","rus.traineddata"]'),
@@ -215,10 +207,10 @@ describe('ensureRuntimeTessdataSeeded', () => {
     });
 
     it('skips reseeding when the packaged resource version is current', async () => {
-        mocks.existsSync.mockImplementation((path: string) => (
-            path === join('/tmp/resources/tesseract/tessdata')
-            || path.includes('.evb-seeded-e12c65a915945e4c28e237a9b52bc4a8f39a0cec')
-        ));
+        mocks.existsSync.mockImplementation(
+            (path: string) =>
+                path === join('/tmp/resources/tesseract/tessdata') || path.includes('.evb-seeded-e12c65a915945e4c28e237a9b52bc4a8f39a0cec'),
+        );
         const {ensureRuntimeTessdataSeeded} = await import('@electron/features/ocr/languageModels');
 
         await ensureRuntimeTessdataSeeded();
@@ -231,13 +223,14 @@ describe('ensureRuntimeTessdataSeeded', () => {
         const runtimeModelPath = join('/tmp/electron-user-data/tessdata/eng.traineddata');
         const stagingModelPath = new RegExp(`${escapeRegExp(runtimeModelPath)}\\.(?:seed|restore)-`, 'u');
         let installed = false;
-        mocks.existsSync.mockImplementation((path: string) => (
-            path === join('/tmp/resources/tesseract/tessdata')
-            || path === join('/tmp/resources/tesseract/tessdata/eng.traineddata')
-            || path.includes('.evb-seeded-e12c65a915945e4c28e237a9b52bc4a8f39a0cec')
-            || stagingModelPath.test(path)
-            || (path === runtimeModelPath && installed)
-        ));
+        mocks.existsSync.mockImplementation(
+            (path: string) =>
+                path === join('/tmp/resources/tesseract/tessdata') ||
+                path === join('/tmp/resources/tesseract/tessdata/eng.traineddata') ||
+                path.includes('.evb-seeded-e12c65a915945e4c28e237a9b52bc4a8f39a0cec') ||
+                stagingModelPath.test(path) ||
+                (path === runtimeModelPath && installed),
+        );
         mocks.rename.mockImplementation(async (_source: string, destination: string) => {
             if (destination === runtimeModelPath) {
                 installed = true;
@@ -252,49 +245,38 @@ describe('ensureRuntimeTessdataSeeded', () => {
             join('/tmp/resources/tesseract/tessdata/eng.traineddata'),
             expect.stringMatching(stagingModelPath),
         );
-        expect(mocks.rename).toHaveBeenCalledWith(
-            expect.stringMatching(stagingModelPath),
-            runtimeModelPath,
-        );
+        expect(mocks.rename).toHaveBeenCalledWith(expect.stringMatching(stagingModelPath), runtimeModelPath);
     });
 
     it('falls through to the validated download when the packaged model is unavailable', async () => {
-        mocks.existsSync.mockImplementation((path: string) => (
-            path === join('/tmp/resources/tesseract/tessdata')
-            || path.includes('.evb-seeded-e12c65a915945e4c28e237a9b52bc4a8f39a0cec')
-        ));
-        mocks.fetch.mockRejectedValue(Object.assign(
-            new Error('getaddrinfo EAI_AGAIN raw.githubusercontent.com'),
-            {code: 'EAI_AGAIN'},
-        ));
+        mocks.existsSync.mockImplementation(
+            (path: string) =>
+                path === join('/tmp/resources/tesseract/tessdata') || path.includes('.evb-seeded-e12c65a915945e4c28e237a9b52bc4a8f39a0cec'),
+        );
+        mocks.fetch.mockRejectedValue(Object.assign(new Error('getaddrinfo EAI_AGAIN raw.githubusercontent.com'), {code: 'EAI_AGAIN'}));
 
         const {ensureTessdataLanguages} = await import('@electron/features/ocr/languageModels');
         // The failed attempts wait out the product's retry backoff; drive it with fake timers.
-        vi.useFakeTimers({toFake: [
-            'setTimeout',
-            'clearTimeout',
-        ]});
+        vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout']});
         const outcome = expect(ensureTessdataLanguages(['eng'])).rejects.toMatchObject({code: 'NETWORK_UNREACHABLE'});
         await vi.runAllTimersAsync();
         await outcome;
         expect(mocks.fetch).toHaveBeenCalled();
-        expect(mocks.rename).not.toHaveBeenCalledWith(
-            expect.stringContaining('.traineddata.restore-'),
-            expect.any(String),
-        );
+        expect(mocks.rename).not.toHaveBeenCalledWith(expect.stringContaining('.traineddata.restore-'), expect.any(String));
     });
 
     it('reclaims a failed seed staging file and retries the packaged copy', async () => {
         const runtimeModelPath = join('/tmp/electron-user-data/tessdata/eng.traineddata');
         const stagingModelPath = new RegExp(`${escapeRegExp(runtimeModelPath)}\\.(?:seed|restore)-`, 'u');
         let installed = false;
-        mocks.existsSync.mockImplementation((path: string) => (
-            path === join('/tmp/resources/tesseract/tessdata')
-            || path === join('/tmp/resources/tesseract/tessdata/eng.traineddata')
-            || path.includes('.evb-seeded-e12c65a915945e4c28e237a9b52bc4a8f39a0cec')
-            || stagingModelPath.test(path)
-            || (path === runtimeModelPath && installed)
-        ));
+        mocks.existsSync.mockImplementation(
+            (path: string) =>
+                path === join('/tmp/resources/tesseract/tessdata') ||
+                path === join('/tmp/resources/tesseract/tessdata/eng.traineddata') ||
+                path.includes('.evb-seeded-e12c65a915945e4c28e237a9b52bc4a8f39a0cec') ||
+                stagingModelPath.test(path) ||
+                (path === runtimeModelPath && installed),
+        );
         mocks.copyFile.mockRejectedValueOnce(new Error('copy failed'));
         mocks.fetch.mockResolvedValue({
             ok: false,
@@ -319,7 +301,7 @@ describe('ensureRuntimeTessdataSeeded', () => {
 
     it('uses Electron userData as the packaged runtime tessdata base', async () => {
         mocks.app.getPath.mockReturnValue(join('/tmp/profile/user-data'));
-        const { getRuntimeTessdataDir } = await import('@electron/features/ocr/languageModels');
+        const {getRuntimeTessdataDir} = await import('@electron/features/ocr/languageModels');
 
         expect(getRuntimeTessdataDir()).toBe(join('/tmp/profile/user-data/tessdata'));
         expect(mocks.app.getPath).toHaveBeenCalledWith('userData');
@@ -330,13 +312,13 @@ describe('ensureRuntimeTessdataSeeded', () => {
         mocks.app.isPackaged = false;
         vi.spyOn(process, 'cwd').mockReturnValue(join('/repo'));
         mocks.existsSync.mockImplementation((path: string) => path === join('/repo/resources/tesseract'));
-        const { getRuntimeTessdataDir } = await import('@electron/features/ocr/languageModels');
+        const {getRuntimeTessdataDir} = await import('@electron/features/ocr/languageModels');
 
         expect(getRuntimeTessdataDir()).toBe(join('/repo/resources/tesseract/tessdata'));
     });
 
     it('uses a pinned tessdata_best source ref', async () => {
-        const { TESSDATA_BEST_REF } = await import('@electron/features/ocr/languageModels');
+        const {TESSDATA_BEST_REF} = await import('@electron/features/ocr/languageModels');
 
         expect(TESSDATA_BEST_REF).toMatch(/^[a-f0-9]{40}$/u);
         expect(TESSDATA_BEST_REF).toBe('e12c65a915945e4c28e237a9b52bc4a8f39a0cec');
@@ -344,7 +326,7 @@ describe('ensureRuntimeTessdataSeeded', () => {
 
     it('validates traineddata headers with a deterministic readability check', async () => {
         mocks.existsSync.mockImplementation((path: string) => path.endsWith('.traineddata'));
-        const { validateTraineddataFile } = await import('@electron/features/ocr/languageModels');
+        const {validateTraineddataFile} = await import('@electron/features/ocr/languageModels');
 
         expect(validateTraineddataFile(join('/tmp/eng.traineddata'))).toEqual({valid: true});
 
@@ -361,13 +343,9 @@ describe('ensureRuntimeTessdataSeeded', () => {
     });
 
     it('hashes a model incrementally across multiple chunks', async () => {
-        const chunks = [
-            Buffer.from('first model chunk'),
-            Buffer.from('second model chunk'),
-            Buffer.from('third model chunk'),
-        ];
+        const chunks = [Buffer.from('first model chunk'), Buffer.from('second model chunk'), Buffer.from('third model chunk')];
         mocks.createReadStream.mockReturnValue(Readable.from(chunks));
-        const { hashFileSha256 } = await import('@electron/utils/hashFileSha256');
+        const {hashFileSha256} = await import('@electron/utils/hashFileSha256');
 
         await expect(hashFileSha256(join('/tmp/eng.traineddata'))).resolves.toBe(
             createHash('sha256').update(Buffer.concat(chunks)).digest('hex'),
@@ -383,10 +361,7 @@ describe('ensureRuntimeTessdataSeeded', () => {
         const originalBytes = readFileSync(join(tessdataFixtureRoot, 'eng.traineddata'));
         let modelBytes = Buffer.from(originalBytes);
         let mtimeMs = 1;
-        mocks.existsSync.mockImplementation((path: string) => (
-            path === join('/repo/resources/tesseract')
-            || path === modelPath
-        ));
+        mocks.existsSync.mockImplementation((path: string) => path === join('/repo/resources/tesseract') || path === modelPath);
         mocks.statSync.mockImplementation(() => ({
             isFile: () => true,
             size: modelBytes.length,
@@ -398,12 +373,12 @@ describe('ensureRuntimeTessdataSeeded', () => {
         mocks.createReadStream.mockImplementation(() => Readable.from([modelBytes]));
         const {getOcrLanguageModelStates} = await import('@electron/features/ocr/languageModels');
 
-        expect((await getOcrLanguageModelStates()).find(language => language.code === 'eng')?.state).toBe('installed');
+        expect((await getOcrLanguageModelStates()).find((language) => language.code === 'eng')?.state).toBe('installed');
         modelBytes = Buffer.from(originalBytes);
         modelBytes[modelBytes.length - 1]! ^= 1;
         mtimeMs = 2;
 
-        expect((await getOcrLanguageModelStates()).find(language => language.code === 'eng')?.state).toBe('missing');
+        expect((await getOcrLanguageModelStates()).find((language) => language.code === 'eng')?.state).toBe('missing');
         expect(mocks.createReadStream).toHaveBeenCalledTimes(2);
     });
 
@@ -411,16 +386,12 @@ describe('ensureRuntimeTessdataSeeded', () => {
         mocks.fileUrl = join('/repo/electron/features/ocr/languageModels.ts');
         mocks.app.isPackaged = false;
         vi.spyOn(process, 'cwd').mockReturnValue(join('/repo'));
-        mocks.existsSync.mockImplementation((path: string) => (
-            path === join('/repo/resources/tesseract')
-            || path.includes('.traineddata.download-')
-        ));
+        mocks.existsSync.mockImplementation(
+            (path: string) => path === join('/repo/resources/tesseract') || path.includes('.traineddata.download-'),
+        );
         mocks.fetch.mockImplementation(async () => new Response('downloaded model bytes'));
-        mocks.createReadStream.mockReturnValue(Readable.from([
-            Buffer.from('downloaded '),
-            Buffer.from('model bytes'),
-        ]));
-        const { ensureTessdataLanguages } = await import('@electron/features/ocr/languageModels');
+        mocks.createReadStream.mockReturnValue(Readable.from([Buffer.from('downloaded '), Buffer.from('model bytes')]));
+        const {ensureTessdataLanguages} = await import('@electron/features/ocr/languageModels');
 
         await expect(ensureTessdataLanguages(['eng'])).rejects.toMatchObject({
             code: 'CHECKSUM_MISMATCH',
@@ -435,17 +406,19 @@ describe('ensureRuntimeTessdataSeeded', () => {
             resolveSecondRead = resolve;
         });
         let readCount = 0;
-        const stream = new Readable({read() {
-            if (readCount++ === 0) {
-                this.push(Buffer.from('first model chunk'));
-                return;
-            }
-            resolveSecondRead?.();
-        }});
+        const stream = new Readable({
+            read() {
+                if (readCount++ === 0) {
+                    this.push(Buffer.from('first model chunk'));
+                    return;
+                }
+                resolveSecondRead?.();
+            },
+        });
         const destroy = vi.spyOn(stream, 'destroy');
         mocks.createReadStream.mockReturnValue(stream);
         const controller = new AbortController();
-        const { hashFileSha256 } = await import('@electron/utils/hashFileSha256');
+        const {hashFileSha256} = await import('@electron/utils/hashFileSha256');
         const checksumPromise = hashFileSha256(join('/tmp/eng.traineddata'), controller.signal);
 
         await secondReadStarted;
@@ -459,25 +432,28 @@ describe('ensureRuntimeTessdataSeeded', () => {
         mocks.fileUrl = join('/repo/electron/features/ocr/languageModels.ts');
         mocks.app.isPackaged = false;
         vi.spyOn(process, 'cwd').mockReturnValue(join('/repo'));
-        mocks.existsSync.mockImplementation((path: string) => (
-            path === join('/repo/resources/tesseract')
-            || path.includes('.traineddata.download-')
-        ));
+        mocks.existsSync.mockImplementation(
+            (path: string) => path === join('/repo/resources/tesseract') || path.includes('.traineddata.download-'),
+        );
         mocks.fetch.mockImplementation(async () => new Response('downloaded model bytes'));
         let resolveSecondRead: (() => void) | undefined;
         const secondReadStarted = new Promise<void>((resolve) => {
             resolveSecondRead = resolve;
         });
         let readCount = 0;
-        mocks.createReadStream.mockReturnValue(new Readable({read() {
-            if (readCount++ === 0) {
-                this.push(Buffer.from('first model chunk'));
-                return;
-            }
-            resolveSecondRead?.();
-        }}));
+        mocks.createReadStream.mockReturnValue(
+            new Readable({
+                read() {
+                    if (readCount++ === 0) {
+                        this.push(Buffer.from('first model chunk'));
+                        return;
+                    }
+                    resolveSecondRead?.();
+                },
+            }),
+        );
         const controller = new AbortController();
-        const { ensureTessdataLanguages } = await import('@electron/features/ocr/languageModels');
+        const {ensureTessdataLanguages} = await import('@electron/features/ocr/languageModels');
         const downloadPromise = ensureTessdataLanguages(['eng'], {signal: controller.signal});
 
         await secondReadStarted;
@@ -485,10 +461,7 @@ describe('ensureRuntimeTessdataSeeded', () => {
 
         await expect(downloadPromise).rejects.toMatchObject({name: 'AbortError'});
         await vi.waitFor(() => {
-            expect(mocks.rm).toHaveBeenCalledWith(
-                expect.stringContaining('.traineddata.download-'),
-                {force: true},
-            );
+            expect(mocks.rm).toHaveBeenCalledWith(expect.stringContaining('.traineddata.download-'), {force: true});
         });
         expect(mocks.rename).not.toHaveBeenCalled();
     });
@@ -523,12 +496,12 @@ describe('ensureRuntimeTessdataSeeded', () => {
         });
         const firstController = new AbortController();
         const secondController = new AbortController();
-        const { ensureTessdataLanguages } = await import('@electron/features/ocr/languageModels');
+        const {ensureTessdataLanguages} = await import('@electron/features/ocr/languageModels');
         const firstDownload = ensureTessdataLanguages(['eng'], {signal: firstController.signal});
         const secondDownload = ensureTessdataLanguages(['deu'], {signal: secondController.signal});
 
         await getStarted;
-        await new Promise(resolve => setImmediate(resolve));
+        await new Promise((resolve) => setImmediate(resolve));
 
         expect(mocks.fetch).toHaveBeenCalledTimes(2);
         firstController.abort();
@@ -546,13 +519,10 @@ describe('ensureRuntimeTessdataSeeded', () => {
         const offlineError = Object.assign(new Error('getaddrinfo EAI_AGAIN raw.githubusercontent.com'), {code: 'EAI_AGAIN'});
         mocks.fetch.mockRejectedValue(offlineError);
 
-        const { ensureTessdataLanguages } = await import('@electron/features/ocr/languageModels');
+        const {ensureTessdataLanguages} = await import('@electron/features/ocr/languageModels');
 
         // Each retry waits out the product's backoff; drive it with fake timers.
-        vi.useFakeTimers({toFake: [
-            'setTimeout',
-            'clearTimeout',
-        ]});
+        vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout']});
         const outcome = expect(ensureTessdataLanguages(['eng'])).rejects.toMatchObject({
             retryable: true,
             code: 'NETWORK_UNREACHABLE',
@@ -572,24 +542,24 @@ describe('ensureRuntimeTessdataSeeded', () => {
         let getTimes: number[];
 
         beforeEach(() => {
-            vi.useFakeTimers({toFake: [
-                'setTimeout',
-                'clearTimeout',
-                'Date',
-            ]});
+            vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout', 'Date']});
             mocks.fileUrl = join('/repo/electron/features/ocr/languageModels.ts');
             mocks.app.isPackaged = false;
             vi.spyOn(process, 'cwd').mockReturnValue(join('/repo'));
-            mocks.existsSync.mockImplementation((path: string) => (
-                path === join('/repo/resources/tesseract')
-                || path.includes('.traineddata.download-')
-                || mocks.installedPaths.has(path)
-            ));
+            mocks.existsSync.mockImplementation(
+                (path: string) =>
+                    path === join('/repo/resources/tesseract') || path.includes('.traineddata.download-') || mocks.installedPaths.has(path),
+            );
             written = [];
-            mocks.createWriteStream.mockImplementation(() => new Writable({write(chunk: Buffer, _encoding, callback) {
-                written.push(chunk);
-                callback();
-            }}));
+            mocks.createWriteStream.mockImplementation(
+                () =>
+                    new Writable({
+                        write(chunk: Buffer, _encoding, callback) {
+                            written.push(chunk);
+                            callback();
+                        },
+                    }),
+            );
             mocks.createReadStream.mockImplementation(() => Readable.from([Buffer.concat(written)]));
             getTimes = [];
         });
@@ -606,10 +576,12 @@ describe('ensureRuntimeTessdataSeeded', () => {
         }
 
         it('publishes a model that arrives steadily for ten minutes', async () => {
-            serveModel(() => pacedBody(modelBytes, {
-                chunks: 10,
-                intervalMs: 60_000,
-            }));
+            serveModel(() =>
+                pacedBody(modelBytes, {
+                    chunks: 10,
+                    intervalMs: 60_000,
+                }),
+            );
             const {ensureTessdataLanguages} = await import('@electron/features/ocr/languageModels');
             const startedAt = Date.now();
             const download = ensureTessdataLanguages(['eng']);
@@ -624,11 +596,13 @@ describe('ensureRuntimeTessdataSeeded', () => {
         });
 
         it('retries an attempt 90 seconds after its body stops arriving', async () => {
-            serveModel(() => pacedBody(modelBytes, {
-                chunks: 10,
-                intervalMs: 60_000,
-                stallAfter: 3,
-            }));
+            serveModel(() =>
+                pacedBody(modelBytes, {
+                    chunks: 10,
+                    intervalMs: 60_000,
+                    stallAfter: 3,
+                }),
+            );
             const {ensureTessdataLanguages} = await import('@electron/features/ocr/languageModels');
             const startedAt = Date.now();
             const outcome = ensureTessdataLanguages(['eng']).catch((error: unknown) => error);
@@ -643,11 +617,7 @@ describe('ensureRuntimeTessdataSeeded', () => {
             });
             // Each attempt receives its last chunk at 180 s and stalls 90 s
             // later; retries wait 1.5 s, then 3 s.
-            expect(getTimes.map(time => time - startedAt)).toEqual([
-                0,
-                271_500,
-                544_500,
-            ]);
+            expect(getTimes.map((time) => time - startedAt)).toEqual([0, 271_500, 544_500]);
             expect(Date.now() - startedAt).toBe(814_500);
             expect(mocks.rename).not.toHaveBeenCalled();
             expect(mocks.rm).toHaveBeenCalledWith(expect.stringContaining('.traineddata.download-'), {force: true});
@@ -703,9 +673,7 @@ describe('verified model download publication', () => {
 
     async function expectVerifiedModel(code: 'eng' | 'lat' = 'eng') {
         const installed = await files.readFile(join(runtimeRoot, 'tessdata', `${code}.traineddata`));
-        expect(createHash('sha256').update(installed).digest('hex')).toBe(
-            OCR_LANGUAGE_MODEL_SHA256[code],
-        );
+        expect(createHash('sha256').update(installed).digest('hex')).toBe(OCR_LANGUAGE_MODEL_SHA256[code]);
         expect(await files.readdir(join(runtimeRoot, 'tessdata'))).toEqual([`${code}.traineddata`]);
     }
 
@@ -718,36 +686,40 @@ describe('verified model download publication', () => {
             code: 'lat',
             source: 'script/Latin',
         },
-    ] as const)('publishes pinned $code from $source, then uses it offline', async ({
-        code, source,
-    }) => {
+    ] as const)('publishes pinned $code from $source, then uses it offline', async ({code, source}) => {
         modelBytes = modelFixtures[code];
         if (code === 'lat') {
             await files.mkdir(join(runtimeRoot, 'tessdata'));
-            await files.copyFile(
-                join(tessdataFixtureRoot, 'lat_dictionary.traineddata'),
-                join(runtimeRoot, 'tessdata', 'lat.traineddata'),
-            );
+            await files.copyFile(join(tessdataFixtureRoot, 'lat_dictionary.traineddata'), join(runtimeRoot, 'tessdata', 'lat.traineddata'));
         }
         let transientFailurePending = code === 'eng';
         vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
-            if (url !== `https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/e12c65a915945e4c28e237a9b52bc4a8f39a0cec/${source}.traineddata`) {
+            if (
+                url !==
+                `https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/e12c65a915945e4c28e237a9b52bc4a8f39a0cec/${source}.traineddata`
+            ) {
                 return new Response(null, {status: 404});
             }
-            if (init.method === 'HEAD') {return new Response(null, {status: 200});}
+            if (init.method === 'HEAD') {
+                return new Response(null, {status: 200});
+            }
             if (transientFailurePending) {
                 transientFailurePending = false;
                 return new Response(null, {status: 503});
             }
-            return new Response(new ReadableStream<Uint8Array>({start(controller) {
-                controller.enqueue(modelBytes);
-                controller.close();
-            }}));
+            return new Response(
+                new ReadableStream<Uint8Array>({
+                    start(controller) {
+                        controller.enqueue(modelBytes);
+                        controller.close();
+                    },
+                }),
+            );
         });
         const {ensureTessdataLanguages} = await import('@electron/features/ocr/languageModels');
 
         const progress: IOcrModelDownloadProgress[] = [];
-        await ensureTessdataLanguages([code], {onProgress: update => progress.push(update)});
+        await ensureTessdataLanguages([code], {onProgress: (update) => progress.push(update)});
         expect(OCR_LANGUAGE_MODEL_BYTES[code]).toBe(modelBytes.length);
         expect(progress[0]).toMatchObject({
             languageCode: code,
@@ -760,8 +732,10 @@ describe('verified model download publication', () => {
             totalBytes: modelBytes.length,
             retrying: false,
         });
-        expect(progress.some(update => update.retrying)).toBe(code === 'eng');
-        vi.stubGlobal('fetch', () => { throw new Error('offline'); });
+        expect(progress.some((update) => update.retrying)).toBe(code === 'eng');
+        vi.stubGlobal('fetch', () => {
+            throw new Error('offline');
+        });
         await ensureTessdataLanguages([code]);
         await expectVerifiedModel(code);
     });
@@ -770,30 +744,33 @@ describe('verified model download publication', () => {
         const started = Promise.withResolvers<undefined>();
         let deliverBody = () => {};
         vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => {
-            if (init.method === 'HEAD') {return new Response(null, {status: 200});}
-            return new Response(new ReadableStream<Uint8Array>({start(controller) {
-                deliverBody = () => {
-                    controller.enqueue(modelBytes);
-                    controller.close();
-                };
-                started.resolve(undefined);
-            }}));
+            if (init.method === 'HEAD') {
+                return new Response(null, {status: 200});
+            }
+            return new Response(
+                new ReadableStream<Uint8Array>({
+                    start(controller) {
+                        deliverBody = () => {
+                            controller.enqueue(modelBytes);
+                            controller.close();
+                        };
+                        started.resolve(undefined);
+                    },
+                }),
+            );
         });
-        const {
-            ensureTessdataLanguages,
-            getOcrLanguageModelStates,
-        } = await import('@electron/features/ocr/languageModels');
+        const {ensureTessdataLanguages, getOcrLanguageModelStates} = await import('@electron/features/ocr/languageModels');
         const canceled = new AbortController();
         const firstProgress: IOcrModelDownloadProgress[] = [];
         const secondProgress: IOcrModelDownloadProgress[] = [];
         const first = ensureTessdataLanguages(['eng'], {
             signal: canceled.signal,
-            onProgress: update => firstProgress.push(update),
+            onProgress: (update) => firstProgress.push(update),
         });
-        const firstOutcome = first.catch(error => error as Error);
+        const firstOutcome = first.catch((error) => error as Error);
         await started.promise;
-        const second = ensureTessdataLanguages(['eng'], {onProgress: update => secondProgress.push(update)});
-        expect((await getOcrLanguageModelStates()).find(language => language.code === 'eng')?.state).toBe('downloading');
+        const second = ensureTessdataLanguages(['eng'], {onProgress: (update) => secondProgress.push(update)});
+        expect((await getOcrLanguageModelStates()).find((language) => language.code === 'eng')?.state).toBe('downloading');
         canceled.abort();
         expect(await firstOutcome).toMatchObject({name: 'AbortError'});
         const progressAtCancel = [...firstProgress];
@@ -806,43 +783,48 @@ describe('verified model download publication', () => {
         expect(secondProgress.at(-1)?.receivedBytes).toBe(modelBytes.length);
     });
 
-    it.each([
-        false,
-        true,
-    ])('publishes a shared model despite a throwing listener (replay: %s)', async (throwOnReplay) => {
+    it.each([false, true])('publishes a shared model despite a throwing listener (replay: %s)', async (throwOnReplay) => {
         const started = Promise.withResolvers<undefined>();
         let deliverBody = () => {};
         vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => {
-            if (init.method === 'HEAD') {return new Response(null, {status: 200});}
-            return new Response(new ReadableStream<Uint8Array>({start(controller) {
-                deliverBody = () => {
-                    controller.enqueue(modelBytes);
-                    controller.close();
-                };
-                started.resolve(undefined);
-            }}));
+            if (init.method === 'HEAD') {
+                return new Response(null, {status: 200});
+            }
+            return new Response(
+                new ReadableStream<Uint8Array>({
+                    start(controller) {
+                        deliverBody = () => {
+                            controller.enqueue(modelBytes);
+                            controller.close();
+                        };
+                        started.resolve(undefined);
+                    },
+                }),
+            );
         });
         const {ensureTessdataLanguages} = await import('@electron/features/ocr/languageModels');
         const healthyProgress: IOcrModelDownloadProgress[] = [];
-        const first = ensureTessdataLanguages(['eng'], {onProgress: update => healthyProgress.push(update)});
+        const first = ensureTessdataLanguages(['eng'], {onProgress: (update) => healthyProgress.push(update)});
         await started.promise;
-        const second = ensureTessdataLanguages(['eng'], {onProgress: update => {
-            if (throwOnReplay || update.receivedBytes > 0) {throw new Error('Listener failed');}
-        }});
+        const second = ensureTessdataLanguages(['eng'], {
+            onProgress: (update) => {
+                if (throwOnReplay || update.receivedBytes > 0) {
+                    throw new Error('Listener failed');
+                }
+            },
+        });
         const laterProgress: IOcrModelDownloadProgress[] = [];
-        const third = ensureTessdataLanguages(['eng'], {onProgress: update => laterProgress.push(update)});
-        const outcomes = Promise.allSettled([
-            first,
-            second,
-            third,
-        ]);
-        await new Promise(resolve => setImmediate(resolve));
+        const third = ensureTessdataLanguages(['eng'], {onProgress: (update) => laterProgress.push(update)});
+        const outcomes = Promise.allSettled([first, second, third]);
+        await new Promise((resolve) => setImmediate(resolve));
         deliverBody();
 
-        expect(await outcomes).toEqual(Array.from({length: 3}, () => ({
-            status: 'fulfilled',
-            value: undefined,
-        })));
+        expect(await outcomes).toEqual(
+            Array.from({length: 3}, () => ({
+                status: 'fulfilled',
+                value: undefined,
+            })),
+        );
         await expectVerifiedModel();
         expect(healthyProgress.at(-1)?.receivedBytes).toBe(modelBytes.length);
         expect(laterProgress.at(-1)?.receivedBytes).toBe(modelBytes.length);
@@ -851,9 +833,9 @@ describe('verified model download publication', () => {
     it('leaves no usable model or staging file after a checksum mismatch', async () => {
         const changedBytes = Buffer.from(modelBytes);
         changedBytes[changedBytes.length - 1]! ^= 1;
-        vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => (
-            init.method === 'HEAD' ? new Response(null, {status: 200}) : new Response(new Uint8Array(changedBytes))
-        ));
+        vi.stubGlobal('fetch', async (_url: string, init: RequestInit) =>
+            init.method === 'HEAD' ? new Response(null, {status: 200}) : new Response(new Uint8Array(changedBytes)),
+        );
         const {ensureTessdataLanguages} = await import('@electron/features/ocr/languageModels');
 
         await expect(ensureTessdataLanguages(['eng'])).rejects.toMatchObject({code: 'CHECKSUM_MISMATCH'});

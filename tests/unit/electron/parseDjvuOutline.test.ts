@@ -1,14 +1,6 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    buildDjvuPageComponentMap,
-    normalizeDjvuOutlineTree,
-    resolveDjvuOutlineUrlToPageIndex,
-} from '@djvu-core/djvuOutline';
-import type { IDjvuOutlineRawItem } from '@djvu-core/djvuLibreTypes';
+import {describe, expect, it} from 'vitest';
+import {buildDjvuPageComponentMap, normalizeDjvuOutlineTree, resolveDjvuOutlineUrlToPageIndex} from '@djvu-core/djvuOutline';
+import type {IDjvuOutlineRawItem} from '@djvu-core/djvuLibreTypes';
 
 describe('djvuOutline', () => {
     it('preserves Unicode and punctuation in bookmark titles', () => {
@@ -40,33 +32,41 @@ describe('djvuOutline', () => {
     });
 
     it('preserves nested bookmark structure and page destinations', () => {
-        const raw: IDjvuOutlineRawItem[] = [{
-            title: 'Part',
-            url: '#2',
-            children: [{
-                title: 'Chapter',
-                url: '#7',
-                children: [],
-            }],
-        }];
+        const raw: IDjvuOutlineRawItem[] = [
+            {
+                title: 'Part',
+                url: '#2',
+                children: [
+                    {
+                        title: 'Chapter',
+                        url: '#7',
+                        children: [],
+                    },
+                ],
+            },
+        ];
 
-        expect(normalizeDjvuOutlineTree(raw)).toEqual([{
-            title: 'Part',
-            pageIndex: 1,
-            namedDest: null,
-            bold: false,
-            italic: false,
-            color: null,
-            items: [{
-                title: 'Chapter',
-                pageIndex: 6,
+        expect(normalizeDjvuOutlineTree(raw)).toEqual([
+            {
+                title: 'Part',
+                pageIndex: 1,
                 namedDest: null,
                 bold: false,
                 italic: false,
                 color: null,
-                items: [],
-            }],
-        }]);
+                items: [
+                    {
+                        title: 'Chapter',
+                        pageIndex: 6,
+                        namedDest: null,
+                        bold: false,
+                        italic: false,
+                        color: null,
+                        items: [],
+                    },
+                ],
+            },
+        ]);
     });
 
     it('resolves component ID targets through the DjVu document page map', () => {

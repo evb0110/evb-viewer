@@ -1,13 +1,6 @@
-import { EventEmitter } from 'node:events';
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import type { TRegisteredHandler } from '@tests/unit/electron/helpers/ipcRegistryHarness';
+import {EventEmitter} from 'node:events';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import type {TRegisteredHandler} from '@tests/unit/electron/helpers/ipcRegistryHarness';
 
 const mocks = vi.hoisted(() => ({
     appended: [] as string[],
@@ -15,10 +8,16 @@ const mocks = vi.hoisted(() => ({
     readdir: vi.fn(async () => [] as string[]),
 }));
 
-vi.mock('electron', () => ({BrowserWindow: {getAllWindows: () => [{
-    isDestroyed: () => false,
-    webContents: {send: (...args: unknown[]) => mocks.broadcasts.push(args)},
-}]}}));
+vi.mock('electron', () => ({
+    BrowserWindow: {
+        getAllWindows: () => [
+            {
+                isDestroyed: () => false,
+                webContents: {send: (...args: unknown[]) => mocks.broadcasts.push(args)},
+            },
+        ],
+    },
+}));
 vi.mock('worker_threads', () => ({
     isMainThread: true,
     threadId: 0,
@@ -44,18 +43,23 @@ vi.mock('fs/promises', () => ({
 }));
 
 function readRecords() {
-    return mocks.appended
-        .join('')
-        .split('\n')
-        .filter(line => line.length > 0)
-        .map(line => JSON.parse(line) as {
-            msg: string;
-            level: string;
-            scope: string;
-            data?: Record<string, unknown>;
-        })
-        // Each process start writes one session marker before its first record.
-        .filter(record => record.msg !== 'Log session started');
+    return (
+        mocks.appended
+            .join('')
+            .split('\n')
+            .filter((line) => line.length > 0)
+            .map(
+                (line) =>
+                    JSON.parse(line) as {
+                        msg: string;
+                        level: string;
+                        scope: string;
+                        data?: Record<string, unknown>;
+                    },
+            )
+            // Each process start writes one session marker before its first record.
+            .filter((record) => record.msg !== 'Log session started')
+    );
 }
 
 function countWrittenLines() {
@@ -83,7 +87,7 @@ describe('file logger write buffering', () => {
     });
 
     it('coalesces a burst of lines into a single append', async () => {
-        const { createLogger } = await import('@electron/utils/createLogger');
+        const {createLogger} = await import('@electron/utils/createLogger');
         const logger = createLogger('buffer-test', {broadcastToRenderers: false});
 
         for (let index = 0; index < 25; index += 1) {
@@ -97,7 +101,7 @@ describe('file logger write buffering', () => {
     });
 
     it('writes error lines without waiting for the flush window', async () => {
-        const { createLogger } = await import('@electron/utils/createLogger');
+        const {createLogger} = await import('@electron/utils/createLogger');
         const logger = createLogger('buffer-error-test', {broadcastToRenderers: false});
 
         logger.info('buffered');
@@ -108,10 +112,7 @@ describe('file logger write buffering', () => {
     });
 
     it('flushes buffered lines on shutdown', async () => {
-        const {
-            createLogger,
-            flushPendingLogWrites,
-        } = await import('@electron/utils/createLogger');
+        const {createLogger, flushPendingLogWrites} = await import('@electron/utils/createLogger');
         const logger = createLogger('buffer-flush-test', {broadcastToRenderers: false});
 
         logger.info('pending on quit');
@@ -123,17 +124,17 @@ describe('file logger write buffering', () => {
     });
 
     it('does not make the next write wait for directory pruning', async () => {
-        const {
-            createLogger,
-            flushPendingLogWrites,
-        } = await import('@electron/utils/createLogger');
+        const {createLogger, flushPendingLogWrites} = await import('@electron/utils/createLogger');
         await vi.dynamicImportSettled();
         vi.setSystemTime(new Date(Date.now() + 60_001));
         mocks.readdir.mockClear();
         let releasePrune: (() => void) | undefined;
-        mocks.readdir.mockImplementationOnce(() => new Promise<string[]>(resolve => {
-            releasePrune = () => resolve([]);
-        }));
+        mocks.readdir.mockImplementationOnce(
+            () =>
+                new Promise<string[]>((resolve) => {
+                    releasePrune = () => resolve([]);
+                }),
+        );
         const logger = createLogger('prune-queue-test', {broadcastToRenderers: false});
 
         try {
@@ -156,10 +157,7 @@ describe('file logger write buffering', () => {
     });
 
     it('redacts once before file writes and renderer broadcasts', async () => {
-        const {
-            createLogger,
-            flushPendingLogWrites,
-        } = await import('@electron/utils/createLogger');
+        const {createLogger, flushPendingLogWrites} = await import('@electron/utils/createLogger');
         const logger = createLogger('redaction-test');
         logger.info('GET https://user:pass@updates.example.test:8443/latest?channel=stable&token=secret#private');
 
@@ -175,26 +173,18 @@ describe('file logger write buffering', () => {
     });
 
     it('redacts composite JSON credentials without deleting sibling log fields', async () => {
-        const {
-            createLogger,
-            flushPendingLogWrites,
-        } = await import('@electron/utils/createLogger');
+        const {createLogger, flushPendingLogWrites} = await import('@electron/utils/createLogger');
         const logger = createLogger('composite-redaction-test', {broadcastToRenderers: false});
         logger.warn('event={"authorization":{"scheme":"Basic","credentials":"abc def"},"next":"useful"}');
 
         await flushPendingLogWrites();
 
-        expect(readRecords().at(-1)?.msg).toBe(
-            'event={"authorization":"[redacted-secret]","next":"useful"}',
-        );
+        expect(readRecords().at(-1)?.msg).toBe('event={"authorization":"[redacted-secret]","next":"useful"}');
         expect(mocks.appended.join('')).not.toContain('abc def');
     });
 
     it('writes structured data as one NDJSON record and redacts it', async () => {
-        const {
-            createLogger,
-            flushPendingLogWrites,
-        } = await import('@electron/utils/createLogger');
+        const {createLogger, flushPendingLogWrites} = await import('@electron/utils/createLogger');
         const logger = createLogger('structured-test', {broadcastToRenderers: false});
         logger.warn('Save did not commit', {
             path: '/Users/someone/private/report.pdf',
@@ -254,14 +244,16 @@ describe('file logger write buffering', () => {
             level: 'warn',
             section: 'ocr',
             message: 'OCR page diagnostics',
-            data: Object.fromEntries(Array.from({length: 16}, (_, index) => [
-                `page${index}`,
-                {
-                    words: words(150),
-                    path: `/Users/someone/scan-${index}.pdf`,
-                    token: `secret-${index}`,
-                },
-            ])),
+            data: Object.fromEntries(
+                Array.from({length: 16}, (_, index) => [
+                    `page${index}`,
+                    {
+                        words: words(150),
+                        path: `/Users/someone/scan-${index}.pdf`,
+                        token: `secret-${index}`,
+                    },
+                ]),
+            ),
         });
         // The 2,000-character message cut lands inside the redacted secret.
         handleRendererLog?.(event, {
@@ -271,11 +263,7 @@ describe('file logger write buffering', () => {
         });
         await flushPendingLogWrites();
 
-        const [
-            longString,
-            oversized,
-            clippedMessage,
-        ] = readRecords();
+        const [longString, oversized, clippedMessage] = readRecords();
         expect(clippedMessage?.msg).toHaveLength(2_001);
         expect(clippedMessage?.msg.startsWith(`${'x'.repeat(1_980)} authorization: `)).toBe(true);
         expect(longString).toMatchObject({
@@ -306,7 +294,7 @@ describe('file logger write buffering', () => {
         await vi.dynamicImportSettled();
 
         expect(readRecords()).toHaveLength(0);
-        const message = (mocks.broadcasts.at(-1)?.[1] as {message: string;} | undefined)?.message;
+        const message = (mocks.broadcasts.at(-1)?.[1] as {message: string} | undefined)?.message;
         expect(message).toBe('[WARN] Slow save durationMs=28736 path=/Users/[redacted]');
     });
 
@@ -319,19 +307,19 @@ describe('file logger write buffering', () => {
             return true;
         });
         try {
-            const {
-                createLogger,
-                writeLogRecord,
-            } = await import('@electron/utils/createLogger');
+            const {createLogger, writeLogRecord} = await import('@electron/utils/createLogger');
             const logger = createLogger('mirror-test', {broadcastToRenderers: false});
             logger.info('below the stdout level');
             logger.warn('Slow save', {durationMs: 28736});
-            writeLogRecord({
-                level: 'warn',
-                proc: 'renderer',
-                scope: 'workspace',
-                msg: 'already on the CDP console',
-            }, {stdout: false});
+            writeLogRecord(
+                {
+                    level: 'warn',
+                    proc: 'renderer',
+                    scope: 'workspace',
+                    msg: 'already on the CDP console',
+                },
+                {stdout: false},
+            );
 
             expect(writes).toHaveLength(1);
             expect(JSON.parse(writes[0]!)).toMatchObject({

@@ -1,19 +1,7 @@
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    detectSourceDpi,
-    detectSourceDpiDetails,
-} from '@electron/features/ocr/pipeline/dpiDetection';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
+import {detectSourceDpi, detectSourceDpiDetails} from '@electron/features/ocr/pipeline/dpiDetection';
 import {detectSourceDpiFromPageSizes} from '@electron/pdf/sourceDpiDetection';
-import {
-    getUnprovenNativeTerminationDetail,
-    markUnprovenNativeTermination,
-} from '@electron/utils/nativeTerminationProof';
+import {getUnprovenNativeTerminationDetail, markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
 
 const mocks = vi.hoisted(() => ({runOcrCommand: vi.fn()}));
 
@@ -53,15 +41,7 @@ describe('ocr dpi detection', () => {
         ]);
 
         expect(result?.documentDpi).toBe(360);
-        const [
-            firstRaster,
-            secondRaster,
-        ] = await Promise.all(
-            [
-                result?.getPageRaster(1),
-                result?.getPageRaster(2),
-            ],
-        );
+        const [firstRaster, secondRaster] = await Promise.all([result?.getPageRaster(1), result?.getPageRaster(2)]);
         expect(firstRaster).toEqual({
             dpi: 360,
             width: 2198,
@@ -75,14 +55,18 @@ describe('ocr dpi detection', () => {
     });
 
     it('falls back when any page lacks verified full-page raster metadata', () => {
-        expect(detectSourceDpiFromPageSizes([{
-            pageNumber: 1,
-            xPoints: 0,
-            yPoints: 0,
-            widthPoints: 612,
-            heightPoints: 792,
-            rotation: 0,
-        }])).toBeNull();
+        expect(
+            detectSourceDpiFromPageSizes([
+                {
+                    pageNumber: 1,
+                    xPoints: 0,
+                    yPoints: 0,
+                    widthPoints: 612,
+                    heightPoints: 792,
+                    rotation: 0,
+                },
+            ]),
+        ).toBeNull();
     });
 
     it('uses each page dominant raster instead of a tiny high-DPI object', async () => {
@@ -271,39 +255,11 @@ describe('ocr dpi detection', () => {
             exitCode: 0,
         });
 
-        await detectSourceDpiDetails(
-            '/tmp/input.pdf',
-            '/bin/pdfimages',
-            vi.fn(),
-            undefined,
-            undefined,
-            [
-                9,
-                4,
-                4,
-            ],
-        );
+        await detectSourceDpiDetails('/tmp/input.pdf', '/bin/pdfimages', vi.fn(), undefined, undefined, [9, 4, 4]);
 
-        expect(mocks.runOcrCommand.mock.calls.map(([
-            ,
-            args,
-        ]) => args)).toEqual([
-            [
-                '-f',
-                '4',
-                '-l',
-                '4',
-                '-list',
-                '/tmp/input.pdf',
-            ],
-            [
-                '-f',
-                '9',
-                '-l',
-                '9',
-                '-list',
-                '/tmp/input.pdf',
-            ],
+        expect(mocks.runOcrCommand.mock.calls.map(([, args]) => args)).toEqual([
+            ['-f', '4', '-l', '4', '-list', '/tmp/input.pdf'],
+            ['-f', '9', '-l', '9', '-list', '/tmp/input.pdf'],
         ]);
     });
 
@@ -314,47 +270,15 @@ describe('ocr dpi detection', () => {
             exitCode: 0,
         });
 
-        await detectSourceDpiDetails(
-            '/tmp/input.pdf',
-            '/bin/pdfimages',
-            vi.fn(),
-            undefined,
-            undefined,
-            [
-                1,
-                1_024,
-            ],
-        );
+        await detectSourceDpiDetails('/tmp/input.pdf', '/bin/pdfimages', vi.fn(), undefined, undefined, [1, 1_024]);
 
         expect(mocks.runOcrCommand).toHaveBeenCalledTimes(2);
-        expect(mocks.runOcrCommand.mock.calls.map(([
-            ,
-            args,
-        ]) => args)).toEqual([
-            [
-                '-f',
-                '1',
-                '-l',
-                '1',
-                '-list',
-                '/tmp/input.pdf',
-            ],
-            [
-                '-f',
-                '1024',
-                '-l',
-                '1024',
-                '-list',
-                '/tmp/input.pdf',
-            ],
+        expect(mocks.runOcrCommand.mock.calls.map(([, args]) => args)).toEqual([
+            ['-f', '1', '-l', '1', '-list', '/tmp/input.pdf'],
+            ['-f', '1024', '-l', '1024', '-list', '/tmp/input.pdf'],
         ]);
         // A one-page probe still starts pdfimages and opens the whole PDF.
-        expect(mocks.runOcrCommand.mock.calls.map(([
-            , , options,
-        ]) => options?.timeoutMs)).toEqual([
-            5_625,
-            5_625,
-        ]);
+        expect(mocks.runOcrCommand.mock.calls.map(([, , options]) => options?.timeoutMs)).toEqual([5_625, 5_625]);
     });
 
     it('probes every page in bounded chunks for long documents', async () => {
@@ -363,16 +287,14 @@ describe('ocr dpi detection', () => {
         let peakProbes = 0;
         let enteredProbes = 0;
         const probeTimeouts: number[] = [];
-        mocks.runOcrCommand.mockImplementation(async (
-            _binary,
-            args: string[],
-            options: {timeoutMs?: number},
-        ) => {
+        mocks.runOcrCommand.mockImplementation(async (_binary, args: string[], options: {timeoutMs?: number}) => {
             probeTimeouts.push(options.timeoutMs ?? 0);
             activeProbes += 1;
             peakProbes = Math.max(peakProbes, activeProbes);
             enteredProbes += 1;
-            if (enteredProbes === 4) {firstBatchEntered.resolve(undefined);}
+            if (enteredProbes === 4) {
+                firstBatchEntered.resolve(undefined);
+            }
             await firstBatchEntered.promise;
             try {
                 const firstPage = Number(args[args.indexOf('-f') + 1]);
@@ -400,57 +322,25 @@ describe('ocr dpi detection', () => {
             vi.fn(),
             undefined,
             undefined,
-            Array.from({ length: 4096 }, (_value, index) => index + 1),
-            (completed, total) => progress.push([
-                completed,
-                total,
-            ]),
+            Array.from({length: 4096}, (_value, index) => index + 1),
+            (completed, total) => progress.push([completed, total]),
         );
 
         expect(mocks.runOcrCommand).toHaveBeenCalledTimes(4);
         expect(peakProbes).toBe(4);
-        expect(probeTimeouts).toEqual([
-            30_000,
-            30_000,
-            30_000,
-            30_000,
-        ]);
-        expect(progress.at(-1)).toEqual([
-            4096,
-            4096,
-        ]);
-        expect(mocks.runOcrCommand.mock.calls[0]?.[1]).toEqual([
-            '-f',
-            '1',
-            '-l',
-            '1024',
-            '-list',
-            '/tmp/input.pdf',
-        ]);
-        expect(mocks.runOcrCommand.mock.calls.at(-1)?.[1]).toEqual([
-            '-f',
-            '3073',
-            '-l',
-            '4096',
-            '-list',
-            '/tmp/input.pdf',
-        ]);
+        expect(probeTimeouts).toEqual([30_000, 30_000, 30_000, 30_000]);
+        expect(progress.at(-1)).toEqual([4096, 4096]);
+        expect(mocks.runOcrCommand.mock.calls[0]?.[1]).toEqual(['-f', '1', '-l', '1024', '-list', '/tmp/input.pdf']);
+        expect(mocks.runOcrCommand.mock.calls.at(-1)?.[1]).toEqual(['-f', '3073', '-l', '4096', '-list', '/tmp/input.pdf']);
         expect(mocks.runOcrCommand).not.toHaveBeenCalledWith(
             '/bin/pdfimages',
-            [
-                '-f',
-                '1',
-                '-l',
-                '392',
-                '-list',
-                '/tmp/input.pdf',
-            ],
+            ['-f', '1', '-l', '392', '-list', '/tmp/input.pdf'],
             expect.anything(),
         );
         expect(result.documentDpi).toBe(360);
         let detectedPageCount = 0;
         for (let pageNumber = 1; pageNumber <= 4_096; pageNumber += 1) {
-            if (await result.getPageRaster(pageNumber) !== undefined) {
+            if ((await result.getPageRaster(pageNumber)) !== undefined) {
                 detectedPageCount += 1;
             }
         }
@@ -462,29 +352,19 @@ describe('ocr dpi detection', () => {
 
     it('propagates failed probes instead of inventing source raster facts', async () => {
         mocks.runOcrCommand.mockRejectedValueOnce(new Error('pdfimages(-list) timed out'));
-        await expect(detectSourceDpiDetails('/tmp/input.pdf', '/bin/pdfimages', vi.fn()))
-            .rejects.toThrow('pdfimages(-list) timed out');
+        await expect(detectSourceDpiDetails('/tmp/input.pdf', '/bin/pdfimages', vi.fn())).rejects.toThrow('pdfimages(-list) timed out');
     });
 
     it('reports a probe whose process may still run when another probe failed first', async () => {
         mocks.runOcrCommand
             .mockRejectedValueOnce(new Error('pdfimages(-list) exited with code 1'))
-            .mockRejectedValueOnce(markUnprovenNativeTermination(
-                new Error('pdfimages(-list) timed out'),
-                'pdfimages process tree was not proven dead',
-            ));
+            .mockRejectedValueOnce(
+                markUnprovenNativeTermination(new Error('pdfimages(-list) timed out'), 'pdfimages process tree was not proven dead'),
+            );
 
-        const failure = await detectSourceDpiDetails(
-            '/tmp/input.pdf',
-            '/bin/pdfimages',
-            vi.fn(),
-            undefined,
-            undefined,
-            [
-                1,
-                9,
-            ],
-        ).catch((error: unknown) => error);
+        const failure = await detectSourceDpiDetails('/tmp/input.pdf', '/bin/pdfimages', vi.fn(), undefined, undefined, [1, 9]).catch(
+            (error: unknown) => error,
+        );
 
         expect(getUnprovenNativeTerminationDetail(failure)).toBe('pdfimages process tree was not proven dead');
         expect(failure).toMatchObject({message: expect.stringContaining('exited with code 1')});

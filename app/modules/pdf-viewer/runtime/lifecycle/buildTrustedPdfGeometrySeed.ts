@@ -1,7 +1,7 @@
-import type { TPageNumber } from '@contracts/pageNumbers';
-import type { IDocumentOpenSurfaceSnapshot } from '@app/modules/document-viewer/public';
+import type {TPageNumber} from '@contracts/pageNumbers';
+import type {IDocumentOpenSurfaceSnapshot} from '@app/modules/document-viewer/public';
 
-import type { IPdfPageMetric } from '@app/types/pdfUi';
+import type {IPdfPageMetric} from '@app/types/pdfUi';
 
 export function buildTrustedPdfGeometrySeed(input: {
     pageNumber: TPageNumber;
@@ -9,23 +9,20 @@ export function buildTrustedPdfGeometrySeed(input: {
     pages?: NonNullable<IDocumentOpenSurfaceSnapshot['openingPageGeometry']>['pages'];
 }) {
     if (
-        !Number.isSafeInteger(input.pageNumber) || input.pageNumber < 1
-        || !Number.isSafeInteger(input.pageCount) || input.pageCount < input.pageNumber
-        || !input.pages || input.pages.length !== input.pageCount
+        !Number.isSafeInteger(input.pageNumber) ||
+        input.pageNumber < 1 ||
+        !Number.isSafeInteger(input.pageCount) ||
+        input.pageCount < input.pageNumber ||
+        !input.pages ||
+        input.pages.length !== input.pageCount
     ) {
         return null;
     }
     const pageMetrics: IPdfPageMetric[] = [];
-    for (const [
-        index,
-        page,
-    ] of input.pages.entries()) {
-        if ('pageNumber' in page && page.pageNumber !== index + 1 || ![
-            0,
-            90,
-            180,
-            270,
-        ].includes(page.rotation)) {return null;}
+    for (const [index, page] of input.pages.entries()) {
+        if (('pageNumber' in page && page.pageNumber !== index + 1) || ![0, 90, 180, 270].includes(page.rotation)) {
+            return null;
+        }
         const rotated = page.rotation === 90 || page.rotation === 270;
         const metric = {
             width: (rotated ? page.heightPoints : page.widthPoints) * page.userUnit,

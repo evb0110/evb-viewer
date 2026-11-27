@@ -1,25 +1,19 @@
-import type {
-    IPdfOptimizeOptions,
-    IPdfOptimizeProgress,
-    IPdfOptimizeResult,
-    TPdfOptimizePreset,
-} from '@contracts/electronApiDocuments';
-import { createRequestId } from '@contracts/shared';
-import type { TRequestId } from '@contracts/shared';
-import { getDocumentMenuCapability } from '@app/utils/platformDocuments';
-import { formatBytes } from '@app/utils/formatters';
+import type {IPdfOptimizeOptions, IPdfOptimizeProgress, IPdfOptimizeResult, TPdfOptimizePreset} from '@contracts/electronApiDocuments';
+import {createRequestId} from '@contracts/shared';
+import type {TRequestId} from '@contracts/shared';
+import {getDocumentMenuCapability} from '@app/utils/platformDocuments';
+import {formatBytes} from '@app/utils/formatters';
 
-interface IUseDocumentWorkspaceOptimizeDialogOptions {handleOptimizePdfAsCopy: (
-    options: IPdfOptimizeOptions,
-    requestId: TRequestId,
-    onResult: (result: IPdfOptimizeResult) => void,
-) => Promise<boolean>;}
+interface IUseDocumentWorkspaceOptimizeDialogOptions {
+    handleOptimizePdfAsCopy: (
+        options: IPdfOptimizeOptions,
+        requestId: TRequestId,
+        onResult: (result: IPdfOptimizeResult) => void,
+    ) => Promise<boolean>;
+}
 
 export const useDocumentWorkspaceOptimizeDialog = ({handleOptimizePdfAsCopy}: IUseDocumentWorkspaceOptimizeDialogOptions) => {
-    const {
-        t,
-        locale,
-    } = useTypedI18n();
+    const {t, locale} = useTypedI18n();
     const toast = useToast();
     const optimizeDialogOpen = ref(false);
     const optimizeProgress = ref<IPdfOptimizeProgress | null>(null);
@@ -89,7 +83,7 @@ export const useDocumentWorkspaceOptimizeDialog = ({handleOptimizePdfAsCopy}: IU
 
         // A picker or preflight that fails still ends the request.
         try {
-            const reported: {result: IPdfOptimizeResult | null;} = {result: null};
+            const reported: {result: IPdfOptimizeResult | null} = {result: null};
             const success = await handleOptimizePdfAsCopy(options, requestId, (result) => {
                 reported.result = result;
             });
@@ -112,9 +106,7 @@ export const useDocumentWorkspaceOptimizeDialog = ({handleOptimizePdfAsCopy}: IU
                     // rewrite of the same content; its size says nothing useful.
                     optimizeNotice.value = {
                         preset: options.preset,
-                        message: result.optimizedPages && sizes
-                            ? t('optimizePdf.notSmaller', sizes)
-                            : t('optimizePdf.alreadyCompact'),
+                        message: result.optimizedPages && sizes ? t('optimizePdf.notSmaller', sizes) : t('optimizePdf.alreadyCompact'),
                     };
                 }
             }

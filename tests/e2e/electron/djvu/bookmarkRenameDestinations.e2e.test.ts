@@ -1,315 +1,349 @@
-import {
-    PDFDocument, PDFName, PDFString, PDFHexString, PDFArray, PDFDict, PDFNumber, PDFNull, PDFRef, degrees, type PDFPage,
-} from 'pdf-lib';
-import {
-    copyFile, mkdtemp, open, readFile, realpath, stat, writeFile,
-} from 'node:fs/promises';
+import {PDFDocument, PDFName, PDFString, PDFHexString, PDFArray, PDFDict, PDFNumber, PDFNull, PDFRef, degrees, type PDFPage} from 'pdf-lib';
+import {copyFile, mkdtemp, open, readFile, realpath, stat, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {execFileSync} from 'node:child_process';
 import {electronFileLogDir} from '@scripts/electron-run/electronRunSessionPaths';
 import {join} from 'node:path';
-import {
-    describe, expect, it, onTestFinished,
-} from 'vitest';
+import {describe, expect, it, onTestFinished} from 'vitest';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
-    goToPageViaToolbar, openDocumentSidebarTab, openPdfInApp, saveViaVisibleToolbar, saveViaWindowHandle, waitForPdfLoaded, waitForToolbarCurrentPage,
+    goToPageViaToolbar,
+    openDocumentSidebarTab,
+    openPdfInApp,
+    saveViaVisibleToolbar,
+    saveViaWindowHandle,
+    waitForPdfLoaded,
+    waitForToolbarCurrentPage,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {
-    createOutlinePageLabelFixturePdf, fixtureBookmark, readPdfMetadataWithQpdf, resolveNativeLargePdfFixtureAvailability,
+    createOutlinePageLabelFixturePdf,
+    fixtureBookmark,
+    readPdfMetadataWithQpdf,
+    resolveNativeLargePdfFixtureAvailability,
 } from '@tests/e2e/electron/helpers/fixtures';
 import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
-import {
-    activateMenuItemAsUser, clickAsUser, clickFoundAsUser,
-} from '@tests/e2e/electron/helpers/userInput';
-import {
-    startElectronE2ESession, type IElectronE2ESession,
-} from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import {activateMenuItemAsUser, clickAsUser, clickFoundAsUser} from '@tests/e2e/electron/helpers/userInput';
+import {startElectronE2ESession, type IElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {readToolbarPageIndicator} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
 import {decodeMetadataSnapshot} from '@contracts/pageOpsPlatformFeature';
 import {waitForViewportQuiet} from '@tests/e2e/electron/helpers/viewportPageObservation';
 import {delay} from 'es-toolkit/promise';
 import type {Page} from 'puppeteer-core';
-import {
-    callWorkspaceCommand, waitForWorkspaceToolbarIdle,
-} from '@tests/e2e/electron/helpers/workspaceExpose';
-import {
-    readNativePdfCatalogPart, resolveNativePageOpsPath,
-} from '@electron/features/page-ops/public/nativePageOpsPath';
+import {callWorkspaceCommand, waitForWorkspaceToolbarIdle} from '@tests/e2e/electron/helpers/workspaceExpose';
+import {readNativePdfCatalogPart, resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
 
 describe('Electron E2E - bookmark destination round trip', () => {
     const sessions = createElectronE2ESessionFixture({sessionName: () => `e2e-bookmark-rename-${Date.now()}`});
 
     // The same catalog must be visible below and above the native eager-load
     // ceiling. Reuse the large-file lane's sparse size rather than a 2 GB book.
-    it.each([
-        'small',
-        'large',
-    ])('reads labels and named outline targets from a %s catalog', async (size) => {
-        const fixture = await createOutlinePageLabelFixturePdf(`catalog-${size}-${Date.now()}.pdf`, []);
-        await writeOutlineFixture(fixture, (pdf, pages) => {
-            pdf.catalog.set(PDFName.of('Dests'), pdf.context.obj({'chapter-three': [
-                pages[2]!.ref,
-                PDFName.of('FitH'),
-                null,
-            ]}));
-            return [
+    it.each(['small', 'large'])(
+        'reads labels and named outline targets from a %s catalog',
+        async (size) => {
+            const fixture = await createOutlinePageLabelFixturePdf(`catalog-${size}-${Date.now()}.pdf`, []);
+            await writeOutlineFixture(fixture, (pdf, pages) => {
+                pdf.catalog.set(PDFName.of('Dests'), pdf.context.obj({'chapter-three': [pages[2]!.ref, PDFName.of('FitH'), null]}));
+                return [
+                    {
+                        Title: PDFString.of('First'),
+                        Dest: [pages[0]!.ref, PDFName.of('Fit')],
+                    },
+                    {
+                        Title: PDFString.of('Named chapter'),
+                        Dest: PDFString.of('chapter-three'),
+                    },
+                ];
+            });
+            if (size === 'large') {
+                const oversized = resolveNativeLargePdfFixtureAvailability(4);
+                if (!oversized.path) {
+                    throw new Error(oversized.reason);
+                }
+                const targetBytes = (await stat(oversized.path)).size;
+                const source = await readFile(fixture);
+                const startXref = [...source.toString('latin1').matchAll(/startxref\s+(\d+)\s+%%EOF/gu)].at(-1)?.[1];
+                if (startXref === undefined) {
+                    throw new Error('Catalog fixture has no cross-reference trailer');
+                }
+                const trailer = Buffer.from(`\nstartxref\n${startXref}\n%%EOF\n`, 'ascii');
+                if (process.platform === 'win32') {
+                    execFileSync('fsutil.exe', ['sparse', 'setflag', fixture]);
+                }
+                const handle = await open(fixture, 'r+');
+                try {
+                    await handle.truncate(targetBytes);
+                    await handle.write(trailer, 0, trailer.length, targetBytes - trailer.length);
+                } finally {
+                    await handle.close();
+                }
+                expect((await stat(fixture)).size).toBeGreaterThan(512 * 1024 * 1024);
+            }
+            const session = sessions.getSession();
+            const {page} = session;
+            const logPath = join(electronFileLogDir(session.name), 'app.ndjson');
+            const initialLog = (await readFile(logPath, 'utf8')).length;
+            await openPdfInApp(page, fixture);
+            await waitForPdfLoaded(page);
+            await expect.poll(async () => (await readToolbarPageIndicator(page)).primaryText, {timeout: 30_000}).toBe('front-i');
+            await openDocumentSidebarTab(page, 'Bookmarks');
+            await findBookmarkRow(page, 'First');
+            await activateBookmark(page, 'Named chapter');
+            await waitForToolbarCurrentPage(page, 3);
+            await expect.poll(async () => (await readToolbarPageIndicator(page)).primaryText).toBe('chapter-1');
+            expect(await page.$eval('.page_container[data-page="3"]', (node) => node.textContent)).toContain('Metadata matrix page 3');
+            await activateBookmark(page, 'First');
+            await waitForToolbarCurrentPage(page, 1);
+            await expect.poll(async () => (await readToolbarPageIndicator(page)).primaryText).toBe('front-i');
+            const log = (await readFile(logPath, 'utf8')).slice(initialLog);
+            expect(log).not.toContain('Large incremental PDF input requires');
+            expect(
+                log
+                    .split('\n')
+                    .filter(Boolean)
+                    .map((line) => JSON.parse(line))
+                    .filter(
+                        (entry) =>
+                            entry.msg === 'IPC handler rejected' &&
+                            (entry.data?.channel === 'pdf:pageLabels:read' || entry.data?.channel === 'page-ops:read-outline'),
+                    ),
+            ).toEqual([]);
+            const nativePath = resolveNativePageOpsPath();
+            if (!nativePath) {
+                throw new Error('Native catalog reader is unavailable');
+            }
+            const readPart = (part: 'bookmarks' | 'pageLabels') =>
+                readNativePdfCatalogPart(nativePath, fixture, part, {commandLabel: 'E2E catalog read'});
+            expect(await readPart('pageLabels')).toMatchObject([
                 {
-                    Title: PDFString.of('First'),
-                    Dest: [
-                        pages[0]!.ref,
-                        PDFName.of('Fit'),
-                    ],
+                    pageIndex: 0,
+                    style: 'r',
+                    prefix: 'front-',
                 },
                 {
-                    Title: PDFString.of('Named chapter'),
-                    Dest: PDFString.of('chapter-three'),
+                    pageIndex: 2,
+                    style: 'D',
+                    prefix: 'chapter-',
                 },
-            ];
-        });
-        if (size === 'large') {
-            const oversized = resolveNativeLargePdfFixtureAvailability(4);
-            if (!oversized.path) {throw new Error(oversized.reason);}
-            const targetBytes = (await stat(oversized.path)).size;
-            const source = await readFile(fixture);
-            const startXref = [...source.toString('latin1').matchAll(/startxref\s+(\d+)\s+%%EOF/gu)].at(-1)?.[1];
-            if (startXref === undefined) {throw new Error('Catalog fixture has no cross-reference trailer');}
-            const trailer = Buffer.from(`\nstartxref\n${startXref}\n%%EOF\n`, 'ascii');
-            if (process.platform === 'win32') {
-                execFileSync('fsutil.exe', [
-                    'sparse',
-                    'setflag',
-                    fixture,
-                ]);
-            }
-            const handle = await open(fixture, 'r+');
-            try {
-                await handle.truncate(targetBytes);
-                await handle.write(trailer, 0, trailer.length, targetBytes - trailer.length);
-            } finally {
-                await handle.close();
-            }
-            expect((await stat(fixture)).size).toBeGreaterThan(512 * 1024 * 1024);
-        }
-        const session = sessions.getSession();
-        const {page} = session;
-        const logPath = join(electronFileLogDir(session.name), 'app.ndjson');
-        const initialLog = (await readFile(logPath, 'utf8')).length;
-        await openPdfInApp(page, fixture);
-        await waitForPdfLoaded(page);
-        await expect.poll(async () => (await readToolbarPageIndicator(page)).primaryText, {timeout: 30_000}).toBe('front-i');
-        await openDocumentSidebarTab(page, 'Bookmarks');
-        await findBookmarkRow(page, 'First');
-        await activateBookmark(page, 'Named chapter');
-        await waitForToolbarCurrentPage(page, 3);
-        await expect.poll(async () => (await readToolbarPageIndicator(page)).primaryText).toBe('chapter-1');
-        expect(await page.$eval('.page_container[data-page="3"]', node => node.textContent)).toContain('Metadata matrix page 3');
-        await activateBookmark(page, 'First');
-        await waitForToolbarCurrentPage(page, 1);
-        await expect.poll(async () => (await readToolbarPageIndicator(page)).primaryText).toBe('front-i');
-        const log = (await readFile(logPath, 'utf8')).slice(initialLog);
-        expect(log).not.toContain('Large incremental PDF input requires');
-        expect(log.split('\n').filter(Boolean).map(line => JSON.parse(line)).filter(entry =>
-            entry.msg === 'IPC handler rejected' && (entry.data?.channel === 'pdf:pageLabels:read' || entry.data?.channel === 'page-ops:read-outline')))
-            .toEqual([]);
-        const nativePath = resolveNativePageOpsPath();
-        if (!nativePath) {throw new Error('Native catalog reader is unavailable');}
-        const readPart = (part: 'bookmarks' | 'pageLabels') => readNativePdfCatalogPart(nativePath, fixture, part, {commandLabel: 'E2E catalog read'});
-        expect(await readPart('pageLabels')).toMatchObject([
-            {
-                pageIndex: 0,
-                style: 'r',
-                prefix: 'front-',
-            },
-            {
-                pageIndex: 2,
-                style: 'D',
-                prefix: 'chapter-',
-            },
-        ]);
-        expect(await readPart('bookmarks')).toMatchObject([
-            {
-                title: 'First',
-                pageIndex: 0,
-            },
-            {
-                title: 'Named chapter',
-                pageIndex: 2,
-            },
-        ]);
-        console.info('CATALOG_READ ' + JSON.stringify({
-            size,
-            indicator: await readToolbarPageIndicator(page),
-        }));
-    }, 180_000);
+            ]);
+            expect(await readPart('bookmarks')).toMatchObject([
+                {
+                    title: 'First',
+                    pageIndex: 0,
+                },
+                {
+                    title: 'Named chapter',
+                    pageIndex: 2,
+                },
+            ]);
+            console.info(
+                'CATALOG_READ ' +
+                    JSON.stringify({
+                        size,
+                        indicator: await readToolbarPageIndicator(page),
+                    }),
+            );
+        },
+        180_000,
+    );
 
     // I1/R2: finishing an edit must not consume the next deliberate click.
     it.each([
-        [
-            120,
-            1,
-        ],
-        [
-            4_000,
-            1,
-        ],
-        [
-            10_000,
-            1,
-        ],
-    ])('outlinetree keeps a visible bookmark click after offscreen rename blur (%i bookmarks, run %i)', async count => {
-        const fixture = await createBookmarkTreeFixturePdf(`blur-click-${Date.now()}.pdf`, [
-            ...Array.from({length: count - 1}, (_, index) => fixtureBookmark(`Filler ${index + 1}`, index % 4)),
-            fixtureBookmark('Rename source', 0),
-        ]);
-        const {page} = sessions.getSession();
-        await openBookmarkEditor(page, fixture);
-        await wheelBookmarkList(page, 1_000_000);
-        await waitForFunctionInPage(page, () => {
-            const list = document.querySelector('.document-bookmark-tree__list')!;
-            return list.scrollTop > list.scrollHeight - list.clientHeight - 50;
-        });
-        await clickAsUser(page, await findBookmarkRow(page, 'Rename source'), {button: 'right'});
-        await clickAsUser(page, '.bookmarks-context-menu .pdf-context-menu__action');
-        await page.waitForSelector('input.pdf-bookmark-item-input', {visible: true});
-        await page.keyboard.type('Rename committed');
-        const beforeWheel = await page.$eval('.document-bookmark-tree__list', list => list.scrollTop);
-        await wheelBookmarkList(page, -3_500);
-        await waitForFunctionInPage(page, (before: number) => document.querySelector('.document-bookmark-tree__list')!.scrollTop < before - 3_000, {}, beforeWheel);
-        const target = await page.evaluate(() => {
-            const bounds = document.querySelector('.document-bookmark-tree__list')!.getBoundingClientRect();
-            return Array.from(document.querySelectorAll<HTMLElement>('.document-bookmark-item__row')).find(row => {
-                const rect = row.getBoundingClientRect();
-                const title = row.textContent?.trim() ?? '';
-                return rect.top > bounds.top + 90 && rect.bottom < bounds.bottom - 90
-                    && /^Filler \d+$/.test(title) && (Number(title.split(' ')[1]) - 1) % 4 === 2;
-            })?.textContent?.trim() ?? '';
-        });
-        expect(target).toMatch(/^Filler /);
-        await clickFoundAsUser(page, (title: string) => Array.from(document.querySelectorAll<HTMLElement>('.document-bookmark-item__row'))
-            .find(row => row.textContent?.trim() === title), target, {
-            description: 'Activate visible bookmark after rename blur',
-            delay: 100,
-        });
-        await expect.poll(() => page.$$eval('.document-bookmark-item__row.is-active', rows => rows.map(row => row.textContent?.trim())), {timeout: 6_000}).toEqual([target]);
-        await expectBookmarkFocus(page, target);
-        await waitForToolbarCurrentPage(page, 3);
-        await wheelBookmarkList(page, 1_000_000);
-        await findBookmarkRow(page, 'Rename committed');
-    }, 120_000);
+        [120, 1],
+        [4_000, 1],
+        [10_000, 1],
+    ])(
+        'outlinetree keeps a visible bookmark click after offscreen rename blur (%i bookmarks, run %i)',
+        async (count) => {
+            const fixture = await createBookmarkTreeFixturePdf(`blur-click-${Date.now()}.pdf`, [
+                ...Array.from({length: count - 1}, (_, index) => fixtureBookmark(`Filler ${index + 1}`, index % 4)),
+                fixtureBookmark('Rename source', 0),
+            ]);
+            const {page} = sessions.getSession();
+            await openBookmarkEditor(page, fixture);
+            await wheelBookmarkList(page, 1_000_000);
+            await waitForFunctionInPage(page, () => {
+                const list = document.querySelector('.document-bookmark-tree__list')!;
+                return list.scrollTop > list.scrollHeight - list.clientHeight - 50;
+            });
+            await clickAsUser(page, await findBookmarkRow(page, 'Rename source'), {button: 'right'});
+            await clickAsUser(page, '.bookmarks-context-menu .pdf-context-menu__action');
+            await page.waitForSelector('input.pdf-bookmark-item-input', {visible: true});
+            await page.keyboard.type('Rename committed');
+            const beforeWheel = await page.$eval('.document-bookmark-tree__list', (list) => list.scrollTop);
+            await wheelBookmarkList(page, -3_500);
+            await waitForFunctionInPage(
+                page,
+                (before: number) => document.querySelector('.document-bookmark-tree__list')!.scrollTop < before - 3_000,
+                {},
+                beforeWheel,
+            );
+            const target = await page.evaluate(() => {
+                const bounds = document.querySelector('.document-bookmark-tree__list')!.getBoundingClientRect();
+                return (
+                    Array.from(document.querySelectorAll<HTMLElement>('.document-bookmark-item__row'))
+                        .find((row) => {
+                            const rect = row.getBoundingClientRect();
+                            const title = row.textContent?.trim() ?? '';
+                            return (
+                                rect.top > bounds.top + 90 &&
+                                rect.bottom < bounds.bottom - 90 &&
+                                /^Filler \d+$/.test(title) &&
+                                (Number(title.split(' ')[1]) - 1) % 4 === 2
+                            );
+                        })
+                        ?.textContent?.trim() ?? ''
+                );
+            });
+            expect(target).toMatch(/^Filler /);
+            await clickFoundAsUser(
+                page,
+                (title: string) =>
+                    Array.from(document.querySelectorAll<HTMLElement>('.document-bookmark-item__row')).find(
+                        (row) => row.textContent?.trim() === title,
+                    ),
+                target,
+                {
+                    description: 'Activate visible bookmark after rename blur',
+                    delay: 100,
+                },
+            );
+            await expect
+                .poll(() => page.$$eval('.document-bookmark-item__row.is-active', (rows) => rows.map((row) => row.textContent?.trim())), {
+                    timeout: 6_000,
+                })
+                .toEqual([target]);
+            await expectBookmarkFocus(page, target);
+            await waitForToolbarCurrentPage(page, 3);
+            await wheelBookmarkList(page, 1_000_000);
+            await findBookmarkRow(page, 'Rename committed');
+        },
+        120_000,
+    );
 
     // I1/R2, verify12 item e: the prior wheel must not undo keyboard completion.
     it.each([
-        [
-            'rapid',
-            'Enter',
-            1,
-        ],
-        [
-            'rapid',
-            'Escape',
-            1,
-        ],
-        [
-            'settled',
-            'Enter',
-            1,
-        ],
-        [
-            'settled',
-            'Escape',
-            1,
-        ],
-    ] as const)('core56 outlinetree completes %s wheel rename with %s (run %i)', async (timing, key, run) => {
-        const fixture = await createBookmarkTreeFixturePdf(`core56-${timing}-${key}-${run}-${Date.now()}.pdf`,
-            Array.from({length: 120}, (_, index) => fixtureBookmark(`Section ${index + 1}`, index % 4,
-                index === 118 ? Array.from({length: 3}, (_, child) => fixtureBookmark(`Child ${child + 1}`, 3)) : [])));
-        const evidence = await mkdtemp(join(tmpdir(), `core56-${timing}-${key}-${run}-`));
-        const original = (await readPdfMetadataWithQpdf(fixture)).outlines;
-        const {page} = sessions.getSession();
-        await openBookmarkEditor(page, fixture);
-        await clickAsUser(page, await findBookmarkRow(page, 'Section 1'));
-        await page.keyboard.press('End');
-        await expectBookmarkFocus(page, 'Section 120');
-        await clickAsUser(page, await findBookmarkRow(page, 'Section 120'), {button: 'right'});
-        await clickAsUser(page, '.bookmarks-context-menu .pdf-context-menu__action');
-        await waitForFunctionInPage(page, () => document.activeElement?.matches('input.pdf-bookmark-item-input') === true);
-        await page.keyboard.type(key === 'Enter' ? 'Last renamed' : 'Discard this name');
-        await wheelBookmarkList(page, -100_000);
-        if (timing === 'settled') {
-            await waitForFunctionInPage(page, () => document.querySelector('.document-bookmark-tree__list')?.scrollTop === 0);
-            await delay(300);
-        }
-        // Rapid has no observation or wait between the genuine wheel ACK and key.
-        const started = Date.now();
-        await page.keyboard.press(key);
-        const immediate = await observeBookmarkFocus(page);
-        await delay(Math.max(0, 1_500 - (Date.now() - started)));
-        const final = await observeBookmarkFocus(page);
-        await page.screenshot({path: join(evidence, 'completion-1500ms.png')});
-        await writeFile(join(evidence, 'completion.json'), JSON.stringify({
-            timing,
-            key,
-            run,
-            immediate,
-            final,
-            elapsedMs: Date.now() - started,
-        }, null, 2));
-        console.info('CORE56_COMPLETION ' + JSON.stringify({
-            timing,
-            key,
-            run,
-            evidence,
-            immediate,
-            final,
-        }));
-        expect(final.tag).toBe('DIV');
-        expect(final.title).toBe(key === 'Enter' ? 'Last renamed' : 'Section 120');
-        expect(final.visible, 'The painted completion must still be visible at the original 1.5 s checkpoint').toBe(true);
-
-        // A new gesture owns its scroll; completion must not keep following focus.
-        await wheelBookmarkList(page, -100_000);
-        await waitForFunctionInPage(page, () => document.querySelector('.document-bookmark-tree__list')?.scrollTop === 0);
-        await delay(300);
-        expect((await observeBookmarkFocus(page)).visible).toBe(false);
-        if (key === 'Escape') {
-            // Make an accepted edit after cancellation so Save is a real write.
-            await clickAsUser(page, await findBookmarkRow(page, 'Section 1'), {button: 'right'});
+        ['rapid', 'Enter', 1],
+        ['rapid', 'Escape', 1],
+        ['settled', 'Enter', 1],
+        ['settled', 'Escape', 1],
+    ] as const)(
+        'core56 outlinetree completes %s wheel rename with %s (run %i)',
+        async (timing, key, run) => {
+            const fixture = await createBookmarkTreeFixturePdf(
+                `core56-${timing}-${key}-${run}-${Date.now()}.pdf`,
+                Array.from({length: 120}, (_, index) =>
+                    fixtureBookmark(
+                        `Section ${index + 1}`,
+                        index % 4,
+                        index === 118 ? Array.from({length: 3}, (_, child) => fixtureBookmark(`Child ${child + 1}`, 3)) : [],
+                    ),
+                ),
+            );
+            const evidence = await mkdtemp(join(tmpdir(), `core56-${timing}-${key}-${run}-`));
+            const original = (await readPdfMetadataWithQpdf(fixture)).outlines;
+            const {page} = sessions.getSession();
+            await openBookmarkEditor(page, fixture);
+            await clickAsUser(page, await findBookmarkRow(page, 'Section 1'));
+            await page.keyboard.press('End');
+            await expectBookmarkFocus(page, 'Section 120');
+            await clickAsUser(page, await findBookmarkRow(page, 'Section 120'), {button: 'right'});
             await clickAsUser(page, '.bookmarks-context-menu .pdf-context-menu__action');
             await waitForFunctionInPage(page, () => document.activeElement?.matches('input.pdf-bookmark-item-input') === true);
-            await page.keyboard.type('Accepted after cancel');
-            await page.keyboard.press('Enter');
-        }
-        await saveViaVisibleToolbar(page, 90_000, fixture);
-        const saved = (await readPdfMetadataWithQpdf(fixture)).outlines;
-        expect(saved[0]?.title).toBe(key === 'Enter' ? 'Section 1' : 'Accepted after cancel');
-        expect(saved.at(-1)?.title).toBe(key === 'Enter' ? 'Last renamed' : 'Section 120');
-        expect(saved.some(entry => entry.title === 'Discard this name')).toBe(false);
-        const targets = (entries: typeof saved) => entries.flatMap(entry => [
-            entry,
-            ...(entry.kids ?? []),
-        ]).map(entry => ({
-            page: entry.destpageposfrom1,
-            destination: entry.dest?.slice(1),
-        }));
-        expect(targets(saved)).toEqual(targets(original));
-        await writeFile(join(evidence, 'saved-metadata.json'), JSON.stringify(saved, null, 2));
-        await copyFile(fixture, join(evidence, 'saved.pdf'));
-        await clickAsUser(page, 'button[aria-label="Close Tab"]');
-        await page.waitForSelector('.page_container', {hidden: true});
-        await openPdfInApp(page, fixture);
-        await waitForPdfLoaded(page);
-        await openDocumentSidebarTab(page, 'Bookmarks');
-        await clickAsUser(page, '.document-bookmarks-toolbar__actions button');
-        await clickFoundAsUser(page, () => document.querySelector('[data-bookmark-id]'), null, {description: 'Reopened bookmark'});
-        await page.keyboard.press('End');
-        await expectBookmarkFocus(page, key === 'Enter' ? 'Last renamed' : 'Section 120');
-    }, 120_000);
+            await page.keyboard.type(key === 'Enter' ? 'Last renamed' : 'Discard this name');
+            await wheelBookmarkList(page, -100_000);
+            if (timing === 'settled') {
+                await waitForFunctionInPage(page, () => document.querySelector('.document-bookmark-tree__list')?.scrollTop === 0);
+                await delay(300);
+            }
+            // Rapid has no observation or wait between the genuine wheel ACK and key.
+            const started = Date.now();
+            await page.keyboard.press(key);
+            const immediate = await observeBookmarkFocus(page);
+            await delay(Math.max(0, 1_500 - (Date.now() - started)));
+            const final = await observeBookmarkFocus(page);
+            await page.screenshot({path: join(evidence, 'completion-1500ms.png')});
+            await writeFile(
+                join(evidence, 'completion.json'),
+                JSON.stringify(
+                    {
+                        timing,
+                        key,
+                        run,
+                        immediate,
+                        final,
+                        elapsedMs: Date.now() - started,
+                    },
+                    null,
+                    2,
+                ),
+            );
+            console.info(
+                'CORE56_COMPLETION ' +
+                    JSON.stringify({
+                        timing,
+                        key,
+                        run,
+                        evidence,
+                        immediate,
+                        final,
+                    }),
+            );
+            expect(final.tag).toBe('DIV');
+            expect(final.title).toBe(key === 'Enter' ? 'Last renamed' : 'Section 120');
+            expect(final.visible, 'The painted completion must still be visible at the original 1.5 s checkpoint').toBe(true);
+
+            // A new gesture owns its scroll; completion must not keep following focus.
+            await wheelBookmarkList(page, -100_000);
+            await waitForFunctionInPage(page, () => document.querySelector('.document-bookmark-tree__list')?.scrollTop === 0);
+            await delay(300);
+            expect((await observeBookmarkFocus(page)).visible).toBe(false);
+            if (key === 'Escape') {
+                // Make an accepted edit after cancellation so Save is a real write.
+                await clickAsUser(page, await findBookmarkRow(page, 'Section 1'), {button: 'right'});
+                await clickAsUser(page, '.bookmarks-context-menu .pdf-context-menu__action');
+                await waitForFunctionInPage(page, () => document.activeElement?.matches('input.pdf-bookmark-item-input') === true);
+                await page.keyboard.type('Accepted after cancel');
+                await page.keyboard.press('Enter');
+            }
+            await saveViaVisibleToolbar(page, 90_000, fixture);
+            const saved = (await readPdfMetadataWithQpdf(fixture)).outlines;
+            expect(saved[0]?.title).toBe(key === 'Enter' ? 'Section 1' : 'Accepted after cancel');
+            expect(saved.at(-1)?.title).toBe(key === 'Enter' ? 'Last renamed' : 'Section 120');
+            expect(saved.some((entry) => entry.title === 'Discard this name')).toBe(false);
+            const targets = (entries: typeof saved) =>
+                entries
+                    .flatMap((entry) => [entry, ...(entry.kids ?? [])])
+                    .map((entry) => ({
+                        page: entry.destpageposfrom1,
+                        destination: entry.dest?.slice(1),
+                    }));
+            expect(targets(saved)).toEqual(targets(original));
+            await writeFile(join(evidence, 'saved-metadata.json'), JSON.stringify(saved, null, 2));
+            await copyFile(fixture, join(evidence, 'saved.pdf'));
+            await clickAsUser(page, 'button[aria-label="Close Tab"]');
+            await page.waitForSelector('.page_container', {hidden: true});
+            await openPdfInApp(page, fixture);
+            await waitForPdfLoaded(page);
+            await openDocumentSidebarTab(page, 'Bookmarks');
+            await clickAsUser(page, '.document-bookmarks-toolbar__actions button');
+            await clickFoundAsUser(page, () => document.querySelector('[data-bookmark-id]'), null, {description: 'Reopened bookmark'});
+            await page.keyboard.press('End');
+            await expectBookmarkFocus(page, key === 'Enter' ? 'Last renamed' : 'Section 120');
+        },
+        120_000,
+    );
 
     it('core70 reopened read-only bookmarks retain End focus through passive page resolution', async () => {
-        const fixture = await createBookmarkTreeFixturePdf(`core70-reopened-${Date.now()}.pdf`,
-            Array.from({length: 120}, (_, index) => fixtureBookmark(`Section ${index + 1}`, index % 4,
-                index === 118 ? Array.from({length: 3}, (_, child) => fixtureBookmark(`Child ${child + 1}`, 3)) : [])));
+        const fixture = await createBookmarkTreeFixturePdf(
+            `core70-reopened-${Date.now()}.pdf`,
+            Array.from({length: 120}, (_, index) =>
+                fixtureBookmark(
+                    `Section ${index + 1}`,
+                    index % 4,
+                    index === 118 ? Array.from({length: 3}, (_, child) => fixtureBookmark(`Child ${child + 1}`, 3)) : [],
+                ),
+            ),
+        );
         const evidence = await mkdtemp(join(tmpdir(), 'core70-reopened-'));
         const original = await readPdfMetadataWithQpdf(fixture);
         const {page} = sessions.getSession();
@@ -327,65 +361,89 @@ describe('Electron E2E - bookmark destination round trip', () => {
         await delay(Math.max(0, 1_500 - (Date.now() - started)));
         const final = await observeBookmarkFocus(page);
         await page.screenshot({path: join(evidence, 'reopened-End-1500ms.png')});
-        await writeFile(join(evidence, 'reopened-End.json'), JSON.stringify({
-            final,
-            elapsedMs: Date.now() - started,
-        }, null, 2));
+        await writeFile(
+            join(evidence, 'reopened-End.json'),
+            JSON.stringify(
+                {
+                    final,
+                    elapsedMs: Date.now() - started,
+                },
+                null,
+                2,
+            ),
+        );
         expect(final.title).toBe('Section 120');
         expect(final.tag).toBe('DIV');
         expect(final.row[0]).toBeGreaterThanOrEqual(final.list[0]!);
         expect(final.row[1]).toBeLessThanOrEqual(final.list[1]!);
         expect(await readPdfMetadataWithQpdf(fixture)).toEqual(original);
-        console.info('CORE70_REOPENED_END ' + JSON.stringify({
-            evidence,
-            final,
-        }));
+        console.info(
+            'CORE70_REOPENED_END ' +
+                JSON.stringify({
+                    evidence,
+                    final,
+                }),
+        );
     }, 120_000);
 
     it('core70 passive navigation reveals different children of the same collapsed ancestor without tree focus', async () => {
-        const fixture = await createBookmarkTreeFixturePdf(`core70-passive-${Date.now()}.pdf`,
-            Array.from({length: 120}, (_, index) => fixtureBookmark(`Section ${index + 1}`, 0,
-                index === 118 ? Array.from({length: 3}, (_, child) => fixtureBookmark(`Child ${child + 1}`, child + 1)) : [])));
+        const fixture = await createBookmarkTreeFixturePdf(
+            `core70-passive-${Date.now()}.pdf`,
+            Array.from({length: 120}, (_, index) =>
+                fixtureBookmark(
+                    `Section ${index + 1}`,
+                    0,
+                    index === 118 ? Array.from({length: 3}, (_, child) => fixtureBookmark(`Child ${child + 1}`, child + 1)) : [],
+                ),
+            ),
+        );
         const {page} = sessions.getSession();
         await openPdfInApp(page, fixture);
         await waitForPdfLoaded(page);
         await openDocumentSidebarTab(page, 'Bookmarks');
         await clickAsUser(page, 'button[aria-label="Top level only"]');
-        for (const target of [
-            2,
-            3,
-        ]) {
+        for (const target of [2, 3]) {
             await wheelBookmarkList(page, -100_000);
             await waitForFunctionInPage(page, () => document.querySelector('.document-bookmark-tree__list')?.scrollTop === 0);
             await goToPageViaToolbar(page, target);
             await waitForToolbarCurrentPage(page, target);
-            await expect.poll(() => page.evaluate(() => {
-                const tree = document.querySelector('.document-bookmark-tree');
-                const list = document.querySelector('.document-bookmark-tree__list');
-                const row = Array.from(document.querySelectorAll('.document-bookmark-item__row'))
-                    .find(item => item.textContent?.trim() === 'Section 119');
-                if (!row || !list) {return null;}
-                const rect = row.getBoundingClientRect();
-                const bounds = list.getBoundingClientRect();
-                return {
-                    focused: tree?.contains(document.activeElement),
-                    visible: rect.top >= bounds.top && rect.bottom <= bounds.bottom,
-                    expanded: row.querySelector('.document-bookmark-item__toggle')?.getAttribute('aria-expanded'),
-                    childRendered: Array.from(document.querySelectorAll('.document-bookmark-item__row'))
-                        .some(item => item.textContent?.trim().startsWith('Child ')),
-                };
-            })).toEqual({
-                focused: false,
-                visible: true,
-                expanded: 'false',
-                childRendered: false,
-            });
+            await expect
+                .poll(() =>
+                    page.evaluate(() => {
+                        const tree = document.querySelector('.document-bookmark-tree');
+                        const list = document.querySelector('.document-bookmark-tree__list');
+                        const row = Array.from(document.querySelectorAll('.document-bookmark-item__row')).find(
+                            (item) => item.textContent?.trim() === 'Section 119',
+                        );
+                        if (!row || !list) {
+                            return null;
+                        }
+                        const rect = row.getBoundingClientRect();
+                        const bounds = list.getBoundingClientRect();
+                        return {
+                            focused: tree?.contains(document.activeElement),
+                            visible: rect.top >= bounds.top && rect.bottom <= bounds.bottom,
+                            expanded: row.querySelector('.document-bookmark-item__toggle')?.getAttribute('aria-expanded'),
+                            childRendered: Array.from(document.querySelectorAll('.document-bookmark-item__row')).some((item) =>
+                                item.textContent?.trim().startsWith('Child '),
+                            ),
+                        };
+                    }),
+                )
+                .toEqual({
+                    focused: false,
+                    visible: true,
+                    expanded: 'false',
+                    childRendered: false,
+                });
         }
     }, 120_000);
 
     it('core56 outlinetree releases a row after genuine null-target focusout', async () => {
-        const fixture = await createBookmarkTreeFixturePdf(`core56-focusout-${Date.now()}.pdf`,
-            Array.from({length: 120}, (_, index) => fixtureBookmark(`Section ${index + 1}`, index % 4)));
+        const fixture = await createBookmarkTreeFixturePdf(
+            `core56-focusout-${Date.now()}.pdf`,
+            Array.from({length: 120}, (_, index) => fixtureBookmark(`Section ${index + 1}`, index % 4)),
+        );
         const {page} = sessions.getSession();
         await openBookmarkEditor(page, fixture);
         await clickAsUser(page, await findBookmarkRow(page, 'Section 1'));
@@ -393,12 +451,16 @@ describe('Electron E2E - bookmark destination round trip', () => {
         await expectBookmarkFocus(page, 'Section 120');
         const id = await page.evaluate(() => document.activeElement?.getAttribute('data-bookmark-id') ?? null);
         await page.evaluate(() => {
-            document.querySelector('.document-bookmark-tree')!.addEventListener('focusout', event => {
-                document.body.dataset.core56Focusout = JSON.stringify({
-                    trusted: event.isTrusted,
-                    nullTarget: event instanceof FocusEvent && event.relatedTarget === null,
-                });
-            }, {once: true});
+            document.querySelector('.document-bookmark-tree')!.addEventListener(
+                'focusout',
+                (event) => {
+                    document.body.dataset.core56Focusout = JSON.stringify({
+                        trusted: event.isTrusted,
+                        nullTarget: event instanceof FocusEvent && event.relatedTarget === null,
+                    });
+                },
+                {once: true},
+            );
         });
         await clickAsUser(page, '.document-bookmarks-toolbar');
         expect(await page.evaluate(() => JSON.parse(document.body.dataset.core56Focusout ?? '{}'))).toEqual({
@@ -407,59 +469,57 @@ describe('Electron E2E - bookmark destination round trip', () => {
         });
         await wheelBookmarkList(page, -100_000);
         await waitForFunctionInPage(page, () => document.querySelector('.document-bookmark-tree__list')?.scrollTop === 0);
-        expect(await page.evaluate((rowId: string | null) => Array.from(document.querySelectorAll('[data-bookmark-id]'))
-            .some(row => row.getAttribute('data-bookmark-id') === rowId), id)).toBe(false);
+        expect(
+            await page.evaluate(
+                (rowId: string | null) =>
+                    Array.from(document.querySelectorAll('[data-bookmark-id]')).some(
+                        (row) => row.getAttribute('data-bookmark-id') === rowId,
+                    ),
+                id,
+            ),
+        ).toBe(false);
     }, 120_000);
 
     // I1/R2: completing a retained offscreen input returns visible row focus.
     it.each([
-        [
-            120,
-            'Enter',
-        ],
-        [
-            4_000,
-            'Enter',
-        ],
-        [
-            10_000,
-            'Enter',
-        ],
-        [
-            120,
-            'Escape',
-        ],
-        [
-            4_000,
-            'Escape',
-        ],
-        [
-            10_000,
-            'Escape',
-        ],
-    ] as const)('outlinetree reveals offscreen rename completion (%i bookmarks, %s)', async (count, key) => {
-        const fixture = await createBookmarkTreeFixturePdf(`rename-offscreen-${count}-${key}-${Date.now()}.pdf`, [
-            ...Array.from({length: count - 1}, (_, index) => fixtureBookmark(`Filler ${index + 1}`, index % 4)),
-            fixtureBookmark('Rename source', 0),
-        ]);
-        const {page} = sessions.getSession();
-        await openBookmarkEditor(page, fixture);
-        await wheelBookmarkList(page, 1_000_000);
-        await waitForFunctionInPage(page, () => {
-            const list = document.querySelector('.document-bookmark-tree__list')!;
-            return list.scrollTop > list.scrollHeight - list.clientHeight - 50;
-        });
-        await clickAsUser(page, await findBookmarkRow(page, 'Rename source'), {button: 'right'});
-        await clickAsUser(page, '.bookmarks-context-menu .pdf-context-menu__action');
-        await page.waitForSelector('input.pdf-bookmark-item-input', {visible: true});
-        await page.keyboard.type('Key committed');
-        const beforeWheel = await page.$eval('.document-bookmark-tree__list', list => list.scrollTop);
-        await wheelBookmarkList(page, -3_500);
-        await waitForFunctionInPage(page, (before: number) => document.querySelector('.document-bookmark-tree__list')!.scrollTop < before - 3_000, {}, beforeWheel);
-        expect(await page.evaluate(() => document.activeElement?.matches('input.pdf-bookmark-item-input'))).toBe(true);
-        await page.keyboard.press(key);
-        await expectBookmarkFocus(page, key === 'Enter' ? 'Key committed' : 'Rename source');
-    }, 120_000);
+        [120, 'Enter'],
+        [4_000, 'Enter'],
+        [10_000, 'Enter'],
+        [120, 'Escape'],
+        [4_000, 'Escape'],
+        [10_000, 'Escape'],
+    ] as const)(
+        'outlinetree reveals offscreen rename completion (%i bookmarks, %s)',
+        async (count, key) => {
+            const fixture = await createBookmarkTreeFixturePdf(`rename-offscreen-${count}-${key}-${Date.now()}.pdf`, [
+                ...Array.from({length: count - 1}, (_, index) => fixtureBookmark(`Filler ${index + 1}`, index % 4)),
+                fixtureBookmark('Rename source', 0),
+            ]);
+            const {page} = sessions.getSession();
+            await openBookmarkEditor(page, fixture);
+            await wheelBookmarkList(page, 1_000_000);
+            await waitForFunctionInPage(page, () => {
+                const list = document.querySelector('.document-bookmark-tree__list')!;
+                return list.scrollTop > list.scrollHeight - list.clientHeight - 50;
+            });
+            await clickAsUser(page, await findBookmarkRow(page, 'Rename source'), {button: 'right'});
+            await clickAsUser(page, '.bookmarks-context-menu .pdf-context-menu__action');
+            await page.waitForSelector('input.pdf-bookmark-item-input', {visible: true});
+            await page.keyboard.type('Key committed');
+            const beforeWheel = await page.$eval('.document-bookmark-tree__list', (list) => list.scrollTop);
+            await wheelBookmarkList(page, -3_500);
+            await waitForFunctionInPage(
+                page,
+                (before: number) => document.querySelector('.document-bookmark-tree__list')!.scrollTop < before - 3_000,
+                {},
+                beforeWheel,
+            );
+            expect(await page.evaluate(() => document.activeElement?.matches('input.pdf-bookmark-item-input'))).toBe(true);
+            await page.keyboard.press(key);
+            await expectBookmarkFocus(page, key === 'Enter' ? 'Key committed' : 'Rename source');
+        },
+        120_000,
+    );
 
     it('outlinetree keeps visible rename Enter and Escape focused in place', async () => {
         const fixture = await createOutlinePageLabelFixturePdf(`rename-keys-${Date.now()}.pdf`, [fixtureBookmark('Rename source', 0)]);
@@ -481,125 +541,139 @@ describe('Electron E2E - bookmark destination round trip', () => {
 
     // Focus is distinct from activation/selection; removal and Undo keep a
     // usable rendered row, including when virtual rows or their ids change.
-    it.each([
-        8,
-        120,
-        4_000,
-        10_000,
-    ])('outlinetree restores focus after single and multi delete and Undo (%i bookmarks)', async count => {
-        const fixture = await createBookmarkTreeFixturePdf(`delete-focus-${count}-${Date.now()}.pdf`, [
-            ...Array.from({length: count - 6}, (_, index) => fixtureBookmark(`Filler ${index + 1}`, index % 4)),
-            fixtureBookmark('Before', 0),
-            fixtureBookmark('Delete me', 1),
-            fixtureBookmark('After', 2),
-            fixtureBookmark('Parent', 3, [fixtureBookmark('Only child', 3)]),
-            fixtureBookmark('Last', 3),
-        ]);
-        const {page} = sessions.getSession();
-        await openBookmarkEditor(page, fixture);
-        await clickAsUser(page, 'button[aria-label="Top level only"]');
-        await wheelBookmarkList(page, 1_000_000);
-        await clickAsUser(page, await findBookmarkRow(page, 'After'));
-        await page.keyboard.press('ArrowUp');
-        await expectBookmarkFocus(page, 'Delete me');
-        await clickAsUser(page, await findBookmarkRow(page, 'Delete me'), {button: 'right'});
-        await clickAsUser(page, '.bookmarks-context-menu .pdf-context-menu__action--danger');
-        await expectBookmarkFocus(page, 'After');
-        // Keyboard focus can be far from the active destination. Undo must
-        // retain that focus without the passive page selection revealing it.
-        await page.keyboard.press('Home');
-        await expectBookmarkFocus(page, 'Filler 1');
-        await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Z'});
-        await expectBookmarkFocus(page, 'Filler 1');
-        await page.keyboard.press('End');
-        await findBookmarkRow(page, 'Delete me');
+    it.each([8, 120, 4_000, 10_000])(
+        'outlinetree restores focus after single and multi delete and Undo (%i bookmarks)',
+        async (count) => {
+            const fixture = await createBookmarkTreeFixturePdf(`delete-focus-${count}-${Date.now()}.pdf`, [
+                ...Array.from({length: count - 6}, (_, index) => fixtureBookmark(`Filler ${index + 1}`, index % 4)),
+                fixtureBookmark('Before', 0),
+                fixtureBookmark('Delete me', 1),
+                fixtureBookmark('After', 2),
+                fixtureBookmark('Parent', 3, [fixtureBookmark('Only child', 3)]),
+                fixtureBookmark('Last', 3),
+            ]);
+            const {page} = sessions.getSession();
+            await openBookmarkEditor(page, fixture);
+            await clickAsUser(page, 'button[aria-label="Top level only"]');
+            await wheelBookmarkList(page, 1_000_000);
+            await clickAsUser(page, await findBookmarkRow(page, 'After'));
+            await page.keyboard.press('ArrowUp');
+            await expectBookmarkFocus(page, 'Delete me');
+            await clickAsUser(page, await findBookmarkRow(page, 'Delete me'), {button: 'right'});
+            await clickAsUser(page, '.bookmarks-context-menu .pdf-context-menu__action--danger');
+            await expectBookmarkFocus(page, 'After');
+            // Keyboard focus can be far from the active destination. Undo must
+            // retain that focus without the passive page selection revealing it.
+            await page.keyboard.press('Home');
+            await expectBookmarkFocus(page, 'Filler 1');
+            await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Z'});
+            await expectBookmarkFocus(page, 'Filler 1');
+            await page.keyboard.press('End');
+            await findBookmarkRow(page, 'Delete me');
 
-        await clickAsUser(page, await findBookmarkRow(page, 'Delete me'));
-        const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
-        await page.keyboard.down(modifier);
-        await clickAsUser(page, await findBookmarkRow(page, 'After'));
-        await page.keyboard.up(modifier);
-        await clickAsUser(page, 'button[aria-label="Remove 2 selected bookmarks"]');
-        await expectBookmarkFocus(page, 'Parent');
-        await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Z'});
-        await expectBookmarkFocus(page, 'Parent');
-        await findBookmarkRow(page, 'Delete me');
-        await findBookmarkRow(page, 'After');
+            await clickAsUser(page, await findBookmarkRow(page, 'Delete me'));
+            const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
+            await page.keyboard.down(modifier);
+            await clickAsUser(page, await findBookmarkRow(page, 'After'));
+            await page.keyboard.up(modifier);
+            await clickAsUser(page, 'button[aria-label="Remove 2 selected bookmarks"]');
+            await expectBookmarkFocus(page, 'Parent');
+            await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Z'});
+            await expectBookmarkFocus(page, 'Parent');
+            await findBookmarkRow(page, 'Delete me');
+            await findBookmarkRow(page, 'After');
 
-        await clickAsUser(page, await findBookmarkRow(page, 'Last'));
-        await clickAsUser(page, await findBookmarkRow(page, 'Last'), {button: 'right'});
-        await clickAsUser(page, '.bookmarks-context-menu .pdf-context-menu__action--danger');
-        // Parent is collapsed: a hidden child cannot be the focus successor.
-        await expectBookmarkFocus(page, 'Parent');
-        await clickAsUser(page, (await (await findBookmarkRow(page, 'Parent')).$('.document-bookmark-item__toggle'))!);
-        await clickAsUser(page, await findBookmarkRow(page, 'Only child'));
-        await clickAsUser(page, await findBookmarkRow(page, 'Only child'), {button: 'right'});
-        await clickAsUser(page, '.bookmarks-context-menu .pdf-context-menu__action--danger');
-        await expectBookmarkFocus(page, 'Parent');
-        await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Z'});
-        await expectBookmarkFocus(page, 'Parent');
-        await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Z'});
-        await expectBookmarkFocus(page, 'Parent');
-        await findBookmarkRow(page, 'Last');
-    }, 180_000);
+            await clickAsUser(page, await findBookmarkRow(page, 'Last'));
+            await clickAsUser(page, await findBookmarkRow(page, 'Last'), {button: 'right'});
+            await clickAsUser(page, '.bookmarks-context-menu .pdf-context-menu__action--danger');
+            // Parent is collapsed: a hidden child cannot be the focus successor.
+            await expectBookmarkFocus(page, 'Parent');
+            await clickAsUser(page, (await (await findBookmarkRow(page, 'Parent')).$('.document-bookmark-item__toggle'))!);
+            await clickAsUser(page, await findBookmarkRow(page, 'Only child'));
+            await clickAsUser(page, await findBookmarkRow(page, 'Only child'), {button: 'right'});
+            await clickAsUser(page, '.bookmarks-context-menu .pdf-context-menu__action--danger');
+            await expectBookmarkFocus(page, 'Parent');
+            await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Z'});
+            await expectBookmarkFocus(page, 'Parent');
+            await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Z'});
+            await expectBookmarkFocus(page, 'Parent');
+            await findBookmarkRow(page, 'Last');
+        },
+        180_000,
+    );
 
     // WAI-ARIA treeview keyboard contract, including offscreen focus targets.
-    it.each([
-        8,
-        120,
-        4_000,
-        10_000,
-    ])('outlinetree traverses and expands with Left and Right (%i bookmarks)', async count => {
-        const childCount = count === 8 ? 3 : Math.min(120, count - 4);
-        const fixture = await createBookmarkTreeFixturePdf(`tree-keys-${count}-${Date.now()}.pdf`, [
-            ...Array.from({length: count - childCount - 3}, (_, index) => fixtureBookmark(`Filler ${index + 1}`, index % 4)),
-            fixtureBookmark('Parent', 3, Array.from({length: childCount}, (_, index) => fixtureBookmark(`Child ${index + 1}`, 3))),
-            fixtureBookmark('Tail A', 3),
-            fixtureBookmark('Tail B', 3),
-        ]);
-        const {page} = sessions.getSession();
-        await openBookmarkEditor(page, fixture);
-        await clickAsUser(page, 'button[aria-label="Top level only"]');
-        await wheelBookmarkList(page, 1_000_000);
-        await clickAsUser(page, await findBookmarkRow(page, 'Tail B'));
-        await page.keyboard.press('ArrowUp');
-        await expectBookmarkFocus(page, 'Tail A');
-        await page.keyboard.press('ArrowUp');
-        await expectBookmarkFocus(page, 'Parent');
-        await page.keyboard.press('ArrowRight');
-        await expect.poll(() => page.$eval('[data-bookmark-id]:focus .document-bookmark-item__toggle', button => button.getAttribute('aria-expanded'))).toBe('true');
-        await expectBookmarkFocus(page, 'Parent');
-        if (count > 8) {
-            await wheelBookmarkList(page, 5_000);
-            await waitForFunctionInPage(page, () => {
-                const row = document.activeElement!.getBoundingClientRect();
-                const list = document.querySelector('.document-bookmark-tree__list')!.getBoundingClientRect();
-                return row.bottom < list.top;
-            });
-        }
-        await page.keyboard.press('ArrowRight');
-        await expectBookmarkFocus(page, 'Child 1');
-        await page.keyboard.press('End');
-        await expectBookmarkFocus(page, 'Tail B');
-        await page.keyboard.press('ArrowUp');
-        await page.keyboard.press('ArrowUp');
-        await expectBookmarkFocus(page, `Child ${childCount}`);
-        await page.keyboard.press('ArrowLeft');
-        await expectBookmarkFocus(page, 'Parent');
-        await page.keyboard.press('ArrowLeft');
-        await expect.poll(() => page.$eval('[data-bookmark-id]:focus .document-bookmark-item__toggle', button => button.getAttribute('aria-expanded'))).toBe('false');
-        await expectBookmarkFocus(page, 'Parent');
-        await page.keyboard.press('ArrowDown');
-        await expectBookmarkFocus(page, 'Tail A');
-        await page.keyboard.press('ArrowRight');
-        await expectBookmarkFocus(page, 'Tail A');
-        await page.keyboard.press('Home');
-        await expectBookmarkFocus(page, 'Filler 1');
-        await page.keyboard.press('ArrowLeft');
-        await expectBookmarkFocus(page, 'Filler 1');
-        await page.keyboard.press('End');
-        await expectBookmarkFocus(page, 'Tail B');
-    }, 180_000);
+    it.each([8, 120, 4_000, 10_000])(
+        'outlinetree traverses and expands with Left and Right (%i bookmarks)',
+        async (count) => {
+            const childCount = count === 8 ? 3 : Math.min(120, count - 4);
+            const fixture = await createBookmarkTreeFixturePdf(`tree-keys-${count}-${Date.now()}.pdf`, [
+                ...Array.from({length: count - childCount - 3}, (_, index) => fixtureBookmark(`Filler ${index + 1}`, index % 4)),
+                fixtureBookmark(
+                    'Parent',
+                    3,
+                    Array.from({length: childCount}, (_, index) => fixtureBookmark(`Child ${index + 1}`, 3)),
+                ),
+                fixtureBookmark('Tail A', 3),
+                fixtureBookmark('Tail B', 3),
+            ]);
+            const {page} = sessions.getSession();
+            await openBookmarkEditor(page, fixture);
+            await clickAsUser(page, 'button[aria-label="Top level only"]');
+            await wheelBookmarkList(page, 1_000_000);
+            await clickAsUser(page, await findBookmarkRow(page, 'Tail B'));
+            await page.keyboard.press('ArrowUp');
+            await expectBookmarkFocus(page, 'Tail A');
+            await page.keyboard.press('ArrowUp');
+            await expectBookmarkFocus(page, 'Parent');
+            await page.keyboard.press('ArrowRight');
+            await expect
+                .poll(() =>
+                    page.$eval('[data-bookmark-id]:focus .document-bookmark-item__toggle', (button) =>
+                        button.getAttribute('aria-expanded'),
+                    ),
+                )
+                .toBe('true');
+            await expectBookmarkFocus(page, 'Parent');
+            if (count > 8) {
+                await wheelBookmarkList(page, 5_000);
+                await waitForFunctionInPage(page, () => {
+                    const row = document.activeElement!.getBoundingClientRect();
+                    const list = document.querySelector('.document-bookmark-tree__list')!.getBoundingClientRect();
+                    return row.bottom < list.top;
+                });
+            }
+            await page.keyboard.press('ArrowRight');
+            await expectBookmarkFocus(page, 'Child 1');
+            await page.keyboard.press('End');
+            await expectBookmarkFocus(page, 'Tail B');
+            await page.keyboard.press('ArrowUp');
+            await page.keyboard.press('ArrowUp');
+            await expectBookmarkFocus(page, `Child ${childCount}`);
+            await page.keyboard.press('ArrowLeft');
+            await expectBookmarkFocus(page, 'Parent');
+            await page.keyboard.press('ArrowLeft');
+            await expect
+                .poll(() =>
+                    page.$eval('[data-bookmark-id]:focus .document-bookmark-item__toggle', (button) =>
+                        button.getAttribute('aria-expanded'),
+                    ),
+                )
+                .toBe('false');
+            await expectBookmarkFocus(page, 'Parent');
+            await page.keyboard.press('ArrowDown');
+            await expectBookmarkFocus(page, 'Tail A');
+            await page.keyboard.press('ArrowRight');
+            await expectBookmarkFocus(page, 'Tail A');
+            await page.keyboard.press('Home');
+            await expectBookmarkFocus(page, 'Filler 1');
+            await page.keyboard.press('ArrowLeft');
+            await expectBookmarkFocus(page, 'Filler 1');
+            await page.keyboard.press('End');
+            await expectBookmarkFocus(page, 'Tail B');
+        },
+        180_000,
+    );
 
     it('saves a rotated-page bookmark in displayed crop coordinates and reopens at its top', async () => {
         const fixture = await createOutlinePageLabelFixturePdf(`rotated-bookmark-${Date.now()}.pdf`, []);
@@ -614,8 +688,13 @@ describe('Electron E2E - bookmark destination round trip', () => {
         await waitForPdfLoaded(page);
         await openDocumentSidebarTab(page, 'Bookmarks');
         await clickAsUser(page, '.document-bookmarks-toolbar__actions button');
-        await clickFoundAsUser(page, (title: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
-            .find(button => button.textContent?.trim() === title), 'Add first bookmark', {description: 'Add first bookmark'});
+        await clickFoundAsUser(
+            page,
+            (title: string) =>
+                Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find((button) => button.textContent?.trim() === title),
+            'Add first bookmark',
+            {description: 'Add first bookmark'},
+        );
         await page.waitForSelector('.pdf-bookmark-item-input', {visible: true});
         await page.keyboard.type('Rotated crop top');
         await page.keyboard.press('Enter');
@@ -639,16 +718,10 @@ describe('Electron E2E - bookmark destination round trip', () => {
         const fixture = await createOutlinePageLabelFixturePdf(`named-replacement-${Date.now()}.pdf`, [fixtureBookmark('Imported', 0)]);
         const pdf = await PDFDocument.load(await readFile(fixture));
         const importedOutline = pdf.catalog.lookup(PDFName.of('Outlines'), PDFDict);
-        importedOutline.lookup(PDFName.of('First'), PDFDict).set(PDFName.of('Dest'), pdf.context.obj([
-            pdf.getPages()[0]!.ref,
-            PDFName.of('FitH'),
-            null,
-        ]));
-        pdf.catalog.set(PDFName.of('Dests'), pdf.context.obj({'chapter-two': [
-            pdf.getPages()[2]!.ref,
-            PDFName.of('FitH'),
-            null,
-        ]}));
+        importedOutline
+            .lookup(PDFName.of('First'), PDFDict)
+            .set(PDFName.of('Dest'), pdf.context.obj([pdf.getPages()[0]!.ref, PDFName.of('FitH'), null]));
+        pdf.catalog.set(PDFName.of('Dests'), pdf.context.obj({'chapter-two': [pdf.getPages()[2]!.ref, PDFName.of('FitH'), null]}));
         await writeFile(fixture, await pdf.save());
         const {page} = sessions.getSession();
         await openPdfInApp(page, fixture);
@@ -688,25 +761,31 @@ describe('Electron E2E - bookmark destination round trip', () => {
         await openDocumentSidebarTab(page, 'Bookmarks');
         await activateBookmark(page, 'Imported');
         await waitForToolbarCurrentPage(page, 3);
-        expect(await page.$eval('.page_container[data-page="3"]', node => node.textContent)).toContain('Metadata matrix page 3');
+        expect(await page.$eval('.page_container[data-page="3"]', (node) => node.textContent)).toContain('Metadata matrix page 3');
         await page.screenshot({path: join(evidence, 'reopened.png')});
     }, 90_000);
 
     it('crpart3ne saves a depth-64 bookmark with its kept nested action', async () => {
         let nested = fixtureBookmark('Leaf', 0);
-        for (let depth = 1; depth < 64; depth += 1) {nested = {
-            ...fixtureBookmark(`Parent ${depth}`, 0),
-            items: [nested],
-        };}
+        for (let depth = 1; depth < 64; depth += 1) {
+            nested = {
+                ...fixtureBookmark(`Parent ${depth}`, 0),
+                items: [nested],
+            };
+        }
         const fixture = await createBookmarkTreeFixturePdf(`crpart3ne-deep-action-${Date.now()}.pdf`, [
             nested,
             fixtureBookmark('Editable', 0),
         ]);
         const pdf = await PDFDocument.load(await readFile(fixture));
         let leaf = pdf.catalog.lookup(PDFName.of('Outlines'), PDFDict).lookup(PDFName.of('First'), PDFDict);
-        for (let depth = 1; depth < 64; depth += 1) {leaf = leaf.lookup(PDFName.of('First'), PDFDict);}
+        for (let depth = 1; depth < 64; depth += 1) {
+            leaf = leaf.lookup(PDFName.of('First'), PDFDict);
+        }
         let payload = pdf.context.obj({Payload: PDFString.of('Kept action sentinel')});
-        for (let depth = 1; depth < 15; depth += 1) {payload = pdf.context.obj({K: payload});}
+        for (let depth = 1; depth < 15; depth += 1) {
+            payload = pdf.context.obj({K: payload});
+        }
         leaf.delete(PDFName.of('Dest'));
         const action = pdf.context.obj({
             S: PDFName.of('URI'),
@@ -724,7 +803,9 @@ describe('Electron E2E - bookmark destination round trip', () => {
         await saveViaVisibleToolbar(page, 60_000, fixture);
         const saved = await PDFDocument.load(await readFile(fixture));
         let savedLeaf = saved.catalog.lookup(PDFName.of('Outlines'), PDFDict).lookup(PDFName.of('First'), PDFDict);
-        for (let depth = 1; depth < 64; depth += 1) {savedLeaf = savedLeaf.lookup(PDFName.of('First'), PDFDict);}
+        for (let depth = 1; depth < 64; depth += 1) {
+            savedLeaf = savedLeaf.lookup(PDFName.of('First'), PDFDict);
+        }
         expect(savedLeaf.lookup(PDFName.of('A'), PDFDict).toString()).toBe(before);
         await openPdfInApp(page, fixture);
         await waitForPdfLoaded(page);
@@ -732,61 +813,73 @@ describe('Electron E2E - bookmark destination round trip', () => {
         await findBookmarkRow(page, 'Edited sibling');
     }, 90_000);
 
-    it.each([
-        'unknown target',
-        'large object dump',
-    ])('crpart3ne keeps bookmarks through page deletion with %s', async scenario => {
-        const fixture = await createOutlinePageLabelFixturePdf(`crpart3ne-bookmark-${Date.now()}.pdf`, [fixtureBookmark('Kept', 0)]);
-        const pdf = await PDFDocument.load(await readFile(fixture));
-        const invalidTarget = pdf.context.register(pdf.context.obj({Type: PDFName.of('Other')}));
-        const target = scenario === 'unknown target' ? invalidTarget : pdf.getPages()[0]!.ref;
-        pdf.catalog.set(PDFName.of('Dests'), pdf.context.obj({'chapter': [
-            target,
-            PDFName.of('Fit'),
-        ]}));
-        const outline = pdf.catalog.lookup(PDFName.of('Outlines'), PDFDict).lookup(PDFName.of('First'), PDFDict);
-        outline.set(PDFName.of('Dest'), PDFString.of('chapter'));
-        if (scenario === 'large object dump') {
-            // Public generated input: 70 MB of valid unused dictionaries.
-            const payload = PDFString.of('X'.repeat(14_000));
-            for (let i = 0; i < 5_000; i += 1) {pdf.context.register(pdf.context.obj({Noise: payload}));}
-        }
-        await writeFile(fixture, await pdf.save({useObjectStreams: false}));
-        const {page} = sessions.getSession();
-        await openPdfInApp(page, fixture);
-        await waitForPdfLoaded(page);
-        await openDocumentSidebarTab(page, 'Bookmarks');
-        await findBookmarkRow(page, 'Kept');
-        await openDocumentSidebarTab(page, 'Pages');
-        await clickAsUser(page, '[data-thumbnail-page="2"]', {button: 'right'});
-        await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-            .find(item => item.textContent?.trim() === 'Delete Pages'), null, {description: 'Delete unrelated page'});
-        await waitForFunctionInPage(page, () => document.querySelector('[data-thumbnail-page="4"]') === null, {timeout: 30_000});
-        await waitForPdfLoaded(page);
-        await openDocumentSidebarTab(page, 'Bookmarks');
-        await findBookmarkRow(page, 'Kept');
-        await saveViaVisibleToolbar(page, 60_000, fixture);
-        expect((await readOutlineTargets(fixture)).map(item => item.title)).toContain('Kept');
-        expect((await PDFDocument.load(await readFile(fixture))).getPageCount()).toBe(3);
-    }, 90_000);
+    it.each(['unknown target', 'large object dump'])(
+        'crpart3ne keeps bookmarks through page deletion with %s',
+        async (scenario) => {
+            const fixture = await createOutlinePageLabelFixturePdf(`crpart3ne-bookmark-${Date.now()}.pdf`, [fixtureBookmark('Kept', 0)]);
+            const pdf = await PDFDocument.load(await readFile(fixture));
+            const invalidTarget = pdf.context.register(pdf.context.obj({Type: PDFName.of('Other')}));
+            const target = scenario === 'unknown target' ? invalidTarget : pdf.getPages()[0]!.ref;
+            pdf.catalog.set(PDFName.of('Dests'), pdf.context.obj({chapter: [target, PDFName.of('Fit')]}));
+            const outline = pdf.catalog.lookup(PDFName.of('Outlines'), PDFDict).lookup(PDFName.of('First'), PDFDict);
+            outline.set(PDFName.of('Dest'), PDFString.of('chapter'));
+            if (scenario === 'large object dump') {
+                // Public generated input: 70 MB of valid unused dictionaries.
+                const payload = PDFString.of('X'.repeat(14_000));
+                for (let i = 0; i < 5_000; i += 1) {
+                    pdf.context.register(pdf.context.obj({Noise: payload}));
+                }
+            }
+            await writeFile(fixture, await pdf.save({useObjectStreams: false}));
+            const {page} = sessions.getSession();
+            await openPdfInApp(page, fixture);
+            await waitForPdfLoaded(page);
+            await openDocumentSidebarTab(page, 'Bookmarks');
+            await findBookmarkRow(page, 'Kept');
+            await openDocumentSidebarTab(page, 'Pages');
+            await clickAsUser(page, '[data-thumbnail-page="2"]', {button: 'right'});
+            await clickFoundAsUser(
+                page,
+                () =>
+                    Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(
+                        (item) => item.textContent?.trim() === 'Delete Pages',
+                    ),
+                null,
+                {description: 'Delete unrelated page'},
+            );
+            await waitForFunctionInPage(page, () => document.querySelector('[data-thumbnail-page="4"]') === null, {timeout: 30_000});
+            await waitForPdfLoaded(page);
+            await openDocumentSidebarTab(page, 'Bookmarks');
+            await findBookmarkRow(page, 'Kept');
+            await saveViaVisibleToolbar(page, 60_000, fixture);
+            expect((await readOutlineTargets(fixture)).map((item) => item.title)).toContain('Kept');
+            expect((await PDFDocument.load(await readFile(fixture))).getPageCount()).toBe(3);
+        },
+        90_000,
+    );
 
     it('keeps 5000 named children under their parent after deleting an unrelated page', async () => {
         const fixture = await createBookmarkTreeFixturePdf(`named-subtree-${Date.now()}.pdf`, [
-            fixtureBookmark('Parent', 0, Array.from({length: 5_000}, (_, index) => fixtureBookmark(`Child ${index}`, 0))),
+            fixtureBookmark(
+                'Parent',
+                0,
+                Array.from({length: 5_000}, (_, index) => fixtureBookmark(`Child ${index}`, 0)),
+            ),
             fixtureBookmark('After', 0),
         ]);
         const pdf = await PDFDocument.load(await readFile(fixture));
-        let child = pdf.catalog.lookup(PDFName.of('Outlines'), PDFDict)
-            .lookup(PDFName.of('First'), PDFDict).lookup(PDFName.of('First'), PDFDict);
+        let child = pdf.catalog
+            .lookup(PDFName.of('Outlines'), PDFDict)
+            .lookup(PDFName.of('First'), PDFDict)
+            .lookup(PDFName.of('First'), PDFDict);
         const names = [];
         for (let index = 0; index < 5_000; index += 1) {
             const name = PDFString.of(`name-${String(index).padStart(5, '0')}`);
-            names.push(name, pdf.context.obj([
-                pdf.getPages()[0]!.ref,
-                PDFName.of('Fit'),
-            ]));
+            names.push(name, pdf.context.obj([pdf.getPages()[0]!.ref, PDFName.of('Fit')]));
             child.set(PDFName.of('Dest'), name);
-            if (index < 4_999) {child = child.lookup(PDFName.of('Next'), PDFDict);}
+            if (index < 4_999) {
+                child = child.lookup(PDFName.of('Next'), PDFDict);
+            }
         }
         pdf.catalog.set(PDFName.of('Names'), pdf.context.obj({Dests: {Names: names}}));
         await writeFile(fixture, await pdf.save({useObjectStreams: false}));
@@ -797,8 +890,15 @@ describe('Electron E2E - bookmark destination round trip', () => {
         await findBookmarkRow(page, 'Parent');
         await openDocumentSidebarTab(page, 'Pages');
         await clickAsUser(page, '[data-thumbnail-page="2"]', {button: 'right'});
-        await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-            .find(item => item.textContent?.trim() === 'Delete Pages'), null, {description: 'Delete unrelated page'});
+        await clickFoundAsUser(
+            page,
+            () =>
+                Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(
+                    (item) => item.textContent?.trim() === 'Delete Pages',
+                ),
+            null,
+            {description: 'Delete unrelated page'},
+        );
         await waitForFunctionInPage(page, () => document.querySelector('[data-thumbnail-page="4"]') === null, {timeout: 60_000});
         await waitForPdfLoaded(page);
         await waitForWorkspaceToolbarIdle(page, {timeoutMs: 60_000});
@@ -806,7 +906,9 @@ describe('Electron E2E - bookmark destination round trip', () => {
         const saved = await PDFDocument.load(await readFile(fixture));
         const parent = saved.catalog.lookup(PDFName.of('Outlines'), PDFDict).lookup(PDFName.of('First'), PDFDict);
         const nativePath = resolveNativePageOpsPath();
-        if (!nativePath) {throw new Error('Native catalog reader is unavailable');}
+        if (!nativePath) {
+            throw new Error('Native catalog reader is unavailable');
+        }
         const catalog = decodeMetadataSnapshot({
             bookmarks: await readNativePdfCatalogPart(nativePath, fixture, 'bookmarks', {commandLabel: 'E2E saved named subtree'}),
             untitledBookmarkLabel: 'Untitled',
@@ -821,10 +923,13 @@ describe('Electron E2E - bookmark destination round trip', () => {
         const evidence = await mkdtemp(join(tmpdir(), 'evb-named-subtree-'));
         await copyFile(fixture, join(evidence, 'saved.pdf'));
         await writeFile(join(evidence, 'hierarchy.json'), JSON.stringify(observation, null, 2));
-        console.info('SAVED_NAMED_SUBTREE ' + JSON.stringify({
-            evidence,
-            ...observation,
-        }));
+        console.info(
+            'SAVED_NAMED_SUBTREE ' +
+                JSON.stringify({
+                    evidence,
+                    ...observation,
+                }),
+        );
         expect(observation).toEqual({
             rootCount: 2,
             childCount: 5_000,
@@ -833,16 +938,19 @@ describe('Electron E2E - bookmark destination round trip', () => {
             nextTitle: 'After',
         });
         expect(saved.getPageCount()).toBe(3);
-        expect(catalog.bookmarks?.[0]?.items.map(item => ({
-            title: item.title,
-            pageIndex: item.pageIndex,
-            namedDest: item.namedDest,
-        })))
-            .toEqual(Array.from({length: 5_000}, (_, index) => ({
+        expect(
+            catalog.bookmarks?.[0]?.items.map((item) => ({
+                title: item.title,
+                pageIndex: item.pageIndex,
+                namedDest: item.namedDest,
+            })),
+        ).toEqual(
+            Array.from({length: 5_000}, (_, index) => ({
                 title: `Child ${index}`,
                 pageIndex: 0,
                 namedDest: `name-${String(index).padStart(5, '0')}`,
-            })));
+            })),
+        );
         await clickAsUser(page, 'button[aria-label="Close Tab"]');
         await page.waitForSelector('.page_container', {hidden: true});
         await openPdfInApp(page, fixture);
@@ -850,53 +958,56 @@ describe('Electron E2E - bookmark destination round trip', () => {
         await openDocumentSidebarTab(page, 'Bookmarks');
         const row = await findBookmarkRow(page, 'Parent');
         const toggle = (await row.$('.document-bookmark-item__toggle'))!;
-        if (await toggle.evaluate(button => button.getAttribute('aria-expanded')) !== 'true') {await clickAsUser(page, toggle);}
+        if ((await toggle.evaluate((button) => button.getAttribute('aria-expanded'))) !== 'true') {
+            await clickAsUser(page, toggle);
+        }
         await goToPageViaToolbar(page, 3);
         await activateBookmark(page, 'Child 0');
         await waitForToolbarCurrentPage(page, 1);
-        expect(await page.$eval('.page_container[data-page="1"]', node => node.textContent)).toContain('Metadata matrix page 1');
+        expect(await page.$eval('.page_container[data-page="1"]', (node) => node.textContent)).toContain('Metadata matrix page 1');
     }, 180_000);
 
     it('removes a deleted named target before the bookmark sidebar is opened', async () => {
-        const fixture = await createOutlinePageLabelFixturePdf(`unresolved-named-target-${Date.now()}.pdf`, [fixtureBookmark('Imported', 0)]);
+        const fixture = await createOutlinePageLabelFixturePdf(`unresolved-named-target-${Date.now()}.pdf`, [
+            fixtureBookmark('Imported', 0),
+        ]);
         const pdf = await PDFDocument.load(await readFile(fixture));
-        pdf.catalog.lookup(PDFName.of('Outlines'), PDFDict).lookup(PDFName.of('First'), PDFDict)
+        pdf.catalog
+            .lookup(PDFName.of('Outlines'), PDFDict)
+            .lookup(PDFName.of('First'), PDFDict)
             .set(PDFName.of('Dest'), PDFString.of('chapter-two'));
-        pdf.catalog.set(PDFName.of('Dests'), pdf.context.obj({'chapter-two': [
-            pdf.getPages()[2]!.ref,
-            PDFName.of('FitH'),
-            null,
-        ]}));
+        pdf.catalog.set(PDFName.of('Dests'), pdf.context.obj({'chapter-two': [pdf.getPages()[2]!.ref, PDFName.of('FitH'), null]}));
         await writeFile(fixture, await pdf.save());
         const {page} = sessions.getSession();
         await openPdfInApp(page, fixture);
         await waitForPdfLoaded(page);
         await openDocumentSidebarTab(page, 'Pages');
         await clickAsUser(page, '[data-thumbnail-page="3"]', {button: 'right'});
-        await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-            .find(item => item.textContent?.trim() === 'Delete Pages'), null, {description: 'Delete named target before reading the outline'});
+        await clickFoundAsUser(
+            page,
+            () =>
+                Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(
+                    (item) => item.textContent?.trim() === 'Delete Pages',
+                ),
+            null,
+            {description: 'Delete named target before reading the outline'},
+        );
         await expect.poll(async () => (await readToolbarPageIndicator(page)).totalPagesText, {timeout: 30_000}).toBe('3');
         await waitForPdfLoaded(page);
         await saveViaVisibleToolbar(page, 60_000, fixture);
         const catalog = await readPdfMetadataWithQpdf(fixture);
         expect((await PDFDocument.load(await readFile(fixture))).getPageCount()).toBe(3);
-        expect(catalog.outlines.map(item => item.title)).not.toContain('Imported');
+        expect(catalog.outlines.map((item) => item.title)).not.toContain('Imported');
     }, 90_000);
 
     it('review-b6yh removes an accepted named destination when its page is deleted', async () => {
         const fixture = await createOutlinePageLabelFixturePdf(`named-replacement-${Date.now()}.pdf`, [fixtureBookmark('Imported', 0)]);
         const pdf = await PDFDocument.load(await readFile(fixture));
         const importedOutline = pdf.catalog.lookup(PDFName.of('Outlines'), PDFDict);
-        importedOutline.lookup(PDFName.of('First'), PDFDict).set(PDFName.of('Dest'), pdf.context.obj([
-            pdf.getPages()[0]!.ref,
-            PDFName.of('FitH'),
-            null,
-        ]));
-        pdf.catalog.set(PDFName.of('Dests'), pdf.context.obj({'chapter-two': [
-            pdf.getPages()[2]!.ref,
-            PDFName.of('FitH'),
-            null,
-        ]}));
+        importedOutline
+            .lookup(PDFName.of('First'), PDFDict)
+            .set(PDFName.of('Dest'), pdf.context.obj([pdf.getPages()[0]!.ref, PDFName.of('FitH'), null]));
+        pdf.catalog.set(PDFName.of('Dests'), pdf.context.obj({'chapter-two': [pdf.getPages()[2]!.ref, PDFName.of('FitH'), null]}));
         await writeFile(fixture, await pdf.save());
         const {page} = sessions.getSession();
         await openPdfInApp(page, fixture);
@@ -922,28 +1033,41 @@ describe('Electron E2E - bookmark destination round trip', () => {
         expect(result.value?.ok).toBe(true);
         await openDocumentSidebarTab(page, 'Pages');
         await clickAsUser(page, '[data-thumbnail-page="3"]', {button: 'right'});
-        await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-            .find(item => item.textContent?.trim() === 'Delete Pages'), null, {description: 'Delete named bookmark target'});
+        await clickFoundAsUser(
+            page,
+            () =>
+                Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(
+                    (item) => item.textContent?.trim() === 'Delete Pages',
+                ),
+            null,
+            {description: 'Delete named bookmark target'},
+        );
         // The old page 4 becomes thumbnail 3, so only the rendered total shows the deletion landed.
         await expect.poll(async () => (await readToolbarPageIndicator(page)).totalPagesText, {timeout: 30_000}).toBe('3');
         await waitForPdfLoaded(page);
         await saveViaVisibleToolbar(page, 90_000, fixture);
         const saved = await PDFDocument.load(await readFile(fixture));
         const catalog = await readPdfMetadataWithQpdf(fixture);
-        const pageRefs=saved.getPages().map(page=>page.ref.toString());
-        const dests=saved.catalog.lookupMaybe(PDFName.of('Dests'),PDFDict);
-        const named=dests?.lookupMaybe(PDFName.of('chapter-two'),PDFArray);
-        const target=named?.get(0)?.toString();
-        console.info('REVIEW_NAMED_DELETE '+JSON.stringify({
-            outlines:catalog.outlines,
-            pageRefs,
-            target,
-        }));
-        const evidence=await mkdtemp(join(tmpdir(),'evb-named-delete-'));
-        await copyFile(fixture,join(evidence,'saved.pdf'));
-        await page.screenshot({path:join(evidence,'after-delete.png')});
-        console.info('Named deletion evidence: '+evidence);
-        expect(catalog.outlines.some(item=>item.title==='Imported') && (!target || !pageRefs.includes(target)), 'No saved bookmark should name a removed page').toBe(false);
+        const pageRefs = saved.getPages().map((page) => page.ref.toString());
+        const dests = saved.catalog.lookupMaybe(PDFName.of('Dests'), PDFDict);
+        const named = dests?.lookupMaybe(PDFName.of('chapter-two'), PDFArray);
+        const target = named?.get(0)?.toString();
+        console.info(
+            'REVIEW_NAMED_DELETE ' +
+                JSON.stringify({
+                    outlines: catalog.outlines,
+                    pageRefs,
+                    target,
+                }),
+        );
+        const evidence = await mkdtemp(join(tmpdir(), 'evb-named-delete-'));
+        await copyFile(fixture, join(evidence, 'saved.pdf'));
+        await page.screenshot({path: join(evidence, 'after-delete.png')});
+        console.info('Named deletion evidence: ' + evidence);
+        expect(
+            catalog.outlines.some((item) => item.title === 'Imported') && (!target || !pageRefs.includes(target)),
+            'No saved bookmark should name a removed page',
+        ).toBe(false);
     }, 90_000);
 
     it('keeps untouched remote, launch, URI and named targets when another bookmark is renamed', async () => {
@@ -952,13 +1076,7 @@ describe('Electron E2E - bookmark destination round trip', () => {
             const definitions = [
                 {
                     Title: PDFString.of('Chapter'),
-                    Dest: [
-                        pages[1]!.ref,
-                        PDFName.of('XYZ'),
-                        null,
-                        600,
-                        null,
-                    ],
+                    Dest: [pages[1]!.ref, PDFName.of('XYZ'), null, 600, null],
                 },
                 {
                     Title: PDFString.of('Named'),
@@ -986,24 +1104,22 @@ describe('Electron E2E - bookmark destination round trip', () => {
                 },
                 {
                     Title: PDFString.of('Site'),
-                    A: pdf.context.register(pdf.context.obj({
-                        S: PDFName.of('URI'),
-                        URI: PDFHexString.fromText('https://example.org/a?b=1'),
-                    })),
+                    A: pdf.context.register(
+                        pdf.context.obj({
+                            S: PDFName.of('URI'),
+                            URI: PDFHexString.fromText('https://example.org/a?b=1'),
+                        }),
+                    ),
                 },
             ];
             // A local name equal to the remote destination must not capture it.
-            pdf.catalog.set(PDFName.of('Dests'), pdf.context.obj({
-                'chapter-three': [
-                    pages[2]!.ref,
-                    PDFName.of('FitH'),
-                    null,
-                ],
-                'remote-chapter': [
-                    pages[3]!.ref,
-                    PDFName.of('Fit'),
-                ],
-            }));
+            pdf.catalog.set(
+                PDFName.of('Dests'),
+                pdf.context.obj({
+                    'chapter-three': [pages[2]!.ref, PDFName.of('FitH'), null],
+                    'remote-chapter': [pages[3]!.ref, PDFName.of('Fit')],
+                }),
+            );
             return definitions;
         });
         const source = await readOutlineTargets(fixture);
@@ -1016,25 +1132,32 @@ describe('Electron E2E - bookmark destination round trip', () => {
         const saved = await readOutlineTargets(fixture);
         const evidence = await mkdtemp(join(tmpdir(), 'evb-source-intent-'));
         await copyFile(fixture, join(evidence, 'saved.pdf'));
-        console.info('SOURCE_INTENT_SAVE ' + JSON.stringify({
-            source,
-            saved,
-            evidence,
-        }));
-        expect(saved).toEqual(source.map(target => target.title === 'Chapter' ? {
-            ...target,
-            title: 'Chapter renamed',
-        } : target));
+        console.info(
+            'SOURCE_INTENT_SAVE ' +
+                JSON.stringify({
+                    source,
+                    saved,
+                    evidence,
+                }),
+        );
+        expect(saved).toEqual(
+            source.map((target) =>
+                target.title === 'Chapter'
+                    ? {
+                          ...target,
+                          title: 'Chapter renamed',
+                      }
+                    : target,
+            ),
+        );
         await clickAsUser(page, 'button[aria-label="Close Tab"]');
         await page.waitForSelector('.page_container', {hidden: true});
         await openPdfInApp(page, fixture);
         await waitForPdfLoaded(page);
         await openDocumentSidebarTab(page, 'Bookmarks');
-        for (const title of [
-            'Remote',
-            'Launch',
-            'Site',
-        ]) {await findBookmarkRow(page, title);}
+        for (const title of ['Remote', 'Launch', 'Site']) {
+            await findBookmarkRow(page, title);
+        }
         await activateBookmark(page, 'Chapter renamed');
         await waitForToolbarCurrentPage(page, 2);
         await activateBookmark(page, 'Named');
@@ -1047,10 +1170,7 @@ describe('Electron E2E - bookmark destination round trip', () => {
         await writeOutlineFixture(fixture, (_pdf, pages) => [
             {
                 Title: PDFString.of('Valid first'),
-                Dest: [
-                    pages[0]!.ref,
-                    PDFName.of('Fit'),
-                ],
+                Dest: [pages[0]!.ref, PDFName.of('Fit')],
             },
             {
                 Title: PDFString.of('Target under review'),
@@ -1058,24 +1178,17 @@ describe('Electron E2E - bookmark destination round trip', () => {
             },
             {
                 Title: PDFString.of('Valid last'),
-                Dest: [
-                    pages[2]!.ref,
-                    PDFName.of('FitH'),
-                    null,
-                ],
+                Dest: [pages[2]!.ref, PDFName.of('FitH'), null],
             },
         ]);
         const {page} = sessions.getSession();
         await openPdfInApp(page, fixture);
         await waitForPdfLoaded(page);
         await openDocumentSidebarTab(page, 'Bookmarks');
-        const titles = () => page.$$eval('.pdf-bookmark-item-row, .document-bookmark-item__row', rows => rows.map(row => row.textContent?.trim()));
+        const titles = () =>
+            page.$$eval('.pdf-bookmark-item-row, .document-bookmark-item__row', (rows) => rows.map((row) => row.textContent?.trim()));
         try {
-            await expect.poll(titles, {timeout: 15_000}).toEqual([
-                'Valid first',
-                'Target under review',
-                'Valid last',
-            ]);
+            await expect.poll(titles, {timeout: 15_000}).toEqual(['Valid first', 'Target under review', 'Valid last']);
         } finally {
             await page.screenshot({path: join(await mkdtemp(join(tmpdir(), 'evb-dangling-destination-')), 'bookmarks.png')});
         }
@@ -1086,21 +1199,14 @@ describe('Electron E2E - bookmark destination round trip', () => {
     it('review-b6yr keeps a Unicode named destination after another bookmark is renamed', async () => {
         const fixture = await createOutlinePageLabelFixturePdf(`unicode-name-${Date.now()}.pdf`, []);
         await writeOutlineFixture(fixture, (pdf, pages) => {
-            pdf.catalog.set(PDFName.of('Names'), pdf.context.obj({Dests: {Names: [
-                PDFHexString.fromText('caf\u00e9'),
-                [
-                    pages[2]!.ref,
-                    PDFName.of('FitH'),
-                    null,
-                ],
-            ]}}));
+            pdf.catalog.set(
+                PDFName.of('Names'),
+                pdf.context.obj({Dests: {Names: [PDFHexString.fromText('caf\u00e9'), [pages[2]!.ref, PDFName.of('FitH'), null]]}}),
+            );
             return [
                 {
                     Title: PDFString.of('Chapter'),
-                    Dest: [
-                        pages[1]!.ref,
-                        PDFName.of('Fit'),
-                    ],
+                    Dest: [pages[1]!.ref, PDFName.of('Fit')],
                 },
                 {
                     Title: PDFString.of('Named'),
@@ -1116,10 +1222,13 @@ describe('Electron E2E - bookmark destination round trip', () => {
         await renameBookmarkAsUser(page, 'Chapter', 'Chapter renamed');
         await saveViaVisibleToolbar(page, 90_000, fixture);
         const saved = await readOutlineTargets(fixture);
-        console.info('UNICODE_NAME_SAVE ' + JSON.stringify({
-            source,
-            saved,
-        }));
+        console.info(
+            'UNICODE_NAME_SAVE ' +
+                JSON.stringify({
+                    source,
+                    saved,
+                }),
+        );
         expect(saved).toEqual([
             {
                 ...source[0]!,
@@ -1141,36 +1250,37 @@ describe('Electron E2E - bookmark destination round trip', () => {
         await writeOutlineFixture(fixture, (pdf, pages) => [
             {
                 Title: PDFString.of('Chapter'),
-                Dest: [
-                    pages[1]!.ref,
-                    PDFName.of('Fit'),
-                ],
+                Dest: [pages[1]!.ref, PDFName.of('Fit')],
             },
             {
                 Title: PDFString.of('Remote'),
                 A: {
                     S: PDFName.of('GoToR'),
-                    F: pdf.context.register(pdf.context.obj({
-                        Type: PDFName.of('Filespec'),
-                        F: PDFString.of('chapter-two.pdf'),
-                        UF: PDFHexString.fromText('chapter-two.pdf'),
-                    })),
-                    D: [
-                        0,
-                        PDFName.of('Fit'),
-                    ],
+                    F: pdf.context.register(
+                        pdf.context.obj({
+                            Type: PDFName.of('Filespec'),
+                            F: PDFString.of('chapter-two.pdf'),
+                            UF: PDFHexString.fromText('chapter-two.pdf'),
+                        }),
+                    ),
+                    D: [0, PDFName.of('Fit')],
                 },
             },
         ]);
         const readRemote = async () => {
             const document = await PDFDocument.load(await readFile(fixture));
-            const action = document.catalog.lookup(PDFName.of('Outlines'), PDFDict).lookup(PDFName.of('First'), PDFDict)
-                .lookup(PDFName.of('Next'), PDFDict).lookupMaybe(PDFName.of('A'), PDFDict);
-            return action && {
-                kind: action.lookup(PDFName.of('S'))?.toString(),
-                file: action.lookup(PDFName.of('F'), PDFDict).toString(),
-                destination: action.lookup(PDFName.of('D'))?.toString(),
-            };
+            const action = document.catalog
+                .lookup(PDFName.of('Outlines'), PDFDict)
+                .lookup(PDFName.of('First'), PDFDict)
+                .lookup(PDFName.of('Next'), PDFDict)
+                .lookupMaybe(PDFName.of('A'), PDFDict);
+            return (
+                action && {
+                    kind: action.lookup(PDFName.of('S'))?.toString(),
+                    file: action.lookup(PDFName.of('F'), PDFDict).toString(),
+                    destination: action.lookup(PDFName.of('D'))?.toString(),
+                }
+            );
         };
         const source = await readRemote();
         const {page} = sessions.getSession();
@@ -1180,10 +1290,13 @@ describe('Electron E2E - bookmark destination round trip', () => {
         await renameBookmarkAsUser(page, 'Chapter', 'Chapter renamed');
         await saveViaVisibleToolbar(page, 90_000, fixture);
         const saved = await readRemote();
-        console.info('INDIRECT_FILESPEC_SAVE ' + JSON.stringify({
-            source,
-            saved,
-        }));
+        console.info(
+            'INDIRECT_FILESPEC_SAVE ' +
+                JSON.stringify({
+                    source,
+                    saved,
+                }),
+        );
         expect(saved).toEqual(source);
     }, 90_000);
 
@@ -1195,11 +1308,7 @@ describe('Electron E2E - bookmark destination round trip', () => {
                 title: 'XYZ unspecified',
                 page: 0,
                 kind: 'XYZ',
-                coordinates: [
-                    null,
-                    null,
-                    null,
-                ],
+                coordinates: [null, null, null],
             },
             {
                 title: 'FitH unspecified',
@@ -1211,12 +1320,7 @@ describe('Electron E2E - bookmark destination round trip', () => {
                 title: 'Fit rectangle',
                 page: 2,
                 kind: 'FitR',
-                coordinates: [
-                    100,
-                    200,
-                    500,
-                    600,
-                ],
+                coordinates: [100, 200, 500, 600],
             },
             {
                 title: 'Fit page',
@@ -1263,11 +1367,7 @@ describe('Electron E2E - bookmark destination round trip', () => {
             const entry = pdf.context.obj({
                 Title: PDFString.of(definition.title),
                 Parent: outlinesRef,
-                Dest: [
-                    pdf.getPages()[definition.page]!.ref,
-                    PDFName.of(definition.kind),
-                    ...definition.coordinates,
-                ],
+                Dest: [pdf.getPages()[definition.page]!.ref, PDFName.of(definition.kind), ...definition.coordinates],
             });
             return {
                 entry,
@@ -1275,8 +1375,12 @@ describe('Electron E2E - bookmark destination round trip', () => {
             };
         });
         entries.forEach(({entry}, index) => {
-            if (index > 0) {entry.set(PDFName.of('Prev'), entries[index - 1]!.ref);}
-            if (index + 1 < entries.length) {entry.set(PDFName.of('Next'), entries[index + 1]!.ref);}
+            if (index > 0) {
+                entry.set(PDFName.of('Prev'), entries[index - 1]!.ref);
+            }
+            if (index + 1 < entries.length) {
+                entry.set(PDFName.of('Next'), entries[index + 1]!.ref);
+            }
         });
         outlines.set(PDFName.of('First'), entries[0]!.ref);
         outlines.set(PDFName.of('Last'), entries.at(-1)!.ref);
@@ -1298,10 +1402,13 @@ describe('Electron E2E - bookmark destination round trip', () => {
         await clickAsUser(page, '.document-bookmarks-toolbar__actions button');
         await page.waitForSelector('.pdf-bookmark-item-actions-trigger', {visible: true});
         const editMs = performance.now() - editStart;
-        console.info('BOOKMARK_EDIT_MODE ' + JSON.stringify({
-            count: 10_000,
-            editMs,
-        }));
+        console.info(
+            'BOOKMARK_EDIT_MODE ' +
+                JSON.stringify({
+                    count: 10_000,
+                    editMs,
+                }),
+        );
         // Generous compared with the viewport-sized edit list, while rejecting
         // the tens of seconds spent mounting the entire imported outline.
         expect(editMs).toBeLessThan(10_000);
@@ -1310,8 +1417,11 @@ describe('Electron E2E - bookmark destination round trip', () => {
         await page.waitForSelector('.bookmarks-context-menu .pdf-context-menu__action', {visible: true});
         await clickAsUser(page, '.bookmarks-context-menu .pdf-context-menu__action');
         await page.waitForSelector('.pdf-bookmark-item-input', {visible: true});
-        await page.keyboard.down('Control'); await page.keyboard.press('A'); await page.keyboard.up('Control');
-        await page.keyboard.type('XYZ renamed'); await page.keyboard.press('Enter');
+        await page.keyboard.down('Control');
+        await page.keyboard.press('A');
+        await page.keyboard.up('Control');
+        await page.keyboard.type('XYZ renamed');
+        await page.keyboard.press('Enter');
         await findBookmarkRow(page, 'XYZ renamed');
         const memoryLoaded = await page.metrics();
         const saveStart = performance.now();
@@ -1320,39 +1430,41 @@ describe('Electron E2E - bookmark destination round trip', () => {
         const memorySaved = await page.metrics();
         const saved = await PDFDocument.load(await readFile(fixture));
         expect(saved.catalog.lookup(PDFName.of('Outlines'), PDFDict).lookup(PDFName.of('Count'), PDFNumber).asNumber()).toBe(10_000);
-        console.info('CORE3_LARGE_OUTLINE ' + JSON.stringify({
-            count: 10_000,
-            saveMs,
-            heapLoaded: memoryLoaded.JSHeapUsedSize,
-            heapSaved: memorySaved.JSHeapUsedSize,
-        }));
+        console.info(
+            'CORE3_LARGE_OUTLINE ' +
+                JSON.stringify({
+                    count: 10_000,
+                    saveMs,
+                    heapLoaded: memoryLoaded.JSHeapUsedSize,
+                    heapSaved: memorySaved.JSHeapUsedSize,
+                }),
+        );
         expect(await readOriginalDestinationSamples(fixture)).toEqual(expectedDestinations);
         await clickAsUser(page, 'button[aria-label="Close Tab"]');
         await page.waitForSelector('.page_container', {hidden: true});
         await openPdfInApp(page, fixture);
         await waitForPdfLoaded(page);
         await openDocumentSidebarTab(page, 'Bookmarks');
-        for (const [
-            index,
-            title,
-        ] of [
-                'XYZ renamed',
-                'FitH unspecified',
-                'Fit rectangle',
-                'Fit page',
-            ].entries()) {
+        for (const [index, title] of ['XYZ renamed', 'FitH unspecified', 'Fit rectangle', 'Fit page'].entries()) {
             await goToPageViaToolbar(page, index === 3 ? 1 : 4);
             await scrollBookmarkListToTop(page);
             await activateBookmark(page, title);
             await waitForToolbarCurrentPage(page, index + 1);
         }
         const evidence = await mkdtemp(join(tmpdir(), 'evb-destination-fidelity-'));
-        await writeFile(join(evidence, 'metrics.json'), JSON.stringify({
-            count: 10_000,
-            saveMs,
-            heapLoaded: memoryLoaded.JSHeapUsedSize,
-            heapSaved: memorySaved.JSHeapUsedSize,
-        }, null, 2));
+        await writeFile(
+            join(evidence, 'metrics.json'),
+            JSON.stringify(
+                {
+                    count: 10_000,
+                    saveMs,
+                    heapLoaded: memoryLoaded.JSHeapUsedSize,
+                    heapSaved: memorySaved.JSHeapUsedSize,
+                },
+                null,
+                2,
+            ),
+        );
         await copyFile(fixture, join(evidence, 'saved.pdf'));
         await scrollBookmarkListToTop(page);
         await page.screenshot({path: join(evidence, 'reopened.png')});
@@ -1375,8 +1487,8 @@ describe('Electron E2E - bookmark destination round trip', () => {
         await clickAsUser(page, '.bookmarks-context-menu .pdf-context-menu__action');
         await page.waitForSelector('.pdf-bookmark-item-input', {visible: true});
         await page.keyboard.type('مرحبا جديد');
-        expect(await page.$eval('.pdf-bookmark-item-input', input => getComputedStyle(input).direction)).toBe('rtl');
-        const list = await page.$eval('.document-bookmark-tree__list', element => {
+        expect(await page.$eval('.pdf-bookmark-item-input', (input) => getComputedStyle(input).direction)).toBe('rtl');
+        const list = await page.$eval('.document-bookmark-tree__list', (element) => {
             const rect = element.getBoundingClientRect();
             return {
                 x: rect.x + rect.width / 2,
@@ -1386,14 +1498,15 @@ describe('Electron E2E - bookmark destination round trip', () => {
         await page.mouse.move(list.x, list.y);
         await page.mouse.wheel({deltaY: 2_000});
         await waitForFunctionInPage(page, () => (document.querySelector('.document-bookmark-tree__list')?.scrollTop ?? 0) > 1_000);
-        expect(await page.$eval('input.pdf-bookmark-item-input', input => ({
-            value: input.value,
-            focused: document.activeElement === input,
-        })))
-            .toEqual({
-                value: 'مرحبا جديد',
-                focused: true,
-            });
+        expect(
+            await page.$eval('input.pdf-bookmark-item-input', (input) => ({
+                value: input.value,
+                focused: document.activeElement === input,
+            })),
+        ).toEqual({
+            value: 'مرحبا جديد',
+            focused: true,
+        });
         await page.keyboard.press('Escape');
         await waitForFunctionInPage(page, () => document.activeElement?.matches('.pdf-bookmark-item-row') === true);
         await page.keyboard.press('End');
@@ -1420,48 +1533,43 @@ describe('Electron E2E - bookmark destination round trip', () => {
         expect(reorderSource).not.toBeNull();
         expect(reorderTarget).not.toBeNull();
         await page.setDragInterception(true);
-        await page.mouse.dragAndDrop({
-            x: reorderSource!.x + reorderSource!.width / 2,
-            y: reorderSource!.y + reorderSource!.height / 2,
-        }, {
-            x: reorderTarget!.x + reorderTarget!.width / 2,
-            y: reorderTarget!.y + 4,
-        });
-        await expect.poll(() => page.$$eval('.document-bookmark-item__title', titles => titles.slice(0, 3).map(title => title.textContent)))
-            .toEqual([
-                'Second',
-                'مرحبا',
-                'Parent',
-            ]);
+        await page.mouse.dragAndDrop(
+            {
+                x: reorderSource!.x + reorderSource!.width / 2,
+                y: reorderSource!.y + reorderSource!.height / 2,
+            },
+            {
+                x: reorderTarget!.x + reorderTarget!.width / 2,
+                y: reorderTarget!.y + 4,
+            },
+        );
+        await expect
+            .poll(() => page.$$eval('.document-bookmark-item__title', (titles) => titles.slice(0, 3).map((title) => title.textContent)))
+            .toEqual(['Second', 'مرحبا', 'Parent']);
         await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Z'});
         await scrollBookmarkListToTop(page);
-        await expect.poll(() => page.$$eval('.document-bookmark-item__title', titles => titles.slice(0, 3).map(title => title.textContent)))
-            .toEqual([
-                'مرحبا',
-                'Second',
-                'Parent',
-            ]);
+        await expect
+            .poll(() => page.$$eval('.document-bookmark-item__title', (titles) => titles.slice(0, 3).map((title) => title.textContent)))
+            .toEqual(['مرحبا', 'Second', 'Parent']);
 
         await clickAsUser(page, await findBookmarkRow(page, 'مرحبا'));
         const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
         await page.keyboard.down(modifier);
         await clickAsUser(page, await findBookmarkRow(page, 'Second'));
         await page.keyboard.up(modifier);
-        expect(await page.$$eval('.pdf-bookmark-item-row.is-selected', rows => rows.map(row => row.textContent?.trim())))
-            .toEqual([
-                'مرحبا',
-                'Second',
-            ]);
+        expect(await page.$$eval('.pdf-bookmark-item-row.is-selected', (rows) => rows.map((row) => row.textContent?.trim()))).toEqual([
+            'مرحبا',
+            'Second',
+        ]);
         await page.keyboard.down('Shift');
         await clickAsUser(page, await findBookmarkRow(page, 'Row 5'));
         await page.keyboard.up('Shift');
-        expect(await page.$$eval('.pdf-bookmark-item-row.is-selected', rows => rows.map(row => row.textContent?.trim())))
-            .toEqual([
-                'Second',
-                'Parent',
-                'Row 4',
-                'Row 5',
-            ]);
+        expect(await page.$$eval('.pdf-bookmark-item-row.is-selected', (rows) => rows.map((row) => row.textContent?.trim()))).toEqual([
+            'Second',
+            'Parent',
+            'Row 4',
+            'Row 5',
+        ]);
         await waitForToolbarCurrentPage(page, 1);
         await clickAsUser(page, await findBookmarkRow(page, 'مرحبا'));
 
@@ -1470,22 +1578,27 @@ describe('Electron E2E - bookmark destination round trip', () => {
         const source = await findBookmarkRow(page, 'مرحبا');
         const sourceBox = await source.boundingBox();
         expect(sourceBox).not.toBeNull();
-        const edge = await page.$eval('.document-bookmark-tree__list', element => {
+        const edge = await page.$eval('.document-bookmark-tree__list', (element) => {
             const rect = element.getBoundingClientRect();
             return {
                 x: rect.x + rect.width / 2,
                 y: rect.bottom - 4,
             };
         });
-        const dragData = await page.mouse.drag({
-            x: sourceBox!.x + sourceBox!.width / 2,
-            y: sourceBox!.y + sourceBox!.height / 2,
-        }, edge);
+        const dragData = await page.mouse.drag(
+            {
+                x: sourceBox!.x + sourceBox!.width / 2,
+                y: sourceBox!.y + sourceBox!.height / 2,
+            },
+            edge,
+        );
         await page.mouse.dragEnter(edge, dragData);
         await page.mouse.dragOver(edge, dragData);
         let targetTitle = '';
         try {
-            await waitForFunctionInPage(page, () => (document.querySelector('.document-bookmark-tree__list')?.scrollTop ?? 0) > 1_000, {timeout: 15_000});
+            await waitForFunctionInPage(page, () => (document.querySelector('.document-bookmark-tree__list')?.scrollTop ?? 0) > 1_000, {
+                timeout: 15_000,
+            });
             // DragOver/drop coordinates do not move Chromium's actual pointer.
             // Leave the auto-scroll edge before choosing a stationary target.
             await page.mouse.move(list.x, list.y);
@@ -1493,16 +1606,20 @@ describe('Electron E2E - bookmark destination round trip', () => {
             await waitForFunctionInPage(page, async () => {
                 const scroller = document.querySelector('.document-bookmark-tree__list')!;
                 const position = scroller.scrollTop;
-                await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
-                await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+                await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+                await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
                 return scroller.scrollTop === position;
             });
-            targetTitle = await page.evaluate(() => Array.from(document.querySelectorAll<HTMLElement>('.pdf-bookmark-item-row'))
-                .find(row => {
-                    const box = row.getBoundingClientRect();
-                    const listBox = document.querySelector('.document-bookmark-tree__list')!.getBoundingClientRect();
-                    return box.top > listBox.top + 100 && box.bottom < listBox.bottom - 100;
-                })?.textContent?.trim()) ?? '';
+            targetTitle =
+                (await page.evaluate(() =>
+                    Array.from(document.querySelectorAll<HTMLElement>('.pdf-bookmark-item-row'))
+                        .find((row) => {
+                            const box = row.getBoundingClientRect();
+                            const listBox = document.querySelector('.document-bookmark-tree__list')!.getBoundingClientRect();
+                            return box.top > listBox.top + 100 && box.bottom < listBox.bottom - 100;
+                        })
+                        ?.textContent?.trim(),
+                )) ?? '';
             expect(targetTitle).toMatch(/^Row /u);
             const targetRow = await findBookmarkRow(page, targetTitle);
             const targetBox = await targetRow.boundingBox();
@@ -1516,12 +1633,16 @@ describe('Electron E2E - bookmark destination round trip', () => {
             await page.mouse.up();
         }
         await findBookmarkRow(page, 'مرحبا');
-        await expect.poll(() => page.evaluate((title: string) => {
-            const rows = Array.from(document.querySelectorAll<HTMLElement>('.pdf-bookmark-item-row'));
-            const parent = rows.find(row => row.textContent?.trim() === title)!;
-            const child = rows.find(row => row.textContent?.trim() === 'مرحبا')!;
-            return child.getBoundingClientRect().left > parent.getBoundingClientRect().left;
-        }, targetTitle)).toBe(true);
+        await expect
+            .poll(() =>
+                page.evaluate((title: string) => {
+                    const rows = Array.from(document.querySelectorAll<HTMLElement>('.pdf-bookmark-item-row'));
+                    const parent = rows.find((row) => row.textContent?.trim() === title)!;
+                    const child = rows.find((row) => row.textContent?.trim() === 'مرحبا')!;
+                    return child.getBoundingClientRect().left > parent.getBoundingClientRect().left;
+                }, targetTitle),
+            )
+            .toBe(true);
         await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Z'});
         await scrollBookmarkListToTop(page);
         await findBookmarkRow(page, 'مرحبا');
@@ -1529,30 +1650,40 @@ describe('Electron E2E - bookmark destination round trip', () => {
         await clickAsUser(page, (await parentRow.$('.document-bookmark-item__toggle'))!);
         await findBookmarkRow(page, 'Nested');
         await clickAsUser(page, await findBookmarkRow(page, 'Parent'), {button: 'right'});
-        await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('.bookmarks-context-menu [role="menuitem"]'))
-            .find(item => item.textContent?.trim() === 'Add child bookmark'), null, {description: 'Add bookmark child'});
+        await clickFoundAsUser(
+            page,
+            () =>
+                Array.from(document.querySelectorAll<HTMLElement>('.bookmarks-context-menu [role="menuitem"]')).find(
+                    (item) => item.textContent?.trim() === 'Add child bookmark',
+                ),
+            null,
+            {description: 'Add bookmark child'},
+        );
         await page.waitForSelector('.pdf-bookmark-item-input', {visible: true});
         await page.keyboard.type('Added child');
         await page.keyboard.press('Enter');
         await findBookmarkRow(page, 'Added child');
         await clickAsUser(page, await findBookmarkRow(page, 'Added child'), {button: 'right'});
         await clickAsUser(page, '.bookmarks-context-menu .pdf-context-menu__action--danger');
-        await waitForFunctionInPage(page, () => !Array.from(document.querySelectorAll('.document-bookmark-item__title')).some(title => title.textContent === 'Added child'));
+        await waitForFunctionInPage(
+            page,
+            () =>
+                !Array.from(document.querySelectorAll('.document-bookmark-item__title')).some(
+                    (title) => title.textContent === 'Added child',
+                ),
+        );
         await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Z'});
         await scrollBookmarkListToTop(page);
         const restoredParent = await findBookmarkRow(page, 'Parent');
         const restoredToggle = (await restoredParent.$('.document-bookmark-item__toggle'))!;
-        if (await restoredToggle.evaluate(button => button.getAttribute('aria-expanded')) !== 'true') {
+        if ((await restoredToggle.evaluate((button) => button.getAttribute('aria-expanded'))) !== 'true') {
             await clickAsUser(page, restoredToggle);
         }
         await findBookmarkRow(page, 'Added child');
         await saveViaVisibleToolbar(page, 90_000, fixture);
         const saved = (await readPdfMetadataWithQpdf(fixture)).outlines;
         expect(saved[0]?.title).toBe('مرحبا');
-        expect(saved.find(item => item.title === 'Parent')?.kids?.map(item => item.title)).toEqual([
-            'Nested',
-            'Added child',
-        ]);
+        expect(saved.find((item) => item.title === 'Parent')?.kids?.map((item) => item.title)).toEqual(['Nested', 'Added child']);
     }, 90_000);
 
     it('keeps imported destinations when one bookmark title is renamed and saved', async () => {
@@ -1570,7 +1701,9 @@ describe('Electron E2E - bookmark destination round trip', () => {
         const saved = source;
         await sessions.stop();
         let session: IElectronE2ESession | null = await startElectronE2ESession(`e2e-bookmark-rename-${Date.now()}`, {clean: true});
-        onTestFinished(async () => { await session?.stop(); });
+        onTestFinished(async () => {
+            await session?.stop();
+        });
         let {page} = session;
         await openPdfInApp(page, source);
         await waitForPdfLoaded(page);
@@ -1578,7 +1711,7 @@ describe('Electron E2E - bookmark destination round trip', () => {
 
         await activateBookmark(page, 'Middle');
         await waitForToolbarCurrentPage(page, 3);
-        expect(await page.$eval('.page_container[data-page="3"]', node => node.textContent)).toContain('Metadata matrix page 3');
+        expect(await page.$eval('.page_container[data-page="3"]', (node) => node.textContent)).toContain('Metadata matrix page 3');
 
         const editToggle = await page.$('.document-bookmarks-toolbar__actions button');
         expect(editToggle, 'bookmark editing control is visible').not.toBeNull();
@@ -1594,16 +1727,18 @@ describe('Electron E2E - bookmark destination round trip', () => {
         await page.keyboard.up('Control');
         await page.keyboard.type('Middle renamed');
         await page.keyboard.press('Enter');
-        await waitForFunctionInPage(page, () => Array.from(document.querySelectorAll('.pdf-bookmark-item-row')).some(row => row.textContent?.trim() === 'Middle renamed'));
+        await waitForFunctionInPage(page, () =>
+            Array.from(document.querySelectorAll('.pdf-bookmark-item-row')).some((row) => row.textContent?.trim() === 'Middle renamed'),
+        );
 
         const saveCommit = await saveViaWindowHandle(page);
         expect(await realpath(String(saveCommit.detail.path))).toBe(await realpath(saved));
         const outline = (await readPdfMetadataWithQpdf(saved)).outlines;
         // The fixture puts Middle at a quarter of the page's height from its top.
-        const middleDestinationTop = outline.find(item => item.title === 'Middle renamed')?.dest?.[3];
+        const middleDestinationTop = outline.find((item) => item.title === 'Middle renamed')?.dest?.[3];
         expect(middleDestinationTop).toBeCloseTo(594, 0);
-        const savedDestinations = outline.map(item => item.destpageposfrom1 ?? null);
-        const savedTitles = outline.map(item => item.title);
+        const savedDestinations = outline.map((item) => item.destpageposfrom1 ?? null);
+        const savedTitles = outline.map((item) => item.title);
 
         await session.stop();
         session = await startElectronE2ESession(`e2e-bookmark-rename-reopen-${Date.now()}`, {clean: true});
@@ -1613,59 +1748,38 @@ describe('Electron E2E - bookmark destination round trip', () => {
         await openDocumentSidebarTab(page, 'Bookmarks');
         const navigatedPages: number[] = [];
         const renderedText: boolean[] = [];
-        for (const [
-            title,
-            pageNumber,
-        ] of [
-                [
-                    'First',
-                    1,
-                ],
-                [
-                    'Middle renamed',
-                    3,
-                ],
-                [
-                    'Last',
-                    4,
-                ],
-            ] as const) {
+        for (const [title, pageNumber] of [
+            ['First', 1],
+            ['Middle renamed', 3],
+            ['Last', 4],
+        ] as const) {
             await goToPageViaToolbar(page, 2);
             await waitForToolbarCurrentPage(page, 2);
             await activateBookmark(page, title);
             await waitForViewportQuiet(page);
             const indicator = await readToolbarPageIndicator(page);
-            if (indicator.renderedPage === null) {throw new Error('Page number was not rendered after bookmark activation');}
+            if (indicator.renderedPage === null) {
+                throw new Error('Page number was not rendered after bookmark activation');
+            }
             navigatedPages.push(indicator.renderedPage);
-            const visibleText = await page.$eval(`.page_container[data-page="${indicator.renderedPage}"]`, node => node.textContent ?? '');
+            const visibleText = await page.$eval(
+                `.page_container[data-page="${indicator.renderedPage}"]`,
+                (node) => node.textContent ?? '',
+            );
             renderedText.push(visibleText.includes(`Metadata matrix page ${pageNumber}`));
         }
-        console.log(`BOOKMARK_ROUND_TRIP ${JSON.stringify({
-            savedTitles,
-            savedDestinations,
-            navigatedPages,
-            renderedText,
-        })}`);
-        expect(savedTitles).toEqual([
-            'First',
-            'Middle renamed',
-            'Last',
-        ]);
-        expect(savedDestinations).toEqual([
-            1,
-            3,
-            4,
-        ]);
-        expect(navigatedPages).toEqual([
-            1,
-            3,
-            4,
-        ]);
-        expect(renderedText).toEqual([
-            true,
-            true,
-            true,
-        ]);
+        console.log(
+            `BOOKMARK_ROUND_TRIP ${JSON.stringify({
+                savedTitles,
+                savedDestinations,
+                navigatedPages,
+                renderedText,
+            })}`,
+        );
+        expect(savedTitles).toEqual(['First', 'Middle renamed', 'Last']);
+        expect(savedDestinations).toEqual([1, 3, 4]);
+        expect(navigatedPages).toEqual([1, 3, 4]);
+        expect(renderedText).toEqual([true, true, true]);
     }, 90_000);
 });
 
@@ -1689,11 +1803,18 @@ async function scrollBookmarkListToTop(page: Page) {
 }
 
 async function findBookmarkRow(page: Page, title: string) {
-    await waitForFunctionInPage(page, (expected: string) => Array.from(document.querySelectorAll('.pdf-bookmark-item-row, .document-bookmark-item__row'))
-        .some(row => row.textContent?.trim() === expected), {}, title);
+    await waitForFunctionInPage(
+        page,
+        (expected: string) =>
+            Array.from(document.querySelectorAll('.pdf-bookmark-item-row, .document-bookmark-item__row')).some(
+                (row) => row.textContent?.trim() === expected,
+            ),
+        {},
+        title,
+    );
     const rows = await page.$$('.pdf-bookmark-item-row, .document-bookmark-item__row');
     for (const row of rows) {
-        if (await row.evaluate(element => element.textContent?.trim()) === title) {
+        if ((await row.evaluate((element) => element.textContent?.trim())) === title) {
             return row;
         }
     }
@@ -1708,15 +1829,21 @@ async function readOriginalDestinationSamples(path: string) {
     for (let index = 0; index < 8; index += 1) {
         const destination = entry.lookup(PDFName.of('Dest'), PDFArray).asArray();
         samples.push({
-            pageIndex: pdf.getPages().findIndex(page => page.ref.toString() === destination[0]!.toString()),
+            pageIndex: pdf.getPages().findIndex((page) => page.ref.toString() === destination[0]!.toString()),
             kind: destination[1]!.toString(),
-            coordinates: destination.slice(2).map(value => {
-                if (value === PDFNull) {return null;}
-                if (!(value instanceof PDFNumber)) {throw new Error('Saved bookmark coordinate must be numeric or null');}
+            coordinates: destination.slice(2).map((value) => {
+                if (value === PDFNull) {
+                    return null;
+                }
+                if (!(value instanceof PDFNumber)) {
+                    throw new Error('Saved bookmark coordinate must be numeric or null');
+                }
                 return value.asNumber();
             }),
         });
-        if (index < 7) {entry = entry.lookup(PDFName.of('Next'), PDFDict);}
+        if (index < 7) {
+            entry = entry.lookup(PDFName.of('Next'), PDFDict);
+        }
     }
     return samples;
 }
@@ -1725,26 +1852,31 @@ async function readOriginalDestinationSamples(path: string) {
  * Gives the fixture an outline built from `describe`, linked in order. The
  * callback may also add catalog entries the outline refers to.
  */
-async function writeOutlineFixture(
-    fixture: string,
-    describe: (pdf: PDFDocument, pages: PDFPage[]) => Array<Record<string, unknown>>,
-) {
+async function writeOutlineFixture(fixture: string, describe: (pdf: PDFDocument, pages: PDFPage[]) => Array<Record<string, unknown>>) {
     const pdf = await PDFDocument.load(await readFile(fixture));
     const definitions = describe(pdf, pdf.getPages());
     const outlinesRef = pdf.context.nextRef();
     const refs = definitions.map(() => pdf.context.nextRef());
-    definitions.forEach((definition, index) => pdf.context.assign(refs[index]!, pdf.context.obj({
-        ...definition,
-        Parent: outlinesRef,
-        ...(index > 0 ? {Prev: refs[index - 1]} : {}),
-        ...(index + 1 < refs.length ? {Next: refs[index + 1]} : {}),
-    })));
-    pdf.context.assign(outlinesRef, pdf.context.obj({
-        Type: PDFName.of('Outlines'),
-        First: refs[0],
-        Last: refs.at(-1),
-        Count: refs.length,
-    }));
+    definitions.forEach((definition, index) =>
+        pdf.context.assign(
+            refs[index]!,
+            pdf.context.obj({
+                ...definition,
+                Parent: outlinesRef,
+                ...(index > 0 ? {Prev: refs[index - 1]} : {}),
+                ...(index + 1 < refs.length ? {Next: refs[index + 1]} : {}),
+            }),
+        ),
+    );
+    pdf.context.assign(
+        outlinesRef,
+        pdf.context.obj({
+            Type: PDFName.of('Outlines'),
+            First: refs[0],
+            Last: refs.at(-1),
+            Count: refs.length,
+        }),
+    );
     pdf.catalog.set(PDFName.of('Outlines'), outlinesRef);
     await writeFile(fixture, await pdf.save());
 }
@@ -1790,7 +1922,7 @@ async function openBookmarkEditor(page: Page, fixture: string) {
 }
 
 async function wheelBookmarkList(page: Page, deltaY: number) {
-    const point = await page.$eval('.document-bookmark-tree__list', list => {
+    const point = await page.$eval('.document-bookmark-tree__list', (list) => {
         const rect = list.getBoundingClientRect();
         return {
             x: rect.x + rect.width / 2,
@@ -1802,22 +1934,30 @@ async function wheelBookmarkList(page: Page, deltaY: number) {
 }
 
 async function expectBookmarkFocus(page: Page, title: string) {
-    await expect.poll(() => page.evaluate(() => {
-        const row = document.activeElement;
-        const list = document.querySelector('.document-bookmark-tree__list');
-        if (!row?.matches('.document-bookmark-item__row') || !list) {return {tag: row?.tagName};}
-        const rect = row.getBoundingClientRect();
-        const bounds = list.getBoundingClientRect();
-        return {
-            tag: row.tagName,
-            title: row.textContent?.trim(),
-            visible: rect.top >= bounds.top && rect.bottom <= bounds.bottom,
-        };
-    }), {timeout: 6_000}).toEqual({
-        tag: 'DIV',
-        title,
-        visible: true,
-    });
+    await expect
+        .poll(
+            () =>
+                page.evaluate(() => {
+                    const row = document.activeElement;
+                    const list = document.querySelector('.document-bookmark-tree__list');
+                    if (!row?.matches('.document-bookmark-item__row') || !list) {
+                        return {tag: row?.tagName};
+                    }
+                    const rect = row.getBoundingClientRect();
+                    const bounds = list.getBoundingClientRect();
+                    return {
+                        tag: row.tagName,
+                        title: row.textContent?.trim(),
+                        visible: rect.top >= bounds.top && rect.bottom <= bounds.bottom,
+                    };
+                }),
+            {timeout: 6_000},
+        )
+        .toEqual({
+            tag: 'DIV',
+            title,
+            visible: true,
+        });
 }
 
 async function observeBookmarkFocus(page: Page) {
@@ -1830,15 +1970,10 @@ async function observeBookmarkFocus(page: Page) {
             tag: row?.tagName,
             id: row?.getAttribute('data-bookmark-id'),
             title: row?.textContent?.trim(),
-            visible: row?.matches('.document-bookmark-item__row') === true && rect.top >= bounds.top - 1 && rect.bottom <= bounds.bottom + 1,
-            row: [
-                rect.top,
-                rect.bottom,
-            ],
-            list: [
-                bounds.top,
-                bounds.bottom,
-            ],
+            visible:
+                row?.matches('.document-bookmark-item__row') === true && rect.top >= bounds.top - 1 && rect.bottom <= bounds.bottom + 1,
+            row: [rect.top, rect.bottom],
+            list: [bounds.top, bounds.bottom],
             scrollTop: list.scrollTop,
         };
     });
@@ -1854,28 +1989,33 @@ async function createBookmarkTreeFixturePdf(name: string, bookmarks: ReadonlyArr
         const refs = items.map(() => pdf.context.nextRef());
         items.forEach((item, index) => {
             const children = writeItems(item.items ?? [], refs[index]!);
-            pdf.context.assign(refs[index]!, pdf.context.obj({
-                Title: PDFString.of(item.title),
-                Parent: parent,
-                Dest: [
-                    pdf.getPages()[item.pageIndex ?? 0]!.ref,
-                    PDFName.of('Fit'),
-                ],
-                ...(index > 0 ? {Prev: refs[index - 1]} : {}),
-                ...(index + 1 < refs.length ? {Next: refs[index + 1]} : {}),
-                ...children,
-            }));
+            pdf.context.assign(
+                refs[index]!,
+                pdf.context.obj({
+                    Title: PDFString.of(item.title),
+                    Parent: parent,
+                    Dest: [pdf.getPages()[item.pageIndex ?? 0]!.ref, PDFName.of('Fit')],
+                    ...(index > 0 ? {Prev: refs[index - 1]} : {}),
+                    ...(index + 1 < refs.length ? {Next: refs[index + 1]} : {}),
+                    ...children,
+                }),
+            );
         });
-        return refs.length ? {
-            First: refs[0],
-            Last: refs.at(-1),
-            Count: refs.length,
-        } : {};
+        return refs.length
+            ? {
+                  First: refs[0],
+                  Last: refs.at(-1),
+                  Count: refs.length,
+              }
+            : {};
     }
-    pdf.context.assign(outlineRef, pdf.context.obj({
-        Type: PDFName.of('Outlines'),
-        ...writeItems(bookmarks, outlineRef),
-    }));
+    pdf.context.assign(
+        outlineRef,
+        pdf.context.obj({
+            Type: PDFName.of('Outlines'),
+            ...writeItems(bookmarks, outlineRef),
+        }),
+    );
     pdf.catalog.set(PDFName.of('Outlines'), outlineRef);
     await writeFile(fixture, await pdf.save());
     return fixture;

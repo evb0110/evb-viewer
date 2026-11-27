@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {parseAgentResourceUri} from '@contracts/agentResourceUri';
 
 describe('parseAgentResourceUri', () => {
@@ -14,10 +10,7 @@ describe('parseAgentResourceUri', () => {
         expect(parsed).toEqual({
             uri: 'evb://document/tab%201/annotations',
             host: 'document',
-            parts: [
-                'tab 1',
-                'annotations',
-            ],
+            parts: ['tab 1', 'annotations'],
         });
     });
 
@@ -30,7 +23,6 @@ describe('parseAgentResourceUri', () => {
     });
 
     it('rejects a URI from another scheme', () => {
-        expect(() => parseAgentResourceUri('https://document/tab-1/annotations'))
-            .toThrow('Unsupported EVB resource URI protocol: https:');
+        expect(() => parseAgentResourceUri('https://document/tab-1/annotations')).toThrow('Unsupported EVB resource URI protocol: https:');
     });
 });

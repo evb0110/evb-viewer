@@ -2,23 +2,11 @@
 
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    createApp,
-    defineComponent,
-    h,
-    nextTick,
-    reactive,
-} from 'vue';
-import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
-import { SIDEBAR } from '@app/constants/pdfLayout';
-import type { TPdfSidebarTab } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {createApp, defineComponent, h, nextTick, reactive} from 'vue';
+import {DEFAULT_ANNOTATION_SETTINGS} from '@app/constants/annotationDefaults';
+import {SIDEBAR} from '@app/constants/pdfLayout';
+import type {TPdfSidebarTab} from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types';
 import PdfSidebar from '@app/modules/pdf-viewer/components/PdfSidebar.vue';
 import WorkspaceSidebarHost from '@app/modules/workspace-shell/components/layout/WorkspaceSidebarHost.vue';
 
@@ -48,13 +36,16 @@ vi.mock('@app/modules/pdf-viewer/components/PdfOutline.vue', async () => {
         vue.onUnmounted(() => {
             outlineLifecycle.unmounts += 1;
         });
-        return () => vue.h('div', {'data-outline-stub': ''}, [vue.h('input', {
-            'data-outline-state': '',
-            value: panelState.value,
-            onInput: (event: Event) => {
-                panelState.value = (event.target as HTMLInputElement).value;
-            },
-        })]);
+        return () =>
+            vue.h('div', {'data-outline-stub': ''}, [
+                vue.h('input', {
+                    'data-outline-state': '',
+                    value: panelState.value,
+                    onInput: (event: Event) => {
+                        panelState.value = (event.target as HTMLInputElement).value;
+                    },
+                }),
+            ]);
     });
     return {default: component};
 });
@@ -62,17 +53,17 @@ vi.mock('@app/modules/pdf-viewer/components/PdfOutline.vue', async () => {
 function stubPanel(marker: string) {
     const component = defineComponent({
         inheritAttrs: false,
-        setup: (_props, {
-            attrs,
-            slots,
-        }) => () => h('div', {
-            ...attrs,
-            [marker]: '',
-        }, [
-            slots.header?.(),
-            slots.default?.(),
-            slots.footer?.(),
-        ]),
+        setup:
+            (_props, {attrs, slots}) =>
+            () =>
+                h(
+                    'div',
+                    {
+                        ...attrs,
+                        [marker]: '',
+                    },
+                    [slots.header?.(), slots.default?.(), slots.footer?.()],
+                ),
     });
     return {default: component};
 }
@@ -86,39 +77,47 @@ vi.mock('@app/components/document-viewer/DocumentSidebarPagesPanel.vue', () => s
 
 vi.mock('@app/components/sidebar/AppSidebarShell.vue', async () => {
     const vue = await import('vue');
-    return {default: vue.defineComponent({
-        props: {
-            modelValue: {
-                type: String,
-                required: true,
+    return {
+        default: vue.defineComponent({
+            props: {
+                modelValue: {
+                    type: String,
+                    required: true,
+                },
+                tabs: {
+                    type: Array,
+                    required: true,
+                },
+                outerScroll: Boolean,
+                widthPx: {
+                    type: Number,
+                    default: undefined,
+                },
             },
-            tabs: {
-                type: Array,
-                required: true,
-            },
-            outerScroll: Boolean,
-            widthPx: {
-                type: Number,
-                default: undefined,
-            },
-        },
-        emits: ['update:model-value'],
-        setup: (props, {
-            emit,
-            slots,
-        }) => () => vue.h('aside', {
-            'data-shell-stub': '',
-            style: props.widthPx === undefined ? undefined : {width: `${props.widthPx}px`},
-        }, [
-            (props.tabs as Array<{value: string}>).map(tab => vue.h('button', {
-                key: tab.value,
-                type: 'button',
-                'data-tab': tab.value,
-                onClick: () => emit('update:model-value', tab.value),
-            })),
-            slots.default?.(),
-        ]),
-    })};
+            emits: ['update:model-value'],
+            setup:
+                (props, {emit, slots}) =>
+                () =>
+                    vue.h(
+                        'aside',
+                        {
+                            'data-shell-stub': '',
+                            style: props.widthPx === undefined ? undefined : {width: `${props.widthPx}px`},
+                        },
+                        [
+                            (props.tabs as Array<{value: string}>).map((tab) =>
+                                vue.h('button', {
+                                    key: tab.value,
+                                    type: 'button',
+                                    'data-tab': tab.value,
+                                    onClick: () => emit('update:model-value', tab.value),
+                                }),
+                            ),
+                            slots.default?.(),
+                        ],
+                    ),
+        }),
+    };
 });
 
 const activeUnmounts = new Set<() => void>();
@@ -131,57 +130,69 @@ afterEach(() => {
     outlineLifecycle.unmounts = 0;
 });
 
-async function mountSidebar(overrides: {
-    activeTab?: TPdfSidebarTab;
-    isOpen?: boolean;
-    width?: number;
-} = {}) {
+async function mountSidebar(
+    overrides: {
+        activeTab?: TPdfSidebarTab;
+        isOpen?: boolean;
+        width?: number;
+    } = {},
+) {
     const state = reactive({
         activeTab: overrides.activeTab ?? ('thumbnails' as TPdfSidebarTab),
         isOpen: overrides.isOpen ?? true,
     });
     const host = document.createElement('div');
     document.body.append(host);
-    const renderSidebar = () => h(PdfSidebar, {
-        activeTab: state.activeTab,
-        availableTabs: ['annotations', 'thumbnails', 'bookmarks', 'search'],
-        annotationComments: [],
-        annotationCommentsStatus: 'ready',
-        annotationKeepActive: false,
-        annotationSettings: DEFAULT_ANNOTATION_SETTINGS,
-        annotationTool: 'none',
-        bookmarkEditMode: false,
-        bookmarkItems: [],
-        bookmarksDirty: false,
-        currentPage: 1,
-        currentResultIndex: -1,
-        currentResultNavigationId: 0,
-        isOpen: state.isOpen,
-        isSearching: false,
-        pdfDocument: null,
-        pageSource: null,
-        searchOptions: {
-            matchCase: false,
-            useRegex: false,
-            wholeWord: false,
-        },
-        searchQuery: '',
-        searchResults: [],
-        selectedThumbnailPages: [],
-        totalPages: 4,
-        ...(overrides.width === undefined ? {} : {width: overrides.width}),
-        'onUpdate:activeTab': (value: TPdfSidebarTab) => {
-            state.activeTab = value;
-        },
-    });
-    const app = createApp(defineComponent({setup: () => () => h(WorkspaceSidebarHost, {
-        isResizingSidebar: false,
-        resizeAriaLabel: 'Resize sidebar',
-        showSidebar: state.isOpen,
-        sidebarContentWidth: overrides.width ?? SIDEBAR.DEFAULT_WIDTH,
-        sidebarMaxWidth: SIDEBAR.MAX_WIDTH,
-        sidebarWrapperStyle: {width: `${(overrides.width ?? SIDEBAR.DEFAULT_WIDTH) + SIDEBAR.RESIZER_WIDTH}px`},
-    }, {sidebar: renderSidebar})}));
+    const renderSidebar = () =>
+        h(PdfSidebar, {
+            activeTab: state.activeTab,
+            availableTabs: ['annotations', 'thumbnails', 'bookmarks', 'search'],
+            annotationComments: [],
+            annotationCommentsStatus: 'ready',
+            annotationKeepActive: false,
+            annotationSettings: DEFAULT_ANNOTATION_SETTINGS,
+            annotationTool: 'none',
+            bookmarkEditMode: false,
+            bookmarkItems: [],
+            bookmarksDirty: false,
+            currentPage: 1,
+            currentResultIndex: -1,
+            currentResultNavigationId: 0,
+            isOpen: state.isOpen,
+            isSearching: false,
+            pdfDocument: null,
+            pageSource: null,
+            searchOptions: {
+                matchCase: false,
+                useRegex: false,
+                wholeWord: false,
+            },
+            searchQuery: '',
+            searchResults: [],
+            selectedThumbnailPages: [],
+            totalPages: 4,
+            ...(overrides.width === undefined ? {} : {width: overrides.width}),
+            'onUpdate:activeTab': (value: TPdfSidebarTab) => {
+                state.activeTab = value;
+            },
+        });
+    const app = createApp(
+        defineComponent({
+            setup: () => () =>
+                h(
+                    WorkspaceSidebarHost,
+                    {
+                        isResizingSidebar: false,
+                        resizeAriaLabel: 'Resize sidebar',
+                        showSidebar: state.isOpen,
+                        sidebarContentWidth: overrides.width ?? SIDEBAR.DEFAULT_WIDTH,
+                        sidebarMaxWidth: SIDEBAR.MAX_WIDTH,
+                        sidebarWrapperStyle: {width: `${(overrides.width ?? SIDEBAR.DEFAULT_WIDTH) + SIDEBAR.RESIZER_WIDTH}px`},
+                    },
+                    {sidebar: renderSidebar},
+                ),
+        }),
+    );
     app.mount(host);
     await nextTick();
     const unmount = () => {
@@ -218,10 +229,7 @@ describe('PdfSidebar bookmark panel retention', () => {
     });
 
     it('keeps panel-local bookmark state across tab switches', async () => {
-        const {
-            host,
-            selectTab,
-        } = await mountSidebar();
+        const {host, selectTab} = await mountSidebar();
 
         await selectTab('bookmarks');
         expect(outlineLifecycle.mounts).toBe(1);
@@ -241,11 +249,7 @@ describe('PdfSidebar bookmark panel retention', () => {
     });
 
     it('keeps panel-local bookmark state across sidebar close and reopen', async () => {
-        const {
-            host,
-            selectTab,
-            state,
-        } = await mountSidebar();
+        const {host, selectTab, state} = await mountSidebar();
         await selectTab('bookmarks');
         const panelState = host.querySelector<HTMLInputElement>('[data-outline-state]')!;
         panelState.value = 'chapter seven';
@@ -263,8 +267,7 @@ describe('PdfSidebar bookmark panel retention', () => {
         state.isOpen = true;
         await nextTick();
         expect(outlineLifecycle.mounts).toBe(1);
-        expect(sidebarWrapper.style.width)
-            .toBe(`${SIDEBAR.DEFAULT_WIDTH + SIDEBAR.RESIZER_WIDTH}px`);
+        expect(sidebarWrapper.style.width).toBe(`${SIDEBAR.DEFAULT_WIDTH + SIDEBAR.RESIZER_WIDTH}px`);
         expect(sidebarWrapper.classList.contains('is-closed')).toBe(false);
         expect(sidebarWrapper.hasAttribute('inert')).toBe(false);
         expect(host.querySelector<HTMLInputElement>('[data-outline-state]')?.value).toBe('chapter seven');
@@ -278,25 +281,46 @@ describe('PdfSidebar bookmark panel retention', () => {
     });
 
     it('binds widthPx on AppSidebarShell and drop-target attribute on DocumentSidebarPagesPanel', async () => {
-        const {default: RealAppSidebarShell} = await vi.importActual<typeof import('@app/components/sidebar/AppSidebarShell.vue')>('@app/components/sidebar/AppSidebarShell.vue');
-        const {default: RealDocumentSidebarPagesPanel} = await vi.importActual<typeof import('@app/components/document-viewer/DocumentSidebarPagesPanel.vue')>('@app/components/document-viewer/DocumentSidebarPagesPanel.vue');
-        const slot = defineComponent({inheritAttrs: false, setup: (_props, {slots}) => () => h('div', slots.default?.())});
+        const {default: RealAppSidebarShell} = await vi.importActual<typeof import('@app/components/sidebar/AppSidebarShell.vue')>(
+            '@app/components/sidebar/AppSidebarShell.vue',
+        );
+        const {default: RealDocumentSidebarPagesPanel} = await vi.importActual<
+            typeof import('@app/components/document-viewer/DocumentSidebarPagesPanel.vue')
+        >('@app/components/document-viewer/DocumentSidebarPagesPanel.vue');
+        const slot = defineComponent({
+            inheritAttrs: false,
+            setup:
+                (_props, {slots}) =>
+                () =>
+                    h('div', slots.default?.()),
+        });
 
         const host = document.createElement('div');
         document.body.append(host);
-        const app = createApp(defineComponent({setup: () => () => h('div', [
-            h(RealAppSidebarShell, {
-                modelValue: 'thumbnails',
-                tabs: [{
-                    value: 'thumbnails',
-                    label: 'Pages',
-                    title: 'Pages',
-                    icon: 'i-ph-file',
-                }],
-                widthPx: 280,
-            }, {default: () => h(RealDocumentSidebarPagesPanel, {acceptsExternalPdfDrop: true})}),
-            h(RealDocumentSidebarPagesPanel, {acceptsExternalPdfDrop: false}),
-        ])}));
+        const app = createApp(
+            defineComponent({
+                setup: () => () =>
+                    h('div', [
+                        h(
+                            RealAppSidebarShell,
+                            {
+                                modelValue: 'thumbnails',
+                                tabs: [
+                                    {
+                                        value: 'thumbnails',
+                                        label: 'Pages',
+                                        title: 'Pages',
+                                        icon: 'i-ph-file',
+                                    },
+                                ],
+                                widthPx: 280,
+                            },
+                            {default: () => h(RealDocumentSidebarPagesPanel, {acceptsExternalPdfDrop: true})},
+                        ),
+                        h(RealDocumentSidebarPagesPanel, {acceptsExternalPdfDrop: false}),
+                    ]),
+            }),
+        );
         app.component('UTabs', slot);
         app.component('AppTooltip', slot);
         app.component('UIcon', slot);

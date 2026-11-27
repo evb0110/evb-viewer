@@ -1,13 +1,9 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {
     buildPdfCommittedOpenVirtualSpacerStyle,
     resolvePdfCommittedOpenVirtualExtentMinimumScrollHeight,
 } from '@app/modules/pdf-viewer/engine/pdf-initial-surface-placeholder/buildPdfCommittedOpenVirtualSpacerStyle';
-import type { IDocumentOpenSurfaceSnapshot } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
+import type {IDocumentOpenSurfaceSnapshot} from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 
 function createSnapshot(): IDocumentOpenSurfaceSnapshot {
     return {
@@ -49,13 +45,15 @@ function createSnapshot(): IDocumentOpenSurfaceSnapshot {
 
 describe('buildPdfCommittedOpenVirtualSpacerStyle', () => {
     it('reserves the trusted full-document extent with the opening page frame', () => {
-        expect(buildPdfCommittedOpenVirtualSpacerStyle({
-            snapshot: createSnapshot(),
-            continuousScroll: true,
-            viewMode: 'single',
-            gap: 20,
-            lastMountedPage: 7,
-        })).toEqual({
+        expect(
+            buildPdfCommittedOpenVirtualSpacerStyle({
+                snapshot: createSnapshot(),
+                continuousScroll: true,
+                viewMode: 'single',
+                gap: 20,
+                lastMountedPage: 7,
+            }),
+        ).toEqual({
             height: '527436px',
             minHeight: '527436px',
             flexBasis: '527436px',
@@ -71,55 +69,65 @@ describe('buildPdfCommittedOpenVirtualSpacerStyle', () => {
             },
         };
 
-        expect(buildPdfCommittedOpenVirtualSpacerStyle({
-            snapshot,
-            continuousScroll: true,
-            viewMode: 'facing',
-            gap: 20,
-            lastMountedPage: 2,
-        })?.height).toBe('621999980px');
-        expect(buildPdfCommittedOpenVirtualSpacerStyle({
-            snapshot,
-            continuousScroll: true,
-            viewMode: 'facing-first-single',
-            gap: 20,
-            lastMountedPage: 1,
-        })?.height).toBe('621999980px');
+        expect(
+            buildPdfCommittedOpenVirtualSpacerStyle({
+                snapshot,
+                continuousScroll: true,
+                viewMode: 'facing',
+                gap: 20,
+                lastMountedPage: 2,
+            })?.height,
+        ).toBe('621999980px');
+        expect(
+            buildPdfCommittedOpenVirtualSpacerStyle({
+                snapshot,
+                continuousScroll: true,
+                viewMode: 'facing-first-single',
+                gap: 20,
+                lastMountedPage: 1,
+            })?.height,
+        ).toBe('621999980px');
     });
 
     it('does not reserve an extent after the opening generation is ready', () => {
-        expect(buildPdfCommittedOpenVirtualSpacerStyle({
-            snapshot: {
-                ...createSnapshot(),
-                phase: 'ready',
-            },
-            continuousScroll: true,
-            viewMode: 'single',
-            gap: 20,
-            lastMountedPage: 7,
-        })).toBeNull();
+        expect(
+            buildPdfCommittedOpenVirtualSpacerStyle({
+                snapshot: {
+                    ...createSnapshot(),
+                    phase: 'ready',
+                },
+                continuousScroll: true,
+                viewMode: 'single',
+                gap: 20,
+                lastMountedPage: 7,
+            }),
+        ).toBeNull();
     });
 
     it('derives the presentation gate from the immutable opening snapshot', () => {
-        expect(resolvePdfCommittedOpenVirtualExtentMinimumScrollHeight({
-            snapshot: createSnapshot(),
-            continuousScroll: true,
-            viewMode: 'single',
-            gap: 20,
-        })).toBe(534900);
+        expect(
+            resolvePdfCommittedOpenVirtualExtentMinimumScrollHeight({
+                snapshot: createSnapshot(),
+                continuousScroll: true,
+                viewMode: 'single',
+                gap: 20,
+            }),
+        ).toBe(534900);
 
-        expect(resolvePdfCommittedOpenVirtualExtentMinimumScrollHeight({
-            snapshot: {
-                ...createSnapshot(),
-                openingPageFrame: {
-                    ...createSnapshot().openingPageFrame!,
-                    style: {},
+        expect(
+            resolvePdfCommittedOpenVirtualExtentMinimumScrollHeight({
+                snapshot: {
+                    ...createSnapshot(),
+                    openingPageFrame: {
+                        ...createSnapshot().openingPageFrame!,
+                        style: {},
+                    },
                 },
-            },
-            continuousScroll: true,
-            viewMode: 'single',
-            gap: 20,
-        })).toBeNull();
+                continuousScroll: true,
+                viewMode: 'single',
+                gap: 20,
+            }),
+        ).toBeNull();
     });
 
     it('rejects a framed multi-page handoff until late trusted geometry joins', () => {
@@ -130,21 +138,25 @@ describe('buildPdfCommittedOpenVirtualSpacerStyle', () => {
             geometry: null,
             openingPageGeometry: null,
         };
-        expect(resolvePdfCommittedOpenVirtualExtentMinimumScrollHeight({
-            snapshot: pendingSnapshot,
-            continuousScroll: true,
-            viewMode: 'single',
-            gap: 20,
-        })).toBeNull();
+        expect(
+            resolvePdfCommittedOpenVirtualExtentMinimumScrollHeight({
+                snapshot: pendingSnapshot,
+                continuousScroll: true,
+                viewMode: 'single',
+                gap: 20,
+            }),
+        ).toBeNull();
 
-        expect(resolvePdfCommittedOpenVirtualExtentMinimumScrollHeight({
-            snapshot: {
-                ...pendingSnapshot,
-                openingPageGeometry: createSnapshot().openingPageGeometry,
-            },
-            continuousScroll: true,
-            viewMode: 'single',
-            gap: 20,
-        })).toBe(534900);
+        expect(
+            resolvePdfCommittedOpenVirtualExtentMinimumScrollHeight({
+                snapshot: {
+                    ...pendingSnapshot,
+                    openingPageGeometry: createSnapshot().openingPageGeometry,
+                },
+                continuousScroll: true,
+                viewMode: 'single',
+                gap: 20,
+            }),
+        ).toBe(534900);
     });
 });

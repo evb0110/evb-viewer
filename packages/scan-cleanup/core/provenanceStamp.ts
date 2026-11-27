@@ -15,10 +15,7 @@ import type {
     TScanCleanupPageRotation,
     TScanCleanupOutputModeSetting,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
-import type {
-    IScanCleanupNormalizedRect,
-    IScanCleanupNormalizedSplit,
-} from '@contracts/scan-cleanup/geometry';
+import type {IScanCleanupNormalizedRect, IScanCleanupNormalizedSplit} from '@contracts/scan-cleanup/geometry';
 import {SCAN_CLEANUP_OUTPUT_HALVES} from '@contracts/scan-cleanup/domain';
 import {getErrorMessage} from '@contracts/getErrorMessage';
 import {
@@ -29,10 +26,7 @@ import {
     type TScanCleanupTransportMode,
 } from '@evb/scan-cleanup/core/types';
 import {embeddedScanCleanupBuildGitSha} from '@evb/scan-cleanup/core/buildGitSha';
-import type {
-    IEffectiveNativeScanCleanupOptionsV3,
-    TScanCleanupQualityPath,
-} from '@evb/scan-cleanup/core/policy/effectiveOptions';
+import type {IEffectiveNativeScanCleanupOptionsV3, TScanCleanupQualityPath} from '@evb/scan-cleanup/core/policy/effectiveOptions';
 
 export const SCAN_CLEANUP_STAMP_SCHEMA_VERSION_V1 = 1 as const;
 export const SCAN_CLEANUP_STAMP_SCHEMA_ID_V1 = 'urn:evb:scan-cleanup:stamp:v1';
@@ -104,24 +98,38 @@ const buildIdsEntries = {
 const stampEntries = {
     sourceSha256: sha256Schema,
     resolvedPlanSha256: sha256Schema,
-    effectiveOptions: v.strictObject({perSourcePage: v.pipe(v.array(v.strictObject({
-        sourcePage: sourcePageSchema,
-        // Covered by its page plan digest, which decoding recomputes.
-        options: v.custom<IScanCleanupStampEffectiveOptions>(isRecord),
-    })), v.minLength(1))}),
-    outputMappings: v.pipe(v.array(v.strictObject({
-        sourcePage: sourcePageSchema,
-        half: v.picklist(SCAN_CLEANUP_OUTPUT_HALVES),
-        outputOrdinal: v.nullable(sourcePageSchema),
-        rotationDegrees: v.picklist([0, 90, 180, 270] as const),
-        excluded: v.boolean(),
-        blank: v.boolean(),
-    })), v.minLength(1)),
-    pagePlanDigests: v.array(v.strictObject({
-        sourcePage: sourcePageSchema,
-        planSha256: sha256Schema,
-        evidenceSha256: sha256Schema,
-    })),
+    effectiveOptions: v.strictObject({
+        perSourcePage: v.pipe(
+            v.array(
+                v.strictObject({
+                    sourcePage: sourcePageSchema,
+                    // Covered by its page plan digest, which decoding recomputes.
+                    options: v.custom<IScanCleanupStampEffectiveOptions>(isRecord),
+                }),
+            ),
+            v.minLength(1),
+        ),
+    }),
+    outputMappings: v.pipe(
+        v.array(
+            v.strictObject({
+                sourcePage: sourcePageSchema,
+                half: v.picklist(SCAN_CLEANUP_OUTPUT_HALVES),
+                outputOrdinal: v.nullable(sourcePageSchema),
+                rotationDegrees: v.picklist([0, 90, 180, 270] as const),
+                excluded: v.boolean(),
+                blank: v.boolean(),
+            }),
+        ),
+        v.minLength(1),
+    ),
+    pagePlanDigests: v.array(
+        v.strictObject({
+            sourcePage: sourcePageSchema,
+            planSha256: sha256Schema,
+            evidenceSha256: sha256Schema,
+        }),
+    ),
 };
 /**
  * A stamp read back from a document: v1 when the build had no source
@@ -155,33 +163,41 @@ type IScanCleanupStampBuildIdsV2 = Extract<TScanCleanupStampBuildIds, {coreSchem
 export type IScanCleanupStampEffectiveOptionsRecord = TScanCleanupProvenanceStamp['effectiveOptions']['perSourcePage'][number];
 export type IScanCleanupStampPagePlanDigest = TScanCleanupProvenanceStamp['pagePlanDigests'][number];
 
-export const SCAN_CLEANUP_PROVENANCE_STAMP_SCHEMA = v.pipe(stampShapeSchema, v.check((stamp) => {
-    const optionsBySourcePage = new Map<number, IScanCleanupStampEffectiveOptionsRecord>();
-    for (const item of stamp.effectiveOptions.perSourcePage) {
-        if (!optionsBySourcePage.has(item.sourcePage)) {
-            optionsBySourcePage.set(item.sourcePage, item);
+export const SCAN_CLEANUP_PROVENANCE_STAMP_SCHEMA = v.pipe(
+    stampShapeSchema,
+    v.check((stamp) => {
+        const optionsBySourcePage = new Map<number, IScanCleanupStampEffectiveOptionsRecord>();
+        for (const item of stamp.effectiveOptions.perSourcePage) {
+            if (!optionsBySourcePage.has(item.sourcePage)) {
+                optionsBySourcePage.set(item.sourcePage, item);
+            }
         }
-    }
-    const planShaBySourcePage = new Map<number, string>();
-    return stamp.pagePlanDigests.every((digest) => {
-        const record = optionsBySourcePage.get(digest.sourcePage);
-        if (record === undefined) {
-            return false;
-        }
-        let planSha256 = planShaBySourcePage.get(digest.sourcePage);
-        if (planSha256 === undefined) {
-            planSha256 = sha256ScanCleanupJson(record.options);
-            planShaBySourcePage.set(digest.sourcePage, planSha256);
-        }
-        return planSha256 === digest.planSha256;
-    });
-}, 'pagePlanDigests do not match effective options'), v.check(stamp => sha256ScanCleanupJson({
-    sourceSha256: stamp.sourceSha256,
-    effectiveOptions: stamp.effectiveOptions,
-    outputMappings: stamp.outputMappings,
-    pagePlanDigests: stamp.pagePlanDigests,
-    buildIds: buildResolvedPlanBuildIds(stamp.buildIds),
-}) === stamp.resolvedPlanSha256, 'resolved plan digest does not match the stamp payload'));
+        const planShaBySourcePage = new Map<number, string>();
+        return stamp.pagePlanDigests.every((digest) => {
+            const record = optionsBySourcePage.get(digest.sourcePage);
+            if (record === undefined) {
+                return false;
+            }
+            let planSha256 = planShaBySourcePage.get(digest.sourcePage);
+            if (planSha256 === undefined) {
+                planSha256 = sha256ScanCleanupJson(record.options);
+                planShaBySourcePage.set(digest.sourcePage, planSha256);
+            }
+            return planSha256 === digest.planSha256;
+        });
+    }, 'pagePlanDigests do not match effective options'),
+    v.check(
+        (stamp) =>
+            sha256ScanCleanupJson({
+                sourceSha256: stamp.sourceSha256,
+                effectiveOptions: stamp.effectiveOptions,
+                outputMappings: stamp.outputMappings,
+                pagePlanDigests: stamp.pagePlanDigests,
+                buildIds: buildResolvedPlanBuildIds(stamp.buildIds),
+            }) === stamp.resolvedPlanSha256,
+        'resolved plan digest does not match the stamp payload',
+    ),
+);
 
 export interface IBuildScanCleanupProvenanceStampInput {
     sourceSha256: string;
@@ -222,7 +238,9 @@ export function hashScanCleanupBackendMarker(role: string, backend: TScanCleanup
  * actually executed and the embedded source revision when the build has one.
  */
 export function composeScanCleanupStampBuildIds({
-    nativeBinarySha256s, assemblerBackend, transportMode,
+    nativeBinarySha256s,
+    assemblerBackend,
+    transportMode,
 }: {
     nativeBinarySha256s: Readonly<Record<string, string>>;
     assemblerBackend: TScanCleanupAssemblerBackend;
@@ -232,22 +250,23 @@ export function composeScanCleanupStampBuildIds({
     const gitSha = SCAN_CLEANUP_GIT_SHA_HEX_PATTERN.test(sha) ? sha : null;
     const legacyBuildIds = {
         coreBuildId: SCAN_CLEANUP_CORE_BUILD_ID,
-        nativeBinarySha256s: Object.keys(nativeBinarySha256s).length === 0
-            ? {assembler: sha256Utf8Hex(`assembler:${assemblerBackend}`)}
-            : {...nativeBinarySha256s},
+        nativeBinarySha256s:
+            Object.keys(nativeBinarySha256s).length === 0
+                ? {assembler: sha256Utf8Hex(`assembler:${assemblerBackend}`)}
+                : {...nativeBinarySha256s},
         assemblerBackend,
         transportMode,
     };
     return gitSha === null
         ? {
-            ...legacyBuildIds,
-            coreSchemaId: SCAN_CLEANUP_STAMP_SCHEMA_ID_V1,
-        }
+              ...legacyBuildIds,
+              coreSchemaId: SCAN_CLEANUP_STAMP_SCHEMA_ID_V1,
+          }
         : {
-            ...legacyBuildIds,
-            coreSchemaId: SCAN_CLEANUP_STAMP_SCHEMA_ID,
-            gitSha,
-        };
+              ...legacyBuildIds,
+              coreSchemaId: SCAN_CLEANUP_STAMP_SCHEMA_ID,
+              gitSha,
+          };
 }
 
 export function materializeScanCleanupStampOptions({
@@ -260,8 +279,7 @@ export function materializeScanCleanupStampOptions({
     qualityPath: TScanCleanupQualityPath;
 }): IScanCleanupStampEffectiveOptions {
     const outputMode = nativeOptions.outputMode ?? 'auto';
-    const despeckleLevel = nativeOptions.despeckleLevel
-        ?? (nativeOptions.despeckle === false ? 'off' : 'normal');
+    const despeckleLevel = nativeOptions.despeckleLevel ?? (nativeOptions.despeckle === false ? 'off' : 'normal');
     return {
         qualityPath,
         preserveOriginalQuality: options.preserveOriginalQuality,
@@ -271,14 +289,11 @@ export function materializeScanCleanupStampOptions({
         sourceDpi: requiredNumber(nativeOptions.sourceDpi ?? nativeOptions.dpi, 'sourceDpi'),
         sourceHasBilevelLayer: nativeOptions.sourceHasBilevelLayer === true,
         sourceBackgroundDpi: nativeOptions.sourceBackgroundDpi ?? null,
-        requestedRenderDpi: requiredNumber(
-            nativeOptions.requestedRenderDpi ?? nativeOptions.dpi,
-            'requestedRenderDpi',
-        ),
+        requestedRenderDpi: requiredNumber(nativeOptions.requestedRenderDpi ?? nativeOptions.dpi, 'requestedRenderDpi'),
         renderCrop: nativeOptions.renderCrop ?? null,
         binarization: nativeOptions.binarization ?? 'auto',
         thickness: nativeOptions.thickness ?? 0,
-        normalizeIllumination: nativeOptions.normalizeIllumination ?? (qualityPath === 'raster'),
+        normalizeIllumination: nativeOptions.normalizeIllumination ?? qualityPath === 'raster',
         despeckle: despeckleLevel !== 'off',
         despeckleLevel,
         outputMode,
@@ -292,8 +307,7 @@ export function materializeScanCleanupStampOptions({
         manualContentBoxes: nativeOptions.manualContentBoxes ?? {},
         automaticSkewDegrees: nativeOptions.automaticSkewDegrees ?? {},
         automaticContentBoxes: nativeOptions.automaticContentBoxes ?? {},
-        ...(nativeOptions.placementAnchors === undefined
-        || Object.keys(nativeOptions.placementAnchors).length === 0
+        ...(nativeOptions.placementAnchors === undefined || Object.keys(nativeOptions.placementAnchors).length === 0
             ? {}
             : {placementAnchors: nativeOptions.placementAnchors}),
         manualZones: nativeOptions.manualZones ?? {
@@ -312,9 +326,7 @@ export function materializeScanCleanupStampOptions({
         rotationDegrees: nativeOptions.rotationDegrees ?? 0,
         excluded: nativeOptions.excluded ?? false,
         skipBlankPages: nativeOptions.skipBlankPages ?? false,
-        maxPixels: nativeOptions.maxPixels ?? (outputMode === 'bw' || outputMode === 'auto'
-            ? 160_000_000
-            : 80_000_000),
+        maxPixels: nativeOptions.maxPixels ?? (outputMode === 'bw' || outputMode === 'auto' ? 160_000_000 : 80_000_000),
         maxDimensionPx: nativeOptions.maxDimensionPx ?? 40_000,
     };
 }
@@ -328,9 +340,7 @@ export function buildScanCleanupProvenanceStamp({
 }: IBuildScanCleanupProvenanceStampInput): TScanCleanupProvenanceStamp {
     const normalizedEffectiveOptions = [...effectiveOptions].sort(compareSourcePage);
     const normalizedPagePlanDigests = [...pagePlanDigests].sort(compareSourcePage);
-    const normalizedMappings = [...outputMappings]
-        .map(mapping => ({...mapping}))
-        .sort(compareOutputMapping);
+    const normalizedMappings = [...outputMappings].map((mapping) => ({...mapping})).sort(compareOutputMapping);
     const gitSha = readBuildIdsGitSha(buildIds);
     const resolvedPlanSha256 = sha256ScanCleanupJson({
         sourceSha256,
@@ -348,24 +358,19 @@ export function buildScanCleanupProvenanceStamp({
     };
     return gitSha === null
         ? {
-            schemaVersion: SCAN_CLEANUP_STAMP_SCHEMA_VERSION_V1,
-            ...commonPayload,
-            buildIds: buildV1BuildIds(buildIds),
-        }
+              schemaVersion: SCAN_CLEANUP_STAMP_SCHEMA_VERSION_V1,
+              ...commonPayload,
+              buildIds: buildV1BuildIds(buildIds),
+          }
         : {
-            schemaVersion: SCAN_CLEANUP_STAMP_SCHEMA_VERSION,
-            ...commonPayload,
-            buildIds: buildV2BuildIds(buildIds, gitSha),
-        };
+              schemaVersion: SCAN_CLEANUP_STAMP_SCHEMA_VERSION,
+              ...commonPayload,
+              buildIds: buildV2BuildIds(buildIds, gitSha),
+          };
 }
 
-export function encodeScanCleanupProvenanceStampHex(
-    payload: TScanCleanupProvenanceStamp,
-): string {
-    return Array.from(
-        new TextEncoder().encode(canonicalScanCleanupJson(payload)),
-        byte => byte.toString(16).padStart(2, '0'),
-    ).join('');
+export function encodeScanCleanupProvenanceStampHex(payload: TScanCleanupProvenanceStamp): string {
+    return Array.from(new TextEncoder().encode(canonicalScanCleanupJson(payload)), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 export function decodeScanCleanupProvenanceStampHex(hex: string): TScanCleanupProvenanceStamp {
@@ -412,22 +417,13 @@ export function verifyScanCleanupProvenanceStampHex(
         if (options.expectedSourceSha256 !== undefined && payload.sourceSha256 !== options.expectedSourceSha256) {
             throw new Error('source hash does not match the provenance stamp');
         }
-        if (
-            options.expectedCoreBuildId !== undefined
-            && payload.buildIds.coreBuildId !== options.expectedCoreBuildId
-        ) {
+        if (options.expectedCoreBuildId !== undefined && payload.buildIds.coreBuildId !== options.expectedCoreBuildId) {
             throw new Error('core build ID does not match the provenance stamp');
         }
-        if (
-            options.expectedAssemblerBackend !== undefined
-            && payload.buildIds.assemblerBackend !== options.expectedAssemblerBackend
-        ) {
+        if (options.expectedAssemblerBackend !== undefined && payload.buildIds.assemblerBackend !== options.expectedAssemblerBackend) {
             throw new Error('assembler backend does not match the provenance stamp');
         }
-        for (const [
-            role,
-            expected,
-        ] of Object.entries(options.expectedNativeBinarySha256s ?? {})) {
+        for (const [role, expected] of Object.entries(options.expectedNativeBinarySha256s ?? {})) {
             if (payload.buildIds.nativeBinarySha256s[role] !== expected) {
                 throw new Error(`native binary hash does not match for ${role}`);
             }
@@ -461,10 +457,7 @@ function buildV1BuildIds(buildIds: TScanCleanupStampBuildIds): IScanCleanupStamp
     };
 }
 
-function buildV2BuildIds(
-    buildIds: TScanCleanupStampBuildIds,
-    gitSha: string,
-): IScanCleanupStampBuildIdsV2 {
+function buildV2BuildIds(buildIds: TScanCleanupStampBuildIds, gitSha: string): IScanCleanupStampBuildIdsV2 {
     return {
         coreSchemaId: SCAN_CLEANUP_STAMP_SCHEMA_ID,
         coreBuildId: buildIds.coreBuildId,
@@ -475,9 +468,7 @@ function buildV2BuildIds(
     };
 }
 
-function buildResolvedPlanBuildIds(
-    buildIds: TScanCleanupStampBuildIds,
-): IScanCleanupStampBuildIdsV1 {
+function buildResolvedPlanBuildIds(buildIds: TScanCleanupStampBuildIds): IScanCleanupStampBuildIdsV1 {
     return buildV1BuildIds(buildIds);
 }
 
@@ -514,7 +505,9 @@ function compareOutputMapping(left: IScanCleanupOutputMapping, right: IScanClean
 }
 
 function requiredNumber(value: number | undefined, name: string) {
-    if (value === undefined || !Number.isFinite(value) || value <= 0) {throw new Error(`Missing finite positive ${name}`);}
+    if (value === undefined || !Number.isFinite(value) || value <= 0) {
+        throw new Error(`Missing finite positive ${name}`);
+    }
     return value;
 }
 
@@ -523,13 +516,18 @@ function sortJsonValue(value: unknown): unknown {
         return value.map(sortJsonValue);
     }
     if (isRecord(value)) {
-        return Object.fromEntries(Object.keys(value).sort().map(key => [
-            key,
-            sortJsonValue(value[key]),
-        ]));
+        return Object.fromEntries(
+            Object.keys(value)
+                .sort()
+                .map((key) => [key, sortJsonValue(value[key])]),
+        );
     }
-    if (value === undefined) {throw new Error('Cannot canonicalize undefined');}
-    if (typeof value === 'number' && !Number.isFinite(value)) {throw new Error('Cannot canonicalize non-finite number');}
+    if (value === undefined) {
+        throw new Error('Cannot canonicalize undefined');
+    }
+    if (typeof value === 'number' && !Number.isFinite(value)) {
+        throw new Error('Cannot canonicalize non-finite number');
+    }
     return value;
 }
 

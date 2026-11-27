@@ -1,30 +1,20 @@
-import type { WebContents } from 'electron';
-import {
-    open,
-    unlink,
-} from 'node:fs/promises';
-import type { FileHandle } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import type {WebContents} from 'electron';
+import {open, unlink} from 'node:fs/promises';
+import type {FileHandle} from 'node:fs/promises';
+import {resolve} from 'node:path';
 import {
     DOCX_EXPORT_STREAM_MAX_CHUNK_BYTES,
     DOCX_EXPORT_STREAM_SESSION_TIMEOUT_MS,
     type IDocxExportStreamBeginResult,
 } from '@contracts/docxExport';
-import { consumeAllowedDocxWritePath } from '@electron/file-access/docxExportPaths';
+import {consumeAllowedDocxWritePath} from '@electron/file-access/docxExportPaths';
 import {assertNoSymlinkPathSegments} from '@electron/file-access/assertNoSymlinkPathSegments';
-import { normalizeNonEmptyPath } from '@electron/features/documents/main/documentFilePathResolution';
-import {
-    atomicReplace,
-    makeSiblingTempPath,
-} from '@electron/utils/atomicReplace';
-import { syncFileHandleForDurability } from '@electron/utils/syncFileHandleForDurability';
-import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
-import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsContexts';
-import {
-    createSessionId,
-    requireSessionId,
-    type TSessionId,
-} from '@contracts/shared';
+import {normalizeNonEmptyPath} from '@electron/features/documents/main/documentFilePathResolution';
+import {atomicReplace, makeSiblingTempPath} from '@electron/utils/atomicReplace';
+import {syncFileHandleForDurability} from '@electron/utils/syncFileHandleForDurability';
+import {onSenderLifetimeEnd} from '@electron/utils/onSenderLifetimeEnd';
+import type {IDocumentsSenderIdContext} from '@electron/features/documents/documentsContexts';
+import {createSessionId, requireSessionId, type TSessionId} from '@contracts/shared';
 import {writeFileHandleFully} from '@electron/file-access/writeFileHandleFully';
 
 interface IDocxExportStreamSession {
@@ -73,9 +63,7 @@ function normalizeChunk(value: unknown) {
         throw new Error('DOCX stream chunks must not be empty');
     }
     if (value.byteLength > DOCX_EXPORT_STREAM_MAX_CHUNK_BYTES) {
-        throw new Error(
-            `DOCX stream chunks exceed the maximum size (${DOCX_EXPORT_STREAM_MAX_CHUNK_BYTES} bytes)`,
-        );
+        throw new Error(`DOCX stream chunks exceed the maximum size (${DOCX_EXPORT_STREAM_MAX_CHUNK_BYTES} bytes)`);
     }
     return value;
 }
@@ -148,10 +136,7 @@ function getSession(context: IDocumentsSenderIdContext, rawSessionId: unknown) {
     return session;
 }
 
-export async function beginDocxExportStream(
-    context: IDocumentsSenderIdContext,
-    filePath: unknown,
-): Promise<IDocxExportStreamBeginResult> {
+export async function beginDocxExportStream(context: IDocumentsSenderIdContext, filePath: unknown): Promise<IDocxExportStreamBeginResult> {
     const senderId = requireSenderId(context);
     const sender = requireSender(context);
     const normalizedPath = normalizeNonEmptyPath(filePath);
@@ -195,11 +180,7 @@ export function nextDocxExportStreamByteCount(receivedBytes: number, chunkBytes:
     return nextReceivedBytes;
 }
 
-export async function writeDocxExportStreamChunk(
-    context: IDocumentsSenderIdContext,
-    rawSessionId: unknown,
-    rawChunk: unknown,
-) {
+export async function writeDocxExportStreamChunk(context: IDocumentsSenderIdContext, rawSessionId: unknown, rawChunk: unknown) {
     const session = getSession(context, rawSessionId);
     const chunk = normalizeChunk(rawChunk);
     const write = session.queue.then(async () => {
@@ -218,10 +199,7 @@ export async function writeDocxExportStreamChunk(
     return true;
 }
 
-export async function commitDocxExportStream(
-    context: IDocumentsSenderIdContext,
-    rawSessionId: unknown,
-) {
+export async function commitDocxExportStream(context: IDocumentsSenderIdContext, rawSessionId: unknown) {
     const session = getSession(context, rawSessionId);
     session.committing = true;
     clearSessionTimeout(session);
@@ -265,10 +243,7 @@ export async function commitDocxExportStream(
     return commitPromise;
 }
 
-export async function cancelDocxExportStream(
-    context: IDocumentsSenderIdContext,
-    rawSessionId: unknown,
-) {
+export async function cancelDocxExportStream(context: IDocumentsSenderIdContext, rawSessionId: unknown) {
     const senderId = requireSenderId(context);
     const sessionId = normalizeSessionId(rawSessionId);
     const session = sessions.get(sessionId);

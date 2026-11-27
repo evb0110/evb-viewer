@@ -1,14 +1,9 @@
-import { createReadStream } from 'node:fs';
-import { stat } from 'node:fs/promises';
-import { createServer } from 'node:http';
-import type { AddressInfo } from 'node:net';
-import {
-    extname,
-    join,
-    normalize,
-    sep,
-} from 'node:path';
-import { projectRoot } from '@scripts/electron-run/projectRoot';
+import {createReadStream} from 'node:fs';
+import {stat} from 'node:fs/promises';
+import {createServer} from 'node:http';
+import type {AddressInfo} from 'node:net';
+import {extname, join, normalize, sep} from 'node:path';
+import {projectRoot} from '@scripts/electron-run/projectRoot';
 
 const WEB_ROOT = join(projectRoot, 'nuxt-output', 'public');
 const CONTENT_TYPES: Record<string, string> = {
@@ -50,10 +45,10 @@ export async function serveBuiltWebApp() {
             createReadStream(file).pipe(response);
         });
     });
-    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     const {port} = server.address() as AddressInfo;
     return {
         origin: `http://127.0.0.1:${String(port)}`,
-        close: () => new Promise<void>(resolve => server.close(() => resolve())),
+        close: () => new Promise<void>((resolve) => server.close(() => resolve())),
     };
 }

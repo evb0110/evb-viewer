@@ -1,28 +1,22 @@
-import type { Ref } from 'vue';
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
-import type { TPdfViewMode } from '@contracts/shared';
-import type { TPageSelection } from '@contracts/pageNumbers';
-import type { ICropMargins } from '@app/types/crop';
-import type {
-    IPdfBookmarkEntry,
-    IPdfPageLabelRange,
-} from '@app/types/pdfContracts';
-import type { IPdfBookmarkChangePayload } from '@app/types/pdfUi';
+import type {Ref} from 'vue';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {IDocumentRevisionInfo} from '@contracts/documentRevision';
+import type {TPdfViewMode} from '@contracts/shared';
+import type {TPageSelection} from '@contracts/pageNumbers';
+import type {ICropMargins} from '@app/types/crop';
+import type {IPdfBookmarkEntry, IPdfPageLabelRange} from '@app/types/pdfContracts';
+import type {IPdfBookmarkChangePayload} from '@app/types/pdfUi';
 import type {
     IAnnotationCommentSummary,
     IAnnotationInventoryCompleteness,
     TAnnotationCommentsStatus,
     TAnnotationTool,
 } from '@app/types/annotations';
-import type { IAnnotationNoteWindowViewModel } from '@app/types/annotationNoteWindow';
-import type { IOcrPopupAgentExpose } from '@app/types/ocrPopupAgentExpose';
-import type { IWorkspacePdfViewerAgentPort } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
-import type {
-    IWorkspaceViewerCapabilities,
-    TDocumentCommitReceipt,
-} from '@app/types/workspaceExpose';
-import type { IDocumentPageLabelModel } from '@app/modules/document-viewer/public';
+import type {IAnnotationNoteWindowViewModel} from '@app/types/annotationNoteWindow';
+import type {IOcrPopupAgentExpose} from '@app/types/ocrPopupAgentExpose';
+import type {IWorkspacePdfViewerAgentPort} from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
+import type {IWorkspaceViewerCapabilities, TDocumentCommitReceipt} from '@app/types/workspaceExpose';
+import type {IDocumentPageLabelModel} from '@app/modules/document-viewer/public';
 
 export type {IAgentOcrRunOptions} from '@contracts/agentOcr';
 export type {IOcrPopupAgentExpose} from '@app/types/ocrPopupAgentExpose';
@@ -32,12 +26,25 @@ export type TWorkspaceAgentFitMode = 'width' | 'height';
 export type TWorkspaceAgentRotateAngle = 90 | 180 | 270;
 export type TWorkspaceAgentTranslate = (key: 'bookmarks.untitled') => string;
 
-type TDocumentMutation<TArgs extends unknown[] = [], TResult = Promise<boolean>> = (...args: [...TArgs, onCommitted?: TDocumentCommitReceipt]) => TResult;
+type TDocumentMutation<TArgs extends unknown[] = [], TResult = Promise<boolean>> = (
+    ...args: [...TArgs, onCommitted?: TDocumentCommitReceipt]
+) => TResult;
 export interface IUseDocumentWorkspaceAgentOptions extends Record<
-    | 'canSave' | 'canUndo' | 'canRedo'
-    | 'annotationDirty' | 'bookmarksDirty' | 'continuousScroll' | 'hasPdf'
-    | 'isAnySaving' | 'isDjvuMode' | 'ocrPopupOpen' | 'pageLabelsDirty'
-    | 'showConvertDialog' | 'showSidebar', Ref<boolean>> {
+    | 'canSave'
+    | 'canUndo'
+    | 'canRedo'
+    | 'annotationDirty'
+    | 'bookmarksDirty'
+    | 'continuousScroll'
+    | 'hasPdf'
+    | 'isAnySaving'
+    | 'isDjvuMode'
+    | 'ocrPopupOpen'
+    | 'pageLabelsDirty'
+    | 'showConvertDialog'
+    | 'showSidebar',
+    Ref<boolean>
+> {
     annotationComments: Ref<IAnnotationCommentSummary[]>;
     annotationCommentsStatus: Ref<TAnnotationCommentsStatus>;
     annotationInventory: Ref<IAnnotationInventoryCompleteness | null>;

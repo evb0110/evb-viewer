@@ -1,20 +1,9 @@
-import {
-    readdir,
-    readFile,
-} from 'node:fs/promises';
+import {readdir, readFile} from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { writeGeneratedFileIfChanged } from '@scripts/writeGeneratedFileIfChanged';
-import {
-    BUNDLED_OCR_LANGUAGE_CODES,
-    OCR_MODEL_CODES,
-    OCR_MODEL_SUBLANGUAGES,
-    type TOcrModelCode,
-} from '@contracts/ocrLanguages';
-import {
-    readTraineddataComponent,
-    TRAINEDDATA_CONFIG,
-} from '@ocr-core/readTraineddataWordList';
+import {fileURLToPath} from 'node:url';
+import {writeGeneratedFileIfChanged} from '@scripts/writeGeneratedFileIfChanged';
+import {BUNDLED_OCR_LANGUAGE_CODES, OCR_MODEL_CODES, OCR_MODEL_SUBLANGUAGES, type TOcrModelCode} from '@contracts/ocrLanguages';
+import {readTraineddataComponent, TRAINEDDATA_CONFIG} from '@ocr-core/readTraineddataWordList';
 import {
     ELECTRON_BUILDER_PLATFORM_KEYS,
     GLOBAL_PACKAGED_RESOURCES,
@@ -28,7 +17,9 @@ export interface IElectronBuilderResourcePlan {
     relativePath: string;
 }
 
-export interface IGenerateElectronBuilderResourcesOptions { projectRoot?: string; }
+export interface IGenerateElectronBuilderResourcesOptions {
+    projectRoot?: string;
+}
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const generatedRelativePath = '.tmp/generated-electron-builder-resources.yml';
@@ -38,26 +29,20 @@ function platformTag(platform: TNativeResourcePlatform) {
     return `${platform}-\${arch}`;
 }
 
-function renderNativeResource(
-    family: INativeToolResourceFamily,
-    platform: TNativeResourcePlatform,
-) {
+function renderNativeResource(family: INativeToolResourceFamily, platform: TNativeResourcePlatform) {
     const lines = [
         `    - from: ${path.posix.join(...family.sourceRootSegments, platformTag(platform))}`,
         `      to: ${path.posix.join(...family.stagedRootSegments, platformTag(platform))}`,
     ];
     const filters = family.packageFiltersByPlatform?.[platform];
     if (filters) {
-        lines.push(
-            '      filter:',
-            ...filters.map(filter => `        - "${filter}"`),
-        );
+        lines.push('      filter:', ...filters.map((filter) => `        - "${filter}"`));
     }
     return lines.join('\n');
 }
 
 function supportsPlatform(family: INativeToolResourceFamily, platform: TNativeResourcePlatform) {
-    return family.packagedEntries.some(entry => !entry.platforms || entry.platforms.includes(platform));
+    return family.packagedEntries.some((entry) => !entry.platforms || entry.platforms.includes(platform));
 }
 
 export function renderElectronBuilderResources(
@@ -66,68 +51,56 @@ export function renderElectronBuilderResources(
 ) {
     const rootResources = [
         'extraResources:',
-        ...GLOBAL_PACKAGED_RESOURCES.flatMap(resource => {
-            const filters = resource.id === 'tessdata'
-                ? [
-                    ...bundledOcrCodes.map(code => `${code}.traineddata`),
-                    ...(resource.requiredFiles ?? []),
-                ]
-                : resource.filters;
+        ...GLOBAL_PACKAGED_RESOURCES.flatMap((resource) => {
+            const filters =
+                resource.id === 'tessdata'
+                    ? [...bundledOcrCodes.map((code) => `${code}.traineddata`), ...(resource.requiredFiles ?? [])]
+                    : resource.filters;
             return [
                 `  - from: ${path.posix.join(...resource.sourceSegments)}`,
                 `    to: ${path.posix.join(...resource.stagedSegments)}`,
-                ...(filters
-                    ? [
-                        '    filter:',
-                        ...filters.map(filter => `      - ${filter}`),
-                    ]
-                    : []),
+                ...(filters ? ['    filter:', ...filters.map((filter) => `      - ${filter}`)] : []),
             ];
         }),
     ].join('\n');
-    const platformResources = Object.entries(ELECTRON_BUILDER_PLATFORM_KEYS).map(([
-        platform,
-        configKey,
-    ]) => [
-        `${configKey}:`,
-        '  extraResources:',
-        ...nativeResourceFamilies
-            .filter(family => supportsPlatform(family, platform as TNativeResourcePlatform))
-            .map(family => renderNativeResource(
-                family,
-                platform as TNativeResourcePlatform,
-            )),
-    ].join('\n')).join('\n\n');
+    const platformResources = Object.entries(ELECTRON_BUILDER_PLATFORM_KEYS)
+        .map(([platform, configKey]) =>
+            [
+                `${configKey}:`,
+                '  extraResources:',
+                ...nativeResourceFamilies
+                    .filter((family) => supportsPlatform(family, platform as TNativeResourcePlatform))
+                    .map((family) => renderNativeResource(family, platform as TNativeResourcePlatform)),
+            ].join('\n'),
+        )
+        .join('\n\n');
 
-    return [
-        '# Generated by scripts/generateElectronBuilderResources.ts. Do not edit.',
-        '',
-        rootResources,
-        '',
-        platformResources,
-        '',
-    ].join('\n');
+    return ['# Generated by scripts/generateElectronBuilderResources.ts. Do not edit.', '', rootResources, '', platformResources, ''].join(
+        '\n',
+    );
 }
 
 async function assertOcrRegistryMatchesResources(root: string) {
     const registryCodes: string[] = [...OCR_MODEL_CODES].sort();
     const tessdataDirectory = path.join(root, tessdataRelativePath);
     const tessdataCodes = (await readdir(tessdataDirectory, {withFileTypes: true}))
-        .filter(entry => entry.isFile() && entry.name.endsWith('.traineddata'))
-        .map(entry => entry.name.slice(0, -'.traineddata'.length))
+        .filter((entry) => entry.isFile() && entry.name.endsWith('.traineddata'))
+        .map((entry) => entry.name.slice(0, -'.traineddata'.length))
         .sort();
     const bundledCodes = [...BUNDLED_OCR_LANGUAGE_CODES].sort();
-    const missingModels = registryCodes.filter(code => !tessdataCodes.includes(code));
-    const unregisteredModels = tessdataCodes.filter(code => !registryCodes.includes(code));
-    const invalidBundledModels = bundledCodes.filter(code => !tessdataCodes.includes(code));
+    const missingModels = registryCodes.filter((code) => !tessdataCodes.includes(code));
+    const unregisteredModels = tessdataCodes.filter((code) => !registryCodes.includes(code));
+    const invalidBundledModels = bundledCodes.filter((code) => !tessdataCodes.includes(code));
 
     if (missingModels.length > 0 || unregisteredModels.length > 0 || invalidBundledModels.length > 0) {
-        throw new Error([
-            'OCR registry and tessdata_best resources are out of sync.',
-            `Missing traineddata: ${missingModels.join(', ') || '(none)'}`,
-            `Unregistered traineddata: ${unregisteredModels.join(', ') || '(none)'}`,
-            `Invalid bundled defaults: ${invalidBundledModels.join(', ') || '(none)'}`,
-        ].join('\n'));
+        throw new Error(
+            [
+                'OCR registry and tessdata_best resources are out of sync.',
+                `Missing traineddata: ${missingModels.join(', ') || '(none)'}`,
+                `Unregistered traineddata: ${unregisteredModels.join(', ') || '(none)'}`,
+                `Invalid bundled defaults: ${invalidBundledModels.join(', ') || '(none)'}`,
+            ].join('\n'),
+        );
     }
 
     // Tesseract silently reads without a sub-language its model's config names but cannot find.
@@ -135,7 +108,7 @@ async function assertOcrRegistryMatchesResources(root: string) {
     for (const code of registryCodes as TOcrModelCode[]) {
         const config = readTraineddataComponent(await readFile(path.join(tessdataDirectory, `${code}.traineddata`)), TRAINEDDATA_CONFIG);
         const named = new TextDecoder().decode(config ?? new Uint8Array()).match(/^tessedit_load_sublangs\s+(\S+)/mu)?.[1] ?? '';
-        if (named !== (OCR_MODEL_SUBLANGUAGES[code] ?? []).map(entry => entry.replace(/^~/u, '')).join('+')) {
+        if (named !== (OCR_MODEL_SUBLANGUAGES[code] ?? []).map((entry) => entry.replace(/^~/u, '')).join('+')) {
             unlisted.push(`${code} loads ${named || 'none'}`);
         }
     }
@@ -155,17 +128,14 @@ export async function createElectronBuilderResourcePlan(
     };
 }
 
-export async function generateElectronBuilderResources(
-    options: IGenerateElectronBuilderResourcesOptions = {},
-) {
+export async function generateElectronBuilderResources(options: IGenerateElectronBuilderResourcesOptions = {}) {
     const root = options.projectRoot ?? projectRoot;
     const plan = await createElectronBuilderResourcePlan({projectRoot: root});
     return writeGeneratedFileIfChanged(path.join(root, plan.relativePath), plan.content);
 }
 
-const isDirectCliRun = process.argv[1] !== undefined
-    && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
+const isDirectCliRun = process.argv[1] !== undefined && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
 
-if (isDirectCliRun && await generateElectronBuilderResources()) {
+if (isDirectCliRun && (await generateElectronBuilderResources())) {
     console.info('Generated Electron Builder resource manifest.');
 }

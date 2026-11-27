@@ -1,7 +1,4 @@
-import type {
-    IScanCleanupPreviewMetadata,
-    IScanCleanupPixelRect,
-} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import type {IScanCleanupPreviewMetadata, IScanCleanupPixelRect} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {CSSProperties} from 'vue';
 
 export interface IScanCleanupPreviewPlacement {
@@ -31,9 +28,7 @@ export interface IScanCleanupPreviewPlacement {
  * it rendered, so the placement carries the scale the presentation applies —
  * one number that every rect drawn over the page goes through.
  */
-export function resolvePreviewMetadataPlacement(
-    metadata: IScanCleanupPreviewMetadata,
-): IScanCleanupPreviewPlacement {
+export function resolvePreviewMetadataPlacement(metadata: IScanCleanupPreviewMetadata): IScanCleanupPreviewPlacement {
     const contentWidthPx = metadata.matchedCanvasContentWidthPx ?? metadata.outputWidthPx;
     const contentHeightPx = metadata.matchedCanvasContentHeightPx ?? metadata.outputHeightPx;
     const intrinsicRasterWidthPx = metadata.intrinsicRasterWidthPx ?? metadata.outputWidthPx;
@@ -43,37 +38,30 @@ export function resolvePreviewMetadataPlacement(
         canvasHeightPx: metadata.canvasHeightPx,
         contentWidthPx,
         contentHeightPx,
-        left: metadata.placementOffsetXPx
-            - (metadata.matchedCanvasIntrinsicOverflowLeftPx ?? 0),
-        top: metadata.placementOffsetYPx
-            - (metadata.matchedCanvasIntrinsicOverflowTopPx ?? 0),
+        left: metadata.placementOffsetXPx - (metadata.matchedCanvasIntrinsicOverflowLeftPx ?? 0),
+        top: metadata.placementOffsetYPx - (metadata.matchedCanvasIntrinsicOverflowTopPx ?? 0),
         scaleX: contentWidthPx / Math.max(1, intrinsicRasterWidthPx),
         scaleY: contentHeightPx / Math.max(1, intrinsicRasterHeightPx),
     };
 }
 
-export function toPreviewSourceCropStyle(
-    metadata: IScanCleanupPreviewMetadata,
-): CSSProperties {
+export function toPreviewSourceCropStyle(metadata: IScanCleanupPreviewMetadata): CSSProperties {
     const leftPx = metadata.foldClipLeftPx ?? 0;
     const rightPx = metadata.foldClipRightPx ?? 0;
     if (leftPx === 0 && rightPx === 0) {
         return {};
     }
     const contentWidthPx = metadata.matchedCanvasContentWidthPx ?? metadata.outputWidthPx;
-    return {clipPath: `inset(0 ${rightPx / contentWidthPx * 100}% 0 ${leftPx / contentWidthPx * 100}%)`};
+    return {clipPath: `inset(0 ${(rightPx / contentWidthPx) * 100}% 0 ${(leftPx / contentWidthPx) * 100}%)`};
 }
 
-export function toPreviewStyleRect(
-    rect: IScanCleanupPixelRect,
-    placement: IScanCleanupPreviewPlacement,
-): CSSProperties {
+export function toPreviewStyleRect(rect: IScanCleanupPixelRect, placement: IScanCleanupPreviewPlacement): CSSProperties {
     const canvasWidthPx = Math.max(1, placement.canvasWidthPx);
     const canvasHeightPx = Math.max(1, placement.canvasHeightPx);
     return {
-        left: `${(rect.xPx * placement.scaleX + placement.left) / canvasWidthPx * 100}%`,
-        top: `${(rect.yPx * placement.scaleY + placement.top) / canvasHeightPx * 100}%`,
-        width: `${rect.widthPx * placement.scaleX / canvasWidthPx * 100}%`,
-        height: `${rect.heightPx * placement.scaleY / canvasHeightPx * 100}%`,
+        left: `${((rect.xPx * placement.scaleX + placement.left) / canvasWidthPx) * 100}%`,
+        top: `${((rect.yPx * placement.scaleY + placement.top) / canvasHeightPx) * 100}%`,
+        width: `${((rect.widthPx * placement.scaleX) / canvasWidthPx) * 100}%`,
+        height: `${((rect.heightPx * placement.scaleY) / canvasHeightPx) * 100}%`,
     };
 }

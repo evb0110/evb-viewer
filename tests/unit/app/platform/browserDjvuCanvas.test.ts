@@ -1,10 +1,4 @@
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, describe, expect, it, vi} from 'vitest';
 import {
     createDjvuCanvas,
     encodeDjvuCanvas,
@@ -24,37 +18,19 @@ function asDjvuCanvas(canvas: object) {
 
 describe('toOwnedArrayBuffer', () => {
     it('returns the backing buffer when the view covers it fully', () => {
-        const bytes = new Uint8Array([
-            1,
-            2,
-            3,
-        ]);
+        const bytes = new Uint8Array([1, 2, 3]);
         expect(toOwnedArrayBuffer(bytes)).toBe(bytes.buffer);
     });
 
     it('copies when the view is a window into a larger buffer', () => {
-        const backing = new Uint8Array([
-            1,
-            2,
-            3,
-            4,
-            5,
-        ]);
+        const backing = new Uint8Array([1, 2, 3, 4, 5]);
         const view = backing.subarray(1, 4);
         const owned = toOwnedArrayBuffer(view);
         expect(owned).not.toBe(backing.buffer);
-        expect([...new Uint8Array(owned)]).toEqual([
-            2,
-            3,
-            4,
-        ]);
+        expect([...new Uint8Array(owned)]).toEqual([2, 3, 4]);
         // The copy must be detached from the source buffer.
         backing[2] = 99;
-        expect([...new Uint8Array(owned)]).toEqual([
-            2,
-            3,
-            4,
-        ]);
+        expect([...new Uint8Array(owned)]).toEqual([2, 3, 4]);
     });
 });
 
@@ -65,7 +41,10 @@ describe('createDjvuCanvas', () => {
 
     it('prefers OffscreenCanvas when available', () => {
         class FakeOffscreenCanvas {
-            constructor(public width: number, public height: number) {}
+            constructor(
+                public width: number,
+                public height: number,
+            ) {}
         }
         vi.stubGlobal('OffscreenCanvas', FakeOffscreenCanvas);
         const canvas = createDjvuCanvas(10, 5);
@@ -111,10 +90,7 @@ describe('getDjvuCanvas2dContext', () => {
 describe('encodeDjvuCanvas', () => {
     it('encodes via convertToBlob for OffscreenCanvas and forwards quality', async () => {
         class FakeOffscreenCanvas {
-            convertToBlob = vi.fn(async () => new Blob([new Uint8Array([
-                7,
-                8,
-            ])]));
+            convertToBlob = vi.fn(async () => new Blob([new Uint8Array([7, 8])]));
         }
         vi.stubGlobal('OffscreenCanvas', FakeOffscreenCanvas);
         const canvas = new FakeOffscreenCanvas();
@@ -123,10 +99,7 @@ describe('encodeDjvuCanvas', () => {
             type: 'image/jpeg',
             quality: 0.8,
         });
-        expect([...bytes]).toEqual([
-            7,
-            8,
-        ]);
+        expect([...bytes]).toEqual([7, 8]);
     });
 
     it('omits the quality option when none is provided', async () => {
@@ -140,9 +113,7 @@ describe('encodeDjvuCanvas', () => {
     });
 
     it('falls back to toBlob for canvas elements', async () => {
-        const toBlob = vi.fn((
-            callback: (blob: Blob | null) => void,
-        ) => callback(new Blob([new Uint8Array([9])])));
+        const toBlob = vi.fn((callback: (blob: Blob | null) => void) => callback(new Blob([new Uint8Array([9])])));
         const bytes = await encodeDjvuCanvas(asDjvuCanvas({toBlob}), 'image/png', 0.5);
         expect(toBlob).toHaveBeenCalledWith(expect.any(Function), 'image/png', 0.5);
         expect([...bytes]).toEqual([9]);
@@ -150,9 +121,7 @@ describe('encodeDjvuCanvas', () => {
 
     it('rejects when toBlob produces no blob', async () => {
         const canvas = {toBlob: (callback: (blob: Blob | null) => void) => callback(null)};
-        await expect(encodeDjvuCanvas(asDjvuCanvas(canvas), 'image/png'))
-            .rejects
-            .toThrow('Failed to encode canvas as image/png');
+        await expect(encodeDjvuCanvas(asDjvuCanvas(canvas), 'image/png')).rejects.toThrow('Failed to encode canvas as image/png');
     });
 });
 

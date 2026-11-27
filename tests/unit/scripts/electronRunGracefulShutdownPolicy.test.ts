@@ -1,42 +1,15 @@
 import {spawn} from 'node:child_process';
 import type * as TChildProcess from 'node:child_process';
 import {once} from 'node:events';
-import {
-    existsSync,
-    mkdirSync,
-    rmSync,
-    writeFileSync,
-} from 'node:fs';
+import {existsSync, mkdirSync, rmSync, writeFileSync} from 'node:fs';
 import {dirname} from 'node:path';
-import {
-    afterAll,
-    beforeAll,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    isElectronRunCommand,
-    parseElectronRunCommandRequest,
-} from '@scripts/electron-run/electronRunProtocol';
-import {
-    inspectProcessIdentity,
-    killVerifiedSessionProcess,
-} from '@scripts/electron-run/electronRunProcessIdentity';
+import {afterAll, beforeAll, describe, expect, it, vi} from 'vitest';
+import {isElectronRunCommand, parseElectronRunCommandRequest} from '@scripts/electron-run/electronRunProtocol';
+import {inspectProcessIdentity, killVerifiedSessionProcess} from '@scripts/electron-run/electronRunProcessIdentity';
 import type * as TElectronRunProcessTree from '@scripts/electron-run/electronRunProcessTree';
-import {
-    shouldRemoveSessionStopArtifacts,
-    stopSingleSession,
-} from '@scripts/electron-run/stopSession';
-import {
-    clearAutomationWorkspaceCrashCheckpoint,
-    workspaceCrashCheckpointPath,
-} from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
-import {
-    sessionDir,
-    sessionFilePath,
-} from '@scripts/electron-run/electronRunSessionPaths';
+import {shouldRemoveSessionStopArtifacts, stopSingleSession} from '@scripts/electron-run/stopSession';
+import {clearAutomationWorkspaceCrashCheckpoint, workspaceCrashCheckpointPath} from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
+import {sessionDir, sessionFilePath} from '@scripts/electron-run/electronRunSessionPaths';
 import {
     clearAutomationWorkspaceCrashCheckpointAfterSessionExit,
     shouldClearAutomationWorkspaceCrashCheckpointOnExit,
@@ -48,16 +21,12 @@ const processTree = vi.hoisted(() => ({
     identityOutputs: new Map<string, ReturnType<typeof TChildProcess.execFileSync>>(),
 }));
 
-vi.mock('node:child_process', async importOriginal => {
+vi.mock('node:child_process', async (importOriginal) => {
     const actual = await importOriginal<typeof TChildProcess>();
     return {
         ...actual,
         execFileSync: vi.fn(actual.execFileSync).mockImplementation((file, args, options) => {
-            const key = JSON.stringify([
-                file,
-                args,
-                options,
-            ]);
+            const key = JSON.stringify([file, args, options]);
             const cached = processTree.identityOutputs.get(key);
             if (cached !== undefined) {
                 return cached;
@@ -66,7 +35,7 @@ vi.mock('node:child_process', async importOriginal => {
             // These policy cases keep the same unrelated processes alive.
             // Capture their real Windows identities during fixture setup;
             // ownership decisions still use the product parser and live PIDs.
-            if (file === 'powershell.exe' && args?.some(arg => arg.includes('$p = $all'))) {
+            if (file === 'powershell.exe' && args?.some((arg) => arg.includes('$p = $all'))) {
                 processTree.identityOutputs.set(key, output);
             }
             return output;
@@ -74,8 +43,8 @@ vi.mock('node:child_process', async importOriginal => {
     };
 });
 
-vi.mock('@scripts/electron-run/electronRunProcessTree', async importOriginal => ({
-    ...await importOriginal<typeof TElectronRunProcessTree>(),
+vi.mock('@scripts/electron-run/electronRunProcessTree', async (importOriginal) => ({
+    ...(await importOriginal<typeof TElectronRunProcessTree>()),
     isProcessAlive: processTree.isProcessAlive,
     // This file launches Node fixtures, never an Electron session.
     findPidsByCommandSubstring: vi.fn(() => []),
@@ -101,20 +70,20 @@ async function forceKillAndWait(child: ReturnType<typeof spawn>) {
 // A child that exited while its parent neither waits for it nor dies stays a
 // zombie: `kill(pid, 0)` still succeeds and `ps` reports `<defunct>`.
 async function spawnUnreapedZombie() {
-    const parent = spawn('python3', [
-        '-c',
-        'import os,time\npid=os.fork()\nif pid == 0: os._exit(0)\nos.waitid(os.P_PID,pid,os.WEXITED|os.WNOWAIT)\nprint(pid, flush=True)\ntime.sleep(30)',
-    ], {stdio: [
-        'ignore',
-        'pipe',
-        'ignore',
-    ]});
+    const parent = spawn(
+        'python3',
+        [
+            '-c',
+            'import os,time\npid=os.fork()\nif pid == 0: os._exit(0)\nos.waitid(os.P_PID,pid,os.WEXITED|os.WNOWAIT)\nprint(pid, flush=True)\ntime.sleep(30)',
+        ],
+        {stdio: ['ignore', 'pipe', 'ignore']},
+    );
     const zombiePid = await new Promise<number>((resolve, reject) => {
-        parent.stdout?.once('data', chunk => resolve(Number(String(chunk).trim())));
+        parent.stdout?.once('data', (chunk) => resolve(Number(String(chunk).trim())));
         parent.once('error', reject);
-        parent.once('exit', (code, signal) => reject(new Error(
-            `zombie parent exited before reporting its child (code ${String(code)}, signal ${String(signal)})`,
-        )));
+        parent.once('exit', (code, signal) =>
+            reject(new Error(`zombie parent exited before reporting its child (code ${String(code)}, signal ${String(signal)})`)),
+        );
     });
     expect(zombiePid).toBeGreaterThan(0);
     return {
@@ -127,14 +96,9 @@ describe('Electron automation graceful shutdown policy', () => {
     let unrelated: ReturnType<typeof spawn>;
     let unrelatedPid: number;
     beforeAll(async () => {
-        const {isProcessAlive} = await vi.importActual<typeof TElectronRunProcessTree>(
-            '@scripts/electron-run/electronRunProcessTree',
-        );
+        const {isProcessAlive} = await vi.importActual<typeof TElectronRunProcessTree>('@scripts/electron-run/electronRunProcessTree');
         processTree.isProcessAlive.mockImplementation(isProcessAlive);
-        unrelated = spawn(process.execPath, [
-            '-e',
-            'setInterval(() => {}, 1000)',
-        ], {stdio: 'ignore'});
+        unrelated = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {stdio: 'ignore'});
         await once(unrelated, 'spawn');
         unrelatedPid = unrelated.pid ?? 0;
         expect(unrelatedPid).toBeGreaterThan(0);
@@ -148,10 +112,12 @@ describe('Electron automation graceful shutdown policy', () => {
 
     it('exposes a controller-owned shutdown command', () => {
         expect(isElectronRunCommand('shutdown')).toBe(true);
-        expect(parseElectronRunCommandRequest({
-            command: 'shutdown',
-            args: [],
-        })).toEqual({
+        expect(
+            parseElectronRunCommandRequest({
+                command: 'shutdown',
+                args: [],
+            }),
+        ).toEqual({
             command: 'shutdown',
             args: [],
         });
@@ -225,44 +191,30 @@ describe('Electron automation graceful shutdown policy', () => {
     });
 
     it('retains session artifacts whenever any verified termination is refused', async () => {
-        expect(shouldRemoveSessionStopArtifacts([
-            true,
-            true,
-            true,
-        ])).toBe(true);
-        expect(shouldRemoveSessionStopArtifacts([
-            false,
-            true,
-            true,
-        ])).toBe(false);
-        expect(shouldRemoveSessionStopArtifacts([
-            true,
-            false,
-            true,
-        ])).toBe(false);
-        expect(shouldRemoveSessionStopArtifacts([
-            true,
-            true,
-            false,
-        ])).toBe(false);
+        expect(shouldRemoveSessionStopArtifacts([true, true, true])).toBe(true);
+        expect(shouldRemoveSessionStopArtifacts([false, true, true])).toBe(false);
+        expect(shouldRemoveSessionStopArtifacts([true, false, true])).toBe(false);
+        expect(shouldRemoveSessionStopArtifacts([true, true, false])).toBe(false);
 
         const sessionName = `refused-stop-policy-${String(process.pid)}-${String(Date.now())}`;
         processTree.isProcessAlive.mockReset();
-        processTree.isProcessAlive.mockImplementation(pid => pid === process.pid);
+        processTree.isProcessAlive.mockImplementation((pid) => pid === process.pid);
         try {
             mkdirSync(sessionDir(sessionName), {recursive: true});
-            writeFileSync(sessionFilePath(sessionName), JSON.stringify({
-                port: 45_001,
-                pid: process.pid,
-                cdpPort: 45_002,
-                electronPid: null,
-                nuxtPid: null,
-                nuxtPort: 45_003,
-            }), 'utf8');
-
-            await expect(stopSingleSession(sessionName)).rejects.toThrow(
-                'session artifacts were retained',
+            writeFileSync(
+                sessionFilePath(sessionName),
+                JSON.stringify({
+                    port: 45_001,
+                    pid: process.pid,
+                    cdpPort: 45_002,
+                    electronPid: null,
+                    nuxtPid: null,
+                    nuxtPort: 45_003,
+                }),
+                'utf8',
             );
+
+            await expect(stopSingleSession(sessionName)).rejects.toThrow('session artifacts were retained');
             expect(existsSync(sessionFilePath(sessionName))).toBe(true);
         } finally {
             rmSync(sessionDir(sessionName), {
@@ -283,13 +235,15 @@ describe('Electron automation graceful shutdown policy', () => {
         processTree.isProcessAlive.mockReturnValueOnce(true).mockReturnValue(false);
 
         try {
-            await expect(killVerifiedSessionProcess({
-                pid: UNUSED_PID,
-                expectation: {
-                    kind: 'controller',
-                    sessionName: 'exit-during-identity-read',
-                },
-            })).resolves.toBe(true);
+            await expect(
+                killVerifiedSessionProcess({
+                    pid: UNUSED_PID,
+                    expectation: {
+                        kind: 'controller',
+                        sessionName: 'exit-during-identity-read',
+                    },
+                }),
+            ).resolves.toBe(true);
             expect(warn).not.toHaveBeenCalled();
         } finally {
             warn.mockRestore();
@@ -302,14 +256,18 @@ describe('Electron automation graceful shutdown policy', () => {
         processTree.isProcessAlive.mockReturnValueOnce(true).mockReturnValue(false);
         try {
             mkdirSync(sessionDir(sessionName), {recursive: true});
-            writeFileSync(sessionFilePath(sessionName), JSON.stringify({
-                port: 45_001,
-                pid: UNUSED_PID,
-                cdpPort: 45_002,
-                electronPid: null,
-                nuxtPid: null,
-                nuxtPort: 45_003,
-            }), 'utf8');
+            writeFileSync(
+                sessionFilePath(sessionName),
+                JSON.stringify({
+                    port: 45_001,
+                    pid: UNUSED_PID,
+                    cdpPort: 45_002,
+                    electronPid: null,
+                    nuxtPid: null,
+                    nuxtPort: 45_003,
+                }),
+                'utf8',
+            );
 
             await expect(stopSingleSession(sessionName)).resolves.toBeUndefined();
             expect(existsSync(sessionFilePath(sessionName))).toBe(false);
@@ -328,9 +286,7 @@ describe('Electron automation graceful shutdown policy', () => {
         // child runs from the project root, so it clears the project-identity
         // half of the controller check and can only be rejected on the
         // controller entry point itself.
-        const {isProcessAlive} = await vi.importActual<typeof TElectronRunProcessTree>(
-            '@scripts/electron-run/electronRunProcessTree',
-        );
+        const {isProcessAlive} = await vi.importActual<typeof TElectronRunProcessTree>('@scripts/electron-run/electronRunProcessTree');
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
         processTree.isProcessAlive.mockReset();
         processTree.isProcessAlive.mockImplementation(isProcessAlive);
@@ -339,13 +295,15 @@ describe('Electron automation graceful shutdown policy', () => {
             expect(unrelatedPid).toBeGreaterThan(0);
             expect(inspectProcessIdentity(unrelatedPid)).not.toBeNull();
 
-            await expect(killVerifiedSessionProcess({
-                pid: unrelatedPid,
-                expectation: {
-                    kind: 'controller',
-                    sessionName: 'unrelated-live-process',
-                },
-            })).resolves.toBe(false);
+            await expect(
+                killVerifiedSessionProcess({
+                    pid: unrelatedPid,
+                    expectation: {
+                        kind: 'controller',
+                        sessionName: 'unrelated-live-process',
+                    },
+                }),
+            ).resolves.toBe(false);
             expect(isProcessAlive(unrelatedPid)).toBe(true);
             expect(warn).toHaveBeenCalledWith(expect.stringContaining('Refused to terminate'));
         } finally {
@@ -361,20 +319,14 @@ describe('Electron automation graceful shutdown policy', () => {
         // refusal that stranded the session directory and demanded a second
         // stop. The child confirms its handler is installed before termination
         // starts, so the forced-kill path is the one under test.
-        const {
-            isProcessAlive,
-            killProcessTree,
-        } = await vi.importActual<typeof TElectronRunProcessTree>(
+        const {isProcessAlive, killProcessTree} = await vi.importActual<typeof TElectronRunProcessTree>(
             '@scripts/electron-run/electronRunProcessTree',
         );
-        const stubborn = spawn(process.execPath, [
-            '-e',
-            'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000); process.stdout.write("ready\\n");',
-        ], {stdio: [
-            'ignore',
-            'pipe',
-            'ignore',
-        ]});
+        const stubborn = spawn(
+            process.execPath,
+            ['-e', 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000); process.stdout.write("ready\\n");'],
+            {stdio: ['ignore', 'pipe', 'ignore']},
+        );
         const stubbornPid = stubborn.pid ?? 0;
         try {
             expect(stubbornPid).toBeGreaterThan(0);
@@ -388,17 +340,16 @@ describe('Electron automation graceful shutdown policy', () => {
                 // A child that starts and then dies emits neither, so without this
                 // the suite would wait out its own timeout instead of reporting
                 // that the fixture never became ready.
-                stubborn.once('exit', (code, signal) => reject(new Error(
-                    `stubborn child exited before readiness (code ${code}, signal ${signal})`,
-                )));
+                stubborn.once('exit', (code, signal) =>
+                    reject(new Error(`stubborn child exited before readiness (code ${code}, signal ${signal})`)),
+                );
             });
 
             await killProcessTree(stubbornPid, 150);
 
-            expect(
-                isProcessAlive(stubbornPid),
-                'a force-killed process must be observed gone before termination reports its result',
-            ).toBe(false);
+            expect(isProcessAlive(stubbornPid), 'a force-killed process must be observed gone before termination reports its result').toBe(
+                false,
+            );
         } finally {
             await forceKillAndWait(stubborn);
         }
@@ -408,18 +359,10 @@ describe('Electron automation graceful shutdown policy', () => {
         // The Linux branch reads /proc for this. macOS has no procfs, and
         // `kill(pid, 0)` succeeds for a zombie there, so a session process that
         // exited but has not been reaped yet reported as alive.
-        const {isProcessAlive} = await vi.importActual<typeof TElectronRunProcessTree>(
-            '@scripts/electron-run/electronRunProcessTree',
-        );
-        const {
-            parent,
-            zombiePid,
-        } = await spawnUnreapedZombie();
+        const {isProcessAlive} = await vi.importActual<typeof TElectronRunProcessTree>('@scripts/electron-run/electronRunProcessTree');
+        const {parent, zombiePid} = await spawnUnreapedZombie();
         try {
-            expect(
-                isProcessAlive(zombiePid),
-                'a zombie has exited and must not block Electron session restart',
-            ).toBe(false);
+            expect(isProcessAlive(zombiePid), 'a zombie has exited and must not block Electron session restart').toBe(false);
         } finally {
             await forceKillAndWait(parent);
         }
@@ -433,33 +376,34 @@ describe('Electron automation graceful shutdown policy', () => {
         // Electron's death inside that stretch is a zombie whose `ps` command
         // is `<defunct>`. That failed ownership matching while liveness said
         // alive, which the stop reported as a refusal and retained artifacts.
-        const {isProcessAlive} = await vi.importActual<typeof TElectronRunProcessTree>(
-            '@scripts/electron-run/electronRunProcessTree',
-        );
+        const {isProcessAlive} = await vi.importActual<typeof TElectronRunProcessTree>('@scripts/electron-run/electronRunProcessTree');
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
         processTree.isProcessAlive.mockReset();
         processTree.isProcessAlive.mockImplementation(isProcessAlive);
         const sessionName = `zombie-controller-policy-${String(process.pid)}-${String(Date.now())}`;
-        const {
-            parent,
-            zombiePid,
-        } = await spawnUnreapedZombie();
+        const {parent, zombiePid} = await spawnUnreapedZombie();
         try {
             mkdirSync(sessionDir(sessionName), {recursive: true});
-            writeFileSync(sessionFilePath(sessionName), JSON.stringify({
-                port: 45_001,
-                pid: zombiePid,
-                cdpPort: 45_002,
-                electronPid: null,
-                nuxtPid: null,
-                nuxtPort: 45_003,
-            }), 'utf8');
+            writeFileSync(
+                sessionFilePath(sessionName),
+                JSON.stringify({
+                    port: 45_001,
+                    pid: zombiePid,
+                    cdpPort: 45_002,
+                    electronPid: null,
+                    nuxtPid: null,
+                    nuxtPort: 45_003,
+                }),
+                'utf8',
+            );
 
-            await expect(stopSingleSession(sessionName, {
-                keepNuxt: true,
-                preserveWorkspaceCheckpoint: true,
-                crashElectronBeforeStop: true,
-            })).resolves.toBeUndefined();
+            await expect(
+                stopSingleSession(sessionName, {
+                    keepNuxt: true,
+                    preserveWorkspaceCheckpoint: true,
+                    crashElectronBeforeStop: true,
+                }),
+            ).resolves.toBeUndefined();
             expect(existsSync(sessionFilePath(sessionName))).toBe(false);
             expect(warn).not.toHaveBeenCalled();
         } finally {

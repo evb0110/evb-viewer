@@ -1,31 +1,21 @@
-import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
-import { getAppTempDir } from '@electron/utils/appTempDir';
-import { usingManagedScratchScope } from '@electron/utils/managedScratchTemp';
-import { randomUUID } from 'node:crypto';
-import {
-    copyFile,
-    stat,
-    writeFile,
-} from 'fs/promises';
-import { join } from 'path';
-import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
-import { runDesktopQpdfWasm } from '@electron/native-tools/qpdfWasmWorkerClient';
-import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
-import type { IJobBrokerRunContext } from '@electron/resources/jobBroker';
+import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
+import {getAppTempDir} from '@electron/utils/appTempDir';
+import {usingManagedScratchScope} from '@electron/utils/managedScratchTemp';
+import {randomUUID} from 'node:crypto';
+import {copyFile, stat, writeFile} from 'fs/promises';
+import {join} from 'path';
+import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
+import {runDesktopQpdfWasm} from '@electron/native-tools/qpdfWasmWorkerClient';
+import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
+import type {IJobBrokerRunContext} from '@electron/resources/jobBroker';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
-import {
-    PdfCombineCapabilityError,
-    isPdfCombineCapabilityError,
-} from '@electron/image/pdfCombineErrors';
-import { isAbortError } from '@electron/utils/abort';
-import { getErrorMessage } from '@electron/utils/error';
+import {PdfCombineCapabilityError, isPdfCombineCapabilityError} from '@electron/image/pdfCombineErrors';
+import {isAbortError} from '@electron/utils/abort';
+import {getErrorMessage} from '@electron/utils/error';
 
 const NATIVE_DJVU_BOOKMARK_TIMEOUT_MS = 2 * 60 * 1000;
 const QPDF_DJVU_BOOKMARK_PAGE_COUNT_TIMEOUT_MS = 2 * 60 * 1000;
-const QPDF_OUTPUT_SUCCESS_EXIT_CODES = [
-    0,
-    3,
-];
+const QPDF_OUTPUT_SUCCESS_EXIT_CODES = [0, 3];
 
 interface IBookmarkNativeCommandOptions {
     signal?: AbortSignal | undefined;
@@ -35,9 +25,7 @@ interface IBookmarkNativeCommandOptions {
 
 function throwIfAborted(signal?: AbortSignal) {
     if (signal?.aborted) {
-        throw signal.reason instanceof Error
-            ? signal.reason
-            : new DOMException('Operation aborted', 'AbortError');
+        throw signal.reason instanceof Error ? signal.reason : new DOMException('Operation aborted', 'AbortError');
     }
 }
 
@@ -52,9 +40,9 @@ function createNativeBookmarkMutation(totalPages: number, bookmarks: IPdfBookmar
 
 function createNativeCommandCancellationOptions(options: IBookmarkNativeCommandOptions) {
     return {
-        ...(options.signal ? { signal: options.signal } : {}),
-        ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
-        ...(options.brokerRun ? { brokerRun: options.brokerRun } : {}),
+        ...(options.signal ? {signal: options.signal} : {}),
+        ...(options.cancelGroup ? {cancelGroup: options.cancelGroup} : {}),
+        ...(options.brokerRun ? {brokerRun: options.brokerRun} : {}),
     };
 }
 
@@ -76,20 +64,14 @@ function createNativeModifiedAt() {
     ].join('');
 }
 
-async function getBookmarkInputPdfPageCount(
-    inputPdfPath: string,
-    options: IBookmarkNativeCommandOptions = {},
-) {
-    const result = await runDesktopQpdfWasm([
-        '--show-npages',
-        inputPdfPath,
-    ], {
+async function getBookmarkInputPdfPageCount(inputPdfPath: string, options: IBookmarkNativeCommandOptions = {}) {
+    const result = await runDesktopQpdfWasm(['--show-npages', inputPdfPath], {
         timeoutMs: QPDF_DJVU_BOOKMARK_PAGE_COUNT_TIMEOUT_MS,
         allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
         commandLabel: 'qpdf(djvu-bookmark-page-count)',
-        ...(options.signal ? { signal: options.signal } : {}),
-        ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
-        ...(options.brokerRun ? { onTerminationProof: options.brokerRun.onTerminationProof } : {}),
+        ...(options.signal ? {signal: options.signal} : {}),
+        ...(options.cancelGroup ? {cancelGroup: options.cancelGroup} : {}),
+        ...(options.brokerRun ? {onTerminationProof: options.brokerRun.onTerminationProof} : {}),
     });
     const pageCount = Number.parseInt(result.stdout.trim(), 10);
     if (!Number.isSafeInteger(pageCount) || pageCount < 1) {
@@ -117,15 +99,12 @@ async function tryEmbedBookmarksWithNativePageOps(
 
     const binaryPath = resolveNativePageOpsPath();
     if (!binaryPath) {
-        throw createDjvuBookmarkCapabilityError(
-            'native-unavailable',
-            'Native DjVu bookmark embedding tool is unavailable',
-        );
+        throw createDjvuBookmarkCapabilityError('native-unavailable', 'Native DjVu bookmark embedding tool is unavailable');
     }
 
     const cancelGroup = `djvu-bookmarks:${randomUUID()}`;
     try {
-        return await usingManagedScratchScope('pdf-page-ops-', getAppTempDir(), async tempDir => {
+        return await usingManagedScratchScope('pdf-page-ops-', getAppTempDir(), async (tempDir) => {
             const workingPath = join(tempDir, 'input.pdf');
             const mutationsPath = join(tempDir, 'bookmarks.json');
             const totalPages = await getBookmarkInputPdfPageCount(inputPdfPath, {
@@ -135,31 +114,31 @@ async function tryEmbedBookmarksWithNativePageOps(
             });
             throwIfAborted(signal);
             await copyFile(inputPdfPath, workingPath);
-            await writeFile(
-                mutationsPath,
-                JSON.stringify(createNativeBookmarkMutation(totalPages, bookmarks)),
-                'utf8',
+            await writeFile(mutationsPath, JSON.stringify(createNativeBookmarkMutation(totalPages, bookmarks)), 'utf8');
+            await runNativeToolCommand(
+                binaryPath,
+                [
+                    'save-mutations',
+                    '--input',
+                    workingPath,
+                    '--output',
+                    workingPath,
+                    '--mutations-file',
+                    mutationsPath,
+                    '--modified-at',
+                    createNativeModifiedAt(),
+                    '--append',
+                ],
+                {
+                    timeoutMs: NATIVE_DJVU_BOOKMARK_TIMEOUT_MS,
+                    commandLabel: 'evb-pdf-page-ops(djvu-bookmarks)',
+                    ...createNativeCommandCancellationOptions({
+                        signal,
+                        cancelGroup,
+                        brokerRun,
+                    }),
+                },
             );
-            await runNativeToolCommand(binaryPath, [
-                'save-mutations',
-                '--input',
-                workingPath,
-                '--output',
-                workingPath,
-                '--mutations-file',
-                mutationsPath,
-                '--modified-at',
-                createNativeModifiedAt(),
-                '--append',
-            ], {
-                timeoutMs: NATIVE_DJVU_BOOKMARK_TIMEOUT_MS,
-                commandLabel: 'evb-pdf-page-ops(djvu-bookmarks)',
-                ...createNativeCommandCancellationOptions({
-                    signal,
-                    cancelGroup,
-                    brokerRun,
-                }),
-            });
             throwIfAborted(signal);
             await copyFile(workingPath, outputPdfPath);
             const outputStats = await stat(outputPdfPath);
@@ -180,11 +159,7 @@ async function tryEmbedBookmarksWithNativePageOps(
     }
 }
 
-function createDjvuBookmarkCapabilityError(
-    code: 'native-unavailable' | 'native-failure',
-    message: string,
-    cause?: unknown,
-) {
+function createDjvuBookmarkCapabilityError(code: 'native-unavailable' | 'native-failure', message: string, cause?: unknown) {
     return new PdfCombineCapabilityError(code, message, {
         ...(cause === undefined ? {} : {cause}),
         operation: 'djvu-bookmarks',

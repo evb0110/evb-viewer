@@ -1,13 +1,7 @@
-import { getErrorMessage } from '@app/utils/error';
-import type {
-    IScanCleanupScratchShortfall,
-    TScanCleanupErrorCode,
-} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {getErrorMessage} from '@app/utils/error';
+import type {IScanCleanupScratchShortfall, TScanCleanupErrorCode} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {TTranslationKey} from '@i18n-app';
-import {
-    formatBytes,
-    type IByteSizeFormat,
-} from '@app/utils/formatters';
+import {formatBytes, type IByteSizeFormat} from '@app/utils/formatters';
 
 const SCAN_CLEANUP_ERROR_MESSAGE_KEYS = {
     encrypted: 'scanCleanup.errors.encrypted',
@@ -31,9 +25,7 @@ const SCAN_CLEANUP_ERROR_MESSAGE_KEYS = {
 const MAX_SCAN_CLEANUP_TECHNICAL_DETAIL_LENGTH = 240;
 
 function getScanCleanupTechnicalDetail(error: unknown) {
-    const detail = typeof error === 'string'
-        ? error
-        : error instanceof Error ? getErrorMessage(error) : '';
+    const detail = typeof error === 'string' ? error : error instanceof Error ? getErrorMessage(error) : '';
     const trimmed = detail.trim();
     if (trimmed.length <= MAX_SCAN_CLEANUP_TECHNICAL_DETAIL_LENGTH) {
         return trimmed;
@@ -48,9 +40,7 @@ function getScanCleanupTechnicalDetail(error: unknown) {
  */
 export function formatScanCleanupErrorMessage(message: string, error: unknown) {
     const detail = getScanCleanupTechnicalDetail(error);
-    return detail && detail !== message
-        ? `${message} (${detail})`
-        : message;
+    return detail && detail !== message ? `${message} (${detail})` : message;
 }
 
 /**
@@ -58,17 +48,10 @@ export function formatScanCleanupErrorMessage(message: string, error: unknown) {
  * storage remedy. The figures stay typed at the bridge and are localized at
  * the detection session's UI boundary.
  */
-export function formatScanCleanupScratchMessage(
-    format: IByteSizeFormat,
-    shortfall: IScanCleanupScratchShortfall | undefined,
-) {
+export function formatScanCleanupScratchMessage(format: IByteSizeFormat, shortfall: IScanCleanupScratchShortfall | undefined) {
     const {t} = format;
     const headline = t('scanCleanup.errors.insufficientScratch');
-    if (
-        shortfall === undefined
-        || shortfall.requiredBytes === null
-        || shortfall.availableBytes === null
-    ) {
+    if (shortfall === undefined || shortfall.requiredBytes === null || shortfall.availableBytes === null) {
         return headline;
     }
     return `${headline} ${t('scanCleanup.errors.insufficientScratchSpace', {

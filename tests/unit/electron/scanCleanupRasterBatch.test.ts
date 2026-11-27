@@ -1,35 +1,14 @@
-import {
-    mkdtemp,
-    open as fsOpen,
-    readFile,
-    readdir,
-    rename,
-    rm,
-    stat,
-    writeFile,
-} from 'node:fs/promises';
+import {mkdtemp, open as fsOpen, readFile, readdir, rename, rm, stat, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {
-    join,
-    sep,
-} from 'node:path';
+import {join, sep} from 'node:path';
 import type * as TFsPromises from 'node:fs/promises';
 import {decode} from 'fast-png';
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, describe, expect, it, vi} from 'vitest';
 import {
     createScanCleanupRasterBatchRenderer,
     type IScanCleanupRasterBatchFileSystem,
 } from '@electron/features/scan-cleanup/createScanCleanupRasterBatchRenderer';
-import {
-    readPreviewBytes,
-    readPreviewMetadata,
-} from '@electron/features/scan-cleanup/scanCleanupRasterRetentionIo';
+import {readPreviewBytes, readPreviewMetadata} from '@electron/features/scan-cleanup/scanCleanupRasterRetentionIo';
 import {encodePngFromPpm} from '@evb/scan-cleanup/core/rasterLayerDimensions';
 import type {IScanCleanupRasterDependencies} from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import type {IRunCommandOptions} from '@electron/native-tools/runNativeCommand';
@@ -38,24 +17,16 @@ import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationPr
 // Keep all 1,024 real PPM handoffs and pixel checks without thousands of disk
 // operations. Other cases below still publish through the real filesystem.
 const memoryFiles = vi.hoisted(() => new Map<string, Buffer>());
-vi.mock('fs/promises', async importOriginal => {
+vi.mock('fs/promises', async (importOriginal) => {
     const actual = await importOriginal<typeof TFsPromises>();
     return {
         ...actual,
-        readFile: async (...args: Parameters<typeof actual.readFile>) =>
-            memoryFiles.get(String(args[0])) ?? actual.readFile(...args),
+        readFile: async (...args: Parameters<typeof actual.readFile>) => memoryFiles.get(String(args[0])) ?? actual.readFile(...args),
     };
 });
 
 // One RGB pixel as Poppler writes it when no output format is requested.
-const PPM = Buffer.concat([
-    Buffer.from('P6\n1 1\n255\n', 'ascii'),
-    Buffer.from([
-        12,
-        34,
-        56,
-    ]),
-]);
+const PPM = Buffer.concat([Buffer.from('P6\n1 1\n255\n', 'ascii'), Buffer.from([12, 34, 56])]);
 
 /** What a reader of the published raster sees: Poppler's direct P6 PPM bytes. */
 async function readPublishedPixels(path: string) {
@@ -74,17 +45,13 @@ const PUBLISHED_PIXEL = {
     width: 1,
     height: 1,
     channels: 3,
-    pixels: [
-        12,
-        34,
-        56,
-    ],
+    pixels: [12, 34, 56],
 };
 const roots: string[] = [];
 
 function createFileSystem() {
     const fileSystem: IScanCleanupRasterBatchFileSystem = {
-        mkdtemp: vi.fn(prefix => mkdtemp(prefix)),
+        mkdtemp: vi.fn((prefix) => mkdtemp(prefix)),
         open: vi.fn((path, flags) => fsOpen(path, flags)),
         readdir: vi.fn(async (path: string, options: {withFileTypes: true}) => readdir(path, options)),
         rename: vi.fn((oldPath, newPath) => rename(oldPath, newPath)),
@@ -95,10 +62,14 @@ function createFileSystem() {
 
 afterEach(async () => {
     memoryFiles.clear();
-    await Promise.all(roots.splice(0).map(root => rm(root, {
-        force: true,
-        recursive: true,
-    })));
+    await Promise.all(
+        roots.splice(0).map((root) =>
+            rm(root, {
+                force: true,
+                recursive: true,
+            }),
+        ),
+    );
 });
 
 describe('scan cleanup raster batch renderer', () => {
@@ -116,25 +87,32 @@ describe('scan cleanup raster batch renderer', () => {
             throw failure;
         }, createFileSystem());
 
-        await expect(renderBatch({
-            dpi: 150,
-            log: vi.fn(),
-            pdftoppmBinary: '/pdftoppm',
-            signal: new AbortController().signal,
-            sourcePdfPath: join(root, 'source.pdf'),
-            targets: [{
-                pageNumber: 1,
-                outputPath: join(root, 'page-1.png'),
-                limits: {
-                    expectedHeightPx: 1,
-                    expectedWidthPx: 1,
-                    maxPixels: 100,
-                    maxDimensionPx: 10,
-                },
-            }],
-        })).rejects.toBe(failure);
+        await expect(
+            renderBatch({
+                dpi: 150,
+                log: vi.fn(),
+                pdftoppmBinary: '/pdftoppm',
+                signal: new AbortController().signal,
+                sourcePdfPath: join(root, 'source.pdf'),
+                targets: [
+                    {
+                        pageNumber: 1,
+                        outputPath: join(root, 'page-1.png'),
+                        limits: {
+                            expectedHeightPx: 1,
+                            expectedWidthPx: 1,
+                            maxPixels: 100,
+                            maxDimensionPx: 10,
+                        },
+                    },
+                ],
+            }),
+        ).rejects.toBe(failure);
 
-        await expect(readFile(partialPath), 'the unproven native writer must retain its batch directory and partial bytes').resolves.toEqual(PPM);
+        await expect(
+            readFile(partialPath),
+            'the unproven native writer must retain its batch directory and partial bytes',
+        ).resolves.toEqual(PPM);
         await expect(stat(join(root, 'page-1.png'))).rejects.toMatchObject({code: 'ENOENT'});
     });
 
@@ -143,10 +121,7 @@ describe('scan cleanup raster batch renderer', () => {
         roots.push(root);
         const runCommand = vi.fn(async (_binary: string, args: string[], options?: IRunCommandOptions) => {
             const prefix = args.at(-1)!;
-            await Promise.all([
-                writeFile(`${prefix}-0017.ppm`, PPM),
-                writeFile(`${prefix}-0018.ppm`, PPM),
-            ]);
+            await Promise.all([writeFile(`${prefix}-0017.ppm`, PPM), writeFile(`${prefix}-0018.ppm`, PPM)]);
             const stderr = `17 18 ${prefix}-0017.ppm\n18 18 ${prefix}-0018.ppm\n`;
             options?.onStderr?.(stderr);
             return {
@@ -158,10 +133,7 @@ describe('scan cleanup raster batch renderer', () => {
         const fileSystem = createFileSystem();
         const renderBatch = createScanCleanupRasterBatchRenderer(runCommand, fileSystem);
         const renderedPages: number[] = [];
-        const targets = [
-            17,
-            18,
-        ].map(pageNumber => ({
+        const targets = [17, 18].map((pageNumber) => ({
             limits: {
                 expectedHeightPx: 3,
                 expectedWidthPx: 3,
@@ -179,7 +151,7 @@ describe('scan cleanup raster batch renderer', () => {
             signal: new AbortController().signal,
             sourcePdfPath: '/source.pdf',
             targets,
-            onPageRendered: pageNumber => renderedPages.push(pageNumber),
+            onPageRendered: (pageNumber) => renderedPages.push(pageNumber),
         });
 
         expect(runCommand).toHaveBeenCalledOnce();
@@ -210,16 +182,10 @@ describe('scan cleanup raster batch renderer', () => {
                 width: 1,
             },
         ]);
-        expect(renderedPages).toEqual([
-            17,
-            18,
-        ]);
+        expect(renderedPages).toEqual([17, 18]);
         expect(await readPublishedPixels(targets[0]!.outputPath)).toEqual(PUBLISHED_PIXEL);
         expect(await readPublishedPixels(targets[1]!.outputPath)).toEqual(PUBLISHED_PIXEL);
-        expect((await readdir(root)).sort()).toEqual([
-            'page-17.png',
-            'page-18.png',
-        ]);
+        expect((await readdir(root)).sort()).toEqual(['page-17.png', 'page-18.png']);
     });
 
     it.each([
@@ -262,14 +228,11 @@ describe('scan cleanup raster batch renderer', () => {
         const results = await renderBatch({
             dpi: 150,
             log: vi.fn(),
-            onPageRendered: pageNumber => renderedPages.push(pageNumber),
+            onPageRendered: (pageNumber) => renderedPages.push(pageNumber),
             pdftoppmBinary: '/pdftoppm',
             signal: new AbortController().signal,
             sourcePdfPath: join(root, 'source.pdf'),
-            targets: [
-                1,
-                2,
-            ].map(pageNumber => ({
+            targets: [1, 2].map((pageNumber) => ({
                 limits: {
                     expectedHeightPx: 1,
                     expectedWidthPx: 1,
@@ -281,17 +244,8 @@ describe('scan cleanup raster batch renderer', () => {
             })),
         });
 
-        expect(progressBeforeExit).toEqual([
-            [],
-            [],
-            [1],
-            [1],
-            [
-                1,
-                2,
-            ],
-        ]);
-        expect(renderedPages).toEqual(results.map(result => result.pageNumber));
+        expect(progressBeforeExit).toEqual([[], [], [1], [1], [1, 2]]);
+        expect(renderedPages).toEqual(results.map((result) => result.pageNumber));
         expect(results).toHaveLength(2);
     });
 
@@ -319,26 +273,30 @@ describe('scan cleanup raster batch renderer', () => {
             pdftoppmBinary: '/pdftoppm',
             signal: new AbortController().signal,
             sourcePdfPath: '/source.pdf',
-            targets: [{
-                limits: {
-                    expectedHeightPx: 3,
-                    expectedWidthPx: 3,
-                    maxDimensionPx: 100,
-                    maxPixels: 10_000,
+            targets: [
+                {
+                    limits: {
+                        expectedHeightPx: 3,
+                        expectedWidthPx: 3,
+                        maxDimensionPx: 100,
+                        maxPixels: 10_000,
+                    },
+                    outputPath,
+                    pageNumber: 3,
                 },
-                outputPath,
-                pageNumber: 3,
-            }],
+            ],
             onPageRendered: () => {
                 throw new Error('progress channel closed');
             },
         });
 
-        expect(results).toEqual([{
-            height: 1,
-            pageNumber: 3,
-            width: 1,
-        }]);
+        expect(results).toEqual([
+            {
+                height: 1,
+                pageNumber: 3,
+                width: 1,
+            },
+        ]);
         expect(await readPublishedPixels(outputPath)).toEqual(PUBLISHED_PIXEL);
         expect(log).toHaveBeenCalledWith('warn', expect.stringContaining('progress channel closed'));
     });
@@ -362,32 +320,35 @@ describe('scan cleanup raster batch renderer', () => {
         const outputPath = join(root, 'page-1.png');
         const renderBatch = createScanCleanupRasterBatchRenderer(runCommand, fileSystem);
 
-        await expect(renderBatch({
-            dpi: 150,
-            log,
-            pdftoppmBinary: '/pdftoppm',
-            signal: new AbortController().signal,
-            sourcePdfPath: '/source.pdf',
-            targets: [{
-                limits: {
-                    expectedHeightPx: 1,
-                    expectedWidthPx: 1,
-                    maxDimensionPx: 100,
-                    maxPixels: 10_000,
-                },
-                outputPath,
+        await expect(
+            renderBatch({
+                dpi: 150,
+                log,
+                pdftoppmBinary: '/pdftoppm',
+                signal: new AbortController().signal,
+                sourcePdfPath: '/source.pdf',
+                targets: [
+                    {
+                        limits: {
+                            expectedHeightPx: 1,
+                            expectedWidthPx: 1,
+                            maxDimensionPx: 100,
+                            maxPixels: 10_000,
+                        },
+                        outputPath,
+                        pageNumber: 1,
+                    },
+                ],
+            }),
+        ).resolves.toEqual([
+            {
+                height: 1,
                 pageNumber: 1,
-            }],
-        })).resolves.toEqual([{
-            height: 1,
-            pageNumber: 1,
-            width: 1,
-        }]);
+                width: 1,
+            },
+        ]);
         expect(await readPublishedPixels(outputPath)).toEqual(PUBLISHED_PIXEL);
-        expect(log).toHaveBeenCalledWith(
-            'warn',
-            'Scan cleanup could not remove raster batch scratch directory: scratch cleanup failed',
-        );
+        expect(log).toHaveBeenCalledWith('warn', 'Scan cleanup could not remove raster batch scratch directory: scratch cleanup failed');
     });
 
     it('does not report pages after Poppler fails', async () => {
@@ -399,27 +360,26 @@ describe('scan cleanup raster batch renderer', () => {
         const renderedPages: number[] = [];
         const renderBatch = createScanCleanupRasterBatchRenderer(runCommand, createFileSystem());
 
-        await expect(renderBatch({
-            dpi: 150,
-            log: vi.fn(),
-            onPageRendered: pageNumber => renderedPages.push(pageNumber),
-            pdftoppmBinary: '/pdftoppm',
-            signal: new AbortController().signal,
-            sourcePdfPath: '/source.pdf',
-            targets: [
-                1,
-                2,
-            ].map(pageNumber => ({
-                limits: {
-                    expectedHeightPx: 1,
-                    expectedWidthPx: 1,
-                    maxDimensionPx: 100,
-                    maxPixels: 10_000,
-                },
-                outputPath: join(root, `page-${String(pageNumber)}.png`),
-                pageNumber,
-            })),
-        })).rejects.toThrow('pdftoppm failed');
+        await expect(
+            renderBatch({
+                dpi: 150,
+                log: vi.fn(),
+                onPageRendered: (pageNumber) => renderedPages.push(pageNumber),
+                pdftoppmBinary: '/pdftoppm',
+                signal: new AbortController().signal,
+                sourcePdfPath: '/source.pdf',
+                targets: [1, 2].map((pageNumber) => ({
+                    limits: {
+                        expectedHeightPx: 1,
+                        expectedWidthPx: 1,
+                        maxDimensionPx: 100,
+                        maxPixels: 10_000,
+                    },
+                    outputPath: join(root, `page-${String(pageNumber)}.png`),
+                    pageNumber,
+                })),
+            }),
+        ).rejects.toThrow('pdftoppm failed');
         expect(renderedPages).toEqual([]);
     });
 
@@ -427,62 +387,63 @@ describe('scan cleanup raster batch renderer', () => {
         const runCommand = vi.fn();
         const renderBatch = createScanCleanupRasterBatchRenderer(runCommand, createFileSystem());
 
-        await expect(renderBatch({
-            dpi: 150,
-            log: vi.fn(),
-            pdftoppmBinary: '/pdftoppm',
-            signal: new AbortController().signal,
-            sourcePdfPath: '/source.pdf',
-            targets: [
-                1,
-                3,
-            ].map(pageNumber => ({
-                limits: {
-                    expectedHeightPx: 3,
-                    expectedWidthPx: 3,
-                    maxDimensionPx: 100,
-                    maxPixels: 10_000,
-                },
-                outputPath: `/page-${String(pageNumber)}.png`,
-                pageNumber,
-            })),
-        })).rejects.toThrow('contiguous');
+        await expect(
+            renderBatch({
+                dpi: 150,
+                log: vi.fn(),
+                pdftoppmBinary: '/pdftoppm',
+                signal: new AbortController().signal,
+                sourcePdfPath: '/source.pdf',
+                targets: [1, 3].map((pageNumber) => ({
+                    limits: {
+                        expectedHeightPx: 3,
+                        expectedWidthPx: 3,
+                        maxDimensionPx: 100,
+                        maxPixels: 10_000,
+                    },
+                    outputPath: `/page-${String(pageNumber)}.png`,
+                    pageNumber,
+                })),
+            }),
+        ).rejects.toThrow('contiguous');
         expect(runCommand).not.toHaveBeenCalled();
     });
 
     it('rejects dimension and pixel-limit violations before starting Poppler', async () => {
         const runCommand = vi.fn();
         const renderBatch = createScanCleanupRasterBatchRenderer(runCommand, createFileSystem());
-        const renderTarget = (limits: {
-            expectedHeightPx: number;
-            expectedWidthPx: number;
-            maxDimensionPx: number;
-            maxPixels: number;
-        }) => renderBatch({
-            dpi: 150,
-            log: vi.fn(),
-            pdftoppmBinary: '/pdftoppm',
-            signal: new AbortController().signal,
-            sourcePdfPath: '/source.pdf',
-            targets: [{
-                limits,
-                outputPath: '/page-1.png',
-                pageNumber: 1,
-            }],
-        });
+        const renderTarget = (limits: {expectedHeightPx: number; expectedWidthPx: number; maxDimensionPx: number; maxPixels: number}) =>
+            renderBatch({
+                dpi: 150,
+                log: vi.fn(),
+                pdftoppmBinary: '/pdftoppm',
+                signal: new AbortController().signal,
+                sourcePdfPath: '/source.pdf',
+                targets: [
+                    {
+                        limits,
+                        outputPath: '/page-1.png',
+                        pageNumber: 1,
+                    },
+                ],
+            });
 
-        await expect(renderTarget({
-            expectedHeightPx: 1,
-            expectedWidthPx: 101,
-            maxDimensionPx: 100,
-            maxPixels: 10_000,
-        })).rejects.toThrow('exceeds limits');
-        await expect(renderTarget({
-            expectedHeightPx: 11,
-            expectedWidthPx: 11,
-            maxDimensionPx: 100,
-            maxPixels: 100,
-        })).rejects.toThrow('exceeds limits');
+        await expect(
+            renderTarget({
+                expectedHeightPx: 1,
+                expectedWidthPx: 101,
+                maxDimensionPx: 100,
+                maxPixels: 10_000,
+            }),
+        ).rejects.toThrow('exceeds limits');
+        await expect(
+            renderTarget({
+                expectedHeightPx: 11,
+                expectedWidthPx: 11,
+                maxDimensionPx: 100,
+                maxPixels: 100,
+            }),
+        ).rejects.toThrow('exceeds limits');
         expect(runCommand).not.toHaveBeenCalled();
     });
 
@@ -510,24 +471,31 @@ describe('scan cleanup raster batch renderer', () => {
         });
         const renderBatch = createScanCleanupRasterBatchRenderer(runCommand, {
             mkdtemp: async () => scratch,
-            open: async path => ({
-                read: async (buffer, offset, length, position) => ({bytesRead: memoryFiles.get(path)!.copy(buffer, offset, position, position + length)}),
+            open: async (path) => ({
+                read: async (buffer, offset, length, position) => ({
+                    bytesRead: memoryFiles.get(path)!.copy(buffer, offset, position, position + length),
+                }),
                 stat: async () => ppmStat,
                 close: async () => undefined,
             }),
-            readdir: async () => Array.from({length: 1_024}, (_, index) => ({
-                isFile: () => true,
-                name: `page-${String(index + 1).padStart(4, '0')}.ppm`,
-            })),
+            readdir: async () =>
+                Array.from({length: 1_024}, (_, index) => ({
+                    isFile: () => true,
+                    name: `page-${String(index + 1).padStart(4, '0')}.ppm`,
+                })),
             rename: async (source, target) => {
                 const bytes = memoryFiles.get(source);
-                if (!bytes) {throw new Error(`Missing encoded raster: ${source}`);}
+                if (!bytes) {
+                    throw new Error(`Missing encoded raster: ${source}`);
+                }
                 memoryFiles.set(target, bytes);
                 memoryFiles.delete(source);
             },
             rm: async () => {
                 for (const path of memoryFiles.keys()) {
-                    if (path.startsWith(`${scratch}${sep}`)) {memoryFiles.delete(path);}
+                    if (path.startsWith(`${scratch}${sep}`)) {
+                        memoryFiles.delete(path);
+                    }
                 }
             },
         });
@@ -542,14 +510,16 @@ describe('scan cleanup raster batch renderer', () => {
             pageNumber: index + 1,
         }));
 
-        await expect(renderBatch({
-            dpi: 150,
-            log: vi.fn(),
-            pdftoppmBinary: '/pdftoppm',
-            signal: new AbortController().signal,
-            sourcePdfPath: '/source.pdf',
-            targets,
-        })).resolves.toHaveLength(1_024);
+        await expect(
+            renderBatch({
+                dpi: 150,
+                log: vi.fn(),
+                pdftoppmBinary: '/pdftoppm',
+                signal: new AbortController().signal,
+                sourcePdfPath: '/source.pdf',
+                targets,
+            }),
+        ).resolves.toHaveLength(1_024);
         expect(runCommand).toHaveBeenCalledOnce();
         for (const target of targets) {
             expect(await readPublishedPixels(target.outputPath)).toEqual(PUBLISHED_PIXEL);
@@ -560,17 +530,7 @@ describe('scan cleanup raster batch renderer', () => {
         const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-raster-batch-ppm-preview-'));
         roots.push(root);
         const retainedPath = join(root, 'page-1-150.png');
-        const ppm = Buffer.concat([
-            Buffer.from('P6\n2 1\n255\n', 'ascii'),
-            Buffer.from([
-                12,
-                34,
-                56,
-                200,
-                150,
-                100,
-            ]),
-        ]);
+        const ppm = Buffer.concat([Buffer.from('P6\n2 1\n255\n', 'ascii'), Buffer.from([12, 34, 56, 200, 150, 100])]);
         await writeFile(retainedPath, ppm);
         const deps = {
             open: (path: string, flags: 'r') => fsOpen(path, flags),
@@ -594,14 +554,7 @@ describe('scan cleanup raster batch renderer', () => {
             width: 2,
             height: 1,
             channels: 3,
-            pixels: [
-                12,
-                34,
-                56,
-                200,
-                150,
-                100,
-            ],
+            pixels: [12, 34, 56, 200, 150, 100],
         });
     });
 
@@ -619,10 +572,7 @@ describe('scan cleanup raster batch renderer', () => {
             state = (Math.imul(state, 1_664_525) + 1_013_904_223) >>> 0;
             pixels[index] = state >>> 24;
         }
-        await writeFile(retainedPath, Buffer.concat([
-            header,
-            pixels,
-        ]));
+        await writeFile(retainedPath, Buffer.concat([header, pixels]));
         const readFileSpy = vi.fn((path: string) => readFile(path));
         const deps = {
             open: (path: string, flags: 'r') => fsOpen(path, flags),
@@ -635,7 +585,7 @@ describe('scan cleanup raster batch renderer', () => {
         const encodePromise = readPreviewBytes(retainedPath, deps).finally(() => {
             finished = true;
         });
-        await new Promise<void>(resolve => {
+        await new Promise<void>((resolve) => {
             setTimeout(() => {
                 timerFiredBeforeCompletion = !finished;
                 resolve();
@@ -651,11 +601,13 @@ describe('scan cleanup raster batch renderer', () => {
         expect(decoded.channels).toBe(3);
         expect(Buffer.compare(Buffer.from(decoded.data), pixels)).toBe(0);
 
-        await expect(encodePngFromPpm(retainedPath, {
-            maxPixels: width * height,
-            maxDimensionPx: width,
-            maxOutputBytes: 1_024,
-            open: (path: string, flags: 'r') => fsOpen(path, flags),
-        })).rejects.toThrow('Encoded PNG exceeds 1024 bytes');
+        await expect(
+            encodePngFromPpm(retainedPath, {
+                maxPixels: width * height,
+                maxDimensionPx: width,
+                maxOutputBytes: 1_024,
+                open: (path: string, flags: 'r') => fsOpen(path, flags),
+            }),
+        ).rejects.toThrow('Encoded PNG exceeds 1024 bytes');
     });
 });

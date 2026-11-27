@@ -2,10 +2,7 @@ import {stat} from 'node:fs/promises';
 import {resolve} from 'node:path';
 
 import {detectDjvuHasText} from '@electron/features/djvu/main/textSearch';
-import {
-    abortErrorFromSignal,
-    createAbortError,
-} from '@electron/utils/abort';
+import {abortErrorFromSignal, createAbortError} from '@electron/utils/abort';
 
 interface ITextCapabilityCacheEntry {
     fingerprint: string;
@@ -26,13 +23,7 @@ const inFlightTasksByFingerprint = new Map<string, ITextCapabilityTask>();
 
 async function getFileFingerprint(filePath: string) {
     const fileStat = await stat(filePath, {bigint: true});
-    return [
-        fileStat.dev,
-        fileStat.ino,
-        fileStat.size,
-        fileStat.mtimeNs,
-        fileStat.ctimeNs,
-    ].join(':');
+    return [fileStat.dev, fileStat.ino, fileStat.size, fileStat.mtimeNs, fileStat.ctimeNs].join(':');
 }
 
 function getCachedCapability(normalizedPath: string, fingerprint: string) {
@@ -51,11 +42,7 @@ function getCachedCapability(normalizedPath: string, fingerprint: string) {
     return cached.hasText;
 }
 
-function cacheCapability(
-    normalizedPath: string,
-    fingerprint: string,
-    hasText: boolean,
-) {
+function cacheCapability(normalizedPath: string, fingerprint: string, hasText: boolean) {
     cachedCapabilitiesByPath.delete(normalizedPath);
     cachedCapabilitiesByPath.set(normalizedPath, {
         fingerprint,
@@ -70,11 +57,7 @@ function cacheCapability(
     }
 }
 
-function createTextCapabilityTask(
-    normalizedPath: string,
-    fingerprint: string,
-    taskKey: string,
-) {
+function createTextCapabilityTask(normalizedPath: string, fingerprint: string, taskKey: string) {
     const abortController = new AbortController();
     const task: ITextCapabilityTask = {
         abortController,
@@ -82,16 +65,15 @@ function createTextCapabilityTask(
         promise: Promise.resolve(false),
         settled: false,
     };
-    const scanPromise = detectDjvuHasText(normalizedPath, abortController.signal)
-        .then(async (hasText) => {
-            // Do not publish a result produced while the source was being replaced.
-            // The current caller may still use it, but the next request must rescan.
-            const finalFingerprint = await getFileFingerprint(normalizedPath).catch(() => null);
-            if (finalFingerprint === fingerprint) {
-                cacheCapability(normalizedPath, fingerprint, hasText);
-            }
-            return hasText;
-        });
+    const scanPromise = detectDjvuHasText(normalizedPath, abortController.signal).then(async (hasText) => {
+        // Do not publish a result produced while the source was being replaced.
+        // The current caller may still use it, but the next request must rescan.
+        const finalFingerprint = await getFileFingerprint(normalizedPath).catch(() => null);
+        if (finalFingerprint === fingerprint) {
+            cacheCapability(normalizedPath, fingerprint, hasText);
+        }
+        return hasText;
+    });
     task.promise = scanPromise.then(
         (hasText) => {
             task.settled = true;
@@ -112,10 +94,7 @@ function createTextCapabilityTask(
     return task;
 }
 
-async function consumeTextCapabilityTask(
-    task: ITextCapabilityTask,
-    signal?: AbortSignal,
-) {
+async function consumeTextCapabilityTask(task: ITextCapabilityTask, signal?: AbortSignal) {
     if (signal?.aborted) {
         throw abortErrorFromSignal(signal);
     }
@@ -124,17 +103,12 @@ async function consumeTextCapabilityTask(
     let handleAbort: (() => void) | undefined;
     const abortPromise = signal
         ? new Promise<never>((_resolve, reject) => {
-            handleAbort = () => reject(abortErrorFromSignal(signal));
-            signal.addEventListener('abort', handleAbort, {once: true});
-        })
+              handleAbort = () => reject(abortErrorFromSignal(signal));
+              signal.addEventListener('abort', handleAbort, {once: true});
+          })
         : null;
     try {
-        return await (abortPromise
-            ? Promise.race([
-                task.promise,
-                abortPromise,
-            ])
-            : task.promise);
+        return await (abortPromise ? Promise.race([task.promise, abortPromise]) : task.promise);
     } finally {
         if (signal && handleAbort) {
             signal.removeEventListener('abort', handleAbort);

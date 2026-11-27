@@ -1,13 +1,6 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { toPdfScaledCssLength } from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
-import {
-    closeChromiumBrowser,
-    connectOrLaunchChromium,
-} from './browserIntegrationChromium';
+import {describe, expect, it} from 'vitest';
+import {toPdfScaledCssLength} from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
+import {closeChromiumBrowser, connectOrLaunchChromium} from './browserIntegrationChromium';
 
 describe('PDF stroke scale in Chromium', () => {
     it('repaints an SVG stroke when only the live page scale variable changes', async () => {
@@ -43,14 +36,8 @@ describe('PDF stroke scale in Chromium', () => {
                 return {
                     initialWidth,
                     updatedWidth,
-                    initialSize: [
-                        initialRect.width,
-                        initialRect.height,
-                    ],
-                    updatedSize: [
-                        updatedRect.width,
-                        updatedRect.height,
-                    ],
+                    initialSize: [initialRect.width, initialRect.height],
+                    updatedSize: [updatedRect.width, updatedRect.height],
                 };
             }, toPdfScaledCssLength(2));
 

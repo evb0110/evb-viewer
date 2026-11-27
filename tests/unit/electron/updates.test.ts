@@ -1,41 +1,22 @@
 // @vitest-environment happy-dom
-import {
-    afterAll,
-    afterEach,
-    beforeAll,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    ref, computed, watch, onScopeDispose, effectScope, nextTick,
-} from 'vue';
-import {
-    execFileSync, spawnSync,
-} from 'node:child_process';
-import {
-    chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync,
-} from 'node:fs';
+import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi} from 'vitest';
+import {ref, computed, watch, onScopeDispose, effectScope, nextTick} from 'vue';
+import {execFileSync, spawnSync} from 'node:child_process';
+import {chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
-import {
-    dirname, join,
-} from 'node:path';
+import {dirname, join} from 'node:path';
 import {createRequire} from 'node:module';
 import {randomUUID} from 'node:crypto';
 import {pathToFileURL} from 'node:url';
 import type * as UpdatesOwner from '@electron/updates';
 import type {useAppUpdates} from '@app/composables/useAppUpdates';
-import type { IAppUpdateStatus } from '@contracts/updatesPlatformFeature';
-import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
-import type { IPlatformApi } from '@contracts/platformApi';
-import { createShutdownCoordinator } from '@electron/bootstrap/shutdown';
+import type {IAppUpdateStatus} from '@contracts/updatesPlatformFeature';
+import {createElectronPlatformApiFixture} from '@tests/helpers/createElectronPlatformApiFixture';
+import type {IPlatformApi} from '@contracts/platformApi';
+import {createShutdownCoordinator} from '@electron/bootstrap/shutdown';
 
 type TMockSettings = Record<string, unknown>;
-type TMockSettingsUpdater = (
-    settings: TMockSettings,
-) => Partial<TMockSettings> | undefined | Promise<Partial<TMockSettings> | undefined>;
+type TMockSettingsUpdater = (settings: TMockSettings) => Partial<TMockSettings> | undefined | Promise<Partial<TMockSettings> | undefined>;
 interface IMockPendingUpdateStartup {
     installationApplied: boolean;
     installRequestedAt: number;
@@ -131,9 +112,9 @@ const mocks = vi.hoisted(() => {
             const patch = await updater(settings);
             return patch && typeof patch === 'object'
                 ? {
-                    ...settings,
-                    ...patch,
-                }
+                      ...settings,
+                      ...patch,
+                  }
                 : settings;
         }),
     };
@@ -150,13 +131,17 @@ vi.mock('electron-updater', () => ({
     default: {autoUpdater: mocks.autoUpdater},
 }));
 
-vi.mock('@electron/config', () => ({config: {updates: {
-    initialDelayMs: 1_000,
-    metadataUrl: 'https://updates.example.test/latest',
-    mirrorMetadataUrl: 'https://mirror.example.test/channels/stable.json',
-    mirrorReleaseBaseUrl: 'https://mirror.example.test/releases',
-    pollIntervalMs: 60_000,
-}}}));
+vi.mock('@electron/config', () => ({
+    config: {
+        updates: {
+            initialDelayMs: 1_000,
+            metadataUrl: 'https://updates.example.test/latest',
+            mirrorMetadataUrl: 'https://mirror.example.test/channels/stable.json',
+            mirrorReleaseBaseUrl: 'https://mirror.example.test/releases',
+            pollIntervalMs: 60_000,
+        },
+    },
+}));
 
 vi.mock('@electron/settings', () => ({
     loadSettings: mocks.loadSettings,
@@ -174,10 +159,12 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger
 
 let rendererPlatform: IPlatformApi = createElectronPlatformApiFixture();
 vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => rendererPlatform}));
-vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
-    error: vi.fn(),
-    diagnostic: vi.fn(),
-}}));
+vi.mock('@app/utils/browserLogger', () => ({
+    BrowserLogger: {
+        error: vi.fn(),
+        diagnostic: vi.fn(),
+    },
+}));
 vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
 
 const originalPlatform = process.platform;
@@ -283,9 +270,9 @@ describe('updates robustness', () => {
             const patch = await updater(settings);
             return patch && typeof patch === 'object'
                 ? {
-                    ...settings,
-                    ...patch,
-                }
+                      ...settings,
+                      ...patch,
+                  }
                 : settings;
         });
         vi.stubGlobal('fetch', mocks.fetch);
@@ -307,59 +294,60 @@ describe('updates robustness', () => {
         updates.initializeUpdates(() => {});
         mocks.autoUpdater.emit('update-downloaded', {version: '1.1.0'});
         let install: (() => Promise<void>) | undefined;
-        updates.configureUpdateInstallShutdown(callback => { install = callback; });
+        updates.configureUpdateInstallShutdown((callback) => {
+            install = callback;
+        });
 
         await expect(updates.installDownloadedUpdate(requester)).resolves.toEqual({started: true});
         // ShipIt is a separate process: the mode must be persisted in native defaults.
-        expect(mocks.systemPreferences.setUserDefault).toHaveBeenCalledWith(
-            'SquirrelMacEnableDirectContentsWrite', 'boolean', true,
-        );
+        expect(mocks.systemPreferences.setUserDefault).toHaveBeenCalledWith('SquirrelMacEnableDirectContentsWrite', 'boolean', true);
         expect(install).toBeDefined();
     });
 
-    it.skipIf(originalPlatform === 'win32' || process.getuid?.() === 0)('keeps the app running and explains a non-writable macOS installation before shutdown', async () => {
-        const root = mkdtempSync(join(tmpdir(), 'evb-update-permission-'));
-        const bundle = join(root, 'EVB Viewer.app');
-        mkdirSync(join(bundle, 'Contents', 'MacOS'), {recursive: true});
-        const originalExecPath = process.execPath;
-        Object.defineProperty(process, 'execPath', {
-            configurable: true,
-            value: join(bundle, 'Contents', 'MacOS', 'EVB Viewer'),
-        });
-        chmodSync(bundle, 0o555);
-        try {
-            const updates = await loadUpdatesModule();
-            updates.initializeUpdates(() => {});
-            mocks.autoUpdater.emit('update-downloaded', {version: '1.1.0'});
-            let shutdownRequested = false;
-            updates.configureUpdateInstallShutdown(() => { shutdownRequested = true; });
-
-            await expect(updates.installDownloadedUpdate(requester)).resolves.toEqual({started: false});
-            expect(shutdownRequested).toBe(false);
-            expect(mocks.markUpdateInstallPending).not.toHaveBeenCalled();
-            expect(updates.getUpdateStatus(requester)).toMatchObject({
-                phase: 'error',
-                reason: 'install-permission-denied',
-                requestedHere: true,
-            });
-        } finally {
+    it.skipIf(originalPlatform === 'win32' || process.getuid?.() === 0)(
+        'keeps the app running and explains a non-writable macOS installation before shutdown',
+        async () => {
+            const root = mkdtempSync(join(tmpdir(), 'evb-update-permission-'));
+            const bundle = join(root, 'EVB Viewer.app');
+            mkdirSync(join(bundle, 'Contents', 'MacOS'), {recursive: true});
+            const originalExecPath = process.execPath;
             Object.defineProperty(process, 'execPath', {
                 configurable: true,
-                value: originalExecPath,
+                value: join(bundle, 'Contents', 'MacOS', 'EVB Viewer'),
             });
-            chmodSync(bundle, 0o755);
-            rmSync(root, {
-                recursive: true,
-                force: true,
-            });
-        }
-    });
+            chmodSync(bundle, 0o555);
+            try {
+                const updates = await loadUpdatesModule();
+                updates.initializeUpdates(() => {});
+                mocks.autoUpdater.emit('update-downloaded', {version: '1.1.0'});
+                let shutdownRequested = false;
+                updates.configureUpdateInstallShutdown(() => {
+                    shutdownRequested = true;
+                });
 
-    it.each([
-        'EACCES',
-        'EPERM',
-        'EROFS',
-    ])('explains native macOS installation access failure %s', async (code) => {
+                await expect(updates.installDownloadedUpdate(requester)).resolves.toEqual({started: false});
+                expect(shutdownRequested).toBe(false);
+                expect(mocks.markUpdateInstallPending).not.toHaveBeenCalled();
+                expect(updates.getUpdateStatus(requester)).toMatchObject({
+                    phase: 'error',
+                    reason: 'install-permission-denied',
+                    requestedHere: true,
+                });
+            } finally {
+                Object.defineProperty(process, 'execPath', {
+                    configurable: true,
+                    value: originalExecPath,
+                });
+                chmodSync(bundle, 0o755);
+                rmSync(root, {
+                    recursive: true,
+                    force: true,
+                });
+            }
+        },
+    );
+
+    it.each(['EACCES', 'EPERM', 'EROFS'])('explains native macOS installation access failure %s', async (code) => {
         const updates = await loadUpdatesModule();
         updates.initializeUpdates(() => {});
         updates.configureUpdateInstallShutdown(() => {});
@@ -375,34 +363,29 @@ describe('updates robustness', () => {
 
     // Post-quit installation cannot use page input. Exercise the actual shipped
     // installer with relaunch disabled and assert the installed bytes instead.
-    it.skipIf(originalPlatform !== 'darwin' || process.getuid?.() === 0)('installs with ShipIt under a non-writable parent without admin rights', async () => {
-        const root = mkdtempSync(join(tmpdir(), 'evb-shipit-permission-'));
-        const parent = join(root, 'Applications');
-        const installed = join(parent, 'EVB Viewer.app');
-        const staged = join(root, 'staged', 'EVB Viewer.app');
-        const domain = `com.evb.viewer.permission-proof.${randomUUID()}`;
-        const require = createRequire(import.meta.url);
-        const runtime = join(dirname(require.resolve('electron/package.json')), 'dist', 'Electron.app');
-        const shipit = join(runtime, 'Contents', 'Frameworks', 'Squirrel.framework', 'Resources', 'ShipIt');
-        const originalExecPath = process.execPath;
-        const nativeTemp = execFileSync('/usr/bin/getconf', ['DARWIN_USER_TEMP_DIR'], {encoding: 'utf8'}).trim();
-        try {
-            for (const [
-                bundle,
-                version,
-            ] of [
-                    [
-                        installed,
-                        '1.0.0',
-                    ],
-                    [
-                        staged,
-                        '1.1.0',
-                    ],
+    it.skipIf(originalPlatform !== 'darwin' || process.getuid?.() === 0)(
+        'installs with ShipIt under a non-writable parent without admin rights',
+        async () => {
+            const root = mkdtempSync(join(tmpdir(), 'evb-shipit-permission-'));
+            const parent = join(root, 'Applications');
+            const installed = join(parent, 'EVB Viewer.app');
+            const staged = join(root, 'staged', 'EVB Viewer.app');
+            const domain = `com.evb.viewer.permission-proof.${randomUUID()}`;
+            const require = createRequire(import.meta.url);
+            const runtime = join(dirname(require.resolve('electron/package.json')), 'dist', 'Electron.app');
+            const shipit = join(runtime, 'Contents', 'Frameworks', 'Squirrel.framework', 'Resources', 'ShipIt');
+            const originalExecPath = process.execPath;
+            const nativeTemp = execFileSync('/usr/bin/getconf', ['DARWIN_USER_TEMP_DIR'], {encoding: 'utf8'}).trim();
+            try {
+                for (const [bundle, version] of [
+                    [installed, '1.0.0'],
+                    [staged, '1.1.0'],
                 ] as const) {
-                mkdirSync(join(bundle, 'Contents', 'MacOS'), {recursive: true});
-                copyFileSync('/usr/bin/true', join(bundle, 'Contents', 'MacOS', 'EVB Viewer'));
-                writeFileSync(join(bundle, 'Contents', 'Info.plist'), `<?xml version="1.0" encoding="UTF-8"?>
+                    mkdirSync(join(bundle, 'Contents', 'MacOS'), {recursive: true});
+                    copyFileSync('/usr/bin/true', join(bundle, 'Contents', 'MacOS', 'EVB Viewer'));
+                    writeFileSync(
+                        join(bundle, 'Contents', 'Info.plist'),
+                        `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>CFBundleIdentifier</key><string>${domain}</string>
@@ -410,97 +393,78 @@ describe('updates robustness', () => {
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleVersion</key><string>${version}</string>
 <key>CFBundleShortVersionString</key><string>${version}</string>
-</dict></plist>`);
-                mkdirSync(join(bundle, 'Contents', 'Resources'));
-                writeFileSync(join(bundle, 'Contents', 'Resources', 'version'), version);
-                execFileSync('/usr/bin/codesign', [
-                    '--force',
-                    '--sign',
-                    '-',
-                    '--requirements',
-                    `=designated => identifier "${domain}"`,
-                    bundle,
-                ], {stdio: 'pipe'});
-            }
-            chmodSync(parent, 0o555);
-            const parentBefore = statSync(parent);
-            Object.defineProperty(process, 'execPath', {
-                configurable: true,
-                value: join(installed, 'Contents', 'MacOS', 'EVB Viewer'),
-            });
-            mocks.systemPreferences.setUserDefault.mockImplementation((key: string, _type: string, value: boolean) => {
-                execFileSync('/usr/bin/defaults', [
-                    'write',
-                    domain,
-                    key,
-                    '-bool',
-                    String(value),
-                ]);
-            });
-            const updates = await loadUpdatesModule();
-            updates.initializeUpdates(() => {});
-            updates.configureUpdateInstallShutdown(() => {});
-            mocks.autoUpdater.emit('update-downloaded', {version: '1.1.0'});
-            await expect(updates.installDownloadedUpdate(requester)).resolves.toEqual({started: true});
-            const state = join(root, 'ShipItState.json');
-            writeFileSync(state, JSON.stringify({
-                updateBundleURL: pathToFileURL(staged).href,
-                targetBundleURL: pathToFileURL(installed).href,
-                bundleIdentifier: null,
-                launchAfterInstallation: false,
-                useUpdateBundleName: false,
-            }));
-            const result = spawnSync(shipit, [
-                `${domain}.ShipIt`,
-                state,
-            ], {
-                encoding: 'utf8',
-                timeout: 30_000,
-            });
-            expect(result.stderr).toContain('Installation completed successfully');
-            expect(result.status).toBe(0);
-            expect(readFileSync(join(installed, 'Contents', 'Resources', 'version'), 'utf8')).toBe('1.1.0');
-            expect(statSync(parent).mode).toBe(parentBefore.mode);
-            expect(statSync(parent).ino).toBe(parentBefore.ino);
-            execFileSync('/usr/bin/codesign', [
-                '--verify',
-                '--deep',
-                '--strict',
-                installed,
-            ], {stdio: 'pipe'});
-        } finally {
-            Object.defineProperty(process, 'execPath', {
-                configurable: true,
-                value: originalExecPath,
-            });
-            mocks.systemPreferences.setUserDefault.mockReset();
-            for (const identifier of [
-                domain,
-                `${domain}.ShipIt`,
-            ]) {
-                spawnSync('/usr/bin/defaults', [
-                    'delete',
-                    identifier,
-                ]);
-                spawnSync('/usr/bin/defaults', [
-                    '-currentHost',
-                    'delete',
-                    identifier,
-                ]);
-            }
-            for (const entry of readdirSync(nativeTemp)) {
-                if (entry.startsWith(`${domain}.ShipIt.`)) {rmSync(join(nativeTemp, entry), {
+</dict></plist>`,
+                    );
+                    mkdirSync(join(bundle, 'Contents', 'Resources'));
+                    writeFileSync(join(bundle, 'Contents', 'Resources', 'version'), version);
+                    execFileSync(
+                        '/usr/bin/codesign',
+                        ['--force', '--sign', '-', '--requirements', `=designated => identifier "${domain}"`, bundle],
+                        {stdio: 'pipe'},
+                    );
+                }
+                chmodSync(parent, 0o555);
+                const parentBefore = statSync(parent);
+                Object.defineProperty(process, 'execPath', {
+                    configurable: true,
+                    value: join(installed, 'Contents', 'MacOS', 'EVB Viewer'),
+                });
+                mocks.systemPreferences.setUserDefault.mockImplementation((key: string, _type: string, value: boolean) => {
+                    execFileSync('/usr/bin/defaults', ['write', domain, key, '-bool', String(value)]);
+                });
+                const updates = await loadUpdatesModule();
+                updates.initializeUpdates(() => {});
+                updates.configureUpdateInstallShutdown(() => {});
+                mocks.autoUpdater.emit('update-downloaded', {version: '1.1.0'});
+                await expect(updates.installDownloadedUpdate(requester)).resolves.toEqual({started: true});
+                const state = join(root, 'ShipItState.json');
+                writeFileSync(
+                    state,
+                    JSON.stringify({
+                        updateBundleURL: pathToFileURL(staged).href,
+                        targetBundleURL: pathToFileURL(installed).href,
+                        bundleIdentifier: null,
+                        launchAfterInstallation: false,
+                        useUpdateBundleName: false,
+                    }),
+                );
+                const result = spawnSync(shipit, [`${domain}.ShipIt`, state], {
+                    encoding: 'utf8',
+                    timeout: 30_000,
+                });
+                expect(result.stderr).toContain('Installation completed successfully');
+                expect(result.status).toBe(0);
+                expect(readFileSync(join(installed, 'Contents', 'Resources', 'version'), 'utf8')).toBe('1.1.0');
+                expect(statSync(parent).mode).toBe(parentBefore.mode);
+                expect(statSync(parent).ino).toBe(parentBefore.ino);
+                execFileSync('/usr/bin/codesign', ['--verify', '--deep', '--strict', installed], {stdio: 'pipe'});
+            } finally {
+                Object.defineProperty(process, 'execPath', {
+                    configurable: true,
+                    value: originalExecPath,
+                });
+                mocks.systemPreferences.setUserDefault.mockReset();
+                for (const identifier of [domain, `${domain}.ShipIt`]) {
+                    spawnSync('/usr/bin/defaults', ['delete', identifier]);
+                    spawnSync('/usr/bin/defaults', ['-currentHost', 'delete', identifier]);
+                }
+                for (const entry of readdirSync(nativeTemp)) {
+                    if (entry.startsWith(`${domain}.ShipIt.`)) {
+                        rmSync(join(nativeTemp, entry), {
+                            recursive: true,
+                            force: true,
+                        });
+                    }
+                }
+                chmodSync(parent, 0o755);
+                rmSync(root, {
                     recursive: true,
                     force: true,
-                });}
+                });
             }
-            chmodSync(parent, 0o755);
-            rmSync(root, {
-                recursive: true,
-                force: true,
-            });
-        }
-    }, 45_000);
+        },
+        45_000,
+    );
 
     it('reports the canonical runtime version before updater initialization completes', async () => {
         const updates = await loadUpdatesModule();
@@ -512,9 +476,7 @@ describe('updates robustness', () => {
     });
 
     it('retries updater support after a transient macOS signature-check result', async () => {
-        mocks.checkMacCodeSignature
-            .mockResolvedValueOnce(null)
-            .mockResolvedValueOnce(true);
+        mocks.checkMacCodeSignature.mockResolvedValueOnce(null).mockResolvedValueOnce(true);
         mocks.fetch.mockResolvedValue(createMetadataResponse('1.0.0'));
 
         const updates = await loadUpdatesModule();
@@ -539,13 +501,14 @@ describe('updates robustness', () => {
 
         const updates = await loadUpdatesModule();
         const statuses: Array<Record<string, unknown>> = [];
-        updates.initializeUpdates(statusFor => statuses.push({...updates.projectUpdateStatusForWindow(statusFor, requester.senderId)}));
+        updates.initializeUpdates((statusFor) => statuses.push({...updates.projectUpdateStatusForWindow(statusFor, requester.senderId)}));
 
         await updates.triggerManualUpdateCheck(requester);
 
         expect(statuses.at(-1)).toMatchObject({
             phase: 'error',
-            message: 'Update check failed: Release rollout metadata failed (https://updates.example.test/latest: GET https://[redacted]@updates.example.test:8443/latest?channel=[redacted]&token=[redacted]#[redacted] failed)',
+            message:
+                'Update check failed: Release rollout metadata failed (https://updates.example.test/latest: GET https://[redacted]@updates.example.test:8443/latest?channel=[redacted]&token=[redacted]#[redacted] failed)',
         });
     });
 
@@ -557,13 +520,10 @@ describe('updates robustness', () => {
         await updates.triggerManualUpdateCheck(requester);
         await flushPromises();
 
-        expect(mocks.logger.error).toHaveBeenCalledWith(
-            'Update check failed: updater rejected the feed',
-            {
-                code: 'MAIN_UPDATE_CHECK_FAILED',
-                cause: expect.any(Error),
-            },
-        );
+        expect(mocks.logger.error).toHaveBeenCalledWith('Update check failed: updater rejected the feed', {
+            code: 'MAIN_UPDATE_CHECK_FAILED',
+            cause: expect.any(Error),
+        });
     });
 
     it.each([
@@ -579,9 +539,7 @@ describe('updates robustness', () => {
             error: new DOMException('Metadata deadline elapsed', 'TimeoutError'),
             reason: 'check-timed-out',
         },
-    ])('keeps metadata $reason localized and at warning level without an occurrence', async ({
-        error, reason,
-    }) => {
+    ])('keeps metadata $reason localized and at warning level without an occurrence', async ({error, reason}) => {
         mocks.fetch.mockRejectedValue(error);
 
         const updates = await loadUpdatesModule();
@@ -593,9 +551,7 @@ describe('updates robustness', () => {
             reason,
         });
         expect(mocks.logger.error).not.toHaveBeenCalled();
-        expect(mocks.logger.warn).toHaveBeenCalledWith(
-            expect.stringContaining(error.message),
-        );
+        expect(mocks.logger.warn).toHaveBeenCalledWith(expect.stringContaining(error.message));
     });
 
     it('surfaces a failed install when the old application version is relaunched', async () => {
@@ -609,7 +565,7 @@ describe('updates robustness', () => {
 
         const updates = await loadUpdatesModule();
         const statuses: Array<Record<string, unknown>> = [];
-        updates.initializeUpdates(statusFor => statuses.push({ ...updates.projectUpdateStatusForWindow(statusFor, requester.senderId) }));
+        updates.initializeUpdates((statusFor) => statuses.push({...updates.projectUpdateStatusForWindow(statusFor, requester.senderId)}));
         await flushPromises();
 
         expect(statuses.at(-1)).toMatchObject({
@@ -631,14 +587,14 @@ describe('updates robustness', () => {
         mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
         mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
             mocks.autoUpdater.emit('checking-for-update');
-            mocks.autoUpdater.emit('update-not-available', { version: '1.0.0' });
+            mocks.autoUpdater.emit('update-not-available', {version: '1.0.0'});
         });
 
         const updates = await loadUpdatesModule();
         const statuses: Array<Record<string, unknown>> = [];
 
         updates.initializeUpdates((statusFor) => {
-            statuses.push({ ...updates.projectUpdateStatusForWindow(statusFor, requester.senderId) });
+            statuses.push({...updates.projectUpdateStatusForWindow(statusFor, requester.senderId)});
         });
 
         await vi.advanceTimersByTimeAsync(1_000);
@@ -688,12 +644,12 @@ describe('updates robustness', () => {
         mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
         mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
             mocks.autoUpdater.emit('checking-for-update');
-            mocks.autoUpdater.emit('update-available', { version: '1.1.0' });
+            mocks.autoUpdater.emit('update-available', {version: '1.1.0'});
         });
 
         const updates = await loadUpdatesModule();
         const statuses: Array<Record<string, unknown>> = [];
-        updates.initializeUpdates(statusFor => statuses.push({ ...updates.projectUpdateStatusForWindow(statusFor, requester.senderId) }));
+        updates.initializeUpdates((statusFor) => statuses.push({...updates.projectUpdateStatusForWindow(statusFor, requester.senderId)}));
 
         await updates.triggerManualUpdateCheck(requester);
         await flushPromises();
@@ -724,7 +680,7 @@ describe('updates robustness', () => {
         });
         const updates = await loadUpdatesModule();
         const statuses: Array<Record<string, unknown>> = [];
-        updates.initializeUpdates(statusFor => statuses.push({...updates.projectUpdateStatusForWindow(statusFor, requester.senderId)}));
+        updates.initializeUpdates((statusFor) => statuses.push({...updates.projectUpdateStatusForWindow(statusFor, requester.senderId)}));
 
         await updates.triggerManualUpdateCheck(requester);
 
@@ -737,10 +693,7 @@ describe('updates robustness', () => {
         });
     });
 
-    it.each([
-        'x64',
-        'arm64',
-    ])('checks the matching Windows %s feed', async (arch) => {
+    it.each(['x64', 'arm64'])('checks the matching Windows %s feed', async (arch) => {
         Object.defineProperty(process, 'platform', {
             configurable: true,
             value: 'win32',
@@ -755,13 +708,11 @@ describe('updates robustness', () => {
         });
         const updates = await loadUpdatesModule();
         const statuses: Array<Record<string, unknown>> = [];
-        updates.initializeUpdates(statusFor => statuses.push({...updates.projectUpdateStatusForWindow(statusFor, requester.senderId)}));
+        updates.initializeUpdates((statusFor) => statuses.push({...updates.projectUpdateStatusForWindow(statusFor, requester.senderId)}));
         await updates.triggerManualUpdateCheck(requester);
         expect(mocks.autoUpdater.checkForUpdates).toHaveBeenCalledOnce();
         expect(mocks.checkMacCodeSignature).not.toHaveBeenCalled();
-        expect(mocks.fetch).toHaveBeenCalledWith(
-            expect.stringContaining(`/latest-win-${arch}.yml`), expect.anything(),
-        );
+        expect(mocks.fetch).toHaveBeenCalledWith(expect.stringContaining(`/latest-win-${arch}.yml`), expect.anything());
         expect(mocks.autoUpdater.setFeedURL).toHaveBeenCalledWith({
             provider: 'generic',
             url: 'https://github.com/evb0110/evb-viewer/releases/download/v1.1.0',
@@ -783,9 +734,12 @@ describe('updates robustness', () => {
         mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
             mocks.autoUpdater.emit('update-available', {version: '1.1.0'});
         });
-        mocks.autoUpdater.downloadUpdate.mockImplementation(() => new Promise<void>((resolve) => {
-            finishDownload = resolve;
-        }));
+        mocks.autoUpdater.downloadUpdate.mockImplementation(
+            () =>
+                new Promise<void>((resolve) => {
+                    finishDownload = resolve;
+                }),
+        );
         const updates = await loadUpdatesModule();
         updates.initializeUpdates(() => undefined);
         await updates.triggerManualUpdateCheck(requester);
@@ -827,13 +781,13 @@ describe('updates robustness', () => {
             if (callNumber === 1) {
                 return new Promise<void>((resolve) => {
                     resolveAutoCheck = () => {
-                        mocks.autoUpdater.emit('update-not-available', { version: '1.0.0' });
+                        mocks.autoUpdater.emit('update-not-available', {version: '1.0.0'});
                         resolve();
                     };
                 });
             }
 
-            mocks.autoUpdater.emit('update-not-available', { version: '1.0.0' });
+            mocks.autoUpdater.emit('update-not-available', {version: '1.0.0'});
             return Promise.resolve();
         });
 
@@ -841,7 +795,7 @@ describe('updates robustness', () => {
         const statuses: Array<Record<string, unknown>> = [];
 
         updates.initializeUpdates((statusFor) => {
-            statuses.push({ ...updates.projectUpdateStatusForWindow(statusFor, requester.senderId) });
+            statuses.push({...updates.projectUpdateStatusForWindow(statusFor, requester.senderId)});
         });
 
         await vi.advanceTimersByTimeAsync(1_000);
@@ -876,14 +830,8 @@ describe('updates robustness', () => {
         const updates = await loadUpdatesModule();
         const pushedTo = new Map<number, Array<Record<string, unknown>>>();
         updates.initializeUpdates((statusFor) => {
-            for (const senderId of [
-                requester.senderId,
-                2,
-            ]) {
-                pushedTo.set(senderId, [
-                    ...(pushedTo.get(senderId) ?? []),
-                    {...updates.projectUpdateStatusForWindow(statusFor, senderId)},
-                ]);
+            for (const senderId of [requester.senderId, 2]) {
+                pushedTo.set(senderId, [...(pushedTo.get(senderId) ?? []), {...updates.projectUpdateStatusForWindow(statusFor, senderId)}]);
             }
         });
 
@@ -909,7 +857,7 @@ describe('updates robustness', () => {
             mocks.autoUpdater.emit('checking-for-update');
             return new Promise<void>((resolve) => {
                 resolveCheck = () => {
-                    mocks.autoUpdater.emit('update-not-available', { version: '1.0.0' });
+                    mocks.autoUpdater.emit('update-not-available', {version: '1.0.0'});
                     resolve();
                 };
             });
@@ -918,15 +866,8 @@ describe('updates robustness', () => {
         const updates = await loadUpdatesModule();
         const pushedTo = new Map<number, Array<Record<string, unknown>>>();
         updates.initializeUpdates((statusFor) => {
-            for (const senderId of [
-                requester.senderId,
-                2,
-                3,
-            ]) {
-                pushedTo.set(senderId, [
-                    ...(pushedTo.get(senderId) ?? []),
-                    {...updates.projectUpdateStatusForWindow(statusFor, senderId)},
-                ]);
+            for (const senderId of [requester.senderId, 2, 3]) {
+                pushedTo.set(senderId, [...(pushedTo.get(senderId) ?? []), {...updates.projectUpdateStatusForWindow(statusFor, senderId)}]);
             }
         });
 
@@ -946,10 +887,7 @@ describe('updates robustness', () => {
 
         const completeCheck = resolveCheck as (() => void) | null;
         completeCheck?.();
-        await Promise.all([
-            firstRequest,
-            secondRequest,
-        ]);
+        await Promise.all([firstRequest, secondRequest]);
         await vi.advanceTimersByTimeAsync(0);
 
         expect(pushedTo.get(requester.senderId)?.at(-1)).toMatchObject({
@@ -1007,15 +945,15 @@ describe('updates robustness', () => {
         mocks.fetch.mockResolvedValue(createMetadataResponse('1.2.0'));
         mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
             mocks.autoUpdater.emit('checking-for-update');
-            mocks.autoUpdater.emit('update-available', { version: '1.2.0' });
-            mocks.autoUpdater.emit('update-downloaded', { version: '1.2.0' });
+            mocks.autoUpdater.emit('update-available', {version: '1.2.0'});
+            mocks.autoUpdater.emit('update-downloaded', {version: '1.2.0'});
         });
 
         const updates = await loadUpdatesModule();
         const statuses: Array<Record<string, unknown>> = [];
 
         updates.initializeUpdates((statusFor) => {
-            statuses.push({ ...updates.projectUpdateStatusForWindow(statusFor, requester.senderId) });
+            statuses.push({...updates.projectUpdateStatusForWindow(statusFor, requester.senderId)});
         });
 
         await updates.triggerManualUpdateCheck(requester);
@@ -1038,7 +976,7 @@ describe('updates robustness', () => {
         mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
         mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
             mocks.autoUpdater.emit('checking-for-update');
-            mocks.autoUpdater.emit('update-not-available', { version: '1.0.0' });
+            mocks.autoUpdater.emit('update-not-available', {version: '1.0.0'});
         });
 
         const updates = await loadUpdatesModule();
@@ -1061,7 +999,7 @@ describe('updates robustness', () => {
     });
 
     it('does not use the mirror as an alternate release authority', async () => {
-        mocks.fetch.mockImplementation(async (url: string, init?: { method?: string }) => {
+        mocks.fetch.mockImplementation(async (url: string, init?: {method?: string}) => {
             if (url === 'https://updates.example.test/latest') {
                 throw new Error('landing blocked');
             }
@@ -1078,7 +1016,7 @@ describe('updates robustness', () => {
         });
         mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
             mocks.autoUpdater.emit('checking-for-update');
-            mocks.autoUpdater.emit('update-available', { version: '1.1.0' });
+            mocks.autoUpdater.emit('update-available', {version: '1.1.0'});
         });
 
         const updates = await loadUpdatesModule();
@@ -1091,7 +1029,7 @@ describe('updates robustness', () => {
     });
 
     it('keeps a cached downloaded update when a newer release has no updater metadata', async () => {
-        mocks.fetch.mockImplementation(async (_url: string, init?: { method?: string }) => {
+        mocks.fetch.mockImplementation(async (_url: string, init?: {method?: string}) => {
             if (init?.method === 'HEAD') {
                 return createEmptyResponse(200);
             }
@@ -1099,15 +1037,15 @@ describe('updates robustness', () => {
         });
         mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
             mocks.autoUpdater.emit('checking-for-update');
-            mocks.autoUpdater.emit('update-available', { version: '1.1.0' });
-            mocks.autoUpdater.emit('update-downloaded', { version: '1.1.0' });
+            mocks.autoUpdater.emit('update-available', {version: '1.1.0'});
+            mocks.autoUpdater.emit('update-downloaded', {version: '1.1.0'});
         });
 
         const updates = await loadUpdatesModule();
         const statuses: Array<Record<string, unknown>> = [];
 
         updates.initializeUpdates((statusFor) => {
-            statuses.push({ ...updates.projectUpdateStatusForWindow(statusFor, requester.senderId) });
+            statuses.push({...updates.projectUpdateStatusForWindow(statusFor, requester.senderId)});
         });
 
         await updates.triggerManualUpdateCheck(requester);
@@ -1118,7 +1056,7 @@ describe('updates robustness', () => {
             version: '1.1.0',
         });
 
-        mocks.fetch.mockImplementation(async (_url: string, init?: { method?: string }) => {
+        mocks.fetch.mockImplementation(async (_url: string, init?: {method?: string}) => {
             if (init?.method === 'HEAD') {
                 return createEmptyResponse(404);
             }
@@ -1141,7 +1079,7 @@ describe('updates robustness', () => {
 
     it('skips the updater feed when the latest macOS release has no latest-mac.yml', async () => {
         mocks.app.getVersion.mockReturnValue('1.0.0');
-        mocks.fetch.mockImplementation(async (_url: string, init?: { method?: string }) => {
+        mocks.fetch.mockImplementation(async (_url: string, init?: {method?: string}) => {
             if (init?.method === 'HEAD') {
                 return createEmptyResponse(404);
             }
@@ -1152,16 +1090,14 @@ describe('updates robustness', () => {
         const statuses: Array<Record<string, unknown>> = [];
 
         updates.initializeUpdates((statusFor) => {
-            statuses.push({ ...updates.projectUpdateStatusForWindow(statusFor, requester.senderId) });
+            statuses.push({...updates.projectUpdateStatusForWindow(statusFor, requester.senderId)});
         });
 
         await updates.triggerManualUpdateCheck(requester);
         await flushPromises();
 
         expect(mocks.autoUpdater.checkForUpdates).not.toHaveBeenCalled();
-        expect(mocks.logger.info).toHaveBeenCalledWith(
-            'Release 1.1.0 has no latest-mac.yml updater feed; skipping in-app updater check',
-        );
+        expect(mocks.logger.info).toHaveBeenCalledWith('Release 1.1.0 has no latest-mac.yml updater feed; skipping in-app updater check');
         expect(statuses.at(-1)).toMatchObject({
             origin: 'manual',
             phase: 'error',
@@ -1182,10 +1118,7 @@ describe('updates robustness', () => {
             github: 'rejected',
             mirror: 404,
         },
-    ])('keeps one feed error inconclusive when the other feed is $name', async ({
-        github,
-        mirror,
-    }) => {
+    ])('keeps one feed error inconclusive when the other feed is $name', async ({github, mirror}) => {
         mocks.fetch.mockImplementation(async (url: string, init?: {method?: string}) => {
             if (url === 'https://updates.example.test/latest') {
                 return createMetadataResponse('1.1.0');
@@ -1203,7 +1136,7 @@ describe('updates robustness', () => {
 
         const updates = await loadUpdatesModule();
         const statuses: Array<Record<string, unknown>> = [];
-        updates.initializeUpdates(statusFor => statuses.push({...updates.projectUpdateStatusForWindow(statusFor, requester.senderId)}));
+        updates.initializeUpdates((statusFor) => statuses.push({...updates.projectUpdateStatusForWindow(statusFor, requester.senderId)}));
 
         await updates.triggerManualUpdateCheck(requester);
         await flushPromises();
@@ -1226,39 +1159,44 @@ describe('updates robustness', () => {
             setTimeout(() => controller.abort(), delayMs);
             return controller.signal;
         });
-        mocks.fetch.mockImplementation((url: string, init?: {
-            method?: string;
-            signal?: AbortSignal;
-        }) => {
-            if (url === 'https://updates.example.test/latest') {
-                return Promise.resolve(createMetadataResponse('1.1.0'));
-            }
-            if (init?.method !== 'HEAD') {
-                return Promise.reject(new Error(`Unexpected request: ${url}`));
-            }
-            feedProbeCalls += 1;
-            if (feedProbeCalls === 1) {
-                return new Promise((resolve, reject) => {
-                    const signal = init.signal;
-                    firstFeedSignal = signal ?? null;
-                    const abort = () => {
-                        firstFeedAborted = true;
-                        reject(new DOMException('The operation was aborted.', 'AbortError'));
-                    };
-                    if (signal?.aborted) {
-                        abort();
-                    } else {
-                        signal?.addEventListener('abort', abort, {once: true});
-                    }
-                    lateProbe.promise.then(resolve);
-                });
-            }
-            return Promise.resolve(createEmptyResponse(404));
-        });
+        mocks.fetch.mockImplementation(
+            (
+                url: string,
+                init?: {
+                    method?: string;
+                    signal?: AbortSignal;
+                },
+            ) => {
+                if (url === 'https://updates.example.test/latest') {
+                    return Promise.resolve(createMetadataResponse('1.1.0'));
+                }
+                if (init?.method !== 'HEAD') {
+                    return Promise.reject(new Error(`Unexpected request: ${url}`));
+                }
+                feedProbeCalls += 1;
+                if (feedProbeCalls === 1) {
+                    return new Promise((resolve, reject) => {
+                        const signal = init.signal;
+                        firstFeedSignal = signal ?? null;
+                        const abort = () => {
+                            firstFeedAborted = true;
+                            reject(new DOMException('The operation was aborted.', 'AbortError'));
+                        };
+                        if (signal?.aborted) {
+                            abort();
+                        } else {
+                            signal?.addEventListener('abort', abort, {once: true});
+                        }
+                        lateProbe.promise.then(resolve);
+                    });
+                }
+                return Promise.resolve(createEmptyResponse(404));
+            },
+        );
 
         const updates = await loadUpdatesModule();
         const statuses: Array<Record<string, unknown>> = [];
-        updates.initializeUpdates(statusFor => statuses.push({...updates.projectUpdateStatusForWindow(statusFor, requester.senderId)}));
+        updates.initializeUpdates((statusFor) => statuses.push({...updates.projectUpdateStatusForWindow(statusFor, requester.senderId)}));
 
         const firstCheck = updates.triggerManualUpdateCheck(requester);
         await flushPromises();
@@ -1301,20 +1239,17 @@ describe('updates robustness', () => {
         });
     });
 
-    it.each([
-        '1.0.0',
-        '0.9.9',
-    ])('discards a stale downloaded %s event and performs the next check normally', async (staleVersion) => {
+    it.each(['1.0.0', '0.9.9'])('discards a stale downloaded %s event and performs the next check normally', async (staleVersion) => {
         mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
         mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
             mocks.autoUpdater.emit('checking-for-update');
-            mocks.autoUpdater.emit('update-available', { version: '1.1.0' });
-            mocks.autoUpdater.emit('update-downloaded', { version: staleVersion });
+            mocks.autoUpdater.emit('update-available', {version: '1.1.0'});
+            mocks.autoUpdater.emit('update-downloaded', {version: staleVersion});
         });
 
         const updates = await loadUpdatesModule();
         const statuses: Array<Record<string, unknown>> = [];
-        updates.initializeUpdates(statusFor => statuses.push({ ...updates.projectUpdateStatusForWindow(statusFor, requester.senderId) }));
+        updates.initializeUpdates((statusFor) => statuses.push({...updates.projectUpdateStatusForWindow(statusFor, requester.senderId)}));
 
         await updates.triggerManualUpdateCheck(requester);
         await flushPromises();
@@ -1331,7 +1266,7 @@ describe('updates robustness', () => {
 
         mocks.autoUpdater.checkForUpdates.mockImplementationOnce(async () => {
             mocks.autoUpdater.emit('checking-for-update');
-            mocks.autoUpdater.emit('update-not-available', { version: '1.0.0' });
+            mocks.autoUpdater.emit('update-not-available', {version: '1.0.0'});
         });
         await updates.triggerManualUpdateCheck(requester);
         await flushPromises();
@@ -1343,8 +1278,8 @@ describe('updates robustness', () => {
         mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
         mocks.autoUpdater.checkForUpdates.mockImplementationOnce(async () => {
             mocks.autoUpdater.emit('checking-for-update');
-            mocks.autoUpdater.emit('update-available', { version: '1.1.0' });
-            mocks.autoUpdater.emit('update-downloaded', { version: '1.1.0' });
+            mocks.autoUpdater.emit('update-available', {version: '1.1.0'});
+            mocks.autoUpdater.emit('update-downloaded', {version: '1.1.0'});
         });
 
         const updates = await loadUpdatesModule();
@@ -1356,23 +1291,21 @@ describe('updates robustness', () => {
         mocks.fetch.mockResolvedValue(createMetadataResponse('1.2.0'));
         mocks.autoUpdater.checkForUpdates.mockImplementationOnce(async () => {
             mocks.autoUpdater.emit('checking-for-update');
-            mocks.autoUpdater.emit('update-not-available', { version: '1.1.0' });
+            mocks.autoUpdater.emit('update-not-available', {version: '1.1.0'});
         });
         await updates.triggerManualUpdateCheck(requester);
         await flushPromises();
 
         expect(mocks.autoUpdater.checkForUpdates).toHaveBeenCalledTimes(2);
-        expect(mocks.logger.warn).toHaveBeenCalledWith(
-            'Discarding downloaded update 1.1.0 during update check; running version is 1.1.0',
-        );
+        expect(mocks.logger.warn).toHaveBeenCalledWith('Discarding downloaded update 1.1.0 during update check; running version is 1.1.0');
     });
 
     it('clears a downloaded candidate that became current before installation', async () => {
         mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
         mocks.autoUpdater.checkForUpdates.mockImplementationOnce(async () => {
             mocks.autoUpdater.emit('checking-for-update');
-            mocks.autoUpdater.emit('update-available', { version: '1.1.0' });
-            mocks.autoUpdater.emit('update-downloaded', { version: '1.1.0' });
+            mocks.autoUpdater.emit('update-available', {version: '1.1.0'});
+            mocks.autoUpdater.emit('update-downloaded', {version: '1.1.0'});
         });
 
         const updates = await loadUpdatesModule();
@@ -1398,7 +1331,7 @@ describe('updates robustness', () => {
         mocks.autoUpdater.downloadUpdate.mockRejectedValueOnce(new Error('damaged download'));
         const updates = await loadUpdatesModule();
         const terminal = Promise.withResolvers<undefined>();
-        updates.initializeUpdates(statusFor => {
+        updates.initializeUpdates((statusFor) => {
             if (updates.projectUpdateStatusForWindow(statusFor, requester.senderId).phase === 'error') {
                 terminal.resolve(undefined);
             }
@@ -1425,8 +1358,8 @@ describe('updates robustness', () => {
         mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
         mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
             mocks.autoUpdater.emit('checking-for-update');
-            mocks.autoUpdater.emit('update-available', { version: '1.1.0' });
-            mocks.autoUpdater.emit('update-downloaded', { version: '1.1.0' });
+            mocks.autoUpdater.emit('update-available', {version: '1.1.0'});
+            mocks.autoUpdater.emit('update-downloaded', {version: '1.1.0'});
         });
 
         const updates = await loadUpdatesModule();
@@ -1459,10 +1392,7 @@ describe('updates robustness', () => {
         await install();
         expect(mocks.markUpdateInstallPending).toHaveBeenCalledWith('1.1.0');
         expect(mocks.autoUpdater.quitAndInstall).toHaveBeenCalledWith(false, true);
-        expect(installOrder).toEqual([
-            'marker',
-            'quit',
-        ]);
+        expect(installOrder).toEqual(['marker', 'quit']);
     });
 
     it('does not install an update whose settings write finishes after system shutdown starts', async () => {
@@ -1487,7 +1417,7 @@ describe('updates robustness', () => {
             runPreservationSteps: () => preservation.promise,
             runBestEffortCleanupSteps: async () => {},
         });
-        updates.configureUpdateInstallShutdown(install => coordinator.requestGracefulQuit({afterCleanup: install}));
+        updates.configureUpdateInstallShutdown((install) => coordinator.requestGracefulQuit({afterCleanup: install}));
         updates.initializeUpdates(() => undefined);
         await updates.triggerManualUpdateCheck(requester);
         await flushPromises();
@@ -1513,8 +1443,8 @@ describe('updates robustness', () => {
         mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
         mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
             mocks.autoUpdater.emit('checking-for-update');
-            mocks.autoUpdater.emit('update-available', { version: '1.1.0' });
-            mocks.autoUpdater.emit('update-downloaded', { version: '1.1.0' });
+            mocks.autoUpdater.emit('update-available', {version: '1.1.0'});
+            mocks.autoUpdater.emit('update-downloaded', {version: '1.1.0'});
         });
 
         const updates = await loadUpdatesModule();
@@ -1531,8 +1461,8 @@ describe('updates robustness', () => {
         mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
         mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
             mocks.autoUpdater.emit('checking-for-update');
-            mocks.autoUpdater.emit('update-available', { version: '1.1.0' });
-            mocks.autoUpdater.emit('update-downloaded', { version: '1.1.0' });
+            mocks.autoUpdater.emit('update-available', {version: '1.1.0'});
+            mocks.autoUpdater.emit('update-downloaded', {version: '1.1.0'});
         });
 
         const updates = await loadUpdatesModule();
@@ -1557,8 +1487,8 @@ describe('updates robustness', () => {
         mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
         mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
             mocks.autoUpdater.emit('checking-for-update');
-            mocks.autoUpdater.emit('update-available', { version: '1.1.0' });
-            mocks.autoUpdater.emit('update-downloaded', { version: '1.1.0' });
+            mocks.autoUpdater.emit('update-available', {version: '1.1.0'});
+            mocks.autoUpdater.emit('update-downloaded', {version: '1.1.0'});
         });
 
         const updates = await loadUpdatesModule();
@@ -1579,8 +1509,8 @@ describe('updates robustness', () => {
         mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
         mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
             mocks.autoUpdater.emit('checking-for-update');
-            mocks.autoUpdater.emit('update-available', { version: '1.1.0' });
-            mocks.autoUpdater.emit('update-downloaded', { version: '1.1.0' });
+            mocks.autoUpdater.emit('update-available', {version: '1.1.0'});
+            mocks.autoUpdater.emit('update-downloaded', {version: '1.1.0'});
         });
 
         const updates = await loadUpdatesModule();
@@ -1611,8 +1541,8 @@ describe('updates robustness', () => {
         mocks.markUpdateInstallPending.mockRejectedValueOnce(new Error('disk is read-only'));
         mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
             mocks.autoUpdater.emit('checking-for-update');
-            mocks.autoUpdater.emit('update-available', { version: '1.1.0' });
-            mocks.autoUpdater.emit('update-downloaded', { version: '1.1.0' });
+            mocks.autoUpdater.emit('update-available', {version: '1.1.0'});
+            mocks.autoUpdater.emit('update-downloaded', {version: '1.1.0'});
         });
 
         const updates = await loadUpdatesModule();
@@ -1655,7 +1585,7 @@ describe('updates robustness', () => {
             runPreservationSteps: async () => {},
             runBestEffortCleanupSteps: async () => {},
         });
-        updates.configureUpdateInstallShutdown(install => coordinator.requestGracefulQuit({afterCleanup: install}));
+        updates.configureUpdateInstallShutdown((install) => coordinator.requestGracefulQuit({afterCleanup: install}));
         updates.initializeUpdates(() => undefined);
         await updates.triggerManualUpdateCheck(requester);
         await flushPromises();
@@ -1678,20 +1608,18 @@ describe('updates robustness', () => {
         const response = new Response('{"release":{"tag":"1.1.0"}}', {headers: {'content-length': String(16 * 1024 + 1)}});
         mocks.fetch.mockResolvedValue(response);
 
-        await expect(metadata.fetchLatestReleaseMetadataVersion(
-            'https://updates.example.test/latest',
-            mocks.logger,
-        )).rejects.toThrow('maximum allowed response size');
+        await expect(metadata.fetchLatestReleaseMetadataVersion('https://updates.example.test/latest', mocks.logger)).rejects.toThrow(
+            'maximum allowed response size',
+        );
 
         mocks.fetch.mockResolvedValue(new Response(new Uint8Array(16 * 1024 + 1)));
-        await expect(metadata.fetchLatestReleaseMetadataVersion(
-            'https://updates.example.test/latest',
-            mocks.logger,
-        )).rejects.toThrow('maximum allowed response size');
+        await expect(metadata.fetchLatestReleaseMetadataVersion('https://updates.example.test/latest', mocks.logger)).rejects.toThrow(
+            'maximum allowed response size',
+        );
     });
 
     it('throttles download progress and installs after the approved download completes', async () => {
-        mocks.fetch.mockImplementation(async (_url: string, init?: { method?: string }) => {
+        mocks.fetch.mockImplementation(async (_url: string, init?: {method?: string}) => {
             if (init?.method === 'HEAD') {
                 return createEmptyResponse(200);
             }
@@ -1699,7 +1627,7 @@ describe('updates robustness', () => {
         });
         mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
             mocks.autoUpdater.emit('checking-for-update');
-            mocks.autoUpdater.emit('update-available', { version: '1.1.0' });
+            mocks.autoUpdater.emit('update-available', {version: '1.1.0'});
         });
 
         const downloaded = Promise.withResolvers<string[]>();
@@ -1712,7 +1640,7 @@ describe('updates robustness', () => {
         });
 
         updates.initializeUpdates((statusFor) => {
-            statuses.push({ ...updates.projectUpdateStatusForWindow(statusFor, requester.senderId) });
+            statuses.push({...updates.projectUpdateStatusForWindow(statusFor, requester.senderId)});
         });
 
         await updates.triggerManualUpdateCheck(requester);
@@ -1720,9 +1648,9 @@ describe('updates robustness', () => {
 
         expect(updates.downloadAvailableUpdate(requester)).toEqual({started: true});
 
-        mocks.autoUpdater.emit('download-progress', { percent: 10 });
-        mocks.autoUpdater.emit('download-progress', { percent: 25 });
-        mocks.autoUpdater.emit('download-progress', { percent: 50 });
+        mocks.autoUpdater.emit('download-progress', {percent: 10});
+        mocks.autoUpdater.emit('download-progress', {percent: 25});
+        mocks.autoUpdater.emit('download-progress', {percent: 50});
         await flushPromises();
 
         expect(statuses).toHaveLength(4);
@@ -1743,7 +1671,7 @@ describe('updates robustness', () => {
             percent: 50,
         });
 
-        mocks.autoUpdater.emit('update-downloaded', { version: '1.1.0' });
+        mocks.autoUpdater.emit('update-downloaded', {version: '1.1.0'});
         downloaded.resolve([]);
         await vi.advanceTimersByTimeAsync(0);
 
@@ -1757,11 +1685,9 @@ describe('updates robustness', () => {
     });
     function fanout(updates: Awaited<ReturnType<typeof loadUpdatesModule>>) {
         const events: IAppUpdateStatus[][] = [];
-        updates.initializeUpdates(statusFor => events.push([
-            1,
-            2,
-            3,
-        ].map(id => ({...updates.projectUpdateStatusForWindow(statusFor, id)}))));
+        updates.initializeUpdates((statusFor) =>
+            events.push([1, 2, 3].map((id) => ({...updates.projectUpdateStatusForWindow(statusFor, id)}))),
+        );
         return events;
     }
     it('publishes one failure restricted to the asker when check rejects', async () => {
@@ -1772,51 +1698,60 @@ describe('updates robustness', () => {
             mocks.autoUpdater.emit('error', failure);
             throw failure;
         });
-        const updates = await loadUpdatesModule(); const events = fanout(updates);
+        const updates = await loadUpdatesModule();
+        const events = fanout(updates);
         await updates.triggerManualUpdateCheck({senderId: 1});
-        const errors = events.filter(e => e[0]!.phase === 'error');
+        const errors = events.filter((e) => e[0]!.phase === 'error');
 
         expect(errors.length).toBe(1);
-        expect(errors.every(e => e[0]!.requestedHere === true && e[1]!.requestedHere === false && e[2]!.requestedHere === false)).toBe(true);
+        expect(errors.every((e) => e[0]!.requestedHere === true && e[1]!.requestedHere === false && e[2]!.requestedHere === false)).toBe(
+            true,
+        );
     });
     it('publishes one failure restricted to the asker when download rejects', async () => {
         mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
-        mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {mocks.autoUpdater.emit('update-available',{version:'1.1.0'});});
-        const updates = await loadUpdatesModule(); const events = fanout(updates);
-        await updates.triggerManualUpdateCheck({senderId:1});
+        mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
+            mocks.autoUpdater.emit('update-available', {version: '1.1.0'});
+        });
+        const updates = await loadUpdatesModule();
+        const events = fanout(updates);
+        await updates.triggerManualUpdateCheck({senderId: 1});
         const failure = new Error('download transport failed');
-        mocks.autoUpdater.downloadUpdate.mockImplementation(async () => {mocks.autoUpdater.emit('error',failure);throw failure;});
-        updates.downloadAvailableUpdate({senderId:1});
+        mocks.autoUpdater.downloadUpdate.mockImplementation(async () => {
+            mocks.autoUpdater.emit('error', failure);
+            throw failure;
+        });
+        updates.downloadAvailableUpdate({senderId: 1});
         await vi.advanceTimersByTimeAsync(0);
-        const errors=events.filter(e=>e[0]!.phase==='error');
+        const errors = events.filter((e) => e[0]!.phase === 'error');
         expect(errors.length).toBe(1);
-        expect(errors.every(e=>e[1]!.requestedHere===false && e[2]!.requestedHere===false)).toBe(true);
+        expect(errors.every((e) => e[1]!.requestedHere === false && e[2]!.requestedHere === false)).toBe(true);
     });
     it('registers a second window asking during an in-flight download', async () => {
         mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
-        mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {mocks.autoUpdater.emit('update-available',{version:'1.1.0'});});
-        const updates=await loadUpdatesModule();const events=fanout(updates);
-        await updates.triggerManualUpdateCheck({senderId:1});
-        const {
-            promise: gate, resolve: release,
-        } = Promise.withResolvers<undefined>();
-        mocks.autoUpdater.downloadUpdate.mockImplementation(async () => {await gate; const failure = new Error('download failed'); mocks.autoUpdater.emit('error', failure); throw failure;});
-        updates.downloadAvailableUpdate({senderId:1});await flushPromises();
-        const joined=updates.downloadAvailableUpdate({senderId:2});
+        mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
+            mocks.autoUpdater.emit('update-available', {version: '1.1.0'});
+        });
+        const updates = await loadUpdatesModule();
+        const events = fanout(updates);
+        await updates.triggerManualUpdateCheck({senderId: 1});
+        const {promise: gate, resolve: release} = Promise.withResolvers<undefined>();
+        mocks.autoUpdater.downloadUpdate.mockImplementation(async () => {
+            await gate;
+            const failure = new Error('download failed');
+            mocks.autoUpdater.emit('error', failure);
+            throw failure;
+        });
+        updates.downloadAvailableUpdate({senderId: 1});
+        await flushPromises();
+        const joined = updates.downloadAvailableUpdate({senderId: 2});
         const progress = events.at(-1)!;
-        release(undefined);await vi.advanceTimersByTimeAsync(0);
-        const result=events.find(event => event[0]!.phase === 'error')!;
-        expect(progress.map(s => s.requestedHere)).toEqual([
-            true,
-            true,
-            false,
-        ]);
+        release(undefined);
+        await vi.advanceTimersByTimeAsync(0);
+        const result = events.find((event) => event[0]!.phase === 'error')!;
+        expect(progress.map((s) => s.requestedHere)).toEqual([true, true, false]);
         expect(joined).toEqual({started: true});
-        expect(result.map(s=>s.requestedHere)).toEqual([
-            true,
-            true,
-            false,
-        ]);
+        expect(result.map((s) => s.requestedHere)).toEqual([true, true, false]);
     });
     it('publishes one result when two windows start the same check together', async () => {
         mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
@@ -1825,145 +1760,123 @@ describe('updates robustness', () => {
         });
         const owner = await loadUpdatesModule();
         const events = fanout(owner);
-        await Promise.all([
-            owner.triggerManualUpdateCheck({senderId: 1}),
-            owner.triggerManualUpdateCheck({senderId: 2}),
-        ]);
-        const results = events.filter(event => event[0]!.phase === 'available');
+        await Promise.all([owner.triggerManualUpdateCheck({senderId: 1}), owner.triggerManualUpdateCheck({senderId: 2})]);
+        const results = events.filter((event) => event[0]!.phase === 'available');
         expect(results).toHaveLength(1);
-        expect(results[0]!.map(status => status.requestedHere)).toEqual([
-            true,
-            true,
-            false,
-        ]);
+        expect(results[0]!.map((status) => status.requestedHere)).toEqual([true, true, false]);
     });
 
     it('registers every window joining the same in-flight manual check', async () => {
         mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
-        const {
-            promise: gate, resolve: release,
-        } = Promise.withResolvers<undefined>();
-        mocks.autoUpdater.checkForUpdates.mockImplementation(async()=>{mocks.autoUpdater.emit('checking-for-update');await gate;mocks.autoUpdater.emit('update-not-available',{version:'1.0.0'});});
-        const updates=await loadUpdatesModule();const events=fanout(updates);
-        const a=updates.triggerManualUpdateCheck({senderId:1});
-        await vi.advanceTimersByTimeAsync(0);
-        const b=updates.triggerManualUpdateCheck({senderId:2});await flushPromises();
-        release(undefined);await Promise.all([
-            a,
-            b,
-        ]);
-
-        expect(events.at(-1)!.map(s=>s.requestedHere)).toEqual([
-            true,
-            true,
-            false,
-        ]);
-    });
-    it('keeps a closed asker from retargeting its result to surviving windows',async()=>{
-        mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
-        const {
-            promise: gate, resolve: release,
-        } = Promise.withResolvers<undefined>();
-        mocks.autoUpdater.checkForUpdates.mockImplementation(async()=>{await gate;mocks.autoUpdater.emit('update-not-available',{version:'1.0.0'});});
-        const updates=await loadUpdatesModule();const events=fanout(updates);
-        const check=updates.triggerManualUpdateCheck({senderId:99});await vi.advanceTimersByTimeAsync(0);
-        release(undefined);await check;
-        expect(events.at(-1)!.map(s=>s.requestedHere)).toEqual([
-            false,
-            false,
-            false,
-        ]);
-    });
-    it('keeps startup presentation pending until a subscribed window claims it',async()=>{
-        mocks.recordPendingUpdateStartup.mockResolvedValue({
-            installationApplied:false,
-            installRequestedAt:Date.now(),
-            pendingVersion:'1.1.0',
-            startupAttempts:1,
-            version:1,
+        const {promise: gate, resolve: release} = Promise.withResolvers<undefined>();
+        mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
+            mocks.autoUpdater.emit('checking-for-update');
+            await gate;
+            mocks.autoUpdater.emit('update-not-available', {version: '1.0.0'});
         });
-        const updates=await loadUpdatesModule();const events=fanout(updates);await vi.advanceTimersByTimeAsync(0);
-        const report=events.find(e=>e[0]!.reason==='install-failed')!;
-        expect(report.map(s=>s.requestedHere)).toEqual([
-            false,
-            false,
-            false,
-        ]);
-        expect([
-            1,
-            2,
-            3,
-        ].map(senderId => updates.getUpdateStatus({senderId}).requestedHere === true)).toEqual([
-            true,
-            false,
-            false,
-        ]);
+        const updates = await loadUpdatesModule();
+        const events = fanout(updates);
+        const a = updates.triggerManualUpdateCheck({senderId: 1});
+        await vi.advanceTimersByTimeAsync(0);
+        const b = updates.triggerManualUpdateCheck({senderId: 2});
+        await flushPromises();
+        release(undefined);
+        await Promise.all([a, b]);
+
+        expect(events.at(-1)!.map((s) => s.requestedHere)).toEqual([true, true, false]);
     });
-    it('does not consume an in-flight requester when an unrelated startup report arrives',async()=>{
-        const {
-            promise: reportGate, resolve: report,
-        } = Promise.withResolvers<IMockPendingUpdateStartup | null>();mocks.recordPendingUpdateStartup.mockImplementation(()=>reportGate);
+    it('keeps a closed asker from retargeting its result to surviving windows', async () => {
         mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
-        const {
-            promise: gate, resolve: release,
-        } = Promise.withResolvers<undefined>();
-        mocks.autoUpdater.checkForUpdates.mockImplementation(async()=>{mocks.autoUpdater.emit('checking-for-update');await gate;mocks.autoUpdater.emit('update-not-available',{version:'1.0.0'});});
-        const updates=await loadUpdatesModule();const events=fanout(updates);const check=updates.triggerManualUpdateCheck({senderId:1});
+        const {promise: gate, resolve: release} = Promise.withResolvers<undefined>();
+        mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
+            await gate;
+            mocks.autoUpdater.emit('update-not-available', {version: '1.0.0'});
+        });
+        const updates = await loadUpdatesModule();
+        const events = fanout(updates);
+        const check = updates.triggerManualUpdateCheck({senderId: 99});
+        await vi.advanceTimersByTimeAsync(0);
+        release(undefined);
+        await check;
+        expect(events.at(-1)!.map((s) => s.requestedHere)).toEqual([false, false, false]);
+    });
+    it('keeps startup presentation pending until a subscribed window claims it', async () => {
+        mocks.recordPendingUpdateStartup.mockResolvedValue({
+            installationApplied: false,
+            installRequestedAt: Date.now(),
+            pendingVersion: '1.1.0',
+            startupAttempts: 1,
+            version: 1,
+        });
+        const updates = await loadUpdatesModule();
+        const events = fanout(updates);
+        await vi.advanceTimersByTimeAsync(0);
+        const report = events.find((e) => e[0]!.reason === 'install-failed')!;
+        expect(report.map((s) => s.requestedHere)).toEqual([false, false, false]);
+        expect([1, 2, 3].map((senderId) => updates.getUpdateStatus({senderId}).requestedHere === true)).toEqual([true, false, false]);
+    });
+    it('does not consume an in-flight requester when an unrelated startup report arrives', async () => {
+        const {promise: reportGate, resolve: report} = Promise.withResolvers<IMockPendingUpdateStartup | null>();
+        mocks.recordPendingUpdateStartup.mockImplementation(() => reportGate);
+        mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
+        const {promise: gate, resolve: release} = Promise.withResolvers<undefined>();
+        mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
+            mocks.autoUpdater.emit('checking-for-update');
+            await gate;
+            mocks.autoUpdater.emit('update-not-available', {version: '1.0.0'});
+        });
+        const updates = await loadUpdatesModule();
+        const events = fanout(updates);
+        const check = updates.triggerManualUpdateCheck({senderId: 1});
         await vi.advanceTimersByTimeAsync(0);
         report({
-            installationApplied:false,
-            installRequestedAt:Date.now(),
-            pendingVersion:'1.1.0',
-            startupAttempts:1,
-            version:1,
-        });await vi.advanceTimersByTimeAsync(0);
-        const startup=events.find(e=>e[0]!.reason==='install-failed')!;release(undefined);await check;
+            installationApplied: false,
+            installRequestedAt: Date.now(),
+            pendingVersion: '1.1.0',
+            startupAttempts: 1,
+            version: 1,
+        });
+        await vi.advanceTimersByTimeAsync(0);
+        const startup = events.find((e) => e[0]!.reason === 'install-failed')!;
+        release(undefined);
+        await check;
 
         expect({
-            report:startup.map(s=>s.requestedHere),
-            check:events.at(-1)!.map(s=>s.requestedHere),
+            report: startup.map((s) => s.requestedHere),
+            check: events.at(-1)!.map((s) => s.requestedHere),
         }).toEqual({
-            report:[
-                false,
-                false,
-                false,
-            ],
-            check:[
-                true,
-                false,
-                false,
-            ],
+            report: [false, false, false],
+            check: [true, false, false],
         });
     });
 
-    async function renderers(owner: Awaited<ReturnType<typeof loadUpdatesModule>>, ids = [
-        1,
-        2,
-        3,
-    ]) {
+    async function renderers(owner: Awaited<ReturnType<typeof loadUpdatesModule>>, ids = [1, 2, 3]) {
         vi.stubGlobal('ref', ref);
         vi.stubGlobal('computed', computed);
         vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
         const listeners = new Map<number, (status: IAppUpdateStatus) => void>();
         const result: Array<ReturnType<typeof useAppUpdates>> = [];
-        owner.initializeUpdates(statusFor => {
-            for (const id of [
-                1,
-                2,
-                3,
-            ]) {
+        owner.initializeUpdates((statusFor) => {
+            for (const id of [1, 2, 3]) {
                 const projected = owner.projectUpdateStatusForWindow(statusFor, id);
                 listeners.get(id)?.(projected);
             }
         });
         for (const id of ids) {
             vi.resetModules();
-            rendererPlatform = createElectronPlatformApiFixture({updates: {
-                getState: async () => owner.getUpdateStatus({senderId: id}),
-                onStatus: listener => {listeners.set(id, listener); return () => {listeners.delete(id);};},
-                check: () => owner.triggerManualUpdateCheck({senderId: id}),
-                download: async () => owner.downloadAvailableUpdate({senderId: id}),
-            }});
+            rendererPlatform = createElectronPlatformApiFixture({
+                updates: {
+                    getState: async () => owner.getUpdateStatus({senderId: id}),
+                    onStatus: (listener) => {
+                        listeners.set(id, listener);
+                        return () => {
+                            listeners.delete(id);
+                        };
+                    },
+                    check: () => owner.triggerManualUpdateCheck({senderId: id}),
+                    download: async () => owner.downloadAvailableUpdate({senderId: id}),
+                },
+            });
             const {useAppUpdates} = await import('@app/composables/useAppUpdates');
             const ui = useAppUpdates();
             await ui.ensureInitialized();
@@ -1982,23 +1895,15 @@ describe('updates robustness', () => {
         const owner = await loadUpdatesModule();
         const ui = await renderers(owner);
         await owner.triggerManualUpdateCheck({senderId: 1});
-        expect(ui.map(window => window.dialog.value.open)).toEqual([
-            true,
-            false,
-            false,
-        ]);
+        expect(ui.map((window) => window.dialog.value.open)).toEqual([true, false, false]);
     });
 
     it('hydrates fresh windows without claiming an update or opening a dialog', async () => {
         const owner = await loadUpdatesModule();
         expect(owner.getUpdateStatus({senderId: 1}).requestedHere).not.toBe(true);
         const ui = await renderers(owner);
-        expect(ui.map(window => window.dialog.value.open)).toEqual([
-            false,
-            false,
-            false,
-        ]);
-        expect(ui.every(window => window.status.value.requestedHere !== true)).toBe(true);
+        expect(ui.map((window) => window.dialog.value.open)).toEqual([false, false, false]);
+        expect(ui.every((window) => window.status.value.requestedHere !== true)).toBe(true);
     });
 
     it('hydrates an uninvolved window with the same available offer as download events', async () => {
@@ -2144,17 +2049,15 @@ describe('updates robustness', () => {
         mocks.autoUpdater.checkForUpdates.mockImplementation(async () => mocks.autoUpdater.emit('update-available', {version: '1.1.0'}));
         const owner = await loadUpdatesModule();
         const events: IAppUpdateStatus[][] = [];
-        owner.initializeUpdates(s => events.push([
-            1,
-            2,
-            3,
-        ].map(id => owner.projectUpdateStatusForWindow(s, id))));
+        owner.initializeUpdates((s) => events.push([1, 2, 3].map((id) => owner.projectUpdateStatusForWindow(s, id))));
         await owner.triggerManualUpdateCheck({senderId: 1});
         const gate = Promise.withResolvers<undefined>();
         mocks.autoUpdater.downloadUpdate.mockImplementation(async () => {
             await gate.promise;
             const e = new Error('download failed');
-            for (let i = 0; i < 3; i++) {mocks.autoUpdater.emit('error', e);}
+            for (let i = 0; i < 3; i++) {
+                mocks.autoUpdater.emit('error', e);
+            }
             throw e;
         });
         owner.downloadAvailableUpdate({senderId: 1});
@@ -2164,81 +2067,77 @@ describe('updates robustness', () => {
         gate.resolve(undefined);
         await checking;
         await vi.advanceTimersByTimeAsync(0);
-        const errors = events.filter(e => e[0]!.phase === 'error');
+        const errors = events.filter((e) => e[0]!.phase === 'error');
         expect(errors).toHaveLength(1);
-        expect(errors[0]!.map(s => s.requestedHere)).toEqual([
-            true,
-            true,
-            false,
-        ]);
+        expect(errors[0]!.map((s) => s.requestedHere)).toEqual([true, true, false]);
     });
 
     it('closing the only download requester never retargets its failure', async () => {
         mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
-        mocks.autoUpdater.checkForUpdates.mockImplementation(async () => mocks.autoUpdater.emit('update-available', {version:'1.1.0'}));
+        mocks.autoUpdater.checkForUpdates.mockImplementation(async () => mocks.autoUpdater.emit('update-available', {version: '1.1.0'}));
         const owner = await loadUpdatesModule();
         const events: IAppUpdateStatus[][] = [];
-        owner.initializeUpdates(s => events.push([
-            2,
-            3,
-        ].map(id => owner.projectUpdateStatusForWindow(s, id))));
-        await owner.triggerManualUpdateCheck({senderId:1});
+        owner.initializeUpdates((s) => events.push([2, 3].map((id) => owner.projectUpdateStatusForWindow(s, id))));
+        await owner.triggerManualUpdateCheck({senderId: 1});
         const gate = Promise.withResolvers<undefined>();
-        mocks.autoUpdater.downloadUpdate.mockImplementation(async () => { await gate.promise; throw new Error('download failed'); });
-        owner.downloadAvailableUpdate({senderId:1});
+        mocks.autoUpdater.downloadUpdate.mockImplementation(async () => {
+            await gate.promise;
+            throw new Error('download failed');
+        });
+        owner.downloadAvailableUpdate({senderId: 1});
         await flushPromises();
         gate.resolve(undefined);
         await vi.advanceTimersByTimeAsync(0);
-        const errors = events.filter(e => e[0]!.phase === 'error');
+        const errors = events.filter((e) => e[0]!.phase === 'error');
         expect(errors).toHaveLength(1);
-        expect(errors[0]!.map(s => s.requestedHere)).toEqual([
-            false,
-            false,
-        ]);
+        expect(errors[0]!.map((s) => s.requestedHere)).toEqual([false, false]);
     });
 
     it('a window opened during a download hydrates silently and may join', async () => {
         mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
-        mocks.autoUpdater.checkForUpdates.mockImplementation(async () => mocks.autoUpdater.emit('update-available', {version:'1.1.0'}));
+        mocks.autoUpdater.checkForUpdates.mockImplementation(async () => mocks.autoUpdater.emit('update-available', {version: '1.1.0'}));
         const owner = await loadUpdatesModule();
         owner.initializeUpdates(() => {});
-        await owner.triggerManualUpdateCheck({senderId:1});
+        await owner.triggerManualUpdateCheck({senderId: 1});
         const gate = Promise.withResolvers<undefined>();
-        mocks.autoUpdater.downloadUpdate.mockImplementation(async () => { await gate.promise; throw new Error('download failed'); });
-        owner.downloadAvailableUpdate({senderId:1});
+        mocks.autoUpdater.downloadUpdate.mockImplementation(async () => {
+            await gate.promise;
+            throw new Error('download failed');
+        });
+        owner.downloadAvailableUpdate({senderId: 1});
         await flushPromises();
-        const [fresh] = await renderers(owner,[2]);
+        const [fresh] = await renderers(owner, [2]);
         expect(fresh!.dialog.value.open).toBe(false);
         await fresh!.downloadUpdate();
         gate.resolve(undefined);
         await vi.advanceTimersByTimeAsync(0);
         expect(fresh!.dialog.value).toMatchObject({
-            open:true,
-            phase:'error',
+            open: true,
+            phase: 'error',
         });
     });
 
     it('app quit cancels a download without emitting its failure', async () => {
         mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
-        mocks.autoUpdater.checkForUpdates.mockImplementation(async () => mocks.autoUpdater.emit('update-available', {version:'1.1.0'}));
+        mocks.autoUpdater.checkForUpdates.mockImplementation(async () => mocks.autoUpdater.emit('update-available', {version: '1.1.0'}));
         const owner = await loadUpdatesModule();
         const events: IAppUpdateStatus[] = [];
-        owner.initializeUpdates(s => events.push(owner.projectUpdateStatusForWindow(s, 1)));
-        await owner.triggerManualUpdateCheck({senderId:1});
+        owner.initializeUpdates((s) => events.push(owner.projectUpdateStatusForWindow(s, 1)));
+        await owner.triggerManualUpdateCheck({senderId: 1});
         const gate = Promise.withResolvers<undefined>();
-        mocks.autoUpdater.downloadUpdate.mockImplementation(async token => {
+        mocks.autoUpdater.downloadUpdate.mockImplementation(async (token) => {
             await gate.promise;
             expect(token.cancelled).toBe(true);
             const error = new Error('cancelled download');
-            mocks.autoUpdater.emit('error',error);
+            mocks.autoUpdater.emit('error', error);
             throw error;
         });
-        owner.downloadAvailableUpdate({senderId:1});
+        owner.downloadAvailableUpdate({senderId: 1});
         await flushPromises();
         const quit = owner.shutdownUpdates();
         gate.resolve(undefined);
         await quit;
-        expect(events.filter(s => s.phase === 'error')).toHaveLength(0);
+        expect(events.filter((s) => s.phase === 'error')).toHaveLength(0);
     });
 
     it('a live startup failure is presented once across three subscribed windows', async () => {
@@ -2247,88 +2146,86 @@ describe('updates robustness', () => {
         const owner = await loadUpdatesModule();
         const ui = await renderers(owner);
         marker.resolve({
-            installationApplied:false,
-            installRequestedAt:Date.now(),
-            pendingVersion:'1.1.0',
-            startupAttempts:1,
-            version:1,
+            installationApplied: false,
+            installRequestedAt: Date.now(),
+            pendingVersion: '1.1.0',
+            startupAttempts: 1,
+            version: 1,
         });
         await vi.advanceTimersByTimeAsync(0);
-        expect(ui.filter(w => w.dialog.value.open && w.dialog.value.phase === 'error')).toHaveLength(1);
+        expect(ui.filter((w) => w.dialog.value.open && w.dialog.value.phase === 'error')).toHaveLength(1);
     });
 
     it('a delayed install error remains attributed to the approving window', async () => {
         mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
-        mocks.autoUpdater.checkForUpdates.mockImplementation(async () => mocks.autoUpdater.emit('update-available', {version:'1.1.0'}));
+        mocks.autoUpdater.checkForUpdates.mockImplementation(async () => mocks.autoUpdater.emit('update-available', {version: '1.1.0'}));
         const owner = await loadUpdatesModule();
         const ui = await renderers(owner);
         let install: (() => Promise<void>) | undefined;
-        owner.configureUpdateInstallShutdown(callback => { install = callback; });
-        await owner.triggerManualUpdateCheck({senderId:1});
-        mocks.autoUpdater.downloadUpdate.mockImplementation(async () => {mocks.autoUpdater.emit('update-downloaded',{version:'1.1.0'}); return [];});
-        owner.downloadAvailableUpdate({senderId:1});
+        owner.configureUpdateInstallShutdown((callback) => {
+            install = callback;
+        });
+        await owner.triggerManualUpdateCheck({senderId: 1});
+        mocks.autoUpdater.downloadUpdate.mockImplementation(async () => {
+            mocks.autoUpdater.emit('update-downloaded', {version: '1.1.0'});
+            return [];
+        });
+        owner.downloadAvailableUpdate({senderId: 1});
         await vi.advanceTimersByTimeAsync(0);
         expect(install).toBeDefined();
         await install!();
-        mocks.autoUpdater.emit('error',new Error('Squirrel rejected the downloaded ZIP'));
-        expect(ui.map(w => w.dialog.value.open)).toEqual([
-            true,
-            false,
-            false,
-        ]);
+        mocks.autoUpdater.emit('error', new Error('Squirrel rejected the downloaded ZIP'));
+        expect(ui.map((w) => w.dialog.value.open)).toEqual([true, false, false]);
     });
 
     it('repeated native install errors have one terminal presentation', async () => {
         mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
-        mocks.autoUpdater.checkForUpdates.mockImplementation(async () => mocks.autoUpdater.emit('update-available', {version:'1.1.0'}));
+        mocks.autoUpdater.checkForUpdates.mockImplementation(async () => mocks.autoUpdater.emit('update-available', {version: '1.1.0'}));
         const owner = await loadUpdatesModule();
         const events: IAppUpdateStatus[][] = [];
-        owner.initializeUpdates(s => events.push([
-            1,
-            2,
-            3,
-        ].map(id => owner.projectUpdateStatusForWindow(s, id))));
+        owner.initializeUpdates((s) => events.push([1, 2, 3].map((id) => owner.projectUpdateStatusForWindow(s, id))));
         owner.configureUpdateInstallShutdown(() => {});
-        await owner.triggerManualUpdateCheck({senderId:1});
-        mocks.autoUpdater.downloadUpdate.mockImplementation(async () => {mocks.autoUpdater.emit('update-downloaded',{version:'1.1.0'}); return [];});
-        owner.downloadAvailableUpdate({senderId:1});
+        await owner.triggerManualUpdateCheck({senderId: 1});
+        mocks.autoUpdater.downloadUpdate.mockImplementation(async () => {
+            mocks.autoUpdater.emit('update-downloaded', {version: '1.1.0'});
+            return [];
+        });
+        owner.downloadAvailableUpdate({senderId: 1});
         await vi.advanceTimersByTimeAsync(0);
         const error = new Error('native install failed');
-        mocks.autoUpdater.emit('error',error);
-        mocks.autoUpdater.emit('error',error);
-        const failures = events.filter(e => e[0]!.phase === 'error');
+        mocks.autoUpdater.emit('error', error);
+        mocks.autoUpdater.emit('error', error);
+        const failures = events.filter((e) => e[0]!.phase === 'error');
         expect(failures).toHaveLength(1);
-        expect(failures[0]!.map(s => s.requestedHere)).toEqual([
-            true,
-            false,
-            false,
-        ]);
+        expect(failures[0]!.map((s) => s.requestedHere)).toEqual([true, false, false]);
     });
     it('a rejected download does not later reopen a ready result', async () => {
         mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
-        mocks.autoUpdater.checkForUpdates.mockImplementation(async () => mocks.autoUpdater.emit('update-available', {version:'1.1.0'}));
+        mocks.autoUpdater.checkForUpdates.mockImplementation(async () => mocks.autoUpdater.emit('update-available', {version: '1.1.0'}));
         const owner = await loadUpdatesModule();
         const ui = await renderers(owner);
         let requestedInstall = false;
-        owner.configureUpdateInstallShutdown(() => {requestedInstall = true;});
-        await owner.triggerManualUpdateCheck({senderId:1});
+        owner.configureUpdateInstallShutdown(() => {
+            requestedInstall = true;
+        });
+        await owner.triggerManualUpdateCheck({senderId: 1});
         const skipped = Promise.withResolvers<Record<string, unknown>>();
         mocks.loadSettings.mockImplementationOnce(() => skipped.promise);
         mocks.autoUpdater.downloadUpdate.mockImplementation(async () => {
             // AppUpdater.done dispatches update-downloaded before its final
             // cached-blockmap copy; that subsequent filesystem await can reject.
-            mocks.autoUpdater.emit('update-downloaded',{version:'1.1.0'});
+            mocks.autoUpdater.emit('update-downloaded', {version: '1.1.0'});
             throw new Error('EACCES copying current.blockmap after update-downloaded');
         });
-        owner.downloadAvailableUpdate({senderId:1});
+        owner.downloadAvailableUpdate({senderId: 1});
         await vi.advanceTimersByTimeAsync(0);
         const failed = {...ui[0]!.dialog.value};
         skipped.resolve({});
         await vi.advanceTimersByTimeAsync(0);
         expect(failed.phase).toBe('error');
         expect(ui[0]!.dialog.value).toMatchObject({
-            phase:'error',
-            kind:'status',
+            phase: 'error',
+            kind: 'status',
         });
         expect(requestedInstall).toBe(false);
     });
@@ -2342,46 +2239,52 @@ describe('updates robustness', () => {
         vi.stubGlobal('onScopeDispose', onScopeDispose);
         vi.doMock('@app/components/AppFailureToastDescription.vue', () => ({default: {name: 'AppFailureToastDescription'}}));
         const {useAppShellUpdatesDialog} = await import('@app/modules/workspace-shell/composables/useAppShellUpdatesDialog');
-        const toasts: Array<Array<{
-            title:string;
-            description:unknown
-        }>> = [];
-        const scopes = ui.map(w => {
+        const toasts: Array<
+            Array<{
+                title: string;
+                description: unknown;
+            }>
+        > = [];
+        const scopes = ui.map((w) => {
             const sink: Array<{
-                title:string;
-                description:unknown
+                title: string;
+                description: unknown;
             }> = [];
             toasts.push(sink);
-            vi.stubGlobal('useToast',()=>({
-                add: (t: {
-                    title: string;
-                    description: unknown
-                }) => {sink.push(t); return {id:sink.length};},
-                remove:()=>{},
+            vi.stubGlobal('useToast', () => ({
+                add: (t: {title: string; description: unknown}) => {
+                    sink.push(t);
+                    return {id: sink.length};
+                },
+                remove: () => {},
             }));
             const scope = effectScope();
-            scope.run(()=>useAppShellUpdatesDialog({
-                ...w,
-                updatesStatus:w.status,
-                updatesDialog:w.dialog,
-                updatesDialogVersion:w.dialogVersion,
-                closeUpdatesDialog:w.closeDialog,
-            }));
+            scope.run(() =>
+                useAppShellUpdatesDialog({
+                    ...w,
+                    updatesStatus: w.status,
+                    updatesDialog: w.dialog,
+                    updatesDialogVersion: w.dialogVersion,
+                    closeUpdatesDialog: w.closeDialog,
+                }),
+            );
             return scope;
         });
         try {
             marker.resolve({
-                installationApplied:false,
-                installRequestedAt:Date.now(),
-                pendingVersion:'1.1.0',
-                startupAttempts:1,
-                version:1,
+                installationApplied: false,
+                installRequestedAt: Date.now(),
+                pendingVersion: '1.1.0',
+                startupAttempts: 1,
+                version: 1,
             });
             await vi.advanceTimersByTimeAsync(0);
             await nextTick();
-            expect(toasts.flat().filter(t=>t.title==='updates.errorTitle')).toHaveLength(1);
+            expect(toasts.flat().filter((t) => t.title === 'updates.errorTitle')).toHaveLength(1);
         } finally {
-            for (const scope of scopes) {scope.stop();}
+            for (const scope of scopes) {
+                scope.stop();
+            }
             vi.doUnmock('@app/components/AppFailureToastDescription.vue');
         }
     });
@@ -2398,14 +2301,16 @@ describe('updates robustness', () => {
         const owner = await loadUpdatesModule();
         const events = fanout(owner);
         let install: (() => Promise<void>) | undefined;
-        owner.configureUpdateInstallShutdown(callback => {install = callback;});
+        owner.configureUpdateInstallShutdown((callback) => {
+            install = callback;
+        });
         await owner.triggerManualUpdateCheck({senderId: 1});
         owner.downloadAvailableUpdate({senderId: 1});
         await vi.advanceTimersByTimeAsync(0);
         await owner.shutdownUpdates();
         await install!();
         mocks.autoUpdater.emit('error', new Error('native installer failed after cleanup'));
-        expect(events.flat().filter(event => event.phase === 'error')).toEqual([]);
+        expect(events.flat().filter((event) => event.phase === 'error')).toEqual([]);
     });
 
     it('a registered window without a subscription cannot consume the startup failure', async () => {
@@ -2414,44 +2319,9 @@ describe('updates robustness', () => {
         const owner = await loadUpdatesModule();
         // The production dispatcher enumerates registered BrowserWindows, even
         // before AppShell's mounted hook subscribes (or during a renderer reload).
-        owner.initializeUpdates(snapshot => {
+        owner.initializeUpdates((snapshot) => {
             owner.projectUpdateStatusForWindow(snapshot, 1);
         });
-        marker.resolve({
-            installationApplied:false,
-            installRequestedAt:Date.now(),
-            pendingVersion:'1.1.0',
-            startupAttempts:1,
-            version:1,
-        });
-        await vi.advanceTimersByTimeAsync(0);
-        const [late] = await renderers(owner,[1]);
-        expect(late!.dialog.value).toMatchObject({
-            open:true,
-            phase:'error',
-            reason:'install-failed',
-        });
-        late!.closeDialog();
-        const later = await renderers(owner, [
-            1,
-            2,
-            3,
-        ]);
-        expect(later.map(window => window.dialog.value.open)).toEqual([
-            false,
-            false,
-            false,
-        ]);
-    });
-
-    it('lets a subscribed window claim startup failure while an earlier registered window is mounting', async () => {
-        const marker = Promise.withResolvers<IMockPendingUpdateStartup | null>();
-        mocks.recordPendingUpdateStartup.mockImplementation(() => marker.promise);
-        const owner = await loadUpdatesModule();
-        const ui = await renderers(owner, [
-            2,
-            3,
-        ]);
         marker.resolve({
             installationApplied: false,
             installRequestedAt: Date.now(),
@@ -2460,15 +2330,35 @@ describe('updates robustness', () => {
             version: 1,
         });
         await vi.advanceTimersByTimeAsync(0);
-        expect(ui.map(window => window.dialog.value.open)).toEqual([
-            true,
-            false,
-        ]);
+        const [late] = await renderers(owner, [1]);
+        expect(late!.dialog.value).toMatchObject({
+            open: true,
+            phase: 'error',
+            reason: 'install-failed',
+        });
+        late!.closeDialog();
+        const later = await renderers(owner, [1, 2, 3]);
+        expect(later.map((window) => window.dialog.value.open)).toEqual([false, false, false]);
+    });
+
+    it('lets a subscribed window claim startup failure while an earlier registered window is mounting', async () => {
+        const marker = Promise.withResolvers<IMockPendingUpdateStartup | null>();
+        mocks.recordPendingUpdateStartup.mockImplementation(() => marker.promise);
+        const owner = await loadUpdatesModule();
+        const ui = await renderers(owner, [2, 3]);
+        marker.resolve({
+            installationApplied: false,
+            installRequestedAt: Date.now(),
+            pendingVersion: '1.1.0',
+            startupAttempts: 1,
+            version: 1,
+        });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(ui.map((window) => window.dialog.value.open)).toEqual([true, false]);
         ui[0]!.closeDialog();
         const [late] = await renderers(owner, [1]);
         expect(late!.dialog.value.open).toBe(false);
     });
-
 });
 
 afterAll(() => {

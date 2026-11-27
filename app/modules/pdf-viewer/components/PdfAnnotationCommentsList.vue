@@ -1,7 +1,7 @@
 <template>
     <div
         class="notes-list-section flex flex-col gap-2"
-        :style="{ '--annotation-card-height': `${rowMetrics.rowHeightPx}px` }"
+        :style="{'--annotation-card-height': `${rowMetrics.rowHeightPx}px`}"
     >
         <div class="notes-list-header">
             <span class="notes-list-title">{{ t('annotations.annotations') }}</span>
@@ -51,7 +51,8 @@
                     v-for="detail in inventoryNoticeDetails"
                     :key="detail"
                     class="notes-inventory-notice-detail"
-                >{{ detail }}</span>
+                    >{{ detail }}</span
+                >
             </span>
         </div>
 
@@ -66,7 +67,7 @@
                     class="note-item"
                     :data-annotation-id="row.id"
                     :data-annotation-kind="row.comment.annotationKind"
-                    :class="{ 'is-active': row.active }"
+                    :class="{'is-active': row.active}"
                     :style="row.style"
                 >
                     <button
@@ -79,16 +80,34 @@
                     >
                         <span class="note-item-top">
                             <span class="note-item-page">
-                                <template v-for="(part, index) in row.pageParts" :key="`page-${row.comment.stableKey}-${index}`">
+                                <template
+                                    v-for="(part, index) in row.pageParts"
+                                    :key="`page-${row.comment.stableKey}-${index}`"
+                                >
                                     <span v-if="!part.match">{{ part.text }}</span>
-                                    <mark v-else class="note-match">{{ part.text }}</mark>
+                                    <mark
+                                        v-else
+                                        class="note-match"
+                                        >{{ part.text }}</mark
+                                    >
                                 </template>
                             </span>
                             <span class="note-item-type">
-                                <UIcon v-if="row.isStamp" name="i-ph-image" aria-hidden="true" />
-                                <template v-for="(part, index) in row.typeParts" :key="`type-${row.comment.stableKey}-${index}`">
+                                <UIcon
+                                    v-if="row.isStamp"
+                                    name="i-ph-image"
+                                    aria-hidden="true"
+                                />
+                                <template
+                                    v-for="(part, index) in row.typeParts"
+                                    :key="`type-${row.comment.stableKey}-${index}`"
+                                >
                                     <span v-if="!part.match">{{ part.text }}</span>
-                                    <mark v-else class="note-match">{{ part.text }}</mark>
+                                    <mark
+                                        v-else
+                                        class="note-match"
+                                        >{{ part.text }}</mark
+                                    >
                                 </template>
                             </span>
                             <span
@@ -116,28 +135,52 @@
                                 aria-hidden="true"
                             />
                             <span class="note-item-shape-style-text">
-                                <template v-for="(part, index) in row.shapeStyleParts" :key="`style-${row.comment.stableKey}-${index}`">
+                                <template
+                                    v-for="(part, index) in row.shapeStyleParts"
+                                    :key="`style-${row.comment.stableKey}-${index}`"
+                                >
                                     <span v-if="!part.match">{{ part.text }}</span>
-                                    <mark v-else class="note-match">{{ part.text }}</mark>
+                                    <mark
+                                        v-else
+                                        class="note-match"
+                                        >{{ part.text }}</mark
+                                    >
                                 </template>
                             </span>
                         </span>
-                        <span v-else class="note-item-text">
+                        <span
+                            v-else
+                            class="note-item-text"
+                        >
                             <span
                                 :class="row.previewClass"
                                 :style="row.previewStyle"
                             >
-                                <template v-for="(part, index) in row.previewParts" :key="`text-${row.comment.stableKey}-${index}`">
+                                <template
+                                    v-for="(part, index) in row.previewParts"
+                                    :key="`text-${row.comment.stableKey}-${index}`"
+                                >
                                     <span v-if="!part.match">{{ part.text }}</span>
-                                    <mark v-else class="note-match">{{ part.text }}</mark>
+                                    <mark
+                                        v-else
+                                        class="note-match"
+                                        >{{ part.text }}</mark
+                                    >
                                 </template>
                             </span>
                         </span>
                         <span class="note-item-meta">
                             <span>
-                                <template v-for="(part, index) in row.authorParts" :key="`author-${row.comment.stableKey}-${index}`">
+                                <template
+                                    v-for="(part, index) in row.authorParts"
+                                    :key="`author-${row.comment.stableKey}-${index}`"
+                                >
                                     <span v-if="!part.match">{{ part.text }}</span>
-                                    <mark v-else class="note-match">{{ part.text }}</mark>
+                                    <mark
+                                        v-else
+                                        class="note-match"
+                                        >{{ part.text }}</mark
+                                    >
                                 </template>
                             </span>
                             <span v-if="row.timeLabel">{{ row.timeLabel }}</span>
@@ -157,9 +200,16 @@
                                     {{ reply.author }}
                                 </span>
                                 <span class="note-item-reply-text">
-                                    <template v-for="(part, index) in reply.parts" :key="index">
+                                    <template
+                                        v-for="(part, index) in reply.parts"
+                                        :key="index"
+                                    >
                                         <span v-if="!part.match">{{ part.text }}</span>
-                                        <mark v-else class="note-match">{{ part.text }}</mark>
+                                        <mark
+                                            v-else
+                                            class="note-match"
+                                            >{{ part.text }}</mark
+                                        >
                                     </template>
                                 </span>
                             </span>
@@ -184,7 +234,10 @@
                 :title="normalizedQuery ? t('annotations.noMatchingAnnotations') : t('annotations.noAnnotationsFound')"
                 :description="normalizedQuery || incompleteInventory ? '' : t('annotations.noAnnotationsHint')"
             >
-                <template v-if="normalizedQuery" #action>
+                <template
+                    v-if="normalizedQuery"
+                    #action
+                >
                     <UButton
                         type="button"
                         class="notes-empty-clear-search"
@@ -212,16 +265,12 @@
 
 <script setup lang="ts">
 import {isFiniteNumber} from '@contracts/runtimeGuards';
-import { clamp } from 'es-toolkit/math';
-import { useVirtualList } from '@vueuse/core';
-import type {
-    IAnnotationCommentSummary,
-    IAnnotationInventoryCompleteness,
-    TAnnotationCommentsStatus,
-} from '@app/types/annotations';
+import {clamp} from 'es-toolkit/math';
+import {useVirtualList} from '@vueuse/core';
+import type {IAnnotationCommentSummary, IAnnotationInventoryCompleteness, TAnnotationCommentsStatus} from '@app/types/annotations';
 import DocumentPanelEmptyState from '@app/components/document-viewer/DocumentPanelEmptyState.vue';
-import { annotationIdForSummary } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
-import { resolveAnnotationCommentRowMetrics } from '@app/utils/pdfAnnotationCommentRowMetrics';
+import {annotationIdForSummary} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
+import {resolveAnnotationCommentRowMetrics} from '@app/utils/pdfAnnotationCommentRowMetrics';
 import {
     compareAnnotationCommentSummaries,
     getAnnotationCommentDisplayTimestamp,
@@ -229,11 +278,8 @@ import {
     matchesCommentQuery,
     splitByQueryMatches,
 } from '@app/utils/pdfAnnotationComments';
-import { isNoteEligibleComment } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isNoteEligibleComment';
-import {
-    annotationKindLabelFromSubtype,
-    isTextMarkupSubtype,
-} from '@app/services/pdf/annotationSubtype';
+import {isNoteEligibleComment} from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isNoteEligibleComment';
+import {annotationKindLabelFromSubtype, isTextMarkupSubtype} from '@app/services/pdf/annotationSubtype';
 import AppSearchInput from '@app/components/AppSearchInput.vue';
 
 interface IProps {
@@ -244,10 +290,7 @@ interface IProps {
     authorName?: string | null | undefined;
 }
 
-const {
-    t,
-    locale,
-} = useTypedI18n();
+const {t, locale} = useTypedI18n();
 
 const {
     activeCommentStableKey: activeCommentStableKeyProp = undefined,
@@ -269,10 +312,13 @@ const searchVisible = ref(false);
 const searchInputRef = useTemplateRef<{focus: () => void}>('searchInputRef');
 
 // Dates read in the app's selected language, and follow a language switch.
-const timeFormatter = computed(() => new Intl.DateTimeFormat(locale.value, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-}));
+const timeFormatter = computed(
+    () =>
+        new Intl.DateTimeFormat(locale.value, {
+            dateStyle: 'medium',
+            timeStyle: 'short',
+        }),
+);
 
 const authorName = computed(() => authorNameProp ?? null);
 const activeCommentStableKey = computed(() => activeCommentStableKeyProp ?? null);
@@ -281,22 +327,20 @@ const normalizedQuery = computed(() => query.value.trim().toLowerCase());
 const sortedComments = computed(() => comments.slice().sort(compareAnnotationCommentSummaries));
 
 const filteredComments = computed(() => {
-    return sortedComments.value.filter(comment => (
-        matchesCommentQuery(comment, normalizedQuery.value, comment.source === 'editor' ? authorName.value : null)
-        || [
-            commentTypeLabel(comment),
-            pageLabel(comment),
-            annotationPreview(comment),
-        ]
-            .some(label => label.toLowerCase().includes(normalizedQuery.value))
-    ));
+    return sortedComments.value.filter(
+        (comment) =>
+            matchesCommentQuery(comment, normalizedQuery.value, comment.source === 'editor' ? authorName.value : null) ||
+            [commentTypeLabel(comment), pageLabel(comment), annotationPreview(comment)].some((label) =>
+                label.toLowerCase().includes(normalizedQuery.value),
+            ),
+    );
 });
 
 // One authoritative scaled source for the row: the virtual stride, the rendered
 // row box and therefore the scroll offsets all come out of these metrics, so a
 // non-default UI scale can no longer make them disagree (rows overlapped by
 // ~11 px at 0.9 and gapped by ~11 px at 1.1 while the stride was hardcoded).
-const { rootFontSizePx } = useRootFontSize();
+const {rootFontSizePx} = useRootFontSize();
 const rowMetrics = computed(() => resolveAnnotationCommentRowMetrics(rootFontSizePx.value));
 const replyStatusLabels = computed<Record<string, string>>(() => ({
     'Review:Accepted': t('annotations.replyStatus.accepted'),
@@ -309,13 +353,13 @@ const replyStatusLabels = computed<Record<string, string>>(() => ({
 }));
 function replyDisplayText(reply: NonNullable<IAnnotationCommentSummary['replies']>[number]) {
     const status = replyStatusLabels.value[`${reply.stateModel ?? ''}:${reply.state ?? ''}`] ?? reply.state;
-    return [
-        status,
-        reply.contents,
-    ].filter(Boolean).join('\n');
+    return [status, reply.contents].filter(Boolean).join('\n');
 }
 function rowMetricsFor(comment: IAnnotationCommentSummary) {
-    return resolveAnnotationCommentRowMetrics(rootFontSizePx.value, (comment.replies ?? []).map(reply => ({contents: replyDisplayText(reply)})));
+    return resolveAnnotationCommentRowMetrics(
+        rootFontSizePx.value,
+        (comment.replies ?? []).map((reply) => ({contents: replyDisplayText(reply)})),
+    );
 }
 function noteItemStyle(comment: IAnnotationCommentSummary) {
     const metrics = rowMetricsFor(comment);
@@ -330,53 +374,55 @@ const {
     containerProps: commentsContainerProps,
     wrapperProps: commentsWrapperProps,
 } = useVirtualList(filteredComments, {
-    itemHeight: index => {
+    itemHeight: (index) => {
         const comment = filteredComments.value[index];
         return comment ? rowMetricsFor(comment).rowStridePx : rowMetrics.value.rowStridePx;
     },
     overscan: 6,
 });
 
-const mountedCommentRows = computed(() => virtualComments.value.map(({data: comment}) => {
-    const id = annotationIdForSummary(comment);
-    const chipKind = inlineChipKind(comment);
-    const markupKind = textMarkupKind(comment);
-    const showShapeStyle = hasShapeStylePreview(comment);
-    const shapeFillVisible = showShapeStyle && hasShapeFill(comment);
-    return {
-        comment,
-        id,
-        active: activeCommentStableKey.value === id,
-        style: noteItemStyle(comment),
-        pageParts: highlightTextParts(pageLabel(comment)),
-        isStamp: isStampSubtype(normalizedSubtype(comment)),
-        typeParts: highlightTextParts(commentTypeLabel(comment)),
-        chipClass: chipKind ? `note-item-color-chip--${chipKind}` : null,
-        chipStyle: chipKind ? inlineChipStyle(comment) : undefined,
-        chipAriaLabel: chipKind ? inlineChipAriaLabel(comment) : undefined,
-        showShapeStyle,
-        shapeStyleAriaLabel: showShapeStyle ? shapeStyleAriaLabel(comment) : undefined,
-        shapeStrokeStyle: showShapeStyle ? shapeStrokeStyle(comment) : undefined,
-        hasShapeFill: shapeFillVisible,
-        shapeFillStyle: shapeFillVisible
-            ? {
-                backgroundColor: comment.fillColor ?? undefined,
-                opacity: shapeOpacity(comment),
-            }
-            : undefined,
-        shapeStyleParts: showShapeStyle ? highlightTextParts(shapeStyleLabel(comment)) : [],
-        previewClass: !showShapeStyle && markupKind ? `note-item-text-mark note-item-text-mark--${markupKind}` : null,
-        previewStyle: !showShapeStyle && markupKind ? textMarkupStyle(comment) : undefined,
-        previewParts: showShapeStyle ? [] : highlightTextParts(annotationPreview(comment)),
-        authorParts: highlightTextParts(authorLabel(comment)),
-        timeLabel: commentTimeLabel(comment),
-        replies: (comment.replies ?? []).map((reply, replyIndex) => ({
-            key: `${comment.stableKey}-reply-${replyIndex}`,
-            author: reply.author?.trim() || t('annotations.unknownAuthor'),
-            parts: highlightTextParts(replyDisplayText(reply)),
-        })),
-    };
-}));
+const mountedCommentRows = computed(() =>
+    virtualComments.value.map(({data: comment}) => {
+        const id = annotationIdForSummary(comment);
+        const chipKind = inlineChipKind(comment);
+        const markupKind = textMarkupKind(comment);
+        const showShapeStyle = hasShapeStylePreview(comment);
+        const shapeFillVisible = showShapeStyle && hasShapeFill(comment);
+        return {
+            comment,
+            id,
+            active: activeCommentStableKey.value === id,
+            style: noteItemStyle(comment),
+            pageParts: highlightTextParts(pageLabel(comment)),
+            isStamp: isStampSubtype(normalizedSubtype(comment)),
+            typeParts: highlightTextParts(commentTypeLabel(comment)),
+            chipClass: chipKind ? `note-item-color-chip--${chipKind}` : null,
+            chipStyle: chipKind ? inlineChipStyle(comment) : undefined,
+            chipAriaLabel: chipKind ? inlineChipAriaLabel(comment) : undefined,
+            showShapeStyle,
+            shapeStyleAriaLabel: showShapeStyle ? shapeStyleAriaLabel(comment) : undefined,
+            shapeStrokeStyle: showShapeStyle ? shapeStrokeStyle(comment) : undefined,
+            hasShapeFill: shapeFillVisible,
+            shapeFillStyle: shapeFillVisible
+                ? {
+                      backgroundColor: comment.fillColor ?? undefined,
+                      opacity: shapeOpacity(comment),
+                  }
+                : undefined,
+            shapeStyleParts: showShapeStyle ? highlightTextParts(shapeStyleLabel(comment)) : [],
+            previewClass: !showShapeStyle && markupKind ? `note-item-text-mark note-item-text-mark--${markupKind}` : null,
+            previewStyle: !showShapeStyle && markupKind ? textMarkupStyle(comment) : undefined,
+            previewParts: showShapeStyle ? [] : highlightTextParts(annotationPreview(comment)),
+            authorParts: highlightTextParts(authorLabel(comment)),
+            timeLabel: commentTimeLabel(comment),
+            replies: (comment.replies ?? []).map((reply, replyIndex) => ({
+                key: `${comment.stableKey}-reply-${replyIndex}`,
+                author: reply.author?.trim() || t('annotations.unknownAuthor'),
+                parts: highlightTextParts(replyDisplayText(reply)),
+            })),
+        };
+    }),
+);
 
 // A scale change moves the stride, and the container scrolls in pixels, so the
 // same `scrollTop` addresses a different comment afterwards. Re-express the
@@ -386,25 +432,27 @@ const mountedCommentRows = computed(() => virtualComments.value.map(({data: comm
 // `onScroll` is the exposed handle on that recomputation. Post-flush, because
 // the scaled offset can exceed the scrollable extent until the taller spacer has
 // actually been laid out.
-watch(() => rowMetrics.value.rowStridePx, (nextStridePx, previousStridePx) => {
-    const container = commentsContainerProps.ref.value;
-    if (container && previousStridePx > 0) {
-        // Whole pixels, like the stride itself: the sub-pixel remainder would
-        // only re-round on the next rescale anyway.
-        container.scrollTop = Math.round(container.scrollTop * (nextStridePx / previousStridePx));
-    }
+watch(
+    () => rowMetrics.value.rowStridePx,
+    (nextStridePx, previousStridePx) => {
+        const container = commentsContainerProps.ref.value;
+        if (container && previousStridePx > 0) {
+            // Whole pixels, like the stride itself: the sub-pixel remainder would
+            // only re-round on the next rescale anyway.
+            container.scrollTop = Math.round(container.scrollTop * (nextStridePx / previousStridePx));
+        }
 
-    commentsContainerProps.onScroll();
-}, {flush: 'post'});
+        commentsContainerProps.onScroll();
+    },
+    {flush: 'post'},
+);
 
 const showLoadingState = computed(() => status === 'loading' && filteredComments.value.length === 0);
 const showEmptyState = computed(() => status === 'ready' && filteredComments.value.length === 0);
 // A background inventory that stopped short leaves annotations off this list
 // with no other signal, so the notice sits beside the loading and empty states
 // rather than replacing them.
-const incompleteInventory = computed(() => (
-    inventory && !inventory.complete ? inventory : null
-));
+const incompleteInventory = computed(() => (inventory && !inventory.complete ? inventory : null));
 const inventoryNoticeDetails = computed(() => {
     const completeness = incompleteInventory.value;
     if (!completeness) {
@@ -415,15 +463,11 @@ const inventoryNoticeDetails = computed(() => {
     if (completeness.omissions.includes('page-parse-failure')) {
         details.push(t('annotations.inventoryIncompleteUnreadablePages'));
     }
-    if (
-        completeness.omissions.includes('page-cap')
-        || completeness.omissions.includes('record-cap')
-    ) {
+    if (completeness.omissions.includes('page-cap') || completeness.omissions.includes('record-cap')) {
         details.push(t('annotations.inventoryIncompleteScanLimit'));
     }
     return details;
 });
-
 
 function clearSearch() {
     query.value = '';
@@ -457,9 +501,7 @@ function annotationPreview(comment: IAnnotationCommentSummary) {
         if (comment.annotationKind === 'placed-image' || isStampSubtype(normalizedSubtype(comment))) {
             return t('annotations.imageLabel');
         }
-        return isNoteEligibleComment(comment)
-            ? t('annotations.emptyNote')
-            : t('annotations.emptyAnnotation');
+        return isNoteEligibleComment(comment) ? t('annotations.emptyNote') : t('annotations.emptyAnnotation');
     }
 
     return text;
@@ -470,9 +512,11 @@ function hasShapeFill(comment: IAnnotationCommentSummary) {
 }
 
 function hasShapeStylePreview(comment: IAnnotationCommentSummary) {
-    return comment.source === 'shape'
-        && !getAnnotationCommentPreviewText(comment)
-        && (Boolean(comment.color) || isFiniteNumber(comment.strokeWidth) || hasShapeFill(comment));
+    return (
+        comment.source === 'shape' &&
+        !getAnnotationCommentPreviewText(comment) &&
+        (Boolean(comment.color) || isFiniteNumber(comment.strokeWidth) || hasShapeFill(comment))
+    );
 }
 
 function formatShapeStrokeWidth(comment: IAnnotationCommentSummary) {
@@ -579,9 +623,7 @@ function inlineChipStyle(comment: IAnnotationCommentSummary) {
 }
 
 function inlineChipAriaLabel(comment: IAnnotationCommentSummary) {
-    return comment.color
-        ? `${commentTypeLabel(comment)} ${comment.color}`
-        : commentTypeLabel(comment);
+    return comment.color ? `${commentTypeLabel(comment)} ${comment.color}` : commentTypeLabel(comment);
 }
 
 function authorLabel(comment: IAnnotationCommentSummary) {
@@ -590,9 +632,7 @@ function authorLabel(comment: IAnnotationCommentSummary) {
         return commentAuthor;
     }
     const configuredAuthor = comment.source === 'editor' ? authorName.value?.trim() : null;
-    return configuredAuthor && configuredAuthor.length > 0
-        ? configuredAuthor
-        : t('annotations.unknownAuthor');
+    return configuredAuthor && configuredAuthor.length > 0 ? configuredAuthor : t('annotations.unknownAuthor');
 }
 
 function pageLabel(comment: IAnnotationCommentSummary) {
@@ -624,7 +664,6 @@ function openComment(comment: IAnnotationCommentSummary) {
         emit('open-note', comment);
     }
 }
-
 </script>
 
 <style lang="scss" scoped>
@@ -995,5 +1034,4 @@ function openComment(comment: IAnnotationCommentSummary) {
     border-radius: 0.45rem;
     background: color-mix(in srgb, var(--ui-bg-muted) 70%, transparent);
 }
-
 </style>

@@ -1,27 +1,20 @@
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    resetBrowserYieldStateForTests,
-    yieldToBrowser,
-} from '@app/platform/browser-api/browserYield';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
+import {resetBrowserYieldStateForTests, yieldToBrowser} from '@app/platform/browser-api/browserYield';
 
 class FakeMessageChannel {
-    public readonly port1: { onmessage: ((event: Event) => void) | null; };
+    public readonly port1: {onmessage: ((event: Event) => void) | null};
 
-    public readonly port2: { postMessage: () => void; };
+    public readonly port2: {postMessage: () => void};
 
     public constructor() {
-        this.port1 = { onmessage: null };
-        this.port2 = { postMessage: () => {
-            queueMicrotask(() => {
-                this.port1.onmessage?.(new Event('message'));
-            });
-        } };
+        this.port1 = {onmessage: null};
+        this.port2 = {
+            postMessage: () => {
+                queueMicrotask(() => {
+                    this.port1.onmessage?.(new Event('message'));
+                });
+            },
+        };
     }
 }
 
@@ -34,7 +27,7 @@ describe('yieldToBrowser', () => {
 
     it('continues visible work when the next animation frame never arrives', async () => {
         let settled = false;
-        vi.stubGlobal('document', { visibilityState: 'visible' });
+        vi.stubGlobal('document', {visibilityState: 'visible'});
         vi.stubGlobal('requestAnimationFrame', () => 1);
         vi.stubGlobal('MessageChannel', FakeMessageChannel);
 
@@ -49,7 +42,7 @@ describe('yieldToBrowser', () => {
     });
 
     it('does not wait for an animation frame when the document is hidden', async () => {
-        vi.stubGlobal('document', { visibilityState: 'hidden' });
+        vi.stubGlobal('document', {visibilityState: 'hidden'});
         vi.stubGlobal('requestAnimationFrame', () => 1);
         vi.stubGlobal('MessageChannel', FakeMessageChannel);
 
@@ -65,7 +58,7 @@ describe('yieldToBrowser', () => {
 
     it('falls back to timers when task channels are unavailable', async () => {
         vi.useFakeTimers();
-        vi.stubGlobal('document', { visibilityState: 'hidden' });
+        vi.stubGlobal('document', {visibilityState: 'hidden'});
         vi.stubGlobal('MessageChannel', undefined);
 
         let settled = false;

@@ -1,13 +1,6 @@
-import {
-    basename,
-    extname,
-} from 'path';
-import type {
-    IPdfOptimizeOptions,
-    IPdfOptimizeProgress,
-    IDocumentMutationRevisionOptions,
-} from '@contracts/electronApiDocuments';
-import { DOCUMENT_MENU_PLATFORM_FEATURE } from '@contracts/documentsPlatformFeature';
+import {basename, extname} from 'path';
+import type {IPdfOptimizeOptions, IPdfOptimizeProgress, IDocumentMutationRevisionOptions} from '@contracts/electronApiDocuments';
+import {DOCUMENT_MENU_PLATFORM_FEATURE} from '@contracts/documentsPlatformFeature';
 import {
     assertQueuedWorkingCopyMutationPreconditions,
     ensureWorkingCopyDirectory,
@@ -16,27 +9,20 @@ import {
     requireDocumentFile,
     requireOpenDocument,
 } from '@electron/file-access/documentStore';
-import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
-import { allowOpenPath } from '@electron/file-access/openPathCapabilities';
-import { isReservedTempPath } from '@electron/utils/pathValidator';
-import { addRecentFile } from '@electron/recentFiles';
-import { updateRecentFilesMenu } from '@electron/menu';
-import { te } from '@electron/te';
-import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
-import { getErrorMessage } from '@electron/utils/error';
-import { normalizeOptionalIpcRequestId } from '@electron/utils/ipcLimits';
-import {
-    createRequestId,
-    parseRequestId,
-    type TRequestId,
-} from '@contracts/shared';
-import { createLogger } from '@electron/utils/createLogger';
-import { showSaveDialogWithExtension } from '@electron/features/documents/main/documentDialogCommon';
-import {
-    normalizePdfOptimizeOptions,
-    optimizePdfToFile,
-} from '@electron/features/documents/main/pdfOptimization';
-import type { IDocumentsDialogContext } from '@electron/features/documents/documentsContexts';
+import {enqueueWorkingCopyMutation} from '@electron/file-access/workingCopyMutationQueue';
+import {allowOpenPath} from '@electron/file-access/openPathCapabilities';
+import {isReservedTempPath} from '@electron/utils/pathValidator';
+import {addRecentFile} from '@electron/recentFiles';
+import {updateRecentFilesMenu} from '@electron/menu';
+import {te} from '@electron/te';
+import {createIpcProgressPump} from '@electron/utils/createIpcProgressPump';
+import {getErrorMessage} from '@electron/utils/error';
+import {normalizeOptionalIpcRequestId} from '@electron/utils/ipcLimits';
+import {createRequestId, parseRequestId, type TRequestId} from '@contracts/shared';
+import {createLogger} from '@electron/utils/createLogger';
+import {showSaveDialogWithExtension} from '@electron/features/documents/main/documentDialogCommon';
+import {normalizePdfOptimizeOptions, optimizePdfToFile} from '@electron/features/documents/main/pdfOptimization';
+import type {IDocumentsDialogContext} from '@electron/features/documents/documentsContexts';
 
 const logger = createLogger('documents-pdfOptimization');
 
@@ -48,16 +34,13 @@ function getSuggestedOptimizeName(workingPath: string, senderWebContentsId: numb
     return `${stem}-optimized${extension === '.pdf' ? extension : '.pdf'}`;
 }
 
-function createOptimizeProgressReporter(
-    context: IDocumentsDialogContext,
-    requestId: TRequestId,
-) {
+function createOptimizeProgressReporter(context: IDocumentsDialogContext, requestId: TRequestId) {
     const pump = createIpcProgressPump<IPdfOptimizeProgress>({
         channel: DOCUMENT_MENU_PLATFORM_FEATURE.eventChannels.onPdfOptimizeProgress,
         getTarget: () => context.sender,
-        getKey: payload => payload.requestId,
-        isTerminal: payload => payload.phase === 'complete',
-        onError: error => {
+        getKey: (payload) => payload.requestId,
+        isTerminal: (payload) => payload.phase === 'complete',
+        onError: (error) => {
             logger.debug(`Failed to send PDF optimize progress: ${getErrorMessage(error)}`);
         },
     });
@@ -81,11 +64,10 @@ export async function handleOptimizePdfAsCopy(
         throw new Error('Invalid file path');
     }
     const options = normalizePdfOptimizeOptions(rawOptions);
-    const requestId = parseRequestId(normalizeOptionalIpcRequestId(rawRequestId))
-        ?? createRequestId('pdf-optimize');
+    const requestId = parseRequestId(normalizeOptionalIpcRequestId(rawRequestId)) ?? createRequestId('pdf-optimize');
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(revisionOptions);
 
-    if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, context.senderId)) {
+    if (!(await ensureWorkingCopyDirectory(normalizedWorkingPath, context.senderId))) {
         throw new Error('Working copy path is not managed');
     }
 
@@ -111,12 +93,9 @@ export async function handleOptimizePdfAsCopy(
         throw new Error('Invalid file path: cannot save into reserved application directory');
     }
 
-    const result = await enqueueWorkingCopyMutation(normalizedWorkingPath, async operation => {
-        await assertQueuedWorkingCopyMutationPreconditions(
-            normalizedWorkingPath,
-            expectedDocumentRevisionToken,
-        );
-        if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, context.senderId)) {
+    const result = await enqueueWorkingCopyMutation(normalizedWorkingPath, async (operation) => {
+        await assertQueuedWorkingCopyMutationPreconditions(normalizedWorkingPath, expectedDocumentRevisionToken);
+        if (!(await ensureWorkingCopyDirectory(normalizedWorkingPath, context.senderId))) {
             throw new Error('Working copy path is not managed');
         }
 

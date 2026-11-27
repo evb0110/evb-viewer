@@ -1,64 +1,55 @@
-import type {
-    TMenuEventCallback,
-    TMenuEventUnsubscribe,
-} from '@contracts/electronApiCommon';
-import {
-    definePlatformFeature,
-    type TFeatureCapability,
-    type TFeatureEventMap,
-    type TFeatureInvokeMap,
-} from '@contracts/platformFeature';
+import type {TMenuEventCallback, TMenuEventUnsubscribe} from '@contracts/electronApiCommon';
+import {definePlatformFeature, type TFeatureCapability, type TFeatureEventMap, type TFeatureInvokeMap} from '@contracts/platformFeature';
 import * as v from 'valibot';
 
 const APP_UPDATE_VERSION_MAX_LENGTH = 128;
 const APP_UPDATE_MESSAGE_MAX_LENGTH = 4_096;
-const appUpdatePhaseSchema = v.picklist([
-    'idle',
-    'checking',
-    'available',
-    'downloading',
-    'downloaded',
-    'no-update',
-    'error',
-    'unsupported',
-], 'invalid app update status');
-const appUpdateStatusSchema = v.object({
-    reason: v.optional(v.picklist([
-        'check-failed',
-        'check-timed-out',
-        'network-unavailable',
-        'feed-unavailable',
-        'download-failed',
-        'install-failed',
-        'install-permission-denied',
-        'install-preparation-failed',
-        'store-updates',
-        'signed-build-required',
-        'runtime-unsupported',
-    ], 'invalid app update reason')),
-    phase: appUpdatePhaseSchema,
-    origin: v.picklist([
-        'auto',
-        'manual',
-    ], 'invalid app update status'),
-    version: v.nullable(v.pipe(
-        v.string('invalid app update status'),
-        v.maxLength(APP_UPDATE_VERSION_MAX_LENGTH, 'invalid app update status'),
-    )),
-    percent: v.nullable(v.pipe(
-        v.number('invalid app update status'),
-        v.finite('invalid app update status'),
-        v.minValue(0, 'invalid app update status'),
-        v.maxValue(100, 'invalid app update status'),
-    )),
-    message: v.nullable(v.pipe(
-        v.string('invalid app update status'),
-        v.maxLength(APP_UPDATE_MESSAGE_MAX_LENGTH, 'invalid app update status'),
-    )),
-    // Per-window presentation eligibility. Restores are silent except for an
-    // unreceived startup install failure, consumed by the first ready renderer.
-    requestedHere: v.optional(v.boolean('invalid app update status')),
-}, 'invalid app update status');
+const appUpdatePhaseSchema = v.picklist(
+    ['idle', 'checking', 'available', 'downloading', 'downloaded', 'no-update', 'error', 'unsupported'],
+    'invalid app update status',
+);
+const appUpdateStatusSchema = v.object(
+    {
+        reason: v.optional(
+            v.picklist(
+                [
+                    'check-failed',
+                    'check-timed-out',
+                    'network-unavailable',
+                    'feed-unavailable',
+                    'download-failed',
+                    'install-failed',
+                    'install-permission-denied',
+                    'install-preparation-failed',
+                    'store-updates',
+                    'signed-build-required',
+                    'runtime-unsupported',
+                ],
+                'invalid app update reason',
+            ),
+        ),
+        phase: appUpdatePhaseSchema,
+        origin: v.picklist(['auto', 'manual'], 'invalid app update status'),
+        version: v.nullable(
+            v.pipe(v.string('invalid app update status'), v.maxLength(APP_UPDATE_VERSION_MAX_LENGTH, 'invalid app update status')),
+        ),
+        percent: v.nullable(
+            v.pipe(
+                v.number('invalid app update status'),
+                v.finite('invalid app update status'),
+                v.minValue(0, 'invalid app update status'),
+                v.maxValue(100, 'invalid app update status'),
+            ),
+        ),
+        message: v.nullable(
+            v.pipe(v.string('invalid app update status'), v.maxLength(APP_UPDATE_MESSAGE_MAX_LENGTH, 'invalid app update status')),
+        ),
+        // Per-window presentation eligibility. Restores are silent except for an
+        // unreceived startup install failure, consumed by the first ready renderer.
+        requestedHere: v.optional(v.boolean('invalid app update status')),
+    },
+    'invalid app update status',
+);
 export type IAppUpdateStatus = v.InferOutput<typeof appUpdateStatusSchema>;
 export type TAppUpdateReason = NonNullable<IAppUpdateStatus['reason']>;
 export type TAppUpdateCheckOrigin = IAppUpdateStatus['origin'];
@@ -173,18 +164,21 @@ export const UPDATES_PLATFORM_FEATURE = definePlatformFeature({
             lazy: 'forwarded',
         },
     },
-    events: {onStatus: {
-        kind: 'event',
-        channel: 'updates:status',
-        payload: appUpdateStatusSchema,
-        browser: browserUnsupported,
-        lazy: 'forwarded',
-    }},
+    events: {
+        onStatus: {
+            kind: 'event',
+            channel: 'updates:status',
+            payload: appUpdateStatusSchema,
+            browser: browserUnsupported,
+            lazy: 'forwarded',
+        },
+    },
 });
 
-interface IUpdatesMenuCapability {onMenuCheckForUpdates: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;}
+interface IUpdatesMenuCapability {
+    onMenuCheckForUpdates: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
+}
 
-export type IUpdatesCapability =
-    TFeatureCapability<typeof UPDATES_PLATFORM_FEATURE> & IUpdatesMenuCapability;
+export type IUpdatesCapability = TFeatureCapability<typeof UPDATES_PLATFORM_FEATURE> & IUpdatesMenuCapability;
 export type IUpdatesInvokeMap = TFeatureInvokeMap<typeof UPDATES_PLATFORM_FEATURE>;
 export type IUpdatesEventMap = TFeatureEventMap<typeof UPDATES_PLATFORM_FEATURE>;

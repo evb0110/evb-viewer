@@ -63,10 +63,7 @@ import {
 } from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
 import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 import {createLogger} from '@electron/utils/createLogger';
-import {
-    registerMainOperation,
-    type IRegisteredMainOperation,
-} from '@electron/operation-lifecycle/mainOperationLifecycle';
+import {registerMainOperation, type IRegisteredMainOperation} from '@electron/operation-lifecycle/mainOperationLifecycle';
 import {onSenderLifetimeEnd} from '@electron/utils/onSenderLifetimeEnd';
 import {createScanCleanupDetectionSignature} from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';
 import {createScanCleanupPlacementAnchorCalibrations} from '@evb/scan-cleanup/core/createScanCleanupPlacementAnchorCalibrations';
@@ -93,10 +90,7 @@ export interface IScanCleanupActiveDetectionJob {
  */
 export interface IScanCleanupDetectionLifecycle {
     resetDelivery(deliveryKey: string): void;
-    selectUndelivered(
-        deliveryKey: string,
-        results: readonly IScanCleanupDetectionResult[],
-    ): IScanCleanupDetectionResult[];
+    selectUndelivered(deliveryKey: string, results: readonly IScanCleanupDetectionResult[]): IScanCleanupDetectionResult[];
     ownResultStore(jobId: string, store: IScanCleanupDetectionResultStore): void;
     getResultStore(jobId: string): IScanCleanupDetectionResultStore | undefined;
     takeResultStore(jobId: string): IScanCleanupDetectionResultStore | undefined;
@@ -143,30 +137,30 @@ function createScanCleanupDetectionLifecycle(): IScanCleanupDetectionLifecycle {
             activeJobs.set(ownerId, job);
         },
         clearActiveJob(ownerId, jobId) {
-            if (activeJobs.get(ownerId)?.jobId === jobId) {activeJobs.delete(ownerId);}
+            if (activeJobs.get(ownerId)?.jobId === jobId) {
+                activeJobs.delete(ownerId);
+            }
         },
         async dispose() {
             const stores = [...ownedResultStores.values()];
             ownedResultStores.clear();
-            await Promise.allSettled(stores.map(store => store.close()));
+            await Promise.allSettled(stores.map((store) => store.close()));
             deliveredResults.clear();
             activeJobs.clear();
         },
     };
 }
 
-
 export interface IScanCleanupDetectionOwner extends IScanCleanupDetectionLifecycle {
-    resolvePreviewPagePlan(sender: IScanCleanupDetectionSubscriber, request: IScanCleanupPreviewRequest): Promise<IScanCleanupPreviewRequest>;
+    resolvePreviewPagePlan(
+        sender: IScanCleanupDetectionSubscriber,
+        request: IScanCleanupPreviewRequest,
+    ): Promise<IScanCleanupPreviewRequest>;
     detectAll: (
         sender: IScanCleanupDetectionSubscriber,
         request: IScanCleanupDetectionRequest,
     ) => Promise<TScanCleanupDetectionStartResult>;
-    cancelDetection: (
-        sender: IScanCleanupDetectionSubscriber,
-        jobId: string,
-        owner: IScanCleanupOwnerContext,
-    ) => boolean;
+    cancelDetection: (sender: IScanCleanupDetectionSubscriber, jobId: string, owner: IScanCleanupOwnerContext) => boolean;
     getDetectionJobState: (
         sender: IScanCleanupDetectionSubscriber,
         jobId: string,
@@ -188,7 +182,9 @@ export function scanCleanupDetectionOwner(
     rawRasterRetention: IScanCleanupDetectionRetentionView,
 ): IScanCleanupDetectionOwner {
     const detectionLifecycle = createScanCleanupDetectionLifecycle();
-    interface IResultStoreOwnerBinding {close: () => Promise<void>;}
+    interface IResultStoreOwnerBinding {
+        close: () => Promise<void>;
+    }
     const resultStoreOwnerBindings = new Map<string, IResultStoreOwnerBinding>();
     const placementCalibrations = createScanCleanupPlacementAnchorCalibrations();
     // A completed store is evidence about one open document, so the document's
@@ -198,12 +194,15 @@ export function scanCleanupDetectionOwner(
     const retireOnWorkingCopyClose = (ownerKey: string, workingCopyPath: string) => {
         workingCopyCloseRetirements.get(ownerKey)?.complete();
         try {
-            workingCopyCloseRetirements.set(ownerKey, registerMainOperation({
-                kind: 'resource-cleanup',
-                workingCopyPath,
-                cancelOnWorkingCopyClose: true,
-                cancel: () => retireOwnerResultStore(ownerKey),
-            }));
+            workingCopyCloseRetirements.set(
+                ownerKey,
+                registerMainOperation({
+                    kind: 'resource-cleanup',
+                    workingCopyPath,
+                    cancelOnWorkingCopyClose: true,
+                    cancel: () => retireOwnerResultStore(ownerKey),
+                }),
+            );
         } catch {
             // Shutdown refuses new operations and disposes every store anyway.
             workingCopyCloseRetirements.delete(ownerKey);
@@ -217,9 +216,8 @@ export function scanCleanupDetectionOwner(
         await releaseScanCleanupDetectionResultStoreForOwner(ownerKey).finally(() => closeRetirement?.complete());
         placementCalibrations.retireUnless(isScanCleanupDetectionResultStoreRegistered);
     };
-    const rendererDetectionState = (state: TScanCleanupDetectionJobState | null) => (
-        state === null ? null : projectScanCleanupDetectionStateForRenderer(state)
-    );
+    const rendererDetectionState = (state: TScanCleanupDetectionJobState | null) =>
+        state === null ? null : projectScanCleanupDetectionStateForRenderer(state);
     const detectionDeliveryKey = (senderId: number, jobId: string) => `${senderId}\u0000${jobId}`;
     const detectionJobs = createMainJobRegistry<
         TScanCleanupDetectionJobState,
@@ -231,7 +229,7 @@ export function scanCleanupDetectionOwner(
         unbindOnSettlement: true,
         progress: {
             channel: SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onDetectionJobState,
-            getEventKey: state => state.jobId,
+            getEventKey: (state) => state.jobId,
             send: (subscriber, channel, state) => {
                 const deliveryKey = detectionDeliveryKey(subscriber.id, state.jobId);
                 if (state.status === 'queued' || state.status === 'running' || state.status === 'canceling') {
@@ -266,7 +264,7 @@ export function scanCleanupDetectionOwner(
         }),
         terminalProgress: {
             completed: completeScanCleanupDetectionJobState,
-            canceled: latest => ({
+            canceled: (latest) => ({
                 ...latest,
                 status: 'canceled',
                 updatedAtMs: createEpochMs(),
@@ -279,9 +277,7 @@ export function scanCleanupDetectionOwner(
                 // The renderer states this refusal in the user's language, so
                 // the figures behind it travel typed rather than in the
                 // English message.
-                ...(error.details?.scratchShortfall === undefined
-                    ? {}
-                    : {scratchShortfall: error.details.scratchShortfall}),
+                ...(error.details?.scratchShortfall === undefined ? {} : {scratchShortfall: error.details.scratchShortfall}),
                 updatedAtMs: createEpochMs(),
             }),
         },
@@ -292,11 +288,7 @@ export function scanCleanupDetectionOwner(
         documentRevision: owner.documentRevision,
     });
     const publicDetectionState = (snapshot: TDetectionSnapshot | null) => snapshot?.progress ?? null;
-    const subscribeDetection = (
-        sender: IScanCleanupDetectionSubscriber,
-        jobId: string,
-        owner: IScanCleanupOwnerContext,
-    ) => {
+    const subscribeDetection = (sender: IScanCleanupDetectionSubscriber, jobId: string, owner: IScanCleanupOwnerContext) => {
         // The registry pumps every state change to the job owner, so subscribing
         // only has to authorize the sender and restart its result cursor: the
         // caller is handed the whole state and must be able to rebuild from it.
@@ -307,14 +299,9 @@ export function scanCleanupDetectionOwner(
         return true;
     };
 
-    const brokerOwnerId = (
-        sender: IScanCleanupDetectionSubscriber,
-        owner: IScanCleanupOwnerContext,
-    ) => createStableJobBrokerOwnerId('scan-cleanup', sender.id, owner.ownerId);
-    const bindResultStoreOwner = (
-        sender: IScanCleanupDetectionSubscriber,
-        owner: IScanCleanupOwnerContext,
-    ) => {
+    const brokerOwnerId = (sender: IScanCleanupDetectionSubscriber, owner: IScanCleanupOwnerContext) =>
+        createStableJobBrokerOwnerId('scan-cleanup', sender.id, owner.ownerId);
+    const bindResultStoreOwner = (sender: IScanCleanupDetectionSubscriber, owner: IScanCleanupOwnerContext) => {
         const ownerKey = brokerOwnerId(sender, owner);
         if (resultStoreOwnerBindings.has(ownerKey)) {
             return;
@@ -331,7 +318,9 @@ export function scanCleanupDetectionOwner(
         };
         const stop = onSenderLifetimeEnd(sender, () => void close(), {navigation: true});
         resultStoreOwnerBindings.set(ownerKey, {close});
-        if (sender.isDestroyed()) {void close();}
+        if (sender.isDestroyed()) {
+            void close();
+        }
     };
     const resolvePlacementAnchorCalibration = async (
         _sender: IScanCleanupDetectionSubscriber,
@@ -345,15 +334,12 @@ export function scanCleanupDetectionOwner(
             request.options.pageOverrideDefaults,
             request.options.marginsMm,
         );
-        const lease = claimScanCleanupDetectionResultStore(
-            request.detectionResultStoreId,
-            {
-                detectionSignature: createScanCleanupDetectionSignature(request.options),
-                documentRevision: request.documentRevision,
-                ownerId: request.ownerId,
-                sourcePdfPath: request.sourcePdfPath,
-            },
-        );
+        const lease = claimScanCleanupDetectionResultStore(request.detectionResultStoreId, {
+            detectionSignature: createScanCleanupDetectionSignature(request.options),
+            documentRevision: request.documentRevision,
+            ownerId: request.ownerId,
+            sourcePdfPath: request.sourcePdfPath,
+        });
         if (lease === null) {
             placementCalibrations.retire(request.detectionResultStoreId);
             throw new Error('Detection results are no longer available for this document');
@@ -366,11 +352,7 @@ export function scanCleanupDetectionOwner(
     };
     const ownerMethods: Pick<
         IScanCleanupDetectionOwner,
-        | 'detectAll'
-        | 'cancelDetection'
-        | 'getDetectionJobState'
-        | 'subscribeDetectionJob'
-        | 'resolvePlacementAnchorCalibration'
+        'detectAll' | 'cancelDetection' | 'getDetectionJobState' | 'subscribeDetectionJob' | 'resolvePlacementAnchorCalibration'
     > = {
         async detectAll(sender, request) {
             const jobId = createJobId('scan-cleanup-detect');
@@ -388,19 +370,12 @@ export function scanCleanupDetectionOwner(
             const signature = JSON.stringify(request);
             const previous = detectionLifecycle.activeJob(ownerId);
             if (previous) {
-                const previousState = publicDetectionState(detectionJobs.get(
-                    previous.jobId,
-                    detectionActor(sender, previous.request),
-                ));
-                if (previousState && (
-                    previousState.status === 'queued'
-                    || previousState.status === 'running'
-                    || previousState.status === 'canceling'
-                )) {
-                    if (
-                        previous.signature === signature
-                        && previousState.status !== 'canceling'
-                    ) {
+                const previousState = publicDetectionState(detectionJobs.get(previous.jobId, detectionActor(sender, previous.request)));
+                if (
+                    previousState &&
+                    (previousState.status === 'queued' || previousState.status === 'running' || previousState.status === 'canceling')
+                ) {
+                    if (previous.signature === signature && previousState.status !== 'canceling') {
                         subscribeDetection(sender, previous.jobId, request);
                         return {
                             started: true,
@@ -429,24 +404,25 @@ export function scanCleanupDetectionOwner(
                     renderProcessGone: 'cancel',
                     mainFrameNavigation: 'cancel',
                 },
-                onCancel: reason => {
-                    if (reason === RENDERER_DESTROYED_CANCELLATION_REASON
-                        || reason === RENDER_PROCESS_GONE_CANCELLATION_REASON) {
+                onCancel: (reason) => {
+                    if (reason === RENDERER_DESTROYED_CANCELLATION_REASON || reason === RENDER_PROCESS_GONE_CANCELLATION_REASON) {
                         rawRasterRetention.invalidateSender(sender.id);
                     }
                 },
-                run: async job => {
+                run: async (job) => {
                     let sourcePdfPath = request.sourcePdfPath;
                     try {
                         const runWithLease = dependencies.runWithDetectionLease;
-                        if (!runWithLease) {throw new Error('Scan cleanup detection requires injected admission capability');}
+                        if (!runWithLease) {
+                            throw new Error('Scan cleanup detection requires injected admission capability');
+                        }
                         const rasterPolicy = dependencies.resolveRasterAdmissionPolicy(request.options);
                         return await runWithLease(
                             brokerOwnerId(sender, request),
                             job.signal,
                             rasterPolicy,
                             request.options,
-                            async brokerRun => {
+                            async (brokerRun) => {
                                 const materializedRequest = await dependencies.materializeRequest(
                                     request,
                                     sender.id,
@@ -463,48 +439,43 @@ export function scanCleanupDetectionOwner(
                                 if (fileSystem === undefined) {
                                     throw new Error('Scan cleanup detection requires injected filesystem capabilities');
                                 }
-                                const detectionDependencies: IScanCleanupDetectionDependencies = bindScanCleanupTerminationProof({
-                                    evidenceDirectory: runtimeConfig.test.scanCleanupEvidenceDirectory,
-                                    fileSystem,
-                                    ...(dependencies.getAvailableScratchBytes === undefined
-                                        ? {}
-                                        : {getAvailableScratchBytes: dependencies.getAvailableScratchBytes}),
-                                    getTempDir: dependencies.getTempDir,
-                                    getPdftoppmBinary: dependencies.getPdftoppmBinary,
-                                    resolveBinary: dependencies.resolveBinary,
-                                    renderPage: dependencies.renderPage,
-                                    renderPagePpm: dependencies.renderPagePpm,
-                                    ...(dependencies.renderPageBatch === undefined
-                                        ? {}
-                                        : {renderPageBatch: dependencies.renderPageBatch}),
-                                    runSidecar: dependencies.runSidecar,
-                                }, brokerRun);
+                                const detectionDependencies: IScanCleanupDetectionDependencies = bindScanCleanupTerminationProof(
+                                    {
+                                        evidenceDirectory: runtimeConfig.test.scanCleanupEvidenceDirectory,
+                                        fileSystem,
+                                        ...(dependencies.getAvailableScratchBytes === undefined
+                                            ? {}
+                                            : {getAvailableScratchBytes: dependencies.getAvailableScratchBytes}),
+                                        getTempDir: dependencies.getTempDir,
+                                        getPdftoppmBinary: dependencies.getPdftoppmBinary,
+                                        resolveBinary: dependencies.resolveBinary,
+                                        renderPage: dependencies.renderPage,
+                                        renderPagePpm: dependencies.renderPagePpm,
+                                        ...(dependencies.renderPageBatch === undefined
+                                            ? {}
+                                            : {renderPageBatch: dependencies.renderPageBatch}),
+                                        runSidecar: dependencies.runSidecar,
+                                    },
+                                    brokerRun,
+                                );
                                 // Preview and detection share the retained document's
                                 // bounded stores. Keep this view narrow so detection
                                 // reuses their ownership without taking a
                                 // document-sized snapshot.
                                 const detectionRetention: IScanCleanupDetectionRetention<IRetainedDocument> = {
-                                    openDocument: request => rawRasterRetention.openDocument(request, ownerId),
+                                    openDocument: (request) => rawRasterRetention.openDocument(request, ownerId),
                                     pageCount: rawRasterRetention.pageCount,
                                     pageSizeStore: rawRasterRetention.pageSizeStore,
                                     rasterPages: (doc, sig) => rawRasterRetention.rasterPageSource(doc, sig, brokerRun),
                                     retainedPaths: rawRasterRetention.retainedPaths,
-                                    claimRaster: (document, pageNumber, dpi) => rawRasterRetention.claimRaster(
-                                        document,
-                                        pageNumber,
-                                        dpi,
-                                        ownerId,
-                                    ),
+                                    claimRaster: (document, pageNumber, dpi) =>
+                                        rawRasterRetention.claimRaster(document, pageNumber, dpi, ownerId),
                                     rasterScratchPath: rawRasterRetention.rasterScratchPath,
                                     stagedRasterPath: rawRasterRetention.stagedRasterPath,
                                     retain: (rendered, claimId = ownerId) => rawRasterRetention.retain(rendered, claimId),
-                                    releaseRaster: (document, pageNumber, dpi) => rawRasterRetention.evictRaster(
-                                        document,
-                                        pageNumber,
-                                        dpi,
-                                        ownerId,
-                                    ),
-                                    release: document => rawRasterRetention.release(document, ownerId),
+                                    releaseRaster: (document, pageNumber, dpi) =>
+                                        rawRasterRetention.evictRaster(document, pageNumber, dpi, ownerId),
+                                    release: (document) => rawRasterRetention.release(document, ownerId),
                                 };
                                 const detection = await runScanCleanupDetection(
                                     materializedRequest,
@@ -512,27 +483,24 @@ export function scanCleanupDetectionOwner(
                                     detectionRetention,
                                     {
                                         ...detectionDependencies,
-                                        onResultStoreReady: store => detectionLifecycle.ownResultStore(jobId, store),
+                                        onResultStoreReady: (store) => detectionLifecycle.ownResultStore(jobId, store),
                                     },
                                     {
                                         rasterConcurrency: rasterPolicy.rasterConcurrency,
                                         ...(rasterPolicy.rasterMaxPixels === undefined
                                             ? {}
                                             : {rasterMaxPixels: rasterPolicy.rasterMaxPixels}),
-                                        ...(rasterPolicy.totalRamBytes === undefined
-                                            ? {}
-                                            : {totalRamBytes: rasterPolicy.totalRamBytes}),
+                                        ...(rasterPolicy.totalRamBytes === undefined ? {} : {totalRamBytes: rasterPolicy.totalRamBytes}),
                                     },
                                     (nextResults, progress, documentCanvasSignature) => {
-                                        job.publish(runningScanCleanupDetectionJobState(jobId, nextResults, progress, documentCanvasSignature));
+                                        job.publish(
+                                            runningScanCleanupDetectionJobState(jobId, nextResults, progress, documentCanvasSignature),
+                                        );
                                     },
                                     logScanCleanupMessage,
                                 );
                                 if (detection.resultStore.pageCount > SCAN_CLEANUP_STREAMING_BATCH_PAGES) {
-                                    if (
-                                        job.signal.aborted
-                                        || detectionLifecycle.activeJob(ownerId)?.jobId !== jobId
-                                    ) {
+                                    if (job.signal.aborted || detectionLifecycle.activeJob(ownerId)?.jobId !== jobId) {
                                         await detection.resultStore.close().catch(() => undefined);
                                         return detection;
                                     }
@@ -556,7 +524,9 @@ export function scanCleanupDetectionOwner(
                         );
                     } catch (error) {
                         const detail = getUnprovenNativeTerminationDetail(error);
-                        if (detail !== undefined) {quarantineWorkingCopy(sourcePdfPath, detail);}
+                        if (detail !== undefined) {
+                            quarantineWorkingCopy(sourcePdfPath, detail);
+                        }
                         throw error;
                     }
                 },
@@ -564,11 +534,16 @@ export function scanCleanupDetectionOwner(
             subscribeDetection(sender, jobId, request);
             // States reach the owner through the pump; the registry's close
             // cause follows them on the same channel.
-            detectionJobs.subscribe(jobId, detectionActor(sender, request), () => undefined, closure => {
-                if (closure && !sender.isDestroyed()) {
-                    sender.send(SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onDetectionJobState, {jobId, status: closure});
-                }
-            });
+            detectionJobs.subscribe(
+                jobId,
+                detectionActor(sender, request),
+                () => undefined,
+                (closure) => {
+                    if (closure && !sender.isDestroyed()) {
+                        sender.send(SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onDetectionJobState, {jobId, status: closure});
+                    }
+                },
+            );
             const activeEntry = {
                 jobId,
                 request,
@@ -576,15 +551,17 @@ export function scanCleanupDetectionOwner(
             };
             detectionLifecycle.setActiveJob(ownerId, activeEntry);
             await retireOwnerResultStore(ownerId);
-            void handle.settled.finally(async () => {
-                // A destroyed sender makes the progress pump drop the
-                // terminal frame before the delivery callback can clear its
-                // per-job result cursor. Release it at job settlement as the
-                // lifecycle owner, while keeping terminal delivery idempotent.
-                detectionLifecycle.resetDelivery(detectionDeliveryKey(sender.id, jobId));
-                await detectionLifecycle.releaseJob(jobId);
-                detectionLifecycle.clearActiveJob(ownerId, jobId);
-            }).catch(() => undefined);
+            void handle.settled
+                .finally(async () => {
+                    // A destroyed sender makes the progress pump drop the
+                    // terminal frame before the delivery callback can clear its
+                    // per-job result cursor. Release it at job settlement as the
+                    // lifecycle owner, while keeping terminal delivery idempotent.
+                    detectionLifecycle.resetDelivery(detectionDeliveryKey(sender.id, jobId));
+                    await detectionLifecycle.releaseJob(jobId);
+                    detectionLifecycle.clearActiveJob(ownerId, jobId);
+                })
+                .catch(() => undefined);
             return {
                 started: true,
                 jobId,
@@ -596,11 +573,7 @@ export function scanCleanupDetectionOwner(
             if (!state) {
                 return false;
             }
-            if ([
-                'completed',
-                'failed',
-                'canceled',
-            ].includes(state.status)) {
+            if (['completed', 'failed', 'canceled'].includes(state.status)) {
                 return false;
             }
             const canceled = detectionJobs.cancel(jobId, actor, 'Scan cleanup detection canceled');
@@ -618,23 +591,21 @@ export function scanCleanupDetectionOwner(
             return canceled;
         },
         getDetectionJobState(sender, jobId, owner) {
-            return rendererDetectionState(publicDetectionState(
-                detectionJobs.get(jobId, detectionActor(sender, owner)),
-            ));
+            return rendererDetectionState(publicDetectionState(detectionJobs.get(jobId, detectionActor(sender, owner))));
         },
         subscribeDetectionJob(sender, jobId, owner) {
             return subscribeDetection(sender, jobId, owner)
-                ? rendererDetectionState(publicDetectionState(
-                    detectionJobs.get(jobId, detectionActor(sender, owner)),
-                ))
+                ? rendererDetectionState(publicDetectionState(detectionJobs.get(jobId, detectionActor(sender, owner))))
                 : null;
         },
         resolvePlacementAnchorCalibration,
     };
     const disposeResultStoreOwnerBindings = async () => {
-        await Promise.all([...resultStoreOwnerBindings.values()].map(binding => binding.close()));
+        await Promise.all([...resultStoreOwnerBindings.values()].map((binding) => binding.close()));
         resultStoreOwnerBindings.clear();
-        for (const closeRetirement of workingCopyCloseRetirements.values()) {closeRetirement.complete();}
+        for (const closeRetirement of workingCopyCloseRetirements.values()) {
+            closeRetirement.complete();
+        }
         workingCopyCloseRetirements.clear();
     };
     return {
@@ -643,30 +614,32 @@ export function scanCleanupDetectionOwner(
             const ownerKey = brokerOwnerId(sender, request);
             const detectionSignature = createScanCleanupDetectionSignature(request.options);
             const active = detectionLifecycle.activeJob(ownerKey);
-            const store = active !== undefined
-                && active.request.sourcePdfPath === request.sourcePdfPath
-                && active.request.documentRevision === request.documentRevision
-                && createScanCleanupDetectionSignature(active.request.options) === detectionSignature
-                ? detectionLifecycle.getResultStore(active.jobId)
-                : undefined;
-            const lease = store === undefined ? claimCurrentScanCleanupDetectionResultStore(ownerKey, {
-                detectionSignature,
-                documentRevision: request.documentRevision,
-                ownerId: request.ownerId,
-                sourcePdfPath: request.sourcePdfPath,
-            }) : null;
+            const store =
+                active !== undefined &&
+                active.request.sourcePdfPath === request.sourcePdfPath &&
+                active.request.documentRevision === request.documentRevision &&
+                createScanCleanupDetectionSignature(active.request.options) === detectionSignature
+                    ? detectionLifecycle.getResultStore(active.jobId)
+                    : undefined;
+            const lease =
+                store === undefined
+                    ? claimCurrentScanCleanupDetectionResultStore(ownerKey, {
+                          detectionSignature,
+                          documentRevision: request.documentRevision,
+                          ownerId: request.ownerId,
+                          sourcePdfPath: request.sourcePdfPath,
+                      })
+                    : null;
             try {
                 const result = await (store ?? lease?.resultStore)?.getPage(request.pageNumber);
                 // The plan travels with the page view it was measured on.
                 return result?.pagePlanEvidence === undefined
                     ? request
                     : {
-                        ...request,
-                        pagePlanEvidence: result.pagePlanEvidence,
-                        ...(result.sourcePageMetadata?.renderBox === 'mediabox'
-                            ? {sourcePageMetadata: result.sourcePageMetadata}
-                            : {}),
-                    };
+                          ...request,
+                          pagePlanEvidence: result.pagePlanEvidence,
+                          ...(result.sourcePageMetadata?.renderBox === 'mediabox' ? {sourcePageMetadata: result.sourcePageMetadata} : {}),
+                      };
             } finally {
                 await lease?.release();
             }

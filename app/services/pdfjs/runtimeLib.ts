@@ -1,16 +1,9 @@
-import { ensurePdfjsSsrGlobals } from '@app/services/pdfjs/ensurePdfjsSsrGlobals';
-import {
-    getPdfjsAssetDir,
-    getViewerAssetResolver,
-} from '@app/utils/viewerAssets';
+import {ensurePdfjsSsrGlobals} from '@app/services/pdfjs/ensurePdfjsSsrGlobals';
+import {getPdfjsAssetDir, getViewerAssetResolver} from '@app/utils/viewerAssets';
 
 ensurePdfjsSsrGlobals();
 
-const pdfjsLib = await (
-    import.meta.server
-        ? import('pdfjs-dist/legacy/build/pdf.mjs')
-        : import('pdfjs-dist')
-);
+const pdfjsLib = await (import.meta.server ? import('pdfjs-dist/legacy/build/pdf.mjs') : import('pdfjs-dist'));
 
 type TPdfjsRuntimeLib = typeof pdfjsLib;
 type TPdfjsDocumentInit = Parameters<TPdfjsRuntimeLib['getDocument']>[0];
@@ -56,15 +49,10 @@ function getRuntimeVersion(runtime: unknown) {
         return 'unknown';
     }
     const version = getRuntimeProperty(runtime, 'version');
-    return typeof version === 'string' && version.trim().length > 0
-        ? version.trim()
-        : 'unknown';
+    return typeof version === 'string' && version.trim().length > 0 ? version.trim() : 'unknown';
 }
 
-function getRuntimeProperty(
-    runtime: TPdfjsRuntimeLike,
-    name: PropertyKey,
-) {
+function getRuntimeProperty(runtime: TPdfjsRuntimeLike, name: PropertyKey) {
     try {
         return name in runtime ? runtime[name] : undefined;
     } catch {
@@ -72,10 +60,7 @@ function getRuntimeProperty(
     }
 }
 
-function getRuntimeObject(
-    runtime: TPdfjsRuntimeLike,
-    name: string,
-) {
+function getRuntimeObject(runtime: TPdfjsRuntimeLike, name: string) {
     const value = getRuntimeProperty(runtime, name);
     return isRuntimeLike(value) ? value : null;
 }
@@ -130,32 +115,24 @@ function isBrowserAssetVersionCheckRequired(force: boolean | undefined) {
     }
 
     const locationLike: unknown = Reflect.get(globalThis, 'location');
-    const protocolValue: unknown = typeof locationLike === 'object' && locationLike !== null
-        ? Reflect.get(locationLike, 'protocol')
-        : '';
+    const protocolValue: unknown = typeof locationLike === 'object' && locationLike !== null ? Reflect.get(locationLike, 'protocol') : '';
     const protocol = typeof protocolValue === 'string' ? protocolValue : '';
     return protocol === 'http:' || protocol === 'https:' || protocol === 'evb-viewer:';
 }
 
 async function fetchPdfjsVendoredVersionStamp(stampUrl: string) {
-    const response = await fetch(stampUrl, { cache: 'no-store' });
+    const response = await fetch(stampUrl, {cache: 'no-store'});
     if (!response.ok) {
         throw new Error(`PDF.js vendored asset version stamp is unavailable at ${stampUrl}: HTTP ${response.status}`);
     }
     return response.text();
 }
 
-function getRuntimeExport<K extends keyof TPdfjsRuntimeLib>(
-    name: K,
-    fallback?: TPdfjsRuntimeLib[K],
-) {
+function getRuntimeExport<K extends keyof TPdfjsRuntimeLib>(name: K, fallback?: TPdfjsRuntimeLib[K]) {
     return (name in pdfjsLib ? pdfjsLib[name] : fallback) as NonNullable<TPdfjsRuntimeLib[K]>;
 }
 
-function getMergedRuntimeExport<K extends keyof TPdfjsRuntimeLib, T extends Record<string, unknown>>(
-    name: K,
-    defaults: T,
-) {
+function getMergedRuntimeExport<K extends keyof TPdfjsRuntimeLib, T extends Record<string, unknown>>(name: K, defaults: T) {
     const value = getRuntimeExport(name);
     return {
         ...defaults,
@@ -202,10 +179,7 @@ export function createPdfjsDocumentOptions(runtime: IPdfjsBrowserRuntime = pdfjs
     } satisfies Partial<TPdfjsDocumentInit>;
 }
 
-export async function assertPdfjsVendoredAssetVersion(
-    runtime: unknown = pdfjsLib,
-    options: IPdfjsVendoredAssetVersionOptions = {},
-) {
+export async function assertPdfjsVendoredAssetVersion(runtime: unknown = pdfjsLib, options: IPdfjsVendoredAssetVersionOptions = {}) {
     if (!isBrowserAssetVersionCheckRequired(options.force)) {
         return;
     }
@@ -216,24 +190,19 @@ export async function assertPdfjsVendoredAssetVersion(
 
     const expectedVersion = version.trim();
     const stampUrl = options.stampUrl ?? getViewerAssetResolver().pdfAssetUrl('.pdfjs-version');
-    const rawStamp = await (
-        options.readVersionStamp
-            ? options.readVersionStamp()
-            : fetchPdfjsVendoredVersionStamp(stampUrl)
-    );
+    const rawStamp = await (options.readVersionStamp ? options.readVersionStamp() : fetchPdfjsVendoredVersionStamp(stampUrl));
     const stampedVersion = rawStamp.trim();
     if (stampedVersion.length === 0) {
         throw new Error(`PDF.js vendored asset version stamp is empty at ${stampUrl}; expected ${expectedVersion}`);
     }
     if (stampedVersion !== expectedVersion) {
-        throw new Error(`PDF.js vendored asset version mismatch at ${stampUrl}: installed runtime is ${expectedVersion}, vendored assets are ${stampedVersion}`);
+        throw new Error(
+            `PDF.js vendored asset version mismatch at ${stampUrl}: installed runtime is ${expectedVersion}, vendored assets are ${stampedVersion}`,
+        );
     }
 }
 
-async function assertPdfjsVendoredAssetVersionOnce(
-    runtime: unknown = pdfjsLib,
-    options: IPdfjsVendoredAssetVersionOptions = {},
-) {
+async function assertPdfjsVendoredAssetVersionOnce(runtime: unknown = pdfjsLib, options: IPdfjsVendoredAssetVersionOptions = {}) {
     if (options.force === true || options.readVersionStamp || options.stampUrl) {
         await assertPdfjsVendoredAssetVersion(runtime, options);
         return;
@@ -244,7 +213,9 @@ async function assertPdfjsVendoredAssetVersionOnce(
         // Only a passed check is remembered: after a failed request, the next
         // open asks again instead of failing on the old rejection.
         check.catch(() => {
-            if (vendoredAssetVersionPromise === check) {vendoredAssetVersionPromise = null;}
+            if (vendoredAssetVersionPromise === check) {
+                vendoredAssetVersionPromise = null;
+            }
         });
     }
     await vendoredAssetVersionPromise;

@@ -1,18 +1,7 @@
 // @vitest-environment happy-dom
 
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    computed,
-    effectScope,
-    nextTick,
-    ref,
-} from 'vue';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {computed, effectScope, nextTick, ref} from 'vue';
 import type {TAnnotationTool} from '@app/types/annotations';
 import {createAnnotationSelectionInteractionController} from '@app/modules/pdf-viewer/runtime/annotations/createAnnotationSelectionInteractionController';
 import {useAnnotationTextSelectionCache} from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationTextSelectionCache';
@@ -28,21 +17,28 @@ function harness(initialTool: TAnnotationTool = 'highlight') {
     const tool = ref(initialTool);
     const active = ref(true);
     const scope = effectScope();
-    const selectionCache = scope.run(() => useAnnotationTextSelectionCache({
-        viewerContainer: ref(viewer),
-        currentPage: ref(1),
-    }))!;
+    const selectionCache = scope.run(() =>
+        useAnnotationTextSelectionCache({
+            viewerContainer: ref(viewer),
+            currentPage: ref(1),
+        }),
+    )!;
     const apply = vi.fn(async (_range?: Range | null) => true);
     const invalidate = vi.fn();
-    const dispose = scope.run(() => createAnnotationSelectionInteractionController({
-        viewerContainer: ref(viewer),
-        isActive: computed(() => active.value),
-        annotationTool: computed(() => tool.value),
-        selectionCache,
-        selectionLifecycle: {invalidateActiveRequests: invalidate},
-        applySelectionMarkup: apply,
-    }))!;
-    cleanups.push(() => {dispose(); scope.stop();});
+    const dispose = scope.run(() =>
+        createAnnotationSelectionInteractionController({
+            viewerContainer: ref(viewer),
+            isActive: computed(() => active.value),
+            annotationTool: computed(() => tool.value),
+            selectionCache,
+            selectionLifecycle: {invalidateActiveRequests: invalidate},
+            applySelectionMarkup: apply,
+        }),
+    )!;
+    cleanups.push(() => {
+        dispose();
+        scope.stop();
+    });
     function select() {
         const range = document.createRange();
         range.selectNodeContents(text);
@@ -51,11 +47,13 @@ function harness(initialTool: TAnnotationTool = 'highlight') {
         return range;
     }
     function pointer(target: Element, type: string, pointerId = 1) {
-        target.dispatchEvent(new PointerEvent(type, {
-            bubbles: true,
-            button: 0,
-            pointerId,
-        }));
+        target.dispatchEvent(
+            new PointerEvent(type, {
+                bubbles: true,
+                button: 0,
+                pointerId,
+            }),
+        );
     }
     return {
         text,
@@ -71,19 +69,15 @@ function harness(initialTool: TAnnotationTool = 'highlight') {
 }
 
 afterEach(() => {
-    cleanups.splice(0).forEach(cleanup => cleanup());
+    cleanups.splice(0).forEach((cleanup) => cleanup());
     document.getSelection()?.removeAllRanges();
     document.body.replaceChildren();
 });
 
 describe('annotation selection interaction controller', () => {
-    it.each([
-        'highlight',
-        'underline',
-        'strikethrough',
-        'squiggly',
-    ] as const)(
-        'commits one %s drag that ends outside the viewer', async tool => {
+    it.each(['highlight', 'underline', 'strikethrough', 'squiggly'] as const)(
+        'commits one %s drag that ends outside the viewer',
+        async (tool) => {
             const h = harness(tool);
             h.pointer(h.text, 'pointerdown');
             h.select();
@@ -124,7 +118,6 @@ describe('annotation selection interaction controller', () => {
         await nextTick();
         expect(h.apply).not.toHaveBeenCalled();
     });
-
 
     it('does not let an unrelated pointer release or cancellation discard the current drag', async () => {
         const h = harness();

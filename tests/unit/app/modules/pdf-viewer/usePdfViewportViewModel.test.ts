@@ -1,22 +1,10 @@
 // @vitest-environment happy-dom
 
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    computed,
-    effectScope,
-    nextTick,
-    ref,
-} from 'vue';
-import { usePdfViewportViewModel } from '@app/modules/pdf-viewer/runtime/viewport/usePdfViewportViewModel';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {computed, effectScope, nextTick, ref} from 'vue';
+import {usePdfViewportViewModel} from '@app/modules/pdf-viewer/runtime/viewport/usePdfViewportViewModel';
 import {createTestPdfViewportWritePort} from '@tests/helpers/createTestPdfViewportWritePort';
-import { resolvePdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
+import {resolvePdfRenderPerformancePolicy} from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
 
 const performancePolicy = resolvePdfRenderPerformancePolicy({
     lowCpu: false,
@@ -76,44 +64,48 @@ describe('usePdfViewportViewModel', () => {
         container.scrollLeft = 0;
         const isActive = ref(true);
 
-        const viewModel = scope.run(() => usePdfViewportViewModel({
-            performancePolicy,
-            isActive: computed(() => isActive.value),
-            viewportWritePort: createTestPdfViewportWritePort().port,
-            viewerContainer: ref(container),
-            bufferPages: computed(() => 2),
-            viewMode: computed(() => 'single' as const),
-            numPages: ref(1),
-            currentPage: ref(1),
-            continuousScroll: computed(() => false),
-            basePageWidth: ref(600),
-            basePageHeight: ref(800),
-            pageMetrics: ref([{
-                width: 600,
-                height: 800,
-            }]),
-            pageMetricsVersion: ref(0),
-            doesFitHeightSpreadFitWidth: () => false,
-            effectiveScale: ref(1),
-            scaledMargin: ref(20),
-            visibleRange: ref({
-                start: 1,
-                end: 1,
+        const viewModel = scope.run(() =>
+            usePdfViewportViewModel({
+                performancePolicy,
+                isActive: computed(() => isActive.value),
+                viewportWritePort: createTestPdfViewportWritePort().port,
+                viewerContainer: ref(container),
+                bufferPages: computed(() => 2),
+                viewMode: computed(() => 'single' as const),
+                numPages: ref(1),
+                currentPage: ref(1),
+                continuousScroll: computed(() => false),
+                basePageWidth: ref(600),
+                basePageHeight: ref(800),
+                pageMetrics: ref([
+                    {
+                        width: 600,
+                        height: 800,
+                    },
+                ]),
+                pageMetricsVersion: ref(0),
+                doesFitHeightSpreadFitWidth: () => false,
+                effectiveScale: ref(1),
+                scaledMargin: ref(20),
+                visibleRange: ref({
+                    start: 1,
+                    end: 1,
+                }),
+                navigationAnchorPage: computed(() => null),
+                physicalScrollOrigin: ref(0),
+                scaleContainerStyle: computed(() => ({})),
+                selectionMarkupStyle: computed(() => null),
+                classState: {
+                    isAnySaving: computed(() => false),
+                    isDragging: ref(false),
+                    isViewerPanDragModeActive: computed(() => false),
+                    isSelectionMarkupToolActive: computed(() => false),
+                    isTextSelectionModeActive: computed(() => false),
+                    fitMode: computed(() => 'width' as const),
+                    zoomMode: computed(() => 'fit-width' as const),
+                },
             }),
-            navigationAnchorPage: computed(() => null),
-            physicalScrollOrigin: ref(0),
-            scaleContainerStyle: computed(() => ({})),
-            selectionMarkupStyle: computed(() => null),
-            classState: {
-                isAnySaving: computed(() => false),
-                isDragging: ref(false),
-                isViewerPanDragModeActive: computed(() => false),
-                isSelectionMarkupToolActive: computed(() => false),
-                isTextSelectionModeActive: computed(() => false),
-                fitMode: computed(() => 'width' as const),
-                zoomMode: computed(() => 'fit-width' as const),
-            },
-        }));
+        );
         if (!viewModel) {
             throw new Error('Failed to create viewport view model');
         }
@@ -157,59 +149,61 @@ describe('usePdfViewportViewModel', () => {
         });
         container.scrollLeft = 50;
 
-        const viewModel = scope.run(() => usePdfViewportViewModel({
-            performancePolicy,
-            isActive: computed(() => true),
-            viewportWritePort: writePort.port,
-            viewerContainer: ref(container),
-            bufferPages: computed(() => 2),
-            viewMode: computed(() => 'facing' as const),
-            numPages: ref(4),
-            currentPage: ref(1),
-            continuousScroll: computed(() => false),
-            basePageWidth: ref(300),
-            basePageHeight: ref(800),
-            pageMetrics: ref([
-                {
-                    width: 300,
-                    height: 800,
+        const viewModel = scope.run(() =>
+            usePdfViewportViewModel({
+                performancePolicy,
+                isActive: computed(() => true),
+                viewportWritePort: writePort.port,
+                viewerContainer: ref(container),
+                bufferPages: computed(() => 2),
+                viewMode: computed(() => 'facing' as const),
+                numPages: ref(4),
+                currentPage: ref(1),
+                continuousScroll: computed(() => false),
+                basePageWidth: ref(300),
+                basePageHeight: ref(800),
+                pageMetrics: ref([
+                    {
+                        width: 300,
+                        height: 800,
+                    },
+                    {
+                        width: 300,
+                        height: 800,
+                    },
+                    {
+                        width: 300,
+                        height: 800,
+                    },
+                    {
+                        width: 300,
+                        height: 800,
+                    },
+                ]),
+                pageMetricsVersion: ref(0),
+                doesFitHeightSpreadFitWidth: () => false,
+                effectiveScale,
+                scaledMargin: ref(20),
+                visibleRange: ref({
+                    start: 1,
+                    end: 2,
+                }),
+                navigationAnchorPage: computed(() => navigationAnchorPage.value),
+                physicalScrollOrigin: ref(0),
+                getCommittedPageScale: (pageNumber) => (pageNumber <= 2 ? 1 : null),
+                scaleContainerStyle: computed(() => ({})),
+                selectionMarkupStyle: computed(() => null),
+                classState: {
+                    isAnySaving: computed(() => false),
+                    isDragging: ref(false),
+                    isViewerPanDragModeActive: computed(() => false),
+                    isSelectionMarkupToolActive: computed(() => false),
+                    isTextSelectionModeActive: computed(() => false),
+                    fitMode: computed(() => 'width' as const),
+                    zoomMode: computed(() => 'fit-width' as const),
                 },
-                {
-                    width: 300,
-                    height: 800,
-                },
-                {
-                    width: 300,
-                    height: 800,
-                },
-                {
-                    width: 300,
-                    height: 800,
-                },
-            ]),
-            pageMetricsVersion: ref(0),
-            doesFitHeightSpreadFitWidth: () => false,
-            effectiveScale,
-            scaledMargin: ref(20),
-            visibleRange: ref({
-                start: 1,
-                end: 2,
             }),
-            navigationAnchorPage: computed(() => navigationAnchorPage.value),
-            physicalScrollOrigin: ref(0),
-            getCommittedPageScale: pageNumber => pageNumber <= 2 ? 1 : null,
-            scaleContainerStyle: computed(() => ({})),
-            selectionMarkupStyle: computed(() => null),
-            classState: {
-                isAnySaving: computed(() => false),
-                isDragging: ref(false),
-                isViewerPanDragModeActive: computed(() => false),
-                isSelectionMarkupToolActive: computed(() => false),
-                isTextSelectionModeActive: computed(() => false),
-                fitMode: computed(() => 'width' as const),
-                zoomMode: computed(() => 'fit-width' as const),
-            },
-        }));
+        );
         try {
             if (!viewModel) {
                 throw new Error('Failed to create viewport view model');
@@ -246,44 +240,48 @@ describe('usePdfViewportViewModel', () => {
         const numPages = ref(6);
         const currentPage = ref(5);
 
-        const viewModel = scope.run(() => usePdfViewportViewModel({
-            performancePolicy,
-            isActive: computed(() => true),
-            viewportWritePort: writePort.port,
-            viewerContainer: ref(container),
-            bufferPages: computed(() => 2),
-            viewMode: computed(() => 'single' as const),
-            numPages,
-            currentPage,
-            continuousScroll: computed(() => false),
-            basePageWidth: ref(600),
-            basePageHeight: ref(800),
-            pageMetrics: ref([{
-                width: 600,
-                height: 800,
-            }]),
-            pageMetricsVersion: ref(0),
-            doesFitHeightSpreadFitWidth: () => false,
-            effectiveScale: ref(1),
-            scaledMargin: ref(20),
-            visibleRange: ref({
-                start: 1,
-                end: 1,
+        const viewModel = scope.run(() =>
+            usePdfViewportViewModel({
+                performancePolicy,
+                isActive: computed(() => true),
+                viewportWritePort: writePort.port,
+                viewerContainer: ref(container),
+                bufferPages: computed(() => 2),
+                viewMode: computed(() => 'single' as const),
+                numPages,
+                currentPage,
+                continuousScroll: computed(() => false),
+                basePageWidth: ref(600),
+                basePageHeight: ref(800),
+                pageMetrics: ref([
+                    {
+                        width: 600,
+                        height: 800,
+                    },
+                ]),
+                pageMetricsVersion: ref(0),
+                doesFitHeightSpreadFitWidth: () => false,
+                effectiveScale: ref(1),
+                scaledMargin: ref(20),
+                visibleRange: ref({
+                    start: 1,
+                    end: 1,
+                }),
+                navigationAnchorPage: computed(() => null),
+                physicalScrollOrigin: ref(0),
+                scaleContainerStyle: computed(() => ({})),
+                selectionMarkupStyle: computed(() => null),
+                classState: {
+                    isAnySaving: computed(() => false),
+                    isDragging: ref(false),
+                    isViewerPanDragModeActive: computed(() => false),
+                    isSelectionMarkupToolActive: computed(() => false),
+                    isTextSelectionModeActive: computed(() => false),
+                    fitMode: computed(() => 'width' as const),
+                    zoomMode: computed(() => 'fit-width' as const),
+                },
             }),
-            navigationAnchorPage: computed(() => null),
-            physicalScrollOrigin: ref(0),
-            scaleContainerStyle: computed(() => ({})),
-            selectionMarkupStyle: computed(() => null),
-            classState: {
-                isAnySaving: computed(() => false),
-                isDragging: ref(false),
-                isViewerPanDragModeActive: computed(() => false),
-                isSelectionMarkupToolActive: computed(() => false),
-                isTextSelectionModeActive: computed(() => false),
-                fitMode: computed(() => 'width' as const),
-                zoomMode: computed(() => 'fit-width' as const),
-            },
-        }));
+        );
         try {
             if (!viewModel) {
                 throw new Error('Failed to create viewport view model');

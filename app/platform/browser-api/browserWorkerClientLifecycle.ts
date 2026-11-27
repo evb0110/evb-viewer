@@ -22,10 +22,10 @@ export class BrowserWorkerClientLifecycle {
     public register(resetWorker: () => void) {
         const targetWindow = typeof window === 'undefined' ? null : window;
         if (
-            this.registered
-            || !targetWindow
-            || typeof targetWindow.addEventListener !== 'function'
-            || typeof targetWindow.removeEventListener !== 'function'
+            this.registered ||
+            !targetWindow ||
+            typeof targetWindow.addEventListener !== 'function' ||
+            typeof targetWindow.removeEventListener !== 'function'
         ) {
             return;
         }

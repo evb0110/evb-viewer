@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {removeCompletedCombineSnapshot} from '@app/services/pdf/removeCompletedCombineSnapshot';
 
 describe('combine operation snapshots', () => {
@@ -11,19 +7,8 @@ describe('combine operation snapshots', () => {
         const second = {id: 'second'};
         const lateDrop = {id: 'late-drop'};
         const latePickerFile = {id: 'late-picker'};
-        const snapshot = Object.freeze([
-            Object.freeze({...first}),
-            Object.freeze({...second}),
-        ]);
+        const snapshot = Object.freeze([Object.freeze({...first}), Object.freeze({...second})]);
 
-        expect(removeCompletedCombineSnapshot([
-            first,
-            second,
-            lateDrop,
-            latePickerFile,
-        ], snapshot)).toEqual([
-            lateDrop,
-            latePickerFile,
-        ]);
+        expect(removeCompletedCombineSnapshot([first, second, lateDrop, latePickerFile], snapshot)).toEqual([lateDrop, latePickerFile]);
     });
 });

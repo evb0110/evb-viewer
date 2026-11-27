@@ -1,28 +1,11 @@
 import type * as TFsModule from 'node:fs';
 import type * as TFsPromisesModule from 'node:fs/promises';
-import {
-    mkdir,
-    mkdtemp,
-    rm,
-    writeFile,
-} from 'node:fs/promises';
+import {mkdir, mkdtemp, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    encodePdfSearchWasmRequest,
-    PDF_SEARCH_WASM_MAX_INDEX_BYTES,
-} from '@contracts/searchIndexWire';
-import {
-    PdfSearchNativeError,
-    type createPdfSearchWasmRunner,
-} from '@electron/features/search/pdfSearchWasmRunner';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {encodePdfSearchWasmRequest, PDF_SEARCH_WASM_MAX_INDEX_BYTES} from '@contracts/searchIndexWire';
+import {PdfSearchNativeError, type createPdfSearchWasmRunner} from '@electron/features/search/pdfSearchWasmRunner';
 
 interface IFakeHandleScenario {
     statSize: number;
@@ -40,7 +23,7 @@ const fsHooks = vi.hoisted(() => ({
     scenarios: new Map<string, IFakeHandleScenario>(),
 }));
 
-vi.mock('node:fs/promises', async importOriginal => {
+vi.mock('node:fs/promises', async (importOriginal) => {
     const actual = await importOriginal<typeof TFsPromisesModule>();
     return {
         ...actual,
@@ -65,12 +48,7 @@ vi.mock('node:fs/promises', async importOriginal => {
                         size: scenario.statSize,
                     });
                 },
-                read(
-                    buffer: Uint8Array,
-                    offset = 0,
-                    length = buffer.byteLength - offset,
-                    position: number | null = 0,
-                ) {
+                read(buffer: Uint8Array, offset = 0, length = buffer.byteLength - offset, position: number | null = 0) {
                     scenario.readCalls += 1;
                     scenario.totalBytesRequested += length;
                     const start = position ?? 0;
@@ -209,11 +187,13 @@ describe('pdfSearchWorkerOps bounded index reads', () => {
         await mkdir(subDir);
         const runner = createStubRunner();
 
-        await expect(executePdfSearchWorkerCommand(runner, {
-            op: 'stat',
-            indexPath: missingPath,
-            documentRevision: 'rev-1',
-        })).resolves.toEqual({stale: true});
+        await expect(
+            executePdfSearchWorkerCommand(runner, {
+                op: 'stat',
+                indexPath: missingPath,
+                documentRevision: 'rev-1',
+            }),
+        ).resolves.toEqual({stale: true});
 
         const dirError = await executePdfSearchWorkerCommand(runner, {
             op: 'stat',
@@ -235,13 +215,15 @@ describe('pdfSearchWorkerOps bounded index reads', () => {
         const runner: ReturnType<typeof createPdfSearchWasmRunner> = {
             run: vi.fn((request: Uint8Array) => {
                 capturedRequest = request;
-                return Buffer.from(JSON.stringify({
-                    pageCount: 1,
-                    pagesScanned: 1,
-                    pagesWritten: 1,
-                    truncated: false,
-                    missingTextPageSample: [],
-                }));
+                return Buffer.from(
+                    JSON.stringify({
+                        pageCount: 1,
+                        pagesScanned: 1,
+                        pagesWritten: 1,
+                        truncated: false,
+                        missingTextPageSample: [],
+                    }),
+                );
             }),
             dispose: vi.fn(),
             memoryBytes: () => 0,
@@ -264,10 +246,17 @@ describe('pdfSearchWorkerOps bounded index reads', () => {
             missingTextPageSample: [],
         });
         expect(capturedRequest).not.toBeNull();
-        expect(Buffer.from(capturedRequest!)).toEqual(Buffer.from(encodePdfSearchWasmRequest({
-            op: 'stat',
-            documentRevision: 'rev-1',
-        }, payload)));
+        expect(Buffer.from(capturedRequest!)).toEqual(
+            Buffer.from(
+                encodePdfSearchWasmRequest(
+                    {
+                        op: 'stat',
+                        documentRevision: 'rev-1',
+                    },
+                    payload,
+                ),
+            ),
+        );
     });
 
     it('packs repeated short growth reads cleanly and rejects invalid maxIndexBytes overrides', async () => {
@@ -287,13 +276,15 @@ describe('pdfSearchWorkerOps bounded index reads', () => {
         const runner: ReturnType<typeof createPdfSearchWasmRunner> = {
             run: vi.fn((request: Uint8Array) => {
                 capturedRequest = request;
-                return Buffer.from(JSON.stringify({
-                    pageCount: 1,
-                    pagesScanned: 1,
-                    pagesWritten: 1,
-                    truncated: false,
-                    missingTextPageSample: [],
-                }));
+                return Buffer.from(
+                    JSON.stringify({
+                        pageCount: 1,
+                        pagesScanned: 1,
+                        pagesWritten: 1,
+                        truncated: false,
+                        missingTextPageSample: [],
+                    }),
+                );
             }),
             dispose: vi.fn(),
             memoryBytes: () => 0,
@@ -311,10 +302,17 @@ describe('pdfSearchWorkerOps bounded index reads', () => {
         expect(scenario.closed).toBe(true);
         expect(capturedRequest).not.toBeNull();
         const expectedPayload = Uint8Array.from({length: 80}, (_, i) => i & 0xff);
-        expect(Buffer.from(capturedRequest!)).toEqual(Buffer.from(encodePdfSearchWasmRequest({
-            op: 'stat',
-            documentRevision: 'rev-1',
-        }, expectedPayload)));
+        expect(Buffer.from(capturedRequest!)).toEqual(
+            Buffer.from(
+                encodePdfSearchWasmRequest(
+                    {
+                        op: 'stat',
+                        documentRevision: 'rev-1',
+                    },
+                    expectedPayload,
+                ),
+            ),
+        );
 
         const invalidCapError = await executePdfSearchWorkerCommand(
             runner,

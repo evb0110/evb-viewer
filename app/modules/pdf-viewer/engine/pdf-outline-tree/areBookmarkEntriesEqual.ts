@@ -1,9 +1,9 @@
 import {isEqual} from 'es-toolkit/predicate';
-import type { TPageIndex } from '@contracts/pageNumbers';
+import type {TPageIndex} from '@contracts/pageNumbers';
 
-import { clamp } from 'es-toolkit/math';
-import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
-import { normalizeBookmarkColor } from '@app/utils/pdfOutlineHelpers';
+import {clamp} from 'es-toolkit/math';
+import type {IPdfBookmarkEntry} from '@app/types/pdfContracts';
+import {normalizeBookmarkColor} from '@app/utils/pdfOutlineHelpers';
 
 function normalizeTitle(title: string | null | undefined) {
     return typeof title === 'string' ? title.trim() : '';
@@ -14,9 +14,7 @@ function normalizePageIndex(pageIndex: TPageIndex | null) {
 }
 
 function normalizePageYRatio(pageYRatio: number | null | undefined) {
-    return typeof pageYRatio === 'number' && Number.isFinite(pageYRatio)
-        ? clamp(pageYRatio, 0, 1)
-        : null;
+    return typeof pageYRatio === 'number' && Number.isFinite(pageYRatio) ? clamp(pageYRatio, 0, 1) : null;
 }
 
 function normalizeNamedDest(namedDest: string | null) {
@@ -31,14 +29,16 @@ function normalizeNamedDest(namedDest: string | null) {
  * as an edit.
  */
 function areEntryFieldsEqual(left: IPdfBookmarkEntry, right: IPdfBookmarkEntry) {
-    return normalizeTitle(left.title) === normalizeTitle(right.title)
-        && normalizePageIndex(left.pageIndex) === normalizePageIndex(right.pageIndex)
-        && normalizePageYRatio(left.pageYRatio) === normalizePageYRatio(right.pageYRatio)
-        && isEqual(left.originalDestination, right.originalDestination)
-        && normalizeNamedDest(left.namedDest) === normalizeNamedDest(right.namedDest)
-        && (left.bold === true) === (right.bold === true)
-        && (left.italic === true) === (right.italic === true)
-        && normalizeBookmarkColor(left.color) === normalizeBookmarkColor(right.color);
+    return (
+        normalizeTitle(left.title) === normalizeTitle(right.title) &&
+        normalizePageIndex(left.pageIndex) === normalizePageIndex(right.pageIndex) &&
+        normalizePageYRatio(left.pageYRatio) === normalizePageYRatio(right.pageYRatio) &&
+        isEqual(left.originalDestination, right.originalDestination) &&
+        normalizeNamedDest(left.namedDest) === normalizeNamedDest(right.namedDest) &&
+        (left.bold === true) === (right.bold === true) &&
+        (left.italic === true) === (right.italic === true) &&
+        normalizeBookmarkColor(left.color) === normalizeBookmarkColor(right.color)
+    );
 }
 
 /**
@@ -61,10 +61,7 @@ export function areBookmarkEntriesEqual(
             return false;
         }
 
-        for (const [
-            index,
-            leftEntry,
-        ] of leftList.entries()) {
+        for (const [index, leftEntry] of leftList.entries()) {
             const rightEntry = rightList[index];
             if (!rightEntry || !areEntryFieldsEqual(leftEntry, rightEntry)) {
                 return false;

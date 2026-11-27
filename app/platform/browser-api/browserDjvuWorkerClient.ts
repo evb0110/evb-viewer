@@ -8,13 +8,10 @@ import type {
     IDjvuRenderedPage,
     IDjvuRenderPageOptions,
 } from '@djvu-core/djvuLibreTypes';
-import type {
-    TBrowserDjvuWorkerRequest,
-    TBrowserDjvuWorkerResponse,
-} from '@app/platform/browser-api/browserDjvuEngine.worker';
-import { getErrorMessage } from '@app/utils/error';
+import type {TBrowserDjvuWorkerRequest, TBrowserDjvuWorkerResponse} from '@app/platform/browser-api/browserDjvuEngine.worker';
+import {getErrorMessage} from '@app/utils/error';
 
-export type { IDjvuPageSize } from '@contracts/electronApiDjvu';
+export type {IDjvuPageSize} from '@contracts/electronApiDjvu';
 export type {
     IDjvuComponentDirectory,
     IDjvuComponentRequest,
@@ -52,14 +49,17 @@ export interface IDjvuWorker {
         height: number;
         rgb: Uint8Array;
     } | null>;
-    renderPagePpm(pageNumber: number, options?: Omit<IDjvuRenderPageOptions, 'pixelFormat'>): Promise<{
+    renderPagePpm(
+        pageNumber: number,
+        options?: Omit<IDjvuRenderPageOptions, 'pixelFormat'>,
+    ): Promise<{
         width: number;
         height: number;
         ppm: Uint8Array;
     } | null>;
     getOutline(): Promise<IDjvuOutlineRawItem[]>;
     getPageNumberByUrl(url: string): Promise<number | null>;
-    getPageText(pageNumber: number, options?: { includeZones?: boolean }): Promise<IDjvuPageTextRaw>;
+    getPageText(pageNumber: number, options?: {includeZones?: boolean}): Promise<IDjvuPageTextRaw>;
     pageHasText(pageNumber: number): Promise<boolean>;
     getMetadata(): Promise<Record<string, string>>;
     clearCache(): Promise<void>;
@@ -89,17 +89,17 @@ export function createBrowserDjvuWorker(readComponent?: TDjvuComponentReader): I
     if (typeof Worker === 'undefined') {
         throw new Error('Web Workers are unavailable for DjVu decoding');
     }
-    const worker = new Worker(
-        new URL('./browserDjvuEngine.worker.ts', import.meta.url),
-        { type: 'module' },
-    );
+    const worker = new Worker(new URL('./browserDjvuEngine.worker.ts', import.meta.url), {type: 'module'});
     let terminated = false;
     let nextRequestId = 1;
     let componentChannel: MessageChannel | null = null;
-    const pending = new Map<number, {
-        resolve: (value: unknown) => void;
-        reject: (error: unknown) => void;
-    }>();
+    const pending = new Map<
+        number,
+        {
+            resolve: (value: unknown) => void;
+            reject: (error: unknown) => void;
+        }
+    >();
 
     const failAll = (error: unknown) => {
         for (const entry of pending.values()) {
@@ -114,7 +114,9 @@ export function createBrowserDjvuWorker(readComponent?: TDjvuComponentReader): I
             return;
         }
         const entry = pending.get(response.id);
-        if (!entry) {return;}
+        if (!entry) {
+            return;
+        }
         pending.delete(response.id);
         if (response.ok) {
             entry.resolve(response.data);
@@ -155,10 +157,13 @@ export function createBrowserDjvuWorker(readComponent?: TDjvuComponentReader): I
                 reject,
             });
             try {
-                worker.postMessage({
-                    ...payload,
-                    id,
-                }, transfer);
+                worker.postMessage(
+                    {
+                        ...payload,
+                        id,
+                    },
+                    transfer,
+                );
             } catch (error) {
                 pending.delete(id);
                 reject(error);
@@ -180,97 +185,116 @@ export function createBrowserDjvuWorker(readComponent?: TDjvuComponentReader): I
             if (hasComponents && readComponent) {
                 const channel = new MessageChannel();
                 componentChannel = channel;
-                channel.port1.onmessage = (event: MessageEvent<{
-                    id: number;
-                    name: string;
-                }>) => {
-                    const {
-                        id,
-                        name,
-                    } = event.data;
-                    void Promise.resolve().then(() => readComponent(name)).then((bytes) => {
-                        if (terminated || componentChannel !== channel) {
-                            return;
-                        }
-                        // Always transfer a fresh copy so transferring never detaches a cached/shared buffer.
-                        const buffer = bytes.slice().buffer;
-                        channel.port1.postMessage({
-                            id,
-                            ok: true,
-                            buffer,
-                        }, [buffer]);
-                    }, (error: unknown) => {
-                        if (terminated || componentChannel !== channel) {
-                            return;
-                        }
-                        channel.port1.postMessage({
-                            id,
-                            ok: false,
-                            error: getErrorMessage(error),
-                        });
-                    });
+                channel.port1.onmessage = (
+                    event: MessageEvent<{
+                        id: number;
+                        name: string;
+                    }>,
+                ) => {
+                    const {id, name} = event.data;
+                    void Promise.resolve()
+                        .then(() => readComponent(name))
+                        .then(
+                            (bytes) => {
+                                if (terminated || componentChannel !== channel) {
+                                    return;
+                                }
+                                // Always transfer a fresh copy so transferring never detaches a cached/shared buffer.
+                                const buffer = bytes.slice().buffer;
+                                channel.port1.postMessage(
+                                    {
+                                        id,
+                                        ok: true,
+                                        buffer,
+                                    },
+                                    [buffer],
+                                );
+                            },
+                            (error: unknown) => {
+                                if (terminated || componentChannel !== channel) {
+                                    return;
+                                }
+                                channel.port1.postMessage({
+                                    id,
+                                    ok: false,
+                                    error: getErrorMessage(error),
+                                });
+                            },
+                        );
                 };
                 transfer.push(channel.port2);
             }
-            await call<null>({
-                type: 'open',
-                initBytes,
-                hasComponents,
-            }, transfer);
+            await call<null>(
+                {
+                    type: 'open',
+                    initBytes,
+                    hasComponents,
+                },
+                transfer,
+            );
         },
-        getComponentDirectory: () => call<IDjvuComponentDirectory | null>({ type: 'getComponentDirectory' }),
-        getDocInfo: () => call<IDjvuDocInfo>({ type: 'getDocInfo' }),
-        getPageInfo: (pageNumber: number) => call<IDjvuPageInfo>({
-            type: 'getPageInfo',
-            pageNumber,
-        }),
-        getPageLayerSummary: (pageNumber: number, defaultForegroundSubsample?: number) => call<IDjvuPageLayerSummary>({
-            type: 'getPageLayerSummary',
-            pageNumber,
-            ...(defaultForegroundSubsample === undefined ? {} : { defaultForegroundSubsample }),
-        }),
-        renderPage: (pageNumber: number, options?: IDjvuRenderPageOptions) => call<IDjvuRenderedPage>({
-            type: 'renderPage',
-            pageNumber,
-            ...(options ? { options } : {}),
-        }),
-        renderMaskPbm: (pageNumber: number) => call<Uint8Array | null>({
-            type: 'renderMaskPbm',
-            pageNumber,
-        }),
-        renderBackgroundRgb: (pageNumber: number) => call<{
-            width: number;
-            height: number;
-            rgb: Uint8Array;
-        } | null>({
-            type: 'renderBackgroundRgb',
-            pageNumber,
-        }),
-        renderPagePpm: (pageNumber: number, options?: Omit<IDjvuRenderPageOptions, 'pixelFormat'>) => call<{
-            width: number;
-            height: number;
-            ppm: Uint8Array;
-        } | null>({
-            type: 'renderPagePpm',
-            pageNumber,
-            ...(options ? { options } : {}),
-        }),
-        getOutline: () => call<IDjvuOutlineRawItem[]>({ type: 'getOutline' }),
-        getPageNumberByUrl: (url: string) => call<number | null>({
-            type: 'getPageNumberByUrl',
-            url,
-        }),
-        getPageText: (pageNumber: number, options?: { includeZones?: boolean }) => call<IDjvuPageTextRaw>({
-            type: 'getPageText',
-            pageNumber,
-            ...(options?.includeZones === undefined ? {} : { includeZones: options.includeZones }),
-        }),
-        pageHasText: (pageNumber: number) => call<boolean>({
-            type: 'pageHasText',
-            pageNumber,
-        }),
-        getMetadata: () => call<Record<string, string>>({ type: 'getMetadata' }),
-        clearCache: () => call<void>({ type: 'clearCache' }),
+        getComponentDirectory: () => call<IDjvuComponentDirectory | null>({type: 'getComponentDirectory'}),
+        getDocInfo: () => call<IDjvuDocInfo>({type: 'getDocInfo'}),
+        getPageInfo: (pageNumber: number) =>
+            call<IDjvuPageInfo>({
+                type: 'getPageInfo',
+                pageNumber,
+            }),
+        getPageLayerSummary: (pageNumber: number, defaultForegroundSubsample?: number) =>
+            call<IDjvuPageLayerSummary>({
+                type: 'getPageLayerSummary',
+                pageNumber,
+                ...(defaultForegroundSubsample === undefined ? {} : {defaultForegroundSubsample}),
+            }),
+        renderPage: (pageNumber: number, options?: IDjvuRenderPageOptions) =>
+            call<IDjvuRenderedPage>({
+                type: 'renderPage',
+                pageNumber,
+                ...(options ? {options} : {}),
+            }),
+        renderMaskPbm: (pageNumber: number) =>
+            call<Uint8Array | null>({
+                type: 'renderMaskPbm',
+                pageNumber,
+            }),
+        renderBackgroundRgb: (pageNumber: number) =>
+            call<{
+                width: number;
+                height: number;
+                rgb: Uint8Array;
+            } | null>({
+                type: 'renderBackgroundRgb',
+                pageNumber,
+            }),
+        renderPagePpm: (pageNumber: number, options?: Omit<IDjvuRenderPageOptions, 'pixelFormat'>) =>
+            call<{
+                width: number;
+                height: number;
+                ppm: Uint8Array;
+            } | null>({
+                type: 'renderPagePpm',
+                pageNumber,
+                ...(options ? {options} : {}),
+            }),
+        getOutline: () => call<IDjvuOutlineRawItem[]>({type: 'getOutline'}),
+        getPageNumberByUrl: (url: string) =>
+            call<number | null>({
+                type: 'getPageNumberByUrl',
+                url,
+            }),
+        getPageText: (pageNumber: number, options?: {includeZones?: boolean}) =>
+            call<IDjvuPageTextRaw>({
+                type: 'getPageText',
+                pageNumber,
+                ...(options?.includeZones === undefined ? {} : {includeZones: options.includeZones}),
+            }),
+        pageHasText: (pageNumber: number) =>
+            call<boolean>({
+                type: 'pageHasText',
+                pageNumber,
+            }),
+        getMetadata: () => call<Record<string, string>>({type: 'getMetadata'}),
+        clearCache: () => call<void>({type: 'clearCache'}),
         terminate,
     };
 }

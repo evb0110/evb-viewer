@@ -8,13 +8,10 @@ import {
     normalizeExpectedDocumentRevisionToken,
     requireOpenDocument,
 } from '@electron/file-access/documentStore';
-import { enqueueWorkingCopyMutation } from '@electron/file-access/workingCopyMutationQueue';
+import {enqueueWorkingCopyMutation} from '@electron/file-access/workingCopyMutationQueue';
 import type {IDocumentsSenderIdContext} from '@electron/features/documents/documentsContexts';
 import {createDocumentForOriginal} from '@electron/features/documents/main/documentWorkingCopyHandlers';
-import {
-    releaseManagedTempFileHandle,
-    resolveTypedStagedArtifact,
-} from '@electron/features/documents/main/managedTempFileHandles';
+import {releaseManagedTempFileHandle, resolveTypedStagedArtifact} from '@electron/features/documents/main/managedTempFileHandles';
 import type {TOpenPath} from '@electron/file-access/openPathCapabilities';
 
 function requireSenderId(context: IDocumentsSenderIdContext) {
@@ -39,12 +36,7 @@ function normalizeOptionalOriginalPath(originalPath: unknown) {
 }
 
 function assertConsumableStagedPdf(artifact: ITypedStagedArtifact) {
-    if (
-        artifact.size <= 0
-        || !artifact.validations.tailCheck
-        || !artifact.validations.semanticCheck
-        || !artifact.validations.fsynced
-    ) {
+    if (artifact.size <= 0 || !artifact.validations.tailCheck || !artifact.validations.semanticCheck || !artifact.validations.fsynced) {
         throw new Error('Native PDF staged artifact is not fully validated');
     }
 }
@@ -73,13 +65,17 @@ export async function handleCloneStagedPdfNativeMutationToWorkingCopy(
         assertConsumableStagedPdf(stagedOutput);
         const normalizedOriginalPath = normalizeOptionalOriginalPath(originalPath);
         const source = requireOpenDocument(stagedOutput.path, senderId);
-        const entry = await enqueueWorkingCopyMutation(source.ref, async () => {
-            await resolveTypedStagedArtifact(context, stagedOutput);
-            return createDocumentForOriginal(toStagedSourcePath(stagedOutput), normalizedOriginalPath, senderId);
-        }, {
-            kind: 'native-pdf-mutation-staged-clone',
-            ownerWebContentsId: senderId,
-        });
+        const entry = await enqueueWorkingCopyMutation(
+            source.ref,
+            async () => {
+                await resolveTypedStagedArtifact(context, stagedOutput);
+                return createDocumentForOriginal(toStagedSourcePath(stagedOutput), normalizedOriginalPath, senderId);
+            },
+            {
+                kind: 'native-pdf-mutation-staged-clone',
+                ownerWebContentsId: senderId,
+            },
+        );
         return requireDocumentRef(entry.ref);
     } finally {
         releaseManagedTempFileHandle(context, stagedOutput.leaseId);
@@ -108,15 +104,19 @@ export async function handleReplaceWorkingCopyFromStagedPdfNativeMutation(
     const stagedOutput = await resolveTypedStagedArtifact(context, stagedArtifact);
     try {
         assertConsumableStagedPdf(stagedOutput);
-        return await enqueueWorkingCopyMutation(entry.ref, async () => {
-            await assertQueuedWorkingCopyMutationPreconditions(entry.ref, expectedDocumentRevisionToken);
-            await resolveTypedStagedArtifact(context, stagedOutput);
-            await commitDocumentMutation(entry, expectedDocumentRevisionToken, {kind: 'extend'}, 'native-mutation');
-            return true;
-        }, {
-            kind: 'native-pdf-mutation-staged-working-copy',
-            ownerWebContentsId: senderId,
-        });
+        return await enqueueWorkingCopyMutation(
+            entry.ref,
+            async () => {
+                await assertQueuedWorkingCopyMutationPreconditions(entry.ref, expectedDocumentRevisionToken);
+                await resolveTypedStagedArtifact(context, stagedOutput);
+                await commitDocumentMutation(entry, expectedDocumentRevisionToken, {kind: 'extend'}, 'native-mutation');
+                return true;
+            },
+            {
+                kind: 'native-pdf-mutation-staged-working-copy',
+                ownerWebContentsId: senderId,
+            },
+        );
     } finally {
         releaseManagedTempFileHandle(context, stagedOutput.leaseId);
     }

@@ -1,37 +1,19 @@
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import { cast } from '@tests/helpers/cast';
-import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
+import {cast} from '@tests/helpers/cast';
+import {createElectronPlatformApiFixture} from '@tests/helpers/createElectronPlatformApiFixture';
 // @vitest-environment happy-dom
 
-import { requireDocumentRef } from '@contracts/documentRef';
-import { requireDocumentRevisionToken } from '@contracts/documentRevision';
-import {
-    requirePageNumber, requirePageIndex,
-} from '@contracts/pageNumbers';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
+import {requirePageNumber, requirePageIndex} from '@contracts/pageNumbers';
 import {requireEpochMs} from '@contracts/timestamps';
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    computed,
-    createApp,
-    defineComponent,
-    effectScope,
-    h,
-    nextTick,
-    ref,
-    shallowRef,
-    type Ref,
-} from 'vue';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {computed, createApp, defineComponent, effectScope, h, nextTick, ref, shallowRef, type Ref} from 'vue';
 import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type {IPdfPlacedImageFinalizePayload} from '@app/types/pdfImagePlacement';
-import type { TPdfSource } from '@app/types/pdfUi';
-import type { IDocumentsFileIoCapability } from '@contracts/electronApiDocuments';
-import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
+import type {TPdfSource} from '@app/types/pdfUi';
+import type {IDocumentsFileIoCapability} from '@contracts/electronApiDocuments';
+import type {IDocumentRevisionInfo} from '@contracts/documentRevision';
 import {
     createPdfDocumentAnnotations,
     pdfDocumentAnnotationsKey,
@@ -43,9 +25,7 @@ const revisionRead = vi.fn<IDocumentsFileIoCapability['getDocumentRevision']>();
 const electronApi = createElectronPlatformApiFixture({documentFiles: {getDocumentRevision: revisionRead}});
 vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => electronApi}));
 
-const {createPdfAnnotationSession} = await import(
-    '@app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession'
-);
+const {createPdfAnnotationSession} = await import('@app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession');
 
 const lastModified = 1_735_689_600_000;
 
@@ -56,27 +36,33 @@ function createPick(bytes: Uint8Array<ArrayBuffer>) {
 const mountedSessions: Array<() => void> = [];
 
 afterEach(() => {
-    mountedSessions.splice(0).forEach(unmount => unmount());
+    mountedSessions.splice(0).forEach((unmount) => unmount());
 });
 
-function mountAnnotationSession(initial: {
-    annotations?: TPdfDocumentAnnotations;
-    authorName?: string | null;
-    originalPath?: string | null;
-    workingCopyPath?: string | null;
-    src?: TPdfSource | null;
-} = {}) {
+function mountAnnotationSession(
+    initial: {
+        annotations?: TPdfDocumentAnnotations;
+        authorName?: string | null;
+        originalPath?: string | null;
+        workingCopyPath?: string | null;
+        src?: TPdfSource | null;
+    } = {},
+) {
     const originalPath = ref<string | null>(initial.originalPath ?? null);
     const workingCopyPath = ref<string | null>(initial.workingCopyPath ?? null);
     const src = shallowRef<TPdfSource | null>(initial.src ?? null);
     const pdfDocument = shallowRef<IPdfDocument | null>(null);
     const scope = effectScope();
-    const annotations = initial.annotations ?? scope.run(() => createPdfDocumentAnnotations({
-        workingCopyPath: computed(() => workingCopyPath.value),
-        source: computed(() => src.value),
-        documentRevisionToken: computed(() => null),
-        isSaving: computed(() => false),
-    }))!;
+    const annotations =
+        initial.annotations ??
+        scope.run(() =>
+            createPdfDocumentAnnotations({
+                workingCopyPath: computed(() => workingCopyPath.value),
+                source: computed(() => src.value),
+                documentRevisionToken: computed(() => null),
+                isSaving: computed(() => false),
+            }),
+        )!;
     let publishTransition: ((transition: object) => unknown) | undefined;
     const probeViewer = ref<HTMLElement | null>(null);
     const viewRotation = ref<0 | 90 | 180 | 270>(0);
@@ -85,80 +71,84 @@ function mountAnnotationSession(initial: {
     let session: ReturnType<typeof createPdfAnnotationSession> | undefined;
     const host = document.createElement('div');
     document.body.append(host);
-    const AnnotationSessionHost = defineComponent({ setup() {
-        session = createPdfAnnotationSession({
-            document: {
-                pdfDocument,
-                numPages: ref(1),
-                pageMetrics: ref([{
-                    width: 600,
-                    height: 800,
-                    rotation: 0,
-                }]),
-                registerDisposable: vi.fn(),
-                subscribe: vi.fn((subscriber: (transition: object) => unknown) => {
-                    publishTransition = subscriber;
-                    return vi.fn();
-                }),
-                captureFence: vi.fn(() => ({
-                    loadToken: 0,
-                    documentVersion: 0,
-                    documentRevision: null,
-                    openSurfaceGeneration: 0,
-                })),
-                isCurrent: vi.fn(() => currentTransition),
-            },
-            viewport: {
-                currentPage: ref(1),
-                visibleRange: computed(() => ({
-                    start: 1,
-                    end: 1,
-                })),
-                scale: {effectiveScale: computed(() => 1)},
-                scroll: {updateVisibleRange: vi.fn()},
-                singlePageScroll: {scrollToPage: vi.fn()},
-            },
-            rendering: {
-                attachAnnotationProjection: vi.fn((options: {annotationProjectionReady: Ref<boolean>}) => {
-                    annotationProjectionReady = options.annotationProjectionReady;
-                    return vi.fn();
-                }),
-                hideManagedAnnotationEditors: vi.fn(),
-                isPageRendered: vi.fn(() => false),
-                renderAnnotationEditorLayerForPage: vi.fn(),
-                renderVisiblePages: vi.fn(),
-                renderedPageStateVersion: ref(0),
-            },
-            viewRotation: computed(() => viewRotation.value),
-            viewerContainer: probeViewer,
-            originalPath: computed(() => originalPath.value),
-            src: computed(() => src.value),
-            sourcePdfData: computed(() => null),
-            workingCopyPath: computed(() => workingCopyPath.value),
-            documentRevisionToken: computed(() => null),
-            isAnySaving: computed(() => false),
-            isActive: computed(() => true),
-            bufferPages: computed(() => 1),
-            annotationTool: computed(() => 'none'),
-            annotationCursorMode: computed(() => false),
-            annotationKeepActive: computed(() => false),
-            annotationSettings: computed(() => null),
-            authorName: computed(() => initial.authorName ?? null),
-            stopDrag: vi.fn(),
-            clearPendingImagePlacement: vi.fn(),
-            emitAnnotationModified: vi.fn(),
-            emitAnnotationState: vi.fn(),
-            emitAnnotationOpenNote: vi.fn(),
-            emitAnnotationContextMenu: vi.fn(),
-            emitAnnotationToolAutoReset: vi.fn(),
-            emitAnnotationSetting: vi.fn(),
-            emitAnnotationCommentClick: vi.fn(),
-            emitAnnotationToolCancel: vi.fn(),
-            emitAnnotationNotePlacementChange: vi.fn(),
-            emitShapeContextMenu: vi.fn(),
-        } as never);
-        return () => h('div');
-    } });
+    const AnnotationSessionHost = defineComponent({
+        setup() {
+            session = createPdfAnnotationSession({
+                document: {
+                    pdfDocument,
+                    numPages: ref(1),
+                    pageMetrics: ref([
+                        {
+                            width: 600,
+                            height: 800,
+                            rotation: 0,
+                        },
+                    ]),
+                    registerDisposable: vi.fn(),
+                    subscribe: vi.fn((subscriber: (transition: object) => unknown) => {
+                        publishTransition = subscriber;
+                        return vi.fn();
+                    }),
+                    captureFence: vi.fn(() => ({
+                        loadToken: 0,
+                        documentVersion: 0,
+                        documentRevision: null,
+                        openSurfaceGeneration: 0,
+                    })),
+                    isCurrent: vi.fn(() => currentTransition),
+                },
+                viewport: {
+                    currentPage: ref(1),
+                    visibleRange: computed(() => ({
+                        start: 1,
+                        end: 1,
+                    })),
+                    scale: {effectiveScale: computed(() => 1)},
+                    scroll: {updateVisibleRange: vi.fn()},
+                    singlePageScroll: {scrollToPage: vi.fn()},
+                },
+                rendering: {
+                    attachAnnotationProjection: vi.fn((options: {annotationProjectionReady: Ref<boolean>}) => {
+                        annotationProjectionReady = options.annotationProjectionReady;
+                        return vi.fn();
+                    }),
+                    hideManagedAnnotationEditors: vi.fn(),
+                    isPageRendered: vi.fn(() => false),
+                    renderAnnotationEditorLayerForPage: vi.fn(),
+                    renderVisiblePages: vi.fn(),
+                    renderedPageStateVersion: ref(0),
+                },
+                viewRotation: computed(() => viewRotation.value),
+                viewerContainer: probeViewer,
+                originalPath: computed(() => originalPath.value),
+                src: computed(() => src.value),
+                sourcePdfData: computed(() => null),
+                workingCopyPath: computed(() => workingCopyPath.value),
+                documentRevisionToken: computed(() => null),
+                isAnySaving: computed(() => false),
+                isActive: computed(() => true),
+                bufferPages: computed(() => 1),
+                annotationTool: computed(() => 'none'),
+                annotationCursorMode: computed(() => false),
+                annotationKeepActive: computed(() => false),
+                annotationSettings: computed(() => null),
+                authorName: computed(() => initial.authorName ?? null),
+                stopDrag: vi.fn(),
+                clearPendingImagePlacement: vi.fn(),
+                emitAnnotationModified: vi.fn(),
+                emitAnnotationState: vi.fn(),
+                emitAnnotationOpenNote: vi.fn(),
+                emitAnnotationContextMenu: vi.fn(),
+                emitAnnotationToolAutoReset: vi.fn(),
+                emitAnnotationSetting: vi.fn(),
+                emitAnnotationCommentClick: vi.fn(),
+                emitAnnotationToolCancel: vi.fn(),
+                emitAnnotationNotePlacementChange: vi.fn(),
+                emitShapeContextMenu: vi.fn(),
+            } as never);
+            return () => h('div');
+        },
+    });
     const app = createApp(AnnotationSessionHost);
     app.provide(pdfDocumentAnnotationsKey, annotations);
     app.mount(host);
@@ -186,42 +176,44 @@ function mountAnnotationSession(initial: {
         /** The document's summaries, as the sidebar lists them. */
         comments: () => annotations.comments.value,
         /** The view presents a load: the document's one annotation ingress. */
-        publishReady: () => publishTransition?.({
-            phase: 'ready',
-            reason: 'open',
-            plan: {},
-            isCurrent: () => currentTransition,
-        }),
+        publishReady: () =>
+            publishTransition?.({
+                phase: 'ready',
+                reason: 'open',
+                plan: {},
+                isCurrent: () => currentTransition,
+            }),
         annotationProjectionReady: () => annotationProjectionReady?.value,
         invalidateCurrentTransition: () => {
             currentTransition = false;
         },
         storeDocumentKey: () => activeSession.annotationApplication.value.documentKey,
-        canonicalAnnotationIds: () => activeSession.annotationApplication.value.store
-            .list()
-            .map(entity => entity.identity.id),
-        ingest: (id: string) => activeSession.annotationApplication.value.store.createTextMarkup({
-            kind: 'text-markup',
-            identity: {id: asAnnotationId(id)},
-            pageIndex: requirePageIndex(0),
-            revision: 0,
-            persistedRevision: -1,
-            deleted: false,
-            createdAt: null,
-            modifiedAt: null,
-            author: null,
-            subtype: 'Highlight',
-            contents: 'note',
-            selectedText: null,
-            quadPoints: [{
-                left: 0.1,
-                top: 0.2,
-                width: 0.3,
-                height: 0.04,
-            }],
-            color: '#ffff00',
-            opacity: 1,
-        }),
+        canonicalAnnotationIds: () => activeSession.annotationApplication.value.store.list().map((entity) => entity.identity.id),
+        ingest: (id: string) =>
+            activeSession.annotationApplication.value.store.createTextMarkup({
+                kind: 'text-markup',
+                identity: {id: asAnnotationId(id)},
+                pageIndex: requirePageIndex(0),
+                revision: 0,
+                persistedRevision: -1,
+                deleted: false,
+                createdAt: null,
+                modifiedAt: null,
+                author: null,
+                subtype: 'Highlight',
+                contents: 'note',
+                selectedText: null,
+                quadPoints: [
+                    {
+                        left: 0.1,
+                        top: 0.2,
+                        width: 0.3,
+                        height: 0.04,
+                    },
+                ],
+                color: '#ffff00',
+                opacity: 1,
+            }),
         hasCanonicalChanges: () => activeSession.hasCanonicalAnnotationChanges(),
     };
 }
@@ -230,19 +222,25 @@ describe('annotation document identity', () => {
     it('offers Save in every linked view while one editor owns an uncommitted draft', async () => {
         const scope = effectScope();
         mountedSessions.push(() => scope.stop());
-        const annotations = scope.run(() => createPdfDocumentAnnotations({
-            workingCopyPath: computed(() => null),
-            source: computed(() => null),
-            documentRevisionToken: computed(() => null),
-        }))!;
+        const annotations = scope.run(() =>
+            createPdfDocumentAnnotations({
+                workingCopyPath: computed(() => null),
+                source: computed(() => null),
+                documentRevisionToken: computed(() => null),
+            }),
+        )!;
         const left = mountAnnotationSession({annotations}).session;
         const right = mountAnnotationSession({annotations}).session;
-        const box = left.annotationEditorSurface.createTextBoxAt(0, {
-            left: 0.1,
-            top: 0.1,
-            width: 0.2,
-            height: 0.1,
-        }, {text: 'Saved label'});
+        const box = left.annotationEditorSurface.createTextBoxAt(
+            0,
+            {
+                left: 0.1,
+                top: 0.1,
+                width: 0.2,
+                height: 0.1,
+            },
+            {text: 'Saved label'},
+        );
         annotations.application.value.acknowledgeSave(annotations.application.value.beginSave());
         expect(right.hasCanonicalAnnotationChanges()).toBe(false);
         await left.annotationEditorSurface.beginTextEditing(box.identity.id);
@@ -266,11 +264,13 @@ describe('annotation document identity', () => {
             path: requireDocumentRef('/managed/working.pdf'),
             size: 4,
         };
-        const annotations = scope.run(() => createPdfDocumentAnnotations({
-            workingCopyPath: computed(() => requireDocumentRef('/managed/working.pdf')),
-            source: computed(() => src),
-            documentRevisionToken: computed(() => null),
-        }))!;
+        const annotations = scope.run(() =>
+            createPdfDocumentAnnotations({
+                workingCopyPath: computed(() => requireDocumentRef('/managed/working.pdf')),
+                source: computed(() => src),
+                documentRevisionToken: computed(() => null),
+            }),
+        )!;
         const left = mountAnnotationSession({
             annotations,
             src,
@@ -279,19 +279,27 @@ describe('annotation document identity', () => {
             annotations,
             src,
         }).session;
-        const pageEntities = (view: typeof left) => (view.annotationEditorSurface.entitiesByPage.value.get(0) ?? [])
-            .map(entity => entity.identity.id);
-        const highlight = left.appAnnotationHistory.runTransaction(() => left.annotationEditorSurface.createHighlightFromSelection(0, [{
-            left: 0.1,
-            top: 0.2,
-            width: 0.3,
-            height: 0.04,
-        }], {selectedText: 'Harbor lantern'}));
+        const pageEntities = (view: typeof left) =>
+            (view.annotationEditorSurface.entitiesByPage.value.get(0) ?? []).map((entity) => entity.identity.id);
+        const highlight = left.appAnnotationHistory.runTransaction(() =>
+            left.annotationEditorSurface.createHighlightFromSelection(
+                0,
+                [
+                    {
+                        left: 0.1,
+                        top: 0.2,
+                        width: 0.3,
+                        height: 0.04,
+                    },
+                ],
+                {selectedText: 'Harbor lantern'},
+            ),
+        );
         right.annotationEditorSurface.select([highlight.identity.id]);
 
         expect(pageEntities(left)).toEqual([highlight.identity.id]);
         expect(pageEntities(right)).toEqual([highlight.identity.id]);
-        expect(annotations.comments.value.map(comment => comment.appAnnotationId)).toEqual([highlight.identity.id]);
+        expect(annotations.comments.value.map((comment) => comment.appAnnotationId)).toEqual([highlight.identity.id]);
 
         await left.annotationEditorSurface.undo();
 
@@ -438,14 +446,18 @@ describe('canonical image placement', () => {
     it('creates and replaces images in the same undo history as unsaved text', async () => {
         const {session} = mountAnnotationSession();
         const store = session.annotationApplication.value.store;
-        const text = session.annotationEditorSurface.createTextBoxAt(0, {
-            left: 0.1,
-            top: 0.1,
-            width: 0.2,
-            height: 0.1,
-        }, {text: 'unsaved text'});
+        const text = session.annotationEditorSurface.createTextBoxAt(
+            0,
+            {
+                left: 0.1,
+                top: 0.1,
+                width: 0.2,
+                height: 0.1,
+            },
+            {text: 'unsaved text'},
+        );
         expect(await session.finalizeImagePlacement(imagePlacement())).toBe(true);
-        const image = store.list().find(entity => entity.kind === 'placed-image')!;
+        const image = store.list().find((entity) => entity.kind === 'placed-image')!;
         expect(image).toMatchObject({
             rotation: 17,
             image: {
@@ -453,11 +465,15 @@ describe('canonical image placement', () => {
                 dataBase64: 'AQID',
             },
         });
-        expect(await session.finalizeImagePlacement(imagePlacement({
-            appAnnotationId: image.identity.id,
-            bytes: Uint8Array.of(4, 5, 6),
-            rotationDegrees: 43,
-        }))).toBe(true);
+        expect(
+            await session.finalizeImagePlacement(
+                imagePlacement({
+                    appAnnotationId: image.identity.id,
+                    bytes: Uint8Array.of(4, 5, 6),
+                    rotationDegrees: 43,
+                }),
+            ),
+        ).toBe(true);
         expect(store.list()).toHaveLength(2);
         expect(store.get(image.identity.id)).toMatchObject({
             rotation: 43,
@@ -469,7 +485,7 @@ describe('canonical image placement', () => {
             image: {dataBase64: 'AQID'},
         });
         await store.undo();
-        expect(store.list().map(entity => entity.identity.id)).toEqual([text.identity.id]);
+        expect(store.list().map((entity) => entity.identity.id)).toEqual([text.identity.id]);
         await store.undo();
         expect(store.list()).toEqual([]);
         await store.redo();
@@ -491,31 +507,28 @@ describe('canonical image placement', () => {
             authorName: '   ',
             expected: null,
         },
-    ])('normalizes the new image author $authorName', async ({
-        authorName,
-        expected,
-    }) => {
+    ])('normalizes the new image author $authorName', async ({authorName, expected}) => {
         const {session} = mountAnnotationSession({authorName});
         expect(await session.finalizeImagePlacement(imagePlacement())).toBe(true);
         expect(session.annotationApplication.value.store.list()[0]?.author).toBe(expected);
     });
 
-    it.each([
-        90,
-        180,
-    ] as const)('uses the draft coordinate rotation when the current view is %i', async currentViewRotation => {
-        const {
-            session,
-            viewRotation,
-        } = mountAnnotationSession();
+    it.each([90, 180] as const)('uses the draft coordinate rotation when the current view is %i', async (currentViewRotation) => {
+        const {session, viewRotation} = mountAnnotationSession();
         viewRotation.value = currentViewRotation;
-        expect(await session.finalizeImagePlacement(imagePlacement({
-            rotationDegrees: 25,
-            viewRotation: 90,
-        }))).toBe(true);
+        expect(
+            await session.finalizeImagePlacement(
+                imagePlacement({
+                    rotationDegrees: 25,
+                    viewRotation: 90,
+                }),
+            ),
+        ).toBe(true);
         const image = session.annotationApplication.value.store.list()[0];
         expect(image).toMatchObject({rotation: 295});
-        if (image?.kind !== 'placed-image') {throw new Error('Missing stamp');}
+        if (image?.kind !== 'placed-image') {
+            throw new Error('Missing stamp');
+        }
         expect(image.rect.width * 600).toBeCloseTo(0.25 * 800);
         expect(image.rect.height * 800).toBeCloseTo(0.125 * 600);
     });
@@ -541,7 +554,6 @@ describe('canonical image placement', () => {
     });
 });
 
-
 describe('live canonical text box sidebar drafts', () => {
     const workingSource: TPdfSource = {
         kind: 'path',
@@ -552,12 +564,16 @@ describe('live canonical text box sidebar drafts', () => {
     it('restores recovered inline text as unsaved canonical text available to Save', () => {
         const source = mountAnnotationSession({src: workingSource});
         const surface = source.session.annotationEditorSurface;
-        const entity = surface.createTextBoxAt(0, {
-            left: 0.1,
-            top: 0.1,
-            width: 0.2,
-            height: 0.1,
-        }, {text: 'Canonical'});
+        const entity = surface.createTextBoxAt(
+            0,
+            {
+                left: 0.1,
+                top: 0.1,
+                width: 0.2,
+                height: 0.1,
+            },
+            {text: 'Canonical'},
+        );
         surface.beginTextEditing(entity.identity.id);
         surface.setTextBoxDraftPending(entity.identity.id, 'Completed draft');
 
@@ -566,43 +582,40 @@ describe('live canonical text box sidebar drafts', () => {
         const restoredSurface = restored.session.annotationEditorSurface;
         restored.session.restoreCanonicalAnnotationRecovery(recovery);
 
-        expect(restored.session.annotationApplication.value.store.get(entity.identity.id))
-            .toMatchObject({
-                text: 'Completed draft',
-                rect: entity.rect,
-            });
+        expect(restored.session.annotationApplication.value.store.get(entity.identity.id)).toMatchObject({
+            text: 'Completed draft',
+            rect: entity.rect,
+        });
         expect(restoredSurface.hasTextBoxDraftPending(entity.identity.id)).toBe(false);
         expect(restoredSurface.editingId.value).toBeNull();
         expect(restored.comments()[0]?.text).toBe('Completed draft');
         expect(restored.session.hasCanonicalAnnotationChanges()).toBe(true);
-        expect(restored.session.annotationApplication.value.beginSave().plan.expected)
-            .toEqual([expect.objectContaining({
+        expect(restored.session.annotationApplication.value.beginSave().plan.expected).toEqual([
+            expect.objectContaining({
                 text: 'Completed draft',
                 rect: entity.rect,
-            })]);
+            }),
+        ]);
         expect(restored.session.annotationApplication.value.store.canUndo).toBe(false);
     });
 
     it('projects each input and restores canonical text on cancel without mutating history', () => {
-        const {
-            session,
-            comments,
-        } = mountAnnotationSession({src: workingSource});
+        const {session, comments} = mountAnnotationSession({src: workingSource});
         const surface = session.annotationEditorSurface;
-        const entity = surface.createTextBoxAt(0, {
-            left: 0.1,
-            top: 0.1,
-            width: 0.2,
-            height: 0.1,
-        }, {text: 'Original'});
+        const entity = surface.createTextBoxAt(
+            0,
+            {
+                left: 0.1,
+                top: 0.1,
+                width: 0.2,
+                height: 0.1,
+            },
+            {text: 'Original'},
+        );
         surface.beginTextEditing(entity.identity.id);
         const epoch = session.annotationApplication.value.store.mutationEpoch;
-        const recoveredDrafts = () => session.captureCanonicalAnnotationRecovery().drafts.map(draft => [draft.annotationId, draft.text]);
-        for (const text of [
-            'Draft',
-            'Текст العربية',
-            '',
-        ]) {
+        const recoveredDrafts = () => session.captureCanonicalAnnotationRecovery().drafts.map((draft) => [draft.annotationId, draft.text]);
+        for (const text of ['Draft', 'Текст العربية', '']) {
             surface.setTextBoxDraftPending(entity.identity.id, text);
             expect(recoveredDrafts()).toEqual([[entity.identity.id, text]]);
             expect(comments()[0]?.text).toBe(text);
@@ -615,17 +628,18 @@ describe('live canonical text box sidebar drafts', () => {
     });
 
     it('replaces the draft with committed text and preserves undo', async () => {
-        const {
-            session,
-            comments,
-        } = mountAnnotationSession({src: workingSource});
+        const {session, comments} = mountAnnotationSession({src: workingSource});
         const surface = session.annotationEditorSurface;
-        const entity = surface.createTextBoxAt(0, {
-            left: 0.1,
-            top: 0.1,
-            width: 0.2,
-            height: 0.1,
-        }, {text: 'Original'});
+        const entity = surface.createTextBoxAt(
+            0,
+            {
+                left: 0.1,
+                top: 0.1,
+                width: 0.2,
+                height: 0.1,
+            },
+            {text: 'Original'},
+        );
         surface.beginTextEditing(entity.identity.id);
         surface.setTextBoxDraftPending(entity.identity.id, 'Committed');
         surface.commitGesture(entity.identity.id, {text: 'Committed'});
@@ -640,12 +654,16 @@ describe('live canonical text box sidebar drafts', () => {
         const {session} = harness;
         await harness.loadDocument();
         const surface = session.annotationEditorSurface;
-        const entity = surface.createTextBoxAt(0, {
-            left: 0.1,
-            top: 0.1,
-            width: 0.2,
-            height: 0.1,
-        }, {text: 'Original'});
+        const entity = surface.createTextBoxAt(
+            0,
+            {
+                left: 0.1,
+                top: 0.1,
+                width: 0.2,
+                height: 0.1,
+            },
+            {text: 'Original'},
+        );
         surface.setTextBoxDraftPending(entity.identity.id, 'Discarded');
         surface.deleteAnnotation(entity.identity.id);
         await session.annotationApplication.value.store.undo();
@@ -659,28 +677,28 @@ describe('live canonical text box sidebar drafts', () => {
 });
 
 const selectionGeometry = vi.hoisted(() => ({resolve: vi.fn()}));
-vi.mock('@app/modules/pdf-viewer/runtime/sessions/resolvePdfAnnotationSelectionGeometry', () => ({resolvePdfAnnotationSelectionGeometry: (...args: unknown[]) => selectionGeometry.resolve(...args)}));
+vi.mock('@app/modules/pdf-viewer/runtime/sessions/resolvePdfAnnotationSelectionGeometry', () => ({
+    resolvePdfAnnotationSelectionGeometry: (...args: unknown[]) => selectionGeometry.resolve(...args),
+}));
 
-it.each([
-    false,
-    true,
-])('refuses an old page after a one-page replacement (current=%s)', async (current) => {
+it.each([false, true])('refuses an old page after a one-page replacement (current=%s)', async (current) => {
     const harness = mountAnnotationSession();
-    await expect(harness.session.highlightComposable.createTextMarkupFromText({
-        pageNumber: requirePageNumber(3),
-        text: 'Alpha',
-    }, () => current))
-        .resolves.toMatchObject({
-            created: false,
-            reason: current ? 'Page 3 is outside the document.' : 'The document changed before the annotation was created.',
-        });
+    await expect(
+        harness.session.highlightComposable.createTextMarkupFromText(
+            {
+                pageNumber: requirePageNumber(3),
+                text: 'Alpha',
+            },
+            () => current,
+        ),
+    ).resolves.toMatchObject({
+        created: false,
+        reason: current ? 'Page 3 is outside the document.' : 'The document changed before the annotation was created.',
+    });
     expect(harness.canonicalAnnotationIds()).toEqual([]);
 });
 
-it.each([
-    true,
-    false,
-])('creates markup only while the geometry result still belongs to its document (replace=%s)', async (replace) => {
+it.each([true, false])('creates markup only while the geometry result still belongs to its document (replace=%s)', async (replace) => {
     const harness = mountAnnotationSession();
     let current = true;
     const viewer = document.createElement('div');
@@ -688,28 +706,39 @@ it.each([
     document.body.append(viewer);
     harness.probeViewer.value = viewer;
     selectionGeometry.resolve.mockImplementation(async () => {
-        if (replace) {queueMicrotask(() => { current = false; });}
+        if (replace) {
+            queueMicrotask(() => {
+                current = false;
+            });
+        }
         return {
             status: 'ready',
-            pages: [{
-                pageNumber: 1,
-                quadPoints: [{
-                    left: 0.1,
-                    top: 0.1,
-                    width: 0.2,
-                    height: 0.03,
-                }],
-                selectedText: 'Alpha',
-            }],
+            pages: [
+                {
+                    pageNumber: 1,
+                    quadPoints: [
+                        {
+                            left: 0.1,
+                            top: 0.1,
+                            width: 0.2,
+                            height: 0.03,
+                        },
+                    ],
+                    selectedText: 'Alpha',
+                },
+            ],
         };
     });
     const store = harness.session.annotationApplication.value.store;
     const epoch = store.mutationEpoch;
     try {
-        const result = await harness.session.highlightComposable.createTextMarkupFromText({
-            pageNumber: requirePageNumber(1),
-            text: 'Alpha',
-        }, () => current);
+        const result = await harness.session.highlightComposable.createTextMarkupFromText(
+            {
+                pageNumber: requirePageNumber(1),
+                text: 'Alpha',
+            },
+            () => current,
+        );
         expect(result.created).toBe(!replace);
         if (replace) {
             expect(result.reason).toContain('document changed');
@@ -732,19 +761,24 @@ describe('note marker moves', () => {
             width: 0.0016,
             height: 0.0016,
         });
-        const comment = session.annotationApplication.value.listCommentSummaries()
-            .find(entry => entry.appAnnotationId === note.identity.id);
+        const comment = session.annotationApplication.value
+            .listCommentSummaries()
+            .find((entry) => entry.appAnnotationId === note.identity.id);
         expect(comment).toBeDefined();
 
-        expect(session.commentCrud.moveAnnotationMarker(comment!, {
-            left: 0.002,
-            top: 0.001,
-            width: 0.0016,
-            height: 0.0016,
-        })).toBe(true);
+        expect(
+            session.commentCrud.moveAnnotationMarker(comment!, {
+                left: 0.002,
+                top: 0.001,
+                width: 0.0016,
+                height: 0.0016,
+            }),
+        ).toBe(true);
 
-        const moved = session.annotationApplication.value.store.list().find(entity => entity.identity.id === note.identity.id);
-        if (moved?.kind !== 'note') {throw new Error('note missing');}
+        const moved = session.annotationApplication.value.store.list().find((entity) => entity.identity.id === note.identity.id);
+        if (moved?.kind !== 'note') {
+            throw new Error('note missing');
+        }
         // The 600 x 800 pt page keeps the 20 pt icon's centre 10 pt inside each edge.
         expect((moved.position.left + moved.position.width / 2) * 600).toBeCloseTo(10, 9);
         expect((moved.position.top + moved.position.height / 2) * 800).toBeCloseTo(10, 9);

@@ -1,37 +1,19 @@
 // @vitest-environment happy-dom
 
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    onTestFinished,
-    vi,
-} from 'vitest';
-import {
-    computed,
-    effectScope,
-    h,
-    nextTick,
-    provide,
-    ref,
-    shallowRef,
-} from 'vue';
-import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
+import {afterEach, describe, expect, it, onTestFinished, vi} from 'vitest';
+import {computed, effectScope, h, nextTick, provide, ref, shallowRef} from 'vue';
+import {DEFAULT_ANNOTATION_SETTINGS} from '@app/constants/annotationDefaults';
 import {AnnotationApplication} from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import PdfAnnotationEditorLayer from '@app/modules/pdf-viewer/components/PdfAnnotationEditorLayer.vue';
 import PdfAnnotationSelectionHandles from '@app/modules/pdf-viewer/components/PdfAnnotationSelectionHandles.vue';
-import type {
-    IAnnotationMarkerRect,
-    TAnnotationTool,
-} from '@app/types/annotations';
+import type {IAnnotationMarkerRect, TAnnotationTool} from '@app/types/annotations';
 import {
     annotationEditorSurfaceKey,
     usePdfAnnotationEditorSurface,
 } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
 import {useAnnotationStoreSnapshot} from '@app/modules/pdf-viewer/runtime/sessions/createPdfDocumentAnnotations';
 import type {ITextBoxEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import { rotateAnnotationPoint } from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/annotationEditorGeometry';
+import {rotateAnnotationPoint} from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/annotationEditorGeometry';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {
     createApp,
@@ -50,100 +32,64 @@ describe('PdfAnnotationEditorLayer placement interactions', () => {
         app.mount(host);
         onTestFinished(() => app.unmount());
         await nextTick();
-        expect([...host.querySelectorAll('[data-pdf-annotation-resize-handle]')]
-            .map(handle => handle.getAttribute('data-pdf-annotation-resize-handle'))).toEqual([
-            'nw',
-            'ne',
-            'e',
-            'se',
-            'sw',
-            'w',
-        ]);
+        expect(
+            [...host.querySelectorAll('[data-pdf-annotation-resize-handle]')].map((handle) =>
+                handle.getAttribute('data-pdf-annotation-resize-handle'),
+            ),
+        ).toEqual(['nw', 'ne', 'e', 'se', 'sw', 'w']);
     });
 
-    it.each([
-        {
-            name: 'near-vertical',
-            start: [
-                20,
-                20,
-            ],
-            moves: [[
-                22,
-                85,
-            ]],
-        },
-        {
-            name: 'reverse',
-            start: [
-                60,
-                40,
-            ],
-            moves: [[
-                10,
-                80,
-            ]],
-        },
-        {
-            name: 'short reverse',
-            start: [
-                60,
-                40,
-            ],
-            moves: [[
-                58,
-                90,
-            ]],
-        },
-        {
-            name: 'away and back',
-            start: [
-                20,
-                20,
-            ],
-            moves: [
-                [
-                    80,
-                    70,
+    it.each(
+        [
+            {
+                name: 'near-vertical',
+                start: [20, 20],
+                moves: [[22, 85]],
+            },
+            {
+                name: 'reverse',
+                start: [60, 40],
+                moves: [[10, 80]],
+            },
+            {
+                name: 'short reverse',
+                start: [60, 40],
+                moves: [[58, 90]],
+            },
+            {
+                name: 'away and back',
+                start: [20, 20],
+                moves: [
+                    [80, 70],
+                    [20, 20],
                 ],
-                [
-                    20,
-                    20,
-                ],
-            ],
-        },
-    ].flatMap(scenario => ([
-        0,
-        90,
-        180,
-        270,
-    ] as const).map(viewRotation => ({
-        ...scenario,
-        viewRotation,
-    }))))('creates a one-line wrapping frame for $name drags at $viewRotation degrees', async ({
-        start,
-        moves,
-        viewRotation,
-    }) => {
+            },
+        ].flatMap((scenario) =>
+            ([0, 90, 180, 270] as const).map((viewRotation) => ({
+                ...scenario,
+                viewRotation,
+            })),
+        ),
+    )('creates a one-line wrapping frame for $name drags at $viewRotation degrees', async ({start, moves, viewRotation}) => {
         const harness = createCreationSurface();
         vi.mocked(harness.surface.getPageGeometry).mockReturnValue({
-            pageView: [
-                0,
-                0,
-                100,
-                100,
-            ],
+            pageView: [0, 0, 100, 100],
             rotation: 0,
             viewRotation,
         });
         const host = document.createElement('div');
         document.body.append(host);
-        const app = createApp({setup() {
-            provide(annotationEditorSurfaceKey, harness.surface);
-            return () => h(PdfAnnotationEditorLayer, {pageIndex: requirePageIndex(25)});
-        }});
+        const app = createApp({
+            setup() {
+                provide(annotationEditorSurfaceKey, harness.surface);
+                return () => h(PdfAnnotationEditorLayer, {pageIndex: requirePageIndex(25)});
+            },
+        });
         app.mount(host);
-        onTestFinished(() => {app.unmount(); host.remove();});
+        onTestFinished(() => {
+            app.unmount();
+            host.remove();
+        });
         await nextTick();
         const layer = host.querySelector<HTMLElement>('.pdf-annotation-editor-layer')!;
         const background = host.querySelector<HTMLElement>('.pdf-annotation-editor-surface__background')!;
@@ -169,10 +115,13 @@ describe('PdfAnnotationEditorLayer placement interactions', () => {
         background.dispatchEvent(pointer('pointerdown', start));
         await nextTick();
         function displayedRect(rect: IAnnotationMarkerRect) {
-            const center = rotateAnnotationPoint({
-                x: rect.left + rect.width / 2,
-                y: rect.top + rect.height / 2,
-            }, viewRotation);
+            const center = rotateAnnotationPoint(
+                {
+                    x: rect.left + rect.width / 2,
+                    y: rect.top + rect.height / 2,
+                },
+                viewRotation,
+            );
             return {
                 ...rect,
                 left: center.x - rect.width / 2,
@@ -180,7 +129,9 @@ describe('PdfAnnotationEditorLayer placement interactions', () => {
             };
         }
         const initial = displayedRect(previewRect());
-        for (const move of moves) {layer.dispatchEvent(pointer('pointermove', move));}
+        for (const move of moves) {
+            layer.dispatchEvent(pointer('pointermove', move));
+        }
         await nextTick();
         const canonicalPreview = previewRect();
         const preview = displayedRect(canonicalPreview);
@@ -192,12 +143,7 @@ describe('PdfAnnotationEditorLayer placement interactions', () => {
         layer.dispatchEvent(pointer('pointerup', end));
         await nextTick();
         const committed = harness.createTextBoxAt.mock.calls[0]?.[1];
-        for (const key of [
-            'left',
-            'top',
-            'width',
-            'height',
-        ] as const) {
+        for (const key of ['left', 'top', 'width', 'height'] as const) {
             expect(committed?.[key]).toBeCloseTo(canonicalPreview[key], 12);
         }
     });
@@ -206,10 +152,12 @@ describe('PdfAnnotationEditorLayer placement interactions', () => {
         const harness = createCreationSurface();
         const host = document.createElement('div');
         document.body.append(host);
-        const app = createApp({setup() {
-            provide(annotationEditorSurfaceKey, harness.surface);
-            return () => h(PdfAnnotationEditorLayer, {pageIndex: requirePageIndex(25)});
-        }});
+        const app = createApp({
+            setup() {
+                provide(annotationEditorSurfaceKey, harness.surface);
+                return () => h(PdfAnnotationEditorLayer, {pageIndex: requirePageIndex(25)});
+            },
+        });
         app.mount(host);
         onTestFinished(() => {
             app.unmount();
@@ -233,13 +181,15 @@ describe('PdfAnnotationEditorLayer placement interactions', () => {
             toJSON: () => ({}),
         });
 
-        background!.dispatchEvent(new PointerEvent('pointerdown', {
-            bubbles: true,
-            button: 0,
-            clientX: 20,
-            clientY: 20,
-            pointerId: 21,
-        }));
+        background!.dispatchEvent(
+            new PointerEvent('pointerdown', {
+                bubbles: true,
+                button: 0,
+                clientX: 20,
+                clientY: 20,
+                pointerId: 21,
+            }),
+        );
         await nextTick();
         const preview = host.querySelector<HTMLElement>('.pdf-annotation-editor-text-box-preview');
         expect(preview).not.toBeNull();
@@ -251,28 +201,27 @@ describe('PdfAnnotationEditorLayer placement interactions', () => {
         };
         expect(previewRect.width).toBeGreaterThan(0.1);
         expect(previewRect.height).toBeGreaterThan(0.1);
-        layer!.dispatchEvent(new PointerEvent('pointerup', {
-            bubbles: true,
-            button: 0,
-            clientX: 20,
-            clientY: 20,
-            pointerId: 21,
-        }));
-        background!.dispatchEvent(new MouseEvent('click', {
-            bubbles: true,
-            clientX: 20,
-            clientY: 20,
-        }));
+        layer!.dispatchEvent(
+            new PointerEvent('pointerup', {
+                bubbles: true,
+                button: 0,
+                clientX: 20,
+                clientY: 20,
+                pointerId: 21,
+            }),
+        );
+        background!.dispatchEvent(
+            new MouseEvent('click', {
+                bubbles: true,
+                clientX: 20,
+                clientY: 20,
+            }),
+        );
         await nextTick();
 
         expect(harness.createTextBoxAt).toHaveBeenCalledOnce();
         const committed = harness.createTextBoxAt.mock.calls[0]?.[1];
-        for (const key of [
-            'left',
-            'top',
-            'width',
-            'height',
-        ] as const) {
+        for (const key of ['left', 'top', 'width', 'height'] as const) {
             expect(committed?.[key], key).toBeCloseTo(previewRect[key], 12);
         }
         expect(harness.select).toHaveBeenCalledWith([createdTextBox.identity.id]);
@@ -281,125 +230,114 @@ describe('PdfAnnotationEditorLayer placement interactions', () => {
     });
 
     it.each([
-        [
-            'text',
-            'text-box',
-        ],
-        [
-            'note',
-            'text-box',
-        ],
-        [
-            'rectangle',
-            'text-box',
-        ],
-        [
-            'text',
-            'note',
-        ],
-        [
-            'note',
-            'note',
-        ],
-        [
-            'rectangle',
-            'note',
-        ],
-        [
-            'rectangle',
-            'shape',
-        ],
-        [
-            'draw',
-            'shape',
-        ],
+        ['text', 'text-box'],
+        ['note', 'text-box'],
+        ['rectangle', 'text-box'],
+        ['text', 'note'],
+        ['note', 'note'],
+        ['rectangle', 'note'],
+        ['rectangle', 'shape'],
+        ['draw', 'shape'],
     ] as const)('creates across kinds and preserves same-kind moves with armed %s over an existing %s', async (armedTool, targetKind) => {
         const application = shallowRef(new AnnotationApplication('overlapping-placement'));
         const scope = effectScope();
-        const surface = scope.run(() => usePdfAnnotationEditorSurface({
-            annotationApplication: application,
-            entitiesByPage: useAnnotationStoreSnapshot(application).entitiesByPage,
-            activeTool: computed(() => armedTool),
-            settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
-            getPageGeometry: () => ({
-                pageView: [
-                    0,
-                    0,
-                    100,
-                    100,
-                ],
-                rotation: 0,
+        const surface = scope.run(() =>
+            usePdfAnnotationEditorSurface({
+                annotationApplication: application,
+                entitiesByPage: useAnnotationStoreSnapshot(application).entitiesByPage,
+                activeTool: computed(() => armedTool),
+                settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
+                getPageGeometry: () => ({
+                    pageView: [0, 0, 100, 100],
+                    rotation: 0,
+                }),
             }),
-        }))!;
+        )!;
         const initialRect = {
             left: 0.2,
             top: 0.2,
             width: 0.3,
             height: 0.2,
         };
-        const existing = targetKind === 'text-box' ? surface.createTextBoxAt(0, initialRect)
-            : targetKind === 'note' ? surface.createNoteAt(0, initialRect)
-                : surface.createShape({
-                    kind: 'shape',
-                    identity: {id: createdTextBox.identity.id},
-                    pageIndex: requirePageIndex(0),
-                    revision: 0,
-                    persistedRevision: -1,
-                    deleted: false,
-                    createdAt: null,
-                    modifiedAt: null,
-                    author: null,
-                    tool: armedTool === 'draw' ? 'draw' : 'rectangle',
-                    rect: initialRect,
-                    points: [
-                        {
-                            x: 0.2,
-                            y: 0.2,
-                        },
-                        {
-                            x: 0.5,
-                            y: 0.4,
-                        },
-                    ],
-                    strokeColor: '#111827',
-                    strokeWidth: 2,
-                    fill: null,
-                    opacity: 1,
-                });
+        const existing =
+            targetKind === 'text-box'
+                ? surface.createTextBoxAt(0, initialRect)
+                : targetKind === 'note'
+                  ? surface.createNoteAt(0, initialRect)
+                  : surface.createShape({
+                        kind: 'shape',
+                        identity: {id: createdTextBox.identity.id},
+                        pageIndex: requirePageIndex(0),
+                        revision: 0,
+                        persistedRevision: -1,
+                        deleted: false,
+                        createdAt: null,
+                        modifiedAt: null,
+                        author: null,
+                        tool: armedTool === 'draw' ? 'draw' : 'rectangle',
+                        rect: initialRect,
+                        points: [
+                            {
+                                x: 0.2,
+                                y: 0.2,
+                            },
+                            {
+                                x: 0.5,
+                                y: 0.4,
+                            },
+                        ],
+                        strokeColor: '#111827',
+                        strokeWidth: 2,
+                        fill: null,
+                        opacity: 1,
+                    });
         const host = document.createElement('div');
         document.body.append(host);
-        const app = createApp({setup() {
-            provide(annotationEditorSurfaceKey, surface);
-            return () => h(PdfAnnotationEditorLayer, {pageIndex: requirePageIndex(0)});
-        }});
+        const app = createApp({
+            setup() {
+                provide(annotationEditorSurfaceKey, surface);
+                return () => h(PdfAnnotationEditorLayer, {pageIndex: requirePageIndex(0)});
+            },
+        });
         app.mount(host);
-        onTestFinished(() => {app.unmount(); scope.stop(); host.remove();});
+        onTestFinished(() => {
+            app.unmount();
+            scope.stop();
+            host.remove();
+        });
         await nextTick();
         const layer = host.querySelector<HTMLElement>('.pdf-annotation-editor-layer')!;
         vi.spyOn(layer, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 100, 100));
         const target = host.querySelector<HTMLElement>(`[data-annotation-kind="${targetKind}"]`)!;
-        target.dispatchEvent(new PointerEvent('pointerdown', {
-            bubbles: true,
-            button: 0,
-            clientX: 25,
-            clientY: 25,
-            pointerId: 41,
-        }));
-        layer.dispatchEvent(new PointerEvent('pointerup', {
-            bubbles: true,
-            button: 0,
-            clientX: 35,
-            clientY: 35,
-            pointerId: 41,
-        }));
+        target.dispatchEvent(
+            new PointerEvent('pointerdown', {
+                bubbles: true,
+                button: 0,
+                clientX: 25,
+                clientY: 25,
+                pointerId: 41,
+            }),
+        );
+        layer.dispatchEvent(
+            new PointerEvent('pointerup', {
+                bubbles: true,
+                button: 0,
+                clientX: 35,
+                clientY: 35,
+                pointerId: 41,
+            }),
+        );
         await nextTick();
-        const sameKind = (armedTool === 'note' && targetKind === 'note')
-            || (armedTool === 'text' && targetKind === 'text-box')
-            || targetKind === 'shape';
+        const sameKind =
+            (armedTool === 'note' && targetKind === 'note') ||
+            (armedTool === 'text' && targetKind === 'text-box') ||
+            targetKind === 'shape';
         expect(host.querySelectorAll('[data-annotation-kind]')).toHaveLength(sameKind ? 1 : 2);
-        if (sameKind) {expect(target.classList.contains('is-selected')).toBe(true);}
-        const original = surface.getEntitiesForPage(0).find(entity => entity.identity.id === existing.identity.id)!;
-        const rectOf = (entity: typeof original) => entity.kind === 'note' ? entity.position : 'rect' in entity ? entity.rect : null;
+        if (sameKind) {
+            expect(target.classList.contains('is-selected')).toBe(true);
+        }
+        const original = surface.getEntitiesForPage(0).find((entity) => entity.identity.id === existing.identity.id)!;
+        const rectOf = (entity: typeof original) => (entity.kind === 'note' ? entity.position : 'rect' in entity ? entity.rect : null);
         // A note holds the icon its writer saves, so compare with where it was created.
         const created = rectOf(existing)!;
         const rect = rectOf(original);
@@ -411,46 +349,53 @@ describe('PdfAnnotationEditorLayer placement interactions', () => {
         const application = shallowRef(new AnnotationApplication('placement-click'));
         const tool = ref<TAnnotationTool>('text');
         const scope = effectScope();
-        const surface = scope.run(() => usePdfAnnotationEditorSurface({
-            annotationApplication: application,
-            entitiesByPage: useAnnotationStoreSnapshot(application).entitiesByPage,
-            activeTool: computed(() => tool.value),
-            settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
-            getPageGeometry: () => ({
-                pageView: [
-                    0,
-                    0,
-                    100,
-                    100,
-                ],
-                rotation: 0,
+        const surface = scope.run(() =>
+            usePdfAnnotationEditorSurface({
+                annotationApplication: application,
+                entitiesByPage: useAnnotationStoreSnapshot(application).entitiesByPage,
+                activeTool: computed(() => tool.value),
+                settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
+                getPageGeometry: () => ({
+                    pageView: [0, 0, 100, 100],
+                    rotation: 0,
+                }),
             }),
-        }))!;
+        )!;
         const host = document.createElement('div');
         document.body.append(host);
-        const app = createApp({setup() {
-            provide(annotationEditorSurfaceKey, surface);
-            return () => h(PdfAnnotationEditorLayer, {pageIndex: requirePageIndex(0)});
-        }});
+        const app = createApp({
+            setup() {
+                provide(annotationEditorSurfaceKey, surface);
+                return () => h(PdfAnnotationEditorLayer, {pageIndex: requirePageIndex(0)});
+            },
+        });
         app.mount(host);
-        onTestFinished(() => {app.unmount(); scope.stop(); host.remove();});
+        onTestFinished(() => {
+            app.unmount();
+            scope.stop();
+            host.remove();
+        });
         await nextTick();
         const layer = host.querySelector<HTMLElement>('.pdf-annotation-editor-layer')!;
         vi.spyOn(layer, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 100, 100));
-        layer.dispatchEvent(new PointerEvent('pointerdown', {
-            bubbles: true,
-            button: 0,
-            clientX: 20,
-            clientY: 20,
-            pointerId: 30,
-        }));
-        layer.dispatchEvent(new PointerEvent('pointerup', {
-            bubbles: true,
-            button: 0,
-            clientX: 20,
-            clientY: 20,
-            pointerId: 30,
-        }));
+        layer.dispatchEvent(
+            new PointerEvent('pointerdown', {
+                bubbles: true,
+                button: 0,
+                clientX: 20,
+                clientY: 20,
+                pointerId: 30,
+            }),
+        );
+        layer.dispatchEvent(
+            new PointerEvent('pointerup', {
+                bubbles: true,
+                button: 0,
+                clientX: 20,
+                clientY: 20,
+                pointerId: 30,
+            }),
+        );
         await nextTick();
         await nextTick();
         const editor = host.querySelector<HTMLElement>('[contenteditable="true"]')!;
@@ -458,96 +403,100 @@ describe('PdfAnnotationEditorLayer placement interactions', () => {
         expect(surface.getEntitiesForPage(0)).toHaveLength(1);
         // Chromium retargets the click to the capture owner after the editor
         // has focused. Its rounded coordinate can precede the new rect edge.
-        await new Promise(resolve => setTimeout(resolve, 1));
-        layer.dispatchEvent(new MouseEvent('click', {
-            bubbles: true,
-            detail: 1,
-            clientX: 20,
-            clientY: 20,
-        }));
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        layer.dispatchEvent(
+            new MouseEvent('click', {
+                bubbles: true,
+                detail: 1,
+                clientX: 20,
+                clientY: 20,
+            }),
+        );
         await nextTick();
         expect(surface.getEntitiesForPage(0)).toHaveLength(1);
         expect(surface.editingId.value).not.toBeNull();
         expect(document.activeElement).toBe(editor);
         const editingId = surface.editingId.value;
-        editor.dispatchEvent(new PointerEvent('pointerdown', {
-            bubbles: true,
-            button: 0,
-            clientX: 30,
-            clientY: 25,
-            pointerId: 32,
-        }));
-        layer.dispatchEvent(new PointerEvent('pointerup', {
-            bubbles: true,
-            button: 0,
-            clientX: 30,
-            clientY: 25,
-            pointerId: 32,
-        }));
+        editor.dispatchEvent(
+            new PointerEvent('pointerdown', {
+                bubbles: true,
+                button: 0,
+                clientX: 30,
+                clientY: 25,
+                pointerId: 32,
+            }),
+        );
+        layer.dispatchEvent(
+            new PointerEvent('pointerup', {
+                bubbles: true,
+                button: 0,
+                clientX: 30,
+                clientY: 25,
+                pointerId: 32,
+            }),
+        );
         await nextTick();
         await nextTick();
         expect(surface.editingId.value).toBe(editingId);
         expect(document.activeElement).toBe(editor);
         tool.value = 'select';
-        layer.dispatchEvent(new PointerEvent('pointerdown', {
-            bubbles: true,
-            button: 0,
-            clientX: 90,
-            clientY: 90,
-            pointerId: 31,
-        }));
-        layer.dispatchEvent(new MouseEvent('click', {
-            bubbles: true,
-            detail: 1,
-            clientX: 90,
-            clientY: 90,
-        }));
+        layer.dispatchEvent(
+            new PointerEvent('pointerdown', {
+                bubbles: true,
+                button: 0,
+                clientX: 90,
+                clientY: 90,
+                pointerId: 31,
+            }),
+        );
+        layer.dispatchEvent(
+            new MouseEvent('click', {
+                bubbles: true,
+                detail: 1,
+                clientX: 90,
+                clientY: 90,
+            }),
+        );
         await nextTick();
         expect(surface.getEntitiesForPage(0)).toHaveLength(0);
     });
 
-    it.each(([
-        'move',
-        'resize',
-    ] as const).flatMap(gesture =>
-        ([
-            'type',
-            'save',
-            'blur',
-            'escape',
-        ] as const).map(completion => ({
-            gesture,
-            completion,
-        })),
-    ))('keeps a fresh empty draft editable through $gesture before $completion', async ({
-        gesture,
-        completion,
-    }) => {
+    it.each(
+        (['move', 'resize'] as const).flatMap((gesture) =>
+            (['type', 'save', 'blur', 'escape'] as const).map((completion) => ({
+                gesture,
+                completion,
+            })),
+        ),
+    )('keeps a fresh empty draft editable through $gesture before $completion', async ({gesture, completion}) => {
         const application = shallowRef(new AnnotationApplication('empty-geometry'));
         const scope = effectScope();
-        const surface = scope.run(() => usePdfAnnotationEditorSurface({
-            annotationApplication: application,
-            entitiesByPage: useAnnotationStoreSnapshot(application).entitiesByPage,
-            activeTool: computed(() => 'text' as const),
-            settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
-            getPageGeometry: () => ({
-                pageView: [
-                    0,
-                    0,
-                    100,
-                    100,
-                ],
-                rotation: 0,
+        const surface = scope.run(() =>
+            usePdfAnnotationEditorSurface({
+                annotationApplication: application,
+                entitiesByPage: useAnnotationStoreSnapshot(application).entitiesByPage,
+                activeTool: computed(() => 'text' as const),
+                settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
+                getPageGeometry: () => ({
+                    pageView: [0, 0, 100, 100],
+                    rotation: 0,
+                }),
             }),
-        }))!;
+        )!;
         const host = document.createElement('div');
         document.body.append(host);
-        const app = createApp({setup() {
-            provide(annotationEditorSurfaceKey, surface);
-            return () => h(PdfAnnotationEditorLayer, {pageIndex: requirePageIndex(0)});
-        }});
+        const app = createApp({
+            setup() {
+                provide(annotationEditorSurfaceKey, surface);
+                return () => h(PdfAnnotationEditorLayer, {pageIndex: requirePageIndex(0)});
+            },
+        });
         app.mount(host);
-        onTestFinished(() => {app.unmount(); scope.stop(); host.remove();});
+        onTestFinished(() => {
+            app.unmount();
+            scope.stop();
+            host.remove();
+        });
         await nextTick();
         const layer = host.querySelector<HTMLElement>('.pdf-annotation-editor-layer')!;
         vi.spyOn(layer, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 100, 100));
@@ -569,7 +518,9 @@ describe('PdfAnnotationEditorLayer placement interactions', () => {
         const id = surface.editingId.value;
         expect(id).not.toBeNull();
         const initial = surface.getEntitiesForPage(0)[0] as ITextBoxEntity;
-        const control = host.querySelector<HTMLElement>(gesture === 'resize' ? '[data-pdf-annotation-resize-handle="e"]' : '[data-pdf-annotation-move-handle]')!;
+        const control = host.querySelector<HTMLElement>(
+            gesture === 'resize' ? '[data-pdf-annotation-resize-handle="e"]' : '[data-pdf-annotation-move-handle]',
+        )!;
         expect(control).not.toBeNull();
         const startX = gesture === 'resize' ? (initial.rect.left + initial.rect.width) * 100 : 40;
         const endX = startX + 20;
@@ -591,20 +542,27 @@ describe('PdfAnnotationEditorLayer placement interactions', () => {
         expect(surface.editingId.value).toBe(id);
         expect(document.activeElement).toBe(editor);
         const entity = surface.getEntitiesForPage(0)[0] as ITextBoxEntity;
-        expect(gesture === 'move' ? entity.rect.left : entity.rect.width)
-            .toBeGreaterThan(gesture === 'move' ? initial.rect.left : initial.rect.width);
+        expect(gesture === 'move' ? entity.rect.left : entity.rect.width).toBeGreaterThan(
+            gesture === 'move' ? initial.rect.left : initial.rect.width,
+        );
         expect({
             left: textBox.style.left,
             top: textBox.style.top,
             width: textBox.style.width,
         }).toEqual(preview);
         if (completion !== 'type') {
-            if (completion === 'save') {surface.commitPendingTextBoxDraftsForSave();}
-            else if (completion === 'blur') {layer.focus();}
-            else {editor.dispatchEvent(new KeyboardEvent('keydown', {
-                bubbles: true,
-                key: 'Escape',
-            }));}
+            if (completion === 'save') {
+                surface.commitPendingTextBoxDraftsForSave();
+            } else if (completion === 'blur') {
+                layer.focus();
+            } else {
+                editor.dispatchEvent(
+                    new KeyboardEvent('keydown', {
+                        bubbles: true,
+                        key: 'Escape',
+                    }),
+                );
+            }
             await nextTick();
             expect(surface.getEntitiesForPage(0)).toHaveLength(0);
             expect(surface.hasTextBoxDraftPending(entity.identity.id)).toBe(false);
@@ -631,7 +589,9 @@ describe('PdfAnnotationEditorLayer placement interactions', () => {
         expect(committed.text).toBe('typed after gesture');
         expect(committed.rect.left).toBeCloseTo(entity.rect.left);
         expect(committed.rect.top).toBeCloseTo(entity.rect.top);
-        if (gesture === 'resize') {expect(committed.rect.width).toBeCloseTo(entity.rect.width);}
+        if (gesture === 'resize') {
+            expect(committed.rect.width).toBeCloseTo(entity.rect.width);
+        }
         expect(surface.hasTextBoxDraftPending(entity.identity.id)).toBe(false);
         expect(surface.editingId.value).toBeNull();
     });

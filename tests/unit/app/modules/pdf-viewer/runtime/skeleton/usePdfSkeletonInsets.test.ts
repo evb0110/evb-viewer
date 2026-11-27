@@ -1,18 +1,8 @@
-import {
-    createSSRApp,
-    defineComponent,
-    ref,
-    watch,
-} from 'vue';
-import { renderToString } from 'vue/server-renderer';
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { usePdfSkeletonInsets } from '@app/modules/pdf-viewer/runtime/skeleton/usePdfSkeletonInsets';
-import type { IContentInsets } from '@app/types/pdfUi';
+import {createSSRApp, defineComponent, ref, watch} from 'vue';
+import {renderToString} from 'vue/server-renderer';
+import {describe, expect, it, vi} from 'vitest';
+import {usePdfSkeletonInsets} from '@app/modules/pdf-viewer/runtime/skeleton/usePdfSkeletonInsets';
+import type {IContentInsets} from '@app/types/pdfUi';
 
 interface ISkeletonInsetsHarness {
     basePageHeight: ReturnType<typeof ref<number | null>>;
@@ -28,10 +18,14 @@ async function mountSkeletonInsetsHarness(
     const basePageHeight = ref<number | null>(initialHeight);
     const effectiveScale = ref(1.5);
     let skeleton: ReturnType<typeof usePdfSkeletonInsets> | null = null;
-    const app = createSSRApp(defineComponent({setup() {
-        skeleton = usePdfSkeletonInsets(basePageWidth, basePageHeight, effectiveScale);
-        return () => null;
-    }}));
+    const app = createSSRApp(
+        defineComponent({
+            setup() {
+                skeleton = usePdfSkeletonInsets(basePageWidth, basePageHeight, effectiveScale);
+                return () => null;
+            },
+        }),
+    );
 
     await renderToString(app);
 
@@ -48,7 +42,7 @@ async function mountSkeletonInsetsHarness(
 
 describe('usePdfSkeletonInsets', () => {
     it('derives stable page-relative insets purely from admitted base page dimensions', async () => {
-        const { skeleton } = await mountSkeletonInsetsHarness();
+        const {skeleton} = await mountSkeletonInsetsHarness();
         const expectedInsets: IContentInsets = {
             top: 80,
             right: 48,
@@ -66,11 +60,7 @@ describe('usePdfSkeletonInsets', () => {
     });
 
     it('returns null before page dimensions are admitted and derives them once admitted', async () => {
-        const {
-            basePageHeight,
-            basePageWidth,
-            skeleton,
-        } = await mountSkeletonInsetsHarness(null, null);
+        const {basePageHeight, basePageWidth, skeleton} = await mountSkeletonInsetsHarness(null, null);
 
         expect(skeleton.skeletonContentInsets.value).toBeNull();
         expect(skeleton.scaledSkeletonPadding.value).toBeNull();
@@ -93,13 +83,9 @@ describe('usePdfSkeletonInsets', () => {
     });
 
     it('recomputes fallback insets reactively without write side effects in scaledSkeletonPadding', async () => {
-        const {
-            basePageHeight,
-            basePageWidth,
-            skeleton,
-        } = await mountSkeletonInsetsHarness();
+        const {basePageHeight, basePageWidth, skeleton} = await mountSkeletonInsetsHarness();
         const insetsWatcher = vi.fn();
-        watch(skeleton.skeletonContentInsets, insetsWatcher, { flush: 'sync' });
+        watch(skeleton.skeletonContentInsets, insetsWatcher, {flush: 'sync'});
 
         // Reading scaledSkeletonPadding must not trigger reactive writes to skeletonContentInsets.
         expect(skeleton.scaledSkeletonPadding.value).toEqual({

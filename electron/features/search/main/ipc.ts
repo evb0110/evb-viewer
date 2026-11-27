@@ -1,12 +1,9 @@
-import type { IpcMainInvokeEvent } from 'electron';
-import type { TFeatureMainBindings } from '@contracts/platformFeature';
-import type { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import type {
-    INormalizedPdfSearchRequest,
-    INormalizedPdfSearchWarmIndexRequest,
-} from '@contracts/search';
-import { validateSearchQuery } from '@pdf-core';
+import type {IpcMainInvokeEvent} from 'electron';
+import type {TFeatureMainBindings} from '@contracts/platformFeature';
+import type {SEARCH_PLATFORM_FEATURE} from '@contracts/searchPlatformFeature';
+import type {TDocumentRevisionToken} from '@contracts/documentRevision';
+import type {INormalizedPdfSearchRequest, INormalizedPdfSearchWarmIndexRequest} from '@contracts/search';
+import {validateSearchQuery} from '@pdf-core';
 import {
     ensureWorkingCopyMaterialized,
     findWorkingCopyPathByOriginalPath,
@@ -16,16 +13,12 @@ import {
     getWorkingCopyRevision,
     isWorkingCopyDocumentPath,
 } from '@electron/file-access/documentStore';
-import { isWorkingCopyQuarantined } from '@electron/file-access/workingCopyQuarantine';
-import { resolveAllowedReadPath } from '@electron/utils/pathValidator';
-import {
-    createSearchService,
-    searchPathDeniedError,
-    type ISearchSenderContext,
-} from '@electron/features/search/main/searchService';
-import { getSearchIndexPath } from '@electron/features/search/searchIndex';
-import { streamPdfPageTexts } from '@electron/features/search/pdfPageTexts';
-import { getPdfPageCount } from '@electron/pdf/pdfPageCount';
+import {isWorkingCopyQuarantined} from '@electron/file-access/workingCopyQuarantine';
+import {resolveAllowedReadPath} from '@electron/utils/pathValidator';
+import {createSearchService, searchPathDeniedError, type ISearchSenderContext} from '@electron/features/search/main/searchService';
+import {getSearchIndexPath} from '@electron/features/search/searchIndex';
+import {streamPdfPageTexts} from '@electron/features/search/pdfPageTexts';
+import {getPdfPageCount} from '@electron/pdf/pdfPageCount';
 
 /**
  * A lazily backed working copy has no physical leaf until materialization
@@ -33,20 +26,14 @@ import { getPdfPageCount } from '@electron/pdf/pdfPageCount';
  * the way page operations do, then searches the copy as a materialized one.
  */
 function lazyBackedWorkingCopyPath(pdfPath: string, senderWebContentsId?: number) {
-    const candidate = isWorkingCopyDocumentPath(pdfPath)
-        ? pdfPath
-        : findWorkingCopyPathByOriginalPath(pdfPath, senderWebContentsId);
+    const candidate = isWorkingCopyDocumentPath(pdfPath) ? pdfPath : findWorkingCopyPathByOriginalPath(pdfPath, senderWebContentsId);
     if (!candidate) {
         return null;
     }
     return getWorkingCopyBackingEntry(candidate, senderWebContentsId) ? candidate : null;
 }
 
-export async function resolveSearchablePdfPath(
-    pdfPath: string,
-    senderWebContentsId?: number,
-    signal?: AbortSignal,
-) {
+export async function resolveSearchablePdfPath(pdfPath: string, senderWebContentsId?: number, signal?: AbortSignal) {
     const lazyBackedPath = lazyBackedWorkingCopyPath(pdfPath, senderWebContentsId);
     if (lazyBackedPath) {
         // The reason only labels the materialization progress; search reads the copy as a page operation does.
@@ -65,7 +52,7 @@ export async function resolveSearchablePdfPath(
     }
     const mappedWorkingCopyPath = findWorkingCopyPathByOriginalPath(pdfPath, senderWebContentsId);
     const mappedResolvedPath = mappedWorkingCopyPath ? await resolveAllowedReadPath(mappedWorkingCopyPath) : null;
-    return mappedResolvedPath ?? await resolveAllowedReadPath(pdfPath);
+    return mappedResolvedPath ?? (await resolveAllowedReadPath(pdfPath));
 }
 
 /**
@@ -81,11 +68,16 @@ export function pdfSearchDocument(pdfPath: string, documentRevision: TDocumentRe
         documentRevision,
         ...(workingCopyPath === undefined ? {} : {workingCopyPath}),
         readPageCount: (signal: AbortSignal) => getPdfPageCount(pdfPath, {signal}),
-        readPages: (signal: AbortSignal, pageCount: number | undefined, onProgress: (pageNumber: number) => void) => streamPdfPageTexts(pdfPath, {
-            signal,
-            visiblePageOnly: true,
-            ...(pageCount === undefined ? {} : {lastPage: pageCount}),
-        }, onProgress),
+        readPages: (signal: AbortSignal, pageCount: number | undefined, onProgress: (pageNumber: number) => void) =>
+            streamPdfPageTexts(
+                pdfPath,
+                {
+                    signal,
+                    visiblePageOnly: true,
+                    ...(pageCount === undefined ? {} : {lastPage: pageCount}),
+                },
+                onProgress,
+            ),
     };
 }
 
@@ -109,13 +101,13 @@ async function resolvePdfSearchDocument(
     // Another window's working copy is not this one's to read, whatever
     // revision the request names; nor is a retired copy whose bytes are kept
     // in quarantine after no window owns it any more.
-    if (!resolvedPdfPath || [
-        pdfPath,
-        resolvedPdfPath,
-    ].some(path => {
-        const owner = getWorkingCopyOwnerWebContentsId(path);
-        return owner === undefined ? isWorkingCopyQuarantined(path) : owner !== senderId;
-    })) {
+    if (
+        !resolvedPdfPath ||
+        [pdfPath, resolvedPdfPath].some((path) => {
+            const owner = getWorkingCopyOwnerWebContentsId(path);
+            return owner === undefined ? isWorkingCopyQuarantined(path) : owner !== senderId;
+        })
+    ) {
         throw searchPathDeniedError();
     }
     const revision = documentRevision ?? (await getWorkingCopyRevision(resolvedPdfPath, senderId)).token;
@@ -141,7 +133,7 @@ function handlePdfSearch(context: ISearchSenderContext, request: INormalizedPdfS
         useRegex: request.useRegex === true,
         ...(request.pageCount === undefined ? {} : {pageCount: request.pageCount}),
         workingCopyPath: knownWorkingCopyPath(request.pdfPath, senderId),
-        resolveDocument: signal => resolvePdfSearchDocument(request.pdfPath, request.documentRevision, senderId, signal),
+        resolveDocument: (signal) => resolvePdfSearchDocument(request.pdfPath, request.documentRevision, senderId, signal),
     });
 }
 
@@ -157,7 +149,7 @@ async function handlePdfSearchWarmIndex(context: ISearchSenderContext, request: 
         useRegex: false,
         ...(request.pageCount === undefined ? {} : {pageCount: request.pageCount}),
         workingCopyPath: knownWorkingCopyPath(request.pdfPath, senderId),
-        resolveDocument: signal => resolvePdfSearchDocument(request.pdfPath, request.documentRevision, senderId, signal),
+        resolveDocument: (signal) => resolvePdfSearchDocument(request.pdfPath, request.documentRevision, senderId, signal),
     });
     return true;
 }
@@ -168,7 +160,7 @@ const searchMainBindings = {
     cancel: (context, requestId) => searchService.cancel(context, requestId),
     // Indexes live on disk beside their document and carry its revision.
     resetCache: () => true,
-    subscribeProgress: context => searchService.subscribeProgress(context),
+    subscribeProgress: (context) => searchService.subscribeProgress(context),
 } satisfies TFeatureMainBindings<typeof SEARCH_PLATFORM_FEATURE, IpcMainInvokeEvent>;
 
 export function prepareSearchMainBindings() {

@@ -1,15 +1,8 @@
-import {
-    existsSync,
-    readFileSync,
-} from 'node:fs';
-import { readFile } from 'node:fs/promises';
-import {
-    dirname,
-    join,
-    resolve,
-} from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { compile } from 'tailwindcss';
+import {existsSync, readFileSync} from 'node:fs';
+import {readFile} from 'node:fs/promises';
+import {dirname, join, resolve} from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {compile} from 'tailwindcss';
 import tailwindColors from 'tailwindcss/colors';
 
 /**
@@ -46,19 +39,7 @@ const FONT_MEDIA_TYPES: Record<string, string> = {
     woff: 'font/woff',
     woff2: 'font/woff2',
 };
-const NUXT_UI_COLOR_SHADES = [
-    50,
-    100,
-    200,
-    300,
-    400,
-    500,
-    600,
-    700,
-    800,
-    900,
-    950,
-];
+const NUXT_UI_COLOR_SHADES = [50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950];
 
 function resolvePackageStylesheet(specifier: string) {
     const packageRoot = join(REPO_ROOT, 'node_modules', specifier);
@@ -98,7 +79,7 @@ function resolveStylesheetPath(specifier: string, base: string) {
 async function withFallbackDefineAppConfig<T>(read: () => Promise<T>) {
     const scope = globalThis as {defineAppConfig?: <C>(config: C) => C};
     const previousDescriptor = Object.getOwnPropertyDescriptor(scope, 'defineAppConfig');
-    scope.defineAppConfig ??= config => config;
+    scope.defineAppConfig ??= (config) => config;
     try {
         return await read();
     } finally {
@@ -124,25 +105,15 @@ async function nuxtUiColorRoleDeclarations() {
     const {default: appConfig} = await withFallbackDefineAppConfig(() => import('@app/app.config'));
     const palette: Record<string, unknown> = tailwindColors;
     return Object.entries(appConfig.ui?.colors ?? {})
-        .flatMap(([
-            role,
-            colorName,
-        ]) => {
+        .flatMap(([role, colorName]) => {
             const ramp = palette[String(colorName)];
             if (typeof ramp !== 'object' || ramp === null) {
                 return [];
             }
             const shades: Record<string, unknown> = {...ramp};
-            return NUXT_UI_COLOR_SHADES
-                .map(shade => [
-                    shade,
-                    shades[String(shade)],
-                ] as const)
+            return NUXT_UI_COLOR_SHADES.map((shade) => [shade, shades[String(shade)]] as const)
                 .filter((entry): entry is readonly [number, string] => typeof entry[1] === 'string')
-                .map(([
-                    shade,
-                    value,
-                ]) => `--ui-color-${role}-${String(shade)}: ${value};`);
+                .map(([shade, value]) => `--ui-color-${role}-${String(shade)}: ${value};`);
         })
         .join('\n');
 }

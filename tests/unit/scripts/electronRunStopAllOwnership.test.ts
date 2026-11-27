@@ -1,44 +1,15 @@
-import {
-    execFileSync,
-    spawn,
-    type ChildProcess,
-} from 'node:child_process';
-import {
-    chmodSync,
-    existsSync,
-    mkdtempSync,
-    readFileSync,
-    rmSync,
-    writeFileSync,
-} from 'node:fs';
+import {execFileSync, spawn, type ChildProcess} from 'node:child_process';
+import {chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {describe, expect, it, vi} from 'vitest';
 import type * as TElectronRunSessionArtifacts from '@scripts/electron-run/electronRunSessionArtifacts';
-import {
-    cleanupOrphanedProjectNuxtRoots,
-    probeNuxtListenersOnPort,
-} from '@scripts/electron-run/electronRunNuxtServer';
-import {
-    DEFAULT_NUXT_PORT,
-    setNuxtPort,
-} from '@scripts/electron-run/electronRunPortConfig';
-import {
-    findFreePort,
-    isProcessAlive,
-    killProcessTree,
-} from '@scripts/electron-run/electronRunProcessTree';
+import {cleanupOrphanedProjectNuxtRoots, probeNuxtListenersOnPort} from '@scripts/electron-run/electronRunNuxtServer';
+import {DEFAULT_NUXT_PORT, setNuxtPort} from '@scripts/electron-run/electronRunPortConfig';
+import {findFreePort, isProcessAlive, killProcessTree} from '@scripts/electron-run/electronRunProcessTree';
 import {projectRoot} from '@scripts/electron-run/projectRoot';
 import {runCli} from '@scripts/electron-run/runCli';
-import type {
-    ISessionInfo,
-    ISessionStartingInfo,
-} from '@scripts/electron-run/electronRunSessionTypes';
+import type {ISessionInfo, ISessionStartingInfo} from '@scripts/electron-run/electronRunSessionTypes';
 
 const sessionArtifacts = vi.hoisted(() => ({
     getSessionInfo: vi.fn<() => ISessionInfo | null>(() => null),
@@ -46,8 +17,8 @@ const sessionArtifacts = vi.hoisted(() => ({
     listAllSessionNames: vi.fn<() => string[]>(() => []),
 }));
 
-vi.mock('@scripts/electron-run/electronRunSessionArtifacts', async importOriginal => ({
-    ...await importOriginal<typeof TElectronRunSessionArtifacts>(),
+vi.mock('@scripts/electron-run/electronRunSessionArtifacts', async (importOriginal) => ({
+    ...(await importOriginal<typeof TElectronRunSessionArtifacts>()),
     getSessionInfo: sessionArtifacts.getSessionInfo,
     getSessionStartingInfo: sessionArtifacts.getSessionStartingInfo,
     listAllSessionNames: sessionArtifacts.listAllSessionNames,
@@ -71,44 +42,47 @@ interface IOrphanFixture {
 
 function writeListenerScript(root: string) {
     const scriptPath = join(root, 'unrelated-listener.cjs');
-    writeFileSync(scriptPath, [
-        'const http = require(\'node:http\');',
-        'const fs = require(\'node:fs\');',
-        'const port = Number(process.env.EVB_TH1_PORT);',
-        'const readyPath = process.env.EVB_TH1_READY_PATH;',
-        'const signalPath = process.env.EVB_TH1_SIGNAL_PATH;',
-        'const recordSignal = signal => fs.appendFileSync(signalPath, signal + "\\n");',
-        'for (const signal of [\'SIGTERM\', \'SIGINT\', \'SIGHUP\']) process.on(signal, () => recordSignal(signal));',
-        'const server = http.createServer((_request, response) => { response.writeHead(200); response.end(\'still-serving\'); });',
-        'server.listen(port, \'127.0.0.1\', () => fs.writeFileSync(readyPath, String(process.pid)));',
-        'setInterval(() => {}, 1000);',
-    ].join('\n'), 'utf8');
+    writeFileSync(
+        scriptPath,
+        [
+            "const http = require('node:http');",
+            "const fs = require('node:fs');",
+            'const port = Number(process.env.EVB_TH1_PORT);',
+            'const readyPath = process.env.EVB_TH1_READY_PATH;',
+            'const signalPath = process.env.EVB_TH1_SIGNAL_PATH;',
+            'const recordSignal = signal => fs.appendFileSync(signalPath, signal + "\\n");',
+            "for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.on(signal, () => recordSignal(signal));",
+            "const server = http.createServer((_request, response) => { response.writeHead(200); response.end('still-serving'); });",
+            "server.listen(port, '127.0.0.1', () => fs.writeFileSync(readyPath, String(process.pid)));",
+            'setInterval(() => {}, 1000);',
+        ].join('\n'),
+        'utf8',
+    );
     return scriptPath;
 }
 
 function writeClientScript(root: string) {
     const scriptPath = join(root, 'unrelated-client.cjs');
-    writeFileSync(scriptPath, [
-        'const net = require(\'node:net\');',
-        'const fs = require(\'node:fs\');',
-        'const port = Number(process.env.EVB_TH1_PORT);',
-        'const readyPath = process.env.EVB_TH1_READY_PATH;',
-        'const signalPath = process.env.EVB_TH1_SIGNAL_PATH;',
-        'const recordSignal = signal => fs.appendFileSync(signalPath, signal + "\\n");',
-        'for (const signal of [\'SIGTERM\', \'SIGINT\', \'SIGHUP\']) process.on(signal, () => recordSignal(signal));',
-        'const socket = net.createConnection({host: \'127.0.0.1\', port}, () => { socket.setKeepAlive(true); fs.writeFileSync(readyPath, String(process.pid)); });',
-        'socket.on(\'error\', error => { fs.writeFileSync(process.env.EVB_TH1_ERROR_PATH, String(error)); process.exitCode = 1; });',
-        'setInterval(() => {}, 1000);',
-    ].join('\n'), 'utf8');
+    writeFileSync(
+        scriptPath,
+        [
+            "const net = require('node:net');",
+            "const fs = require('node:fs');",
+            'const port = Number(process.env.EVB_TH1_PORT);',
+            'const readyPath = process.env.EVB_TH1_READY_PATH;',
+            'const signalPath = process.env.EVB_TH1_SIGNAL_PATH;',
+            'const recordSignal = signal => fs.appendFileSync(signalPath, signal + "\\n");',
+            "for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.on(signal, () => recordSignal(signal));",
+            "const socket = net.createConnection({host: '127.0.0.1', port}, () => { socket.setKeepAlive(true); fs.writeFileSync(readyPath, String(process.pid)); });",
+            "socket.on('error', error => { fs.writeFileSync(process.env.EVB_TH1_ERROR_PATH, String(error)); process.exitCode = 1; });",
+            'setInterval(() => {}, 1000);',
+        ].join('\n'),
+        'utf8',
+    );
     return scriptPath;
 }
 
-function fixtureEnvironment(options: {
-    port: number;
-    readyPath: string;
-    signalPath: string;
-    errorPath: string;
-}) {
+function fixtureEnvironment(options: {port: number; readyPath: string; signalPath: string; errorPath: string}) {
     return {
         ...process.env,
         EVB_TH1_PORT: String(options.port),
@@ -158,12 +132,13 @@ async function spawnListenerFixture(root: string, port: number): Promise<IListen
 
 function writeOrphanPnpmScript(root: string) {
     const pnpmPath = join(root, 'pnpm');
-    writeFileSync(pnpmPath, [
-        '#!/bin/sh',
-        'printf \'%s\' "$$" > "$EVB_TH1_ROOT_PID_PATH"',
-        '"$EVB_TH1_NODE_PATH" "$EVB_TH1_SERVER_SCRIPT" &',
-        'wait "$!"',
-    ].join('\n'), 'utf8');
+    writeFileSync(
+        pnpmPath,
+        ['#!/bin/sh', 'printf \'%s\' "$$" > "$EVB_TH1_ROOT_PID_PATH"', '"$EVB_TH1_NODE_PATH" "$EVB_TH1_SERVER_SCRIPT" &', 'wait "$!"'].join(
+            '\n',
+        ),
+        'utf8',
+    );
     chmodSync(pnpmPath, 0o755);
     return pnpmPath;
 }
@@ -174,15 +149,9 @@ function canUseSystemdSystemService() {
     }
 
     try {
-        execFileSync('sudo', [
-            '-n',
-            'systemd-run',
-            '--system',
-            '--wait',
-            '--collect',
-            `--uid=${String(process.getuid())}`,
-            '/bin/true',
-        ], {stdio: 'ignore'});
+        execFileSync('sudo', ['-n', 'systemd-run', '--system', '--wait', '--collect', `--uid=${String(process.getuid())}`, '/bin/true'], {
+            stdio: 'ignore',
+        });
         return true;
     } catch {
         return false;
@@ -209,39 +178,35 @@ function spawnOrphanFixture(root: string, port: number): IOrphanFixture {
         EVB_TH1_NODE_PATH: process.execPath,
     };
     const launcher = canUseSystemdSystemService()
-        ? spawn('sudo', [
-            '-n',
-            'systemd-run',
-            '--system',
-            '--wait',
-            '--collect',
-            `--unit=evb-th1-${String(process.pid)}-${String(Date.now())}`,
-            `--uid=${String(process.getuid?.() ?? '')}`,
-            `--working-directory=${projectRoot}`,
-            ...Object.entries(orphanEnvironment)
-                .filter(([
-                    , value,
-                ]) => value !== undefined)
-                .map(([
-                    name,
-                    value,
-                ]) => `--setenv=${name}=${value}`),
-            pnpmPath,
-            'run',
-            'dev:nuxt',
-        ], {
-            cwd: projectRoot,
-            env: process.env,
-            stdio: 'ignore',
-        })
-        : spawn('/bin/sh', [
-            '-c',
-            `'${pnpmPath.replaceAll('\'', '\'\\\'\'')}' run dev:nuxt &`,
-        ], {
-            cwd: projectRoot,
-            env: orphanEnvironment,
-            stdio: 'ignore',
-        });
+        ? spawn(
+              'sudo',
+              [
+                  '-n',
+                  'systemd-run',
+                  '--system',
+                  '--wait',
+                  '--collect',
+                  `--unit=evb-th1-${String(process.pid)}-${String(Date.now())}`,
+                  `--uid=${String(process.getuid?.() ?? '')}`,
+                  `--working-directory=${projectRoot}`,
+                  ...Object.entries(orphanEnvironment)
+                      .filter(([, value]) => value !== undefined)
+                      .map(([name, value]) => `--setenv=${name}=${value}`),
+                  pnpmPath,
+                  'run',
+                  'dev:nuxt',
+              ],
+              {
+                  cwd: projectRoot,
+                  env: process.env,
+                  stdio: 'ignore',
+              },
+          )
+        : spawn('/bin/sh', ['-c', `'${pnpmPath.replaceAll("'", "'\\''")}' run dev:nuxt &`], {
+              cwd: projectRoot,
+              env: orphanEnvironment,
+              stdio: 'ignore',
+          });
     return {
         root,
         launcher,
@@ -251,12 +216,15 @@ function spawnOrphanFixture(root: string, port: number): IOrphanFixture {
 }
 
 async function waitForFile(path: string) {
-    await vi.waitFor(() => {
-        expect(existsSync(path), `fixture file ${path}`).toBe(true);
-    }, {
-        interval: 25,
-        timeout: 5_000,
-    });
+    await vi.waitFor(
+        () => {
+            expect(existsSync(path), `fixture file ${path}`).toBe(true);
+        },
+        {
+            interval: 25,
+            timeout: 5_000,
+        },
+    );
 }
 
 async function forceKillAndWait(child: ChildProcess) {
@@ -275,12 +243,7 @@ async function forceKillAndWait(child: ChildProcess) {
 
 async function runStopAllThroughCli() {
     const originalArgv = process.argv;
-    process.argv = [
-        process.execPath,
-        join(projectRoot, 'scripts', 'electronRun.ts'),
-        'stop',
-        '--all',
-    ];
+    process.argv = [process.execPath, join(projectRoot, 'scripts', 'electronRun.ts'), 'stop', '--all'];
     try {
         await runCli();
     } finally {
@@ -358,27 +321,33 @@ describe('Electron stop-all Nuxt ownership', () => {
                 expect(orphanDescendantPid).toBeGreaterThan(0);
                 expect(isProcessAlive(orphanRootPid)).toBe(true);
                 expect(isProcessAlive(orphanDescendantPid)).toBe(true);
-                await vi.waitFor(() => {
-                    const orphanPpid = Number(execFileSync('ps', [
-                        '-p',
-                        String(orphanRootPid),
-                        '-o',
-                        'ppid=',
-                    ], {encoding: 'utf8'}).trim());
-                    expect(orphanPpid, 'orphan root was reparented').toBe(1);
-                }, {
-                    interval: 50,
-                    timeout: 5_000,
-                });
+                await vi.waitFor(
+                    () => {
+                        const orphanPpid = Number(
+                            execFileSync('ps', ['-p', String(orphanRootPid), '-o', 'ppid='], {encoding: 'utf8'}).trim(),
+                        );
+                        expect(orphanPpid, 'orphan root was reparented').toBe(1);
+                    },
+                    {
+                        interval: 50,
+                        timeout: 5_000,
+                    },
+                );
 
                 await runStopAllThroughCli();
 
-                await vi.waitFor(() => {
-                    expect(isProcessAlive(orphanRootPid), 'owned orphan root was terminated').toBe(false);
-                }, {timeout: 5_000});
-                await vi.waitFor(() => {
-                    expect(isProcessAlive(orphanDescendantPid), 'owned orphan descendant was terminated').toBe(false);
-                }, {timeout: 5_000});
+                await vi.waitFor(
+                    () => {
+                        expect(isProcessAlive(orphanRootPid), 'owned orphan root was terminated').toBe(false);
+                    },
+                    {timeout: 5_000},
+                );
+                await vi.waitFor(
+                    () => {
+                        expect(isProcessAlive(orphanDescendantPid), 'owned orphan descendant was terminated').toBe(false);
+                    },
+                    {timeout: 5_000},
+                );
                 expect(isProcessAlive(unrelated.serverPid), 'unrelated listener survived').toBe(true);
                 expect(isProcessAlive(unrelated.clientPid), 'unrelated client survived').toBe(true);
                 await expect(fetchFixture(unrelatedPort)).resolves.toEqual({
@@ -414,23 +383,27 @@ describe('Electron stop-all Nuxt ownership', () => {
         const orphanPort = await findFreePort();
         const terminateRoot = vi.fn(async () => true);
         const verifyIdentity = vi.fn(() => true);
-        const roots = [{
-            pid: 700_001,
-            ppid: 1,
-            devServerPort: orphanPort,
-            descendantPids: [700_002],
-        }];
+        const roots = [
+            {
+                pid: 700_001,
+                ppid: 1,
+                devServerPort: orphanPort,
+                descendantPids: [700_002],
+            },
+        ];
         setNuxtPort(preservedPort);
         try {
-            await expect(cleanupOrphanedProjectNuxtRoots('injected listener failure', {
-                roots,
-                probeListeners: () => ({
-                    ok: false,
-                    pids: [],
+            await expect(
+                cleanupOrphanedProjectNuxtRoots('injected listener failure', {
+                    roots,
+                    probeListeners: () => ({
+                        ok: false,
+                        pids: [],
+                    }),
+                    verifyIdentity,
+                    terminateRoot,
                 }),
-                verifyIdentity,
-                terminateRoot,
-            })).resolves.toBe(false);
+            ).resolves.toBe(false);
             expect(verifyIdentity).not.toHaveBeenCalled();
             expect(terminateRoot).not.toHaveBeenCalled();
         } finally {
@@ -445,27 +418,34 @@ describe('Electron stop-all Nuxt ownership', () => {
         const listenerPid = 700_002;
         const terminateRoot = vi.fn(async () => true);
         const verifyIdentity = vi.fn(() => false);
-        const roots = [{
-            pid: orphanRootPid,
-            ppid: 1,
-            devServerPort: orphanPort,
-            descendantPids: [listenerPid],
-        }];
+        const roots = [
+            {
+                pid: orphanRootPid,
+                ppid: 1,
+                devServerPort: orphanPort,
+                descendantPids: [listenerPid],
+            },
+        ];
         setNuxtPort(preservedPort);
         try {
-            await expect(cleanupOrphanedProjectNuxtRoots('injected identity change', {
-                roots,
-                probeListeners: port => ({
-                    ok: true,
-                    pids: port === orphanPort ? [listenerPid] : [],
+            await expect(
+                cleanupOrphanedProjectNuxtRoots('injected identity change', {
+                    roots,
+                    probeListeners: (port) => ({
+                        ok: true,
+                        pids: port === orphanPort ? [listenerPid] : [],
+                    }),
+                    verifyIdentity,
+                    terminateRoot,
                 }),
-                verifyIdentity,
-                terminateRoot,
-            })).resolves.toBe(false);
-            expect(verifyIdentity).toHaveBeenCalledWith(orphanRootPid, expect.objectContaining({
-                kind: 'nuxt',
-                nuxtPort: orphanPort,
-            }));
+            ).resolves.toBe(false);
+            expect(verifyIdentity).toHaveBeenCalledWith(
+                orphanRootPid,
+                expect.objectContaining({
+                    kind: 'nuxt',
+                    nuxtPort: orphanPort,
+                }),
+            );
             expect(terminateRoot).not.toHaveBeenCalled();
         } finally {
             setNuxtPort(DEFAULT_NUXT_PORT);
@@ -478,19 +458,23 @@ describe('Electron stop-all Nuxt ownership', () => {
         const terminateRoot = vi.fn(async () => true);
         setNuxtPort(sharedPort);
         try {
-            await expect(cleanupOrphanedProjectNuxtRoots('injected shared server', {
-                roots: [{
-                    pid: 700_001,
-                    ppid: 1,
-                    devServerPort: sharedPort,
-                    descendantPids: [listenerPid],
-                }],
-                probeListeners: () => ({
-                    ok: true,
-                    pids: [listenerPid],
+            await expect(
+                cleanupOrphanedProjectNuxtRoots('injected shared server', {
+                    roots: [
+                        {
+                            pid: 700_001,
+                            ppid: 1,
+                            devServerPort: sharedPort,
+                            descendantPids: [listenerPid],
+                        },
+                    ],
+                    probeListeners: () => ({
+                        ok: true,
+                        pids: [listenerPid],
+                    }),
+                    terminateRoot,
                 }),
-                terminateRoot,
-            })).resolves.toBe(false);
+            ).resolves.toBe(false);
             expect(terminateRoot).not.toHaveBeenCalled();
         } finally {
             setNuxtPort(DEFAULT_NUXT_PORT);

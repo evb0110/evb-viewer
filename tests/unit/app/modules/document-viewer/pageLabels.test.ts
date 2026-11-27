@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {
     applySparsePageLabelUpdates,
     buildPageLabelsFromRanges,
@@ -18,14 +14,10 @@ import {
     getPageIndicatorLayoutMetrics,
     normalizePageLabelRanges,
 } from '@app/modules/document-viewer/pageLabels';
-import { ref } from 'vue';
-import {
-    formatPageLabelForDisplay,
-    getPageLabelStartNumberMax,
-    replacePageLabelRange,
-} from '@pdf-core/pdfPageLabels';
-import type { IPdfPageLabelRange } from '@contracts/pdfPageLabels';
-import { createDocumentAgentPageLabels } from '@app/modules/workspace-shell/agent/createDocumentAgentPageLabels';
+import {ref} from 'vue';
+import {formatPageLabelForDisplay, getPageLabelStartNumberMax, replacePageLabelRange} from '@pdf-core/pdfPageLabels';
+import type {IPdfPageLabelRange} from '@contracts/pdfPageLabels';
+import {createDocumentAgentPageLabels} from '@app/modules/workspace-shell/agent/createDocumentAgentPageLabels';
 
 describe('document page labels', () => {
     it('uses the last numeric page for default labels', () => {
@@ -33,12 +25,7 @@ describe('document page labels', () => {
     });
 
     it('reserves enough width for the longest formatted logical label', () => {
-        const pageLabels = [
-            'ix',
-            'x',
-            'A-12',
-            'Appendix',
-        ];
+        const pageLabels = ['ix', 'x', 'A-12', 'Appendix'];
 
         const expected = Math.max(...pageLabels.map((_, index) => formatPageIndicatorWithOptions(index + 1, pageLabels).length));
 
@@ -46,106 +33,60 @@ describe('document page labels', () => {
     });
 
     it('falls back to numeric width when labels do not match page count', () => {
-        expect(getMaxPageIndicatorLength(120, [
-            'i',
-            'ii',
-        ])).toBe(3);
+        expect(getMaxPageIndicatorLength(120, ['i', 'ii'])).toBe(3);
     });
 
     it('supports compact page-indicator length calculations for the toolbar', () => {
-        const pageLabels = [
-            'i',
-            'ii',
-            'iii',
-            'iv',
-            'v',
-            'vi',
-            'vii',
-            'viii',
-            'ix',
-            'x',
-            'xi',
-            'xii',
-            'xiii',
-            'xiv',
-            'xv',
-            'xvi',
-        ];
+        const pageLabels = ['i', 'ii', 'iii', 'iv', 'v', 'vi', 'vii', 'viii', 'ix', 'x', 'xi', 'xii', 'xiii', 'xiv', 'xv', 'xvi'];
 
-        const expected = Math.max(...pageLabels.map((_, index) => formatPageIndicatorWithOptions(
-            index + 1,
-            pageLabels,
-            { compactPhysicalPage: true },
-        ).length));
+        const expected = Math.max(
+            ...pageLabels.map((_, index) => formatPageIndicatorWithOptions(index + 1, pageLabels, {compactPhysicalPage: true}).length),
+        );
 
-        expect(getMaxPageIndicatorLength(16, pageLabels, { compactPhysicalPage: true })).toBe(expected);
+        expect(getMaxPageIndicatorLength(16, pageLabels, {compactPhysicalPage: true})).toBe(expected);
     });
 
     it('keeps the default page indicator spacing for general UI', () => {
-        expect(formatPageIndicatorWithOptions(16, [
-            'i',
-            'ii',
-            'iii',
-            'iv',
-            'v',
-            'vi',
-            'vii',
-            'viii',
-            'ix',
-            'x',
-            'xi',
-            'xii',
-            'xiii',
-            'xiv',
-            'xv',
-            'xvi',
-        ])).toBe('xvi (16)');
+        expect(
+            formatPageIndicatorWithOptions(16, [
+                'i',
+                'ii',
+                'iii',
+                'iv',
+                'v',
+                'vi',
+                'vii',
+                'viii',
+                'ix',
+                'x',
+                'xi',
+                'xii',
+                'xiii',
+                'xiv',
+                'xv',
+                'xvi',
+            ]),
+        ).toBe('xvi (16)');
     });
 
     it('supports a compact toolbar indicator without the extra space', () => {
-        expect(formatPageIndicatorWithOptions(16, [
-            'i',
-            'ii',
-            'iii',
-            'iv',
-            'v',
-            'vi',
-            'vii',
-            'viii',
-            'ix',
-            'x',
-            'xi',
-            'xii',
-            'xiii',
-            'xiv',
-            'xv',
-            'xvi',
-        ], { compactPhysicalPage: true })).toBe('xvi(16)');
+        expect(
+            formatPageIndicatorWithOptions(
+                16,
+                ['i', 'ii', 'iii', 'iv', 'v', 'vi', 'vii', 'viii', 'ix', 'x', 'xi', 'xii', 'xiii', 'xiv', 'xv', 'xvi'],
+                {compactPhysicalPage: true},
+            ),
+        ).toBe('xvi(16)');
     });
 
     it('sizes page indicator display without mirroring the total width', () => {
         const totalPages = 348;
-        const pageLabels = Array.from({ length: totalPages }, (_, index) => {
+        const pageLabels = Array.from({length: totalPages}, (_, index) => {
             if (index < 17) {
-                return [
-                    'i',
-                    'ii',
-                    'iii',
-                    'iv',
-                    'v',
-                    'vi',
-                    'vii',
-                    'viii',
-                    'ix',
-                    'x',
-                    'xi',
-                    'xii',
-                    'xiii',
-                    'xiv',
-                    'xv',
-                    'xvi',
-                    'xvii',
-                ][index] ?? String(index + 1);
+                return (
+                    ['i', 'ii', 'iii', 'iv', 'v', 'vi', 'vii', 'viii', 'ix', 'x', 'xi', 'xii', 'xiii', 'xiv', 'xv', 'xvi', 'xvii'][index] ??
+                    String(index + 1)
+                );
             }
 
             return String(index - 16);
@@ -161,33 +102,18 @@ describe('document page labels', () => {
 
     it('uses the compact page-indicator width for toolbar layout metrics', () => {
         const totalPages = 348;
-        const pageLabels = Array.from({ length: totalPages }, (_, index) => {
+        const pageLabels = Array.from({length: totalPages}, (_, index) => {
             if (index < 17) {
-                return [
-                    'i',
-                    'ii',
-                    'iii',
-                    'iv',
-                    'v',
-                    'vi',
-                    'vii',
-                    'viii',
-                    'ix',
-                    'x',
-                    'xi',
-                    'xii',
-                    'xiii',
-                    'xiv',
-                    'xv',
-                    'xvi',
-                    'xvii',
-                ][index] ?? String(index + 1);
+                return (
+                    ['i', 'ii', 'iii', 'iv', 'v', 'vi', 'vii', 'viii', 'ix', 'x', 'xi', 'xii', 'xiii', 'xiv', 'xv', 'xvi', 'xvii'][index] ??
+                    String(index + 1)
+                );
             }
 
             return String(index - 16);
         });
 
-        expect(getPageIndicatorLayoutMetrics(totalPages, pageLabels, true, { compactPhysicalPage: true })).toEqual({
+        expect(getPageIndicatorLayoutMetrics(totalPages, pageLabels, true, {compactPhysicalPage: true})).toEqual({
             currentWidthCh: 8,
             totalWidthCh: 3,
             separatorWidthCh: 1,
@@ -221,7 +147,7 @@ describe('document page labels', () => {
 
     it('prefers numeric page labels over physical page numbers when labels exist', () => {
         const totalPages = 348;
-        const pageLabels = Array.from({ length: totalPages }, (_, index) => {
+        const pageLabels = Array.from({length: totalPages}, (_, index) => {
             if (index < 25) {
                 return String(index + 1);
             }
@@ -241,58 +167,66 @@ describe('document page labels', () => {
             {
                 label: '14',
                 page: 4,
-                ranges: [{
-                    startPage: 1,
-                    style: 'D',
-                    prefix: '1',
-                    startNumber: 1,
-                }],
+                ranges: [
+                    {
+                        startPage: 1,
+                        style: 'D',
+                        prefix: '1',
+                        startNumber: 1,
+                    },
+                ],
             },
             {
                 label: 'SecD',
                 page: 4,
-                ranges: [{
-                    startPage: 1,
-                    style: 'A',
-                    prefix: 'Sec',
-                    startNumber: 1,
-                }],
+                ranges: [
+                    {
+                        startPage: 1,
+                        style: 'A',
+                        prefix: 'Sec',
+                        startNumber: 1,
+                    },
+                ],
             },
             {
                 label: 'CIV',
                 page: 4,
-                ranges: [{
-                    startPage: 1,
-                    style: 'R',
-                    prefix: 'C',
-                    startNumber: 1,
-                }],
+                ranges: [
+                    {
+                        startPage: 1,
+                        style: 'R',
+                        prefix: 'C',
+                        startNumber: 1,
+                    },
+                ],
             },
             {
                 label: 'iv',
                 page: 4,
-                ranges: [{
-                    startPage: 1,
-                    style: 'R',
-                    prefix: '',
-                    startNumber: 1,
-                }],
+                ranges: [
+                    {
+                        startPage: 1,
+                        style: 'R',
+                        prefix: '',
+                        startNumber: 1,
+                    },
+                ],
             },
             {
                 label: 'part-4',
                 page: 4,
-                ranges: [{
-                    startPage: 1,
-                    style: 'D',
-                    prefix: 'Part-',
-                    startNumber: 1,
-                }],
+                ranges: [
+                    {
+                        startPage: 1,
+                        style: 'D',
+                        prefix: 'Part-',
+                        startNumber: 1,
+                    },
+                ],
             },
         ];
 
-        for (const {
-            label, page, ranges,
-        } of cases) {
+        for (const {label, page, ranges} of cases) {
             const model = createPageLabelModel(20, ranges);
             expect(model.labelAt(page)).toMatch(new RegExp(`^${label.toLowerCase()}$`, 'i'));
             expect(findPageByPageLabelInput(label, 20, model)).toBe(page);
@@ -300,24 +234,30 @@ describe('document page labels', () => {
     });
 
     it('bounds the label an accepted start value can format into', () => {
-        const alphabetic = createPageLabelModel(1, [{
-            startPage: 1,
-            style: 'A',
-            prefix: '',
-            startNumber: 20_000_000_000,
-        }]);
-        const roman = createPageLabelModel(1, [{
-            startPage: 1,
-            style: 'r',
-            prefix: '',
-            startNumber: 1_000_000_000,
-        }]);
-        const decimal = createPageLabelModel(1, [{
-            startPage: 1,
-            style: 'D',
-            prefix: '',
-            startNumber: 20_000_000_000,
-        }]);
+        const alphabetic = createPageLabelModel(1, [
+            {
+                startPage: 1,
+                style: 'A',
+                prefix: '',
+                startNumber: 20_000_000_000,
+            },
+        ]);
+        const roman = createPageLabelModel(1, [
+            {
+                startPage: 1,
+                style: 'r',
+                prefix: '',
+                startNumber: 1_000_000_000,
+            },
+        ]);
+        const decimal = createPageLabelModel(1, [
+            {
+                startPage: 1,
+                style: 'D',
+                prefix: '',
+                startNumber: 20_000_000_000,
+            },
+        ]);
 
         expect(formatPageLabelForDisplay(alphabetic.ranges[0]!)).toHaveLength(65);
         expect(formatPageLabelForDisplay(roman.ranges[0]!)).toHaveLength(65);
@@ -325,12 +265,17 @@ describe('document page labels', () => {
     });
 
     it('keeps the start value an imported range defines, even one the page-numbering field would not admit', () => {
-        const ranges = normalizePageLabelRanges([{
-            startPage: 1,
-            style: 'A',
-            prefix: '',
-            startNumber: 130,
-        }], 1);
+        const ranges = normalizePageLabelRanges(
+            [
+                {
+                    startPage: 1,
+                    style: 'A',
+                    prefix: '',
+                    startNumber: 130,
+                },
+            ],
+            1,
+        );
 
         expect(ranges[0]?.startNumber).toBe(130);
         expect(createPageLabelModel(1, ranges).labelAt(1)).toBe('ZZZZZ');
@@ -339,12 +284,14 @@ describe('document page labels', () => {
     it('renumbers only the edited page and keeps the numbering the later pages already had', () => {
         const ranges = replacePageLabelRange(
             150,
-            [{
-                startPage: 1,
-                style: 'A',
-                prefix: '',
-                startNumber: 1,
-            }],
+            [
+                {
+                    startPage: 1,
+                    style: 'A',
+                    prefix: '',
+                    startNumber: 1,
+                },
+            ],
             {
                 startPage: 110,
                 endPage: 110,
@@ -380,17 +327,7 @@ describe('document page labels', () => {
         expect(ranges[0]?.startNumber).toBe(getPageLabelStartNumberMax('A'));
     });
 
-    it.each([
-        ['001'],
-        ['0'],
-        ['A01'],
-        ['aA'],
-        [
-            '001',
-            '002',
-            '003',
-        ],
-    ])('infers ranges that print the labels exactly: %j', (...labels) => {
+    it.each([['001'], ['0'], ['A01'], ['aA'], ['001', '002', '003']])('infers ranges that print the labels exactly: %j', (...labels) => {
         const ranges = derivePageLabelRangesFromLabels(labels, labels.length);
         const model = createPageLabelModel(labels.length, ranges);
 
@@ -404,12 +341,14 @@ describe('document page labels', () => {
         const ranges = derivePageLabelRangesFromLabels([label], 1);
         const shown = formatPageLabelForDisplay(ranges[0]!);
 
-        expect(ranges).toEqual([{
-            startPage: 1,
-            style: 'A',
-            prefix: '',
-            startNumber: 6_815_730,
-        }]);
+        expect(ranges).toEqual([
+            {
+                startPage: 1,
+                style: 'A',
+                prefix: '',
+                startNumber: 6_815_730,
+            },
+        ]);
         expect(shown.length).toBeLessThan(300);
         expect(shown.endsWith('…')).toBe(true);
     });
@@ -419,12 +358,14 @@ describe('document page labels', () => {
         const ranges = derivePageLabelRangesFromLabels([label], 1);
         const shown = formatPageLabelForDisplay(ranges[0]!);
 
-        expect(ranges).toEqual([{
-            startPage: 1,
-            style: null,
-            prefix: label,
-            startNumber: 1,
-        }]);
+        expect(ranges).toEqual([
+            {
+                startPage: 1,
+                style: null,
+                prefix: label,
+                startNumber: 1,
+            },
+        ]);
         expect(shown.length).toBeLessThan(300);
         expect(shown.endsWith('…')).toBe(true);
     });
@@ -442,12 +383,14 @@ describe('document page labels', () => {
     });
 
     it('prefers a logical label over a coincident physical page number', () => {
-        const model = createPageLabelModel(20, [{
-            startPage: 1,
-            style: 'D',
-            prefix: '1',
-            startNumber: 1,
-        }]);
+        const model = createPageLabelModel(20, [
+            {
+                startPage: 1,
+                style: 'D',
+                prefix: '1',
+                startNumber: 1,
+            },
+        ]);
 
         expect(model.labelAt(4)).toBe('14');
         expect(findPageByPageLabelInput('14', 20, model)).toBe(4);
@@ -496,17 +439,15 @@ describe('document page labels', () => {
             startNumber: 1,
         });
 
-        expect(ranges).toEqual([{
-            startPage: 1,
-            style: 'D',
-            prefix: '',
-            startNumber: 1,
-        }]);
-        expect(buildPageLabelsFromRanges(3, ranges)).toEqual([
-            '1',
-            '2',
-            '3',
+        expect(ranges).toEqual([
+            {
+                startPage: 1,
+                style: 'D',
+                prefix: '',
+                startNumber: 1,
+            },
         ]);
+        expect(buildPageLabelsFromRanges(3, ranges)).toEqual(['1', '2', '3']);
     });
 
     it('resolves million-page labels from canonical ranges and bounded windows', () => {
@@ -545,14 +486,7 @@ describe('document page labels', () => {
         expect(model.labelAt(0)).toBeNull();
         expect(findPageByPageLabelInput('Appendix 500000', totalPages, model)).toBe(totalPages);
         expect(getMaxPageIndicatorLength(totalPages, model)).toBeGreaterThan(String(totalPages).length);
-        expect(model.readWindow(499_999, 500_004)).toEqual([
-            '499999',
-            '500000',
-            'Appendix 1',
-            'Appendix 2',
-            'Appendix 3',
-            'Appendix 4',
-        ]);
+        expect(model.readWindow(499_999, 500_004)).toEqual(['499999', '500000', 'Appendix 1', 'Appendix 2', 'Appendix 3', 'Appendix 4']);
         expect(model.readWindow(500_000, 500_000 + 500)).toHaveLength(128);
     });
 
@@ -631,51 +565,51 @@ describe('document page labels', () => {
     });
 });
 
-
 describe('lossless page-label regressions', () => {
     it('F1 navigates to the full long logical label of page 2', () => {
         const prefix = 'LongPrefix-'.repeat(6);
-        const model = createPageLabelModel(3, [{
-            startPage: 1,
-            style: 'D',
-            prefix,
-            startNumber: 1,
-        }]);
+        const model = createPageLabelModel(3, [
+            {
+                startPage: 1,
+                style: 'D',
+                prefix,
+                startNumber: 1,
+            },
+        ]);
         expect(findPageByPageLabelInput(`${prefix}2`, 3, model)).toBe(2);
         expect(findPageByPageLabelInput(formatPageLabelForDisplay(model.ranges[0]!, 1), 3, model)).toBe(2);
     });
 
     it('F2 preserves untouched literal labels when page 3 is edited for saving', () => {
         const common = 'x'.repeat(64);
-        const labels = [
-            `${common}first.`,
-            `${common}second.`,
-            'tail.',
-        ];
+        const labels = [`${common}first.`, `${common}second.`, 'tail.'];
         const ranges = derivePageLabelRangesFromLabels(labels, 3);
-        const saved = replacePageLabelRange(3, ranges, {
-            startPage: 3,
-            endPage: 3,
-        }, {
-            style: 'D',
-            prefix: '',
-            startNumber: 1,
-        });
-        expect(buildPageLabelsFromRanges(3, saved)).toEqual([
-            labels[0],
-            labels[1],
-            '1',
-        ]);
+        const saved = replacePageLabelRange(
+            3,
+            ranges,
+            {
+                startPage: 3,
+                endPage: 3,
+            },
+            {
+                style: 'D',
+                prefix: '',
+                startNumber: 1,
+            },
+        );
+        expect(buildPageLabelsFromRanges(3, saved)).toEqual([labels[0], labels[1], '1']);
     });
 
     it('F3 retains complete Unicode characters in the label', () => {
         const prefix = `${'x'.repeat(63)}😀more`;
-        const model = createPageLabelModel(1, [{
-            startPage: 1,
-            style: null,
-            prefix,
-            startNumber: 1,
-        }]);
+        const model = createPageLabelModel(1, [
+            {
+                startPage: 1,
+                style: null,
+                prefix,
+                startNumber: 1,
+            },
+        ]);
         expect(model.labelAt(1)).toBe(prefix);
         expect(formatPageLabelForDisplay(model.ranges[0]!)).toBe(`${'x'.repeat(63)}😀…`);
         expect(formatPageLabelForDisplay(`${'x'.repeat(63)}e\u0301more`)).toBe(`${'x'.repeat(63)}e\u0301…`);
@@ -684,46 +618,63 @@ describe('lossless page-label regressions', () => {
 
     it('F4 reports all 201 prefixes changed beyond character 64', () => {
         const common = 'x'.repeat(64);
-        expect(countPageLabelDifferences(201,
-            [{
-                startPage: 1,
-                style: 'D',
-                prefix: `${common}first.`,
-                startNumber: 1,
-            }],
-            [{
-                startPage: 1,
-                style: 'D',
-                prefix: `${common}second.`,
-                startNumber: 1,
-            }],
-        )).toBe(201);
+        expect(
+            countPageLabelDifferences(
+                201,
+                [
+                    {
+                        startPage: 1,
+                        style: 'D',
+                        prefix: `${common}first.`,
+                        startNumber: 1,
+                    },
+                ],
+                [
+                    {
+                        startPage: 1,
+                        style: 'D',
+                        prefix: `${common}second.`,
+                        startNumber: 1,
+                    },
+                ],
+            ),
+        ).toBe(201);
     });
 
     it('F5 admits raw agent ranges through the alphabetic start policy', () => {
-        const ranges = ref<IPdfPageLabelRange[]>([{
-            startPage: 1,
-            style: 'D',
-            prefix: '',
-            startNumber: 1,
-        }]);
+        const ranges = ref<IPdfPageLabelRange[]>([
+            {
+                startPage: 1,
+                style: 'D',
+                prefix: '',
+                startNumber: 1,
+            },
+        ]);
         const agent = createDocumentAgentPageLabels({
             pageLabelRanges: ranges,
             pageLabels: ref(null),
             pageLabelsDirty: ref(false),
             totalPages: ref(3),
-            handlePageLabelRangesUpdate: updated => { ranges.value = updated; },
+            handlePageLabelRangesUpdate: (updated) => {
+                ranges.value = updated;
+            },
         });
-        const plan = agent.applyAgentPageLabelPlan({ranges: [{
-            startPage: 1,
-            style: 'A',
-            prefix: '',
-            startNumber: 1e9,
-        }]}, 'regression');
+        const plan = agent.applyAgentPageLabelPlan(
+            {
+                ranges: [
+                    {
+                        startPage: 1,
+                        style: 'A',
+                        prefix: '',
+                        startNumber: 1e9,
+                    },
+                ],
+            },
+            'regression',
+        );
         expect(plan.ranges[0]?.startNumber).toBeLessThanOrEqual(getPageLabelStartNumberMax('A'));
     });
 });
-
 
 describe('page-label presentation and lazy semantics', () => {
     it.each([
@@ -743,22 +694,22 @@ describe('page-label presentation and lazy semantics', () => {
             style: 'r',
             startNumber: 1_000_000,
         },
-    ] as const)('bounds huge imported $style numbering in model reads', ({
-        style, startNumber,
-    }) => {
-        const model = createPageLabelModel(128, [{
-            startPage: 1,
-            style,
-            prefix: '',
-            startNumber,
-        }]);
+    ] as const)('bounds huge imported $style numbering in model reads', ({style, startNumber}) => {
+        const model = createPageLabelModel(128, [
+            {
+                startPage: 1,
+                style,
+                prefix: '',
+                startNumber,
+            },
+        ]);
         expect(model.ranges[0]?.startNumber).toBe(startNumber);
         const initialHeapBytes = process.memoryUsage().heapUsed;
         // Check one label before asking for the whole window on the old code.
         expect(model.labelAt(1)?.length).toBeLessThanOrEqual(65);
         const labels = model.readWindow(1, 128);
         expect(labels).toHaveLength(128);
-        expect(labels.every(label => label.length <= 65)).toBe(true);
+        expect(labels.every((label) => label.length <= 65)).toBe(true);
         expect(new TextEncoder().encode(JSON.stringify(labels)).byteLength).toBeLessThan(9_000);
         expect(process.memoryUsage().heapUsed - initialHeapBytes).toBeLessThan(8 * 1024 * 1024);
     });
@@ -783,113 +734,136 @@ describe('page-label presentation and lazy semantics', () => {
     });
 
     it('compares huge imported formulas without expanding their numbering', () => {
-        const before = [{
-            startPage: 1,
-            style: 'A' as const,
-            prefix: 'x'.repeat(64),
-            startNumber: 20_000_000_000,
-        }];
+        const before = [
+            {
+                startPage: 1,
+                style: 'A' as const,
+                prefix: 'x'.repeat(64),
+                startNumber: 20_000_000_000,
+            },
+        ];
         expect(countPageLabelDifferences(201, before, before)).toBe(0);
-        expect(countPageLabelDifferences(201, before, [{
-            ...before[0]!,
-            prefix: `${before[0]!.prefix}changed`,
-        }])).toBe(201);
-        const updated = applySparsePageLabelUpdates(201, before, [{
-            page: 3,
-            label: 'Cover',
-        }]);
-        expect(updated.find(range => range.startPage === 4)?.startNumber).toBe(20_000_000_003);
+        expect(
+            countPageLabelDifferences(201, before, [
+                {
+                    ...before[0]!,
+                    prefix: `${before[0]!.prefix}changed`,
+                },
+            ]),
+        ).toBe(201);
+        const updated = applySparsePageLabelUpdates(201, before, [
+            {
+                page: 3,
+                label: 'Cover',
+            },
+        ]);
+        expect(updated.find((range) => range.startPage === 4)?.startNumber).toBe(20_000_000_003);
     });
 
     it('keeps an agent plan over huge imported starts compact and semantically exact', () => {
-        const ranges = ref<IPdfPageLabelRange[]>([{
-            startPage: 1,
-            style: 'A',
-            prefix: '',
-            startNumber: 20_000_000_000,
-        }]);
+        const ranges = ref<IPdfPageLabelRange[]>([
+            {
+                startPage: 1,
+                style: 'A',
+                prefix: '',
+                startNumber: 20_000_000_000,
+            },
+        ]);
         const agent = createDocumentAgentPageLabels({
             pageLabelRanges: ranges,
             pageLabels: ref(null),
             pageLabelsDirty: ref(false),
             totalPages: ref(3),
-            handlePageLabelRangesUpdate: updated => { ranges.value = updated; },
+            handlePageLabelRangesUpdate: (updated) => {
+                ranges.value = updated;
+            },
         });
-        const result = agent.applyAgentPageLabelPlan({ segments: [{
-            startPage: 2,
-            endPage: 2,
-            style: 'D',
-            startNumber: 1,
-        }] }, 'regression');
+        const result = agent.applyAgentPageLabelPlan(
+            {
+                segments: [
+                    {
+                        startPage: 2,
+                        endPage: 2,
+                        style: 'D',
+                        startNumber: 1,
+                    },
+                ],
+            },
+            'regression',
+        );
         expect(result.plan.diff.changedPageCount).toBe(1);
-        expect(result.ranges.find(range => range.startPage === 3)?.startNumber).toBe(20_000_000_002);
+        expect(result.ranges.find((range) => range.startPage === 3)?.startNumber).toBe(20_000_000_002);
         expect(result.labels).toBeNull();
         expect(result.summary.firstLabel?.length).toBeLessThanOrEqual(65);
     });
 
     it('admits formula plans and raw range inputs through the same start policy', () => {
-        const ranges = ref<IPdfPageLabelRange[]>([{
-            startPage: 1,
-            style: 'D',
-            prefix: '',
-            startNumber: 1,
-        }]);
+        const ranges = ref<IPdfPageLabelRange[]>([
+            {
+                startPage: 1,
+                style: 'D',
+                prefix: '',
+                startNumber: 1,
+            },
+        ]);
         const agent = createDocumentAgentPageLabels({
             pageLabelRanges: ranges,
             pageLabels: ref(null),
             pageLabelsDirty: ref(false),
             totalPages: ref(3),
-            handlePageLabelRangesUpdate: updated => { ranges.value = updated; },
+            handlePageLabelRangesUpdate: (updated) => {
+                ranges.value = updated;
+            },
         });
-        for (const style of [
-            'A',
-            'a',
-            'R',
-            'r',
-        ] as const) {
+        for (const style of ['A', 'a', 'R', 'r'] as const) {
             const range = {
                 startPage: 1,
                 endPage: 3,
                 style,
                 startNumber: 1e9,
             };
-            expect(agent.getAgentPageLabelRangesInput({ ranges: [{
-                ...range,
-                page: 1,
-            }] }, 'regression')[0]?.startNumber).toBe(getPageLabelStartNumberMax(style));
-            expect(agent.previewAgentPageLabelPlan({ segments: [range] }, 'regression').ranges[0]?.startNumber).toBe(getPageLabelStartNumberMax(style));
+            expect(
+                agent.getAgentPageLabelRangesInput(
+                    {
+                        ranges: [
+                            {
+                                ...range,
+                                page: 1,
+                            },
+                        ],
+                    },
+                    'regression',
+                )[0]?.startNumber,
+            ).toBe(getPageLabelStartNumberMax(style));
+            expect(agent.previewAgentPageLabelPlan({segments: [range]}, 'regression').ranges[0]?.startNumber).toBe(
+                getPageLabelStartNumberMax(style),
+            );
             expect(agent.applyAgentPageLabelsToRange(range, 'regression').ranges[0]?.startNumber).toBe(getPageLabelStartNumberMax(style));
         }
     });
 });
 
-
 it('navigates long-prefix presentation across numbering styles and rejects hidden suffix ambiguity', () => {
-    for (const style of [
-        'D',
-        'A',
-        'a',
-        'R',
-        'r',
-    ] as const) {
-        const model = createPageLabelModel(3, [{
-            startPage: 1,
-            style,
-            prefix: 'LongPrefix-'.repeat(6),
-            startNumber: 1,
-        }]);
+    for (const style of ['D', 'A', 'a', 'R', 'r'] as const) {
+        const model = createPageLabelModel(3, [
+            {
+                startPage: 1,
+                style,
+                prefix: 'LongPrefix-'.repeat(6),
+                startNumber: 1,
+            },
+        ]);
         expect(findPageByPageLabelInput(formatPageLabelForDisplay(model.ranges[0]!, 1), 3, model)).toBe(2);
     }
-    for (const style of [
-        'A',
-        'R',
-    ] as const) {
-        const model = createPageLabelModel(3, [{
-            startPage: 1,
-            style,
-            prefix: 'x'.repeat(80),
-            startNumber: 1e9,
-        }]);
+    for (const style of ['A', 'R'] as const) {
+        const model = createPageLabelModel(3, [
+            {
+                startPage: 1,
+                style,
+                prefix: 'x'.repeat(80),
+                startNumber: 1e9,
+            },
+        ]);
         expect(findPageByPageLabelInput(formatPageLabelForDisplay(model.ranges[0]!), 3, model)).toBeNull();
         const onePage = createPageLabelModel(1, model.ranges);
         expect(findPageByPageLabelInput(formatPageLabelForDisplay(model.ranges[0]!), 1, onePage)).toBe(1);
@@ -897,17 +871,19 @@ it('navigates long-prefix presentation across numbering styles and rejects hidde
 });
 
 it('answers an unmatched shortened label promptly across many one-page numbering segments', () => {
-    const model = createPageLabelModel(1_000, Array.from({length: 1_000}, (_, index) => ({
-        startPage: index + 1,
-        style: 'R' as const,
-        prefix: `section-${index}-`,
-        startNumber: 1,
-    })));
+    const model = createPageLabelModel(
+        1_000,
+        Array.from({length: 1_000}, (_, index) => ({
+            startPage: index + 1,
+            style: 'R' as const,
+            prefix: `section-${index}-`,
+            startNumber: 1,
+        })),
+    );
     const startedAt = performance.now();
     expect(findPageByPageLabelInput('missing…', 1_000, model)).toBeNull();
     expect(performance.now() - startedAt).toBeLessThan(1_000);
 });
-
 
 describe('viewer page-label presentation', () => {
     const hugeRange = {
@@ -926,10 +902,7 @@ describe('viewer page-label presentation', () => {
 
     it('keeps huge labels compact even for a small document compatibility path', () => {
         expect(materializePageLabelsForCompatibility(2, [hugeRange])).toBeNull();
-        expect(materializePageLabelsForCompatibility(2, [hugeRange], [
-            'wrong',
-            'labels',
-        ])).toBeNull();
+        expect(materializePageLabelsForCompatibility(2, [hugeRange], ['wrong', 'labels'])).toBeNull();
     });
 
     it('bounds legacy array presentation without changing the original label', () => {

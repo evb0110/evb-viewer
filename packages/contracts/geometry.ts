@@ -10,6 +10,4 @@ export interface IMarkerRect {
     height: number;
 }
 
-export type {
-    IPageGeometry, IPdfBox,
-} from '@contracts/decodePageGeometry';
+export type {IPageGeometry, IPdfBox} from '@contracts/decodePageGeometry';

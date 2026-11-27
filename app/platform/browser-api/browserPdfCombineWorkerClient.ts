@@ -10,9 +10,9 @@ import {BROWSER_PDF_COMBINE_WORKER_RESULT_SCHEMAS} from '@contracts/browserPdfCo
 import {isAbortError} from '@contracts/isAbortError';
 import {isNativeErrorEnvelope} from '@contracts/nativeErrors';
 import {isPdfCombineOutputTooLargeError} from '@contracts/pdfCombineOutputPolicy';
-import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
-import { settleBrowserWorkerResult } from '@app/platform/browser-api/settleBrowserWorkerResult';
-import type { IPendingBrowserWorkerRequest } from '@app/platform/browser-api/settleBrowserWorkerResult';
+import {toTransferableUint8Array} from '@app/platform/browser-api/toTransferableUint8Array';
+import {settleBrowserWorkerResult} from '@app/platform/browser-api/settleBrowserWorkerResult';
+import type {IPendingBrowserWorkerRequest} from '@app/platform/browser-api/settleBrowserWorkerResult';
 import {
     BrowserWorkerClient,
     BrowserWorkerRequestOwner,
@@ -20,8 +20,8 @@ import {
     resolveBrowserPageLanes,
 } from '@app/platform/browser-api/browserWorkerClient';
 import {PDF_IMAGE_COMBINE_WASM_PATH} from '@app/platform/browser-api/tryCombineImageInputsWithWasm';
-import { getErrorMessage } from '@app/utils/error';
-import { captureRendererFailure } from '@app/utils/failureReporter';
+import {getErrorMessage} from '@app/utils/error';
+import {captureRendererFailure} from '@app/utils/failureReporter';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import * as v from 'valibot';
 
@@ -33,17 +33,15 @@ const BROWSER_PDF_COMBINE_WORKER_IDLE_TTL_MS = 15_000;
 const DESKTOP_NATIVE_IMAGE_COMBINE_TIMEOUT_MS = 5 * 60 * 1000;
 const ENGINE_DEADLINE_MS_PER_MIB = 1000;
 
-function getCombineDeadlineMs(payload: IBrowserPdfCombineWorkerRequestMap[TBrowserPdfCombineWorkerRequestType], signal: AbortSignal | undefined) {
-    if (signal) {return undefined;}
-    const specInputs = payload.wasmImagePreprocessing?.pageSpecs?.flatMap(spec => [
-        spec.image,
-        spec.background,
-        spec.mask,
-    ]) ?? [];
-    const inputBytes = [
-        ...payload.inputs,
-        ...specInputs,
-    ].reduce((total, input) => total + (input?.data.byteLength ?? 0), 0);
+function getCombineDeadlineMs(
+    payload: IBrowserPdfCombineWorkerRequestMap[TBrowserPdfCombineWorkerRequestType],
+    signal: AbortSignal | undefined,
+) {
+    if (signal) {
+        return undefined;
+    }
+    const specInputs = payload.wasmImagePreprocessing?.pageSpecs?.flatMap((spec) => [spec.image, spec.background, spec.mask]) ?? [];
+    const inputBytes = [...payload.inputs, ...specInputs].reduce((total, input) => total + (input?.data.byteLength ?? 0), 0);
     return DESKTOP_NATIVE_IMAGE_COMBINE_TIMEOUT_MS + Math.ceil(inputBytes / (1024 * 1024)) * ENGINE_DEADLINE_MS_PER_MIB;
 }
 
@@ -54,7 +52,9 @@ export class BrowserPdfCombineWorkerUnavailableError extends Error {
     }
 }
 
-interface IBrowserPdfCombineWorkerFailure extends Error {failure?: FailureReceipt;}
+interface IBrowserPdfCombineWorkerFailure extends Error {
+    failure?: FailureReceipt;
+}
 
 function getWorkerFailureReceipt(error: unknown) {
     if (!(error instanceof Error)) {
@@ -64,10 +64,12 @@ function getWorkerFailureReceipt(error: unknown) {
 }
 
 function isExpectedWorkerFailure(error: Error) {
-    return isAbortError(error)
-        || isPdfCombineOutputTooLargeError(error)
-        || error.message === 'ERR_BROWSER_PDF_COMBINE_WASM_UNAVAILABLE'
-        || error.message === 'ERR_BROWSER_PDF_COMBINE_WORKER_UNSUPPORTED_INPUT';
+    return (
+        isAbortError(error) ||
+        isPdfCombineOutputTooLargeError(error) ||
+        error.message === 'ERR_BROWSER_PDF_COMBINE_WASM_UNAVAILABLE' ||
+        error.message === 'ERR_BROWSER_PDF_COMBINE_WORKER_UNSUPPORTED_INPUT'
+    );
 }
 
 function reportWorkerFailure(error: Error) {
@@ -94,9 +96,7 @@ function reportWorkerFailure(error: Error) {
     return error;
 }
 
-function buildWorkerRequestWithTransfers(
-    request: TBrowserPdfCombineWorkerRequest,
-) {
+function buildWorkerRequestWithTransfers(request: TBrowserPdfCombineWorkerRequest) {
     const transfer: Transferable[] = [];
     const transferredBuffers = new Set<ArrayBuffer>();
     const cloneInput = (input: IBrowserPdfCombineInput) => {
@@ -116,14 +116,14 @@ function buildWorkerRequestWithTransfers(
     const preprocessing = request.payload.wasmImagePreprocessing;
     const wasmImagePreprocessing = preprocessing?.pageSpecs
         ? {
-            ...preprocessing,
-            pageSpecs: preprocessing.pageSpecs.map(spec => ({
-                ...spec,
-                ...(spec.image ? {image: cloneInput(spec.image)} : {}),
-                ...(spec.background ? {background: cloneInput(spec.background)} : {}),
-                ...(spec.mask ? {mask: cloneInput(spec.mask)} : {}),
-            })),
-        }
+              ...preprocessing,
+              pageSpecs: preprocessing.pageSpecs.map((spec) => ({
+                  ...spec,
+                  ...(spec.image ? {image: cloneInput(spec.image)} : {}),
+                  ...(spec.background ? {background: cloneInput(spec.background)} : {}),
+                  ...(spec.mask ? {mask: cloneInput(spec.mask)} : {}),
+              })),
+          }
         : preprocessing;
 
     return {
@@ -149,25 +149,17 @@ function createBrowserPdfCombineWorkerClient() {
         preloadWasmPaths: () => [PDF_IMAGE_COMBINE_WASM_PATH],
         createWorker: () => {
             try {
-                return new Worker(
-                    new URL('./browserPdfCombine.worker.ts', import.meta.url),
-                    { type: 'module' },
-                );
+                return new Worker(new URL('./browserPdfCombine.worker.ts', import.meta.url), {type: 'module'});
             } catch (error) {
-                throw reportWorkerFailure(new BrowserPdfCombineWorkerUnavailableError(
-                    getErrorMessage(error),
-                ));
+                throw reportWorkerFailure(new BrowserPdfCombineWorkerUnavailableError(getErrorMessage(error)));
             }
         },
-        createError: event => reportWorkerFailure(new BrowserPdfCombineWorkerUnavailableError(
-            event.error instanceof Error ? getErrorMessage(event.error) : event.message,
-        )),
-        handleMessage: (pendingRequests, response, onSettled) => settleBrowserWorkerResult(
-            pendingRequests,
-            response,
-            onSettled,
-            isNativeErrorEnvelope,
-        ),
+        createError: (event) =>
+            reportWorkerFailure(
+                new BrowserPdfCombineWorkerUnavailableError(event.error instanceof Error ? getErrorMessage(event.error) : event.message),
+            ),
+        handleMessage: (pendingRequests, response, onSettled) =>
+            settleBrowserWorkerResult(pendingRequests, response, onSettled, isNativeErrorEnvelope),
     });
 }
 
@@ -194,9 +186,7 @@ export async function runBrowserPdfCombineWorkerRequest<K extends TBrowserPdfCom
     } = {},
 ): Promise<IBrowserPdfCombineWorkerResultMap[K]> {
     if (signal?.aborted) {
-        throw signal.reason instanceof Error
-            ? signal.reason
-            : new DOMException('PDF combine was canceled.', 'AbortError');
+        throw signal.reason instanceof Error ? signal.reason : new DOMException('PDF combine was canceled.', 'AbortError');
     }
     const browserPdfCombineWorkerOwner = getOwner();
     const request: IBrowserPdfCombineWorkerRequest<K> = {
@@ -205,40 +195,46 @@ export async function runBrowserPdfCombineWorkerRequest<K extends TBrowserPdfCom
         payload,
     } as IBrowserPdfCombineWorkerRequest<K>;
 
-    const abort = () => browserPdfCombineWorkerOwner.cancel(
-        request.id,
-        signal?.reason instanceof Error
-            ? signal.reason
-            : new DOMException('PDF combine was canceled.', 'AbortError'),
-    );
+    const abort = () =>
+        browserPdfCombineWorkerOwner.cancel(
+            request.id,
+            signal?.reason instanceof Error ? signal.reason : new DOMException('PDF combine was canceled.', 'AbortError'),
+        );
     signal?.addEventListener('abort', abort, {once: true});
     const deadlineMs = options.timeoutMs ?? getCombineDeadlineMs(payload, signal);
     try {
-        return await browserPdfCombineWorkerOwner.run(request.id, client => {
+        return await browserPdfCombineWorkerOwner.run(request.id, (client) => {
             const worker = client.getWorker();
             return new Promise<IBrowserPdfCombineWorkerResultMap[K]>((resolve, reject) => {
-                client.registerPendingRequest(request.id, {
-                    requestType: type,
-                    ...(options.onEngineIdentity === undefined ? {} : {onEngineIdentity: options.onEngineIdentity}),
-                    resolveData: (value) => {
-                        const result = v.safeParse(BROWSER_PDF_COMBINE_WORKER_RESULT_SCHEMAS[type], {data: value}, {abortEarly: true});
-                        if (!result.success) {return false;}
-                        resolve(result.output);
-                        return true;
+                client.registerPendingRequest(
+                    request.id,
+                    {
+                        requestType: type,
+                        ...(options.onEngineIdentity === undefined ? {} : {onEngineIdentity: options.onEngineIdentity}),
+                        resolveData: (value) => {
+                            const result = v.safeParse(BROWSER_PDF_COMBINE_WORKER_RESULT_SCHEMAS[type], {data: value}, {abortEarly: true});
+                            if (!result.success) {
+                                return false;
+                            }
+                            resolve(result.output);
+                            return true;
+                        },
+                        // A caller that aborted names its own reason; that is not a combine failure.
+                        reject: (error) => reject(signal?.aborted ? error : reportWorkerFailure(error)),
                     },
-                    // A caller that aborted names its own reason; that is not a combine failure.
-                    reject: error => reject(signal?.aborted ? error : reportWorkerFailure(error)),
-                }, () => reportWorkerFailure(new BrowserPdfCombineWorkerUnavailableError(
-                    `Browser PDF combine worker request timed out after ${String(deadlineMs)}ms`,
-                )), deadlineMs);
+                    () =>
+                        reportWorkerFailure(
+                            new BrowserPdfCombineWorkerUnavailableError(
+                                `Browser PDF combine worker request timed out after ${String(deadlineMs)}ms`,
+                            ),
+                        ),
+                    deadlineMs,
+                );
                 try {
                     const workerRequest = buildWorkerRequestWithTransfers(request);
                     worker.postMessage(workerRequest.request, workerRequest.transfer);
                 } catch (error) {
-                    client.cancelPendingRequest(
-                        request.id,
-                        reportWorkerFailure(error instanceof Error ? error : new Error(String(error))),
-                    );
+                    client.cancelPendingRequest(request.id, reportWorkerFailure(error instanceof Error ? error : new Error(String(error))));
                 }
             });
         });
@@ -247,10 +243,7 @@ export async function runBrowserPdfCombineWorkerRequest<K extends TBrowserPdfCom
     }
 }
 
-export function cloneCombineWorkerInput(
-    fileName: string,
-    data: Uint8Array,
-): IBrowserPdfCombineInput {
+export function cloneCombineWorkerInput(fileName: string, data: Uint8Array): IBrowserPdfCombineInput {
     return {
         fileName,
         data: toTransferableUint8Array(data),

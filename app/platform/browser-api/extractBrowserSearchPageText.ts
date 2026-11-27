@@ -1,14 +1,8 @@
 import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
-import {
-    buildOcrTextLayerIndexText, assembleSearchablePageTextItems,
-} from '@pdf-core';
-import type { IOcrWord } from '@contracts/shared';
-import {
-    pdfjsTextItemIntersectsBox,
-    mergePositionedPdfjsGlyphItems,
-    type IPdfjsTextItem,
-} from '@pdf-core/pdfjsTextItems';
+import {yieldToBrowser} from '@app/platform/browser-api/browserYield';
+import {buildOcrTextLayerIndexText, assembleSearchablePageTextItems} from '@pdf-core';
+import type {IOcrWord} from '@contracts/shared';
+import {pdfjsTextItemIntersectsBox, mergePositionedPdfjsGlyphItems, type IPdfjsTextItem} from '@pdf-core/pdfjsTextItems';
 import {hasRightToLeftSearchText} from '@pdf-core/pdfSearchAlgorithms';
 import {
     extractPdfjsWordBoxesFromOperatorList,
@@ -24,7 +18,9 @@ interface IBrowserSearchTextPageLike {
     view?: unknown;
 }
 
-interface IExtractBrowserSearchPageTextOptions {shouldContinue?: () => Promise<boolean> | boolean;}
+interface IExtractBrowserSearchPageTextOptions {
+    shouldContinue?: () => Promise<boolean> | boolean;
+}
 
 /*
  * BGX-2: PDF.js does not expose cancellable handles for browser search
@@ -41,7 +37,7 @@ export interface IBrowserSearchPageData {
 }
 
 async function throwIfBrowserSearchCanceled(shouldContinue?: IExtractBrowserSearchPageTextOptions['shouldContinue']) {
-    if (await shouldContinue?.() === false) {
+    if ((await shouldContinue?.()) === false) {
         throw new Error('ERR_BROWSER_SEARCH_CANCELED');
     }
 }
@@ -62,7 +58,9 @@ async function extractTextContentPageText(
     for (let index = 0; index < content.items.length; index += 128) {
         const chunk = content.items.slice(index, index + 128);
         for (const item of chunk) {
-            if (!('str' in item)) {continue;}
+            if (!('str' in item)) {
+                continue;
+            }
             if (!visibleBox || pdfjsTextItemIntersectsBox(visibleBox, item, content.styles[item.fontName ?? ''])) {
                 textItems.push({
                     ...item,
@@ -87,7 +85,7 @@ async function extractTextContentPageText(
     return {
         text: assembleSearchablePageTextItems(mergePositionedPdfjsGlyphItems(textItems)).text,
         hiddenItems,
-        hasVerticalText: textItems.some(item => item.dir === 'ttb'),
+        hasVerticalText: textItems.some((item) => item.dir === 'ttb'),
     };
 }
 
@@ -99,10 +97,7 @@ async function cleanupBrowserSearchPage(page: IBrowserSearchTextPageLike) {
     }
 }
 
-export async function extractBrowserSearchPageText(
-    page: IBrowserSearchTextPageLike,
-    options: IExtractBrowserSearchPageTextOptions = {},
-) {
+export async function extractBrowserSearchPageText(page: IBrowserSearchTextPageLike, options: IExtractBrowserSearchPageTextOptions = {}) {
     try {
         return (await extractTextContentPageText(page, options)).text;
     } finally {
@@ -117,16 +112,14 @@ export async function extractBrowserSearchPageData(
 ): Promise<IBrowserSearchPageData> {
     try {
         const pageBox = getPdfjsPageViewBox(page);
-        const {
-            pageWidth, pageHeight,
-        } = pageBox;
+        const {pageWidth, pageHeight} = pageBox;
         let pageData: IBrowserSearchPageData | undefined;
         if (typeof page.getOperatorList === 'function') {
             const operatorList = await page.getOperatorList();
             await throwIfBrowserSearchCanceled(options.shouldContinue);
             const allWords = extractPdfjsWordBoxesFromOperatorList(operatorList, pageBox, pdfjsOps);
             // Word boxes are in CropBox space; a word centred outside it is cropped away.
-            const words = allWords.filter(word => {
+            const words = allWords.filter((word) => {
                 const x = word.x + word.width / 2;
                 const y = word.y + word.height / 2;
                 return x >= 0 && x <= pageWidth && y >= 0 && y <= pageHeight;
@@ -141,15 +134,18 @@ export async function extractBrowserSearchPageData(
         }
 
         await throwIfBrowserSearchCanceled(options.shouldContinue);
-        const {
-            text, hiddenItems, hasVerticalText,
-        } = await extractTextContentPageText(page, options, pageBox);
+        const {text, hiddenItems, hasVerticalText} = await extractTextContentPageText(page, options, pageBox);
         // Boxes are usable only when the operator walker retained the text,
         // then any annotation appearances. Ignore separators the assemblers
         // differ in. Vertical and bidi runs use the text layer's ranges.
-        if (pageData?.words?.length && !hasVerticalText && pageWidth > 0 && pageHeight > 0
-            && !hasRightToLeftSearchText(pageData.text)
-            && pageData.text.replace(/\s/gu, '').startsWith(text.replace(/\s/gu, ''))) {
+        if (
+            pageData?.words?.length &&
+            !hasVerticalText &&
+            pageWidth > 0 &&
+            pageHeight > 0 &&
+            !hasRightToLeftSearchText(pageData.text) &&
+            pageData.text.replace(/\s/gu, '').startsWith(text.replace(/\s/gu, ''))
+        ) {
             return pageData;
         }
         return {

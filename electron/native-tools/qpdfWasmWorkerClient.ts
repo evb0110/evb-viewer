@@ -1,23 +1,11 @@
-import {
-    existsSync,
-    renameSync,
-} from 'node:fs';
+import {existsSync, renameSync} from 'node:fs';
 import {unlink} from 'node:fs/promises';
-import {
-    dirname,
-    join,
-} from 'node:path';
+import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {Worker} from 'node:worker_threads';
 import {WORKER_BUNDLES_BY_ID} from '@electron-worker-bundles/electronWorkerBundles.js';
-import {
-    NATIVE_ERROR_CODES,
-    type TNativeErrorCode,
-} from '@contracts/nativeErrors';
-import {
-    createTempSiblingPath,
-    PdfPageOpsNativeError,
-} from '@node-runtime/pdfPageOpsWasmRunner';
+import {NATIVE_ERROR_CODES, type TNativeErrorCode} from '@contracts/nativeErrors';
+import {createTempSiblingPath, PdfPageOpsNativeError} from '@node-runtime/pdfPageOpsWasmRunner';
 import {
     executeDesktopQpdfCommand,
     inspectDesktopQpdfWriteTarget,
@@ -89,13 +77,8 @@ function getAbortReason(signal: AbortSignal) {
 }
 
 function decodeWorkerError(reply: IWorkerReply) {
-    const message = typeof reply.error === 'string' && reply.error.length > 0
-        ? reply.error
-        : 'evb-qpdf.wasm worker failed';
-    if (
-        typeof reply.nativeErrorCode === 'string'
-        && (NATIVE_ERROR_CODES as readonly string[]).includes(reply.nativeErrorCode)
-    ) {
+    const message = typeof reply.error === 'string' && reply.error.length > 0 ? reply.error : 'evb-qpdf.wasm worker failed';
+    if (typeof reply.nativeErrorCode === 'string' && (NATIVE_ERROR_CODES as readonly string[]).includes(reply.nativeErrorCode)) {
         return new PdfPageOpsNativeError(reply.nativeErrorCode, message);
     }
     const error = new Error(message) as Error & {
@@ -132,9 +115,7 @@ function buildWorkerExecuteOptions(
         ...(deferPublish ? {deferPublish: true} : {}),
         ...(options.maxStdoutBytes === undefined ? {} : {maxStdoutBytes: options.maxStdoutBytes}),
         ...(options.maxStderrBytes === undefined ? {} : {maxStderrBytes: options.maxStderrBytes}),
-        ...(options.rejectOnStdoutTruncation === undefined
-            ? {}
-            : {rejectOnStdoutTruncation: options.rejectOnStdoutTruncation}),
+        ...(options.rejectOnStdoutTruncation === undefined ? {} : {rejectOnStdoutTruncation: options.rejectOnStdoutTruncation}),
         ...(stagedOutputPath === undefined ? {} : {stagedOutputPath}),
     };
 }
@@ -168,7 +149,9 @@ function createQpdfWorkerPool() {
     }
 
     function trackPendingGroupProof(cancelGroup: string | undefined, proof: Promise<boolean>) {
-        if (!cancelGroup) {return;}
+        if (!cancelGroup) {
+            return;
+        }
         let proofs = pendingGroupProofs.get(cancelGroup);
         if (!proofs) {
             proofs = new Set();
@@ -177,7 +160,9 @@ function createQpdfWorkerPool() {
         proofs.add(proof);
         void proof.finally(() => {
             const current = pendingGroupProofs.get(cancelGroup);
-            if (!current) {return;}
+            if (!current) {
+                return;
+            }
             current.delete(proof);
             if (current.size === 0) {
                 pendingGroupProofs.delete(cancelGroup);
@@ -186,7 +171,9 @@ function createQpdfWorkerPool() {
     }
 
     function registerCancel(cancelGroup: string | undefined, handler: () => Promise<boolean>) {
-        if (!cancelGroup) {return;}
+        if (!cancelGroup) {
+            return;
+        }
         let handlers = activeCancelHandlers.get(cancelGroup);
         if (!handlers) {
             handlers = new Set();
@@ -196,9 +183,13 @@ function createQpdfWorkerPool() {
     }
 
     function unregisterCancel(cancelGroup: string | undefined, handler: () => Promise<boolean>) {
-        if (!cancelGroup) {return;}
+        if (!cancelGroup) {
+            return;
+        }
         const handlers = activeCancelHandlers.get(cancelGroup);
-        if (!handlers) {return;}
+        if (!handlers) {
+            return;
+        }
         handlers.delete(handler);
         if (handlers.size === 0) {
             activeCancelHandlers.delete(cancelGroup);
@@ -229,7 +220,12 @@ function createQpdfWorkerPool() {
         entry.closed = true;
         clearIdleTimer(entry);
         workers.delete(entry);
-        return trackPendingCleanup(entry.worker.terminate().then(() => true, () => false));
+        return trackPendingCleanup(
+            entry.worker.terminate().then(
+                () => true,
+                () => false,
+            ),
+        );
     }
 
     function scheduleIdleEviction(entry: IWarmQpdfWorker) {
@@ -252,10 +248,8 @@ function createQpdfWorkerPool() {
         }
         while (!shuttingDown && suspendPumpDepth === 0 && queue.length > 0) {
             const next = queue[0]!;
-            const idleSamePath = [...workers].find(
-                entry => !entry.busy && !entry.closed && entry.wasmPath === next.wasmPath,
-            );
-            const idleAny = idleSamePath ?? [...workers].find(entry => !entry.busy && !entry.closed);
+            const idleSamePath = [...workers].find((entry) => !entry.busy && !entry.closed && entry.wasmPath === next.wasmPath);
+            const idleAny = idleSamePath ?? [...workers].find((entry) => !entry.busy && !entry.closed);
             const activeSlots = workers.size + startingWorkers;
             if (!idleSamePath && activeSlots >= MAX_WARM_WORKERS) {
                 if (idleAny) {
@@ -470,12 +464,14 @@ function createQpdfWorkerPool() {
             settled = true;
             cleanup();
             if (terminateWorker) {
-                const proof = trackPendingCleanup(destroyWorker(entry).then(async terminated => {
-                    if (terminated) {
-                        await cleanupStagedOutput(stagedOutputPath);
-                    }
-                    return terminated;
-                }));
+                const proof = trackPendingCleanup(
+                    destroyWorker(entry).then(async (terminated) => {
+                        if (terminated) {
+                            await cleanupStagedOutput(stagedOutputPath);
+                        }
+                        return terminated;
+                    }),
+                );
                 terminationProofPromise = proof;
                 trackPendingGroupProof(task.options.cancelGroup, proof);
                 task.options.onTerminationProof?.(proof);
@@ -557,48 +553,33 @@ function createQpdfWorkerPool() {
         }
     }
 
-    async function runInlineFallback(
-        wasmPath: string,
-        args: string[],
-        options: IRunDesktopQpdfWasmOptions,
-    ): Promise<IProcessResult> {
+    async function runInlineFallback(wasmPath: string, args: string[], options: IRunDesktopQpdfWasmOptions): Promise<IProcessResult> {
         options.signal?.throwIfAborted();
-        const [
-            wasmModule,
-            factory,
-        ] = await Promise.all([
+        const [wasmModule, factory] = await Promise.all([
             loadQpdfWasmModule(wasmPath),
             loadQpdfModuleFactory(resolveDesktopQpdfMjsPath(wasmPath)),
         ]);
         options.signal?.throwIfAborted();
-        const result = await executeDesktopQpdfCommand(
-            wasmModule,
-            factory,
-            args,
-            buildWorkerExecuteOptions(options, undefined, false),
-        );
+        const result = await executeDesktopQpdfCommand(wasmModule, factory, args, buildWorkerExecuteOptions(options, undefined, false));
         options.signal?.throwIfAborted();
         return result;
     }
 
-    function run(
-        args: string[],
-        options: IRunDesktopQpdfWasmOptions = {},
-    ): Promise<IProcessResult> {
+    function run(args: string[], options: IRunDesktopQpdfWasmOptions = {}): Promise<IProcessResult> {
         if (shuttingDown) {
             return Promise.reject(new Error('qpdf WASM worker pool shut down'));
         }
         if (options.signal?.aborted) {
             return Promise.reject(getAbortReason(options.signal));
         }
-        const wasmPath = options.wasmPath ?? resolveDesktopQpdfWasmPath({
-            currentDir: __dirname,
-            isPackaged: __dirname.includes('app.asar'),
-        });
+        const wasmPath =
+            options.wasmPath ??
+            resolveDesktopQpdfWasmPath({
+                currentDir: __dirname,
+                isPackaged: __dirname.includes('app.asar'),
+            });
         if (!wasmPath) {
-            return Promise.reject(
-                new PdfPageOpsNativeError('native-failure', 'evb-qpdf.wasm was not found'),
-            );
+            return Promise.reject(new PdfPageOpsNativeError('native-failure', 'evb-qpdf.wasm was not found'));
         }
         const workerPath = resolveWorkerScriptPath();
         if (!existsSync(workerPath)) {
@@ -607,9 +588,7 @@ function createQpdfWorkerPool() {
             }
             return Promise.reject(new Error(`evb-qpdf.wasm worker is missing: ${workerPath}`));
         }
-        const effectiveTimeoutMs = options.timeoutMs === undefined
-            ? DEFAULT_QPDF_TIMEOUT_MS
-            : options.timeoutMs;
+        const effectiveTimeoutMs = options.timeoutMs === undefined ? DEFAULT_QPDF_TIMEOUT_MS : options.timeoutMs;
         const deadlineMs = effectiveTimeoutMs > 0 ? Date.now() + effectiveTimeoutMs : null;
         return new Promise((resolve, reject) => {
             const task: IQueuedQpdfTask = {
@@ -648,9 +627,7 @@ function createQpdfWorkerPool() {
                 task.deadlineTimer = setTimeout(() => {
                     task.timedOut = true;
                     task.deadlineTimer = null;
-                    const timeoutError = new Error(
-                        `${options.commandLabel ?? 'qpdf'} timed out after ${effectiveTimeoutMs}ms`,
-                    );
+                    const timeoutError = new Error(`${options.commandLabel ?? 'qpdf'} timed out after ${effectiveTimeoutMs}ms`);
                     void task.cancelActive?.(timeoutError);
                 }, effectiveTimeoutMs);
                 task.deadlineTimer.unref();
@@ -745,10 +722,7 @@ function createQpdfWorkerPool() {
             cleanupPromises.push(destroyWorker(entry));
         }
         while (cleanupPromises.length > 0 || pendingCleanupPromises.size > 0) {
-            const batch = [
-                ...cleanupPromises.splice(0),
-                ...pendingCleanupPromises,
-            ];
+            const batch = [...cleanupPromises.splice(0), ...pendingCleanupPromises];
             await Promise.allSettled(batch);
         }
         shuttingDown = false;
@@ -779,10 +753,7 @@ export function resolveDesktopQpdfPath() {
  * Single desktop entry point for executing qpdf commands through the pooled
  * worker-backed `evb-qpdf.wasm` runner with virtual paths only.
  */
-export function runDesktopQpdfWasm(
-    args: string[],
-    options: IRunDesktopQpdfWasmOptions = {},
-) {
+export function runDesktopQpdfWasm(args: string[], options: IRunDesktopQpdfWasmOptions = {}) {
     return qpdfWorkerPool.run(args, options);
 }
 

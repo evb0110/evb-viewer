@@ -1,6 +1,6 @@
-import type { BrowserWindow } from 'electron';
-import type { TRendererStartupPhase } from '@contracts/windowTabsPlatformFeature';
-import { WINDOW_RENDERER_READY_TIMEOUT_MS } from '@electron/config/constants';
+import type {BrowserWindow} from 'electron';
+import type {TRendererStartupPhase} from '@contracts/windowTabsPlatformFeature';
+import {WINDOW_RENDERER_READY_TIMEOUT_MS} from '@electron/config/constants';
 
 /** The window's show lifecycle. */
 export interface IWindowStartupConsumer {
@@ -58,8 +58,7 @@ export function publishWindowStartupPhase(windowId: number, phase: TRendererStar
     const startup = getWindowStartup(windowId);
     // A document fails once, and a load failure is a startup failure only until
     // the initial startup settled; later ones belong to the load failure owner.
-    if (phase.phase === 'failed'
-        && (startup.phase?.phase === 'failed' || (phase.reason === 'load-failed' && !startup.settleInitial))) {
+    if (phase.phase === 'failed' && (startup.phase?.phase === 'failed' || (phase.reason === 'load-failed' && !startup.settleInitial))) {
         return;
     }
     startup.phase = phase;
@@ -86,10 +85,7 @@ export function deleteWindowStartup(windowId: number) {
  * renderer exit that recovery takes over leaves it pending for the recovered
  * document; its one deadline publishes `failed` with `timed-out`.
  */
-export function waitForInitialRendererReady(
-    window: BrowserWindow,
-    options: IWaitForInitialRendererReadyOptions = {},
-) {
+export function waitForInitialRendererReady(window: BrowserWindow, options: IWaitForInitialRendererReadyOptions = {}) {
     const windowId = window.id;
     const startup = getWindowStartup(windowId);
     return new Promise<void>((resolve, reject) => {
@@ -108,9 +104,7 @@ export function waitForInitialRendererReady(
         };
 
         const settleInitial = (phase: TRendererStartupPhase, cause?: Error) => {
-            finish(phase.phase === 'shell-interactive'
-                ? undefined
-                : cause ?? new Error(`Renderer startup failed (${phase.reason})`));
+            finish(phase.phase === 'shell-interactive' ? undefined : (cause ?? new Error(`Renderer startup failed (${phase.reason})`)));
         };
 
         const handleClosed = () => {
@@ -124,10 +118,14 @@ export function waitForInitialRendererReady(
             } catch {
                 // Diagnostic reporting must not change the published failure.
             }
-            publishWindowStartupPhase(windowId, {
-                phase: 'failed',
-                reason: 'timed-out',
-            }, error);
+            publishWindowStartupPhase(
+                windowId,
+                {
+                    phase: 'failed',
+                    reason: 'timed-out',
+                },
+                error,
+            );
         }, WINDOW_RENDERER_READY_TIMEOUT_MS);
         timeoutHandle.unref();
 

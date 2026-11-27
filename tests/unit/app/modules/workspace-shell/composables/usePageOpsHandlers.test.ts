@@ -1,10 +1,5 @@
 import {performance} from 'node:perf_hooks';
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {describe, expect, it, vi} from 'vitest';
 import {ref} from 'vue';
 import type {TDocumentRef} from '@contracts/documentRef';
 import type {TPageSelection} from '@pdf-core/pdfPageSelection';
@@ -93,10 +88,7 @@ function createHandlers(initialSelected: number[], totalPageCount: number) {
 describe('usePageOpsHandlers legacy array delete selection remap', () => {
     it('removes deleted pages and shifts remaining pages accurately for unsorted deletion lists', async () => {
         pageOpsMocks.deletePages.mockClear();
-        const {
-            selectedThumbnailPages,
-            viewHandlers,
-        } = createHandlers([1, 2, 4, 5, 8, 10], 10);
+        const {selectedThumbnailPages, viewHandlers} = createHandlers([1, 2, 4, 5, 8, 10], 10);
 
         const didDelete = await viewHandlers.pageOpsDelete([7, 2, 5], 10);
 
@@ -112,10 +104,7 @@ describe('usePageOpsHandlers legacy array delete selection remap', () => {
         const total = 20_000;
         const selected = Array.from({length: 10_000}, (_, index) => index * 2 + 1);
         const deleted = Array.from({length: 5_000}, (_, index) => (5_000 - index) * 4);
-        const {
-            selectedThumbnailPages,
-            viewHandlers,
-        } = createHandlers(selected, total);
+        const {selectedThumbnailPages, viewHandlers} = createHandlers(selected, total);
 
         const startedAt = performance.now();
         const didDelete = await viewHandlers.pageOpsDelete(deleted, total);

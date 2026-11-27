@@ -33,15 +33,19 @@
                 :aria-label="triggerTooltip"
                 :aria-pressed="isOpen || progress.isRunning"
                 type="button"
-                :ui="{ leadingIcon: progress.isRunning ? 'size-5 animate-spin' : 'size-5' }"
+                :ui="{leadingIcon: progress.isRunning ? 'size-5 animate-spin' : 'size-5'}"
             />
         </AppTooltip>
-        <span v-else class="hidden-trigger" aria-hidden="true" />
+        <span
+            v-else
+            class="hidden-trigger"
+            aria-hidden="true"
+        />
 
         <template #body>
             <div
                 class="ocr-body flex min-h-0 flex-1 flex-col gap-4"
-                :class="{ 'is-configuring': viewState === 'configure' || viewState === 'error' }"
+                :class="{'is-configuring': viewState === 'configure' || viewState === 'error'}"
             >
                 <!-- Configuration stays editable after an OCR error so errors remain recoverable -->
                 <template v-if="viewState === 'configure' || viewState === 'error'">
@@ -52,7 +56,10 @@
                             role="alert"
                             aria-live="assertive"
                         >
-                            <UIcon name="i-ph-warning-circle" class="size-4" />
+                            <UIcon
+                                name="i-ph-warning-circle"
+                                class="size-4"
+                            />
                             <div class="error-content flex flex-1 flex-col gap-2">
                                 <span class="error-text">{{ effectiveError }}</span>
                                 <span
@@ -61,7 +68,10 @@
                                 >
                                     {{ t('ocr.languagePicker.retryDownload') }}
                                 </span>
-                                <AppTooltip :text="copyLogsTooltip" :delay-duration="1200">
+                                <AppTooltip
+                                    :text="copyLogsTooltip"
+                                    :delay-duration="1200"
+                                >
                                     <UButton
                                         icon="i-ph-copy"
                                         variant="ghost"
@@ -76,9 +86,7 @@
                             </div>
                         </div>
 
-                        <div
-                            class="section"
-                        >
+                        <div class="section">
                             <URadioGroup
                                 v-model="pageRangeModel"
                                 name="pageRange"
@@ -92,7 +100,7 @@
                             />
                             <div
                                 class="custom-range-reveal"
-                                :class="{ 'is-open': showCustomRange }"
+                                :class="{'is-open': showCustomRange}"
                             >
                                 <div class="custom-range-reveal-inner">
                                     <UInput
@@ -119,11 +127,11 @@
                                 <template #legend>
                                     {{ t('ocr.supersession.label') }}
                                     <OcrSettingHelpTooltip
-                                        :trigger-label="t('ocr.settingHelpAria', { setting: t('ocr.supersession.label') })"
+                                        :trigger-label="t('ocr.settingHelpAria', {setting: t('ocr.supersession.label')})"
                                         :options="supersessionPolicyHelpItems"
                                     />
                                 </template>
-                                <template #description="{ item }">
+                                <template #description="{item}">
                                     <span class="policy-option-description">{{ item.description }}</span>
                                 </template>
                             </URadioGroup>
@@ -133,7 +141,7 @@
                                 :unmount-on-hide="false"
                                 class="supersession-advanced"
                             >
-                                <template #default="{ open: isAdvancedOpen }">
+                                <template #default="{open: isAdvancedOpen}">
                                     <button
                                         type="button"
                                         class="supersession-advanced-toggle"
@@ -157,9 +165,7 @@
                             </UCollapsible>
                         </div>
 
-                        <div
-                            class="section"
-                        >
+                        <div class="section">
                             <URadioGroup
                                 v-model="qualityProfileModel"
                                 name="ocrQualityProfile"
@@ -174,7 +180,7 @@
                                 <template #legend>
                                     {{ t('ocr.qualityProfile.label') }}
                                     <OcrSettingHelpTooltip
-                                        :trigger-label="t('ocr.settingHelpAria', { setting: t('ocr.qualityProfile.label') })"
+                                        :trigger-label="t('ocr.settingHelpAria', {setting: t('ocr.qualityProfile.label')})"
                                         :options="qualityProfileHelpItems"
                                     />
                                 </template>
@@ -197,7 +203,7 @@
                                     <template #legend>
                                         {{ t('ocr.preprocessing.label') }}
                                         <OcrSettingHelpTooltip
-                                            :trigger-label="t('ocr.settingHelpAria', { setting: t('ocr.preprocessing.label') })"
+                                            :trigger-label="t('ocr.settingHelpAria', {setting: t('ocr.preprocessing.label')})"
                                             :options="preprocessingModeHelpItems"
                                         />
                                     </template>
@@ -212,7 +218,7 @@
                                     <template #label>
                                         {{ t('ocr.pageSegmentation.label') }}
                                         <OcrSettingHelpTooltip
-                                            :trigger-label="t('ocr.settingHelpAria', { setting: t('ocr.pageSegmentation.label') })"
+                                            :trigger-label="t('ocr.settingHelpAria', {setting: t('ocr.pageSegmentation.label')})"
                                             :options="pageSegmentationHelpItems"
                                         />
                                     </template>
@@ -285,21 +291,22 @@
                                         :ui="languageChipGroupUi"
                                         @update:model-value="selectedLanguageModel = $event"
                                     >
-                                        <template #label="{ item }">
+                                        <template #label="{item}">
                                             <span class="chip-name">{{ item.label }}</span>
                                             <span
                                                 class="chip-code"
-                                                :class="{ 'is-selected': selectedLanguageModel === item.value }"
-                                            >{{ item.value }}</span>
+                                                :class="{'is-selected': selectedLanguageModel === item.value}"
+                                                >{{ item.value }}</span
+                                            >
                                             <span
                                                 v-if="item.modelState !== 'ready'"
                                                 class="chip-state"
-                                                :class="{ 'is-error': item.modelState === 'error' }"
+                                                :class="{'is-error': item.modelState === 'error'}"
                                             >
                                                 <UIcon
                                                     :name="getLanguageModelStateIcon(item.modelState)"
                                                     class="size-3"
-                                                    :class="{ 'animate-spin': item.modelState === 'downloading' }"
+                                                    :class="{'animate-spin': item.modelState === 'downloading'}"
                                                     aria-hidden="true"
                                                 />
                                                 {{ t(getLanguageModelStateLabelKey(item.modelState), undefined) }}
@@ -308,7 +315,10 @@
                                     </URadioGroup>
                                 </template>
                             </template>
-                            <p v-else class="language-empty">
+                            <p
+                                v-else
+                                class="language-empty"
+                            >
                                 {{ t('ocr.languagePicker.noResults') }}
                             </p>
                         </div>
@@ -341,10 +351,7 @@
                 >
                     <UIcon
                         :name="hasResultWarning ? 'i-ph-warning-circle' : 'i-ph-check-circle'"
-                        :class="[
-                            'results-icon size-8',
-                            { 'is-warning': hasResultWarning },
-                        ]"
+                        :class="['results-icon size-8', {'is-warning': hasResultWarning}]"
                     />
                     <span class="results-text">{{ resultStatusText }}</span>
                     <div
@@ -354,7 +361,10 @@
                         aria-live="assertive"
                     >
                         <span class="results-warning-text">{{ effectiveError }}</span>
-                        <AppTooltip :text="copyLogsTooltip" :delay-duration="1200">
+                        <AppTooltip
+                            :text="copyLogsTooltip"
+                            :delay-duration="1200"
+                        >
                             <UButton
                                 icon="i-ph-copy"
                                 variant="ghost"
@@ -418,7 +428,11 @@
                 <UButton
                     color="primary"
                     icon="i-ph-play"
-                    :label="hasSelectedLanguageDownload ? t('ocr.languagePicker.downloadAndStart') : t('ocr.languagePicker.startWithoutDownload')"
+                    :label="
+                        hasSelectedLanguageDownload
+                            ? t('ocr.languagePicker.downloadAndStart')
+                            : t('ocr.languagePicker.startWithoutDownload')
+                    "
                     :disabled="!canRunOcr"
                     @click="handleRunOcr"
                 />
@@ -428,24 +442,18 @@
 </template>
 
 <script setup lang="ts">
-import type { TDocumentRef } from '@contracts/documentRef';
-import type {
-    TOcrPreprocessingMode,
-    TOcrQualityProfile,
-} from '@contracts/electronApiOcr';
-import type { TTranslationKey } from '@i18n-app';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {TOcrPreprocessingMode, TOcrQualityProfile} from '@contracts/electronApiOcr';
+import type {TTranslationKey} from '@i18n-app';
 import AppProgressBar from '@app/components/AppProgressBar.vue';
 import OcrSettingHelpTooltip from '@app/modules/ocr-panel/components/OcrSettingHelpTooltip.vue';
-import { OCR_PAGE_SEGMENTATION_AUTOMATIC_VALUE } from '@app/modules/ocr-panel/runtime/ocrPopupSettings';
-import type {
-    TOcrLanguageModelDisplayState,
-    TOcrPopupPresenter,
-} from '@app/modules/ocr-panel/runtime/useOcrPopupPresenter';
-import { getReaderCommandToolbarIcon } from '@app/utils/readerCommandIcons';
-import type { TOcrPageRange } from '@app/utils/ocr/ocrTypes';
+import {OCR_PAGE_SEGMENTATION_AUTOMATIC_VALUE} from '@app/modules/ocr-panel/runtime/ocrPopupSettings';
+import type {TOcrLanguageModelDisplayState, TOcrPopupPresenter} from '@app/modules/ocr-panel/runtime/useOcrPopupPresenter';
+import {getReaderCommandToolbarIcon} from '@app/utils/readerCommandIcons';
+import type {TOcrPageRange} from '@app/utils/ocr/ocrTypes';
 import AppSearchInput from '@app/components/AppSearchInput.vue';
 
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 type TOcrQualityProfileLabelKey = Extract<TTranslationKey, `ocr.qualityProfile.options.${string}`>;
 type TOcrPreprocessingModeLabelKey = Extract<TTranslationKey, `ocr.preprocessing.options.${string}`>;
 type TOcrPageSegmentationLabelKey = Extract<TTranslationKey, `ocr.pageSegmentation.options.${string}`>;
@@ -457,21 +465,11 @@ type TOcrSupersessionChoiceLabelKey = Extract<TTranslationKey, `ocr.supersession
 type TOcrSupersessionChoiceDescriptionKey = Extract<TTranslationKey, `ocr.supersession.primaryDescriptions.${string}`>;
 type TOcrLanguageModelStateLabelKey = Extract<TTranslationKey, `ocr.languageModelState.${string}`>;
 
-const ocrQualityProfileOptions = [
-    'balanced',
-    'accurate',
-    'poor-scan',
-] as const satisfies readonly TOcrQualityProfile[];
+const ocrQualityProfileOptions = ['balanced', 'accurate', 'poor-scan'] as const satisfies readonly TOcrQualityProfile[];
 
-const ocrPreprocessingModeOptions = [
-    'off',
-    'clean',
-] as const satisfies readonly TOcrPreprocessingMode[];
+const ocrPreprocessingModeOptions = ['off', 'clean'] as const satisfies readonly TOcrPreprocessingMode[];
 
-const ocrSupersessionChoices = [
-    'repeat',
-    'missing-only',
-] as const satisfies readonly TOcrSupersessionChoice[];
+const ocrSupersessionChoices = ['repeat', 'missing-only'] as const satisfies readonly TOcrSupersessionChoice[];
 
 const ocrPageSegmentationOptions = [
     {
@@ -499,7 +497,7 @@ const ocrModalUi = {
     body: 'ocr-dialog-body',
     footer: 'ocr-dialog-footer',
 } as const;
-const formFieldUi = { label: 'label ocr-setting-legend' } as const;
+const formFieldUi = {label: 'label ocr-setting-legend'} as const;
 const listRadioGroupUi = {
     fieldset: 'gap-y-2',
     legend: 'label ocr-setting-legend',
@@ -594,7 +592,7 @@ const {
     disabled: () => disabled,
     externalError: () => externalError,
     open: () => open,
-    setOpen: value => emit('update:open', value),
+    setOpen: (value) => emit('update:open', value),
 });
 
 function handleExportDocx() {
@@ -607,90 +605,110 @@ function handleCancelDocxExport() {
 
 const repeatAdvancedOpen = ref(false);
 
-const visibleLanguagePickerGroups = computed(() => languagePickerGroups.value
-    .filter(group => group.items.length > 0)
-    .map(group => ({
-        key: group.key,
-        legend: t(`ocr.languagePicker.groups.${group.key}`, undefined),
-        items: group.items,
-    })));
-const selectedLanguageModelBinding = computed(() => (
-    selectedLanguageModel.value === undefined
-        ? {}
-        : { modelValue: selectedLanguageModel.value }
-));
+const visibleLanguagePickerGroups = computed(() =>
+    languagePickerGroups.value
+        .filter((group) => group.items.length > 0)
+        .map((group) => ({
+            key: group.key,
+            legend: t(`ocr.languagePicker.groups.${group.key}`, undefined),
+            items: group.items,
+        })),
+);
+const selectedLanguageModelBinding = computed(() =>
+    selectedLanguageModel.value === undefined ? {} : {modelValue: selectedLanguageModel.value},
+);
 
-const triggerIcon = computed(() => (
-    showSuccessState.value ? 'ph:check-circle' : getReaderCommandToolbarIcon('ocr')
-));
-const triggerButtonIcon = computed(() => (
-    progress.value.isRunning ? 'ph:circle-notch' : triggerIcon.value
-));
-const pageRangeOptions = computed<Array<{
-    value: TOcrPageRange;
-    label: string;
-}>>(() => [
+const triggerIcon = computed(() => (showSuccessState.value ? 'ph:check-circle' : getReaderCommandToolbarIcon('ocr')));
+const triggerButtonIcon = computed(() => (progress.value.isRunning ? 'ph:circle-notch' : triggerIcon.value));
+const pageRangeOptions = computed<
+    Array<{
+        value: TOcrPageRange;
+        label: string;
+    }>
+>(() => [
     {
         value: 'all',
-        label: t('ocr.allPages', { total: totalPages }),
+        label: t('ocr.allPages', {total: totalPages}),
     },
     {
         value: 'current',
-        label: t('ocr.currentPage', { page: currentPage }),
+        label: t('ocr.currentPage', {page: currentPage}),
     },
     {
         value: 'custom',
         label: t('ocr.customRange'),
     },
 ]);
-const qualityProfileItems = computed<Array<{
-    value: TOcrQualityProfile;
-    label: string;
-}>>(() => ocrQualityProfileOptions.map(profile => ({
-    value: profile,
-    label: t(getQualityProfileLabelKey(profile), undefined),
-})));
-const preprocessingModeItems = computed<Array<{
-    value: TOcrPreprocessingMode;
-    label: string;
-}>>(() => ocrPreprocessingModeOptions.map(mode => ({
-    value: mode,
-    label: t(getPreprocessingModeLabelKey(mode), undefined),
-})));
-const supersessionChoiceItems = computed<Array<{
-    value: TOcrSupersessionChoice;
-    label: string;
-    description: string;
-}>>(() => ocrSupersessionChoices.map(choice => ({
-    value: choice,
-    label: t(getSupersessionChoiceLabelKey(choice), undefined),
-    description: t(getSupersessionChoiceDescriptionKey(choice), undefined),
-})));
-const supersessionPolicyHelpItems = computed(() => ocrSupersessionChoices.map(choice => ({
-    label: t(getSupersessionChoiceLabelKey(choice), undefined),
-    description: t(getSupersessionChoiceDescriptionKey(choice), undefined),
-})));
-const pageSegmentationItems = computed<Array<{
-    value: string;
-    label: string;
-}>>(() => ocrPageSegmentationOptions.map(option => ({
-    value: option.value === ''
-        ? OCR_PAGE_SEGMENTATION_AUTOMATIC_VALUE
-        : option.value,
-    label: t(option.labelKey, undefined),
-})));
-const qualityProfileHelpItems = computed(() => ocrQualityProfileOptions.map(profile => ({
-    label: t(getQualityProfileLabelKey(profile), undefined),
-    description: t(getQualityProfileHelpKey(profile), undefined),
-})));
-const preprocessingModeHelpItems = computed(() => ocrPreprocessingModeOptions.map(mode => ({
-    label: t(getPreprocessingModeLabelKey(mode), undefined),
-    description: t(getPreprocessingModeHelpKey(mode), undefined),
-})));
-const pageSegmentationHelpItems = computed(() => ocrPageSegmentationOptions.map(option => ({
-    label: t(option.labelKey, undefined),
-    description: t(option.helpKey, undefined),
-})));
+const qualityProfileItems = computed<
+    Array<{
+        value: TOcrQualityProfile;
+        label: string;
+    }>
+>(() =>
+    ocrQualityProfileOptions.map((profile) => ({
+        value: profile,
+        label: t(getQualityProfileLabelKey(profile), undefined),
+    })),
+);
+const preprocessingModeItems = computed<
+    Array<{
+        value: TOcrPreprocessingMode;
+        label: string;
+    }>
+>(() =>
+    ocrPreprocessingModeOptions.map((mode) => ({
+        value: mode,
+        label: t(getPreprocessingModeLabelKey(mode), undefined),
+    })),
+);
+const supersessionChoiceItems = computed<
+    Array<{
+        value: TOcrSupersessionChoice;
+        label: string;
+        description: string;
+    }>
+>(() =>
+    ocrSupersessionChoices.map((choice) => ({
+        value: choice,
+        label: t(getSupersessionChoiceLabelKey(choice), undefined),
+        description: t(getSupersessionChoiceDescriptionKey(choice), undefined),
+    })),
+);
+const supersessionPolicyHelpItems = computed(() =>
+    ocrSupersessionChoices.map((choice) => ({
+        label: t(getSupersessionChoiceLabelKey(choice), undefined),
+        description: t(getSupersessionChoiceDescriptionKey(choice), undefined),
+    })),
+);
+const pageSegmentationItems = computed<
+    Array<{
+        value: string;
+        label: string;
+    }>
+>(() =>
+    ocrPageSegmentationOptions.map((option) => ({
+        value: option.value === '' ? OCR_PAGE_SEGMENTATION_AUTOMATIC_VALUE : option.value,
+        label: t(option.labelKey, undefined),
+    })),
+);
+const qualityProfileHelpItems = computed(() =>
+    ocrQualityProfileOptions.map((profile) => ({
+        label: t(getQualityProfileLabelKey(profile), undefined),
+        description: t(getQualityProfileHelpKey(profile), undefined),
+    })),
+);
+const preprocessingModeHelpItems = computed(() =>
+    ocrPreprocessingModeOptions.map((mode) => ({
+        label: t(getPreprocessingModeLabelKey(mode), undefined),
+        description: t(getPreprocessingModeHelpKey(mode), undefined),
+    })),
+);
+const pageSegmentationHelpItems = computed(() =>
+    ocrPageSegmentationOptions.map((option) => ({
+        label: t(option.labelKey, undefined),
+        description: t(option.helpKey, undefined),
+    })),
+);
 function getQualityProfileLabelKey(profile: TOcrQualityProfile): TOcrQualityProfileLabelKey {
     return `ocr.qualityProfile.options.${profile}`;
 }
@@ -716,13 +734,10 @@ function getSupersessionChoiceDescriptionKey(choice: TOcrSupersessionChoice): TO
 }
 
 function getLanguageModelStateLabelKey(state: string): TOcrLanguageModelStateLabelKey {
-    const normalizedState: TOcrLanguageModelDisplayState = state === 'ready'
-        || state === 'missing'
-        || state === 'downloading'
-        || state === 'error'
-        || state === 'unavailable'
-        ? state
-        : 'unavailable';
+    const normalizedState: TOcrLanguageModelDisplayState =
+        state === 'ready' || state === 'missing' || state === 'downloading' || state === 'error' || state === 'unavailable'
+            ? state
+            : 'unavailable';
     return `ocr.languageModelState.${normalizedState}`;
 }
 
@@ -741,7 +756,6 @@ function getLanguageModelStateIcon(state: string) {
     }
     return 'i-ph-question';
 }
-
 </script>
 
 <style lang="scss">
@@ -961,12 +975,12 @@ function getLanguageModelStateIcon(state: string) {
 }
 
 /* A selected chip is pressed in like every other choice (`.app-choice`). */
-:deep(.language-chip:has([data-state="checked"])) {
+:deep(.language-chip:has([data-state='checked'])) {
     border-color: var(--app-choice-selected-border);
     background: var(--app-choice-selected-bg);
 }
 
-:deep(.language-chip:has([data-state="checked"]) .language-chip-label) {
+:deep(.language-chip:has([data-state='checked']) .language-chip-label) {
     color: var(--ui-text-highlighted);
 }
 

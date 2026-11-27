@@ -1,16 +1,12 @@
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { TPaneDirection } from '@contracts/editorPanes';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {TPaneDirection} from '@contracts/editorPanes';
 import type {
     IEvbAutomationEvent,
     TEvbAutomationEventListener,
     TEvbAutomationEventPredicate,
     TEvbAutomationEventType,
 } from '@app/types/evbAutomationEvents';
-import type {
-    IWorkspaceAutomationStateSnapshot,
-    IWorkspaceExpose,
-    IWorkspaceToolbarSnapshot,
-} from '@app/types/workspaceExpose';
+import type {IWorkspaceAutomationStateSnapshot, IWorkspaceExpose, IWorkspaceToolbarSnapshot} from '@app/types/workspaceExpose';
 
 export interface IEvbTestCommandResult<TResult = unknown> {
     called: boolean;
@@ -34,14 +30,8 @@ export interface IEvbTestWorkspaceDebugState {
 }
 
 export interface IEvbTestApi {
-    callActiveWorkspaceCommand: <TResult = unknown>(
-        commandName: string,
-        args?: unknown[],
-    ) => Promise<IEvbTestCommandResult<TResult>>;
-    callActiveWorkspaceSyncCommand: <TResult = unknown>(
-        commandName: string,
-        args?: unknown[],
-    ) => IEvbTestCommandResult<TResult>;
+    callActiveWorkspaceCommand: <TResult = unknown>(commandName: string, args?: unknown[]) => Promise<IEvbTestCommandResult<TResult>>;
+    callActiveWorkspaceSyncCommand: <TResult = unknown>(commandName: string, args?: unknown[]) => IEvbTestCommandResult<TResult>;
     collectWorkspaceDebugState: () => IEvbTestWorkspaceDebugState;
     getAutomationEvents: () => IEvbAutomationEvent[];
     getActiveTabId: () => string | null;
@@ -51,9 +41,7 @@ export interface IEvbTestApi {
     onAutomationEvent: (cb: TEvbAutomationEventListener) => () => void;
     openFile: (path: TDocumentRef) => Promise<boolean>;
     openFiles: (paths: TDocumentRef[]) => Promise<void>;
-    readActiveWorkspaceStateValues: <TValues extends Record<string, unknown> = Record<string, unknown>>(
-        propertyNames: string[],
-    ) => TValues;
+    readActiveWorkspaceStateValues: <TValues extends Record<string, unknown> = Record<string, unknown>>(propertyNames: string[]) => TValues;
     /** New Pane: an empty pane beside the active one. */
     openNewPane: (direction: TPaneDirection) => Promise<void>;
     waitForAutomationEvent: (

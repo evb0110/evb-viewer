@@ -1,4 +1,4 @@
-import type { IPerformanceProfile } from '@app/utils/performanceProfile';
+import type {IPerformanceProfile} from '@app/utils/performanceProfile';
 
 export type TPdfZoomGestureRasterMode = 'eager' | 'idle-once';
 export type TPdfClampedVisibleRefineMode = 'immediate' | 'input-idle';
@@ -27,11 +27,7 @@ const NORMAL_PDF_RENDER_PERFORMANCE_POLICY = {
     layoutPendingRadius: 30,
 } as const satisfies IPdfRenderPerformancePolicy;
 
-export function resolvePdfRenderPerformancePolicy(
-    profile: Pick<IPerformanceProfile, 'lowCpu' | 'lowMemory'>,
-): IPdfRenderPerformancePolicy {
+export function resolvePdfRenderPerformancePolicy(profile: Pick<IPerformanceProfile, 'lowCpu' | 'lowMemory'>): IPdfRenderPerformancePolicy {
     const constrained = profile.lowCpu || profile.lowMemory;
-    return constrained
-        ? CONSTRAINED_PDF_RENDER_PERFORMANCE_POLICY
-        : NORMAL_PDF_RENDER_PERFORMANCE_POLICY;
+    return constrained ? CONSTRAINED_PDF_RENDER_PERFORMANCE_POLICY : NORMAL_PDF_RENDER_PERFORMANCE_POLICY;
 }

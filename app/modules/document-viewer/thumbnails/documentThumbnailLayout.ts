@@ -50,9 +50,7 @@ export class DocumentThumbnailLayout {
         this.itemChromeHeight = options.itemChromeHeight ?? this.itemChromeHeight;
         this.itemGap = options.itemGap ?? this.itemGap;
         this.aspectRatio = options.aspectRatio ?? this.aspectRatio;
-        this.rowHeight = Math.max(1, Math.ceil(
-            options.renderWidth * this.aspectRatio + this.itemChromeHeight,
-        ));
+        this.rowHeight = Math.max(1, Math.ceil(options.renderWidth * this.aspectRatio + this.itemChromeHeight));
     }
 
     get slotAspectRatio() {
@@ -115,10 +113,7 @@ export class DocumentThumbnailLayout {
 
     resolvePageAtScrollOffsetInSegment(offset: number, segmentIndex: number) {
         const segment = this.getScrollSegment(segmentIndex);
-        return this.pageCount === 0 ? null : Math.min(
-            segment.endPage,
-            segment.startPage + Math.floor(Math.max(0, offset) / this.stride),
-        );
+        return this.pageCount === 0 ? null : Math.min(segment.endPage, segment.startPage + Math.floor(Math.max(0, offset) / this.stride));
     }
 
     resolveScrollSegmentTransition(
@@ -129,11 +124,14 @@ export class DocumentThumbnailLayout {
     ): IDocumentThumbnailScrollSegmentTransition | null {
         const segment = this.getScrollSegment(segmentIndex);
         const direction = scrollTop - previousScrollTop;
-        const reachedEnd = direction > 0
-            && segment.index < this.getScrollSegmentCount() - 1
-            && scrollTop >= Math.max(0, segment.height - viewportHeight) - 1;
+        const reachedEnd =
+            direction > 0 &&
+            segment.index < this.getScrollSegmentCount() - 1 &&
+            scrollTop >= Math.max(0, segment.height - viewportHeight) - 1;
         const reachedStart = direction < 0 && segment.index > 0 && scrollTop <= 1;
-        if (!reachedEnd && !reachedStart) {return null;}
+        if (!reachedEnd && !reachedStart) {
+            return null;
+        }
         const nextIndex = segment.index + (reachedEnd ? 1 : -1);
         return {
             segmentIndex: nextIndex,
@@ -159,13 +157,15 @@ export class DocumentThumbnailLayout {
  * (height over width): their median, so one cover does not decide it, kept
  * between a wide spread and the portrait slot taller pages always had.
  */
-export function resolveDocumentThumbnailAspectRatio(pageSizes: ReadonlyArray<{
-    widthPoints: number;
-    heightPoints: number;
-}>) {
+export function resolveDocumentThumbnailAspectRatio(
+    pageSizes: ReadonlyArray<{
+        widthPoints: number;
+        heightPoints: number;
+    }>,
+) {
     const ratios = pageSizes
-        .filter(size => size.widthPoints > 0 && size.heightPoints > 0)
-        .map(size => size.heightPoints / size.widthPoints)
+        .filter((size) => size.widthPoints > 0 && size.heightPoints > 0)
+        .map((size) => size.heightPoints / size.widthPoints)
         .sort((left, right) => left - right);
     const median = ratios[Math.floor(ratios.length / 2)];
     return median === undefined

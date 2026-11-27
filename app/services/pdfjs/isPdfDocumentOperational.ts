@@ -1,8 +1,5 @@
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import {
-    getOptionalObject,
-    isRecord,
-} from '@app/services/pdfjs/runtime';
+import {getOptionalObject, isRecord} from '@app/services/pdfjs/runtime';
 
 function isPdfDocumentDestroyed(pdfDocument: IPdfDocument) {
     return isRecord(pdfDocument) && pdfDocument['destroyed'] === true;
@@ -24,11 +21,7 @@ function hasUsableDocumentTransport(pdfDocument: IPdfDocument) {
         return false;
     }
 
-    if (
-        isRecord(transport)
-        && 'messageHandler' in transport
-        && transport.messageHandler == null
-    ) {
+    if (isRecord(transport) && 'messageHandler' in transport && transport.messageHandler == null) {
         return false;
     }
 

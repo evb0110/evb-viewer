@@ -1,40 +1,24 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    shallowRef,
-    type ShallowRef,
-} from 'vue';
-import { requireDocumentRef } from '@contracts/documentRef';
-import type {
-    IWindowCloseRequest,
-    TWindowCloseDecision,
-    TWindowCloseRequestHandler,
-} from '@contracts/systemPlatformFeature';
-import type { TPdfSource } from '@app/types/pdfUi';
+import {describe, expect, it, vi} from 'vitest';
+import {shallowRef, type ShallowRef} from 'vue';
+import {requireDocumentRef} from '@contracts/documentRef';
+import type {IWindowCloseRequest, TWindowCloseDecision, TWindowCloseRequestHandler} from '@contracts/systemPlatformFeature';
+import type {TPdfSource} from '@app/types/pdfUi';
 import type * as TRecentReadingViewModule from '@app/modules/workspace-shell/document-sessions/recentReadingView';
-import {
-    createPdfDocumentSessionSlot,
-    type IPdfSourceJob,
-    type TPdfSourceJobIntent,
-} from '@app/modules/pdf-viewer/public';
-import { settlePdfSourceJob } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSessionSlot';
-import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import { createDocumentJobReleaser } from '@app/modules/workspace-shell/document-sessions/documentJobRelease';
-import { useNativeWindowCloseHandshake } from '@app/modules/workspace-shell/composables/useNativeWindowCloseHandshake';
+import {createPdfDocumentSessionSlot, type IPdfSourceJob, type TPdfSourceJobIntent} from '@app/modules/pdf-viewer/public';
+import {settlePdfSourceJob} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSessionSlot';
+import {createWorkspaceDocumentController} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import {createDocumentJobReleaser} from '@app/modules/workspace-shell/document-sessions/documentJobRelease';
+import {useNativeWindowCloseHandshake} from '@app/modules/workspace-shell/composables/useNativeWindowCloseHandshake';
 import {
     bindTestDocumentFrontier,
     createWorkspaceExposeFixture,
     setTestDocumentDirty,
 } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
-import { cast } from '@tests/helpers/cast';
+import {cast} from '@tests/helpers/cast';
 
 vi.mock('@app/composables/useRuntimeErrorReports', () => ({useRuntimeErrorReports: () => ({reportRuntimeError: vi.fn()})}));
-vi.mock('@app/modules/workspace-shell/document-sessions/recentReadingView', async importOriginal => ({
-    ...await importOriginal<typeof TRecentReadingViewModule>(),
+vi.mock('@app/modules/workspace-shell/document-sessions/recentReadingView', async (importOriginal) => ({
+    ...(await importOriginal<typeof TRecentReadingViewModule>()),
     rememberReadingView: vi.fn(async () => undefined),
 }));
 vi.stubGlobal('useToast', () => ({
@@ -43,7 +27,7 @@ vi.stubGlobal('useToast', () => ({
 }));
 vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
 
-const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 /**
  * One open document matching `documentContext.ts` + `useWorkspaceSaveService.ts`:
@@ -52,11 +36,13 @@ const flush = () => new Promise(resolve => setTimeout(resolve, 0));
  *   before awaiting `slot.running()?.finished`, resolves its durable result before awaiting post-save adoption,
  *   and holds the lease until adoption settles (or is released).
  */
-function createDocument(options: {
-    tabId?: string;
-    fileName?: string;
-    saveFails?: boolean;
-} = {}) {
+function createDocument(
+    options: {
+        tabId?: string;
+        fileName?: string;
+        saveFails?: boolean;
+    } = {},
+) {
     const tabId = options.tabId ?? 'tab-a';
     const fileName = options.fileName ?? 'sample.pdf';
     const controller = createWorkspaceDocumentController({
@@ -118,33 +104,38 @@ function createDocument(options: {
         ok: boolean;
         plannedSource: TPdfSource | null;
     }> = [];
-    controller.attachWorkspace(tabId, createWorkspaceExposeFixture({
-        handleSave: vi.fn(() => {
-            const durable = Promise.withResolvers<boolean>();
-            void controller.operationLease.runExclusive('save', async () => {
-                jobReleaser.republishForSave();
-                await slot.running()?.finished;
-                if (!loaded || options.saveFails) {
-                    saves.push({
-                        ok: false,
-                        plannedSource: loaded?.source ?? null,
-                    });
-                    durable.resolve(false);
-                    return;
-                }
-                const plannedSource = loaded.source;
-                setTestDocumentDirty(controller, false);
-                const adoption = publish(new Blob(['saved']), 'adopt').finished;
-                saves.push({
-                    ok: true,
-                    plannedSource,
-                });
-                durable.resolve(true);
-                await adoption;
-            }).catch(durable.reject);
-            return durable.promise;
+    controller.attachWorkspace(
+        tabId,
+        createWorkspaceExposeFixture({
+            handleSave: vi.fn(() => {
+                const durable = Promise.withResolvers<boolean>();
+                void controller.operationLease
+                    .runExclusive('save', async () => {
+                        jobReleaser.republishForSave();
+                        await slot.running()?.finished;
+                        if (!loaded || options.saveFails) {
+                            saves.push({
+                                ok: false,
+                                plannedSource: loaded?.source ?? null,
+                            });
+                            durable.resolve(false);
+                            return;
+                        }
+                        const plannedSource = loaded.source;
+                        setTestDocumentDirty(controller, false);
+                        const adoption = publish(new Blob(['saved']), 'adopt').finished;
+                        saves.push({
+                            ok: true,
+                            plannedSource,
+                        });
+                        durable.resolve(true);
+                        await adoption;
+                    })
+                    .catch(durable.reject);
+                return durable.promise;
+            }),
         }),
-    }));
+    );
 
     return {
         tabId,
@@ -155,7 +146,9 @@ function createDocument(options: {
         jobs,
         publish,
         saves,
-        holdReads: (holds: (job: IPdfSourceJob) => boolean) => { holdsRead = holds; },
+        holdReads: (holds: (job: IPdfSourceJob) => boolean) => {
+            holdsRead = holds;
+        },
         isLoaded: () => loaded !== null,
         loadedSource: () => loaded?.source ?? null,
     };
@@ -166,10 +159,7 @@ function listenForWindowClose(
     requestDirtyCloseConfirmation: () => Promise<TWindowCloseDecision> = async () => 'save',
 ) {
     const list = Array.isArray(documents) ? documents : [documents];
-    const entries = Object.fromEntries(list.map(doc => [
-        doc.tabId,
-        doc.controller,
-    ]));
+    const entries = Object.fromEntries(list.map((doc) => [doc.tabId, doc.controller]));
     let handler: TWindowCloseRequestHandler | null = null;
     useNativeWindowCloseHandshake({
         documentSessionsByTabId: shallowRef(entries),
@@ -193,21 +183,23 @@ describe('native window close', () => {
         await flush();
         expect(document.isLoaded()).toBe(true);
 
-        document.holdReads(job => job.intent === 'reload' || job.intent === 'adopt');
+        document.holdReads((job) => job.intent === 'reload' || job.intent === 'adopt');
         const ocrSource = new Blob(['recognized']);
         const ocrReload = document.publish(ocrSource, 'reload');
         setTestDocumentDirty(document.controller, true);
-        document.holdReads(job => job.intent === 'adopt');
+        document.holdReads((job) => job.intent === 'adopt');
 
         const decision = await listenForWindowClose(document)();
 
         expect(await ocrReload.finished).toEqual({status: 'released'});
-        expect(document.saves).toEqual([{
-            ok: true,
-            plannedSource: ocrSource,
-        }]);
+        expect(document.saves).toEqual([
+            {
+                ok: true,
+                plannedSource: ocrSource,
+            },
+        ]);
         expect(decision).toBe('save');
-        const adoption = document.jobs.find(entry => entry.job.intent === 'adopt');
+        const adoption = document.jobs.find((entry) => entry.job.intent === 'adopt');
         expect(await adoption?.job.finished).toEqual({status: 'released'});
         expect(document.controller.snapshot.value.dirty).toBe(false);
 
@@ -223,7 +215,7 @@ describe('native window close', () => {
         const document = createDocument({saveFails: true});
         document.publish(new Blob(['opened']), 'open');
         await flush();
-        document.holdReads(job => job.intent === 'reload');
+        document.holdReads((job) => job.intent === 'reload');
         const ocrSource = new Blob(['recognized']);
         document.publish(ocrSource, 'reload');
         setTestDocumentDirty(document.controller, true);
@@ -231,16 +223,14 @@ describe('native window close', () => {
 
         expect(await listenForWindowClose(document)()).toBe('cancel');
         await flush();
-        expect(document.saves).toEqual([{
-            ok: false,
-            plannedSource: ocrSource,
-        }]);
-
-        expect(document.jobs.map(entry => entry.job.intent)).toEqual([
-            'open',
-            'reload',
-            'reload',
+        expect(document.saves).toEqual([
+            {
+                ok: false,
+                plannedSource: ocrSource,
+            },
         ]);
+
+        expect(document.jobs.map((entry) => entry.job.intent)).toEqual(['open', 'reload', 'reload']);
         expect(document.isLoaded()).toBe(true);
         expect(document.controller.snapshot.value.dirty).toBe(true);
         document.holdReads(() => true);
@@ -276,7 +266,7 @@ describe('native window close', () => {
             return 'save';
         });
 
-        document.holdReads(job => job.intent === 'adopt');
+        document.holdReads((job) => job.intent === 'adopt');
         const decisionPromise = close();
         await ocrInLease.promise;
         await flush();
@@ -287,11 +277,13 @@ describe('native window close', () => {
 
         expect(decision).toBe('save');
         expect(await ocrJob!.finished).toEqual({status: 'released'});
-        expect(document.saves).toEqual([{
-            ok: true,
-            plannedSource: lateOcrSource,
-        }]);
-        const adoption = document.jobs.find(entry => entry.job.intent === 'adopt');
+        expect(document.saves).toEqual([
+            {
+                ok: true,
+                plannedSource: lateOcrSource,
+            },
+        ]);
+        const adoption = document.jobs.find((entry) => entry.job.intent === 'adopt');
         expect(await adoption?.job.finished).toEqual({status: 'released'});
     });
 
@@ -358,36 +350,32 @@ describe('native window close', () => {
         expect(document.jobs).toHaveLength(countBefore);
     });
 
-    it.each<TWindowCloseDecision>([
-        'cancel',
-        'discard',
-    ])('handles %s without saving, cleans up watchers, and republishes released jobs once', async (choice) => {
-        const document = createDocument();
-        document.publish(new Blob(['opened']), 'open');
-        await flush();
-        document.holdReads(job => job.intent === 'reload');
-        const ocrReload = document.publish(new Blob(['recognized']), 'reload');
-        setTestDocumentDirty(document.controller, true);
-        document.holdReads(() => false);
+    it.each<TWindowCloseDecision>(['cancel', 'discard'])(
+        'handles %s without saving, cleans up watchers, and republishes released jobs once',
+        async (choice) => {
+            const document = createDocument();
+            document.publish(new Blob(['opened']), 'open');
+            await flush();
+            document.holdReads((job) => job.intent === 'reload');
+            const ocrReload = document.publish(new Blob(['recognized']), 'reload');
+            setTestDocumentDirty(document.controller, true);
+            document.holdReads(() => false);
 
-        const decision = await listenForWindowClose(document, async () => choice)();
-        await flush();
+            const decision = await listenForWindowClose(document, async () => choice)();
+            await flush();
 
-        expect(decision).toBe(choice);
-        expect(await ocrReload.finished).toEqual({status: 'released'});
-        expect(document.saves).toEqual([]);
-        expect(document.jobs.map(entry => entry.job.intent)).toEqual([
-            'open',
-            'reload',
-            'reload',
-        ]);
-        expect(document.isLoaded()).toBe(true);
+            expect(decision).toBe(choice);
+            expect(await ocrReload.finished).toEqual({status: 'released'});
+            expect(document.saves).toEqual([]);
+            expect(document.jobs.map((entry) => entry.job.intent)).toEqual(['open', 'reload', 'reload']);
+            expect(document.isLoaded()).toBe(true);
 
-        document.holdReads(() => true);
-        const later = document.publish(new Blob(['later']), 'reload');
-        await flush();
-        expect(later.abort.signal.aborted).toBe(false);
-    });
+            document.holdReads(() => true);
+            const later = document.publish(new Blob(['later']), 'reload');
+            await flush();
+            expect(later.abort.signal.aborted).toBe(false);
+        },
+    );
 
     it('recovers Tab 1 saved revision once and does not double-publish Tab 2 on partial multi-tab Save failure', async () => {
         const tab1 = createDocument({
@@ -403,38 +391,25 @@ describe('native window close', () => {
         tab2.publish(new Blob(['open-2']), 'open');
         await flush();
 
-        tab1.holdReads(job => job.intent === 'reload' || job.intent === 'adopt');
-        tab2.holdReads(job => job.intent === 'reload');
+        tab1.holdReads((job) => job.intent === 'reload' || job.intent === 'adopt');
+        tab2.holdReads((job) => job.intent === 'reload');
         tab1.publish(new Blob(['ocr-1']), 'reload');
         tab2.publish(new Blob(['ocr-2']), 'reload');
         setTestDocumentDirty(tab1.controller, true);
         setTestDocumentDirty(tab2.controller, true);
-        tab1.holdReads(job => job.intent === 'adopt');
+        tab1.holdReads((job) => job.intent === 'adopt');
         tab2.holdReads(() => false);
 
-        const decision = await listenForWindowClose([
-            tab1,
-            tab2,
-        ])();
+        const decision = await listenForWindowClose([tab1, tab2])();
         await flush();
 
         expect(decision).toBe('cancel');
-        expect(tab1.saves.map(entry => entry.ok)).toEqual([true]);
-        expect(tab2.saves.map(entry => entry.ok)).toEqual([false]);
+        expect(tab1.saves.map((entry) => entry.ok)).toEqual([true]);
+        expect(tab2.saves.map((entry) => entry.ok)).toEqual([false]);
         // Tab 1: open -> released ocr reload -> save reload -> released adopt -> finally reload (once).
-        expect(tab1.jobs.map(entry => entry.job.intent)).toEqual([
-            'open',
-            'reload',
-            'reload',
-            'adopt',
-            'reload',
-        ]);
+        expect(tab1.jobs.map((entry) => entry.job.intent)).toEqual(['open', 'reload', 'reload', 'adopt', 'reload']);
         // Tab 2: open -> released ocr reload -> save reload (once; finally does not double-publish).
-        expect(tab2.jobs.map(entry => entry.job.intent)).toEqual([
-            'open',
-            'reload',
-            'reload',
-        ]);
+        expect(tab2.jobs.map((entry) => entry.job.intent)).toEqual(['open', 'reload', 'reload']);
         expect(tab1.isLoaded()).toBe(true);
         expect(tab2.isLoaded()).toBe(true);
 

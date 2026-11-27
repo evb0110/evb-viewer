@@ -1,4 +1,4 @@
-import { safeSetLocalStorageItem } from '@app/utils/localStorage';
+import {safeSetLocalStorageItem} from '@app/utils/localStorage';
 
 export const BROWSER_RECENT_FILES_STORAGE_KEY = 'evb-viewer:browser:recentFiles';
 export const BROWSER_SETTINGS_STORAGE_KEY = 'evb-viewer:browser:settings';
@@ -11,15 +11,11 @@ function hasLegacyBrowserInstallHintCookie() {
     }
 
     try {
-        return document.cookie
-            .split(';')
-            .some((cookie) => {
-                const separatorIndex = cookie.indexOf('=');
-                const name = separatorIndex === -1
-                    ? cookie
-                    : cookie.slice(0, separatorIndex);
-                return name.trim() === BROWSER_INSTALL_HINT_COOKIE_KEY;
-            });
+        return document.cookie.split(';').some((cookie) => {
+            const separatorIndex = cookie.indexOf('=');
+            const name = separatorIndex === -1 ? cookie : cookie.slice(0, separatorIndex);
+            return name.trim() === BROWSER_INSTALL_HINT_COOKIE_KEY;
+        });
     } catch {
         return false;
     }
@@ -27,9 +23,7 @@ function hasLegacyBrowserInstallHintCookie() {
 
 function getSecureCookieAttribute() {
     try {
-        return typeof location !== 'undefined' && location.protocol === 'https:'
-            ? '; Secure'
-            : '';
+        return typeof location !== 'undefined' && location.protocol === 'https:' ? '; Secure' : '';
     } catch {
         return '';
     }

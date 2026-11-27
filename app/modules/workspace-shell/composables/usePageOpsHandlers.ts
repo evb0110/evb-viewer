@@ -1,9 +1,7 @@
-import type { Ref } from 'vue';
-import type { ICropMargins } from '@app/types/crop';
-import type { TDocumentRef } from '@contracts/documentRef';
-import type {
-    TDocumentCommitReceipt, TDocumentRevisionToken,
-} from '@contracts/documentRevision';
+import type {Ref} from 'vue';
+import type {ICropMargins} from '@app/types/crop';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {TDocumentCommitReceipt, TDocumentRevisionToken} from '@contracts/documentRevision';
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 import type {IPdfPageLabelRange} from '@contracts/pdfPageLabels';
 import {
@@ -18,34 +16,20 @@ import {
     pageSelectionCount,
 } from '@pdf-core/pdfPageSelection';
 import type {IPageIdentityDelta} from '@contracts/electronApiPageOps';
-import type {
-    IPageMoveRangeSegment,
-    TPageMoveOperation,
-    TPageSelection,
-} from '@pdf-core/pdfPageSelection';
-import {
-    usePageOperations, type IPdfSourceJob,
-} from '@app/modules/pdf-viewer/public';
-import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
-import { runDetached } from '@app/utils/asyncGuard';
-import { getDocumentWorkingCopyCapability } from '@app/utils/platformDocuments';
-import type { TDocumentViews } from '@app/modules/workspace-shell/document-sessions/createDocumentViews';
-import { prepareDocumentViewsForRevisionSwap } from '@app/modules/workspace-shell/document-sessions/prepareDocumentViewsForRevisionSwap';
+import type {IPageMoveRangeSegment, TPageMoveOperation, TPageSelection} from '@pdf-core/pdfPageSelection';
+import {usePageOperations, type IPdfSourceJob} from '@app/modules/pdf-viewer/public';
+import type {TDocumentOperationKind} from '@app/types/documentOperationKind';
+import {runDetached} from '@app/utils/asyncGuard';
+import {getDocumentWorkingCopyCapability} from '@app/utils/platformDocuments';
+import type {TDocumentViews} from '@app/modules/workspace-shell/document-sessions/createDocumentViews';
+import {prepareDocumentViewsForRevisionSwap} from '@app/modules/workspace-shell/document-sessions/prepareDocumentViewsForRevisionSwap';
 
 type TPageSelectionInput = number[] | TPageSelection;
 type TPageRotationDelta = 90 | 180 | 270;
 const PAGE_OPERATION_RANGE_LIMIT = 100_000;
 
 export type TPageOperationPresentationKind =
-    | 'delete'
-    | 'extract'
-    | 'insert'
-    | 'insertFile'
-    | 'reorder'
-    | 'move'
-    | 'rotate'
-    | 'crop'
-    | 'removeCrop';
+    'delete' | 'extract' | 'insert' | 'insertFile' | 'reorder' | 'move' | 'rotate' | 'crop' | 'removeCrop';
 
 export interface IPageOperationPresentation {
     kind: TPageOperationPresentationKind;
@@ -60,12 +44,14 @@ export interface IPageOpsView {
     setSelectedThumbnailPages: (pages: number[]) => void;
     selectedPageSelection: Readonly<Ref<TPageSelection | null>>;
     setSelectedPageSelection: (selection: TPageSelection) => void;
-    pageContextMenu: Readonly<Ref<{
-        visible: boolean;
-        clickedPage?: number | null;
-        pages: number[];
-        selection?: TPageSelection | null;
-    }>>;
+    pageContextMenu: Readonly<
+        Ref<{
+            visible: boolean;
+            clickedPage?: number | null;
+            pages: number[];
+            selection?: TPageSelection | null;
+        }>
+    >;
     closePageContextMenu: () => void;
     emitOpenInNewTab: (path: TDocumentRef) => void;
 }
@@ -87,11 +73,7 @@ export interface IPageOpsHandlersDeps {
     /** Shows a rotation in every view before the rotated bytes load. */
     beginPageRotationPreview: (pages: readonly number[], rotationDelta: TPageRotationDelta) => Promise<unknown>;
     /** Redraws these pages' thumbnails in every view. */
-    invalidateThumbnailPages: (
-        pages: number[],
-        expectedDocumentRevision?: string,
-        options?: {rotationOnly?: boolean},
-    ) => void;
+    invalidateThumbnailPages: (pages: number[], expectedDocumentRevision?: string, options?: {rotationOnly?: boolean}) => void;
     onExportPages: (pages: TPageSelectionInput) => void;
     canMutatePages?: Ref<boolean>;
     ensureHistoryBaselineForMutation: () => Promise<boolean>;
@@ -101,10 +83,7 @@ export interface IPageOpsHandlersDeps {
     clearOcrCache: (path: TDocumentRef) => void;
     resetSearchCache: () => void;
     ensureWorkingCopyFreshForRead?: () => Promise<boolean>;
-    runWithDocumentOperationLease?: <T>(
-        kind: TDocumentOperationKind,
-        operation: () => Promise<T>,
-    ) => Promise<T>;
+    runWithDocumentOperationLease?: <T>(kind: TDocumentOperationKind, operation: () => Promise<T>) => Promise<T>;
 }
 
 export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
@@ -130,9 +109,12 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         runWithDocumentOperationLease,
     } = deps;
     // Every view previews the rotation; each withdraws its own.
-    const cancelPageRotationPreview = (invalidatedPages: readonly number[]) => Promise.all(
-        [...views.viewPorts.value.values()].map(port => port.view.pdfViewerRef.value?.cancelPageRotationPreview?.({invalidatedPages})),
-    );
+    const cancelPageRotationPreview = (invalidatedPages: readonly number[]) =>
+        Promise.all(
+            [...views.viewPorts.value.values()].map((port) =>
+                port.view.pdfViewerRef.value?.cancelPageRotationPreview?.({invalidatedPages}),
+            ),
+        );
     let stagedPageIdentityDelta: IPageIdentityDelta | null = null;
 
     function runPageOperationDetached(label: string, task: () => Promise<unknown>) {
@@ -162,7 +144,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         removeCrop: pageOpsRemoveCrop,
     } = usePageOperations({
         workingCopyPath,
-        ...(documentRevisionToken !== undefined ? { documentRevisionToken } : {}),
+        ...(documentRevisionToken !== undefined ? {documentRevisionToken} : {}),
         pageLabels,
         ...(pageLabelRanges !== undefined ? {pageLabelRanges} : {}),
         ...(pageLabelsResolved !== undefined ? {pageLabelsResolved} : {}),
@@ -175,24 +157,19 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         reloadWorkingCopyIntoHistory: async (options) => {
             const job = await reloadWorkingCopyIntoHistory(options);
             const outcome = await job?.finished;
-            if (outcome?.status === 'failed') {throw outcome.error;}
+            if (outcome?.status === 'failed') {
+                throw outcome.error;
+            }
             return job !== null;
         },
         clearOcrCache,
         resetSearchCache,
-        ...(ensureWorkingCopyFreshForRead !== undefined ? { ensureWorkingCopyFreshForRead } : {}),
-        ...(runWithDocumentOperationLease !== undefined ? { runWithDocumentOperationLease } : {}),
-        preparePageMutationRevisionSwap: async ({
-            result, invalidatedPages,
-        }) => {
-            const rotationDelta = pageOperationPresentation.value?.kind === 'rotate'
-                ? pageOperationPresentation.value.rotationDelta
-                : undefined;
-            deps.invalidateThumbnailPages(
-                invalidatedPages,
-                result.documentRevision.token,
-                {rotationOnly: rotationDelta !== undefined},
-            );
+        ...(ensureWorkingCopyFreshForRead !== undefined ? {ensureWorkingCopyFreshForRead} : {}),
+        ...(runWithDocumentOperationLease !== undefined ? {runWithDocumentOperationLease} : {}),
+        preparePageMutationRevisionSwap: async ({result, invalidatedPages}) => {
+            const rotationDelta =
+                pageOperationPresentation.value?.kind === 'rotate' ? pageOperationPresentation.value.rotationDelta : undefined;
+            deps.invalidateThumbnailPages(invalidatedPages, result.documentRevision.token, {rotationOnly: rotationDelta !== undefined});
             const delta = result.pageIdentityDelta;
             if (delta) {
                 views.mapPageIdentity(delta);
@@ -239,16 +216,11 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         }
     }
 
-    function normalizePageSelectionInput(
-        pages: TPageSelectionInput,
-        expectedTotalPages = totalPages.value,
-    ): TPageSelection {
+    function normalizePageSelectionInput(pages: TPageSelectionInput, expectedTotalPages = totalPages.value): TPageSelection {
         if (Array.isArray(pages)) {
             return createExplicitPageSelection(expectedTotalPages, pages);
         }
-        return pages.pageCount === expectedTotalPages
-            ? pages
-            : createExplicitPageSelection(expectedTotalPages, []);
+        return pages.pageCount === expectedTotalPages ? pages : createExplicitPageSelection(expectedTotalPages, []);
     }
 
     function collectCompactPageSelectionRanges(selection: TPageSelection): IPageMoveRangeSegment[] | null {
@@ -262,10 +234,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         return ranges;
     }
 
-    function getDeleteRangesForSelection(
-        selection: TPageSelection,
-        expectedTotalPages: number,
-    ): IPageMoveRangeSegment[] | null {
+    function getDeleteRangesForSelection(selection: TPageSelection, expectedTotalPages: number): IPageMoveRangeSegment[] | null {
         const selectedCount = pageSelectionCount(selection);
         if (selectedCount === 0) {
             return [];
@@ -273,10 +242,12 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         if (selectedCount >= expectedTotalPages) {
             // Keep the first page so qpdf never has to create an empty PDF.
             return expectedTotalPages > 1
-                ? [{
-                    startPage: 2,
-                    endPage: expectedTotalPages,
-                }]
+                ? [
+                      {
+                          startPage: 2,
+                          endPage: expectedTotalPages,
+                      },
+                  ]
                 : [];
         }
         return collectCompactPageSelectionRanges(selection);
@@ -298,9 +269,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
             'rotate',
             pageSelectionCount(selection),
             async () => {
-                const invalidatedPages = Array.isArray(selection)
-                    ? [...selection]
-                    : materializePageSelection(selection);
+                const invalidatedPages = Array.isArray(selection) ? [...selection] : materializePageSelection(selection);
                 await deps.commitPdfEditors();
                 try {
                     await deps.beginPageRotationPreview(invalidatedPages, angle);
@@ -309,12 +278,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
                     // cannot stage its immediate visual preview.
                 }
                 try {
-                    const didRotate = await pageOpsRotate(
-                        selection,
-                        totalPages.value,
-                        angle,
-                        onCommitted,
-                    );
+                    const didRotate = await pageOpsRotate(selection, totalPages.value, angle, onCommitted);
                     if (!didRotate) {
                         await cancelPageRotationPreview(invalidatedPages);
                         return false;
@@ -371,9 +335,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
             // Existing consumers still use the array for menus and small-document
             // operations. Keep that compatibility without expanding a large lazy
             // selection into a document-sized renderer collection.
-            view.setSelectedThumbnailPages(pageSelectionCount(selection) <= 100_000
-                ? materializePageSelection(selection)
-                : []);
+            view.setSelectedThumbnailPages(pageSelectionCount(selection) <= 100_000 ? materializePageSelection(selection) : []);
         }
 
         async function runStructuralPageMutation(
@@ -388,9 +350,10 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
                 const didSucceed = await run();
                 if (didSucceed) {
                     const outcome = lastPageOperationOutcome.value;
-                    const delta = outcome?.status === 'succeeded' && 'pageIdentityDelta' in outcome.result
-                        ? outcome.result.pageIdentityDelta
-                        : undefined;
+                    const delta =
+                        outcome?.status === 'succeeded' && 'pageIdentityDelta' in outcome.result
+                            ? outcome.result.pageIdentityDelta
+                            : undefined;
                     if (delta) {
                         if (delta !== stagedPageIdentityDelta) {
                             views.mapPageIdentity(delta);
@@ -403,9 +366,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
                 }
                 return didSucceed;
             };
-            return operation
-                ? runTrackedPageOperation(operation.kind, operation.pageCount, execute)
-                : execute();
+            return operation ? runTrackedPageOperation(operation.kind, operation.pageCount, execute) : execute();
         }
 
         async function pageOpsDeleteAndClearSelection(
@@ -425,10 +386,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
                     if (compactDeleteRanges.length === 0) {
                         return false;
                     }
-                    const deletedCount = compactDeleteRanges.reduce(
-                        (count, range) => count + range.endPage - range.startPage + 1,
-                        0,
-                    );
+                    const deletedCount = compactDeleteRanges.reduce((count, range) => count + range.endPage - range.startPage + 1, 0);
                     const didDelete = await runStructuralPageMutation(
                         () => pageOpsDeleteRanges(compactDeleteRanges, expectedTotalPages, onCommitted),
                         undefined,
@@ -480,12 +438,13 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
             };
             return runStructuralPageMutation(
                 () => pageOpsDelete(pages, expectedTotalPages, onCommitted),
-                selection => selection.flatMap((page) => {
-                    if (deleted.has(page)) {
-                        return [];
-                    }
-                    return [page - countDeletedBefore(page)];
-                }),
+                (selection) =>
+                    selection.flatMap((page) => {
+                        if (deleted.has(page)) {
+                            return [];
+                        }
+                        return [page - countDeletedBefore(page)];
+                    }),
                 {
                     kind: 'delete',
                     pageCount: pages.length,
@@ -494,39 +453,24 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         }
 
         async function pageOpsInsertAndClearSelection(expectedTotalPages: number, afterPage: number, onCommitted?: TDocumentCommitReceipt) {
-            return runStructuralPageMutation(
-                () => pageOpsInsert(expectedTotalPages, afterPage, onCommitted),
-                undefined,
-                {
-                    kind: 'insert',
-                    pageCount: 1,
-                },
-            );
+            return runStructuralPageMutation(() => pageOpsInsert(expectedTotalPages, afterPage, onCommitted), undefined, {
+                kind: 'insert',
+                pageCount: 1,
+            });
         }
 
-        async function pageOpsInsertFileAndClearSelection(
-            expectedTotalPages: number,
-            afterPage: number,
-            filePaths: TDocumentRef[],
-        ) {
-            return runStructuralPageMutation(
-                () => pageOpsInsertFile(expectedTotalPages, afterPage, filePaths),
-                undefined,
-                {
-                    kind: 'insertFile',
-                    pageCount: filePaths.length,
-                },
-            );
+        async function pageOpsInsertFileAndClearSelection(expectedTotalPages: number, afterPage: number, filePaths: TDocumentRef[]) {
+            return runStructuralPageMutation(() => pageOpsInsertFile(expectedTotalPages, afterPage, filePaths), undefined, {
+                kind: 'insertFile',
+                pageCount: filePaths.length,
+            });
         }
 
         async function pageOpsReorderAndClearSelection(newOrder: number[]) {
-            const newPageByOldPage = new Map(newOrder.map((oldPage, index) => [
-                oldPage,
-                index + 1,
-            ]));
+            const newPageByOldPage = new Map(newOrder.map((oldPage, index) => [oldPage, index + 1]));
             return runStructuralPageMutation(
                 () => pageOpsReorder(newOrder),
-                selection => selection.flatMap(page => newPageByOldPage.get(page) ?? []),
+                (selection) => selection.flatMap((page) => newPageByOldPage.get(page) ?? []),
                 {
                     kind: 'reorder',
                     pageCount: newOrder.length,
@@ -538,14 +482,10 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
             const selectionBeforeMove = view.selectedPageSelection.value;
             const didMove = await runStructuralPageMutation(
                 () => pageOpsMove(move),
-                selection => selection
-                    .map(createPageNumberAfterPageMove(move))
-                    .sort((left, right) => left - right),
+                (selection) => selection.map(createPageNumberAfterPageMove(move)).sort((left, right) => left - right),
                 {
                     kind: 'move',
-                    pageCount: 'ranges' in move
-                        ? pageMoveRangesSelectedPageCount(move)
-                        : move.endPage - move.startPage + 1,
+                    pageCount: 'ranges' in move ? pageMoveRangesSelectedPageCount(move) : move.endPage - move.startPage + 1,
                 },
             );
             if (didMove && selectionBeforeMove?.pageCount === move.pageCount) {
@@ -562,20 +502,14 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
                 if (pages.length === 0) {
                     return false;
                 }
-                return runTrackedPageOperation(
-                    'extract',
-                    pages.length,
-                    () => pageOpsExtract(pages, view.emitOpenInNewTab),
-                );
+                return runTrackedPageOperation('extract', pages.length, () => pageOpsExtract(pages, view.emitOpenInNewTab));
             }
             const selection = normalizePageSelectionInput(pages);
             if (pageSelectionCount(selection) === 0) {
                 return false;
             }
-            return runTrackedPageOperation(
-                'extract',
-                pageSelectionCount(selection),
-                () => pageOpsExtract(selection, view.emitOpenInNewTab),
+            return runTrackedPageOperation('extract', pageSelectionCount(selection), () =>
+                pageOpsExtract(selection, view.emitOpenInNewTab),
             );
         }
 
@@ -605,27 +539,20 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
             if (clickedPage === undefined) {
                 return;
             }
-            void runPageOperationDetached(
-                'insert PDF pages',
-                () => pageOpsInsertAndClearSelection(totalPages.value, clickedPage - 1 + offset),
+            void runPageOperationDetached('insert PDF pages', () =>
+                pageOpsInsertAndClearSelection(totalPages.value, clickedPage - 1 + offset),
             );
         }
 
-        function handlePageFileDrop(payload: {
-            afterPage: number;
-            filePaths: TDocumentRef[];
-        }) {
+        function handlePageFileDrop(payload: {afterPage: number; filePaths: TDocumentRef[]}) {
             const cleanupDroppedFiles = async () => {
-                await Promise.allSettled(payload.filePaths.map(path => (
-                    getDocumentWorkingCopyCapability().cleanupFile(path)
-                )));
+                await Promise.allSettled(payload.filePaths.map((path) => getDocumentWorkingCopyCapability().cleanupFile(path)));
             };
             if (isPdfPageOperationBlocked()) {
                 return cleanupDroppedFiles();
             }
-            return runPageOperationDetached(
-                'insert PDF files',
-                () => pageOpsInsertFileAndClearSelection(totalPages.value, payload.afterPage, payload.filePaths),
+            return runPageOperationDetached('insert PDF files', () =>
+                pageOpsInsertFileAndClearSelection(totalPages.value, payload.afterPage, payload.filePaths),
             ).then(cleanupDroppedFiles);
         }
 

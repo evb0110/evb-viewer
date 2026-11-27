@@ -1,4 +1,4 @@
-import type { IDjvuCompactForegroundColor } from '@contracts/djvuConversionPolicy';
+import type {IDjvuCompactForegroundColor} from '@contracts/djvuConversionPolicy';
 
 /** Emscripten module surface exported by `scripts/build-djvulibre-wasm.sh`. */
 export interface IDjvuLibreEmscriptenModule {
@@ -13,13 +13,7 @@ export interface IDjvuLibreEmscriptenModule {
     _evb_djvu_close(handle: number): void;
     _evb_djvu_clear_cache(handle: number): void;
     _evb_djvu_unpin_components(handle: number): void;
-    _evb_djvu_provide_component(
-        handle: number,
-        namePtr: number,
-        nameLen: number,
-        dataPtr: number,
-        dataLen: number,
-    ): number;
+    _evb_djvu_provide_component(handle: number, namePtr: number, nameLen: number, dataPtr: number, dataLen: number): number;
     _evb_djvu_get_doc_info(handle: number): number;
     _evb_djvu_get_page_info(handle: number, pageIndex0: number): number;
     _evb_djvu_get_page_structure(handle: number, pageIndex0: number): number;
@@ -36,12 +30,7 @@ export interface IDjvuLibreEmscriptenModule {
         rectH: number,
     ): number;
     _evb_djvu_get_outline(handle: number): number;
-    _evb_djvu_get_page_text(
-        handle: number,
-        pageIndex0: number,
-        includeZones: number,
-        maxZones: number,
-    ): number;
+    _evb_djvu_get_page_text(handle: number, pageIndex0: number, includeZones: number, maxZones: number): number;
     _evb_djvu_page_has_text(handle: number, pageIndex0: number): number;
     _evb_djvu_get_metadata(handle: number): number;
     _evb_djvu_output_ptr(): number;

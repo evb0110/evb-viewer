@@ -17,20 +17,20 @@ export function createDocumentMutationRevisionOptions(
     if (expectedDocumentRevisionToken === null || expectedDocumentRevisionToken === undefined) {
         return undefined;
     }
-    return { expectedDocumentRevisionToken };
+    return {expectedDocumentRevisionToken};
 }
 
 function collectChangedPdfObjectRefs(mutations: IPdfNativeMutationSet): string[] {
     const refs = new Set<string>();
     const add = (objectNumber: unknown, generationNumber: unknown) => {
         if (
-            refs.size >= MAX_TARGETED_PDF_OBJECT_REFS
-            || typeof objectNumber !== 'number'
-            || typeof generationNumber !== 'number'
-            || !Number.isSafeInteger(objectNumber)
-            || !Number.isSafeInteger(generationNumber)
-            || objectNumber < 1
-            || generationNumber < 0
+            refs.size >= MAX_TARGETED_PDF_OBJECT_REFS ||
+            typeof objectNumber !== 'number' ||
+            typeof generationNumber !== 'number' ||
+            !Number.isSafeInteger(objectNumber) ||
+            !Number.isSafeInteger(generationNumber) ||
+            objectNumber < 1 ||
+            generationNumber < 0
         ) {
             return;
         }
@@ -38,7 +38,9 @@ function collectChangedPdfObjectRefs(mutations: IPdfNativeMutationSet): string[]
     };
     // Deleted refs are expected to resolve to qpdf's `null`; the presence gate
     // applies only to objects that must survive in the new xref.
-    for (const update of mutations.updates ?? []) {add(update.objectNumber, update.generationNumber);}
+    for (const update of mutations.updates ?? []) {
+        add(update.objectNumber, update.generationNumber);
+    }
     return [...refs];
 }
 
@@ -84,9 +86,6 @@ export function haveSameNativeIdentityBindings(
     if (left.length !== right.length) {
         return false;
     }
-    const rightById = new Map(right.map(binding => [
-        binding.annotationId,
-        binding.pdfRef,
-    ]));
-    return left.every(binding => rightById.get(binding.annotationId) === binding.pdfRef);
+    const rightById = new Map(right.map((binding) => [binding.annotationId, binding.pdfRef]));
+    return left.every((binding) => rightById.get(binding.annotationId) === binding.pdfRef);
 }

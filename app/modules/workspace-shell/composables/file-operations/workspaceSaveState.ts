@@ -1,8 +1,5 @@
 import type {Ref} from 'vue';
-import type {
-    IPdfBookmarkEntry,
-    IPdfPageLabelRange,
-} from '@app/types/pdfContracts';
+import type {IPdfBookmarkEntry, IPdfPageLabelRange} from '@app/types/pdfContracts';
 import type {
     IWorkspaceSaveBaseline,
     IWorkspaceSaveDirtyState,
@@ -24,7 +21,7 @@ export interface IWorkspaceSaveStateDependencies {
         pageLabelRanges?: Ref<IPdfPageLabelRange[]>;
         bookmarkItems?: Ref<IPdfBookmarkEntry[]>;
     };
-    shapes: {hasChanges: () => boolean;};
+    shapes: {hasChanges: () => boolean};
 }
 
 export function collectDirtyState(deps: IWorkspaceSaveStateDependencies): IWorkspaceSaveDirtyState {

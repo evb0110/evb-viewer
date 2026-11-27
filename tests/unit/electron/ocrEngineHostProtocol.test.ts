@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {
     decodeOcrEngineHostEvent,
     decodeOcrEngineHostRequest,
@@ -20,10 +16,12 @@ describe('ocrEngineHostProtocol', () => {
                 id: 1,
                 ok: true,
                 result: {
-                    passes: [{
-                        stderr: '',
-                        outputs: [outputBytes],
-                    }],
+                    passes: [
+                        {
+                            stderr: '',
+                            outputs: [outputBytes],
+                        },
+                    ],
                 },
             },
         });
@@ -84,38 +82,42 @@ describe('ocrEngineHostProtocol', () => {
 
     it('decodes valid host requests and rejects invalid image descriptors', () => {
         expect(decodeOcrEngineHostRequest({type: 'shutdown'})).toEqual({type: 'shutdown'});
-        expect(decodeOcrEngineHostRequest({
-            type: 'run',
-            lane: 0,
-            message: {
-                id: 3,
-                request: {
-                    image: {
-                        kind: 'file',
-                        path: '/tmp/page.ppm',
-                        width: 100,
-                        height: 200,
-                    },
-                    models: ['eng'],
-                    passes: [],
-                },
-            },
-        })?.type).toBe('run');
-        expect(decodeOcrEngineHostRequest({
-            type: 'run',
-            lane: 0,
-            message: {
-                id: 3,
-                request: {
-                    image: {
-                        kind: 'file',
-                        path: '',
-                        width: 0,
-                        height: 200,
+        expect(
+            decodeOcrEngineHostRequest({
+                type: 'run',
+                lane: 0,
+                message: {
+                    id: 3,
+                    request: {
+                        image: {
+                            kind: 'file',
+                            path: '/tmp/page.ppm',
+                            width: 100,
+                            height: 200,
+                        },
+                        models: ['eng'],
+                        passes: [],
                     },
                 },
-            },
-        })).toBeNull();
+            })?.type,
+        ).toBe('run');
+        expect(
+            decodeOcrEngineHostRequest({
+                type: 'run',
+                lane: 0,
+                message: {
+                    id: 3,
+                    request: {
+                        image: {
+                            kind: 'file',
+                            path: '',
+                            width: 0,
+                            height: 200,
+                        },
+                    },
+                },
+            }),
+        ).toBeNull();
     });
 
     it('preserves discriminated union soundness on IOcrEngineLaneReply and TOcrEngineHostEvent', () => {

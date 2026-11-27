@@ -9,7 +9,7 @@
         <DocumentPanelEmptyState
             v-else-if="isQueryTooShort"
             icon="i-ph-text-t"
-            :title="t('searchResults.typeMinChars', { count: minQueryLength })"
+            :title="t('searchResults.typeMinChars', {count: minQueryLength})"
             :description="t('searchResults.enterSearchHint')"
         />
         <DocumentPanelEmptyState
@@ -52,13 +52,17 @@
             >
                 {{ rangeSummaryText }}
             </div>
-            <div v-if="!isSearching && isIncompleteCoverage" class="document-search-results-coverage" role="status">
+            <div
+                v-if="!isSearching && isIncompleteCoverage"
+                class="document-search-results-coverage"
+                role="status"
+            >
                 {{ incompleteCoverageText }}
             </div>
             <!-- Kept in place when idle so finishing a search does not lift the list. -->
             <AppProgressBar
                 :value="isSearching ? searchProgressPercent : 0"
-                :class="['document-search-results-progress-bar', { 'is-idle': !isSearching }]"
+                :class="['document-search-results-progress-bar', {'is-idle': !isSearching}]"
                 :aria-hidden="!isSearching || undefined"
             />
             <div
@@ -81,7 +85,7 @@
                             <UIcon
                                 name="i-ph-caret-right"
                                 class="document-search-results-group-chevron"
-                                :class="{ 'is-open': row.expanded }"
+                                :class="{'is-open': row.expanded}"
                             />
                             <span class="document-search-results-group-label">
                                 {{ row.label }}
@@ -109,10 +113,8 @@
 
 <script setup lang="ts">
 import type {IPdfSearchProgress} from '@contracts/search';
-import {
-    useMutationObserver, useVirtualList,
-} from '@vueuse/core';
-import { groupBy } from 'es-toolkit/array';
+import {useMutationObserver, useVirtualList} from '@vueuse/core';
+import {groupBy} from 'es-toolkit/array';
 import {
     formatPageIndicatorWithOptions,
     type IDocumentSearchMatch,
@@ -121,9 +123,7 @@ import {
 import AppProgressBar from '@app/components/AppProgressBar.vue';
 import DocumentPanelEmptyState from '@app/components/document-viewer/DocumentPanelEmptyState.vue';
 import DocumentSearchResultItem from '@app/components/document-viewer/DocumentSearchResultItem.vue';
-import {
-    formatDocumentSearchResultsSummary, resolveVirtualRowRevealScrollTop,  
-} from '@app/modules/document-viewer/public';
+import {formatDocumentSearchResultsSummary, resolveVirtualRowRevealScrollTop} from '@app/modules/document-viewer/public';
 
 const searchVirtualRowHeightsPx = reactive({
     group: 36,
@@ -140,13 +140,10 @@ function updateVirtualRowHeights() {
 onMounted(updateVirtualRowHeights);
 useMutationObserver(() => globalThis.document?.documentElement, updateVirtualRowHeights, {
     attributes: true,
-    attributeFilter: [
-        'style',
-        'class',
-    ],
+    attributeFilter: ['style', 'class'],
 });
 
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 
 interface IProps {
     results: IDocumentSearchMatch[];
@@ -174,7 +171,7 @@ const {
     searchQuery,
 } = defineProps<IProps>();
 
-const emit = defineEmits<{goToResult: [index: number];}>();
+const emit = defineEmits<{goToResult: [index: number]}>();
 
 const submittedQuery = computed(() => searchQuery);
 const minQueryLength = computed(() => minQueryLengthProp ?? 0);
@@ -197,57 +194,63 @@ const expandedPages = ref<Set<number>>(new Set());
 const knownGroupPages = ref<Set<number>>(new Set());
 const previousSearchQuery = ref('');
 
-const searchSummaryText = computed(() => formatDocumentSearchResultsSummary({
-    isSearching: Boolean(isSearching),
-    query: submittedQuery.value,
-    resultCount: results.length,
-    t,
-}));
+const searchSummaryText = computed(() =>
+    formatDocumentSearchResultsSummary({
+        isSearching: Boolean(isSearching),
+        query: submittedQuery.value,
+        resultCount: results.length,
+        t,
+    }),
+);
 
 const groupedResults = computed(() => {
-    const groups = groupBy(results.map((match, resultIndex) => ({
-        match,
-        resultIndex,
-    })), result => result.match.pageIndex);
+    const groups = groupBy(
+        results.map((match, resultIndex) => ({
+            match,
+            resultIndex,
+        })),
+        (result) => result.match.pageIndex,
+    );
 
-    return Object.entries(groups).map(([
-        pageIndex,
-        matches,
-    ]) => ({
+    return Object.entries(groups).map(([pageIndex, matches]) => ({
         pageIndex: Number(pageIndex),
         matches,
     }));
 });
 
-type TSearchVirtualRow = {
-    kind: 'group';
-    key: string;
-    pageIndex: number;
-    matchCount: number;
-} | {
-    kind: 'match';
-    key: string;
-    pageIndex: number;
-    match: IDocumentSearchMatch;
-    resultIndex: number;
-};
+type TSearchVirtualRow =
+    | {
+          kind: 'group';
+          key: string;
+          pageIndex: number;
+          matchCount: number;
+      }
+    | {
+          kind: 'match';
+          key: string;
+          pageIndex: number;
+          match: IDocumentSearchMatch;
+          resultIndex: number;
+      };
 
-type TRenderedSearchRow = {
-    kind: 'group';
-    key: string;
-    pageIndex: number;
-    pageNumber: number;
-    expanded: boolean;
-    label: string;
-} | {
-    kind: 'match';
-    key: string;
-    match: IDocumentSearchMatch;
-    resultIndex: number;
-    isActive: boolean;
-    pageNumber: number;
-    pageMatchNumber: number;
-};
+type TRenderedSearchRow =
+    | {
+          kind: 'group';
+          key: string;
+          pageIndex: number;
+          pageNumber: number;
+          expanded: boolean;
+          label: string;
+      }
+    | {
+          kind: 'match';
+          key: string;
+          match: IDocumentSearchMatch;
+          resultIndex: number;
+          isActive: boolean;
+          pageNumber: number;
+          pageMatchNumber: number;
+      };
 
 const rangeSummaryText = computed(() => {
     if (isSearching) {
@@ -263,67 +266,67 @@ const rangeSummaryText = computed(() => {
     });
 });
 
-const flattenedRows = computed<TSearchVirtualRow[]>(() => groupedResults.value.flatMap((group) => {
-    const header: TSearchVirtualRow = {
-        kind: 'group',
-        key: `group-${group.pageIndex}`,
-        pageIndex: group.pageIndex,
-        matchCount: group.matches.length,
-    };
-    if (!expandedPages.value.has(group.pageIndex)) {
-        return [header];
-    }
-    return [
-        header,
-        ...group.matches.map(({
-            match,
-            resultIndex,
-        }): TSearchVirtualRow => ({
-            kind: 'match',
-            key: `match-${resultIndex}`,
+const flattenedRows = computed<TSearchVirtualRow[]>(() =>
+    groupedResults.value.flatMap((group) => {
+        const header: TSearchVirtualRow = {
+            kind: 'group',
+            key: `group-${group.pageIndex}`,
             pageIndex: group.pageIndex,
-            match,
-            resultIndex,
-        })),
-    ];
-}));
+            matchCount: group.matches.length,
+        };
+        if (!expandedPages.value.has(group.pageIndex)) {
+            return [header];
+        }
+        return [
+            header,
+            ...group.matches.map(({match, resultIndex}): TSearchVirtualRow => ({
+                kind: 'match',
+                key: `match-${resultIndex}`,
+                pageIndex: group.pageIndex,
+                match,
+                resultIndex,
+            })),
+        ];
+    }),
+);
 
 const {
     list: virtualRows,
     containerProps,
     wrapperProps,
 } = useVirtualList(flattenedRows, {
-    itemHeight: index => flattenedRows.value[index]?.kind === 'group'
-        ? searchVirtualRowHeightsPx.group
-        : searchVirtualRowHeightsPx.match,
+    itemHeight: (index) =>
+        flattenedRows.value[index]?.kind === 'group' ? searchVirtualRowHeightsPx.group : searchVirtualRowHeightsPx.match,
     overscan: 8,
 });
 const searchResultsList = containerProps.ref;
-const renderedRows = computed<TRenderedSearchRow[]>(() => virtualRows.value.map(({data}) => {
-    if (data.kind === 'group') {
-        const pageNumber = data.pageIndex + 1;
+const renderedRows = computed<TRenderedSearchRow[]>(() =>
+    virtualRows.value.map(({data}) => {
+        if (data.kind === 'group') {
+            const pageNumber = data.pageIndex + 1;
+            return {
+                kind: 'group',
+                key: data.key,
+                pageIndex: data.pageIndex,
+                pageNumber,
+                expanded: expandedPages.value.has(data.pageIndex),
+                label: t('searchResults.pageWithCount', {
+                    page: formatPageIndicatorWithOptions(pageNumber, pageLabels ?? null),
+                    count: data.matchCount,
+                }),
+            };
+        }
         return {
-            kind: 'group',
+            kind: 'match',
             key: data.key,
-            pageIndex: data.pageIndex,
-            pageNumber,
-            expanded: expandedPages.value.has(data.pageIndex),
-            label: t('searchResults.pageWithCount', {
-                page: formatPageIndicatorWithOptions(pageNumber, pageLabels ?? null),
-                count: data.matchCount,
-            }),
+            match: data.match,
+            resultIndex: data.resultIndex,
+            isActive: data.resultIndex === currentResultIndex,
+            pageNumber: data.match.pageIndex + 1,
+            pageMatchNumber: (data.match.pageMatchIndex ?? data.match.matchIndex) + 1,
         };
-    }
-    return {
-        kind: 'match',
-        key: data.key,
-        match: data.match,
-        resultIndex: data.resultIndex,
-        isActive: data.resultIndex === currentResultIndex,
-        pageNumber: data.match.pageIndex + 1,
-        pageMatchNumber: (data.match.pageMatchIndex ?? data.match.matchIndex) + 1,
-    };
-}));
+    }),
+);
 
 function goToResult(resultIndex: number) {
     emit('goToResult', resultIndex);
@@ -356,9 +359,7 @@ const searchProgressPercent = computed(() => {
     }
 
     const total = Math.max(1, Math.trunc(searchProgress.total));
-    const processed = Number.isFinite(searchProgress.processed)
-        ? Math.min(Math.max(Math.trunc(searchProgress.processed), 0), total)
-        : 0;
+    const processed = Number.isFinite(searchProgress.processed) ? Math.min(Math.max(Math.trunc(searchProgress.processed), 0), total) : 0;
     return (processed / total) * 100;
 });
 
@@ -388,8 +389,11 @@ function revealVirtualRowSpan(startIndex: number, endIndex: number) {
 
 async function togglePage(pageIndex: number) {
     const isExpanding = !expandedPages.value.has(pageIndex);
-    if (isExpanding) {expandedPages.value.add(pageIndex);}
-    else {expandedPages.value.delete(pageIndex);}
+    if (isExpanding) {
+        expandedPages.value.add(pageIndex);
+    } else {
+        expandedPages.value.delete(pageIndex);
+    }
     if (!isExpanding) {
         return;
     }
@@ -397,9 +401,7 @@ async function togglePage(pageIndex: number) {
     if (!expandedPages.value.has(pageIndex)) {
         return;
     }
-    const groupIndex = flattenedRows.value.findIndex(row => (
-        row.kind === 'group' && row.pageIndex === pageIndex
-    ));
+    const groupIndex = flattenedRows.value.findIndex((row) => row.kind === 'group' && row.pageIndex === pageIndex);
     if (groupIndex < 0) {
         return;
     }
@@ -409,15 +411,9 @@ async function togglePage(pageIndex: number) {
 }
 
 watch(
-    () => [
-        submittedQuery.value,
-        groupedResults.value,
-    ] as const,
-    ([
-        query,
-        groups,
-    ]) => {
-        const nextGroupPages = new Set(groups.map(group => group.pageIndex));
+    () => [submittedQuery.value, groupedResults.value] as const,
+    ([query, groups]) => {
+        const nextGroupPages = new Set(groups.map((group) => group.pageIndex));
 
         if (query !== previousSearchQuery.value) {
             previousSearchQuery.value = query;
@@ -427,9 +423,7 @@ watch(
             return;
         }
 
-        const nextExpandedPages = new Set(
-            Array.from(expandedPages.value).filter(pageIndex => nextGroupPages.has(pageIndex)),
-        );
+        const nextExpandedPages = new Set(Array.from(expandedPages.value).filter((pageIndex) => nextGroupPages.has(pageIndex)));
         nextGroupPages.forEach((pageIndex) => {
             if (!knownGroupPages.value.has(pageIndex)) {
                 nextExpandedPages.add(pageIndex);
@@ -439,7 +433,7 @@ watch(
         knownGroupPages.value = nextGroupPages;
         expandedPages.value = nextExpandedPages;
     },
-    { immediate: true },
+    {immediate: true},
 );
 
 watch(
@@ -471,14 +465,12 @@ watch(
             return;
         }
 
-        const virtualIndex = flattenedRows.value.findIndex(row => (
-            row.kind === 'match' && row.resultIndex === nextIndex
-        ));
+        const virtualIndex = flattenedRows.value.findIndex((row) => row.kind === 'match' && row.resultIndex === nextIndex);
         if (virtualIndex >= 0) {
             revealVirtualRowSpan(virtualIndex, virtualIndex);
         }
     },
-    { flush: 'post' },
+    {flush: 'post'},
 );
 </script>
 
@@ -496,7 +488,6 @@ watch(
     height: calc(var(--app-search-virtual-row-height) * var(--app-ui-scale));
     overflow: hidden;
 }
-
 
 .document-search-results-header {
     display: flex;
@@ -564,7 +555,6 @@ watch(
     min-height: 0;
     overflow: auto;
 }
-
 
 .document-search-results-group + .document-search-results-group {
     border-top: 1px solid var(--ui-border);

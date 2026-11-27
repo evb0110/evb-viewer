@@ -4,7 +4,7 @@
         :unmount-on-hide="false"
         class="settings-details flex flex-col"
     >
-        <template #default="{ open }">
+        <template #default="{open}">
             <button
                 type="button"
                 class="settings-section-title is-toggle"
@@ -37,7 +37,8 @@
                                 class="settings-kbd"
                                 size="sm"
                                 variant="outline"
-                            >{{ part }}</UKbd>
+                                >{{ part }}</UKbd
+                            >
                         </span>
                     </div>
                 </div>
@@ -57,7 +58,7 @@ defineProps<{
     items: ISettingsShortcutItem[];
 }>();
 
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 const shortcutsOpen = ref(false);
 </script>
 

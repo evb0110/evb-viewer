@@ -1,11 +1,7 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { spawn } from 'node:child_process';
-import { createServer } from 'node:http';
-import { once } from 'node:events';
+import {describe, expect, it} from 'vitest';
+import {spawn} from 'node:child_process';
+import {createServer} from 'node:http';
+import {once} from 'node:events';
 
 interface IProxyClient {
     send(message: Record<string, unknown>): void;
@@ -32,21 +28,13 @@ function asRecord(value: unknown): Record<string, unknown> {
 }
 
 function createProxyClient(url: string, token = 'proxy-test-token'): IProxyClient {
-    const child = spawn(process.execPath, [
-        'scripts/evb-mcp-proxy.mjs',
-        '--url',
-        url,
-    ], {
+    const child = spawn(process.execPath, ['scripts/evb-mcp-proxy.mjs', '--url', url], {
         cwd: process.cwd(),
         env: {
             ...process.env,
             EVB_MCP_TOKEN: token,
         },
-        stdio: [
-            'pipe',
-            'pipe',
-            'pipe',
-        ],
+        stdio: ['pipe', 'pipe', 'pipe'],
     });
 
     let buffer = '';
@@ -81,7 +69,7 @@ function createProxyClient(url: string, token = 'proxy-test-token'): IProxyClien
             child.stdin.write(payload);
         },
         async waitForResponse(id: string | number) {
-            const existing = responses.find(response => response.id === id);
+            const existing = responses.find((response) => response.id === id);
             if (existing) {
                 return existing;
             }
@@ -92,7 +80,7 @@ function createProxyClient(url: string, token = 'proxy-test-token'): IProxyClien
                     reject(new Error(`Timed out waiting for MCP response ${id}.`));
                 }, 2000);
                 const check = () => {
-                    const response = responses.find(candidate => candidate.id === id);
+                    const response = responses.find((candidate) => candidate.id === id);
                     if (!response) {
                         return;
                     }
@@ -108,7 +96,7 @@ function createProxyClient(url: string, token = 'proxy-test-token'): IProxyClien
             child.stdin.end();
             const stopped = await Promise.race([
                 exited.then(() => true),
-                new Promise<false>(resolve => setTimeout(() => resolve(false), 1000)),
+                new Promise<false>((resolve) => setTimeout(() => resolve(false), 1000)),
             ]);
             if (!stopped) {
                 child.kill();
@@ -127,7 +115,9 @@ async function createMcpEndpoint() {
     const server = createServer((request, response) => {
         let body = '';
         request.setEncoding('utf8');
-        request.on('data', (chunk: string) => { body += chunk; });
+        request.on('data', (chunk: string) => {
+            body += chunk;
+        });
         request.on('end', () => {
             const message = JSON.parse(body) as Record<string, unknown>;
             requests.push({
@@ -135,7 +125,7 @@ async function createMcpEndpoint() {
                 message,
             });
             if (message.method === 'notifications/initialized') {
-                response.writeHead(202, {'Connection': 'close'});
+                response.writeHead(202, {Connection: 'close'});
                 response.end();
                 return;
             }
@@ -159,21 +149,27 @@ async function createMcpEndpoint() {
                     result = {prompts: [{name: 'server-owned-prompt'}]};
                     break;
                 case 'tools/call':
-                    result = {content: [{
-                        type: 'text',
-                        text: 'server-owned tool result',
-                    }]};
+                    result = {
+                        content: [
+                            {
+                                type: 'text',
+                                text: 'server-owned tool result',
+                            },
+                        ],
+                    };
                     break;
             }
             response.writeHead(200, {
-                'Connection': 'close',
+                Connection: 'close',
                 'Content-Type': 'application/json',
             });
-            response.end(JSON.stringify({
-                jsonrpc: '2.0',
-                id: message.id,
-                result,
-            }));
+            response.end(
+                JSON.stringify({
+                    jsonrpc: '2.0',
+                    id: message.id,
+                    result,
+                }),
+            );
         });
     });
     server.listen(0, '127.0.0.1');
@@ -189,7 +185,7 @@ async function createMcpEndpoint() {
         url: `http://127.0.0.1:${address.port}`,
         async close() {
             await new Promise<void>((resolve, reject) => {
-                server.close(error => error ? reject(error) : resolve());
+                server.close((error) => (error ? reject(error) : resolve()));
             });
         },
     };
@@ -242,24 +238,25 @@ describe('evb-mcp-proxy', () => {
             const listed = asRecord((await client.waitForResponse(2)).result);
             const listedTools = listed.tools as Array<{name: string}>;
             expect(listedTools).toEqual(endpoint.tools);
-            expect(asRecord((await client.waitForResponse(3)).result).resourceTemplates)
-                .toEqual([{name: 'server-owned-resource'}]);
-            expect(asRecord((await client.waitForResponse(4)).result).prompts)
-                .toEqual([{name: 'server-owned-prompt'}]);
-            expect(asRecord((await client.waitForResponse(5)).result).content)
-                .toEqual([{
+            expect(asRecord((await client.waitForResponse(3)).result).resourceTemplates).toEqual([{name: 'server-owned-resource'}]);
+            expect(asRecord((await client.waitForResponse(4)).result).prompts).toEqual([{name: 'server-owned-prompt'}]);
+            expect(asRecord((await client.waitForResponse(5)).result).content).toEqual([
+                {
                     type: 'text',
                     text: 'server-owned tool result',
-                }]);
+                },
+            ]);
 
-            expect(endpoint.requests.map(({message}) => message.method)).toEqual(expect.arrayContaining([
-                'initialize',
-                'notifications/initialized',
-                'tools/list',
-                'resources/templates/list',
-                'prompts/list',
-                'tools/call',
-            ]));
+            expect(endpoint.requests.map(({message}) => message.method)).toEqual(
+                expect.arrayContaining([
+                    'initialize',
+                    'notifications/initialized',
+                    'tools/list',
+                    'resources/templates/list',
+                    'prompts/list',
+                    'tools/call',
+                ]),
+            );
             expect(endpoint.requests.every(({authorization}) => authorization === 'Bearer proxy-test-token')).toBe(true);
         } finally {
             await client.stop();

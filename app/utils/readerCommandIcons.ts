@@ -1,8 +1,5 @@
-import { READER_COMMAND_DESCRIPTORS } from '@contracts/readerCommands';
-import type {
-    TReaderCommandIconName,
-    TReaderCommandId,
-} from '@contracts/readerCommands';
+import {READER_COMMAND_DESCRIPTORS} from '@contracts/readerCommands';
+import type {TReaderCommandIconName, TReaderCommandId} from '@contracts/readerCommands';
 
 export type TReaderCommandMenuIcon = `i-ph-${string}`;
 

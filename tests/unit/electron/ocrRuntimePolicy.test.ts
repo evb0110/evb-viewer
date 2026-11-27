@@ -1,27 +1,9 @@
-import {
-    rm,
-    writeFile,
-} from 'node:fs/promises';
-import { join } from 'node:path';
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import type {
-    IHostResourceProfileSnapshot,
-    THostResourceTier,
-} from '@contracts/hostResourceProfile';
-import {
-    encodePnm,
-    readPnmSize,
-} from '@ocr-core/ppmRaster';
-import {
-    resolveOcrLaneResources,
-    resolveOcrRuntimePolicy,
-} from '@electron/features/ocr/main/ocrRuntimePolicy';
+import {rm, writeFile} from 'node:fs/promises';
+import {join} from 'node:path';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import type {IHostResourceProfileSnapshot, THostResourceTier} from '@contracts/hostResourceProfile';
+import {encodePnm, readPnmSize} from '@ocr-core/ppmRaster';
+import {resolveOcrLaneResources, resolveOcrRuntimePolicy} from '@electron/features/ocr/main/ocrRuntimePolicy';
 import {
     createOcrWorkerPipelineHarness,
     hasOcrWorkerPipelineTools,
@@ -31,11 +13,7 @@ import {
 const MIB = 1024 ** 2;
 const GIB = 1024 ** 3;
 
-function createResourceProfile(
-    logicalCpus: number,
-    totalRamBytes: number,
-    tier: THostResourceTier,
-): IHostResourceProfileSnapshot {
+function createResourceProfile(logicalCpus: number, totalRamBytes: number, tier: THostResourceTier): IHostResourceProfileSnapshot {
     return {
         logicalCpus,
         totalRamBytes,
@@ -63,25 +41,13 @@ describe('resolveOcrRuntimePolicy', () => {
     ] satisfies Array<{
         tier: THostResourceTier;
         modelDownloadConcurrency: number;
-    }>)('resolves the $tier tier model download limit', ({
-        tier,
-        modelDownloadConcurrency,
-    }) => {
-        expect(resolveOcrRuntimePolicy(
-            createResourceProfile(4, 8 * GIB, tier),
-            {},
-        )).toMatchObject({modelDownloadConcurrency});
+    }>)('resolves the $tier tier model download limit', ({tier, modelDownloadConcurrency}) => {
+        expect(resolveOcrRuntimePolicy(createResourceProfile(4, 8 * GIB, tier), {})).toMatchObject({modelDownloadConcurrency});
     });
 
     it('preserves the existing medium and high formulas', () => {
-        expect(resolveOcrRuntimePolicy(
-            createResourceProfile(8, 16 * GIB, 'medium'),
-            {},
-        ).globalPageSlots).toBe(4);
-        expect(resolveOcrRuntimePolicy(
-            createResourceProfile(16, 32 * GIB, 'high'),
-            {},
-        ).globalPageSlots).toBe(8);
+        expect(resolveOcrRuntimePolicy(createResourceProfile(8, 16 * GIB, 'medium'), {}).globalPageSlots).toBe(4);
+        expect(resolveOcrRuntimePolicy(createResourceProfile(16, 32 * GIB, 'high'), {}).globalPageSlots).toBe(8);
     });
 
     it.each([
@@ -95,42 +61,25 @@ describe('resolveOcrRuntimePolicy', () => {
             ramGiB: 128,
             lanes: 32,
         },
-    ])('scales past eight lanes on a $cpus-core, $ramGiB GiB host', ({
-        cpus,
-        ramGiB,
-        lanes,
-    }) => {
-        expect(resolveOcrRuntimePolicy(
-            createResourceProfile(cpus, ramGiB * GIB, 'high'),
-            {},
-        ).globalPageSlots).toBe(lanes);
+    ])('scales past eight lanes on a $cpus-core, $ramGiB GiB host', ({cpus, ramGiB, lanes}) => {
+        expect(resolveOcrRuntimePolicy(createResourceProfile(cpus, ramGiB * GIB, 'high'), {}).globalPageSlots).toBe(lanes);
     });
 
     it('keeps a 4 GiB host to one lane whatever its tier or override', () => {
-        expect(resolveOcrRuntimePolicy(
-            createResourceProfile(16, 4 * GIB, 'high'),
-            {},
-        ).globalPageSlots).toBe(1);
-        expect(resolveOcrRuntimePolicy(
-            createResourceProfile(16, 4 * GIB, 'high'),
-            {OCR_GLOBAL_PAGE_SLOTS: '6'},
-        ).globalPageSlots).toBe(1);
+        expect(resolveOcrRuntimePolicy(createResourceProfile(16, 4 * GIB, 'high'), {}).globalPageSlots).toBe(1);
+        expect(resolveOcrRuntimePolicy(createResourceProfile(16, 4 * GIB, 'high'), {OCR_GLOBAL_PAGE_SLOTS: '6'}).globalPageSlots).toBe(1);
     });
 
     it('gives environment overrides highest precedence within the host cores', () => {
         vi.stubEnv('EVB_OCR_MODEL_DOWNLOAD_CONCURRENCY', '12');
         try {
-            expect(resolveOcrRuntimePolicy(
-                createResourceProfile(16, 8 * GIB, 'low'),
-                {OCR_GLOBAL_PAGE_SLOTS: '12'},
-            )).toEqual({
+            expect(resolveOcrRuntimePolicy(createResourceProfile(16, 8 * GIB, 'low'), {OCR_GLOBAL_PAGE_SLOTS: '12'})).toEqual({
                 globalPageSlots: 12,
                 modelDownloadConcurrency: 8,
             });
-            expect(resolveOcrRuntimePolicy(
-                createResourceProfile(6, 8 * GIB, 'low'),
-                {OCR_GLOBAL_PAGE_SLOTS: '12'},
-            ).globalPageSlots).toBe(6);
+            expect(resolveOcrRuntimePolicy(createResourceProfile(6, 8 * GIB, 'low'), {OCR_GLOBAL_PAGE_SLOTS: '12'}).globalPageSlots).toBe(
+                6,
+            );
         } finally {
             vi.unstubAllEnvs();
         }
@@ -159,10 +108,12 @@ describe('resolveOcrLaneResources', () => {
     it('never asks for more memory than the broker has', () => {
         const image = encodePnm(10, 10, 3, new Uint8Array(300));
 
-        expect(resolveOcrLaneResources(4 * GIB, image, {
-            ...capacity,
-            estimatedResidentBytes: 2 * GIB,
-        }).estimatedResidentBytes).toBe(2 * GIB);
+        expect(
+            resolveOcrLaneResources(4 * GIB, image, {
+                ...capacity,
+                estimatedResidentBytes: 2 * GIB,
+            }).estimatedResidentBytes,
+        ).toBe(2 * GIB);
     });
 });
 
@@ -182,7 +133,7 @@ describe('desktop OCR job billing', () => {
     });
 
     it('holds a broker lease of 2.5 x the installed model bytes plus the page heap while the engine runs', async (context) => {
-        if (!await hasOcrWorkerPipelineTools()) {
+        if (!(await hasOcrWorkerPipelineTools())) {
             context.skip();
             return;
         }
@@ -195,12 +146,7 @@ describe('desktop OCR job billing', () => {
         harness = await createOcrWorkerPipelineHarness({
             pageCount: 2,
             onEngineRequest: (request) => {
-                const {
-                    width,
-                    height,
-                } = request.image instanceof Uint8Array
-                    ? readPnmSize(request.image)
-                    : request.image;
+                const {width, height} = request.image instanceof Uint8Array ? readPnmSize(request.image) : request.image;
                 charges.push({
                     used: mainJobBroker.getSnapshot().used.estimatedResidentBytes,
                     expected: Math.ceil(2.5 * modelBytes + 192 * MIB + width * height * 12),
@@ -213,7 +159,9 @@ describe('desktop OCR job billing', () => {
 
         // Both pages reach the engine before the job writes its PDF.
         expect(charges, JSON.stringify(result)).toHaveLength(2);
-        for (const charge of charges) {expect(charge.used).toBe(charge.expected);}
+        for (const charge of charges) {
+            expect(charge.used).toBe(charge.expected);
+        }
         expect(mainJobBroker.getSnapshot().active).toBe(0);
     });
 });

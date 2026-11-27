@@ -1,4 +1,4 @@
-import { PLATFORM_API_DESCRIPTOR } from '@contracts/platformApiDescriptor';
+import {PLATFORM_API_DESCRIPTOR} from '@contracts/platformApiDescriptor';
 
 // Compatibility exports for the consumer-inventory tooling. The canonical method
 // inventory lives in PLATFORM_API_DESCRIPTOR and is also the source for generated

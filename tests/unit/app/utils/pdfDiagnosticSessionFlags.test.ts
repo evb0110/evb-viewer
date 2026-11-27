@@ -1,27 +1,16 @@
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { logPdfNav } from '@app/utils/logPdfNav';
-import {
-    isPdfRenderTraceEnabled,
-    logPdfRenderTrace,
-} from '@app/utils/pdfRenderTrace';
-import {
-    disablePdfDiagnosticSession,
-    enablePdfDiagnosticSession,
-} from '@tests/e2e/electron/helpers/pdfDiagnosticSession';
-import type { Page } from 'puppeteer-core';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {logPdfNav} from '@app/utils/logPdfNav';
+import {isPdfRenderTraceEnabled, logPdfRenderTrace} from '@app/utils/pdfRenderTrace';
+import {disablePdfDiagnosticSession, enablePdfDiagnosticSession} from '@tests/e2e/electron/helpers/pdfDiagnosticSession';
+import type {Page} from 'puppeteer-core';
 
-vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
-    diagnostic: vi.fn(),
-    warn: vi.fn(),
-}}));
+vi.mock('@app/utils/browserLogger', () => ({
+    BrowserLogger: {
+        diagnostic: vi.fn(),
+        warn: vi.fn(),
+    },
+}));
 
 interface IDiagnosticWindowStub {
     __pdfNavLog?: boolean;
@@ -30,7 +19,7 @@ interface IDiagnosticWindowStub {
     __pdfRenderTrace?: boolean;
     __pdfRenderTraceBuffer?: unknown[];
     __pdfRenderTraceConsole?: boolean;
-    localStorage: {getItem: ReturnType<typeof vi.fn>;};
+    localStorage: {getItem: ReturnType<typeof vi.fn>};
 }
 
 function createWindowStub(): IDiagnosticWindowStub {
@@ -83,14 +72,8 @@ describe('PDF diagnostic session flags', () => {
     it('clears all session-scoped flags, buffers, and readers on teardown', async () => {
         const windowStub = createWindowStub();
         vi.stubGlobal('window', windowStub);
-        const evaluateInStub = async (
-            callback: (...args: never[]) => unknown,
-            argument?: unknown,
-        ) => (
-            argument === undefined
-                ? callback()
-                : callback(argument as never)
-        );
+        const evaluateInStub = async (callback: (...args: never[]) => unknown, argument?: unknown) =>
+            argument === undefined ? callback() : callback(argument as never);
         const page = {evaluate: evaluateInStub} as Pick<Page, 'evaluate'>;
 
         await enablePdfDiagnosticSession(page, {
@@ -140,14 +123,8 @@ describe('PDF diagnostic session flags', () => {
             }>;
         };
         vi.stubGlobal('window', windowStub);
-        const evaluateInStub = async (
-            callback: (...args: never[]) => unknown,
-            argument?: unknown,
-        ) => (
-            argument === undefined
-                ? callback()
-                : callback(argument as never)
-        );
+        const evaluateInStub = async (callback: (...args: never[]) => unknown, argument?: unknown) =>
+            argument === undefined ? callback() : callback(argument as never);
         const page = {evaluate: evaluateInStub} as Pick<Page, 'evaluate'>;
 
         await enablePdfDiagnosticSession(page, {render: true});

@@ -2,7 +2,7 @@ import {AGENT_PLATFORM_FEATURE} from '@contracts/agentPlatformFeature';
 import {DJVU_PLATFORM_FEATURE} from '@contracts/djvuPlatformFeature';
 import {DOCUMENT_PLATFORM_FEATURES} from '@contracts/documentsPlatformFeature';
 import {HOST_PLATFORM_FEATURE} from '@contracts/hostPlatformFeature';
-import { OCR_PLATFORM_FEATURE } from '@contracts/ocrPlatformFeature';
+import {OCR_PLATFORM_FEATURE} from '@contracts/ocrPlatformFeature';
 import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import {IMAGE_EXPORT_PLATFORM_FEATURE} from '@contracts/imageExportPlatformFeature';
 import {PAGE_OPS_PLATFORM_FEATURE} from '@contracts/pageOpsPlatformFeature';
@@ -53,50 +53,17 @@ const requiredInBrowser = {
  * once every entry lives in `PLATFORM_FEATURE_REGISTRY`.
  */
 const legacyMethodPaths = [
-    [
-        'documentFiles',
-        'beginDocxFileStream',
-    ],
-    [
-        'documentFiles',
-        'writeDocxFileStreamChunk',
-    ],
-    [
-        'documentFiles',
-        'commitDocxFileStream',
-    ],
-    [
-        'documentFiles',
-        'cancelDocxFileStream',
-    ],
-    [
-        'settings',
-        'getDebugLogs',
-    ],
-    [
-        'settings',
-        'onDebugLog',
-    ],
-    [
-        'settings',
-        'rendererLog',
-    ],
-    [
-        'system',
-        'onShutdownSaveFlushRequest',
-    ],
-    [
-        'system',
-        'onWindowCloseRequest',
-    ],
-    [
-        'updates',
-        'onMenuCheckForUpdates',
-    ],
-    [
-        'windowTabs',
-        'notifyRendererReady',
-    ],
+    ['documentFiles', 'beginDocxFileStream'],
+    ['documentFiles', 'writeDocxFileStreamChunk'],
+    ['documentFiles', 'commitDocxFileStream'],
+    ['documentFiles', 'cancelDocxFileStream'],
+    ['settings', 'getDebugLogs'],
+    ['settings', 'onDebugLog'],
+    ['settings', 'rendererLog'],
+    ['system', 'onShutdownSaveFlushRequest'],
+    ['system', 'onWindowCloseRequest'],
+    ['updates', 'onMenuCheckForUpdates'],
+    ['windowTabs', 'notifyRendererReady'],
 ] as const;
 
 function resolveLegacyMethodKind(path: readonly string[]): TPlatformMethodKind {
@@ -114,9 +81,7 @@ function createLegacyMethodDescriptor(path: readonly string[]): IPlatformMethodD
     return {
         path,
         kind: resolveLegacyMethodKind(path),
-        required: path.join('.') === 'updates.onMenuCheckForUpdates'
-            ? requiredInElectron
-            : requiredEverywhere,
+        required: path.join('.') === 'updates.onMenuCheckForUpdates' ? requiredInElectron : requiredEverywhere,
         browserLazy: 'forwarded',
     };
 }
@@ -127,88 +92,40 @@ const legacyCapabilities: readonly IPlatformCapabilityDescriptor[] = [
         required: requiredEverywhere,
     },
     {
-        path: [
-            'manifest',
-            'capabilities',
-            'documents',
-            'folderPicker',
-        ],
+        path: ['manifest', 'capabilities', 'documents', 'folderPicker'],
         required: requiredInElectron,
-        manifestPath: [
-            'documents',
-            'folderPicker',
-        ],
+        manifestPath: ['documents', 'folderPicker'],
     },
     {
-        path: [
-            'manifest',
-            'capabilities',
-            'documents',
-            'nativePaths',
-        ],
+        path: ['manifest', 'capabilities', 'documents', 'nativePaths'],
         required: requiredInElectron,
-        manifestPath: [
-            'documents',
-            'nativePaths',
-        ],
+        manifestPath: ['documents', 'nativePaths'],
     },
     {
-        path: [
-            'manifest',
-            'capabilities',
-            'documents',
-            'browserDocumentRefs',
-        ],
+        path: ['manifest', 'capabilities', 'documents', 'browserDocumentRefs'],
         required: requiredInBrowser,
-        manifestPath: [
-            'documents',
-            'browserDocumentRefs',
-        ],
+        manifestPath: ['documents', 'browserDocumentRefs'],
     },
     {
-        path: [
-            'manifest',
-            'capabilities',
-            'documents',
-            'nativePrint',
-        ],
+        path: ['manifest', 'capabilities', 'documents', 'nativePrint'],
         required: requiredInElectron,
-        manifestPath: [
-            'documents',
-            'nativePrint',
-        ],
+        manifestPath: ['documents', 'nativePrint'],
     },
     {
-        path: [
-            'manifest',
-            'capabilities',
-            'documents',
-            'nativeOpenInDefaultApp',
-        ],
+        path: ['manifest', 'capabilities', 'documents', 'nativeOpenInDefaultApp'],
         required: requiredInElectron,
-        manifestPath: [
-            'documents',
-            'nativeOpenInDefaultApp',
-        ],
+        manifestPath: ['documents', 'nativeOpenInDefaultApp'],
     },
     {
-        path: [
-            'manifest',
-            'capabilities',
-            'documents',
-            'structuredSaveResult',
-        ],
+        path: ['manifest', 'capabilities', 'documents', 'structuredSaveResult'],
         required: requiredEverywhere,
-        manifestPath: [
-            'documents',
-            'structuredSaveResult',
-        ],
+        manifestPath: ['documents', 'structuredSaveResult'],
     },
 ];
 
 export const LEGACY_PLATFORM_API_DESCRIPTOR_WITHOUT_MIGRATED_FEATURES = {
     capabilities: legacyCapabilities,
-    methods: legacyMethodPaths.map(path => createLegacyMethodDescriptor(path)),
+    methods: legacyMethodPaths.map((path) => createLegacyMethodDescriptor(path)),
 } as const satisfies IPlatformApiDescriptor;
 
 export const PLATFORM_FEATURE_REGISTRY = [
@@ -234,11 +151,7 @@ interface IMigratedPlatformFeature {
     eventChannels: Readonly<Record<string, string>>;
 }
 
-function addUniquePlatformValues(
-    seen: Set<string>,
-    values: Iterable<string>,
-    label: string,
-) {
+function addUniquePlatformValues(seen: Set<string>, values: Iterable<string>, label: string) {
     for (const value of values) {
         if (seen.has(value)) {
             throw new Error(`Duplicate ${label}: ${value}`);
@@ -260,7 +173,7 @@ function mergePlatformDescriptors(
         }
         addUniquePlatformValues(
             methodPaths,
-            supplement.methods.map(descriptor => descriptor.path.join('.')),
+            supplement.methods.map((descriptor) => descriptor.path.join('.')),
             'platform method path',
         );
         methods.push(...supplement.methods);
@@ -280,10 +193,11 @@ function mergePlatformDescriptors(
             feature.platformDescriptors.methods.map(({path}) => path.join('.')),
             'platform method path',
         );
-        addUniquePlatformValues(channels, new Set([
-            ...Object.values(feature.invokeChannels),
-            ...Object.values(feature.eventChannels),
-        ]), 'migrated platform channel');
+        addUniquePlatformValues(
+            channels,
+            new Set([...Object.values(feature.invokeChannels), ...Object.values(feature.eventChannels)]),
+            'migrated platform channel',
+        );
         methods.push(...feature.platformDescriptors.methods);
     }
     return {
@@ -299,5 +213,5 @@ export const PLATFORM_API_DESCRIPTOR = mergePlatformDescriptors(
 
 export function getPlatformMethodDescriptor(path: readonly string[]) {
     const formattedPath = path.join('.');
-    return PLATFORM_API_DESCRIPTOR.methods.find(descriptor => descriptor.path.join('.') === formattedPath);
+    return PLATFORM_API_DESCRIPTOR.methods.find((descriptor) => descriptor.path.join('.') === formattedPath);
 }

@@ -1,16 +1,11 @@
-import {
-    useOcrTextContent, type IPdfSourceJob, type TPdfSourceJobIntent,
-} from '@app/modules/pdf-viewer/public';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import {
-    getDocumentFilesCapability,
-    getDocumentWorkingCopyCapability,
-} from '@app/utils/platformDocuments';
-import { createDocumentConformance } from '@app/modules/workspace-shell/composables/document-session/createDocumentConformance';
-import type { IHistoryRevisionSwapOptions } from '@app/modules/workspace-shell/composables/document-session/createDocumentHistory';
-import { createDocumentHistory } from '@app/modules/workspace-shell/composables/document-session/createDocumentHistory';
-import { createDocumentOpenFlow } from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
-import { createDocumentPersistence } from '@app/modules/workspace-shell/composables/document-session/createDocumentPersistence';
+import {useOcrTextContent, type IPdfSourceJob, type TPdfSourceJobIntent} from '@app/modules/pdf-viewer/public';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {getDocumentFilesCapability, getDocumentWorkingCopyCapability} from '@app/utils/platformDocuments';
+import {createDocumentConformance} from '@app/modules/workspace-shell/composables/document-session/createDocumentConformance';
+import type {IHistoryRevisionSwapOptions} from '@app/modules/workspace-shell/composables/document-session/createDocumentHistory';
+import {createDocumentHistory} from '@app/modules/workspace-shell/composables/document-session/createDocumentHistory';
+import {createDocumentOpenFlow} from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
+import {createDocumentPersistence} from '@app/modules/workspace-shell/composables/document-session/createDocumentPersistence';
 import {
     createDocumentSessionState,
     type TDocumentFileRecord,
@@ -26,29 +21,21 @@ export interface IPdfFileOptions extends IHistoryRevisionSwapOptions {
 }
 
 export const usePdfFile = (options: IPdfFileOptions) => {
-    const { t } = useTypedI18n();
+    const {t} = useTypedI18n();
 
-    const { clearCache: clearOcrCache } = useOcrTextContent();
+    const {clearCache: clearOcrCache} = useOcrTextContent();
 
-    const { isDesktopRuntime } = useRuntimeEnvironment();
+    const {isDesktopRuntime} = useRuntimeEnvironment();
     const sessionState = createDocumentSessionState({
         isDesktopRuntime,
         document: options.document,
         admitPdfSource: options.admitPdfSource,
     });
-    const {
-        isDirty,
-        workingCopyPath,
-        openedWorkingCopyPath,
-    } = sessionState;
+    const {isDirty, workingCopyPath, openedWorkingCopyPath} = sessionState;
     // A file open, a replay or a close is current while the controller's open transaction is the one it started under.
     const readOpenTransactionId = () => options.document.snapshot.value.activeTransaction?.id ?? null;
-    const {
-        clearPdfConformanceProfile,
-        deferPdfConformanceProfile,
-        notifyPdfInitialVisualReady,
-        shouldForceSaveAsForWorkingCopy,
-    } = createDocumentConformance(sessionState);
+    const {clearPdfConformanceProfile, deferPdfConformanceProfile, notifyPdfInitialVisualReady, shouldForceSaveAsForWorkingCopy} =
+        createDocumentConformance(sessionState);
     const history = createDocumentHistory(sessionState, {
         ...options,
         applyLoadedPdfState: (...args) => documentOpenFlow.applyLoadedPdfState(...args),
@@ -60,7 +47,7 @@ export const usePdfFile = (options: IPdfFileOptions) => {
         readPdfStateFromPath: (...args) => documentOpenFlow.readPdfStateFromPath(...args),
     });
     const documentOpenFlow: ReturnType<typeof createDocumentOpenFlow> = createDocumentOpenFlow(sessionState, {
-        cleanupAbandonedWorkingCopy: path => getDocumentWorkingCopyCapability().cleanupFile(path),
+        cleanupAbandonedWorkingCopy: (path) => getDocumentWorkingCopyCapability().cleanupFile(path),
         clearPdfConformanceProfile,
         cleanupPreviousWorkingCopy: history.cleanupPreviousWorkingCopy,
         deferPdfConformanceProfile,
@@ -83,32 +70,31 @@ export const usePdfFile = (options: IPdfFileOptions) => {
     });
 
     async function closeFile() {
-        const pathsToCleanup = [...new Set([
-            workingCopyPath.value,
-            openedWorkingCopyPath.value,
-        ].flatMap(path => path ? [path] : []))];
+        const pathsToCleanup = [...new Set([workingCopyPath.value, openedWorkingCopyPath.value].flatMap((path) => (path ? [path] : [])))];
 
         // M4.3: Clear OCR cache for the current file before closing
-        pathsToCleanup.forEach(path => clearOcrCache(path));
+        pathsToCleanup.forEach((path) => clearOcrCache(path));
 
         // The views let go of the document before its source clears, as a replacement's do.
-        if (sessionState.pdfSrc.value) {options.resetDocumentPresentation();}
+        if (sessionState.pdfSrc.value) {
+            options.resetDocumentPresentation();
+        }
         sessionState.resetForClose();
         clearPdfConformanceProfile();
         history.resetCommandSink();
         history.clearHistory();
-        await Promise.all(pathsToCleanup.map(path =>
-            getDocumentWorkingCopyCapability().cleanupFile(path).catch((cleanupError: unknown) => {
-                BrowserLogger.warn(
-                    'pdf-file',
-                    'Failed to cleanup closed working copy',
-                    {
-                        path,
-                        error: cleanupError,
-                    },
-                );
-            }),
-        ));
+        await Promise.all(
+            pathsToCleanup.map((path) =>
+                getDocumentWorkingCopyCapability()
+                    .cleanupFile(path)
+                    .catch((cleanupError: unknown) => {
+                        BrowserLogger.warn('pdf-file', 'Failed to cleanup closed working copy', {
+                            path,
+                            error: cleanupError,
+                        });
+                    }),
+            ),
+        );
     }
 
     function markDirty() {
@@ -134,9 +120,11 @@ export const usePdfFile = (options: IPdfFileOptions) => {
         reloadWorkingCopyIntoHistory: history.reloadWorkingCopyIntoHistory,
         mapHistoryPage: history.mapHistoryPage,
         setWorkspaceCommandSink: history.setWorkspaceCommandSink,
-        ...(typeof documentFiles.repairPdf === 'function' ? { repairWorkingCopy: persistence.repairWorkingCopy } : {}),
-        ...(typeof documentFiles.optimizePdfForInteraction === 'function' ? { optimizeWorkingCopy: persistence.optimizeWorkingCopy } : {}),
-        ...(typeof documentFiles.optimizePdfAsCopy === 'function' ? { optimizeWorkingCopyAsCopy: persistence.optimizeWorkingCopyAsCopy } : {}),
+        ...(typeof documentFiles.repairPdf === 'function' ? {repairWorkingCopy: persistence.repairWorkingCopy} : {}),
+        ...(typeof documentFiles.optimizePdfForInteraction === 'function' ? {optimizeWorkingCopy: persistence.optimizeWorkingCopy} : {}),
+        ...(typeof documentFiles.optimizePdfAsCopy === 'function'
+            ? {optimizeWorkingCopyAsCopy: persistence.optimizeWorkingCopyAsCopy}
+            : {}),
         saveWorkingCopy: persistence.saveWorkingCopy,
         trySavePdfNativeMutations: persistence.trySavePdfNativeMutations,
         saveWorkingCopyAs: persistence.saveWorkingCopyAs,

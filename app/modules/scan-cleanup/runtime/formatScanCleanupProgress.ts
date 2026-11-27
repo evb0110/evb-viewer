@@ -7,40 +7,39 @@ import {
     resolveScanCleanupActivity,
 } from '@app/modules/scan-cleanup/runtime/resolveScanCleanupActivity';
 
-export const formatScanCleanupActivityCount = (count: IScanCleanupActivityCount, t: TTranslateFn) => (
+export const formatScanCleanupActivityCount = (count: IScanCleanupActivityCount, t: TTranslateFn) =>
     count.total === undefined
         ? t('scanCleanup.activity.rechecked', {count: count.completed})
         : t('scanCleanup.runCount', {
-            completed: count.completed,
-            total: count.total,
-        })
-);
+              completed: count.completed,
+              total: count.total,
+          });
 
 /** The work left in the current step, as the job itself measured it. */
-export const formatScanCleanupEta = (etaSeconds: number, t: TTranslateFn) => (
+export const formatScanCleanupEta = (etaSeconds: number, t: TTranslateFn) =>
     etaSeconds >= 60
         ? t('scanCleanup.activity.etaMinutes', {minutes: Math.max(1, Math.ceil(etaSeconds / 60))})
-        : t('scanCleanup.activity.etaSeconds', {seconds: Math.max(1, Math.ceil(etaSeconds / 5) * 5)})
-);
+        : t('scanCleanup.activity.etaSeconds', {seconds: Math.max(1, Math.ceil(etaSeconds / 5) * 5)});
 
 /** A clock reading such as 0:07 or 1:02:30; digits need no translation. */
 export const formatScanCleanupDuration = formatElapsedClock;
 
 /** The widest time text, so the time slot can reserve its box. */
-export const resolveScanCleanupTimeWidestText = (t: TTranslateFn) => [
-    `88:88 · ${t('scanCleanup.activity.etaMinutes', {minutes: 999})}`,
-    `88:88 · ${t('scanCleanup.activity.etaSeconds', {seconds: 55})}`,
-    t('scanCleanup.activity.elapsed', {time: '88:88'}),
-].reduce((widest, candidate) => candidate.length > widest.length ? candidate : widest);
+export const resolveScanCleanupTimeWidestText = (t: TTranslateFn) =>
+    [
+        `88:88 · ${t('scanCleanup.activity.etaMinutes', {minutes: 999})}`,
+        `88:88 · ${t('scanCleanup.activity.etaSeconds', {seconds: 55})}`,
+        t('scanCleanup.activity.elapsed', {time: '88:88'}),
+    ].reduce((widest, candidate) => (candidate.length > widest.length ? candidate : widest));
 
 export const formatScanCleanupActivityStatus = (activity: IScanCleanupActivity, t: TTranslateFn) => {
     const detail = t(`scanCleanup.activity.detail.${activity.detail}`);
     return activity.count === null
         ? detail
         : t('scanCleanup.runStatus', {
-            phase: detail,
-            counter: formatScanCleanupActivityCount(activity.count, t),
-        });
+              phase: detail,
+              counter: formatScanCleanupActivityCount(activity.count, t),
+          });
 };
 
 /**

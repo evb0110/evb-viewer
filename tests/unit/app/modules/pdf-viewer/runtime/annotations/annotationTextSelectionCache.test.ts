@@ -1,13 +1,8 @@
 // @vitest-environment happy-dom
 
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { ref } from 'vue';
-import { useAnnotationTextSelectionCache } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationTextSelectionCache';
+import {afterEach, describe, expect, it} from 'vitest';
+import {ref} from 'vue';
+import {useAnnotationTextSelectionCache} from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationTextSelectionCache';
 
 function addTextLayerPage(pageNumber: number, text: string) {
     const page = document.createElement('div');

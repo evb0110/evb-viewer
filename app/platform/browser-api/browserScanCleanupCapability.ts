@@ -37,10 +37,7 @@ import {
     saveScanCleanupPreferences,
     saveScanCleanupPreferencesPatch,
 } from '@app/utils/browserScanCleanupPreferences';
-import type {
-    IBrowserScanCleanupPreviewBase,
-    IBrowserScanCleanupPreviewRendering,
-} from '@app/platform/browser-api/browserScanCleanupJob';
+import type {IBrowserScanCleanupPreviewBase, IBrowserScanCleanupPreviewRendering} from '@app/platform/browser-api/browserScanCleanupJob';
 
 /**
  * What the browser can run: the operations whose methods are implemented
@@ -96,7 +93,10 @@ let previewSource: TBrowserScanCleanupSourceBorrow | null = null;
 let previewAdmission: Promise<unknown> = Promise.resolve();
 function admitPreview<T>(claim: () => Promise<T> | T): Promise<T> {
     const claimed = previewAdmission.then(claim);
-    previewAdmission = claimed.then(() => undefined, () => undefined);
+    previewAdmission = claimed.then(
+        () => undefined,
+        () => undefined,
+    );
     return claimed;
 }
 
@@ -104,18 +104,21 @@ const detection = createBrowserScanCleanupDetectionOwner();
 const conversion = createBrowserScanCleanupConversionOwner(detection);
 // A closed document ends its detection and releases what its previews hold:
 // their work, the base a detail would refine, and its source snapshot.
-onBrowserWorkingCopyClose(async ref => {
+onBrowserWorkingCopyClose(async (ref) => {
     browserScanCleanupRasterCache.invalidateByRef(ref);
     detection.closeSource(ref);
     conversion.closeSource(ref);
     const retiring = await admitPreview(() => {
-        const claimed = [
-            base,
-            detail,
-        ].filter(work => work !== null && work.ref === ref);
-        if (base?.ref === ref) {base = null;}
-        if (detail?.ref === ref) {detail = null;}
-        if (retainedBase?.ref === ref) {retainedBase = null;}
+        const claimed = [base, detail].filter((work) => work !== null && work.ref === ref);
+        if (base?.ref === ref) {
+            base = null;
+        }
+        if (detail?.ref === ref) {
+            detail = null;
+        }
+        if (retainedBase?.ref === ref) {
+            retainedBase = null;
+        }
         if (previewSource?.ref === ref) {
             previewSource.release();
             previewSource = null;
@@ -127,22 +130,23 @@ onBrowserWorkingCopyClose(async ref => {
 
 /** What makes two base previews the same picture; a detail adds only its viewport. */
 function baseIdentity(request: IScanCleanupPreviewRequest) {
-    const {
-        requestId: _requestId,
-        visible: _visible,
-        detail: _detail,
-        ...identity
-    } = request;
+    const {requestId: _requestId, visible: _visible, detail: _detail, ...identity} = request;
     return JSON.stringify(identity);
 }
 
 async function retire(work: IPreviewWork | null) {
-    if (work === null) {return;}
+    if (work === null) {
+        return;
+    }
     work.controller.abort(new DOMException('Scan cleanup preview was superseded.', 'AbortError'));
     await work.promise.catch(() => undefined);
 }
 
-function startWork(request: IScanCleanupPreviewRequest, identity: string, run: (signal: AbortSignal) => Promise<IBrowserScanCleanupPreviewRendering>): IPreviewWork {
+function startWork(
+    request: IScanCleanupPreviewRequest,
+    identity: string,
+    run: (signal: AbortSignal) => Promise<IBrowserScanCleanupPreviewRendering>,
+): IPreviewWork {
     const controller = new AbortController();
     return {
         identity,
@@ -155,45 +159,47 @@ function startWork(request: IScanCleanupPreviewRequest, identity: string, run: (
     };
 }
 
-async function renderPreview(
-    request: IScanCleanupPreviewRequest,
-    signal: AbortSignal,
-    detailBase: IBrowserScanCleanupPreviewBase | null,
-) {
+async function renderPreview(request: IScanCleanupPreviewRequest, signal: AbortSignal, detailBase: IBrowserScanCleanupPreviewBase | null) {
     const {renderBrowserScanCleanupWorkspacePreview} = await import('@app/platform/browser-api/browserScanCleanupJob');
     signal.throwIfAborted();
-    const {
-        sourcePdfPath: ref, documentRevision: revision,
-    } = request;
+    const {sourcePdfPath: ref, documentRevision: revision} = request;
     // The window keeps the revision open; each render borrows it as well.
     if (previewSource?.key !== scanCleanupSourceKey(ref, revision) || previewSource.stale) {
         previewSource?.release();
         previewSource = borrowBrowserScanCleanupSource(ref, revision);
     }
     const borrow = borrowBrowserScanCleanupSource(ref, revision);
-    return awaitScanCleanupSource(borrow.opened, signal).then(opened => {
-        signal.throwIfAborted();
-        return renderBrowserScanCleanupWorkspacePreview({
-            request,
-            source: opened,
-            signal,
-            base: detailBase,
-            emitRaw: event => {
-                if (signal.aborted) {return;}
-                for (const listener of [...previewRawListeners]) {listener(event);}
-            },
-        });
-    }).finally(() => borrow.release());
+    return awaitScanCleanupSource(borrow.opened, signal)
+        .then((opened) => {
+            signal.throwIfAborted();
+            return renderBrowserScanCleanupWorkspacePreview({
+                request,
+                source: opened,
+                signal,
+                base: detailBase,
+                emitRaw: (event) => {
+                    if (signal.aborted) {
+                        return;
+                    }
+                    for (const listener of [...previewRawListeners]) {
+                        listener(event);
+                    }
+                },
+            });
+        })
+        .finally(() => borrow.release());
 }
 
 function settled(work: IPreviewWork, requestId: TRequestId): Promise<TScanCleanupPreviewWireResult> {
     return work.promise.then(
-        rendering => ({
-            ...rendering.result as TPreviewResult,
+        (rendering) => ({
+            ...(rendering.result as TPreviewResult),
             requestId,
         }),
         (error: unknown) => {
-            if (work.controller.signal.aborted || isAbortError(error)) {return {canceled: true as const};}
+            if (work.controller.signal.aborted || isAbortError(error)) {
+                return {canceled: true as const};
+            }
             throw error;
         },
     );
@@ -209,28 +215,34 @@ async function previewBase(request: IScanCleanupPreviewRequest, identity: string
     const previousBase = base;
     const previousDetail = detail;
     const work = startWork(request, identity, async (signal) => {
-        await Promise.all([
-            retire(previousBase),
-            retire(previousDetail),
-        ]);
+        await Promise.all([retire(previousBase), retire(previousDetail)]);
         signal.throwIfAborted();
         return renderPreview(request, signal, null);
     });
     base = work;
     detail = null;
-    void work.promise.then(rendering => {
-        if (base !== work || rendering.base === null) {return;}
-        retainedBase = {
-            identity,
-            ownerId: request.ownerId,
-            ref: request.sourcePdfPath,
-            revision: request.documentRevision,
-            pageNumber: request.pageNumber,
-            value: rendering.base,
-        };
-    }, () => undefined).finally(() => {
-        if (base === work) {base = null;}
-    });
+    void work.promise
+        .then(
+            (rendering) => {
+                if (base !== work || rendering.base === null) {
+                    return;
+                }
+                retainedBase = {
+                    identity,
+                    ownerId: request.ownerId,
+                    ref: request.sourcePdfPath,
+                    revision: request.documentRevision,
+                    pageNumber: request.pageNumber,
+                    value: rendering.base,
+                };
+            },
+            () => undefined,
+        )
+        .finally(() => {
+            if (base === work) {
+                base = null;
+            }
+        });
     return settled(work, request.requestId);
 }
 
@@ -239,7 +251,13 @@ async function previewDetail(request: IScanCleanupPreviewRequest, identity: stri
     const running = base?.identity === identity ? base : null;
     const previousDetail = detail;
     const work = startWork(request, identity, async (signal) => {
-        if (running && !await running.promise.then(() => true, () => false)) {
+        if (
+            running &&
+            !(await running.promise.then(
+                () => true,
+                () => false,
+            ))
+        ) {
             throw new DOMException('The base preview did not finish', 'AbortError');
         }
         await retire(previousDetail);
@@ -250,9 +268,13 @@ async function previewDetail(request: IScanCleanupPreviewRequest, identity: stri
         return renderPreview(request, signal, retainedBase.value);
     });
     detail = work;
-    void work.promise.finally(() => {
-        if (detail === work) {detail = null;}
-    }).catch(() => undefined);
+    void work.promise
+        .finally(() => {
+            if (detail === work) {
+                detail = null;
+            }
+        })
+        .catch(() => undefined);
     return settled(work, request.requestId);
 }
 
@@ -288,29 +310,32 @@ export const browserScanCleanupCapability: IScanCleanupCapability = {
         return admitPreview(async () => {
             const planned = await detection.resolvePreviewPagePlan(request);
             const identity = baseIdentity(planned);
-            return {settled: planned.detail === undefined
-                ? previewBase(planned, identity)
-                : previewDetail(planned, identity)};
+            return {settled: planned.detail === undefined ? previewBase(planned, identity) : previewDetail(planned, identity)};
         }).then(({settled}) => settled);
     },
-    resolvePlacementAnchorCalibration: request => detection.resolvePlacementAnchorCalibration(request),
+    resolvePlacementAnchorCalibration: (request) => detection.resolvePlacementAnchorCalibration(request),
     async cancelPreview(request) {
         const retiring = await admitPreview(() => {
             // A navigation keeps the work for the pages it still shows, as the
             // desktop owner does, so a visible page rescheduled while it renders
             // joins its running render instead of starting a second one.
-            const retires = (work: IPreviewWork | IRetainedBase | null) => work !== null
-                && work.ownerId === request.ownerId
-                && work.ref === request.sourcePdfPath
-                && (request.invalidateRawCache === true || work.revision !== request.documentRevision
-                    || !(request.retainPages ?? []).some(page => page === work.pageNumber));
-            const claimed = [
-                base,
-                detail,
-            ].filter(retires);
-            if (retires(base)) {base = null;}
-            if (retires(detail)) {detail = null;}
-            if (retires(retainedBase)) {retainedBase = null;}
+            const retires = (work: IPreviewWork | IRetainedBase | null) =>
+                work !== null &&
+                work.ownerId === request.ownerId &&
+                work.ref === request.sourcePdfPath &&
+                (request.invalidateRawCache === true ||
+                    work.revision !== request.documentRevision ||
+                    !(request.retainPages ?? []).some((page) => page === work.pageNumber));
+            const claimed = [base, detail].filter(retires);
+            if (retires(base)) {
+                base = null;
+            }
+            if (retires(detail)) {
+                detail = null;
+            }
+            if (retires(retainedBase)) {
+                retainedBase = null;
+            }
             return claimed;
         });
         await Promise.all(retiring.map(retire));
@@ -323,7 +348,7 @@ export const browserScanCleanupCapability: IScanCleanupCapability = {
         }
         return retiring.length > 0;
     },
-    detectAll: request => detection.detectAll(request),
+    detectAll: (request) => detection.detectAll(request),
     cancelDetection: (jobId, owner) => detection.cancelDetection(jobId, owner),
     getDetectionJobState: (jobId, owner) => detection.getDetectionJobState(jobId, owner),
     subscribeDetectionJob: (jobId, owner) => detection.subscribeDetectionJob(jobId, owner),
@@ -331,14 +356,15 @@ export const browserScanCleanupCapability: IScanCleanupCapability = {
         // Retire any in-flight preview for this document and terminate its draining
         // worker so a conversion never stalls behind a retiring preview slot.
         void admitPreview(() => {
-            const claimed = [
-                base,
-                detail,
-            ].filter(work => work !== null && work.ref === request.sourcePdfPath);
-            if (base?.ref === request.sourcePdfPath) {base = null;}
-            if (detail?.ref === request.sourcePdfPath) {detail = null;}
+            const claimed = [base, detail].filter((work) => work !== null && work.ref === request.sourcePdfPath);
+            if (base?.ref === request.sourcePdfPath) {
+                base = null;
+            }
+            if (detail?.ref === request.sourcePdfPath) {
+                detail = null;
+            }
             return claimed;
-        }).then(async retiring => {
+        }).then(async (retiring) => {
             await Promise.all(retiring.map(retire));
             resetDrainingBrowserScanCleanupWorkers();
         });
@@ -375,7 +401,9 @@ export const browserScanCleanupCapability: IScanCleanupCapability = {
                 request.document.patch,
             );
         }
-        if (settings !== null) {announceSettings(settings, request.requestId);}
+        if (settings !== null) {
+            announceSettings(settings, request.requestId);
+        }
         return readSettings(request.document);
     },
     onPreviewRaw(listener) {
@@ -384,8 +412,8 @@ export const browserScanCleanupCapability: IScanCleanupCapability = {
             previewRawListeners.delete(listener);
         };
     },
-    onJobState: listener => conversion.onJobState(listener),
-    onDetectionJobState: listener => detection.onDetectionJobState(listener),
+    onJobState: (listener) => conversion.onJobState(listener),
+    onDetectionJobState: (listener) => detection.onDetectionJobState(listener),
     onSettingsChanged(listener) {
         settingsListeners.add(listener);
         return () => {

@@ -1,15 +1,9 @@
-import {
-    createApp,
-    defineComponent,
-    h,
-    nextTick,
-    reactive,
-} from 'vue';
-import type { IAnnotationCommentSummary } from '@app/types/annotations';
+import {createApp, defineComponent, h, nextTick, reactive} from 'vue';
+import type {IAnnotationCommentSummary} from '@app/types/annotations';
 import PdfAnnotationCommentsList from '@app/modules/pdf-viewer/components/PdfAnnotationCommentsList.vue';
-import { annotationIdForSummary } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
-import { BASE_ROOT_FONT_SIZE_PX } from '@app/utils/rootFontSize';
-import { requireEpochMs } from '@contracts/timestamps';
+import {annotationIdForSummary} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
+import {BASE_ROOT_FONT_SIZE_PX} from '@app/utils/rootFontSize';
+import {requireEpochMs} from '@contracts/timestamps';
 
 /**
  * Mounts the shipped `PdfAnnotationCommentsList` so that both the DOM-only unit
@@ -20,13 +14,7 @@ import { requireEpochMs } from '@contracts/timestamps';
 
 // The first-class UI-scale presets from `useUiScale.ts` plus the clamped edge of
 // the Windows auto-compensation band.
-export const ANNOTATION_COMMENT_UI_SCALE_MATRIX = [
-    0.85,
-    0.9,
-    1,
-    1.1,
-    1.25,
-];
+export const ANNOTATION_COMMENT_UI_SCALE_MATRIX = [0.85, 0.9, 1, 1.1, 1.25];
 
 export const ANNOTATION_COMMENT_FIXTURE_COUNT = 24;
 /** A sidebar the size the panel usually gets: about four rows tall. */
@@ -51,10 +39,7 @@ function createComment(index: number): IAnnotationCommentSummary {
     };
 }
 
-const ANNOTATION_COMMENT_FIXTURES = Array.from(
-    {length: ANNOTATION_COMMENT_FIXTURE_COUNT},
-    (_unused, index) => createComment(index),
-);
+const ANNOTATION_COMMENT_FIXTURES = Array.from({length: ANNOTATION_COMMENT_FIXTURE_COUNT}, (_unused, index) => createComment(index));
 
 /**
  * `applyUiScaleToDocument` (from `useUiScale.ts`) writes `--app-ui-scale` inline on `<html>`
@@ -104,9 +89,7 @@ export function mountAnnotationCommentsList({
     const host = document.createElement('div');
     document.body.append(host);
     const viewProps = reactive({
-        activeCommentStableKey: activeIndex === null
-            ? null
-            : String(annotationIdForSummary(comments[activeIndex]!)),
+        activeCommentStableKey: activeIndex === null ? null : String(annotationIdForSummary(comments[activeIndex]!)),
         comments: [...comments],
         status: 'ready' as const,
     });
@@ -116,26 +99,39 @@ export function mountAnnotationCommentsList({
         opened: [],
         edited: [],
     };
-    const app = createApp(defineComponent({setup: () => () => h(PdfAnnotationCommentsList, {
-        ...viewProps,
-        onDeleteComment: (comment: IAnnotationCommentSummary) => events.deleted.push(comment),
-        onFocusComment: (comment: IAnnotationCommentSummary) => events.focused.push(comment),
-        onOpenNote: (comment: IAnnotationCommentSummary) => events.opened.push(comment),
-        onEditTextBox: (comment: IAnnotationCommentSummary) => events.edited.push(comment),
-    })}));
+    const app = createApp(
+        defineComponent({
+            setup: () => () =>
+                h(PdfAnnotationCommentsList, {
+                    ...viewProps,
+                    onDeleteComment: (comment: IAnnotationCommentSummary) => events.deleted.push(comment),
+                    onFocusComment: (comment: IAnnotationCommentSummary) => events.focused.push(comment),
+                    onOpenNote: (comment: IAnnotationCommentSummary) => events.opened.push(comment),
+                    onEditTextBox: (comment: IAnnotationCommentSummary) => events.edited.push(comment),
+                }),
+        }),
+    );
     app.component('UButton', defineComponent({setup: () => () => h('button')}));
     app.component('UIcon', defineComponent({setup: () => () => h('span')}));
-    app.component('UInput', defineComponent({
-        props: {modelValue: {
-            type: String,
-            default: '',
-        }},
-        emits: ['update:modelValue'],
-        setup: (props, {emit}) => () => h('input', {
-            value: props.modelValue,
-            onInput: (event: Event) => emit('update:modelValue', (event.target as HTMLInputElement).value),
+    app.component(
+        'UInput',
+        defineComponent({
+            props: {
+                modelValue: {
+                    type: String,
+                    default: '',
+                },
+            },
+            emits: ['update:modelValue'],
+            setup:
+                (props, {emit}) =>
+                () =>
+                    h('input', {
+                        value: props.modelValue,
+                        onInput: (event: Event) => emit('update:modelValue', (event.target as HTMLInputElement).value),
+                    }),
         }),
-    }));
+    );
     app.mount(host);
 
     const container = host.querySelector<HTMLElement>('.notes-list');
@@ -193,7 +189,7 @@ export function readWrapper(host: HTMLElement) {
 }
 
 export function readRows(host: HTMLElement) {
-    return [...host.querySelectorAll<HTMLElement>('.note-item')].map(row => ({
+    return [...host.querySelectorAll<HTMLElement>('.note-item')].map((row) => ({
         element: row,
         gapPx: readPx(row.style.marginBottom),
         heightPx: readPx(row.style.height),

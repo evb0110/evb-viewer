@@ -1,5 +1,3 @@
-
-
 export interface IAnnotationNoteWindowBounds {
     left: number;
     top: number;

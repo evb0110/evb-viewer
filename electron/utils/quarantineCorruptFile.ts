@@ -1,5 +1,5 @@
-import { rename } from 'node:fs/promises';
-import { isErrnoException } from '@contracts/runtimeGuards';
+import {rename} from 'node:fs/promises';
+import {isErrnoException} from '@contracts/runtimeGuards';
 
 function createQuarantinePath(filePath: string, nowMs = Date.now()) {
     return `${filePath}.${nowMs}.corrupt`;
@@ -17,4 +17,3 @@ export async function quarantineCorruptFile(filePath: string) {
         throw error;
     }
 }
-

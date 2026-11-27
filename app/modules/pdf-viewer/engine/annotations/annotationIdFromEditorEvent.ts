@@ -6,5 +6,5 @@ export function annotationIdFromEditorEvent(event: Event) {
         return null;
     }
     const id = target.closest<HTMLElement>('[data-annotation-id]')?.dataset.annotationId;
-    return id ? id as AnnotationId : null;
+    return id ? (id as AnnotationId) : null;
 }

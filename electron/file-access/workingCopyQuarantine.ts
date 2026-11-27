@@ -1,6 +1,6 @@
-import { realpathSync } from 'fs';
-import { resolve } from 'path';
-import { createLogger } from '@electron/utils/createLogger';
+import {realpathSync} from 'fs';
+import {resolve} from 'path';
+import {createLogger} from '@electron/utils/createLogger';
 
 /**
  * A working copy whose readers cannot be proven stopped is quarantined instead

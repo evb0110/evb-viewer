@@ -1,14 +1,11 @@
-import { existsSync } from 'fs';
-import {
-    dirname,
-    join,
-} from 'path';
-import { fileURLToPath } from 'url';
-import type { IPopplerRuntimePaths } from '@electron/native-tools/buildPopplerEnv';
-import { getNativeToolBinaryPath } from '@electron/native-tools/getNativeToolBinaryPath';
-import { resolveNativeResourcesBase } from '@electron/native-tools/resolveNativeResourcesBase';
-import { resolveNativeToolsBase } from '@electron/native-tools/resolveNativeToolsBase';
-import { resolvePlatformArchTag } from '@electron/utils/platformArch';
+import {existsSync} from 'fs';
+import {dirname, join} from 'path';
+import {fileURLToPath} from 'url';
+import type {IPopplerRuntimePaths} from '@electron/native-tools/buildPopplerEnv';
+import {getNativeToolBinaryPath} from '@electron/native-tools/getNativeToolBinaryPath';
+import {resolveNativeResourcesBase} from '@electron/native-tools/resolveNativeResourcesBase';
+import {resolveNativeToolsBase} from '@electron/native-tools/resolveNativeToolsBase';
+import {resolvePlatformArchTag} from '@electron/utils/platformArch';
 
 export interface IPdfNativeToolPaths extends IPopplerRuntimePaths {
     pdfinfo: string;
@@ -85,14 +82,15 @@ export function resolvePdfNativeToolPaths(options: IResolvePdfNativeToolPathsOpt
         name: 'pdftotext',
         platform: options.platform,
     });
-    const pdfimages = getPdfToolBinaryPath({
-        dir: popplerDir,
-        exists: pathExists,
-        isPackaged: options.isPackaged,
-        name: 'pdfimages',
-        optional: true,
-        platform: options.platform,
-    }) || undefined;
+    const pdfimages =
+        getPdfToolBinaryPath({
+            dir: popplerDir,
+            exists: pathExists,
+            isPackaged: options.isPackaged,
+            name: 'pdfimages',
+            optional: true,
+            platform: options.platform,
+        }) || undefined;
     const popplerDataRoot = join(options.resourcesBase ?? options.nativeToolsBase, 'poppler', options.platformArch);
     const popplerDataDirCandidate = join(popplerDataRoot, 'share', 'poppler');
     const popplerFontConfigDirCandidate = join(popplerDataRoot, 'etc', 'fonts');

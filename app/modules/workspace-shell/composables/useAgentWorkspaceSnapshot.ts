@@ -1,4 +1,4 @@
-import type { Ref } from 'vue';
+import type {Ref} from 'vue';
 import type {
     IAgentCommandCancelRequest,
     IAgentCommandExecutionScope,
@@ -10,28 +10,22 @@ import type {
     IAgentWorkspaceSnapshotRequest,
     IAgentWorkspaceSnapshotResponse,
 } from '@contracts/agent';
-import type {
-    IEditorPaneState,
-    TEditorLayoutNode,
-} from '@contracts/editorPanes';
-import type {
-    IDocumentRevisionInfo,
-    TDocumentRevisionToken,
-} from '@contracts/documentRevision';
-import type { ITab } from '@app/types/tabs';
-import type { IRecentFile } from '@contracts/shared';
-import type { IWorkspaceAgentCommandContext } from '@app/types/workspaceExpose';
-import { isEqual } from 'es-toolkit';
-import { getAgentCapability } from '@app/utils/getAgentCapability';
-import { guardAsync } from '@app/utils/asyncGuard';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { getErrorMessage } from '@app/utils/error';
-import { buildAgentWorkspaceSnapshot } from '@app/modules/workspace-shell/agent/buildAgentWorkspaceSnapshot';
+import type {IEditorPaneState, TEditorLayoutNode} from '@contracts/editorPanes';
+import type {IDocumentRevisionInfo, TDocumentRevisionToken} from '@contracts/documentRevision';
+import type {ITab} from '@app/types/tabs';
+import type {IRecentFile} from '@contracts/shared';
+import type {IWorkspaceAgentCommandContext} from '@app/types/workspaceExpose';
+import {isEqual} from 'es-toolkit';
+import {getAgentCapability} from '@app/utils/getAgentCapability';
+import {guardAsync} from '@app/utils/asyncGuard';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {getErrorMessage} from '@app/utils/error';
+import {buildAgentWorkspaceSnapshot} from '@app/modules/workspace-shell/agent/buildAgentWorkspaceSnapshot';
 import {
     describeTabDocument,
     type IWorkspaceDocumentController,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import { resolveDocumentRefBackend } from '@app/utils/documentRef';
+import {resolveDocumentRefBackend} from '@app/utils/documentRef';
 
 interface IUseAgentWorkspaceSnapshotOptions {
     panes: Ref<IEditorPaneState[]>;
@@ -56,11 +50,16 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
     // Each running command, until main acknowledges its response. A scoped
     // one keeps the tab's turn from reconciling, and holds the revision the
     // command itself committed, if any.
-    const activeCommands = shallowReactive(new Map<string, {
-        abortController: AbortController;
-        tabId: string | undefined;
-        committedRevision?: TDocumentRevisionToken;
-    }>());
+    const activeCommands = shallowReactive(
+        new Map<
+            string,
+            {
+                abortController: AbortController;
+                tabId: string | undefined;
+                committedRevision?: TDocumentRevisionToken;
+            }
+        >(),
+    );
 
     function createToolbarSnapshotSignature(tabId: string) {
         const snapshot = options.documentSessionsByTabId.value[tabId]?.getView(tabId)?.toolbarSnapshot.value;
@@ -104,19 +103,19 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
             activePaneId: options.activePaneId.value,
             activeTabId: options.activeTabId.value,
             layout: options.layout.value,
-            panes: options.panes.value.map(pane => ({
+            panes: options.panes.value.map((pane) => ({
                 paneId: pane.paneId,
                 activeTabId: pane.activeTabId,
                 tabIds: pane.tabIds,
             })),
-            tabs: options.tabs.value.map(tab => ({
+            tabs: options.tabs.value.map((tab) => ({
                 id: tab.id,
                 document: getTabSession(tab.id) ? describeTabDocument(getTabSession(tab.id)!.snapshot.value) : null,
                 documentIdentity: getTabDocumentIdentity(tab.id),
                 documentSession: createDocumentSessionSignature(tab.id),
                 toolbar: createToolbarSnapshotSignature(tab.id),
             })),
-            recentFiles: (options.recentFiles?.value ?? []).map(file => ({
+            recentFiles: (options.recentFiles?.value ?? []).map((file) => ({
                 originalPath: file.originalPath,
                 backend: file.backend,
                 fileName: file.fileName,
@@ -147,13 +146,10 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
 
     function createSnapshotResponse(request: IAgentWorkspaceSnapshotRequest): IAgentWorkspaceSnapshotResponse {
         const cached = getCachedSnapshot();
-        if (
-            request.lastSeenRevision !== undefined
-            && request.lastSeenRevision === cached.revision
-        ) {
+        if (request.lastSeenRevision !== undefined && request.lastSeenRevision === cached.revision) {
             return {
                 requestId: request.requestId,
-                ...(request.windowId === undefined ? {} : { windowId: request.windowId }),
+                ...(request.windowId === undefined ? {} : {windowId: request.windowId}),
                 ok: true,
                 revision: cached.revision,
                 unchanged: true,
@@ -162,20 +158,17 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
 
         return {
             requestId: request.requestId,
-            ...(request.windowId === undefined ? {} : { windowId: request.windowId }),
+            ...(request.windowId === undefined ? {} : {windowId: request.windowId}),
             ok: true,
             revision: cached.revision,
             snapshot: cached.snapshot,
         };
     }
 
-    function createCommandErrorResponse(
-        request: IAgentCommandRequest,
-        error: unknown,
-    ): IAgentCommandResponse {
+    function createCommandErrorResponse(request: IAgentCommandRequest, error: unknown): IAgentCommandResponse {
         return {
             requestId: request.requestId,
-            ...(request.windowId === undefined ? {} : { windowId: request.windowId }),
+            ...(request.windowId === undefined ? {} : {windowId: request.windowId}),
             ok: false,
             error: getErrorMessage(error),
         };
@@ -269,10 +262,7 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
         return session?.getView(tabId) ? session.createCommandTarget(tabId) : null;
     }
 
-    function documentIdentityMatches(
-        expected: IDocumentRevisionInfo | null,
-        actual: IDocumentRevisionInfo | null,
-    ) {
+    function documentIdentityMatches(expected: IDocumentRevisionInfo | null, actual: IDocumentRevisionInfo | null) {
         if (!expected) {
             return true;
         }
@@ -280,11 +270,7 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
         return actual?.documentRef === expected.documentRef && actual.token === expected.token;
     }
 
-    function assertScopeMatchesTab(
-        scope: IAgentCommandExecutionScope | undefined,
-        tabId: string,
-        strictRevision = true,
-    ) {
+    function assertScopeMatchesTab(scope: IAgentCommandExecutionScope | undefined, tabId: string, strictRevision = true) {
         if (!scope) {
             return;
         }
@@ -318,10 +304,7 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
         }
     }
 
-    function assertCommandTargetCurrent(
-        target: TAgentWorkspaceCommandTarget | null | undefined,
-        strictRevision = true,
-    ) {
+    function assertCommandTargetCurrent(target: TAgentWorkspaceCommandTarget | null | undefined, strictRevision = true) {
         if (!target) {
             return;
         }
@@ -341,24 +324,17 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
 
         const snapshot = unref(session.snapshot);
         if (
-            !session.getView(target.tabId)
-            || target.sessionId !== snapshot.sessionId
-            || target.documentRef !== snapshot.identity.documentRef
-            || (target.documentInstanceId ?? null) !== snapshot.identity.documentInstanceId
-            || (
-                target.documentBackend !== undefined
-                && target.documentBackend !== resolveDocumentRefBackend(snapshot.identity.documentRef)
-            )
+            !session.getView(target.tabId) ||
+            target.sessionId !== snapshot.sessionId ||
+            target.documentRef !== snapshot.identity.documentRef ||
+            (target.documentInstanceId ?? null) !== snapshot.identity.documentInstanceId ||
+            (target.documentBackend !== undefined && target.documentBackend !== resolveDocumentRefBackend(snapshot.identity.documentRef))
         ) {
             throw new Error('stale-command-target');
         }
     }
 
-    function assertCapturedIdentityMatches(
-        tabId: string,
-        expectedIdentity: IDocumentRevisionInfo | null,
-        strictRevision = true,
-    ) {
+    function assertCapturedIdentityMatches(tabId: string, expectedIdentity: IDocumentRevisionInfo | null, strictRevision = true) {
         if (!expectedIdentity) {
             return;
         }
@@ -372,11 +348,7 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
         }
     }
 
-    function resolveScopedTabId(
-        request: IAgentCommandRequest,
-        commandTabId: string | null | undefined,
-        fallbackMessage: string,
-    ) {
+    function resolveScopedTabId(request: IAgentCommandRequest, commandTabId: string | null | undefined, fallbackMessage: string) {
         if (request.scope && commandTabId && request.scope.tabId !== commandTabId) {
             throw new Error(`Agent command target tab changed: expected ${request.scope.tabId}, got ${commandTabId}.`);
         }
@@ -418,7 +390,9 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
             ...(commandTarget ? {commandTarget} : {}),
             recordDocumentCommit: (revision) => {
                 const command = activeCommands.get(request.requestId);
-                if (command) {command.committedRevision = revision;}
+                if (command) {
+                    command.committedRevision = revision;
+                }
             },
             assertCurrentDocument: (contextOptions = {}) => {
                 assertCommandCurrentDocument(
@@ -435,18 +409,11 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
 
     async function runCommand(request: IAgentCommandRequest, signal: AbortSignal) {
         if (request.command.name === 'activate_tab') {
-            const tabId = resolveScopedTabId(
-                request,
-                request.command.arguments.tabId,
-                'No active tab is available for activation.',
-            );
+            const tabId = resolveScopedTabId(request, request.command.arguments.tabId, 'No active tab is available for activation.');
             const expectedIdentity = request.scope?.documentIdentity ?? getTabDocumentIdentity(tabId);
             const expectedCommandTarget = request.scope?.commandTarget ?? getTabCommandTarget(tabId);
             assertCommandCurrentDocument(request, tabId, signal, expectedIdentity, true, expectedCommandTarget);
-            const {
-                paneId,
-                workspace,
-            } = await activateTabForAgent(tabId, signal);
+            const {paneId, workspace} = await activateTabForAgent(tabId, signal);
             assertSignalActive(signal);
             if (!workspace) {
                 throw new Error(`Workspace for tab ${tabId} is not available.`);
@@ -458,18 +425,16 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
         }
 
         if (request.command.name === 'read_resource') {
-            const tabId = resolveScopedTabId(
-                request,
-                request.command.arguments.tabId,
-                'No active tab is available for resource reads.',
-            );
+            const tabId = resolveScopedTabId(request, request.command.arguments.tabId, 'No active tab is available for resource reads.');
 
             const expectedIdentity = request.scope?.documentIdentity ?? getTabDocumentIdentity(tabId);
             const expectedCommandTarget = request.scope?.commandTarget ?? getTabCommandTarget(tabId);
             assertCommandCurrentDocument(request, tabId, signal, expectedIdentity, true, expectedCommandTarget);
             const workspace = getMountedWorkspace(tabId);
             if (!workspace) {
-                throw new Error(`Workspace for tab ${tabId} is not available without activating it. Activate the tab explicitly, then retry.`);
+                throw new Error(
+                    `Workspace for tab ${tabId} is not available without activating it. Activate the tab explicitly, then retry.`,
+                );
             }
 
             const context = createCommandContext(request, tabId, signal, expectedIdentity, expectedCommandTarget);
@@ -484,35 +449,32 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
         }
 
         if (request.command.name === 'run_action') {
-            const tabId = resolveScopedTabId(
-                request,
-                request.command.arguments.tabId,
-                'No active tab is available for agent actions.',
-            );
+            const tabId = resolveScopedTabId(request, request.command.arguments.tabId, 'No active tab is available for agent actions.');
 
             const expectedIdentity = request.scope?.documentIdentity ?? getTabDocumentIdentity(tabId);
             const expectedCommandTarget = request.scope?.commandTarget ?? getTabCommandTarget(tabId);
             assertCommandCurrentDocument(request, tabId, signal, expectedIdentity, true, expectedCommandTarget);
             // The document handler validates input before its dry-run return.
             // Only these preview handlers execute passively without dryRun.
-            const passive = request.command.arguments.dryRun === true
-                || request.command.arguments.id === 'bookmarks.preview_tree'
-                || request.command.arguments.id === 'page_labels.preview'
-                || request.command.arguments.id === 'toc.preview_tree'
-                || request.command.arguments.id === 'page_numbering.preview';
+            const passive =
+                request.command.arguments.dryRun === true ||
+                request.command.arguments.id === 'bookmarks.preview_tree' ||
+                request.command.arguments.id === 'page_labels.preview' ||
+                request.command.arguments.id === 'toc.preview_tree' ||
+                request.command.arguments.id === 'page_numbering.preview';
             const workspace = passive ? getMountedWorkspace(tabId) : (await activateTabForAgent(tabId, signal)).workspace;
             assertCommandCurrentDocument(request, tabId, signal, expectedIdentity, true, expectedCommandTarget);
             if (!workspace) {
-                throw new Error(`Workspace for tab ${tabId} is not available without activating it. Activate the tab explicitly, then retry.`);
+                throw new Error(
+                    `Workspace for tab ${tabId} is not available without activating it. Activate the tab explicitly, then retry.`,
+                );
             }
 
             const context = createCommandContext(request, tabId, signal, expectedIdentity, expectedCommandTarget);
             const result = await workspace.runAgentAction(
                 request.command.arguments.id,
                 request.command.arguments.input,
-                request.command.arguments.dryRun === undefined
-                    ? {}
-                    : {dryRun: request.command.arguments.dryRun},
+                request.command.arguments.dryRun === undefined ? {} : {dryRun: request.command.arguments.dryRun},
                 context,
             );
             await nextTick();
@@ -525,19 +487,12 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
             };
         }
 
-        const tabId = resolveScopedTabId(
-            request,
-            request.command.arguments.tabId,
-            'No active tab is available for page navigation.',
-        );
+        const tabId = resolveScopedTabId(request, request.command.arguments.tabId, 'No active tab is available for page navigation.');
 
         const expectedIdentity = request.scope?.documentIdentity ?? getTabDocumentIdentity(tabId);
         const expectedCommandTarget = request.scope?.commandTarget ?? getTabCommandTarget(tabId);
         assertCommandCurrentDocument(request, tabId, signal, expectedIdentity, true, expectedCommandTarget);
-        const {
-            paneId,
-            workspace,
-        } = await activateTabForAgent(tabId, signal);
+        const {paneId, workspace} = await activateTabForAgent(tabId, signal);
         assertCommandCurrentDocument(request, tabId, signal, expectedIdentity, true, expectedCommandTarget);
         if (!workspace) {
             throw new Error(`Workspace for tab ${tabId} is not available.`);
@@ -562,7 +517,7 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
         } catch (error) {
             response = {
                 requestId: request.requestId,
-                ...(request.windowId === undefined ? {} : { windowId: request.windowId }),
+                ...(request.windowId === undefined ? {} : {windowId: request.windowId}),
                 ok: false,
                 error: getErrorMessage(error),
             };
@@ -579,10 +534,15 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
     // it while it is still the current one, so the assistant turn that ran it
     // keeps working on it. A revision another view committed meanwhile is
     // not the command's and ends the turn's authority instead.
-    function describeCommandSuccessor(scope: IAgentCommandExecutionScope | undefined, committedRevision: TDocumentRevisionToken | undefined) {
+    function describeCommandSuccessor(
+        scope: IAgentCommandExecutionScope | undefined,
+        committedRevision: TDocumentRevisionToken | undefined,
+    ) {
         const documentIdentity = scope?.commandTarget && committedRevision ? getTabDocumentIdentity(scope.tabId) : null;
         const commandTarget = documentIdentity?.token === committedRevision ? getTabCommandTarget(scope?.tabId ?? '') : null;
-        if (!commandTarget || !documentIdentity || isEqual(commandTarget, scope?.commandTarget)) {return undefined;}
+        if (!commandTarget || !documentIdentity || isEqual(commandTarget, scope?.commandTarget)) {
+            return undefined;
+        }
         // Plain copies: the session's reactive identity cannot cross IPC.
         return {
             commandTarget: {...commandTarget},
@@ -602,15 +562,13 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
                     const successor = describeCommandSuccessor(request.scope, activeCommands.get(request.requestId)?.committedRevision);
                     return submitCommandResponseWithAck({
                         requestId: request.requestId,
-                        ...(request.windowId === undefined ? {} : { windowId: request.windowId }),
+                        ...(request.windowId === undefined ? {} : {windowId: request.windowId}),
                         ok: true,
                         result,
                         ...(successor === undefined ? {} : {successor}),
                     });
                 })
-                .catch(error => submitCommandResponseWithAck(
-                    createCommandErrorResponse(request, error),
-                ))
+                .catch((error) => submitCommandResponseWithAck(createCommandErrorResponse(request, error)))
                 .finally(() => {
                     abortController.abort();
                     // Main has adopted any successor by the time it acknowledges.
@@ -659,6 +617,6 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
 
     return {
         buildSnapshot: () => buildAgentWorkspaceSnapshot(options),
-        isScopedCommandRunning: (tabId: string) => [...activeCommands.values()].some(command => command.tabId === tabId),
+        isScopedCommandRunning: (tabId: string) => [...activeCommands.values()].some((command) => command.tabId === tabId),
     };
 };

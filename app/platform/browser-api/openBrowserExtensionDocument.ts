@@ -3,19 +3,14 @@ import {
     readBrowserExtensionDocumentUrl,
     type IBrowserExtensionOpenNativelyRequest,
 } from '@contracts/browserExtensionLaunch';
-import {
-    parseDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
-import { browserDocumentStore } from '@app/platform/browserDocumentStore';
-import { getBrowserWindowId } from '@app/platform/browserWindowTabs';
-import { hasBrowserWorkspaceCheckpoint } from '@app/platform/browser/browserWorkspaceRecovery';
-import { openBrowserExternalPaths } from '@app/platform/browser-api/browserExternalOpenQueue';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { isBrowserExtensionPage } from '@app/utils/isBrowserExtensionPage';
-import {
-    detectDocumentFormat, DOCUMENT_HEADER_BYTES,
-} from '@pdf-core/documentOpenFileTypes';
+import {parseDocumentRef, type TDocumentRef} from '@contracts/documentRef';
+import {browserDocumentStore} from '@app/platform/browserDocumentStore';
+import {getBrowserWindowId} from '@app/platform/browserWindowTabs';
+import {hasBrowserWorkspaceCheckpoint} from '@app/platform/browser/browserWorkspaceRecovery';
+import {openBrowserExternalPaths} from '@app/platform/browser-api/browserExternalOpenQueue';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {isBrowserExtensionPage} from '@app/utils/isBrowserExtensionPage';
+import {detectDocumentFormat, DOCUMENT_HEADER_BYTES} from '@pdf-core/documentOpenFileTypes';
 
 // The Chrome extension's viewer page opens the document the extension
 // redirected here (packages/chrome-extension). Anything it cannot open as a
@@ -64,23 +59,32 @@ async function peekDocumentHeader(body: ReadableStream<Uint8Array>) {
     const header = new Uint8Array(Math.min(length, DOCUMENT_HEADER_BYTES));
     let offset = 0;
     for (const chunk of chunks) {
-        if (offset === header.byteLength) {break;}
+        if (offset === header.byteLength) {
+            break;
+        }
         const part = chunk.subarray(0, header.byteLength - offset);
         header.set(part, offset);
         offset += part.byteLength;
     }
     const stream = new ReadableStream<Uint8Array>({
         start(controller) {
-            for (const chunk of chunks) {controller.enqueue(chunk);}
+            for (const chunk of chunks) {
+                controller.enqueue(chunk);
+            }
             chunks.length = 0;
-            if (ended) {controller.close();}
+            if (ended) {
+                controller.close();
+            }
         },
         async pull(controller) {
             const next = await reader.read();
-            if (next.done) {controller.close();}
-            else {controller.enqueue(next.value);}
+            if (next.done) {
+                controller.close();
+            } else {
+                controller.enqueue(next.value);
+            }
         },
-        cancel: reason => reader.cancel(reason),
+        cancel: (reason) => reader.cancel(reason),
     });
     // A body that ended within its header has that size; any other is longer than a DjVu header can claim.
     return {header, size: ended ? length : Number.MAX_SAFE_INTEGER, stream};
@@ -89,7 +93,9 @@ async function peekDocumentHeader(body: ReadableStream<Uint8Array>) {
 function detectDocumentKind(header: Uint8Array, size: number): TLaunchDocumentKind | null {
     const format = detectDocumentFormat(header, size);
     // A truncated DjVu still goes to the DjVu decoder, which can show the pages it holds.
-    if (format === 'invalid-djvu') {return 'djvu';}
+    if (format === 'invalid-djvu') {
+        return 'djvu';
+    }
     return format === 'pdf' || format === 'djvu' ? format : null;
 }
 
@@ -103,9 +109,13 @@ function decodeFileName(value: string) {
 
 /** The name a server gave the file, preferring the RFC 6266 extended form. */
 function readDispositionFileName(contentDisposition: string | null) {
-    if (!contentDisposition) {return null;}
+    if (!contentDisposition) {
+        return null;
+    }
     const extended = /filename\*\s*=\s*[^']*'[^']*'([^;]+)/iu.exec(contentDisposition)?.[1];
-    if (extended) {return decodeFileName(extended.trim());}
+    if (extended) {
+        return decodeFileName(extended.trim());
+    }
     return /filename\s*=\s*(?:"([^"]+)"|([^;]+))/iu.exec(contentDisposition)?.slice(1).find(Boolean)?.trim() ?? null;
 }
 
@@ -115,8 +125,10 @@ function readUrlFileName(url: string) {
 }
 
 function resolveLaunchFileName(response: Pick<ILaunchResponse, 'contentDisposition' | 'url'>, kind: TLaunchDocumentKind) {
-    const name = (readDispositionFileName(response.contentDisposition) ?? readUrlFileName(response.url) ?? 'document')
-        .replaceAll(/[\\/]/gu, '_');
+    const name = (readDispositionFileName(response.contentDisposition) ?? readUrlFileName(response.url) ?? 'document').replaceAll(
+        /[\\/]/gu,
+        '_',
+    );
     return FILE_EXTENSION_PATTERN[kind].test(name) ? name : `${name}${FILE_EXTENSION[kind]}`;
 }
 
@@ -151,7 +163,9 @@ async function readLaunchDocument(url: string): Promise<ILaunchResponse> {
     // copy. A refused response's body is cancelled, so its connection does not go on downloading it.
     const refusal = !response.ok
         ? `The document request failed with HTTP ${String(response.status)}`
-        : response.status === 206 || response.headers.has('content-range') ? 'The server sent part of the document' : null;
+        : response.status === 206 || response.headers.has('content-range')
+          ? 'The server sent part of the document'
+          : null;
     if (refusal !== null) {
         await response.body?.cancel().catch(() => undefined);
         throw new Error(refusal);
@@ -183,10 +197,13 @@ function readHistoryState(): Record<string, unknown> {
 }
 
 function rememberLaunchedDocument(ref: TDocumentRef) {
-    history.replaceState({
-        ...readHistoryState(),
-        [LAUNCHED_DOCUMENT_STATE_KEY]: ref,
-    }, '');
+    history.replaceState(
+        {
+            ...readHistoryState(),
+            [LAUNCHED_DOCUMENT_STATE_KEY]: ref,
+        },
+        '',
+    );
 }
 
 async function fetchLaunchDocument(documentUrl: string) {
@@ -216,13 +233,13 @@ async function fetchLaunchDocument(documentUrl: string) {
 // A window with unsaved work restores its own tabs, the launched document among them.
 async function hasWindowRecovery() {
     const windowId = getBrowserWindowId();
-    return windowId !== null && await hasBrowserWorkspaceCheckpoint(windowId);
+    return windowId !== null && (await hasBrowserWorkspaceCheckpoint(windowId));
 }
 
 /** The document this history entry already opened, while the browser still stores it. */
 async function readLaunchedDocument() {
     const launched = parseDocumentRef(readHistoryState()[LAUNCHED_DOCUMENT_STATE_KEY]);
-    return launched && await browserDocumentStore.exists(launched) ? launched : null;
+    return launched && (await browserDocumentStore.exists(launched)) ? launched : null;
 }
 
 /**
@@ -236,7 +253,7 @@ export async function openBrowserExtensionDocument() {
     }
     const launched = await readLaunchedDocument();
     if (launched) {
-        if (!await hasWindowRecovery()) {
+        if (!(await hasWindowRecovery())) {
             openBrowserExternalPaths([launched]);
         }
         return;

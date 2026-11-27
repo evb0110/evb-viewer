@@ -13,10 +13,7 @@ import {resolve} from 'node:path';
  * `tsImport`; keeping this helper free of that load lets tests exercise it
  * directly with the real builder.
  */
-export function createScanCleanupDiagnosticsManifestScope(
-    allowedPathRoot,
-    buildRunnableNativeScanCleanupManifest,
-) {
+export function createScanCleanupDiagnosticsManifestScope(allowedPathRoot, buildRunnableNativeScanCleanupManifest) {
     if (typeof allowedPathRoot !== 'string' || allowedPathRoot === '') {
         throw new Error('Scan-cleanup diagnostics manifest scope requires an allowed path root');
     }
@@ -47,12 +44,7 @@ export function createScanCleanupDiagnosticsManifestScope(
             if (typeof manifestPath !== 'string' || manifestPath === '') {
                 throw new Error('Scan-cleanup diagnostics sidecar argv requires a manifest path');
             }
-            return [
-                '--manifest',
-                manifestPath,
-                '--allowed-path-root',
-                resolvedAllowedPathRoot,
-            ];
+            return ['--manifest', manifestPath, '--allowed-path-root', resolvedAllowedPathRoot];
         },
     };
 }

@@ -1,7 +1,7 @@
-import type { TTranslationKey } from '@i18n-app';
-import { isMacClientPlatform } from '@app/utils/clientPlatform';
+import type {TTranslationKey} from '@i18n-app';
+import {isMacClientPlatform} from '@app/utils/clientPlatform';
 
-export { isMacPlatformHint } from '@app/utils/clientPlatform';
+export {isMacPlatformHint} from '@app/utils/clientPlatform';
 
 type TModifier = 'mod' | 'shift';
 
@@ -10,7 +10,7 @@ interface IShortcutDef {
     modifiers: TModifier[];
     nonMacOverride?: {
         key: string;
-        modifiers: TModifier[] 
+        modifiers: TModifier[];
     };
     /** Listed in Settings' shortcut reference under this label. */
     helpLabelKey?: TTranslationKey;
@@ -29,10 +29,7 @@ const SHORTCUTS = {
     },
     saveAs: {
         key: 'S',
-        modifiers: [
-            'mod',
-            'shift',
-        ],
+        modifiers: ['mod', 'shift'],
         helpLabelKey: 'toolbar.saveAs',
     },
     print: {
@@ -41,7 +38,7 @@ const SHORTCUTS = {
     },
     toggleSidebar: {
         key: 'B',
-        modifiers: ['mod'], 
+        modifiers: ['mod'],
     },
     search: {
         key: 'F',
@@ -50,39 +47,27 @@ const SHORTCUTS = {
     },
     undo: {
         key: 'Z',
-        modifiers: ['mod'], 
+        modifiers: ['mod'],
     },
     redo: {
         key: 'Z',
-        modifiers: [
-            'mod',
-            'shift',
-        ],
+        modifiers: ['mod', 'shift'],
         nonMacOverride: {
             key: 'Y',
-            modifiers: ['mod'], 
-        }, 
+            modifiers: ['mod'],
+        },
     },
     exportDocx: {
         key: 'E',
-        modifiers: [
-            'mod',
-            'shift',
-        ],
+        modifiers: ['mod', 'shift'],
     },
     insertImageFromFile: {
         key: 'I',
-        modifiers: [
-            'mod',
-            'shift',
-        ],
+        modifiers: ['mod', 'shift'],
     },
     pasteImageFromClipboard: {
         key: 'V',
-        modifiers: [
-            'mod',
-            'shift',
-        ],
+        modifiers: ['mod', 'shift'],
     },
     fitWidth: {
         key: '1',
@@ -138,13 +123,7 @@ const SHORTCUTS = {
 export type TShortcutName = keyof typeof SHORTCUTS;
 
 function createShortcutRecord<TValue>(createValue: (name: TShortcutName, def: IShortcutDef) => TValue) {
-    const entries = Object.entries(SHORTCUTS).map(([
-        name,
-        def,
-    ]) => [
-        name,
-        createValue(name as TShortcutName, def),
-    ]);
+    const entries = Object.entries(SHORTCUTS).map(([name, def]) => [name, createValue(name as TShortcutName, def)]);
     return Object.fromEntries(entries) as {[TName in TShortcutName]: TValue};
 }
 
@@ -160,20 +139,14 @@ function getOrderedModifiers(modifiers: TModifier[], isMac: boolean) {
         return modifiers;
     }
 
-    const macModifierOrder: TModifier[] = [
-        'shift',
-        'mod',
-    ];
+    const macModifierOrder: TModifier[] = ['shift', 'mod'];
 
     return [...modifiers].sort((a, b) => macModifierOrder.indexOf(a) - macModifierOrder.indexOf(b));
 }
 
 function shortcutKeyParts(def: IShortcutDef, isMac: boolean) {
-    const activeDef = (!isMac && def.nonMacOverride) ? def.nonMacOverride : def;
-    return [
-        ...getOrderedModifiers(activeDef.modifiers, isMac).map(m => resolveModifierLabel(m, isMac)),
-        activeDef.key,
-    ];
+    const activeDef = !isMac && def.nonMacOverride ? def.nonMacOverride : def;
+    return [...getOrderedModifiers(activeDef.modifiers, isMac).map((m) => resolveModifierLabel(m, isMac)), activeDef.key];
 }
 
 export function getShortcutLabels(isMac = isMacClientPlatform()) {
@@ -182,15 +155,21 @@ export function getShortcutLabels(isMac = isMacClientPlatform()) {
 
 /** The labels Settings' shortcut reference uses, each one without parameters. */
 type TShortcutHelpLabelKey = {
-    [TName in TShortcutName]: (typeof SHORTCUTS)[TName] extends {helpLabelKey: infer TKey} ? TKey : never
+    [TName in TShortcutName]: (typeof SHORTCUTS)[TName] extends {helpLabelKey: infer TKey} ? TKey : never;
 }[TShortcutName];
 
 /** Settings' shortcut reference: the shortcuts with a help label, in registry order. */
 export function getShortcutHelpItems(isMac = isMacClientPlatform()) {
-    return Object.values<IShortcutDef>(SHORTCUTS).flatMap(def => (def.helpLabelKey === undefined ? [] : [{
-        labelKey: def.helpLabelKey as TShortcutHelpLabelKey,
-        keys: shortcutKeyParts(def, isMac),
-    }]));
+    return Object.values<IShortcutDef>(SHORTCUTS).flatMap((def) =>
+        def.helpLabelKey === undefined
+            ? []
+            : [
+                  {
+                      labelKey: def.helpLabelKey as TShortcutHelpLabelKey,
+                      keys: shortcutKeyParts(def, isMac),
+                  },
+              ],
+    );
 }
 
 /** The client platform, known once mounted, so server and first render agree. */

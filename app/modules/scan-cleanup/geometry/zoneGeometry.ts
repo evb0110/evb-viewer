@@ -59,11 +59,9 @@ export function previewPxToNormalizedZonePoint(
     };
 }
 
-export function resolveScanCleanupZoneBounds(
-    polygon: IScanCleanupNormalizedZonePolygon,
-): IScanCleanupZoneBounds {
-    const xs = polygon.points.map(point => point.xNormalized);
-    const ys = polygon.points.map(point => point.yNormalized);
+export function resolveScanCleanupZoneBounds(polygon: IScanCleanupNormalizedZonePolygon): IScanCleanupZoneBounds {
+    const xs = polygon.points.map((point) => point.xNormalized);
+    const ys = polygon.points.map((point) => point.yNormalized);
     const left = Math.min(...xs);
     const right = Math.max(...xs);
     const top = Math.min(...ys);
@@ -78,11 +76,9 @@ export function resolveScanCleanupZoneBounds(
     };
 }
 
-export function cloneScanCleanupZonePolygon(
-    polygon: IScanCleanupNormalizedZonePolygon,
-): IScanCleanupNormalizedZonePolygon {
+export function cloneScanCleanupZonePolygon(polygon: IScanCleanupNormalizedZonePolygon): IScanCleanupNormalizedZonePolygon {
     return {
-        points: polygon.points.map(point => ({...point})),
+        points: polygon.points.map((point) => ({...point})),
         rotationDegrees: polygon.rotationDegrees,
     };
 }
@@ -133,7 +129,7 @@ export function moveScanCleanupZonePolygon(
     const clampedDeltaY = Math.min(1 - bounds.bottom, Math.max(-bounds.top, deltaY));
     return {
         ...polygon,
-        points: polygon.points.map(point => ({
+        points: polygon.points.map((point) => ({
             xNormalized: clampNormalized(point.xNormalized + clampedDeltaX),
             yNormalized: clampNormalized(point.yNormalized + clampedDeltaY),
         })),
@@ -154,10 +150,18 @@ export function resizeScanCleanupZonePolygon(
     const x = clampNormalized(target.xNormalized);
     const y = clampNormalized(target.yNormalized);
 
-    if (corner.includes('w')) {left = Math.min(right - minimumSize, x);}
-    if (corner.includes('e')) {right = Math.max(left + minimumSize, x);}
-    if (corner.includes('n')) {top = Math.min(bottom - minimumSize, y);}
-    if (corner.includes('s')) {bottom = Math.max(top + minimumSize, y);}
+    if (corner.includes('w')) {
+        left = Math.min(right - minimumSize, x);
+    }
+    if (corner.includes('e')) {
+        right = Math.max(left + minimumSize, x);
+    }
+    if (corner.includes('n')) {
+        top = Math.min(bottom - minimumSize, y);
+    }
+    if (corner.includes('s')) {
+        bottom = Math.max(top + minimumSize, y);
+    }
     left = clampNormalized(left);
     right = clampNormalized(right);
     top = clampNormalized(top);
@@ -167,11 +171,9 @@ export function resizeScanCleanupZonePolygon(
     const sourceHeight = Math.max(Number.EPSILON, bounds.height);
     return {
         ...polygon,
-        points: polygon.points.map(point => ({
-            xNormalized: clampNormalized(left
-                + (point.xNormalized - bounds.left) / sourceWidth * (right - left)),
-            yNormalized: clampNormalized(top
-                + (point.yNormalized - bounds.top) / sourceHeight * (bottom - top)),
+        points: polygon.points.map((point) => ({
+            xNormalized: clampNormalized(left + ((point.xNormalized - bounds.left) / sourceWidth) * (right - left)),
+            yNormalized: clampNormalized(top + ((point.yNormalized - bounds.top) / sourceHeight) * (bottom - top)),
         })),
     };
 }

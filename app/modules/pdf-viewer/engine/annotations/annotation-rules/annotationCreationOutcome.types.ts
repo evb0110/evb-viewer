@@ -1,9 +1,6 @@
-import type { TPageNumber } from '@contracts/pageNumbers';
+import type {TPageNumber} from '@contracts/pageNumbers';
 
-import type {
-    ExpectedOutcome,
-    FailureReceipt,
-} from '@contracts/diagnostics/failureReceipt';
+import type {ExpectedOutcome, FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 
 /**
  * Typed result of an annotation creation attempt.
@@ -33,10 +30,7 @@ export type TAnnotationCreationFailureReason =
  * either: it is reported by the retry loop that outlives the outcome, never
  * carried by the outcome itself.
  */
-export type TAnnotationPendingEditorReason =
-    | 'editor-unavailable'
-    | 'mode-switch-failed'
-    | 'projection-failed';
+export type TAnnotationPendingEditorReason = 'editor-unavailable' | 'mode-switch-failed' | 'projection-failed';
 
 /** The canonical intent was submitted and an editor was bound to it. */
 export interface IAnnotationCreationCreated {
@@ -56,7 +50,9 @@ export interface IAnnotationCreationPendingEditor {
 }
 
 /** The document or editor manager changed mid-flight. Not a failure. */
-export interface IAnnotationCreationCancelled {status: 'cancelled';}
+export interface IAnnotationCreationCancelled {
+    status: 'cancelled';
+}
 
 /** Nothing was created. */
 export interface IAnnotationCreationFailed {
@@ -65,10 +61,7 @@ export interface IAnnotationCreationFailed {
 }
 
 export type TAnnotationCreationOutcome =
-    | IAnnotationCreationCreated
-    | IAnnotationCreationPendingEditor
-    | IAnnotationCreationCancelled
-    | IAnnotationCreationFailed;
+    IAnnotationCreationCreated | IAnnotationCreationPendingEditor | IAnnotationCreationCancelled | IAnnotationCreationFailed;
 
 interface IAnnotationCreationReportBase {
     operationId: string;
@@ -89,13 +82,9 @@ export interface IAnnotationCreationFaultReport extends IAnnotationCreationRepor
 }
 
 /** What the viewer hands to the shared workspace failure surface. */
-export type IAnnotationCreationFailureReport =
-    | IAnnotationCreationExpectedReport
-    | IAnnotationCreationFaultReport;
+export type IAnnotationCreationFailureReport = IAnnotationCreationExpectedReport | IAnnotationCreationFaultReport;
 
-export function getAnnotationCreationExpectedOutcome(
-    reason: TAnnotationCreationFailureReason,
-): ExpectedOutcome | null {
+export function getAnnotationCreationExpectedOutcome(reason: TAnnotationCreationFailureReason): ExpectedOutcome | null {
     switch (reason) {
         case 'no-selection':
         case 'selection-spans-pages':

@@ -16,10 +16,7 @@ import {
     type TTranslationParamsFromSchema,
 } from '@i18n-core';
 
-export {
-    DEFAULT_LOCALE,
-    type TLocale,
-};
+export {DEFAULT_LOCALE, type TLocale};
 
 type TBaseLocaleSchema = typeof en;
 export type TLocaleSchema = TLocaleSchemaFrom<TBaseLocaleSchema>;
@@ -44,20 +41,18 @@ export type TTranslationParams<TKey extends TTranslationKey> = TTranslationParam
 type TAllowsCountShortcut<TKey extends TTranslationKey> = [TKey] extends [never]
     ? false
     : TKey extends unknown
-        ? TTranslationParams<TKey> extends { count: number }
-            ? [Exclude<keyof TTranslationParams<TKey>, 'count'>] extends [never]
-                ? true
-                : false
-            : false
-        : never;
+      ? TTranslationParams<TKey> extends {count: number}
+          ? [Exclude<keyof TTranslationParams<TKey>, 'count'>] extends [never]
+              ? true
+              : false
+          : false
+      : never;
 
-export type TTranslateArgs<TKey extends TTranslationKey> = TTranslationParams<TKey> extends undefined
-    ? [params?: undefined]
-    : [TAllowsCountShortcut<TKey>] extends [true]
-        ? [params: TTranslationParams<TKey> | number]
-        : [params: TTranslationParams<TKey>];
+export type TTranslateArgs<TKey extends TTranslationKey> =
+    TTranslationParams<TKey> extends undefined
+        ? [params?: undefined]
+        : [TAllowsCountShortcut<TKey>] extends [true]
+          ? [params: TTranslationParams<TKey> | number]
+          : [params: TTranslationParams<TKey>];
 
-export type TTranslateFn = <TKey extends TTranslationKey>(
-    key: TKey,
-    ...args: TTranslateArgs<TKey>
-) => string;
+export type TTranslateFn = <TKey extends TTranslationKey>(key: TKey, ...args: TTranslateArgs<TKey>) => string;

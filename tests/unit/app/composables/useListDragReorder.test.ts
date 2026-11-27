@@ -1,9 +1,4 @@
-import {
-    beforeAll,
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {beforeAll, describe, expect, it} from 'vitest';
 import type {
     clampListDragDeltaToDropSlots as importedClampListDragDeltaToDropSlots,
     IListDragSlot,
@@ -12,7 +7,7 @@ import type {
 let clampListDragDeltaToDropSlots: typeof importedClampListDragDeltaToDropSlots;
 
 beforeAll(async () => {
-    ({ clampListDragDeltaToDropSlots } = await import('@app/composables/useListDragReorder'));
+    ({clampListDragDeltaToDropSlots} = await import('@app/composables/useListDragReorder'));
 });
 
 function createSlot(top: number, height = 40): IListDragSlot {
@@ -24,11 +19,7 @@ function createSlot(top: number, height = 40): IListDragSlot {
 }
 
 describe('clampListDragDeltaToDropSlots', () => {
-    const slots = [
-        createSlot(100),
-        createSlot(152),
-        createSlot(204),
-    ];
+    const slots = [createSlot(100), createSlot(152), createSlot(204)];
 
     it('keeps drag movement within the first and last row drop slots', () => {
         expect(clampListDragDeltaToDropSlots(-120, 1, slots)).toBe(-52);

@@ -1,6 +1,6 @@
-import type { IAnnotationNoteWindowBounds } from '@app/modules/pdf-viewer/engine/annotation-note-window-bounds/annotationNoteWindowBounds';
+import type {IAnnotationNoteWindowBounds} from '@app/modules/pdf-viewer/engine/annotation-note-window-bounds/annotationNoteWindowBounds';
 
-import type { IAnnotationMarkerRect } from '@app/types/annotations';
+import type {IAnnotationMarkerRect} from '@app/types/annotations';
 
 type TPageRect = Pick<DOMRect, 'left' | 'top' | 'width' | 'height'>;
 
@@ -40,14 +40,13 @@ export function resolveAnnotationNoteWindowPagePosition(
 }
 
 /** A note remains available while any part of its anchor page intersects the viewer pane. */
-export function isAnnotationNoteWindowPageVisible(
-    pageRect: TPageRect,
-    bounds: IAnnotationNoteWindowBounds,
-) {
-    return pageRect.left < bounds.right
-        && pageRect.left + pageRect.width > bounds.left
-        && pageRect.top < bounds.bottom
-        && pageRect.top + pageRect.height > bounds.top;
+export function isAnnotationNoteWindowPageVisible(pageRect: TPageRect, bounds: IAnnotationNoteWindowBounds) {
+    return (
+        pageRect.left < bounds.right &&
+        pageRect.left + pageRect.width > bounds.left &&
+        pageRect.top < bounds.bottom &&
+        pageRect.top + pageRect.height > bounds.top
+    );
 }
 
 /** The window is fixed-positioned, so a window scrolled past the viewer edge must not paint over the surrounding chrome. */
@@ -58,11 +57,8 @@ export function resolveAnnotationNoteWindowClipPath(
     height: number,
     bounds: IAnnotationNoteWindowBounds,
 ) {
-    const insets = [
-        bounds.top - y,
-        x + width - bounds.right,
-        y + height - bounds.bottom,
-        bounds.left - x,
-    ].map(inset => `${String(Math.max(inset, -NOTE_WINDOW_SHADOW_REACH))}px`);
+    const insets = [bounds.top - y, x + width - bounds.right, y + height - bounds.bottom, bounds.left - x].map(
+        (inset) => `${String(Math.max(inset, -NOTE_WINDOW_SHADOW_REACH))}px`,
+    );
     return `inset(${insets.join(' ')})`;
 }

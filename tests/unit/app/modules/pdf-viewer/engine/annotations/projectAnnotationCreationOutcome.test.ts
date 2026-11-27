@@ -1,14 +1,10 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {
     getAnnotationCreationExpectedOutcome,
     type TAnnotationCreationFailureReason,
     type TAnnotationCreationOutcome,
 } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
-import { projectAnnotationCreationOutcome } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/projectAnnotationCreationOutcome';
+import {projectAnnotationCreationOutcome} from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/projectAnnotationCreationOutcome';
 
 const CANCELLED_REASON = 'The document changed before the annotation was created.';
 
@@ -31,18 +27,22 @@ describe('projectAnnotationCreationOutcome', () => {
         expect(getAnnotationCreationExpectedOutcome('projection-failed')).toBeNull();
     });
     it('reports success only for an annotation whose editor is bound', () => {
-        expect(project({
-            status: 'created',
-            annotationId: 'annotation-1',
-        })).toEqual({created: true});
+        expect(
+            project({
+                status: 'created',
+                annotationId: 'annotation-1',
+            }),
+        ).toEqual({created: true});
     });
 
     it('refuses success for an annotation whose editor never appeared', () => {
-        expect(project({
-            status: 'pending-editor',
-            annotationId: 'annotation-1',
-            reason: 'editor-unavailable',
-        })).toEqual({
+        expect(
+            project({
+                status: 'pending-editor',
+                annotationId: 'annotation-1',
+                reason: 'editor-unavailable',
+            }),
+        ).toEqual({
             created: false,
             reason: 'The annotation was created, but its editor has not appeared yet.',
             failureReason: 'editor-unavailable',
@@ -52,11 +52,13 @@ describe('projectAnnotationCreationOutcome', () => {
     });
 
     it('marks a mode-switch failure as half-done rather than as nothing happened', () => {
-        expect(project({
-            status: 'pending-editor',
-            annotationId: 'annotation-1',
-            reason: 'mode-switch-failed',
-        })).toMatchObject({
+        expect(
+            project({
+                status: 'pending-editor',
+                annotationId: 'annotation-1',
+                reason: 'mode-switch-failed',
+            }),
+        ).toMatchObject({
             created: false,
             failureReason: 'mode-switch-failed',
             pendingEditor: true,
@@ -103,12 +105,15 @@ describe('projectAnnotationCreationOutcome', () => {
             'point-outside-page': true,
             'projection-failed': true,
         } satisfies Record<TAnnotationCreationFailureReason, true>) as TAnnotationCreationFailureReason[];
-        const descriptions = reasons.map(reason => project({
-            status: 'failed',
-            reason,
-        }).reason);
+        const descriptions = reasons.map(
+            (reason) =>
+                project({
+                    status: 'failed',
+                    reason,
+                }).reason,
+        );
 
-        expect(descriptions.every(description => Boolean(description))).toBe(true);
+        expect(descriptions.every((description) => Boolean(description))).toBe(true);
         expect(new Set(descriptions).size).toBe(reasons.length);
     });
 });

@@ -1,16 +1,11 @@
-import { getErrorMessage } from '@app/utils/error';
-import type { Ref } from 'vue';
-import { clamp } from 'es-toolkit/math';
-import type { ICropMargins } from '@app/types/crop';
-import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
-import type { TDocumentRef } from '@contracts/documentRef';
-import type {
-    TDocumentCommitReceipt, TDocumentRevisionToken,
-} from '@contracts/documentRevision';
-import {
-    createRequestId,
-    type TRequestId,
-} from '@contracts/shared';
+import {getErrorMessage} from '@app/utils/error';
+import type {Ref} from 'vue';
+import {clamp} from 'es-toolkit/math';
+import type {ICropMargins} from '@app/types/crop';
+import type {TDocumentOperationKind} from '@app/types/documentOperationKind';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {TDocumentCommitReceipt, TDocumentRevisionToken} from '@contracts/documentRevision';
+import {createRequestId, type TRequestId} from '@contracts/shared';
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 import type {IPdfPageLabelRange} from '@contracts/pdfPageLabels';
 import type {
@@ -22,25 +17,18 @@ import type {
     IPageOpsResult,
     TPageOpsPageSelection,
 } from '@contracts/electronApiPageOps';
-import type {
-    IPageMoveRangeSegment,
-    TPageMoveOperation,
-    TPageSelection,
-} from '@pdf-core/pdfPageSelection';
+import type {IPageMoveRangeSegment, TPageMoveOperation, TPageSelection} from '@pdf-core/pdfPageSelection';
 import {
     createExplicitPageSelection,
     iteratePageSelectionRanges,
     materializePageSelection,
     pageSelectionCount,
 } from '@pdf-core/pdfPageSelection';
-import { collectPageIdentityDeltaInvalidatedPages } from '@app/modules/pdf-viewer/runtime/composables/pdf/collectPageIdentityDeltaInvalidatedPages';
-import type { TTranslationKey } from '@i18n-app';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import {
-    getDocumentOpenCapability,
-    getPageOpsCapability,
-} from '@app/utils/platformDocuments';
-import { runWithoutDocumentOperationLease } from '@app/utils/runWithoutDocumentOperationLease';
+import {collectPageIdentityDeltaInvalidatedPages} from '@app/modules/pdf-viewer/runtime/composables/pdf/collectPageIdentityDeltaInvalidatedPages';
+import type {TTranslationKey} from '@i18n-app';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {getDocumentOpenCapability, getPageOpsCapability} from '@app/utils/platformDocuments';
+import {runWithoutDocumentOperationLease} from '@app/utils/runWithoutDocumentOperationLease';
 
 type TPageOpsRotation = 90 | 180 | 270;
 const MAX_PAGE_OP_SELECTION_RANGES = 100_000;
@@ -68,42 +56,32 @@ type TPageOperationErrorKey = Extract<
     | 'errors.pageOps.removeCrop'
 >;
 
-type TPageOperationStalePhase =
-    | 'before-run'
-    | 'history-baseline'
-    | 'after-run'
-    | 'reload'
-    | 'after-success';
+type TPageOperationStalePhase = 'before-run' | 'history-baseline' | 'after-run' | 'reload' | 'after-success';
 
-type TPageOperationBlockedReason =
-    | 'missing-working-copy'
-    | 'operation-in-progress'
-    | 'empty-selection'
-    | 'delete-all'
-    | 'preflight';
+type TPageOperationBlockedReason = 'missing-working-copy' | 'operation-in-progress' | 'empty-selection' | 'delete-all' | 'preflight';
 
 type TPageOperationOutcome<TResult extends TPageOpsAnyResult = TPageOpsAnyResult> =
     | {
-        status: 'succeeded';
-        result: TResult;
-    }
+          status: 'succeeded';
+          result: TResult;
+      }
     | {
-        status: 'blocked';
-        reason: TPageOperationBlockedReason;
-    }
+          status: 'blocked';
+          reason: TPageOperationBlockedReason;
+      }
     | {
-        status: 'canceled';
-        result?: TResult;
-    }
+          status: 'canceled';
+          result?: TResult;
+      }
     | {
-        status: 'stale';
-        phase: TPageOperationStalePhase;
-    }
+          status: 'stale';
+          phase: TPageOperationStalePhase;
+      }
     | {
-        status: 'failed';
-        error: string;
-        result?: TResult;
-    };
+          status: 'failed';
+          error: string;
+          result?: TResult;
+      };
 
 /**
  * `canceling`: the operation stops and the document stays as it was.
@@ -112,8 +90,12 @@ type TPageOperationOutcome<TResult extends TPageOpsAnyResult = TPageOpsAnyResult
 export type TPageOperationCancelState = 'idle' | 'canceling' | 'finishing';
 
 function didPageOperationSucceed(outcome: TPageOperationOutcome, onCommitted?: TDocumentCommitReceipt) {
-    if (outcome.status !== 'succeeded') {return false;}
-    if ('documentRevision' in outcome.result) {onCommitted?.(outcome.result.documentRevision.token);}
+    if (outcome.status !== 'succeeded') {
+        return false;
+    }
+    if ('documentRevision' in outcome.result) {
+        onCommitted?.(outcome.result.documentRevision.token);
+    }
     return true;
 }
 
@@ -129,8 +111,12 @@ export function buildPageMetadataSnapshot(source: {
         return undefined;
     }
     return {
-        ...(source.pageLabelsResolved === false || source.pageLabels === undefined ? {} : {pageLabels: source.pageLabels ? [...source.pageLabels] : null}),
-        ...(source.pageLabelsResolved === false || source.pageLabelRanges === undefined ? {} : {pageLabelRanges: structuredClone(source.pageLabelRanges)}),
+        ...(source.pageLabelsResolved === false || source.pageLabels === undefined
+            ? {}
+            : {pageLabels: source.pageLabels ? [...source.pageLabels] : null}),
+        ...(source.pageLabelsResolved === false || source.pageLabelRanges === undefined
+            ? {}
+            : {pageLabelRanges: structuredClone(source.pageLabelRanges)}),
         ...(source.bookmarksResolved === false || source.bookmarks === undefined ? {} : {bookmarks: structuredClone(source.bookmarks)}),
         untitledBookmarkLabel: source.untitledBookmarkLabel,
     };
@@ -151,17 +137,11 @@ export const usePageOperations = (deps: {
     clearOcrCache: (path: TDocumentRef) => void;
     resetSearchCache: () => void;
     ensureWorkingCopyFreshForRead?: () => Promise<boolean>;
-    runWithDocumentOperationLease?: <T>(
-        kind: TDocumentOperationKind,
-        operation: () => Promise<T>,
-    ) => Promise<T>;
-    preparePageMutationRevisionSwap?: (input: {
-        result: IPageOpsCommittedResult;
-        invalidatedPages: number[];
-    }) => void | Promise<void>;
+    runWithDocumentOperationLease?: <T>(kind: TDocumentOperationKind, operation: () => Promise<T>) => Promise<T>;
+    preparePageMutationRevisionSwap?: (input: {result: IPageOpsCommittedResult; invalidatedPages: number[]}) => void | Promise<void>;
 }) => {
-    const { t } = useTypedI18n();
-    const { reportRuntimeError } = useRuntimeErrorReports();
+    const {t} = useTypedI18n();
+    const {reportRuntimeError} = useRuntimeErrorReports();
     const {
         workingCopyPath,
         documentRevisionToken,
@@ -189,10 +169,9 @@ export const usePageOperations = (deps: {
     const activeOperationPath = shallowRef<TDocumentRef | null>(null);
     let cancelRequested = false;
     let runDispatched = false;
-    const canCancelOperation = computed(() => (
-        activeOperationPath.value !== null
-        && typeof getPageOpsCapability().cancelActive === 'function'
-    ));
+    const canCancelOperation = computed(
+        () => activeOperationPath.value !== null && typeof getPageOpsCapability().cancelActive === 'function',
+    );
 
     async function cancelActiveOperation() {
         const path = activeOperationPath.value;
@@ -220,16 +199,13 @@ export const usePageOperations = (deps: {
         }
     }
 
-    function recordOutcome<TResult extends TPageOpsAnyResult>(
-        outcome: TPageOperationOutcome<TResult>,
-    ) {
+    function recordOutcome<TResult extends TPageOpsAnyResult>(outcome: TPageOperationOutcome<TResult>) {
         lastOutcome.value = outcome;
         return outcome;
     }
 
     function isCanceledResult(result: TPageOpsAnyResult) {
-        return 'canceled' in result
-            && result.canceled === true;
+        return 'canceled' in result && result.canceled === true;
     }
 
     function invalidateCaches(path: TDocumentRef) {
@@ -265,8 +241,7 @@ export const usePageOperations = (deps: {
     }
 
     async function ensurePageLabelsAndWorkingCopyFresh() {
-        return await ensurePageLabelsResolvedForMutation()
-            && (await ensureWorkingCopyFreshForRead?.() ?? true);
+        return (await ensurePageLabelsResolvedForMutation()) && ((await ensureWorkingCopyFreshForRead?.()) ?? true);
     }
 
     function runDeletePageOp(
@@ -297,12 +272,7 @@ export const usePageOperations = (deps: {
         return getPageOpsCapability().rotate(path, pages, totalPages, angle, mutationOptions);
     }
 
-    function runInsertPageOp(
-        path: TDocumentRef,
-        totalPages: number,
-        afterPage: number,
-        mutationOptions?: IPageOpsMutationOptions,
-    ) {
+    function runInsertPageOp(path: TDocumentRef, totalPages: number, afterPage: number, mutationOptions?: IPageOpsMutationOptions) {
         return mutationOptions
             ? getPageOpsCapability().insert(path, totalPages, afterPage, mutationOptions)
             : getPageOpsCapability().insert(path, totalPages, afterPage);
@@ -321,53 +291,21 @@ export const usePageOperations = (deps: {
             : getPageOpsCapability().insertFile(path, totalPages, afterPage, sourcePaths, requestId);
     }
 
-    function runReorderPageOp(
-        path: TDocumentRef,
-        newOrder: number[],
-        mutationOptions?: IPageOpsMutationOptions,
-    ) {
+    function runReorderPageOp(path: TDocumentRef, newOrder: number[], mutationOptions?: IPageOpsMutationOptions) {
         return mutationOptions
             ? getPageOpsCapability().reorder(path, newOrder, mutationOptions)
             : getPageOpsCapability().reorder(path, newOrder);
     }
 
-    function runMovePageOp(
-        path: TDocumentRef,
-        move: TPageMoveOperation,
-        mutationOptions?: IPageOpsMutationOptions,
-    ) {
+    function runMovePageOp(path: TDocumentRef, move: TPageMoveOperation, mutationOptions?: IPageOpsMutationOptions) {
         if ('ranges' in move) {
             return mutationOptions
-                ? getPageOpsCapability().moveRanges(
-                    path,
-                    move.ranges,
-                    move.insertAt,
-                    move.pageCount,
-                    mutationOptions,
-                )
-                : getPageOpsCapability().moveRanges(
-                    path,
-                    move.ranges,
-                    move.insertAt,
-                    move.pageCount,
-                );
+                ? getPageOpsCapability().moveRanges(path, move.ranges, move.insertAt, move.pageCount, mutationOptions)
+                : getPageOpsCapability().moveRanges(path, move.ranges, move.insertAt, move.pageCount);
         }
         return mutationOptions
-            ? getPageOpsCapability().move(
-                path,
-                move.startPage,
-                move.endPage,
-                move.insertAt,
-                move.pageCount,
-                mutationOptions,
-            )
-            : getPageOpsCapability().move(
-                path,
-                move.startPage,
-                move.endPage,
-                move.insertAt,
-                move.pageCount,
-            );
+            ? getPageOpsCapability().move(path, move.startPage, move.endPage, move.insertAt, move.pageCount, mutationOptions)
+            : getPageOpsCapability().move(path, move.startPage, move.endPage, move.insertAt, move.pageCount);
     }
 
     function runCropPageOp(
@@ -393,9 +331,7 @@ export const usePageOperations = (deps: {
             : getPageOpsCapability().removeCrop(path, pages, totalPages);
     }
 
-    function toPageOpsSelection(
-        pages: number[] | TPageSelection,
-    ): TPageOpsPageSelection {
+    function toPageOpsSelection(pages: number[] | TPageSelection): TPageOpsPageSelection {
         if (Array.isArray(pages)) {
             return [...pages];
         }
@@ -437,25 +373,18 @@ export const usePageOperations = (deps: {
     }
 
     function getMoveFallbackAffectedPages(move: TPageMoveOperation) {
-        const ranges: readonly IPageMoveRangeSegment[] = 'ranges' in move
-            ? move.ranges
-            : [{
-                startPage: move.startPage,
-                endPage: move.endPage,
-            }];
-        const firstSourcePage = ranges.reduce(
-            (first, range) => Math.min(first, range.startPage),
-            Number.MAX_SAFE_INTEGER,
-        );
-        const lastSourcePage = ranges.reduce(
-            (last, range) => Math.max(last, range.endPage),
-            1,
-        );
-        return getPageRange(
-            Math.min(firstSourcePage, move.insertAt + 1),
-            Math.max(lastSourcePage, move.insertAt),
-            move.pageCount,
-        );
+        const ranges: readonly IPageMoveRangeSegment[] =
+            'ranges' in move
+                ? move.ranges
+                : [
+                      {
+                          startPage: move.startPage,
+                          endPage: move.endPage,
+                      },
+                  ];
+        const firstSourcePage = ranges.reduce((first, range) => Math.min(first, range.startPage), Number.MAX_SAFE_INTEGER);
+        const lastSourcePage = ranges.reduce((last, range) => Math.max(last, range.endPage), 1);
+        return getPageRange(Math.min(firstSourcePage, move.insertAt + 1), Math.max(lastSourcePage, move.insertAt), move.pageCount);
     }
 
     async function runOperationDetailed<TResult extends TPageOpsAnyResult>(options: {
@@ -476,7 +405,7 @@ export const usePageOperations = (deps: {
             });
         }
         if (isOperationInProgress.value) {
-            BrowserLogger.warn('page-ops', `Skipped overlapping ${options.operationName} request`, { operationName: options.operationName });
+            BrowserLogger.warn('page-ops', `Skipped overlapping ${options.operationName} request`, {operationName: options.operationName});
             return recordOutcome<TResult>({
                 status: 'blocked',
                 reason: 'operation-in-progress',
@@ -493,32 +422,24 @@ export const usePageOperations = (deps: {
         try {
             return await runWithDocumentOperationLease('page-operation', async () => {
                 if (workingCopyPath.value !== path || cancelRequested) {
-                    return recordOutcome<TResult>(cancelRequested
-                        ? {status: 'canceled'}
-                        : {
-                            status: 'stale',
-                            phase: 'before-run',
-                        });
+                    return recordOutcome<TResult>(
+                        cancelRequested
+                            ? {status: 'canceled'}
+                            : {
+                                  status: 'stale',
+                                  phase: 'before-run',
+                              },
+                    );
                 }
                 // Refuse unknown metadata before annotation preparation writes.
-                for (const [
-                    phase,
-                    prepare,
-                ] of [
-                        [
-                            'before-run',
-                            options.beforeRun,
-                        ],
-                        [
-                            'before-run',
-                            options.shouldReload ? saveAnnotationsForPageMutation : undefined,
-                        ],
-                        [
-                            'history-baseline',
-                            options.shouldReload ? ensureHistoryBaselineForMutation : undefined,
-                        ],
-                    ] as const) {
-                    if (!prepare) {continue;}
+                for (const [phase, prepare] of [
+                    ['before-run', options.beforeRun],
+                    ['before-run', options.shouldReload ? saveAnnotationsForPageMutation : undefined],
+                    ['history-baseline', options.shouldReload ? ensureHistoryBaselineForMutation : undefined],
+                ] as const) {
+                    if (!prepare) {
+                        continue;
+                    }
                     const didPrepare = await prepare();
                     if (workingCopyPath.value !== path) {
                         return recordOutcome<TResult>({
@@ -568,13 +489,11 @@ export const usePageOperations = (deps: {
                 // A successful mutation names the revision it committed.
                 const committed: TPageOpsAnyResult = result;
                 if (options.shouldReload && 'documentRevision' in committed) {
-                    const fallbackAffectedPages = typeof options.fallbackAffectedPages === 'function'
-                        ? options.fallbackAffectedPages(result)
-                        : options.fallbackAffectedPages;
-                    const invalidatedPages = collectPageIdentityDeltaInvalidatedPages(
-                        committed.pageIdentityDelta,
-                        fallbackAffectedPages,
-                    );
+                    const fallbackAffectedPages =
+                        typeof options.fallbackAffectedPages === 'function'
+                            ? options.fallbackAffectedPages(result)
+                            : options.fallbackAffectedPages;
+                    const invalidatedPages = collectPageIdentityDeltaInvalidatedPages(committed.pageIdentityDelta, fallbackAffectedPages);
                     try {
                         await preparePageMutationRevisionSwap?.({
                             result: committed,
@@ -590,7 +509,9 @@ export const usePageOperations = (deps: {
                         documentRevisionToken.value = committed.documentRevision.token;
                     }
                     invalidateCaches(path);
-                    const didReload = await reloadWorkingCopyIntoHistory({...(committed.pageIdentityDelta ? {pageIdentityDelta: committed.pageIdentityDelta} : {})});
+                    const didReload = await reloadWorkingCopyIntoHistory({
+                        ...(committed.pageIdentityDelta ? {pageIdentityDelta: committed.pageIdentityDelta} : {}),
+                    });
                     if (!didReload || workingCopyPath.value !== path) {
                         return recordOutcome<TResult>({
                             status: 'stale',
@@ -614,7 +535,9 @@ export const usePageOperations = (deps: {
             });
         } catch (e) {
             const errorMessage = t(options.errorKey, undefined);
-            const failure = BrowserLogger.error('page-ops', `${options.operationName} failed`, e, {code: 'RENDERER_PDF_PAGE_OPERATION_FAILED'});
+            const failure = BrowserLogger.error('page-ops', `${options.operationName} failed`, e, {
+                code: 'RENDERER_PDF_PAGE_OPERATION_FAILED',
+            });
             reportRuntimeError({
                 failure,
                 title: errorMessage,
@@ -636,9 +559,7 @@ export const usePageOperations = (deps: {
     }
 
     async function deletePagesDetailed(pages: number[] | TPageSelection, totalPages: number) {
-        const selectedPageCount = Array.isArray(pages)
-            ? pages.length
-            : pageSelectionCount(pages);
+        const selectedPageCount = Array.isArray(pages) ? pages.length : pageSelectionCount(pages);
         if (selectedPageCount === 0) {
             return recordOutcome({
                 status: 'blocked',
@@ -667,20 +588,14 @@ export const usePageOperations = (deps: {
         return didPageOperationSucceed(await deletePagesDetailed(pages, totalPages), onCommitted);
     }
 
-    async function deletePageRangesDetailed(
-        ranges: IPageMoveRangeSegment[],
-        totalPages: number,
-    ) {
+    async function deletePageRangesDetailed(ranges: IPageMoveRangeSegment[], totalPages: number) {
         if (ranges.length === 0) {
             return recordOutcome({
                 status: 'blocked',
                 reason: 'empty-selection',
             });
         }
-        const deletedCount = ranges.reduce(
-            (count, range) => count + range.endPage - range.startPage + 1,
-            0,
-        );
+        const deletedCount = ranges.reduce((count, range) => count + range.endPage - range.startPage + 1, 0);
         if (deletedCount >= totalPages) {
             error.value = t('errors.pageOps.deleteAll');
             return recordOutcome({
@@ -698,12 +613,7 @@ export const usePageOperations = (deps: {
                 totalPages,
             ),
             beforeRun: ensurePageLabelsResolvedForMutation,
-            run: (path) => runDeletePageRangesOp(
-                path,
-                [...ranges],
-                totalPages,
-                capturePageMutationOptions(),
-            ),
+            run: (path) => runDeletePageRangesOp(path, [...ranges], totalPages, capturePageMutationOptions()),
         });
     }
 
@@ -712,13 +622,8 @@ export const usePageOperations = (deps: {
     }
 
     /** `onExtracted` receives the new document, for the view that asked to open it. */
-    async function extractPagesDetailed(
-        pages: number[] | TPageSelection,
-        onExtracted?: (path: TDocumentRef) => Promise<void> | void,
-    ) {
-        const selectedPageCount = Array.isArray(pages)
-            ? pages.length
-            : pageSelectionCount(pages);
+    async function extractPagesDetailed(pages: number[] | TPageSelection, onExtracted?: (path: TDocumentRef) => Promise<void> | void) {
+        const selectedPageCount = Array.isArray(pages) ? pages.length : pageSelectionCount(pages);
         if (selectedPageCount === 0) {
             return recordOutcome({
                 status: 'blocked',
@@ -731,7 +636,7 @@ export const usePageOperations = (deps: {
             errorKey: 'errors.pageOps.extract',
             beforeRun: ensurePageLabelsAndWorkingCopyFresh,
             run: (path) => getPageOpsCapability().extract(path, toPageOpsSelection(pages)),
-            isSuccessful: result => result.success && !result.canceled,
+            isSuccessful: (result) => result.success && !result.canceled,
             onSuccess: async (result) => {
                 if (result.destPath) {
                     await onExtracted?.(result.destPath);
@@ -740,17 +645,12 @@ export const usePageOperations = (deps: {
         });
     }
 
-    async function extractPages(
-        pages: number[] | TPageSelection,
-        onExtracted?: (path: TDocumentRef) => Promise<void> | void,
-    ) {
+    async function extractPages(pages: number[] | TPageSelection, onExtracted?: (path: TDocumentRef) => Promise<void> | void) {
         return didPageOperationSucceed(await extractPagesDetailed(pages, onExtracted));
     }
 
     async function rotatePagesDetailed(pages: number[] | TPageSelection, totalPages: number, angle: TPageOpsRotation) {
-        const selectedPageCount = Array.isArray(pages)
-            ? pages.length
-            : pageSelectionCount(pages);
+        const selectedPageCount = Array.isArray(pages) ? pages.length : pageSelectionCount(pages);
         if (selectedPageCount === 0) {
             return recordOutcome({
                 status: 'blocked',
@@ -767,7 +667,12 @@ export const usePageOperations = (deps: {
         });
     }
 
-    async function rotatePages(pages: number[] | TPageSelection, totalPages: number, angle: TPageOpsRotation, onCommitted?: TDocumentCommitReceipt) {
+    async function rotatePages(
+        pages: number[] | TPageSelection,
+        totalPages: number,
+        angle: TPageOpsRotation,
+        onCommitted?: TDocumentCommitReceipt,
+    ) {
         return didPageOperationSucceed(await rotatePagesDetailed(pages, totalPages, angle), onCommitted);
     }
 
@@ -786,29 +691,22 @@ export const usePageOperations = (deps: {
     }
 
     async function insertFileDetailed(totalPages: number, afterPage: number, sourcePaths: TDocumentRef[]) {
-        const requestId = sourcePaths.length > 1
-            ? createRequestId('browser-page-op-insert')
-            : undefined;
+        const requestId = sourcePaths.length > 1 ? createRequestId('browser-page-op-insert') : undefined;
         const stopProgress = requestId
             ? getDocumentOpenCapability().onOpenDocumentDirectBatchProgress((progress) => {
-                if (
-                    progress.operation !== 'page-insert'
-                    || progress.requestId !== requestId
-                ) {
-                    return;
-                }
+                  if (progress.operation !== 'page-insert' || progress.requestId !== requestId) {
+                      return;
+                  }
 
-                batchProgress.value = {
-                    processed: Math.max(0, progress.processed),
-                    total: Math.max(0, progress.total),
-                    percent: clamp(progress.percent, 0, 100),
-                    elapsedMs: Math.max(0, progress.elapsedMs),
-                    estimatedRemainingMs:
-                        typeof progress.estimatedRemainingMs === 'number'
-                            ? Math.max(0, progress.estimatedRemainingMs)
-                            : null,
-                };
-            })
+                  batchProgress.value = {
+                      processed: Math.max(0, progress.processed),
+                      total: Math.max(0, progress.total),
+                      percent: clamp(progress.percent, 0, 100),
+                      elapsedMs: Math.max(0, progress.elapsedMs),
+                      estimatedRemainingMs:
+                          typeof progress.estimatedRemainingMs === 'number' ? Math.max(0, progress.estimatedRemainingMs) : null,
+                  };
+              })
             : null;
 
         if (requestId) {
@@ -827,14 +725,7 @@ export const usePageOperations = (deps: {
                 errorKey: 'errors.pageOps.insertFile',
                 shouldReload: true,
                 beforeRun: ensurePageLabelsResolvedForMutation,
-                run: (path) => runInsertFilePageOp(
-                    path,
-                    totalPages,
-                    afterPage,
-                    sourcePaths,
-                    requestId,
-                    capturePageMutationOptions(),
-                ),
+                run: (path) => runInsertFilePageOp(path, totalPages, afterPage, sourcePaths, requestId, capturePageMutationOptions()),
             });
         } finally {
             stopProgress?.();
@@ -858,9 +749,7 @@ export const usePageOperations = (deps: {
             operationName: 'reorderPages',
             errorKey: 'errors.pageOps.reorder',
             shouldReload: true,
-            fallbackAffectedPages: newOrder.flatMap((sourcePageNumber, index) => (
-                sourcePageNumber === index + 1 ? [] : [index + 1]
-            )),
+            fallbackAffectedPages: newOrder.flatMap((sourcePageNumber, index) => (sourcePageNumber === index + 1 ? [] : [index + 1])),
             beforeRun: ensurePageLabelsResolvedForMutation,
             run: (path) => runReorderPageOp(path, [...newOrder], capturePageMutationOptions()),
         });
@@ -892,14 +781,8 @@ export const usePageOperations = (deps: {
         return didPageOperationSucceed(await movePagesDetailed(move));
     }
 
-    async function cropPagesDetailed(
-        pages: number[] | TPageSelection,
-        totalPages: number,
-        margins: ICropMargins,
-    ) {
-        const selection = Array.isArray(pages)
-            ? createExplicitPageSelection(totalPages, pages)
-            : pages;
+    async function cropPagesDetailed(pages: number[] | TPageSelection, totalPages: number, margins: ICropMargins) {
+        const selection = Array.isArray(pages) ? createExplicitPageSelection(totalPages, pages) : pages;
         if (pageSelectionCount(selection) === 0) {
             return recordOutcome({
                 status: 'blocked',
@@ -911,24 +794,21 @@ export const usePageOperations = (deps: {
             errorKey: 'errors.pageOps.crop',
             shouldReload: true,
             fallbackAffectedPages: getFallbackAffectedPages(pages),
-            run: (path) => runCropPageOp(
-                path,
-                toPageOpsSelection(pages),
-                totalPages,
-                margins,
-                capturePageMutationOptions(),
-            ),
+            run: (path) => runCropPageOp(path, toPageOpsSelection(pages), totalPages, margins, capturePageMutationOptions()),
         });
     }
 
-    async function cropPages(pages: number[] | TPageSelection, totalPages: number, margins: ICropMargins, onCommitted?: TDocumentCommitReceipt) {
+    async function cropPages(
+        pages: number[] | TPageSelection,
+        totalPages: number,
+        margins: ICropMargins,
+        onCommitted?: TDocumentCommitReceipt,
+    ) {
         return didPageOperationSucceed(await cropPagesDetailed(pages, totalPages, margins), onCommitted);
     }
 
     async function removeCropDetailed(pages: number[] | TPageSelection, totalPages: number) {
-        const selection = Array.isArray(pages)
-            ? createExplicitPageSelection(totalPages, pages)
-            : pages;
+        const selection = Array.isArray(pages) ? createExplicitPageSelection(totalPages, pages) : pages;
         if (pageSelectionCount(selection) === 0) {
             return recordOutcome({
                 status: 'blocked',
@@ -940,12 +820,7 @@ export const usePageOperations = (deps: {
             errorKey: 'errors.pageOps.removeCrop',
             shouldReload: true,
             fallbackAffectedPages: getFallbackAffectedPages(pages),
-            run: (path) => runRemoveCropPageOp(
-                path,
-                toPageOpsSelection(pages),
-                totalPages,
-                capturePageMutationOptions(),
-            ),
+            run: (path) => runRemoveCropPageOp(path, toPageOpsSelection(pages), totalPages, capturePageMutationOptions()),
         });
     }
 

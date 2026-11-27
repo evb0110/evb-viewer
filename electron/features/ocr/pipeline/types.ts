@@ -1,9 +1,4 @@
-import type {
-    IOcrErrorEnvelope,
-    IOcrDiagnostic,
-    TOcrSearchablePdfPages,
-    TOcrCompletionOutcome,
-} from '@contracts/electronApiOcr';
+import type {IOcrErrorEnvelope, IOcrDiagnostic, TOcrSearchablePdfPages, TOcrCompletionOutcome} from '@contracts/electronApiOcr';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 
 export interface IOcrPipelinePaths {
@@ -20,11 +15,7 @@ export interface IOcrPipelinePaths {
 
 type TOcrLogLevel = 'debug' | 'warn' | 'error';
 
-export type TWorkerLog = (
-    level: TOcrLogLevel,
-    message: string,
-    data?: Record<string, unknown>,
-) => void;
+export type TWorkerLog = (level: TOcrLogLevel, message: string, data?: Record<string, unknown>) => void;
 
 export interface IOcrPdfPageRequest {
     pageNumber: number;
@@ -35,18 +26,18 @@ export type TOcrPdfPageSelection = TOcrSearchablePdfPages;
 
 export type TOcrJobResult =
     | {
-        success: true;
-        pdfPath: string;
-        sourceDocumentRevisionToken: TDocumentRevisionToken;
-        resultSha256: string;
-        requiresCleanupAck: boolean;
-        errors: string[];
-        diagnostics?: IOcrDiagnostic[];
-    }
+          success: true;
+          pdfPath: string;
+          sourceDocumentRevisionToken: TDocumentRevisionToken;
+          resultSha256: string;
+          requiresCleanupAck: boolean;
+          errors: string[];
+          diagnostics?: IOcrDiagnostic[];
+      }
     | {
-        success: false;
-        errors: string[];
-        outcome?: TOcrCompletionOutcome;
-        diagnostics?: IOcrDiagnostic[];
-        errorEnvelope?: IOcrErrorEnvelope;
-    };
+          success: false;
+          errors: string[];
+          outcome?: TOcrCompletionOutcome;
+          diagnostics?: IOcrDiagnostic[];
+          errorEnvelope?: IOcrErrorEnvelope;
+      };

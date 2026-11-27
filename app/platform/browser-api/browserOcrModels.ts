@@ -1,11 +1,6 @@
 import {sha256Hex} from '@app/platform/browser/browserStagedArtifact';
 import type {IOcrModelDownloadProgress} from '@contracts/electronApiOcr';
-import {
-    getOcrModelDownloadUrl,
-    OCR_LANGUAGE_MODEL_BYTES,
-    OCR_LANGUAGE_MODEL_SHA256,
-    type TOcrModelCode,
-} from '@contracts/ocrLanguages';
+import {getOcrModelDownloadUrl, OCR_LANGUAGE_MODEL_BYTES, OCR_LANGUAGE_MODEL_SHA256, type TOcrModelCode} from '@contracts/ocrLanguages';
 
 /**
  * The browser's OCR models: the pinned tessdata_best files desktop uses,
@@ -21,13 +16,7 @@ const MODEL_CACHE_NAME = 'evb-ocr-models-v1';
 const DOWNLOAD_STALL_TIMEOUT_MS = 90_000;
 const DOWNLOAD_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 1_500;
-const NON_RETRYABLE_HTTP_STATUSES = new Set([
-    400,
-    401,
-    403,
-    404,
-    410,
-]);
+const NON_RETRYABLE_HTTP_STATUSES = new Set([400, 401, 403, 404, 410]);
 
 type TProgressListener = (progress: IOcrModelDownloadProgress) => void;
 
@@ -42,7 +31,10 @@ interface ISharedDownload {
 const downloads = new Map<TOcrModelCode, ISharedDownload>();
 
 export class BrowserOcrModelError extends Error {
-    public constructor(message: string, public readonly retryable: boolean) {
+    public constructor(
+        message: string,
+        public readonly retryable: boolean,
+    ) {
         super(message);
         this.name = 'BrowserOcrModelError';
     }
@@ -53,8 +45,7 @@ function abortError(signal: AbortSignal) {
 }
 
 async function isPinnedModel(code: TOcrModelCode, bytes: Uint8Array<ArrayBuffer>) {
-    return bytes.byteLength === OCR_LANGUAGE_MODEL_BYTES[code]
-        && await sha256Hex(bytes) === OCR_LANGUAGE_MODEL_SHA256[code];
+    return bytes.byteLength === OCR_LANGUAGE_MODEL_BYTES[code] && (await sha256Hex(bytes)) === OCR_LANGUAGE_MODEL_SHA256[code];
 }
 
 export function canStoreBrowserOcrModels() {
@@ -76,7 +67,7 @@ export async function readCachedOcrModel(code: TOcrModelCode) {
         throw new BrowserOcrModelError(`OCR model ${code} is not downloaded`, true);
     }
     const bytes = new Uint8Array(await response.arrayBuffer());
-    if (!await isPinnedModel(code, bytes)) {
+    if (!(await isPinnedModel(code, bytes))) {
         await cache.delete(url);
         throw new BrowserOcrModelError(`The stored OCR model ${code} is damaged; it will be downloaded again`, true);
     }
@@ -100,14 +91,16 @@ async function readBodyWithStallTimeout(
     for (;;) {
         let stallTimer: ReturnType<typeof setTimeout> | undefined;
         const stalled = new Promise<never>((_resolve, reject) => {
-            stallTimer = setTimeout(() => reject(new BrowserOcrModelError(`OCR model ${code} download stalled`, true)), DOWNLOAD_STALL_TIMEOUT_MS);
+            stallTimer = setTimeout(
+                () => reject(new BrowserOcrModelError(`OCR model ${code} download stalled`, true)),
+                DOWNLOAD_STALL_TIMEOUT_MS,
+            );
         });
         try {
-            const chunk = await Promise.race([
-                reader.read(),
-                stalled,
-            ]);
-            if (chunk.done) {break;}
+            const chunk = await Promise.race([reader.read(), stalled]);
+            if (chunk.done) {
+                break;
+            }
             if (receivedBytes + chunk.value.byteLength > totalBytes) {
                 throw new BrowserOcrModelError(`OCR model ${code} download is larger than the pinned model`, false);
             }
@@ -134,12 +127,7 @@ async function readBodyWithStallTimeout(
     return bytes;
 }
 
-async function downloadAttempt(
-    code: TOcrModelCode,
-    attempt: number,
-    signal: AbortSignal,
-    report: TProgressListener,
-) {
+async function downloadAttempt(code: TOcrModelCode, attempt: number, signal: AbortSignal, report: TProgressListener) {
     const attemptController = new AbortController();
     const abortAttempt = () => attemptController.abort(signal.reason);
     signal.addEventListener('abort', abortAttempt, {once: true});
@@ -161,16 +149,23 @@ async function downloadAttempt(
             );
         }
         const bytes = await readBodyWithStallTimeout(response, code, attempt, attemptController.signal, report);
-        if (!await isPinnedModel(code, bytes)) {
+        if (!(await isPinnedModel(code, bytes))) {
             throw new BrowserOcrModelError(`OCR model ${code} does not match its pinned SHA-256`, true);
         }
         return bytes;
     } catch (error) {
-        if (signal.aborted) {throw abortError(signal);}
-        if (attemptController.signal.reason instanceof BrowserOcrModelError) {throw attemptController.signal.reason;}
+        if (signal.aborted) {
+            throw abortError(signal);
+        }
+        if (attemptController.signal.reason instanceof BrowserOcrModelError) {
+            throw attemptController.signal.reason;
+        }
         throw error instanceof BrowserOcrModelError
             ? error
-            : new BrowserOcrModelError(`OCR model ${code} download failed: ${error instanceof Error ? error.message : String(error)}`, true);
+            : new BrowserOcrModelError(
+                  `OCR model ${code} download failed: ${error instanceof Error ? error.message : String(error)}`,
+                  true,
+              );
     } finally {
         clearTimeout(headerTimer);
         signal.removeEventListener('abort', abortAttempt);
@@ -194,7 +189,9 @@ function waitBeforeRetry(signal: AbortSignal, attempt: number) {
 async function downloadAndStore(code: TOcrModelCode, signal: AbortSignal, report: TProgressListener) {
     // Another tab may be downloading the same model; take turns and reuse its result.
     const run = async () => {
-        if (await hasCachedOcrModel(code)) {return;}
+        if (await hasCachedOcrModel(code)) {
+            return;
+        }
         for (let attempt = 1; ; attempt += 1) {
             try {
                 const bytes = await downloadAttempt(code, attempt, signal, report);
@@ -203,7 +200,9 @@ async function downloadAndStore(code: TOcrModelCode, signal: AbortSignal, report
                 return;
             } catch (error) {
                 const retryable = error instanceof BrowserOcrModelError && error.retryable;
-                if (signal.aborted || !retryable || attempt >= DOWNLOAD_ATTEMPTS) {throw error;}
+                if (signal.aborted || !retryable || attempt >= DOWNLOAD_ATTEMPTS) {
+                    throw error;
+                }
                 report({
                     languageCode: code,
                     receivedBytes: 0,
@@ -224,8 +223,12 @@ async function downloadAndStore(code: TOcrModelCode, signal: AbortSignal, report
 }
 
 function waitOrAbort(promise: Promise<void>, signal: AbortSignal | undefined) {
-    if (!signal) {return promise;}
-    if (signal.aborted) {return Promise.reject(abortError(signal));}
+    if (!signal) {
+        return promise;
+    }
+    if (signal.aborted) {
+        return Promise.reject(abortError(signal));
+    }
     return new Promise<void>((resolve, reject) => {
         const onAbort = () => reject(abortError(signal));
         signal.addEventListener('abort', onAbort, {once: true});
@@ -241,7 +244,7 @@ export async function ensureBrowserOcrModel(
     code: TOcrModelCode,
     options: {
         signal?: AbortSignal;
-        onProgress?: TProgressListener
+        onProgress?: TProgressListener;
     } = {},
 ) {
     options.signal?.throwIfAborted();
@@ -257,9 +260,13 @@ export async function ensureBrowserOcrModel(
         };
         created.promise = downloadAndStore(code, controller.signal, (progress) => {
             created.progress = progress;
-            for (const listener of listeners) {listener(progress);}
+            for (const listener of listeners) {
+                listener(progress);
+            }
         }).finally(() => {
-            if (downloads.get(code) === created) {downloads.delete(code);}
+            if (downloads.get(code) === created) {
+                downloads.delete(code);
+            }
         });
         created.promise.catch(() => {});
         downloads.set(code, created);
@@ -268,14 +275,18 @@ export async function ensureBrowserOcrModel(
     const listener = options.onProgress;
     if (listener) {
         download.listeners.add(listener);
-        if (download.progress) {listener(download.progress);}
+        if (download.progress) {
+            listener(download.progress);
+        }
     }
     download.waiters += 1;
     try {
         await waitOrAbort(download.promise, options.signal);
     } finally {
         download.waiters -= 1;
-        if (listener) {download.listeners.delete(listener);}
+        if (listener) {
+            download.listeners.delete(listener);
+        }
         if (options.signal?.aborted && download.waiters === 0 && downloads.get(code) === download) {
             download.controller.abort(abortError(options.signal));
         }

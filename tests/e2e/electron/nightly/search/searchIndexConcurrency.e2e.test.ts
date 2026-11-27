@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
 import {getActiveWorkspaceWorkingCopyPath} from '@tests/e2e/electron/helpers/electronApiHelpers';
@@ -13,29 +9,19 @@ import {
     DENSE_TEXT_FIXTURE_LINES_PER_PAGE,
 } from '@tests/e2e/electron/helpers/fixtures';
 import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
-import {
-    ensureSidebarOpen,
-    openDocumentSidebarTab,
-    openPdfInApp,
-} from '@tests/e2e/electron/helpers/viewerCore';
-import {
-    createNewWorkspaceTab, activateWorkspaceTab,
-} from '@tests/e2e/electron/helpers/workspaceTabs';
-import {
-    readFile, writeFile,
-} from 'node:fs/promises';
-import {
-    dirname, join, resolve,
-} from 'node:path';
+import {ensureSidebarOpen, openDocumentSidebarTab, openPdfInApp} from '@tests/e2e/electron/helpers/viewerCore';
+import {createNewWorkspaceTab, activateWorkspaceTab} from '@tests/e2e/electron/helpers/workspaceTabs';
+import {readFile, writeFile} from 'node:fs/promises';
+import {dirname, join, resolve} from 'node:path';
 import {PDFDocument} from 'pdf-lib';
 import {requireRequestId} from '@contracts/shared';
 import type {IPdfSearchProgress} from '@contracts/search';
 import {electronFileLogDir} from '@scripts/electron-run/electronRunSessionPaths';
-import {
-    APP_LOG_FILE_NAME, type ILogRecord,
-} from '@contracts/logRecord';
+import {APP_LOG_FILE_NAME, type ILogRecord} from '@contracts/logRecord';
 
-interface IFallbackSearchWindow extends Window {__e2eFallbackProgress?: (progress: IPdfSearchProgress) => Promise<void>;}
+interface IFallbackSearchWindow extends Window {
+    __e2eFallbackProgress?: (progress: IPdfSearchProgress) => Promise<void>;
+}
 
 // More documents than native commands may run at once (eight), each long
 // enough to need several pdftotext windows.
@@ -56,9 +42,11 @@ function lastWord(documentNumber: number) {
 
 /** The sidebar lists a match for `query`, and is or is no longer searching. */
 function showsSearchMatch(root: string, query: string, searching: boolean) {
-    return Array.from(document.querySelectorAll<HTMLElement>(`${root} .document-search-result`))
-        .some(result => result.textContent?.includes(query))
-        && (document.querySelector(`${root} .document-search-results-spinner`) !== null) === searching;
+    return (
+        Array.from(document.querySelectorAll<HTMLElement>(`${root} .document-search-result`)).some((result) =>
+            result.textContent?.includes(query),
+        ) && (document.querySelector(`${root} .document-search-results-spinner`) !== null) === searching
+    );
 }
 
 describe('Electron E2E - concurrent search indexes', () => {
@@ -72,11 +60,15 @@ describe('Electron E2E - concurrent search indexes', () => {
             if (documentNumber > 1) {
                 await createNewWorkspaceTab(session);
             }
-            await openPdfInApp(page, createDenseTextFixturePdf(
-                `search-concurrency-${documentNumber}.pdf`,
-                PAGE_COUNT,
-                (pageNumber, line, word) => `d${documentNumber}p${pageNumber}l${line}w${word}`,
-            ), 120_000);
+            await openPdfInApp(
+                page,
+                createDenseTextFixturePdf(
+                    `search-concurrency-${documentNumber}.pdf`,
+                    PAGE_COUNT,
+                    (pageNumber, line, word) => `d${documentNumber}p${pageNumber}l${line}w${word}`,
+                ),
+                120_000,
+            );
             workingCopies.push(await getActiveWorkspaceWorkingCopyPath(page));
         }
 
@@ -86,10 +78,8 @@ describe('Electron E2E - concurrent search indexes', () => {
             if (!search) {
                 throw new Error('search capability unavailable in the renderer');
             }
-            const settled = await Promise.allSettled(paths.map(path => search.warmIndex(path)));
-            return settled.map(outcome => (outcome.status === 'fulfilled'
-                ? String(outcome.value)
-                : String(outcome.reason)));
+            const settled = await Promise.allSettled(paths.map((path) => search.warmIndex(path)));
+            return settled.map((outcome) => (outcome.status === 'fulfilled' ? String(outcome.value) : String(outcome.reason)));
         }, workingCopies);
         expect(warmups).toEqual(documentNumbers.map(() => 'true'));
 
@@ -100,10 +90,16 @@ describe('Electron E2E - concurrent search indexes', () => {
         await clickAsUser(page, input!);
         await page.keyboard.type(lastWord(DOCUMENT_COUNT));
         await page.keyboard.press('Enter');
-        await waitForFunctionInPage(page, (root: string, word: string) => (
-            Array.from(document.querySelectorAll<HTMLElement>(`${root} .document-search-result`))
-                .some(result => result.textContent?.includes(word))
-        ), {timeout: RESULT_TIMEOUT_MS}, SIDEBAR, lastWord(DOCUMENT_COUNT));
+        await waitForFunctionInPage(
+            page,
+            (root: string, word: string) =>
+                Array.from(document.querySelectorAll<HTMLElement>(`${root} .document-search-result`)).some((result) =>
+                    result.textContent?.includes(word),
+                ),
+            {timeout: RESULT_TIMEOUT_MS},
+            SIDEBAR,
+            lastWord(DOCUMENT_COUNT),
+        );
     }, 600_000);
 
     it('shows an early page match while a long document is still being indexed', async () => {
@@ -114,11 +110,10 @@ describe('Electron E2E - concurrent search indexes', () => {
         const {page} = session;
         // Three extraction windows: the match on page 2 is written with the
         // first, while the other two still read.
-        await openPdfInApp(page, createDenseTextFixturePdf(
-            'search-streaming.pdf',
-            768,
-            (pageNumber, line, word) => `s${pageNumber}l${line}w${word}`,
-        ));
+        await openPdfInApp(
+            page,
+            createDenseTextFixturePdf('search-streaming.pdf', 768, (pageNumber, line, word) => `s${pageNumber}l${line}w${word}`),
+        );
         const word = 's2l0w0';
         await ensureSidebarOpen(page);
         await openDocumentSidebarTab(page, 'Search');
@@ -129,7 +124,7 @@ describe('Electron E2E - concurrent search indexes', () => {
         await waitForFunctionInPage(page, showsSearchMatch, {timeout: 30_000}, SIDEBAR, word, true);
         // The indexed answer then replaces it with the same match.
         await waitForFunctionInPage(page, showsSearchMatch, {timeout: 30_000}, SIDEBAR, word, false);
-        expect(await page.$$eval(`${SIDEBAR} .document-search-result`, results => results.length)).toBe(1);
+        expect(await page.$$eval(`${SIDEBAR} .document-search-result`, (results) => results.length)).toBe(1);
     });
 
     it('bounds CJK and RTL fallback workers while real searches compete and a queued tab closes', async () => {
@@ -145,7 +140,7 @@ describe('Electron E2E - concurrent search indexes', () => {
         const profile = await page.evaluate(() => window.electronAPI!.host.getResourceProfile());
         expect(profile?.performanceMode).toBe('low');
         // Low mode admits two one-CPU PDF.js consumers; each also costs 256 MiB.
-        const admitted = Math.min(2, Math.floor(Math.max(512 * 1024 ** 2, profile!.totalRamBytes * .85) / (256 * 1024 ** 2)));
+        const admitted = Math.min(2, Math.floor(Math.max(512 * 1024 ** 2, profile!.totalRamBytes * 0.85) / (256 * 1024 ** 2)));
         const count = admitted + 10;
         const cjkPath = await createNonEmbeddedCjkSearchFixturePdf('fallback-concurrency-cjk.pdf');
         const cjk = await PDFDocument.load(await readFile(cjkPath));
@@ -156,7 +151,9 @@ describe('Electron E2E - concurrent search indexes', () => {
             const document = await PDFDocument.create();
             const template = i % 2 === 0 ? cjk : rtl;
             for (let batch = 0; batch < 256; batch++) {
-                for (const copied of await document.copyPages(template, template.getPageIndices())) {document.addPage(copied);}
+                for (const copied of await document.copyPages(template, template.getPageIndices())) {
+                    document.addPage(copied);
+                }
             }
             document.getPages().at(-1)!.drawText(`fallbackfinaldoc${i}`, {
                 x: 72,
@@ -165,7 +162,9 @@ describe('Electron E2E - concurrent search indexes', () => {
             const path = join(dirname(cjkPath), `fallback-concurrency-${i}.pdf`);
             await writeFile(path, await document.save());
             pageCounts.push(document.getPageCount());
-            if (i > 0) {await createNewWorkspaceTab(session);}
+            if (i > 0) {
+                await createNewWorkspaceTab(session);
+            }
             await openPdfInApp(page, path, 120_000);
             paths.push(await getActiveWorkspaceWorkingCopyPath(page));
         }
@@ -187,14 +186,18 @@ describe('Electron E2E - concurrent search indexes', () => {
         });
         const searches = page.evaluate(async (batch: typeof requests) => {
             const search = window.electronAPI!.search;
-            const unsubscribe = search.onProgress(next => {
+            const unsubscribe = search.onProgress((next) => {
                 void (window as IFallbackSearchWindow).__e2eFallbackProgress!(next);
             });
             try {
-                return await Promise.all(batch.map(request => search.run(request.pdfPath, request.query, {
-                    requestId: request.requestId,
-                    pageCount: request.pageCount,
-                })));
+                return await Promise.all(
+                    batch.map((request) =>
+                        search.run(request.pdfPath, request.query, {
+                            requestId: request.requestId,
+                            pageCount: request.pageCount,
+                        }),
+                    ),
+                );
             } finally {
                 unsubscribe();
             }
@@ -210,10 +213,7 @@ describe('Electron E2E - concurrent search indexes', () => {
             canceled: true,
             results: [],
         });
-        for (const [
-            index,
-            response,
-        ] of responses.slice(0, -1).entries()) {
+        for (const [index, response] of responses.slice(0, -1).entries()) {
             expect(response.canceled).not.toBe(true);
             expect(response.truncated).toBe(false);
             expect(response.coverage).toMatchObject({
@@ -221,8 +221,11 @@ describe('Electron E2E - concurrent search indexes', () => {
                 pagesScanned: pageCounts[index],
                 truncated: false,
             });
-            expect(response.results.some(result => result.pageNumber === pageCounts[index]
-                && result.excerpt.match === `fallbackfinaldoc${index}`)).toBe(true);
+            expect(
+                response.results.some(
+                    (result) => result.pageNumber === pageCounts[index] && result.excerpt.match === `fallbackfinaldoc${index}`,
+                ),
+            ).toBe(true);
         }
         await activateWorkspaceTab(session, 0);
         await ensureSidebarOpen(page);
@@ -230,35 +233,56 @@ describe('Electron E2E - concurrent search indexes', () => {
         const input = await page.waitForSelector(`${SIDEBAR} .document-search-bar input`, {visible: true});
         await clickAsUser(page, input!);
         await page.keyboard.down(process.platform === 'darwin' ? 'Meta' : 'Control');
-        await page.keyboard.press('A'); await page.keyboard.up(process.platform === 'darwin' ? 'Meta' : 'Control');
-        await page.keyboard.type(NON_EMBEDDED_CJK_SEARCH_FIXTURE_QUERY); await page.keyboard.press('Enter');
+        await page.keyboard.press('A');
+        await page.keyboard.up(process.platform === 'darwin' ? 'Meta' : 'Control');
+        await page.keyboard.type(NON_EMBEDDED_CJK_SEARCH_FIXTURE_QUERY);
+        await page.keyboard.press('Enter');
         // Matches show while the index builds; the search ends, and its
         // workers with it, only once the indexed answer replaces them.
-        await waitForFunctionInPage(page, showsSearchMatch, {timeout: RESULT_TIMEOUT_MS}, SIDEBAR, NON_EMBEDDED_CJK_SEARCH_FIXTURE_QUERY, false);
+        await waitForFunctionInPage(
+            page,
+            showsSearchMatch,
+            {timeout: RESULT_TIMEOUT_MS},
+            SIDEBAR,
+            NON_EMBEDDED_CJK_SEARCH_FIXTURE_QUERY,
+            false,
+        );
         // Normal shutdown drains the worker logs so the tally includes the records emitted after thread exit.
         await sessionFixture.stop({preserveArtifacts: true});
-        const records = (await readFile(logPath, 'utf8')).slice(logOffset).split('\n').filter(Boolean).map(line => JSON.parse(line) as ILogRecord)
-            .filter(record => record.data?.workerName === 'pdf-text-worker.js');
+        const records = (await readFile(logPath, 'utf8'))
+            .slice(logOffset)
+            .split('\n')
+            .filter(Boolean)
+            .map((line) => JSON.parse(line) as ILogRecord)
+            .filter((record) => record.data?.workerName === 'pdf-text-worker.js');
         // With no cancellation request, a worker's reported cancellation follows the exit fence.
-        expect(records.some(record => record.msg === 'Worker cancellation requested')).toBe(false);
-        let active = 0; let peak = 0; let started = 0;
+        expect(records.some((record) => record.msg === 'Worker cancellation requested')).toBe(false);
+        let active = 0;
+        let peak = 0;
+        let started = 0;
         for (const record of records) {
-            if (record.msg === 'Worker online') { active++; started++; peak = Math.max(peak, active); }
-            if ([
-                'Worker completed',
-                'Worker reported failure',
-                'Worker reported cancellation',
-                'Worker returned an invalid payload',
-                'Worker returned an invalid result',
-            ].includes(record.msg) || (record.data?.online === true && [
-                'Worker exited before returning a result',
-                'Worker exited while cancelling',
-            ].includes(record.msg))) {active--;}
+            if (record.msg === 'Worker online') {
+                active++;
+                started++;
+                peak = Math.max(peak, active);
+            }
+            if (
+                [
+                    'Worker completed',
+                    'Worker reported failure',
+                    'Worker reported cancellation',
+                    'Worker returned an invalid payload',
+                    'Worker returned an invalid result',
+                ].includes(record.msg) ||
+                (record.data?.online === true &&
+                    ['Worker exited before returning a result', 'Worker exited while cancelling'].includes(record.msg))
+            ) {
+                active--;
+            }
         }
         expect(started).toBeGreaterThan(admitted);
         expect(peak).toBeLessThanOrEqual(admitted);
         expect(active).toBe(0);
-        expect(records.some(record => record.level === 'error')).toBe(false);
+        expect(records.some((record) => record.level === 'error')).toBe(false);
     }, 600_000);
-
 });

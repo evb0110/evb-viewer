@@ -1,19 +1,10 @@
-import { startRendererFrameStream } from '@scripts/diagnostics/startRendererFrameStream';
-import { getErrorMessage } from '@contracts/getErrorMessage';
-import { execFile } from 'node:child_process';
-import {
-    mkdirSync,
-    writeFileSync,
-} from 'node:fs';
-import {
-    join,
-    resolve,
-} from 'node:path';
-import { promisify } from 'node:util';
-import type {
-    CDPSession,
-    Page,
-} from 'puppeteer-core';
+import {startRendererFrameStream} from '@scripts/diagnostics/startRendererFrameStream';
+import {getErrorMessage} from '@contracts/getErrorMessage';
+import {execFile} from 'node:child_process';
+import {mkdirSync, writeFileSync} from 'node:fs';
+import {join, resolve} from 'node:path';
+import {promisify} from 'node:util';
+import type {CDPSession, Page} from 'puppeteer-core';
 
 const execFileAsync = promisify(execFile);
 
@@ -80,7 +71,9 @@ export interface IDiagnosticFrameCaptureResult {
     outDir: string;
 }
 
-export interface IDiagnosticFrameCapture { stop: () => Promise<IDiagnosticFrameCaptureResult>; }
+export interface IDiagnosticFrameCapture {
+    stop: () => Promise<IDiagnosticFrameCaptureResult>;
+}
 
 function clampInteger(value: number | undefined, fallback: number, min: number, max: number) {
     if (typeof value !== 'number' || !Number.isFinite(value)) {
@@ -205,12 +198,7 @@ async function createFfmpegArtifacts(options: {
     }
 }
 
-function createFrameWriter(options: {
-    frames: IDiagnosticFrameCaptureFrame[];
-    framesDir: string;
-    maxFrames: number;
-    startedAt: number;
-}) {
+function createFrameWriter(options: {frames: IDiagnosticFrameCaptureFrame[]; framesDir: string; maxFrames: number; startedAt: number}) {
     return (data: Buffer | Uint8Array, cdpTimestamp: number | null) => {
         if (options.frames.length >= options.maxFrames) {
             return;
@@ -229,27 +217,37 @@ function createFrameWriter(options: {
     };
 }
 
-async function startCdpScreencastCapture(page: Page, options: {
-    frames: IDiagnosticFrameCaptureFrame[];
-    framesDir: string;
-    maxFrames: number;
-    quality: number;
-    startedAt: number;
-}) {
+async function startCdpScreencastCapture(
+    page: Page,
+    options: {
+        frames: IDiagnosticFrameCaptureFrame[];
+        framesDir: string;
+        maxFrames: number;
+        quality: number;
+        startedAt: number;
+    },
+) {
     const writeFrame = createFrameWriter(options);
-    return startRendererFrameStream(page, event => {
-        writeFrame(Buffer.from(event.data, 'base64'), event.metadata?.timestamp ?? null);
-    }, {quality: options.quality});
+    return startRendererFrameStream(
+        page,
+        (event) => {
+            writeFrame(Buffer.from(event.data, 'base64'), event.metadata?.timestamp ?? null);
+        },
+        {quality: options.quality},
+    );
 }
 
-function startScreenshotFallbackCapture(page: Page, options: {
-    frames: IDiagnosticFrameCaptureFrame[];
-    framesDir: string;
-    intervalMs: number;
-    maxFrames: number;
-    quality: number;
-    startedAt: number;
-}) {
+function startScreenshotFallbackCapture(
+    page: Page,
+    options: {
+        frames: IDiagnosticFrameCaptureFrame[];
+        framesDir: string;
+        intervalMs: number;
+        maxFrames: number;
+        quality: number;
+        startedAt: number;
+    },
+) {
     const writeFrame = createFrameWriter(options);
     let stopped = false;
     let pendingCapture = Promise.resolve();
@@ -277,7 +275,7 @@ function startScreenshotFallbackCapture(page: Page, options: {
         await pendingCapture.catch(() => {});
     };
 
-    return { stop };
+    return {stop};
 }
 
 export async function startDiagnosticFrameCapture(
@@ -288,7 +286,7 @@ export async function startDiagnosticFrameCapture(
     const framesDir = join(options.outDir, 'frames');
     const frames: IDiagnosticFrameCaptureFrame[] = [];
     const startedAt = Date.now();
-    mkdirSync(framesDir, { recursive: true });
+    mkdirSync(framesDir, {recursive: true});
 
     let mode: TDiagnosticFrameCaptureMode = 'cdp-screencast';
     let fallbackReason: string | null = null;
@@ -297,7 +295,7 @@ export async function startDiagnosticFrameCapture(
         handleFrame: (event: IScreencastFrameEvent) => void;
         stop: () => Promise<void>;
     } | null = null;
-    let fallbackCapture: { stop: () => Promise<void>; } | null = null;
+    let fallbackCapture: {stop: () => Promise<void>} | null = null;
 
     try {
         cdpCapture = await startCdpScreencastCapture(page, {
@@ -343,5 +341,5 @@ export async function startDiagnosticFrameCapture(
         };
     };
 
-    return { stop };
+    return {stop};
 }

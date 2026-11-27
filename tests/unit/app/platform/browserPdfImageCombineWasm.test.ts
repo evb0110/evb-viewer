@@ -1,18 +1,9 @@
 import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {PDFDocument} from 'pdf-lib';
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
 import * as utifModule from 'utif';
-import {
-    buildTiffImageIfd,
-    encodeTiffIfds,
-} from '@pdf-core';
+import {buildTiffImageIfd, encodeTiffIfds} from '@pdf-core';
 import type {ITiffEncoderModule} from '@pdf-core/tiffEncoding';
 import {createTiffBytes} from '../../pdf-core/createTiffBytes';
 
@@ -53,12 +44,14 @@ function createPgmBytes(value: number) {
 
 function createNetpbmBytes(channels: 1 | 3, width: number, height: number, pixel: (x: number, y: number, channel: number) => number) {
     const header = new TextEncoder().encode(`${channels === 1 ? 'P5' : 'P6'}\n${width} ${height}\n255\n`);
-    const bytes = new Uint8Array(header.byteLength + (width * height * channels));
+    const bytes = new Uint8Array(header.byteLength + width * height * channels);
     bytes.set(header);
     let offset = header.byteLength;
     for (let y = 0; y < height; y += 1) {
         for (let x = 0; x < width; x += 1) {
-            for (let channel = 0; channel < channels; channel += 1) {bytes[offset++] = pixel(x, y, channel);}
+            for (let channel = 0; channel < channels; channel += 1) {
+                bytes[offset++] = pixel(x, y, channel);
+            }
         }
     }
     return bytes;
@@ -67,7 +60,7 @@ function createNetpbmBytes(channels: 1 | 3, width: number, height: number, pixel
 // A smooth, lightly textured photograph: JPEG keeps it smaller than Flate.
 function photo(x: number, y: number, channel: number) {
     const grain = ((x * 7_919) ^ (y * 104_729) ^ (channel * 1_299_709)) & 15;
-    return Math.round(128 + (70 * Math.sin(x / 9) * Math.cos(y / 13)) + (channel * 12) + grain - 8);
+    return Math.round(128 + 70 * Math.sin(x / 9) * Math.cos(y / 13) + channel * 12 + grain - 8);
 }
 
 function createTwoFrameTiffBytes() {
@@ -83,32 +76,26 @@ function createTwoFrameTiffBytes() {
             dataLength: 6,
         },
     ];
-    const buildRgbTiffImageIfd = (page: typeof pages[number], dataOffset: number) => {
-        const {
-            t338: _extraSamples, ...ifd
-        } = buildTiffImageIfd(page, dataOffset);
+    const buildRgbTiffImageIfd = (page: (typeof pages)[number], dataOffset: number) => {
+        const {t338: _extraSamples, ...ifd} = buildTiffImageIfd(page, dataOffset);
         return {
             ...ifd,
-            t258: [
-                8,
-                8,
-                8,
-            ],
+            t258: [8, 8, 8],
             t262: [2],
             t277: [3],
         };
     };
     const header = encodeTiffIfds(
-        pages.map(page => buildRgbTiffImageIfd(page, 0)),
+        pages.map((page) => buildRgbTiffImageIfd(page, 0)),
         UTIF,
     );
     const encoded = encodeTiffIfds(
-        pages.map((page, index) => buildRgbTiffImageIfd(
-            page,
-            header.byteLength + pages
-                .slice(0, index)
-                .reduce((total, previous) => total + previous.dataLength, 0),
-        )),
+        pages.map((page, index) =>
+            buildRgbTiffImageIfd(
+                page,
+                header.byteLength + pages.slice(0, index).reduce((total, previous) => total + previous.dataLength, 0),
+            ),
+        ),
         UTIF,
     );
     const bytes = new Uint8Array(encoded.byteLength + 9);
@@ -118,17 +105,16 @@ function createTwoFrameTiffBytes() {
     return bytes;
 }
 
-async function runBrowserPdfCombineWorker(inputs: Array<{
-    fileName: string;
-    data: Uint8Array;
-}>) {
+async function runBrowserPdfCombineWorker(
+    inputs: Array<{
+        fileName: string;
+        data: Uint8Array;
+    }>,
+) {
     let messageListener: ((event: MessageEvent<unknown>) => void | Promise<void>) | undefined;
     const postedMessages: unknown[] = [];
     vi.stubGlobal('self', {
-        addEventListener: vi.fn((
-            _type: string,
-            listener: (event: MessageEvent<unknown>) => void | Promise<void>,
-        ) => {
+        addEventListener: vi.fn((_type: string, listener: (event: MessageEvent<unknown>) => void | Promise<void>) => {
             messageListener = listener;
         }),
         postMessage: vi.fn((message: unknown) => {
@@ -139,17 +125,19 @@ async function runBrowserPdfCombineWorker(inputs: Array<{
     if (!messageListener) {
         throw new Error('Browser PDF combine worker did not register its message listener');
     }
-    await messageListener({data: {
-        id: 1,
-        type: 'combinePdfs',
-        payload: {inputs},
-    }} as MessageEvent<unknown>);
+    await messageListener({
+        data: {
+            id: 1,
+            type: 'combinePdfs',
+            payload: {inputs},
+        },
+    } as MessageEvent<unknown>);
     return postedMessages.at(-1);
 }
 
 function decodeRequestNameAndData(request: Uint8Array) {
     const view = new DataView(request.buffer, request.byteOffset, request.byteLength);
-    let offset = 4 + (6 * 4);
+    let offset = 4 + 6 * 4;
     const nameLength = view.getUint32(offset, true);
     offset += 4;
     const dataLength = view.getUint32(offset, true);
@@ -182,7 +170,7 @@ function decodeInputAt(request: Uint8Array, offset: number) {
 
 function decodeV4FirstPageSpec(request: Uint8Array) {
     const view = new DataView(request.buffer, request.byteOffset, request.byteLength);
-    let offset = 4 + (6 * 4);
+    let offset = 4 + 6 * 4;
     const kind = view.getUint32(offset, true);
     offset += 4;
     const widthPoints = view.getFloat64(offset, true);
@@ -196,11 +184,7 @@ function decodeV4FirstPageSpec(request: Uint8Array) {
     const background = decodeInputAt(request, offset);
     const mask = decodeInputAt(request, background.offset);
     offset = mask.offset;
-    const foregroundColor = [
-        view.getUint32(offset, true),
-        view.getUint32(offset + 4, true),
-        view.getUint32(offset + 8, true),
-    ];
+    const foregroundColor = [view.getUint32(offset, true), view.getUint32(offset + 4, true), view.getUint32(offset + 8, true)];
     return {
         background: {
             data: background.data,
@@ -219,21 +203,18 @@ function decodeV4FirstPageSpec(request: Uint8Array) {
     };
 }
 
-function createWasmExportsMock(options: {
-    allocReturnsZero?: boolean;
-    allocThrows?: boolean;
-    buildResultCode?: number;
-    output?: Uint8Array;
-    reportedOutputLength?: number;
-    errorText?: string;
-} = {}) {
+function createWasmExportsMock(
+    options: {
+        allocReturnsZero?: boolean;
+        allocThrows?: boolean;
+        buildResultCode?: number;
+        output?: Uint8Array;
+        reportedOutputLength?: number;
+        errorText?: string;
+    } = {},
+) {
     const memory = new NativeWebAssembly.Memory({initial: 1});
-    const output = options.output ?? new Uint8Array([
-        0x25,
-        0x50,
-        0x44,
-        0x46,
-    ]);
+    const output = options.output ?? new Uint8Array([0x25, 0x50, 0x44, 0x46]);
     let cursor = 1024;
     let capturedRequest = new Uint8Array();
     let outputPointer = 0;
@@ -321,23 +302,16 @@ describe('tryCombineImageInputsWithWasm', () => {
         const alloc = instance.exports.evb_pdf_image_combine_alloc;
         const free = instance.exports.evb_pdf_image_combine_free;
         if (
-            !(memory instanceof NativeWebAssembly.Memory)
-            || typeof allocationAbiVersion !== 'function'
-            || typeof alloc !== 'function'
-            || typeof free !== 'function'
+            !(memory instanceof NativeWebAssembly.Memory) ||
+            typeof allocationAbiVersion !== 'function' ||
+            typeof alloc !== 'function' ||
+            typeof free !== 'function'
         ) {
             throw new Error('PDF image combine WASM allocation exports are missing');
         }
         expect(allocationAbiVersion()).toBe(1);
 
-        for (const length of [
-            1,
-            3,
-            17,
-            257,
-            1021,
-            4093,
-        ]) {
+        for (const length of [1, 3, 17, 257, 1021, 4093]) {
             const pointer = alloc(length);
             expect(pointer).not.toBe(0);
             expect(alloc(1)).toBe(0);
@@ -369,16 +343,8 @@ describe('tryCombineImageInputsWithWasm', () => {
     });
 
     it.each([
-        [
-            'RGB',
-            3,
-            'page.ppm',
-        ],
-        [
-            'gray',
-            1,
-            'page.pgm',
-        ],
+        ['RGB', 3, 'page.ppm'],
+        ['gray', 1, 'page.pgm'],
     ] as const)('writes Optimize %s pages as JPEG or Flate, whichever desktop would keep', async (_label, channels, fileName) => {
         await stubSuccessfulImageCombineWasmFetch();
         const {tryCombineImageInputsWithWasm} = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
@@ -386,33 +352,31 @@ describe('tryCombineImageInputsWithWasm', () => {
             widthPoints: 48,
             heightPoints: 48,
         };
-        const combine = (data: Uint8Array) => tryCombineImageInputsWithWasm([], {pageSpecs: [{
-            kind: 'image-jpeg-with-flate-fallback',
-            pageSize,
-            jpegQuality: 82,
-            image: {
-                fileName,
-                data,
-            },
-        }]});
+        const combine = (data: Uint8Array) =>
+            tryCombineImageInputsWithWasm([], {
+                pageSpecs: [
+                    {
+                        kind: 'image-jpeg-with-flate-fallback',
+                        pageSize,
+                        jpegQuality: 82,
+                        image: {
+                            fileName,
+                            data,
+                        },
+                    },
+                ],
+            });
 
         const photograph = await combine(createNetpbmBytes(channels, 128, 128, photo));
         const flat = await combine(createNetpbmBytes(channels, 128, 128, () => 200));
 
-        for (const [
-            outcome,
-            isJpeg,
-        ] of [
-                [
-                    photograph,
-                    true,
-                ],
-                [
-                    flat,
-                    false,
-                ],
-            ] as const) {
-            if (outcome.status !== 'success') {throw new Error(`Expected PDF bytes, got ${outcome.status}`);}
+        for (const [outcome, isJpeg] of [
+            [photograph, true],
+            [flat, false],
+        ] as const) {
+            if (outcome.status !== 'success') {
+                throw new Error(`Expected PDF bytes, got ${outcome.status}`);
+            }
             expect(Buffer.from(outcome.data).toString('latin1').includes('/DCTDecode')).toBe(isJpeg);
             expect((await PDFDocument.load(outcome.data)).getPage(0).getSize()).toEqual({
                 width: 48,
@@ -429,20 +393,24 @@ describe('tryCombineImageInputsWithWasm', () => {
         const outcome = await tryCombineImageInputsWithWasm([], {
             jpegQuality: 82,
             ppiCap: 300,
-            pageSpecs: [{
-                kind: 'image-bw',
-                pageSize: {
-                    widthPoints: 72,
-                    heightPoints: 72,
+            pageSpecs: [
+                {
+                    kind: 'image-bw',
+                    pageSize: {
+                        widthPoints: 72,
+                        heightPoints: 72,
+                    },
+                    image: {
+                        fileName: 'page.pgm',
+                        data: square,
+                    },
                 },
-                image: {
-                    fileName: 'page.pgm',
-                    data: square,
-                },
-            }],
+            ],
         });
 
-        if (outcome.status !== 'success') {throw new Error(`Expected PDF bytes, got ${outcome.status}`);}
+        if (outcome.status !== 'success') {
+            throw new Error(`Expected PDF bytes, got ${outcome.status}`);
+        }
         const text = Buffer.from(outcome.data).toString('latin1');
         expect(text).toContain('/BitsPerComponent 1');
         expect(text).toContain('/Width 96');
@@ -456,30 +424,34 @@ describe('tryCombineImageInputsWithWasm', () => {
         await stubSuccessfulImageCombineWasmFetch();
         const {tryCombineImageInputsWithWasm} = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
         const page = createNetpbmBytes(1, 96, 96, (x, y) => (x >= 24 && x < 72 && y >= 24 && y < 72 ? 20 : 235));
-        const bilevel = new Uint8Array([
-            ...new TextEncoder().encode('P4\n8 1\n'),
-            0x80,
-        ]);
+        const bilevel = new Uint8Array([...new TextEncoder().encode('P4\n8 1\n'), 0x80]);
 
-        const outcome = await tryCombineImageInputsWithWasm([
+        const outcome = await tryCombineImageInputsWithWasm(
+            [
+                {
+                    fileName: 'p1-0.pbm',
+                    data: bilevel,
+                },
+                {
+                    fileName: 'p2-0.pgm',
+                    data: page,
+                },
+            ],
             {
-                fileName: 'p1-0.pbm',
-                data: bilevel,
+                compactManifestLines: [
+                    'image-bilevel\t72.000000\t36.000000\tp1-0.pbm',
+                    'image-jpeg\t72.000000\t72.000000\t85\tp2-0.pgm\t0.000000\t0.000000\t36.000000\t36.000000',
+                ],
             },
-            {
-                fileName: 'p2-0.pgm',
-                data: page,
-            },
-        ], {compactManifestLines: [
-            'image-bilevel\t72.000000\t36.000000\tp1-0.pbm',
-            'image-jpeg\t72.000000\t72.000000\t85\tp2-0.pgm\t0.000000\t0.000000\t36.000000\t36.000000',
-        ]});
+        );
 
-        if (outcome.status !== 'success') {throw new Error(`Expected PDF bytes, got ${outcome.status}`);}
+        if (outcome.status !== 'success') {
+            throw new Error(`Expected PDF bytes, got ${outcome.status}`);
+        }
         const text = Buffer.from(outcome.data).toString('latin1');
         expect(text).toContain('/BitsPerComponent 1');
         const pdf = await PDFDocument.load(outcome.data);
-        expect(pdf.getPages().map(pdfPage => pdfPage.getSize())).toEqual([
+        expect(pdf.getPages().map((pdfPage) => pdfPage.getSize())).toEqual([
             {
                 width: 72,
                 height: 36,
@@ -503,29 +475,47 @@ describe('tryCombineImageInputsWithWasm', () => {
             data: createNetpbmBytes(3, 8, 8, () => 128),
         };
 
-        await expect(tryCombineImageInputsWithWasm([], {pageSpecs: [{
-            kind: 'image-bw',
-            pageSize,
-            image: rgb,
-        }]})).resolves.toEqual({status: 'unsupported'});
-        await expect(tryCombineImageInputsWithWasm([], {pageSpecs: [{
-            kind: 'image-jpeg-with-flate-fallback',
-            pageSize,
-            jpegQuality: 60,
-            image: {
-                fileName: 'page.png',
-                data: new Uint8Array(8),
-            },
-        }]})).resolves.toEqual({status: 'unsupported'});
+        await expect(
+            tryCombineImageInputsWithWasm([], {
+                pageSpecs: [
+                    {
+                        kind: 'image-bw',
+                        pageSize,
+                        image: rgb,
+                    },
+                ],
+            }),
+        ).resolves.toEqual({status: 'unsupported'});
+        await expect(
+            tryCombineImageInputsWithWasm([], {
+                pageSpecs: [
+                    {
+                        kind: 'image-jpeg-with-flate-fallback',
+                        pageSize,
+                        jpegQuality: 60,
+                        image: {
+                            fileName: 'page.png',
+                            data: new Uint8Array(8),
+                        },
+                    },
+                ],
+            }),
+        ).resolves.toEqual({status: 'unsupported'});
         // A misnamed render still reaches the engine, which checks its bytes.
-        await expect(tryCombineImageInputsWithWasm([], {pageSpecs: [{
-            kind: 'image-bw',
-            pageSize,
-            image: {
-                ...rgb,
-                fileName: 'page.pgm',
-            },
-        }]})).resolves.toMatchObject({
+        await expect(
+            tryCombineImageInputsWithWasm([], {
+                pageSpecs: [
+                    {
+                        kind: 'image-bw',
+                        pageSize,
+                        image: {
+                            ...rgb,
+                            fileName: 'page.pgm',
+                        },
+                    },
+                ],
+            }),
+        ).resolves.toMatchObject({
             status: 'fatal',
             error: {message: expect.stringContaining('binary Netpbm render')},
         });
@@ -534,10 +524,12 @@ describe('tryCombineImageInputsWithWasm', () => {
     it('turns a valid two-frame TIFF into ordered worker PDF pages', async () => {
         const fetchMock = await stubSuccessfulImageCombineWasmFetch();
         const tiff = createTwoFrameTiffBytes();
-        const response = await runBrowserPdfCombineWorker([{
-            fileName: 'scan.tiff',
-            data: tiff,
-        }]);
+        const response = await runBrowserPdfCombineWorker([
+            {
+                fileName: 'scan.tiff',
+                data: tiff,
+            },
+        ]);
         expect(response).toMatchObject({
             id: 1,
             type: 'combinePdfs',
@@ -547,10 +539,12 @@ describe('tryCombineImageInputsWithWasm', () => {
             throw new Error('Expected the browser combine worker to return TIFF PDF bytes');
         }
         const combined = await PDFDocument.load(response.data);
-        expect(combined.getPages().map(page => ({
-            height: page.getHeight(),
-            width: page.getWidth(),
-        }))).toEqual([
+        expect(
+            combined.getPages().map((page) => ({
+                height: page.getHeight(),
+                width: page.getWidth(),
+            })),
+        ).toEqual([
             {
                 height: 1,
                 width: 1,
@@ -566,7 +560,9 @@ describe('tryCombineImageInputsWithWasm', () => {
 
     it('combines JP2 and grayscale pages through real WASM without re-encoding the JP2', async () => {
         await stubSuccessfulImageCombineWasmFetch();
-        const jp2 = new Uint8Array(Buffer.from((await readFile(join(process.cwd(), 'tests/fixtures/electron/jp2-rgb-scan.jp2.b64'), 'utf8')).trim(), 'base64'));
+        const jp2 = new Uint8Array(
+            Buffer.from((await readFile(join(process.cwd(), 'tests/fixtures/electron/jp2-rgb-scan.jp2.b64'), 'utf8')).trim(), 'base64'),
+        );
         const response = await runBrowserPdfCombineWorker([
             {
                 fileName: 'scan.JP2',
@@ -582,7 +578,7 @@ describe('tryCombineImageInputsWithWasm', () => {
             throw new Error('Expected JP2 PDF bytes');
         }
         const combined = await PDFDocument.load(response.data);
-        expect(combined.getPages().map(page => page.getSize())).toEqual([
+        expect(combined.getPages().map((page) => page.getSize())).toEqual([
             {
                 width: 64,
                 height: 40,
@@ -597,20 +593,21 @@ describe('tryCombineImageInputsWithWasm', () => {
 
     it('rejects malformed and oversized JP2 headers before decoding', async () => {
         const fetchMock = await stubSuccessfulImageCombineWasmFetch();
-        const jp2 = new Uint8Array(Buffer.from((await readFile(join(process.cwd(), 'tests/fixtures/electron/jp2-rgb-scan.jp2.b64'), 'utf8')).trim(), 'base64'));
+        const jp2 = new Uint8Array(
+            Buffer.from((await readFile(join(process.cwd(), 'tests/fixtures/electron/jp2-rgb-scan.jp2.b64'), 'utf8')).trim(), 'base64'),
+        );
         const oversized = jp2.slice();
         const header = Buffer.from(oversized).indexOf('ihdr');
         new DataView(oversized.buffer).setUint32(header + 4, 100_000, false);
         new DataView(oversized.buffer).setUint32(header + 8, 100_000, false);
-        for (const data of [
-            jp2.slice(0, header + 8),
-            oversized,
-        ]) {
+        for (const data of [jp2.slice(0, header + 8), oversized]) {
             vi.resetModules();
-            const response = await runBrowserPdfCombineWorker([{
-                fileName: 'scan.jp2',
-                data,
-            }]);
+            const response = await runBrowserPdfCombineWorker([
+                {
+                    fileName: 'scan.jp2',
+                    data,
+                },
+            ]);
             expect(response).toMatchObject({
                 ok: false,
                 error: expect.any(String),
@@ -649,17 +646,21 @@ describe('tryCombineImageInputsWithWasm', () => {
     it('leaves TIFF pixel decoding to WASM, which reports corrupt frame data', async () => {
         const fetchMock = await stubSuccessfulImageCombineWasmFetch();
         // Valid page directories over a strip that is not a Deflate stream.
-        const tiff = createTiffBytes([{
-            width: 16,
-            height: 16,
-            grayPixels: new Uint8Array(64).fill(0xff),
-            compression: 8,
-        }]);
+        const tiff = createTiffBytes([
+            {
+                width: 16,
+                height: 16,
+                grayPixels: new Uint8Array(64).fill(0xff),
+                compression: 8,
+            },
+        ]);
 
-        const response = await runBrowserPdfCombineWorker([{
-            fileName: 'corrupt.tiff',
-            data: tiff,
-        }]);
+        const response = await runBrowserPdfCombineWorker([
+            {
+                fileName: 'corrupt.tiff',
+                data: tiff,
+            },
+        ]);
 
         expect(response).toMatchObject({
             id: 1,
@@ -675,10 +676,12 @@ describe('tryCombineImageInputsWithWasm', () => {
         const tiff = Uint8Array.of(1, 2, 3);
         const sourceSnapshot = tiff.slice();
 
-        const response = await runBrowserPdfCombineWorker([{
-            fileName: 'malformed.tiff',
-            data: tiff,
-        }]);
+        const response = await runBrowserPdfCombineWorker([
+            {
+                fileName: 'malformed.tiff',
+                data: tiff,
+            },
+        ]);
 
         expect(response).toMatchObject({
             id: 1,
@@ -692,53 +695,36 @@ describe('tryCombineImageInputsWithWasm', () => {
 
     it('combines supported image inputs through the WASM export', async () => {
         const fetchMock = createFetchMock();
-        const wasmMock = createWasmExportsMock({output: new Uint8Array([
-            9,
-            8,
-            7,
-        ])});
+        const wasmMock = createWasmExportsMock({output: new Uint8Array([9, 8, 7])});
         const instantiateMock = vi.fn(async () => ({instance: {exports: wasmMock.exports}}));
         vi.stubGlobal('fetch', fetchMock);
         vi.stubGlobal('WebAssembly', {
             ...wasmGlobalMockBase,
             instantiate: instantiateMock,
         });
-        const { tryCombineImageInputsWithWasm } = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
+        const {tryCombineImageInputsWithWasm} = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
 
-        const result = await tryCombineImageInputsWithWasm([{
-            fileName: 'scan.png',
-            data: new Uint8Array([
-                1,
-                2,
-                3,
-            ]),
-        }]);
+        const result = await tryCombineImageInputsWithWasm([
+            {
+                fileName: 'scan.png',
+                data: new Uint8Array([1, 2, 3]),
+            },
+        ]);
 
         expect(result).toEqual({
             status: 'success',
-            data: new Uint8Array([
-                9,
-                8,
-                7,
-            ]),
+            data: new Uint8Array([9, 8, 7]),
         });
-        expect(fetchMock).toHaveBeenCalledWith(
-            'https://viewer.test/wasm/evb-pdf-image-combine.wasm',
-            {signal: expect.any(AbortSignal)},
-        );
+        expect(fetchMock).toHaveBeenCalledWith('https://viewer.test/wasm/evb-pdf-image-combine.wasm', {signal: expect.any(AbortSignal)});
         expect(instantiateMock).toHaveBeenCalledTimes(1);
         expect(wasmMock.free).toHaveBeenCalledTimes(1);
         const request = wasmMock.capturedRequest();
         expect(new TextDecoder().decode(request.slice(0, 4))).toBe('EPIC');
         const view = new DataView(request.buffer, request.byteOffset, request.byteLength);
         expect(view.getUint32(4, true)).toBe(1);
-        expect(view.getUint32(4 + (5 * 4), true)).toBe(1);
+        expect(view.getUint32(4 + 5 * 4, true)).toBe(1);
         expect(decodeRequestNameAndData(request)).toEqual({
-            data: new Uint8Array([
-                1,
-                2,
-                3,
-            ]),
+            data: new Uint8Array([1, 2, 3]),
             name: 'scan.png',
         });
     });
@@ -754,10 +740,16 @@ describe('tryCombineImageInputsWithWasm', () => {
         });
         const {tryCombineImageInputsWithWasm} = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
         const controller = new AbortController();
-        const combining = tryCombineImageInputsWithWasm([{
-            fileName: 'scan.png',
-            data: new Uint8Array([1]),
-        }], undefined, controller.signal);
+        const combining = tryCombineImageInputsWithWasm(
+            [
+                {
+                    fileName: 'scan.png',
+                    data: new Uint8Array([1]),
+                },
+            ],
+            undefined,
+            controller.signal,
+        );
 
         await vi.waitFor(() => expect(instantiateMock).toHaveBeenCalledOnce());
         controller.abort();
@@ -769,72 +761,54 @@ describe('tryCombineImageInputsWithWasm', () => {
     });
 
     it('encodes layered page specs as a version 4 WASM request', async () => {
-        const wasmMock = createWasmExportsMock({output: new Uint8Array([
-            4,
-            5,
-            6,
-        ])});
+        const wasmMock = createWasmExportsMock({output: new Uint8Array([4, 5, 6])});
         vi.stubGlobal('fetch', createFetchMock());
         vi.stubGlobal('WebAssembly', {
             ...wasmGlobalMockBase,
             instantiate: vi.fn(async () => ({instance: {exports: wasmMock.exports}})),
         });
-        const { tryCombineImageInputsWithWasm } = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
+        const {tryCombineImageInputsWithWasm} = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
 
-        const background = new Uint8Array([
-            0x50,
-            0x36,
-        ]);
-        const mask = new Uint8Array([
-            0x50,
-            0x34,
-        ]);
-        const result = await tryCombineImageInputsWithWasm([], {pageSpecs: [{
-            kind: 'layered-color',
-            pageSize: {
-                widthPoints: 310.32,
-                heightPoints: 471.84,
-            },
-            jpegQuality: 80,
-            ppiCap: 300,
-            foregroundColor: [
-                128,
-                16,
-                16,
+        const background = new Uint8Array([0x50, 0x36]);
+        const mask = new Uint8Array([0x50, 0x34]);
+        const result = await tryCombineImageInputsWithWasm([], {
+            pageSpecs: [
+                {
+                    kind: 'layered-color',
+                    pageSize: {
+                        widthPoints: 310.32,
+                        heightPoints: 471.84,
+                    },
+                    jpegQuality: 80,
+                    ppiCap: 300,
+                    foregroundColor: [128, 16, 16],
+                    background: {
+                        fileName: 'background.ppm',
+                        data: background,
+                    },
+                    mask: {
+                        fileName: 'mask.pbm',
+                        data: mask,
+                    },
+                },
             ],
-            background: {
-                fileName: 'background.ppm',
-                data: background,
-            },
-            mask: {
-                fileName: 'mask.pbm',
-                data: mask,
-            },
-        }]});
+        });
 
         expect(result).toEqual({
             status: 'success',
-            data: new Uint8Array([
-                4,
-                5,
-                6,
-            ]),
+            data: new Uint8Array([4, 5, 6]),
         });
         const request = wasmMock.capturedRequest();
         const view = new DataView(request.buffer, request.byteOffset, request.byteLength);
         expect(new TextDecoder().decode(request.slice(0, 4))).toBe('EPIC');
         expect(view.getUint32(4, true)).toBe(4);
-        expect(view.getUint32(4 + (5 * 4), true)).toBe(1);
+        expect(view.getUint32(4 + 5 * 4, true)).toBe(1);
         expect(decodeV4FirstPageSpec(request)).toEqual({
             background: {
                 data: background,
                 name: 'background.ppm',
             },
-            foregroundColor: [
-                128,
-                16,
-                16,
-            ],
+            foregroundColor: [128, 16, 16],
             heightPoints: 471.84,
             jpegQuality: 80,
             kind: 4,
@@ -847,15 +821,8 @@ describe('tryCombineImageInputsWithWasm', () => {
         });
     });
 
-    it.each([
-        90,
-        630,
-    ] as const)('encodes page transform %i as a version 5 WASM request', async (rotationDegrees) => {
-        const wasmMock = createWasmExportsMock({output: new Uint8Array([
-            4,
-            5,
-            6,
-        ])});
+    it.each([90, 630] as const)('encodes page transform %i as a version 5 WASM request', async (rotationDegrees) => {
+        const wasmMock = createWasmExportsMock({output: new Uint8Array([4, 5, 6])});
         vi.stubGlobal('fetch', createFetchMock());
         vi.stubGlobal('WebAssembly', {
             ...wasmGlobalMockBase,
@@ -863,27 +830,26 @@ describe('tryCombineImageInputsWithWasm', () => {
         });
         const {tryCombineImageInputsWithWasm} = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
 
-        await expect(tryCombineImageInputsWithWasm([], {pageSpecs: [{
-            kind: 'image',
-            pageSize: {
-                widthPoints: 72,
-                heightPoints: 36,
-            },
-            rotationDegrees,
-            image: {
-                fileName: 'page.ppm',
-                data: new Uint8Array([
-                    0x50,
-                    0x36,
-                ]),
-            },
-        }]})).resolves.toEqual({
+        await expect(
+            tryCombineImageInputsWithWasm([], {
+                pageSpecs: [
+                    {
+                        kind: 'image',
+                        pageSize: {
+                            widthPoints: 72,
+                            heightPoints: 36,
+                        },
+                        rotationDegrees,
+                        image: {
+                            fileName: 'page.ppm',
+                            data: new Uint8Array([0x50, 0x36]),
+                        },
+                    },
+                ],
+            }),
+        ).resolves.toEqual({
             status: 'success',
-            data: new Uint8Array([
-                4,
-                5,
-                6,
-            ]),
+            data: new Uint8Array([4, 5, 6]),
         });
 
         const request = wasmMock.capturedRequest();
@@ -898,12 +864,14 @@ describe('tryCombineImageInputsWithWasm', () => {
     it('skips WASM for mixed PDF inputs', async () => {
         const fetchMock = createFetchMock();
         vi.stubGlobal('fetch', fetchMock);
-        const { tryCombineImageInputsWithWasm } = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
+        const {tryCombineImageInputsWithWasm} = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
 
-        const result = await tryCombineImageInputsWithWasm([{
-            fileName: 'source.pdf',
-            data: new Uint8Array([1]),
-        }]);
+        const result = await tryCombineImageInputsWithWasm([
+            {
+                fileName: 'source.pdf',
+                data: new Uint8Array([1]),
+            },
+        ]);
 
         expect(result).toEqual({status: 'unsupported'});
         expect(fetchMock).not.toHaveBeenCalled();
@@ -919,10 +887,14 @@ describe('tryCombineImageInputsWithWasm', () => {
         });
         const {tryCombineImageInputsWithWasm} = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
 
-        await expect(tryCombineImageInputsWithWasm([{
-            fileName: 'scan.png',
-            data: new Uint8Array([1]),
-        }])).resolves.toEqual({status: 'unavailable'});
+        await expect(
+            tryCombineImageInputsWithWasm([
+                {
+                    fileName: 'scan.png',
+                    data: new Uint8Array([1]),
+                },
+            ]),
+        ).resolves.toEqual({status: 'unavailable'});
         expect(wasmMock.exports.evb_pdf_image_combine_alloc).not.toHaveBeenCalled();
     });
 
@@ -939,12 +911,14 @@ describe('tryCombineImageInputsWithWasm', () => {
             ...wasmGlobalMockBase,
             instantiate: vi.fn(async () => ({instance: {exports: wasmMock.exports}})),
         });
-        const { tryCombineImageInputsWithWasm } = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
+        const {tryCombineImageInputsWithWasm} = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
 
-        const result = await tryCombineImageInputsWithWasm([{
-            fileName: 'scan.png',
-            data: new Uint8Array([1]),
-        }]);
+        const result = await tryCombineImageInputsWithWasm([
+            {
+                fileName: 'scan.png',
+                data: new Uint8Array([1]),
+            },
+        ]);
 
         expect(result).toMatchObject({
             status: 'fatal',
@@ -954,20 +928,13 @@ describe('tryCombineImageInputsWithWasm', () => {
             },
         });
         expect(wasmMock.free).toHaveBeenCalledTimes(1);
-        expect(loggerWarn).toHaveBeenCalledWith(
-            'browser-wasm',
-            'PDF image combine WASM failed',
-            {
-                error: 'wasm failed',
-                code: 'corrupt-xref',
-            },
-        );
+        expect(loggerWarn).toHaveBeenCalledWith('browser-wasm', 'PDF image combine WASM failed', {
+            error: 'wasm failed',
+            code: 'corrupt-xref',
+        });
     });
 
-    it.each([
-        'allocation',
-        'combine',
-    ])('allows the next image import after a WASM %s trap', async (phase) => {
+    it.each(['allocation', 'combine'])('allows the next image import after a WASM %s trap', async (phase) => {
         const wasmMock = createWasmExportsMock({allocThrows: phase === 'allocation'});
         if (phase === 'combine') {
             wasmMock.exports.evb_pdf_image_combine_build_pdf.mockImplementation(() => {
@@ -978,25 +945,32 @@ describe('tryCombineImageInputsWithWasm', () => {
         vi.stubGlobal('fetch', createFetchMock());
         vi.stubGlobal('WebAssembly', {
             ...wasmGlobalMockBase,
-            instantiate: vi.fn()
+            instantiate: vi
+                .fn()
                 .mockResolvedValueOnce({instance: {exports: wasmMock.exports}})
                 .mockResolvedValue({instance: {exports: healthyWasm.exports}}),
         });
-        const { tryCombineImageInputsWithWasm } = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
+        const {tryCombineImageInputsWithWasm} = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
 
-        const result = await tryCombineImageInputsWithWasm([{
-            fileName: 'scan.png',
-            data: new Uint8Array([1]),
-        }]);
+        const result = await tryCombineImageInputsWithWasm([
+            {
+                fileName: 'scan.png',
+                data: new Uint8Array([1]),
+            },
+        ]);
 
         expect(result).toMatchObject({
             status: 'fatal',
             error: {code: 'too-large'},
         });
-        await expect(tryCombineImageInputsWithWasm([{
-            fileName: 'next-scan.png',
-            data: new Uint8Array([1]),
-        }])).resolves.toEqual({
+        await expect(
+            tryCombineImageInputsWithWasm([
+                {
+                    fileName: 'next-scan.png',
+                    data: new Uint8Array([1]),
+                },
+            ]),
+        ).resolves.toEqual({
             status: 'success',
             data: new TextEncoder().encode('%PDF'),
         });
@@ -1011,10 +985,12 @@ describe('tryCombineImageInputsWithWasm', () => {
         });
         const {tryCombineImageInputsWithWasm} = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
 
-        const result = await tryCombineImageInputsWithWasm([{
-            fileName: 'scan.png',
-            data: new Uint8Array([1]),
-        }]);
+        const result = await tryCombineImageInputsWithWasm([
+            {
+                fileName: 'scan.png',
+                data: new Uint8Array([1]),
+            },
+        ]);
 
         expect(result).toMatchObject({
             status: 'fatal',
@@ -1035,12 +1011,16 @@ describe('tryCombineImageInputsWithWasm', () => {
         });
         const {tryCombineImageInputsWithWasm} = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
 
-        const result = await tryCombineImageInputsWithWasm([{
-            fileName: 'scan.png',
-            data: new Uint8Array([1]),
-        }]);
+        const result = await tryCombineImageInputsWithWasm([
+            {
+                fileName: 'scan.png',
+                data: new Uint8Array([1]),
+            },
+        ]);
         expect(result.status).toBe('success');
-        if (result.status !== 'success') {throw new Error(JSON.stringify(result));}
+        if (result.status !== 'success') {
+            throw new Error(JSON.stringify(result));
+        }
         expect(Buffer.from(result.data).equals(Buffer.from(output))).toBe(true);
         expect(wasmMock.free).toHaveBeenCalledOnce();
     });
@@ -1058,10 +1038,14 @@ describe('tryCombineImageInputsWithWasm', () => {
         const data = new Uint8Array([1]);
         Object.defineProperty(data, 'byteLength', {value: 0x8000_0000});
 
-        await expect(tryCombineImageInputsWithWasm([{
-            fileName: 'scan.png',
-            data,
-        }])).resolves.toMatchObject({
+        await expect(
+            tryCombineImageInputsWithWasm([
+                {
+                    fileName: 'scan.png',
+                    data,
+                },
+            ]),
+        ).resolves.toMatchObject({
             status: 'fatal',
             error: {
                 code: 'too-large',
@@ -1093,20 +1077,28 @@ describe('tryCombineImageInputsWithWasm', () => {
         });
         const {tryCombineImageInputsWithWasm} = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
 
-        await expect(tryCombineImageInputsWithWasm([{
-            fileName: 'scan.png',
-            data: new Uint8Array([1]),
-        }])).resolves.toMatchObject({
+        await expect(
+            tryCombineImageInputsWithWasm([
+                {
+                    fileName: 'scan.png',
+                    data: new Uint8Array([1]),
+                },
+            ]),
+        ).resolves.toMatchObject({
             status: 'fatal',
             error: {code: 'invalid-request'},
         });
         expect(wasmMock.exports.evb_pdf_image_combine_build_pdf).not.toHaveBeenCalled();
         expect(wasmMock.free).toHaveBeenCalledOnce();
 
-        await expect(tryCombineImageInputsWithWasm([{
-            fileName: 'scan.png',
-            data: new Uint8Array([1]),
-        }])).resolves.toMatchObject({status: 'success'});
+        await expect(
+            tryCombineImageInputsWithWasm([
+                {
+                    fileName: 'scan.png',
+                    data: new Uint8Array([1]),
+                },
+            ]),
+        ).resolves.toMatchObject({status: 'success'});
         expect(wasmMock.exports.evb_pdf_image_combine_build_pdf).toHaveBeenCalledOnce();
         expect(wasmMock.free).toHaveBeenCalledTimes(2);
     });
@@ -1121,10 +1113,14 @@ describe('tryCombineImageInputsWithWasm', () => {
         });
         const {tryCombineImageInputsWithWasm} = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
 
-        await expect(tryCombineImageInputsWithWasm([{
-            fileName: 'scan.png',
-            data: new Uint8Array([1]),
-        }])).resolves.toMatchObject({
+        await expect(
+            tryCombineImageInputsWithWasm([
+                {
+                    fileName: 'scan.png',
+                    data: new Uint8Array([1]),
+                },
+            ]),
+        ).resolves.toMatchObject({
             status: 'fatal',
             error: {code: 'invalid-request'},
         });
@@ -1148,14 +1144,16 @@ describe('tryCombineImageInputsWithWasm', () => {
             ...wasmGlobalMockBase,
             instantiate: vi.fn(async () => ({instance: {exports: wasmMock.exports}})),
         });
-        const {tryCombineImageInputsWithWasm} = await import(
-            '@app/platform/browser-api/tryCombineImageInputsWithWasm'
-        );
+        const {tryCombineImageInputsWithWasm} = await import('@app/platform/browser-api/tryCombineImageInputsWithWasm');
 
-        await expect(tryCombineImageInputsWithWasm([{
-            fileName: 'scan.png',
-            data: new Uint8Array([1]),
-        }])).resolves.toMatchObject({
+        await expect(
+            tryCombineImageInputsWithWasm([
+                {
+                    fileName: 'scan.png',
+                    data: new Uint8Array([1]),
+                },
+            ]),
+        ).resolves.toMatchObject({
             status: 'fatal',
             error: {code: 'native-failure'},
         });

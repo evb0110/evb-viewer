@@ -1,4 +1,4 @@
-import type { TAnnotationCreationOutcome } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
+import type {TAnnotationCreationOutcome} from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
 
 /**
  * True when the canonical annotation exists, whether or not its editor is

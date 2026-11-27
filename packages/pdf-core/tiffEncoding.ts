@@ -1,4 +1,4 @@
-import { sumBy } from 'es-toolkit/math';
+import {sumBy} from 'es-toolkit/math';
 
 export interface ITiffEncoderBinaryWriter {
     writeUint(buffer: Uint8Array, offset: number, value: number): void;
@@ -7,12 +7,7 @@ export interface ITiffEncoderBinaryWriter {
 
 export interface ITiffEncoderModule {
     _binBE: ITiffEncoderBinaryWriter;
-    _writeIFD(
-        bin: ITiffEncoderBinaryWriter,
-        data: Uint8Array,
-        offset: number,
-        ifd: Record<string, unknown>,
-    ): [number, number];
+    _writeIFD(bin: ITiffEncoderBinaryWriter, data: Uint8Array, offset: number, ifd: Record<string, unknown>): [number, number];
     ttypes: Record<number, number | undefined>;
 }
 
@@ -40,12 +35,7 @@ export function buildTiffImageIfd(page: ITiffImageDescriptor, dataOffset: number
     return {
         t256: [page.width],
         t257: [page.height],
-        t258: [
-            8,
-            8,
-            8,
-            8,
-        ],
+        t258: [8, 8, 8, 8],
         t259: [1],
         t262: [2],
         t273: [dataOffset],
@@ -69,10 +59,10 @@ export function getTiffValueCount(value: unknown) {
     }
 
     if (
-        ArrayBuffer.isView(value)
-        && 'BYTES_PER_ELEMENT' in value
-        && typeof value.BYTES_PER_ELEMENT === 'number'
-        && value.BYTES_PER_ELEMENT > 0
+        ArrayBuffer.isView(value) &&
+        'BYTES_PER_ELEMENT' in value &&
+        typeof value.BYTES_PER_ELEMENT === 'number' &&
+        value.BYTES_PER_ELEMENT > 0
     ) {
         return Math.floor(value.byteLength / value.BYTES_PER_ELEMENT);
     }
@@ -80,10 +70,7 @@ export function getTiffValueCount(value: unknown) {
     return 1;
 }
 
-export function measureTiffIfdSize(
-    ifd: Record<string, unknown>,
-    ttypes: Record<number, number | undefined>,
-) {
+export function measureTiffIfdSize(ifd: Record<string, unknown>, ttypes: Record<number, number | undefined>) {
     const keys = Object.keys(ifd);
     let extraDataLength = 0;
 
@@ -95,23 +82,21 @@ export function measureTiffIfdSize(
         }
 
         const rawValue = ifd[key];
-        const valueLength = type === 2
-            ? `${String(Array.isArray(rawValue) ? rawValue[0] ?? '' : rawValue ?? '')}\0`.length
-            : getTiffValueCount(rawValue);
+        const valueLength =
+            type === 2
+                ? `${String(Array.isArray(rawValue) ? (rawValue[0] ?? '') : (rawValue ?? ''))}\0`.length
+                : getTiffValueCount(rawValue);
         const dataLength = (TIFF_TYPE_BYTES[type] ?? 0) * valueLength;
         if (dataLength > 4) {
             extraDataLength += dataLength + (dataLength & 1);
         }
     }
 
-    return 2 + (keys.length * 12) + 4 + extraDataLength;
+    return 2 + keys.length * 12 + 4 + extraDataLength;
 }
 
-export function encodeTiffIfds(
-    ifds: Array<Record<string, unknown>>,
-    encoder: ITiffEncoderModule,
-) {
-    const capacity = 8 + sumBy(ifds, ifd => measureTiffIfdSize(ifd, encoder.ttypes));
+export function encodeTiffIfds(ifds: Array<Record<string, unknown>>, encoder: ITiffEncoderModule) {
+    const capacity = 8 + sumBy(ifds, (ifd) => measureTiffIfdSize(ifd, encoder.ttypes));
     const data = new Uint8Array(capacity);
     const bin = encoder._binBE;
 
@@ -123,10 +108,7 @@ export function encodeTiffIfds(
     bin.writeUint(data, 4, ifdOffset);
 
     for (let index = 0; index < ifds.length; index += 1) {
-        const [
-            nextIfdPointerOffset,
-            nextIfdOffset,
-        ] = encoder._writeIFD(bin, data, ifdOffset, ifds[index]!);
+        const [nextIfdPointerOffset, nextIfdOffset] = encoder._writeIFD(bin, data, ifdOffset, ifds[index]!);
         ifdOffset = nextIfdOffset;
         if (index < ifds.length - 1) {
             bin.writeUint(data, nextIfdPointerOffset, ifdOffset);
@@ -136,10 +118,10 @@ export function encodeTiffIfds(
     return data.slice(0, ifdOffset);
 }
 
-export const CLASSIC_TIFF_MAX_BYTE_LENGTH = 0xFFFFFFFF;
+export const CLASSIC_TIFF_MAX_BYTE_LENGTH = 0xffffffff;
 
 function tiffHeaderByteLength(pages: ITiffImageDescriptor[], encoder: ITiffEncoderModule) {
-    return 8 + sumBy(pages, page => measureTiffIfdSize(buildTiffImageIfd(page, 0), encoder.ttypes));
+    return 8 + sumBy(pages, (page) => measureTiffIfdSize(buildTiffImageIfd(page, 0), encoder.ttypes));
 }
 
 function alignTiffDataOffset(headerByteLength: number) {
@@ -147,17 +129,17 @@ function alignTiffDataOffset(headerByteLength: number) {
 }
 
 export function estimateMultiPageTiffByteLength(pages: ITiffImageDescriptor[], encoder: ITiffEncoderModule) {
-    return alignTiffDataOffset(tiffHeaderByteLength(pages, encoder)) + sumBy(pages, page => page.dataLength);
+    return alignTiffDataOffset(tiffHeaderByteLength(pages, encoder)) + sumBy(pages, (page) => page.dataLength);
 }
 
 export function encodeMultiPageTiffHeader(pages: ITiffImageDescriptor[], encoder: ITiffEncoderModule) {
     const firstDataOffset = alignTiffDataOffset(tiffHeaderByteLength(pages, encoder));
-    const totalByteLength = firstDataOffset + sumBy(pages, page => page.dataLength);
+    const totalByteLength = firstDataOffset + sumBy(pages, (page) => page.dataLength);
     if (totalByteLength > CLASSIC_TIFF_MAX_BYTE_LENGTH) {
         throw new Error('Multi-page TIFF export exceeds the Classic TIFF 4GB limit');
     }
     let offset = firstDataOffset;
-    const ifds = pages.map(page => {
+    const ifds = pages.map((page) => {
         const ifd = buildTiffImageIfd(page, offset);
         offset += page.dataLength;
         return ifd;
@@ -193,6 +175,8 @@ export function splitTiffPageDescriptorsForClassicLimit<TPage extends ITiffImage
         headerBytes += ifdBytes;
         dataBytes += page.dataLength;
     }
-    if (group.length) {groups.push(group);}
+    if (group.length) {
+        groups.push(group);
+    }
     return groups;
 }

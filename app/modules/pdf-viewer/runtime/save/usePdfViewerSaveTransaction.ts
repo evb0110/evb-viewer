@@ -1,13 +1,10 @@
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import type {
-    ComputedRef,
-    ShallowRef,
-} from 'vue';
+import type {ComputedRef, ShallowRef} from 'vue';
 import type {IShapeAnnotation} from '@app/types/annotations';
 import type {IPdfAnnotationParseResult} from '@contracts/pdfAnnotationParseTypes';
-import { BrowserLogger } from '@app/utils/browserLogger';
+import {BrowserLogger} from '@app/utils/browserLogger';
 import type {TPdfSaveRouteDecision} from '@app/modules/pdf-viewer/runtime/save/nativeMutationProjection';
-import { buildNativePdfMutationProjection } from '@app/modules/pdf-viewer/runtime/save/nativeMutationProjection';
+import {buildNativePdfMutationProjection} from '@app/modules/pdf-viewer/runtime/save/nativeMutationProjection';
 import type {
     IPdfViewerNativeRequiredFailure,
     IPdfViewerNativeMaterializationRequest,
@@ -15,24 +12,22 @@ import type {
     TNativeSaveRouteRejection,
     TPdfViewerSaveTransactionMode,
 } from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
-import type {
-    ISerializationPlan,
-    ISerializationPlanInputs,
-} from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
+import type {ISerializationPlan, ISerializationPlanInputs} from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
 import {buildSerializationPlan} from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
 import type {AnnotationApplication} from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import {
     mapPdfAnnotationParseEntity,
     mapPdfAnnotationParseForeign,
 } from '@app/modules/pdf-viewer/runtime/sessions/mapPdfAnnotationParseEntity';
-import { isPdfDocumentUsable } from '@app/utils/isPdfDocumentUsable';
+import {isPdfDocumentUsable} from '@app/utils/isPdfDocumentUsable';
 import {measureOperationPhase} from '@contracts/measureOperationPhase';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import type {IPdfNativeAnnotationIdentityBinding} from '@contracts/electronApiDocuments';
-import { createStaleRevisionError } from '@contracts/documentMutationErrors';
-import { collectNativeTextBoxMutationsForSave } from '@app/modules/pdf-viewer/runtime/save/nativeTextBoxMutations';
+import {createStaleRevisionError} from '@contracts/documentMutationErrors';
+import {collectNativeTextBoxMutationsForSave} from '@app/modules/pdf-viewer/runtime/save/nativeTextBoxMutations';
 import {
-    readPdfDocumentOriginalAnnotations, readPdfDocumentOriginalAnnotationSource,
+    readPdfDocumentOriginalAnnotations,
+    readPdfDocumentOriginalAnnotationSource,
 } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentLoadedRevision';
 
 const SLOW_SAVE_PREPARATION_STEP_MS = 250;
@@ -63,14 +58,8 @@ interface IUsePdfViewerSaveTransactionOptions {
     };
 }
 
-function logSaveRouteDecision(
-    request: IPdfViewerNativeMaterializationRequest,
-    decision: TPdfSaveRouteDecision,
-) {
-    const {
-        canonical,
-        annotationPlan,
-    } = decision;
+function logSaveRouteDecision(request: IPdfViewerNativeMaterializationRequest, decision: TPdfSaveRouteDecision) {
+    const {canonical, annotationPlan} = decision;
     BrowserLogger.debug('workspace', 'Planned PDF annotation save route', {
         route: decision.route,
         annotationRoute: annotationPlan.route,
@@ -89,22 +78,18 @@ function logSaveRouteDecision(
     });
 }
 
-function nativeRequiredFailureReason(
-    rejection: TNativeSaveRouteRejection,
-): IPdfViewerNativeRequiredFailure['reason'] {
+function nativeRequiredFailureReason(rejection: TNativeSaveRouteRejection): IPdfViewerNativeRequiredFailure['reason'] {
     if (
-        rejection === 'save-descriptors-unavailable'
-        || rejection === 'native-save-capability-unavailable'
-        || rejection === 'native-structured-save-capability-unavailable'
+        rejection === 'save-descriptors-unavailable' ||
+        rejection === 'native-save-capability-unavailable' ||
+        rejection === 'native-structured-save-capability-unavailable'
     ) {
         return 'missing-native-capability';
     }
     return 'classifier-rejection';
 }
 
-function createNativeRequiredFailure(
-    rejection: TNativeSaveRouteRejection,
-): IPdfViewerNativeRequiredFailure {
+function createNativeRequiredFailure(rejection: TNativeSaveRouteRejection): IPdfViewerNativeRequiredFailure {
     return {
         code: 'native-save-required',
         phase: 'pre-write',
@@ -113,14 +98,15 @@ function createNativeRequiredFailure(
     };
 }
 
-export const usePdfViewerSaveTransaction = (
-    options: IUsePdfViewerSaveTransactionOptions,
-) => {
+export const usePdfViewerSaveTransaction = (options: IUsePdfViewerSaveTransactionOptions) => {
     const getPdfDocument = () => options.pdfDocument?.value ?? options.getPdfDocument?.() ?? null;
-    function prepareAnnotationSave(input: {
-        annotationApplication: AnnotationApplication | undefined;
-        documentRevisionToken: TDocumentRevisionToken | null;
-    }, mode: TPdfViewerSaveTransactionMode) {
+    function prepareAnnotationSave(
+        input: {
+            annotationApplication: AnnotationApplication | undefined;
+            documentRevisionToken: TDocumentRevisionToken | null;
+        },
+        mode: TPdfViewerSaveTransactionMode,
+    ) {
         if (options.prepareAnnotationSave) {
             return options.prepareAnnotationSave();
         }
@@ -130,7 +116,7 @@ export const usePdfViewerSaveTransaction = (
         }
         const session = application.beginSave(input.documentRevisionToken);
         const preserveSavedBaseline = mode === 'embedded-mutation';
-        let expectedUpserts = session.plan.expected.filter(entity => !entity.deleted);
+        let expectedUpserts = session.plan.expected.filter((entity) => !entity.deleted);
         return {
             plan: session.plan,
             verify: () => Promise.resolve(),
@@ -140,44 +126,41 @@ export const usePdfViewerSaveTransaction = (
             ...(mode === 'persist' ? {} : {assertCurrent: () => application.assertSaveCurrent(session, input.documentRevisionToken)}),
             commit: (identityBindings?: readonly IPdfNativeAnnotationIdentityBinding[], saved = true) => {
                 application.acknowledgeSave(session, input.documentRevisionToken, identityBindings, preserveSavedBaseline || !saved);
-                expectedUpserts = expectedUpserts.map(entity => ({
+                expectedUpserts = expectedUpserts.map((entity) => ({
                     ...entity,
                     identity: application.store.get(entity.identity.id)?.identity ?? entity.identity,
                 }));
             },
-            replaceFromDocument: (result: IPdfAnnotationParseResult, deletedReplyRefs?: readonly string[]) => application.store.replaceFromDocument(
-                result.entities.map(entry => mapPdfAnnotationParseEntity(entry)),
-                result.foreign.map(mapPdfAnnotationParseForeign),
-                result.pageIndices,
-                expectedUpserts,
-                deletedReplyRefs,
-                preserveSavedBaseline,
-                result.documentRevisionToken,
-            ),
+            replaceFromDocument: (result: IPdfAnnotationParseResult, deletedReplyRefs?: readonly string[]) =>
+                application.store.replaceFromDocument(
+                    result.entities.map((entry) => mapPdfAnnotationParseEntity(entry)),
+                    result.foreign.map(mapPdfAnnotationParseForeign),
+                    result.pageIndices,
+                    expectedUpserts,
+                    deletedReplyRefs,
+                    preserveSavedBaseline,
+                    result.documentRevisionToken,
+                ),
             affectedPageIndices: session.affectedPageIndices,
         };
     }
 
-    async function runSaveTransaction(
-        initialRequest: IPdfViewerNativeMaterializationRequest,
-    ): Promise<IPdfViewerSaveTransactionResult> {
+    async function runSaveTransaction(initialRequest: IPdfViewerNativeMaterializationRequest): Promise<IPdfViewerSaveTransactionResult> {
         const capturedTarget = {
             annotationApplication: options.annotationApplication?.value,
             pdfDocument: getPdfDocument(),
             documentRevisionToken: options.documentRevisionToken?.value ?? null,
         };
-        const staleTargetError = (message: string) => createStaleRevisionError({
-            expectedRevision: capturedTarget.documentRevisionToken,
-            actualRevision: options.documentRevisionToken?.value ?? null,
-            message,
-        });
+        const staleTargetError = (message: string) =>
+            createStaleRevisionError({
+                expectedRevision: capturedTarget.documentRevisionToken,
+                actualRevision: options.documentRevisionToken?.value ?? null,
+                message,
+            });
         // A Save is fenced on its document: the application, the PDF proxy and the byte revision it captured.
         // A view's presentation lifecycle (a tab switch, a closed split pane) changes none of them.
         function assertSaveTargetCurrent() {
-            if (
-                options.annotationApplication
-                && options.annotationApplication.value !== capturedTarget.annotationApplication
-            ) {
+            if (options.annotationApplication && options.annotationApplication.value !== capturedTarget.annotationApplication) {
                 throw staleTargetError('Annotation application changed after the save frontier was captured');
             }
             if (options.pdfDocument && (!capturedTarget.pdfDocument || getPdfDocument() !== capturedTarget.pdfDocument)) {
@@ -186,28 +169,25 @@ export const usePdfViewerSaveTransaction = (
             if (capturedTarget.pdfDocument && !isPdfDocumentUsable(capturedTarget.pdfDocument)) {
                 throw staleTargetError('Captured PDF document is no longer usable');
             }
-            if (
-                options.documentRevisionToken
-                && options.documentRevisionToken.value !== capturedTarget.documentRevisionToken
-            ) {
+            if (options.documentRevisionToken && options.documentRevisionToken.value !== capturedTarget.documentRevisionToken) {
                 throw staleTargetError('Document revision changed after the save frontier was captured');
             }
         }
         const request = {...initialRequest};
         const measurePreparationStep = async <T>(phase: string, operation: () => Promise<T> | T) => {
-            return measureOperationPhase(async () => operation(), durationMs => {
-                if (durationMs >= SLOW_SAVE_PREPARATION_STEP_MS) {
-                    BrowserLogger.warn('workspace', 'Slow PDF save preparation step', {
-                        phase,
-                        durationMs,
-                    });
-                }
-            });
+            return measureOperationPhase(
+                async () => operation(),
+                (durationMs) => {
+                    if (durationMs >= SLOW_SAVE_PREPARATION_STEP_MS) {
+                        BrowserLogger.warn('workspace', 'Slow PDF save preparation step', {
+                            phase,
+                            durationMs,
+                        });
+                    }
+                },
+            );
         };
-        await measurePreparationStep(
-            'flush-annotation-mutations',
-            () => options.flushAnnotationMutationsForSave?.(),
-        );
+        await measurePreparationStep('flush-annotation-mutations', () => options.flushAnnotationMutationsForSave?.());
         assertSaveTargetCurrent();
         // An editor's commit resolves once the store holds its draft, so the frontier below includes it.
         await measurePreparationStep('commit-editor-models', () => options.commitPendingEditorDraftsForSave?.());
@@ -218,36 +198,37 @@ export const usePdfViewerSaveTransaction = (
         // sample metadata or route constraints from mutable UI state.
         const planInputs: ISerializationPlanInputs = {
             metadata: {
-                pageLabels: request.documentStructure?.pageLabelsDirty
-                    ? request.documentStructure.pageLabelRanges
-                    : null,
-                bookmarks: request.documentStructure?.bookmarksDirty
-                    ? request.documentStructure.bookmarkItems
-                    : null,
+                pageLabels: request.documentStructure?.pageLabelsDirty ? request.documentStructure.pageLabelRanges : null,
+                bookmarks: request.documentStructure?.bookmarksDirty ? request.documentStructure.bookmarkItems : null,
             },
             routeConstraints: {
                 forceRewrite: request.forceRewrite === true,
                 preserveLoadedSource: request.mode !== 'persist',
-                allowedBackends: request.forceRewrite
-                    ? ['native-append']
-                    : AVAILABLE_SERIALIZATION_BACKENDS,
+                allowedBackends: request.forceRewrite ? ['native-append'] : AVAILABLE_SERIALIZATION_BACKENDS,
             },
             postconditions: {expectedPageCount: request.documentStructure?.totalPages ?? null},
         };
         const frontierPlan = canonicalSave?.plan;
         const globalSerializationPlan = frontierPlan
             ? buildSerializationPlan(frontierPlan.frontier, frontierPlan.expected, frontierPlan.entities, planInputs)
-            : buildSerializationPlan({
-                documentRevisionToken: null,
-                epoch: 0,
-                entityBaselineHash: 'no-canonical-annotation-frontier',
-                revisions: new Map(),
-            }, [], [], planInputs);
+            : buildSerializationPlan(
+                  {
+                      documentRevisionToken: null,
+                      epoch: 0,
+                      entityBaselineHash: 'no-canonical-annotation-frontier',
+                      revisions: new Map(),
+                  },
+                  [],
+                  [],
+                  planInputs,
+              );
         request.annotationSerializationPlan = globalSerializationPlan;
-        const nativeTextBoxes = await measurePreparationStep(
-            'collect-native-text-box-mutations',
-            () => collectNativeTextBoxMutationsForSave(capturedTarget.pdfDocument, globalSerializationPlan,
-                capturedTarget.pdfDocument && readPdfDocumentOriginalAnnotations(capturedTarget.pdfDocument)),
+        const nativeTextBoxes = await measurePreparationStep('collect-native-text-box-mutations', () =>
+            collectNativeTextBoxMutationsForSave(
+                capturedTarget.pdfDocument,
+                globalSerializationPlan,
+                capturedTarget.pdfDocument && readPdfDocumentOriginalAnnotations(capturedTarget.pdfDocument),
+            ),
         );
         assertSaveTargetCurrent();
         const canonicalSaveCallbacks = {
@@ -269,10 +250,7 @@ export const usePdfViewerSaveTransaction = (
                 // Persistence may legitimately advance the document revision. The frozen store frontier still performs semantic
                 // CAS. If a successful Save As/reload retired this application,
                 // its old frontier has no live authority left to acknowledge.
-                if (
-                    options.annotationApplication
-                    && options.annotationApplication.value !== capturedTarget.annotationApplication
-                ) {
+                if (options.annotationApplication && options.annotationApplication.value !== capturedTarget.annotationApplication) {
                     return;
                 }
                 canonicalSave?.commit(identityBindings, saved);
@@ -289,12 +267,8 @@ export const usePdfViewerSaveTransaction = (
                 }
                 assertSaveTargetCurrent();
             },
-            ...(canonicalSave?.replaceFromDocument
-                ? {replaceFromDocument: canonicalSave.replaceFromDocument}
-                : {}),
-            ...(canonicalSave?.affectedPageIndices
-                ? {affectedPageIndices: canonicalSave.affectedPageIndices}
-                : {}),
+            ...(canonicalSave?.replaceFromDocument ? {replaceFromDocument: canonicalSave.replaceFromDocument} : {}),
+            ...(canonicalSave?.affectedPageIndices ? {affectedPageIndices: canonicalSave.affectedPageIndices} : {}),
         };
         // Routing is decided exactly once, here; every projector below consumes the result.
         const decision: TPdfSaveRouteDecision = buildNativePdfMutationProjection(globalSerializationPlan, {
@@ -306,16 +280,13 @@ export const usePdfViewerSaveTransaction = (
             hasLoadedSource: Boolean(request.source),
             forceWriterSave: request.forceWriterSave === true,
             rewriteShapeState: request.rewriteShapeState !== false,
-            totalPageCount: Math.max(
-                request.documentStructure?.totalPages ?? 0,
-                getPdfDocument()?.numPages ?? 0,
-            ),
-            shapes: request.dirtyState?.shapeStateDirty ? options.getAllShapes?.() ?? null : null,
+            totalPageCount: Math.max(request.documentStructure?.totalPages ?? 0, getPdfDocument()?.numPages ?? 0),
+            shapes: request.dirtyState?.shapeStateDirty ? (options.getAllShapes?.() ?? null) : null,
             deletedEmbeddedShapeAnnotationIds: request.dirtyState?.shapeStateDirty
-                ? options.getDeletedEmbeddedShapeAnnotationIds?.() ?? []
+                ? (options.getDeletedEmbeddedShapeAnnotationIds?.() ?? [])
                 : [],
             deletedEmbeddedShapeStableKeys: request.dirtyState?.shapeStateDirty
-                ? options.getDeletedEmbeddedShapeStableKeys?.() ?? []
+                ? (options.getDeletedEmbeddedShapeStableKeys?.() ?? [])
                 : [],
             ...(nativeTextBoxes !== undefined ? {nativeTextBoxes} : {}),
         });
@@ -327,42 +298,44 @@ export const usePdfViewerSaveTransaction = (
                 source: 'native-required-failure',
                 nativeMutationProjection: null,
                 nativeRequiredFailure: createNativeRequiredFailure(decision.nativeRejection),
-                verifiedUnchangedWorkingCopy: frontierPlan !== undefined
-                    && decision.nativeRejection === 'no-native-mutations-projected'
-                    && globalSerializationPlan.steps.length === 0
-                    && globalSerializationPlan.pageOperations.length === 0
-                    && globalSerializationPlan.ocrOperations.length === 0
-                    && globalSerializationPlan.metadata.pageLabels === null
-                    && globalSerializationPlan.metadata.bookmarks === null
-                    && !request.dirtyState?.shapeStateDirty,
+                verifiedUnchangedWorkingCopy:
+                    frontierPlan !== undefined &&
+                    decision.nativeRejection === 'no-native-mutations-projected' &&
+                    globalSerializationPlan.steps.length === 0 &&
+                    globalSerializationPlan.pageOperations.length === 0 &&
+                    globalSerializationPlan.ocrOperations.length === 0 &&
+                    globalSerializationPlan.metadata.pageLabels === null &&
+                    globalSerializationPlan.metadata.bookmarks === null &&
+                    !request.dirtyState?.shapeStateDirty,
                 fallbackDecision: decision,
                 annotationSavePlan,
                 ...canonicalSaveCallbacks,
             };
         }
         const nativeMutationProjection = decision.nativeMutationProjection;
-        if (nativeTextBoxes?.some(textBox => textBox.originalAppearance && 'sourceAnnotationId' in textBox.originalAppearance)) {
-            const originalSource = capturedTarget.pdfDocument && await readPdfDocumentOriginalAnnotationSource(capturedTarget.pdfDocument);
+        if (nativeTextBoxes?.some((textBox) => textBox.originalAppearance && 'sourceAnnotationId' in textBox.originalAppearance)) {
+            const originalSource =
+                capturedTarget.pdfDocument && (await readPdfDocumentOriginalAnnotationSource(capturedTarget.pdfDocument));
             assertSaveTargetCurrent();
-            if (!originalSource) {throw new Error('The original text appearance source is unavailable');}
+            if (!originalSource) {
+                throw new Error('The original text appearance source is unavailable');
+            }
             nativeMutationProjection.mutations.originalAppearanceSource = originalSource;
         }
         if (decision.replayableAnnotationMutationsAllowed && decision.annotationRoute.route !== 'loaded-source') {
             throw new Error(`Native annotation replay was granted on the ${decision.annotationRoute.route} route`);
         }
         if (
-            !decision.replayableAnnotationMutationsAllowed
-            && (
-                nativeMutationProjection.noteTextUpdates.length > 0
-                || (nativeMutationProjection.noteGeometryUpdates?.length ?? 0) > 0
-                || nativeMutationProjection.annotationDeletes.length > 0
-            )
+            !decision.replayableAnnotationMutationsAllowed &&
+            (nativeMutationProjection.noteTextUpdates.length > 0 ||
+                (nativeMutationProjection.noteGeometryUpdates?.length ?? 0) > 0 ||
+                nativeMutationProjection.annotationDeletes.length > 0)
         ) {
             throw new Error('Native annotation mutations were projected without a loaded-source grant');
         }
         if (
-            !decision.metadataMutationsAllowed
-            && (nativeMutationProjection.hasMetadataMutations || nativeMutationProjection.hasShapeMutations)
+            !decision.metadataMutationsAllowed &&
+            (nativeMutationProjection.hasMetadataMutations || nativeMutationProjection.hasShapeMutations)
         ) {
             throw new Error('Structured native mutations were projected without capability');
         }
@@ -378,7 +351,9 @@ export const usePdfViewerSaveTransaction = (
     }
 
     return {
-        commitPdfEditorsForSave: async () => { await options.commitPendingEditorDraftsForSave?.(); },
+        commitPdfEditorsForSave: async () => {
+            await options.commitPendingEditorDraftsForSave?.();
+        },
         runSaveTransaction,
     };
 };

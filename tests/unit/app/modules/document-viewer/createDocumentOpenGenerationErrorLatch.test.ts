@@ -1,9 +1,5 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { createDocumentOpenGenerationErrorLatch } from '@app/modules/document-viewer/runtime/createDocumentOpenGenerationErrorLatch';
+import {describe, expect, it} from 'vitest';
+import {createDocumentOpenGenerationErrorLatch} from '@app/modules/document-viewer/runtime/createDocumentOpenGenerationErrorLatch';
 
 describe('createDocumentOpenGenerationErrorLatch', () => {
     it('lets a late success clear the same generation terminal error', () => {

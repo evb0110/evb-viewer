@@ -1,7 +1,4 @@
-import type {
-    ComputedRef,
-    Ref,
-} from 'vue';
+import type {ComputedRef, Ref} from 'vue';
 import {
     reconcileDocumentSidebarTab,
     resolveDocumentSidebarTabs,
@@ -20,14 +17,8 @@ interface IUseDocumentSidebarCapabilitySessionOptions {
  * A temporary capability loss (for example PDF annotations while viewing DjVu)
  * must not destructively rewrite the shared workspace preference.
  */
-export const useDocumentSidebarCapabilitySession = (
-    options: IUseDocumentSidebarCapabilitySessionOptions,
-) => {
-    const availableTabs = computed(() => (
-        options.capabilitiesReady.value
-            ? resolveDocumentSidebarTabs(options.capabilities.value)
-            : []
-    ));
+export const useDocumentSidebarCapabilitySession = (options: IUseDocumentSidebarCapabilitySessionOptions) => {
+    const availableTabs = computed(() => (options.capabilitiesReady.value ? resolveDocumentSidebarTabs(options.capabilities.value) : []));
     /**
      * Clamped to what the format actually offers, so no panel is ever opened
      * for a capability the source does not have. `null` is the honest answer
@@ -36,12 +27,14 @@ export const useDocumentSidebarCapabilitySession = (
      * tab as active over an empty content area. The preference is only read,
      * never rewritten, so it is re-adopted as soon as its capability returns.
      */
-    const effectiveTab = computed<TDocumentSidebarTab | null>(() => (
-        reconcileDocumentSidebarTab(options.preferredTab.value, availableTabs.value)
-    ));
+    const effectiveTab = computed<TDocumentSidebarTab | null>(() =>
+        reconcileDocumentSidebarTab(options.preferredTab.value, availableTabs.value),
+    );
 
     function select(tab: TDocumentSidebarTab) {
-        if (availableTabs.value.includes(tab)) {options.preferredTab.value = tab;}
+        if (availableTabs.value.includes(tab)) {
+            options.preferredTab.value = tab;
+        }
     }
 
     return {

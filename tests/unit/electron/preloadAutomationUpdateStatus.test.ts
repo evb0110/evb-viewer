@@ -1,12 +1,5 @@
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { UPDATES_PLATFORM_FEATURE } from '@contracts/updatesPlatformFeature';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {UPDATES_PLATFORM_FEATURE} from '@contracts/updatesPlatformFeature';
 
 const mocks = vi.hoisted(() => ({
     exposeInMainWorld: vi.fn(),
@@ -43,10 +36,7 @@ describe('preload __emitUpdateStatusForAutomation ingress validation', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();
-        process.argv = [
-            ...originalArgv,
-            '--evb-renderer-file-open-helper',
-        ];
+        process.argv = [...originalArgv, '--evb-renderer-file-open-helper'];
     });
 
     afterEach(() => {
@@ -55,9 +45,7 @@ describe('preload __emitUpdateStatusForAutomation ingress validation', () => {
 
     async function loadAutomationEmitter() {
         await import('@electron/preload');
-        const exposedCall = mocks.exposeInMainWorld.mock.calls.find(
-            ([name]) => name === '__emitUpdateStatusForAutomation',
-        );
+        const exposedCall = mocks.exposeInMainWorld.mock.calls.find(([name]) => name === '__emitUpdateStatusForAutomation');
         expect(exposedCall).toBeDefined();
         return exposedCall![1] as (status: unknown) => void;
     }
@@ -78,11 +66,7 @@ describe('preload __emitUpdateStatusForAutomation ingress validation', () => {
             unexpectedField: 'should-be-stripped',
         });
 
-        expect(mocks.ipcRenderer.emit).toHaveBeenCalledExactlyOnceWith(
-            UPDATES_PLATFORM_FEATURE.events.onStatus.channel,
-            {},
-            validStatus,
-        );
+        expect(mocks.ipcRenderer.emit).toHaveBeenCalledExactlyOnceWith(UPDATES_PLATFORM_FEATURE.events.onStatus.channel, {}, validStatus);
     });
 
     it.each([

@@ -1,47 +1,33 @@
-import type { IPdfOpeningGeometry } from '@contracts/electronApiDocuments';
+import type {IPdfOpeningGeometry} from '@contracts/electronApiDocuments';
 import type {TDocumentRef} from '@contracts/documentRef';
 import {createDocumentInstanceId} from '@contracts/documentInstanceId';
-import type {
-    ComputedRef,
-    Ref,
-    ShallowRef,
-} from 'vue';
-import { getDocumentRefBaseName } from '@app/utils/documentRef';
-import { isEqual } from 'es-toolkit/predicate';
-import type { ITabMetadataCore } from '@contracts/windowTabs';
-import type {
-    IWorkspaceExpose,
-    IWorkspaceOpenFailure,
-} from '@app/types/workspaceExpose';
+import type {ComputedRef, Ref, ShallowRef} from 'vue';
+import {getDocumentRefBaseName} from '@app/utils/documentRef';
+import {isEqual} from 'es-toolkit/predicate';
+import type {ITabMetadataCore} from '@contracts/windowTabs';
+import type {IWorkspaceExpose, IWorkspaceOpenFailure} from '@app/types/workspaceExpose';
 import {
     didPresent,
     type IWorkspaceOpenAdmission,
     type IWorkspaceOpenOperation,
     type TWorkspaceOpenFinish,
 } from '@app/types/documentOpenOutcome';
-import type {
-    IDocumentOperationOwnership, TDocumentOperationKind, TRunWithDocumentOperationLease,
-} from '@app/types/documentOperationKind';
-import type { TDirtyCloseDecision } from '@app/modules/workspace-shell/composables/useDirtyTabCloseDialog';
+import type {IDocumentOperationOwnership, TDocumentOperationKind, TRunWithDocumentOperationLease} from '@app/types/documentOperationKind';
+import type {TDirtyCloseDecision} from '@app/modules/workspace-shell/composables/useDirtyTabCloseDialog';
 import {
     createWorkspaceDocumentView,
     type IWorkspaceDocumentView,
     type IWorkspaceDocumentViewRecord,
     type IWorkspaceDocumentViewSeed,
 } from '@app/modules/workspace-shell/document-sessions/createWorkspaceDocumentView';
-import type { TWorkspaceCommandTarget } from '@app/modules/workspace-shell/document-sessions/workspaceCommandTarget';
-import {
-    createSessionId, requireSessionId,
-} from '@contracts/shared';
-import { requireTabId } from '@contracts/windowTabs';
-import { resolveDocumentRefBackend } from '@app/utils/documentRef';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { rememberReadingView } from '@app/modules/workspace-shell/document-sessions/recentReadingView';
-import {
-    NO_DOCUMENT_JOB_RELEASE,
-    type TEndDocumentJobRelease,
-} from '@app/modules/workspace-shell/document-sessions/documentJobRelease';
-import type { IPdfPageShapeRead } from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
+import type {TWorkspaceCommandTarget} from '@app/modules/workspace-shell/document-sessions/workspaceCommandTarget';
+import {createSessionId, requireSessionId} from '@contracts/shared';
+import {requireTabId} from '@contracts/windowTabs';
+import {resolveDocumentRefBackend} from '@app/utils/documentRef';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {rememberReadingView} from '@app/modules/workspace-shell/document-sessions/recentReadingView';
+import {NO_DOCUMENT_JOB_RELEASE, type TEndDocumentJobRelease} from '@app/modules/workspace-shell/document-sessions/documentJobRelease';
+import type {IPdfPageShapeRead} from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
 import type {
     IWorkspaceDocumentFile,
     IWorkspaceDocumentIdentity,
@@ -102,10 +88,9 @@ export type TReadonlyWorkspaceDocumentIdentity = Readonly<IWorkspaceDocumentIden
 export type TReadonlyWorkspaceDocumentTransaction = Readonly<Omit<IWorkspaceDocumentTransaction, 'target'>> & {
     readonly target: TReadonlyWorkspaceDocumentTarget | null;
 };
-export type TReadonlyWorkspaceDocumentSnapshot = Readonly<Omit<
-    IWorkspaceDocumentSnapshot,
-    'identity' | 'activeTransaction' | 'failure'
->> & {
+export type TReadonlyWorkspaceDocumentSnapshot = Readonly<
+    Omit<IWorkspaceDocumentSnapshot, 'identity' | 'activeTransaction' | 'failure'>
+> & {
     readonly identity: TReadonlyWorkspaceDocumentIdentity;
     readonly activeTransaction: TReadonlyWorkspaceDocumentTransaction | null;
     readonly failure: Readonly<IWorkspaceRecordedFailure> | null;
@@ -143,7 +128,10 @@ export interface IWorkspaceDocumentController {
     isDeferredReaderOpen(): boolean;
     claimOpen(request: IWorkspaceOpenRequest, onPresented?: () => void): string;
     /** `run` does the open's file work and returns what it admitted; the open finishes with its presentation. */
-    runOpen(request: IWorkspaceOpenRequest, run: (shape: IPdfOpeningGeometry | null, transactionId: string) => Promise<IWorkspaceOpenAdmission | null>): IWorkspaceOpenOperation;
+    runOpen(
+        request: IWorkspaceOpenRequest,
+        run: (shape: IPdfOpeningGeometry | null, transactionId: string) => Promise<IWorkspaceOpenAdmission | null>,
+    ): IWorkspaceOpenOperation;
     setOpeningLabel(label: string | null): void;
     commitFile(patch: Partial<IWorkspaceDocumentFile>, openTransactionId?: string | null): void;
     markFailed(failure: IWorkspaceOpenFailure | null): void;
@@ -163,12 +151,13 @@ export interface IWorkspaceDocumentController {
     close(request: IWorkspaceDocumentCloseRequest): Promise<boolean>;
     dispose(): void;
     createCommandTarget(tabId: string, mode?: 'current' | 'active-transaction'): TWorkspaceCommandTarget;
-    validateCommandTarget(target: TWorkspaceCommandTarget): {ok: true} | {
-        ok: false;
-        reason: string
-    };
+    validateCommandTarget(target: TWorkspaceCommandTarget):
+        | {ok: true}
+        | {
+              ok: false;
+              reason: string;
+          };
 }
-
 
 const EMPTY_FILE: TReadonlyWorkspaceDocumentFile = {
     originalPath: null,
@@ -193,15 +182,12 @@ function createEmptyIdentity(): IWorkspaceDocumentIdentity {
 }
 
 export function identityHasDocument(identity: TReadonlyWorkspaceDocumentIdentity) {
-    return identity.revisionInfo !== null
-        || identity.originalPath !== null
-        || identity.fileName !== null
-        || identity.isDjvu;
+    return identity.revisionInfo !== null || identity.originalPath !== null || identity.fileName !== null || identity.isDjvu;
 }
 
 /** The tab title, path and dirty dot the shell shows for this document. */
 export function describeTabDocument(snapshot: TReadonlyWorkspaceDocumentSnapshot): ITabMetadataCore {
-    const target = snapshot.phase === 'opening' ? snapshot.activeTransaction?.target ?? null : null;
+    const target = snapshot.phase === 'opening' ? (snapshot.activeTransaction?.target ?? null) : null;
     const originalPath = target?.originalPath ?? snapshot.identity.originalPath;
     const originalBackend = resolveDocumentRefBackend(originalPath);
     return {
@@ -216,7 +202,7 @@ export function describeTabDocument(snapshot: TReadonlyWorkspaceDocumentSnapshot
 
 /** A workspace mounted for any view of the document, for document-wide commands. */
 export function getDocumentWorkspace(controller: Pick<IWorkspaceDocumentController, 'views'>) {
-    return [...controller.views.value.values()].find(view => view.mountedWorkspace.value)?.mountedWorkspace.value ?? null;
+    return [...controller.views.value.values()].find((view) => view.mountedWorkspace.value)?.mountedWorkspace.value ?? null;
 }
 
 /** The tab holds a document or is opening or closing one. A tab whose open failed is empty again. */
@@ -227,25 +213,37 @@ export function snapshotOccupiesTab(snapshot: TReadonlyWorkspaceDocumentSnapshot
 function createDocumentOperationLease(): IDocumentOperationLease {
     const active = shallowRef<{
         kind: TDocumentOperationKind;
-        ownership: IDocumentOperationOwnership
+        ownership: IDocumentOperationOwnership;
     } | null>(null);
     const pendingCount = ref(0);
     const pendingRecoveryCount = ref(0);
     let queueTail: Promise<void> = Promise.resolve();
 
-    async function runExclusive<T>(kind: TDocumentOperationKind, operation: (ownership: IDocumentOperationOwnership) => Promise<T>, holder?: IDocumentOperationOwnership) {
+    async function runExclusive<T>(
+        kind: TDocumentOperationKind,
+        operation: (ownership: IDocumentOperationOwnership) => Promise<T>,
+        holder?: IDocumentOperationOwnership,
+    ) {
         // The lease is not re-entrant: its holder's own work runs inside the held turn.
         holder?.assertCurrent();
-        if (holder) {return operation(holder);}
+        if (holder) {
+            return operation(holder);
+        }
         pendingCount.value += 1;
         const isRecovery = kind === 'recovery-snapshot';
-        if (isRecovery) {pendingRecoveryCount.value += 1;}
+        if (isRecovery) {
+            pendingRecoveryCount.value += 1;
+        }
         const operationPromise = queueTail
             .catch(() => undefined)
             .then(async () => {
-                const ownership: IDocumentOperationOwnership = {assertCurrent: () => {
-                    if (active.value?.ownership !== ownership) {throw new Error('Document operation ownership has ended');}
-                }};
+                const ownership: IDocumentOperationOwnership = {
+                    assertCurrent: () => {
+                        if (active.value?.ownership !== ownership) {
+                            throw new Error('Document operation ownership has ended');
+                        }
+                    },
+                };
                 active.value = {
                     kind,
                     ownership,
@@ -255,11 +253,16 @@ function createDocumentOperationLease(): IDocumentOperationLease {
                 } finally {
                     active.value = null;
                     pendingCount.value = Math.max(0, pendingCount.value - 1);
-                    if (isRecovery) {pendingRecoveryCount.value = Math.max(0, pendingRecoveryCount.value - 1);}
+                    if (isRecovery) {
+                        pendingRecoveryCount.value = Math.max(0, pendingRecoveryCount.value - 1);
+                    }
                 }
             });
 
-        queueTail = operationPromise.then(() => undefined, () => undefined);
+        queueTail = operationPromise.then(
+            () => undefined,
+            () => undefined,
+        );
         return operationPromise;
     }
 
@@ -292,7 +295,14 @@ export function createWorkspaceDocumentController(options: {
     });
     const views = shallowRef(new Map<string, IWorkspaceDocumentViewRecord>());
     const operationLease = createDocumentOperationLease();
-    const openWaiters = new Map<string, {accepted: PromiseWithResolvers<boolean>; finished: PromiseWithResolvers<TWorkspaceOpenFinish>; onPresented?: (() => void) | undefined}>();
+    const openWaiters = new Map<
+        string,
+        {
+            accepted: PromiseWithResolvers<boolean>;
+            finished: PromiseWithResolvers<TWorkspaceOpenFinish>;
+            onPresented?: (() => void) | undefined;
+        }
+    >();
     let activeClose: Promise<boolean> | null = null;
     let deferredReaderOpen = false;
     const file = shallowRef<TReadonlyWorkspaceDocumentFile>(EMPTY_FILE);
@@ -303,10 +313,12 @@ export function createWorkspaceDocumentController(options: {
     const snapshot = computed<TReadonlyWorkspaceDocumentSnapshot>(() => {
         const loaded = file.value.workingCopyPath !== null || file.value.isDjvu;
         const dirty = loaded ? liveDirty.value : state.value.dirty;
-        return dirty === state.value.dirty ? state.value : {
-            ...state.value,
-            dirty,
-        };
+        return dirty === state.value.dirty
+            ? state.value
+            : {
+                  ...state.value,
+                  dirty,
+              };
     });
 
     function update(patch: Partial<TReadonlyWorkspaceDocumentSnapshot>, bumpRevision = false) {
@@ -330,7 +342,9 @@ export function createWorkspaceDocumentController(options: {
         waiter?.accepted.resolve(false);
         // Commands for this open are captured at presentation, before an
         // awaiting caller can start another open in the same workspace.
-        if (didPresent(finish)) {waiter?.onPresented?.();}
+        if (didPresent(finish)) {
+            waiter?.onPresented?.();
+        }
         waiter?.finished.resolve(finish);
     }
 
@@ -362,7 +376,7 @@ export function createWorkspaceDocumentController(options: {
     }
 
     function restingPhase() {
-        return identityHasDocument(snapshot.value.identity) ? 'presented' as const : 'empty' as const;
+        return identityHasDocument(snapshot.value.identity) ? ('presented' as const) : ('empty' as const);
     }
 
     // An open that loses its tab to a newer open, a close or a disposal
@@ -385,21 +399,24 @@ export function createWorkspaceDocumentController(options: {
         };
         const hasDocument = identityHasDocument(identity);
         deferredReaderOpen = hasDocument && document.deferredReaderOpen === true;
-        update({
-            phase: hasDocument ? 'presented' : 'empty',
-            identity: hasDocument
-                ? {
-                    ...identity,
-                    documentSessionKey: crypto.randomUUID(),
-                    documentInstanceId: document.documentInstanceId ?? createDocumentInstanceId(),
-                }
-                : identity,
-            activeTransaction: null,
-            openingLabel: null,
-            failure: null,
-            dirty: document.isDirty,
-            recoveryWorkingCopyPath: document.recoveryWorkingCopyPath ?? null,
-        }, true);
+        update(
+            {
+                phase: hasDocument ? 'presented' : 'empty',
+                identity: hasDocument
+                    ? {
+                          ...identity,
+                          documentSessionKey: crypto.randomUUID(),
+                          documentInstanceId: document.documentInstanceId ?? createDocumentInstanceId(),
+                      }
+                    : identity,
+                activeTransaction: null,
+                openingLabel: null,
+                failure: null,
+                dirty: document.isDirty,
+                recoveryWorkingCopyPath: document.recoveryWorkingCopyPath ?? null,
+            },
+            true,
+        );
     }
 
     function claimOpen(request: IWorkspaceOpenRequest, onPresented?: () => void) {
@@ -415,26 +432,34 @@ export function createWorkspaceDocumentController(options: {
             finished: Promise.withResolvers<TWorkspaceOpenFinish>(),
             onPresented,
         });
-        update({
-            activeTransaction: transaction,
-            openingLabel: null,
-            failure: null,
-        }, true);
+        update(
+            {
+                activeTransaction: transaction,
+                openingLabel: null,
+                failure: null,
+            },
+            true,
+        );
         return transaction.id;
     }
 
-    function runOpen(request: IWorkspaceOpenRequest, run: (shape: IPdfOpeningGeometry | null, transactionId: string) => Promise<IWorkspaceOpenAdmission | null>): IWorkspaceOpenOperation {
+    function runOpen(
+        request: IWorkspaceOpenRequest,
+        run: (shape: IPdfOpeningGeometry | null, transactionId: string) => Promise<IWorkspaceOpenAdmission | null>,
+    ): IWorkspaceOpenOperation {
         const transactionId = request.transactionId ?? claimOpen(request);
         const transaction = snapshot.value.activeTransaction;
         const waiter = openWaiters.get(transactionId);
         if (!transaction || transaction.id !== transactionId || !waiter) {
             return {accepted: Promise.resolve(false), finished: Promise.resolve({status: 'superseded'})};
         }
-        update({activeTransaction: {
-            ...transaction,
-            kind: request.kind,
-            target: request.target,
-        }});
+        update({
+            activeTransaction: {
+                ...transaction,
+                kind: request.kind,
+                target: request.target,
+            },
+        });
         const isActive = () => snapshot.value.activeTransaction?.id === transactionId;
         // The intent is busy while its shape is admitted. Publishing opening
         // and claiming its surface happen together, so Start never uncovers
@@ -448,25 +473,33 @@ export function createWorkspaceDocumentController(options: {
         };
         // The open ends with its document's presentation in the views, or
         // when no view has to show it, or a newer open or a close takes the tab.
-        Promise.resolve(request.pageShape ? request.pageShape.answer.then(begin) : begin()).then(async (admission) => {
-            if (!isActive()) {return;}
-            if (!admission) {return markFailed(null);}
-            waiter.accepted.resolve(true);
-            const finish = await admission.presentation?.catch((): TWorkspaceOpenFinish => ({status: 'failed', failure: null}));
-            if (!isActive()) {return;}
-            if (!finish || didPresent(finish)) {
-                present(finish ?? {status: 'accepted-without-visual'});
-            } else {
-                markFailed(finish.status === 'failed' ? finish.failure : null, finish);
-            }
-        }).catch((error: unknown) => {
-            if (isActive()) {
-                waiter.accepted.resolve(false);
-                waiter.finished.reject(error);
-                openWaiters.delete(transaction.id);
-                markFailed(null);
-            }
-        });
+        Promise.resolve(request.pageShape ? request.pageShape.answer.then(begin) : begin())
+            .then(async (admission) => {
+                if (!isActive()) {
+                    return;
+                }
+                if (!admission) {
+                    return markFailed(null);
+                }
+                waiter.accepted.resolve(true);
+                const finish = await admission.presentation?.catch((): TWorkspaceOpenFinish => ({status: 'failed', failure: null}));
+                if (!isActive()) {
+                    return;
+                }
+                if (!finish || didPresent(finish)) {
+                    present(finish ?? {status: 'accepted-without-visual'});
+                } else {
+                    markFailed(finish.status === 'failed' ? finish.failure : null, finish);
+                }
+            })
+            .catch((error: unknown) => {
+                if (isActive()) {
+                    waiter.accepted.resolve(false);
+                    waiter.finished.reject(error);
+                    openWaiters.delete(transaction.id);
+                    markFailed(null);
+                }
+            });
         return {accepted: waiter.accepted.promise, finished: waiter.finished.promise};
     }
 
@@ -482,11 +515,15 @@ export function createWorkspaceDocumentController(options: {
             ...patch,
         };
         // The source hash belongs to the bytes it was read from.
-        if (!('sourceSha256' in patch) && (committed.workingCopyPath !== file.value.workingCopyPath || committed.revisionToken !== file.value.revisionToken)) {
+        if (
+            !('sourceSha256' in patch) &&
+            (committed.workingCopyPath !== file.value.workingCopyPath || committed.revisionToken !== file.value.revisionToken)
+        ) {
             committed.sourceSha256 = null;
         }
         // Only the open in progress, passing its own id, commits another document, even at the same record.
-        const opensDocument = snapshot.value.activeTransaction?.kind === 'open' && snapshot.value.activeTransaction.id === openTransactionId;
+        const opensDocument =
+            snapshot.value.activeTransaction?.kind === 'open' && snapshot.value.activeTransaction.id === openTransactionId;
         if (!opensDocument && isEqual(committed, file.value)) {
             return;
         }
@@ -503,25 +540,25 @@ export function createWorkspaceDocumentController(options: {
         };
         if (!identityHasDocument(next)) {
             if (identityHasDocument(current)) {
-                update({
-                    identity: next,
-                    phase: snapshot.value.phase === 'presented' ? 'empty' : snapshot.value.phase,
-                    recoveryWorkingCopyPath: null,
-                }, true);
+                update(
+                    {
+                        identity: next,
+                        phase: snapshot.value.phase === 'presented' ? 'empty' : snapshot.value.phase,
+                        recoveryWorkingCopyPath: null,
+                    },
+                    true,
+                );
             }
             return;
         }
         const sameLogicalDocument = identityHasDocument(current) && !opensDocument;
-        const resumesCheckpointWorkingCopy = snapshot.value.recoveryWorkingCopyPath !== null
-            && snapshot.value.recoveryWorkingCopyPath === next.workingCopyPath;
+        const resumesCheckpointWorkingCopy =
+            snapshot.value.recoveryWorkingCopyPath !== null && snapshot.value.recoveryWorkingCopyPath === next.workingCopyPath;
         const identity = {
             ...next,
-            documentSessionKey: sameLogicalDocument
-                ? current.documentSessionKey
-                : crypto.randomUUID(),
-            documentInstanceId: sameLogicalDocument || resumesCheckpointWorkingCopy
-                ? current.documentInstanceId
-                : createDocumentInstanceId(),
+            documentSessionKey: sameLogicalDocument ? current.documentSessionKey : crypto.randomUUID(),
+            documentInstanceId:
+                sameLogicalDocument || resumesCheckpointWorkingCopy ? current.documentInstanceId : createDocumentInstanceId(),
         };
         if (isEqual(identity, current)) {
             return;
@@ -534,23 +571,29 @@ export function createWorkspaceDocumentController(options: {
         if (!transaction) {
             return;
         }
-        const resumesCheckpointWorkingCopy = snapshot.value.recoveryWorkingCopyPath !== null
-            && snapshot.value.recoveryWorkingCopyPath === snapshot.value.identity.workingCopyPath;
+        const resumesCheckpointWorkingCopy =
+            snapshot.value.recoveryWorkingCopyPath !== null &&
+            snapshot.value.recoveryWorkingCopyPath === snapshot.value.identity.workingCopyPath;
         // A new open is a new document instance even for the same file;
         // a restore resumes the instance the tab already owned.
-        update({
-            phase: 'presented',
-            activeTransaction: null,
-            openingLabel: null,
-            failure: null,
-            recoveryWorkingCopyPath: null,
-            ...(transaction.kind === 'open' && !resumesCheckpointWorkingCopy
-                ? {identity: {
-                    ...snapshot.value.identity,
-                    documentInstanceId: createDocumentInstanceId(),
-                }}
-                : {}),
-        }, true);
+        update(
+            {
+                phase: 'presented',
+                activeTransaction: null,
+                openingLabel: null,
+                failure: null,
+                recoveryWorkingCopyPath: null,
+                ...(transaction.kind === 'open' && !resumesCheckpointWorkingCopy
+                    ? {
+                          identity: {
+                              ...snapshot.value.identity,
+                              documentInstanceId: createDocumentInstanceId(),
+                          },
+                      }
+                    : {}),
+            },
+            true,
+        );
         settle(transaction, finish);
     }
 
@@ -562,20 +605,21 @@ export function createWorkspaceDocumentController(options: {
         }
         const recorded = failure
             ? {
-                ...failure,
-                fileName: failure.fileName ?? (transaction
-                    ? transaction.target?.fileName ?? null
-                    : snapshot.value.identity.fileName),
-            }
+                  ...failure,
+                  fileName: failure.fileName ?? (transaction ? (transaction.target?.fileName ?? null) : snapshot.value.identity.fileName),
+              }
             : null;
-        update({
-            phase: recorded ? 'failed' : restingPhase(),
-            activeTransaction: null,
-            openingLabel: null,
-            failure: recorded,
-        }, true);
+        update(
+            {
+                phase: recorded ? 'failed' : restingPhase(),
+                activeTransaction: null,
+                openingLabel: null,
+                failure: recorded,
+            },
+            true,
+        );
         if (transaction) {
-            settle(transaction, recorded ? {status: 'failed', failure: recorded} : finish ?? {status: 'cancelled'});
+            settle(transaction, recorded ? {status: 'failed', failure: recorded} : (finish ?? {status: 'cancelled'}));
         }
         if (recorded) {
             settleMountWaiters(null);
@@ -603,10 +647,15 @@ export function createWorkspaceDocumentController(options: {
         dismissFailure();
         const view = views.value.get(viewTabId);
         if (!view) {
-            BrowserLogger.error('workspace', 'A workspace mounted for a tab that does not view its document', {
-                tabId: viewTabId,
-                sessionId: snapshot.value.sessionId,
-            }, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'});
+            BrowserLogger.error(
+                'workspace',
+                'A workspace mounted for a tab that does not view its document',
+                {
+                    tabId: viewTabId,
+                    sessionId: snapshot.value.sessionId,
+                },
+                {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'},
+            );
             return;
         }
         view.mount(workspace);
@@ -625,15 +674,18 @@ export function createWorkspaceDocumentController(options: {
     }
 
     function resetToEmpty() {
-        update({
-            phase: 'empty',
-            identity: createEmptyIdentity(),
-            activeTransaction: null,
-            openingLabel: null,
-            failure: null,
-            dirty: false,
-            recoveryWorkingCopyPath: null,
-        }, true);
+        update(
+            {
+                phase: 'empty',
+                identity: createEmptyIdentity(),
+                activeTransaction: null,
+                openingLabel: null,
+                failure: null,
+                dirty: false,
+                recoveryWorkingCopyPath: null,
+            },
+            true,
+        );
     }
 
     function runClose(request: IWorkspaceDocumentCloseRequest, ownership: IDocumentOperationOwnership, persist: boolean) {
@@ -645,7 +697,9 @@ export function createWorkspaceDocumentController(options: {
             }
             supersedeActiveTransaction();
             resetToEmpty();
-            if (retires) {mutationFrontier.value?.retire?.();}
+            if (retires) {
+                mutationFrontier.value?.retire?.();
+            }
         };
         const frontier = mutationFrontier.value;
         if (request.ownership && frontier) {
@@ -657,24 +711,29 @@ export function createWorkspaceDocumentController(options: {
                 return true;
             });
         }
-        return getDocumentWorkspace({views})?.handleCloseFileFromUi({
-            persist,
-            ownership,
-            onCloseCommit,
-        })
-            ?? onCloseCommit().then(() => true);
+        return (
+            getDocumentWorkspace({views})?.handleCloseFileFromUi({
+                persist,
+                ownership,
+                onCloseCommit,
+            }) ?? onCloseCommit().then(() => true)
+        );
     }
 
     // A user Close decides in its own lease turn, after the work requested
     // before it; a transfer closes in the turn it already holds.
     function close(request: IWorkspaceDocumentCloseRequest) {
-        if (request.ownership) {return runClose(request, request.ownership, false);}
-        activeClose ??= operationLease.runExclusive('close', async (ownership) => {
-            const decision = snapshot.value.dirty ? await request.decide?.() ?? 'discard' : 'discard';
-            return decision !== 'cancel' && runClose(request, ownership, decision === 'save');
-        }).finally(() => {
-            activeClose = null;
-        });
+        if (request.ownership) {
+            return runClose(request, request.ownership, false);
+        }
+        activeClose ??= operationLease
+            .runExclusive('close', async (ownership) => {
+                const decision = snapshot.value.dirty ? ((await request.decide?.()) ?? 'discard') : 'discard';
+                return decision !== 'cancel' && runClose(request, ownership, decision === 'save');
+            })
+            .finally(() => {
+                activeClose = null;
+            });
         return activeClose;
     }
 
@@ -697,26 +756,30 @@ export function createWorkspaceDocumentController(options: {
         };
         return mode === 'active-transaction' && current.activeTransaction
             ? {
-                ...common,
-                kind: 'transaction',
-                transactionId: current.activeTransaction.id,
-            }
+                  ...common,
+                  kind: 'transaction',
+                  transactionId: current.activeTransaction.id,
+              }
             : {
-                ...common,
-                kind: 'revision',
-                sessionRevision: current.sessionRevision,
-            };
+                  ...common,
+                  kind: 'revision',
+                  sessionRevision: current.sessionRevision,
+              };
     }
 
-    function validateCommandTarget(target: TWorkspaceCommandTarget): {ok: true} | {
-        ok: false;
-        reason: string
-    } {
+    function validateCommandTarget(target: TWorkspaceCommandTarget):
+        | {ok: true}
+        | {
+              ok: false;
+              reason: string;
+          } {
         const current = snapshot.value;
-        if (!views.value.has(target.tabId)) {return {
-            ok: false,
-            reason: 'tab-id-mismatch',
-        };}
+        if (!views.value.has(target.tabId)) {
+            return {
+                ok: false,
+                reason: 'tab-id-mismatch',
+            };
+        }
         const expected = createCommandTarget(target.tabId, target.kind === 'transaction' ? 'active-transaction' : 'current');
         // Capture and validation share the same identity projection. Optional
         // backend/revision fields only constrain commands that supplied them.
@@ -727,23 +790,25 @@ export function createWorkspaceDocumentController(options: {
             ...(target.documentBackend === undefined ? {} : {documentBackend: 'document-backend-mismatch'}),
             ...(target.documentRevisionToken === undefined ? {} : {documentRevisionToken: 'document-revision-token-mismatch'}),
         };
-        for (const [
-            field,
-            reason,
-        ] of Object.entries(fields)) {
+        for (const [field, reason] of Object.entries(fields)) {
             const actual: unknown = Reflect.get(target, field);
-            if ((field === 'documentInstanceId' ? actual ?? null : actual) !== Reflect.get(expected, field)) {return {
-                ok: false,
-                reason,
-            };}
+            if ((field === 'documentInstanceId' ? (actual ?? null) : actual) !== Reflect.get(expected, field)) {
+                return {
+                    ok: false,
+                    reason,
+                };
+            }
         }
-        const matches = target.kind === 'transaction'
-            ? current.activeTransaction?.id === target.transactionId
-            : current.sessionRevision === target.sessionRevision;
-        return matches ? {ok: true} : {
-            ok: false,
-            reason: target.kind === 'transaction' ? 'transaction-id-mismatch' : 'session-revision-mismatch',
-        };
+        const matches =
+            target.kind === 'transaction'
+                ? current.activeTransaction?.id === target.transactionId
+                : current.sessionRevision === target.sessionRevision;
+        return matches
+            ? {ok: true}
+            : {
+                  ok: false,
+                  reason: target.kind === 'transaction' ? 'transaction-id-mismatch' : 'session-revision-mismatch',
+              };
     }
 
     addView(tabId);
@@ -765,14 +830,16 @@ export function createWorkspaceDocumentController(options: {
         markFailed,
         reportFailure,
         dismissFailure,
-        bindMutationFrontier: (frontier) => { mutationFrontier.value = frontier; },
+        bindMutationFrontier: (frontier) => {
+            mutationFrontier.value = frontier;
+        },
         readMutationFrontier: () => mutationFrontier.value?.read() ?? null,
         releaseJobs: () => mutationFrontier.value?.release?.() ?? NO_DOCUMENT_JOB_RELEASE,
         prepareTransfer: async (assertCurrent) => {
             assertCurrent();
             await mutationFrontier.value?.prepare(assertCurrent);
         },
-        getView: viewTabId => views.value.get(viewTabId) ?? null,
+        getView: (viewTabId) => views.value.get(viewTabId) ?? null,
         addView,
         removeView,
         attachWorkspace,

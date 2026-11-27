@@ -1,7 +1,4 @@
-import type {
-    INativeScanCleanupInkCalibrationPageV3,
-    INativeScanCleanupManifestV3,
-} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import type {INativeScanCleanupInkCalibrationPageV3, INativeScanCleanupManifestV3} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {ScanCleanupContractError} from '@evb/scan-cleanup/core/errors';
 import {
     assertScanCleanupPathWithinCanonicalRoot,
@@ -31,10 +28,7 @@ function assertManifestInkCalibrationPagePaths(
 ) {
     const pageLabel = `ink calibration page ${String(pageIndex + 1)}`;
     const pageTrail = `inkCalibrationPages.${String(pageIndex)}`;
-    for (const {
-        field,
-        label,
-    } of MANIFEST_INK_CALIBRATION_PAGE_PATH_FIELDS) {
+    for (const {field, label} of MANIFEST_INK_CALIBRATION_PAGE_PATH_FIELDS) {
         const path = page[field];
         assertScanCleanupPathWithinCanonicalRoot(path, allowedRoot, `${pageLabel} ${label}`, pathResolutionCache);
         checkedPathTrails.set(`${pageTrail}.${field}`, path);
@@ -60,18 +54,11 @@ function assertManifestPagePaths(
         // slot that happens to carry the same string.
         checkedPathTrails.set(trail, path);
     };
-    for (const {
-        field,
-        label,
-    } of MANIFEST_PAGE_PATH_FIELDS) {check(page[field], `${pageTrail}.${field}`, `${pageLabel} ${label}`);}
-    for (const [
-        outputIndex,
-        output,
-    ] of (page.outputs ?? []).entries()) {
-        for (const {
-            field,
-            label,
-        } of MANIFEST_OUTPUT_PATH_FIELDS) {
+    for (const {field, label} of MANIFEST_PAGE_PATH_FIELDS) {
+        check(page[field], `${pageTrail}.${field}`, `${pageLabel} ${label}`);
+    }
+    for (const [outputIndex, output] of (page.outputs ?? []).entries()) {
+        for (const {field, label} of MANIFEST_OUTPUT_PATH_FIELDS) {
             check(
                 output[field] ?? undefined,
                 `${pageTrail}.outputs.${String(outputIndex)}.${field}`,
@@ -83,15 +70,8 @@ function assertManifestPagePaths(
     if (detailRenderPlan == null) {
         return;
     }
-    for (const {
-        field,
-        label,
-    } of MANIFEST_DETAIL_RENDER_PLAN_PATH_FIELDS) {
-        check(
-            detailRenderPlan[field] ?? undefined,
-            `${pageTrail}.detailRenderPlan.${field}`,
-            `${pageLabel} ${label}`,
-        );
+    for (const {field, label} of MANIFEST_DETAIL_RENDER_PLAN_PATH_FIELDS) {
+        check(detailRenderPlan[field] ?? undefined, `${pageTrail}.detailRenderPlan.${field}`, `${pageLabel} ${label}`);
     }
 }
 
@@ -104,30 +84,21 @@ function assertManifestPagePaths(
  * Coverage is matched per emitted field trail, so an unlabelled path slot fails
  * even when it repeats a string some other slot was cleared for.
  */
-function assertNoUncheckedManifestPaths(
-    manifest: INativeScanCleanupManifestV3,
-    checkedPathTrails: ReadonlyMap<string, string>,
-) {
+function assertNoUncheckedManifestPaths(manifest: INativeScanCleanupManifestV3, checkedPathTrails: ReadonlyMap<string, string>) {
     const visit = (value: unknown, trail: string) => {
         if (Array.isArray(value)) {
-            for (const [
-                index,
-                entry,
-            ] of value.entries()) {visit(entry, `${trail}.${String(index)}`);}
+            for (const [index, entry] of value.entries()) {
+                visit(entry, `${trail}.${String(index)}`);
+            }
             return;
         }
         if (value === null || typeof value !== 'object') {
             return;
         }
-        for (const [
-            key,
-            entry,
-        ] of Object.entries(value)) {
+        for (const [key, entry] of Object.entries(value)) {
             const fieldTrail = trail === '' ? key : `${trail}.${key}`;
             if (key.endsWith('Path') && typeof entry === 'string' && checkedPathTrails.get(fieldTrail) !== entry) {
-                throw new ScanCleanupContractError(
-                    `manifest field ${fieldTrail} was not checked against the allowed root`,
-                );
+                throw new ScanCleanupContractError(`manifest field ${fieldTrail} was not checked against the allowed root`);
             }
             visit(entry, fieldTrail);
         }
@@ -139,9 +110,7 @@ function assertNoUncheckedManifestPaths(
  * Build a manifest that will be handed to the native binary. Every path is
  * checked against the caller's process-owned root before the manifest exists.
  */
-export function buildRunnableNativeScanCleanupManifest(
-    input: IBuildRunnableNativeScanCleanupManifestInput,
-): INativeScanCleanupManifestV3 {
+export function buildRunnableNativeScanCleanupManifest(input: IBuildRunnableNativeScanCleanupManifestInput): INativeScanCleanupManifestV3 {
     // One canonical root per manifest: every field is judged against the same
     // resolved directory instead of re-resolving the root for each path.
     const allowedRoot = canonicalizeScanCleanupAllowedRoot(input.allowedPathRoot);
@@ -149,14 +118,8 @@ export function buildRunnableNativeScanCleanupManifest(
     const checkedPathTrails = new Map<string, string>();
     return assembleNativeScanCleanupManifest(input, {
         page: (page, pageIndex) => assertManifestPagePaths(page, pageIndex, allowedRoot, checkedPathTrails, pathResolutionCache),
-        inkCalibrationPage: (page, pageIndex) => assertManifestInkCalibrationPagePaths(
-            page,
-            pageIndex,
-            allowedRoot,
-            checkedPathTrails,
-            pathResolutionCache,
-        ),
-        manifest: manifest => assertNoUncheckedManifestPaths(manifest, checkedPathTrails),
+        inkCalibrationPage: (page, pageIndex) =>
+            assertManifestInkCalibrationPagePaths(page, pageIndex, allowedRoot, checkedPathTrails, pathResolutionCache),
+        manifest: (manifest) => assertNoUncheckedManifestPaths(manifest, checkedPathTrails),
     });
 }
-

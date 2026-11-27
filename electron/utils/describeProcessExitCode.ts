@@ -1,4 +1,6 @@
-interface IDescribeProcessExitCodeOptions {platform?: NodeJS.Platform;}
+interface IDescribeProcessExitCodeOptions {
+    platform?: NodeJS.Platform;
+}
 
 const WINDOWS_NTSTATUS_HINTS: Record<string, string> = {
     '0xC0000005': 'STATUS_ACCESS_VIOLATION (process crashed while accessing invalid memory)',
@@ -10,16 +12,13 @@ const WINDOWS_NTSTATUS_HINTS: Record<string, string> = {
 
 function normalizeWindowsNtStatus(exitCode: number) {
     const normalized = exitCode >>> 0;
-    if (normalized <= 0x7FFFFFFF) {
+    if (normalized <= 0x7fffffff) {
         return null;
     }
     return normalized;
 }
 
-export function describeProcessExitCode(
-    exitCode: number,
-    options: IDescribeProcessExitCodeOptions = {},
-) {
+export function describeProcessExitCode(exitCode: number, options: IDescribeProcessExitCodeOptions = {}) {
     const platform = options.platform ?? process.platform;
     if (platform !== 'win32') {
         return String(exitCode);

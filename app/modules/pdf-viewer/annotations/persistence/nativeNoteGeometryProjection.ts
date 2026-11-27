@@ -1,23 +1,22 @@
-import type { IAnnotationCommentSummary } from '@app/types/annotations';
+import type {IAnnotationCommentSummary} from '@app/types/annotations';
 import {parsePdfAnnotationRef} from '@app/utils/pdfAnnotationRefs';
-import { parsePdfAnnotationStableKeyRef } from '@app/modules/pdf-viewer/annotations/pdf-refs/parsePdfAnnotationStableKey';
-import type { IPdfNoteGeometryUpdate } from '@contracts/electronApiDocuments';
+import {parsePdfAnnotationStableKeyRef} from '@app/modules/pdf-viewer/annotations/pdf-refs/parsePdfAnnotationStableKey';
+import type {IPdfNoteGeometryUpdate} from '@contracts/electronApiDocuments';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {MAX_PDF_OBJECT_GENERATION} from '@contracts/pdfAnnotationRefs';
-import type { INativePdfMutationBuildResult } from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationProjectionTypes';
+import type {INativePdfMutationBuildResult} from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationProjectionTypes';
 
-function resolveNativeNoteGeometryUpdateRef(
-    comment: IAnnotationCommentSummary,
-) {
-    return parsePdfAnnotationStableKeyRef(comment.stableKey)?.ref
-        ?? parsePdfAnnotationRef(comment.annotationId);
+function resolveNativeNoteGeometryUpdateRef(comment: IAnnotationCommentSummary) {
+    return parsePdfAnnotationStableKeyRef(comment.stableKey)?.ref ?? parsePdfAnnotationRef(comment.annotationId);
 }
 
 function isImportedStickyNote(comment: IAnnotationCommentSummary) {
     const normalizedSubtype = comment.subtype?.trim().toLowerCase();
-    return comment.source === 'pdf'
-        && comment.hasNote === true
-        && (normalizedSubtype === 'text' || normalizedSubtype === 'freetext' || normalizedSubtype === 'note' || normalizedSubtype === 'popup');
+    return (
+        comment.source === 'pdf' &&
+        comment.hasNote === true &&
+        (normalizedSubtype === 'text' || normalizedSubtype === 'freetext' || normalizedSubtype === 'note' || normalizedSubtype === 'popup')
+    );
 }
 
 /**
@@ -42,31 +41,33 @@ export function nativeNoteGeometryProjection(
         const targetRef = resolveNativeNoteGeometryUpdateRef(comment);
         const markerRect = comment.markerRect;
         if (
-            !targetRef
-            || targetRef.generationNumber > MAX_PDF_OBJECT_GENERATION
-            || !markerRect
-            || !Number.isFinite(markerRect.left)
-            || !Number.isFinite(markerRect.top)
-            || !Number.isFinite(markerRect.width)
-            || !Number.isFinite(markerRect.height)
-            || markerRect.left < 0
-            || markerRect.top < 0
-            || markerRect.width <= 0
-            || markerRect.height <= 0
-            || markerRect.left + markerRect.width > 1
-            || markerRect.top + markerRect.height > 1
+            !targetRef ||
+            targetRef.generationNumber > MAX_PDF_OBJECT_GENERATION ||
+            !markerRect ||
+            !Number.isFinite(markerRect.left) ||
+            !Number.isFinite(markerRect.top) ||
+            !Number.isFinite(markerRect.width) ||
+            !Number.isFinite(markerRect.height) ||
+            markerRect.left < 0 ||
+            markerRect.top < 0 ||
+            markerRect.width <= 0 ||
+            markerRect.height <= 0 ||
+            markerRect.left + markerRect.width > 1 ||
+            markerRect.top + markerRect.height > 1
         ) {
             return {
                 value: null,
-                skipEvents: [{
-                    event: 'Skipped native note-geometry save fast path',
-                    reason: 'imported-sticky-note-geometry-not-native-eligible',
-                    details: {
-                        stableKey: comment.stableKey,
-                        targetRef,
-                        hasMarkerRect: Boolean(markerRect),
+                skipEvents: [
+                    {
+                        event: 'Skipped native note-geometry save fast path',
+                        reason: 'imported-sticky-note-geometry-not-native-eligible',
+                        details: {
+                            stableKey: comment.stableKey,
+                            targetRef,
+                            hasMarkerRect: Boolean(markerRect),
+                        },
                     },
-                }],
+                ],
             };
         }
         const refKey = `${targetRef.objectNumber}R${targetRef.generationNumber}`;
@@ -74,14 +75,16 @@ export function nativeNoteGeometryProjection(
         if (existing) {
             return {
                 value: null,
-                skipEvents: [{
-                    event: 'Skipped native note-geometry save fast path',
-                    reason: 'conflicting-native-note-geometry-aliases',
-                    details: {
-                        stableKey: comment.stableKey,
-                        refKey,
+                skipEvents: [
+                    {
+                        event: 'Skipped native note-geometry save fast path',
+                        reason: 'conflicting-native-note-geometry-aliases',
+                        details: {
+                            stableKey: comment.stableKey,
+                            refKey,
+                        },
                     },
-                }],
+                ],
             };
         }
         seenRefs.add(refKey);

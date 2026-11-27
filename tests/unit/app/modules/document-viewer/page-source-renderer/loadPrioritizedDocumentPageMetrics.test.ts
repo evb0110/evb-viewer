@@ -1,9 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {describe, expect, it, vi} from 'vitest';
 import {
     createColdOpenProvisionalDocumentPageMetrics,
     createProvisionalDocumentPageMetrics,
@@ -11,8 +6,8 @@ import {
     isSparseDocumentPageMetrics,
     loadInitialDocumentPageMetric,
 } from '@app/modules/document-viewer/page-source-renderer/loadPrioritizedDocumentPageMetrics';
-import { requireDocumentRef } from '@contracts/documentRef';
-import type { IDocumentPageSource } from '@app/modules/document-viewer/source/documentPageSource';
+import {requireDocumentRef} from '@contracts/documentRef';
+import type {IDocumentPageSource} from '@app/modules/document-viewer/source/documentPageSource';
 
 function createSource(pageCount: number) {
     const calls: number[] = [];
@@ -61,11 +56,7 @@ describe('prioritized document page metrics', () => {
         const metrics = createProvisionalDocumentPageMetrics(431, initialMetric);
 
         expect(metrics).toHaveLength(431);
-        expect(metrics.every(metric => (
-            metric.widthPoints === 600
-            && metric.heightPoints === 800
-            && metric.rotation === 0
-        ))).toBe(true);
+        expect(metrics.every((metric) => metric.widthPoints === 600 && metric.heightPoints === 800 && metric.rotation === 0)).toBe(true);
         expect(metrics[0]).not.toBe(metrics[1]);
     });
 
@@ -79,7 +70,7 @@ describe('prioritized document page metrics', () => {
 
         expect(metrics).toHaveLength(1_000_000);
         expect(isSparseDocumentPageMetrics(metrics)).toBe(true);
-        expect(Object.keys(metrics).filter(key => /^\d+$/.test(key))).toEqual([]);
+        expect(Object.keys(metrics).filter((key) => /^\d+$/.test(key))).toEqual([]);
         expect(metrics[999_999]).toEqual({
             widthPoints: 600,
             heightPoints: 800,
@@ -90,10 +81,7 @@ describe('prioritized document page metrics', () => {
     });
 
     it('loads only the initial page on the first-visual critical path', async () => {
-        const {
-            calls,
-            source,
-        } = createSource(400);
+        const {calls, source} = createSource(400);
         const metric = await loadInitialDocumentPageMetric(source, 7, new AbortController().signal);
 
         expect(calls).toEqual([7]);
@@ -104,10 +92,7 @@ describe('prioritized document page metrics', () => {
     });
 
     it('hydrates remaining metrics nearest-first after the initial page commits', async () => {
-        const {
-            calls,
-            source,
-        } = createSource(5);
+        const {calls, source} = createSource(5);
         const metrics = await hydrateRemainingDocumentPageMetrics({
             source,
             initialPage: 3,
@@ -121,26 +106,12 @@ describe('prioritized document page metrics', () => {
             concurrency: 1,
         });
 
-        expect(calls).toEqual([
-            2,
-            4,
-            1,
-            5,
-        ]);
-        expect(metrics?.map(metric => metric.widthPoints)).toEqual([
-            601,
-            602,
-            603,
-            604,
-            605,
-        ]);
+        expect(calls).toEqual([2, 4, 1, 5]);
+        expect(metrics?.map((metric) => metric.widthPoints)).toEqual([601, 602, 603, 604, 605]);
     });
 
     it('publishes exact metrics incrementally instead of waiting for the full document', async () => {
-        const {
-            calls,
-            source,
-        } = createSource(4);
+        const {calls, source} = createSource(4);
         const published: number[] = [];
 
         await hydrateRemainingDocumentPageMetrics({
@@ -154,22 +125,15 @@ describe('prioritized document page metrics', () => {
             signal: new AbortController().signal,
             isCurrent: () => true,
             concurrency: 1,
-            onMetric: pageNumber => published.push(pageNumber),
+            onMetric: (pageNumber) => published.push(pageNumber),
         });
 
         expect(published).toEqual(calls);
-        expect(published).toEqual([
-            2,
-            3,
-            4,
-        ]);
+        expect(published).toEqual([2, 3, 4]);
     });
 
     it('reprioritizes the next metric around the latest requested target page', async () => {
-        const {
-            calls,
-            source,
-        } = createSource(6);
+        const {calls, source} = createSource(6);
         let priorityPage = 2;
 
         await hydrateRemainingDocumentPageMetrics({
@@ -189,17 +153,11 @@ describe('prioritized document page metrics', () => {
             },
         });
 
-        expect(calls.slice(0, 2)).toEqual([
-            2,
-            6,
-        ]);
+        expect(calls.slice(0, 2)).toEqual([2, 6]);
     });
 
     it('does not hydrate sparse metrics in a large document', async () => {
-        const {
-            calls,
-            source,
-        } = createSource(1_000_000);
+        const {calls, source} = createSource(1_000_000);
 
         const metrics = await hydrateRemainingDocumentPageMetrics({
             source,
@@ -212,13 +170,7 @@ describe('prioritized document page metrics', () => {
             signal: new AbortController().signal,
             isCurrent: () => true,
             concurrency: 1,
-            getPriorityPages: () => [
-                500_000,
-                499_999,
-                500_001,
-                500_002,
-                499_998,
-            ],
+            getPriorityPages: () => [500_000, 499_999, 500_001, 500_002, 499_998],
             maxHydratedPages: 3,
         });
 
@@ -232,10 +184,7 @@ describe('prioritized document page metrics', () => {
     });
 
     it('keeps nearest-first scheduling practical for very large scans', async () => {
-        const {
-            calls,
-            source,
-        } = createSource(40_000);
+        const {calls, source} = createSource(40_000);
 
         const metrics = await hydrateRemainingDocumentPageMetrics({
             source,
@@ -264,10 +213,7 @@ describe('prioritized document page metrics', () => {
     });
 
     it('drops background metrics when the source generation is superseded', async () => {
-        const {
-            calls,
-            source,
-        } = createSource(5);
+        const {calls, source} = createSource(5);
         let current = true;
         const originalGetPageMetrics = source.getPageMetrics.bind(source);
         source.getPageMetrics = async (pageNumber, signal) => {
@@ -276,26 +222,25 @@ describe('prioritized document page metrics', () => {
             return metric;
         };
 
-        await expect(hydrateRemainingDocumentPageMetrics({
-            source,
-            initialPage: 1,
-            initialMetric: {
-                widthPoints: 601,
-                heightPoints: 801,
-                rotation: 0,
-            },
-            signal: new AbortController().signal,
-            isCurrent: () => current,
-            concurrency: 1,
-        })).resolves.toBeNull();
+        await expect(
+            hydrateRemainingDocumentPageMetrics({
+                source,
+                initialPage: 1,
+                initialMetric: {
+                    widthPoints: 601,
+                    heightPoints: 801,
+                    rotation: 0,
+                },
+                signal: new AbortController().signal,
+                isCurrent: () => current,
+                concurrency: 1,
+            }),
+        ).resolves.toBeNull();
         expect(calls).toEqual([2]);
     });
 
     it('does not enumerate a million-page background hydration', async () => {
-        const {
-            calls,
-            source,
-        } = createSource(1_000_000);
+        const {calls, source} = createSource(1_000_000);
         const controller = new AbortController();
         source.getPageMetrics = async (pageNumber, signal) => {
             calls.push(pageNumber);

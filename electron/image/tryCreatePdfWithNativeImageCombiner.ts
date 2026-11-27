@@ -1,42 +1,20 @@
-import { getAppTempDir } from '@electron/utils/appTempDir';
-import {
-    createManagedScratchTempDir,
-    removeManagedScratchTempDir,
-} from '@electron/utils/managedScratchTemp';
-import {
-    open,
-    readFile,
-    rm,
-    writeFile,
-} from 'fs/promises';
-import { randomUUID } from 'crypto';
-import {
-    dirname,
-    extname,
-    join,
-} from 'path';
-import { fileURLToPath } from 'url';
-import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
-import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
-import { PDF_IMAGE_COMBINE_THREADS_ENV } from '@electron/native-tools/pdfImageCombineBudget';
-import {
-    mapJobBrokerRunTerminationProof,
-    type IJobBrokerRunContext,
-    type TTerminationProofSink,
-} from '@electron/resources/jobBroker';
-import { createNativeFallbackTestError } from '@electron/native-tools/createNativeFallbackTestError';
-import { getErrorMessage } from '@electron/utils/error';
-import { createLogger } from '@electron/utils/createLogger';
-import {
-    abortErrorFromSignal,
-    isAbortError,
-} from '@electron/utils/abort';
-import {
-    getUnprovenNativeTerminationDetail,
-    markUnprovenNativeTermination,
-} from '@electron/utils/nativeTerminationProof';
-import { readJpegExifOrientation } from '@electron/image/imageDpi';
-import { includesAsciiToken } from '@electron/utils/includesAsciiToken';
+import {getAppTempDir} from '@electron/utils/appTempDir';
+import {createManagedScratchTempDir, removeManagedScratchTempDir} from '@electron/utils/managedScratchTemp';
+import {open, readFile, rm, writeFile} from 'fs/promises';
+import {randomUUID} from 'crypto';
+import {dirname, extname, join} from 'path';
+import {fileURLToPath} from 'url';
+import {resolveNativeToolPath} from '@electron/native-tools/resolveNativeToolPath';
+import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
+import {PDF_IMAGE_COMBINE_THREADS_ENV} from '@electron/native-tools/pdfImageCombineBudget';
+import {mapJobBrokerRunTerminationProof, type IJobBrokerRunContext, type TTerminationProofSink} from '@electron/resources/jobBroker';
+import {createNativeFallbackTestError} from '@electron/native-tools/createNativeFallbackTestError';
+import {getErrorMessage} from '@electron/utils/error';
+import {createLogger} from '@electron/utils/createLogger';
+import {abortErrorFromSignal, isAbortError} from '@electron/utils/abort';
+import {getUnprovenNativeTerminationDetail, markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
+import {readJpegExifOrientation} from '@electron/image/imageDpi';
+import {includesAsciiToken} from '@electron/utils/includesAsciiToken';
 import {
     createPdfCombineOutputTooLargeError,
     isPdfCombineOutputTooLargeError,
@@ -45,17 +23,10 @@ import {
     PDF_COMBINE_MAX_OUTPUT_BYTES,
 } from '@contracts/pdfCombineOutputPolicy';
 import {NATIVE_ERROR_ENVELOPE_SCHEMA} from '@contracts/nativeErrors';
-import {
-    PDF_IMAGE_COMBINE_PROGRESS_SCHEMA,
-    type TPdfImageCombineProgress,
-} from '@contracts/pdfImageCombineProgress';
+import {PDF_IMAGE_COMBINE_PROGRESS_SCHEMA, type TPdfImageCombineProgress} from '@contracts/pdfImageCombineProgress';
 import {runtimeConfig} from '@electron/runtimeConfig';
-import {
-    decodeSerializableErrorEnvelope,
-    SerializableError,
-} from '@contracts/serializableError';
+import {decodeSerializableErrorEnvelope, SerializableError} from '@contracts/serializableError';
 import * as v from 'valibot';
-
 
 interface INativePdfImageCombineOptions {
     combineThreads?: number;
@@ -73,30 +44,13 @@ interface INativePdfImageCombineOptions {
     onTerminationProof?: TTerminationProofSink;
 }
 
-type TNativePdfImageCombineRetainCleanup = (
-    proof: Promise<boolean>,
-    childPid: number | null,
-    outputPath: string,
-) => void;
+type TNativePdfImageCombineRetainCleanup = (proof: Promise<boolean>, childPid: number | null, outputPath: string) => void;
 
 const logger = createLogger('nativePdfImageCombine');
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const isPackaged = __dirname.includes('app.asar');
-const SUPPORTED_NATIVE_BITMAP_EXTENSIONS = new Set([
-    '.png',
-    '.jpg',
-    '.jpeg',
-    '.jp2',
-    '.bmp',
-    '.gif',
-    '.webp',
-    '.tif',
-    '.tiff',
-]);
-const SUPPORTED_NATIVE_NETPBM_EXTENSIONS = new Set([
-    '.pgm',
-    '.ppm',
-]);
+const SUPPORTED_NATIVE_BITMAP_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.jp2', '.bmp', '.gif', '.webp', '.tif', '.tiff']);
+const SUPPORTED_NATIVE_NETPBM_EXTENSIONS = new Set(['.pgm', '.ppm']);
 const NATIVE_PDF_IMAGE_COMBINE_TIMEOUT_MS = 5 * 60 * 1000;
 const NATIVE_PDF_IMAGE_COMBINE_MAX_STDOUT_BUFFER_BYTES = 64 * 1024;
 const PDF_HEADER_SCAN_BYTES = 1024;
@@ -108,9 +62,7 @@ const FILE_BACKED_NATIVE_PDF_IMAGE_COMBINE_MAX_OUTPUT_BYTES = Number.MAX_SAFE_IN
 const NATIVE_PDF_IMAGE_COMBINE_MAX_OUTPUT_BYTES = PDF_COMBINE_MAX_OUTPUT_BYTES;
 
 function getBinaryName() {
-    return process.platform === 'win32'
-        ? 'evb-pdf-image-combine.exe'
-        : 'evb-pdf-image-combine';
+    return process.platform === 'win32' ? 'evb-pdf-image-combine.exe' : 'evb-pdf-image-combine';
 }
 
 export function isNativePdfImageCombineDisabled() {
@@ -128,10 +80,12 @@ export function resolveNativePdfImageCombinePath() {
 }
 
 function canUseNativePdfImageCombine(inputPaths: string[], supportedExtensions: Set<string>) {
-    return !isNativePdfImageCombineDisabled()
-        && inputPaths.length > 0
-        && inputPaths.every(path => supportedExtensions.has(extname(path).toLowerCase()))
-        && inputPaths.every(canRepresentPathInNativeInputsFile);
+    return (
+        !isNativePdfImageCombineDisabled() &&
+        inputPaths.length > 0 &&
+        inputPaths.every((path) => supportedExtensions.has(extname(path).toLowerCase())) &&
+        inputPaths.every(canRepresentPathInNativeInputsFile)
+    );
 }
 
 export function isNativePdfImageCombineBitmapPath(inputPath: string) {
@@ -144,9 +98,7 @@ function parseProgressPayload(value: unknown): TPdfImageCombineProgress | null {
 }
 
 function canRepresentPathInNativeInputsFile(inputPath: string) {
-    return inputPath.length > 0
-        && inputPath.trim() === inputPath
-        && !/[\r\n]/u.test(inputPath);
+    return inputPath.length > 0 && inputPath.trim() === inputPath && !/[\r\n]/u.test(inputPath);
 }
 
 function createNativeInputsFileContents(inputPaths: string[]) {
@@ -162,14 +114,22 @@ function createNativeRotationFileContents(rotationDegrees: readonly number[]) {
 
 function exifOrientationToPdfTransform(orientation: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8) {
     switch (orientation) {
-        case 1: return 0;
-        case 2: return 360;
-        case 3: return 180;
-        case 4: return 540;
-        case 5: return 450;
-        case 6: return 90;
-        case 7: return 630;
-        case 8: return 270;
+        case 1:
+            return 0;
+        case 2:
+            return 360;
+        case 3:
+            return 180;
+        case 4:
+            return 540;
+        case 5:
+            return 450;
+        case 6:
+            return 90;
+        case 7:
+            return 630;
+        case 8:
+            return 270;
     }
 }
 
@@ -189,29 +149,20 @@ async function isStructurallyPlausiblePdfFile(outputPath: string) {
         await handle.read(header, 0, headerLength, 0);
         await handle.read(eof, 0, eofLength, Math.max(0, fileStat.size - eofLength));
 
-        return includesAsciiToken(header, '%PDF-', 0, header.byteLength)
-            && includesAsciiToken(eof, '%%EOF', 0, eof.byteLength);
+        return includesAsciiToken(header, '%PDF-', 0, header.byteLength) && includesAsciiToken(eof, '%%EOF', 0, eof.byteLength);
     } finally {
         await handle.close();
     }
 }
 
-function normalizeOutputLimit(
-    value: number | undefined,
-    outputMode: INativePdfImageCombineOptions['outputMode'] = 'memory',
-) {
+function normalizeOutputLimit(value: number | undefined, outputMode: INativePdfImageCombineOptions['outputMode'] = 'memory') {
     if (outputMode === 'file-backed') {
-        return typeof value === 'number'
-            && Number.isSafeInteger(value)
-            && value >= 1
+        return typeof value === 'number' && Number.isSafeInteger(value) && value >= 1
             ? Math.min(value, FILE_BACKED_NATIVE_PDF_IMAGE_COMBINE_MAX_OUTPUT_BYTES)
             : FILE_BACKED_NATIVE_PDF_IMAGE_COMBINE_MAX_OUTPUT_BYTES;
     }
 
-    return Math.min(
-        NATIVE_PDF_IMAGE_COMBINE_MAX_OUTPUT_BYTES,
-        normalizePdfCombineOutputLimit(value),
-    );
+    return Math.min(NATIVE_PDF_IMAGE_COMBINE_MAX_OUTPUT_BYTES, normalizePdfCombineOutputLimit(value));
 }
 
 async function assertNativePdfOutputSize(outputPath: string, maxOutputBytes: number) {
@@ -231,19 +182,14 @@ async function isNativePdfOutputPlausibleAfterSizeCheck(outputPath: string) {
 }
 
 async function readNativePdfOutputAfterSizeCheck(outputPath: string) {
-    if (!await isNativePdfOutputPlausibleAfterSizeCheck(outputPath)) {
+    if (!(await isNativePdfOutputPlausibleAfterSizeCheck(outputPath))) {
         return null;
     }
     return new Uint8Array(await readFile(outputPath));
 }
 
-async function handleInvalidNativePdfOutput<T>(
-    outputPath: string,
-    fallbackDetail: string,
-    fallbackCause: unknown,
-    fallbackValue: T,
-) {
-    await rm(outputPath, { force: true }).catch(() => undefined);
+async function handleInvalidNativePdfOutput<T>(outputPath: string, fallbackDetail: string, fallbackCause: unknown, fallbackValue: T) {
+    await rm(outputPath, {force: true}).catch(() => undefined);
     const testFailure = createNativeFallbackTestError(
         runtimeConfig.test.nativePdfImageCombineEnabled,
         'Native image PDF combine',
@@ -281,7 +227,7 @@ async function validateNativePdfOutput<T>(
         fallbackDetail = `native output at "${outputPath}" is not a structurally valid PDF`;
     } catch (error) {
         if (isPdfCombineOutputTooLargeError(error)) {
-            await rm(outputPath, { force: true }).catch(() => undefined);
+            await rm(outputPath, {force: true}).catch(() => undefined);
             throw error;
         }
         logger.warn(`Native image PDF combine output is unavailable at "${outputPath}": ${getErrorMessage(error)}`);
@@ -289,34 +235,15 @@ async function validateNativePdfOutput<T>(
         fallbackCause = error;
     }
 
-    return handleInvalidNativePdfOutput(
-        outputPath,
-        fallbackDetail,
-        fallbackCause,
-        fallbackValue,
-    );
+    return handleInvalidNativePdfOutput(outputPath, fallbackDetail, fallbackCause, fallbackValue);
 }
 
 async function readValidatedNativePdfOutput(outputPath: string) {
-    return validateNativePdfOutput(
-        outputPath,
-        readNativePdfOutputAfterSizeCheck,
-        null,
-        NATIVE_PDF_IMAGE_COMBINE_MAX_OUTPUT_BYTES,
-        true,
-    );
+    return validateNativePdfOutput(outputPath, readNativePdfOutputAfterSizeCheck, null, NATIVE_PDF_IMAGE_COMBINE_MAX_OUTPUT_BYTES, true);
 }
 
-async function validateNativePdfOutputFile(
-    outputPath: string,
-    maxOutputBytes = NATIVE_PDF_IMAGE_COMBINE_MAX_OUTPUT_BYTES,
-) {
-    return validateNativePdfOutput(
-        outputPath,
-        isNativePdfOutputPlausibleAfterSizeCheck,
-        false,
-        maxOutputBytes,
-    );
+async function validateNativePdfOutputFile(outputPath: string, maxOutputBytes = NATIVE_PDF_IMAGE_COMBINE_MAX_OUTPUT_BYTES) {
+    return validateNativePdfOutput(outputPath, isNativePdfOutputPlausibleAfterSizeCheck, false, maxOutputBytes);
 }
 
 interface INativePdfImageCombineTempFiles {
@@ -329,7 +256,7 @@ interface INativePdfImageCombineTempFiles {
 function createIdempotentCleanup(cleanup: () => Promise<void>) {
     let cleanupPromise: Promise<void> | null = null;
     return () => {
-        cleanupPromise ??= cleanup().catch(error => {
+        cleanupPromise ??= cleanup().catch((error) => {
             cleanupPromise = null;
             throw error;
         });
@@ -344,27 +271,27 @@ async function withNativePdfImageCombineTempFiles<T>(
 ) {
     const scratchRoot = getAppTempDir();
     const tempDir = await createManagedScratchTempDir('pdfExport-scope-', scratchRoot);
-    const cleanupTempDir = createIdempotentCleanup(() => removeManagedScratchTempDir(
-        tempDir, 'pdfExport-scope-', scratchRoot,
-    ).then(() => undefined));
+    const cleanupTempDir = createIdempotentCleanup(() =>
+        removeManagedScratchTempDir(tempDir, 'pdfExport-scope-', scratchRoot).then(() => undefined),
+    );
     let retainedCleanupProof: Promise<boolean> | null = null;
-    const retainCleanupUntilTerminationProof: TNativePdfImageCombineRetainCleanup = (
-        proof,
-        childPid,
-        outputPath,
-    ) => {
+    const retainCleanupUntilTerminationProof: TNativePdfImageCombineRetainCleanup = (proof, childPid, outputPath) => {
         if (retainedCleanupProof) {
             return;
         }
         retainedCleanupProof = proof;
-        void proof.then(proven => {
+        void proof.then((proven) => {
             if (proven) {
-                void cleanupTempDir().catch(error => {
-                    logger.warn(`Failed to cleanup native image combine scratch for child pid=${String(childPid)} output="${outputPath}": ${getErrorMessage(error)}`);
+                void cleanupTempDir().catch((error) => {
+                    logger.warn(
+                        `Failed to cleanup native image combine scratch for child pid=${String(childPid)} output="${outputPath}": ${getErrorMessage(error)}`,
+                    );
                 });
                 return;
             }
-            logger.warn(`Retaining native image combine scratch for child pid=${String(childPid)} output="${outputPath}" until termination is proven`);
+            logger.warn(
+                `Retaining native image combine scratch for child pid=${String(childPid)} output="${outputPath}" until termination is proven`,
+            );
         });
     };
     const files: INativePdfImageCombineTempFiles = {
@@ -376,11 +303,7 @@ async function withNativePdfImageCombineTempFiles<T>(
 
     try {
         await writeFile(files.inputsPath, createNativeInputsFileContents(inputPaths), 'utf8');
-        await writeFile(
-            files.rotationsPath,
-            createNativeRotationFileContents(rotationDegrees ?? inputPaths.map(() => 0)),
-            'utf8',
-        );
+        await writeFile(files.rotationsPath, createNativeRotationFileContents(rotationDegrees ?? inputPaths.map(() => 0)), 'utf8');
         return await operation(files);
     } finally {
         if (!retainedCleanupProof) {
@@ -413,7 +336,9 @@ function hasCompleteJpegMetadataPrefix(bytes: Uint8Array) {
     }
     let offset = 2;
     while (offset < bytes.byteLength) {
-        while (offset < bytes.byteLength && bytes[offset] === 0xff) {offset += 1;}
+        while (offset < bytes.byteLength && bytes[offset] === 0xff) {
+            offset += 1;
+        }
         if (offset >= bytes.byteLength) {
             return false;
         }
@@ -422,7 +347,9 @@ function hasCompleteJpegMetadataPrefix(bytes: Uint8Array) {
         if (marker === 0xda || marker === 0xd9) {
             return true;
         }
-        if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {continue;}
+        if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
+            continue;
+        }
         if (offset + 2 > bytes.byteLength) {
             return false;
         }
@@ -446,9 +373,13 @@ async function readBoundedJpegMetadata(inputPath: string, signal?: AbortSignal) 
         const bytes = Buffer.alloc(byteLength);
         let bytesRead = 0;
         while (bytesRead < byteLength) {
-            if (signal?.aborted) {throw abortErrorFromSignal(signal);}
+            if (signal?.aborted) {
+                throw abortErrorFromSignal(signal);
+            }
             const result = await handle.read(bytes, bytesRead, byteLength - bytesRead, bytesRead);
-            if (result.bytesRead <= 0) {break;}
+            if (result.bytesRead <= 0) {
+                break;
+            }
             bytesRead += result.bytesRead;
         }
         return bytes.subarray(0, bytesRead);
@@ -460,7 +391,9 @@ async function readBoundedJpegMetadata(inputPath: string, signal?: AbortSignal) 
 async function readInputRotationDegrees(inputPaths: string[], signal?: AbortSignal): Promise<number[] | null> {
     const rotations: number[] = [];
     for (const inputPath of inputPaths) {
-        if (signal?.aborted) {throw abortErrorFromSignal(signal);}
+        if (signal?.aborted) {
+            throw abortErrorFromSignal(signal);
+        }
         const extension = extname(inputPath).toLowerCase();
         if (extension !== '.jpg' && extension !== '.jpeg') {
             rotations.push(0);
@@ -486,16 +419,17 @@ export async function tryBuildOptimizedPdfWithNativeImageCombiner(
         return null;
     }
 
-    return createPdfWithNativeImageCombiner(imagePaths, {
-        ...(onPageProcessed ? {onProgress: progress => onPageProcessed(progress.processed, progress.total)} : {}),
-        ...(options.brokerRun === undefined ? {} : {brokerRun: options.brokerRun}),
-        ...(options.combineThreads === undefined ? {} : {combineThreads: options.combineThreads}),
-        ...(options.onTerminationProof === undefined ? {} : {onTerminationProof: options.onTerminationProof}),
-        ...(options.signal === undefined ? {} : {signal: options.signal}),
-    }, [
-        '--dpi',
-        String(Math.round(dpi)),
-    ]);
+    return createPdfWithNativeImageCombiner(
+        imagePaths,
+        {
+            ...(onPageProcessed ? {onProgress: (progress) => onPageProcessed(progress.processed, progress.total)} : {}),
+            ...(options.brokerRun === undefined ? {} : {brokerRun: options.brokerRun}),
+            ...(options.combineThreads === undefined ? {} : {combineThreads: options.combineThreads}),
+            ...(options.onTerminationProof === undefined ? {} : {onTerminationProof: options.onTerminationProof}),
+            ...(options.signal === undefined ? {} : {signal: options.signal}),
+        },
+        ['--dpi', String(Math.round(dpi))],
+    );
 }
 
 async function createPdfWithNativeImageCombiner(
@@ -516,32 +450,28 @@ async function createPdfWithNativeImageCombiner(
         return null;
     }
 
-    return withNativePdfImageCombineTempFiles(inputPaths, undefined, async ({
-        tempDir,
-        inputsPath,
-        rotationsPath,
-        retainCleanupUntilTerminationProof,
-    }) => {
-        const outputPath = join(tempDir, `${randomUUID()}.pdf`);
-        const ok = await runNativePdfImageCombine(binaryPath, outputPath, [], options, [
-            ...extraArgs,
-            '--inputs-file',
-            inputsPath,
-            '--rotations-file',
-            rotationsPath,
-        ], retainCleanupUntilTerminationProof);
-        if (!ok) {
-            return null;
-        }
-        return readValidatedNativePdfOutput(outputPath);
-    });
+    return withNativePdfImageCombineTempFiles(
+        inputPaths,
+        undefined,
+        async ({tempDir, inputsPath, rotationsPath, retainCleanupUntilTerminationProof}) => {
+            const outputPath = join(tempDir, `${randomUUID()}.pdf`);
+            const ok = await runNativePdfImageCombine(
+                binaryPath,
+                outputPath,
+                [],
+                options,
+                [...extraArgs, '--inputs-file', inputsPath, '--rotations-file', rotationsPath],
+                retainCleanupUntilTerminationProof,
+            );
+            if (!ok) {
+                return null;
+            }
+            return readValidatedNativePdfOutput(outputPath);
+        },
+    );
 }
 
-async function writePdfWithNativeImageCombiner(
-    inputPaths: string[],
-    outputPath: string,
-    options?: INativePdfImageCombineOptions,
-) {
+async function writePdfWithNativeImageCombiner(inputPaths: string[], outputPath: string, options?: INativePdfImageCombineOptions) {
     const binaryPath = resolveNativePdfImageCombinePath();
     if (!binaryPath) {
         const testFailure = createNativeFallbackTestError(
@@ -555,37 +485,36 @@ async function writePdfWithNativeImageCombiner(
         return false;
     }
 
-    return withNativePdfImageCombineTempFiles(inputPaths, options?.rotationDegrees, async ({
-        inputsPath,
-        rotationsPath,
-        retainCleanupUntilTerminationProof,
-    }) => {
-        try {
-            const ok = await runNativePdfImageCombine(binaryPath, outputPath, [], options, [
-                '--inputs-file',
-                inputsPath,
-                '--rotations-file',
-                rotationsPath,
-            ], retainCleanupUntilTerminationProof);
-            if (!ok) {
-                await rm(outputPath, { force: true }).catch(() => undefined);
-                return false;
+    return withNativePdfImageCombineTempFiles(
+        inputPaths,
+        options?.rotationDegrees,
+        async ({inputsPath, rotationsPath, retainCleanupUntilTerminationProof}) => {
+            try {
+                const ok = await runNativePdfImageCombine(
+                    binaryPath,
+                    outputPath,
+                    [],
+                    options,
+                    ['--inputs-file', inputsPath, '--rotations-file', rotationsPath],
+                    retainCleanupUntilTerminationProof,
+                );
+                if (!ok) {
+                    await rm(outputPath, {force: true}).catch(() => undefined);
+                    return false;
+                }
+                return await validateNativePdfOutputFile(outputPath, normalizeOutputLimit(options?.maxOutputBytes, options?.outputMode));
+            } catch (error) {
+                if (
+                    error instanceof Error &&
+                    getUnprovenNativeTerminationDetail(error) === undefined &&
+                    error.message.startsWith('Native image PDF combine fallback is not allowed in tests:')
+                ) {
+                    await rm(outputPath, {force: true}).catch(() => undefined);
+                }
+                throw error;
             }
-            return await validateNativePdfOutputFile(
-                outputPath,
-                normalizeOutputLimit(options?.maxOutputBytes, options?.outputMode),
-            );
-        } catch (error) {
-            if (
-                error instanceof Error
-            && getUnprovenNativeTerminationDetail(error) === undefined
-            && error.message.startsWith('Native image PDF combine fallback is not allowed in tests:')
-            ) {
-                await rm(outputPath, { force: true }).catch(() => undefined);
-            }
-            throw error;
-        }
-    });
+        },
+    );
 }
 
 /**
@@ -601,18 +530,12 @@ export async function writePdfWithNativeImageCombineManifest(
     if (!binaryPath) {
         return false;
     }
-    const ok = await runNativePdfImageCombine(binaryPath, outputPath, [], options, [
-        '--compact-manifest',
-        manifestPath,
-    ]);
+    const ok = await runNativePdfImageCombine(binaryPath, outputPath, [], options, ['--compact-manifest', manifestPath]);
     if (!ok) {
-        await rm(outputPath, { force: true }).catch(() => undefined);
+        await rm(outputPath, {force: true}).catch(() => undefined);
         return false;
     }
-    return validateNativePdfOutputFile(
-        outputPath,
-        normalizeOutputLimit(options?.maxOutputBytes, options?.outputMode),
-    );
+    return validateNativePdfOutputFile(outputPath, normalizeOutputLimit(options?.maxOutputBytes, options?.outputMode));
 }
 
 async function runNativePdfImageCombine(
@@ -627,12 +550,7 @@ async function runNativePdfImageCombine(
         throw abortErrorFromSignal(options.signal);
     }
 
-    const args = [
-        '--output',
-        outputPath,
-        '--json-progress',
-        ...extraArgs,
-    ];
+    const args = ['--output', outputPath, '--json-progress', ...extraArgs];
     if (inputPaths.length > 0) {
         args.push('--', ...inputPaths);
     }
@@ -645,9 +563,7 @@ async function runNativePdfImageCombine(
         ...(options?.combineThreads !== undefined && process.env[PDF_IMAGE_COMBINE_THREADS_ENV] === undefined
             ? {[PDF_IMAGE_COMBINE_THREADS_ENV]: String(Math.max(1, Math.floor(options.combineThreads)))}
             : {}),
-        ...(options?.outputMode === 'file-backed'
-            ? {EVB_PDF_COMBINE_OUTPUT_MODE: PDF_COMBINE_FILE_BACKED_OUTPUT_MODE}
-            : {}),
+        ...(options?.outputMode === 'file-backed' ? {EVB_PDF_COMBINE_OUTPUT_MODE: PDF_COMBINE_FILE_BACKED_OUTPUT_MODE} : {}),
         ...(maxInputMb ? {EVB_PDF_COMBINE_MAX_INPUT_MB: maxInputMb} : {}),
         ...(maxPages ? {EVB_PDF_COMBINE_MAX_PAGES: maxPages} : {}),
     };
@@ -669,10 +585,7 @@ async function runNativePdfImageCombine(
         }
     };
 
-    const forwardIdentityBoundProof = (
-        proof: Promise<boolean>,
-        outerSink?: TTerminationProofSink,
-    ) => {
+    const forwardIdentityBoundProof = (proof: Promise<boolean>, outerSink?: TTerminationProofSink) => {
         const identityBoundProof = childPid === null ? proof.then(() => false) : proof;
         try {
             outerSink?.(identityBoundProof);
@@ -688,7 +601,7 @@ async function runNativePdfImageCombine(
     };
     const brokerRun = mapJobBrokerRunTerminationProof(
         options?.brokerRun,
-        outerSink => proof => forwardIdentityBoundProof(proof, outerSink),
+        (outerSink) => (proof) => forwardIdentityBoundProof(proof, outerSink),
     );
 
     try {
@@ -700,20 +613,18 @@ async function runNativePdfImageCombine(
             longLived: true,
             commandLabel: 'Native image PDF combine',
             terminationGraceMs: 1_000,
-            onSpawn: pid => {
+            onSpawn: (pid) => {
                 childPid = pid;
             },
             ...(brokerRun !== undefined
                 ? {brokerRun}
                 : {
-                    onTerminationProof: proof => forwardIdentityBoundProof(proof),
-                }),
-            onStdout: chunk => {
+                      onTerminationProof: (proof) => forwardIdentityBoundProof(proof),
+                  }),
+            onStdout: (chunk) => {
                 stdoutBuffer += chunk;
                 if (Buffer.byteLength(stdoutBuffer, 'utf8') > NATIVE_PDF_IMAGE_COMBINE_MAX_STDOUT_BUFFER_BYTES) {
-                    throw new Error(
-                        'native stdout line exceeded ' + String(NATIVE_PDF_IMAGE_COMBINE_MAX_STDOUT_BUFFER_BYTES) + ' bytes',
-                    );
+                    throw new Error('native stdout line exceeded ' + String(NATIVE_PDF_IMAGE_COMBINE_MAX_STDOUT_BUFFER_BYTES) + ' bytes');
                 }
                 let lineBreak = stdoutBuffer.indexOf('\n');
                 while (lineBreak >= 0) {
@@ -723,13 +634,12 @@ async function runNativePdfImageCombine(
                     lineBreak = stdoutBuffer.indexOf('\n');
                 }
             },
-            onStderr: chunk => {
+            onStderr: (chunk) => {
                 stderr = (stderr + chunk).slice(-8_192);
             },
             log: (_level, message) => {
                 if (message.includes('timed out')) {
-                    logger.warn('Native image PDF combine timed out after '
-                        + String(NATIVE_PDF_IMAGE_COMBINE_TIMEOUT_MS) + 'ms');
+                    logger.warn('Native image PDF combine timed out after ' + String(NATIVE_PDF_IMAGE_COMBINE_TIMEOUT_MS) + 'ms');
                 }
             },
         });
@@ -739,20 +649,19 @@ async function runNativePdfImageCombine(
         return true;
     } catch (cause) {
         const error = cause instanceof Error ? cause : new Error(String(cause));
-        const reportedUnprovenDetail = getUnprovenNativeTerminationDetail(error)
-            ?? (childPid === null && error.message.includes('spawned without a valid process id')
+        const reportedUnprovenDetail =
+            getUnprovenNativeTerminationDetail(error) ??
+            (childPid === null && error.message.includes('spawned without a valid process id')
                 ? 'native image combine child identity was not usable; process tree termination was not proven'
                 : undefined);
-        const unprovenDetail = reportedUnprovenDetail === undefined
-            ? undefined
-            : childPid === null
-                ? 'native image combine child identity was not usable; process tree termination was not proven'
-                : reportedUnprovenDetail;
+        const unprovenDetail =
+            reportedUnprovenDetail === undefined
+                ? undefined
+                : childPid === null
+                  ? 'native image combine child identity was not usable; process tree termination was not proven'
+                  : reportedUnprovenDetail;
         if (unprovenDetail !== undefined) {
-            const failure = new Error(
-                'Native image PDF combine termination was not proven: ' + unprovenDetail,
-                {cause: error},
-            );
+            const failure = new Error('Native image PDF combine termination was not proven: ' + unprovenDetail, {cause: error});
             if (isAbortError(error)) {
                 failure.name = 'AbortError';
             }
@@ -764,11 +673,7 @@ async function runNativePdfImageCombine(
 
         const rawExitCode = (error as {exitCode?: unknown}).exitCode;
         const exitCode = typeof rawExitCode === 'number' ? String(rawExitCode) : '<unknown>';
-        const nativeError = decodeSerializableErrorEnvelope(
-            stderr.trim(),
-            NATIVE_ERROR_ENVELOPE_SCHEMA,
-            {allowBareJsonString: true},
-        );
+        const nativeError = decodeSerializableErrorEnvelope(stderr.trim(), NATIVE_ERROR_ENVELOPE_SCHEMA, {allowBareJsonString: true});
         if (nativeError?.code === 'too-large') {
             throw new SerializableError(nativeError);
         }
@@ -776,10 +681,10 @@ async function runNativePdfImageCombine(
         const detail = error.message.includes('timed out')
             ? 'native process timed out after ' + String(NATIVE_PDF_IMAGE_COMBINE_TIMEOUT_MS) + 'ms'
             : error.message.includes('stdout line exceeded')
-                ? 'native stdout line exceeded ' + String(NATIVE_PDF_IMAGE_COMBINE_MAX_STDOUT_BUFFER_BYTES) + ' bytes'
-                : error.message.includes('failed to start')
-                    ? 'native process failed to start'
-                    : 'native process exited with code ' + exitCode + (stderr.trim() ? ': ' + stderr.trim() : '');
+              ? 'native stdout line exceeded ' + String(NATIVE_PDF_IMAGE_COMBINE_MAX_STDOUT_BUFFER_BYTES) + ' bytes'
+              : error.message.includes('failed to start')
+                ? 'native process failed to start'
+                : 'native process exited with code ' + exitCode + (stderr.trim() ? ': ' + stderr.trim() : '');
         const failure = createNativeFallbackTestError(
             runtimeConfig.test.nativePdfImageCombineEnabled,
             'Native image PDF combine',
@@ -804,8 +709,5 @@ function normalizeMaxInputMbForEnv(value: number | undefined) {
     if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < BYTES_PER_MEBIBYTE) {
         return null;
     }
-    return String(Math.min(
-        NATIVE_PDF_IMAGE_COMBINE_MAX_INPUT_MB,
-        Math.max(16, Math.ceil(value / BYTES_PER_MEBIBYTE)),
-    ));
+    return String(Math.min(NATIVE_PDF_IMAGE_COMBINE_MAX_INPUT_MB, Math.max(16, Math.ceil(value / BYTES_PER_MEBIBYTE))));
 }

@@ -1,27 +1,27 @@
-import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import { parsePdfAnnotationRef } from '@app/utils/pdfAnnotationRefs';
-import { parsePdfAnnotationStableKeyRef } from '@app/modules/pdf-viewer/annotations/pdf-refs/parsePdfAnnotationStableKey';
-import type { IPdfNativeAnnotationDelete } from '@contracts/electronApiDocuments';
-import { parsePageIndex } from '@contracts/pageNumbers';
-import { MAX_PDF_OBJECT_GENERATION } from '@contracts/pdfAnnotationRefs';
+import type {IAnnotationCommentSummary} from '@app/types/annotations';
+import {parsePdfAnnotationRef} from '@app/utils/pdfAnnotationRefs';
+import {parsePdfAnnotationStableKeyRef} from '@app/modules/pdf-viewer/annotations/pdf-refs/parsePdfAnnotationStableKey';
+import type {IPdfNativeAnnotationDelete} from '@contracts/electronApiDocuments';
+import {parsePageIndex} from '@contracts/pageNumbers';
+import {MAX_PDF_OBJECT_GENERATION} from '@contracts/pdfAnnotationRefs';
 import {createEpochMs} from '@contracts/timestamps';
-import { isReplayableEditorOnlyFreeTextNote } from '@app/modules/pdf-viewer/annotations/persistence/nativeFreeTextNoteProjection';
-import type { INativePdfMutationBuildResult } from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationProjectionTypes';
+import {isReplayableEditorOnlyFreeTextNote} from '@app/modules/pdf-viewer/annotations/persistence/nativeFreeTextNoteProjection';
+import type {INativePdfMutationBuildResult} from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationProjectionTypes';
 
 function parseAnnotationRefFromStableKey(stableKey: string) {
     return parsePdfAnnotationStableKeyRef(stableKey)?.ref ?? null;
 }
 
 function resolveNativeAnnotationDeleteRef(comment: IAnnotationCommentSummary) {
-    return parseAnnotationRefFromStableKey(comment.stableKey)
-        ?? parsePdfAnnotationRef(comment.annotationId)
-        ?? parsePdfAnnotationRef(comment.uid)
-        ?? parsePdfAnnotationRef(comment.id);
+    return (
+        parseAnnotationRefFromStableKey(comment.stableKey) ??
+        parsePdfAnnotationRef(comment.annotationId) ??
+        parsePdfAnnotationRef(comment.uid) ??
+        parsePdfAnnotationRef(comment.id)
+    );
 }
 
-export function getNativeAnnotationDeleteCommentTargetKey(
-    comment: IAnnotationCommentSummary,
-) {
+export function getNativeAnnotationDeleteCommentTargetKey(comment: IAnnotationCommentSummary) {
     const pageIndex = parsePageIndex(comment.pageIndex);
     if (pageIndex === null) {
         return null;
@@ -37,13 +37,8 @@ export function getNativeAnnotationDeleteCommentTargetKey(
     return null;
 }
 
-export function getNativeAnnotationDeleteRequestTargetKey(
-    request: IPdfNativeAnnotationDelete,
-) {
-    if (
-        request.objectNumber !== undefined
-        && request.generationNumber !== undefined
-    ) {
+export function getNativeAnnotationDeleteRequestTargetKey(request: IPdfNativeAnnotationDelete) {
+    if (request.objectNumber !== undefined && request.generationNumber !== undefined) {
         return `ref:${request.pageIndex}:${request.objectNumber}:${request.generationNumber}`;
     }
     const stableKey = request.stableKey?.trim();
@@ -51,17 +46,19 @@ export function getNativeAnnotationDeleteRequestTargetKey(
 }
 
 /** Reachable only through a native-append grant whose annotation route is loaded-source. */
-export function projectNativeAnnotationDeletes(
-    opts: {pendingDeletes: readonly IAnnotationCommentSummary[]},
-): INativePdfMutationBuildResult<IPdfNativeAnnotationDelete[]> {
+export function projectNativeAnnotationDeletes(opts: {
+    pendingDeletes: readonly IAnnotationCommentSummary[];
+}): INativePdfMutationBuildResult<IPdfNativeAnnotationDelete[]> {
     const skip = (reason: string, details: Record<string, unknown> = {}) => {
         return {
             value: null,
-            skipEvents: [{
-                event: 'Skipped native annotation delete fast path',
-                reason,
-                details,
-            }],
+            skipEvents: [
+                {
+                    event: 'Skipped native annotation delete fast path',
+                    reason,
+                    details,
+                },
+            ],
         };
     };
 
@@ -71,11 +68,7 @@ export function projectNativeAnnotationDeletes(
         const targetRef = resolveNativeAnnotationDeleteRef(comment);
         const stableKey = comment.stableKey?.trim();
         const pageIndex = parsePageIndex(comment.pageIndex);
-        if (
-            !targetRef
-            && stableKey
-            && isReplayableEditorOnlyFreeTextNote(comment)
-        ) {
+        if (!targetRef && stableKey && isReplayableEditorOnlyFreeTextNote(comment)) {
             if (pageIndex === null) {
                 return skip('pending-delete-not-native-eligible', {stableKey});
             }
@@ -89,17 +82,14 @@ export function projectNativeAnnotationDeletes(
             deletesByStableKey.set(stableKey, {
                 pageIndex,
                 stableKey,
-                createdAt: typeof comment.createdAt === 'number' && Number.isFinite(comment.createdAt)
-                    ? createEpochMs(Math.trunc(comment.createdAt))
-                    : null,
+                createdAt:
+                    typeof comment.createdAt === 'number' && Number.isFinite(comment.createdAt)
+                        ? createEpochMs(Math.trunc(comment.createdAt))
+                        : null,
             });
             continue;
         }
-        if (
-            !targetRef
-            || targetRef.generationNumber > MAX_PDF_OBJECT_GENERATION
-            || pageIndex === null
-        ) {
+        if (!targetRef || targetRef.generationNumber > MAX_PDF_OBJECT_GENERATION || pageIndex === null) {
             return skip('pending-delete-not-native-eligible', {
                 stableKey: comment.stableKey,
                 source: comment.source,
@@ -130,10 +120,7 @@ export function projectNativeAnnotationDeletes(
     }
 
     return {
-        value: [
-            ...Array.from(deletesByRef.values()),
-            ...Array.from(deletesByStableKey.values()),
-        ],
+        value: [...Array.from(deletesByRef.values()), ...Array.from(deletesByStableKey.values())],
         skipEvents: [],
     };
 }

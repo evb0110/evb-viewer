@@ -1,4 +1,4 @@
-import type { IAgentCapabilityTemplate } from '@electron/features/agent/mcp/mcpDefinitionTypes';
+import type {IAgentCapabilityTemplate} from '@electron/features/agent/mcp/mcpDefinitionTypes';
 import {
     ALLOW_INTERNAL_AND_EXTERNAL,
     ANNOTATION_COLOR_INPUT_SCHEMA,
@@ -76,22 +76,21 @@ export const AGENT_CAPABILITY_TEMPLATES = [
         id: 'document.inspect_text',
         domain: 'document',
         title: 'Inspect PDF text coverage',
-        summary: 'Build or reuse EVB Viewer search index and report searchable text/OCR coverage by page. On very large PDFs this can be expensive; prefer document.read_pages for bounded probes unless global coverage is required.',
+        summary:
+            'Build or reuse EVB Viewer search index and report searchable text/OCR coverage by page. On very large PDFs this can be expensive; prefer document.read_pages for bounded probes unless global coverage is required.',
         risk: 'read',
         inputSchema: TAB_INPUT_SCHEMA,
         outputSchema: OBJECT_OUTPUT_SCHEMA,
         policy: ALLOW_INTERNAL_AND_EXTERNAL,
         availabilityKind: 'pdf-path',
-        resourceTemplates: [
-            'evb://document/{tabId}/text-status',
-            'evb://document/{tabId}/ocr-status',
-        ],
+        resourceTemplates: ['evb://document/{tabId}/text-status', 'evb://document/{tabId}/ocr-status'],
     },
     {
         id: 'document.search',
         domain: 'document',
         title: 'Search open PDF',
-        summary: 'Search the open PDF using EVB Viewer cached search indexes and return page candidates with excerpts. For large PDFs, pass pages or startPage/endPage to keep probes bounded.',
+        summary:
+            'Search the open PDF using EVB Viewer cached search indexes and return page candidates with excerpts. For large PDFs, pass pages or startPage/endPage to keep probes bounded.',
         risk: 'read',
         inputSchema: SEARCH_INPUT_SCHEMA,
         outputSchema: OBJECT_OUTPUT_SCHEMA,
@@ -102,7 +101,8 @@ export const AGENT_CAPABILITY_TEMPLATES = [
         id: 'document.read_pages',
         domain: 'document',
         title: 'Read PDF page text',
-        summary: 'Read extracted text for selected one-based PDF pages. Uses cached search text when available and otherwise performs a bounded direct page probe, which is safer for huge or slow PDFs than full-document indexing.',
+        summary:
+            'Read extracted text for selected one-based PDF pages. Uses cached search text when available and otherwise performs a bounded direct page probe, which is safer for huge or slow PDFs than full-document indexing.',
         risk: 'read',
         inputSchema: READ_PAGES_INPUT_SCHEMA,
         outputSchema: OBJECT_OUTPUT_SCHEMA,
@@ -114,7 +114,8 @@ export const AGENT_CAPABILITY_TEMPLATES = [
         id: 'document.capture_page_image',
         domain: 'document',
         title: 'Capture rendered PDF page image',
-        summary: 'Navigate/render a PDF page and return a PNG image of the full page or a normalized crop for visual verification when OCR/search/TOC evidence is uncertain.',
+        summary:
+            'Navigate/render a PDF page and return a PNG image of the full page or a normalized crop for visual verification when OCR/search/TOC evidence is uncertain.',
         risk: 'navigate',
         inputSchema: CAPTURE_PAGE_IMAGE_INPUT_SCHEMA,
         outputSchema: OBJECT_OUTPUT_SCHEMA,
@@ -125,7 +126,8 @@ export const AGENT_CAPABILITY_TEMPLATES = [
         id: 'toc.read',
         domain: 'toc',
         title: 'Read TOC/bookmarks',
-        summary: 'Read the active document table of contents/bookmarks with nested entries, flat paths, destination anchors, summary counts, and validation hints.',
+        summary:
+            'Read the active document table of contents/bookmarks with nested entries, flat paths, destination anchors, summary counts, and validation hints.',
         risk: 'read',
         inputSchema: TAB_INPUT_SCHEMA,
         outputSchema: OBJECT_OUTPUT_SCHEMA,
@@ -149,7 +151,8 @@ export const AGENT_CAPABILITY_TEMPLATES = [
         id: 'page_labels.preview',
         domain: 'page_labels',
         title: 'Preview page label plan',
-        summary: 'Normalize proposed page-label ranges, inclusive segments, or explicit labels and return segments, samples, issues, and a changed-page diff without mutating the document.',
+        summary:
+            'Normalize proposed page-label ranges, inclusive segments, or explicit labels and return segments, samples, issues, and a changed-page diff without mutating the document.',
         risk: 'read',
         inputSchema: PAGE_LABEL_PLAN_INPUT_SCHEMA,
         outputSchema: OBJECT_OUTPUT_SCHEMA,
@@ -160,7 +163,8 @@ export const AGENT_CAPABILITY_TEMPLATES = [
         id: 'page_labels.apply_plan',
         domain: 'page_labels',
         title: 'Apply page label plan',
-        summary: 'Apply a verified page-label plan from ranges, inclusive segments, or explicit labels, returning the normalized snapshot and diff while recording an undoable metadata edit.',
+        summary:
+            'Apply a verified page-label plan from ranges, inclusive segments, or explicit labels, returning the normalized snapshot and diff while recording an undoable metadata edit.',
         risk: 'write',
         inputSchema: PAGE_LABEL_PLAN_INPUT_SCHEMA,
         outputSchema: OBJECT_OUTPUT_SCHEMA,
@@ -215,7 +219,8 @@ export const AGENT_CAPABILITY_TEMPLATES = [
         id: 'bookmarks.read',
         domain: 'bookmarks',
         title: 'Read bookmarks',
-        summary: 'Read editable PDF bookmarks as a nested tree plus flat path-indexed entries with pageYRatio anchors, summary counts, and validation hints.',
+        summary:
+            'Read editable PDF bookmarks as a nested tree plus flat path-indexed entries with pageYRatio anchors, summary counts, and validation hints.',
         risk: 'read',
         inputSchema: TAB_INPUT_SCHEMA,
         outputSchema: OBJECT_OUTPUT_SCHEMA,
@@ -227,7 +232,8 @@ export const AGENT_CAPABILITY_TEMPLATES = [
         id: 'bookmarks.preview_tree',
         domain: 'bookmarks',
         title: 'Preview bookmark tree',
-        summary: 'Normalize a proposed nested bookmark tree with items/children or flat TOC entries with level/depth values and pageYRatio anchors, returning the tree, flat view, issues, and path-level diff without mutating the document.',
+        summary:
+            'Normalize a proposed nested bookmark tree with items/children or flat TOC entries with level/depth values and pageYRatio anchors, returning the tree, flat view, issues, and path-level diff without mutating the document.',
         risk: 'read',
         inputSchema: BOOKMARK_PLAN_INPUT_SCHEMA,
         outputSchema: OBJECT_OUTPUT_SCHEMA,
@@ -238,7 +244,8 @@ export const AGENT_CAPABILITY_TEMPLATES = [
         id: 'bookmarks.apply_plan',
         domain: 'bookmarks',
         title: 'Apply bookmark plan',
-        summary: 'Apply a verified nested bookmark tree with items/children or flat TOC-entry plan as an undoable metadata edit. Full-tree replacement requires explicit user confirmation. Direct child clusters that reuse the parent destination are refused; provide distinct pages/pageYRatio anchors or omit them.',
+        summary:
+            'Apply a verified nested bookmark tree with items/children or flat TOC-entry plan as an undoable metadata edit. Full-tree replacement requires explicit user confirmation. Direct child clusters that reuse the parent destination are refused; provide distinct pages/pageYRatio anchors or omit them.',
         risk: 'write',
         inputSchema: BOOKMARK_PLAN_INPUT_SCHEMA,
         outputSchema: OBJECT_OUTPUT_SCHEMA,
@@ -249,7 +256,8 @@ export const AGENT_CAPABILITY_TEMPLATES = [
         id: 'bookmarks.set_tree',
         domain: 'bookmarks',
         title: 'Replace bookmark tree',
-        summary: 'Replace the full multi-level bookmark tree in one batch, requiring explicit user confirmation. Use bookmarks.preview_tree or an internal dryRun to inspect the proposal. Also accepts flat entries with level/depth values and pageYRatio anchors.',
+        summary:
+            'Replace the full multi-level bookmark tree in one batch, requiring explicit user confirmation. Use bookmarks.preview_tree or an internal dryRun to inspect the proposal. Also accepts flat entries with level/depth values and pageYRatio anchors.',
         risk: 'write',
         inputSchema: BOOKMARK_TREE_INPUT_SCHEMA,
         outputSchema: OBJECT_OUTPUT_SCHEMA,
@@ -271,7 +279,8 @@ export const AGENT_CAPABILITY_TEMPLATES = [
         id: 'bookmarks.add_batch',
         domain: 'bookmarks',
         title: 'Add bookmarks in batch',
-        summary: 'Add multiple bookmarks to the existing TOC, usually by passing a shared parentPath for children under a known lesson/chapter path, with optional per-entry pageYRatio anchors.',
+        summary:
+            'Add multiple bookmarks to the existing TOC, usually by passing a shared parentPath for children under a known lesson/chapter path, with optional per-entry pageYRatio anchors.',
         risk: 'write',
         inputSchema: BOOKMARK_ADD_BATCH_INPUT_SCHEMA,
         outputSchema: OBJECT_OUTPUT_SCHEMA,
@@ -282,7 +291,8 @@ export const AGENT_CAPABILITY_TEMPLATES = [
         id: 'bookmarks.update',
         domain: 'bookmarks',
         title: 'Update bookmark',
-        summary: 'Update one bookmark by zero-based tree path, including title, destination page/pageYRatio, style, color, or children. For internal callers, replacing items/children requires explicit user confirmation; scalar edits remain available.',
+        summary:
+            'Update one bookmark by zero-based tree path, including title, destination page/pageYRatio, style, color, or children. For internal callers, replacing items/children requires explicit user confirmation; scalar edits remain available.',
         risk: 'write',
         inputSchema: BOOKMARK_UPDATE_INPUT_SCHEMA,
         outputSchema: OBJECT_OUTPUT_SCHEMA,
@@ -304,7 +314,8 @@ export const AGENT_CAPABILITY_TEMPLATES = [
         id: 'bookmarks.delete_batch',
         domain: 'bookmarks',
         title: 'Delete bookmarks in batch',
-        summary: 'Delete multiple bookmark subtrees by zero-based tree paths in one undoable metadata edit. Parent/child overlaps are collapsed so selected descendants are removed only once.',
+        summary:
+            'Delete multiple bookmark subtrees by zero-based tree paths in one undoable metadata edit. Parent/child overlaps are collapsed so selected descendants are removed only once.',
         risk: 'destructive',
         inputSchema: BOOKMARK_DELETE_BATCH_INPUT_SCHEMA,
         outputSchema: OBJECT_OUTPUT_SCHEMA,
@@ -315,7 +326,8 @@ export const AGENT_CAPABILITY_TEMPLATES = [
         id: 'bookmarks.set_style',
         domain: 'bookmarks',
         title: 'Style bookmarks',
-        summary: 'Apply bold, italic, and/or color to many existing bookmarks in one undoable metadata edit. Select targets by explicit paths, an inclusive sibling range, or an outline depth/level, optionally scoped under parentPath and extended to descendants. Use it to distinguish semantic parts of an outline, for example bold parts/chapters, italic front and back matter, or a color for appendices.',
+        summary:
+            'Apply bold, italic, and/or color to many existing bookmarks in one undoable metadata edit. Select targets by explicit paths, an inclusive sibling range, or an outline depth/level, optionally scoped under parentPath and extended to descendants. Use it to distinguish semantic parts of an outline, for example bold parts/chapters, italic front and back matter, or a color for appendices.',
         risk: 'write',
         inputSchema: BOOKMARK_SET_STYLE_INPUT_SCHEMA,
         outputSchema: OBJECT_OUTPUT_SCHEMA,
@@ -823,7 +835,8 @@ export const AGENT_CAPABILITY_TEMPLATES = [
         id: 'history.undo',
         domain: 'history',
         title: 'Undo',
-        summary: 'Undo the latest undoable edit in the active document history. Use only on explicit user request or to recover from a just-applied assistant action.',
+        summary:
+            'Undo the latest undoable edit in the active document history. Use only on explicit user request or to recover from a just-applied assistant action.',
         risk: 'write',
         inputSchema: EMPTY_INPUT_SCHEMA,
         outputSchema: OBJECT_OUTPUT_SCHEMA,

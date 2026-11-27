@@ -1,46 +1,38 @@
-import { getErrorMessage } from '@app/utils/error';
-import type { ComponentPublicInstance } from 'vue';
+import {getErrorMessage} from '@app/utils/error';
+import type {ComponentPublicInstance} from 'vue';
 import type {TLocale} from '@i18n-app';
 import {isLocaleMessageSource} from '@i18n-core';
-import { BrowserLogger } from '@app/utils/browserLogger';
+import {BrowserLogger} from '@app/utils/browserLogger';
 import {installConsoleErrorObserver} from '@app/utils/installConsoleErrorObserver';
 import {createPluginTranslate} from '@app/utils/createPluginTranslate';
-import {
-    captureFailureForPresentation,
-    withSuppressedCapture,
-} from '@app/utils/failureReporter';
+import {captureFailureForPresentation, withSuppressedCapture} from '@app/utils/failureReporter';
 import {
     notifyRendererDiagnosticNotice,
     redactRendererDiagnosticSignature,
     type TRendererDiagnosticSource,
 } from '@app/utils/rendererDiagnosticNotices';
-import { getIgnorableRuntimeErrorMessage } from '@app/utils/runtimeErrorFilter';
+import {getIgnorableRuntimeErrorMessage} from '@app/utils/runtimeErrorFilter';
 
 const MAX_SERIALIZED_ERROR_LENGTH = 12_000;
 
-interface IRendererErrorGuardState { cleanup: () => void; }
+interface IRendererErrorGuardState {
+    cleanup: () => void;
+}
 
-type TRendererErrorGuardWindow = Window & { __evbRendererErrorGuardState?: IRendererErrorGuardState };
+type TRendererErrorGuardWindow = Window & {__evbRendererErrorGuardState?: IRendererErrorGuardState};
 
 function truncateSerializedError(value: string) {
-    return value.length > MAX_SERIALIZED_ERROR_LENGTH
-        ? `${value.slice(0, MAX_SERIALIZED_ERROR_LENGTH)}...`
-        : value;
+    return value.length > MAX_SERIALIZED_ERROR_LENGTH ? `${value.slice(0, MAX_SERIALIZED_ERROR_LENGTH)}...` : value;
 }
 
 function readStringProperty(value: object, key: string) {
     const property = (value as Record<string, unknown>)[key];
-    return typeof property === 'string' && property.trim().length > 0
-        ? property
-        : null;
+    return typeof property === 'string' && property.trim().length > 0 ? property : null;
 }
 
 function stringifyErrorValue(error: unknown) {
     if (error instanceof Error) {
-        return [
-            `${error.name}: ${getErrorMessage(error)}`,
-            error.stack,
-        ].filter(Boolean).join('\n');
+        return [`${error.name}: ${getErrorMessage(error)}`, error.stack].filter(Boolean).join('\n');
     }
 
     if (typeof error === 'string') {
@@ -49,28 +41,32 @@ function stringifyErrorValue(error: unknown) {
 
     const seen = new WeakSet<object>();
     try {
-        const serialized = JSON.stringify(error, (_key, value: unknown) => {
-            if (value instanceof Error) {
-                return {
-                    name: value.name,
-                    message: getErrorMessage(value),
-                    stack: value.stack,
-                };
-            }
-
-            if (typeof value === 'bigint') {
-                return value.toString();
-            }
-
-            if (typeof value === 'object' && value !== null) {
-                if (seen.has(value)) {
-                    return '[Circular]';
+        const serialized = JSON.stringify(
+            error,
+            (_key, value: unknown) => {
+                if (value instanceof Error) {
+                    return {
+                        name: value.name,
+                        message: getErrorMessage(value),
+                        stack: value.stack,
+                    };
                 }
-                seen.add(value);
-            }
 
-            return value;
-        }, 2);
+                if (typeof value === 'bigint') {
+                    return value.toString();
+                }
+
+                if (typeof value === 'object' && value !== null) {
+                    if (seen.has(value)) {
+                        return '[Circular]';
+                    }
+                    seen.add(value);
+                }
+
+                return value;
+            },
+            2,
+        );
         return typeof serialized === 'string' ? serialized : String(error);
     } catch {
         return String(error);
@@ -100,9 +96,7 @@ function serializeError(error: unknown) {
 }
 
 function getTrimmedName(name: unknown) {
-    return typeof name === 'string' && name.trim().length > 0
-        ? name.trim()
-        : null;
+    return typeof name === 'string' && name.trim().length > 0 ? name.trim() : null;
 }
 
 function getComponentTypeName(component: object) {
@@ -127,14 +121,12 @@ export default defineNuxtPlugin((nuxtApp) => {
         return;
     }
 
-    const { reportRuntimeError } = useRuntimeErrorReports();
+    const {reportRuntimeError} = useRuntimeErrorReports();
     const localeCookie = useCookie<TLocale>('i18n_redirected');
     const t = createPluginTranslate(
         (locale) => {
             const composer: unknown = nuxtApp.$i18n;
-            return isLocaleMessageSource(composer)
-                ? composer.getLocaleMessage(locale)
-                : {};
+            return isLocaleMessageSource(composer) ? composer.getLocaleMessage(locale) : {};
         },
         () => localeCookie.value,
     );
@@ -165,10 +157,15 @@ export default defineNuxtPlugin((nuxtApp) => {
                 data: details,
             },
         });
-        BrowserLogger.error('renderer-guard', logMessage, {
-            cause,
-            details,
-        }, presentation.failure);
+        BrowserLogger.error(
+            'renderer-guard',
+            logMessage,
+            {
+                cause,
+                details,
+            },
+            presentation.failure,
+        );
         reportRuntimeError({
             ...presentation,
             failure: presentation.failure,
@@ -177,11 +174,7 @@ export default defineNuxtPlugin((nuxtApp) => {
     };
 
     const previousHandler = nuxtApp.vueApp.config.errorHandler;
-    const invokePreviousHandler = (
-        error: unknown,
-        instance: ComponentPublicInstance | null,
-        info: string,
-    ) => {
+    const invokePreviousHandler = (error: unknown, instance: ComponentPublicInstance | null, info: string) => {
         if (typeof previousHandler !== 'function') {
             return;
         }
@@ -191,16 +184,12 @@ export default defineNuxtPlugin((nuxtApp) => {
     const errorHandler = (error: unknown, instance: ComponentPublicInstance | null, info: string) => {
         const ignorableMessage = getIgnorableRuntimeErrorMessage(error);
         if (ignorableMessage) {
-            BrowserLogger.debug(
-                'renderer-guard',
-                'Ignored benign Vue error',
-                {
-                    ignorableMessage,
-                    info,
-                    component: getComponentName(instance),
-                    error: serializeError(error),
-                },
-            );
+            BrowserLogger.debug('renderer-guard', 'Ignored benign Vue error', {
+                ignorableMessage,
+                info,
+                component: getComponentName(instance),
+                error: serializeError(error),
+            });
             invokePreviousHandler(error, instance, info);
             return;
         }
@@ -217,18 +206,14 @@ export default defineNuxtPlugin((nuxtApp) => {
     const onWindowError = (event: ErrorEvent) => {
         const ignorableMessage = getIgnorableRuntimeErrorMessage(event.error ?? event.message);
         if (ignorableMessage) {
-            BrowserLogger.debug(
-                'renderer-guard',
-                'Ignored benign window error',
-                {
-                    ignorableMessage,
-                    message: event.message,
-                    filename: event.filename,
-                    lineno: event.lineno,
-                    colno: event.colno,
-                    error: serializeError(event.error),
-                },
-            );
+            BrowserLogger.debug('renderer-guard', 'Ignored benign window error', {
+                ignorableMessage,
+                message: event.message,
+                filename: event.filename,
+                lineno: event.lineno,
+                colno: event.colno,
+                error: serializeError(event.error),
+            });
             return;
         }
 
@@ -244,18 +229,14 @@ export default defineNuxtPlugin((nuxtApp) => {
     const onUnhandledRejection = (event: PromiseRejectionEvent) => {
         const ignorableMessage = getIgnorableRuntimeErrorMessage(event.reason);
         if (ignorableMessage) {
-            BrowserLogger.debug(
-                'renderer-guard',
-                'Ignored benign promise rejection',
-                {
-                    ignorableMessage,
-                    reason: serializeError(event.reason),
-                },
-            );
+            BrowserLogger.debug('renderer-guard', 'Ignored benign promise rejection', {
+                ignorableMessage,
+                reason: serializeError(event.reason),
+            });
             return;
         }
 
-        report('unhandled-rejection', 'Unhandled promise rejection', event.reason, { reason: serializeError(event.reason) });
+        report('unhandled-rejection', 'Unhandled promise rejection', event.reason, {reason: serializeError(event.reason)});
     };
 
     const originalUnmount = nuxtApp.vueApp.unmount.bind(nuxtApp.vueApp);

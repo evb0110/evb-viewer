@@ -1,16 +1,8 @@
-import { clamp } from 'es-toolkit/math';
-import {
-    admitPdfPageLabelStartNumber, PDF_PAGE_LABEL_STYLE_VALUES,
-} from '@contracts/pdfPageLabels';
-import {
-    getLabelForOffset, pageLabelMatchesText, pageLabelValuesMatch, formatPageLabelForDisplay,
-} from '@pdf-core/pdfPageLabelFormatting';
-import type {
-    IPdfPageLabelRange,
-    IPdfPageLabelSegment,
-    TPdfPageLabelStyle,
-} from '@contracts/pdfPageLabels';
-export { formatPageLabelForDisplay } from '@pdf-core/pdfPageLabelFormatting';
+import {clamp} from 'es-toolkit/math';
+import {admitPdfPageLabelStartNumber, PDF_PAGE_LABEL_STYLE_VALUES} from '@contracts/pdfPageLabels';
+import {getLabelForOffset, pageLabelMatchesText, pageLabelValuesMatch, formatPageLabelForDisplay} from '@pdf-core/pdfPageLabelFormatting';
+import type {IPdfPageLabelRange, IPdfPageLabelSegment, TPdfPageLabelStyle} from '@contracts/pdfPageLabels';
+export {formatPageLabelForDisplay} from '@pdf-core/pdfPageLabelFormatting';
 
 /** Maximum number of labels returned by one bounded window read. */
 export const PAGE_LABEL_MAX_WINDOW_PAGES = 128;
@@ -54,7 +46,9 @@ function toPositiveInt(value: unknown, fallback: number) {
 }
 
 export {
-    getPageLabelStartNumberMax, PAGE_LABEL_MAX_ALPHABETIC_START_NUMBER, PAGE_LABEL_MAX_ROMAN_START_NUMBER,
+    getPageLabelStartNumberMax,
+    PAGE_LABEL_MAX_ALPHABETIC_START_NUMBER,
+    PAGE_LABEL_MAX_ROMAN_START_NUMBER,
 } from '@contracts/pdfPageLabels';
 
 function normalizeStyle(style: unknown): TDocumentPageLabelStyle {
@@ -93,12 +87,18 @@ function parseRoman(value: string) {
         return null;
     }
 
-    return pageLabelMatchesText({
-        startPage: 1,
-        style: value === value.toLowerCase() ? 'r' : 'R',
-        prefix: '',
-        startNumber: total,
-    }, 0, value) ? total : null;
+    return pageLabelMatchesText(
+        {
+            startPage: 1,
+            style: value === value.toLowerCase() ? 'r' : 'R',
+            prefix: '',
+            startNumber: total,
+        },
+        0,
+        value,
+    )
+        ? total
+        : null;
 }
 
 function parseAlphabetic(value: string) {
@@ -111,13 +111,10 @@ function parseAlphabetic(value: string) {
     }
     const offset = normalized.charCodeAt(0) - 0x61;
     const repeatCount = normalized.length;
-    return ((repeatCount - 1) * 26) + offset + 1;
+    return (repeatCount - 1) * 26 + offset + 1;
 }
 
-function findRangeIndexForPage(
-    page: number,
-    ranges: ReadonlyArray<{ startPage: number }>,
-) {
+function findRangeIndexForPage(page: number, ranges: ReadonlyArray<{startPage: number}>) {
     let low = 0;
     let high = ranges.length - 1;
     let result = 0;
@@ -141,10 +138,7 @@ function buildPageLabelSegmentsFromNormalizedRanges(
 ): IDocumentPageLabelSegment[] {
     return ranges.map((range, index) => ({
         ...range,
-        endPage: Math.max(
-            range.startPage,
-            Math.min(totalPages, (ranges[index + 1]?.startPage ?? totalPages + 1) - 1),
-        ),
+        endPage: Math.max(range.startPage, Math.min(totalPages, (ranges[index + 1]?.startPage ?? totalPages + 1) - 1)),
     }));
 }
 /** A label prefix holding a line break was never inferred: the old `(.*?)` could not cross one. */
@@ -158,7 +152,7 @@ function trailingRunStart(label: string, inRun: (code: number) => boolean) {
     return start;
 }
 function inferDecimalCandidate(label: string): IDocumentPageLabelRange | null {
-    const start = trailingRunStart(label, code => code >= 0x30 && code <= 0x39);
+    const start = trailingRunStart(label, (code) => code >= 0x30 && code <= 0x39);
     if (start === label.length || LINE_BREAK.test(label.slice(0, start))) {
         return null;
     }
@@ -171,7 +165,7 @@ function inferDecimalCandidate(label: string): IDocumentPageLabelRange | null {
     };
 }
 function inferRomanCandidate(label: string): IDocumentPageLabelRange | null {
-    const start = trailingRunStart(label, code => 'ivxlcdm'.includes(String.fromCharCode(code | 0x20)));
+    const start = trailingRunStart(label, (code) => 'ivxlcdm'.includes(String.fromCharCode(code | 0x20)));
     const suffix = label.slice(start);
     const romanValue = parseRoman(suffix);
     if (romanValue === null || LINE_BREAK.test(label.slice(0, start))) {
@@ -186,7 +180,7 @@ function inferRomanCandidate(label: string): IDocumentPageLabelRange | null {
     };
 }
 function inferAlphabeticCandidate(label: string): IDocumentPageLabelRange | null {
-    const start = trailingRunStart(label, code => (code | 0x20) >= 0x61 && (code | 0x20) <= 0x7a);
+    const start = trailingRunStart(label, (code) => (code | 0x20) >= 0x61 && (code | 0x20) <= 0x7a);
     const suffix = label.slice(start);
     const alphaValue = parseAlphabetic(suffix);
     if (alphaValue === null || LINE_BREAK.test(label.slice(0, start))) {
@@ -201,17 +195,15 @@ function inferAlphabeticCandidate(label: string): IDocumentPageLabelRange | null
     };
 }
 function inferCandidates(label: string): [IDocumentPageLabelRange, ...IDocumentPageLabelRange[]] {
-    const candidates: [IDocumentPageLabelRange, ...IDocumentPageLabelRange[]] = [{
-        startPage: 1,
-        style: null,
-        prefix: label,
-        startNumber: 1,
-    }];
-    const parsedCandidates = [
-        inferDecimalCandidate(label),
-        inferRomanCandidate(label),
-        inferAlphabeticCandidate(label),
+    const candidates: [IDocumentPageLabelRange, ...IDocumentPageLabelRange[]] = [
+        {
+            startPage: 1,
+            style: null,
+            prefix: label,
+            startNumber: 1,
+        },
     ];
+    const parsedCandidates = [inferDecimalCandidate(label), inferRomanCandidate(label), inferAlphabeticCandidate(label)];
 
     for (const candidate of parsedCandidates) {
         if (candidate) {
@@ -221,13 +213,8 @@ function inferCandidates(label: string): [IDocumentPageLabelRange, ...IDocumentP
 
     return candidates;
 }
-export function normalizePageLabelRanges(
-    ranges: readonly IDocumentPageLabelRange[],
-    totalPages: number,
-): IDocumentPageLabelRange[] {
-    const normalizedTotalPages = Number.isSafeInteger(totalPages)
-        ? Math.max(0, totalPages)
-        : 0;
+export function normalizePageLabelRanges(ranges: readonly IDocumentPageLabelRange[], totalPages: number): IDocumentPageLabelRange[] {
+    const normalizedTotalPages = Number.isSafeInteger(totalPages) ? Math.max(0, totalPages) : 0;
     if (normalizedTotalPages <= 0) {
         return [];
     }
@@ -235,11 +222,7 @@ export function normalizePageLabelRanges(
     const deduped = new Map<number, IDocumentPageLabelRange>();
 
     for (const range of ranges) {
-        const startPage = clamp(
-            toPositiveInt(range.startPage, 1),
-            1,
-            normalizedTotalPages,
-        );
+        const startPage = clamp(toPositiveInt(range.startPage, 1), 1, normalizedTotalPages);
         const style = normalizeStyle(range.style);
         const prefix = typeof range.prefix === 'string' ? range.prefix : '';
         const startNumber = toPositiveInt(range.startNumber, 1);
@@ -266,13 +249,10 @@ export function normalizePageLabelRanges(
     for (const range of sorted) {
         const previous = canonical[canonical.length - 1];
         if (
-            previous
-            && previous.style === range.style
-            && previous.prefix === range.prefix
-            && (
-                range.style === null
-                || previous.startNumber + (range.startPage - previous.startPage) === range.startNumber
-            )
+            previous &&
+            previous.style === range.style &&
+            previous.prefix === range.prefix &&
+            (range.style === null || previous.startNumber + (range.startPage - previous.startPage) === range.startNumber)
         ) {
             continue;
         }
@@ -281,56 +261,33 @@ export function normalizePageLabelRanges(
     return canonical;
 }
 /** Return canonical, inclusive segments for a page-label range list. */
-export function buildPageLabelSegments(
-    totalPages: number,
-    ranges: readonly IDocumentPageLabelRange[],
-): IDocumentPageLabelSegment[] {
+export function buildPageLabelSegments(totalPages: number, ranges: readonly IDocumentPageLabelRange[]): IDocumentPageLabelSegment[] {
     const normalizedRanges = normalizePageLabelRanges(ranges, totalPages);
-    return buildPageLabelSegmentsFromNormalizedRanges(
-        Number.isSafeInteger(totalPages) ? Math.max(0, totalPages) : 0,
-        normalizedRanges,
-    );
+    return buildPageLabelSegmentsFromNormalizedRanges(Number.isSafeInteger(totalPages) ? Math.max(0, totalPages) : 0, normalizedRanges);
 }
 
 /** The segment holding `page` among canonical, sorted segments. */
-export function findPageLabelSegment(
-    segments: readonly IDocumentPageLabelSegment[],
-    page: number,
-): IDocumentPageLabelSegment | undefined {
+export function findPageLabelSegment(segments: readonly IDocumentPageLabelSegment[], page: number): IDocumentPageLabelSegment | undefined {
     const segment = segments[findRangeIndexForPage(page, segments)];
     return segment && segment.startPage <= page && page <= segment.endPage ? segment : undefined;
 }
 
-function normalizeWindowBounds(
-    totalPages: number,
-    startPage: number,
-    endPageOrCount: number | undefined,
-) {
+function normalizeWindowBounds(totalPages: number, startPage: number, endPageOrCount: number | undefined) {
     if (totalPages <= 0) {
         return null;
     }
 
-    const first = clamp(
-        Number.isFinite(startPage) ? Math.trunc(startPage) : 1,
-        1,
-        totalPages,
-    );
-    if (
-        endPageOrCount !== undefined
-        && (!Number.isFinite(endPageOrCount) || Math.trunc(endPageOrCount) < 1)
-    ) {
+    const first = clamp(Number.isFinite(startPage) ? Math.trunc(startPage) : 1, 1, totalPages);
+    if (endPageOrCount !== undefined && (!Number.isFinite(endPageOrCount) || Math.trunc(endPageOrCount) < 1)) {
         return null;
     }
-    const requestedEnd = endPageOrCount === undefined
-        ? first + PAGE_LABEL_MAX_WINDOW_PAGES - 1
-        : Math.trunc(endPageOrCount) < first
-            ? first + Math.max(0, Math.trunc(endPageOrCount)) - 1
-            : Math.trunc(endPageOrCount);
-    const last = clamp(
-        requestedEnd,
-        first,
-        Math.min(totalPages, first + PAGE_LABEL_MAX_WINDOW_PAGES - 1),
-    );
+    const requestedEnd =
+        endPageOrCount === undefined
+            ? first + PAGE_LABEL_MAX_WINDOW_PAGES - 1
+            : Math.trunc(endPageOrCount) < first
+              ? first + Math.max(0, Math.trunc(endPageOrCount)) - 1
+              : Math.trunc(endPageOrCount);
+    const last = clamp(requestedEnd, first, Math.min(totalPages, first + PAGE_LABEL_MAX_WINDOW_PAGES - 1));
 
     return {
         startPage: first,
@@ -350,24 +307,21 @@ function readPageLabelWindowFromNormalizedRanges(
 
     const labels = new Array<string>(bounds.endPage - bounds.startPage + 1);
     let rangeIndex = findRangeIndexForPage(bounds.startPage, ranges);
-    let activeRange = ranges[rangeIndex] ?? ranges[0] ?? {
-        startPage: 1,
-        style: 'D' as const,
-        prefix: '',
-        startNumber: 1,
-    };
+    let activeRange = ranges[rangeIndex] ??
+        ranges[0] ?? {
+            startPage: 1,
+            style: 'D' as const,
+            prefix: '',
+            startNumber: 1,
+        };
 
     for (let page = bounds.startPage; page <= bounds.endPage; page += 1) {
-        while (
-            rangeIndex + 1 < ranges.length
-            && (ranges[rangeIndex + 1]?.startPage ?? totalPages + 1) <= page
-        ) {
+        while (rangeIndex + 1 < ranges.length && (ranges[rangeIndex + 1]?.startPage ?? totalPages + 1) <= page) {
             rangeIndex += 1;
             activeRange = ranges[rangeIndex] ?? activeRange;
         }
-        labels[page - bounds.startPage] = activeRange.style === null
-            ? activeRange.prefix
-            : formatPageLabelForDisplay(activeRange, page - activeRange.startPage);
+        labels[page - bounds.startPage] =
+            activeRange.style === null ? activeRange.prefix : formatPageLabelForDisplay(activeRange, page - activeRange.startPage);
     }
 
     return labels;
@@ -397,9 +351,7 @@ export function getPageLabelWindow(
     startPage: number,
     endPageOrCount?: number,
 ): IDocumentPageLabelWindow {
-    const normalizedTotalPages = Number.isSafeInteger(totalPages)
-        ? Math.max(0, totalPages)
-        : 0;
+    const normalizedTotalPages = Number.isSafeInteger(totalPages) ? Math.max(0, totalPages) : 0;
     const bounds = normalizeWindowBounds(normalizedTotalPages, startPage, endPageOrCount);
     if (!bounds) {
         return {
@@ -410,50 +362,25 @@ export function getPageLabelWindow(
     }
     return {
         ...bounds,
-        labels: readPageLabelWindow(
-            normalizedTotalPages,
-            ranges,
-            bounds.startPage,
-            bounds.endPage,
-        ),
+        labels: readPageLabelWindow(normalizedTotalPages, ranges, bounds.startPage, bounds.endPage),
     };
 }
 
-export function createPageLabelModel(
-    totalPages: number,
-    ranges: readonly IDocumentPageLabelRange[],
-): IDocumentPageLabelModel {
-    const normalizedTotalPages = Number.isSafeInteger(totalPages)
-        ? Math.max(0, totalPages)
-        : 0;
+export function createPageLabelModel(totalPages: number, ranges: readonly IDocumentPageLabelRange[]): IDocumentPageLabelModel {
+    const normalizedTotalPages = Number.isSafeInteger(totalPages) ? Math.max(0, totalPages) : 0;
     const normalizedRanges = normalizePageLabelRanges(ranges, normalizedTotalPages);
-    const segments = buildPageLabelSegmentsFromNormalizedRanges(
-        normalizedTotalPages,
-        normalizedRanges,
-    );
+    const segments = buildPageLabelSegmentsFromNormalizedRanges(normalizedTotalPages, normalizedRanges);
 
     const labelAt = (page: number) => {
-        if (
-            !Number.isSafeInteger(page)
-            || page < 1
-            || page > normalizedTotalPages
-        ) {
+        if (!Number.isSafeInteger(page) || page < 1 || page > normalizedTotalPages) {
             return null;
         }
         const range = normalizedRanges[findRangeIndexForPage(page, normalizedRanges)];
-        return range
-            ? range.style === null ? range.prefix : formatPageLabelForDisplay(range, page - range.startPage)
-            : String(page);
+        return range ? (range.style === null ? range.prefix : formatPageLabelForDisplay(range, page - range.startPage)) : String(page);
     };
 
-    const readWindow = (startPage: number, endPageOrCount?: number) => (
-        readPageLabelWindowFromNormalizedRanges(
-            normalizedTotalPages,
-            normalizedRanges,
-            startPage,
-            endPageOrCount,
-        )
-    );
+    const readWindow = (startPage: number, endPageOrCount?: number) =>
+        readPageLabelWindowFromNormalizedRanges(normalizedTotalPages, normalizedRanges, startPage, endPageOrCount);
 
     return {
         totalPages: normalizedTotalPages,
@@ -464,29 +391,22 @@ export function createPageLabelModel(
     };
 }
 /** Resolve one logical label without materializing the whole document. */
-export function getPageLabelAt(
-    page: number,
-    totalPages: number,
-    ranges: readonly IDocumentPageLabelRange[],
-): string | null {
+export function getPageLabelAt(page: number, totalPages: number, ranges: readonly IDocumentPageLabelRange[]): string | null {
     return createPageLabelModel(totalPages, ranges).labelAt(page);
 }
-function getRangeForPage(
-    page: number,
-    ranges: readonly IDocumentPageLabelRange[],
-) {
-    return ranges[findRangeIndexForPage(page, ranges)] ?? ranges[0] ?? {
-        startPage: 1,
-        style: 'D' as const,
-        prefix: '',
-        startNumber: 1,
-    };
+function getRangeForPage(page: number, ranges: readonly IDocumentPageLabelRange[]) {
+    return (
+        ranges[findRangeIndexForPage(page, ranges)] ??
+        ranges[0] ?? {
+            startPage: 1,
+            style: 'D' as const,
+            prefix: '',
+            startNumber: 1,
+        }
+    );
 }
 
-function pageLabelFormulasMatch(
-    before: IDocumentPageLabelRange,
-    after: IDocumentPageLabelRange,
-) {
+function pageLabelFormulasMatch(before: IDocumentPageLabelRange, after: IDocumentPageLabelRange) {
     if (before.style !== after.style || before.prefix !== after.prefix) {
         return false;
     }
@@ -496,10 +416,7 @@ function pageLabelFormulasMatch(
     return before.startNumber - before.startPage === after.startNumber - after.startPage;
 }
 
-function normalizePageRangeForEdit(
-    totalPages: number,
-    range: IDocumentPageRange,
-) {
+function normalizePageRangeForEdit(totalPages: number, range: IDocumentPageRange) {
     if (totalPages <= 0) {
         return null;
     }
@@ -518,13 +435,16 @@ export interface IDocumentPageLabelEdit {
 
 /** `range`'s numbering carried on from `page`, a page it covers. */
 function continuePageLabelRange(range: IDocumentPageLabelRange, page: number): IDocumentPageLabelRange {
-    return range.startPage === page ? range : {
-        ...range,
-        startPage: page,
-        startNumber: range.style === null
-            ? range.startNumber
-            : toPositiveInt(range.startNumber + (page - range.startPage), Number.MAX_SAFE_INTEGER),
-    };
+    return range.startPage === page
+        ? range
+        : {
+              ...range,
+              startPage: page,
+              startNumber:
+                  range.style === null
+                      ? range.startNumber
+                      : toPositiveInt(range.startNumber + (page - range.startPage), Number.MAX_SAFE_INTEGER),
+          };
 }
 
 /**
@@ -538,24 +458,24 @@ export function replacePageLabelRanges(
     ranges: readonly IDocumentPageLabelRange[],
     edits: readonly IDocumentPageLabelEdit[],
 ): IDocumentPageLabelRange[] {
-    const normalizedTotalPages = Number.isSafeInteger(totalPages)
-        ? Math.max(0, totalPages)
-        : 0;
+    const normalizedTotalPages = Number.isSafeInteger(totalPages) ? Math.max(0, totalPages) : 0;
     const currentRanges = normalizePageLabelRanges(ranges, normalizedTotalPages);
-    const spans = edits.flatMap(({
-        target, replacement,
-    }) => {
+    const spans = edits.flatMap(({target, replacement}) => {
         const span = normalizePageRangeForEdit(normalizedTotalPages, target);
         const style = normalizeStyle(replacement.style);
-        return span ? [{
-            ...span,
-            range: {
-                startPage: span.startPage,
-                style,
-                prefix: typeof replacement.prefix === 'string' ? replacement.prefix : '',
-                startNumber: admitPdfPageLabelStartNumber(style, toPositiveInt(replacement.startNumber, 1)),
-            },
-        }] : [];
+        return span
+            ? [
+                  {
+                      ...span,
+                      range: {
+                          startPage: span.startPage,
+                          style,
+                          prefix: typeof replacement.prefix === 'string' ? replacement.prefix : '',
+                          startNumber: admitPdfPageLabelStartNumber(style, toPositiveInt(replacement.startNumber, 1)),
+                      },
+                  },
+              ]
+            : [];
     });
     if (spans.length === 0) {
         return currentRanges;
@@ -564,20 +484,14 @@ export function replacePageLabelRanges(
     // Pieces between consecutive span boundaries; the last span covering a
     // piece owns it. Spans are painted newest first and `nextUnpainted`
     // skips owned pieces, so each piece is painted once.
-    const pieces = [...new Set([
-        1,
-        ...spans.flatMap(span => [
-            span.startPage,
-            span.endPage + 1,
-        ]),
-    ])]
-        .filter(page => page <= normalizedTotalPages)
+    const pieces = [...new Set([1, ...spans.flatMap((span) => [span.startPage, span.endPage + 1])])]
+        .filter((page) => page <= normalizedTotalPages)
         .sort((left, right) => left - right)
-        .map(startPage => ({
+        .map((startPage) => ({
             startPage,
             owner: -1,
         }));
-    const nextUnpainted = Array.from({ length: pieces.length + 1 }, (_, index) => index);
+    const nextUnpainted = Array.from({length: pieces.length + 1}, (_, index) => index);
     const findUnpainted = (piece: number) => {
         let root = piece;
         while (nextUnpainted[root] !== root) {
@@ -600,10 +514,8 @@ export function replacePageLabelRanges(
         }
     }
 
-    const nextRanges = currentRanges.filter(range => pieces[findRangeIndexForPage(range.startPage, pieces)]?.owner === -1);
-    for (const {
-        startPage, owner,
-    } of pieces) {
+    const nextRanges = currentRanges.filter((range) => pieces[findRangeIndexForPage(range.startPage, pieces)]?.owner === -1);
+    for (const {startPage, owner} of pieces) {
         const range = spans[owner]?.range ?? getRangeForPage(startPage, currentRanges);
         if (owner !== -1 || range.startPage !== startPage) {
             nextRanges.push(continuePageLabelRange(range, startPage));
@@ -619,10 +531,12 @@ export function replacePageLabelRange(
     target: IDocumentPageRange,
     replacement: Omit<IDocumentPageLabelRange, 'startPage'>,
 ): IDocumentPageLabelRange[] {
-    return replacePageLabelRanges(totalPages, ranges, [{
-        target,
-        replacement,
-    }]);
+    return replacePageLabelRanges(totalPages, ranges, [
+        {
+            target,
+            replacement,
+        },
+    ]);
 }
 
 /** Alias kept descriptive at call sites that apply a configured span. */
@@ -680,20 +594,21 @@ export function applySparsePageLabelUpdates(
             literals.set(page, nextLabel);
         }
     }
-    return replacePageLabelRanges(totalPages, currentRanges, Array.from(literals, ([
-        page,
-        label,
-    ]) => ({
-        target: {
-            startPage: page,
-            endPage: page,
-        },
-        replacement: {
-            style: null,
-            prefix: label,
-            startNumber: 1,
-        },
-    })));
+    return replacePageLabelRanges(
+        totalPages,
+        currentRanges,
+        Array.from(literals, ([page, label]) => ({
+            target: {
+                startPage: page,
+                endPage: page,
+            },
+            replacement: {
+                style: null,
+                prefix: label,
+                startNumber: 1,
+            },
+        })),
+    );
 }
 
 /**
@@ -706,19 +621,14 @@ export function countPageLabelDifferences(
     beforeRanges: readonly IDocumentPageLabelRange[],
     afterRanges: readonly IDocumentPageLabelRange[],
 ): number {
-    const normalizedTotalPages = Number.isSafeInteger(totalPages)
-        ? Math.max(0, totalPages)
-        : 0;
+    const normalizedTotalPages = Number.isSafeInteger(totalPages) ? Math.max(0, totalPages) : 0;
     if (normalizedTotalPages <= 0) {
         return 0;
     }
 
     const before = normalizePageLabelRanges(beforeRanges, normalizedTotalPages);
     const after = normalizePageLabelRanges(afterRanges, normalizedTotalPages);
-    const boundaries = new Set<number>([
-        1,
-        normalizedTotalPages + 1,
-    ]);
+    const boundaries = new Set<number>([1, normalizedTotalPages + 1]);
     for (const range of before) {
         boundaries.add(range.startPage);
     }
@@ -731,10 +641,7 @@ export function countPageLabelDifferences(
 
     for (let index = 0; index + 1 < sortedBoundaries.length; index += 1) {
         const startPage = sortedBoundaries[index] ?? 1;
-        const endPage = Math.min(
-            normalizedTotalPages,
-            (sortedBoundaries[index + 1] ?? normalizedTotalPages + 1) - 1,
-        );
+        const endPage = Math.min(normalizedTotalPages, (sortedBoundaries[index + 1] ?? normalizedTotalPages + 1) - 1);
         const pageCount = Math.max(0, endPage - startPage + 1);
         if (pageCount === 0) {
             continue;
@@ -760,10 +667,7 @@ export function countPageLabelDifferences(
     return changed;
 }
 
-export function buildPageLabelsFromRanges(
-    totalPages: number,
-    ranges: readonly IDocumentPageLabelRange[],
-): string[] {
+export function buildPageLabelsFromRanges(totalPages: number, ranges: readonly IDocumentPageLabelRange[]): string[] {
     if (totalPages <= 0) {
         return [];
     }
@@ -779,10 +683,7 @@ export function buildPageLabelsFromRanges(
     };
 
     for (let page = 1; page <= totalPages; page += 1) {
-        while (
-            rangeIndex + 1 < normalizedRanges.length
-            && (normalizedRanges[rangeIndex + 1]?.startPage ?? totalPages + 1) <= page
-        ) {
+        while (rangeIndex + 1 < normalizedRanges.length && (normalizedRanges[rangeIndex + 1]?.startPage ?? totalPages + 1) <= page) {
             rangeIndex += 1;
             activeRange = normalizedRanges[rangeIndex] ?? activeRange;
         }
@@ -802,29 +703,33 @@ export function buildWholeDocumentPageLabelRanges(
         return [];
     }
 
-    return normalizePageLabelRanges([{
-        startPage: 1,
-        style: options.style,
-        prefix: options.prefix,
-        startNumber: admitPdfPageLabelStartNumber(options.style, toPositiveInt(options.startNumber, 1)),
-    }], totalPages);
+    return normalizePageLabelRanges(
+        [
+            {
+                startPage: 1,
+                style: options.style,
+                prefix: options.prefix,
+                startNumber: admitPdfPageLabelStartNumber(options.style, toPositiveInt(options.startNumber, 1)),
+            },
+        ],
+        totalPages,
+    );
 }
 
-export function derivePageLabelRangesFromLabels(
-    pageLabels: readonly string[] | null,
-    totalPages: number,
-): IDocumentPageLabelRange[] {
+export function derivePageLabelRangesFromLabels(pageLabels: readonly string[] | null, totalPages: number): IDocumentPageLabelRange[] {
     if (totalPages <= 0) {
         return [];
     }
 
     if (!pageLabels || pageLabels.length !== totalPages) {
-        return [{
-            startPage: 1,
-            style: 'D',
-            prefix: '',
-            startNumber: 1,
-        }];
+        return [
+            {
+                startPage: 1,
+                style: 'D',
+                prefix: '',
+                startNumber: 1,
+            },
+        ];
     }
 
     const ranges: IDocumentPageLabelRange[] = [];
@@ -841,7 +746,9 @@ export function derivePageLabelRangesFromLabels(
         for (const candidate of candidates) {
             // A candidate that does not print this label (001 as decimal 1)
             // would rewrite it; the literal candidate keeps it instead.
-            if (!pageLabelMatchesText(candidate, 0, label)) {continue;}
+            if (!pageLabelMatchesText(candidate, 0, label)) {
+                continue;
+            }
             let length = 1;
             while (pageIndex + length < totalPages) {
                 const actual = pageLabels[pageIndex + length] ?? '';
@@ -869,9 +776,7 @@ export function derivePageLabelRangesFromLabels(
     return normalizePageLabelRanges(ranges, totalPages);
 }
 
-function isPageLabelArray(
-    pageLabels: TDocumentPageLabelLookup,
-): pageLabels is readonly string[] {
+function isPageLabelArray(pageLabels: TDocumentPageLabelLookup): pageLabels is readonly string[] {
     return Array.isArray(pageLabels);
 }
 
@@ -886,11 +791,7 @@ function parseSegmentNumber(style: TNonNullPageLabelStyle, suffix: string) {
     return parseAlphabetic(suffix);
 }
 
-function findPageByLabelInModel(
-    input: string,
-    model: IDocumentPageLabelModel,
-    caseInsensitive: boolean,
-) {
+function findPageByLabelInModel(input: string, model: IDocumentPageLabelModel, caseInsensitive: boolean) {
     const candidate = caseInsensitive ? input.toLowerCase() : input;
     for (const segment of model.segments) {
         if (segment.style === null) {
@@ -903,9 +804,7 @@ function findPageByLabelInModel(
 
         // The segment already knows its prefix; only the remainder is numbering.
         const inputPrefix = input.slice(0, segment.prefix.length);
-        const prefixMatches = caseInsensitive
-            ? inputPrefix.toLowerCase() === segment.prefix.toLowerCase()
-            : inputPrefix === segment.prefix;
+        const prefixMatches = caseInsensitive ? inputPrefix.toLowerCase() === segment.prefix.toLowerCase() : inputPrefix === segment.prefix;
         if (!prefixMatches) {
             continue;
         }
@@ -959,22 +858,33 @@ function findPageByPresentedLabel(input: string, labels: Exclude<TDocumentPageLa
             if (segment.style === 'A' || segment.style === 'a') {
                 // Once the repeated letters fill the head, every later cycle has that same view.
                 for (let residue = 0; residue < 26; residue += 1) {
-                    const firstNumber = Math.max(26 * 32 + residue + 1,
-                        segment.startNumber + (residue - (segment.startNumber - 1) % 26 + 26) % 26);
+                    const firstNumber = Math.max(
+                        26 * 32 + residue + 1,
+                        segment.startNumber + ((residue - ((segment.startNumber - 1) % 26) + 26) % 26),
+                    );
                     for (let number = firstNumber; number <= Math.min(firstNumber + 65 * 26, lastNumber); number += 26) {
                         yield segment.startPage + number - segment.startNumber;
                     }
                 }
             } else if (segment.style === 'R' || segment.style === 'r') {
                 // Each remainder repeats every thousand from its first number here; the head stabilizes within 65 thousands.
-                for (let firstNumber = segment.startNumber; firstNumber <= Math.min(lastNumber, segment.startNumber + 999); firstNumber += 1) {
+                for (
+                    let firstNumber = segment.startNumber;
+                    firstNumber <= Math.min(lastNumber, segment.startNumber + 999);
+                    firstNumber += 1
+                ) {
                     const remainder = firstNumber % 1000;
-                    const suffixLength = remainder === 0 ? 0
-                        : getLabelForOffset({
-                            ...segment,
-                            prefix: '',
-                            startNumber: remainder,
-                        }, 0).length;
+                    const suffixLength =
+                        remainder === 0
+                            ? 0
+                            : getLabelForOffset(
+                                  {
+                                      ...segment,
+                                      prefix: '',
+                                      startNumber: remainder,
+                                  },
+                                  0,
+                              ).length;
                     const thousands = Math.max(Math.floor(firstNumber / 1000), 33 - suffixLength);
                     for (let step = thousands; step <= Math.min(thousands + 65, Math.floor((lastNumber - remainder) / 1000)); step += 1) {
                         yield segment.startPage + step * 1000 + remainder - segment.startNumber;
@@ -983,8 +893,11 @@ function findPageByPresentedLabel(input: string, labels: Exclude<TDocumentPageLa
             }
         }
         for (const page of candidates()) {
-            if (page < segment.startPage || page > segment.endPage
-                || !matches(formatPageLabelForDisplay(segment, page - segment.startPage))) {
+            if (
+                page < segment.startPage ||
+                page > segment.endPage ||
+                !matches(formatPageLabelForDisplay(segment, page - segment.startPage))
+            ) {
                 continue;
             }
             if (match !== null && match !== page) {
@@ -1003,13 +916,13 @@ export function findPageByPageLabelInput(input: string, totalPages: number, page
     }
 
     if (isPageLabelArray(pageLabels) && pageLabels.length === totalPages) {
-        const exactIndex = pageLabels.findIndex(label => label === trimmed);
+        const exactIndex = pageLabels.findIndex((label) => label === trimmed);
         if (exactIndex >= 0) {
             return exactIndex + 1;
         }
 
         const lowered = trimmed.toLowerCase();
-        const caseInsensitiveIndex = pageLabels.findIndex(label => label.toLowerCase() === lowered);
+        const caseInsensitiveIndex = pageLabels.findIndex((label) => label.toLowerCase() === lowered);
         if (caseInsensitiveIndex >= 0) {
             return caseInsensitiveIndex + 1;
         }
@@ -1027,8 +940,7 @@ export function findPageByPageLabelInput(input: string, totalPages: number, page
     }
 
     if (pageLabels && trimmed.includes('…')) {
-        const displayed = findPageByPresentedLabel(trimmed, pageLabels)
-            ?? findPageByPresentedLabel(trimmed, pageLabels, true);
+        const displayed = findPageByPresentedLabel(trimmed, pageLabels) ?? findPageByPresentedLabel(trimmed, pageLabels, true);
         if (displayed !== null) {
             return displayed;
         }
@@ -1044,10 +956,7 @@ export function findPageByPageLabelInput(input: string, totalPages: number, page
     return null;
 }
 
-export function isImplicitDefaultPageLabels(
-    ranges: readonly IDocumentPageLabelRange[],
-    totalPages: number,
-) {
+export function isImplicitDefaultPageLabels(ranges: readonly IDocumentPageLabelRange[], totalPages: number) {
     const normalizedRanges = normalizePageLabelRanges(ranges, totalPages);
     if (normalizedRanges.length !== 1) {
         return false;
@@ -1056,10 +965,5 @@ export function isImplicitDefaultPageLabels(
     if (!range) {
         return false;
     }
-    return (
-        range.startPage === 1
-        && range.style === 'D'
-        && range.prefix.length === 0
-        && range.startNumber === 1
-    );
+    return range.startPage === 1 && range.style === 'D' && range.prefix.length === 0 && range.startNumber === 1;
 }

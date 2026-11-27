@@ -1,40 +1,15 @@
-import { createHash } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
-import {
-    copyFile,
-    link,
-    mkdir,
-    mkdtemp,
-    readFile,
-    rm,
-    symlink,
-    writeFile,
-} from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { pathToFileURL } from 'node:url';
-import {
-    basename,
-    join,
-    resolve,
-} from 'node:path';
+import {createHash} from 'node:crypto';
+import {execFileSync} from 'node:child_process';
+import {copyFile, link, mkdir, mkdtemp, readFile, rm, symlink, writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {pathToFileURL} from 'node:url';
+import {basename, join, resolve} from 'node:path';
 
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 
-const { isPdfjsPackagePath } = await import(
-    pathToFileURL(resolve(process.cwd(), 'scripts/lib/pdfjs-package-path.mjs')).href,
-);
-const {
-    absoluteSourceMapPath,
-    inspectArchive,
-    parseArchiveListing,
-    parseManifest,
-    verify,
-} = await import(
-    pathToFileURL(resolve(process.cwd(), 'scripts/verify-pdfjs-provenance.mjs')).href,
+const {isPdfjsPackagePath} = await import(pathToFileURL(resolve(process.cwd(), 'scripts/lib/pdfjs-package-path.mjs')).href);
+const {absoluteSourceMapPath, inspectArchive, parseArchiveListing, parseManifest, verify} = await import(
+    pathToFileURL(resolve(process.cwd(), 'scripts/verify-pdfjs-provenance.mjs')).href
 );
 
 describe('PDF.js package path classification', () => {
@@ -75,11 +50,13 @@ describe('PDF.js provenance attack fixtures', () => {
         '-rw-r--r--  0 evb staff 7 Sep  8 03:02 package/file with spaces.js',
         '-rw-r--r--  0 0 0 7 Oct 26  1985 package/file with spaces.js',
     ])('reads GNU and BSD archive metadata: %s', (listing) => {
-        expect(parseArchiveListing(`${listing}\n`)).toEqual([{
-            type: 'file',
-            size: 7,
-            path: 'file with spaces.js',
-        }]);
+        expect(parseArchiveListing(`${listing}\n`)).toEqual([
+            {
+                type: 'file',
+                size: 7,
+                path: 'file with spaces.js',
+            },
+        ]);
     });
 
     it('reads CRLF listings from Windows bsdtar the same as LF listings', () => {
@@ -101,41 +78,25 @@ describe('PDF.js provenance attack fixtures', () => {
         ]);
     });
 
-    it.each([
-        'package/../outside',
-        '/tmp/outside',
-        'package/C:/outside',
-        'package/file.js.orig',
-    ])('rejects unsafe paths in both listing formats: %s', (path) => {
-        for (const prefix of [
-            '-rw-r--r-- 0/0 7 1985-10-26 08:15 ',
-            '-rw-r--r--  0 evb staff 7 Sep  8 03:02 ',
-        ]) {
-            expect(() => parseArchiveListing(`${prefix}${path}\n`)).toThrow(/unsafe archive path|backup\/patch artifact/u);
-        }
-    });
+    it.each(['package/../outside', '/tmp/outside', 'package/C:/outside', 'package/file.js.orig'])(
+        'rejects unsafe paths in both listing formats: %s',
+        (path) => {
+            for (const prefix of ['-rw-r--r-- 0/0 7 1985-10-26 08:15 ', '-rw-r--r--  0 evb staff 7 Sep  8 03:02 ']) {
+                expect(() => parseArchiveListing(`${prefix}${path}\n`)).toThrow(/unsafe archive path|backup\/patch artifact/u);
+            }
+        },
+    );
 
-    it.each([
-        '-rw-r--r-- 0/0 7 1985-10-26 08:15 package/file.js',
-        '-rw-r--r--  0 evb staff 7 Sep  8 03:02 package/file.js',
-    ])('rejects duplicate rows in both listing formats: %s', (row) => {
-        expect(() => parseArchiveListing(`${row}\n${row}\n`)).toThrow(/duplicate entries/u);
-    });
+    it.each(['-rw-r--r-- 0/0 7 1985-10-26 08:15 package/file.js', '-rw-r--r--  0 evb staff 7 Sep  8 03:02 package/file.js'])(
+        'rejects duplicate rows in both listing formats: %s',
+        (row) => {
+            expect(() => parseArchiveListing(`${row}\n${row}\n`)).toThrow(/duplicate entries/u);
+        },
+    );
 
-    it.each([
-        'd',
-        'l',
-        'h',
-        'p',
-        'b',
-        'c',
-    ])('rejects entry type %s in both listing formats', (type) => {
-        for (const metadata of [
-            '0/0 7 1985-10-26 08:15',
-            '0 evb staff 7 Sep  8 03:02',
-        ]) {
-            expect(() => parseArchiveListing(`${type}rw-r--r-- ${metadata} package/file.js\n`))
-                .toThrow(`unsupported entry type ${type}`);
+    it.each(['d', 'l', 'h', 'p', 'b', 'c'])('rejects entry type %s in both listing formats', (type) => {
+        for (const metadata of ['0/0 7 1985-10-26 08:15', '0 evb staff 7 Sep  8 03:02']) {
+            expect(() => parseArchiveListing(`${type}rw-r--r-- ${metadata} package/file.js\n`)).toThrow(`unsupported entry type ${type}`);
         }
     });
 
@@ -143,16 +104,14 @@ describe('PDF.js provenance attack fixtures', () => {
         const root = await fixtureRoot();
         const archive = join(root, 'regular.tgz');
         try {
-            execFileSync('tar', [
-                '-czf',
-                basename(archive),
-                'package/file.js',
-            ], {cwd: root});
-            expect(inspectArchive(archive)).toEqual([{
-                type: 'file',
-                size: 7,
-                path: 'file.js',
-            }]);
+            execFileSync('tar', ['-czf', basename(archive), 'package/file.js'], {cwd: root});
+            expect(inspectArchive(archive)).toEqual([
+                {
+                    type: 'file',
+                    size: 7,
+                    path: 'file.js',
+                },
+            ]);
         } finally {
             await rm(root, {
                 recursive: true,
@@ -162,21 +121,12 @@ describe('PDF.js provenance attack fixtures', () => {
     });
 
     const archiveFixtures: Array<[string, TFixturePreparation]> = [
-        [
-            'symlink',
-            async root => symlink('file.js', join(root, 'package', 'link')),
-        ],
-        [
-            'duplicate',
-            async _root => undefined,
-        ],
-        [
-            'hardlink',
-            async root => link(join(root, 'package', 'file.js'), join(root, 'package', 'hardlink')),
-        ],
+        ['symlink', async (root) => symlink('file.js', join(root, 'package', 'link'))],
+        ['duplicate', async (_root) => undefined],
+        ['hardlink', async (root) => link(join(root, 'package', 'file.js'), join(root, 'package', 'hardlink'))],
         [
             'fifo',
-            async root => {
+            async (root) => {
                 if (process.platform !== 'win32') {
                     execFileSync('mkfifo', [join(root, 'package', 'fifo')]);
                 }
@@ -184,29 +134,17 @@ describe('PDF.js provenance attack fixtures', () => {
         ],
     ];
 
-    for (const [
-        kind,
-        prepare,
-    ] of archiveFixtures) {
+    for (const [kind, prepare] of archiveFixtures) {
         // mkfifo is POSIX-only; tar's file, link and duplicate-entry checks still run on Windows.
         it.skipIf(process.platform === 'win32' && kind === 'fifo')(`rejects ${kind} archive entries`, async () => {
             const root = await fixtureRoot();
             const archive = join(root, `${kind}.tgz`);
             try {
                 await prepare(root);
-                const args = kind === 'duplicate'
-                    ? [
-                        '-czf',
-                        basename(archive),
-                        'package/file.js',
-                        'package/file.js',
-                    ]
-                    : [
-                        '-czf',
-                        basename(archive),
-                        'package/file.js',
-                        `package/${kind === 'symlink' ? 'link' : kind}`,
-                    ];
+                const args =
+                    kind === 'duplicate'
+                        ? ['-czf', basename(archive), 'package/file.js', 'package/file.js']
+                        : ['-czf', basename(archive), 'package/file.js', `package/${kind === 'symlink' ? 'link' : kind}`];
                 execFileSync('tar', args, {cwd: root});
                 expect(() => inspectArchive(archive)).toThrow(/unsupported entry type|duplicate/u);
             } finally {
@@ -228,14 +166,16 @@ describe('PDF.js provenance attack fixtures', () => {
     });
 
     it('rejects absolute source-map forms', async () => {
-        expect([
-            'C:/repo/file.js',
-            '/tmp/file.js',
-            '\\\\server\\file.js',
-            'file:///tmp/file.js',
-            'file:/tmp/file.js',
-            'FILE:///tmp/file.js',
-        ].every(absoluteSourceMapPath)).toBe(true);
+        expect(
+            [
+                'C:/repo/file.js',
+                '/tmp/file.js',
+                '\\\\server\\file.js',
+                'file:///tmp/file.js',
+                'file:/tmp/file.js',
+                'FILE:///tmp/file.js',
+            ].every(absoluteSourceMapPath),
+        ).toBe(true);
         expect(absoluteSourceMapPath('webpack://pdf.js/./src/shared/util.js')).toBe(false);
     });
 
@@ -254,28 +194,30 @@ describe('PDF.js provenance attack fixtures', () => {
                 copyFile(join(sourceVendor, receipt.artifact.filename), archivePath),
                 copyFile(join(sourceVendor, receipt.package.manifest), manifestPath),
             ]);
-            const verifierSource = await readFile(
-                resolve(process.cwd(), 'scripts/verify-pdfjs-provenance.mjs'),
-            );
+            const verifierSource = await readFile(resolve(process.cwd(), 'scripts/verify-pdfjs-provenance.mjs'));
             const verifierSourceSha256 = createHash('sha256').update(verifierSource).digest('hex');
             expect(receipt.verifier.sourceSha256).toBe(verifierSourceSha256);
             receipt.verifier.sourceSha256 = '0'.repeat(64);
             await writeFile(receiptPath, JSON.stringify(receipt));
-            await expect(verify({
-                projectRoot: process.cwd(),
-                archivePath,
-                manifestPath,
-                receiptPath,
-            })).rejects.toThrow(/verifier source hash mismatch/u);
+            await expect(
+                verify({
+                    projectRoot: process.cwd(),
+                    archivePath,
+                    manifestPath,
+                    receiptPath,
+                }),
+            ).rejects.toThrow(/verifier source hash mismatch/u);
             receipt.verifier.sourceSha256 = verifierSourceSha256;
             receipt.archive.sha256 = '0'.repeat(64);
             await writeFile(receiptPath, JSON.stringify(receipt));
-            await expect(verify({
-                projectRoot: process.cwd(),
-                archivePath,
-                manifestPath,
-                receiptPath,
-            })).rejects.toThrow(/archive SHA-256 mismatch/u);
+            await expect(
+                verify({
+                    projectRoot: process.cwd(),
+                    archivePath,
+                    manifestPath,
+                    receiptPath,
+                }),
+            ).rejects.toThrow(/archive SHA-256 mismatch/u);
             receipt.archive.sha256 = receipt.build.reproduciblePackSha256;
             await writeFile(receiptPath, JSON.stringify(receipt));
             await Promise.all([
@@ -290,12 +232,14 @@ describe('PDF.js provenance attack fixtures', () => {
             const invalidPackageEntry = packageEntry.replace(/^ {4}version: .+$/mu, '    version: 0.0.0');
             expect(invalidPackageEntry).not.toBe(packageEntry);
             await writeFile(join(root, 'pnpm-lock.yaml'), lockfile.replace(packageEntry, invalidPackageEntry));
-            await expect(verify({
-                projectRoot: root,
-                archivePath,
-                manifestPath,
-                receiptPath,
-            })).rejects.toThrow(/lockfile package identity mismatch/u);
+            await expect(
+                verify({
+                    projectRoot: root,
+                    archivePath,
+                    manifestPath,
+                    receiptPath,
+                }),
+            ).rejects.toThrow(/lockfile package identity mismatch/u);
         } finally {
             await rm(root, {
                 recursive: true,

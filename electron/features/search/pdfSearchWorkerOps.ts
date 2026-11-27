@@ -1,12 +1,5 @@
 import {randomUUID} from 'node:crypto';
-import {
-    constants as fsConstants,
-    open,
-    rename,
-    rm,
-    writeFile,
-    type FileHandle,
-} from 'node:fs/promises';
+import {constants as fsConstants, open, rename, rm, writeFile, type FileHandle} from 'node:fs/promises';
 import {
     decodePdfSearchIndexWasmOutput,
     decodePdfSearchJsonOutput,
@@ -14,18 +7,13 @@ import {
     PDF_SEARCH_WASM_MAX_INDEX_BYTES,
     type IPdfSearchWasmQueryFields,
 } from '@contracts/searchIndexWire';
-import {
-    PdfSearchNativeError,
-    type createPdfSearchWasmRunner,
-} from '@electron/features/search/pdfSearchWasmRunner';
+import {PdfSearchNativeError, type createPdfSearchWasmRunner} from '@electron/features/search/pdfSearchWasmRunner';
 
 const INDEX_READ_CHUNK_BYTES = 1024 * 1024;
 const INDEX_EOF_PROBE_BYTES = 4096;
 
 function getIndexOpenFlags(): number | string {
-    return typeof fsConstants?.O_RDONLY === 'number'
-        ? fsConstants.O_RDONLY | (fsConstants.O_NONBLOCK ?? 0)
-        : 'r';
+    return typeof fsConstants?.O_RDONLY === 'number' ? fsConstants.O_RDONLY | (fsConstants.O_NONBLOCK ?? 0) : 'r';
 }
 
 export interface IExecutePdfSearchWorkerCommandOptions {
@@ -34,52 +22,45 @@ export interface IExecutePdfSearchWorkerCommandOptions {
 
 export type TPdfSearchWorkerCommand =
     | {
-        op: 'index';
-        indexPath: string;
-        documentRevision: string;
-        pageCount?: number;
-        maxPageTextBytes: number;
-        maxTotalTextBytes: number;
-        pagesBuffer: Uint8Array;
-    }
+          op: 'index';
+          indexPath: string;
+          documentRevision: string;
+          pageCount?: number;
+          maxPageTextBytes: number;
+          maxTotalTextBytes: number;
+          pagesBuffer: Uint8Array;
+      }
     | {
-        op: 'stat';
-        indexPath: string;
-        documentRevision: string;
-    }
+          op: 'stat';
+          indexPath: string;
+          documentRevision: string;
+      }
     | ({
-        op: 'search';
-        indexPath: string;
-        documentRevision: string;
-    } & IPdfSearchWasmQueryFields)
+          op: 'search';
+          indexPath: string;
+          documentRevision: string;
+      } & IPdfSearchWasmQueryFields)
     | ({
-        op: 'searchPages';
-        documentRevision: string;
-        pageCount?: number;
-        allowRegex?: boolean;
-        pagesBuffer: Uint8Array;
-    } & IPdfSearchWasmQueryFields);
+          op: 'searchPages';
+          documentRevision: string;
+          pageCount?: number;
+          allowRegex?: boolean;
+          pagesBuffer: Uint8Array;
+      } & IPdfSearchWasmQueryFields);
 
 function resolveStagedIndexPath(command: Extract<TPdfSearchWorkerCommand, {op: 'index'}>): string | undefined {
     if (!('stagedIndexPath' in command)) {
         return undefined;
     }
     const candidate: unknown = (command as {stagedIndexPath?: unknown}).stagedIndexPath;
-    if (
-        typeof candidate === 'string'
-        && candidate !== command.indexPath
-        && candidate.startsWith(`${command.indexPath}.tmp-`)
-    ) {
+    if (typeof candidate === 'string' && candidate !== command.indexPath && candidate.startsWith(`${command.indexPath}.tmp-`)) {
         return candidate;
     }
     return undefined;
 }
 
 function isErrnoCode(error: unknown, code: string) {
-    return typeof error === 'object'
-        && error !== null
-        && 'code' in error
-        && (error as {code?: unknown}).code === code;
+    return typeof error === 'object' && error !== null && 'code' in error && (error as {code?: unknown}).code === code;
 }
 
 function resolveMaxIndexBytes(override: number | undefined): number {
@@ -87,33 +68,21 @@ function resolveMaxIndexBytes(override: number | undefined): number {
         return PDF_SEARCH_WASM_MAX_INDEX_BYTES;
     }
     if (typeof override !== 'number' || !Number.isSafeInteger(override) || override < 0) {
-        throw new PdfSearchNativeError(
-            'invalid-request',
-            'Search index admission ceiling must be a non-negative safe integer',
-        );
+        throw new PdfSearchNativeError('invalid-request', 'Search index admission ceiling must be a non-negative safe integer');
     }
     return override;
 }
 
-async function readIndexFileOrNull(
-    indexPath: string,
-    maxIndexBytes = PDF_SEARCH_WASM_MAX_INDEX_BYTES,
-): Promise<Uint8Array | null> {
+async function readIndexFileOrNull(indexPath: string, maxIndexBytes = PDF_SEARCH_WASM_MAX_INDEX_BYTES): Promise<Uint8Array | null> {
     let handle: FileHandle | null = null;
     try {
         handle = await open(indexPath, getIndexOpenFlags());
         const info = await handle.stat();
         if (!info.isFile()) {
-            throw new PdfSearchNativeError(
-                'io',
-                'Search index path is not a regular file',
-            );
+            throw new PdfSearchNativeError('io', 'Search index path is not a regular file');
         }
         if (info.size > maxIndexBytes) {
-            throw new PdfSearchNativeError(
-                'too-large',
-                `Search index exceeds the ${maxIndexBytes}-byte admission ceiling`,
-            );
+            throw new PdfSearchNativeError('too-large', `Search index exceeds the ${maxIndexBytes}-byte admission ceiling`);
         }
 
         const initial = new Uint8Array(info.size);
@@ -133,9 +102,8 @@ async function readIndexFileOrNull(
         let scratch = Buffer.allocUnsafe(Math.min(INDEX_EOF_PROBE_BYTES, maxProbeBytes - totalBytes));
         while (totalBytes < maxProbeBytes) {
             const remainingBudget = maxProbeBytes - totalBytes;
-            const targetScratchSize = growthUsed === 0
-                ? Math.min(INDEX_EOF_PROBE_BYTES, remainingBudget)
-                : Math.min(INDEX_READ_CHUNK_BYTES, remainingBudget);
+            const targetScratchSize =
+                growthUsed === 0 ? Math.min(INDEX_EOF_PROBE_BYTES, remainingBudget) : Math.min(INDEX_READ_CHUNK_BYTES, remainingBudget);
             if (scratch.byteLength < targetScratchSize) {
                 scratch = Buffer.allocUnsafe(targetScratchSize);
             }
@@ -146,10 +114,7 @@ async function readIndexFileOrNull(
             }
             totalBytes += bytesRead;
             if (totalBytes > maxIndexBytes) {
-                throw new PdfSearchNativeError(
-                    'too-large',
-                    `Search index exceeds the ${maxIndexBytes}-byte admission ceiling`,
-                );
+                throw new PdfSearchNativeError('too-large', `Search index exceeds the ${maxIndexBytes}-byte admission ceiling`);
             }
             const maxExtraCapacity = maxIndexBytes - initial.byteLength;
             const needed = growthUsed + bytesRead;
@@ -180,10 +145,7 @@ async function readIndexFileOrNull(
         if (error instanceof PdfSearchNativeError) {
             throw error;
         }
-        throw new PdfSearchNativeError(
-            'io',
-            `Search index could not be read: ${error instanceof Error ? error.message : String(error)}`,
-        );
+        throw new PdfSearchNativeError('io', `Search index could not be read: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
         await handle?.close().catch(() => undefined);
     }
@@ -211,18 +173,18 @@ export async function executePdfSearchWorkerCommand(
     const maxIndexBytes = resolveMaxIndexBytes(options.maxIndexBytes);
     switch (command.op) {
         case 'index': {
-            const request = encodePdfSearchWasmRequest({
-                op: 'index',
-                documentRevision: command.documentRevision,
-                ...(command.pageCount === undefined ? {} : {pageCount: command.pageCount}),
-                maxPageTextBytes: command.maxPageTextBytes,
-                maxTotalTextBytes: command.maxTotalTextBytes,
-            }, command.pagesBuffer);
+            const request = encodePdfSearchWasmRequest(
+                {
+                    op: 'index',
+                    documentRevision: command.documentRevision,
+                    ...(command.pageCount === undefined ? {} : {pageCount: command.pageCount}),
+                    maxPageTextBytes: command.maxPageTextBytes,
+                    maxTotalTextBytes: command.maxTotalTextBytes,
+                },
+                command.pagesBuffer,
+            );
             const output = runner.run(request);
-            const {
-                coverage,
-                indexBytes,
-            } = decodePdfSearchIndexWasmOutput(output);
+            const {coverage, indexBytes} = decodePdfSearchIndexWasmOutput(output);
             await writeIndexFileAtomic(command.indexPath, indexBytes, resolveStagedIndexPath(command));
             return coverage;
         }
@@ -231,10 +193,13 @@ export async function executePdfSearchWorkerCommand(
             if (indexBytes === null) {
                 return {stale: true};
             }
-            const request = encodePdfSearchWasmRequest({
-                op: 'stat',
-                documentRevision: command.documentRevision,
-            }, indexBytes);
+            const request = encodePdfSearchWasmRequest(
+                {
+                    op: 'stat',
+                    documentRevision: command.documentRevision,
+                },
+                indexBytes,
+            );
             return decodePdfSearchJsonOutput(runner.run(request));
         }
         case 'search': {
@@ -242,27 +207,25 @@ export async function executePdfSearchWorkerCommand(
             if (indexBytes === null) {
                 return {stale: true};
             }
-            const {
-                op: _op,
-                indexPath: _indexPath,
-                ...headerFields
-            } = command;
-            const request = encodePdfSearchWasmRequest({
-                op: 'search',
-                ...headerFields,
-            }, indexBytes);
+            const {op: _op, indexPath: _indexPath, ...headerFields} = command;
+            const request = encodePdfSearchWasmRequest(
+                {
+                    op: 'search',
+                    ...headerFields,
+                },
+                indexBytes,
+            );
             return decodePdfSearchJsonOutput(runner.run(request));
         }
         case 'searchPages': {
-            const {
-                op: _op,
+            const {op: _op, pagesBuffer, ...headerFields} = command;
+            const request = encodePdfSearchWasmRequest(
+                {
+                    op: 'searchPages',
+                    ...headerFields,
+                },
                 pagesBuffer,
-                ...headerFields
-            } = command;
-            const request = encodePdfSearchWasmRequest({
-                op: 'searchPages',
-                ...headerFields,
-            }, pagesBuffer);
+            );
             return decodePdfSearchJsonOutput(runner.run(request));
         }
     }

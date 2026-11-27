@@ -11,9 +11,7 @@ export interface IRafCoalescedCallbackEnvironment {
 }
 
 function getDefaultEnvironment(): IRafCoalescedCallbackEnvironment | null {
-    return typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function'
-        ? window
-        : null;
+    return typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function' ? window : null;
 }
 
 export function createRafCoalescedCallback<TArgs extends unknown[]>(

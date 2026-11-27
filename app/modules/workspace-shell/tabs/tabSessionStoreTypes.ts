@@ -1,12 +1,5 @@
-import type {
-    TFitMode,
-    TPdfViewRotation,
-    TPdfViewMode,
-    TZoomMode,
-} from '@contracts/shared';
-import type {
-    TViewerResidencyState, TDocumentSidebarTab,  
-} from '@app/modules/document-viewer/public';
+import type {TFitMode, TPdfViewRotation, TPdfViewMode, TZoomMode} from '@contracts/shared';
+import type {TViewerResidencyState, TDocumentSidebarTab} from '@app/modules/document-viewer/public';
 import type {TScanCleanupPageOutputMapping} from '@contracts/scan-cleanup/domain';
 
 export type TTabTemperature = 'hot' | 'warm' | 'cold';

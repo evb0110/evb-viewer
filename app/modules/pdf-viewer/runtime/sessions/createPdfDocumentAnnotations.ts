@@ -3,22 +3,15 @@ import type {TPdfDocumentView} from '@app/modules/pdf-viewer/runtime/sessions/pd
 import {recordPdfDocumentOriginalAnnotations} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentLoadedRevision';
 import type {IPdfAnnotationParseResult} from '@contracts/pdfAnnotationParseTypes';
 import {
-    applyParsedHighlightTextToStore, commitPdfAnnotationParseToStore,
+    applyParsedHighlightTextToStore,
+    commitPdfAnnotationParseToStore,
 } from '@app/modules/pdf-viewer/runtime/sessions/commitPdfAnnotationParseToStore';
 import {deriveSelectedTextForParsedHighlights} from '@app/modules/pdf-viewer/runtime/sessions/deriveSelectedTextForParsedHighlights';
-import {
-    getDocumentFilesCapability, getDocumentWorkingCopyCapability,
-} from '@app/utils/platformDocuments';
+import {getDocumentFilesCapability, getDocumentWorkingCopyCapability} from '@app/utils/platformDocuments';
 import {BrowserLogger} from '@app/utils/browserLogger';
 import {useFailureToast} from '@app/composables/useFailureToast';
-import {
-    isBrowserFullReadTooLargeError,
-    isBrowserWorkerResetError,
-} from '@app/platform/browser-api/public';
-import type {
-    InjectionKey,
-    Ref,
-} from 'vue';
+import {isBrowserFullReadTooLargeError, isBrowserWorkerResetError} from '@app/platform/browser-api/public';
+import type {InjectionKey, Ref} from 'vue';
 import type {
     IAnnotationCommentSummary,
     IAnnotationEditorState,
@@ -27,19 +20,23 @@ import type {
 } from '@app/types/annotations';
 import type {AnnotationEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {compareAnnotationCommentSummaries} from '@app/utils/pdfAnnotationComments';
-import type { TPdfSource } from '@app/types/pdfUi';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import { createStaleRevisionError } from '@contracts/documentMutationErrors';
-import { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annotationApplication';
-import { AnnotationStore } from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
-import { usePdfAppAnnotationHistory } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAppAnnotationHistory';
+import type {TPdfSource} from '@app/types/pdfUi';
+import type {TDocumentRevisionToken} from '@contracts/documentRevision';
+import {createStaleRevisionError} from '@contracts/documentMutationErrors';
+import {AnnotationApplication} from '@app/modules/pdf-viewer/annotations/annotationApplication';
+import {AnnotationStore} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
+import {usePdfAppAnnotationHistory} from '@app/modules/pdf-viewer/runtime/annotations/usePdfAppAnnotationHistory';
 
 // Pathless sources are keyed by Blob instance because their metadata can collide.
 // The `blob-instance:` prefix avoids collisions with file paths.
 const annotationBlobIdentities = new WeakMap<Blob, string>();
 export function annotationDocumentKey(source: TPdfSource | null) {
-    if (!source) {return 'no-document';}
-    if (!(source instanceof Blob)) {return `path:${source.path}`;}
+    if (!source) {
+        return 'no-document';
+    }
+    if (!(source instanceof Blob)) {
+        return `path:${source.path}`;
+    }
     const identity = annotationBlobIdentities.get(source) ?? `blob-instance:${crypto.randomUUID()}`;
     annotationBlobIdentities.set(source, identity);
     return identity;
@@ -53,23 +50,34 @@ export function annotationDocumentKey(source: TPdfSource | null) {
 export function useAnnotationStoreSnapshot(application: Readonly<Ref<AnnotationApplication>>) {
     const snapshot = shallowRef<readonly AnnotationEntity[]>([]);
     let stop = () => {};
-    watch(application, (next) => {
-        stop();
-        stop = next.store.subscribe((entities) => { snapshot.value = entities; });
-    }, {
-        immediate: true,
-        flush: 'sync',
-    });
+    watch(
+        application,
+        (next) => {
+            stop();
+            stop = next.store.subscribe((entities) => {
+                snapshot.value = entities;
+            });
+        },
+        {
+            immediate: true,
+            flush: 'sync',
+        },
+    );
     onScopeDispose(() => stop(), true);
     return {
         entities: computed(() => snapshot.value),
         entitiesByPage: computed<ReadonlyMap<number, readonly AnnotationEntity[]>>(() => {
             const grouped = new Map<number, AnnotationEntity[]>();
-            snapshot.value.filter(entity => !entity.deleted).forEach((entity) => {
-                const page = grouped.get(entity.pageIndex);
-                if (page) {page.push(entity);}
-                else {grouped.set(entity.pageIndex, [entity]);}
-            });
+            snapshot.value
+                .filter((entity) => !entity.deleted)
+                .forEach((entity) => {
+                    const page = grouped.get(entity.pageIndex);
+                    if (page) {
+                        page.push(entity);
+                    } else {
+                        grouped.set(entity.pageIndex, [entity]);
+                    }
+                });
             return grouped;
         }),
     };
@@ -111,55 +119,69 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
     const views = new Set<IPdfDocumentAnnotationsView>();
     const history = usePdfAppAnnotationHistory({
         emitAnnotationState: (state) => {
-            views.forEach(view => view.emitAnnotationState(state));
+            views.forEach((view) => view.emitAnnotationState(state));
         },
         markModified: () => {
-            views.forEach(view => view.emitAnnotationModified());
+            views.forEach((view) => view.emitAnnotationModified());
         },
     });
 
     function createAnnotationApplication(documentKey: string) {
-        return new AnnotationApplication(documentKey, new AnnotationStore({
-            get canUndo() { return history.canUndo.value; },
-            get canRedo() { return history.canRedo.value; },
-            registerCommand: command => history.registerCommand(command),
-            forgetCommands: ids => history.forgetCommands(ids),
-            undo: () => history.undo(),
-            redo: () => history.redo(),
-        }));
+        return new AnnotationApplication(
+            documentKey,
+            new AnnotationStore({
+                get canUndo() {
+                    return history.canUndo.value;
+                },
+                get canRedo() {
+                    return history.canRedo.value;
+                },
+                registerCommand: (command) => history.registerCommand(command),
+                forgetCommands: (ids) => history.forgetCommands(ids),
+                undo: () => history.undo(),
+                redo: () => history.redo(),
+            }),
+        );
     }
-    const documentIdentity = computed(() => (
-        options.workingCopyPath.value
-            ? `path:${options.workingCopyPath.value}`
-            : annotationDocumentKey(options.source.value)
-    ));
+    const documentIdentity = computed(() =>
+        options.workingCopyPath.value ? `path:${options.workingCopyPath.value}` : annotationDocumentKey(options.source.value),
+    );
     const application = shallowRef(createAnnotationApplication(documentIdentity.value));
     const textBoxDrafts = shallowReactive(new Map<string, string>());
     const textBoxDraftGenerations = new Map<string, number>();
     const textBoxDraftRects = shallowReactive(new Map<string, IAnnotationMarkerRect>());
     // Every view reads the page groups, summaries and tombstones derived from this one snapshot.
-    const {
-        entities,
-        entitiesByPage,
-    } = useAnnotationStoreSnapshot(application);
+    const {entities, entitiesByPage} = useAnnotationStoreSnapshot(application);
     // A closed document lists nothing; a text box lists the draft a view holds open.
-    const comments = computed<IAnnotationCommentSummary[]>(() => (options.source.value
-        ? application.value.listCommentSummaries(entities.value).map(comment => Object.freeze({
-            ...comment,
-            text: (comment.annotationKind === 'text-box' ? textBoxDrafts.get(comment.appAnnotationId ?? '') : undefined) ?? comment.text,
-        })).sort(compareAnnotationCommentSummaries)
-        : []));
+    const comments = computed<IAnnotationCommentSummary[]>(() =>
+        options.source.value
+            ? application.value
+                  .listCommentSummaries(entities.value)
+                  .map((comment) =>
+                      Object.freeze({
+                          ...comment,
+                          text:
+                              (comment.annotationKind === 'text-box' ? textBoxDrafts.get(comment.appAnnotationId ?? '') : undefined) ??
+                              comment.text,
+                      }),
+                  )
+                  .sort(compareAnnotationCommentSummaries)
+            : [],
+    );
     // Tombstones by id and PDF ref, with creations an undo removed while their redo remains.
-    const deletedAnnotationIds = computed(() => new Set<string>([
-        ...application.value.store.deletedAnnotationIds(),
-        ...entities.value.flatMap(entity => (entity.deleted && entity.identity.pdfRef ? [entity.identity.pdfRef] : [])),
-    ]));
+    const deletedAnnotationIds = computed(
+        () =>
+            new Set<string>([
+                ...application.value.store.deletedAnnotationIds(),
+                ...entities.value.flatMap((entity) => (entity.deleted && entity.identity.pdfRef ? [entity.identity.pdfRef] : [])),
+            ]),
+    );
     // The store and PDF.js document a read last settled for. A store no read
     // has settled for is loading, not empty; a later read reconciles what it lists.
     const read = shallowRef<{store: AnnotationStore; document: TPdfDocumentView['pdfDocument']['value']} | null>(null);
-    const commentsStatus = computed<TAnnotationCommentsStatus>(() => (
-        options.source.value && read.value?.store === application.value.store ? 'ready' : 'loading'
-    ));
+    const commentsStatus = computed<TAnnotationCommentsStatus>(() =>
+        options.source.value && read.value?.store === application.value.store ? 'ready' : 'loading',
+    );
     // A rotation re-projects its pages' geometry: they paint once the store is
     // read for the document the view shows. The plan is not reactive; the read
     // and document comparison come first so callers track them.
@@ -184,23 +206,29 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
     function feedStoreFromWriterParse(documentSession: TPdfDocumentView, originalPath: Readonly<Ref<string | null>>, afterSave = false) {
         const selectedParsePath = () => {
             const source = options.source.value;
-            return parseDocumentRef(options.workingCopyPath.value)
-                ?? parseDocumentRef(originalPath.value)
-                ?? (source instanceof Blob ? null : parseDocumentRef(source?.path ?? null));
+            return (
+                parseDocumentRef(options.workingCopyPath.value) ??
+                parseDocumentRef(originalPath.value) ??
+                (source instanceof Blob ? null : parseDocumentRef(source?.path ?? null))
+            );
         };
         const parsePath = selectedParsePath();
         const document = documentSession.pdfDocument.value;
         const fence = documentSession.captureFence();
         const revision = options.documentRevisionToken.value;
         const savedRevision = afterSave && !application.value.store.readWholeDocument;
-        if (!parsePath || !document
-            || (revision !== null && fence.documentRevision !== revision && !savedRevision
-                && !fence.documentRevision?.startsWith('load:'))) {
+        if (
+            !parsePath ||
+            !document ||
+            (revision !== null && fence.documentRevision !== revision && !savedRevision && !fence.documentRevision?.startsWith('load:'))
+        ) {
             // A document without a path has no writer annotations to read.
-            if (document && !parsePath) {read.value = {
-                store: application.value.store,
-                document,
-            };}
+            if (document && !parsePath) {
+                read.value = {
+                    store: application.value.store,
+                    document,
+                };
+            }
             return Promise.resolve(false);
         }
         if (writerParseTask?.matches(document, parsePath, fence.documentVersion)) {
@@ -210,24 +238,30 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
         const abortController = new AbortController();
         const targetStore = application.value.store;
         const identity = documentIdentity.value;
-        const isCurrent = () => !abortController.signal.aborted
-            && documentIdentity.value === identity
-            && application.value.store === targetStore
-            && documentSession.pdfDocument.value === document
-            && documentSession.captureFence().documentVersion === fence.documentVersion
-            && options.documentRevisionToken.value === revision
-            && selectedParsePath() === parsePath;
+        const isCurrent = () =>
+            !abortController.signal.aborted &&
+            documentIdentity.value === identity &&
+            application.value.store === targetStore &&
+            documentSession.pdfDocument.value === document &&
+            documentSession.captureFence().documentVersion === fence.documentVersion &&
+            options.documentRevisionToken.value === revision &&
+            selectedParsePath() === parsePath;
         const promise = (async () => {
-            const expectedRevisionToken = revision
-                ?? await getDocumentFilesCapability().getDocumentRevision(parsePath)
-                    .then(value => value.token)
+            const expectedRevisionToken =
+                revision ??
+                (await getDocumentFilesCapability()
+                    .getDocumentRevision(parsePath)
+                    .then((value) => value.token)
                     .catch((error: unknown) => {
                         BrowserLogger.warn('annotations', 'Failed to read annotation document revision', error);
                         return null;
-                    });
+                    }));
             const isProvisionalRevisionFence = fence.documentRevision?.startsWith('load:') ?? false;
-            if (!expectedRevisionToken || !isCurrent()
-                || (fence.documentRevision !== expectedRevisionToken && !isProvisionalRevisionFence && !savedRevision)) {
+            if (
+                !expectedRevisionToken ||
+                !isCurrent() ||
+                (fence.documentRevision !== expectedRevisionToken && !isProvisionalRevisionFence && !savedRevision)
+            ) {
                 return false;
             }
             try {
@@ -235,37 +269,39 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
                     expectedDocumentRevisionToken: expectedRevisionToken,
                     signal: abortController.signal,
                 });
-                if (isCurrent()) {await recordPdfDocumentOriginalAnnotations(document, result, async () => {
-                    const workingCopies = getDocumentWorkingCopyCapability();
-                    const {pinDocumentRevision, releasePinnedDocumentRevision} = workingCopies;
-                    if (pinDocumentRevision && releasePinnedDocumentRevision) {
-                        // Desktop pins the parsed revision; its bytes are copied only if the document changes.
-                        const pinnedRef = await pinDocumentRevision(parsePath, result.documentRevisionToken);
-                        const release = () => releasePinnedDocumentRevision(pinnedRef);
-                        if (!isCurrent()) {
-                            await release();
-                            throw new DOMException('Original annotation source changed during capture', 'AbortError');
+                if (isCurrent()) {
+                    await recordPdfDocumentOriginalAnnotations(document, result, async () => {
+                        const workingCopies = getDocumentWorkingCopyCapability();
+                        const {pinDocumentRevision, releasePinnedDocumentRevision} = workingCopies;
+                        if (pinDocumentRevision && releasePinnedDocumentRevision) {
+                            // Desktop pins the parsed revision; its bytes are copied only if the document changes.
+                            const pinnedRef = await pinDocumentRevision(parsePath, result.documentRevisionToken);
+                            const release = () => releasePinnedDocumentRevision(pinnedRef);
+                            if (!isCurrent()) {
+                                await release();
+                                throw new DOMException('Original annotation source changed during capture', 'AbortError');
+                            }
+                            return {
+                                ref: pinnedRef,
+                                release,
+                            };
                         }
-                        return {
-                            ref: pinnedRef,
-                            release,
-                        };
-                    }
-                    const snapshot = await workingCopies.createWorkingCopyFromPath(parsePath);
-                    try {
-                        const capturedRevision = await getDocumentFilesCapability().getDocumentRevision(parsePath);
-                        if (!isCurrent() || capturedRevision.token !== result.documentRevisionToken) {
-                            throw new DOMException('Original annotation source changed during capture', 'AbortError');
+                        const snapshot = await workingCopies.createWorkingCopyFromPath(parsePath);
+                        try {
+                            const capturedRevision = await getDocumentFilesCapability().getDocumentRevision(parsePath);
+                            if (!isCurrent() || capturedRevision.token !== result.documentRevisionToken) {
+                                throw new DOMException('Original annotation source changed during capture', 'AbortError');
+                            }
+                            return {
+                                ref: snapshot,
+                                release: () => getDocumentWorkingCopyCapability().cleanupFile(snapshot),
+                            };
+                        } catch (error) {
+                            await getDocumentWorkingCopyCapability().cleanupFile(snapshot);
+                            throw error;
                         }
-                        return {
-                            ref: snapshot,
-                            release: () => getDocumentWorkingCopyCapability().cleanupFile(snapshot),
-                        };
-                    } catch (error) {
-                        await getDocumentWorkingCopyCapability().cleanupFile(snapshot);
-                        throw error;
-                    }
-                });}
+                    });
+                }
                 const committed = commitPdfAnnotationParseToStore({
                     result,
                     isTransitionCurrent: isCurrent,
@@ -278,25 +314,29 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
                 if (!committed) {
                     return false;
                 }
-                if (writerParseTask) {writerParseTask.result = result;}
+                if (writerParseTask) {
+                    writerParseTask.result = result;
+                }
                 void deriveSelectedTextForParsedHighlights({
                     documentSession,
                     result,
                     transition: {isCurrent},
                     signal: abortController.signal,
-                }).then((selectedTextByPdfRef) => {
-                    if (selectedTextByPdfRef && isCurrent()) {
-                        applyParsedHighlightTextToStore({
-                            targetStore,
-                            selectedTextByPdfRef,
-                            parsedEntities: result.entities,
-                        });
-                    }
-                }).catch((error) => {
-                    if (!abortController.signal.aborted) {
-                        BrowserLogger.warn('annotations', 'Failed to enrich imported writer highlights', error);
-                    }
-                });
+                })
+                    .then((selectedTextByPdfRef) => {
+                        if (selectedTextByPdfRef && isCurrent()) {
+                            applyParsedHighlightTextToStore({
+                                targetStore,
+                                selectedTextByPdfRef,
+                                parsedEntities: result.entities,
+                            });
+                        }
+                    })
+                    .catch((error) => {
+                        if (!abortController.signal.aborted) {
+                            BrowserLogger.warn('annotations', 'Failed to enrich imported writer highlights', error);
+                        }
+                    });
                 return true;
             } catch (error) {
                 if (isCurrent() && isBrowserFullReadTooLargeError(error)) {
@@ -316,22 +356,31 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
             }
         })();
         writerParseTask = {
-            matches: (candidate, path, version) => candidate === document && path === parsePath && version === fence.documentVersion && isCurrent(),
+            matches: (candidate, path, version) =>
+                candidate === document && path === parsePath && version === fence.documentVersion && isCurrent(),
             abortController,
             promise,
         };
         void promise.finally(() => {
-            if (targetStore === application.value.store) {read.value = {
-                store: targetStore,
-                document,
-            };}
+            if (targetStore === application.value.store) {
+                read.value = {
+                    store: targetStore,
+                    document,
+                };
+            }
         });
         return promise;
     }
-    if (options.isSaving) {watch(options.isSaving, (saving) => {
-        const view = [...views].find(candidate => candidate.document.pdfDocument.value && !candidate.document.pendingPageMutationRevisionSwap);
-        if (!saving && view) {void feedStoreFromWriterParse(view.document, view.originalPath, true);}
-    });}
+    if (options.isSaving) {
+        watch(options.isSaving, (saving) => {
+            const view = [...views].find(
+                (candidate) => candidate.document.pdfDocument.value && !candidate.document.pendingPageMutationRevisionSwap,
+            );
+            if (!saving && view) {
+                void feedStoreFromWriterParse(view.document, view.originalPath, true);
+            }
+        });
+    }
 
     let storeRevision: TDocumentRevisionToken | null = null;
     function reset(documentKey: string) {
@@ -344,12 +393,25 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
     // The document session admits revisions before a view can report them.
     // A genuine Open resets the owner even when it reuses the same path.
     if (options.documentSession) {
-        watch(options.documentSession, () => { history.clear(); reset(documentIdentity.value); }, {flush: 'sync'});
+        watch(
+            options.documentSession,
+            () => {
+                history.clear();
+                reset(documentIdentity.value);
+            },
+            {flush: 'sync'},
+        );
     }
-    watch(options.documentRevisionToken, (revision) => {
-        cancelWriterParse();
-        if (options.documentSession || options.isSaving?.value) {storeRevision = revision;}
-    }, {flush: 'sync'});
+    watch(
+        options.documentRevisionToken,
+        (revision) => {
+            cancelWriterParse();
+            if (options.documentSession || options.isSaving?.value) {
+                storeRevision = revision;
+            }
+        },
+        {flush: 'sync'},
+    );
     function replaceLoadedDocument(loadedRevision: string | null, duringSave: boolean) {
         const currentRevision = options.documentRevisionToken.value;
         if (currentRevision !== null && (loadedRevision !== currentRevision || storeRevision === currentRevision)) {
@@ -380,14 +442,18 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
     }
 
     function clearTextBoxDrafts() {
-        for (const id of textBoxDrafts.keys()) {setTextBoxDraft(id, null);}
+        for (const id of textBoxDrafts.keys()) {
+            setTextBoxDraft(id, null);
+        }
     }
 
-    function restoreTextBoxDrafts(drafts: ReadonlyArray<{
-        annotationId: string;
-        text: string;
-        generation: number;
-    }>) {
+    function restoreTextBoxDrafts(
+        drafts: ReadonlyArray<{
+            annotationId: string;
+            text: string;
+            generation: number;
+        }>,
+    ) {
         clearTextBoxDrafts();
         drafts.forEach((draft) => {
             textBoxDrafts.set(draft.annotationId, draft.text);
@@ -419,22 +485,27 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
         getWriterParseResult: () => writerParseTask?.result ?? null,
         /** Joins the read of the revision a view presents, starting it if none runs; null while no view has its document. */
         joinRead() {
-            const view = [...views].find(candidate => candidate.document.pdfDocument.value);
+            const view = [...views].find((candidate) => candidate.document.pdfDocument.value);
             return view ? feedStoreFromWriterParse(view.document, view.originalPath) : null;
         },
         /** The rectangle of a draft in the viewer whose editor holds it open. */
         getTextBoxDraftRect(annotationId: string) {
-            return [...views].map(view => view.getTextBoxDraftRect(annotationId)).find(rect => rect !== null)
-                ?? textBoxDraftRects.get(annotationId) ?? null;
+            return (
+                [...views].map((view) => view.getTextBoxDraftRect(annotationId)).find((rect) => rect !== null) ??
+                textBoxDraftRects.get(annotationId) ??
+                null
+            );
         },
         // One editor per annotation: editing it in one viewer first commits the
         // editor another viewer holds open, as clicking elsewhere does in one.
         commitDraftIfOpen(annotationId: string, except: IPdfDocumentAnnotationsView) {
-            const others = [...views].filter(view => view !== except && view.isEditing(annotationId));
-            return others.length ? Promise.all(others.map(view => Promise.resolve(view.commitPendingDraftsForSave()))).then(() => {}) : undefined;
+            const others = [...views].filter((view) => view !== except && view.isEditing(annotationId));
+            return others.length
+                ? Promise.all(others.map((view) => Promise.resolve(view.commitPendingDraftsForSave()))).then(() => {})
+                : undefined;
         },
         getPendingTextCompletion() {
-            const pending = [...views].flatMap(view => view.getPendingTextCompletion?.() ?? []);
+            const pending = [...views].flatMap((view) => view.getPendingTextCompletion?.() ?? []);
             return pending.length ? Promise.all(pending).then(() => {}) : undefined;
         },
         /**
@@ -445,10 +516,12 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
          * large to import) moved nothing.
          */
         async commitPendingDraftsForSave(options: {joinRead?: true} = {}) {
-            await Promise.all([...views].map(view => Promise.resolve(view.commitPendingDraftsForSave())));
-            if (textBoxDrafts.size) {throw new Error('Missing required text draft editor');}
+            await Promise.all([...views].map((view) => Promise.resolve(view.commitPendingDraftsForSave())));
+            if (textBoxDrafts.size) {
+                throw new Error('Missing required text draft editor');
+            }
             const task = options.joinRead ? writerParseTask : null;
-            if (task && !await task.promise && writerParseTask !== task) {
+            if (task && !(await task.promise) && writerParseTask !== task) {
                 throw createStaleRevisionError({message: 'The annotation re-read did not land'});
             }
         },
@@ -458,7 +531,9 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
             return () => {
                 const pending = view.commitPendingDraftsForSave() ?? undefined;
                 view.commitPendingDraftsForSave = view.getPendingTextCompletion = () => pending;
-                const release = () => { views.delete(view); };
+                const release = () => {
+                    views.delete(view);
+                };
                 return Promise.resolve(pending).then(release, release);
             };
         },

@@ -1,44 +1,22 @@
 // @vitest-environment happy-dom
-import { setImmediate as nextEventLoopTurn } from 'node:timers/promises';
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    createApp,
-    ref,
-    shallowRef,
-} from 'vue';
-import type {
-    IEditorPaneState,
-    TEditorLayoutNode,
-    TPaneId,
-} from '@contracts/editorPanes';
-import {
-    requireDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
-import { requireDocumentInstanceId } from '@contracts/documentInstanceId';
-import { requirePaneId } from '@contracts/editorPanes';
-import type { TTabId } from '@contracts/windowTabs';
-import { requireTabId } from '@contracts/windowTabs';
-import type { IWorkspaceCheckpoint } from '@contracts/workspaceCheckpoint';
-import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
-import { createDefaultWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
-import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import {
-    createWorkspaceExposeFixture,
-    setTestDocumentDirty,
-} from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
-import { buildWorkspaceCheckpointChangeSignature } from '@app/modules/workspace-shell/checkpoint/buildWorkspaceCheckpointChangeSignature';
-import {
-    buildWorkspaceCheckpoint,
-    WorkspaceCheckpointCaptureError,
-} from '@app/modules/workspace-shell/checkpoint/buildWorkspaceCheckpoint';
-import { useWorkspaceCrashCheckpoint } from '@app/modules/workspace-shell/checkpoint/useWorkspaceCrashCheckpoint';
-import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
+import {setImmediate as nextEventLoopTurn} from 'node:timers/promises';
+import {describe, expect, it, vi} from 'vitest';
+import {createApp, ref, shallowRef} from 'vue';
+import type {IEditorPaneState, TEditorLayoutNode, TPaneId} from '@contracts/editorPanes';
+import {requireDocumentRef, type TDocumentRef} from '@contracts/documentRef';
+import {requireDocumentInstanceId} from '@contracts/documentInstanceId';
+import {requirePaneId} from '@contracts/editorPanes';
+import type {TTabId} from '@contracts/windowTabs';
+import {requireTabId} from '@contracts/windowTabs';
+import type {IWorkspaceCheckpoint} from '@contracts/workspaceCheckpoint';
+import type {IWorkspaceExpose} from '@app/types/workspaceExpose';
+import {createDefaultWorkspaceToolbarSnapshot} from '@app/types/workspaceExpose';
+import {createWorkspaceDocumentController} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import {createWorkspaceExposeFixture, setTestDocumentDirty} from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
+import {buildWorkspaceCheckpointChangeSignature} from '@app/modules/workspace-shell/checkpoint/buildWorkspaceCheckpointChangeSignature';
+import {buildWorkspaceCheckpoint, WorkspaceCheckpointCaptureError} from '@app/modules/workspace-shell/checkpoint/buildWorkspaceCheckpoint';
+import {useWorkspaceCrashCheckpoint} from '@app/modules/workspace-shell/checkpoint/useWorkspaceCrashCheckpoint';
+import {createElectronPlatformApiFixture} from '@tests/helpers/createElectronPlatformApiFixture';
 
 function createSession(tabId: string) {
     return createWorkspaceDocumentController({
@@ -62,18 +40,12 @@ function toolbar(overrides: Partial<ReturnType<typeof createDefaultWorkspaceTool
 function createSignatureOptions() {
     const pane: IEditorPaneState = {
         paneId: requirePaneId('pane-1'),
-        tabIds: [
-            requireTabId('tab-a'),
-            requireTabId('tab-b'),
-        ],
+        tabIds: [requireTabId('tab-a'), requireTabId('tab-b')],
         activeTabId: requireTabId('tab-a'),
     };
     return {
         panes: ref([pane]),
-        tabs: ref([
-            {id: 'tab-a'},
-            {id: 'tab-b'},
-        ]),
+        tabs: ref([{id: 'tab-a'}, {id: 'tab-b'}]),
         layout: ref<TEditorLayoutNode | null>(null),
         activePaneId: ref<TPaneId | null>(requirePaneId('pane-1')),
         activeTabId: ref<TTabId | null>(requireTabId('tab-a')),
@@ -97,11 +69,13 @@ describe('buildWorkspaceCheckpointChangeSignature', () => {
     it('changes only the affected tab signature when a document record changes', () => {
         const options = createSignatureOptions();
         const before = buildWorkspaceCheckpointChangeSignature(options);
-        options.documentSessionsByTabId.value['tab-b'].getView('tab-b')?.publishToolbarSnapshot(toolbar({
-            hasPdf: true,
-            currentPage: 7,
-            totalPages: 30,
-        }));
+        options.documentSessionsByTabId.value['tab-b'].getView('tab-b')?.publishToolbarSnapshot(
+            toolbar({
+                hasPdf: true,
+                currentPage: 7,
+                totalPages: 30,
+            }),
+        );
         const after = buildWorkspaceCheckpointChangeSignature(options);
         expect(after.tabSignatures.get('tab-a')).toBe(before.tabSignatures.get('tab-a'));
         expect(after.tabSignatures.get('tab-b')).not.toBe(before.tabSignatures.get('tab-b'));
@@ -111,17 +85,21 @@ describe('buildWorkspaceCheckpointChangeSignature', () => {
     it('tracks toolbar view state the checkpoint persists', () => {
         const options = createSignatureOptions();
         const session = options.documentSessionsByTabId.value['tab-a'];
-        session.getView('tab-a')?.publishToolbarSnapshot(toolbar({
-            hasPdf: true,
-            currentPage: 7,
-            totalPages: 30,
-        }));
+        session.getView('tab-a')?.publishToolbarSnapshot(
+            toolbar({
+                hasPdf: true,
+                currentPage: 7,
+                totalPages: 30,
+            }),
+        );
         const before = buildWorkspaceCheckpointChangeSignature(options);
-        session.getView('tab-a')?.publishToolbarSnapshot(toolbar({
-            hasPdf: true,
-            currentPage: 8,
-            totalPages: 30,
-        }));
+        session.getView('tab-a')?.publishToolbarSnapshot(
+            toolbar({
+                hasPdf: true,
+                currentPage: 8,
+                totalPages: 30,
+            }),
+        );
         const after = buildWorkspaceCheckpointChangeSignature(options);
         expect(after.tabSignatures.get('tab-a')).not.toBe(before.tabSignatures.get('tab-a'));
     });
@@ -194,14 +172,13 @@ describe('buildWorkspaceCheckpointChangeSignature', () => {
         expect([...afterActiveTab.tabSignatures.entries()]).toEqual([...before.tabSignatures.entries()]);
 
         options.activeTabId.value = requireTabId('tab-a');
-        options.panes.value = [{
-            paneId: requirePaneId('pane-1'),
-            tabIds: [
-                requireTabId('tab-b'),
-                requireTabId('tab-a'),
-            ],
-            activeTabId: requireTabId('tab-a'),
-        }];
+        options.panes.value = [
+            {
+                paneId: requirePaneId('pane-1'),
+                tabIds: [requireTabId('tab-b'), requireTabId('tab-a')],
+                activeTabId: requireTabId('tab-a'),
+            },
+        ];
         const afterTabOrder = buildWorkspaceCheckpointChangeSignature(options);
         expect(afterTabOrder.workspace).not.toBe(before.workspace);
     });
@@ -213,12 +190,14 @@ describe('buildWorkspaceCheckpointChangeSignature structure', () => {
         const session = options.documentSessionsByTabId.value['tab-a'];
         const base = buildWorkspaceCheckpointChangeSignature(options);
 
-        session.getView('tab-a')?.publishToolbarSnapshot(toolbar({
-            hasPdf: true,
-            currentPage: 4,
-            totalPages: 30,
-            zoom: 1.5,
-        }));
+        session.getView('tab-a')?.publishToolbarSnapshot(
+            toolbar({
+                hasPdf: true,
+                currentPage: 4,
+                totalPages: 30,
+                zoom: 1.5,
+            }),
+        );
         options.activeTabId.value = requireTabId('tab-b');
         const afterView = buildWorkspaceCheckpointChangeSignature(options);
         expect(afterView.workspace).not.toBe(base.workspace);
@@ -247,7 +226,7 @@ describe('buildWorkspaceCheckpointChangeSignature structure', () => {
 });
 
 describe('buildWorkspaceCheckpointChangeSignature structure across views', () => {
-    it('keeps the structure while a clean tab\'s view mounts, unmounts or reports refs, and changes it when a tab moves or closes', () => {
+    it("keeps the structure while a clean tab's view mounts, unmounts or reports refs, and changes it when a tab moves or closes", () => {
         const options = createSignatureOptions();
         const session = options.documentSessionsByTabId.value['tab-a'];
         const base = buildWorkspaceCheckpointChangeSignature(options);
@@ -274,10 +253,12 @@ describe('buildWorkspaceCheckpointChangeSignature structure across views', () =>
             tabIds: [requireTabId('tab-a')],
             activeTabId: requireTabId('tab-a'),
         };
-        expect(buildWorkspaceCheckpointChangeSignature({
-            ...options,
-            getPaneByTabId: () => otherPane,
-        }).structure).not.toBe(base.structure);
+        expect(
+            buildWorkspaceCheckpointChangeSignature({
+                ...options,
+                getPaneByTabId: () => otherPane,
+            }).structure,
+        ).not.toBe(base.structure);
 
         options.tabs.value = [{id: 'tab-a'}];
         expect(buildWorkspaceCheckpointChangeSignature(options).structure).not.toBe(base.structure);
@@ -353,7 +334,7 @@ describe('useWorkspaceCrashCheckpoint', () => {
         }
     });
 
-    it('writes a checkpoint queued during the writer\'s entry yield before the second caller resolves', async () => {
+    it("writes a checkpoint queued during the writer's entry yield before the second caller resolves", async () => {
         const options = createSignatureOptions();
         const secondPaneId = requirePaneId('pane-2');
         options.panes.value.push({
@@ -465,7 +446,9 @@ describe('useWorkspaceCrashCheckpoint write timing', () => {
     }
 
     async function settle() {
-        for (let turn = 0; turn < 5; turn += 1) {await nextEventLoopTurn();}
+        for (let turn = 0; turn < 5; turn += 1) {
+            await nextEventLoopTurn();
+        }
     }
 
     it('writes an opened document at once and waits for the debounce on page and zoom changes', async () => {
@@ -477,12 +460,14 @@ describe('useWorkspaceCrashCheckpoint write timing', () => {
             saveWorkspaceCheckpoint.mockClear();
             const session = options.documentSessionsByTabId.value['tab-a'];
 
-            session.getView('tab-a')?.publishToolbarSnapshot(toolbar({
-                hasPdf: true,
-                currentPage: 5,
-                totalPages: 30,
-                zoom: 2,
-            }));
+            session.getView('tab-a')?.publishToolbarSnapshot(
+                toolbar({
+                    hasPdf: true,
+                    currentPage: 5,
+                    totalPages: 30,
+                    zoom: 2,
+                }),
+            );
             await settle();
             expect(saveWorkspaceCheckpoint).not.toHaveBeenCalled();
             await vi.advanceTimersByTimeAsync(2_000);
@@ -508,12 +493,16 @@ describe('useWorkspaceCrashCheckpoint write timing', () => {
             });
             await settle();
             // No timer advanced: a crash now still finds the opened document.
-            expect(saveWorkspaceCheckpoint).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-                tabs: expect.arrayContaining([expect.objectContaining({
-                    tabId: 'tab-a',
-                    sourceRef: '/opened.pdf',
-                })]),
-            }));
+            expect(saveWorkspaceCheckpoint).toHaveBeenCalledExactlyOnceWith(
+                expect.objectContaining({
+                    tabs: expect.arrayContaining([
+                        expect.objectContaining({
+                            tabId: 'tab-a',
+                            sourceRef: '/opened.pdf',
+                        }),
+                    ]),
+                }),
+            );
 
             saveWorkspaceCheckpoint.mockClear();
             setTestDocumentDirty(session, true);
@@ -534,7 +523,9 @@ describe('useWorkspaceCrashCheckpoint write timing', () => {
         const saved: IWorkspaceCheckpoint[] = [];
         const saveWorkspaceCheckpoint = vi.fn(async (checkpoint: IWorkspaceCheckpoint) => {
             saved.push(checkpoint);
-            if (saved.length === 2) {await finishWrite.promise;}
+            if (saved.length === 2) {
+                await finishWrite.promise;
+            }
             return true;
         });
         const {options, dispose} = mountCheckpoint(saveWorkspaceCheckpoint);
@@ -563,7 +554,7 @@ describe('useWorkspaceCrashCheckpoint write timing', () => {
             finishWrite.resolve();
             await settle();
             expect(saveWorkspaceCheckpoint).toHaveBeenCalledTimes(3);
-            expect(saved.at(-1)?.tabs.map(tab => tab.sourceRef)).toEqual(['/first.pdf', '/fourth.pdf']);
+            expect(saved.at(-1)?.tabs.map((tab) => tab.sourceRef)).toEqual(['/first.pdf', '/fourth.pdf']);
         } finally {
             finishWrite.resolve();
             dispose();
@@ -581,7 +572,9 @@ describe('useWorkspaceCrashCheckpoint write timing', () => {
                 await failFirst.promise;
                 throw new Error('disk full');
             }
-            if (calls === 3) {throw new Error('still full');}
+            if (calls === 3) {
+                throw new Error('still full');
+            }
             return true;
         });
         const {options, checkpoint, dispose} = mountCheckpoint(saveWorkspaceCheckpoint);

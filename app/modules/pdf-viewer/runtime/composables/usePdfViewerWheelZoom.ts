@@ -1,17 +1,14 @@
-import {
-    watch,
-    type Ref,
-} from 'vue';
-import { tryOnScopeDispose } from '@vueuse/core';
-import { clamp } from 'es-toolkit/math';
-import type { IZoomStateAccess } from '@contracts/shared';
+import {watch, type Ref} from 'vue';
+import {tryOnScopeDispose} from '@vueuse/core';
+import {clamp} from 'es-toolkit/math';
+import type {IZoomStateAccess} from '@contracts/shared';
 import {
     createDocumentWheelZoomHandler,
     type IDocumentWheelInteraction,
     type IDocumentWheelSourceEvent,
     type IPdfSemanticAnchor,
 } from '@app/modules/document-viewer/public';
-import { pdfViewportScrollActivity } from '@app/modules/pdf-viewer/runtime/composables/pdf/pdfViewportScrollActivity';
+import {pdfViewportScrollActivity} from '@app/modules/pdf-viewer/runtime/composables/pdf/pdfViewportScrollActivity';
 
 // Trackpad momentum keeps sending plain packets after a pinch ends.
 const WHEEL_ZOOM_MOMENTUM_WINDOW_MS = 1400;
@@ -24,10 +21,7 @@ interface IUsePdfViewerWheelZoomOptions {
     handlePagedWheel: (event: IDocumentWheelSourceEvent, deltaPx?: number) => boolean;
     cancelPendingSearchScroll: () => void;
     markUserViewportInteraction: () => void;
-    captureRelayoutAnchor: (point: {
-        x: number;
-        y: number;
-    }) => IPdfSemanticAnchor | null;
+    captureRelayoutAnchor: (point: {x: number; y: number}) => IPdfSemanticAnchor | null;
     relayout: (change?: () => void, anchor?: IPdfSemanticAnchor | null) => void;
     isSnipActive: () => boolean;
 }
@@ -43,20 +37,15 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         options.viewerContainer,
         (container) => {
             stopObservingViewport?.();
-            stopObservingViewport = container
-                ? pdfViewportScrollActivity.observeViewport(container)
-                : null;
+            stopObservingViewport = container ? pdfViewportScrollActivity.observeViewport(container) : null;
         },
-        { immediate: true },
+        {immediate: true},
     );
-    const stopScaleWatch = watch(
-        options.effectiveScale,
-        (nextScale, previousScale) => {
-            if (previousScale !== undefined && nextScale !== previousScale) {
-                pdfViewportScrollActivity.markMotion(options.viewerContainer.value);
-            }
-        },
-    );
+    const stopScaleWatch = watch(options.effectiveScale, (nextScale, previousScale) => {
+        if (previousScale !== undefined && nextScale !== previousScale) {
+            pdfViewportScrollActivity.markMotion(options.viewerContainer.value);
+        }
+    });
     tryOnScopeDispose(() => {
         stopContainerWatch();
         stopScaleWatch();
@@ -64,17 +53,22 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         stopObservingViewport = null;
     });
 
-    const handleWheelZoom = createDocumentWheelZoomHandler(options.effectiveScale, options.readZoom, {beforeZoom: ({event}) => {
-        const container = options.viewerContainer.value;
-        if (!container) {
-            return;
-        }
-        const rect = container.getBoundingClientRect();
-        options.relayout(undefined, options.captureRelayoutAnchor({
-            x: clamp(event.clientX - rect.left, 0, Math.max(container.clientWidth, 0)),
-            y: clamp(event.clientY - rect.top, 0, Math.max(container.clientHeight, 0)),
-        }));
-    }});
+    const handleWheelZoom = createDocumentWheelZoomHandler(options.effectiveScale, options.readZoom, {
+        beforeZoom: ({event}) => {
+            const container = options.viewerContainer.value;
+            if (!container) {
+                return;
+            }
+            const rect = container.getBoundingClientRect();
+            options.relayout(
+                undefined,
+                options.captureRelayoutAnchor({
+                    x: clamp(event.clientX - rect.left, 0, Math.max(container.clientWidth, 0)),
+                    y: clamp(event.clientY - rect.top, 0, Math.max(container.clientHeight, 0)),
+                }),
+            );
+        },
+    });
 
     function handleViewerWheel(interaction: IDocumentWheelInteraction) {
         const {event} = interaction;

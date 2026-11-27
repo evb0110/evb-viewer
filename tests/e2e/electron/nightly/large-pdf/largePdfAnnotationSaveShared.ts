@@ -1,54 +1,35 @@
-import { expect } from 'vitest';
-import {
-    readFileSync, realpathSync,
-} from 'node:fs';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-import { delay } from 'es-toolkit/promise';
-import {
-    PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFRef, PDFString,
-} from 'pdf-lib';
-import type { Page } from 'puppeteer-core';
-import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
-import {
-    openAnnotationsTab, waitForPdfLoaded, waitForViewerInteractive,
-} from '@tests/e2e/electron/helpers/viewerCore';
-import { waitForNoOpenNoteWindows } from '@tests/e2e/electron/helpers/viewerAnnotations';
-import { clickAsUser } from '@tests/e2e/electron/helpers/userInput';
-import { readWorkspaceRecoveryRecords } from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
-import { getSessionInfo } from '@scripts/electron-run/electronRunSessionArtifacts';
-import {
-    collectDescendantPidsUnix, isProcessAlive,
-} from '@scripts/electron-run/electronRunProcessTree';
-import { readWorkspaceStateValues } from '@tests/e2e/electron/helpers/workspaceExpose';
-import { runDesktopQpdfWasm } from '@electron/native-tools/qpdfWasmWorkerClient';
-
-
+import {expect} from 'vitest';
+import {readFileSync, realpathSync} from 'node:fs';
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
+import {delay} from 'es-toolkit/promise';
+import {PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFRef, PDFString} from 'pdf-lib';
+import type {Page} from 'puppeteer-core';
+import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
+import {openAnnotationsTab, waitForPdfLoaded, waitForViewerInteractive} from '@tests/e2e/electron/helpers/viewerCore';
+import {waitForNoOpenNoteWindows} from '@tests/e2e/electron/helpers/viewerAnnotations';
+import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
+import {readWorkspaceRecoveryRecords} from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
+import {getSessionInfo} from '@scripts/electron-run/electronRunSessionArtifacts';
+import {collectDescendantPidsUnix, isProcessAlive} from '@scripts/electron-run/electronRunProcessTree';
+import {readWorkspaceStateValues} from '@tests/e2e/electron/helpers/workspaceExpose';
+import {runDesktopQpdfWasm} from '@electron/native-tools/qpdfWasmWorkerClient';
 
 export const LARGE_PDF_TIMEOUT_MS = 360_000;
-
 
 // The 8-second user-facing save budget missed by small margins on Ubuntu CI.
 // Keep the blocking CI budget at 12 seconds for runner scheduling and filesystem
 // variance. Local exact-fixture saves should still finish below 8 seconds.
 export const LARGE_PDF_SAVE_TIMEOUT_MS = 12_000;
 
-
 export const NOTE_TEXT_ENTRY_TIMEOUT_MS = 20_000;
-
 
 export const execFileAsync = promisify(execFile);
 
-
-
-
-
 export interface IStagedArtifactCaptureWindow extends Window {
-    __largePdfStagedArtifactCapture?: {artifact: ITypedStagedArtifact | null;};
+    __largePdfStagedArtifactCapture?: {artifact: ITypedStagedArtifact | null};
     __resumeLargePdfStagedArtifactCommit?: () => void;
 }
-
-
 
 export async function installStagedArtifactCapture(page: Page) {
     await page.evaluate(() => {
@@ -69,12 +50,7 @@ export async function installStagedArtifactCapture(page: Page) {
     });
 }
 
-
-
-export async function waitForStagedArtifact(
-    page: Page,
-    timeoutMs = LARGE_PDF_SAVE_TIMEOUT_MS,
-) {
+export async function waitForStagedArtifact(page: Page, timeoutMs = LARGE_PDF_SAVE_TIMEOUT_MS) {
     await page.waitForFunction(
         () => (window as IStagedArtifactCaptureWindow).__largePdfStagedArtifactCapture?.artifact !== null,
         // A hard-restarted large-PDF renderer can be busy while the native
@@ -85,23 +61,21 @@ export async function waitForStagedArtifact(
             timeout: timeoutMs,
         },
     );
-    const artifact = await page.evaluate(
-        () => (window as IStagedArtifactCaptureWindow).__largePdfStagedArtifactCapture?.artifact ?? null,
-    );
+    const artifact = await page.evaluate(() => (window as IStagedArtifactCaptureWindow).__largePdfStagedArtifactCapture?.artifact ?? null);
     if (!artifact) {
         throw new Error('Native save did not expose its staged artifact');
     }
     return artifact;
 }
 
-
-
 export function isPageContextUnavailableError(error: unknown) {
-    return error instanceof Error
-        && /Execution context was destroyed|Cannot find context with specified id|Target closed|Session closed|Frame was detached/i.test(error.message);
+    return (
+        error instanceof Error &&
+        /Execution context was destroyed|Cannot find context with specified id|Target closed|Session closed|Frame was detached/i.test(
+            error.message,
+        )
+    );
 }
-
-
 
 export async function resumeStagedArtifactCommit(page: Page) {
     if (page.isClosed()) {
@@ -118,13 +92,8 @@ export async function resumeStagedArtifactCommit(page: Page) {
     }
 }
 
-
-
 export function toPdfUtf16BeHex(value: string) {
-    const bytes = [
-        0xfe,
-        0xff,
-    ];
+    const bytes = [0xfe, 0xff];
     for (const character of value) {
         const codePoint = character.codePointAt(0);
         if (codePoint === undefined) {
@@ -139,10 +108,8 @@ export function toPdfUtf16BeHex(value: string) {
         const low = 0xdc00 + (adjusted & 0x3ff);
         bytes.push(high >> 8, high & 0xff, low >> 8, low & 0xff);
     }
-    return bytes.map(byte => byte.toString(16).padStart(2, '0')).join('');
+    return bytes.map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
-
-
 
 export function readSessionProcessSnapshot(sessionName: string) {
     const info = getSessionInfo(sessionName);
@@ -151,131 +118,132 @@ export function readSessionProcessSnapshot(sessionName: string) {
         throw new Error(`Electron E2E session '${sessionName}' has no live process identity`);
     }
     return {
-        pids: [
-            rootPid,
-            ...collectDescendantPidsUnix(rootPid),
-        ],
+        pids: [rootPid, ...collectDescendantPidsUnix(rootPid)],
         rootPid,
     };
 }
 
-
-
 export async function expectProcessesExited(pids: readonly number[]) {
-    await expect.poll(() => pids.filter(isProcessAlive), {
-        interval: 100,
-        timeout: 15_000,
-    }).toEqual([]);
+    await expect
+        .poll(() => pids.filter(isProcessAlive), {
+            interval: 100,
+            timeout: 15_000,
+        })
+        .toEqual([]);
 }
-
-
 
 export async function waitForCrashCheckpointPath(sessionName: string, expectedPath: string) {
     const expectedRealPath = realpathSync(expectedPath);
-    await expect.poll(() => {
-        try {
-            const stored = (readWorkspaceRecoveryRecords(sessionName)[0] ?? {}) as {checkpoint?: {tabs?: Array<{sourceRef?: string | null;}>;};};
-            return stored.checkpoint?.tabs?.some(tab => (
-                typeof tab.sourceRef === 'string'
-                && realpathSync(tab.sourceRef) === expectedRealPath
-            )) ?? false;
-        } catch {
-            return false;
-        }
-    }, {timeout: 10_000}).toBe(true);
+    await expect
+        .poll(
+            () => {
+                try {
+                    const stored = (readWorkspaceRecoveryRecords(sessionName)[0] ?? {}) as {
+                        checkpoint?: {tabs?: Array<{sourceRef?: string | null}>};
+                    };
+                    return (
+                        stored.checkpoint?.tabs?.some(
+                            (tab) => typeof tab.sourceRef === 'string' && realpathSync(tab.sourceRef) === expectedRealPath,
+                        ) ?? false
+                    );
+                } catch {
+                    return false;
+                }
+            },
+            {timeout: 10_000},
+        )
+        .toBe(true);
 }
-
-
 
 export async function waitForRestoredDocument(page: Page, expectedPath: string) {
     const expectedRealPath = realpathSync(expectedPath);
-    await expect.poll(async () => {
-        const state = await readWorkspaceStateValues<{originalPath?: string | null;}>(
-            page,
-            ['originalPath'],
-        );
-        return typeof state.originalPath === 'string'
-            ? realpathSync(state.originalPath)
-            : null;
-    }, {timeout: LARGE_PDF_TIMEOUT_MS}).toBe(expectedRealPath);
+    await expect
+        .poll(
+            async () => {
+                const state = await readWorkspaceStateValues<{originalPath?: string | null}>(page, ['originalPath']);
+                return typeof state.originalPath === 'string' ? realpathSync(state.originalPath) : null;
+            },
+            {timeout: LARGE_PDF_TIMEOUT_MS},
+        )
+        .toBe(expectedRealPath);
     await waitForPdfLoaded(page, LARGE_PDF_TIMEOUT_MS);
     await waitForViewerInteractive(page, LARGE_PDF_TIMEOUT_MS);
 }
 
-
-
 /** Waits until the annotations panel lists the whole document, not only the pages a save read back. */
 export async function waitForWholeAnnotationInventory(page: Page) {
-    await expect.poll(async () => (await readWorkspaceStateValues<{annotationInventory?: {complete: boolean} | null}>(
-        page,
-        ['annotationInventory'],
-    )).annotationInventory?.complete ?? false, {timeout: LARGE_PDF_TIMEOUT_MS}).toBe(true);
+    await expect
+        .poll(
+            async () =>
+                (await readWorkspaceStateValues<{annotationInventory?: {complete: boolean} | null}>(page, ['annotationInventory']))
+                    .annotationInventory?.complete ?? false,
+            {timeout: LARGE_PDF_TIMEOUT_MS},
+        )
+        .toBe(true);
 }
 
 export async function expectCleanAnnotationHydration(page: Page) {
-    await expect.poll(async () => {
-        const state = await readWorkspaceStateValues<{dirtyState?: {
-            annotationDirty: boolean;
-            fileDirty: boolean;
-            hasAnnotationChanges: boolean;
-            annotationDirtyEntityCount: number;
-            hasPendingUnsavedChanges: boolean;
-        };}>(page, ['dirtyState']);
-        const dirty = state.dirtyState;
-        return {
-            annotationDirty: dirty?.annotationDirty ?? null,
-            fileDirty: dirty?.fileDirty ?? null,
-            hasAnnotationChanges: dirty?.hasAnnotationChanges ?? null,
-            annotationDirtyEntityCount: dirty?.annotationDirtyEntityCount ?? null,
-            hasPendingUnsavedChanges: dirty?.hasPendingUnsavedChanges ?? null,
-        };
-    }, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}).toSatisfy((state) => (
-        state.annotationDirty === false
-        && state.fileDirty === false
-        && state.hasAnnotationChanges === false
-        && state.annotationDirtyEntityCount === 0
-        && state.hasPendingUnsavedChanges === false
-    ));
+    await expect
+        .poll(
+            async () => {
+                const state = await readWorkspaceStateValues<{
+                    dirtyState?: {
+                        annotationDirty: boolean;
+                        fileDirty: boolean;
+                        hasAnnotationChanges: boolean;
+                        annotationDirtyEntityCount: number;
+                        hasPendingUnsavedChanges: boolean;
+                    };
+                }>(page, ['dirtyState']);
+                const dirty = state.dirtyState;
+                return {
+                    annotationDirty: dirty?.annotationDirty ?? null,
+                    fileDirty: dirty?.fileDirty ?? null,
+                    hasAnnotationChanges: dirty?.hasAnnotationChanges ?? null,
+                    annotationDirtyEntityCount: dirty?.annotationDirtyEntityCount ?? null,
+                    hasPendingUnsavedChanges: dirty?.hasPendingUnsavedChanges ?? null,
+                };
+            },
+            {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS},
+        )
+        .toSatisfy(
+            (state) =>
+                state.annotationDirty === false &&
+                state.fileDirty === false &&
+                state.hasAnnotationChanges === false &&
+                state.annotationDirtyEntityCount === 0 &&
+                state.hasPendingUnsavedChanges === false,
+        );
 }
 
-
-
 export async function qpdfCheck(filePath: string) {
-    await runDesktopQpdfWasm([
-        '--check',
-        filePath,
-    ], {
+    await runDesktopQpdfWasm(['--check', filePath], {
         timeoutMs: 120_000,
         commandLabel: 'qpdf(e2e-large-check)',
     });
 }
 
-
-
 export async function readQpdfObject(
     filePath: string,
     objectRef: {
         generationNumber: number;
-        objectNumber: number
+        objectNumber: number;
     },
     streamData: 'filtered' | 'none' | 'raw' = 'raw',
 ) {
-    const {stdout} = await runDesktopQpdfWasm([
-        `--show-object=${objectRef.objectNumber},${objectRef.generationNumber}`,
-        ...(streamData === 'filtered'
-            ? ['--filtered-stream-data']
-            : streamData === 'raw'
-                ? ['--raw-stream-data']
-                : []),
-        filePath,
-    ], {
-        timeoutMs: 120_000,
-        commandLabel: 'qpdf(e2e-large-read-object)',
-    });
+    const {stdout} = await runDesktopQpdfWasm(
+        [
+            `--show-object=${objectRef.objectNumber},${objectRef.generationNumber}`,
+            ...(streamData === 'filtered' ? ['--filtered-stream-data'] : streamData === 'raw' ? ['--raw-stream-data'] : []),
+            filePath,
+        ],
+        {
+            timeoutMs: 120_000,
+            commandLabel: 'qpdf(e2e-large-read-object)',
+        },
+    );
     return stdout;
 }
-
-
 
 export function parseRectFromQpdfObject(value: string): [number, number, number, number] {
     const match = value.match(/\/Rect\s*\[\s*(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s*\]/u);
@@ -283,13 +251,11 @@ export function parseRectFromQpdfObject(value: string): [number, number, number,
         throw new Error(`Annotation object has no bounded /Rect: ${value.slice(0, 1000)}`);
     }
     const rect = match.slice(1).map(Number) as [number, number, number, number];
-    if (rect.some(coordinate => !Number.isFinite(coordinate)) || rect[2] <= rect[0] || rect[3] <= rect[1]) {
+    if (rect.some((coordinate) => !Number.isFinite(coordinate)) || rect[2] <= rect[0] || rect[3] <= rect[1]) {
         throw new Error(`Annotation object has an invalid /Rect: ${JSON.stringify(rect)}`);
     }
     return rect;
 }
-
-
 
 export function findQpdfLiteralStringEnd(value: string, start: number) {
     let depth = 0;
@@ -315,8 +281,6 @@ export function findQpdfLiteralStringEnd(value: string, start: number) {
     }
     return -1;
 }
-
-
 
 export function readQpdfDictionaryString(value: string, key: string) {
     let dictionaryDepth = 0;
@@ -384,8 +348,6 @@ export function readQpdfDictionaryString(value: string, key: string) {
     return null;
 }
 
-
-
 export function decodeQpdfLiteralString(value: string) {
     let decoded = '';
     for (let index = 1; index < value.length - 1; index += 1) {
@@ -427,8 +389,6 @@ export function decodeQpdfLiteralString(value: string) {
     return decoded;
 }
 
-
-
 export function qpdfStringTokenContainsText(value: string, text: string) {
     if (value.startsWith('(')) {
         return decodeQpdfLiteralString(value).includes(text);
@@ -437,47 +397,49 @@ export function qpdfStringTokenContainsText(value: string, text: string) {
         return false;
     }
     const normalized = value.slice(1, -1).replace(/\s+/gu, '').toLowerCase();
-    return normalized.includes(toPdfUtf16BeHex(text))
-        || normalized.includes(Buffer.from(text, 'utf8').toString('hex'));
+    return normalized.includes(toPdfUtf16BeHex(text)) || normalized.includes(Buffer.from(text, 'utf8').toString('hex'));
 }
-
-
 
 export function qpdfDictionaryContainsText(value: string, key: string, text: string) {
     const stringValue = readQpdfDictionaryString(value, key);
     return stringValue !== null && qpdfStringTokenContainsText(stringValue, text);
 }
 
-
-
 export async function editVisibleStickyNote(page: Page, currentText: string, nextText: string) {
     await openAnnotationsTab(page, 30_000);
-    await page.waitForFunction((text: string) => (
-        Array.from(document.querySelectorAll<HTMLElement>(
-            '.editor-pane.is-active .workspace-host .notes-list .note-item',
-        )).some((candidate) => {
-            const rect = candidate.getBoundingClientRect();
-            const style = window.getComputedStyle(candidate);
-            return candidate.textContent?.includes(text) === true
-                && style.display !== 'none'
-                && style.visibility !== 'hidden'
-                && Number(style.opacity || '1') > 0
-                && rect.width > 0
-                && rect.height > 0;
-        })
-    ), {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}, currentText);
+    await page.waitForFunction(
+        (text: string) =>
+            Array.from(document.querySelectorAll<HTMLElement>('.editor-pane.is-active .workspace-host .notes-list .note-item')).some(
+                (candidate) => {
+                    const rect = candidate.getBoundingClientRect();
+                    const style = window.getComputedStyle(candidate);
+                    return (
+                        candidate.textContent?.includes(text) === true &&
+                        style.display !== 'none' &&
+                        style.visibility !== 'hidden' &&
+                        Number(style.opacity || '1') > 0 &&
+                        rect.width > 0 &&
+                        rect.height > 0
+                    );
+                },
+            ),
+        {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS},
+        currentText,
+    );
     const items = await page.$$('.editor-pane.is-active .workspace-host .notes-list .note-item');
     let matchingItem: (typeof items)[number] | null = null;
     for (const item of items) {
         const matches = await item.evaluate((candidate, text) => {
             const rect = candidate.getBoundingClientRect();
             const style = window.getComputedStyle(candidate);
-            return candidate.textContent?.includes(text) === true
-                && style.display !== 'none'
-                && style.visibility !== 'hidden'
-                && Number(style.opacity || '1') > 0
-                && rect.width > 0
-                && rect.height > 0;
+            return (
+                candidate.textContent?.includes(text) === true &&
+                style.display !== 'none' &&
+                style.visibility !== 'hidden' &&
+                Number(style.opacity || '1') > 0 &&
+                rect.width > 0 &&
+                rect.height > 0
+            );
         }, currentText);
         if (matches) {
             matchingItem = item;
@@ -503,7 +465,7 @@ export async function editVisibleStickyNote(page: Page, currentText: string, nex
         count: 3,
         delay: 80,
     });
-    const selectedText = await textarea.evaluate(input => ({
+    const selectedText = await textarea.evaluate((input) => ({
         end: input.selectionEnd,
         length: input.value.length,
         start: input.selectionStart,
@@ -516,15 +478,24 @@ export async function editVisibleStickyNote(page: Page, currentText: string, nex
     await page.keyboard.type(nextText, {delay: 10});
     await page.keyboard.press('Tab');
 
-    await expect.poll(async () => {
-        const state = await readWorkspaceStateValues<{dirtyState?: {
-            hasPendingUnsavedChanges: boolean;
-            hasAnnotationChanges: boolean;
-        };}>(page, ['dirtyState']);
-        return state.dirtyState?.hasPendingUnsavedChanges === true
-            && state.dirtyState.hasAnnotationChanges === true
-            && await page.$('.editor-pane.is-active .tab.is-active.is-dirty') !== null;
-    }, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}).toBe(true);
+    await expect
+        .poll(
+            async () => {
+                const state = await readWorkspaceStateValues<{
+                    dirtyState?: {
+                        hasPendingUnsavedChanges: boolean;
+                        hasAnnotationChanges: boolean;
+                    };
+                }>(page, ['dirtyState']);
+                return (
+                    state.dirtyState?.hasPendingUnsavedChanges === true &&
+                    state.dirtyState.hasAnnotationChanges === true &&
+                    (await page.$('.editor-pane.is-active .tab.is-active.is-dirty')) !== null
+                );
+            },
+            {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS},
+        )
+        .toBe(true);
 
     const closeButtons = await page.$$('.editor-pane.is-active .workspace-host .note-window__close');
     let closed = false;
@@ -532,11 +503,13 @@ export async function editVisibleStickyNote(page: Page, currentText: string, nex
         const visible = await closeButton.evaluate((candidate) => {
             const rect = candidate.getBoundingClientRect();
             const style = window.getComputedStyle(candidate);
-            return style.display !== 'none'
-                && style.visibility !== 'hidden'
-                && Number(style.opacity || '1') > 0
-                && rect.width > 0
-                && rect.height > 0;
+            return (
+                style.display !== 'none' &&
+                style.visibility !== 'hidden' &&
+                Number(style.opacity || '1') > 0 &&
+                rect.width > 0 &&
+                rect.height > 0
+            );
         });
         if (visible) {
             await clickAsUser(page, closeButton);
@@ -550,8 +523,6 @@ export async function editVisibleStickyNote(page: Page, currentText: string, nex
     await waitForNoOpenNoteWindows(page);
 }
 
-
-
 export function getPdfStringValue(value: unknown) {
     if (value instanceof PDFHexString || value instanceof PDFString) {
         return value.decodeText();
@@ -559,10 +530,8 @@ export function getPdfStringValue(value: unknown) {
     return '';
 }
 
-
-
 export async function readPdfNoteContents(filePath: string) {
-    const doc = await PDFDocument.load(readFileSync(filePath), { updateMetadata: false });
+    const doc = await PDFDocument.load(readFileSync(filePath), {updateMetadata: false});
     const notes: Array<{
         contents: string;
         name: string;

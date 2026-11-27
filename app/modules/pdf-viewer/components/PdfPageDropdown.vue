@@ -1,5 +1,8 @@
 <template>
-    <div ref="pageControlsRef" class="page-controls">
+    <div
+        ref="pageControlsRef"
+        class="page-controls"
+    >
         <div class="page-controls-item page-controls-item--edge">
             <ToolbarButton
                 icon="ph:caret-double-left"
@@ -35,18 +38,25 @@
                     <span
                         v-if="pageIndicatorParts.secondary"
                         class="page-controls-current-secondary"
-                    >{{ pageIndicatorParts.secondary }}</span>
+                        >{{ pageIndicatorParts.secondary }}</span
+                    >
                 </span>
                 <span
                     v-if="showTotalInDisplay"
-                    :class="['page-controls-slash', { 'is-hidden': !hasPages }]"
-                >/</span>
+                    :class="['page-controls-slash', {'is-hidden': !hasPages}]"
+                    >/</span
+                >
                 <span
                     v-if="showTotalInDisplay"
-                    :class="['page-controls-total', { 'is-hidden': !hasPages }]"
-                >{{ totalPages }}</span>
+                    :class="['page-controls-total', {'is-hidden': !hasPages}]"
+                    >{{ totalPages }}</span
+                >
             </button>
-            <div v-else class="page-controls-display is-editing" :style="pageDisplayStyle">
+            <div
+                v-else
+                class="page-controls-display is-editing"
+                :style="pageDisplayStyle"
+            >
                 <span class="page-controls-current">
                     <input
                         ref="pageInputRef"
@@ -59,16 +69,19 @@
                     <span
                         v-if="pageIndicatorParts.secondary"
                         class="page-controls-current-secondary"
-                    >{{ pageIndicatorParts.secondary }}</span>
+                        >{{ pageIndicatorParts.secondary }}</span
+                    >
                 </span>
                 <span
                     v-if="showTotalInDisplay"
-                    :class="['page-controls-slash', { 'is-hidden': !hasPages }]"
-                >/</span>
+                    :class="['page-controls-slash', {'is-hidden': !hasPages}]"
+                    >/</span
+                >
                 <span
                     v-if="showTotalInDisplay"
-                    :class="['page-controls-total', { 'is-hidden': !hasPages }]"
-                >{{ totalPages }}</span>
+                    :class="['page-controls-total', {'is-hidden': !hasPages}]"
+                    >{{ totalPages }}</span
+                >
             </div>
         </div>
 
@@ -96,14 +109,10 @@
 </template>
 
 <script setup lang="ts">
-import { onClickOutside } from '@vueuse/core';
-import type { TPdfViewMode } from '@contracts/shared';
+import {onClickOutside} from '@vueuse/core';
+import type {TPdfViewMode} from '@contracts/shared';
 import ToolbarButton from '@app/components/ToolbarButton.vue';
-import {
-    findPageByPageLabelInput,
-    getPageIndicatorLayoutMetrics,
-    type TDocumentPageLabelLookup,
-} from '@app/modules/document-viewer/public';
+import {findPageByPageLabelInput, getPageIndicatorLayoutMetrics, type TDocumentPageLabelLookup} from '@app/modules/document-viewer/public';
 import {
     getPdfPageDropdownIndicatorParts,
     getPdfPageDropdownInputLabel,
@@ -111,7 +120,7 @@ import {
     stepPdfPageDropdownCommand,
 } from '@app/modules/pdf-viewer/engine/pdfPageDropdownModel';
 
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 
 interface IProps {
     modelValue: number;
@@ -147,14 +156,15 @@ const pageInputRef = ref<HTMLInputElement | null>(null);
 const pageControlsRef = ref<HTMLElement | null>(null);
 const pageDisplayRef = ref<HTMLButtonElement | null>(null);
 
-
 const showTotalInDisplay = computed(() => true);
 const hasPages = computed(() => totalPages > 0);
-const commandPage = computed(() => resolvePdfPageDropdownDisplayPage({
-    currentPage,
-    navigationPage,
-    totalPages,
-}));
+const commandPage = computed(() =>
+    resolvePdfPageDropdownDisplayPage({
+        currentPage,
+        navigationPage,
+        totalPages,
+    }),
+);
 const displayPage = computed(() => commandPage.value);
 
 const effectivePageLabels = computed<TDocumentPageLabelLookup>(() => {
@@ -190,11 +200,7 @@ const pageIndicatorParts = computed(() => {
     });
 });
 
-const pageLayoutMetrics = computed(() => getPageIndicatorLayoutMetrics(
-    totalPages,
-    effectivePageLabels.value,
-    showTotalInDisplay.value,
-));
+const pageLayoutMetrics = computed(() => getPageIndicatorLayoutMetrics(totalPages, effectivePageLabels.value, showTotalInDisplay.value));
 
 const pageDisplayStyle = computed(() => ({
     '--page-current-width-ch': `${pageLayoutMetrics.value.currentWidthCh}ch`,
@@ -267,14 +273,16 @@ function commitPageInput() {
     isEditing.value = false;
 }
 
-onClickOutside(pageControlsRef, () => {
-    const activeElement = document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null;
-    if (activeElement?.closest('.page-controls')) {
-        activeElement.blur();
-    }
-}, { capture: true });
+onClickOutside(
+    pageControlsRef,
+    () => {
+        const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        if (activeElement?.closest('.page-controls')) {
+            activeElement.blur();
+        }
+    },
+    {capture: true},
+);
 </script>
 
 <style lang="scss" scoped>
@@ -307,7 +315,11 @@ onClickOutside(pageControlsRef, () => {
         var(--page-total-width-ch);
     align-items: center;
     padding: 0 0.5rem;
-    width: min(var(--page-display-width-ch), var(--app-toolbar-app-menu-trigger-max-width), var(--app-toolbar-app-menu-trigger-max-viewport-width));
+    width: min(
+        var(--page-display-width-ch),
+        var(--app-toolbar-app-menu-trigger-max-width),
+        var(--app-toolbar-app-menu-trigger-max-viewport-width)
+    );
     min-width: 0;
     height: var(--toolbar-control-height, 2.25rem);
     font-family: var(--app-font-mono);

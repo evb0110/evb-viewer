@@ -2,13 +2,10 @@
 // end in, plus the constructors that make "nothing was written" always carry
 // why. Kept beside the save service rather than inside it so the reasons and
 // the shapes that use them stay one unit.
-import type {
-    IPdfPersistFailure,
-    IPdfPersistResult,
-} from '@app/types/pdfUi';
-import type { IPdfNativeAnnotationIdentityBinding } from '@contracts/electronApiDocuments';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import type { TWorkspaceSaveFailureReason } from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
+import type {IPdfPersistFailure, IPdfPersistResult} from '@app/types/pdfUi';
+import type {IPdfNativeAnnotationIdentityBinding} from '@contracts/electronApiDocuments';
+import type {TDocumentRevisionToken} from '@contracts/documentRevision';
+import type {TWorkspaceSaveFailureReason} from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
 
 /**
  * What a completed save is allowed to mark clean. Every flag defaults to false
@@ -44,32 +41,32 @@ export type TWorkspaceSaveAbortReason = TWorkspaceSaveFailureReason | 'cancelled
  */
 export type TWorkspaceSaveAbortOrigin =
     | {
-        phase: 'pre-write';
-        plannedRevisionToken: TDocumentRevisionToken | null;
-    }
-    | {phase: 'post-write';};
+          phase: 'pre-write';
+          plannedRevisionToken: TDocumentRevisionToken | null;
+      }
+    | {phase: 'post-write'};
 
 export type TWorkspaceSaveExecutionResult =
     | {
-        status: 'saved';
-        persisted: IPdfPersistResult;
-        serializedChanges: boolean;
-        completion: ISaveCompletionPolicy;
-        annotationMaterializationBaseline?: unknown;
-        commitAnnotationSave?: (identityBindings?: readonly IPdfNativeAnnotationIdentityBinding[]) => void;
-    }
+          status: 'saved';
+          persisted: IPdfPersistResult;
+          serializedChanges: boolean;
+          completion: ISaveCompletionPolicy;
+          annotationMaterializationBaseline?: unknown;
+          commitAnnotationSave?: (identityBindings?: readonly IPdfNativeAnnotationIdentityBinding[]) => void;
+      }
     | {
-        status: 'not-saved';
-        // Every non-throwing abort carries why it stopped so the shared
-        // failure surface can report it exactly like a thrown save.
-        reason: TWorkspaceSaveAbortReason;
-        failure?: IPdfPersistFailure;
-        origin: TWorkspaceSaveAbortOrigin;
-    }
+          status: 'not-saved';
+          // Every non-throwing abort carries why it stopped so the shared
+          // failure surface can report it exactly like a thrown save.
+          reason: TWorkspaceSaveAbortReason;
+          failure?: IPdfPersistFailure;
+          origin: TWorkspaceSaveAbortOrigin;
+      }
     | {
-        status: 'failed';
-        error: unknown;
-    };
+          status: 'failed';
+          error: unknown;
+      };
 
 /** An abort that stopped before anything was handed to the persistence layer. */
 export type TWorkspaceSaveAbort = Extract<TWorkspaceSaveExecutionResult, {status: 'not-saved'}>;
@@ -89,10 +86,7 @@ export function notSavedBeforeWrite(
 }
 
 /** An abort the persistence layer itself returned, after the write ran. */
-export function notSavedAfterWrite(
-    reason: TWorkspaceSaveAbortReason,
-    failure?: IPdfPersistFailure,
-): TWorkspaceSaveAbort {
+export function notSavedAfterWrite(reason: TWorkspaceSaveAbortReason, failure?: IPdfPersistFailure): TWorkspaceSaveAbort {
     return {
         status: 'not-saved',
         reason,

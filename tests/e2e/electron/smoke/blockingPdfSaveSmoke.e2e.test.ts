@@ -1,29 +1,11 @@
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    onTestFinished,
-} from 'vitest';
-import { createHash } from 'node:crypto';
+import {afterEach, describe, expect, it, onTestFinished} from 'vitest';
+import {createHash} from 'node:crypto';
 import {decodeManifest} from '@document-store/documentDirectory';
-import {
-    existsSync,
-    mkdirSync,
-    readFileSync,
-    rmSync,
-    writeFileSync,
-} from 'node:fs';
-import {
-    basename,
-    dirname,
-    join,
-} from 'node:path';
-import { delay } from 'es-toolkit/promise';
-import {
-    PDFDocument, PDFName,
-} from 'pdf-lib';
-import type { Page } from 'puppeteer-core';
+import {existsSync, mkdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
+import {basename, dirname, join} from 'node:path';
+import {delay} from 'es-toolkit/promise';
+import {PDFDocument, PDFName} from 'pdf-lib';
+import type {Page} from 'puppeteer-core';
 import {
     createLargeScannedFixturePdf,
     createMultiPageTextFixturePdf,
@@ -39,16 +21,10 @@ import {
     waitForViewerInteractive,
     clickVisibleToolbarButton,
 } from '@tests/e2e/electron/helpers/viewerCore';
-import {
-    createFreeTextAnnotation,
-    createFreeTextAnnotationWithPointer,
-} from '@tests/e2e/electron/helpers/viewerAnnotations';
-import { startElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
-import {
-    clickAsUser,
-    clickFoundAsUser,
-} from '@tests/e2e/electron/helpers/userInput';
-import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import {createFreeTextAnnotation, createFreeTextAnnotationWithPointer} from '@tests/e2e/electron/helpers/viewerAnnotations';
+import {startElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import {clickAsUser, clickFoundAsUser} from '@tests/e2e/electron/helpers/userInput';
+import type {IElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {
     callWorkspaceCommand,
     getLatestAutomationEventId,
@@ -56,9 +32,9 @@ import {
     readWorkspaceStateValues,
     waitForAutomationEvent,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
-import { readToolbarPageIndicator } from '@tests/e2e/electron/helpers/toolbarPageIndicator';
-import { getSessionInfo } from '@scripts/electron-run/electronRunSessionArtifacts';
-import { isProcessAlive } from '@scripts/electron-run/electronRunProcessTree';
+import {readToolbarPageIndicator} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
+import {getSessionInfo} from '@scripts/electron-run/electronRunSessionArtifacts';
+import {isProcessAlive} from '@scripts/electron-run/electronRunProcessTree';
 
 const BLOCKING_SMOKE_TIMEOUT_MS = 120_000;
 const SAVE_TIMEOUT_MS = 45_000;
@@ -83,28 +59,30 @@ function expectNamedOpenRefusal(text: string, filePath: string) {
 }
 
 async function clickVisibleCenter(page: Page, selector: string, label: string) {
-    const point = await page.evaluate((args: {
-        selector: string;
-        label: string;
-    }) => {
-        const target = Array.from(document.querySelectorAll<HTMLElement>(args.selector)).find((element) => {
-            const rect = element.getBoundingClientRect();
-            return rect.width > 8
-                && rect.height > 8
-                && (element.getAttribute('aria-label') === args.label || element.textContent?.trim() === args.label);
-        });
-        if (!target) {
-            return null;
-        }
-        const rect = target.getBoundingClientRect();
-        return {
-            x: rect.left + rect.width / 2,
-            y: rect.top + rect.height / 2,
-        };
-    }, {
-        selector,
-        label,
-    });
+    const point = await page.evaluate(
+        (args: {selector: string; label: string}) => {
+            const target = Array.from(document.querySelectorAll<HTMLElement>(args.selector)).find((element) => {
+                const rect = element.getBoundingClientRect();
+                return (
+                    rect.width > 8 &&
+                    rect.height > 8 &&
+                    (element.getAttribute('aria-label') === args.label || element.textContent?.trim() === args.label)
+                );
+            });
+            if (!target) {
+                return null;
+            }
+            const rect = target.getBoundingClientRect();
+            return {
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2,
+            };
+        },
+        {
+            selector,
+            label,
+        },
+    );
     if (!point) {
         throw new Error(`No visible ${selector} labelled ${label}`);
     }
@@ -112,9 +90,7 @@ async function clickVisibleCenter(page: Page, selector: string, label: string) {
 }
 
 function hashFile(filePath: string) {
-    return createHash('sha256')
-        .update(readFileSync(filePath))
-        .digest('hex');
+    return createHash('sha256').update(readFileSync(filePath)).digest('hex');
 }
 
 async function waitForToolbarCanSave(page: Page) {
@@ -134,14 +110,14 @@ async function waitForToolbarCanSave(page: Page) {
 
 async function waitForAnnotationChange(page: Page) {
     const startedAt = Date.now();
-    let dirtyState = (await readWorkspaceStateValues<{dirtyState?: {hasAnnotationChanges?: boolean;};}>(page, ['dirtyState'])).dirtyState;
+    let dirtyState = (await readWorkspaceStateValues<{dirtyState?: {hasAnnotationChanges?: boolean}}>(page, ['dirtyState'])).dirtyState;
 
     while (Date.now() - startedAt < 15_000) {
         if (dirtyState?.hasAnnotationChanges === true) {
             return;
         }
         await delay(150);
-        dirtyState = (await readWorkspaceStateValues<{dirtyState?: {hasAnnotationChanges?: boolean;};}>(page, ['dirtyState'])).dirtyState;
+        dirtyState = (await readWorkspaceStateValues<{dirtyState?: {hasAnnotationChanges?: boolean}}>(page, ['dirtyState'])).dirtyState;
     }
 
     throw new Error(`Canonical text-box editor did not produce annotation changes: ${JSON.stringify(dirtyState)}`);
@@ -150,14 +126,16 @@ async function waitForAnnotationChange(page: Page) {
 async function readOpenSurfaceState(page: Page) {
     return page.evaluate(() => {
         const surface = document.querySelector<HTMLElement>('[data-open-surface-generation]');
-        return surface ? {
-            generation: Number(surface.dataset.openSurfaceGeneration),
-            documentRevision: surface.dataset.openSurfaceDocumentRevision ?? null,
-            lifecycle: surface.dataset.viewportLifecycle ?? null,
-            requestedPage: Number(surface.dataset.viewportRequestedPage),
-            committedPage: Number(surface.dataset.viewportCommittedPage),
-            visualPresentation: surface.dataset.viewportVisualPresentation ?? null,
-        } : null;
+        return surface
+            ? {
+                  generation: Number(surface.dataset.openSurfaceGeneration),
+                  documentRevision: surface.dataset.openSurfaceDocumentRevision ?? null,
+                  lifecycle: surface.dataset.viewportLifecycle ?? null,
+                  requestedPage: Number(surface.dataset.viewportRequestedPage),
+                  committedPage: Number(surface.dataset.viewportCommittedPage),
+                  visualPresentation: surface.dataset.viewportVisualPresentation ?? null,
+              }
+            : null;
     });
 }
 
@@ -213,9 +191,7 @@ async function interceptCombinedOpenHandoffs(page: Page) {
     } | null = null;
     for (const scriptId of scriptIds) {
         const {scriptSource} = await client.send('Debugger.getScriptSource', {scriptId});
-        const match = scriptSource.includes('ERR_COMBINE_RESULT_OPEN_FAILED')
-            ? /[\w$]+\.openResult\(([\w$]+)\)/u.exec(scriptSource)
-            : null;
+        const match = scriptSource.includes('ERR_COMBINE_RESULT_OPEN_FAILED') ? /[\w$]+\.openResult\(([\w$]+)\)/u.exec(scriptSource) : null;
         if (match) {
             handoffCall = {
                 scriptId,
@@ -264,7 +240,9 @@ async function interceptCombinedOpenHandoffs(page: Page) {
             // paused. The reference itself has no bytes to corrupt.
             const directory = dirname(workingPath);
             const revision = decodeManifest(readFileSync(join(directory, 'manifest.json'))).current;
-            if (!revision) {throw new Error('Combined document has no generated revision');}
+            if (!revision) {
+                throw new Error('Combined document has no generated revision');
+            }
             const revisionPath = join(directory, revision.file);
             const handoff = {
                 workingPath,
@@ -312,13 +290,19 @@ async function interceptCombinedOpenHandoffs(page: Page) {
 }
 
 async function waitForCombineRetry(page: Page) {
-    await page.waitForFunction(() => Array.from(document.querySelectorAll<HTMLButtonElement>('footer.combine-actions button'))
-        .some(button => button.textContent?.trim() === 'Retry' && !button.disabled), {timeout: 60_000});
+    await page.waitForFunction(
+        () =>
+            Array.from(document.querySelectorAll<HTMLButtonElement>('footer.combine-actions button')).some(
+                (button) => button.textContent?.trim() === 'Retry' && !button.disabled,
+            ),
+        {timeout: 60_000},
+    );
 }
 
 function findCombinePageButton(label: string) {
-    return Array.from(document.querySelectorAll<HTMLButtonElement>('[data-combine-page] button'))
-        .find(button => button.textContent?.trim() === label && button.getBoundingClientRect().width > 0);
+    return Array.from(document.querySelectorAll<HTMLButtonElement>('[data-combine-page] button')).find(
+        (button) => button.textContent?.trim() === label && button.getBoundingClientRect().width > 0,
+    );
 }
 
 async function waitForSaveAsOutcome(page: Page, savedPath: string) {
@@ -336,13 +320,18 @@ async function waitForSaveAsOutcome(page: Page, savedPath: string) {
 }
 
 async function expectOpenedFirstPage(page: Page, label: string) {
-    await expect.poll(async () => {
-        const indicator = await readToolbarPageIndicator(page);
-        return `${String(indicator.renderedPage)}/${indicator.totalPagesText ?? ''}`;
-    }, {
-        message: `${label}: page indicator`,
-        timeout: 20_000,
-    }).toBe('1/12');
+    await expect
+        .poll(
+            async () => {
+                const indicator = await readToolbarPageIndicator(page);
+                return `${String(indicator.renderedPage)}/${indicator.totalPagesText ?? ''}`;
+            },
+            {
+                message: `${label}: page indicator`,
+                timeout: 20_000,
+            },
+        )
+        .toBe('1/12');
     await waitForPdfLoaded(page, 20_000);
 }
 
@@ -354,197 +343,197 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
         session = null;
     });
 
-    it('opens a startup PDF path, creates a visible annotation, and saves it to disk', async () => {
-        const pdfPath = await createMultiPageTextFixturePdf(`blocking-save-smoke-${Date.now()}.pdf`, 3);
-        const beforeHash = hashFile(pdfPath);
+    it(
+        'opens a startup PDF path, creates a visible annotation, and saves it to disk',
+        async () => {
+            const pdfPath = await createMultiPageTextFixturePdf(`blocking-save-smoke-${Date.now()}.pdf`, 3);
+            const beforeHash = hashFile(pdfPath);
 
-        session = await startElectronE2ESession(`e2e-blocking-save-smoke-${Date.now()}`, {
-            clean: true,
-            initialOpenPaths: [pdfPath],
-        });
-        const { page } = session;
+            session = await startElectronE2ESession(`e2e-blocking-save-smoke-${Date.now()}`, {
+                clean: true,
+                initialOpenPaths: [pdfPath],
+            });
+            const {page} = session;
 
-        await Promise.all([
-            waitForAutomationEvent(page, 'document-opened', {
+            await Promise.all([
+                waitForAutomationEvent(page, 'document-opened', {
+                    path: pdfPath,
+                    timeoutMs: 45_000,
+                }),
+                waitForAutomationEvent(page, 'first-page-rendered', {
+                    path: pdfPath,
+                    timeoutMs: 45_000,
+                }),
+            ]);
+
+            await page.waitForFunction(() => document.querySelector('#evb-startup-overlay') === null, {
+                timeout: BLOCKING_SMOKE_TIMEOUT_MS / 2,
+            });
+
+            const startupState = await readWorkspaceStateValues<{originalPath?: string | null}>(page, ['originalPath']);
+            const readinessState = await page.evaluate(() => ({
+                appReady: (window as Window & {__appReady?: boolean}).__appReady ?? false,
+                appReadyAt: (window as Window & {__appReadyAt?: number}).__appReadyAt ?? null,
+                firstPagePaintedAt: performance.getEntriesByName('evb:first-page-painted', 'mark').at(-1)?.startTime ?? null,
+                navigationStartedAt: performance.timeOrigin,
+                overlayPresent: document.querySelector('#evb-startup-overlay') !== null,
+            }));
+            expect(startupState.originalPath).toBe(pdfPath);
+            expect(readinessState.overlayPresent).toBe(false);
+            expect(readinessState.appReady).toBe(true);
+            expect(readinessState.appReadyAt).not.toBeNull();
+            expect(readinessState.firstPagePaintedAt).not.toBeNull();
+            await waitForPdfLoaded(page, 30_000);
+            await waitForViewerInteractive(page, 30_000);
+
+            await openAnnotationsTab(page, 30_000);
+            const annotationText = `Blocking smoke FreeText ${Date.now()}`;
+            const createdCount = await createFreeTextAnnotation(page, annotationText);
+            expect(createdCount).toBeGreaterThan(0);
+            await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+            await waitForAnnotationChange(page);
+            await waitForToolbarCanSave(page);
+
+            const saveBaselineEventId = await getLatestAutomationEventId(page);
+            const saveCommitted = waitForAutomationEvent(page, 'save-committed', {
+                afterEventId: saveBaselineEventId,
                 path: pdfPath,
-                timeoutMs: 45_000,
-            }),
-            waitForAutomationEvent(page, 'first-page-rendered', {
-                path: pdfPath,
-                timeoutMs: 45_000,
-            }),
-        ]);
+                timeoutMs: SAVE_TIMEOUT_MS,
+            });
+            await clickVisibleToolbarButton(page, 'Save');
+            await saveCommitted;
 
-        await page.waitForFunction(
-            () => document.querySelector('#evb-startup-overlay') === null,
-            {timeout: BLOCKING_SMOKE_TIMEOUT_MS / 2},
-        );
+            const afterHash = hashFile(pdfPath);
+            expect(afterHash).not.toBe(beforeHash);
 
-        const startupState = await readWorkspaceStateValues<{originalPath?: string | null;}>(page, ['originalPath']);
-        const readinessState = await page.evaluate(() => ({
-            appReady: (window as Window & {__appReady?: boolean}).__appReady ?? false,
-            appReadyAt: (window as Window & {__appReadyAt?: number}).__appReadyAt ?? null,
-            firstPagePaintedAt: performance
-                .getEntriesByName('evb:first-page-painted', 'mark')
-                .at(-1)?.startTime ?? null,
-            navigationStartedAt: performance.timeOrigin,
-            overlayPresent: document.querySelector('#evb-startup-overlay') !== null,
-        }));
-        expect(startupState.originalPath).toBe(pdfPath);
-        expect(readinessState.overlayPresent).toBe(false);
-        expect(readinessState.appReady).toBe(true);
-        expect(readinessState.appReadyAt).not.toBeNull();
-        expect(readinessState.firstPagePaintedAt).not.toBeNull();
-        await waitForPdfLoaded(page, 30_000);
-        await waitForViewerInteractive(page, 30_000);
+            const summary = await waitForFreeTextAnnotationOnDisk(pdfPath);
+            expect(summary.bySubtype.FreeText ?? 0).toBeGreaterThan(0);
 
-        await openAnnotationsTab(page, 30_000);
-        const annotationText = `Blocking smoke FreeText ${Date.now()}`;
-        const createdCount = await createFreeTextAnnotation(page, annotationText);
-        expect(createdCount).toBeGreaterThan(0);
-        await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
-        await waitForAnnotationChange(page);
-        await waitForToolbarCanSave(page);
-
-        const saveBaselineEventId = await getLatestAutomationEventId(page);
-        const saveCommitted = waitForAutomationEvent(page, 'save-committed', {
-            afterEventId: saveBaselineEventId,
-            path: pdfPath,
-            timeoutMs: SAVE_TIMEOUT_MS,
-        });
-        await clickVisibleToolbarButton(page, 'Save');
-        await saveCommitted;
-
-        const afterHash = hashFile(pdfPath);
-        expect(afterHash).not.toBe(beforeHash);
-
-        const summary = await waitForFreeTextAnnotationOnDisk(pdfPath);
-        expect(summary.bySubtype.FreeText ?? 0).toBeGreaterThan(0);
-
-        const initialSurface = await readOpenSurfaceState(page);
-        expect(initialSurface).toMatchObject({
-            lifecycle: 'ready',
-            requestedPage: 1,
-            committedPage: 1,
-            visualPresentation: 'canvas',
-        });
-        await clickVisibleToolbarButton(page, 'Next Page');
-        await page.waitForFunction(
-            (generation) => {
-                const surface = document.querySelector<HTMLElement>('[data-open-surface-generation]');
-                return Number(surface?.dataset.openSurfaceGeneration) === generation
-                    && surface?.dataset.viewportLifecycle === 'ready'
-                    && surface.dataset.viewportRequestedPage === '2'
-                    && surface.dataset.viewportCommittedPage === '2'
-                    && surface.dataset.viewportVisualPresentation === 'canvas';
-            },
-            {timeout: 30_000},
-            initialSurface!.generation,
-        );
-        const navigatedSurface = await readOpenSurfaceState(page);
-        expect(navigatedSurface).toMatchObject({
-            generation: initialSurface!.generation,
-            documentRevision: initialSurface!.documentRevision,
-            lifecycle: 'ready',
-            requestedPage: 2,
-            committedPage: 2,
-            visualPresentation: 'canvas',
-        });
-    }, BLOCKING_SMOKE_TIMEOUT_MS);
-
-    it('opens a generated combined PDF and enables Save', async () => {
-        const imagePaths = [
-            1,
-            2,
-        ].map(pageNumber => join(
-            process.cwd(),
-            '.devkit',
-            `blocking-combine-${process.pid}-${Date.now()}-${pageNumber}.jpg`,
-        ));
-        imagePaths.forEach(imagePath => writeFileSync(imagePath, COMBINE_IMAGE_JPEG));
-        onTestFinished(() => imagePaths.forEach(imagePath => rmSync(imagePath, {force: true})));
-
-        session = await startElectronE2ESession(`e2e-blocking-combine-${Date.now()}`, {
-            clean: true,
-            extraEnv: {
-                EVB_NATIVE_TOOL_ALLOW_PACKAGED_DIAGNOSTIC_PATHS: '1',
-                EVB_PDF_IMAGE_COMBINE_ENABLE: '1',
-                EVB_PDF_IMAGE_COMBINE_PATH: NATIVE_PDF_IMAGE_COMBINE_PATH,
-                EVB_PDF_NATIVE_ASSEMBLER_ENABLE: '1',
-            },
-        });
-        const {page} = session;
-
-        await page.waitForSelector('nav[aria-label="File"] button.rail-item', {visible: true});
-        // Later sessions skip shared-renderer stabilization, so Start can
-        // render while the startup overlay still covers it; a click lands on
-        // the overlay the way a user's would.
-        await page.waitForFunction(
-            () => document.querySelector('#evb-startup-overlay') === null,
-            {timeout: BLOCKING_SMOKE_TIMEOUT_MS / 2},
-        );
-        await clickAsUser(page, 'nav[aria-label="File"] button.rail-item');
-        await page.waitForSelector('[data-combine-page]', {visible: true});
-        const fileInput = await page.$('input[type="file"]');
-        expect(fileInput).not.toBeNull();
-        await fileInput!.uploadFile(...imagePaths);
-        await page.waitForFunction(
-            expectedCount => document.querySelectorAll('[data-combine-row]').length === expectedCount,
-            {timeout: 30_000},
-            imagePaths.length,
-        );
-
-        await clickAsUser(page, 'footer.combine-actions button');
-        await page.waitForFunction(() => {
-            const bodyText = document.body.innerText.replace(/\s+/gu, ' ');
-            const saveButton = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label="Save"]'))
-                .find(button => {
-                    const rect = button.getBoundingClientRect();
-                    return rect.width > 0 && rect.height > 0;
-                });
-            return Boolean(
-                saveButton
-                && !saveButton.disabled
-                && bodyText.includes('/ 2')
-                && !bodyText.includes('Failed to open file'),
+            const initialSurface = await readOpenSurfaceState(page);
+            expect(initialSurface).toMatchObject({
+                lifecycle: 'ready',
+                requestedPage: 1,
+                committedPage: 1,
+                visualPresentation: 'canvas',
+            });
+            await clickVisibleToolbarButton(page, 'Next Page');
+            await page.waitForFunction(
+                (generation) => {
+                    const surface = document.querySelector<HTMLElement>('[data-open-surface-generation]');
+                    return (
+                        Number(surface?.dataset.openSurfaceGeneration) === generation &&
+                        surface?.dataset.viewportLifecycle === 'ready' &&
+                        surface.dataset.viewportRequestedPage === '2' &&
+                        surface.dataset.viewportCommittedPage === '2' &&
+                        surface.dataset.viewportVisualPresentation === 'canvas'
+                    );
+                },
+                {timeout: 30_000},
+                initialSurface!.generation,
             );
-        }, {timeout: 60_000});
+            const navigatedSurface = await readOpenSurfaceState(page);
+            expect(navigatedSurface).toMatchObject({
+                generation: initialSurface!.generation,
+                documentRevision: initialSurface!.documentRevision,
+                lifecycle: 'ready',
+                requestedPage: 2,
+                committedPage: 2,
+                visualPresentation: 'canvas',
+            });
+        },
+        BLOCKING_SMOKE_TIMEOUT_MS,
+    );
 
-        expect(await getWorkspaceToolbarSnapshot(page)).toMatchObject({
-            canSave: true,
-            hasOpenError: false,
-            hasPdf: true,
-            totalPages: 2,
-        });
+    it(
+        'opens a generated combined PDF and enables Save',
+        async () => {
+            const imagePaths = [1, 2].map((pageNumber) =>
+                join(process.cwd(), '.devkit', `blocking-combine-${process.pid}-${Date.now()}-${pageNumber}.jpg`),
+            );
+            imagePaths.forEach((imagePath) => writeFileSync(imagePath, COMBINE_IMAGE_JPEG));
+            onTestFinished(() => imagePaths.forEach((imagePath) => rmSync(imagePath, {force: true})));
 
-        // Stopping the session is not a person's Quit, so the unsaved result
-        // must not hold the app open until the runner kills it after 10 s.
-        const electronPid = getSessionInfo(session.name)?.electronPid;
-        if (typeof electronPid !== 'number') {throw new Error('The Electron pid was missing');}
-        const stopping = session.stop();
-        session = null;
-        try {
-            await expect.poll(() => isProcessAlive(electronPid), {timeout: 8_000}).toBe(false);
-        } finally {
-            await stopping;
-        }
-    }, BLOCKING_SMOKE_TIMEOUT_MS);
+            session = await startElectronE2ESession(`e2e-blocking-combine-${Date.now()}`, {
+                clean: true,
+                extraEnv: {
+                    EVB_NATIVE_TOOL_ALLOW_PACKAGED_DIAGNOSTIC_PATHS: '1',
+                    EVB_PDF_IMAGE_COMBINE_ENABLE: '1',
+                    EVB_PDF_IMAGE_COMBINE_PATH: NATIVE_PDF_IMAGE_COMBINE_PATH,
+                    EVB_PDF_NATIVE_ASSEMBLER_ENABLE: '1',
+                },
+            });
+            const {page} = session;
 
-    it.each([
-        'StructTreeRoot',
-        'OCProperties',
-    ])('combines PDFs carrying %s without a preservation refusal', async key => {
+            await page.waitForSelector('nav[aria-label="File"] button.rail-item', {visible: true});
+            // Later sessions skip shared-renderer stabilization, so Start can
+            // render while the startup overlay still covers it; a click lands on
+            // the overlay the way a user's would.
+            await page.waitForFunction(() => document.querySelector('#evb-startup-overlay') === null, {
+                timeout: BLOCKING_SMOKE_TIMEOUT_MS / 2,
+            });
+            await clickAsUser(page, 'nav[aria-label="File"] button.rail-item');
+            await page.waitForSelector('[data-combine-page]', {visible: true});
+            const fileInput = await page.$('input[type="file"]');
+            expect(fileInput).not.toBeNull();
+            await fileInput!.uploadFile(...imagePaths);
+            await page.waitForFunction(
+                (expectedCount) => document.querySelectorAll('[data-combine-row]').length === expectedCount,
+                {timeout: 30_000},
+                imagePaths.length,
+            );
+
+            await clickAsUser(page, 'footer.combine-actions button');
+            await page.waitForFunction(
+                () => {
+                    const bodyText = document.body.innerText.replace(/\s+/gu, ' ');
+                    const saveButton = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label="Save"]')).find(
+                        (button) => {
+                            const rect = button.getBoundingClientRect();
+                            return rect.width > 0 && rect.height > 0;
+                        },
+                    );
+                    return Boolean(
+                        saveButton && !saveButton.disabled && bodyText.includes('/ 2') && !bodyText.includes('Failed to open file'),
+                    );
+                },
+                {timeout: 60_000},
+            );
+
+            expect(await getWorkspaceToolbarSnapshot(page)).toMatchObject({
+                canSave: true,
+                hasOpenError: false,
+                hasPdf: true,
+                totalPages: 2,
+            });
+
+            // Stopping the session is not a person's Quit, so the unsaved result
+            // must not hold the app open until the runner kills it after 10 s.
+            const electronPid = getSessionInfo(session.name)?.electronPid;
+            if (typeof electronPid !== 'number') {
+                throw new Error('The Electron pid was missing');
+            }
+            const stopping = session.stop();
+            session = null;
+            try {
+                await expect.poll(() => isProcessAlive(electronPid), {timeout: 8_000}).toBe(false);
+            } finally {
+                await stopping;
+            }
+        },
+        BLOCKING_SMOKE_TIMEOUT_MS,
+    );
+
+    it.each(['StructTreeRoot', 'OCProperties'])('combines PDFs carrying %s without a preservation refusal', async (key) => {
         const directory = join(process.cwd(), '.devkit/extract-structure/after/combine-electron');
         mkdirSync(directory, {recursive: true});
         const featurePath = join(directory, `${key}.pdf`);
         const ordinaryPath = join(process.cwd(), 'tests/fixtures/electron/generated-text.pdf');
-        const feature = await PDFDocument.load(readFileSync(join(process.cwd(), 'tests/fixtures/electron/pdf-preservation/layers-and-tags.pdf')));
+        const feature = await PDFDocument.load(
+            readFileSync(join(process.cwd(), 'tests/fixtures/electron/pdf-preservation/layers-and-tags.pdf')),
+        );
         feature.catalog.delete(PDFName.of(key === 'StructTreeRoot' ? 'OCProperties' : 'StructTreeRoot'));
         writeFileSync(featurePath, await feature.save());
-        const hashes = [
-            featurePath,
-            ordinaryPath,
-        ].map(hashFile);
+        const hashes = [featurePath, ordinaryPath].map(hashFile);
         session = await startElectronE2ESession(`e2e-combine-preservation-${key}-${Date.now()}`, {
             clean: true,
             extraEnv: {EVB_PDF_NATIVE_ASSEMBLER_ENABLE: '1'},
@@ -555,546 +544,625 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
         await clickAsUser(page, 'nav[aria-label="File"] button.rail-item');
         await page.waitForSelector('[data-combine-page]', {visible: true});
         const input = await page.$('input[type="file"]');
-        if (!input) {throw new Error('Combine input missing');}
+        if (!input) {
+            throw new Error('Combine input missing');
+        }
         await input.uploadFile(featurePath, ordinaryPath);
         await page.waitForFunction(() => document.querySelectorAll('[data-combine-row]').length === 2);
-        const tabs = await page.$$eval('[role="tab"]', elements => elements.length);
+        const tabs = await page.$$eval('[role="tab"]', (elements) => elements.length);
         await clickAsUser(page, 'footer.combine-actions button');
-        await page.waitForFunction((before: number) => document.querySelector('.app-toast, .page_container')
-            || document.querySelectorAll('[role="tab"]').length > before, {}, tabs);
+        await page.waitForFunction(
+            (before: number) =>
+                document.querySelector('.app-toast, .page_container') || document.querySelectorAll('[role="tab"]').length > before,
+            {},
+            tabs,
+        );
         await page.screenshot({path: join(directory, `${key}.png`)});
-        expect(await page.$$eval('.app-toast-failure', elements => elements.map(element => element.textContent).join('\n'))).toBe('');
+        expect(await page.$$eval('.app-toast-failure', (elements) => elements.map((element) => element.textContent).join('\n'))).toBe('');
         await page.waitForSelector('.page_container', {visible: true});
-        expect(await page.$$eval('[role="tab"]', elements => elements.length)).toBeGreaterThan(tabs);
-        expect([
-            featurePath,
-            ordinaryPath,
-        ].map(hashFile)).toEqual(hashes);
+        expect(await page.$$eval('[role="tab"]', (elements) => elements.length)).toBeGreaterThan(tabs);
+        expect([featurePath, ordinaryPath].map(hashFile)).toEqual(hashes);
     });
 
-    it('saves a combined PDF whose open failed, and Retry opens the kept file', async () => {
-        const savedPath = join(process.cwd(), '.devkit', `blocking-combine-save-as-${process.pid}-${Date.now()}.pdf`);
-        onTestFinished(() => rmSync(savedPath, {force: true}));
-        session = await startElectronE2ESession(`e2e-blocking-combine-save-as-${Date.now()}`, {
-            clean: true,
-            extraEnv: {
-                EVB_E2E_SAVE_DIALOG_PATH: savedPath,
-                EVB_PDF_NATIVE_ASSEMBLER_ENABLE: '1',
-            },
-        });
-        const {page} = session;
-
-        await page.waitForSelector('nav[aria-label="File"] button.rail-item', {visible: true});
-        await page.waitForFunction(
-            () => document.querySelector('#evb-startup-overlay') === null,
-            {timeout: BLOCKING_SMOKE_TIMEOUT_MS / 2},
-        );
-        await clickAsUser(page, 'nav[aria-label="File"] button.rail-item');
-        await page.waitForSelector('[data-combine-page]', {visible: true});
-        const handoffs = await interceptCombinedOpenHandoffs(page);
-        onTestFinished(() => handoffs.dispose());
-        const fileInput = await page.$('input[type="file"]');
-        expect(fileInput).not.toBeNull();
-        await fileInput!.uploadFile(
-            join(process.cwd(), 'tests/fixtures/electron/document-ops-cleanup-two.pdf'),
-            join(process.cwd(), 'tests/fixtures/electron/generated-text.pdf'),
-        );
-        await page.waitForFunction(() => document.querySelectorAll('[data-combine-row]').length === 2, {timeout: 30_000});
-
-        // The open fails; Save As keeps the combined file elsewhere.
-        handoffs.failNextOpen();
-        await clickAsUser(page, 'footer.combine-actions button');
-        await waitForCombineRetry(page);
-        const failed = handoffs.restoreFailedOpen();
-        await clickFoundAsUser(page, findCombinePageButton, 'Save As...', {description: 'Combine Save As'});
-        expect(await waitForSaveAsOutcome(page, savedPath)).toBe('saved');
-        const saved = readFileSync(savedPath);
-        expect((await PDFDocument.load(saved)).getPageCount()).toBe(3);
-        expect(saved.equals(failed.bytes), 'Save As wrote the combined bytes').toBe(true);
-        await page.waitForFunction(() => !Array.from(document.querySelectorAll('[data-combine-page] button'))
-            .some(button => button.textContent?.trim() === 'Save As...'), {timeout: 10_000});
-
-        // The open fails again; Retry opens the same kept file.
-        handoffs.failNextOpen();
-        await clickAsUser(page, 'footer.combine-actions button');
-        await waitForCombineRetry(page);
-        const retained = handoffs.restoreFailedOpen();
-        await clickFoundAsUser(page, findCombinePageButton, 'Retry', {description: 'Combine Retry'});
-        await waitForPdfLoaded(page, 60_000);
-        await expect.poll(async () => (await readToolbarPageIndicator(page)).totalPagesText, {timeout: 20_000}).toBe('3');
-        const retried = handoffs.handoffs.at(-1);
-        expect(retried?.workingPath).toBe(retained.workingPath);
-        expect(retried?.bytes.equals(retained.bytes)).toBe(true);
-    }, BLOCKING_SMOKE_TIMEOUT_MS);
-
-    it('keeps a 700-file combine queue virtualized before native work starts', async () => {
-        const imagePaths = Array.from({length: 700}, (_, index) => join(
-            process.cwd(),
-            '.devkit',
-            `blocking-combine-virtual-${process.pid}-${Date.now()}-${index + 1}.jpg`,
-        ));
-        onTestFinished(() => imagePaths.forEach(imagePath => rmSync(imagePath, {force: true})));
-        imagePaths.forEach(imagePath => writeFileSync(imagePath, COMBINE_IMAGE_JPEG));
-
-        session = await startElectronE2ESession(`e2e-blocking-combine-virtual-${Date.now()}`, {clean: true});
-        const {page} = session;
-
-        await page.waitForSelector('nav[aria-label="File"] button.rail-item', {visible: true});
-        // Later sessions skip shared-renderer stabilization, so Start can
-        // render while the startup overlay still covers it; a click lands on
-        // the overlay the way a user's would.
-        await page.waitForFunction(
-            () => document.querySelector('#evb-startup-overlay') === null,
-            {timeout: BLOCKING_SMOKE_TIMEOUT_MS / 2},
-        );
-        await clickAsUser(page, 'nav[aria-label="File"] button.rail-item');
-        await page.waitForSelector('[data-combine-page]', {visible: true});
-        const fileInput = await page.$('input[type="file"]');
-        expect(fileInput).not.toBeNull();
-        await fileInput!.uploadFile(...imagePaths);
-        await page.waitForFunction(
-            expectedCount => {
-                const queueMeta = document.querySelector<HTMLElement>('.combine-list-meta')?.textContent ?? '';
-                return document.querySelectorAll('[data-combine-row]').length > 0
-                    && queueMeta.includes(String(expectedCount));
-            },
-            {timeout: 30_000},
-            imagePaths.length,
-        );
-
-        const queueState = await page.evaluate(() => {
-            const list = document.querySelector<HTMLElement>('.combine-file-list');
-            return {
-                mountedRowCount: document.querySelectorAll('[data-combine-row]').length,
-                scrollHeight: list?.scrollHeight ?? 0,
-                firstRowIndex: document.querySelector<HTMLElement>('[data-combine-row]')
-                    ?.dataset.combineRowIndex ?? null,
-            };
-        });
-        expect(queueState.mountedRowCount).toBeLessThan(100);
-        expect(queueState.scrollHeight).toBeGreaterThan(30_000);
-        expect(queueState.firstRowIndex).toBe('0');
-
-        // A wheel during a drag must not move a different file when the
-        // virtual window changes. Compare the queue order after returning.
-        const list = await page.$('.combine-file-list');
-        const listBox = await list!.boundingBox();
-        expect(listBox).not.toBeNull();
-        await page.mouse.move(listBox!.x + listBox!.width / 2, listBox!.y + listBox!.height / 2);
-        await page.mouse.wheel({deltaY: 1200});
-        await page.waitForFunction(() => Number(document.querySelector<HTMLElement>('[data-combine-row]')?.dataset.combineRowIndex) > 0);
-        const before = await page.evaluate(() => Array.from(document.querySelectorAll<HTMLElement>('[data-combine-row]'))
-            .map(row => ({
-                index: row.dataset.combineRowIndex,
-                name: row.querySelector('strong')?.textContent,
-            })));
-        const handle = await page.$('.combine-file-list .combine-drag-handle');
-        // Pick a row within the visible viewport rather than the overscan.
-        const point = await page.evaluate(() => {
-            const listRect = document.querySelector('.combine-file-list')!.getBoundingClientRect();
-            const handles = Array.from(document.querySelectorAll<HTMLElement>('.combine-drag-handle'));
-            const target = handles.find(element => {
-                const rect = element.getBoundingClientRect();
-                return rect.top > listRect.top && rect.bottom + rect.height * 2 < listRect.bottom;
+    it(
+        'saves a combined PDF whose open failed, and Retry opens the kept file',
+        async () => {
+            const savedPath = join(process.cwd(), '.devkit', `blocking-combine-save-as-${process.pid}-${Date.now()}.pdf`);
+            onTestFinished(() => rmSync(savedPath, {force: true}));
+            session = await startElectronE2ESession(`e2e-blocking-combine-save-as-${Date.now()}`, {
+                clean: true,
+                extraEnv: {
+                    EVB_E2E_SAVE_DIALOG_PATH: savedPath,
+                    EVB_PDF_NATIVE_ASSEMBLER_ENABLE: '1',
+                },
             });
-            const rect = target!.getBoundingClientRect();
-            return {
-                x: rect.left + rect.width / 2,
-                y: rect.top + rect.height / 2,
-            };
-        });
-        expect(handle).not.toBeNull();
-        await page.mouse.move(point.x, point.y);
-        await page.mouse.down();
-        await page.mouse.move(point.x, point.y + 65);
-        const firstIndex = before[0]!.index;
-        await page.mouse.wheel({deltaY: 100});
-        await page.waitForFunction(index => document.querySelector<HTMLElement>('[data-combine-row]')?.dataset.combineRowIndex !== index, {}, firstIndex);
-        await page.mouse.up();
-        await page.mouse.wheel({deltaY: -100});
-        await page.waitForFunction(index => document.querySelector<HTMLElement>('[data-combine-row]')?.dataset.combineRowIndex === index, {}, firstIndex);
-        const after = await page.evaluate(() => Array.from(document.querySelectorAll<HTMLElement>('[data-combine-row]'))
-            .map(row => ({
-                index: row.dataset.combineRowIndex,
-                name: row.querySelector('strong')?.textContent,
-            })));
-        expect(after).toEqual(before);
-    }, BLOCKING_SMOKE_TIMEOUT_MS);
+            const {page} = session;
 
-    it('returns an empty tab to Start and tells the failure when a launch path cannot be opened', async () => {
-        const brokenPath = join(process.cwd(), '.devkit', `blocking-broken-open-${process.pid}-${Date.now()}.pdf`);
-        onTestFinished(() => rmSync(brokenPath, {force: true}));
-        writeFileSync(brokenPath, '%PDF-1.7\nthis is not a pdf body\n%%EOF\n');
-
-        session = await startElectronE2ESession(`e2e-blocking-broken-open-${Date.now()}`, {
-            clean: true,
-            initialOpenPaths: [brokenPath],
-        });
-        const {page} = session;
-
-        await page.waitForSelector('.app-toast-failure', {
-            visible: true,
-            timeout: 45_000,
-        });
-        const shownState = await page.evaluate(() => ({
-            alert: document.querySelector('.app-toast-failure')?.textContent ?? '',
-            activeTab: document.querySelector('.tab[data-tab-id][aria-selected="true"]')?.textContent?.trim() ?? '',
-            startVisible: Boolean(document.querySelector('.start-shell')?.getClientRects().length),
-        }));
-        expectNamedOpenRefusal(shownState.alert, brokenPath);
-        expect(shownState.activeTab).not.toContain(basename(brokenPath));
-        expect(shownState.startVisible).toBe(true);
-        expect((await getWorkspaceToolbarSnapshot(page))?.hasOpenError).toBe(false);
-    }, BLOCKING_SMOKE_TIMEOUT_MS);
-
-    it('keeps Start and names the file when Open File picks a PDF that cannot be opened', async () => {
-        const brokenPath = join(process.cwd(), '.devkit', `blocking-broken-pick-${process.pid}-${Date.now()}.pdf`);
-        onTestFinished(() => rmSync(brokenPath, {force: true}));
-        writeFileSync(brokenPath, '%PDF-1.7\nthis is not a pdf body\n%%EOF\n');
-
-        session = await startElectronE2ESession(`e2e-blocking-broken-pick-${Date.now()}`, {
-            clean: true,
-            extraEnv: {EVB_E2E_OPEN_DIALOG_PATH: brokenPath},
-        });
-        const {page} = session;
-        await page.waitForFunction(
-            () => document.querySelector('#evb-startup-overlay') === null,
-            {timeout: BLOCKING_SMOKE_TIMEOUT_MS / 2},
-        );
-        await page.waitForSelector('.start-open-panel .open-panel-cta', {visible: true});
-        await clickAsUser(page, '.start-open-panel .open-panel-cta');
-
-        await page.waitForSelector('.app-toast-failure', {
-            visible: true,
-            timeout: 45_000,
-        });
-        const shownState = await page.evaluate(() => ({
-            alert: document.querySelector('.app-toast-failure')?.textContent ?? '',
-            activeTab: document.querySelector('.tab[data-tab-id][aria-selected="true"]')?.textContent?.trim() ?? '',
-            startVisible: Boolean(document.querySelector('.start-shell')?.getClientRects().length),
-        }));
-        expectNamedOpenRefusal(shownState.alert, brokenPath);
-        expect(shownState.activeTab).not.toContain(basename(brokenPath));
-        expect(shownState.startVisible).toBe(true);
-        expect((await getWorkspaceToolbarSnapshot(page))?.hasOpenError).toBe(false);
-    }, BLOCKING_SMOKE_TIMEOUT_MS);
-
-    it('keeps the open document and names the file when More tools > Open File picks a PDF that cannot be opened', async () => {
-        const brokenPath = join(process.cwd(), '.devkit', `blocking-broken-toolbar-pick-${process.pid}-${Date.now()}.pdf`);
-        onTestFinished(() => rmSync(brokenPath, {force: true}));
-        writeFileSync(brokenPath, '%PDF-1.7\nthis is not a pdf body\n%%EOF\n');
-        const documentPath = await createMultiPageTextFixturePdf(`blocking-toolbar-pick-document-${Date.now()}.pdf`, 1);
-
-        session = await startElectronE2ESession(`e2e-blocking-broken-toolbar-pick-${Date.now()}`, {
-            clean: true,
-            initialOpenPaths: [documentPath],
-            extraEnv: {EVB_E2E_OPEN_DIALOG_PATH: brokenPath},
-        });
-        const {page} = session;
-        await waitForActiveDocumentSource(page, documentPath, 45_000);
-        await waitForViewerInteractive(page, 45_000);
-        // Every notification is recorded as it appears, in case one closes
-        // before the assertions read it.
-        await page.evaluate(() => {
-            const shown: string[] = [];
-            Reflect.set(window, '__refusedOpenNotifications', shown);
-            const observer = new MutationObserver(() => {
-                for (const notification of document.querySelectorAll('[role="status"], [role="alert"]')) {
-                    const text = notification.textContent?.replace(/\s+/gu, ' ').trim() ?? '';
-                    if (text && !shown.includes(text)) {
-                        shown.push(text);
-                    }
-                }
+            await page.waitForSelector('nav[aria-label="File"] button.rail-item', {visible: true});
+            await page.waitForFunction(() => document.querySelector('#evb-startup-overlay') === null, {
+                timeout: BLOCKING_SMOKE_TIMEOUT_MS / 2,
             });
-            Reflect.set(window, '__refusedOpenNotificationObserver', observer);
-            observer.observe(document.body, {
-                childList: true,
-                subtree: true,
-                characterData: true,
+            await clickAsUser(page, 'nav[aria-label="File"] button.rail-item');
+            await page.waitForSelector('[data-combine-page]', {visible: true});
+            const handoffs = await interceptCombinedOpenHandoffs(page);
+            onTestFinished(() => handoffs.dispose());
+            const fileInput = await page.$('input[type="file"]');
+            expect(fileInput).not.toBeNull();
+            await fileInput!.uploadFile(
+                join(process.cwd(), 'tests/fixtures/electron/document-ops-cleanup-two.pdf'),
+                join(process.cwd(), 'tests/fixtures/electron/generated-text.pdf'),
+            );
+            await page.waitForFunction(() => document.querySelectorAll('[data-combine-row]').length === 2, {timeout: 30_000});
+
+            // The open fails; Save As keeps the combined file elsewhere.
+            handoffs.failNextOpen();
+            await clickAsUser(page, 'footer.combine-actions button');
+            await waitForCombineRetry(page);
+            const failed = handoffs.restoreFailedOpen();
+            await clickFoundAsUser(page, findCombinePageButton, 'Save As...', {description: 'Combine Save As'});
+            expect(await waitForSaveAsOutcome(page, savedPath)).toBe('saved');
+            const saved = readFileSync(savedPath);
+            expect((await PDFDocument.load(saved)).getPageCount()).toBe(3);
+            expect(saved.equals(failed.bytes), 'Save As wrote the combined bytes').toBe(true);
+            await page.waitForFunction(
+                () =>
+                    !Array.from(document.querySelectorAll('[data-combine-page] button')).some(
+                        (button) => button.textContent?.trim() === 'Save As...',
+                    ),
+                {timeout: 10_000},
+            );
+
+            // The open fails again; Retry opens the same kept file.
+            handoffs.failNextOpen();
+            await clickAsUser(page, 'footer.combine-actions button');
+            await waitForCombineRetry(page);
+            const retained = handoffs.restoreFailedOpen();
+            await clickFoundAsUser(page, findCombinePageButton, 'Retry', {description: 'Combine Retry'});
+            await waitForPdfLoaded(page, 60_000);
+            await expect.poll(async () => (await readToolbarPageIndicator(page)).totalPagesText, {timeout: 20_000}).toBe('3');
+            const retried = handoffs.handoffs.at(-1);
+            expect(retried?.workingPath).toBe(retained.workingPath);
+            expect(retried?.bytes.equals(retained.bytes)).toBe(true);
+        },
+        BLOCKING_SMOKE_TIMEOUT_MS,
+    );
+
+    it(
+        'keeps a 700-file combine queue virtualized before native work starts',
+        async () => {
+            const imagePaths = Array.from({length: 700}, (_, index) =>
+                join(process.cwd(), '.devkit', `blocking-combine-virtual-${process.pid}-${Date.now()}-${index + 1}.jpg`),
+            );
+            onTestFinished(() => imagePaths.forEach((imagePath) => rmSync(imagePath, {force: true})));
+            imagePaths.forEach((imagePath) => writeFileSync(imagePath, COMBINE_IMAGE_JPEG));
+
+            session = await startElectronE2ESession(`e2e-blocking-combine-virtual-${Date.now()}`, {clean: true});
+            const {page} = session;
+
+            await page.waitForSelector('nav[aria-label="File"] button.rail-item', {visible: true});
+            // Later sessions skip shared-renderer stabilization, so Start can
+            // render while the startup overlay still covers it; a click lands on
+            // the overlay the way a user's would.
+            await page.waitForFunction(() => document.querySelector('#evb-startup-overlay') === null, {
+                timeout: BLOCKING_SMOKE_TIMEOUT_MS / 2,
             });
-        });
-        onTestFinished(async () => {
-            // The session may already have closed the window, and the observer with it.
-            if (!page.isClosed()) {
-                await page.evaluate(() => (Reflect.get(window, '__refusedOpenNotificationObserver') as MutationObserver | undefined)?.disconnect());
-            }
-        });
+            await clickAsUser(page, 'nav[aria-label="File"] button.rail-item');
+            await page.waitForSelector('[data-combine-page]', {visible: true});
+            const fileInput = await page.$('input[type="file"]');
+            expect(fileInput).not.toBeNull();
+            await fileInput!.uploadFile(...imagePaths);
+            await page.waitForFunction(
+                (expectedCount) => {
+                    const queueMeta = document.querySelector<HTMLElement>('.combine-list-meta')?.textContent ?? '';
+                    return document.querySelectorAll('[data-combine-row]').length > 0 && queueMeta.includes(String(expectedCount));
+                },
+                {timeout: 30_000},
+                imagePaths.length,
+            );
 
-        await clickVisibleCenter(page, 'button[aria-label]', 'More tools');
-        await page.waitForSelector('.overflow-menu', {visible: true});
-        await clickVisibleCenter(page, '.overflow-menu .overflow-menu-item', 'Open File');
+            const queueState = await page.evaluate(() => {
+                const list = document.querySelector<HTMLElement>('.combine-file-list');
+                return {
+                    mountedRowCount: document.querySelectorAll('[data-combine-row]').length,
+                    scrollHeight: list?.scrollHeight ?? 0,
+                    firstRowIndex: document.querySelector<HTMLElement>('[data-combine-row]')?.dataset.combineRowIndex ?? null,
+                };
+            });
+            expect(queueState.mountedRowCount).toBeLessThan(100);
+            expect(queueState.scrollHeight).toBeGreaterThan(30_000);
+            expect(queueState.firstRowIndex).toBe('0');
 
-        await page.waitForFunction((name: string) => (
-            (Reflect.get(window, '__refusedOpenNotifications') as string[]).some(text => text.includes(name))
-        ), {timeout: 45_000}, basename(brokenPath));
-        const notifications = await page.evaluate(() => Reflect.get(window, '__refusedOpenNotifications') as string[]);
-        const refusal = notifications.find(text => text.includes(basename(brokenPath))) ?? '';
-        expect(refusal).toContain('Failed to open file');
-        expectNamedOpenRefusal(refusal, brokenPath);
-        expect(await page.$('.workspace-host__loading[role="alert"]')).toBeNull();
-        expect(await page.evaluate(() => (
-            document.querySelector('.tab[data-tab-id][aria-selected="true"]')?.textContent?.trim() ?? ''
-        ))).toBe(basename(documentPath));
-        await waitForActiveDocumentSource(page, documentPath, 5_000);
-    }, BLOCKING_SMOKE_TIMEOUT_MS);
-
-    it('opens a valid PDF whose viewer has no layout for the first moments after Open', async () => {
-        const pickedPath = await createMultiPageTextFixturePdf(`blocking-open-no-layout-picked-${Date.now()}.pdf`, 12);
-        const replacedPath = await createMultiPageTextFixturePdf(`blocking-open-no-layout-replaced-${Date.now()}.pdf`, 3);
-
-        session = await startElectronE2ESession(`e2e-blocking-open-no-layout-${Date.now()}`, {
-            clean: true,
-            extraEnv: {EVB_E2E_OPEN_DIALOG_PATH: pickedPath},
-        });
-        const {page} = session;
-        await page.waitForFunction(
-            () => document.querySelector('#evb-startup-overlay') === null,
-            {timeout: BLOCKING_SMOKE_TIMEOUT_MS / 2},
-        );
-
-        // Open File from Start into an empty tab.
-        await page.waitForSelector('.start-open-panel .open-panel-cta', {visible: true});
-        await holdViewerLayoutOff(page, 600);
-        await clickAsUser(page, '.start-open-panel .open-panel-cta');
-        await expectOpenedFirstPage(page, 'Open File from Start');
-
-        // Open File over a document that is already showing.
-        await openPdfInApp(page, replacedPath);
-        await holdViewerLayoutOff(page, 600);
-        // The command resolves when the open presents, which is the thing under test.
-        void callWorkspaceCommand(page, 'handleOpenFileFromUi');
-        await waitForActiveDocumentSource(page, pickedPath, 20_000);
-        await expectOpenedFirstPage(page, 'Open File over an open document');
-    }, BLOCKING_SMOKE_TIMEOUT_MS);
-
-    it('reports a routed file that cannot be opened once, without a ghost tab', async () => {
-        const stamp = `${process.pid}-${Date.now()}`;
-        const brokenIntoEmptyTab = join(process.cwd(), '.devkit', `blocking-broken-routed-a-${stamp}.pdf`);
-        const brokenBesideDocument = join(process.cwd(), '.devkit', `blocking-broken-routed-b-${stamp}.pdf`);
-        onTestFinished(() => {
-            rmSync(brokenIntoEmptyTab, {force: true});
-            rmSync(brokenBesideDocument, {force: true});
-        });
-        writeFileSync(brokenIntoEmptyTab, '%PDF-1.7\nthis is not a pdf body\n%%EOF\n');
-        writeFileSync(brokenBesideDocument, '%PDF-1.7\nthis is not a pdf body\n%%EOF\n');
-        const documentPath = await createMultiPageTextFixturePdf(`blocking-routed-document-${Date.now()}.pdf`, 1);
-
-        session = await startElectronE2ESession(`e2e-blocking-broken-routed-${Date.now()}`, {clean: true});
-        const {page} = session;
-        await page.waitForFunction(
-            () => document.querySelector('#evb-startup-overlay') === null,
-            {timeout: BLOCKING_SMOKE_TIMEOUT_MS / 2},
-        );
-        // Records the most tabs the strip ever showed, frame by frame.
-        const watchTabCount = () => page.evaluate(() => {
-            const watch = {
-                max: 0,
-                stop: false,
-            };
-            Reflect.set(window, '__routedTabWatch', watch);
-            const tick = () => {
-                watch.max = Math.max(watch.max, document.querySelectorAll('.tab[data-tab-id]').length);
-                if (!watch.stop) {requestAnimationFrame(tick);}
-            };
-            tick();
-        });
-        // Grants the path like a drop or Finder open and waits until routing
-        // has settled, including any fallback tab it would have opened.
-        const openRoutedPathAndSettle = (path: string) => page.evaluate(async (routedPath: string) => {
-            const routedWindow = window as typeof window & {
-                __allowRendererFileOpenForAutomation?: (value: string) => Promise<boolean>;
-                __openFileDirect?: (value: string) => Promise<boolean>;
-            };
-            await routedWindow.__allowRendererFileOpenForAutomation?.(routedPath);
-            return routedWindow.__openFileDirect?.(routedPath).catch(() => false) ?? false;
-        }, path);
-        const readMaxTabCount = () => page.evaluate(() => {
-            const watch = Reflect.get(window, '__routedTabWatch') as {
-                max: number;
-                stop: boolean
-            };
-            watch.stop = true;
-            return watch.max;
-        });
-
-        // Into an empty tab: the tab returns to Start and the failure is told in a toast, not retried in a new tab.
-        await watchTabCount();
-        await expect(openRoutedPathAndSettle(brokenIntoEmptyTab)).resolves.toBe(false);
-        await page.waitForSelector('.app-toast-failure', {
-            visible: true,
-            timeout: 45_000,
-        });
-        expect(await readMaxTabCount()).toBe(1);
-        expect(await page.evaluate(() => (
-            document.querySelector('.app-toast-failure')?.textContent ?? ''
-        ))).toContain(basename(brokenIntoEmptyTab));
-
-        // Beside an open document: the failed file's tab goes away and says why.
-        await openPdfInApp(page, documentPath);
-        await expect(openRoutedPathAndSettle(brokenBesideDocument)).resolves.toBe(false);
-        await page.waitForFunction((name: string) => (
-            document.body.innerText.includes(name) && document.body.innerText.includes('Failed to open file')
-        ), {timeout: 45_000}, basename(brokenBesideDocument));
-        await page.waitForFunction(() => document.querySelectorAll('.tab[data-tab-id]').length === 1, {timeout: 15_000});
-        expect(await page.evaluate(() => (
-            document.querySelector('.tab[data-tab-id][aria-selected="true"]')?.textContent?.trim() ?? ''
-        ))).toBe(basename(documentPath));
-    }, BLOCKING_SMOKE_TIMEOUT_MS);
-
-    it('drops a Recent file that is gone without claiming the tab or moving Start', async () => {
-        const goneFile = await createMultiPageTextFixturePdf(`blocking-recent-gone-${Date.now()}.pdf`, 1);
-        const goneName = basename(goneFile);
-        session = await startElectronE2ESession(`e2e-blocking-recent-gone-${Date.now()}`, {clean: true});
-        const {page} = session;
-        await openPdfInApp(page, goneFile);
-
-        // A new tab's Start lists the file; then the file is deleted on disk.
-        await clickAsUser(page, '.tab-new');
-        const rowSelector = `.workspace-host[data-workspace-active="true"] [data-recent-source="${goneFile}"] .recent-open`;
-        await page.waitForSelector(rowSelector, {
-            visible: true,
-            timeout: 20_000,
-        });
-        rmSync(goneFile, {force: true});
-
-        // Every frame and DOM change from the click on, as the user sees it.
-        await page.evaluate(() => {
-            const samples: Array<Record<string, unknown>> = [];
-            const sample = () => {
-                const host = document.querySelector('.workspace-host[data-workspace-active="true"]');
-                const start = host?.querySelector<HTMLElement>('.workspace-host__start');
-                const startVisible = Boolean(start?.getClientRects().length);
-                samples.push({
-                    activeTab: document.querySelector('.tab[aria-selected="true"] .tab-label')?.textContent?.trim() ?? '',
-                    startVisible,
-                    panelTop: startVisible
-                        ? Math.round(host?.querySelector('.start-open-panel')?.getBoundingClientRect().top ?? -1)
-                        : null,
-                    alertRows: host?.querySelectorAll('.start-main [role="alert"]').length ?? 0,
-                    rawIpcText: document.body.innerText.includes('Error invoking remote method'),
+            // A wheel during a drag must not move a different file when the
+            // virtual window changes. Compare the queue order after returning.
+            const list = await page.$('.combine-file-list');
+            const listBox = await list!.boundingBox();
+            expect(listBox).not.toBeNull();
+            await page.mouse.move(listBox!.x + listBox!.width / 2, listBox!.y + listBox!.height / 2);
+            await page.mouse.wheel({deltaY: 1200});
+            await page.waitForFunction(
+                () => Number(document.querySelector<HTMLElement>('[data-combine-row]')?.dataset.combineRowIndex) > 0,
+            );
+            const before = await page.evaluate(() =>
+                Array.from(document.querySelectorAll<HTMLElement>('[data-combine-row]')).map((row) => ({
+                    index: row.dataset.combineRowIndex,
+                    name: row.querySelector('strong')?.textContent,
+                })),
+            );
+            const handle = await page.$('.combine-file-list .combine-drag-handle');
+            // Pick a row within the visible viewport rather than the overscan.
+            const point = await page.evaluate(() => {
+                const listRect = document.querySelector('.combine-file-list')!.getBoundingClientRect();
+                const handles = Array.from(document.querySelectorAll<HTMLElement>('.combine-drag-handle'));
+                const target = handles.find((element) => {
+                    const rect = element.getBoundingClientRect();
+                    return rect.top > listRect.top && rect.bottom + rect.height * 2 < listRect.bottom;
                 });
-            };
-            const observer = new MutationObserver(sample);
-            observer.observe(document.body, {
-                subtree: true,
-                childList: true,
-                characterData: true,
-                attributes: true,
+                const rect = target!.getBoundingClientRect();
+                return {
+                    x: rect.left + rect.width / 2,
+                    y: rect.top + rect.height / 2,
+                };
             });
-            let sampling = true;
-            const everyFrame = () => {
-                if (sampling) {
-                    sample();
-                    requestAnimationFrame(everyFrame);
+            expect(handle).not.toBeNull();
+            await page.mouse.move(point.x, point.y);
+            await page.mouse.down();
+            await page.mouse.move(point.x, point.y + 65);
+            const firstIndex = before[0]!.index;
+            await page.mouse.wheel({deltaY: 100});
+            await page.waitForFunction(
+                (index) => document.querySelector<HTMLElement>('[data-combine-row]')?.dataset.combineRowIndex !== index,
+                {},
+                firstIndex,
+            );
+            await page.mouse.up();
+            await page.mouse.wheel({deltaY: -100});
+            await page.waitForFunction(
+                (index) => document.querySelector<HTMLElement>('[data-combine-row]')?.dataset.combineRowIndex === index,
+                {},
+                firstIndex,
+            );
+            const after = await page.evaluate(() =>
+                Array.from(document.querySelectorAll<HTMLElement>('[data-combine-row]')).map((row) => ({
+                    index: row.dataset.combineRowIndex,
+                    name: row.querySelector('strong')?.textContent,
+                })),
+            );
+            expect(after).toEqual(before);
+        },
+        BLOCKING_SMOKE_TIMEOUT_MS,
+    );
+
+    it(
+        'returns an empty tab to Start and tells the failure when a launch path cannot be opened',
+        async () => {
+            const brokenPath = join(process.cwd(), '.devkit', `blocking-broken-open-${process.pid}-${Date.now()}.pdf`);
+            onTestFinished(() => rmSync(brokenPath, {force: true}));
+            writeFileSync(brokenPath, '%PDF-1.7\nthis is not a pdf body\n%%EOF\n');
+
+            session = await startElectronE2ESession(`e2e-blocking-broken-open-${Date.now()}`, {
+                clean: true,
+                initialOpenPaths: [brokenPath],
+            });
+            const {page} = session;
+
+            await page.waitForSelector('.app-toast-failure', {
+                visible: true,
+                timeout: 45_000,
+            });
+            const shownState = await page.evaluate(() => ({
+                alert: document.querySelector('.app-toast-failure')?.textContent ?? '',
+                activeTab: document.querySelector('.tab[data-tab-id][aria-selected="true"]')?.textContent?.trim() ?? '',
+                startVisible: Boolean(document.querySelector('.start-shell')?.getClientRects().length),
+            }));
+            expectNamedOpenRefusal(shownState.alert, brokenPath);
+            expect(shownState.activeTab).not.toContain(basename(brokenPath));
+            expect(shownState.startVisible).toBe(true);
+            expect((await getWorkspaceToolbarSnapshot(page))?.hasOpenError).toBe(false);
+        },
+        BLOCKING_SMOKE_TIMEOUT_MS,
+    );
+
+    it(
+        'keeps Start and names the file when Open File picks a PDF that cannot be opened',
+        async () => {
+            const brokenPath = join(process.cwd(), '.devkit', `blocking-broken-pick-${process.pid}-${Date.now()}.pdf`);
+            onTestFinished(() => rmSync(brokenPath, {force: true}));
+            writeFileSync(brokenPath, '%PDF-1.7\nthis is not a pdf body\n%%EOF\n');
+
+            session = await startElectronE2ESession(`e2e-blocking-broken-pick-${Date.now()}`, {
+                clean: true,
+                extraEnv: {EVB_E2E_OPEN_DIALOG_PATH: brokenPath},
+            });
+            const {page} = session;
+            await page.waitForFunction(() => document.querySelector('#evb-startup-overlay') === null, {
+                timeout: BLOCKING_SMOKE_TIMEOUT_MS / 2,
+            });
+            await page.waitForSelector('.start-open-panel .open-panel-cta', {visible: true});
+            await clickAsUser(page, '.start-open-panel .open-panel-cta');
+
+            await page.waitForSelector('.app-toast-failure', {
+                visible: true,
+                timeout: 45_000,
+            });
+            const shownState = await page.evaluate(() => ({
+                alert: document.querySelector('.app-toast-failure')?.textContent ?? '',
+                activeTab: document.querySelector('.tab[data-tab-id][aria-selected="true"]')?.textContent?.trim() ?? '',
+                startVisible: Boolean(document.querySelector('.start-shell')?.getClientRects().length),
+            }));
+            expectNamedOpenRefusal(shownState.alert, brokenPath);
+            expect(shownState.activeTab).not.toContain(basename(brokenPath));
+            expect(shownState.startVisible).toBe(true);
+            expect((await getWorkspaceToolbarSnapshot(page))?.hasOpenError).toBe(false);
+        },
+        BLOCKING_SMOKE_TIMEOUT_MS,
+    );
+
+    it(
+        'keeps the open document and names the file when More tools > Open File picks a PDF that cannot be opened',
+        async () => {
+            const brokenPath = join(process.cwd(), '.devkit', `blocking-broken-toolbar-pick-${process.pid}-${Date.now()}.pdf`);
+            onTestFinished(() => rmSync(brokenPath, {force: true}));
+            writeFileSync(brokenPath, '%PDF-1.7\nthis is not a pdf body\n%%EOF\n');
+            const documentPath = await createMultiPageTextFixturePdf(`blocking-toolbar-pick-document-${Date.now()}.pdf`, 1);
+
+            session = await startElectronE2ESession(`e2e-blocking-broken-toolbar-pick-${Date.now()}`, {
+                clean: true,
+                initialOpenPaths: [documentPath],
+                extraEnv: {EVB_E2E_OPEN_DIALOG_PATH: brokenPath},
+            });
+            const {page} = session;
+            await waitForActiveDocumentSource(page, documentPath, 45_000);
+            await waitForViewerInteractive(page, 45_000);
+            // Every notification is recorded as it appears, in case one closes
+            // before the assertions read it.
+            await page.evaluate(() => {
+                const shown: string[] = [];
+                Reflect.set(window, '__refusedOpenNotifications', shown);
+                const observer = new MutationObserver(() => {
+                    for (const notification of document.querySelectorAll('[role="status"], [role="alert"]')) {
+                        const text = notification.textContent?.replace(/\s+/gu, ' ').trim() ?? '';
+                        if (text && !shown.includes(text)) {
+                            shown.push(text);
+                        }
+                    }
+                });
+                Reflect.set(window, '__refusedOpenNotificationObserver', observer);
+                observer.observe(document.body, {
+                    childList: true,
+                    subtree: true,
+                    characterData: true,
+                });
+            });
+            onTestFinished(async () => {
+                // The session may already have closed the window, and the observer with it.
+                if (!page.isClosed()) {
+                    await page.evaluate(() =>
+                        (Reflect.get(window, '__refusedOpenNotificationObserver') as MutationObserver | undefined)?.disconnect(),
+                    );
                 }
-            };
-            requestAnimationFrame(everyFrame);
-            Reflect.set(window, '__recentGoneSamples', () => {
-                sampling = false;
-                observer.disconnect();
-                sample();
-                return samples;
             });
-            sample();
-        });
-        await clickAsUser(page, rowSelector);
 
-        await page.waitForFunction((name: string) => [...document.querySelectorAll('.app-toast')]
-            .some(toast => toast.textContent?.includes(name)), {timeout: 20_000}, goneName);
-        await page.waitForFunction((selector: string) => document.querySelector(selector) === null, {timeout: 20_000}, rowSelector);
-        const samples = await page.evaluate(() => (Reflect.get(window, '__recentGoneSamples') as () => Array<{
-            activeTab: string;
-            startVisible: boolean;
-            panelTop: number | null;
-            alertRows: number;
-            rawIpcText: boolean;
-        }>)());
+            await clickVisibleCenter(page, 'button[aria-label]', 'More tools');
+            await page.waitForSelector('.overflow-menu', {visible: true});
+            await clickVisibleCenter(page, '.overflow-menu .overflow-menu-item', 'Open File');
 
-        expect(samples.filter(entry => entry.activeTab !== 'New Tab'), 'the tab never names the missing file').toEqual([]);
-        expect(samples.filter(entry => !entry.startVisible), 'Start stays on screen').toEqual([]);
-        expect(new Set(samples.map(entry => entry.panelTop)), 'Start does not move').toEqual(new Set([samples[0]?.panelTop]));
-        expect(samples.filter(entry => entry.alertRows > 0 || entry.rawIpcText), 'no inserted error row or IPC text').toEqual([]);
-    }, BLOCKING_SMOKE_TIMEOUT_MS);
+            await page.waitForFunction(
+                (name: string) => (Reflect.get(window, '__refusedOpenNotifications') as string[]).some((text) => text.includes(name)),
+                {timeout: 45_000},
+                basename(brokenPath),
+            );
+            const notifications = await page.evaluate(() => Reflect.get(window, '__refusedOpenNotifications') as string[]);
+            const refusal = notifications.find((text) => text.includes(basename(brokenPath))) ?? '';
+            expect(refusal).toContain('Failed to open file');
+            expectNamedOpenRefusal(refusal, brokenPath);
+            expect(await page.$('.workspace-host__loading[role="alert"]')).toBeNull();
+            expect(
+                await page.evaluate(() => document.querySelector('.tab[data-tab-id][aria-selected="true"]')?.textContent?.trim() ?? ''),
+            ).toBe(basename(documentPath));
+            await waitForActiveDocumentSource(page, documentPath, 5_000);
+        },
+        BLOCKING_SMOKE_TIMEOUT_MS,
+    );
 
-    it('saves one bounded pressure annotation and reopens it in a fresh Electron process', async () => {
-        const runOwner = `blocking-pressure-save-${Date.now()}`;
-        const pdfPath = await createLargeScannedFixturePdf(
-            'blocking-pressure-annotation.pdf',
-            431,
-            28 * 1024 * 1024,
-            1,
-            {runOwner},
-        );
-        onTestFinished(() => cleanupRunFixtures(runOwner));
-        const annotationText = `blocking pressure annotation ${Date.now()}`;
+    it(
+        'opens a valid PDF whose viewer has no layout for the first moments after Open',
+        async () => {
+            const pickedPath = await createMultiPageTextFixturePdf(`blocking-open-no-layout-picked-${Date.now()}.pdf`, 12);
+            const replacedPath = await createMultiPageTextFixturePdf(`blocking-open-no-layout-replaced-${Date.now()}.pdf`, 3);
 
-        session = await startElectronE2ESession(`e2e-blocking-pressure-save-${Date.now()}`, {
-            clean: true,
-            initialOpenPaths: [pdfPath],
-        });
-        await Promise.all([
-            waitForAutomationEvent(session.page, 'document-opened', {
+            session = await startElectronE2ESession(`e2e-blocking-open-no-layout-${Date.now()}`, {
+                clean: true,
+                extraEnv: {EVB_E2E_OPEN_DIALOG_PATH: pickedPath},
+            });
+            const {page} = session;
+            await page.waitForFunction(() => document.querySelector('#evb-startup-overlay') === null, {
+                timeout: BLOCKING_SMOKE_TIMEOUT_MS / 2,
+            });
+
+            // Open File from Start into an empty tab.
+            await page.waitForSelector('.start-open-panel .open-panel-cta', {visible: true});
+            await holdViewerLayoutOff(page, 600);
+            await clickAsUser(page, '.start-open-panel .open-panel-cta');
+            await expectOpenedFirstPage(page, 'Open File from Start');
+
+            // Open File over a document that is already showing.
+            await openPdfInApp(page, replacedPath);
+            await holdViewerLayoutOff(page, 600);
+            // The command resolves when the open presents, which is the thing under test.
+            void callWorkspaceCommand(page, 'handleOpenFileFromUi');
+            await waitForActiveDocumentSource(page, pickedPath, 20_000);
+            await expectOpenedFirstPage(page, 'Open File over an open document');
+        },
+        BLOCKING_SMOKE_TIMEOUT_MS,
+    );
+
+    it(
+        'reports a routed file that cannot be opened once, without a ghost tab',
+        async () => {
+            const stamp = `${process.pid}-${Date.now()}`;
+            const brokenIntoEmptyTab = join(process.cwd(), '.devkit', `blocking-broken-routed-a-${stamp}.pdf`);
+            const brokenBesideDocument = join(process.cwd(), '.devkit', `blocking-broken-routed-b-${stamp}.pdf`);
+            onTestFinished(() => {
+                rmSync(brokenIntoEmptyTab, {force: true});
+                rmSync(brokenBesideDocument, {force: true});
+            });
+            writeFileSync(brokenIntoEmptyTab, '%PDF-1.7\nthis is not a pdf body\n%%EOF\n');
+            writeFileSync(brokenBesideDocument, '%PDF-1.7\nthis is not a pdf body\n%%EOF\n');
+            const documentPath = await createMultiPageTextFixturePdf(`blocking-routed-document-${Date.now()}.pdf`, 1);
+
+            session = await startElectronE2ESession(`e2e-blocking-broken-routed-${Date.now()}`, {clean: true});
+            const {page} = session;
+            await page.waitForFunction(() => document.querySelector('#evb-startup-overlay') === null, {
+                timeout: BLOCKING_SMOKE_TIMEOUT_MS / 2,
+            });
+            // Records the most tabs the strip ever showed, frame by frame.
+            const watchTabCount = () =>
+                page.evaluate(() => {
+                    const watch = {
+                        max: 0,
+                        stop: false,
+                    };
+                    Reflect.set(window, '__routedTabWatch', watch);
+                    const tick = () => {
+                        watch.max = Math.max(watch.max, document.querySelectorAll('.tab[data-tab-id]').length);
+                        if (!watch.stop) {
+                            requestAnimationFrame(tick);
+                        }
+                    };
+                    tick();
+                });
+            // Grants the path like a drop or Finder open and waits until routing
+            // has settled, including any fallback tab it would have opened.
+            const openRoutedPathAndSettle = (path: string) =>
+                page.evaluate(async (routedPath: string) => {
+                    const routedWindow = window as typeof window & {
+                        __allowRendererFileOpenForAutomation?: (value: string) => Promise<boolean>;
+                        __openFileDirect?: (value: string) => Promise<boolean>;
+                    };
+                    await routedWindow.__allowRendererFileOpenForAutomation?.(routedPath);
+                    return routedWindow.__openFileDirect?.(routedPath).catch(() => false) ?? false;
+                }, path);
+            const readMaxTabCount = () =>
+                page.evaluate(() => {
+                    const watch = Reflect.get(window, '__routedTabWatch') as {
+                        max: number;
+                        stop: boolean;
+                    };
+                    watch.stop = true;
+                    return watch.max;
+                });
+
+            // Into an empty tab: the tab returns to Start and the failure is told in a toast, not retried in a new tab.
+            await watchTabCount();
+            await expect(openRoutedPathAndSettle(brokenIntoEmptyTab)).resolves.toBe(false);
+            await page.waitForSelector('.app-toast-failure', {
+                visible: true,
+                timeout: 45_000,
+            });
+            expect(await readMaxTabCount()).toBe(1);
+            expect(await page.evaluate(() => document.querySelector('.app-toast-failure')?.textContent ?? '')).toContain(
+                basename(brokenIntoEmptyTab),
+            );
+
+            // Beside an open document: the failed file's tab goes away and says why.
+            await openPdfInApp(page, documentPath);
+            await expect(openRoutedPathAndSettle(brokenBesideDocument)).resolves.toBe(false);
+            await page.waitForFunction(
+                (name: string) => document.body.innerText.includes(name) && document.body.innerText.includes('Failed to open file'),
+                {timeout: 45_000},
+                basename(brokenBesideDocument),
+            );
+            await page.waitForFunction(() => document.querySelectorAll('.tab[data-tab-id]').length === 1, {timeout: 15_000});
+            expect(
+                await page.evaluate(() => document.querySelector('.tab[data-tab-id][aria-selected="true"]')?.textContent?.trim() ?? ''),
+            ).toBe(basename(documentPath));
+        },
+        BLOCKING_SMOKE_TIMEOUT_MS,
+    );
+
+    it(
+        'drops a Recent file that is gone without claiming the tab or moving Start',
+        async () => {
+            const goneFile = await createMultiPageTextFixturePdf(`blocking-recent-gone-${Date.now()}.pdf`, 1);
+            const goneName = basename(goneFile);
+            session = await startElectronE2ESession(`e2e-blocking-recent-gone-${Date.now()}`, {clean: true});
+            const {page} = session;
+            await openPdfInApp(page, goneFile);
+
+            // A new tab's Start lists the file; then the file is deleted on disk.
+            await clickAsUser(page, '.tab-new');
+            const rowSelector = `.workspace-host[data-workspace-active="true"] [data-recent-source="${goneFile}"] .recent-open`;
+            await page.waitForSelector(rowSelector, {
+                visible: true,
+                timeout: 20_000,
+            });
+            rmSync(goneFile, {force: true});
+
+            // Every frame and DOM change from the click on, as the user sees it.
+            await page.evaluate(() => {
+                const samples: Array<Record<string, unknown>> = [];
+                const sample = () => {
+                    const host = document.querySelector('.workspace-host[data-workspace-active="true"]');
+                    const start = host?.querySelector<HTMLElement>('.workspace-host__start');
+                    const startVisible = Boolean(start?.getClientRects().length);
+                    samples.push({
+                        activeTab: document.querySelector('.tab[aria-selected="true"] .tab-label')?.textContent?.trim() ?? '',
+                        startVisible,
+                        panelTop: startVisible
+                            ? Math.round(host?.querySelector('.start-open-panel')?.getBoundingClientRect().top ?? -1)
+                            : null,
+                        alertRows: host?.querySelectorAll('.start-main [role="alert"]').length ?? 0,
+                        rawIpcText: document.body.innerText.includes('Error invoking remote method'),
+                    });
+                };
+                const observer = new MutationObserver(sample);
+                observer.observe(document.body, {
+                    subtree: true,
+                    childList: true,
+                    characterData: true,
+                    attributes: true,
+                });
+                let sampling = true;
+                const everyFrame = () => {
+                    if (sampling) {
+                        sample();
+                        requestAnimationFrame(everyFrame);
+                    }
+                };
+                requestAnimationFrame(everyFrame);
+                Reflect.set(window, '__recentGoneSamples', () => {
+                    sampling = false;
+                    observer.disconnect();
+                    sample();
+                    return samples;
+                });
+                sample();
+            });
+            await clickAsUser(page, rowSelector);
+
+            await page.waitForFunction(
+                (name: string) => [...document.querySelectorAll('.app-toast')].some((toast) => toast.textContent?.includes(name)),
+                {timeout: 20_000},
+                goneName,
+            );
+            await page.waitForFunction((selector: string) => document.querySelector(selector) === null, {timeout: 20_000}, rowSelector);
+            const samples = await page.evaluate(() =>
+                (
+                    Reflect.get(window, '__recentGoneSamples') as () => Array<{
+                        activeTab: string;
+                        startVisible: boolean;
+                        panelTop: number | null;
+                        alertRows: number;
+                        rawIpcText: boolean;
+                    }>
+                )(),
+            );
+
+            expect(
+                samples.filter((entry) => entry.activeTab !== 'New Tab'),
+                'the tab never names the missing file',
+            ).toEqual([]);
+            expect(
+                samples.filter((entry) => !entry.startVisible),
+                'Start stays on screen',
+            ).toEqual([]);
+            expect(new Set(samples.map((entry) => entry.panelTop)), 'Start does not move').toEqual(new Set([samples[0]?.panelTop]));
+            expect(
+                samples.filter((entry) => entry.alertRows > 0 || entry.rawIpcText),
+                'no inserted error row or IPC text',
+            ).toEqual([]);
+        },
+        BLOCKING_SMOKE_TIMEOUT_MS,
+    );
+
+    it(
+        'saves one bounded pressure annotation and reopens it in a fresh Electron process',
+        async () => {
+            const runOwner = `blocking-pressure-save-${Date.now()}`;
+            const pdfPath = await createLargeScannedFixturePdf('blocking-pressure-annotation.pdf', 431, 28 * 1024 * 1024, 1, {runOwner});
+            onTestFinished(() => cleanupRunFixtures(runOwner));
+            const annotationText = `blocking pressure annotation ${Date.now()}`;
+
+            session = await startElectronE2ESession(`e2e-blocking-pressure-save-${Date.now()}`, {
+                clean: true,
+                initialOpenPaths: [pdfPath],
+            });
+            await Promise.all([
+                waitForAutomationEvent(session.page, 'document-opened', {
+                    path: pdfPath,
+                    timeoutMs: 60_000,
+                }),
+                waitForAutomationEvent(session.page, 'first-page-rendered', {
+                    path: pdfPath,
+                    timeoutMs: 60_000,
+                }),
+            ]);
+            await waitForPdfLoaded(session.page, 60_000);
+            await waitForViewerInteractive(session.page, 60_000);
+            await openAnnotationsTab(session.page, 30_000);
+            expect(
+                await createFreeTextAnnotationWithPointer(session.page, annotationText, {
+                    x: 0.5,
+                    y: 0.5,
+                }),
+            ).toBeGreaterThan(0);
+            await expect
+                .poll(
+                    async () =>
+                        (await readWorkspaceStateValues<{dirtyState?: {hasAnnotationChanges?: boolean}}>(session!.page, ['dirtyState']))
+                            .dirtyState?.hasAnnotationChanges ?? false,
+                    {timeout: 20_000},
+                )
+                .toBe(true);
+
+            const saveBaselineEventId = await getLatestAutomationEventId(session.page);
+            await saveViaWindowHandle(session.page, 60_000);
+            await waitForAutomationEvent(session.page, 'save-committed', {
+                afterEventId: saveBaselineEventId,
                 path: pdfPath,
                 timeoutMs: 60_000,
-            }),
-            waitForAutomationEvent(session.page, 'first-page-rendered', {
-                path: pdfPath,
-                timeoutMs: 60_000,
-            }),
-        ]);
-        await waitForPdfLoaded(session.page, 60_000);
-        await waitForViewerInteractive(session.page, 60_000);
-        await openAnnotationsTab(session.page, 30_000);
-        expect(await createFreeTextAnnotationWithPointer(session.page, annotationText, {
-            x: 0.5,
-            y: 0.5,
-        })).toBeGreaterThan(0);
-        await expect.poll(async () => (
-            await readWorkspaceStateValues<{dirtyState?: {hasAnnotationChanges?: boolean;}}>(
-                session!.page,
-                ['dirtyState'],
-            )
-        ).dirtyState?.hasAnnotationChanges ?? false, {timeout: 20_000}).toBe(true);
+            });
+            await expect
+                .poll(
+                    async () =>
+                        (
+                            await readWorkspaceStateValues<{
+                                dirtyState?: {
+                                    fileDirty?: boolean;
+                                    hasPendingUnsavedChanges?: boolean;
+                                };
+                            }>(session!.page, ['dirtyState'])
+                        ).dirtyState,
+                    {timeout: 20_000},
+                )
+                .toMatchObject({
+                    fileDirty: false,
+                    hasPendingUnsavedChanges: false,
+                });
+            const savedSummary = await readPdfAnnotationSummary(pdfPath);
+            expect(savedSummary.bySubtype.FreeText ?? 0).toBeGreaterThan(0);
 
-        const saveBaselineEventId = await getLatestAutomationEventId(session.page);
-        await saveViaWindowHandle(session.page, 60_000);
-        await waitForAutomationEvent(session.page, 'save-committed', {
-            afterEventId: saveBaselineEventId,
-            path: pdfPath,
-            timeoutMs: 60_000,
-        });
-        await expect.poll(async () => (
-            await readWorkspaceStateValues<{dirtyState?: {
-                fileDirty?: boolean;
-                hasPendingUnsavedChanges?: boolean;
-            };}>(session!.page, ['dirtyState'])
-        ).dirtyState, {timeout: 20_000}).toMatchObject({
-            fileDirty: false,
-            hasPendingUnsavedChanges: false,
-        });
-        const savedSummary = await readPdfAnnotationSummary(pdfPath);
-        expect(savedSummary.bySubtype.FreeText ?? 0).toBeGreaterThan(0);
-
-        const savedSession = session;
-        session = null;
-        await savedSession.stop();
-        session = await startElectronE2ESession(`e2e-blocking-pressure-reopen-${Date.now()}`, {
-            clean: true,
-            initialOpenPaths: [pdfPath],
-        });
-        await Promise.all([
-            waitForAutomationEvent(session.page, 'document-opened', {
-                path: pdfPath,
-                timeoutMs: 60_000,
-            }),
-            waitForAutomationEvent(session.page, 'first-page-rendered', {
-                path: pdfPath,
-                timeoutMs: 60_000,
-            }),
-        ]);
-        await waitForPdfLoaded(session.page, 60_000);
-        await waitForViewerInteractive(session.page, 60_000);
-        expect((await readPdfAnnotationSummary(pdfPath)).bySubtype.FreeText ?? 0)
-            .toBe(savedSummary.bySubtype.FreeText);
-    }, BLOCKING_SMOKE_TIMEOUT_MS * 2);
+            const savedSession = session;
+            session = null;
+            await savedSession.stop();
+            session = await startElectronE2ESession(`e2e-blocking-pressure-reopen-${Date.now()}`, {
+                clean: true,
+                initialOpenPaths: [pdfPath],
+            });
+            await Promise.all([
+                waitForAutomationEvent(session.page, 'document-opened', {
+                    path: pdfPath,
+                    timeoutMs: 60_000,
+                }),
+                waitForAutomationEvent(session.page, 'first-page-rendered', {
+                    path: pdfPath,
+                    timeoutMs: 60_000,
+                }),
+            ]);
+            await waitForPdfLoaded(session.page, 60_000);
+            await waitForViewerInteractive(session.page, 60_000);
+            expect((await readPdfAnnotationSummary(pdfPath)).bySubtype.FreeText ?? 0).toBe(savedSummary.bySubtype.FreeText);
+        },
+        BLOCKING_SMOKE_TIMEOUT_MS * 2,
+    );
 });

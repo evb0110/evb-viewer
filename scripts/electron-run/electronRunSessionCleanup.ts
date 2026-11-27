@@ -1,7 +1,4 @@
-import {
-    existsSync,
-    rmSync,
-} from 'node:fs';
+import {existsSync, rmSync} from 'node:fs';
 import {
     electronAppTempDirPath,
     electronUserDataPath,
@@ -12,8 +9,7 @@ import {findSessionOwnedElectronPids} from '@scripts/electron-run/electronRunPro
 import {hasWorkspaceCrashCheckpoint} from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
 
 export function hasWorkspaceRecoveryEvidence(name = getCurrentSessionName()) {
-    return existsSync(sessionPreserveWorkspaceCheckpointMarkerPath(name))
-        || hasWorkspaceCrashCheckpoint(name);
+    return existsSync(sessionPreserveWorkspaceCheckpointMarkerPath(name)) || hasWorkspaceCrashCheckpoint(name);
 }
 
 /**

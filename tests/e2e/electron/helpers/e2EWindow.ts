@@ -1,7 +1,7 @@
-import type { IPlatformApi } from '@contracts/platformApi';
-import type { IElectronAPI } from '@contracts/electronApi';
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { IEvbTestApi } from '@app/types/evbTestApi';
+import type {IPlatformApi} from '@contracts/platformApi';
+import type {IElectronAPI} from '@contracts/electronApi';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {IEvbTestApi} from '@app/types/evbTestApi';
 
 export interface IE2EWindow extends Window {
     __e2eOpenExternalCalls?: string[];

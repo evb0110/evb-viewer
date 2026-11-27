@@ -1,57 +1,21 @@
-import {
-    beforeAll,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { createHash } from 'node:crypto';
-import {
-    mkdir,
-    readdir,
-    readFile,
-    rm,
-    stat,
-    writeFile,
-} from 'node:fs/promises';
-import {
-    PDFArray,
-    PDFDict,
-    PDFDocument,
-    PDFName,
-    PDFRef,
-} from 'pdf-lib';
-import {
-    join,
-    relative,
-    sep,
-} from 'node:path';
-import { statSync } from 'node:fs';
-import { MAX_EAGER_PDF_CONFORMANCE_BYTES } from '@app/modules/workspace-shell/composables/document-session/createDocumentConformance';
-import { projectRoot } from '@scripts/electron-run/projectRoot';
-import { matchesSessionProcessIdentity } from '@scripts/electron-run/electronRunProcessIdentity';
-import {
-    electronUserDataPath,
-    sessionDir,
-} from '@scripts/electron-run/electronRunSessionPaths';
+import {beforeAll, describe, expect, it, vi} from 'vitest';
+import {createHash} from 'node:crypto';
+import {mkdir, readdir, readFile, rm, stat, writeFile} from 'node:fs/promises';
+import {PDFArray, PDFDict, PDFDocument, PDFName, PDFRef} from 'pdf-lib';
+import {join, relative, sep} from 'node:path';
+import {statSync} from 'node:fs';
+import {MAX_EAGER_PDF_CONFORMANCE_BYTES} from '@app/modules/workspace-shell/composables/document-session/createDocumentConformance';
+import {projectRoot} from '@scripts/electron-run/projectRoot';
+import {matchesSessionProcessIdentity} from '@scripts/electron-run/electronRunProcessIdentity';
+import {electronUserDataPath, sessionDir} from '@scripts/electron-run/electronRunSessionPaths';
 import {
     E2E_SESSION_START_TIMEOUT_MS,
     resolveDetachedSessionLaunch,
     resolveDetachedSessionReadyTimeoutMs,
 } from '@scripts/electron-run/startSessionDetached';
-import {
-    E2E_RUN_ID_ENV,
-    createE2ERunScopedSessionName,
-} from '@scripts/electron-run/electronRunRunId';
-import {
-    assertE2ESessionName,
-    isE2ESessionName,
-    selectStaleE2ESessionDirs,
-} from '@scripts/electron-run/electronRunE2ESessionPrune';
-import {
-    prunePreservedSessionArtifacts,
-    shouldPreserveE2EArtifacts,
-} from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import {E2E_RUN_ID_ENV, createE2ERunScopedSessionName} from '@scripts/electron-run/electronRunRunId';
+import {assertE2ESessionName, isE2ESessionName, selectStaleE2ESessionDirs} from '@scripts/electron-run/electronRunE2ESessionPrune';
+import {prunePreservedSessionArtifacts, shouldPreserveE2EArtifacts} from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {
     cleanupRunFixtures,
     cleanupSessionFixtures,
@@ -65,20 +29,22 @@ import {
     resolvePathFixtureAvailability,
     selectFixtureDescribe,
 } from '@tests/e2e/electron/helpers/fixtures';
-import { assertOcrPdfSemanticOutput } from '@tests/e2e/electron/helpers/electronApiHelpers';
+import {assertOcrPdfSemanticOutput} from '@tests/e2e/electron/helpers/electronApiHelpers';
 
 const ELECTRON_FIXTURE_ROOT = join(process.cwd(), 'tests/fixtures/electron');
 const MAX_TRACKED_ELECTRON_BINARY_FIXTURE_BYTES = 2 * 1024 * 1024;
 
 async function collectFiles(directory: string): Promise<string[]> {
-    const entries = await readdir(directory, { withFileTypes: true });
-    const files = await Promise.all(entries.map(async (entry) => {
-        const path = join(directory, entry.name);
-        if (entry.isDirectory()) {
-            return collectFiles(path);
-        }
-        return entry.isFile() ? [path] : [];
-    }));
+    const entries = await readdir(directory, {withFileTypes: true});
+    const files = await Promise.all(
+        entries.map(async (entry) => {
+            const path = join(directory, entry.name);
+            if (entry.isDirectory()) {
+                return collectFiles(path);
+            }
+            return entry.isFile() ? [path] : [];
+        }),
+    );
     return files.flat();
 }
 
@@ -104,14 +70,12 @@ describe('Electron E2E fixture policy', () => {
         const outputPath = await createMultiPageTextFixturePdf('unit-ocr-semantic-output.pdf', 1);
 
         try {
-            await expect(assertOcrPdfSemanticOutput(
-                outputPath,
+            await expect(assertOcrPdfSemanticOutput(outputPath, 'E2E Multi Page Fixture 1/1')).resolves.toContain(
                 'E2E Multi Page Fixture 1/1',
-            )).resolves.toContain('E2E Multi Page Fixture 1/1');
-            await expect(assertOcrPdfSemanticOutput(
-                outputPath,
-                'text that is not present',
-            )).rejects.toThrow('OCR output did not contain expected semantic text');
+            );
+            await expect(assertOcrPdfSemanticOutput(outputPath, 'text that is not present')).rejects.toThrow(
+                'OCR output did not contain expected semantic text',
+            );
         } finally {
             await rm(outputPath, {force: true});
         }
@@ -181,33 +145,21 @@ describe('Electron E2E fixture policy', () => {
     });
 
     it('generates a scanned large-PDF fixture without constructing dense text layers', async () => {
-        const outputPath = await createLargeScannedFixturePdf(
-            'unit-large-scanned-policy.pdf',
-            7,
-            1024 * 1024,
-        );
+        const outputPath = await createLargeScannedFixturePdf('unit-large-scanned-policy.pdf', 7, 1024 * 1024);
 
         try {
             expect((await stat(outputPath)).size).toBeGreaterThan(1024 * 1024);
-            const parsed = await PDFDocument.load(await readFile(outputPath), { updateMetadata: false });
+            const parsed = await PDFDocument.load(await readFile(outputPath), {updateMetadata: false});
             expect(parsed.getPageCount()).toBe(7);
-            expect(resolveScannedFixturePageMarkerRgb(1)).not.toEqual(
-                resolveScannedFixturePageMarkerRgb(7),
-            );
+            expect(resolveScannedFixturePageMarkerRgb(1)).not.toEqual(resolveScannedFixturePageMarkerRgb(7));
         } finally {
-            await rm(outputPath, { force: true });
+            await rm(outputPath, {force: true});
         }
     });
 
     it('keeps run-owned generated PDFs across session cleanup until their owner releases them', async () => {
         const owner = `unit-large-pdf-${process.pid}-${Date.now()}`;
-        const outputPath = await createLargeScannedFixturePdf(
-            'run-owned-large-scanned-policy.pdf',
-            2,
-            0,
-            1,
-            {runOwner: owner},
-        );
+        const outputPath = await createLargeScannedFixturePdf('run-owned-large-scanned-policy.pdf', 2, 0, 1, {runOwner: owner});
 
         try {
             cleanupSessionFixtures(`e2e-unrelated-session-${process.pid}`);
@@ -221,8 +173,8 @@ describe('Electron E2E fixture policy', () => {
 
     it('generates a valid sparse deterministic PDF at an exact requested size', async () => {
         const outputPath = join(process.cwd(), '.devkit/tmp/generated-large-pdf-policy.pdf');
-        const { generateLargePdfE2eFixture } = await import('@scripts/generate-large-pdf-e2e-fixture.mjs');
-        await mkdir(join(process.cwd(), '.devkit/tmp'), { recursive: true });
+        const {generateLargePdfE2eFixture} = await import('@scripts/generate-large-pdf-e2e-fixture.mjs');
+        await mkdir(join(process.cwd(), '.devkit/tmp'), {recursive: true});
 
         try {
             await generateLargePdfE2eFixture({
@@ -232,7 +184,7 @@ describe('Electron E2E fixture policy', () => {
             });
 
             expect((await stat(outputPath)).size).toBe(2 * 1024 * 1024);
-            const parsed = await PDFDocument.load(await readFile(outputPath), { updateMetadata: false });
+            const parsed = await PDFDocument.load(await readFile(outputPath), {updateMetadata: false});
             expect(parsed.getPageCount()).toBe(7);
             const annotations = parsed.getPage(0).node.Annots();
             expect(annotations).toBeInstanceOf(PDFArray);
@@ -244,19 +196,19 @@ describe('Electron E2E fixture policy', () => {
             const annotation = parsed.context.lookupMaybe(annotationRef, PDFDict);
             expect(annotation?.get(PDFName.of('Subtype'))?.toString()).toBe('/FreeText');
         } finally {
-            await rm(outputPath, { force: true });
+            await rm(outputPath, {force: true});
         }
     });
 
     it('generates byte-identical large-PDF fixtures without timestamp metadata', async () => {
         const firstOutputPath = join(process.cwd(), '.devkit/tmp/generated-large-pdf-policy-first.pdf');
         const secondOutputPath = join(process.cwd(), '.devkit/tmp/generated-large-pdf-policy-second.pdf');
-        const { generateLargePdfE2eFixture } = await import('@scripts/generate-large-pdf-e2e-fixture.mjs');
-        await mkdir(join(process.cwd(), '.devkit/tmp'), { recursive: true });
+        const {generateLargePdfE2eFixture} = await import('@scripts/generate-large-pdf-e2e-fixture.mjs');
+        await mkdir(join(process.cwd(), '.devkit/tmp'), {recursive: true});
 
         try {
             const deterministicFixtureBytes = 8 * 1024;
-            vi.useFakeTimers({ now: new Date('2020-01-02T03:04:05.000Z') });
+            vi.useFakeTimers({now: new Date('2020-01-02T03:04:05.000Z')});
             await generateLargePdfE2eFixture({
                 outputPath: firstOutputPath,
                 pageCount: 1,
@@ -273,11 +225,10 @@ describe('Electron E2E fixture policy', () => {
             const firstBytes = await readFile(firstOutputPath);
             const secondBytes = await readFile(secondOutputPath);
             expect(firstBytes).toEqual(secondBytes);
-            expect(createHash('sha256').update(firstBytes).digest('hex'))
-                .toBe(createHash('sha256').update(secondBytes).digest('hex'));
+            expect(createHash('sha256').update(firstBytes).digest('hex')).toBe(createHash('sha256').update(secondBytes).digest('hex'));
             expect(firstBytes.toString('latin1')).not.toMatch(/\/(?:CreationDate|ModDate)\b/u);
 
-            const parsed = await PDFDocument.load(firstBytes, { updateMetadata: false });
+            const parsed = await PDFDocument.load(firstBytes, {updateMetadata: false});
             expect(parsed.getPageCount()).toBe(1);
             expect(parsed.getCreationDate()).toBeUndefined();
             expect(parsed.getModificationDate()).toBeUndefined();
@@ -287,8 +238,8 @@ describe('Electron E2E fixture policy', () => {
             expect(annotationRef).toBeInstanceOf(PDFRef);
         } finally {
             vi.useRealTimers();
-            await rm(firstOutputPath, { force: true });
-            await rm(secondOutputPath, { force: true });
+            await rm(firstOutputPath, {force: true});
+            await rm(secondOutputPath, {force: true});
         }
     });
 
@@ -309,7 +260,9 @@ describe('Electron E2E fixture policy', () => {
             expect(firstSelector).toBe(describeLike.skip);
             expect(secondSelector).toBe(describeLike.skip);
             expect(infoSpy).toHaveBeenCalledTimes(1);
-            expect(infoSpy).toHaveBeenCalledWith(expect.stringContaining('SKIPPED (fixture missing): missing unit-test fixture does not exist:'));
+            expect(infoSpy).toHaveBeenCalledWith(
+                expect.stringContaining('SKIPPED (fixture missing): missing unit-test fixture does not exist:'),
+            );
         } finally {
             infoSpy.mockRestore();
         }
@@ -344,14 +297,7 @@ describe('Electron E2E fixture policy', () => {
             generatedFixtureFactory,
         });
         expect(checkedInFixture).toMatchObject({
-            path: join(
-                process.cwd(),
-                'tests',
-                'fixtures',
-                'djvu',
-                'sources',
-                'browser-boundary-501-pages.djvu',
-            ),
+            path: join(process.cwd(), 'tests', 'fixtures', 'djvu', 'sources', 'browser-boundary-501-pages.djvu'),
             required: true,
         });
         expect((await stat(checkedInFixture.path!)).size).toBeGreaterThan(0);
@@ -377,7 +323,7 @@ describe('Electron E2E fixture policy', () => {
         );
 
         const generatedFixturePath = join(process.cwd(), '.devkit/tmp/unit-missing-djvu/generated.djvu');
-        await mkdir(join(process.cwd(), '.devkit/tmp/unit-missing-djvu'), { recursive: true });
+        await mkdir(join(process.cwd(), '.devkit/tmp/unit-missing-djvu'), {recursive: true});
         await writeFile(generatedFixturePath, 'generated fixture placeholder');
         try {
             const generated = resolveDjvuFixturePath({
@@ -407,22 +353,13 @@ describe('Electron E2E fixture policy', () => {
         for (const file of files) {
             const relativePath = relative(ELECTRON_FIXTURE_ROOT, file).split(sep).join('/');
             const size = (await stat(file)).size;
-            if (
-                /\.(?:pdf|djvu|djv)$/i.test(relativePath)
-                && size > MAX_TRACKED_ELECTRON_BINARY_FIXTURE_BYTES
-            ) {
+            if (/\.(?:pdf|djvu|djv)$/i.test(relativePath) && size > MAX_TRACKED_ELECTRON_BINARY_FIXTURE_BYTES) {
                 offenders.push(`${relativePath} (${size} bytes)`);
             }
-            if (
-                /\.(?:djvu|djv)$/i.test(relativePath)
-                && !relativePath.startsWith('djvu-fixtures/')
-            ) {
+            if (/\.(?:djvu|djv)$/i.test(relativePath) && !relativePath.startsWith('djvu-fixtures/')) {
                 offenders.push(`${relativePath} (DjVu fixtures must live under djvu-fixtures/)`);
             }
-            if (
-                relativePath.startsWith('large-pdf-fixtures/')
-                && !relativePath.endsWith('.md')
-            ) {
+            if (relativePath.startsWith('large-pdf-fixtures/') && !relativePath.endsWith('.md')) {
                 offenders.push(`${relativePath} (large native-preview PDFs must stay local-only)`);
             }
         }
@@ -496,7 +433,6 @@ describe('Electron E2E fixture policy', () => {
             restoreEnvVar('EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE', previousRequire);
         }
     });
-
 });
 
 describe('Electron E2E deterministic isolation policy', () => {
@@ -509,65 +445,39 @@ describe('Electron E2E deterministic isolation policy', () => {
     });
 
     it('dispatches detached owners with absolute entries that remain verifiable without a process cwd', () => {
-        const e2eLaunch = resolveDetachedSessionLaunch(
-            'e2e',
-            'e2e-unit-viewer',
-            '/runtime/node',
-        );
-        const devLaunch = resolveDetachedSessionLaunch(
-            'dev',
-            'developer-unit',
-            '/runtime/node',
-        );
+        const e2eLaunch = resolveDetachedSessionLaunch('e2e', 'e2e-unit-viewer', '/runtime/node');
+        const devLaunch = resolveDetachedSessionLaunch('dev', 'developer-unit', '/runtime/node');
 
         expect(e2eLaunch).toEqual({
-            args: [
-                '--import',
-                'tsx',
-                join(projectRoot, 'scripts', 'electron-run', 'ephemeralSessionEntry.ts'),
-                'e2e-unit-viewer',
-            ],
+            args: ['--import', 'tsx', join(projectRoot, 'scripts', 'electron-run', 'ephemeralSessionEntry.ts'), 'e2e-unit-viewer'],
             command: '/runtime/node',
         });
         expect(JSON.stringify(e2eLaunch)).not.toMatch(/devSupervisor|default|electron:run/u);
         expect(devLaunch).toEqual({
-            args: [
-                '--import',
-                'tsx',
-                join(projectRoot, 'scripts', 'electronRun.ts'),
-                '--session=developer-unit',
-                'start',
-            ],
+            args: ['--import', 'tsx', join(projectRoot, 'scripts', 'electronRun.ts'), '--session=developer-unit', 'start'],
             command: '/runtime/node',
         });
-        for (const [
-            launch,
-            sessionName,
-        ] of [
-                [
-                    e2eLaunch,
-                    'e2e-unit-viewer',
-                ],
-                [
-                    devLaunch,
-                    'developer-unit',
-                ],
-            ] as const) {
-            expect(matchesSessionProcessIdentity({
-                pid: 72_001,
-                platform: 'win32',
-                cwd: null,
-                command: [
-                    launch.command,
-                    ...launch.args,
-                ].map(argument => `"${argument}"`).join(' '),
-                environment: '',
-                descendantPids: [],
-                pidsOnExpectedPort: [],
-            }, {
-                kind: 'controller',
-                sessionName,
-            })).toBe(true);
+        for (const [launch, sessionName] of [
+            [e2eLaunch, 'e2e-unit-viewer'],
+            [devLaunch, 'developer-unit'],
+        ] as const) {
+            expect(
+                matchesSessionProcessIdentity(
+                    {
+                        pid: 72_001,
+                        platform: 'win32',
+                        cwd: null,
+                        command: [launch.command, ...launch.args].map((argument) => `"${argument}"`).join(' '),
+                        environment: '',
+                        descendantPids: [],
+                        pidsOnExpectedPort: [],
+                    },
+                    {
+                        kind: 'controller',
+                        sessionName,
+                    },
+                ),
+            ).toBe(true);
         }
     });
 
@@ -582,23 +492,26 @@ describe('Electron E2E deterministic isolation policy', () => {
     });
 
     it('never selects default developer artifacts for stale E2E pruning', () => {
-        const selected = selectStaleE2ESessionDirs([
+        const selected = selectStaleE2ESessionDirs(
+            [
+                {
+                    name: 'default',
+                    path: sessionDir('default'),
+                    mtimeMs: 0,
+                },
+                {
+                    name: 'e2e-old-run-viewer-smoke',
+                    path: sessionDir('e2e-old-run-viewer-smoke'),
+                    mtimeMs: 0,
+                },
+            ],
             {
-                name: 'default',
-                path: sessionDir('default'),
-                mtimeMs: 0,
+                maxAgeMs: 1,
+                nowMs: 10,
             },
-            {
-                name: 'e2e-old-run-viewer-smoke',
-                path: sessionDir('e2e-old-run-viewer-smoke'),
-                mtimeMs: 0,
-            },
-        ], {
-            maxAgeMs: 1,
-            nowMs: 10,
-        });
+        );
 
-        expect(selected.map(candidate => candidate.name)).toEqual(['e2e-old-run-viewer-smoke']);
+        expect(selected.map((candidate) => candidate.name)).toEqual(['e2e-old-run-viewer-smoke']);
     });
 
     it('refuses cleanup against the default developer session', () => {

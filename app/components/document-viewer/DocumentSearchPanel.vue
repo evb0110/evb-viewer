@@ -29,10 +29,8 @@
 </template>
 
 <script setup lang="ts">
-import type { IResolvedSearchMatchOptions } from '@contracts/search';
-import type {
-    IDocumentSearchSession, TDocumentPageLabelLookup,  
-} from '@app/modules/document-viewer/public';
+import type {IResolvedSearchMatchOptions} from '@contracts/search';
+import type {IDocumentSearchSession, TDocumentPageLabelLookup} from '@app/modules/document-viewer/public';
 import DocumentSearchBar from '@app/components/document-viewer/DocumentSearchBar.vue';
 import DocumentSearchResults from '@app/components/document-viewer/DocumentSearchResults.vue';
 
@@ -55,7 +53,9 @@ const searchQuery = computed({
 });
 const searchOptions = computed({
     get: () => session.options.value,
-    set: (value: IResolvedSearchMatchOptions) => { session.setOptions(value); },
+    set: (value: IResolvedSearchMatchOptions) => {
+        session.setOptions(value);
+    },
 });
 const submittedQuery = computed(() => session.submittedQuery.value);
 const results = computed(() => session.results.value);
@@ -76,10 +76,7 @@ function runSearch() {
 }
 
 watch(
-    () => [
-        isActive,
-        focusRequest,
-    ] as const,
+    () => [isActive, focusRequest] as const,
     async ([isActive], previous) => {
         if (!isActive || (previous && previous[0] && previous[1] === focusRequest)) {
             return;

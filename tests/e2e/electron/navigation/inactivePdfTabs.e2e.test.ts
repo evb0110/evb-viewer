@@ -1,32 +1,17 @@
 import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
 import {randomBytes} from 'node:crypto';
 import {createServer} from 'node:net';
-import {
-    readFile, writeFile,
-} from 'node:fs/promises';
+import {readFile, writeFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    createMultiPageTextFixturePdf,
-    resolveDjvuFixturePath,
-} from '@tests/e2e/electron/helpers/fixtures';
-import {
-    clickAsUser,
-    clickFoundAsUser,
-} from '@tests/e2e/electron/helpers/userInput';
-import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
-import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import {describe, expect, it} from 'vitest';
+import {createMultiPageTextFixturePdf, resolveDjvuFixturePath} from '@tests/e2e/electron/helpers/fixtures';
+import {clickAsUser, clickFoundAsUser} from '@tests/e2e/electron/helpers/userInput';
+import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
+import type {IElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {assertInactiveDocumentPressureReleased} from '@tests/e2e/electron/helpers/assertInactiveDocumentPressureReleased';
 import {waitForWorkspaceToolbarSnapshot} from '@tests/e2e/electron/helpers/workspaceExpose';
 import {waitForViewportQuiet} from '@tests/e2e/electron/helpers/viewportPageObservation';
-import {
-    observeRendererErrors,
-    readRuntimeErrorReportDetails,
-} from '@tests/e2e/electron/helpers/rendererErrorObservation';
+import {observeRendererErrors, readRuntimeErrorReportDetails} from '@tests/e2e/electron/helpers/rendererErrorObservation';
 import {
     clickVisibleToolbarButton,
     goToPageViaToolbar,
@@ -43,10 +28,7 @@ import {
     createNewWorkspaceTab as createNewTab,
     openNewPane,
 } from '@tests/e2e/electron/helpers/workspaceTabs';
-import {
-    expectSplitPaneCloseContinuity,
-    runSplitPaneCloseContinuity,
-} from '@tests/e2e/electron/helpers/splitPaneCloseContinuity';
+import {expectSplitPaneCloseContinuity, runSplitPaneCloseContinuity} from '@tests/e2e/electron/helpers/splitPaneCloseContinuity';
 import {
     installCommittedSurfaceSampler,
     markCommittedSurfaceInteractionCheckpoint,
@@ -77,9 +59,9 @@ interface IReadingPoint {
 
 // The page under the viewport centre and how far into it the centre sits.
 function readReadingPointFromPage(): IReadingPoint | null {
-    const viewport = document.querySelector<HTMLElement>(
-        '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
-    )?.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport], #pdf-viewer');
+    const viewport = document
+        .querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]')
+        ?.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport], #pdf-viewer');
     if (!viewport) {
         return null;
     }
@@ -107,70 +89,80 @@ async function readSettledReadingPoint(session: IElectronE2ESession) {
     await waitForViewportQuiet(session.page);
     const reading = await session.page.evaluate(readReadingPointFromPage);
     expect(reading, 'No page under the viewport centre').not.toBeNull();
-    await session.page.waitForFunction((page: number) => {
-        const host = document.querySelector('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
-        const image = host?.querySelector<HTMLImageElement>(
-            `.document-source-viewer__page[data-page-number="${page}"] img[data-document-page-visual="committed"]`,
-        );
-        return Boolean(host?.querySelector(`.page_container--rendered[data-page="${page}"] canvas`)
-            || image?.complete && image.naturalWidth > 0);
-    }, {timeout: 30_000}, reading!.page);
+    await session.page.waitForFunction(
+        (page: number) => {
+            const host = document.querySelector('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
+            const image = host?.querySelector<HTMLImageElement>(
+                `.document-source-viewer__page[data-page-number="${page}"] img[data-document-page-visual="committed"]`,
+            );
+            return Boolean(
+                host?.querySelector(`.page_container--rendered[data-page="${page}"] canvas`) || (image?.complete && image.naturalWidth > 0),
+            );
+        },
+        {timeout: 30_000},
+        reading!.page,
+    );
     await waitForViewportQuiet(session.page);
     return (await session.page.evaluate(readReadingPointFromPage))!;
 }
 
-interface IRightFileFlashProbeResult {flashCount: number;}
+interface IRightFileFlashProbeResult {
+    flashCount: number;
+}
 
-interface IRightFileFlashProbe {finish: () => IRightFileFlashProbeResult;}
+interface IRightFileFlashProbe {
+    finish: () => IRightFileFlashProbeResult;
+}
 
 function readHostPressureFromPage(): IWorkspaceHostPressure[] {
     const isVisible = (element: HTMLElement) => {
         const rect = element.getBoundingClientRect();
         const style = window.getComputedStyle(element);
         return (
-            style.display !== 'none'
-            && style.visibility !== 'hidden'
-            && Number(style.opacity || '1') > 0
-            && rect.width > 100
-            && rect.height > 100
+            style.display !== 'none' &&
+            style.visibility !== 'hidden' &&
+            Number(style.opacity || '1') > 0 &&
+            rect.width > 100 &&
+            rect.height > 100
         );
     };
 
-    return Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-        .map((host, index) => {
-            const visible = isVisible(host);
-            return {
-                index,
-                active: visible,
-                visible,
-                canvases: host.querySelectorAll('.page_canvas canvas').length,
-                renderedPages: host.querySelectorAll('.page_container--rendered').length,
-                textSpans: host.querySelectorAll('.text-layer span, .textLayer span').length,
-                searchHighlights: host.querySelectorAll('.pdf-search-highlight, .pdf-search-highlight-current').length,
-                annotationLayers: host.querySelectorAll('.annotationLayer, .annotation-layer').length,
-                annotationEditorLayers: host.querySelectorAll('.annotationEditorLayer, .annotation-editor-layer').length,
-                freeTextEditors: host.querySelectorAll('.freeTextEditor').length,
-                noteWindows: host.querySelectorAll('.pdf-annotation-note-window, .note-window').length,
-                popups: host.querySelectorAll('.annotationLayer .popup, .annotation-layer .popup, .pdf-annotation-comment-popup, #commentPopup, #commentManagerDialog').length,
-            };
-        });
+    return Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).map((host, index) => {
+        const visible = isVisible(host);
+        return {
+            index,
+            active: visible,
+            visible,
+            canvases: host.querySelectorAll('.page_canvas canvas').length,
+            renderedPages: host.querySelectorAll('.page_container--rendered').length,
+            textSpans: host.querySelectorAll('.text-layer span, .textLayer span').length,
+            searchHighlights: host.querySelectorAll('.pdf-search-highlight, .pdf-search-highlight-current').length,
+            annotationLayers: host.querySelectorAll('.annotationLayer, .annotation-layer').length,
+            annotationEditorLayers: host.querySelectorAll('.annotationEditorLayer, .annotation-editor-layer').length,
+            freeTextEditors: host.querySelectorAll('.freeTextEditor').length,
+            noteWindows: host.querySelectorAll('.pdf-annotation-note-window, .note-window').length,
+            popups: host.querySelectorAll(
+                '.annotationLayer .popup, .annotation-layer .popup, .pdf-annotation-comment-popup, #commentPopup, #commentManagerDialog',
+            ).length,
+        };
+    });
 }
 
 async function waitForInactiveHostsToReleaseRenderedPages(session: IElectronE2ESession) {
-    await session.page.waitForFunction(() => {
-        const isVisible = (element: HTMLElement) => {
-            const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return (
-                style.display !== 'none'
-                && style.visibility !== 'hidden'
-                && Number(style.opacity || '1') > 0
-                && rect.width > 100
-                && rect.height > 100
-            );
-        };
-        const pressures = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-            .map((host) => {
+    await session.page.waitForFunction(
+        () => {
+            const isVisible = (element: HTMLElement) => {
+                const rect = element.getBoundingClientRect();
+                const style = window.getComputedStyle(element);
+                return (
+                    style.display !== 'none' &&
+                    style.visibility !== 'hidden' &&
+                    Number(style.opacity || '1') > 0 &&
+                    rect.width > 100 &&
+                    rect.height > 100
+                );
+            };
+            const pressures = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).map((host) => {
                 const visible = isVisible(host);
                 return {
                     active: visible,
@@ -182,44 +174,57 @@ async function waitForInactiveHostsToReleaseRenderedPages(session: IElectronE2ES
                     annotationEditorLayers: host.querySelectorAll('.annotationEditorLayer, .annotation-editor-layer').length,
                     freeTextEditors: host.querySelectorAll('.freeTextEditor').length,
                     noteWindows: host.querySelectorAll('.pdf-annotation-note-window, .note-window').length,
-                    popups: host.querySelectorAll('.annotationLayer .popup, .annotation-layer .popup, .pdf-annotation-comment-popup, #commentPopup, #commentManagerDialog').length,
+                    popups: host.querySelectorAll(
+                        '.annotationLayer .popup, .annotation-layer .popup, .pdf-annotation-comment-popup, #commentPopup, #commentManagerDialog',
+                    ).length,
                 };
             });
-        return pressures.some(host => host.active && host.canvases > 0 && host.renderedPages > 0)
-            && pressures
-                .filter(host => !host.active)
-                .every(host =>
-                    host.canvases === 0
-                    && host.renderedPages === 0
-                    && host.textSpans === 0
-                    && host.searchHighlights === 0
-                    && host.annotationLayers === 0
-                    && host.annotationEditorLayers === 0
-                    && host.freeTextEditors === 0
-                    && host.noteWindows === 0
-                    && host.popups === 0,
-                );
-    }, { timeout: 30_000 });
+            return (
+                pressures.some((host) => host.active && host.canvases > 0 && host.renderedPages > 0) &&
+                pressures
+                    .filter((host) => !host.active)
+                    .every(
+                        (host) =>
+                            host.canvases === 0 &&
+                            host.renderedPages === 0 &&
+                            host.textSpans === 0 &&
+                            host.searchHighlights === 0 &&
+                            host.annotationLayers === 0 &&
+                            host.annotationEditorLayers === 0 &&
+                            host.freeTextEditors === 0 &&
+                            host.noteWindows === 0 &&
+                            host.popups === 0,
+                    )
+            );
+        },
+        {timeout: 30_000},
+    );
 }
 
 async function waitForVisibleRenderedPdfHosts(session: IElectronE2ESession, expectedCount: number) {
-    await session.page.waitForFunction((expected: number) => {
-        const isVisible = (element: HTMLElement) => {
-            const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return (
-                style.display !== 'none'
-                && style.visibility !== 'hidden'
-                && Number(style.opacity || '1') > 0
-                && rect.width > 100
-                && rect.height > 100
-            );
-        };
+    await session.page.waitForFunction(
+        (expected: number) => {
+            const isVisible = (element: HTMLElement) => {
+                const rect = element.getBoundingClientRect();
+                const style = window.getComputedStyle(element);
+                return (
+                    style.display !== 'none' &&
+                    style.visibility !== 'hidden' &&
+                    Number(style.opacity || '1') > 0 &&
+                    rect.width > 100 &&
+                    rect.height > 100
+                );
+            };
 
-        return Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-            .filter(host => isVisible(host) && host.querySelectorAll('.page_container--rendered').length > 0)
-            .length >= expected;
-    }, { timeout: 30_000 }, expectedCount);
+            return (
+                Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).filter(
+                    (host) => isVisible(host) && host.querySelectorAll('.page_container--rendered').length > 0,
+                ).length >= expected
+            );
+        },
+        {timeout: 30_000},
+        expectedCount,
+    );
 }
 
 describe('Electron E2E - Inactive PDF Tabs', () => {
@@ -237,30 +242,36 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
 
         const documentTabId = await session.page.$eval(
             '.tab-list .tab.is-active[data-tab-id]',
-            element => (element as HTMLElement).dataset.tabId,
+            (element) => (element as HTMLElement).dataset.tabId,
         );
         expect(documentTabId).toBeTruthy();
         const errorObserver = await observeRendererErrors(session.page);
         try {
             const clickVisible = async (selector: string, text: string | null = null) => {
-                const point = await session.page.evaluate((targetSelector: string, targetText: string | null) => {
-                    const target = Array.from(document.querySelectorAll<HTMLElement>(targetSelector)).find((element) => {
-                        const rect = element.getBoundingClientRect();
-                        const style = window.getComputedStyle(element);
-                        return rect.width > 2
-                            && rect.height > 2
-                            && style.display !== 'none'
-                            && style.visibility !== 'hidden'
-                            && (targetText === null || element.innerText.trim() === targetText);
-                    });
-                    const rect = target?.getBoundingClientRect();
-                    return rect
-                        ? {
-                            x: rect.x + rect.width / 2,
-                            y: rect.y + rect.height / 2,
-                        }
-                        : null;
-                }, selector, text);
+                const point = await session.page.evaluate(
+                    (targetSelector: string, targetText: string | null) => {
+                        const target = Array.from(document.querySelectorAll<HTMLElement>(targetSelector)).find((element) => {
+                            const rect = element.getBoundingClientRect();
+                            const style = window.getComputedStyle(element);
+                            return (
+                                rect.width > 2 &&
+                                rect.height > 2 &&
+                                style.display !== 'none' &&
+                                style.visibility !== 'hidden' &&
+                                (targetText === null || element.innerText.trim() === targetText)
+                            );
+                        });
+                        const rect = target?.getBoundingClientRect();
+                        return rect
+                            ? {
+                                  x: rect.x + rect.width / 2,
+                                  y: rect.y + rect.height / 2,
+                              }
+                            : null;
+                    },
+                    selector,
+                    text,
+                );
                 expect(point, `Visible ${selector}${text ? ` with text ${text}` : ''}`).toBeTruthy();
                 await session.page.mouse.click(point!.x, point!.y);
             };
@@ -272,26 +283,38 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
             await session.page.waitForFunction(() => document.documentElement.lang.startsWith('ru'));
             await clickVisible(`.tab-list .tab[data-tab-id="${documentTabId!}"]`);
 
-            const renderedAgain = await session.page.waitForFunction(() => {
-                const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-                const rect = host?.getBoundingClientRect();
-                const style = host ? window.getComputedStyle(host) : null;
-                const page = host?.querySelector<HTMLElement>('.page_container--rendered');
-                const pageRect = page?.getBoundingClientRect();
-                const text = host?.querySelector<HTMLElement>('.textLayer')?.innerText ?? '';
-                return Boolean(
-                    host
-                    && rect && rect.width > 100 && rect.height > 100
-                    && style?.display !== 'none' && style?.visibility !== 'hidden'
-                    && page && pageRect && pageRect.width > 100 && pageRect.height > 100
-                    && text.includes('E2E Multi Page Fixture 1/1'),
-                );
-            }, {timeout: 15_000}).then(() => true).catch(() => false);
+            const renderedAgain = await session.page
+                .waitForFunction(
+                    () => {
+                        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+                        const rect = host?.getBoundingClientRect();
+                        const style = host ? window.getComputedStyle(host) : null;
+                        const page = host?.querySelector<HTMLElement>('.page_container--rendered');
+                        const pageRect = page?.getBoundingClientRect();
+                        const text = host?.querySelector<HTMLElement>('.textLayer')?.innerText ?? '';
+                        return Boolean(
+                            host &&
+                            rect &&
+                            rect.width > 100 &&
+                            rect.height > 100 &&
+                            style?.display !== 'none' &&
+                            style?.visibility !== 'hidden' &&
+                            page &&
+                            pageRect &&
+                            pageRect.width > 100 &&
+                            pageRect.height > 100 &&
+                            text.includes('E2E Multi Page Fixture 1/1'),
+                        );
+                    },
+                    {timeout: 15_000},
+                )
+                .then(() => true)
+                .catch(() => false);
             const report = await errorObserver.collect();
             const runtimeReports = await readRuntimeErrorReportDetails(session.page);
             const activeTabLabel = await session.page.$eval(
                 '.tab-list .tab.is-active',
-                element => (element as HTMLElement).getAttribute('aria-label') ?? '',
+                (element) => (element as HTMLElement).getAttribute('aria-label') ?? '',
             );
             expect(renderedAgain, `PDF did not render again after tab activation. Errors: ${JSON.stringify(report)}`).toBe(true);
             expect(runtimeReports, `Runtime error report shown: ${JSON.stringify(runtimeReports)}`).toHaveLength(0);
@@ -323,28 +346,28 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
         const afterSecondOpen = await session.page.evaluate(readHostPressureFromPage);
         expect(afterSecondOpen.length).toBeGreaterThanOrEqual(1);
         expect(afterSecondOpen.length).toBeLessThanOrEqual(2);
-        expect(afterSecondOpen.filter(host => host.active)).toHaveLength(1);
-        expect(afterSecondOpen.filter(host => !host.active).every(host => host.canvases === 0)).toBe(true);
-        expect(afterSecondOpen.filter(host => !host.active).every(host => host.renderedPages === 0)).toBe(true);
+        expect(afterSecondOpen.filter((host) => host.active)).toHaveLength(1);
+        expect(afterSecondOpen.filter((host) => !host.active).every((host) => host.canvases === 0)).toBe(true);
+        expect(afterSecondOpen.filter((host) => !host.active).every((host) => host.renderedPages === 0)).toBe(true);
 
         await activateTab(session, 0);
         await waitForPdfLoaded(session.page);
         await waitForInactiveHostsToReleaseRenderedPages(session);
 
         const afterFirstReactivation = await session.page.evaluate(readHostPressureFromPage);
-        const activeAfterFirstReactivation = afterFirstReactivation.find(host => host.active);
+        const activeAfterFirstReactivation = afterFirstReactivation.find((host) => host.active);
         expect(activeAfterFirstReactivation?.renderedPages).toBeGreaterThan(0);
-        expect(afterFirstReactivation.filter(host => !host.active).every(host => host.canvases === 0)).toBe(true);
-        expect(afterFirstReactivation.filter(host => !host.active).every(host => host.renderedPages === 0)).toBe(true);
+        expect(afterFirstReactivation.filter((host) => !host.active).every((host) => host.canvases === 0)).toBe(true);
+        expect(afterFirstReactivation.filter((host) => !host.active).every((host) => host.renderedPages === 0)).toBe(true);
 
         await activateTab(session, 1);
         await waitForPdfLoaded(session.page);
         await waitForInactiveHostsToReleaseRenderedPages(session);
 
         const afterSecondReactivation = await session.page.evaluate(readHostPressureFromPage);
-        const activeAfterSecondReactivation = afterSecondReactivation.find(host => host.active);
-        expect(afterSecondReactivation.filter(host => !host.active).every(host => host.canvases === 0)).toBe(true);
-        expect(afterSecondReactivation.filter(host => !host.active).every(host => host.renderedPages === 0)).toBe(true);
+        const activeAfterSecondReactivation = afterSecondReactivation.find((host) => host.active);
+        expect(afterSecondReactivation.filter((host) => !host.active).every((host) => host.canvases === 0)).toBe(true);
+        expect(afterSecondReactivation.filter((host) => !host.active).every((host) => host.renderedPages === 0)).toBe(true);
         expect(activeAfterSecondReactivation?.renderedPages).toBeGreaterThan(0);
     });
 
@@ -353,11 +376,10 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
     it('lets the views of cold PDF tabs go as the reader switches between them', async () => {
         const session = sessionFixture.getSession();
         await setTabMemoryPolicyForE2E(session.page, 'aggressive');
-        for (const [index, pageCount] of [
-            3,
-            4,
-        ].entries()) {
-            if (index > 0) {await createNewTab(session);}
+        for (const [index, pageCount] of [3, 4].entries()) {
+            if (index > 0) {
+                await createNewTab(session);
+            }
             await openPdfInApp(session.page, await createMultiPageTextFixturePdf(`cold-tab-views-${index}-${Date.now()}.pdf`, pageCount));
             await waitForPdfLoaded(session.page);
         }
@@ -403,83 +425,87 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
             zoom: 'a custom zoom',
             zoomInSteps: 2,
         },
-        ...([
-            'PDF',
-            'DjVu',
-        ] as const).flatMap(format => [
-            {
-                format,
-                policy: 'aggressive',
-                zoom: 'Fit Width',
-                zoomInSteps: 0,
-            },
-            {
-                format,
-                policy: 'aggressive',
-                zoom: 'a custom zoom',
-                zoomInSteps: 2,
-            },
-        ] as const),
-    ] as const)('keeps the $format reading point at $zoom under $policy tab policy', async ({
-        format, policy, zoomInSteps,
-    }) => {
-        const session = sessionFixture.getSession();
-        await setTabMemoryPolicyForE2E(session.page, policy);
-        if (format === 'PDF') {
-            const pdfPath = await createMultiPageTextFixturePdf(`tab-reading-point-${Date.now()}.pdf`, 30);
-            await openPdfInApp(session.page, pdfPath);
-            await waitForPdfLoaded(session.page);
-        } else {
-            const djvu = resolveDjvuFixturePath();
-            if (!djvu.path) {
-                throw new Error(djvu.reason);
+        ...(['PDF', 'DjVu'] as const).flatMap(
+            (format) =>
+                [
+                    {
+                        format,
+                        policy: 'aggressive',
+                        zoom: 'Fit Width',
+                        zoomInSteps: 0,
+                    },
+                    {
+                        format,
+                        policy: 'aggressive',
+                        zoom: 'a custom zoom',
+                        zoomInSteps: 2,
+                    },
+                ] as const,
+        ),
+    ] as const)(
+        'keeps the $format reading point at $zoom under $policy tab policy',
+        async ({format, policy, zoomInSteps}) => {
+            const session = sessionFixture.getSession();
+            await setTabMemoryPolicyForE2E(session.page, policy);
+            if (format === 'PDF') {
+                const pdfPath = await createMultiPageTextFixturePdf(`tab-reading-point-${Date.now()}.pdf`, 30);
+                await openPdfInApp(session.page, pdfPath);
+                await waitForPdfLoaded(session.page);
+            } else {
+                const djvu = resolveDjvuFixturePath();
+                if (!djvu.path) {
+                    throw new Error(djvu.reason);
+                }
+                await openDjvuInApp(session.page, djvu.path, 120_000);
             }
-            await openDjvuInApp(session.page, djvu.path, 120_000);
-        }
-        const documentTabId = await session.page.$eval(
-            '.tab-list .tab.is-active[data-tab-id]',
-            element => (element as HTMLElement).dataset.tabId!,
-        );
-        for (let step = 0; step < zoomInSteps; step += 1) {
-            await clickVisibleToolbarButton(session.page, 'Zoom In');
-            await waitForViewportQuiet(session.page);
-        }
-        await goToPageViaToolbar(session.page, 12);
-        const pageTop = await readSettledReadingPoint(session);
-        // The reader then scrolls into the page, so the place is not a page top.
-        const viewportRect = await session.page.$eval(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] [data-document-viewer-chassis-viewport]',
-            element => element.getBoundingClientRect().toJSON() as DOMRect,
-        );
-        await session.page.mouse.move(viewportRect.x + viewportRect.width / 2, viewportRect.y + viewportRect.height / 2);
-        await session.page.mouse.wheel({deltaY: 230});
-        const before = await readSettledReadingPoint(session);
-        expect(Math.round(before.scrollTop - pageTop.scrollTop)).toBe(230);
-        const documentHost = await session.page.$(`.workspace-host[data-workspace-tab-id="${documentTabId}"]`);
+            const documentTabId = await session.page.$eval(
+                '.tab-list .tab.is-active[data-tab-id]',
+                (element) => (element as HTMLElement).dataset.tabId!,
+            );
+            for (let step = 0; step < zoomInSteps; step += 1) {
+                await clickVisibleToolbarButton(session.page, 'Zoom In');
+                await waitForViewportQuiet(session.page);
+            }
+            await goToPageViaToolbar(session.page, 12);
+            const pageTop = await readSettledReadingPoint(session);
+            // The reader then scrolls into the page, so the place is not a page top.
+            const viewportRect = await session.page.$eval(
+                '.editor-pane.is-active .workspace-host[data-workspace-active="true"] [data-document-viewer-chassis-viewport]',
+                (element) => element.getBoundingClientRect().toJSON() as DOMRect,
+            );
+            await session.page.mouse.move(viewportRect.x + viewportRect.width / 2, viewportRect.y + viewportRect.height / 2);
+            await session.page.mouse.wheel({deltaY: 230});
+            const before = await readSettledReadingPoint(session);
+            expect(Math.round(before.scrollTop - pageTop.scrollTop)).toBe(230);
+            const documentHost = await session.page.$(`.workspace-host[data-workspace-tab-id="${documentTabId}"]`);
 
-        await createNewTab(session);
-        if (policy === 'aggressive') {
-            await session.page.waitForFunction((tabId: string) => document.querySelector(
-                `.workspace-host[data-workspace-tab-id="${tabId}"]`,
-            ) === null, {timeout: 10_000}, documentTabId);
-            expect(await documentHost!.evaluate(host => host.isConnected)).toBe(false);
-        }
-        await clickAsUser(session.page, `.tab-list .tab[data-tab-id="${documentTabId}"]`);
-        await waitForWorkspaceToolbarSnapshot(session.page, {currentPage: 12});
-        const after = await readSettledReadingPoint(session);
+            await createNewTab(session);
+            if (policy === 'aggressive') {
+                await session.page.waitForFunction(
+                    (tabId: string) => document.querySelector(`.workspace-host[data-workspace-tab-id="${tabId}"]`) === null,
+                    {timeout: 10_000},
+                    documentTabId,
+                );
+                expect(await documentHost!.evaluate((host) => host.isConnected)).toBe(false);
+            }
+            await clickAsUser(session.page, `.tab-list .tab[data-tab-id="${documentTabId}"]`);
+            await waitForWorkspaceToolbarSnapshot(session.page, {currentPage: 12});
+            const after = await readSettledReadingPoint(session);
 
-        if (policy === 'conservative') {
-            expect(await documentHost!.evaluate(host => host.isConnected), 'The warm PDF tab was reclaimed').toBe(true);
-        }
-        // T1 and R3: the tab shows the same document point where it was left.
-        const detail = JSON.stringify({
-            before,
-            after,
-        });
-        expect(after.page, detail).toBe(before.page);
-        expect(Math.abs(after.offsetPx - before.offsetPx), detail).toBeLessThanOrEqual(1);
-        expect(Math.abs(after.offsetXPx - before.offsetXPx), detail).toBeLessThanOrEqual(1);
-    }, 120_000);
+            if (policy === 'conservative') {
+                expect(await documentHost!.evaluate((host) => host.isConnected), 'The warm PDF tab was reclaimed').toBe(true);
+            }
+            // T1 and R3: the tab shows the same document point where it was left.
+            const detail = JSON.stringify({
+                before,
+                after,
+            });
+            expect(after.page, detail).toBe(before.page);
+            expect(Math.abs(after.offsetPx - before.offsetPx), detail).toBeLessThanOrEqual(1);
+            expect(Math.abs(after.offsetXPx - before.offsetXPx), detail).toBeLessThanOrEqual(1);
+        },
+        120_000,
+    );
 
     // T1 and R3: a page top reached from the toolbar stays where it was after
     // another tab, with the Pages panel open and an earlier page rotated.
@@ -491,8 +517,15 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
         await waitForPdfLoaded(session.page);
         await openDocumentSidebarTab(session.page, 'Pages');
         await clickAsUser(session.page, '.editor-pane.is-active .pdf-thumbnails [data-thumbnail-page="2"]', {button: 'right'});
-        await clickFoundAsUser(session.page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-            .find(item => item.textContent?.trim() === 'Rotate Clockwise' && item.getBoundingClientRect().width > 0), null, {description: 'Rotate Clockwise'});
+        await clickFoundAsUser(
+            session.page,
+            () =>
+                Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(
+                    (item) => item.textContent?.trim() === 'Rotate Clockwise' && item.getBoundingClientRect().width > 0,
+                ),
+            null,
+            {description: 'Rotate Clockwise'},
+        );
         await session.page.waitForSelector('.tab.is-active.is-dirty');
         await goToPageViaToolbar(session.page, 17);
         const before = await readSettledReadingPoint(session);
@@ -536,8 +569,8 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
         await waitForInactiveHostsToReleaseRenderedPages(session);
         const pressure = await assertInactiveDocumentPressureReleased(session.page);
 
-        expect(pressure.filter(host => host.active).length).toBeGreaterThanOrEqual(2);
-        expect(pressure.filter(host => host.active).every(host => host.renderedPages > 0)).toBe(true);
+        expect(pressure.filter((host) => host.active).length).toBeGreaterThanOrEqual(2);
+        expect(pressure.filter((host) => host.active).every((host) => host.renderedPages > 0)).toBe(true);
     });
 
     it('keeps the rendered right PDF visible while activating scan cleanup on the left', async () => {
@@ -549,14 +582,8 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
             height: 982,
             width: 1_512,
         });
-        const sourcePath = await createMultiPageTextFixturePdf(
-            `split-activation-source-${Date.now()}.pdf`,
-            6,
-        );
-        const cleanedPath = await createMultiPageTextFixturePdf(
-            `split-activation-cleaned-${Date.now()}.pdf`,
-            1,
-        );
+        const sourcePath = await createMultiPageTextFixturePdf(`split-activation-source-${Date.now()}.pdf`, 6);
+        const cleanedPath = await createMultiPageTextFixturePdf(`split-activation-cleaned-${Date.now()}.pdf`, 1);
         await openPdfInApp(session.page, sourcePath, 90_000);
         await waitForPdfLoaded(session.page, 90_000);
         await clickVisibleToolbarButton(session.page, 'Scan cleanup');
@@ -568,13 +595,18 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
         await openNewPane(session.page, 'right');
         await openPdfInApp(session.page, cleanedPath, 90_000);
         await waitForPdfLoaded(session.page, 90_000);
-        await session.page.waitForFunction(() => {
-            const panes = Array.from(document.querySelectorAll<HTMLElement>('.editor-pane'));
-            return panes.length === 2
-                && panes[0]?.querySelector('.scan-cleanup-surface') !== null
-                && panes[1]?.querySelector('.page_container--rendered canvas') !== null
-                && panes[1]?.classList.contains('is-active') === true;
-        }, {timeout: 30_000});
+        await session.page.waitForFunction(
+            () => {
+                const panes = Array.from(document.querySelectorAll<HTMLElement>('.editor-pane'));
+                return (
+                    panes.length === 2 &&
+                    panes[0]?.querySelector('.scan-cleanup-surface') !== null &&
+                    panes[1]?.querySelector('.page_container--rendered canvas') !== null &&
+                    panes[1]?.classList.contains('is-active') === true
+                );
+            },
+            {timeout: 30_000},
+        );
 
         await session.page.evaluate(() => {
             const rightPane = document.querySelectorAll<HTMLElement>('.editor-pane')[1];
@@ -595,16 +627,18 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
                 // behind the pages, so only a painted skeleton on screen counts.
                 const flashed = Array.from(rightPane.querySelectorAll<HTMLElement>('.document-page-skeleton')).some((skeleton) => {
                     const bounds = skeleton.getBoundingClientRect();
-                    return skeleton.checkVisibility({
-                        opacityProperty: true,
-                        visibilityProperty: true,
-                    })
-                        && bounds.width > 0
-                        && bounds.height > 0
-                        && bounds.bottom > viewport.top
-                        && bounds.top < viewport.bottom
-                        && bounds.right > viewport.left
-                        && bounds.left < viewport.right;
+                    return (
+                        skeleton.checkVisibility({
+                            opacityProperty: true,
+                            visibilityProperty: true,
+                        }) &&
+                        bounds.width > 0 &&
+                        bounds.height > 0 &&
+                        bounds.bottom > viewport.top &&
+                        bounds.top < viewport.bottom &&
+                        bounds.right > viewport.left &&
+                        bounds.left < viewport.right
+                    );
                 });
                 if (flashed) {
                     state.flashCount += 1;
@@ -633,7 +667,7 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
         });
 
         await clickAsUser(session.page, '.editor-pane:not(.is-active) .scan-cleanup-surface');
-        await new Promise(resolve => setTimeout(resolve, 1_500));
+        await new Promise((resolve) => setTimeout(resolve, 1_500));
         const result = await session.page.evaluate(() => {
             if (!('__rightFileFlashProbe' in window)) {
                 throw new Error('Right file flash probe is unavailable');
@@ -655,10 +689,7 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
             sessionName: () => `e2e-pdf-empty-split-continuity-${Date.now()}`,
         });
 
-        const fixturePath = await createMultiPageTextFixturePdf(
-            `pdf-empty-split-continuity-${Date.now()}.pdf`,
-            8,
-        );
+        const fixturePath = await createMultiPageTextFixturePdf(`pdf-empty-split-continuity-${Date.now()}.pdf`, 8);
         await openPdfInApp(session.page, fixturePath);
         await waitForPdfLoaded(session.page);
         await goToPageViaToolbar(session.page, 4);
@@ -690,59 +721,66 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
         await markCommittedSurfaceInteractionCheckpoint(session.page, 'restore');
         const tabPoint = await session.page.evaluate(() => {
             const rect = document.querySelectorAll<HTMLElement>('.tab-list .tab[data-tab-id]')[0]?.getBoundingClientRect();
-            return rect ? {
-                x: rect.left + rect.width / 2,
-                y: rect.top + rect.height / 2,
-            } : null;
+            return rect
+                ? {
+                      x: rect.left + rect.width / 2,
+                      y: rect.top + rect.height / 2,
+                  }
+                : null;
         });
         expect(tabPoint).not.toBeNull();
         await session.page.mouse.click(tabPoint!.x, tabPoint!.y);
-        await session.page.waitForFunction(() => document.querySelector(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .page_container--rendered[data-page="5"] canvas',
-        ) !== null, {timeout: 30_000});
+        await session.page.waitForFunction(
+            () =>
+                document.querySelector(
+                    '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .page_container--rendered[data-page="5"] canvas',
+                ) !== null,
+            {timeout: 30_000},
+        );
         await waitForPdfLoaded(session.page);
         const trace = await stopCommittedSurfaceSampler(session.page);
-        const frames = trace.frames.filter(frame => frame.interactionCheckpoint === 'restore');
-        const details = JSON.stringify(frames.map(frame => ({
-            elapsedMs: frame.elapsedMs,
-            kind: frame.kind,
-            page: frame.pageNumber,
-            phase: frame.openSurfacePhase,
-            requestedPage: frame.openSurfaceDiagnostic?.viewportRequestedPage,
-            shellRect: frame.shellRect,
-        })));
+        const frames = trace.frames.filter((frame) => frame.interactionCheckpoint === 'restore');
+        const details = JSON.stringify(
+            frames.map((frame) => ({
+                elapsedMs: frame.elapsedMs,
+                kind: frame.kind,
+                page: frame.pageNumber,
+                phase: frame.openSurfacePhase,
+                requestedPage: frame.openSurfaceDiagnostic?.viewportRequestedPage,
+                shellRect: frame.shellRect,
+            })),
+        );
 
         expect(trace.errors ?? [], details).toEqual([]);
         expect(await getToolbarCurrentPage(session.page)).toBe(5);
         // The restore opens at the page the tab was left on: no frame of the
         // opening asks for another page.
-        expect(frames.filter(frame => [
-            'pending',
-            'geometry-committed',
-            'canvas-committed',
-            'viewport-committed',
-        ].includes(frame.openSurfacePhase ?? '') && frame.openSurfaceDiagnostic?.viewportRequestedPage !== '5'), details).toEqual([]);
+        expect(
+            frames.filter(
+                (frame) =>
+                    ['pending', 'geometry-committed', 'canvas-committed', 'viewport-committed'].includes(frame.openSurfacePhase ?? '') &&
+                    frame.openSurfaceDiagnostic?.viewportRequestedPage !== '5',
+            ),
+            details,
+        ).toEqual([]);
         // One skeleton, page 5's, then page 5 in its place, never back to the
         // bare viewer in between (behavior contract T5).
-        const firstShellIndex = frames.findIndex(frame => frame.kind === 'page-shell');
+        const firstShellIndex = frames.findIndex((frame) => frame.kind === 'page-shell');
         expect(firstShellIndex, details).toBeGreaterThan(0);
         const opening = frames.slice(firstShellIndex);
-        const firstCanvasIndex = opening.findIndex(frame => frame.kind === 'committed-canvas');
+        const firstCanvasIndex = opening.findIndex((frame) => frame.kind === 'committed-canvas');
         expect(firstCanvasIndex, details).toBeGreaterThan(0);
-        expect(opening.slice(0, firstCanvasIndex).every(frame => (
-            frame.kind === 'page-shell' && frame.pageNumber === 5
-        )), details).toBe(true);
-        expect(opening.slice(firstCanvasIndex).every(frame => (
-            frame.kind === 'committed-canvas' && frame.pageNumber === 5
-        )), details).toBe(true);
+        expect(
+            opening.slice(0, firstCanvasIndex).every((frame) => frame.kind === 'page-shell' && frame.pageNumber === 5),
+            details,
+        ).toBe(true);
+        expect(
+            opening.slice(firstCanvasIndex).every((frame) => frame.kind === 'committed-canvas' && frame.pageNumber === 5),
+            details,
+        ).toBe(true);
         const canvasRect = opening.at(-1)!.shellRect!;
         for (const shell of opening.slice(0, firstCanvasIndex)) {
-            for (const key of [
-                'height',
-                'left',
-                'top',
-                'width',
-            ] as const) {
+            for (const key of ['height', 'left', 'top', 'width'] as const) {
                 expect(Math.abs(shell.shellRect![key] - canvasRect[key]), details).toBeLessThanOrEqual(0.5);
             }
         }
@@ -752,19 +790,26 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
         const settingsPath = resolve('.devkit/sessions', session.name, 'electron-user-data/settings.json');
         const settings = await session.page.evaluate(async () => {
             const api = (window as IE2EWindow).electronAPI;
-            if (!api) {throw new Error('Electron settings bridge unavailable');}
+            if (!api) {
+                throw new Error('Electron settings bridge unavailable');
+            }
             return api.settings.get();
         });
-        await writeFile(settingsPath, JSON.stringify({
-            ...settings,
-            agentMcpEnabled: true,
-        }));
+        await writeFile(
+            settingsPath,
+            JSON.stringify({
+                ...settings,
+                agentMcpEnabled: true,
+            }),
+        );
         const reservation = createServer();
-        await new Promise<void>(resolve => reservation.listen(0, '127.0.0.1', resolve));
+        await new Promise<void>((resolve) => reservation.listen(0, '127.0.0.1', resolve));
         const address = reservation.address();
-        if (!address || typeof address === 'string') {throw new Error('No task MCP port');}
+        if (!address || typeof address === 'string') {
+            throw new Error('No task MCP port');
+        }
         const port = address.port;
-        await new Promise<void>((resolve, reject) => reservation.close(error => error ? reject(error) : resolve()));
+        await new Promise<void>((resolve, reject) => reservation.close((error) => (error ? reject(error) : resolve())));
         const token = randomBytes(32).toString('hex');
         session = await sessionFixture.restart({
             clean: false,
@@ -803,37 +848,53 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
         await createNewTab(session);
         await openPdfInApp(page, secondFixturePath);
         await waitForPdfLoaded(page);
-        const targetTabId = await page.$eval('.tab.is-active[data-tab-id]', tab => tab.getAttribute('data-tab-id'));
+        const targetTabId = await page.$eval('.tab.is-active[data-tab-id]', (tab) => tab.getAttribute('data-tab-id'));
         await activateTab(session, 0);
         await waitForPdfLoaded(page);
-        const selectedTabId = await page.$eval('.tab.is-active[data-tab-id]', tab => tab.getAttribute('data-tab-id'));
-        const readVisible = () => page.evaluate((pageNumber: number) => ({
-            selected: document.querySelector('.tab.is-active[data-tab-id]')?.getAttribute('data-tab-id'),
-            text: document.querySelector(`.workspace-host[data-workspace-active="true"] .page_container[data-page="${pageNumber}"] .text-layer`)?.textContent,
-            zoom: [...document.querySelectorAll('.zoom-controls-display-value')].find(element => element.getBoundingClientRect().width > 0)?.textContent,
-            dirty: [...document.querySelectorAll('.tab[data-tab-id]')].map(tab => tab.className),
-        }), point.page);
+        const selectedTabId = await page.$eval('.tab.is-active[data-tab-id]', (tab) => tab.getAttribute('data-tab-id'));
+        const readVisible = () =>
+            page.evaluate(
+                (pageNumber: number) => ({
+                    selected: document.querySelector('.tab.is-active[data-tab-id]')?.getAttribute('data-tab-id'),
+                    text: document.querySelector(
+                        `.workspace-host[data-workspace-active="true"] .page_container[data-page="${pageNumber}"] .text-layer`,
+                    )?.textContent,
+                    zoom: [...document.querySelectorAll('.zoom-controls-display-value')].find(
+                        (element) => element.getBoundingClientRect().width > 0,
+                    )?.textContent,
+                    dirty: [...document.querySelectorAll('.tab[data-tab-id]')].map((tab) => tab.className),
+                }),
+                point.page,
+            );
         const point = await readSettledReadingPoint(session);
-        await page.waitForFunction((pageNumber: number) => document.querySelector(`.workspace-host[data-workspace-active="true"] .page_container[data-page="${pageNumber}"] .text-layer`)?.textContent?.includes('E2E Multi Page Fixture'), {}, point.page);
+        await page.waitForFunction(
+            (pageNumber: number) =>
+                document
+                    .querySelector(`.workspace-host[data-workspace-active="true"] .page_container[data-page="${pageNumber}"] .text-layer`)
+                    ?.textContent?.includes('E2E Multi Page Fixture'),
+            {},
+            point.page,
+        );
         const before = await readVisible();
         expect(before.selected).toBe(selectedTabId);
         expect(before.text).toContain('E2E Multi Page Fixture');
         expect(before.zoom).toMatch(/%/u);
         const originalBytes = await readFile(secondFixturePath);
-        for (const id of [
-            'view.activate_tab',
-            'view.go_to_page',
-        ]) {
-            expect(await call('evb_run_action', {
-                id,
-                tabId: targetTabId,
-                ...(id === 'view.go_to_page' ? {input: {page: 3}} : {}),
-                dryRun: true,
-            })).toMatchObject({structuredContent: {
-                dryRun: true,
-                wouldRun: true,
-                targetTabId,
-            }});
+        for (const id of ['view.activate_tab', 'view.go_to_page']) {
+            expect(
+                await call('evb_run_action', {
+                    id,
+                    tabId: targetTabId,
+                    ...(id === 'view.go_to_page' ? {input: {page: 3}} : {}),
+                    dryRun: true,
+                }),
+            ).toMatchObject({
+                structuredContent: {
+                    dryRun: true,
+                    wouldRun: true,
+                    targetTabId,
+                },
+            });
             expect(await readVisible()).toEqual(before);
             expect(await readSettledReadingPoint(session)).toEqual(point);
         }
@@ -842,11 +903,15 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
         const preview = await call('evb_read_action', {
             id: 'bookmarks.preview_tree',
             tabId: targetTabId,
-            input: {entries: [{
-                level: 1,
-                title: 'Preview',
-                page: 2,
-            }]},
+            input: {
+                entries: [
+                    {
+                        level: 1,
+                        title: 'Preview',
+                        page: 2,
+                    },
+                ],
+            },
         });
         console.info(`A40 metadata preview target mounted: ${target.workspaceAttached}`);
         if (target.workspaceAttached) {
@@ -876,5 +941,4 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
         expect(await readFile(secondFixturePath)).toEqual(originalBytes);
         await session.command('screenshot', ['a40-passive-tabs']);
     });
-
 });

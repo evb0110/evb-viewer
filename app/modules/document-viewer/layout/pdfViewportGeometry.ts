@@ -1,8 +1,8 @@
-import { requirePageIndex } from '@contracts/pageNumbers';
-import type { TPageNumber } from '@contracts/pageNumbers';
+import {requirePageIndex} from '@contracts/pageNumbers';
+import type {TPageNumber} from '@contracts/pageNumbers';
 
-import { clamp } from 'es-toolkit/math';
-import type { IPdfPageLayoutMetrics } from '@app/modules/document-viewer/layout/pdfPageLayoutMetrics';
+import {clamp} from 'es-toolkit/math';
+import type {IPdfPageLayoutMetrics} from '@app/modules/document-viewer/layout/pdfPageLayoutMetrics';
 import {
     getLayoutContentHeight,
     getLayoutPageHeight,
@@ -44,18 +44,12 @@ export function createPdfViewportGeometryFromLayout(
         const rowEndPage = metrics.base.rowEndPages[rowIndex] ?? index + 1;
         let rowWidth = 0;
         for (let page = rowStartPage; page <= rowEndPage; page += 1) {
-            rowWidth += getLayoutPageWidth(
-                metrics,
-                requirePageIndex(page - 1, metrics.base.totalPages),
-            );
+            rowWidth += getLayoutPageWidth(metrics, requirePageIndex(page - 1, metrics.base.totalPages));
         }
         rowWidth += Math.max(0, rowEndPage - rowStartPage) * metrics.gap;
         let left = Math.max(paddingInline, (viewport.width - rowWidth) / 2);
         for (let page = rowStartPage; page < index + 1; page += 1) {
-            left += getLayoutPageWidth(
-                metrics,
-                requirePageIndex(page - 1, metrics.base.totalPages),
-            ) + metrics.gap;
+            left += getLayoutPageWidth(metrics, requirePageIndex(page - 1, metrics.base.totalPages)) + metrics.gap;
         }
         const pageIndex = requirePageIndex(index, metrics.base.totalPages);
         return {
@@ -96,9 +90,7 @@ export function createPdfViewportGeometryFromLayout(
         getValue: getRow,
         cacheValues: false,
     });
-    const maxPageWidth = Number.isFinite(metrics.base.maxPageWidth)
-        ? Math.max(0, metrics.base.maxPageWidth)
-        : 0;
+    const maxPageWidth = Number.isFinite(metrics.base.maxPageWidth) ? Math.max(0, metrics.base.maxPageWidth) : 0;
     return {
         revision,
         insetTop: metrics.paddingTop,
@@ -110,10 +102,9 @@ export function createPdfViewportGeometryFromLayout(
             if (metrics.base.isSparse) {
                 return Math.max(
                     viewport.width,
-                    maxPageWidth * metrics.scale
-                        * (metrics.base.rowStartPages.length < metrics.base.totalPages ? 2 : 1)
-                        + (metrics.base.rowStartPages.length < metrics.base.totalPages ? metrics.gap : 0)
-                        + paddingInline * 2,
+                    maxPageWidth * metrics.scale * (metrics.base.rowStartPages.length < metrics.base.totalPages ? 2 : 1) +
+                        (metrics.base.rowStartPages.length < metrics.base.totalPages ? metrics.gap : 0) +
+                        paddingInline * 2,
                 );
             }
             let width = viewport.width;
@@ -125,8 +116,8 @@ export function createPdfViewportGeometryFromLayout(
         },
         contentHeight: Math.max(viewport.height, getLayoutContentHeight(metrics)),
         physicalScrollOrigin: Math.max(0, physicalScrollOrigin),
-        physicalScrollHeight: getLayoutPhysicalScrollSegment(metrics, Math.max(0, physicalScrollOrigin))?.height
-            ?? getLayoutContentHeight(metrics),
+        physicalScrollHeight:
+            getLayoutPhysicalScrollSegment(metrics, Math.max(0, physicalScrollOrigin))?.height ?? getLayoutContentHeight(metrics),
         pageRects,
         rows,
     };
@@ -146,7 +137,7 @@ export interface IPdfViewportGeometry {
     rows: ReadonlyArray<{
         startPage: number;
         endPage: number;
-        rect: IPdfViewportRect
+        rect: IPdfViewportRect;
     }>;
 }
 
@@ -155,18 +146,13 @@ export interface IPdfViewportGeometry {
  * a virtual row array, so callers that need one page's mounted row must use
  * this indexed lookup rather than Array.prototype.find or a spread.
  */
-export function getViewportGeometryRowForPage(
-    geometry: IPdfViewportGeometry,
-    pageNumber: TPageNumber,
-) {
+export function getViewportGeometryRowForPage(geometry: IPdfViewportGeometry, pageNumber: TPageNumber) {
     const rowCount = geometry.rows.length;
     if (rowCount === 0) {
         return null;
     }
 
-    const page = Number.isFinite(pageNumber)
-        ? clamp(Math.trunc(pageNumber), 1, Math.max(1, geometry.pageRects.length))
-        : 1;
+    const page = Number.isFinite(pageNumber) ? clamp(Math.trunc(pageNumber), 1, Math.max(1, geometry.pageRects.length)) : 1;
     let low = 0;
     let high = rowCount - 1;
     while (low <= high) {
@@ -207,15 +193,15 @@ export function resolveScrollForPageRect(
 ) {
     return {
         left: clamp(
-            page.left + clamp(anchor.pageXFraction, 0, 1) * page.width
-                - clamp(anchor.viewportXFraction, 0, 1) * viewport.width,
+            page.left + clamp(anchor.pageXFraction, 0, 1) * page.width - clamp(anchor.viewportXFraction, 0, 1) * viewport.width,
             0,
             Math.max(0, content.width - viewport.width),
         ),
         top: clamp(
-            page.top + clamp(anchor.pageYFraction, 0, 1) * page.height
-                - clamp(anchor.viewportYFraction, 0, 1) * viewport.height
-                - (anchor.affinity === 'start' ? startInset : 0),
+            page.top +
+                clamp(anchor.pageYFraction, 0, 1) * page.height -
+                clamp(anchor.viewportYFraction, 0, 1) * viewport.height -
+                (anchor.affinity === 'start' ? startInset : 0),
             0,
             Math.max(0, content.height - viewport.height),
         ),
@@ -230,16 +216,22 @@ export function resolveScrollForAnchor(geometry: IPdfViewportGeometry, anchor: I
             top: 0,
         };
     }
-    return resolveScrollForPageRect({
-        ...rect,
-        top: rect.top - geometry.physicalScrollOrigin,
-    }, anchor, {
-        width: geometry.viewportWidth,
-        height: geometry.viewportHeight,
-    }, {
-        width: geometry.contentWidth,
-        height: Math.max(geometry.viewportHeight, geometry.physicalScrollHeight),
-    }, geometry.insetTop);
+    return resolveScrollForPageRect(
+        {
+            ...rect,
+            top: rect.top - geometry.physicalScrollOrigin,
+        },
+        anchor,
+        {
+            width: geometry.viewportWidth,
+            height: geometry.viewportHeight,
+        },
+        {
+            width: geometry.contentWidth,
+            height: Math.max(geometry.viewportHeight, geometry.physicalScrollHeight),
+        },
+        geometry.insetTop,
+    );
 }
 
 /** R1 indicator projection; the semantic center anchor remains independent. */
@@ -247,7 +239,7 @@ export function resolvePageIndicatorFromScroll(
     geometry: IPdfViewportGeometry,
     scroll: {
         left: number;
-        top: number
+        top: number;
     },
     previousPage: number,
 ) {
@@ -256,9 +248,15 @@ export function resolvePageIndicatorFromScroll(
     const right = left + geometry.viewportWidth;
     const bottom = top + geometry.viewportHeight;
     const previous = geometry.pageRects[previousPage - 1];
-    if (previous && previous.width > 0 && previous.height > 0
-        && previous.left >= left && previous.left + previous.width <= right
-        && previous.top >= top && previous.top + previous.height <= bottom) {
+    if (
+        previous &&
+        previous.width > 0 &&
+        previous.height > 0 &&
+        previous.left >= left &&
+        previous.left + previous.width <= right &&
+        previous.top >= top &&
+        previous.top + previous.height <= bottom
+    ) {
         return previousPage;
     }
     // Only intersecting rows are candidates, including both facing pages.
@@ -267,21 +265,27 @@ export function resolvePageIndicatorFromScroll(
     while (low < high) {
         const middle = low + Math.floor((high - low) / 2);
         const row = geometry.rows[middle]!;
-        if (row.rect.top + row.rect.height < top) {low = middle + 1;}
-        else {high = middle;}
+        if (row.rect.top + row.rect.height < top) {
+            low = middle + 1;
+        } else {
+            high = middle;
+        }
     }
     let page = previousPage;
     let fraction = -1;
     for (let rowIndex = low; rowIndex < geometry.rows.length; rowIndex += 1) {
         const row = geometry.rows[rowIndex]!;
-        if (row.rect.top > bottom) {break;}
+        if (row.rect.top > bottom) {
+            break;
+        }
         for (let candidate = row.startPage; candidate <= row.endPage; candidate += 1) {
             const rect = geometry.pageRects[candidate - 1]!;
             const width = Math.max(0, Math.min(right, rect.left + rect.width) - Math.max(left, rect.left));
             const height = Math.max(0, Math.min(bottom, rect.top + rect.height) - Math.max(top, rect.top));
-            if (width <= 0 || rect.height <= 0
-                || height < Math.min(rect.height, geometry.viewportHeight) / 4) {continue;}
-            const visibleFraction = width * height / (rect.width * rect.height);
+            if (width <= 0 || rect.height <= 0 || height < Math.min(rect.height, geometry.viewportHeight) / 4) {
+                continue;
+            }
+            const visibleFraction = (width * height) / (rect.width * rect.height);
             if (visibleFraction > fraction) {
                 page = candidate;
                 fraction = visibleFraction;
@@ -295,7 +299,7 @@ export function resolveAnchorFromScroll(
     geometry: IPdfViewportGeometry,
     scroll: {
         left: number;
-        top: number
+        top: number;
     },
     viewportFraction = {
         x: 0.5,
@@ -303,8 +307,7 @@ export function resolveAnchorFromScroll(
     },
 ): IPdfSemanticAnchor {
     const x = scroll.left + geometry.viewportWidth * viewportFraction.x;
-    const y = scroll.top + geometry.physicalScrollOrigin
-        + geometry.viewportHeight * viewportFraction.y;
+    const y = scroll.top + geometry.physicalScrollOrigin + geometry.viewportHeight * viewportFraction.y;
     const rowCount = geometry.rows.length;
     if (rowCount === 0 || geometry.pageRects.length === 0) {
         return {
@@ -349,10 +352,7 @@ export function resolveAnchorFromScroll(
             candidateRowIndexes.push(nextRowIndex);
         }
     } else {
-        candidateRowIndexes.push(
-            clamp(high, 0, Math.max(0, rowCount - 1)),
-            clamp(low, 0, Math.max(0, rowCount - 1)),
-        );
+        candidateRowIndexes.push(clamp(high, 0, Math.max(0, rowCount - 1)), clamp(low, 0, Math.max(0, rowCount - 1)));
     }
     let containingPageIndex = -1;
     let horizontalCandidate: {
@@ -378,9 +378,7 @@ export function resolveAnchorFromScroll(
                 continue;
             }
             const verticallyContains = y >= rect.top && y <= rect.top + rect.height;
-            const verticalDistance = verticallyContains
-                ? 0
-                : Math.abs(rect.top + rect.height / 2 - y);
+            const verticalDistance = verticallyContains ? 0 : Math.abs(rect.top + rect.height / 2 - y);
             if (verticalDistance < nearestPageDistance) {
                 nearestPageDistance = verticalDistance;
                 nearestPageIndex = pageIndex;
@@ -404,9 +402,7 @@ export function resolveAnchorFromScroll(
             break;
         }
     }
-    const pageIndex = containingPageIndex >= 0
-        ? containingPageIndex
-        : horizontalCandidate?.index ?? nearestPageIndex;
+    const pageIndex = containingPageIndex >= 0 ? containingPageIndex : (horizontalCandidate?.index ?? nearestPageIndex);
     const rect = geometry.pageRects[pageIndex] ?? {
         left: 0,
         top: 0,
@@ -434,10 +430,7 @@ export function resolveRetainedAnchorFromScroll(
 ) {
     if (committedAnchor) {
         const projected = resolveScrollForAnchor(geometry, committedAnchor);
-        if (
-            Math.abs(projected.left - scroll.left) <= tolerance
-            && Math.abs(projected.top - scroll.top) <= tolerance
-        ) {
+        if (Math.abs(projected.left - scroll.left) <= tolerance && Math.abs(projected.top - scroll.top) <= tolerance) {
             return committedAnchor;
         }
     }

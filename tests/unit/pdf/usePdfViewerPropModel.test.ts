@@ -1,12 +1,8 @@
-import { reactive, ref, shallowRef } from 'vue';
-import type { IZoomStateAccess, TPdfZoomState } from '@contracts/shared';
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import type { IPdfViewerProps } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerComponent.types';
-import { usePdfViewerPropModel } from '@app/modules/pdf-viewer/runtime/contracts/usePdfViewerPropModel';
+import {reactive, ref, shallowRef} from 'vue';
+import type {IZoomStateAccess, TPdfZoomState} from '@contracts/shared';
+import {describe, expect, it} from 'vitest';
+import type {IPdfViewerProps} from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerComponent.types';
+import {usePdfViewerPropModel} from '@app/modules/pdf-viewer/runtime/contracts/usePdfViewerPropModel';
 
 describe('usePdfViewerPropModel', () => {
     it('normalizes PdfViewer public prop defaults', () => {

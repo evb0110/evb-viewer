@@ -1,6 +1,6 @@
 import path from 'node:path';
-import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
-import { NativeProcessError } from '@electron/native-tools/processResult';
+import {runNativeCommand} from '@electron/native-tools/runNativeCommand';
+import {NativeProcessError} from '@electron/native-tools/processResult';
 
 const CODESIGN_CHECK_TIMEOUT_MS = 30_000;
 
@@ -16,26 +16,15 @@ async function runCodesign(args: string[]) {
 
 export async function checkMacCodeSignature() {
     const appBundle = path.resolve(process.execPath, '..', '..', '..');
-    const verification = await runCodesign([
-        '--verify',
-        '--deep',
-        '--strict',
-        '--verbose=2',
-        appBundle,
-    ]);
+    const verification = await runCodesign(['--verify', '--deep', '--strict', '--verbose=2', appBundle]);
     if (typeof verification !== 'string') {
         return verification;
     }
 
-    const details = await runCodesign([
-        '-d',
-        '--verbose=4',
-        appBundle,
-    ]);
+    const details = await runCodesign(['-d', '--verbose=4', appBundle]);
     if (typeof details !== 'string') {
         return details;
     }
 
-    return /^Authority=Developer ID Application:/mu.test(details)
-        && /^TeamIdentifier=\S+/mu.test(details);
+    return /^Authority=Developer ID Application:/mu.test(details) && /^TeamIdentifier=\S+/mu.test(details);
 }

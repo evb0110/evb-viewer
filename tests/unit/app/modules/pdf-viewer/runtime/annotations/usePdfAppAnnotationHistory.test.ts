@@ -1,11 +1,5 @@
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { usePdfAppAnnotationHistory } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAppAnnotationHistory';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {usePdfAppAnnotationHistory} from '@app/modules/pdf-viewer/runtime/annotations/usePdfAppAnnotationHistory';
 import {
     AnnotationHistoryCompensationError,
     AnnotationHistoryIndeterminateError,
@@ -13,7 +7,7 @@ import {
 import {useWorkspaceCommandLedger} from '@app/modules/workspace-shell/composables/useWorkspaceCommandLedger';
 import {BrowserLogger} from '@app/utils/browserLogger';
 import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import type { IAnnotationEditorState } from '@app/types/annotations';
+import type {IAnnotationEditorState} from '@app/types/annotations';
 
 describe('usePdfAppAnnotationHistory', () => {
     afterEach(() => {
@@ -23,7 +17,7 @@ describe('usePdfAppAnnotationHistory', () => {
     it('reports app history availability through the emitted state', () => {
         const emittedStates: IAnnotationEditorState[] = [];
         const history = usePdfAppAnnotationHistory({
-            emitAnnotationState: state => emittedStates.push(state),
+            emitAnnotationState: (state) => emittedStates.push(state),
             markModified: vi.fn(),
         });
 
@@ -128,7 +122,7 @@ describe('usePdfAppAnnotationHistory', () => {
         const undo = vi.fn();
         const cmd = vi.fn();
         const history = usePdfAppAnnotationHistory({
-            emitAnnotationState: state => emittedStates.push(state),
+            emitAnnotationState: (state) => emittedStates.push(state),
             markModified,
         });
 
@@ -210,11 +204,7 @@ describe('usePdfAppAnnotationHistory', () => {
         expect(markModified).toHaveBeenCalledTimes(2);
         expect(emitAnnotationState).toHaveBeenCalledTimes(2);
         expect(warn).toHaveBeenCalledTimes(2);
-        expect(warn).toHaveBeenCalledWith(
-            'annotations',
-            'Failed to mark the document modified after replay',
-            markFailure,
-        );
+        expect(warn).toHaveBeenCalledWith('annotations', 'Failed to mark the document modified after replay', markFailure);
     });
 
     it('restores local stacks when history trimming throws after a command applies', () => {
@@ -269,7 +259,9 @@ describe('usePdfAppAnnotationHistory', () => {
         history.registerCommand({
             undo: vi.fn(),
             cmd: () => {
-                if (rejectRedo) {throw new Error('identity conflict');}
+                if (rejectRedo) {
+                    throw new Error('identity conflict');
+                }
             },
         });
         history.undo();
@@ -304,24 +296,13 @@ describe('usePdfAppAnnotationHistory', () => {
 
         expect(history.undo()).toBe(true);
         expect(history.canUndo.value).toBe(false);
-        expect(calls).toEqual([
-            'canonical-undo',
-            'executor-undo',
-        ]);
+        expect(calls).toEqual(['canonical-undo', 'executor-undo']);
         expect(history.redo()).toBe(true);
-        expect(calls).toEqual([
-            'canonical-undo',
-            'executor-undo',
-            'executor-redo',
-            'canonical-redo',
-        ]);
+        expect(calls).toEqual(['canonical-undo', 'executor-undo', 'executor-redo', 'canonical-redo']);
     });
 
     it('compensates a transaction redo that fails before or after its child effect', () => {
-        const state = [
-            'first',
-            'second',
-        ];
+        const state = ['first', 'second'];
         const beforeFailure = new Error('second redo failed before mutation');
         const afterFailure = new Error('second redo failed after mutation');
         let failureTiming: 'before' | 'after' | null = 'before';
@@ -336,10 +317,14 @@ describe('usePdfAppAnnotationHistory', () => {
             });
             history.registerCommand({
                 cmd: (registerFailureRollback) => {
-                    if (failureTiming === 'before') {throw beforeFailure;}
+                    if (failureTiming === 'before') {
+                        throw beforeFailure;
+                    }
                     state.push('second');
                     registerFailureRollback?.(() => state.pop());
-                    if (failureTiming === 'after') {throw afterFailure;}
+                    if (failureTiming === 'after') {
+                        throw afterFailure;
+                    }
                 },
                 undo: () => state.pop(),
             });
@@ -370,17 +355,11 @@ describe('usePdfAppAnnotationHistory', () => {
 
         failureTiming = null;
         expect(history.redo()).toBe(true);
-        expect(state).toEqual([
-            'first',
-            'second',
-        ]);
+        expect(state).toEqual(['first', 'second']);
     });
 
     it('compensates a transaction undo that fails before or after its child effect', () => {
-        const state = [
-            'first',
-            'second',
-        ];
+        const state = ['first', 'second'];
         const beforeFailure = new Error('first undo failed before mutation');
         const afterFailure = new Error('first undo failed after mutation');
         let failureTiming: 'before' | 'after' | null = 'before';
@@ -392,12 +371,18 @@ describe('usePdfAppAnnotationHistory', () => {
             history.registerCommand({
                 cmd: () => state.push('first'),
                 undo: (registerFailureRollback) => {
-                    if (failureTiming === 'before') {throw beforeFailure;}
+                    if (failureTiming === 'before') {
+                        throw beforeFailure;
+                    }
                     const removed = state.pop();
                     registerFailureRollback?.(() => {
-                        if (removed) {state.push(removed);}
+                        if (removed) {
+                            state.push(removed);
+                        }
                     });
-                    if (failureTiming === 'after') {throw afterFailure;}
+                    if (failureTiming === 'after') {
+                        throw afterFailure;
+                    }
                 },
             });
             history.registerCommand({
@@ -413,10 +398,7 @@ describe('usePdfAppAnnotationHistory', () => {
             received = error;
         }
         expect(received).toBe(beforeFailure);
-        expect(state).toEqual([
-            'first',
-            'second',
-        ]);
+        expect(state).toEqual(['first', 'second']);
         expect(history.canUndo.value).toBe(true);
 
         failureTiming = 'after';
@@ -427,10 +409,7 @@ describe('usePdfAppAnnotationHistory', () => {
             received = error;
         }
         expect(received).toBe(afterFailure);
-        expect(state).toEqual([
-            'first',
-            'second',
-        ]);
+        expect(state).toEqual(['first', 'second']);
         expect(history.canUndo.value).toBe(true);
 
         failureTiming = null;
@@ -439,10 +418,7 @@ describe('usePdfAppAnnotationHistory', () => {
     });
 
     it('attempts every transaction rollback and poisons retryable history when compensation fails', () => {
-        const state = [
-            'first',
-            'second',
-        ];
+        const state = ['first', 'second'];
         const replayFailure = new Error('second redo failed after mutation');
         const activeRollbackFailure = new Error('second rollback failed');
         const priorRollbackFailure = new Error('first rollback failed');
@@ -450,11 +426,15 @@ describe('usePdfAppAnnotationHistory', () => {
         let failCompensation = false;
         const firstUndo = vi.fn(() => {
             state.pop();
-            if (failCompensation) {throw priorRollbackFailure;}
+            if (failCompensation) {
+                throw priorRollbackFailure;
+            }
         });
         const secondRollback = vi.fn(() => {
             state.pop();
-            if (failCompensation) {throw activeRollbackFailure;}
+            if (failCompensation) {
+                throw activeRollbackFailure;
+            }
         });
         const history = usePdfAppAnnotationHistory({
             emitAnnotationState: () => {},
@@ -469,7 +449,9 @@ describe('usePdfAppAnnotationHistory', () => {
                 cmd: (registerFailureRollback) => {
                     state.push('second');
                     registerFailureRollback?.(secondRollback);
-                    if (failRedo) {throw replayFailure;}
+                    if (failRedo) {
+                        throw replayFailure;
+                    }
                 },
                 undo: () => state.pop(),
             });
@@ -487,10 +469,7 @@ describe('usePdfAppAnnotationHistory', () => {
 
         expect(received).toBeInstanceOf(AnnotationHistoryCompensationError);
         expect((received as AnnotationHistoryCompensationError).cause).toBe(replayFailure);
-        expect((received as AnnotationHistoryCompensationError).rollbackErrors).toEqual([
-            activeRollbackFailure,
-            priorRollbackFailure,
-        ]);
+        expect((received as AnnotationHistoryCompensationError).rollbackErrors).toEqual([activeRollbackFailure, priorRollbackFailure]);
         expect(secondRollback).toHaveBeenCalledOnce();
         expect(firstUndo).toHaveBeenCalledTimes(2);
         expect(history.canUndo.value).toBe(false);
@@ -783,10 +762,7 @@ describe('usePdfAppAnnotationHistory', () => {
         history.registerCommand({
             undo: pairedUndo,
             cmd: vi.fn(),
-            annotationIds: [
-                forgottenId,
-                survivingId,
-            ],
+            annotationIds: [forgottenId, survivingId],
         });
 
         history.forgetCommands(new Set([forgottenId]));
@@ -904,10 +880,7 @@ describe('usePdfAppAnnotationHistory', () => {
         expect(history.undo()).toBe(true);
         expect(history.undo()).toBe(true);
         expect(history.undo()).toBe(false);
-        expect(undone).toEqual([
-            2,
-            1,
-        ]);
+        expect(undone).toEqual([2, 1]);
     });
 
     it('registers annotation commands directly with the workspace ledger sink', async () => {
@@ -926,7 +899,7 @@ describe('usePdfAppAnnotationHistory', () => {
             markModified,
         });
         history.setWorkspaceCommandSink({
-            register: command => registrations.push(command),
+            register: (command) => registrations.push(command),
             reset,
             forget: vi.fn(),
         });
@@ -965,7 +938,7 @@ describe('usePdfAppAnnotationHistory', () => {
         });
         history.setBeforeReplayEffect(() => calls.push('capture'));
         history.setWorkspaceCommandSink({
-            register: command => registrations.push(command),
+            register: (command) => registrations.push(command),
             reset: vi.fn(),
             forget: vi.fn(),
         });
@@ -977,13 +950,6 @@ describe('usePdfAppAnnotationHistory', () => {
         await registrations[0]?.undo();
         await registrations[0]?.cmd();
 
-        expect(calls).toEqual([
-            'capture',
-            'undo',
-            'modified',
-            'capture',
-            'redo',
-            'modified',
-        ]);
+        expect(calls).toEqual(['capture', 'undo', 'modified', 'capture', 'redo', 'modified']);
     });
 });

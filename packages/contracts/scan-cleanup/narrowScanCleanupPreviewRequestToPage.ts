@@ -21,8 +21,6 @@ export function narrowScanCleanupPreviewRequestToPage<
             ...request.options,
             pageOverrides: override === undefined ? {} : {[pageKey]: override},
         },
-        ...(request.layoutByPage === undefined
-            ? {}
-            : {layoutByPage: layout === undefined ? {} : {[pageKey]: layout}}),
+        ...(request.layoutByPage === undefined ? {} : {layoutByPage: layout === undefined ? {} : {[pageKey]: layout}}),
     };
 }

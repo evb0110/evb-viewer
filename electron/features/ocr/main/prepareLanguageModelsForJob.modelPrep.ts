@@ -1,13 +1,9 @@
-import { existsSync } from 'fs';
-import { join } from 'path';
-import { uniq } from 'es-toolkit/array';
-import {
-    ensureRuntimeTessdataSeeded,
-    ensureTessdataLanguages,
-    getRuntimeTessdataDir,
-} from '@electron/features/ocr/languageModels';
-import type { TOcrPdfPageSelection } from '@electron/features/ocr/pipeline/types';
-import { createLogger } from '@electron/utils/createLogger';
+import {existsSync} from 'fs';
+import {join} from 'path';
+import {uniq} from 'es-toolkit/array';
+import {ensureRuntimeTessdataSeeded, ensureTessdataLanguages, getRuntimeTessdataDir} from '@electron/features/ocr/languageModels';
+import type {TOcrPdfPageSelection} from '@electron/features/ocr/pipeline/types';
+import {createLogger} from '@electron/utils/createLogger';
 import type {IOcrModelDownloadProgress} from '@contracts/electronApiOcr';
 
 const log = createLogger('ocr-ipc');
@@ -17,14 +13,12 @@ function getOcrJobLanguages(pages: TOcrPdfPageSelection) {
         return uniq(pages.languages);
     }
     const pageRequests = Array.isArray(pages) ? pages : pages.pages;
-    return uniq(pageRequests.flatMap(page => page.languages));
+    return uniq(pageRequests.flatMap((page) => page.languages));
 }
 
 function logMissingLanguageModels(languages: string[]) {
     const tessdataDir = getRuntimeTessdataDir();
-    const missingLanguages = languages.filter(languageCode =>
-        !existsSync(join(tessdataDir, `${languageCode}.traineddata`)),
-    );
+    const missingLanguages = languages.filter((languageCode) => !existsSync(join(tessdataDir, `${languageCode}.traineddata`)));
     if (missingLanguages.length > 0) {
         log.warn(`Missing OCR language models in ${tessdataDir}; downloading: ${missingLanguages.join(', ')}`);
     }
@@ -36,7 +30,7 @@ export async function prepareLanguageModelsForJob(
     onProgress: (progress: IOcrModelDownloadProgress) => void,
 ) {
     const languages = getOcrJobLanguages(pages);
-    await ensureRuntimeTessdataSeeded({ signal });
+    await ensureRuntimeTessdataSeeded({signal});
     logMissingLanguageModels(languages);
     await ensureTessdataLanguages(languages, {
         signal,

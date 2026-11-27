@@ -1,12 +1,8 @@
 // @vitest-environment happy-dom
 
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { getPageContainer } from '@app/modules/pdf-viewer/engine/pdf-page-buffer-manager/getPageContainer';
-import { setupPagePlaceholderSizes } from '@app/modules/pdf-viewer/engine/pdf-page-buffer-manager/setupPagePlaceholderSizes';
+import {describe, expect, it} from 'vitest';
+import {getPageContainer} from '@app/modules/pdf-viewer/engine/pdf-page-buffer-manager/getPageContainer';
+import {setupPagePlaceholderSizes} from '@app/modules/pdf-viewer/engine/pdf-page-buffer-manager/setupPagePlaceholderSizes';
 import {requirePageIndex} from '@contracts/pageNumbers';
 
 function createPageContainerRoot(pageNumbers: number[]) {
@@ -29,7 +25,7 @@ function createStyledPageContainerRoot(pageNumbers: number[]) {
         };
     }
     const root = document.createElement('div');
-    const containers = pageNumbers.map(pageNumber => {
+    const containers = pageNumbers.map((pageNumber) => {
         const container = document.createElement('div');
         container.classList.add('page_container');
         container.dataset.page = String(pageNumber);
@@ -48,10 +44,7 @@ function createStyledPageContainerRoot(pageNumbers: number[]) {
 
 describe('pdfPageBufferManager.getPageContainer', () => {
     it('finds mounted page containers by data-page', () => {
-        const root = createPageContainerRoot([
-            41,
-            44,
-        ]);
+        const root = createPageContainerRoot([41, 44]);
 
         const page41 = getPageContainer(root, requirePageIndex(40));
         const page44 = getPageContainer(root, requirePageIndex(43));
@@ -61,34 +54,29 @@ describe('pdfPageBufferManager.getPageContainer', () => {
     });
 
     it('does not use positional fallback when target page is not mounted', () => {
-        const root = createPageContainerRoot([
-            41,
-            44,
-        ]);
+        const root = createPageContainerRoot([41, 44]);
 
         expect(getPageContainer(root, requirePageIndex(0))).toBeNull();
     });
 
     it('sizes mounted placeholders from each page metric instead of one shared size', () => {
-        const {
-            containers,
-            root,
-        } = createStyledPageContainerRoot([
-            1,
-            2,
-        ]);
+        const {containers, root} = createStyledPageContainerRoot([1, 2]);
 
-        setupPagePlaceholderSizes(root, [
-            {
-                width: 100,
-                height: 200,
-                userUnit: 2,
-            },
-            {
-                width: 50,
-                height: 80,
-            },
-        ], 2);
+        setupPagePlaceholderSizes(
+            root,
+            [
+                {
+                    width: 100,
+                    height: 200,
+                    userUnit: 2,
+                },
+                {
+                    width: 50,
+                    height: 80,
+                },
+            ],
+            2,
+        );
 
         expect(containers[0]?.style.width).toBe('200px');
         expect(containers[0]?.style.height).toBe('400px');
@@ -96,30 +84,27 @@ describe('pdfPageBufferManager.getPageContainer', () => {
         expect(containers[1]?.style.height).toBe('160px');
         expect(containers[0]?.style.getPropertyValue('--scale-factor')).toBe('2');
         expect(containers[0]?.style.getPropertyValue('--user-unit')).toBe('2');
-        expect(containers[0]?.style.getPropertyValue('--total-scale-factor')).toBe(
-            'calc(var(--scale-factor, 1) * var(--user-unit, 1))',
-        );
+        expect(containers[0]?.style.getPropertyValue('--total-scale-factor')).toBe('calc(var(--scale-factor, 1) * var(--user-unit, 1))');
     });
 
     it('accepts a committed scale per page while navigation changes the global scale', () => {
-        const {
-            containers,
-            root,
-        } = createStyledPageContainerRoot([
-            1,
-            2,
-        ]);
+        const {containers, root} = createStyledPageContainerRoot([1, 2]);
 
-        setupPagePlaceholderSizes(root, [
-            {
-                width: 100,
-                height: 200,
-            },
-            {
-                width: 50,
-                height: 80,
-            },
-        ], 2, pageNumber => pageNumber === 1 ? 1.5 : 2);
+        setupPagePlaceholderSizes(
+            root,
+            [
+                {
+                    width: 100,
+                    height: 200,
+                },
+                {
+                    width: 50,
+                    height: 80,
+                },
+            ],
+            2,
+            (pageNumber) => (pageNumber === 1 ? 1.5 : 2),
+        );
 
         expect(containers[0]?.style.width).toBe('150px');
         expect(containers[0]?.style.height).toBe('300px');

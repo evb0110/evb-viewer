@@ -1,5 +1,4 @@
-import { getErrorMessage } from '@app/utils/error';
-
+import {getErrorMessage} from '@app/utils/error';
 
 const IGNORABLE_RUNTIME_ERROR_MESSAGES = [
     'ResizeObserver loop completed with undelivered notifications.',
@@ -9,20 +8,14 @@ const IGNORABLE_RUNTIME_ERROR_MESSAGES = [
 function normalizeRuntimeErrorMessage(value: unknown) {
     if (typeof value === 'string') {
         const normalized = value.trim();
-        return normalized.length > 0
-            ? normalized
-            : null;
+        return normalized.length > 0 ? normalized : null;
     }
 
     if (value instanceof Error) {
         return normalizeRuntimeErrorMessage(getErrorMessage(value));
     }
 
-    if (
-        typeof value === 'object'
-        && value !== null
-        && 'message' in value
-    ) {
+    if (typeof value === 'object' && value !== null && 'message' in value) {
         return normalizeRuntimeErrorMessage((value as {message?: unknown}).message);
     }
 
@@ -39,7 +32,5 @@ export function isIgnorableRuntimeErrorMessage(value: unknown) {
 }
 
 export function getIgnorableRuntimeErrorMessage(value: unknown) {
-    return isIgnorableRuntimeErrorMessage(value)
-        ? normalizeRuntimeErrorMessage(value)
-        : null;
+    return isIgnorableRuntimeErrorMessage(value) ? normalizeRuntimeErrorMessage(value) : null;
 }

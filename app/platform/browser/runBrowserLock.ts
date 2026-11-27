@@ -1,8 +1,8 @@
-import { isAbortError } from '@contracts/isAbortError';
-import { isTimeoutError } from '@contracts/isTimeoutError';
+import {isAbortError} from '@contracts/isAbortError';
+import {isTimeoutError} from '@contracts/isTimeoutError';
 
 function lockManager() {
-    return typeof navigator === 'undefined' ? undefined : navigator.locks as LockManager | undefined;
+    return typeof navigator === 'undefined' ? undefined : (navigator.locks as LockManager | undefined);
 }
 
 const localQueues = new Map<string, Promise<unknown>>();
@@ -12,13 +12,20 @@ export function runBrowserLock<T>(name: string, operation: () => Promise<T>, sig
     const locks = lockManager();
     if (!locks) {
         const result = (localQueues.get(name) ?? Promise.resolve()).then(operation);
-        localQueues.set(name, result.catch(() => undefined));
+        localQueues.set(
+            name,
+            result.catch(() => undefined),
+        );
         return result;
     }
-    return locks.request(name, {
-        mode: 'exclusive',
-        ...(signal ? {signal} : {}),
-    }, operation);
+    return locks.request(
+        name,
+        {
+            mode: 'exclusive',
+            ...(signal ? {signal} : {}),
+        },
+        operation,
+    );
 }
 
 /**
@@ -28,27 +35,36 @@ export function runBrowserLock<T>(name: string, operation: () => Promise<T>, sig
  */
 export function holdBrowserLock(name: string, waitMs = 0): Promise<(() => void) | null> {
     const locks = lockManager();
-    if (!locks) {return Promise.resolve(() => undefined);}
+    if (!locks) {
+        return Promise.resolve(() => undefined);
+    }
     return new Promise((resolve, reject) => {
         let release = () => undefined as void;
-        const held = new Promise<void>(resolveHeld => {
+        const held = new Promise<void>((resolveHeld) => {
             release = resolveHeld;
         });
         const options: LockOptions = waitMs > 0 ? {signal: AbortSignal.timeout(waitMs)} : {ifAvailable: true};
-        locks.request(name, options, lock => {
-            resolve(lock ? release : null);
-            return lock ? held : undefined;
-        }).catch((error: unknown) => {
-            if (isAbortError(error) || isTimeoutError(error)) {resolve(null);}
-            else {reject(error);}
-        });
+        locks
+            .request(name, options, (lock) => {
+                resolve(lock ? release : null);
+                return lock ? held : undefined;
+            })
+            .catch((error: unknown) => {
+                if (isAbortError(error) || isTimeoutError(error)) {
+                    resolve(null);
+                } else {
+                    reject(error);
+                }
+            });
     });
 }
 
 /** The names of the locks any context of this origin holds; `null` without Web Locks, when nothing is known. */
 export async function heldBrowserLockNames() {
     const locks = lockManager();
-    if (!locks) {return null;}
+    if (!locks) {
+        return null;
+    }
     const {held = []} = await locks.query();
-    return new Set(held.flatMap(lock => lock.name ? [lock.name] : []));
+    return new Set(held.flatMap((lock) => (lock.name ? [lock.name] : [])));
 }

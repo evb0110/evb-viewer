@@ -2,40 +2,50 @@
     <div
         v-bind="containerProps"
         class="combine-file-list app-scrollbar app-scroll-region--balanced"
-        :class="{ 'is-reordering': isReordering }"
+        :class="{'is-reordering': isReordering}"
         role="list"
     >
-        <div
-            :style="wrapperProps.style"
-        >
+        <div :style="wrapperProps.style">
             <div
                 v-for="row in mountedRows"
                 :key="row.id"
                 class="combine-file-row"
-                :class="{ 'is-row-dragging': reorderDragIndex === row.visibleIndex }"
+                :class="{'is-row-dragging': reorderDragIndex === row.visibleIndex}"
                 data-combine-row
                 :data-combine-row-index="row.index"
                 role="listitem"
                 :aria-posinset="row.position"
                 :aria-setsize="files.length"
             >
-                <AppTooltip :text="t('combinePdf.dragToReorder')" :delay-duration="600">
+                <AppTooltip
+                    :text="t('combinePdf.dragToReorder')"
+                    :delay-duration="600"
+                >
                     <span
                         class="combine-drag-handle"
                         aria-hidden="true"
                         @pointerdown="startReorder($event, row.visibleIndex)"
                     >
-                        <UIcon name="i-ph-dots-six-vertical" class="size-4" />
+                        <UIcon
+                            name="i-ph-dots-six-vertical"
+                            class="size-4"
+                        />
                     </span>
                 </AppTooltip>
                 <span class="combine-file-index">{{ row.position }}</span>
-                <FileTypeIcon :kind="row.kind" class="combine-file-icon" />
+                <FileTypeIcon
+                    :kind="row.kind"
+                    class="combine-file-icon"
+                />
                 <span class="combine-file-copy">
                     <strong>{{ row.name }}</strong>
                     <span>{{ row.sizeLabel }}</span>
                 </span>
                 <span class="combine-row-actions">
-                    <AppTooltip :text="t('combinePdf.moveUp')" :delay-duration="600">
+                    <AppTooltip
+                        :text="t('combinePdf.moveUp')"
+                        :delay-duration="600"
+                    >
                         <UButton
                             color="neutral"
                             variant="ghost"
@@ -46,7 +56,10 @@
                             @click="emit('move-file', row.index, -1)"
                         />
                     </AppTooltip>
-                    <AppTooltip :text="t('combinePdf.moveDown')" :delay-duration="600">
+                    <AppTooltip
+                        :text="t('combinePdf.moveDown')"
+                        :delay-duration="600"
+                    >
                         <UButton
                             color="neutral"
                             variant="ghost"
@@ -57,7 +70,10 @@
                             @click="emit('move-file', row.index, 1)"
                         />
                     </AppTooltip>
-                    <AppTooltip :text="t('combinePdf.removeFile')" :delay-duration="600">
+                    <AppTooltip
+                        :text="t('combinePdf.removeFile')"
+                        :delay-duration="600"
+                    >
                         <UButton
                             color="neutral"
                             variant="ghost"
@@ -75,19 +91,12 @@
 </template>
 
 <script setup lang="ts">
-import {
-    useEventListener,
-    useResizeObserver,
-    useVirtualList,
-} from '@vueuse/core';
+import {useEventListener, useResizeObserver, useVirtualList} from '@vueuse/core';
 import FileTypeIcon from '@app/components/icons/FileTypeIcon.vue';
-import type { ICombineFile } from '@app/modules/combine/combineFile';
-import { formatBytes } from '@app/utils/formatters';
+import type {ICombineFile} from '@app/modules/combine/combineFile';
+import {formatBytes} from '@app/utils/formatters';
 
-const {
-    files,
-    queueMutationLocked,
-} = defineProps<{
+const {files, queueMutationLocked} = defineProps<{
     files: readonly ICombineFile[];
     queueMutationLocked: boolean;
 }>();
@@ -97,10 +106,7 @@ const emit = defineEmits<{
     reorder: [fromIndex: number, toIndex: number];
 }>();
 
-const {
-    t,
-    locale,
-} = useTypedI18n();
+const {t, locale} = useTypedI18n();
 const DEFAULT_ROW_STRIDE_PX = 60;
 const rowStridePx = ref(DEFAULT_ROW_STRIDE_PX);
 const fileList = computed(() => files);
@@ -151,7 +157,7 @@ watch(
     () => {
         void nextTick(measureRowStride);
     },
-    { flush: 'post' },
+    {flush: 'post'},
 );
 onMounted(() => {
     void nextTick(measureRowStride);

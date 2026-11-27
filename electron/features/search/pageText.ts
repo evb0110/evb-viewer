@@ -1,4 +1,4 @@
-import type { IDocumentTextPageLayout } from '@contracts/documentTextCatalog';
+import type {IDocumentTextPageLayout} from '@contracts/documentTextCatalog';
 
 export interface IPageText {
     pageNumber: number;

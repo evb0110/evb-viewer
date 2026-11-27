@@ -1,4 +1,4 @@
-import type { IClientRect } from '@app/modules/document-viewer/region-geometry/regionGeometryTypes';
+import type {IClientRect} from '@app/modules/document-viewer/region-geometry/regionGeometryTypes';
 
 export function unionClientRects(a: IClientRect, b: IClientRect): IClientRect {
     return {

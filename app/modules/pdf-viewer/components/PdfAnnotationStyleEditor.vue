@@ -1,64 +1,132 @@
 <template>
-    <div class="annotation-style-editor flex flex-col gap-2" :class="{ 'is-idle': !hasStyleControls && selectedAnnotations.length === 0 }">
-        <p v-if="readOnlySelection" class="text-xs text-muted" data-annotation-read-only-notice>
+    <div
+        class="annotation-style-editor flex flex-col gap-2"
+        :class="{'is-idle': !hasStyleControls && selectedAnnotations.length === 0}"
+    >
+        <p
+            v-if="readOnlySelection"
+            class="text-xs text-muted"
+            data-annotation-read-only-notice
+        >
             {{ t('annotations.readOnlyBorderStyle') }}
         </p>
         <template v-else-if="selectedAnnotations.length > 0">
-            <div v-if="selectionHasColor" class="swatch-row">
+            <div
+                v-if="selectionHasColor"
+                class="swatch-row"
+            >
                 <button
-                    v-for="swatch in selectionColorSwatches" :key="swatch" type="button" class="swatch"
-                    :class="{ 'is-active': swatch === selectionColor }" :style="{ backgroundColor: swatch }"
-                    :aria-label="swatch" :aria-pressed="swatch === selectionColor"
-                    @click="emit('update-properties', {color: swatch})" />
+                    v-for="swatch in selectionColorSwatches"
+                    :key="swatch"
+                    type="button"
+                    class="swatch"
+                    :class="{'is-active': swatch === selectionColor}"
+                    :style="{backgroundColor: swatch}"
+                    :aria-label="swatch"
+                    :aria-pressed="swatch === selectionColor"
+                    @click="emit('update-properties', {color: swatch})"
+                />
             </div>
-            <label v-if="selectedWidthControl" class="style-row">
+            <label
+                v-if="selectedWidthControl"
+                class="style-row"
+            >
                 <span class="style-label">{{ selectedWidthControl.label }}</span>
                 <input
-                    type="number" class="annotation-property-number" :aria-label="selectedWidthControl.label"
-                    :min="selectedWidthControl.min" :max="selectedWidthControl.max" step="0.5"
-                    :value="selectionWidthDisplay" :placeholder="t('annotations.mixedValues')"
-                    @change="updateSelectedWidth($event)" />
+                    type="number"
+                    class="annotation-property-number"
+                    :aria-label="selectedWidthControl.label"
+                    :min="selectedWidthControl.min"
+                    :max="selectedWidthControl.max"
+                    step="0.5"
+                    :value="selectionWidthDisplay"
+                    :placeholder="t('annotations.mixedValues')"
+                    @change="updateSelectedWidth($event)"
+                />
             </label>
-            <p v-if="selectedWidthControl?.hint" class="text-xs text-muted">
+            <p
+                v-if="selectedWidthControl?.hint"
+                class="text-xs text-muted"
+            >
                 {{ selectedWidthControl.hint }}
             </p>
-            <label v-if="selectionHasOpacity" class="style-row">
+            <label
+                v-if="selectionHasOpacity"
+                class="style-row"
+            >
                 <span class="style-label">{{ t('annotations.opacity') }}</span>
                 <input
-                    type="number" class="annotation-property-number" :aria-label="t('annotations.opacity')" min="0" max="100" step="5"
-                    :value="selectionOpacity" :placeholder="t('annotations.mixedValues')"
-                    @change="updateSelectedNumber('opacity', $event, 0, 100, 100)" />
+                    type="number"
+                    class="annotation-property-number"
+                    :aria-label="t('annotations.opacity')"
+                    min="0"
+                    max="100"
+                    step="5"
+                    :value="selectionOpacity"
+                    :placeholder="t('annotations.mixedValues')"
+                    @change="updateSelectedNumber('opacity', $event, 0, 100, 100)"
+                />
             </label>
-            <div v-if="selectionHasFill" class="style-row">
+            <div
+                v-if="selectionHasFill"
+                class="style-row"
+            >
                 <span class="style-label">{{ t('annotations.fillColor') }}</span>
                 <input
-                    type="color" :aria-label="t('annotations.fillColor')" :value="selectionFill ?? '#ffffff'"
-                    @change="emit('update-properties', {fill: inputValue($event)})" />
-                <button type="button" @click="emit('update-properties', {fill: null})">{{ t('annotations.noFill') }}</button>
+                    type="color"
+                    :aria-label="t('annotations.fillColor')"
+                    :value="selectionFill ?? '#ffffff'"
+                    @change="emit('update-properties', {fill: inputValue($event)})"
+                />
+                <button
+                    type="button"
+                    @click="emit('update-properties', {fill: null})"
+                    >{{ t('annotations.noFill') }}</button
+                >
             </div>
-            <div v-if="selectionHasRotation && canRotate" class="style-row">
+            <div
+                v-if="selectionHasRotation && canRotate"
+                class="style-row"
+            >
                 <span class="style-label">{{ t('annotations.rotation') }}</span>
                 <div class="style-rotation-control">
                     <AppTooltip :text="t('annotations.rotateCounterclockwise', {degrees: 90})">
                         <UButton
-                            type="button" class="style-step-button" icon="i-ph-arrow-counter-clockwise"
-                            variant="ghost" color="neutral" size="sm" square
+                            type="button"
+                            class="style-step-button"
+                            icon="i-ph-arrow-counter-clockwise"
+                            variant="ghost"
+                            color="neutral"
+                            size="sm"
+                            square
                             data-annotation-rotate="ccw"
                             :aria-label="t('annotations.rotateCounterclockwise', {degrees: 90})"
                             :disabled="!canRotate?.(-90)"
-                            @click="emit('update-properties', {rotationDelta: -90})" />
+                            @click="emit('update-properties', {rotationDelta: -90})"
+                        />
                     </AppTooltip>
-                    <output class="style-rotation-value" data-annotation-rotation-value :aria-label="t('annotations.rotation')" aria-live="polite">
+                    <output
+                        class="style-rotation-value"
+                        data-annotation-rotation-value
+                        :aria-label="t('annotations.rotation')"
+                        aria-live="polite"
+                    >
                         {{ selectionRotationDisplay }}
                     </output>
                     <AppTooltip :text="t('annotations.rotateClockwise', {degrees: 90})">
                         <UButton
-                            type="button" class="style-step-button" icon="i-ph-arrow-clockwise"
-                            variant="ghost" color="neutral" size="sm" square
+                            type="button"
+                            class="style-step-button"
+                            icon="i-ph-arrow-clockwise"
+                            variant="ghost"
+                            color="neutral"
+                            size="sm"
+                            square
                             data-annotation-rotate="cw"
                             :aria-label="t('annotations.rotateClockwise', {degrees: 90})"
                             :disabled="!canRotate?.(90)"
-                            @click="emit('update-properties', {rotationDelta: 90})" />
+                            @click="emit('update-properties', {rotationDelta: 90})"
+                        />
                     </AppTooltip>
                 </div>
             </div>
@@ -74,8 +142,8 @@
                     <button
                         type="button"
                         class="swatch"
-                        :class="{ 'is-active': swatch === activeColorSwatch }"
-                        :style="{ backgroundColor: swatch }"
+                        :class="{'is-active': swatch === activeColorSwatch}"
+                        :style="{backgroundColor: swatch}"
                         :aria-label="swatch"
                         :aria-pressed="swatch === activeColorSwatch"
                         @click="handleColorInput(swatch)"
@@ -83,10 +151,11 @@
                 </AppTooltip>
             </div>
 
-            <div v-if="activeWidthControl" class="style-row style-row-width flex flex-col">
-                <span class="style-label">
-                    {{ activeWidthControl.label }} {{ activeWidthValue }}
-                </span>
+            <div
+                v-if="activeWidthControl"
+                class="style-row style-row-width flex flex-col"
+            >
+                <span class="style-label"> {{ activeWidthControl.label }} {{ activeWidthValue }} </span>
                 <div class="style-width-control">
                     <UButton
                         type="button"
@@ -125,20 +194,42 @@
                 </div>
             </div>
 
-            <label v-if="opacitySettingKey" class="style-row">
+            <label
+                v-if="opacitySettingKey"
+                class="style-row"
+            >
                 <span class="style-label">{{ t('annotations.opacity') }}</span>
                 <input
-                    type="range" min="0" max="100" step="5" :aria-label="t('annotations.opacity')"
-                    :value="defaultOpacityPercent" @input="updateDefaultOpacity($event)" />
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="5"
+                    :aria-label="t('annotations.opacity')"
+                    :value="defaultOpacityPercent"
+                    @input="updateDefaultOpacity($event)"
+                />
             </label>
-            <div v-if="showShapeFillControl" class="style-row">
+            <div
+                v-if="showShapeFillControl"
+                class="style-row"
+            >
                 <span class="style-label">{{ t('annotations.fillColor') }}</span>
                 <input
-                    type="color" :aria-label="t('annotations.fillColor')" :value="defaultFillColorValue"
-                    @input="updateSetting('shapeFillColor', inputValue($event))" />
-                <button type="button" @click="updateSetting('shapeFillColor', 'transparent')">{{ t('annotations.noFill') }}</button>
+                    type="color"
+                    :aria-label="t('annotations.fillColor')"
+                    :value="defaultFillColorValue"
+                    @input="updateSetting('shapeFillColor', inputValue($event))"
+                />
+                <button
+                    type="button"
+                    @click="updateSetting('shapeFillColor', 'transparent')"
+                    >{{ t('annotations.noFill') }}</button
+                >
             </div>
-            <div v-if="tool === 'draw'" class="draw-style-row flex flex-col">
+            <div
+                v-if="tool === 'draw'"
+                class="draw-style-row flex flex-col"
+            >
                 <span class="style-label">{{ t('annotations.penType') }}</span>
                 <div class="draw-style-list">
                     <button
@@ -146,7 +237,7 @@
                         :key="preset.id"
                         type="button"
                         class="draw-style-button"
-                        :class="{ 'is-active': activeDrawStyle === preset.id }"
+                        :class="{'is-active': activeDrawStyle === preset.id}"
                         @click="applyDrawStyle(preset.id)"
                     >
                         {{ preset.label }}
@@ -155,27 +246,28 @@
             </div>
         </template>
 
-        <div v-else class="annotation-style-editor-idle" role="status" aria-live="polite">
-            <UIcon name="i-ph-sliders-horizontal" class="annotation-style-editor-idle-icon" />
+        <div
+            v-else
+            class="annotation-style-editor-idle"
+            role="status"
+            aria-live="polite"
+        >
+            <UIcon
+                name="i-ph-sliders-horizontal"
+                class="annotation-style-editor-idle-icon"
+            />
             <span class="annotation-style-editor-idle-label">{{ idleDescription }}</span>
         </div>
     </div>
 </template>
 
 <script setup lang="ts">
-import type {
-    IAnnotationSettings,
-    IAnnotationPropertyUpdate,
-    TAnnotationTool,
-} from '@app/types/annotations';
-import { ANNOTATION_COLOR_SWATCHES } from '@app/constants/pdfColors';
-import { ANNOTATION_PROPERTY_RANGES } from '@app/constants/annotationDefaults';
-import { isAuthoringAnnotationTool } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isAuthoringAnnotationTool';
-import { isShapeTool } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isShapeTool';
-import {
-    isReadOnlyAnnotation,
-    type AnnotationEntity,
-} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import type {IAnnotationSettings, IAnnotationPropertyUpdate, TAnnotationTool} from '@app/types/annotations';
+import {ANNOTATION_COLOR_SWATCHES} from '@app/constants/pdfColors';
+import {ANNOTATION_PROPERTY_RANGES} from '@app/constants/annotationDefaults';
+import {isAuthoringAnnotationTool} from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isAuthoringAnnotationTool';
+import {isShapeTool} from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isShapeTool';
+import {isReadOnlyAnnotation, type AnnotationEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 
 type TDrawStyle = 'pen' | 'pencil' | 'marker';
 
@@ -202,23 +294,19 @@ interface IProps {
     hasAnnotations?: boolean;
 }
 
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 
-const {
-    settings,
-    tool,
-    selectedAnnotations = [],
-    canRotate = undefined,
-    hasAnnotations = false,
-} = defineProps<IProps>();
+const {settings, tool, selectedAnnotations = [], canRotate = undefined, hasAnnotations = false} = defineProps<IProps>();
 
 const emit = defineEmits<{
     'color-selected': [];
     'update-properties': [updates: IAnnotationPropertyUpdate];
-    'update-setting': [payload: {
-        key: keyof IAnnotationSettings;
-        value: IAnnotationSettings[keyof IAnnotationSettings];
-    }];
+    'update-setting': [
+        payload: {
+            key: keyof IAnnotationSettings;
+            value: IAnnotationSettings[keyof IAnnotationSettings];
+        },
+    ];
 }>();
 
 function inputValue(event: Event) {
@@ -227,18 +315,19 @@ function inputValue(event: Event) {
 
 function commonSelectionValue<T>(read: (entity: AnnotationEntity) => T): T | null {
     const values = selectedAnnotations.map(read);
-    return values.length > 0 && values.every(value => value === values[0]) ? values[0]! : null;
+    return values.length > 0 && values.every((value) => value === values[0]) ? values[0]! : null;
 }
 // A selection with a read-only label explains it, and offers no edit that would skip it.
 const readOnlySelection = computed(() => selectedAnnotations.some(isReadOnlyAnnotation));
-const selectionHasColor = computed(() => selectedAnnotations.every(entity => entity.kind !== 'placed-image'));
-const selectionColor = computed(() => commonSelectionValue(entity => entity.kind === 'shape' ? entity.strokeColor : entity.kind === 'placed-image' ? null : entity.color));
+const selectionHasColor = computed(() => selectedAnnotations.every((entity) => entity.kind !== 'placed-image'));
+const selectionColor = computed(() =>
+    commonSelectionValue((entity) => (entity.kind === 'shape' ? entity.strokeColor : entity.kind === 'placed-image' ? null : entity.color)),
+);
 const selectionColorSwatches = computed(() => {
     const color = selectionColor.value;
-    return color && !colorSwatches.some(swatch => swatch.toLowerCase() === color.toLowerCase()) ? [
-        color,
-        ...colorSwatches,
-    ] : colorSwatches;
+    return color && !colorSwatches.some((swatch) => swatch.toLowerCase() === color.toLowerCase())
+        ? [color, ...colorSwatches]
+        : colorSwatches;
 });
 interface ISelectedWidthControl {
     property: 'fontSize' | 'strokeWidth';
@@ -252,7 +341,7 @@ const selectedWidthControl = computed<ISelectedWidthControl | null>(() => {
     if (selectedAnnotations.length === 0) {
         return null;
     }
-    if (selectedAnnotations.every(entity => entity.kind === 'text-box')) {
+    if (selectedAnnotations.every((entity) => entity.kind === 'text-box')) {
         return {
             property: 'fontSize',
             label: t('annotations.textSize'),
@@ -261,7 +350,7 @@ const selectedWidthControl = computed<ISelectedWidthControl | null>(() => {
             hint: t('annotations.textResizeHint'),
         };
     }
-    if (selectedAnnotations.every(entity => entity.kind === 'shape')) {
+    if (selectedAnnotations.every((entity) => entity.kind === 'shape')) {
         return {
             property: 'strokeWidth',
             label: t('annotations.stroke'),
@@ -272,19 +361,27 @@ const selectedWidthControl = computed<ISelectedWidthControl | null>(() => {
     }
     return null;
 });
-const selectionWidth = computed(() => commonSelectionValue(entity => entity.kind === 'text-box' ? entity.fontSize : entity.kind === 'shape' ? entity.strokeWidth : null));
-const selectionWidthDisplay = computed(() => selectionWidth.value === null ? '' : String(Math.round(selectionWidth.value * 100) / 100));
-const selectionHasOpacity = computed(() => selectedAnnotations.every(entity => entity.kind === 'shape' || entity.kind === 'text-markup'));
-const selectionOpacity = computed(() => commonSelectionValue(entity => entity.kind === 'shape' || entity.kind === 'text-markup' ? Math.round((entity.opacity ?? 1) * 100) : null));
-const selectionHasFill = computed(() => selectedAnnotations.every(entity => entity.kind === 'shape'));
-const selectionFill = computed(() => commonSelectionValue(entity => entity.kind === 'shape' ? entity.fill : null));
-const selectionHasRotation = computed(() => selectedAnnotations.every(entity => entity.kind === 'text-box' || entity.kind === 'placed-image'));
-const selectionRotation = computed(() => commonSelectionValue(entity => entity.kind === 'text-box' || entity.kind === 'placed-image' ? entity.rotation : null));
-const selectionRotationDisplay = computed(() => (
-    selectionRotation.value === null
-        ? t('annotations.mixedValues')
-        : `${Math.round(selectionRotation.value * 100) / 100}°`
-));
+const selectionWidth = computed(() =>
+    commonSelectionValue((entity) => (entity.kind === 'text-box' ? entity.fontSize : entity.kind === 'shape' ? entity.strokeWidth : null)),
+);
+const selectionWidthDisplay = computed(() => (selectionWidth.value === null ? '' : String(Math.round(selectionWidth.value * 100) / 100)));
+const selectionHasOpacity = computed(() => selectedAnnotations.every((entity) => entity.kind === 'shape' || entity.kind === 'text-markup'));
+const selectionOpacity = computed(() =>
+    commonSelectionValue((entity) =>
+        entity.kind === 'shape' || entity.kind === 'text-markup' ? Math.round((entity.opacity ?? 1) * 100) : null,
+    ),
+);
+const selectionHasFill = computed(() => selectedAnnotations.every((entity) => entity.kind === 'shape'));
+const selectionFill = computed(() => commonSelectionValue((entity) => (entity.kind === 'shape' ? entity.fill : null)));
+const selectionHasRotation = computed(() =>
+    selectedAnnotations.every((entity) => entity.kind === 'text-box' || entity.kind === 'placed-image'),
+);
+const selectionRotation = computed(() =>
+    commonSelectionValue((entity) => (entity.kind === 'text-box' || entity.kind === 'placed-image' ? entity.rotation : null)),
+);
+const selectionRotationDisplay = computed(() =>
+    selectionRotation.value === null ? t('annotations.mixedValues') : `${Math.round(selectionRotation.value * 100) / 100}°`,
+);
 
 function updateSelectedNumber(key: 'fontSize' | 'strokeWidth' | 'opacity', event: Event, min: number, max: number, divisor = 1) {
     if (inputValue(event).trim() === '') {
@@ -304,30 +401,44 @@ async function updateSelectedWidth(event: Event) {
     }
     await nextTick();
     const input = event.target;
-    if (input instanceof HTMLInputElement) {input.value = selectionWidthDisplay.value;}
+    if (input instanceof HTMLInputElement) {
+        input.value = selectionWidthDisplay.value;
+    }
 }
 const opacitySettingKey = computed(() => {
     switch (tool) {
-        case 'draw': return 'inkOpacity';
-        case 'highlight': return 'highlightOpacity';
-        case 'underline': return 'underlineOpacity';
-        case 'strikethrough': return 'strikethroughOpacity';
-        case 'squiggly': return 'squigglyOpacity';
-        case 'rectangle': case 'circle': case 'line': case 'arrow': return 'shapeOpacity';
-        case 'text': case 'stamp': case 'select': case 'none': case 'note': return null;
+        case 'draw':
+            return 'inkOpacity';
+        case 'highlight':
+            return 'highlightOpacity';
+        case 'underline':
+            return 'underlineOpacity';
+        case 'strikethrough':
+            return 'strikethroughOpacity';
+        case 'squiggly':
+            return 'squigglyOpacity';
+        case 'rectangle':
+        case 'circle':
+        case 'line':
+        case 'arrow':
+            return 'shapeOpacity';
+        case 'text':
+        case 'stamp':
+        case 'select':
+        case 'none':
+        case 'note':
+            return null;
     }
 });
-const defaultOpacityPercent = computed(() => (
-    opacitySettingKey.value ? Number(settings[opacitySettingKey.value]) * 100 : 0
-));
+const defaultOpacityPercent = computed(() => (opacitySettingKey.value ? Number(settings[opacitySettingKey.value]) * 100 : 0));
 const showShapeFillControl = computed(() => isShapeTool(tool) && tool !== 'draw');
-const defaultFillColorValue = computed(() => (
-    settings.shapeFillColor === 'transparent' ? '#ffffff' : settings.shapeFillColor
-));
+const defaultFillColorValue = computed(() => (settings.shapeFillColor === 'transparent' ? '#ffffff' : settings.shapeFillColor));
 const idleDescription = computed(() => t(hasAnnotations ? 'annotations.styleDescription' : 'annotations.styleDescriptionNoAnnotations'));
 function updateDefaultOpacity(event: Event) {
     const key = opacitySettingKey.value;
-    if (key) {updateSetting(key, Number(inputValue(event)) / 100);}
+    if (key) {
+        updateSetting(key, Number(inputValue(event)) / 100);
+    }
 }
 
 const colorSwatches = ANNOTATION_COLOR_SWATCHES;
@@ -444,11 +555,8 @@ const displayColorSwatches = computed(() => {
     }
 
     const normalizedActive = normalizeColorValue(active);
-    const hasMatchingPreset = colorSwatches.some(swatch => normalizeColorValue(swatch) === normalizedActive);
-    return hasMatchingPreset ? colorSwatches : [
-        active,
-        ...colorSwatches,
-    ];
+    const hasMatchingPreset = colorSwatches.some((swatch) => normalizeColorValue(swatch) === normalizedActive);
+    return hasMatchingPreset ? colorSwatches : [active, ...colorSwatches];
 });
 
 const activeDrawStyle = computed(() => {
@@ -514,7 +622,7 @@ function handleColorInput(color: string) {
 }
 
 function sliderNumericValue(value: number | number[] | undefined) {
-    return Array.isArray(value) ? value[0] ?? 0 : value ?? 0;
+    return Array.isArray(value) ? (value[0] ?? 0) : (value ?? 0);
 }
 
 function handleWidthInput(width: number | number[] | undefined) {
@@ -532,15 +640,12 @@ function nudgeWidth(delta: number) {
         return;
     }
 
-    const next = Math.max(
-        control.min,
-        Math.min(control.max, activeWidthValue.value + delta),
-    );
+    const next = Math.max(control.min, Math.min(control.max, activeWidthValue.value + delta));
     updateSetting(control.key, next);
 }
 
 function applyDrawStyle(style: TDrawStyle) {
-    const preset = drawStylePresets.value.find(item => item.id === style);
+    const preset = drawStylePresets.value.find((item) => item.id === style);
     if (!preset) {
         return;
     }
@@ -717,5 +822,4 @@ function applyDrawStyle(style: TDrawStyle) {
     background: var(--app-sidebar-control-hover-bg);
     color: var(--ui-text);
 }
-
 </style>

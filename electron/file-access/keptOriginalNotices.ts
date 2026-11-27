@@ -17,19 +17,23 @@ function getNoticesPath() {
 }
 
 function warnNoticesFailure(message: string, originalPath: string, error: unknown) {
-    if (isRecord(error) && (error.code === 'ENOENT' || error.name === 'NotFoundError')) {return;}
+    if (isRecord(error) && (error.code === 'ENOENT' || error.name === 'NotFoundError')) {
+        return;
+    }
     log.warn(message, {path: getNoticesPath(), originalPath, error: getErrorMessage(error)});
 }
 
 // Only a missing file holds no notices. Any other failure rejects, so an update never writes over notices it could not read.
 async function readNotices() {
-    const value = safeJsonParse(await readFile(getNoticesPath(), 'utf8').catch((error: unknown) => {
-        if (isRecord(error) && (error.code === 'ENOENT' || error.name === 'NotFoundError')) {return '{}';}
-        throw error;
-    }));
-    return new Map(isRecord(value)
-        ? Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
-        : []);
+    const value = safeJsonParse(
+        await readFile(getNoticesPath(), 'utf8').catch((error: unknown) => {
+            if (isRecord(error) && (error.code === 'ENOENT' || error.name === 'NotFoundError')) {
+                return '{}';
+            }
+            throw error;
+        }),
+    );
+    return new Map(isRecord(value) ? Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === 'string') : []);
 }
 
 // One change at a time, so a later write never drops an earlier notice.
@@ -49,7 +53,7 @@ function updateNotices<T>(update: (notices: Map<string, string>) => T) {
  * the person until they dismiss it. A notice that cannot be stored is only logged: it never fails the save or recovery.
  */
 export async function rememberKeptOriginal(originalPath: string, keptPath: string) {
-    await updateNotices(notices => notices.set(normalizePathForLookup(originalPath), keptPath)).catch((error: unknown) => {
+    await updateNotices((notices) => notices.set(normalizePathForLookup(originalPath), keptPath)).catch((error: unknown) => {
         warnNoticesFailure('Could not remember a file recovery kept beside a PDF', originalPath, error);
     });
 }
@@ -66,7 +70,7 @@ export async function findKeptOriginal(originalPath: string) {
 
 /** Forgets the notice for `originalPath` once the person has dismissed it. */
 export async function forgetKeptOriginal(originalPath: string) {
-    await updateNotices(notices => notices.delete(normalizePathForLookup(originalPath))).catch((error: unknown) => {
+    await updateNotices((notices) => notices.delete(normalizePathForLookup(originalPath))).catch((error: unknown) => {
         warnNoticesFailure('Could not dismiss a kept-original notice', originalPath, error);
     });
 }

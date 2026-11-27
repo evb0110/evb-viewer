@@ -7,43 +7,19 @@
  */
 
 import {randomUUID} from 'node:crypto';
-import {
-    mkdir,
-    readdir,
-    readFile,
-    rm,
-    stat,
-} from 'node:fs/promises';
+import {mkdir, readdir, readFile, rm, stat} from 'node:fs/promises';
 import {join} from 'node:path';
 import {createAbortError} from '@contracts/isAbortError';
 import type {IDocumentRevisionInfo} from '@contracts/documentRevision';
-import type {
-    IOcrDiagnostic,
-    IOcrSearchablePdfOptions,
-    TOcrProgressPhase,
-} from '@contracts/electronApiOcr';
+import type {IOcrDiagnostic, IOcrSearchablePdfOptions, TOcrProgressPhase} from '@contracts/electronApiOcr';
 import type {TOcrModelCode} from '@contracts/ocrLanguages';
 import {getOcrScanCleanupMode} from '@contracts/scan-cleanup/ocrPreprocessing';
-import {
-    getOcrPageSelectionCount,
-    iterateOcrPageRequestBatches,
-} from '@ocr-core/ocrPageSelection';
+import {getOcrPageSelectionCount, iterateOcrPageRequestBatches} from '@ocr-core/ocrPageSelection';
 import {resolveOcrExtractionDpi} from '@ocr-core/ocrRenderDpi';
-import {
-    OcrJobMessages,
-    recognizeOcrPages,
-} from '@ocr-core/recognizeOcrPages';
+import {OcrJobMessages, recognizeOcrPages} from '@ocr-core/recognizeOcrPages';
 import type {IOcrEngineResult} from '@ocr-core/tesseractEngine';
-import {
-    isOcrEngineImageFile,
-    type TDesktopOcrEngineRequest,
-} from '@electron/features/ocr/main/ocrEngineHostProtocol';
-import type {
-    IOcrPipelinePaths,
-    TOcrJobResult,
-    TOcrPdfPageSelection,
-    TWorkerLog,
-} from '@electron/features/ocr/pipeline/types';
+import {isOcrEngineImageFile, type TDesktopOcrEngineRequest} from '@electron/features/ocr/main/ocrEngineHostProtocol';
+import type {IOcrPipelinePaths, TOcrJobResult, TOcrPdfPageSelection, TWorkerLog} from '@electron/features/ocr/pipeline/types';
 import {detectSourceDpiDetails} from '@electron/pdf/sourceDpiDetection';
 import {prepareOcrPageRasterFile} from '@electron/features/ocr/pipeline/tryPreprocessOcrImage';
 import {writeSearchablePdf} from '@electron/features/ocr/pipeline/writeSearchablePdf';
@@ -68,10 +44,7 @@ import {
     persistOcrPageCheckpoint,
     restoreOcrPageCheckpoint,
 } from '@electron/features/ocr/pipeline/ocrPageCheckpoints';
-import {
-    getLastOcrSelectionPage,
-    normalizeOcrPageSelection,
-} from '@electron/features/ocr/pipeline/ocrPageSelectionStream';
+import {getLastOcrSelectionPage, normalizeOcrPageSelection} from '@electron/features/ocr/pipeline/ocrPageSelectionStream';
 import {
     createOcrModelBytesReader,
     getOcrRuntimePolicy,
@@ -126,9 +99,10 @@ function throwIfAborted(signal: AbortSignal) {
 function getOcrPageConcurrency(pageCount: number, paths: IOcrPipelinePaths, options: IOcrSearchablePdfOptions) {
     const {globalPageSlots} = getOcrRuntimePolicy();
     const cpuTokens = mainJobBroker.getSnapshot().capacity.cpuTokens;
-    const cleanupThreads = paths.scanCleanupBinary && cpuTokens > 2
-        && (options.preprocessingMode === 'clean' || options.preprocessingMode === 'off')
-        ? Math.max(1, Math.ceil(cpuTokens / globalPageSlots)) : 1;
+    const cleanupThreads =
+        paths.scanCleanupBinary && cpuTokens > 2 && (options.preprocessingMode === 'clean' || options.preprocessingMode === 'off')
+            ? Math.max(1, Math.ceil(cpuTokens / globalPageSlots))
+            : 1;
     return {
         lanes: Math.max(1, Math.min(globalPageSlots, Math.floor(cpuTokens / cleanupThreads), getOcrConcurrency(pageCount))),
         cleanupThreads,
@@ -145,15 +119,20 @@ function createJobOcrEngine(job: Pick<IOcrJob, 'jobId' | 'paths' | 'runEngine' |
     return async (request: TDesktopOcrEngineRequest, signal: AbortSignal) => {
         let failure: unknown;
         try {
-            if (!readModelBytes) {return await job.runEngine(request, signal);}
+            if (!readModelBytes) {
+                return await job.runEngine(request, signal);
+            }
             const modelBytes = sumOcrModelBytes(await readModelBytes(request.models));
-            return await mainJobBroker.run({
-                ownerId: `ocr:${job.jobId}`,
-                kind: 'ocr-engine-pass',
-                priority: 'user',
-                resources: resolveOcrLaneResources(modelBytes, request.image, mainJobBroker.getSnapshot().capacity),
-                signal,
-            }, () => job.runEngine(request, signal));
+            return await mainJobBroker.run(
+                {
+                    ownerId: `ocr:${job.jobId}`,
+                    kind: 'ocr-engine-pass',
+                    priority: 'user',
+                    resources: resolveOcrLaneResources(modelBytes, request.image, mainJobBroker.getSnapshot().capacity),
+                    signal,
+                },
+                () => job.runEngine(request, signal),
+            );
         } catch (error) {
             failure = error;
             throw error;
@@ -167,9 +146,11 @@ function createJobOcrEngine(job: Pick<IOcrJob, 'jobId' | 'paths' | 'runEngine' |
 
 async function removeSessionFiles(tempDir: string, sessionId: string, keepPath?: string) {
     const entries = await readdir(tempDir).catch(() => []);
-    await Promise.all(entries
-        .filter(name => name.startsWith(`${sessionId}-`) && join(tempDir, name) !== keepPath)
-        .map(name => rm(join(tempDir, name), {recursive: true, force: true}).catch(() => undefined)));
+    await Promise.all(
+        entries
+            .filter((name) => name.startsWith(`${sessionId}-`) && join(tempDir, name) !== keepPath)
+            .map((name) => rm(join(tempDir, name), {recursive: true, force: true}).catch(() => undefined)),
+    );
 }
 
 type TPublishOcrProgress = (
@@ -207,12 +188,13 @@ async function recognizeOcrJobPages(stage: {
     let popplerSourcePdfPath = sourcePdfPath;
     let popplerFallback: Promise<IPreparedPopplerPdf> | undefined;
     // Most PDFs render directly; a qpdf rewrite repairs the rest, once per job.
-    const preparePopplerFallback = () => popplerFallback ??= (async () => {
-        const prepared = await preparePdfForPoppler(paths, log, sourcePdfPath, sessionId, path => path, jobSignal);
-        warnings.push(...prepared.warnings);
-        popplerSourcePdfPath = prepared.pdfPath;
-        return prepared;
-    })();
+    const preparePopplerFallback = () =>
+        (popplerFallback ??= (async () => {
+            const prepared = await preparePdfForPoppler(paths, log, sourcePdfPath, sessionId, (path) => path, jobSignal);
+            warnings.push(...prepared.warnings);
+            popplerSourcePdfPath = prepared.pdfPath;
+            return prepared;
+        })());
     const popplerEnv = buildPopplerEnv(paths);
     const cleanupMode = options.preprocessingMode === undefined ? undefined : getOcrScanCleanupMode(options.preprocessingMode);
     let earlyPrintModels: Promise<void> | undefined;
@@ -245,26 +227,40 @@ async function recognizeOcrJobPages(stage: {
                 continue;
             }
             hadTargetPages = true;
-            const pageNumbers = targetPages.map(page => page.pageNumber);
+            const pageNumbers = targetPages.map((page) => page.pageNumber);
 
             publish(batchFirstPage, batchOffset, {phase: 'dpi-inspection'});
-            const sourceDpi = options.renderDpi === undefined
-                ? await detectSourceDpiDetails(popplerSourcePdfPath, paths.pdfimagesBinary, log, popplerEnv, jobSignal, pageNumbers)
-                    .catch((error: unknown) => {
-                        if (jobSignal.aborted || isAbortError(error) || getUnprovenNativeTerminationDetail(error) !== undefined) {throw error;}
-                        log('warn', 'Source DPI inspection failed; using default OCR resolution', {error: getErrorMessage(error)});
-                        return null;
-                    })
-                : null;
+            const sourceDpi =
+                options.renderDpi === undefined
+                    ? await detectSourceDpiDetails(
+                          popplerSourcePdfPath,
+                          paths.pdfimagesBinary,
+                          log,
+                          popplerEnv,
+                          jobSignal,
+                          pageNumbers,
+                      ).catch((error: unknown) => {
+                          if (jobSignal.aborted || isAbortError(error) || getUnprovenNativeTerminationDetail(error) !== undefined) {
+                              throw error;
+                          }
+                          log('warn', 'Source DPI inspection failed; using default OCR resolution', {error: getErrorMessage(error)});
+                          return null;
+                      })
+                    : null;
             const sourceDpiByPage = new Map<number, number>();
             for (const pageNumber of pageNumbers) {
                 const raster = await sourceDpi?.getPageRaster(pageNumber);
-                if (raster !== undefined) {sourceDpiByPage.set(pageNumber, raster.dpi);}
+                if (raster !== undefined) {
+                    sourceDpiByPage.set(pageNumber, raster.dpi);
+                }
             }
             publish(batchFirstPage, batchOffset, {phase: 'page-size-probing'});
             let pageSizeProbe = await pageSizeSource.read(popplerSourcePdfPath, pageNumbers);
-            if (pageSizeProbe.status === 'degraded' && pageSizeProbe.reason === 'native-tool-failed'
-                && (await preparePopplerFallback()).pdfPath !== sourcePdfPath) {
+            if (
+                pageSizeProbe.status === 'degraded' &&
+                pageSizeProbe.reason === 'native-tool-failed' &&
+                (await preparePopplerFallback()).pdfPath !== sourcePdfPath
+            ) {
                 pageSizeProbe = await pageSizeSource.read(popplerSourcePdfPath, pageNumbers);
             }
             if (pageSizeProbe.status === 'degraded' && !pageSizeWarningReported) {
@@ -284,18 +280,21 @@ async function recognizeOcrJobPages(stage: {
                 const renderedPath = join(paths.tempDir, `${sessionId}-page-${pageNumber}-${randomUUID()}.ppm`);
                 try {
                     const pageSize = pageSizes.get(pageNumber);
-                    await renderOcrPageToPpm([
-                        paths,
-                        log,
-                        pageNumber,
-                        popplerSourcePdfPath,
-                        renderedPath,
-                        dpi,
-                        popplerEnv,
-                        pageSignal,
-                        undefined,
-                        pageSize === undefined ? undefined : createOcrRasterRenderLimits(pageSize, dpi),
-                    ], preparePopplerFallback);
+                    await renderOcrPageToPpm(
+                        [
+                            paths,
+                            log,
+                            pageNumber,
+                            popplerSourcePdfPath,
+                            renderedPath,
+                            dpi,
+                            popplerEnv,
+                            pageSignal,
+                            undefined,
+                            pageSize === undefined ? undefined : createOcrRasterRenderLimits(pageSize, dpi),
+                        ],
+                        preparePopplerFallback,
+                    );
                     return await prepareOcrPageRasterFile({
                         renderedPath,
                         pageNumber,
@@ -326,14 +325,15 @@ async function recognizeOcrJobPages(stage: {
                 signal: jobSignal,
                 renderPage,
                 runEngine,
-                prepareEarlyPrintModels: () => earlyPrintModels ??= job.prepareEarlyPrintModels(jobSignal),
+                prepareEarlyPrintModels: () => (earlyPrintModels ??= job.prepareEarlyPrintModels(jobSignal)),
                 readModel: (code: TOcrModelCode) => readFile(join(paths.tessdataPath, `${code}.traineddata`)),
-                restorePage: pageNumber => restoreOcrPageCheckpoint(checkpointDir, pageNumber),
-                acceptPage: page => persistOcrPageCheckpoint(checkpointDir, page),
-                onPageDone: (pageNumber, activePages, processed) => publish(pageNumber, batchOffset + processed, {
-                    phase: 'processing',
-                    activePages: [...activePages],
-                }),
+                restorePage: (pageNumber) => restoreOcrPageCheckpoint(checkpointDir, pageNumber),
+                acceptPage: (page) => persistOcrPageCheckpoint(checkpointDir, page),
+                onPageDone: (pageNumber, activePages, processed) =>
+                    publish(pageNumber, batchOffset + processed, {
+                        phase: 'processing',
+                        activePages: [...activePages],
+                    }),
             });
             errors.push(...batch.errors.items);
             diagnostics.push(...batch.diagnostics.items);
@@ -356,9 +356,13 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
     const requestedSelection = normalizeOcrPageSelection(job.pages);
     const requestedPageCount = getOcrPageSelectionCount(requestedSelection);
     const firstPage = iterateOcrPageRequestBatches(requestedSelection, 1).next().value?.[0]?.pageNumber ?? 0;
-    const publish: TPublishOcrProgress = (currentPage, processedCount, extra) => job.publish({
-        currentPage, processedCount, totalPages: requestedPageCount, ...extra,
-    });
+    const publish: TPublishOcrProgress = (currentPage, processedCount, extra) =>
+        job.publish({
+            currentPage,
+            processedCount,
+            totalPages: requestedPageCount,
+            ...extra,
+        });
     let ownedCheckpointFingerprint: string | null = null;
     let jobFailure: unknown;
     let resultPath: string | undefined;
@@ -394,10 +398,15 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
         await cleanupStaleOcrJobDirectories(checkpointRoot);
         publish(firstPage, 0, {phase: 'pdf-prep'});
 
-        const {
-            successfulPageCount, hadTargetPages, warnings, errors, diagnostics,
-        } = await recognizeOcrJobPages({
-            job, sessionId, checkpointDir, requestedSelection, supersessionPolicy, jobAbort, jobSignal, publish,
+        const {successfulPageCount, hadTargetPages, warnings, errors, diagnostics} = await recognizeOcrJobPages({
+            job,
+            sessionId,
+            checkpointDir,
+            requestedSelection,
+            supersessionPolicy,
+            jobAbort,
+            jobSignal,
+            publish,
         });
 
         const omitted = warnings.omitted + errors.omitted;
@@ -416,7 +425,7 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
         if (successfulPageCount === 0) {
             // A page skipped because its text could not be inspected still
             // needs OCR; only pages classified as text-bearing do not.
-            if (!hadTargetPages && !diagnostics.items.some(diagnostic => diagnostic.severity === 'warning')) {
+            if (!hadTargetPages && !diagnostics.items.some((diagnostic) => diagnostic.severity === 'warning')) {
                 return {
                     success: false,
                     errors: [],
@@ -448,10 +457,7 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
             }
             return {
                 success: false,
-                errors: [
-                    ...completionMessages,
-                    `Failed to merge OCR'd pages with original PDF: ${getErrorMessage(mergeError)}`,
-                ],
+                errors: [...completionMessages, `Failed to merge OCR'd pages with original PDF: ${getErrorMessage(mergeError)}`],
             };
         }
         const resultSha256 = await hashFileSha256(resultPath, jobSignal);
@@ -469,7 +475,9 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
         resultPath = undefined;
         const error = jobAbort.signal.aborted ? jobAbort.signal.reason : caughtError;
         jobFailure = error;
-        if (getUnprovenNativeTerminationDetail(error) !== undefined || signal.aborted) {throw error;}
+        if (getUnprovenNativeTerminationDetail(error) !== undefined || signal.aborted) {
+            throw error;
+        }
         const errMsg = getErrorMessage(error);
         log('error', 'Critical OCR job failure', {jobId: job.jobId, error: errMsg});
         return {success: false, errors: [`Critical error: ${errMsg}`]};

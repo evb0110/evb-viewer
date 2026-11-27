@@ -1,5 +1,5 @@
-import { HORIZONTAL_SCROLL_CLAMP_EPSILON_PX } from '@app/modules/pdf-viewer/public/domContracts';
-import { readViewerSurface } from '@app/modules/viewer-invariants/readViewerSurface';
+import {HORIZONTAL_SCROLL_CLAMP_EPSILON_PX} from '@app/modules/pdf-viewer/public/domContracts';
+import {readViewerSurface} from '@app/modules/viewer-invariants/readViewerSurface';
 import {
     clearViewerDiagnosticNotices,
     ensureViewerDiagnosticLog,
@@ -114,10 +114,7 @@ function verticalOverlap(first: IViewerRect, second: IViewerRect) {
 }
 
 function intersects(first: IViewerRect, second: IViewerRect) {
-    return right(first) > second.left
-        && first.left < right(second)
-        && bottom(first) > second.top
-        && first.top < bottom(second);
+    return right(first) > second.left && first.left < right(second) && bottom(first) > second.top && first.top < bottom(second);
 }
 
 function roundRect(rect: IViewerRect) {
@@ -132,12 +129,13 @@ function roundRect(rect: IViewerRect) {
 function findVisiblePages(surface: IViewerSurface) {
     return surface.pages.filter((page) => {
         const overlap = verticalOverlap(page.rect, surface.viewportRect);
-        const threshold = MIN_VISIBLE_PAGE_FRACTION
-            * Math.min(page.rect.height, surface.viewportRect.height);
-        return threshold > 0
-            && overlap >= threshold
-            && right(page.rect) > surface.viewportRect.left
-            && page.rect.left < right(surface.viewportRect);
+        const threshold = MIN_VISIBLE_PAGE_FRACTION * Math.min(page.rect.height, surface.viewportRect.height);
+        return (
+            threshold > 0 &&
+            overlap >= threshold &&
+            right(page.rect) > surface.viewportRect.left &&
+            page.rect.left < right(surface.viewportRect)
+        );
     });
 }
 
@@ -159,9 +157,10 @@ function checkToolbarPageVisible(
     if (surface.toolbarPageNumber === null) {
         skipped.push({
             id: 'R1-toolbar-page-visible',
-            reason: surface.toolbarPageText === null
-                ? 'the toolbar page control is not on screen'
-                : `the toolbar page reads "${surface.toolbarPageText}", which is not a physical page number`,
+            reason:
+                surface.toolbarPageText === null
+                    ? 'the toolbar page control is not on screen'
+                    : `the toolbar page reads "${surface.toolbarPageText}", which is not a physical page number`,
         });
         return;
     }
@@ -172,7 +171,7 @@ function checkToolbarPageVisible(
         });
         return;
     }
-    if (visiblePages.some(page => page.pageNumber === surface.toolbarPageNumber)) {
+    if (visiblePages.some((page) => page.pageNumber === surface.toolbarPageNumber)) {
         return;
     }
     violations.push({
@@ -181,26 +180,24 @@ function checkToolbarPageVisible(
             toolbarPageText: surface.toolbarPageText,
             viewMode: surface.viewMode,
             viewportRect: roundRect(surface.viewportRect),
-            visiblePages: visiblePages.map(page => ({
+            visiblePages: visiblePages.map((page) => ({
                 pageNumber: page.pageNumber,
                 rect: roundRect(page.rect),
             })),
         },
         id: 'R1-toolbar-page-visible',
-        message: `the toolbar reads page ${String(surface.toolbarPageNumber)}`
-            + ` while the viewport shows ${visiblePages.map(page => page.pageNumber).join(', ')}`,
+        message:
+            `the toolbar reads page ${String(surface.toolbarPageNumber)}` +
+            ` while the viewport shows ${visiblePages.map((page) => page.pageNumber).join(', ')}`,
     });
 }
 
-function resolveCurrentUnit(
-    surface: IViewerSurface,
-    visiblePages: readonly IViewerInvariantPage[],
-) {
-    const currentPage = visiblePages.find(page => page.pageNumber === surface.toolbarPageNumber)
-        ?? [...visiblePages].sort((left, rightPage) => (
-            verticalOverlap(rightPage.rect, surface.viewportRect)
-            - verticalOverlap(left.rect, surface.viewportRect)
-        ))[0];
+function resolveCurrentUnit(surface: IViewerSurface, visiblePages: readonly IViewerInvariantPage[]) {
+    const currentPage =
+        visiblePages.find((page) => page.pageNumber === surface.toolbarPageNumber) ??
+        [...visiblePages].sort(
+            (left, rightPage) => verticalOverlap(rightPage.rect, surface.viewportRect) - verticalOverlap(left.rect, surface.viewportRect),
+        )[0];
     return currentPage ?? null;
 }
 
@@ -242,8 +239,7 @@ function checkFitModeScrollRange(
                     viewportWidth: Math.round(surface.viewportRect.width),
                 },
                 id: 'L1-fit-mode-scroll-range',
-                message: `fit-width left ${surface.horizontalScrollRangePx.toFixed(1)}px of horizontal`
-                    + ' scroll range',
+                message: `fit-width left ${surface.horizontalScrollRangePx.toFixed(1)}px of horizontal` + ' scroll range',
             });
         }
         return;
@@ -265,8 +261,7 @@ function checkFitModeScrollRange(
                 viewportHeight: Math.round(surface.viewportRect.height),
             },
             id: 'L1-fit-mode-scroll-range',
-            message: `fit-height in paged mode left ${surface.verticalScrollRangePx.toFixed(1)}px`
-                + ' of vertical scroll range',
+            message: `fit-height in paged mode left ${surface.verticalScrollRangePx.toFixed(1)}px` + ' of vertical scroll range',
         });
     }
 }
@@ -283,15 +278,14 @@ function checkOverlayContainment(
     violations: IViewerInvariantViolation[],
     skipped: IViewerInvariantSkip[],
 ) {
-    const checkable = surface.overlays.filter(overlay => (
-        !overlay.outsidePage && pagesByNumber.has(overlay.pageNumber)
-    ));
+    const checkable = surface.overlays.filter((overlay) => !overlay.outsidePage && pagesByNumber.has(overlay.pageNumber));
     if (checkable.length === 0) {
         skipped.push({
             id: 'A1-annotation-page-containment',
-            reason: surface.overlays.length === 0
-                ? 'no annotation overlay is mounted'
-                : 'every mounted overlay is marked as drawn past the page edge',
+            reason:
+                surface.overlays.length === 0
+                    ? 'no annotation overlay is mounted'
+                    : 'every mounted overlay is marked as drawn past the page edge',
         });
         return;
     }
@@ -300,10 +294,11 @@ function checkOverlayContainment(
         const page = pagesByNumber.get(overlay.pageNumber)!;
         const centerX = overlay.rect.left + overlay.rect.width / 2;
         const centerY = overlay.rect.top + overlay.rect.height / 2;
-        const centerInside = centerX >= page.rect.left - OVERLAY_CENTER_SLACK_PX
-            && centerX <= right(page.rect) + OVERLAY_CENTER_SLACK_PX
-            && centerY >= page.rect.top - OVERLAY_CENTER_SLACK_PX
-            && centerY <= bottom(page.rect) + OVERLAY_CENTER_SLACK_PX;
+        const centerInside =
+            centerX >= page.rect.left - OVERLAY_CENTER_SLACK_PX &&
+            centerX <= right(page.rect) + OVERLAY_CENTER_SLACK_PX &&
+            centerY >= page.rect.top - OVERLAY_CENTER_SLACK_PX &&
+            centerY <= bottom(page.rect) + OVERLAY_CENTER_SLACK_PX;
         if (intersects(overlay.rect, page.rect) && centerInside) {
             continue;
         }
@@ -325,10 +320,7 @@ function checkOverlayContainment(
     }
 }
 
-function toNormalizedOverlay(
-    overlay: IViewerInvariantOverlay,
-    page: IViewerInvariantPage,
-): IRememberedOverlay {
+function toNormalizedOverlay(overlay: IViewerInvariantOverlay, page: IViewerInvariantPage): IRememberedOverlay {
     return {
         centerX: (overlay.rect.left + overlay.rect.width / 2 - page.rect.left) / page.rect.width,
         centerY: (overlay.rect.top + overlay.rect.height / 2 - page.rect.top) / page.rect.height,
@@ -347,18 +339,11 @@ function toNormalizedOverlay(
  * changes with zoom while the point it marks does not move.
  */
 function measureNormalizedDrift(previous: IRememberedOverlay, observation: IRememberedOverlay) {
-    const positionDrift = Math.max(
-        Math.abs(previous.centerX - observation.centerX),
-        Math.abs(previous.centerY - observation.centerY),
-    );
+    const positionDrift = Math.max(Math.abs(previous.centerX - observation.centerX), Math.abs(previous.centerY - observation.centerY));
     if (previous.screenSized || observation.screenSized) {
         return positionDrift;
     }
-    return Math.max(
-        positionDrift,
-        Math.abs(previous.width - observation.width),
-        Math.abs(previous.height - observation.height),
-    );
+    return Math.max(positionDrift, Math.abs(previous.width - observation.width), Math.abs(previous.height - observation.height));
 }
 
 /**
@@ -392,11 +377,12 @@ function checkOverlayDrift(
         }
         const observation = toNormalizedOverlay(overlay, page);
         const previous = memory.overlays.get(overlay.annotationId);
-        const comparable = previous !== undefined
-            && !edited.has(overlay.annotationId)
-            && !overlay.selected
-            && previous.pageNumber === observation.pageNumber
-            && previous.viewRotation === observation.viewRotation;
+        const comparable =
+            previous !== undefined &&
+            !edited.has(overlay.annotationId) &&
+            !overlay.selected &&
+            previous.pageNumber === observation.pageNumber &&
+            previous.viewRotation === observation.viewRotation;
         if (comparable) {
             compared += 1;
             const drift = measureNormalizedDrift(previous, observation);
@@ -411,8 +397,9 @@ function checkOverlayDrift(
                         previous,
                     },
                     id: 'A1-annotation-normalized-drift',
-                    message: `${overlay.kind} overlay on page ${String(overlay.pageNumber)} moved`
-                        + ` ${(drift * 100).toFixed(2)}% of the page box between settled observations`,
+                    message:
+                        `${overlay.kind} overlay on page ${String(overlay.pageNumber)} moved` +
+                        ` ${(drift * 100).toFixed(2)}% of the page box between settled observations`,
                 });
             }
         }
@@ -426,10 +413,7 @@ function checkOverlayDrift(
     // page is not mounted was only virtualized away, and its normalized
     // position is still the one to compare against when it comes back.
     if (remember) {
-        for (const [
-            annotationId,
-            remembered,
-        ] of [...memory.overlays]) {
+        for (const [annotationId, remembered] of [...memory.overlays]) {
             if (!seen.has(annotationId) && pagesByNumber.has(remembered.pageNumber)) {
                 memory.overlays.delete(annotationId);
             }
@@ -445,23 +429,26 @@ function checkOverlayDrift(
 }
 
 function isClampedToPane(noteWindow: IViewerInvariantNoteWindow, viewport: IViewerRect) {
-    return Math.abs(noteWindow.rect.left - viewport.left) <= GEOMETRY_TOLERANCE_PX
-        || Math.abs(right(noteWindow.rect) - right(viewport)) <= GEOMETRY_TOLERANCE_PX
-        || Math.abs(noteWindow.rect.top - viewport.top) <= GEOMETRY_TOLERANCE_PX
-        || Math.abs(bottom(noteWindow.rect) - bottom(viewport)) <= GEOMETRY_TOLERANCE_PX;
+    return (
+        Math.abs(noteWindow.rect.left - viewport.left) <= GEOMETRY_TOLERANCE_PX ||
+        Math.abs(right(noteWindow.rect) - right(viewport)) <= GEOMETRY_TOLERANCE_PX ||
+        Math.abs(noteWindow.rect.top - viewport.top) <= GEOMETRY_TOLERANCE_PX ||
+        Math.abs(bottom(noteWindow.rect) - bottom(viewport)) <= GEOMETRY_TOLERANCE_PX
+    );
 }
 
 function overlapsWithTolerance(first: IViewerRect, second: IViewerRect) {
-    return right(first) > second.left + GEOMETRY_TOLERANCE_PX
-        && first.left < right(second) - GEOMETRY_TOLERANCE_PX
-        && bottom(first) > second.top + GEOMETRY_TOLERANCE_PX
-        && first.top < bottom(second) - GEOMETRY_TOLERANCE_PX;
+    return (
+        right(first) > second.left + GEOMETRY_TOLERANCE_PX &&
+        first.left < right(second) - GEOMETRY_TOLERANCE_PX &&
+        bottom(first) > second.top + GEOMETRY_TOLERANCE_PX &&
+        first.top < bottom(second) - GEOMETRY_TOLERANCE_PX
+    );
 }
 
 function resolveNoteAnchorVisibility(surface: IViewerSurface, noteWindow: IViewerInvariantNoteWindow) {
-    const marker = surface.overlays.find(overlay => overlay.annotationId === noteWindow.annotationId) ?? null;
-    const pageVisible = noteWindow.anchorRect !== null
-        && intersects(noteWindow.anchorRect, surface.viewportRect);
+    const marker = surface.overlays.find((overlay) => overlay.annotationId === noteWindow.annotationId) ?? null;
+    const pageVisible = noteWindow.anchorRect !== null && intersects(noteWindow.anchorRect, surface.viewportRect);
     const markerVisible = marker === null || intersects(marker.rect, surface.viewportRect);
     return {
         marker,
@@ -471,10 +458,12 @@ function resolveNoteAnchorVisibility(surface: IViewerSurface, noteWindow: IViewe
 }
 
 function isFullyInsidePane(rect: IViewerRect, viewport: IViewerRect) {
-    return rect.left >= viewport.left - GEOMETRY_TOLERANCE_PX
-        && right(rect) <= right(viewport) + GEOMETRY_TOLERANCE_PX
-        && rect.top >= viewport.top - GEOMETRY_TOLERANCE_PX
-        && bottom(rect) <= bottom(viewport) + GEOMETRY_TOLERANCE_PX;
+    return (
+        rect.left >= viewport.left - GEOMETRY_TOLERANCE_PX &&
+        right(rect) <= right(viewport) + GEOMETRY_TOLERANCE_PX &&
+        rect.top >= viewport.top - GEOMETRY_TOLERANCE_PX &&
+        bottom(rect) <= bottom(viewport) + GEOMETRY_TOLERANCE_PX
+    );
 }
 
 /**
@@ -484,11 +473,7 @@ function isFullyInsidePane(rect: IViewerRect, viewport: IViewerRect) {
  * deliberately does not infer which pane edge a docked note should use from
  * rectangles alone.
  */
-function checkNoteWindowPlacement(
-    surface: IViewerSurface,
-    violations: IViewerInvariantViolation[],
-    skipped: IViewerInvariantSkip[],
-) {
+function checkNoteWindowPlacement(surface: IViewerSurface, violations: IViewerInvariantViolation[], skipped: IViewerInvariantSkip[]) {
     if (surface.noteWindows.length === 0) {
         skipped.push({
             id: 'A2-note-window-over-chrome',
@@ -500,11 +485,7 @@ function checkNoteWindowPlacement(
     for (const noteWindow of surface.noteWindows) {
         // Every connected note is checkable, including one retained while its
         // anchor page is virtualized away; only an empty set is inapplicable.
-        const {
-            anchorVisible,
-            marker,
-            pageVisible,
-        } = resolveNoteAnchorVisibility(surface, noteWindow);
+        const {anchorVisible, marker, pageVisible} = resolveNoteAnchorVisibility(surface, noteWindow);
         if (!pageVisible) {
             if (!noteWindow.hidden) {
                 violations.push({
@@ -519,8 +500,7 @@ function checkNoteWindowPlacement(
                         viewportRect: roundRect(surface.viewportRect),
                     },
                     id: 'A2-note-window-over-chrome',
-                    message: `the note window for ${noteWindow.annotationId} remains visible`
-                        + ' after its anchor page left the viewport',
+                    message: `the note window for ${noteWindow.annotationId} remains visible` + ' after its anchor page left the viewport',
                 });
             }
             continue;
@@ -539,8 +519,9 @@ function checkNoteWindowPlacement(
                     viewportRect: roundRect(surface.viewportRect),
                 },
                 id: 'A2-note-window-over-chrome',
-                message: `the note window for ${noteWindow.annotationId} is hidden while its`
-                    + (anchorVisible ? ' anchor is on screen' : ' page is on screen and marker is offscreen'),
+                message:
+                    `the note window for ${noteWindow.annotationId} is hidden while its` +
+                    (anchorVisible ? ' anchor is on screen' : ' page is on screen and marker is offscreen'),
             });
             continue;
         }
@@ -558,8 +539,8 @@ function checkNoteWindowPlacement(
                     viewportRect: roundRect(surface.viewportRect),
                 },
                 id: 'A2-note-window-over-chrome',
-                message: `the note window for ${noteWindow.annotationId} is not fully inside its pane`
-                    + ' while its anchor page is on screen',
+                message:
+                    `the note window for ${noteWindow.annotationId} is not fully inside its pane` + ' while its anchor page is on screen',
             });
             continue;
         }
@@ -567,12 +548,12 @@ function checkNoteWindowPlacement(
         // What covers the chrome is what is painted: the window clips itself
         // to its pane, so a layout box that reaches over the toolbar is not by
         // itself something a reader can see.
-        const covered = surface.chrome.filter(chrome => overlapsWithTolerance(noteWindow.paintedRect, chrome.rect));
+        const covered = surface.chrome.filter((chrome) => overlapsWithTolerance(noteWindow.paintedRect, chrome.rect));
         if (covered.length > 0) {
             violations.push({
                 evidence: {
                     annotationId: noteWindow.annotationId,
-                    coveredChrome: covered.map(chrome => ({
+                    coveredChrome: covered.map((chrome) => ({
                         name: chrome.name,
                         rect: roundRect(chrome.rect),
                     })),
@@ -580,8 +561,9 @@ function checkNoteWindowPlacement(
                     noteWindowRect: roundRect(noteWindow.rect),
                 },
                 id: 'A2-note-window-over-chrome',
-                message: `the note window for ${noteWindow.annotationId} covers`
-                    + ` ${covered.map(chrome => chrome.name).join(', ')} while its anchor page is on screen`,
+                message:
+                    `the note window for ${noteWindow.annotationId} covers` +
+                    ` ${covered.map((chrome) => chrome.name).join(', ')} while its anchor page is on screen`,
             });
             continue;
         }
@@ -617,19 +599,20 @@ function checkNoteWindowFollowsAnchor(
         const anchorVisible = geometricallyVisible && !noteWindow.hidden;
         const clamped = isClampedToPane(noteWindow, surface.viewportRect);
         const previous = memory.noteWindows.get(noteWindow.annotationId);
-        const comparable = previous !== undefined
-            && anchorRect !== null
-            && anchorPageNumber !== null
-            && !previous.clamped
-            && !clamped
-            && previous.anchorVisible
-            && anchorVisible
-            && !previous.hidden
-            && !noteWindow.hidden
-            && previous.userPlacementSequence === noteWindow.userPlacementSequence
-            && previous.anchorPageNumber === anchorPageNumber
-            && Math.abs(previous.anchorWidth - anchorRect.width) <= GEOMETRY_TOLERANCE_PX
-            && Math.abs(previous.anchorHeight - anchorRect.height) <= GEOMETRY_TOLERANCE_PX;
+        const comparable =
+            previous !== undefined &&
+            anchorRect !== null &&
+            anchorPageNumber !== null &&
+            !previous.clamped &&
+            !clamped &&
+            previous.anchorVisible &&
+            anchorVisible &&
+            !previous.hidden &&
+            !noteWindow.hidden &&
+            previous.userPlacementSequence === noteWindow.userPlacementSequence &&
+            previous.anchorPageNumber === anchorPageNumber &&
+            Math.abs(previous.anchorWidth - anchorRect.width) <= GEOMETRY_TOLERANCE_PX &&
+            Math.abs(previous.anchorHeight - anchorRect.height) <= GEOMETRY_TOLERANCE_PX;
         if (comparable) {
             compared += 1;
             const anchorDeltaX = anchorRect.left - previous.anchorLeft;
@@ -653,9 +636,10 @@ function checkNoteWindowFollowsAnchor(
                         },
                     },
                     id: 'A2-note-window-follows-anchor',
-                    message: `the note window for ${noteWindow.annotationId} moved`
-                        + ` (${Math.round(windowDeltaX)}, ${Math.round(windowDeltaY)})px while its`
-                        + ` anchor page moved (${Math.round(anchorDeltaX)}, ${Math.round(anchorDeltaY)})px`,
+                    message:
+                        `the note window for ${noteWindow.annotationId} moved` +
+                        ` (${Math.round(windowDeltaX)}, ${Math.round(windowDeltaY)})px while its` +
+                        ` anchor page moved (${Math.round(anchorDeltaX)}, ${Math.round(anchorDeltaY)})px`,
                 });
             }
         }
@@ -686,8 +670,9 @@ function checkNoteWindowFollowsAnchor(
     if (compared === 0) {
         skipped.push({
             id: 'A2-note-window-follows-anchor',
-            reason: 'no open note window had a comparable unclamped earlier observation'
-                + ' with its anchor on screen both times and the same user placement',
+            reason:
+                'no open note window had a comparable unclamped earlier observation' +
+                ' with its anchor on screen both times and the same user placement',
         });
     }
 }
@@ -709,13 +694,10 @@ function checkRendererDiagnostics(
         });
         return;
     }
-    const allowlist = [
-        ...VIEWER_INVARIANT_CONSOLE_ALLOWLIST,
-        ...(options.consoleAllowlist ?? []),
-    ];
+    const allowlist = [...VIEWER_INVARIANT_CONSOLE_ALLOWLIST, ...(options.consoleAllowlist ?? [])];
     const notices = readViewerDiagnosticNotices();
     for (const notice of notices) {
-        const allowed = allowlist.find(entry => notice.signature.startsWith(entry.pattern));
+        const allowed = allowlist.find((entry) => notice.signature.startsWith(entry.pattern));
         if (allowed) {
             continue;
         }
@@ -741,9 +723,9 @@ function checkRendererDiagnostics(
  */
 function describeObservedIdentities(surface: IViewerSurface | null): IViewerObservedIdentities {
     return {
-        annotationIds: (surface?.overlays ?? []).map(overlay => overlay.annotationId),
-        mountedPageNumbers: (surface?.pages ?? []).map(page => page.pageNumber),
-        noteWindowAnnotationIds: (surface?.noteWindows ?? []).map(noteWindow => noteWindow.annotationId),
+        annotationIds: (surface?.overlays ?? []).map((overlay) => overlay.annotationId),
+        mountedPageNumbers: (surface?.pages ?? []).map((page) => page.pageNumber),
+        noteWindowAnnotationIds: (surface?.noteWindows ?? []).map((noteWindow) => noteWindow.annotationId),
         pageIndicator: surface?.toolbarPageNumber ?? null,
     };
 }
@@ -766,10 +748,7 @@ export function checkViewerInvariants(options: IViewerInvariantOptions = {}): IV
         });
     }
 
-    const {
-        surface,
-        unavailableReason,
-    } = readViewerSurface();
+    const {surface, unavailableReason} = readViewerSurface();
     if (!surface) {
         const reason = unavailableReason ?? 'the viewer surface was unreadable';
         for (const id of [
@@ -797,10 +776,7 @@ export function checkViewerInvariants(options: IViewerInvariantOptions = {}): IV
 
     forgetOtherWorkspace(surface, options.remember ?? true);
     const visiblePages = findVisiblePages(surface);
-    const pagesByNumber = new Map(surface.pages.map(page => [
-        page.pageNumber,
-        page,
-    ]));
+    const pagesByNumber = new Map(surface.pages.map((page) => [page.pageNumber, page]));
 
     checkToolbarPageVisible(surface, visiblePages, violations, skipped);
     checkFitModeScrollRange(surface, visiblePages, violations, skipped);
@@ -821,6 +797,6 @@ export function checkViewerInvariants(options: IViewerInvariantOptions = {}): IV
 
 export function formatViewerInvariantViolations(report: IViewerInvariantReport) {
     return report.violations
-        .map(violation => `${violation.id}: ${violation.message}\n    ${JSON.stringify(violation.evidence)}`)
+        .map((violation) => `${violation.id}: ${violation.message}\n    ${JSON.stringify(violation.evidence)}`)
         .join('\n');
 }

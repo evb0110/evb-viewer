@@ -3,7 +3,10 @@
         ref="inputRef"
         v-model="model"
     >
-        <template v-if="model.length > 0" #trailing>
+        <template
+            v-if="model.length > 0"
+            #trailing
+        >
             <div class="app-search-input-actions">
                 <slot name="actions" />
                 <UButton
@@ -21,12 +24,14 @@
 </template>
 
 <script setup lang="ts">
-interface IAppSearchInputExpose {focus: () => void;}
+interface IAppSearchInputExpose {
+    focus: () => void;
+}
 
 const model = defineModel<string>({required: true});
 const emit = defineEmits<{cleared: []}>();
 
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 const inputRef = useTemplateRef<{inputRef: HTMLInputElement | null}>('inputRef');
 
 function focus() {
@@ -39,7 +44,7 @@ function clear() {
     focus();
 }
 
-defineExpose<IAppSearchInputExpose>({ focus });
+defineExpose<IAppSearchInputExpose>({focus});
 </script>
 
 <style scoped>

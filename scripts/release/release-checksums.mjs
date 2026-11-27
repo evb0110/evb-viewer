@@ -1,21 +1,8 @@
-import {
-    createHash,
-    randomUUID,
-} from 'node:crypto';
-import { createReadStream } from 'node:fs';
-import {
-    lstat,
-    readFile,
-    readdir,
-    rename,
-    rm,
-    writeFile,
-} from 'node:fs/promises';
-import {
-    basename,
-    join,
-} from 'node:path';
-import { pathToFileURL } from 'node:url';
+import {createHash, randomUUID} from 'node:crypto';
+import {createReadStream} from 'node:fs';
+import {lstat, readFile, readdir, rename, rm, writeFile} from 'node:fs/promises';
+import {basename, join} from 'node:path';
+import {pathToFileURL} from 'node:url';
 
 const CHECKSUM_FILENAME = 'SHA256SUMS';
 const CHECKSUM_LINE_PATTERN = /^([a-f0-9]{64}) {2}(.+)$/u;
@@ -58,13 +45,13 @@ export async function verifyReleaseChecksums(artifactDirectory) {
     }
     const listedAssets = parseChecksumManifest(await readFile(checksumPath, 'utf8'));
     const actualSet = new Set(assetNames);
-    const listedSet = new Set(listedAssets.map(asset => asset.name));
-    const missing = assetNames.filter(name => !listedSet.has(name));
-    const unexpected = listedAssets.map(asset => asset.name).filter(name => !actualSet.has(name));
+    const listedSet = new Set(listedAssets.map((asset) => asset.name));
+    const missing = assetNames.filter((name) => !listedSet.has(name));
+    const unexpected = listedAssets.map((asset) => asset.name).filter((name) => !actualSet.has(name));
     if (missing.length > 0 || unexpected.length > 0) {
         throw new Error(
-            `Release asset set does not match ${CHECKSUM_FILENAME}; missing: ${formatNames(missing)}; `
-            + `unexpected: ${formatNames(unexpected)}`,
+            `Release asset set does not match ${CHECKSUM_FILENAME}; missing: ${formatNames(missing)}; ` +
+                `unexpected: ${formatNames(unexpected)}`,
         );
     }
     for (const asset of listedAssets) {
@@ -146,18 +133,18 @@ export function validateReleaseAssetNames(assetNames) {
 /** @param {string} name @returns {string} */
 function validateAssetBasename(name) {
     if (
-        name !== basename(name)
-        || name === '.'
-        || name === '..'
-        || name.normalize('NFC') !== name
-        || name.trim() !== name
-        || name.includes('/')
-        || name.includes('\\')
-        || [...name].some(character => {
+        name !== basename(name) ||
+        name === '.' ||
+        name === '..' ||
+        name.normalize('NFC') !== name ||
+        name.trim() !== name ||
+        name.includes('/') ||
+        name.includes('\\') ||
+        [...name].some((character) => {
             const codePoint = character.codePointAt(0);
             return codePoint !== undefined && (codePoint <= 0x1f || codePoint === 0x7f);
-        })
-        || portableAssetName(name) === portableAssetName(CHECKSUM_FILENAME)
+        }) ||
+        portableAssetName(name) === portableAssetName(CHECKSUM_FILENAME)
     ) {
         throw new Error(`Unsafe release asset basename: ${JSON.stringify(name)}`);
     }
@@ -184,19 +171,9 @@ async function hashFile(filePath) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-    const [
-        command,
-        artifactDirectory,
-        ...extraArguments
-    ] = process.argv.slice(2);
-    if (
-        !artifactDirectory
-        || extraArguments.length > 0
-        || (command !== 'generate' && command !== 'verify')
-    ) {
-        throw new Error(
-            'Usage: release-checksums.mjs <generate|verify> <artifact-directory>',
-        );
+    const [command, artifactDirectory, ...extraArguments] = process.argv.slice(2);
+    if (!artifactDirectory || extraArguments.length > 0 || (command !== 'generate' && command !== 'verify')) {
+        throw new Error('Usage: release-checksums.mjs <generate|verify> <artifact-directory>');
     }
     if (command === 'generate') {
         await generateReleaseChecksums(artifactDirectory);

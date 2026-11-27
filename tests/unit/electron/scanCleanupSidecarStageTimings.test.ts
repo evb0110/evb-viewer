@@ -1,14 +1,7 @@
-import { EventEmitter } from 'node:events';
-import { PassThrough } from 'node:stream';
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-    type Mock,
-} from 'vitest';
-import type { TWorkerLog } from '@electron/features/ocr/pipeline/types';
+import {EventEmitter} from 'node:events';
+import {PassThrough} from 'node:stream';
+import {beforeEach, describe, expect, it, vi, type Mock} from 'vitest';
+import type {TWorkerLog} from '@electron/features/ocr/pipeline/types';
 
 const mocks = vi.hoisted(() => ({
     spawn: vi.fn(),
@@ -57,30 +50,31 @@ function resultLine(status: 'success' | 'failure') {
     return `${JSON.stringify({
         version: 3,
         type: 'result',
-        result: status === 'success'
-            ? {
-                status,
-                completedPages: 2,
-                totalPages: 2,
-            }
-            : {
-                status,
-                code: 'native-failure',
-                message: 'sidecar refused the manifest',
-            },
+        result:
+            status === 'success'
+                ? {
+                      status,
+                      completedPages: 2,
+                      totalPages: 2,
+                  }
+                : {
+                      status,
+                      code: 'native-failure',
+                      message: 'sidecar refused the manifest',
+                  },
     })}\n`;
 }
 
 async function flushLines(seen: () => number, expected: number) {
     for (let attempt = 0; attempt < 100 && seen() < expected; attempt += 1) {
-        await new Promise(resolve => {
+        await new Promise((resolve) => {
             setImmediate(resolve);
         });
     }
 }
 
 function readTimingLog(log: Mock<TWorkerLog>) {
-    const entries = log.mock.calls.filter(call => call[0] === 'debug');
+    const entries = log.mock.calls.filter((call) => call[0] === 'debug');
     expect(entries).toHaveLength(1);
     return entries[0]![1];
 }
@@ -120,7 +114,13 @@ describe('scan cleanup sidecar stage timings', () => {
         mocks.spawn.mockReturnValue(child);
         const {runScanCleanupSidecar} = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
         const controller = new AbortController();
-        const run = runScanCleanupSidecar('/native/evb-scan-cleanup', '/scratch/malformed.json', controller.signal, vi.fn<TWorkerLog>(), () => {});
+        const run = runScanCleanupSidecar(
+            '/native/evb-scan-cleanup',
+            '/scratch/malformed.json',
+            controller.signal,
+            vi.fn<TWorkerLog>(),
+            () => {},
+        );
         const rejected = expect(run).rejects.toBeInstanceOf(SyntaxError);
         child.stdout.write('{not-json}\n');
         await vi.waitFor(() => expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledOnce());
@@ -155,15 +155,9 @@ describe('scan cleanup sidecar stage timings', () => {
         // A second stage model here labelled analyze `page-complete` as
         // `rendering` for consumers that never asked for it. The adapter now
         // reports the native frame verbatim, and nothing else.
-        expect(onProgress.mock.calls.map(call => call.length)).toEqual([
-            1,
-            1,
-        ]);
+        expect(onProgress.mock.calls.map((call) => call.length)).toEqual([1, 1]);
         const frames = onProgress.mock.calls.map(([frame]) => frame as Record<string, unknown>);
-        expect(frames.map(frame => frame.stage)).toEqual([
-            'page-analyzed',
-            'page-complete',
-        ]);
+        expect(frames.map((frame) => frame.stage)).toEqual(['page-analyzed', 'page-complete']);
         for (const frame of frames) {
             expect(frame).not.toHaveProperty('completedUnits');
             expect(frame).not.toHaveProperty('totalUnits');
@@ -185,7 +179,7 @@ describe('scan cleanup sidecar stage timings', () => {
     it('reports per-stage totals summed across every page the sidecar timed', async () => {
         const child = new MockSidecarProcess();
         mocks.spawn.mockReturnValue(child);
-        const { runScanCleanupSidecar } = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
+        const {runScanCleanupSidecar} = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
         const log = vi.fn<TWorkerLog>();
         let progressEvents = 0;
 
@@ -198,16 +192,20 @@ describe('scan cleanup sidecar stage timings', () => {
                 progressEvents += 1;
             },
         );
-        child.stdout.write(progressLine(1, {
-            decodeMs: 120,
-            renderMs: 40,
-            writeMs: 10,
-        }));
-        child.stdout.write(progressLine(2, {
-            decodeMs: 80,
-            renderMs: 60,
-            splitMs: 250,
-        }));
+        child.stdout.write(
+            progressLine(1, {
+                decodeMs: 120,
+                renderMs: 40,
+                writeMs: 10,
+            }),
+        );
+        child.stdout.write(
+            progressLine(2, {
+                decodeMs: 80,
+                renderMs: 60,
+                splitMs: 250,
+            }),
+        );
         child.stdout.write(resultLine('success'));
         await flushLines(() => progressEvents, 2);
         child.emit('close', 0, null);
@@ -240,15 +238,19 @@ describe('scan cleanup sidecar stage timings', () => {
             },
         );
         child.stdout.write(progressLine(1, {decodeMs: 120}, 'page-analyzed'));
-        child.stdout.write(progressLine(1, {
-            decodeMs: 80,
-            renderMs: 40,
-        }));
+        child.stdout.write(
+            progressLine(1, {
+                decodeMs: 80,
+                renderMs: 40,
+            }),
+        );
         child.stdout.write(progressLine(2, {decodeMs: 90}, 'page-analyzed'));
-        child.stdout.write(progressLine(2, {
-            decodeMs: 60,
-            writeMs: 10,
-        }));
+        child.stdout.write(
+            progressLine(2, {
+                decodeMs: 60,
+                writeMs: 10,
+            }),
+        );
         child.stdout.write(resultLine('success'));
         await flushLines(() => progressEvents, 4);
         child.emit('close', 0, null);
@@ -276,7 +278,7 @@ describe('scan cleanup sidecar stage timings', () => {
 
         child.emit('exit', 0, null);
         child.stdout.end(resultLine('success'));
-        await new Promise(resolve => {
+        await new Promise((resolve) => {
             setImmediate(resolve);
         });
         child.emit('close', 0, null);
@@ -290,9 +292,12 @@ describe('scan cleanup sidecar stage timings', () => {
             const child = new MockSidecarProcess();
             let finishTermination = () => {};
             mocks.spawn.mockReturnValue(child);
-            mocks.terminateDetachedChildProcess.mockImplementationOnce(() => new Promise<void>(resolve => {
-                finishTermination = resolve;
-            }));
+            mocks.terminateDetachedChildProcess.mockImplementationOnce(
+                () =>
+                    new Promise<void>((resolve) => {
+                        finishTermination = resolve;
+                    }),
+            );
             const {runScanCleanupSidecar} = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
             let failureReturned = false;
             const failure = runScanCleanupSidecar(
@@ -302,7 +307,7 @@ describe('scan cleanup sidecar stage timings', () => {
                 vi.fn<TWorkerLog>(),
                 () => {},
                 {timeoutMs: 10},
-            ).catch(error => {
+            ).catch((error) => {
                 failureReturned = true;
                 return error as Error;
             });
@@ -334,7 +339,7 @@ describe('scan cleanup sidecar stage timings', () => {
                 vi.fn<TWorkerLog>(),
                 () => {},
                 {timeoutMs: 10},
-            ).catch(error => {
+            ).catch((error) => {
                 failureReturned = true;
                 return error as Error;
             });
@@ -353,7 +358,7 @@ describe('scan cleanup sidecar stage timings', () => {
     it('still reports what the failed run spent before the sidecar gave up', async () => {
         const child = new MockSidecarProcess();
         mocks.spawn.mockReturnValue(child);
-        const { runScanCleanupSidecar } = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
+        const {runScanCleanupSidecar} = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
         const log = vi.fn<TWorkerLog>();
         let progressEvents = 0;
 
@@ -380,10 +385,7 @@ describe('scan cleanup sidecar stage timings', () => {
 
     it('waits for broker admission before it spawns', async () => {
         vi.resetModules();
-        const {
-            configureMainJobBroker,
-            mainJobBroker,
-        } = await import('@electron/resources/jobBroker');
+        const {configureMainJobBroker, mainJobBroker} = await import('@electron/resources/jobBroker');
         configureMainJobBroker({
             logicalCpus: 8,
             totalRamBytes: 16 * 1024 ** 3,
@@ -392,7 +394,7 @@ describe('scan cleanup sidecar stage timings', () => {
             performanceMode: 'auto',
             tier: 'high',
         });
-        const { runScanCleanupSidecar } = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
+        const {runScanCleanupSidecar} = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
         const child = new MockSidecarProcess();
         mocks.spawn.mockReturnValue(child);
         // Another command holds the whole capacity.
@@ -412,7 +414,7 @@ describe('scan cleanup sidecar stage timings', () => {
             () => {},
         );
         for (let attempt = 0; attempt < 10; attempt += 1) {
-            await new Promise(resolve => {
+            await new Promise((resolve) => {
                 setImmediate(resolve);
             });
         }

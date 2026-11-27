@@ -1,14 +1,9 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { parsePageNumber } from '@contracts/pageNumbers';
-import { DOCUMENT_SOURCE_SEARCH_MIN_QUERY_LENGTH } from '@contracts/search';
-import { DEFAULT_DOCUMENT_SEARCH_OPTIONS } from '@app/modules/document-viewer/providers/documentSearch';
-import { createDocumentPageSourceSearchBackend } from '@app/modules/document-viewer/search/createDocumentPageSourceSearchBackend';
-import type { IDocumentPageSource } from '@app/modules/document-viewer/source/documentPageSource';
+import {describe, expect, it, vi} from 'vitest';
+import {parsePageNumber} from '@contracts/pageNumbers';
+import {DOCUMENT_SOURCE_SEARCH_MIN_QUERY_LENGTH} from '@contracts/search';
+import {DEFAULT_DOCUMENT_SEARCH_OPTIONS} from '@app/modules/document-viewer/providers/documentSearch';
+import {createDocumentPageSourceSearchBackend} from '@app/modules/document-viewer/search/createDocumentPageSourceSearchBackend';
+import type {IDocumentPageSource} from '@app/modules/document-viewer/source/documentPageSource';
 import {requireRequestId} from '@contracts/shared';
 
 function asSource(source: Partial<IDocumentPageSource>) {
@@ -32,40 +27,46 @@ describe('createDocumentPageSourceSearchBackend', () => {
                 coverage,
             });
             return {
-                results: [{
-                    pageNumber: parsePageNumber(2)!,
-                    pageMatchIndex: 0,
-                    matchIndex: 0,
-                    startOffset: 4,
-                    endOffset: 8,
-                    excerpt: {
-                        prefix: false,
-                        suffix: false,
-                        before: '',
-                        match: 'word',
-                        after: '',
+                results: [
+                    {
+                        pageNumber: parsePageNumber(2)!,
+                        pageMatchIndex: 0,
+                        matchIndex: 0,
+                        startOffset: 4,
+                        endOffset: 8,
+                        excerpt: {
+                            prefix: false,
+                            suffix: false,
+                            before: '',
+                            match: 'word',
+                            after: '',
+                        },
+                        words: [
+                            {
+                                text: 'word',
+                                x: 10,
+                                y: 20,
+                                width: 30,
+                                height: 40,
+                            },
+                        ],
+                        pageWidth: 100,
+                        pageHeight: 200,
+                        rotation: 0 as const,
                     },
-                    words: [{
-                        text: 'word',
-                        x: 10,
-                        y: 20,
-                        width: 30,
-                        height: 40,
-                    }],
-                    pageWidth: 100,
-                    pageHeight: 200,
-                    rotation: 0 as const,
-                }],
+                ],
                 truncated: false,
                 coverage,
             };
         });
         const getPageText = vi.fn();
-        const backend = createDocumentPageSourceSearchBackend(asSource({
-            pageCount: 3,
-            searchProvider: {search},
-            textProvider: {getPageText},
-        }));
+        const backend = createDocumentPageSourceSearchBackend(
+            asSource({
+                pageCount: 3,
+                searchProvider: {search},
+                textProvider: {getPageText},
+            }),
+        );
         const onProgress = vi.fn();
 
         const response = await backend!.search({
@@ -75,10 +76,12 @@ describe('createDocumentPageSourceSearchBackend', () => {
             onProgress,
         });
 
-        expect(search).toHaveBeenCalledWith(expect.objectContaining({
-            query: 'word',
-            requestId: expect.stringMatching(/^document-source-search-/u),
-        }));
+        expect(search).toHaveBeenCalledWith(
+            expect.objectContaining({
+                query: 'word',
+                requestId: expect.stringMatching(/^document-source-search-/u),
+            }),
+        );
         expect(getPageText).not.toHaveBeenCalled();
         expect(onProgress).toHaveBeenCalledWith({
             processed: 1,
@@ -86,36 +89,46 @@ describe('createDocumentPageSourceSearchBackend', () => {
             coverage,
         });
         expect(response.coverage).toEqual(coverage);
-        expect(response.results[0]).toEqual(expect.objectContaining({
-            pageIndex: 1,
-            startOffset: 4,
-            endOffset: 8,
-            words: [{
-                text: 'word',
-                x: 10,
-                y: 20,
-                width: 30,
-                height: 40,
-            }],
-            pageWidth: 100,
-            pageHeight: 200,
-            rotation: 0,
-        }));
+        expect(response.results[0]).toEqual(
+            expect.objectContaining({
+                pageIndex: 1,
+                startOffset: 4,
+                endOffset: 8,
+                words: [
+                    {
+                        text: 'word',
+                        x: 10,
+                        y: 20,
+                        width: 30,
+                        height: 40,
+                    },
+                ],
+                pageWidth: 100,
+                pageHeight: 200,
+                rotation: 0,
+            }),
+        );
     });
 
     it('does not advertise search for a text-only source', () => {
-        expect(createDocumentPageSourceSearchBackend(asSource({
-            pageCount: 1,
-            textProvider: {getPageText: vi.fn()},
-        }))).toBeNull();
+        expect(
+            createDocumentPageSourceSearchBackend(
+                asSource({
+                    pageCount: 1,
+                    textProvider: {getPageText: vi.fn()},
+                }),
+            ),
+        ).toBeNull();
     });
 
     it('publishes the shared document-source minimum query length on the search backend', () => {
-        const providerBackend = createDocumentPageSourceSearchBackend(asSource({
-            pageCount: 3,
-            searchProvider: {search: vi.fn()},
-            textProvider: {getPageText: vi.fn()},
-        }));
+        const providerBackend = createDocumentPageSourceSearchBackend(
+            asSource({
+                pageCount: 3,
+                searchProvider: {search: vi.fn()},
+                textProvider: {getPageText: vi.fn()},
+            }),
+        );
         expect(DOCUMENT_SOURCE_SEARCH_MIN_QUERY_LENGTH).toBe(2);
         expect(providerBackend?.minQueryLength).toBe(DOCUMENT_SOURCE_SEARCH_MIN_QUERY_LENGTH);
     });

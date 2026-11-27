@@ -1,9 +1,5 @@
 import * as v from 'valibot';
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import type {
     IScanCleanupOptions,
     IScanCleanupPageOverride,
@@ -57,8 +53,7 @@ describe('scan cleanup page overrides', () => {
         };
         const serializedOptions = JSON.parse(JSON.stringify(options)) as IScanCleanupOptions;
 
-        expect(createScanCleanupDetectionSignature(serializedOptions))
-            .toBe(createScanCleanupDetectionSignature(options));
+        expect(createScanCleanupDetectionSignature(serializedOptions)).toBe(createScanCleanupDetectionSignature(options));
         expect(options.pageOverrides).toEqual({});
     });
 
@@ -84,29 +79,38 @@ describe('scan cleanup page overrides', () => {
         });
         const zeroRotation = detectionOptions(createScanCleanupPageOverride());
         const ninetyRotation = detectionOptions(createScanCleanupPageOverride({rotationDegrees: 90}));
-        const manualSplit = detectionOptions(createScanCleanupPageOverride({manualSplit: {
-            xNormalized: 0.5,
-            rotationDegrees: 0,
-        }}));
+        const manualSplit = detectionOptions(
+            createScanCleanupPageOverride({
+                manualSplit: {
+                    xNormalized: 0.5,
+                    rotationDegrees: 0,
+                },
+            }),
+        );
         const excluded = detectionOptions(createScanCleanupPageOverride({excluded: true}));
 
-        expect(createScanCleanupDetectionSignature(ninetyRotation))
-            .not.toBe(createScanCleanupDetectionSignature(zeroRotation));
-        expect(createScanCleanupDetectionSignature(manualSplit))
-            .not.toBe(createScanCleanupDetectionSignature(zeroRotation));
-        expect(createScanCleanupPlacementAnchorCalibrationSignature(excluded))
-            .not.toBe(createScanCleanupPlacementAnchorCalibrationSignature(detectionOptions(createScanCleanupPageOverride())));
+        expect(createScanCleanupDetectionSignature(ninetyRotation)).not.toBe(createScanCleanupDetectionSignature(zeroRotation));
+        expect(createScanCleanupDetectionSignature(manualSplit)).not.toBe(createScanCleanupDetectionSignature(zeroRotation));
+        expect(createScanCleanupPlacementAnchorCalibrationSignature(excluded)).not.toBe(
+            createScanCleanupPlacementAnchorCalibrationSignature(detectionOptions(createScanCleanupPageOverride())),
+        );
     });
 
     it('estimates a million-page scalar exclusion without expanding page state', () => {
         const pageOverrides = {};
         const pageOverrideDefaults = createScanCleanupPageOverride({excluded: true});
 
-        expect(estimateScanCleanupOutputPages(1_000_000, {
-            layoutMode: 'auto',
-            pageOverrides,
-            pageOverrideDefaults,
-        }, new Map())).toEqual({
+        expect(
+            estimateScanCleanupOutputPages(
+                1_000_000,
+                {
+                    layoutMode: 'auto',
+                    pageOverrides,
+                    pageOverrideDefaults,
+                },
+                new Map(),
+            ),
+        ).toEqual({
             exact: true,
             outputPages: 0,
         });
@@ -121,13 +125,17 @@ describe('scan cleanup page overrides', () => {
             excluded: false,
             manualSplit: null,
         });
-        setScanCleanupPageOverride(overrides, requirePageNumber(3), createScanCleanupPageOverride({
-            rotationDegrees: 90,
-            manualSplit: {
-                xNormalized: 0.5,
-                rotationDegrees: 0,
-            },
-        }));
+        setScanCleanupPageOverride(
+            overrides,
+            requirePageNumber(3),
+            createScanCleanupPageOverride({
+                rotationDegrees: 90,
+                manualSplit: {
+                    xNormalized: 0.5,
+                    rotationDegrees: 0,
+                },
+            }),
+        );
         expect(getScanCleanupPageOverride(overrides, requirePageNumber(3), undefined)).toMatchObject({
             rotationDegrees: 90,
             manualSplit: {
@@ -157,24 +165,24 @@ describe('scan cleanup page overrides', () => {
     });
 
     it('keeps an empty collection that clears a nonempty all-pages value, but drops empty ones that match', () => {
-        const inheritedBoxes = createScanCleanupPageOverride({manualContentBoxes: {full: {
-            xNormalized: 0.1,
-            yNormalized: 0.1,
-            widthNormalized: 0.8,
-            heightNormalized: 0.8,
-            rotationDegrees: 0,
-        }}});
+        const inheritedBoxes = createScanCleanupPageOverride({
+            manualContentBoxes: {
+                full: {
+                    xNormalized: 0.1,
+                    yNormalized: 0.1,
+                    widthNormalized: 0.8,
+                    heightNormalized: 0.8,
+                    rotationDegrees: 0,
+                },
+            },
+        });
         const overrides = {};
         attachScanCleanupPageOverrideDefaults(overrides, inheritedBoxes);
         setScanCleanupPageOverride(overrides, requirePageNumber(3), createScanCleanupPageOverride({manualContentBoxes: {}}));
         setScanCleanupPageOverride(overrides, requirePageNumber(4), createScanCleanupPageOverride());
-        expect(Object.keys(overrides)).toEqual([
-            '3',
-            '4',
-        ]);
+        expect(Object.keys(overrides)).toEqual(['3', '4']);
         expect(getScanCleanupPageOverride(overrides, requirePageNumber(3)).manualContentBoxes ?? {}).toEqual({});
-        expect(getScanCleanupPageOverride(overrides, requirePageNumber(5)).manualContentBoxes)
-            .toEqual(inheritedBoxes.manualContentBoxes);
+        expect(getScanCleanupPageOverride(overrides, requirePageNumber(5)).manualContentBoxes).toEqual(inheritedBoxes.manualContentBoxes);
 
         const emptyDefaults = {};
         attachScanCleanupPageOverrideDefaults(emptyDefaults, createScanCleanupPageOverride({manualContentBoxes: {}}));
@@ -212,7 +220,12 @@ describe('scan cleanup page overrides', () => {
             bottomMm: 5,
         };
         const overrides = {};
-        setScanCleanupPageOverride(overrides, requirePageNumber(3), createScanCleanupPageOverride({marginsMm: {...documentMargins}}), documentMargins);
+        setScanCleanupPageOverride(
+            overrides,
+            requirePageNumber(3),
+            createScanCleanupPageOverride({marginsMm: {...documentMargins}}),
+            documentMargins,
+        );
         expect(overrides).toEqual({});
 
         const asymmetricMargins = {
@@ -221,42 +234,54 @@ describe('scan cleanup page overrides', () => {
             rightMm: 6,
             bottomMm: 8,
         };
-        setScanCleanupPageOverride(overrides, requirePageNumber(3), createScanCleanupPageOverride({marginsMm: asymmetricMargins}), documentMargins);
-        expect(resolveScanCleanupMarginsMm(documentMargins, getScanCleanupPageOverride(overrides, requirePageNumber(3), undefined)))
-            .toEqual(asymmetricMargins);
+        setScanCleanupPageOverride(
+            overrides,
+            requirePageNumber(3),
+            createScanCleanupPageOverride({marginsMm: asymmetricMargins}),
+            documentMargins,
+        );
+        expect(
+            resolveScanCleanupMarginsMm(documentMargins, getScanCleanupPageOverride(overrides, requirePageNumber(3), undefined)),
+        ).toEqual(asymmetricMargins);
     });
 
     it('accounts exactly for exclusions and forced output counts', () => {
         const classifications = new Map([
-            [
-                1,
-                'two-page-spread' as const,
-            ],
-            [
-                4,
-                'single-uncut-page' as const,
-            ],
+            [1, 'two-page-spread' as const],
+            [4, 'single-uncut-page' as const],
         ]);
         const pageOverrides = {
             '2': createScanCleanupPageOverride({excluded: true}),
             '3': createScanCleanupPageOverride({layoutOverride: 'spread'}),
             '4': createScanCleanupPageOverride({layoutOverride: 'keep-left'}),
         };
-        expect(estimateScanCleanupOutputPages(4, {
-            layoutMode: 'auto',
-            pageOverrides,
-        }, classifications)).toEqual({
+        expect(
+            estimateScanCleanupOutputPages(
+                4,
+                {
+                    layoutMode: 'auto',
+                    pageOverrides,
+                },
+                classifications,
+            ),
+        ).toEqual({
             exact: true,
             outputPages: 5,
         });
     });
 
     it('marks the estimate approximate when blank pages may be removed', () => {
-        expect(estimateScanCleanupOutputPages(2, {
-            layoutMode: 'force-single',
-            pageOverrides: {},
-            skipBlankPages: true,
-        }, new Map())).toEqual({
+        expect(
+            estimateScanCleanupOutputPages(
+                2,
+                {
+                    layoutMode: 'force-single',
+                    pageOverrides: {},
+                    skipBlankPages: true,
+                },
+                new Map(),
+            ),
+        ).toEqual({
             exact: false,
             outputPages: 2,
         });
@@ -268,14 +293,17 @@ describe('scan cleanup page overrides', () => {
             pageOverrides: {},
         };
         expect(shouldShowScanCleanupOutputEstimate(3, options, new Map())).toBe(false);
-        expect(shouldShowScanCleanupOutputEstimate(3, options, new Map([[
-            1,
-            'single-uncut-page' as const,
-        ]]))).toBe(true);
-        expect(shouldShowScanCleanupOutputEstimate(3, {
-            ...options,
-            layoutMode: 'force-two-page',
-        }, new Map())).toBe(true);
+        expect(shouldShowScanCleanupOutputEstimate(3, options, new Map([[1, 'single-uncut-page' as const]]))).toBe(true);
+        expect(
+            shouldShowScanCleanupOutputEstimate(
+                3,
+                {
+                    ...options,
+                    layoutMode: 'force-two-page',
+                },
+                new Map(),
+            ),
+        ).toBe(true);
     });
 
     it('shows exact counts when overrides fully determine every included page', () => {
@@ -283,14 +311,26 @@ describe('scan cleanup page overrides', () => {
             '1': createScanCleanupPageOverride({layoutOverride: 'spread'}),
             '2': createScanCleanupPageOverride({excluded: true}),
         };
-        expect(shouldShowScanCleanupOutputEstimate(2, {
-            layoutMode: 'auto',
-            pageOverrides,
-        }, new Map())).toBe(true);
-        expect(estimateScanCleanupOutputPages(2, {
-            layoutMode: 'auto',
-            pageOverrides,
-        }, new Map())).toEqual({
+        expect(
+            shouldShowScanCleanupOutputEstimate(
+                2,
+                {
+                    layoutMode: 'auto',
+                    pageOverrides,
+                },
+                new Map(),
+            ),
+        ).toBe(true);
+        expect(
+            estimateScanCleanupOutputPages(
+                2,
+                {
+                    layoutMode: 'auto',
+                    pageOverrides,
+                },
+                new Map(),
+            ),
+        ).toEqual({
             exact: true,
             outputPages: 2,
         });
@@ -309,18 +349,9 @@ describe('scan cleanup ink placement', () => {
     function resolvedTops(samples: Array<ReturnType<typeof sample>>, tolerance: number) {
         return [...resolveScanCleanupPlacementAnchors(samples, tolerance).entries()]
             .sort(([left], [right]) => left - right)
-            .map(([
+            .map(([pageNumber, anchors]): [number, Record<string, number>] => [
                 pageNumber,
-                anchors,
-            ]): [number, Record<string, number>] => [
-                pageNumber,
-                Object.fromEntries(Object.entries(anchors).map(([
-                    half,
-                    anchor,
-                ]) => [
-                    half,
-                    anchor.yNormalized,
-                ])),
+                Object.fromEntries(Object.entries(anchors).map(([half, anchor]) => [half, anchor.yNormalized])),
             ]);
     }
 
@@ -329,88 +360,39 @@ describe('scan cleanup ink placement', () => {
     });
 
     it('prints a lone page at the top margin: there is nothing to keep it relative to', () => {
-        expect(resolveScanCleanupPlacementAnchors([sample(1, 'full', 0.11)], 0.02))
-            .toEqual(new Map([[
-                1,
-                {full: {yNormalized: 0}},
-            ]]));
+        expect(resolveScanCleanupPlacementAnchors([sample(1, 'full', 0.11)], 0.02)).toEqual(new Map([[1, {full: {yNormalized: 0}}]]));
     });
 
     it('keeps every output on its own ink when paper cannot be measured (tolerance 0)', () => {
-        expect(resolvedTops([
-            sample(1, 'full', 0.5),
-            sample(2, 'full', 0.5),
-            sample(3, 'full', 0.75),
-            sample(4, 'full', 0.625),
-        ], 0)).toEqual([
-            [
-                1,
-                {full: 0},
-            ],
-            [
-                2,
-                {full: 0},
-            ],
-            [
-                3,
-                {full: 0.25},
-            ],
-            [
-                4,
-                {full: 0.125},
-            ],
+        expect(
+            resolvedTops([sample(1, 'full', 0.5), sample(2, 'full', 0.5), sample(3, 'full', 0.75), sample(4, 'full', 0.625)], 0),
+        ).toEqual([
+            [1, {full: 0}],
+            [2, {full: 0}],
+            [3, {full: 0.25}],
+            [4, {full: 0.125}],
         ]);
     });
 
     it('snaps pages that agree within the tolerance onto the cluster median', () => {
-        expect(resolvedTops([
-            sample(1, 'full', 0.1),
-            sample(2, 'full', 0.12),
-            sample(3, 'full', 0.13),
-            sample(4, 'full', 0.4),
-        ], 0.05)).toEqual([
-            [
-                1,
-                {full: 0},
-            ],
-            [
-                2,
-                {full: 0},
-            ],
-            [
-                3,
-                {full: 0},
-            ],
-            [
-                4,
-                {full: expect.closeTo(0.28, 10)},
-            ],
+        expect(
+            resolvedTops([sample(1, 'full', 0.1), sample(2, 'full', 0.12), sample(3, 'full', 0.13), sample(4, 'full', 0.4)], 0.05),
+        ).toEqual([
+            [1, {full: 0}],
+            [2, {full: 0}],
+            [3, {full: 0}],
+            [4, {full: expect.closeTo(0.28, 10)}],
         ]);
     });
 
     it('splits a run that drifts past the tolerance instead of chaining', () => {
-        expect(resolvedTops([
-            sample(1, 'full', 0.1),
-            sample(2, 'full', 0.14),
-            sample(3, 'full', 0.18),
-            sample(4, 'full', 0.1),
-        ], 0.05)).toEqual([
-            [
-                1,
-                {full: 0},
-            ],
-            [
-                2,
-                {full: 0},
-            ],
-            [
-                3,
-                {full: expect.closeTo(0.08, 10)},
-            ],
-            [
-                4,
-                {full: 0},
-            ],
+        expect(
+            resolvedTops([sample(1, 'full', 0.1), sample(2, 'full', 0.14), sample(3, 'full', 0.18), sample(4, 'full', 0.1)], 0.05),
+        ).toEqual([
+            [1, {full: 0}],
+            [2, {full: 0}],
+            [3, {full: expect.closeTo(0.08, 10)}],
+            [4, {full: 0}],
         ]);
     });
 
@@ -419,18 +401,13 @@ describe('scan cleanup ink placement', () => {
         // other page carries. They are real ink, but they are not the book's
         // top edge: they print at the top margin and the running heads stay
         // there too, instead of every text page dropping by the difference.
-        const runningHeads = Array.from({length: 40}, (_, index) => sample(
-            index + 3,
-            index % 2 === 0 ? 'left' : 'right',
-            0.06 + (index % 3) * 0.001,
-        ));
-        const tops = resolvedTops([
-            sample(1, 'left', 0.02),
-            sample(1, 'right', 0.021),
-            sample(2, 'left', 0.06),
-            sample(2, 'right', 0.3),
-            ...runningHeads,
-        ], 0.01);
+        const runningHeads = Array.from({length: 40}, (_, index) =>
+            sample(index + 3, index % 2 === 0 ? 'left' : 'right', 0.06 + (index % 3) * 0.001),
+        );
+        const tops = resolvedTops(
+            [sample(1, 'left', 0.02), sample(1, 'right', 0.021), sample(2, 'left', 0.06), sample(2, 'right', 0.3), ...runningHeads],
+            0.01,
+        );
         expect(tops[0]).toEqual([
             1,
             {
@@ -447,39 +424,21 @@ describe('scan cleanup ink placement', () => {
                 right: expect.closeTo(0.24, 10),
             },
         ]);
-        expect(tops.slice(2).every(([
-            , anchors,
-        ]) => Object.values(anchors).every(top => top === 0))).toBe(true);
+        expect(tops.slice(2).every(([, anchors]) => Object.values(anchors).every((top) => top === 0))).toBe(true);
     });
 
     it('lets the highest position be the top edge when no position has enough support', () => {
-        expect(resolvedTops([
-            sample(1, 'full', 0.3),
-            sample(2, 'full', 0.1),
-            sample(3, 'full', 0.2),
-        ], 0.01)).toEqual([
-            [
-                1,
-                {full: expect.closeTo(0.2, 10)},
-            ],
-            [
-                2,
-                {full: 0},
-            ],
-            [
-                3,
-                {full: expect.closeTo(0.1, 10)},
-            ],
+        expect(resolvedTops([sample(1, 'full', 0.3), sample(2, 'full', 0.1), sample(3, 'full', 0.2)], 0.01)).toEqual([
+            [1, {full: expect.closeTo(0.2, 10)}],
+            [2, {full: 0}],
+            [3, {full: expect.closeTo(0.1, 10)}],
         ]);
     });
 
     it('clusters versos and rectos together: a book has one top margin', () => {
-        expect(resolvedTops([
-            sample(1, 'left', 0.1),
-            sample(1, 'right', 0.11),
-            sample(2, 'left', 0.3),
-            sample(2, 'right', 0.11),
-        ], 0.02)).toEqual([
+        expect(
+            resolvedTops([sample(1, 'left', 0.1), sample(1, 'right', 0.11), sample(2, 'left', 0.3), sample(2, 'right', 0.11)], 0.02),
+        ).toEqual([
             [
                 1,
                 {
@@ -490,7 +449,7 @@ describe('scan cleanup ink placement', () => {
             [
                 2,
                 {
-                // Measured from the shared median, 0.11, not from its own verso.
+                    // Measured from the shared median, 0.11, not from its own verso.
                     left: expect.closeTo(0.19, 10),
                     right: 0,
                 },
@@ -504,12 +463,7 @@ describe('scan cleanup ink placement', () => {
         // print 0.035 apart; the sheet takes the better supported correction.
         const runningHeads = Array.from({length: 20}, (_, index) => sample(index + 2, 'full', 0.1));
         const lowerPosition = Array.from({length: 3}, (_, index) => sample(index + 22, 'full', 0.135));
-        const tops = resolvedTops([
-            sample(1, 'left', 0.118),
-            sample(1, 'right', 0.121),
-            ...runningHeads,
-            ...lowerPosition,
-        ], 0.02);
+        const tops = resolvedTops([sample(1, 'left', 0.118), sample(1, 'right', 0.121), ...runningHeads, ...lowerPosition], 0.02);
         expect(tops[0]).toEqual([
             1,
             {
@@ -523,12 +477,15 @@ describe('scan cleanup ink placement', () => {
         // The verso joins the running heads and takes their correction. Applied
         // whole to a recto whose ink starts at the foot of the page, it would
         // ask for an anchor below the canvas, which a run request refuses.
-        const anchors = resolveScanCleanupPlacementAnchors([
-            ...Array.from({length: 20}, (_, index) => sample(index + 2, 'full', 0)),
-            ...Array.from({length: 40}, (_, index) => sample(index + 22, 'full', 0.11)),
-            sample(1, 'left', 0.1),
-            sample(1, 'right', 0.995),
-        ], 4 / 256).get(1);
+        const anchors = resolveScanCleanupPlacementAnchors(
+            [
+                ...Array.from({length: 20}, (_, index) => sample(index + 2, 'full', 0)),
+                ...Array.from({length: 40}, (_, index) => sample(index + 22, 'full', 0.11)),
+                sample(1, 'left', 0.1),
+                sample(1, 'right', 0.995),
+            ],
+            4 / 256,
+        ).get(1);
         expect(v.parse(SCAN_CLEANUP_PLACEMENT_ANCHORS_SCHEMA, anchors)).toEqual({
             left: {yNormalized: expect.closeTo(0.105, 10)},
             right: {yNormalized: expect.closeTo(1, 10)},
@@ -536,21 +493,10 @@ describe('scan cleanup ink placement', () => {
     });
 
     it('resolves the same anchors whatever order the evidence arrived in', () => {
-        const samples = [
-            sample(4, 'full', 0.13),
-            sample(1, 'full', 0.1),
-            sample(3, 'full', 0.32),
-            sample(2, 'full', 0.11),
-        ];
+        const samples = [sample(4, 'full', 0.13), sample(1, 'full', 0.1), sample(3, 'full', 0.32), sample(2, 'full', 0.11)];
         const expected = resolveScanCleanupPlacementAnchors(samples, 0.05);
-        expect(resolveScanCleanupPlacementAnchors([...samples].reverse(), 0.05))
-            .toEqual(expected);
-        expect(resolveScanCleanupPlacementAnchors([
-            samples[2]!,
-            samples[0]!,
-            samples[3]!,
-            samples[1]!,
-        ], 0.05)).toEqual(expected);
+        expect(resolveScanCleanupPlacementAnchors([...samples].reverse(), 0.05)).toEqual(expected);
+        expect(resolveScanCleanupPlacementAnchors([samples[2]!, samples[0]!, samples[3]!, samples[1]!], 0.05)).toEqual(expected);
     });
 });
 
@@ -571,13 +517,9 @@ describe('scan cleanup ink sheets', () => {
         return {
             pageNumber,
             layoutClassification,
-            evidence: {outputs: Object.fromEntries(Object.entries(tops).map(([
-                half,
-                yNormalized,
-            ]) => [
-                half,
-                {contentBox: box(yNormalized)},
-            ]))},
+            evidence: {
+                outputs: Object.fromEntries(Object.entries(tops).map(([half, yNormalized]) => [half, {contentBox: box(yNormalized)}])),
+            },
             metadata: {
                 pageNumber: requirePageNumber(pageNumber),
                 xPoints: 0,
@@ -619,63 +561,80 @@ describe('scan cleanup ink sheets', () => {
         ...Array.from({length: 3}, (_, index) => sheet(index + 32, 'single-uncut-page', {full: 0.15})),
     ];
 
-    it('lets only a sheet\'s ink halves choose its correction', () => {
-        const anchors = resolveScanCleanupDocumentInkAnchors(inkOptions({'1': createScanCleanupPageOverride({placementOverrides: {left: 'top-center'}})}), [
-            sheet(1, 'two-page-spread', {
-                left: 0.11,
-                right: 0.15,
-            }),
-            ...book,
-        ]);
+    it("lets only a sheet's ink halves choose its correction", () => {
+        const anchors = resolveScanCleanupDocumentInkAnchors(
+            inkOptions({'1': createScanCleanupPageOverride({placementOverrides: {left: 'top-center'}})}),
+            [
+                sheet(1, 'two-page-spread', {
+                    left: 0.11,
+                    right: 0.15,
+                }),
+                ...book,
+            ],
+        );
         expect(anchors.get(1)).toEqual({right: {yNormalized: expect.closeTo(0.05, 10)}});
     });
 
     it('keeps the wider side of an offcut whose evidence names no output', () => {
         // A blank or dewarped output carries no box, so the detector reports
         // none; native keeps the side of the cutter that is wider.
-        const anchors = resolveScanCleanupDocumentInkAnchors(inkOptions({'1': createScanCleanupPageOverride({manualContentBoxes: {
-            left: box(0.11),
-            right: box(0.15),
-        }})}), [
-            {
-                ...sheet(1, 'page-with-offcut', {}),
-                evidence: {
-                    outputs: {},
-                    automaticSplit: {
-                        xNormalized: 0.4,
-                        rotationDegrees: 0,
+        const anchors = resolveScanCleanupDocumentInkAnchors(
+            inkOptions({
+                '1': createScanCleanupPageOverride({
+                    manualContentBoxes: {
+                        left: box(0.11),
+                        right: box(0.15),
+                    },
+                }),
+            }),
+            [
+                {
+                    ...sheet(1, 'page-with-offcut', {}),
+                    evidence: {
+                        outputs: {},
+                        automaticSplit: {
+                            xNormalized: 0.4,
+                            rotationDegrees: 0,
+                        },
                     },
                 },
-            },
-            ...book,
-        ]);
+                ...book,
+            ],
+        );
         expect(anchors.get(1)).toEqual({right: {yNormalized: expect.closeTo(0.05, 10)}});
     });
 
     it('places a manual box on a sheet the detector left without evidence', () => {
-        const anchors = resolveScanCleanupDocumentInkAnchors(inkOptions({'1': createScanCleanupPageOverride({
-            layoutOverride: 'single',
-            manualContentBoxes: {full: box(0.15)},
-        })}), [
-            {
-                ...sheet(1, 'single-uncut-page', {}),
-                evidence: undefined,
-            },
-            ...book,
-        ]);
+        const anchors = resolveScanCleanupDocumentInkAnchors(
+            inkOptions({
+                '1': createScanCleanupPageOverride({
+                    layoutOverride: 'single',
+                    manualContentBoxes: {full: box(0.15)},
+                }),
+            }),
+            [
+                {
+                    ...sheet(1, 'single-uncut-page', {}),
+                    evidence: undefined,
+                },
+                ...book,
+            ],
+        );
         expect(anchors.get(1)).toEqual({full: {yNormalized: expect.closeTo(0.05, 10)}});
     });
 
     it('does not place a half the layout no longer produces', () => {
         // The left box was drawn while the sheet was a spread; keeping the
         // right half leaves it with the page, but not among the outputs.
-        const anchors = resolveScanCleanupDocumentInkAnchors(inkOptions({'1': createScanCleanupPageOverride({
-            layoutOverride: 'keep-right',
-            manualContentBoxes: {left: box(0.11)},
-        })}), [
-            sheet(1, 'two-page-spread', {right: 0.15}),
-            ...book,
-        ]);
+        const anchors = resolveScanCleanupDocumentInkAnchors(
+            inkOptions({
+                '1': createScanCleanupPageOverride({
+                    layoutOverride: 'keep-right',
+                    manualContentBoxes: {left: box(0.11)},
+                }),
+            }),
+            [sheet(1, 'two-page-spread', {right: 0.15}), ...book],
+        );
         expect(anchors.get(1)).toEqual({right: {yNormalized: expect.closeTo(0.05, 10)}});
     });
 });

@@ -1,19 +1,15 @@
 // @vitest-environment happy-dom
 
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import type { THostResourceTier } from '@contracts/hostResourceProfile';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
+import type {THostResourceTier} from '@contracts/hostResourceProfile';
 
 const mocks = vi.hoisted(() => ({getPerformanceProfile: vi.fn(() => ({tier: 'medium' as THostResourceTier}))}));
 
 vi.mock('@app/utils/performanceProfile', () => ({getPerformanceProfile: mocks.getPerformanceProfile}));
 
-interface IControllableMediaQueryList extends MediaQueryList {setMatches: (matches: boolean) => void;}
+interface IControllableMediaQueryList extends MediaQueryList {
+    setMatches: (matches: boolean) => void;
+}
 
 function createMediaQueryList(initialMatches = false): IControllableMediaQueryList {
     const target = new EventTarget() as IControllableMediaQueryList;
@@ -25,10 +21,12 @@ function createMediaQueryList(initialMatches = false): IControllableMediaQueryLi
             value: null,
             writable: true,
         },
-        setMatches: {value: (nextMatches: boolean) => {
-            matches = nextMatches;
-            target.dispatchEvent(new Event('change'));
-        }},
+        setMatches: {
+            value: (nextMatches: boolean) => {
+                matches = nextMatches;
+                target.dispatchEvent(new Event('change'));
+            },
+        },
     });
     target.addListener = () => {};
     target.removeListener = () => {};
@@ -37,7 +35,7 @@ function createMediaQueryList(initialMatches = false): IControllableMediaQueryLi
 }
 
 function getTierClasses(root: HTMLElement) {
-    return [...root.classList].filter(className => className.startsWith('performance-tier-'));
+    return [...root.classList].filter((className) => className.startsWith('performance-tier-'));
 }
 
 describe('performance profile root plugin', () => {
@@ -49,42 +47,29 @@ describe('performance profile root plugin', () => {
         vi.stubGlobal('defineNuxtPlugin', (plugin: unknown) => plugin);
     });
 
-    it.each<THostResourceTier>([
-        'low',
-        'medium',
-        'high',
-    ])(
-        'installs exactly one %s tier class synchronously',
-        async (tier) => {
-            const mediaQuery = createMediaQueryList();
-            mocks.getPerformanceProfile.mockReturnValue({tier});
-            const matchMedia = vi.fn(() => mediaQuery);
-            vi.stubGlobal('matchMedia', matchMedia);
-            Object.defineProperty(window, 'matchMedia', {
-                configurable: true,
-                value: matchMedia,
-            });
-            const plugin = (await import('@app/plugins/performance-profile.client')).default as () => void;
+    it.each<THostResourceTier>(['low', 'medium', 'high'])('installs exactly one %s tier class synchronously', async (tier) => {
+        const mediaQuery = createMediaQueryList();
+        mocks.getPerformanceProfile.mockReturnValue({tier});
+        const matchMedia = vi.fn(() => mediaQuery);
+        vi.stubGlobal('matchMedia', matchMedia);
+        Object.defineProperty(window, 'matchMedia', {
+            configurable: true,
+            value: matchMedia,
+        });
+        const plugin = (await import('@app/plugins/performance-profile.client')).default as () => void;
 
-            plugin();
+        plugin();
 
-            expect(mocks.getPerformanceProfile).toHaveBeenCalledOnce();
-            expect(matchMedia).toHaveBeenCalledWith('(prefers-reduced-motion: reduce)');
-            expect(getTierClasses(document.documentElement)).toEqual([`performance-tier-${tier}`]);
-            expect(document.documentElement.classList.contains('app-low-graphics')).toBe(tier === 'low');
-        },
-    );
+        expect(mocks.getPerformanceProfile).toHaveBeenCalledOnce();
+        expect(matchMedia).toHaveBeenCalledWith('(prefers-reduced-motion: reduce)');
+        expect(getTierClasses(document.documentElement)).toEqual([`performance-tier-${tier}`]);
+        expect(document.documentElement.classList.contains('app-low-graphics')).toBe(tier === 'low');
+    });
 
     it('tracks reduced motion and keeps low-tier graphics suppressed', async () => {
-        const {installPerformanceProfileRootClasses} = await import(
-            '@app/plugins/performance-profile.client'
-        );
+        const {installPerformanceProfileRootClasses} = await import('@app/plugins/performance-profile.client');
         const mediaQuery = createMediaQueryList();
-        const cleanup = installPerformanceProfileRootClasses(
-            document.documentElement,
-            mediaQuery,
-            'medium',
-        );
+        const cleanup = installPerformanceProfileRootClasses(document.documentElement, mediaQuery, 'medium');
 
         expect(document.documentElement.classList.contains('app-low-graphics')).toBe(false);
         mediaQuery.setMatches(true);
@@ -94,11 +79,7 @@ describe('performance profile root plugin', () => {
 
         cleanup();
         const lowMediaQuery = createMediaQueryList();
-        const cleanupLow = installPerformanceProfileRootClasses(
-            document.documentElement,
-            lowMediaQuery,
-            'low',
-        );
+        const cleanupLow = installPerformanceProfileRootClasses(document.documentElement, lowMediaQuery, 'low');
         lowMediaQuery.setMatches(false);
 
         expect(document.documentElement.classList.contains('app-low-graphics')).toBe(true);
@@ -106,16 +87,10 @@ describe('performance profile root plugin', () => {
     });
 
     it('removes the listener and all managed classes during cleanup', async () => {
-        const {installPerformanceProfileRootClasses} = await import(
-            '@app/plugins/performance-profile.client'
-        );
+        const {installPerformanceProfileRootClasses} = await import('@app/plugins/performance-profile.client');
         const mediaQuery = createMediaQueryList();
         document.documentElement.classList.add('unrelated-root-class');
-        const cleanup = installPerformanceProfileRootClasses(
-            document.documentElement,
-            mediaQuery,
-            'high',
-        );
+        const cleanup = installPerformanceProfileRootClasses(document.documentElement, mediaQuery, 'high');
 
         cleanup();
         mediaQuery.setMatches(true);

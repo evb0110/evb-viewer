@@ -1,25 +1,24 @@
 import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type {
-    ICancelableRenderTask, IPdfAnnotationRenderInput, IPdfLayerRenderResult,
+    ICancelableRenderTask,
+    IPdfAnnotationRenderInput,
+    IPdfLayerRenderResult,
 } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
-import {
-    RGBA_BYTES_PER_PIXEL,
-    resolveBoundedRasterDimensions,
-} from '@app/modules/document-viewer/public';
-import { requirePageNumber } from '@contracts/pageNumbers';
-import type { TPdfPageRenderContentIntent } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/bindPdfOpenSurfaceRenderContext';
-import type { MaybeRefOrGetter } from 'vue';
-import { AnnotationMode } from '@app/services/pdfjs/runtimeLib';
-import { toPdfjsHiddenAnnotationIds } from '@app/modules/pdf-viewer/engine/pdf-hidden-annotations/toPdfjsHiddenAnnotationIds';
-import { formatPdfJsAnnotationRef } from '@app/utils/pdfAnnotationRefs';
-import { PDF_PAGE_RENDER_TIMEOUT_MS } from '@app/constants/timeouts';
-import { withPageStageTimeout } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/withPageStageTimeout';
-import type { IPageRenderStallPayload } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
-import { PDF_PAGE_SCALE_CSS_VARS } from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
-import type { TPdfPageOperationSettlementCapture } from '@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender';
-import { isAbortError } from '@contracts/isAbortError';
-import type { TPdfViewRotation } from '@contracts/shared';
-import { resolvePdfPageViewportRotation } from '@app/utils/pdfViewRotation';
+import {RGBA_BYTES_PER_PIXEL, resolveBoundedRasterDimensions} from '@app/modules/document-viewer/public';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import type {TPdfPageRenderContentIntent} from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/bindPdfOpenSurfaceRenderContext';
+import type {MaybeRefOrGetter} from 'vue';
+import {AnnotationMode} from '@app/services/pdfjs/runtimeLib';
+import {toPdfjsHiddenAnnotationIds} from '@app/modules/pdf-viewer/engine/pdf-hidden-annotations/toPdfjsHiddenAnnotationIds';
+import {formatPdfJsAnnotationRef} from '@app/utils/pdfAnnotationRefs';
+import {PDF_PAGE_RENDER_TIMEOUT_MS} from '@app/constants/timeouts';
+import {withPageStageTimeout} from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/withPageStageTimeout';
+import type {IPageRenderStallPayload} from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
+import {PDF_PAGE_SCALE_CSS_VARS} from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
+import type {TPdfPageOperationSettlementCapture} from '@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender';
+import {isAbortError} from '@contracts/isAbortError';
+import type {TPdfViewRotation} from '@contracts/shared';
+import {resolvePdfPageViewportRotation} from '@app/utils/pdfViewRotation';
 
 interface ICanvasRenderResult extends IPdfLayerRenderResult {
     additionalResourceBytes: number;
@@ -28,11 +27,12 @@ interface ICanvasRenderResult extends IPdfLayerRenderResult {
     grantedPixels: number;
     pixelScaleFactor: number;
     wasClamped: boolean;
-    surfaceReservation?: {release: () => void;} | undefined;
+    surfaceReservation?: {release: () => void} | undefined;
 }
 
-
-interface IPreparedCanvasRender extends ICanvasRenderResult { startRender: () => ICancelableRenderTask; }
+interface IPreparedCanvasRender extends ICanvasRenderResult {
+    startRender: () => ICancelableRenderTask;
+}
 
 /** A part of the displayed page box, each edge a fraction of its width or height. */
 export interface IPdfPageRegion {
@@ -47,10 +47,12 @@ interface IRenderCanvasOptions {
      * Paints only this part of the page, repeating the annotation state of the
      * committed whole-page raster it lies on.
      */
-    region?: {
-        area: IPdfPageRegion;
-        base: IPdfLayerRenderResult;
-    } | undefined;
+    region?:
+        | {
+              area: IPdfPageRegion;
+              base: IPdfLayerRenderResult;
+          }
+        | undefined;
     annotationInput?: IPdfAnnotationRenderInput | (() => Promise<IPdfAnnotationRenderInput>);
     /**
      * The committed raster of this page. When the cap leaves the new raster
@@ -62,7 +64,7 @@ interface IRenderCanvasOptions {
     hiddenAnnotationIds?: MaybeRefOrGetter<Set<string>>;
     onRenderStall?: (payload: IPageRenderStallPayload) => void;
     contentIntent?: TPdfPageRenderContentIntent;
-    reserveSurface?: ((bytes: number) => {release: () => void;} | null) | undefined;
+    reserveSurface?: ((bytes: number) => {release: () => void} | null) | undefined;
     pageRenderCoordination?: {
         owner: string;
         priority: number;
@@ -87,20 +89,17 @@ export const usePdfCanvasRenderer = (deps: {
     outputScale: MaybeRefOrGetter<number>;
     viewRotation?: MaybeRefOrGetter<TPdfViewRotation>;
     defaultMaxCanvasPixels?: number | undefined;
-    prepareAnnotations?: (page: IPdfPage, coordination: IRenderCanvasOptions['pageRenderCoordination']) => Promise<IPdfAnnotationRenderInput | undefined>;
+    prepareAnnotations?: (
+        page: IPdfPage,
+        coordination: IRenderCanvasOptions['pageRenderCoordination'],
+    ) => Promise<IPdfAnnotationRenderInput | undefined>;
 }) => {
-    const {
-        outputScale,
-        viewRotation,
-        defaultMaxCanvasPixels,
-    } = deps;
+    const {outputScale, viewRotation, defaultMaxCanvasPixels} = deps;
     const effectiveViewRotation = viewRotation ?? (() => 0);
 
     function getOutputScale() {
         const value = toValue(outputScale);
-        return typeof value === 'number' && Number.isFinite(value) && value > 0
-            ? value
-            : 1;
+        return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 1;
     }
 
     function cleanupCanvas(canvas: HTMLCanvasElement) {
@@ -109,14 +108,16 @@ export const usePdfCanvasRenderer = (deps: {
         canvas.remove();
     }
 
-    function cleanupCanvasRenderResult(renderResult: Pick<ICanvasRenderResult, 'canvas' | 'annotationCanvasMap' | 'annotationOutput' | 'surfaceReservation'>) {
+    function cleanupCanvasRenderResult(
+        renderResult: Pick<ICanvasRenderResult, 'canvas' | 'annotationCanvasMap' | 'annotationOutput' | 'surfaceReservation'>,
+    ) {
         renderResult.surfaceReservation?.release();
-        const canvases = new Set([
-            ...renderResult.annotationCanvasMap?.values() ?? [],
-            ...renderResult.annotationOutput?.ownCanvases.map(([
-                , canvas,
-            ]) => canvas) ?? [],
-        ].flat());
+        const canvases = new Set(
+            [
+                ...(renderResult.annotationCanvasMap?.values() ?? []),
+                ...(renderResult.annotationOutput?.ownCanvases.map(([, canvas]) => canvas) ?? []),
+            ].flat(),
+        );
         canvases.add(renderResult.canvas);
         canvases.forEach(cleanupCanvas);
         renderResult.annotationCanvasMap?.clear();
@@ -127,30 +128,19 @@ export const usePdfCanvasRenderer = (deps: {
     }
 
     function normalizeMaxCanvasPixels(value: number | undefined) {
-        return typeof value === 'number'
-            && Number.isFinite(value)
-            && value > 0
-            ? Math.max(1, Math.round(value))
-            : null;
+        return typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.max(1, Math.round(value)) : null;
     }
 
     function getMaxCanvasPixels(options?: IRenderCanvasOptions) {
-        const renderMaxPixels = normalizeMaxCanvasPixels(options?.maxCanvasPixels)
-            ?? normalizeMaxCanvasPixels(defaultMaxCanvasPixels);
+        const renderMaxPixels = normalizeMaxCanvasPixels(options?.maxCanvasPixels) ?? normalizeMaxCanvasPixels(defaultMaxCanvasPixels);
         const sourceMaxPixels = normalizeMaxCanvasPixels(options?.sourceMaxPixels);
         if (sourceMaxPixels === null) {
             return renderMaxPixels;
         }
-        return renderMaxPixels === null
-            ? sourceMaxPixels
-            : Math.min(renderMaxPixels, sourceMaxPixels);
+        return renderMaxPixels === null ? sourceMaxPixels : Math.min(renderMaxPixels, sourceMaxPixels);
     }
 
-    function calculateCanvasPixelSize(
-        cssWidth: number,
-        cssHeight: number,
-        options?: IRenderCanvasOptions,
-    ): ICanvasPixelSize {
+    function calculateCanvasPixelSize(cssWidth: number, cssHeight: number, options?: IRenderCanvasOptions): ICanvasPixelSize {
         const currentOutputScale = getOutputScale();
         const requestedPixelWidth = Math.max(1, Math.round(cssWidth * currentOutputScale));
         const requestedPixelHeight = Math.max(1, Math.round(cssHeight * currentOutputScale));
@@ -176,12 +166,7 @@ export const usePdfCanvasRenderer = (deps: {
         return calculateCanvasPixelSize(cssWidth, cssHeight).requestedPixels;
     }
 
-    function setupCanvas(
-        canvas: HTMLCanvasElement,
-        cssWidth: number,
-        pixelSize: ICanvasPixelSize,
-        region: IPdfPageRegion | undefined,
-    ) {
+    function setupCanvas(canvas: HTMLCanvasElement, cssWidth: number, pixelSize: ICanvasPixelSize, region: IPdfPageRegion | undefined) {
         canvas.width = pixelSize.pixelWidth;
         canvas.height = pixelSize.pixelHeight;
         if (region) {
@@ -198,21 +183,16 @@ export const usePdfCanvasRenderer = (deps: {
         canvas.style.setProperty('height', 'auto', 'important');
         canvas.style.display = 'block';
         canvas.style.margin = '0';
-
     }
 
-    async function createAnnotationRenderOptions(
-        pdfPage: IPdfPage, options?: IRenderCanvasOptions,
-    ) {
+    async function createAnnotationRenderOptions(pdfPage: IPdfPage, options?: IRenderCanvasOptions) {
         if (options?.region) {
-            const {
-                annotationInput, annotationOutput,
-            } = options.region.base;
+            const {annotationInput, annotationOutput} = options.region.base;
             // Annotations the whole-page raster drew into the annotation
             // layer's own canvases are already on screen above the region.
             const excludedIds = new Set([
-                ...annotationInput?.excludedIds ?? toValue(options.hiddenAnnotationIds) ?? [],
-                ...annotationOutput?.ownCanvases.map(([id]) => id) ?? [],
+                ...(annotationInput?.excludedIds ?? toValue(options.hiddenAnnotationIds) ?? []),
+                ...(annotationOutput?.ownCanvases.map(([id]) => id) ?? []),
             ]);
             return {
                 annotationInput,
@@ -221,18 +201,31 @@ export const usePdfCanvasRenderer = (deps: {
                 hiddenAnnotationIds: toPdfjsHiddenAnnotationIds(excludedIds),
             };
         }
-        const input = await (typeof options?.annotationInput === 'function' ? options.annotationInput()
-            : options?.annotationInput ?? deps.prepareAnnotations?.(pdfPage, options?.pageRenderCoordination));
+        const input = await (typeof options?.annotationInput === 'function'
+            ? options.annotationInput()
+            : (options?.annotationInput ?? deps.prepareAnnotations?.(pdfPage, options?.pageRenderCoordination)));
         const hiddenAnnotationIds = toPdfjsHiddenAnnotationIds(input?.excludedIds ?? toValue(options?.hiddenAnnotationIds));
         return {
-            annotationInput: input ? Object.freeze({
-                ...input,
-                excludedIds: hiddenAnnotationIds ?? new Set<string>(),
-            }) : undefined,
-            annotationCanvasMap: input?.nativeTextBoxInputs?.length || options?.contentIntent === 'canvas-only-buffer' || options?.contentIntent === 'canvas-only-refine'
-                || input?.original?.entities.some(original => original.kind === 'text-box' && original.pageIndex + 1 === pdfPage.pageNumber
-                    && input.semanticInputs.some(entity => entity.ref === formatPdfJsAnnotationRef(original) && !hiddenAnnotationIds?.has(entity.ref)))
-                ? null : new Map<string, HTMLCanvasElement>(),
+            annotationInput: input
+                ? Object.freeze({
+                      ...input,
+                      excludedIds: hiddenAnnotationIds ?? new Set<string>(),
+                  })
+                : undefined,
+            annotationCanvasMap:
+                input?.nativeTextBoxInputs?.length ||
+                options?.contentIntent === 'canvas-only-buffer' ||
+                options?.contentIntent === 'canvas-only-refine' ||
+                input?.original?.entities.some(
+                    (original) =>
+                        original.kind === 'text-box' &&
+                        original.pageIndex + 1 === pdfPage.pageNumber &&
+                        input.semanticInputs.some(
+                            (entity) => entity.ref === formatPdfJsAnnotationRef(original) && !hiddenAnnotationIds?.has(entity.ref),
+                        ),
+                )
+                    ? null
+                    : new Map<string, HTMLCanvasElement>(),
             annotationMode: AnnotationMode.ENABLE,
             hiddenAnnotationIds,
         };
@@ -240,8 +233,7 @@ export const usePdfCanvasRenderer = (deps: {
 
     function shouldContinueCanvasPreparation(options?: IRenderCanvasOptions) {
         const coordination = options?.pageRenderCoordination;
-        return coordination?.signal?.aborted !== true
-            && coordination?.shouldContinue?.() !== false;
+        return coordination?.signal?.aborted !== true && coordination?.shouldContinue?.() !== false;
     }
 
     async function prepareCanvasRender(
@@ -251,10 +243,7 @@ export const usePdfCanvasRenderer = (deps: {
     ): Promise<IPreparedCanvasRender | null> {
         const viewport = pdfPage.getViewport({
             scale,
-            rotation: resolvePdfPageViewportRotation(
-                pdfPage.rotate,
-                toValue(effectiveViewRotation),
-            ),
+            rotation: resolvePdfPageViewportRotation(pdfPage.rotate, toValue(effectiveViewRotation)),
         });
         const userUnit = viewport.userUnit ?? 1;
         const rawDims = viewport.rawDims as {
@@ -274,17 +263,29 @@ export const usePdfCanvasRenderer = (deps: {
             scaleX: pixelSize.pixelWidth / cssWidth,
             scaleY: pixelSize.pixelHeight / cssHeight,
         };
-        if (!Number.isFinite(canvasScale.scaleX) || !Number.isFinite(canvasScale.scaleY)
-            || canvasScale.scaleX <= 0 || canvasScale.scaleY <= 0) {
+        if (
+            !Number.isFinite(canvasScale.scaleX) ||
+            !Number.isFinite(canvasScale.scaleY) ||
+            canvasScale.scaleX <= 0 ||
+            canvasScale.scaleY <= 0
+        ) {
             throw new RangeError(`PDF page ${pdfPage.pageNumber} has invalid canvas scale ${canvasScale.scaleX}x${canvasScale.scaleY}`);
         }
 
-        if (!shouldContinueCanvasPreparation(options)) {return null;}
+        if (!shouldContinueCanvasPreparation(options)) {
+            return null;
+        }
         // The device transform is the canvas size over the page size, so equal
         // clamped sizes paint the same pixels at any zoom.
         const reusable = options?.reuseCanvasOf;
-        if (reusable && !region && !options.reserveSurface && pixelSize.wasClamped
-            && reusable.canvas.width === pixelSize.pixelWidth && reusable.canvas.height === pixelSize.pixelHeight) {
+        if (
+            reusable &&
+            !region &&
+            !options.reserveSurface &&
+            pixelSize.wasClamped &&
+            reusable.canvas.width === pixelSize.pixelWidth &&
+            reusable.canvas.height === pixelSize.pixelHeight
+        ) {
             const reused: IPreparedCanvasRender = {
                 canvas: reusable.canvas,
                 viewport,
@@ -353,15 +354,17 @@ export const usePdfCanvasRenderer = (deps: {
         const renderContext = {
             canvasContext: context,
             canvas,
-            transform: canvasScale.scaleX !== 1 || canvasScale.scaleY !== 1 || region
-                ? [
-                    canvasScale.scaleX,
-                    0,
-                    0,
-                    canvasScale.scaleY,
-                    -(region?.x0 ?? 0) * viewport.width * canvasScale.scaleX,
-                    -(region?.y0 ?? 0) * viewport.height * canvasScale.scaleY,
-                ] : undefined,
+            transform:
+                canvasScale.scaleX !== 1 || canvasScale.scaleY !== 1 || region
+                    ? [
+                          canvasScale.scaleX,
+                          0,
+                          0,
+                          canvasScale.scaleY,
+                          -(region?.x0 ?? 0) * viewport.width * canvasScale.scaleX,
+                          -(region?.y0 ?? 0) * viewport.height * canvasScale.scaleY,
+                      ]
+                    : undefined,
             viewport,
             annotationMode: annotationOptions.annotationMode,
             nativeAnnotationAppearance: annotationOptions.annotationInput?.nativeAnnotationAppearance,
@@ -375,10 +378,12 @@ export const usePdfCanvasRenderer = (deps: {
             annotationCanvasMap: annotationOptions.annotationCanvasMap,
             annotationInput: annotationOptions.annotationInput,
             // Captured input, PDF.js submission copy, and structured-cloned worker bytes.
-            additionalResourceBytes: 3 * (() => {
-                const pdf = annotationOptions.annotationInput?.nativeAnnotationAppearance?.pdf;
-                return pdf instanceof Uint8Array ? pdf.byteLength : pdf?.reduce((bytes, child) => bytes + child.byteLength, 0) ?? 0;
-            })(),
+            additionalResourceBytes:
+                3 *
+                (() => {
+                    const pdf = annotationOptions.annotationInput?.nativeAnnotationAppearance?.pdf;
+                    return pdf instanceof Uint8Array ? pdf.byteLength : (pdf?.reduce((bytes, child) => bytes + child.byteLength, 0) ?? 0);
+                })(),
             paintsAnnotations: true,
             scaleX: canvasScale.scaleX,
             scaleY: canvasScale.scaleY,
@@ -394,22 +399,22 @@ export const usePdfCanvasRenderer = (deps: {
                 const task = pdfPage.render(renderContext);
                 return {
                     cancel: () => task.cancel(),
-                    get onContinue() { return task.onContinue; },
-                    set onContinue(value) { task.onContinue = value; },
+                    get onContinue() {
+                        return task.onContinue;
+                    },
+                    set onContinue(value) {
+                        task.onContinue = value;
+                    },
                     promise: task.promise.then(() => {
                         result.annotationOutput = Object.freeze({
                             annotationMode: annotationOptions.annotationMode,
                             requestedSeparateCanvas: annotationOptions.annotationCanvasMap !== null,
                             separateAnnots: task.separateAnnots,
-                            ownCanvases: Object.freeze([...annotationOptions.annotationCanvasMap?.entries() ?? []].flatMap(([
-                                id,
-                                canvases,
-                            ]) =>
-                                [canvases].flat().map(canvas => Object.freeze([
-                                    id,
-                                    canvas,
-                                ] as const)),
-                            )),
+                            ownCanvases: Object.freeze(
+                                [...(annotationOptions.annotationCanvasMap?.entries() ?? [])].flatMap(([id, canvases]) =>
+                                    [canvases].flat().map((canvas) => Object.freeze([id, canvas] as const)),
+                                ),
+                            ),
                         });
                     }),
                 };
@@ -418,11 +423,7 @@ export const usePdfCanvasRenderer = (deps: {
         return result;
     }
 
-    async function renderCanvas(
-        pdfPage: IPdfPage,
-        scale: number,
-        options?: IRenderCanvasOptions,
-    ): Promise<ICanvasRenderResult | null> {
+    async function renderCanvas(pdfPage: IPdfPage, scale: number, options?: IRenderCanvasOptions): Promise<ICanvasRenderResult | null> {
         const preparedRender = await prepareCanvasRender(pdfPage, scale, options);
         if (!preparedRender) {
             return null;
@@ -438,22 +439,17 @@ export const usePdfCanvasRenderer = (deps: {
         }
     }
 
-    function applyContainerUserUnit(
-        container: HTMLElement,
-        userUnit: number,
-    ) {
+    function applyContainerUserUnit(container: HTMLElement, userUnit: number) {
         // The layout owner writes width, height, and mutable scale for every
         // mounted page synchronously. The renderer contributes only immutable
         // PDF metadata discovered from the concrete page proxy.
         container.style.setProperty(PDF_PAGE_SCALE_CSS_VARS.userUnit, String(userUnit));
     }
 
-    function mountCanvas(
-        canvasHost: HTMLElement,
-        canvas: HTMLCanvasElement,
-        previousCanvas?: HTMLCanvasElement | null,
-    ) {
-        if (previousCanvas === canvas && canvas.parentElement === canvasHost) {return;}
+    function mountCanvas(canvasHost: HTMLElement, canvas: HTMLCanvasElement, previousCanvas?: HTMLCanvasElement | null) {
+        if (previousCanvas === canvas && canvas.parentElement === canvasHost) {
+            return;
+        }
         if (previousCanvas?.parentElement === canvasHost) {
             previousCanvas.replaceWith(canvas);
         } else {

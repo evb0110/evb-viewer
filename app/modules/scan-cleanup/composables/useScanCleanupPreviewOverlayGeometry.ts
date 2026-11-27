@@ -3,12 +3,7 @@ import type {
     TScanCleanupOutputHalf,
     TScanCleanupPageAlignment,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
-import type {
-    ComponentPublicInstance,
-    ComputedRef,
-    CSSProperties,
-    Ref,
-} from 'vue';
+import type {ComponentPublicInstance, ComputedRef, CSSProperties, Ref} from 'vue';
 import type {IScanCleanupDragRect} from '@app/modules/scan-cleanup/composables/useScanCleanupDragTransaction';
 
 interface IPreviewPan {
@@ -27,17 +22,22 @@ interface IUseScanCleanupPreviewOverlayGeometryOptions {
     transformScale: ComputedRef<number>;
 }
 
-export const useScanCleanupPreviewOverlayGeometry = (
-    options: IUseScanCleanupPreviewOverlayGeometryOptions,
-) => {
+export const useScanCleanupPreviewOverlayGeometry = (options: IUseScanCleanupPreviewOverlayGeometryOptions) => {
     const outputFitAreas = new Map<TScanCleanupOutputHalf, HTMLElement>();
     const outputCanvases = new Map<TScanCleanupOutputHalf, HTMLElement>();
-    const outputFitAreaSizes = reactive<Partial<Record<TScanCleanupOutputHalf, {
-        left: number;
-        top: number;
-        width: number;
-        height: number
-    }>>>({});
+    const outputFitAreaSizes = reactive<
+        Partial<
+            Record<
+                TScanCleanupOutputHalf,
+                {
+                    left: number;
+                    top: number;
+                    width: number;
+                    height: number;
+                }
+            >
+        >
+    >({});
     const outputCanvasRects = reactive<Partial<Record<TScanCleanupOutputHalf, IScanCleanupDragRect>>>({});
     const placementAnchors: Array<{
         alignment: TScanCleanupPageAlignment;
@@ -116,7 +116,9 @@ export const useScanCleanupPreviewOverlayGeometry = (
         if (previous === htmlElement) {
             return;
         }
-        if (previous) {outputResizeObserver?.unobserve(previous);}
+        if (previous) {
+            outputResizeObserver?.unobserve(previous);
+        }
         if (!htmlElement) {
             outputFitAreas.delete(half);
             Reflect.deleteProperty(outputFitAreaSizes, half);
@@ -133,7 +135,9 @@ export const useScanCleanupPreviewOverlayGeometry = (
         if (previous === htmlElement) {
             return;
         }
-        if (previous) {outputResizeObserver?.unobserve(previous);}
+        if (previous) {
+            outputResizeObserver?.unobserve(previous);
+        }
         if (!htmlElement) {
             outputCanvases.delete(half);
             Reflect.deleteProperty(outputCanvasRects, half);
@@ -166,10 +170,10 @@ export const useScanCleanupPreviewOverlayGeometry = (
 
     function setDragOverlayBounds(next: IScanCleanupDragRect) {
         if (
-            options.dragOverlayBounds.x !== next.x
-            || options.dragOverlayBounds.y !== next.y
-            || options.dragOverlayBounds.width !== next.width
-            || options.dragOverlayBounds.height !== next.height
+            options.dragOverlayBounds.x !== next.x ||
+            options.dragOverlayBounds.y !== next.y ||
+            options.dragOverlayBounds.width !== next.width ||
+            options.dragOverlayBounds.height !== next.height
         ) {
             Object.assign(options.dragOverlayBounds, next);
         }
@@ -194,29 +198,22 @@ export const useScanCleanupPreviewOverlayGeometry = (
             return;
         }
         const scale = Math.max(0.001, options.transformScale.value);
-        const stageWidth = options.cutterStage.value && options.cutterStage.value.clientWidth > 0
-            ? options.cutterStage.value.clientWidth
-            : stageRect.width / scale;
-        const stageHeight = options.cutterStage.value && options.cutterStage.value.clientHeight > 0
-            ? options.cutterStage.value.clientHeight
-            : stageRect.height / scale;
+        const stageWidth =
+            options.cutterStage.value && options.cutterStage.value.clientWidth > 0
+                ? options.cutterStage.value.clientWidth
+                : stageRect.width / scale;
+        const stageHeight =
+            options.cutterStage.value && options.cutterStage.value.clientHeight > 0
+                ? options.cutterStage.value.clientHeight
+                : stageRect.height / scale;
         setDragOverlayBounds({
-            x: stageRect.x
-                - surfaceRect.left
-                - options.previewPan.x
-                + stageWidth * (scale - 1) / 2,
-            y: stageRect.y
-                - surfaceRect.top
-                - options.previewPan.y
-                + stageHeight * (scale - 1) / 2,
+            x: stageRect.x - surfaceRect.left - options.previewPan.x + (stageWidth * (scale - 1)) / 2,
+            y: stageRect.y - surfaceRect.top - options.previewPan.y + (stageHeight * (scale - 1)) / 2,
             width: stageWidth,
             height: stageHeight,
         });
         options.clampPan();
-        for (const [
-            half,
-            canvas,
-        ] of outputCanvases) {
+        for (const [half, canvas] of outputCanvases) {
             const rect = canvas.getBoundingClientRect();
             outputCanvasRects[half] = {
                 x: rect.left,
@@ -230,22 +227,14 @@ export const useScanCleanupPreviewOverlayGeometry = (
     function updateOutputFitAreaSizes() {
         const stageRect = options.cutterStage.value?.getBoundingClientRect();
         const scale = Math.max(0.001, options.transformScale.value);
-        for (const [
-            half,
-            element,
-        ] of outputFitAreas) {
+        for (const [half, element] of outputFitAreas) {
             const rect = element.getBoundingClientRect();
             const current = outputFitAreaSizes[half];
             const left = (rect.left - (stageRect?.left ?? 0)) / scale;
             const top = (rect.top - (stageRect?.top ?? 0)) / scale;
             const width = element.clientWidth || rect.width / scale;
             const height = element.clientHeight || rect.height / scale;
-            if (
-                current?.left !== left
-                || current.top !== top
-                || current.width !== width
-                || current.height !== height
-            ) {
+            if (current?.left !== left || current.top !== top || current.width !== width || current.height !== height) {
                 outputFitAreaSizes[half] = {
                     left,
                     top,
@@ -258,21 +247,15 @@ export const useScanCleanupPreviewOverlayGeometry = (
     }
 
     function pruneOutputElementRefs() {
-        const activeHalves = new Set(options.result()?.outputs.map(output => output.metadata.half) ?? []);
-        for (const [
-            half,
-            element,
-        ] of outputFitAreas) {
+        const activeHalves = new Set(options.result()?.outputs.map((output) => output.metadata.half) ?? []);
+        for (const [half, element] of outputFitAreas) {
             if (!activeHalves.has(half)) {
                 outputResizeObserver?.unobserve(element);
                 outputFitAreas.delete(half);
                 Reflect.deleteProperty(outputFitAreaSizes, half);
             }
         }
-        for (const [
-            half,
-            element,
-        ] of outputCanvases) {
+        for (const [half, element] of outputCanvases) {
             if (!activeHalves.has(half)) {
                 outputResizeObserver?.unobserve(element);
                 outputCanvases.delete(half);
@@ -288,8 +271,12 @@ export const useScanCleanupPreviewOverlayGeometry = (
             return;
         }
         outputResizeObserver = new ResizeObserver(updateOutputFitAreaSizes);
-        for (const element of outputFitAreas.values()) {outputResizeObserver.observe(element);}
-        for (const element of outputCanvases.values()) {outputResizeObserver.observe(element);}
+        for (const element of outputFitAreas.values()) {
+            outputResizeObserver.observe(element);
+        }
+        for (const element of outputCanvases.values()) {
+            outputResizeObserver.observe(element);
+        }
         updateOutputFitAreaSizes();
     }
 

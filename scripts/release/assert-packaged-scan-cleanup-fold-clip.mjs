@@ -1,13 +1,8 @@
-import { spawnSync } from 'node:child_process';
-import {
-    mkdtempSync,
-    readFileSync,
-    rmSync,
-    writeFileSync,
-} from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { getCliErrorMessage } from '../lib/cli-error.mjs';
+import {spawnSync} from 'node:child_process';
+import {mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {getCliErrorMessage} from '../lib/cli-error.mjs';
 
 // A packaged sidecar that is merely stale reports the same identity as a fresh
 // one: the batch manifest stays v3 across schema-additive changes and the
@@ -51,10 +46,7 @@ function writeSyntheticSpread(path) {
     inkLeaf(20, 156);
     inkLeaf(244, 380);
     const header = Buffer.from(`P6\n${SPREAD_WIDTH_PX} ${SPREAD_HEIGHT_PX}\n255\n`);
-    writeFileSync(path, Buffer.concat([
-        header,
-        pixels,
-    ]));
+    writeFileSync(path, Buffer.concat([header, pixels]));
 }
 
 // Every layout decision is dictated rather than detected: the cut, both content
@@ -81,44 +73,46 @@ function buildManifest(workDir, inputPath) {
             widthPx: 425,
             heightPx: 550,
         },
-        pages: [{
-            inputPath,
-            sourcePageIndex: 0,
-            pageMetadataPath: join(workDir, 'page.json'),
-            options: {
-                dpi: 100,
-                layout: 'force-two-page',
-                despeckle: true,
-                manualSplit: {
-                    xNormalized: 0.5,
-                    rotationDegrees: 0,
+        pages: [
+            {
+                inputPath,
+                sourcePageIndex: 0,
+                pageMetadataPath: join(workDir, 'page.json'),
+                options: {
+                    dpi: 100,
+                    layout: 'force-two-page',
+                    despeckle: true,
+                    manualSplit: {
+                        xNormalized: 0.5,
+                        rotationDegrees: 0,
+                    },
+                    matchPageSize: true,
+                    cropContent: true,
+                    pageAlignment: 'top-center',
+                    manualContentBoxes: {
+                        left: fullBox,
+                        right: fullBox,
+                    },
+                    margins: {
+                        leftMm: 20,
+                        topMm: 5,
+                        rightMm: 20,
+                        bottomMm: 5,
+                    },
+                    outputMode: 'bw',
                 },
-                matchPageSize: true,
-                cropContent: true,
-                pageAlignment: 'top-center',
-                manualContentBoxes: {
-                    left: fullBox,
-                    right: fullBox,
-                },
-                margins: {
-                    leftMm: 20,
-                    topMm: 5,
-                    rightMm: 20,
-                    bottomMm: 5,
-                },
-                outputMode: 'bw',
+                outputs: [
+                    {
+                        outputPath: join(workDir, 'left.png'),
+                        metadataPath: join(workDir, 'left.json'),
+                    },
+                    {
+                        outputPath: join(workDir, 'right.png'),
+                        metadataPath: join(workDir, 'right.json'),
+                    },
+                ],
             },
-            outputs: [
-                {
-                    outputPath: join(workDir, 'left.png'),
-                    metadataPath: join(workDir, 'left.json'),
-                },
-                {
-                    outputPath: join(workDir, 'right.png'),
-                    metadataPath: join(workDir, 'right.json'),
-                },
-            ],
-        }],
+        ],
     };
 }
 
@@ -128,9 +122,9 @@ function assertPositiveFoldClip(metadataPath, field) {
     const value = metadata[field];
     if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
         throw new Error(
-            `Packaged evb-scan-cleanup emitted no positive ${field} for the fold-clipped spread `
-            + `(got ${JSON.stringify(value)}). The packaged sidecar predates the fold-clip `
-            + 'protocol fields, or no longer emits them; rebuild the packaged native tools.',
+            `Packaged evb-scan-cleanup emitted no positive ${field} for the fold-clipped spread ` +
+                `(got ${JSON.stringify(value)}). The packaged sidecar predates the fold-clip ` +
+                'protocol fields, or no longer emits them; rebuild the packaged native tools.',
         );
     }
 }
@@ -139,9 +133,7 @@ function assertPositiveFoldClip(metadataPath, field) {
 function main() {
     const [toolPath] = process.argv.slice(2);
     if (!toolPath) {
-        throw new Error(
-            'Usage: node scripts/release/assert-packaged-scan-cleanup-fold-clip.mjs <tool-path>',
-        );
+        throw new Error('Usage: node scripts/release/assert-packaged-scan-cleanup-fold-clip.mjs <tool-path>');
     }
 
     const workDir = mkdtempSync(join(tmpdir(), 'evb-scan-cleanup-smoke-'));
@@ -151,10 +143,7 @@ function main() {
         const manifestPath = join(workDir, 'manifest.json');
         writeFileSync(manifestPath, JSON.stringify(buildManifest(workDir, inputPath)));
 
-        const run = spawnSync(toolPath, [
-            '--manifest',
-            manifestPath,
-        ], {
+        const run = spawnSync(toolPath, ['--manifest', manifestPath], {
             encoding: 'utf8',
             timeout: 120_000,
         });
@@ -163,14 +152,12 @@ function main() {
         }
         if (run.status !== 0) {
             throw new Error(
-                `Packaged evb-scan-cleanup exited ${run.status} on the fold-clip smoke manifest:\n`
-                + `${run.stdout ?? ''}${run.stderr ?? ''}`,
+                `Packaged evb-scan-cleanup exited ${run.status} on the fold-clip smoke manifest:\n` +
+                    `${run.stdout ?? ''}${run.stderr ?? ''}`,
             );
         }
         if (!(run.stdout ?? '').includes('"status":"success"')) {
-            throw new Error(
-                `Packaged evb-scan-cleanup reported no success envelope:\n${run.stdout ?? ''}`,
-            );
+            throw new Error(`Packaged evb-scan-cleanup reported no success envelope:\n${run.stdout ?? ''}`);
         }
 
         assertPositiveFoldClip(join(workDir, 'left.json'), 'foldClipRightPx');

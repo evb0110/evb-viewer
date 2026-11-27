@@ -1,28 +1,15 @@
 import * as v from 'valibot';
-import { sameWitness } from '@document-store/contentWitness';
-import { getErrorMessage } from '@app/utils/error';
+import {sameWitness} from '@document-store/contentWitness';
+import {getErrorMessage} from '@app/utils/error';
 import type {TDocumentRef} from '@contracts/documentRef';
-import {
-    RECENT_READING_VIEW_SCHEMA,
-    type IRecentReadingView,
-} from '@contracts/recentReadingView';
+import {RECENT_READING_VIEW_SCHEMA, type IRecentReadingView} from '@contracts/recentReadingView';
 import {isRecord} from '@contracts/runtimeGuards';
 import {safeJsonParse} from '@contracts/safeJsonParse';
-import {
-    RECENT_FILES_LIMIT,
-    type IRecentFile,
-} from '@contracts/shared';
-import { createEpochMs } from '@contracts/timestamps';
-import {
-    readLocalStorageItem,
-    safeSetLocalStorageItem,
-} from '@app/utils/localStorage';
-import { BROWSER_RECENT_FILES_STORAGE_KEY } from '@app/utils/browserRuntimePersistence';
-import {
-    expireLegacyRecentFilesCookie,
-    parseRecentFilesPayload,
-    serializeRecentFilesPayload,
-} from '@app/utils/recentFilesPersistence';
+import {RECENT_FILES_LIMIT, type IRecentFile} from '@contracts/shared';
+import {createEpochMs} from '@contracts/timestamps';
+import {readLocalStorageItem, safeSetLocalStorageItem} from '@app/utils/localStorage';
+import {BROWSER_RECENT_FILES_STORAGE_KEY} from '@app/utils/browserRuntimePersistence';
+import {expireLegacyRecentFilesCookie, parseRecentFilesPayload, serializeRecentFilesPayload} from '@app/utils/recentFilesPersistence';
 import {runBrowserLock} from '@app/platform/browser/runBrowserLock';
 
 export class BrowserRecentFilesStorageUnavailableError extends Error {
@@ -54,7 +41,7 @@ function readStoredReadingViews(): TStoredReadingViews {
     } catch {
         return views;
     }
-    const files: unknown[] = Array.isArray(parsed) ? parsed : (isRecord(parsed) && Array.isArray(parsed.files) ? parsed.files : []);
+    const files: unknown[] = Array.isArray(parsed) ? parsed : isRecord(parsed) && Array.isArray(parsed.files) ? parsed.files : [];
     for (const file of files) {
         if (!isRecord(file) || typeof file.originalPath !== 'string') {
             continue;
@@ -73,9 +60,7 @@ interface IRecentFilesStorageMutation<T> {
     readingViews?: TStoredReadingViews;
 }
 
-function commitRecentFilesStorageMutation<T>(
-    mutation: (currentFiles: IRecentFile[]) => IRecentFilesStorageMutation<T>,
-) {
+function commitRecentFilesStorageMutation<T>(mutation: (currentFiles: IRecentFile[]) => IRecentFilesStorageMutation<T>) {
     const currentFiles = readRecentFilesFromStorage();
     const next = mutation(currentFiles);
     if (!writeRecentFilesToStorage(next.files, next.readingViews)) {
@@ -111,13 +96,17 @@ export function tryReadRecentFilesFromStorage() {
 
 /** Writes the list; an entry that stays keeps its reading view. */
 export function writeRecentFilesToStorage(recentFiles: IRecentFile[], readingViews = readStoredReadingViews()) {
-    const payload = serializeRecentFilesPayload(recentFiles.map((file) => {
-        const readingView = readingViews.get(file.originalPath);
-        return readingView ? {
-            ...file,
-            readingView,
-        } : file;
-    }));
+    const payload = serializeRecentFilesPayload(
+        recentFiles.map((file) => {
+            const readingView = readingViews.get(file.originalPath);
+            return readingView
+                ? {
+                      ...file,
+                      readingView,
+                  }
+                : file;
+        }),
+    );
     const committed = safeSetLocalStorageItem(BROWSER_RECENT_FILES_STORAGE_KEY, payload);
     if (!committed) {
         return false;
@@ -143,7 +132,9 @@ export function pruneRecentFiles(recentFiles: IRecentFile[]) {
     const keptRefs = new Set<string>();
     const evictedRefs = new Set<string>();
     for (const recentFile of recentFiles) {
-        if (keptRefs.has(recentFile.originalPath)) {continue;}
+        if (keptRefs.has(recentFile.originalPath)) {
+            continue;
+        }
         if (keptRecentFiles.length >= RECENT_FILES_LIMIT) {
             evictedRefs.add(recentFile.originalPath);
             continue;
@@ -165,8 +156,8 @@ export function pruneRecentFiles(recentFiles: IRecentFile[]) {
 /** Desktop's Recent for the browser: picked files reopen through their stored handles or stored copies. */
 export class BrowserRecentFilesStore {
     public async touch(ref: TDocumentRef, fileName: string, fileSize: number) {
-        await runSerializedRecentFilesStorageMutation(currentRecentFiles => {
-            const nextRecentFiles = currentRecentFiles.filter(candidate => candidate.originalPath !== ref);
+        await runSerializedRecentFilesStorageMutation((currentRecentFiles) => {
+            const nextRecentFiles = currentRecentFiles.filter((candidate) => candidate.originalPath !== ref);
             nextRecentFiles.unshift({
                 originalPath: ref,
                 backend: 'browser',
@@ -185,8 +176,8 @@ export class BrowserRecentFilesStore {
     }
 
     public async remove(ref: string) {
-        return runSerializedRecentFilesStorageMutation(currentRecentFiles => {
-            const nextRecentFiles = currentRecentFiles.filter(candidate => candidate.originalPath !== ref);
+        return runSerializedRecentFilesStorageMutation((currentRecentFiles) => {
+            const nextRecentFiles = currentRecentFiles.filter((candidate) => candidate.originalPath !== ref);
             return {files: nextRecentFiles, value: nextRecentFiles.length !== currentRecentFiles.length};
         });
     }
@@ -195,7 +186,7 @@ export class BrowserRecentFilesStore {
     public async rememberReadingView(ref: string, sourceWitness: string, view: IRecentReadingView) {
         await runSerializedRecentFilesStorageMutation((currentFiles) => {
             const readingViews = readStoredReadingViews();
-            if (currentFiles.some(file => file.originalPath === ref)) {
+            if (currentFiles.some((file) => file.originalPath === ref)) {
                 readingViews.set(ref, {view, sourceWitness});
             }
             return {files: currentFiles, value: undefined, readingViews};

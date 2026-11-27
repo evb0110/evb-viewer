@@ -1,16 +1,9 @@
 import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type {TBrowserOcrRecognizeRequest} from '@contracts/browserOcrEngine';
 import {limitAsync} from 'es-toolkit/promise';
-import {
-    preprocessBrowserOcrRaster,
-    resolveBrowserOcrLanes,
-    runBrowserOcrEngine,
-} from '@app/platform/browser-api/browserOcrEngineClient';
+import {preprocessBrowserOcrRaster, resolveBrowserOcrLanes, runBrowserOcrEngine} from '@app/platform/browser-api/browserOcrEngineClient';
 import {createBrowserOcrCheckpointStore} from '@app/platform/browser-api/browserOcrCheckpoints';
-import {
-    ensureBrowserOcrModel,
-    readCachedOcrModel,
-} from '@app/platform/browser-api/browserOcrModels';
+import {ensureBrowserOcrModel, readCachedOcrModel} from '@app/platform/browser-api/browserOcrModels';
 import {
     BROWSER_OCR_ANNOTATION_MODE,
     getBrowserOcrRasterSize,
@@ -22,10 +15,7 @@ import {loadBrowserPdfjsDocument} from '@app/platform/browser-api/loadBrowserPdf
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
 import {appendPdfMutationsToStoreFile} from '@app/platform/browser/browserStorePort';
 import {getErrorMessage} from '@app/utils/error';
-import {
-    isBrowserPageOpsWasmFailure,
-    type IOcrTextLayerInstructions,
-} from '@contracts/browserPageOpsWorker';
+import {isBrowserPageOpsWasmFailure, type IOcrTextLayerInstructions} from '@contracts/browserPageOpsWorker';
 import type {TDocumentRef} from '@contracts/documentRef';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import type {
@@ -35,29 +25,13 @@ import type {
     IOcrSearchablePdfPage,
     TOcrProgressPhase,
 } from '@contracts/electronApiOcr';
-import {
-    EARLY_PRINT_MODEL_CODES,
-    OCR_LANGUAGE_MODEL_BYTES,
-    type TOcrModelCode,
-    withOcrModelSublanguages,
-} from '@contracts/ocrLanguages';
+import {EARLY_PRINT_MODEL_CODES, OCR_LANGUAGE_MODEL_BYTES, type TOcrModelCode, withOcrModelSublanguages} from '@contracts/ocrLanguages';
 import {requirePageNumber} from '@contracts/pageNumbers';
-import {
-    createOcrPreprocessingGeometryDiagnostic,
-    getOcrScanCleanupMode,
-} from '@contracts/scan-cleanup/ocrPreprocessing';
+import {createOcrPreprocessingGeometryDiagnostic, getOcrScanCleanupMode} from '@contracts/scan-cleanup/ocrPreprocessing';
 import type {IPdfOcrPageTextVisibility} from '@contracts/pdfOcrTextVisibility';
 import {resolveOcrExtractionDpi} from '@ocr-core/ocrRenderDpi';
-import {
-    buildOcrTextLayerInstructions,
-    OcrJobMessages,
-    recognizeOcrPages,
-    type IOcrPageRaster,
-} from '@ocr-core/recognizeOcrPages';
-import {
-    OCR_TEXT_PROBE_UNAVAILABLE,
-    selectOcrPagesByExistingText,
-} from '@ocr-core/selectOcrPagesByExistingText';
+import {buildOcrTextLayerInstructions, OcrJobMessages, recognizeOcrPages, type IOcrPageRaster} from '@ocr-core/recognizeOcrPages';
+import {OCR_TEXT_PROBE_UNAVAILABLE, selectOcrPagesByExistingText} from '@ocr-core/selectOcrPagesByExistingText';
 
 type TBrowserOcrImage = TBrowserOcrRecognizeRequest['payload']['image'];
 
@@ -71,52 +45,55 @@ export interface IBrowserOcrJobInput {
 
 export type TBrowserOcrJobOutcome =
     | {
-        /** The text layer appended to the document's file, uncommitted, under `lease`. */
-        kind: 'written';
-        lease: string;
-        /**
-         * The document's length with the layer, and the SHA-256 digest of the
-         * appended layer (raw revision bytes for a single chunk, or the composite
-         * SHA-256 over colon-joined per-chunk SHA-256 digests when streamed across
-         * multiple chunks).
-         */
-        length: number;
-        sha256: string;
-        sourceRevisionToken: TDocumentRevisionToken;
-        errors: string[];
-        diagnostics: IOcrDiagnostic[];
-    }
+          /** The text layer appended to the document's file, uncommitted, under `lease`. */
+          kind: 'written';
+          lease: string;
+          /**
+           * The document's length with the layer, and the SHA-256 digest of the
+           * appended layer (raw revision bytes for a single chunk, or the composite
+           * SHA-256 over colon-joined per-chunk SHA-256 digests when streamed across
+           * multiple chunks).
+           */
+          length: number;
+          sha256: string;
+          sourceRevisionToken: TDocumentRevisionToken;
+          errors: string[];
+          diagnostics: IOcrDiagnostic[];
+      }
     | {
-        kind: 'nothing-written';
-        targeted: boolean;
-        errors: string[];
-        diagnostics: IOcrDiagnostic[];
-    };
+          kind: 'nothing-written';
+          targeted: boolean;
+          errors: string[];
+          diagnostics: IOcrDiagnostic[];
+      };
 
 /** A failure the workspace explains in the user's language, by its code. */
 export class BrowserOcrJobError extends Error {
-    public constructor(public readonly code: 'OCR_MODEL_DOWNLOAD_FAILED', message: string) {
+    public constructor(
+        public readonly code: 'OCR_MODEL_DOWNLOAD_FAILED',
+        message: string,
+    ) {
         super(message);
         this.name = 'BrowserOcrJobError';
     }
 }
 
 function throwIfAborted(signal: AbortSignal) {
-    if (signal.aborted) {throw signal.reason instanceof Error ? signal.reason : new DOMException('OCR was canceled', 'AbortError');}
+    if (signal.aborted) {
+        throw signal.reason instanceof Error ? signal.reason : new DOMException('OCR was canceled', 'AbortError');
+    }
 }
 
 async function sha256Hex(bytes: Uint8Array<ArrayBuffer>) {
     const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
-    return Array.from(digest, byte => byte.toString(16).padStart(2, '0')).join('');
+    return Array.from(digest, (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 /** A page's text as `pdftotext` would read it for classification; failure is never an empty page. */
 async function extractPageText(page: IPdfPage) {
     try {
         const content = await page.getTextContent();
-        return content.items
-            .map(item => ('str' in item ? `${item.str}${item.hasEOL ? '\n' : ''}` : ''))
-            .join('');
+        return content.items.map((item) => ('str' in item ? `${item.str}${item.hasEOL ? '\n' : ''}` : '')).join('');
     } catch {
         return OCR_TEXT_PROBE_UNAVAILABLE;
     }
@@ -124,21 +101,22 @@ async function extractPageText(page: IPdfPage) {
 
 async function readVisibility(source: Blob, pageNumbers: number[], signal: AbortSignal) {
     try {
-        const report = await runBrowserPageOpsWorkerRequest('ocrTextVisibility', {
-            source,
-            pages: pageNumbers,
-            withEvbOcrText: false,
-        }, {signal});
+        const report = await runBrowserPageOpsWorkerRequest(
+            'ocrTextVisibility',
+            {
+                source,
+                pages: pageNumbers,
+                withEvbOcrText: false,
+            },
+            {signal},
+        );
         if (isBrowserPageOpsWasmFailure(report)) {
             return {
                 visibility: new Map<number, IPdfOcrPageTextVisibility>(),
                 warning: `Existing-text inspection was unavailable: ${report.error.message}`,
             };
         }
-        return {visibility: new Map(report.pages.map(page => [
-            page.pageNumber,
-            page,
-        ]))};
+        return {visibility: new Map(report.pages.map((page) => [page.pageNumber, page]))};
     } catch (error) {
         throwIfAborted(signal);
         return {
@@ -156,37 +134,37 @@ async function readVisibility(source: Blob, pageNumbers: number[], signal: Abort
  * is rejected if the document changes meanwhile.
  */
 export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBrowserOcrJobOutcome> {
-    const {
-        signal, emit,
-    } = input;
+    const {signal, emit} = input;
     const errors = new OcrJobMessages<string>();
     const diagnostics = new OcrJobMessages<IOcrDiagnostic>();
     let totalPages = input.pages.length;
     let processedCount = 0;
-    const stage = (phase: TOcrProgressPhase, extra: Partial<IOcrProgress> = {}) => emit({
-        currentPage: 0,
-        processedCount,
-        totalPages,
-        phase,
-        status: 'running',
-        ...extra,
-    });
+    const stage = (phase: TOcrProgressPhase, extra: Partial<IOcrProgress> = {}) =>
+        emit({
+            currentPage: 0,
+            processedCount,
+            totalPages,
+            phase,
+            status: 'running',
+            ...extra,
+        });
 
     stage('preparing');
     // The document is read by range, from the revision read now; the layer is appended to that revision.
     const revision = await browserDocumentStore.getDocumentRevision(input.sourceRef);
     const source = await browserDocumentStore.readableBlob(input.sourceRef);
 
-    const modelCodes = withOcrModelSublanguages(input.pages.flatMap(page => page.languages) as TOcrModelCode[]);
+    const modelCodes = withOcrModelSublanguages(input.pages.flatMap((page) => page.languages) as TOcrModelCode[]);
     for (const code of modelCodes) {
         stage('model-prep', {languageCode: code});
         try {
             await ensureBrowserOcrModel(code, {
                 signal,
-                onProgress: modelDownload => stage('model-prep', {
-                    languageCode: code,
-                    modelDownload,
-                }),
+                onProgress: (modelDownload) =>
+                    stage('model-prep', {
+                        languageCode: code,
+                        modelDownload,
+                    }),
             });
         } catch (error) {
             throwIfAborted(signal);
@@ -197,15 +175,23 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
     const pdf = await loadBrowserPdfjsDocument(input.sourceRef);
     try {
         stage('pdf-prep');
-        const visibility = await readVisibility(source, input.pages.map(page => page.pageNumber), signal);
-        if (visibility.warning) {errors.push(visibility.warning);}
+        const visibility = await readVisibility(
+            source,
+            input.pages.map((page) => page.pageNumber),
+            signal,
+        );
+        if (visibility.warning) {
+            errors.push(visibility.warning);
+        }
         // Probe selected pages once; all lanes receive the same DPI.
         const renderDpi = input.options.renderDpi;
         const sourceDpiByPage = new Map<number, number>();
         const queue: IOcrSearchablePdfPage[] = [];
         let finestSourceDpi: number | null = null;
         let maxPageArea = 0;
-        if (renderDpi === undefined) {stage('dpi-inspection');}
+        if (renderDpi === undefined) {
+            stage('dpi-inspection');
+        }
         for (const request of input.pages) {
             throwIfAborted(signal);
             const page = await pdf.getPage(request.pageNumber).catch(() => null);
@@ -214,18 +200,17 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
                     pages: [request],
                     supersessionPolicy: input.options.supersessionPolicy ?? 'missing-only',
                     visibility: visibility.visibility,
-                    texts: new Map([[
-                        request.pageNumber,
-                        page ? await extractPageText(page) : OCR_TEXT_PROBE_UNAVAILABLE,
-                    ]]),
+                    texts: new Map([[request.pageNumber, page ? await extractPageText(page) : OCR_TEXT_PROBE_UNAVAILABLE]]),
                 });
                 errors.push(...selection.warnings);
                 diagnostics.push(...selection.diagnostics);
                 queue.push(...selection.pages);
-                if (!page || selection.pages.length === 0) {continue;}
+                if (!page || selection.pages.length === 0) {
+                    continue;
+                }
                 const viewport = page.getViewport({scale: 1});
                 // In user-space units, as the raster is rendered.
-                maxPageArea = Math.max(maxPageArea, viewport.width * viewport.height / (viewport.userUnit || 1) ** 2);
+                maxPageArea = Math.max(maxPageArea, (viewport.width * viewport.height) / (viewport.userUnit || 1) ** 2);
                 if (renderDpi === undefined) {
                     const sourceDpi = readPageSourceDpi(await page.getOperatorList({annotationMode: BROWSER_OCR_ANNOTATION_MODE}));
                     if (sourceDpi !== undefined) {
@@ -240,19 +225,20 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
         // Progress counts the pages being recognized; a kept page is not one of them.
         totalPages = queue.length;
         const extractionDpi = resolveOcrExtractionDpi(renderDpi ?? finestSourceDpi);
-        const cleanupMode = input.options.preprocessingMode === undefined
-            ? undefined
-            : getOcrScanCleanupMode(input.options.preprocessingMode);
-        const {
-            lanes, preprocessLanes,
-        } = resolveBrowserOcrLanes(maxPageArea * (extractionDpi / 72) ** 2,
-            modelCodes.reduce((bytes, code) => bytes + OCR_LANGUAGE_MODEL_BYTES[code], 0), cleanupMode);
+        const cleanupMode =
+            input.options.preprocessingMode === undefined ? undefined : getOcrScanCleanupMode(input.options.preprocessingMode);
+        const {lanes, preprocessLanes} = resolveBrowserOcrLanes(
+            maxPageArea * (extractionDpi / 72) ** 2,
+            modelCodes.reduce((bytes, code) => bytes + OCR_LANGUAGE_MODEL_BYTES[code], 0),
+            cleanupMode,
+        );
         // Lanes share the preprocessing workers this job's memory affords. A
         // threaded cleanup engine splits the cores among the pages in flight:
         // each lane renders, preprocesses and recognizes its page in turn.
         const pagesInFlight = Math.min(lanes, queue.length);
         const preprocess = limitAsync(
-            (payload: Parameters<typeof preprocessBrowserOcrRaster>[0], preprocessSignal: AbortSignal) => preprocessBrowserOcrRaster(payload, preprocessSignal, pagesInFlight),
+            (payload: Parameters<typeof preprocessBrowserOcrRaster>[0], preprocessSignal: AbortSignal) =>
+                preprocessBrowserOcrRaster(payload, preprocessSignal, pagesInFlight),
             Math.max(1, preprocessLanes),
         );
         /**
@@ -270,7 +256,9 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
                     ...size,
                     image: (await renderBrowserOcrRaster(page, dpi, signal)).image,
                 };
-                if (cleanupMode === undefined) {return rendered;}
+                if (cleanupMode === undefined) {
+                    return rendered;
+                }
                 const failed = (reason: string): IOcrDiagnostic => ({
                     code: 'OCR_PREPROCESSING_FAILED',
                     severity: 'warning',
@@ -279,11 +267,14 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
                 });
                 let cleaned;
                 try {
-                    cleaned = await preprocess({
-                        image: rendered.image,
-                        mode: cleanupMode,
-                        dpi,
-                    }, signal);
+                    cleaned = await preprocess(
+                        {
+                            image: rendered.image,
+                            mode: cleanupMode,
+                            dpi,
+                        },
+                        signal,
+                    );
                 } catch (error) {
                     throwIfAborted(signal);
                     // The engine stopped or ran out of time with the raster; render it again.
@@ -314,25 +305,31 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
                 return {
                     ...size,
                     image: cleaned.image,
-                    ...(cleaned.inverseMatrix ? {preprocessInverse: {
-                        rasterWidthPx: cleaned.width,
-                        rasterHeightPx: cleaned.height,
-                        matrix: cleaned.inverseMatrix,
-                    }} : {}),
+                    ...(cleaned.inverseMatrix
+                        ? {
+                              preprocessInverse: {
+                                  rasterWidthPx: cleaned.width,
+                                  rasterHeightPx: cleaned.height,
+                                  matrix: cleaned.inverseMatrix,
+                              },
+                          }
+                        : {}),
                 };
             } finally {
                 page.cleanup();
             }
         };
-        const durablePort = typeof browserDocumentStore.stores === 'function'
-            ? (await browserDocumentStore.stores().catch(() => null))?.durable?.port ?? null
-            : null;
+        const durablePort =
+            typeof browserDocumentStore.stores === 'function'
+                ? ((await browserDocumentStore.stores().catch(() => null))?.durable?.port ?? null)
+                : null;
         const checkpoints = await createBrowserOcrCheckpointStore(durablePort);
         try {
-            const progress = (currentPage: number, active: readonly number[]) => stage('processing', {
-                currentPage,
-                activePages: [...active],
-            });
+            const progress = (currentPage: number, active: readonly number[]) =>
+                stage('processing', {
+                    currentPage,
+                    activePages: [...active],
+                });
             const targeted = queue.length > 0;
             const result = await recognizeOcrPages({
                 pages: queue,
@@ -349,7 +346,7 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
                     }
                 },
                 readModel: readCachedOcrModel,
-                acceptPage: page => checkpoints.stagePage(page),
+                acceptPage: (page) => checkpoints.stagePage(page),
                 onPageStart: progress,
                 onPageDone: (pageNumber, active, processed) => {
                     processedCount = processed;
@@ -396,9 +393,8 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
                     return null;
                 }
                 writtenLength = currentLength;
-                writtenSha256 = chunkHashes.length === 1
-                    ? chunkHashes[0]!
-                    : await sha256Hex(new TextEncoder().encode(chunkHashes.join(':')));
+                writtenSha256 =
+                    chunkHashes.length === 1 ? chunkHashes[0]! : await sha256Hex(new TextEncoder().encode(chunkHashes.join(':')));
                 return currentLength;
             });
             if (lease === null || writtenLength === undefined || writtenSha256 === undefined) {

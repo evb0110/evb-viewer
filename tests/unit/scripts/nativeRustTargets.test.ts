@@ -1,10 +1,6 @@
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {pathToFileURL} from 'node:url';
+import {describe, expect, it} from 'vitest';
 
 interface INativeRustTarget {
     arch: string;
@@ -17,10 +13,7 @@ interface INativeRustTarget {
 }
 
 interface INativeRustTargetsModule {
-    getHostNativeTarget: (target?: {
-        arch?: string;
-        platform?: string;
-    }) => {
+    getHostNativeTarget: (target?: {arch?: string; platform?: string}) => {
         arch: string;
         platform: string;
     };
@@ -35,14 +28,9 @@ interface INativeRustTargetsModule {
     normalizeNativeTargetPlatform: (value: string) => string;
 }
 
-const {
-    getHostNativeTarget,
-    getRequestedNativeRustTarget,
-    normalizeNativeTargetArch,
-    normalizeNativeTargetPlatform,
-} = await import(
+const {getHostNativeTarget, getRequestedNativeRustTarget, normalizeNativeTargetArch, normalizeNativeTargetPlatform} = (await import(
     pathToFileURL(path.join(process.cwd(), 'scripts/native-rust-targets.mjs')).href
-) as INativeRustTargetsModule;
+)) as INativeRustTargetsModule;
 
 describe('native Rust targets', () => {
     it('normalizes release workflow platform and architecture aliases', () => {
@@ -53,16 +41,18 @@ describe('native Rust targets', () => {
     });
 
     it('names the host target too, so an ambient Cargo default target cannot redirect the build', () => {
-        expect(getRequestedNativeRustTarget({}, {
-            arch: 'arm64',
-            platform: 'darwin',
-        })).toEqual({
+        expect(
+            getRequestedNativeRustTarget(
+                {},
+                {
+                    arch: 'arm64',
+                    platform: 'darwin',
+                },
+            ),
+        ).toEqual({
             arch: 'arm64',
             binaryExtension: '',
-            cargoTargetArgs: [
-                '--target',
-                'aarch64-apple-darwin',
-            ],
+            cargoTargetArgs: ['--target', 'aarch64-apple-darwin'],
             isHostTarget: true,
             platform: 'darwin',
             platformArch: 'darwin-arm64',
@@ -71,19 +61,21 @@ describe('native Rust targets', () => {
     });
 
     it('resolves Windows arm64 as a cargo cross target on Windows x64 release runners', () => {
-        expect(getRequestedNativeRustTarget({
-            EVB_NATIVE_TARGET_ARCH: 'arm64',
-            EVB_NATIVE_TARGET_PLATFORM: 'win',
-        }, {
-            arch: 'x64',
-            platform: 'win32',
-        })).toEqual({
+        expect(
+            getRequestedNativeRustTarget(
+                {
+                    EVB_NATIVE_TARGET_ARCH: 'arm64',
+                    EVB_NATIVE_TARGET_PLATFORM: 'win',
+                },
+                {
+                    arch: 'x64',
+                    platform: 'win32',
+                },
+            ),
+        ).toEqual({
             arch: 'arm64',
             binaryExtension: '.exe',
-            cargoTargetArgs: [
-                '--target',
-                'aarch64-pc-windows-msvc',
-            ],
+            cargoTargetArgs: ['--target', 'aarch64-pc-windows-msvc'],
             isHostTarget: false,
             platform: 'win32',
             platformArch: 'win32-arm64',
@@ -92,16 +84,20 @@ describe('native Rust targets', () => {
     });
 
     it('rejects unsupported host architectures before staging release binaries', () => {
-        expect(() => getHostNativeTarget({
-            arch: 'ia32',
-            platform: 'linux',
-        })).toThrow('Unsupported native Rust target architecture');
+        expect(() =>
+            getHostNativeTarget({
+                arch: 'ia32',
+                platform: 'linux',
+            }),
+        ).toThrow('Unsupported native Rust target architecture');
     });
 
     it('rejects unsupported host platforms before staging release binaries', () => {
-        expect(() => getHostNativeTarget({
-            arch: 'x64',
-            platform: 'freebsd',
-        })).toThrow('Unsupported native Rust target platform');
+        expect(() =>
+            getHostNativeTarget({
+                arch: 'x64',
+                platform: 'freebsd',
+            }),
+        ).toThrow('Unsupported native Rust target platform');
     });
 });

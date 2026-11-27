@@ -25,14 +25,20 @@ export function reduceScanCleanupSourceTextOmission(
     let count = 0;
     const pages: NonNullable<TScanCleanupSummary['sourceTextOmission']>['pages'] = [];
     for (const page of report.pages) {
-        if (!page.evbOcrLayer && !page.paintedText && !page.hiddenText) {continue;}
+        if (!page.evbOcrLayer && !page.paintedText && !page.hiddenText) {
+            continue;
+        }
         count += 1;
-        if (pages.length < 20) {pages.push(requirePageNumber(page.pageNumber));}
+        if (pages.length < 20) {
+            pages.push(requirePageNumber(page.pageNumber));
+        }
     }
-    return count === 0 ? undefined : {
-        count,
-        pages,
-    };
+    return count === 0
+        ? undefined
+        : {
+              count,
+              pages,
+          };
 }
 
 export async function inspectScanCleanupSourceTextOmission(input: {
@@ -44,22 +50,20 @@ export async function inspectScanCleanupSourceTextOmission(input: {
     runCommand: TScanCleanupRunCommand;
     log: TScanCleanupLog;
 }): Promise<TScanCleanupSummary['sourceTextOmission']> {
-    const result = await input.runCommand(input.pdfPageOpsBinary, [
-        'ocr-text-visibility',
-        '--input',
-        input.pdfPath,
-        '--pages-file',
-        input.pagesPath,
-    ], {
-        signal: input.signal,
-        commandLabel: 'evb-pdf-page-ops(ocr-text-visibility:scan-cleanup)',
-        timeoutMs: 2 * 60 * 1000,
-        // Covers the existing native 200,000-page admission bound without
-        // retaining recognized strings or an unbounded stdout capture.
-        maxStdoutBytes: 64 * 1024 * 1024,
-        rejectOnStdoutTruncation: true,
-        log: input.log,
-    });
+    const result = await input.runCommand(
+        input.pdfPageOpsBinary,
+        ['ocr-text-visibility', '--input', input.pdfPath, '--pages-file', input.pagesPath],
+        {
+            signal: input.signal,
+            commandLabel: 'evb-pdf-page-ops(ocr-text-visibility:scan-cleanup)',
+            timeoutMs: 2 * 60 * 1000,
+            // Covers the existing native 200,000-page admission bound without
+            // retaining recognized strings or an unbounded stdout capture.
+            maxStdoutBytes: 64 * 1024 * 1024,
+            rejectOnStdoutTruncation: true,
+            log: input.log,
+        },
+    );
     try {
         return reduceScanCleanupSourceTextOmission(decodePdfOcrTextVisibilityReport(JSON.parse(result.stdout)));
     } catch (error) {
@@ -100,25 +104,26 @@ function sourcePdfPointToCleanupRaster(
     const pageX = (x - page.xPoints) / page.widthPoints;
     const pageY = (y - page.yPoints) / page.heightPoints;
     const displayRotation = normalizeQuarterTurn(page.rotation);
-    const display = displayRotation === 1
-        ? {
-            x: pageY * inputWidthPx,
-            y: pageX * inputHeightPx,
-        }
-        : displayRotation === 2
+    const display =
+        displayRotation === 1
             ? {
-                x: (1 - pageX) * inputWidthPx,
-                y: pageY * inputHeightPx,
-            }
-            : displayRotation === 3
-                ? {
-                    x: (1 - pageY) * inputWidthPx,
-                    y: (1 - pageX) * inputHeightPx,
+                  x: pageY * inputWidthPx,
+                  y: pageX * inputHeightPx,
+              }
+            : displayRotation === 2
+              ? {
+                    x: (1 - pageX) * inputWidthPx,
+                    y: pageY * inputHeightPx,
                 }
+              : displayRotation === 3
+                ? {
+                      x: (1 - pageY) * inputWidthPx,
+                      y: (1 - pageX) * inputHeightPx,
+                  }
                 : {
-                    x: pageX * inputWidthPx,
-                    y: (1 - pageY) * inputHeightPx,
-                };
+                      x: pageX * inputWidthPx,
+                      y: (1 - pageY) * inputHeightPx,
+                  };
     const rotation = normalizeQuarterTurn(cleanupRotation);
     if (rotation === 1) {
         return {
@@ -156,29 +161,27 @@ export function resolveScanCleanupTextLayerInstruction(
     const metadata = output.metadata;
     const forward = metadata.forwardTransform?.matrix;
     if (
-        output.preservedSource !== undefined
-        || pageSize === undefined
-        || metadata.dewarpMapping != null
-        || forward === undefined
-        || forward.length !== 3
-        || forward.some(row => row.length !== 3 || row.some(value => !Number.isFinite(value)))
-        || !finitePositive(metadata.inputWidthPx)
-        || !finitePositive(metadata.inputHeightPx)
-        || !finitePositive(metadata.outputWidthPx)
-        || !finitePositive(metadata.outputHeightPx)
-        || (metadata.intrinsicRasterWidthPx !== undefined && !finitePositive(metadata.intrinsicRasterWidthPx))
-        || (metadata.intrinsicRasterHeightPx !== undefined && !finitePositive(metadata.intrinsicRasterHeightPx))
-        || !finitePositive(metadata.canvasWidthPx)
-        || !finitePositive(metadata.canvasHeightPx)
-        || !finitePositive(pageSize.widthPoints)
-        || !finitePositive(pageSize.heightPoints)
+        output.preservedSource !== undefined ||
+        pageSize === undefined ||
+        metadata.dewarpMapping != null ||
+        forward === undefined ||
+        forward.length !== 3 ||
+        forward.some((row) => row.length !== 3 || row.some((value) => !Number.isFinite(value))) ||
+        !finitePositive(metadata.inputWidthPx) ||
+        !finitePositive(metadata.inputHeightPx) ||
+        !finitePositive(metadata.outputWidthPx) ||
+        !finitePositive(metadata.outputHeightPx) ||
+        (metadata.intrinsicRasterWidthPx !== undefined && !finitePositive(metadata.intrinsicRasterWidthPx)) ||
+        (metadata.intrinsicRasterHeightPx !== undefined && !finitePositive(metadata.intrinsicRasterHeightPx)) ||
+        !finitePositive(metadata.canvasWidthPx) ||
+        !finitePositive(metadata.canvasHeightPx) ||
+        !finitePositive(pageSize.widthPoints) ||
+        !finitePositive(pageSize.heightPoints)
     ) {
         return null;
     }
-    const pageWidthPoints = metadata.matchedCanvasTargetWidthPoints
-        ?? metadata.canvasWidthPx / output.dpi * 72;
-    const pageHeightPoints = metadata.matchedCanvasTargetHeightPoints
-        ?? metadata.canvasHeightPx / output.dpi * 72;
+    const pageWidthPoints = metadata.matchedCanvasTargetWidthPoints ?? (metadata.canvasWidthPx / output.dpi) * 72;
+    const pageHeightPoints = metadata.matchedCanvasTargetHeightPoints ?? (metadata.canvasHeightPx / output.dpi) * 72;
     const {
         contentWidthPx,
         contentHeightPx,
@@ -190,12 +193,12 @@ export function resolveScanCleanupTextLayerInstruction(
         effectivePlacementOffsetYPx,
     } = resolveScanCleanupMatchedCanvasPlacement(metadata);
     if (
-        !finitePositive(pageWidthPoints)
-        || !finitePositive(pageHeightPoints)
-        || !finitePositive(contentWidthPx)
-        || !finitePositive(contentHeightPx)
-        || !finitePositive(intrinsicRasterWidthPx)
-        || !finitePositive(intrinsicRasterHeightPx)
+        !finitePositive(pageWidthPoints) ||
+        !finitePositive(pageHeightPoints) ||
+        !finitePositive(contentWidthPx) ||
+        !finitePositive(contentHeightPx) ||
+        !finitePositive(intrinsicRasterWidthPx) ||
+        !finitePositive(intrinsicRasterHeightPx)
     ) {
         return null;
     }
@@ -211,22 +214,8 @@ export function resolveScanCleanupTextLayerInstruction(
         metadata.inputHeightPx,
         metadata.rotationDegrees,
     );
-    const sourceX = sourcePdfPointToCleanupRaster(
-        1,
-        0,
-        pageSize,
-        metadata.inputWidthPx,
-        metadata.inputHeightPx,
-        metadata.rotationDegrees,
-    );
-    const sourceY = sourcePdfPointToCleanupRaster(
-        0,
-        1,
-        pageSize,
-        metadata.inputWidthPx,
-        metadata.inputHeightPx,
-        metadata.rotationDegrees,
-    );
+    const sourceX = sourcePdfPointToCleanupRaster(1, 0, pageSize, metadata.inputWidthPx, metadata.inputHeightPx, metadata.rotationDegrees);
+    const sourceY = sourcePdfPointToCleanupRaster(0, 1, pageSize, metadata.inputWidthPx, metadata.inputHeightPx, metadata.rotationDegrees);
     const pixelXFromPdfX = sourceX.x - sourceOrigin.x;
     const pixelYFromPdfX = sourceX.y - sourceOrigin.y;
     const pixelXFromPdfY = sourceY.x - sourceOrigin.x;
@@ -242,26 +231,14 @@ export function resolveScanCleanupTextLayerInstruction(
     const f11 = forward[1]![1]!;
     const f12 = forward[1]![2]!;
 
-    const xFromPdfX = pdfXFromCanvas * matchScaleX * (
-        f00 * pixelXFromPdfX + f01 * pixelYFromPdfX
-    );
-    const xFromPdfY = pdfXFromCanvas * matchScaleX * (
-        f00 * pixelXFromPdfY + f01 * pixelYFromPdfY
-    );
-    const xOffset = pdfXFromCanvas * (
-        matchScaleX * (f00 * sourceOrigin.x + f01 * sourceOrigin.y + f02)
-        + effectivePlacementOffsetXPx
-    );
-    const yFromPdfX = pdfYFromCanvas * matchScaleY * (
-        f10 * pixelXFromPdfX + f11 * pixelYFromPdfX
-    );
-    const yFromPdfY = pdfYFromCanvas * matchScaleY * (
-        f10 * pixelXFromPdfY + f11 * pixelYFromPdfY
-    );
-    const yOffset = pageHeightPoints + pdfYFromCanvas * (
-        matchScaleY * (f10 * sourceOrigin.x + f11 * sourceOrigin.y + f12)
-        + effectivePlacementOffsetYPx
-    );
+    const xFromPdfX = pdfXFromCanvas * matchScaleX * (f00 * pixelXFromPdfX + f01 * pixelYFromPdfX);
+    const xFromPdfY = pdfXFromCanvas * matchScaleX * (f00 * pixelXFromPdfY + f01 * pixelYFromPdfY);
+    const xOffset = pdfXFromCanvas * (matchScaleX * (f00 * sourceOrigin.x + f01 * sourceOrigin.y + f02) + effectivePlacementOffsetXPx);
+    const yFromPdfX = pdfYFromCanvas * matchScaleY * (f10 * pixelXFromPdfX + f11 * pixelYFromPdfX);
+    const yFromPdfY = pdfYFromCanvas * matchScaleY * (f10 * pixelXFromPdfY + f11 * pixelYFromPdfY);
+    const yOffset =
+        pageHeightPoints +
+        pdfYFromCanvas * (matchScaleY * (f10 * sourceOrigin.x + f11 * sourceOrigin.y + f12) + effectivePlacementOffsetYPx);
     const matrix = [
         canonicalNumber(xFromPdfX),
         canonicalNumber(yFromPdfX),
@@ -278,25 +255,27 @@ export function resolveScanCleanupTextLayerInstruction(
         sourcePageIndex: output.sourcePageNumber - 1,
         outputPageIndex,
         matrix,
-        ...(metadata.sourceRegion === undefined ? {} : {sourceRegion: {
-            rect: {
-                x: metadata.sourceRegion.xPx,
-                y: metadata.sourceRegion.yPx,
-                width: metadata.sourceRegion.widthPx,
-                height: metadata.sourceRegion.heightPx,
-            },
-            matrix: [
-                canonicalNumber(pixelXFromPdfX),
-                canonicalNumber(pixelYFromPdfX),
-                canonicalNumber(pixelXFromPdfY),
-                canonicalNumber(pixelYFromPdfY),
-                canonicalNumber(sourceOrigin.x),
-                canonicalNumber(sourceOrigin.y),
-            ],
-        }}),
-        ...(metadata.half !== undefined && metadata.half !== 'full'
-            ? {filterToOutputPage: true}
-            : {}),
+        ...(metadata.sourceRegion === undefined
+            ? {}
+            : {
+                  sourceRegion: {
+                      rect: {
+                          x: metadata.sourceRegion.xPx,
+                          y: metadata.sourceRegion.yPx,
+                          width: metadata.sourceRegion.widthPx,
+                          height: metadata.sourceRegion.heightPx,
+                      },
+                      matrix: [
+                          canonicalNumber(pixelXFromPdfX),
+                          canonicalNumber(pixelYFromPdfX),
+                          canonicalNumber(pixelXFromPdfY),
+                          canonicalNumber(pixelYFromPdfY),
+                          canonicalNumber(sourceOrigin.x),
+                          canonicalNumber(sourceOrigin.y),
+                      ],
+                  },
+              }),
+        ...(metadata.half !== undefined && metadata.half !== 'full' ? {filterToOutputPage: true} : {}),
     };
 }
 
@@ -313,14 +292,7 @@ function linkOnlyTextLayerInstruction(
     return {
         sourcePageIndex: output.sourcePageNumber - 1,
         outputPageIndex,
-        matrix: [
-            transform?.scale ?? 1,
-            0,
-            0,
-            transform?.scale ?? 1,
-            transform?.translateX ?? 0,
-            transform?.translateY ?? 0,
-        ],
+        matrix: [transform?.scale ?? 1, 0, 0, transform?.scale ?? 1, transform?.translateX ?? 0, transform?.translateY ?? 0],
         linkOnly: true,
         ...(unmappedGeometry ? {unmappedGeometry: true} : {}),
     };
@@ -339,11 +311,7 @@ function buildScanCleanupTextLayerPlanFromPageSizeResolver(
             pages.push(linkOnlyTextLayerInstruction(output, outputPageIndex, false));
             return;
         }
-        const instruction = resolveScanCleanupTextLayerInstruction(
-            output,
-            outputPageIndex,
-            resolvePageSize(output.sourcePageNumber),
-        );
+        const instruction = resolveScanCleanupTextLayerInstruction(output, outputPageIndex, resolvePageSize(output.sourcePageNumber));
         if (instruction === null) {
             skippedNonAffine.add(output.sourcePageNumber);
             pages.push(linkOnlyTextLayerInstruction(output, outputPageIndex, true));
@@ -366,10 +334,7 @@ export function buildScanCleanupTextLayerPlan(
     // `pageSizes[sourcePageNumber - 1]`, so out-of-order geometry silently
     // stamps one page's words onto another.
     assertCanonicalPdfPageSizes(pageSizes, 'Scan cleanup text layer planning');
-    return buildScanCleanupTextLayerPlanFromPageSizeResolver(
-        outputs,
-        pageNumber => pageSizes[pageNumber - 1],
-    );
+    return buildScanCleanupTextLayerPlanFromPageSizeResolver(outputs, (pageNumber) => pageSizes[pageNumber - 1]);
 }
 
 /**
@@ -381,14 +346,11 @@ export function buildScanCleanupTextLayerPlanFromPageSizeMap(
     outputs: readonly IRenderedCleanupOutputPage[],
     pageSizes: ReadonlyMap<number, IPdfPageSize>,
 ): IScanCleanupTextLayerPlan {
-    return buildScanCleanupTextLayerPlanFromPageSizeResolver(
-        outputs,
-        pageNumber => {
-            const pageSize = pageSizes.get(pageNumber);
-            if (pageSize === undefined) {
-                throw new Error(`Scan cleanup text layer planning has no geometry for page ${String(pageNumber)}`);
-            }
-            return pageSize;
-        },
-    );
+    return buildScanCleanupTextLayerPlanFromPageSizeResolver(outputs, (pageNumber) => {
+        const pageSize = pageSizes.get(pageNumber);
+        if (pageSize === undefined) {
+            throw new Error(`Scan cleanup text layer planning has no geometry for page ${String(pageNumber)}`);
+        }
+        return pageSize;
+    });
 }

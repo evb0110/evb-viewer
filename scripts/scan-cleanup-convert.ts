@@ -1,26 +1,8 @@
-import { getErrorMessage } from '@contracts/getErrorMessage';
-import {
-    copyFile,
-    mkdir,
-    mkdtemp,
-    open,
-    readFile,
-    readdir,
-    rename,
-    rm,
-    stat,
-    writeFile,
-} from 'node:fs/promises';
-import {
-    join,
-    resolve,
-} from 'node:path';
+import {getErrorMessage} from '@contracts/getErrorMessage';
+import {copyFile, mkdir, mkdtemp, open, readFile, readdir, rename, rm, stat, writeFile} from 'node:fs/promises';
+import {join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {
-    availableParallelism,
-    tmpdir,
-    totalmem,
-} from 'node:os';
+import {availableParallelism, tmpdir, totalmem} from 'node:os';
 import type {
     IScanCleanupDetectionResult,
     IScanCleanupOptions,
@@ -33,34 +15,16 @@ import {
     createScanCleanupDetectionSignature,
     createScanCleanupPlacementAnchorCalibrationSignature,
 } from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';
-import {
-    buildScanCleanupPlacementAnchorSummary,
-    toScanCleanupInkSheet,
-} from '@evb/scan-cleanup/core/placementAnchors';
-import {
-    resolveScanCleanupDocumentInkAnchors,
-    usesScanCleanupInkAlignment,
-} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
+import {buildScanCleanupPlacementAnchorSummary, toScanCleanupInkSheet} from '@evb/scan-cleanup/core/placementAnchors';
+import {resolveScanCleanupDocumentInkAnchors, usesScanCleanupInkAlignment} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 import {createFileBackedScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/fileBackedResultStore';
-import {
-    ScanCleanupPdfValidationError,
-    ScanCleanupStreamingEvidenceError,
-} from '@evb/scan-cleanup/core/errors';
-import {
-    extractPdfMrcLayers,
-    extractPdfMrcLayersBatch,
-} from '@evb/scan-cleanup/adapters/extractPdfMrcLayers';
+import {ScanCleanupPdfValidationError, ScanCleanupStreamingEvidenceError} from '@evb/scan-cleanup/core/errors';
+import {extractPdfMrcLayers, extractPdfMrcLayersBatch} from '@evb/scan-cleanup/adapters/extractPdfMrcLayers';
 import {createPdfPageSizeStore} from '@evb/scan-cleanup/core/pdfPageSizes';
 import {readAvailableScratchBytes} from '@evb/scan-cleanup/core/resolveRasterHandoff';
-import {
-    createScanCleanupPageRasterSource,
-    detectSourceDpiDetails,
-} from '@evb/scan-cleanup/core/sourceDpiDetection';
+import {createScanCleanupPageRasterSource, detectSourceDpiDetails} from '@evb/scan-cleanup/core/sourceDpiDetection';
 import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@evb/scan-cleanup/core/pageBatches';
-import {
-    runScanCleanupDetection,
-    type IScanCleanupDetectionDependencies,
-} from '@evb/scan-cleanup/core/detection';
+import {runScanCleanupDetection, type IScanCleanupDetectionDependencies} from '@evb/scan-cleanup/core/detection';
 import {
     runScanCleanupConversion,
     type IRunScanCleanupPipelineRequest,
@@ -133,10 +97,7 @@ interface IScanCleanupCliArguments {
 }
 
 function buildSourcePageToOutputPages(report: IScanCleanupRepresentationReport) {
-    const outputPageByOrdinal = new Map(report.pages.map(page => [
-        page.outputOrdinal,
-        page.outputPageNumber,
-    ] as const));
+    const outputPageByOrdinal = new Map(report.pages.map((page) => [page.outputOrdinal, page.outputPageNumber] as const));
     const outputPagesBySource = new Map<number, number[]>();
     for (const mapping of report.outputMappings) {
         const outputPages = outputPagesBySource.get(mapping.sourcePage) ?? [];
@@ -151,46 +112,47 @@ function buildSourcePageToOutputPages(report: IScanCleanupRepresentationReport) 
     }
     return [...outputPagesBySource]
         .sort(([left], [right]) => left - right)
-        .map(([
-            sourcePage,
-            outputPages,
-        ]) => ({
+        .map(([sourcePage, outputPages]) => ({
             outputPages,
             sourcePage,
         }));
 }
 
 function printUsage() {
-    process.stderr.write([
-        'Usage: pnpm tsx scripts/scan-cleanup-convert.ts --source <pdf> --out <pdf> [flags]',
-        '',
-        'Flags:',
-        '  --no-crop-content',
-        '  --no-match-page-size',
-        '  --output-mode auto|bw|gray|color|mixed',
-        '  --pages <list-or-ranges>',
-        '  --preserve-original-quality',
-        '  --layout-mode auto|force-single|force-two-page',
-        '  --binarization auto|otsu|sauvola|wolf',
-        '  --no-normalize-illumination',
-        '  --reading-order ltr|rtl',
-        '  --thickness <number>',
-        '  --despeckle-level off|cautious|normal|aggressive',
-        '  --auto-dewarp [--auto-dewarp-depth <number>]',
-        '  --skip-blank-pages',
-        '  --parity',
-        `  --detection-cache [<directory-or-json-path>] (default: ${DEFAULT_SCAN_CLEANUP_DETECTION_CACHE_PATH})`,
-        '  --refresh-detection',
-        '  --diagnostic-evidence-dir <directory>',
-        '  --diagnostic-mask-pages <output-page-list-or-ranges>',
-    ].join('\n') + '\n');
+    process.stderr.write(
+        [
+            'Usage: pnpm tsx scripts/scan-cleanup-convert.ts --source <pdf> --out <pdf> [flags]',
+            '',
+            'Flags:',
+            '  --no-crop-content',
+            '  --no-match-page-size',
+            '  --output-mode auto|bw|gray|color|mixed',
+            '  --pages <list-or-ranges>',
+            '  --preserve-original-quality',
+            '  --layout-mode auto|force-single|force-two-page',
+            '  --binarization auto|otsu|sauvola|wolf',
+            '  --no-normalize-illumination',
+            '  --reading-order ltr|rtl',
+            '  --thickness <number>',
+            '  --despeckle-level off|cautious|normal|aggressive',
+            '  --auto-dewarp [--auto-dewarp-depth <number>]',
+            '  --skip-blank-pages',
+            '  --parity',
+            `  --detection-cache [<directory-or-json-path>] (default: ${DEFAULT_SCAN_CLEANUP_DETECTION_CACHE_PATH})`,
+            '  --refresh-detection',
+            '  --diagnostic-evidence-dir <directory>',
+            '  --diagnostic-mask-pages <output-page-list-or-ranges>',
+        ].join('\n') + '\n',
+    );
 }
 
 function parsePageList(value: string) {
     const pages: number[] = [];
     for (const token of value.split(',')) {
         const range = token.trim();
-        if (!range) {continue;}
+        if (!range) {
+            continue;
+        }
         const separator = range.indexOf('-');
         if (separator < 0) {
             const page = Number.parseInt(range, 10);
@@ -202,17 +164,16 @@ function parsePageList(value: string) {
         }
         const first = Number.parseInt(range.slice(0, separator), 10);
         const last = Number.parseInt(range.slice(separator + 1), 10);
-        if (
-            !Number.isSafeInteger(first)
-            || !Number.isSafeInteger(last)
-            || first < 1
-            || last < first
-        ) {
+        if (!Number.isSafeInteger(first) || !Number.isSafeInteger(last) || first < 1 || last < first) {
             throw new Error(`Invalid page range: ${range}`);
         }
-        for (let page = first; page <= last; page += 1) {pages.push(page);}
+        for (let page = first; page <= last; page += 1) {
+            pages.push(page);
+        }
     }
-    if (pages.length === 0) {throw new Error('The --pages selector is empty');}
+    if (pages.length === 0) {
+        throw new Error('The --pages selector is empty');
+    }
     const orderedPages = pages.sort((left, right) => left - right);
     for (let index = 1; index < orderedPages.length; index += 1) {
         if (orderedPages[index] === orderedPages[index - 1]) {
@@ -223,7 +184,7 @@ function parsePageList(value: string) {
 }
 
 function parseMargins(value: string) {
-    const values = value.split(',').map(item => Number.parseFloat(item.trim()));
+    const values = value.split(',').map((item) => Number.parseFloat(item.trim()));
     if (values.length === 1 && Number.isFinite(values[0])) {
         return {
             leftMm: values[0]!,
@@ -232,7 +193,7 @@ function parseMargins(value: string) {
             bottomMm: values[0]!,
         };
     }
-    if (values.length !== 4 || values.some(valueItem => !Number.isFinite(valueItem))) {
+    if (values.length !== 4 || values.some((valueItem) => !Number.isFinite(valueItem))) {
         throw new Error(`Invalid margins: ${value}`);
     }
     return {
@@ -244,9 +205,7 @@ function parseMargins(value: string) {
 }
 
 function parseArguments(argv: readonly string[]): IScanCleanupCliArguments {
-    const {
-        firstRunGuidanceDismissed: _firstRunGuidanceDismissed, ...preferences
-    } = DEFAULT_SCAN_CLEANUP_PREFERENCES;
+    const {firstRunGuidanceDismissed: _firstRunGuidanceDismissed, ...preferences} = DEFAULT_SCAN_CLEANUP_PREFERENCES;
     const options: IScanCleanupOptions = {
         ...preferences,
         marginsMm: {...preferences.marginsMm},
@@ -270,7 +229,9 @@ function parseArguments(argv: readonly string[]): IScanCleanupCliArguments {
     };
     for (let index = 0; index < argv.length; index += 1) {
         const argument = argv[index]!;
-        if (argument === '--') {continue;}
+        if (argument === '--') {
+            continue;
+        }
         switch (argument) {
             case '--source':
                 sourcePdfPath = resolve(valueFor(index, argument));
@@ -289,13 +250,7 @@ function parseArguments(argv: readonly string[]): IScanCleanupCliArguments {
             case '--output-mode': {
                 const value = valueFor(index, argument);
                 const normalized = value === 'gray' ? 'grayscale' : value;
-                if (![
-                    'auto',
-                    'bw',
-                    'grayscale',
-                    'color',
-                    'mixed',
-                ].includes(normalized)) {
+                if (!['auto', 'bw', 'grayscale', 'color', 'mixed'].includes(normalized)) {
                     throw new Error(`Invalid output mode: ${value}`);
                 }
                 options.outputMode = normalized as TScanCleanupOutputModeSetting;
@@ -311,11 +266,7 @@ function parseArguments(argv: readonly string[]): IScanCleanupCliArguments {
                 break;
             case '--layout-mode': {
                 const value = valueFor(index, argument);
-                if (![
-                    'auto',
-                    'force-single',
-                    'force-two-page',
-                ].includes(value)) {
+                if (!['auto', 'force-single', 'force-two-page'].includes(value)) {
                     throw new Error(`Invalid layout mode: ${value}`);
                 }
                 options.layoutMode = value as IScanCleanupOptions['layoutMode'];
@@ -324,12 +275,7 @@ function parseArguments(argv: readonly string[]): IScanCleanupCliArguments {
             }
             case '--binarization': {
                 const value = valueFor(index, argument);
-                if (![
-                    'auto',
-                    'otsu',
-                    'sauvola',
-                    'wolf',
-                ].includes(value)) {
+                if (!['auto', 'otsu', 'sauvola', 'wolf'].includes(value)) {
                     throw new Error(`Invalid binarization method: ${value}`);
                 }
                 options.binarization = value as NonNullable<IScanCleanupOptions['binarization']>;
@@ -341,7 +287,9 @@ function parseArguments(argv: readonly string[]): IScanCleanupCliArguments {
                 break;
             case '--reading-order': {
                 const value = valueFor(index, argument);
-                if (value !== 'ltr' && value !== 'rtl') {throw new Error(`Invalid reading order: ${value}`);}
+                if (value !== 'ltr' && value !== 'rtl') {
+                    throw new Error(`Invalid reading order: ${value}`);
+                }
                 options.readingOrder = value;
                 index += 1;
                 break;
@@ -361,12 +309,7 @@ function parseArguments(argv: readonly string[]): IScanCleanupCliArguments {
                 break;
             case '--despeckle-level': {
                 const value = valueFor(index, argument);
-                if (![
-                    'off',
-                    'cautious',
-                    'normal',
-                    'aggressive',
-                ].includes(value)) {
+                if (!['off', 'cautious', 'normal', 'aggressive'].includes(value)) {
                     throw new Error(`Invalid despeckle level: ${value}`);
                 }
                 options.despeckleLevel = value as NonNullable<IScanCleanupOptions['despeckleLevel']>;
@@ -394,10 +337,11 @@ function parseArguments(argv: readonly string[]): IScanCleanupCliArguments {
                 break;
             case '--detection-cache': {
                 const value = argv[index + 1];
-                detectionCachePath = value === undefined || value.startsWith('--')
-                    ? resolve(DEFAULT_SCAN_CLEANUP_DETECTION_CACHE_PATH)
-                    : resolve(value);
-                if (value !== undefined && !value.startsWith('--')) {index += 1;}
+                detectionCachePath =
+                    value === undefined || value.startsWith('--') ? resolve(DEFAULT_SCAN_CLEANUP_DETECTION_CACHE_PATH) : resolve(value);
+                if (value !== undefined && !value.startsWith('--')) {
+                    index += 1;
+                }
                 break;
             }
             case '--refresh-detection':
@@ -424,7 +368,9 @@ function parseArguments(argv: readonly string[]): IScanCleanupCliArguments {
         printUsage();
         throw new Error('--source and --out are required');
     }
-    if (sourcePdfPath === outputPdfPath) {throw new Error('--source and --out must differ');}
+    if (sourcePdfPath === outputPdfPath) {
+        throw new Error('--source and --out must differ');
+    }
     if ((diagnosticEvidenceDirectory === undefined) !== (diagnosticMaskPages === undefined)) {
         throw new Error('--diagnostic-evidence-dir and --diagnostic-mask-pages must be used together');
     }
@@ -444,7 +390,9 @@ function parseArguments(argv: readonly string[]): IScanCleanupCliArguments {
 function resolveTool(binaryName: string, crateName: string, envName?: string) {
     const envOverride = envName === undefined ? undefined : process.env[envName];
     const resolved = resolveCliNativeToolPath(binaryName, crateName, process.cwd(), envOverride);
-    if (resolved === null) {throw new Error(`Native tool is unavailable: ${crateName}/${binaryName}`);}
+    if (resolved === null) {
+        throw new Error(`Native tool is unavailable: ${crateName}/${binaryName}`);
+    }
     if (isScanCleanupCliFallbackSentinel(resolved)) {
         throw new Error(`Native tool path collides with the CLI fallback sentinel namespace: ${resolved}`);
     }
@@ -457,10 +405,7 @@ function cliLog(level: 'debug' | 'warn' | 'error', message: string) {
     }
 }
 
-function nativeOptions(
-    options: IScanCleanupRunCommandOptions | undefined,
-    fallbackLog: TScanCleanupLog,
-): IScanCleanupRunCommandOptions {
+function nativeOptions(options: IScanCleanupRunCommandOptions | undefined, fallbackLog: TScanCleanupLog): IScanCleanupRunCommandOptions {
     return {
         ...(options ?? {}),
         log: options?.log ?? fallbackLog,
@@ -471,12 +416,7 @@ function resolveWasmManifestPage(parts: string[]): ICliPdfCombineWasmPage | null
     const kind = parts[0];
     const widthPoints = Number.parseFloat(parts[1] ?? '');
     const heightPoints = Number.parseFloat(parts[2] ?? '');
-    if (
-        !Number.isFinite(widthPoints)
-        || widthPoints <= 0
-        || !Number.isFinite(heightPoints)
-        || heightPoints <= 0
-    ) {
+    if (!Number.isFinite(widthPoints) || widthPoints <= 0 || !Number.isFinite(heightPoints) || heightPoints <= 0) {
         return null;
     }
     if (kind === 'image-bilevel' && parts[3] !== undefined) {
@@ -503,54 +443,50 @@ function resolveWasmManifestPage(parts: string[]): ICliPdfCombineWasmPage | null
         const jpegQuality = Number.parseInt(parts[3] ?? '', 10);
         return Number.isSafeInteger(jpegQuality) && jpegQuality > 0
             ? {
-                heightPoints,
-                input: {
-                    kind: 'image',
-                    imagePath: parts[4],
-                },
-                jpegQuality,
-                widthPoints,
-            }
+                  heightPoints,
+                  input: {
+                      kind: 'image',
+                      imagePath: parts[4],
+                  },
+                  jpegQuality,
+                  widthPoints,
+              }
             : null;
     }
     if (kind === 'layered-jpeg' && parts[5] !== undefined) {
         const jpegQuality = Number.parseInt(parts[3] ?? '', 10);
         return Number.isSafeInteger(jpegQuality) && jpegQuality > 0 && parts[4] !== undefined
             ? {
-                heightPoints,
-                input: {
-                    backgroundPath: parts[4],
-                    kind: 'layered',
-                    maskPath: parts[5],
-                },
-                jpegQuality,
-                widthPoints,
-            }
+                  heightPoints,
+                  input: {
+                      backgroundPath: parts[4],
+                      kind: 'layered',
+                      maskPath: parts[5],
+                  },
+                  jpegQuality,
+                  widthPoints,
+              }
             : null;
     }
     if (kind === 'layered-color-jpeg' && parts[8] !== undefined) {
         const jpegQuality = Number.parseInt(parts[3] ?? '', 10);
-        const color = [
-            Number.parseInt(parts[6] ?? '', 10),
-            Number.parseInt(parts[7] ?? '', 10),
-            Number.parseInt(parts[8], 10),
-        ];
-        return Number.isSafeInteger(jpegQuality)
-            && jpegQuality > 0
-            && parts[4] !== undefined
-            && parts[5] !== undefined
-            && color.every(channel => Number.isSafeInteger(channel) && channel >= 0 && channel <= 255)
+        const color = [Number.parseInt(parts[6] ?? '', 10), Number.parseInt(parts[7] ?? '', 10), Number.parseInt(parts[8], 10)];
+        return Number.isSafeInteger(jpegQuality) &&
+            jpegQuality > 0 &&
+            parts[4] !== undefined &&
+            parts[5] !== undefined &&
+            color.every((channel) => Number.isSafeInteger(channel) && channel >= 0 && channel <= 255)
             ? {
-                heightPoints,
-                input: {
-                    backgroundPath: parts[4],
-                    foregroundColor: color as [number, number, number],
-                    kind: 'layered-color',
-                    maskPath: parts[5],
-                },
-                jpegQuality,
-                widthPoints,
-            }
+                  heightPoints,
+                  input: {
+                      backgroundPath: parts[4],
+                      foregroundColor: color as [number, number, number],
+                      kind: 'layered-color',
+                      maskPath: parts[5],
+                  },
+                  jpegQuality,
+                  widthPoints,
+              }
             : null;
     }
     return null;
@@ -562,16 +498,7 @@ async function combineCliPagePdfs(
     qpdfBinary: string,
     options: IScanCleanupRunCommandOptions,
 ) {
-    const qpdfArgs = [
-        '--empty',
-        '--pages',
-        ...pagePdfPaths.flatMap(pagePath => [
-            pagePath,
-            '1',
-        ]),
-        '--',
-        outputPath,
-    ];
+    const qpdfArgs = ['--empty', '--pages', ...pagePdfPaths.flatMap((pagePath) => [pagePath, '1']), '--', outputPath];
     await runCliNativeToolCommand(qpdfBinary, qpdfArgs, options);
 }
 
@@ -587,10 +514,7 @@ async function runImageCombineFallback(
     try {
         const lines = parseScanCleanupCompactManifest(await readFile(manifestPath, 'utf8'));
         const pagePdfPaths: string[] = [];
-        for (const [
-            index,
-            line,
-        ] of lines.entries()) {
+        for (const [index, line] of lines.entries()) {
             const parts = line.split('\t');
             const kind = parts[0];
             if (kind === undefined || parts[1] === undefined || parts[2] === undefined) {
@@ -601,14 +525,7 @@ async function runImageCombineFallback(
             let writtenWithWasm = false;
             if (wasmPage !== null) {
                 try {
-                    writtenWithWasm = await writeCliWasmPdfPage(
-                        wasmPage,
-                        pagePdfPath,
-                        temporaryDirectory,
-                        magickBinary,
-                        index,
-                        options,
-                    );
+                    writtenWithWasm = await writeCliWasmPdfPage(wasmPage, pagePdfPath, temporaryDirectory, magickBinary, index, options);
                 } catch (error) {
                     options.log?.('debug', `CLI PDF image combine WASM skipped page ${String(index + 1)}: ${String(error)}`);
                 }
@@ -616,17 +533,12 @@ async function runImageCombineFallback(
             if (!writtenWithWasm) {
                 let inputPath: string;
                 if (
-                    kind === 'layered-jpeg'
-                    || kind === 'soft-layered-jpeg'
-                    || kind === 'affine-masked-layered-jpeg'
-                    || kind === 'layered-color-jpeg'
+                    kind === 'layered-jpeg' ||
+                    kind === 'soft-layered-jpeg' ||
+                    kind === 'affine-masked-layered-jpeg' ||
+                    kind === 'layered-color-jpeg'
                 ) {
-                    inputPath = await flattenLayeredManifestPage(
-                        parts,
-                        temporaryDirectory,
-                        magickBinary,
-                        options,
-                    );
+                    inputPath = await flattenLayeredManifestPage(parts, temporaryDirectory, magickBinary, options);
                 } else {
                     const manifestInputPath = parts.at(-1);
                     if (manifestInputPath === undefined) {
@@ -634,26 +546,32 @@ async function runImageCombineFallback(
                     }
                     inputPath = manifestInputPath;
                 }
-                await runCliNativeToolCommand(img2pdfBinary, [
-                    '--nodate',
-                    '--pillow-limit-break',
-                    '--pagesize',
-                    `${parts[1]}ptx${parts[2]}pt`,
-                    '--fit',
-                    'fill',
-                    '--output',
-                    pagePdfPath,
-                    inputPath,
-                ], options);
+                await runCliNativeToolCommand(
+                    img2pdfBinary,
+                    [
+                        '--nodate',
+                        '--pillow-limit-break',
+                        '--pagesize',
+                        `${parts[1]}ptx${parts[2]}pt`,
+                        '--fit',
+                        'fill',
+                        '--output',
+                        pagePdfPath,
+                        inputPath,
+                    ],
+                    options,
+                );
             }
             pagePdfPaths.push(pagePdfPath);
-            options.onStdout?.(JSON.stringify({
-                type: 'progress',
-                processed: index + 1,
-                total: lines.length,
-                percent: (index + 1) / Math.max(1, lines.length) * 100,
-                elapsedMs: 0,
-            }) + '\n');
+            options.onStdout?.(
+                JSON.stringify({
+                    type: 'progress',
+                    processed: index + 1,
+                    total: lines.length,
+                    percent: ((index + 1) / Math.max(1, lines.length)) * 100,
+                    elapsedMs: 0,
+                }) + '\n',
+            );
         }
         await combineCliPagePdfs(pagePdfPaths, outputPath, qpdfBinary, options);
         return {
@@ -673,7 +591,8 @@ function getProgressKey(progress: TScanCleanupProgress) {
     return `${progress.stage}:${String(progress.completedUnits)}:${String(progress.totalUnits)}`;
 }
 
-type TScanCleanupCliDetectionRequestFields = Pick<IRunScanCleanupPipelineRequest,
+type TScanCleanupCliDetectionRequestFields = Pick<
+    IRunScanCleanupPipelineRequest,
     | 'detectionResultStore'
     | 'documentPriorByPage'
     | 'layoutByPage'
@@ -694,13 +613,11 @@ export function buildScanCleanupCliDetectionRequestFields(
     detection: IScanCleanupDetectionRunResult & Pick<IRunScanCleanupPipelineRequest, 'placementAnchorSummary'>,
     options: IScanCleanupOptions,
 ): TScanCleanupCliDetectionRequestFields {
-    const placementFields = detection.placementAnchorSummary === undefined
-        ? {}
-        : {placementAnchorSummary: detection.placementAnchorSummary};
+    const placementFields =
+        detection.placementAnchorSummary === undefined ? {} : {placementAnchorSummary: detection.placementAnchorSummary};
     if (
-        detection.resultStore !== undefined
-        && (detection.results.length === 0
-            || detection.resultStore.pageCount > SCAN_CLEANUP_STREAMING_BATCH_PAGES)
+        detection.resultStore !== undefined &&
+        (detection.results.length === 0 || detection.resultStore.pageCount > SCAN_CLEANUP_STREAMING_BATCH_PAGES)
     ) {
         return {
             detectionResultStore: detection.resultStore,
@@ -716,19 +633,17 @@ export function buildScanCleanupCliDetectionRequestFields(
     // Documents whose results are all at hand place `ink` the way the app's
     // renderer does, from every sheet, so the CLI prints what a run prints.
     const placementAnchorsByPage: NonNullable<IRunScanCleanupPipelineRequest['placementAnchorsByPage']> = Object.fromEntries(
-        [...resolveScanCleanupDocumentInkAnchors(options, detection.results.map(toScanCleanupInkSheet))]
-            .map(([
-                pageNumber,
-                anchors,
-            ]) => [
-                String(pageNumber),
-                anchors,
-            ]),
+        [...resolveScanCleanupDocumentInkAnchors(options, detection.results.map(toScanCleanupInkSheet))].map(([pageNumber, anchors]) => [
+            String(pageNumber),
+            anchors,
+        ]),
     );
     for (const result of detection.results) {
         const key = String(result.pageNumber);
         layoutByPage[key] = result.classification;
-        if (result.pagePlanEvidence !== undefined) {pagePlanEvidenceByPage[key] = result.pagePlanEvidence;}
+        if (result.pagePlanEvidence !== undefined) {
+            pagePlanEvidenceByPage[key] = result.pagePlanEvidence;
+        }
         if (result.recommendedOutputMode !== undefined) {
             outputModeRecommendations[key] = result.recommendedOutputMode;
         }
@@ -738,7 +653,9 @@ export function buildScanCleanupCliDetectionRequestFields(
         if (result.sourcePageMetadata !== undefined) {
             sourcePageMetadataByPage[key] = result.sourcePageMetadata;
         }
-        if (result.documentPrior !== null) {documentPriorByPage[key] = result.documentPrior;}
+        if (result.documentPrior !== null) {
+            documentPriorByPage[key] = result.documentPrior;
+        }
     }
     return {
         documentPriorByPage,
@@ -771,9 +688,10 @@ export async function main() {
     const temporaryRoot = await mkdtemp(join(tmpdir(), 'scan-cleanup-cli-'));
     const detectionEvidenceDirectory = join(temporaryRoot, 'detection-evidence');
     const conversionEvidenceDirectory = join(temporaryRoot, 'conversion-evidence');
-    const nativeEvidenceDirectory = argumentsValue.diagnosticEvidenceDirectory === undefined
-        ? conversionEvidenceDirectory
-        : join(argumentsValue.diagnosticEvidenceDirectory, 'native');
+    const nativeEvidenceDirectory =
+        argumentsValue.diagnosticEvidenceDirectory === undefined
+            ? conversionEvidenceDirectory
+            : join(argumentsValue.diagnosticEvidenceDirectory, 'native');
     await mkdir(detectionEvidenceDirectory, {recursive: true});
     await mkdir(conversionEvidenceDirectory, {recursive: true});
     if (argumentsValue.diagnosticEvidenceDirectory !== undefined) {
@@ -793,9 +711,9 @@ export async function main() {
             );
         }
         if (
-            argumentsValue.diagnosticEvidenceDirectory !== undefined
-            && argumentsValue.diagnosticMaskPages !== undefined
-            && command === imageCombineBinary
+            argumentsValue.diagnosticEvidenceDirectory !== undefined &&
+            argumentsValue.diagnosticMaskPages !== undefined &&
+            command === imageCombineBinary
         ) {
             const manifestIndex = args.indexOf('--compact-manifest');
             const manifestPath = manifestIndex < 0 ? undefined : args[manifestIndex + 1];
@@ -814,20 +732,16 @@ export async function main() {
     };
     const renderers = createCliRenderers(runCommand);
     const getPageCount: TScanCleanupGetPageCount = async (pdfPath, options) => {
-        const result = await runCommand(qpdfBinary, [
-            '--show-npages',
-            pdfPath,
-        ], {
-            allowedExitCodes: [
-                0,
-                3,
-            ],
+        const result = await runCommand(qpdfBinary, ['--show-npages', pdfPath], {
+            allowedExitCodes: [0, 3],
             commandLabel: 'qpdf(cli-page-count)',
             ...(options?.signal === undefined ? {} : {signal: options.signal}),
             log,
         });
         const pageCount = Number.parseInt(result.stdout.trim(), 10);
-        if (!Number.isSafeInteger(pageCount) || pageCount < 1) {throw new Error('Failed to read PDF page count');}
+        if (!Number.isSafeInteger(pageCount) || pageCount < 1) {
+            throw new Error('Failed to read PDF page count');
+        }
         return pageCount;
     };
     const detectSourceDpi = async (
@@ -838,37 +752,27 @@ export async function main() {
         signal?: AbortSignal,
         pages?: readonly number[],
         onProgress?: (completedPages: number, totalPages: number) => void,
-    ) => detectSourceDpiDetails(
-        pdfPath,
-        pdfimagesBinary,
-        sourceLog,
-        commandEnv,
-        signal,
-        pages,
-        onProgress,
-        runCommand,
-    );
-    const detectRasterPages = async (
-        pdfPath: string,
-        signal: AbortSignal,
-    ): Promise<IScanCleanupPageRasterSource> => createScanCleanupPageRasterSource({
-        pdfPath,
-        pdfimagesBinary,
-        detectSourceDpi,
-        log,
-        signal,
-        documentPageCount: await getPageCount(pdfPath, {signal}),
-    });
-    const getPageSizeStoreForDetection = (pdfPath: string, signal: AbortSignal) => Promise.resolve(
-        createPdfPageSizeStore(pdfPath, {
-            pdfPageOpsBinary: nativePageOpsBinary,
-            qpdfBinary,
+    ) => detectSourceDpiDetails(pdfPath, pdfimagesBinary, sourceLog, commandEnv, signal, pages, onProgress, runCommand);
+    const detectRasterPages = async (pdfPath: string, signal: AbortSignal): Promise<IScanCleanupPageRasterSource> =>
+        createScanCleanupPageRasterSource({
+            pdfPath,
+            pdfimagesBinary,
+            detectSourceDpi,
             log,
-            runCommand,
             signal,
-            tempDir: temporaryRoot,
-        }),
-    );
+            documentPageCount: await getPageCount(pdfPath, {signal}),
+        });
+    const getPageSizeStoreForDetection = (pdfPath: string, signal: AbortSignal) =>
+        Promise.resolve(
+            createPdfPageSizeStore(pdfPath, {
+                pdfPageOpsBinary: nativePageOpsBinary,
+                qpdfBinary,
+                log,
+                runCommand,
+                signal,
+                tempDir: temporaryRoot,
+            }),
+        );
     const retention = createCliRetention(
         temporaryRoot,
         argumentsValue.sourcePdfPath,
@@ -897,23 +801,19 @@ export async function main() {
     const startedAt = performance.now();
     let detectionResultStore: IScanCleanupDetectionResultStore | undefined;
     try {
-        const detectionCacheKey = argumentsValue.detectionCachePath === undefined
-            ? undefined
-            : await createScanCleanupDetectionCacheKey(
-                argumentsValue.sourcePdfPath,
-                argumentsValue.options,
-                {
-                    pdftoppmBinaryPath: pdftoppmBinary,
-                    scanCleanupBinaryPath: scanCleanupBinary,
-                },
-            );
+        const detectionCacheKey =
+            argumentsValue.detectionCachePath === undefined
+                ? undefined
+                : await createScanCleanupDetectionCacheKey(argumentsValue.sourcePdfPath, argumentsValue.options, {
+                      pdftoppmBinaryPath: pdftoppmBinary,
+                      scanCleanupBinaryPath: scanCleanupBinary,
+                  });
         const documentPageCount = await getPageCount(argumentsValue.sourcePdfPath);
         // An omitted CLI page list means the complete source. Keep that scope
         // lazy so a million-page conversion does not allocate one number per
         // page before detection or conversion starts.
-        const sourcePageNumbers = argumentsValue.pages === undefined
-            ? undefined
-            : resolveScanCleanupPageScope(argumentsValue.pages, documentPageCount);
+        const sourcePageNumbers =
+            argumentsValue.pages === undefined ? undefined : resolveScanCleanupPageScope(argumentsValue.pages, documentPageCount);
         const detectionStartedAt = performance.now();
         const detectionDependencies: IScanCleanupDetectionDependencies = {
             evidenceDirectory: detectionEvidenceDirectory,
@@ -927,26 +827,28 @@ export async function main() {
             runSidecar: runCliScanCleanupSidecar,
         };
         const documentRevision = `${String(sourceStats.mtimeMs)}:${String(sourceStats.size)}`;
-        const detection: IScanCleanupDetectionRunResult & Pick<IRunScanCleanupPipelineRequest, 'placementAnchorSummary'> = await runScanCleanupDetectionWithCache({
-            cachePath: argumentsValue.detectionCachePath,
-            key: detectionCacheKey,
-            refresh: argumentsValue.refreshDetection,
-            log: message => process.stderr.write(`[scan-cleanup] ${message}\n`),
-            detect: () => runScanCleanupDetection(
-                {
-                    ownerId: 'scan-cleanup-cli',
-                    documentRevision,
-                    sourcePdfPath: argumentsValue.sourcePdfPath,
-                    options: argumentsValue.options,
-                },
-                new AbortController().signal,
-                retention,
-                detectionDependencies,
-                policy,
-                logProgress('detect'),
-                log,
-            ),
-        });
+        const detection: IScanCleanupDetectionRunResult & Pick<IRunScanCleanupPipelineRequest, 'placementAnchorSummary'> =
+            await runScanCleanupDetectionWithCache({
+                cachePath: argumentsValue.detectionCachePath,
+                key: detectionCacheKey,
+                refresh: argumentsValue.refreshDetection,
+                log: (message) => process.stderr.write(`[scan-cleanup] ${message}\n`),
+                detect: () =>
+                    runScanCleanupDetection(
+                        {
+                            ownerId: 'scan-cleanup-cli',
+                            documentRevision,
+                            sourcePdfPath: argumentsValue.sourcePdfPath,
+                            options: argumentsValue.options,
+                        },
+                        new AbortController().signal,
+                        retention,
+                        detectionDependencies,
+                        policy,
+                        logProgress('detect'),
+                        log,
+                    ),
+            });
         const detectionDurationMs = performance.now() - detectionStartedAt;
         detectionResultStore = detection.resultStore;
         if (detection.results.length === 0 && detectionResultStore === undefined) {
@@ -961,7 +863,9 @@ export async function main() {
                     rootDir: temporaryRoot,
                     pageCount: documentPageCount,
                 });
-                for (const result of detection.results) {await detectionResultStore.append(result);}
+                for (const result of detection.results) {
+                    await detectionResultStore.append(result);
+                }
             }
             placementAnchorSummary = await buildScanCleanupPlacementAnchorSummary({
                 options: argumentsValue.options,
@@ -976,48 +880,56 @@ export async function main() {
         }
         if (argumentsValue.diagnosticEvidenceDirectory !== undefined) {
             const evidenceDirectory = argumentsValue.diagnosticEvidenceDirectory;
-            await Promise.all(detection.results.map(result => writeFile(
-                join(
-                    evidenceDirectory,
-                    `analysis-${String(result.pageNumber)}.json`,
+            await Promise.all(
+                detection.results.map((result) =>
+                    writeFile(
+                        join(evidenceDirectory, `analysis-${String(result.pageNumber)}.json`),
+                        JSON.stringify(
+                            {
+                                pageNumber: result.pageNumber,
+                                classification: result.classification,
+                                ...(result.recommendedOutputMode === undefined
+                                    ? {}
+                                    : {recommendedOutputMode: result.recommendedOutputMode}),
+                                ...(result.recommendedOutputModeReason === undefined
+                                    ? {}
+                                    : {recommendedOutputModeReason: result.recommendedOutputModeReason}),
+                                ...(result.outputModeDiagnostics === undefined
+                                    ? {}
+                                    : {outputModeDiagnostics: result.outputModeDiagnostics}),
+                            },
+                            null,
+                            2,
+                        ) + '\n',
+                    ),
                 ),
-                JSON.stringify({
-                    pageNumber: result.pageNumber,
-                    classification: result.classification,
-                    ...(result.recommendedOutputMode === undefined
-                        ? {}
-                        : {recommendedOutputMode: result.recommendedOutputMode}),
-                    ...(result.recommendedOutputModeReason === undefined
-                        ? {}
-                        : {recommendedOutputModeReason: result.recommendedOutputModeReason}),
-                    ...(result.outputModeDiagnostics === undefined
-                        ? {}
-                        : {outputModeDiagnostics: result.outputModeDiagnostics}),
-                }, null, 2) + '\n',
-            )));
+            );
         }
         const conversionStartedAt = performance.now();
         const conversionDependencies: IRunScanCleanupPipelineDependencies = {
             evidenceDirectory: nativeEvidenceDirectory,
             getPageCount,
-            getPageSizeStore: (pdfPath, options) => createPdfPageSizeStore(pdfPath, {
-                ...options,
-                runCommand,
-            }),
+            getPageSizeStore: (pdfPath, options) =>
+                createPdfPageSizeStore(pdfPath, {
+                    ...options,
+                    runCommand,
+                }),
             detectSourceDpi,
             renderPage: renderers.renderPage,
             renderPagePpm: renderers.renderPagePpm,
             runSidecar: runCliScanCleanupSidecar,
             runCommand,
             getAvailableScratchBytes: readAvailableScratchBytes,
-            extractMrcLayers: async input => extractPdfMrcLayers({
-                ...input,
-                runCommand,
-            }),
-            extractMrcLayersBatch: async input => extractPdfMrcLayersBatch({
-                ...input,
-                runCommand,
-            }),
+            extractMrcLayers: async (input) =>
+                extractPdfMrcLayers({
+                    ...input,
+                    runCommand,
+                }),
+            extractMrcLayersBatch: async (input) =>
+                extractPdfMrcLayersBatch({
+                    ...input,
+                    runCommand,
+                }),
             requirePublishedRaster: requireCliPublishedRaster,
         };
         const paths: IScanCleanupWorkerPaths = {
@@ -1035,21 +947,22 @@ export async function main() {
             outputPdfPath: argumentsValue.outputPdfPath,
             options: argumentsValue.options,
             ...(sourcePageNumbers === undefined ? {} : {sourcePageNumbers}),
-            ...buildScanCleanupCliDetectionRequestFields({
-                results: detection.results,
-                ...(detectionResultStore === undefined ? {} : {resultStore: detectionResultStore}),
-                ...(placementAnchorSummary === undefined ? {} : {placementAnchorSummary}),
-            }, argumentsValue.options),
+            ...buildScanCleanupCliDetectionRequestFields(
+                {
+                    results: detection.results,
+                    ...(detectionResultStore === undefined ? {} : {resultStore: detectionResultStore}),
+                    ...(placementAnchorSummary === undefined ? {} : {placementAnchorSummary}),
+                },
+                argumentsValue.options,
+            ),
         };
         const summary = await runScanCleanupConversion(
             request,
             paths,
             new AbortController().signal,
-            progress => {
+            (progress) => {
                 const next = getProgressKey(progress);
-                process.stderr.write(
-                    `[scan-cleanup] convert ${next}\n`,
-                );
+                process.stderr.write(`[scan-cleanup] convert ${next}\n`);
             },
             policy,
             log,
@@ -1057,31 +970,26 @@ export async function main() {
         );
         const conversionDurationMs = performance.now() - conversionStartedAt;
         const outputStats = await stat(argumentsValue.outputPdfPath);
-        const reportDescriptor = JSON.parse(await readFile(
-            join(nativeEvidenceDirectory, 'scan-cleanup-representation-report.json'),
-            'utf8',
-        )) as IScanCleanupRepresentationReport;
+        const reportDescriptor = JSON.parse(
+            await readFile(join(nativeEvidenceDirectory, 'scan-cleanup-representation-report.json'), 'utf8'),
+        ) as IScanCleanupRepresentationReport;
         // A multi-batch run streams its mappings and page records to sidecars,
         // one record a line; the summary reports them like a one-batch run's.
-        const readRecordSidecar = async <T>(inline: T[], sidecarPath: string | undefined) => (
+        const readRecordSidecar = async <T>(inline: T[], sidecarPath: string | undefined) =>
             inline.length > 0 || sidecarPath === undefined
                 ? inline
-                : (await readFile(sidecarPath, 'utf8')).split('\n')
-                    .filter(line => line.trim() !== '')
-                    .map(line => JSON.parse(line) as T)
-        );
+                : (await readFile(sidecarPath, 'utf8'))
+                      .split('\n')
+                      .filter((line) => line.trim() !== '')
+                      .map((line) => JSON.parse(line) as T);
         const report: IScanCleanupRepresentationReport = {
             ...reportDescriptor,
-            outputMappings: await readRecordSidecar(
-                reportDescriptor.outputMappings,
-                reportDescriptor.outputMappingsSidecarPath,
-            ),
+            outputMappings: await readRecordSidecar(reportDescriptor.outputMappings, reportDescriptor.outputMappingsSidecarPath),
             pages: await readRecordSidecar(reportDescriptor.pages, reportDescriptor.pagesSidecarPath),
         };
-        const stamp = JSON.parse(await readFile(
-            join(nativeEvidenceDirectory, 'scan-cleanup-provenance-stamp.json'),
-            'utf8',
-        )) as IScanCleanupProvenanceStamp;
+        const stamp = JSON.parse(
+            await readFile(join(nativeEvidenceDirectory, 'scan-cleanup-provenance-stamp.json'), 'utf8'),
+        ) as IScanCleanupProvenanceStamp;
         const summaryPath = `${argumentsValue.outputPdfPath}.summary.json`;
         const machineSummary = {
             source: argumentsValue.sourcePdfPath,
@@ -1101,9 +1009,7 @@ export async function main() {
             },
             detection: {
                 pages: detectionResultStore?.pageCount ?? detection.results.length,
-                results: detection.results.length === 0
-                    ? []
-                    : compactScanCleanupDetectionVerdicts(detection.results),
+                results: detection.results.length === 0 ? [] : compactScanCleanupDetectionVerdicts(detection.results),
             },
             conversionSummary: summary,
             sourcePageToOutputPages: buildSourcePageToOutputPages(report),
@@ -1119,11 +1025,7 @@ export async function main() {
         };
         await writeFile(summaryPath, JSON.stringify(machineSummary, null, 2) + '\n');
         if (argumentsValue.diagnosticEvidenceDirectory !== undefined) {
-            const evidenceManifest = buildCliRawMaskEvidenceManifest(
-                argumentsValue.outputPdfPath,
-                rawMaskEvidence,
-                report.pages,
-            );
+            const evidenceManifest = buildCliRawMaskEvidenceManifest(argumentsValue.outputPdfPath, rawMaskEvidence, report.pages);
             await writeFile(
                 join(argumentsValue.diagnosticEvidenceDirectory, 'raw-mask-manifest.json'),
                 JSON.stringify(evidenceManifest, null, 2) + '\n',
@@ -1133,8 +1035,7 @@ export async function main() {
     } catch (error) {
         // This CLI owns the scratch the run wrote; an invalid output it names
         // is the diagnostic, so it stays where the error says it is.
-        retainTemporaryRoot = error instanceof ScanCleanupPdfValidationError
-            || error instanceof ScanCleanupStreamingEvidenceError;
+        retainTemporaryRoot = error instanceof ScanCleanupPdfValidationError || error instanceof ScanCleanupStreamingEvidenceError;
         throw error;
     } finally {
         try {
@@ -1153,7 +1054,7 @@ export async function main() {
 }
 
 if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-    void main().catch(error => {
+    void main().catch((error) => {
         if (error instanceof Error && getErrorMessage(error) === '') {
             return;
         }

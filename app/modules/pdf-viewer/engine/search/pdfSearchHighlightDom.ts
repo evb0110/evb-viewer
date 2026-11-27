@@ -1,32 +1,24 @@
-import type { IPdfSearchHighlightMatchRange } from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightMatchRange';
-import { getHighlightMatchBoundsInSpan } from '@app/modules/pdf-viewer/engine/search/getHighlightMatchBoundsInSpan';
-import { getRelevantHighlightMatches } from '@app/modules/pdf-viewer/engine/search/getRelevantHighlightMatches';
-import {
-    assembleSearchablePageText,
-    findPdfSearchMatches,
-    mapAssembledSearchablePageTextRange,
-} from '@pdf-core';
-import { restorePdfjsRtlItemTexts } from '@pdf-core/pdfjsTextItems';
-import type {
-    IAssembledSearchablePageText,
-    IPdfSearchUtf16Range,
-    ISearchMatchOptions,
-} from '@contracts/search';
+import type {IPdfSearchHighlightMatchRange} from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightMatchRange';
+import {getHighlightMatchBoundsInSpan} from '@app/modules/pdf-viewer/engine/search/getHighlightMatchBoundsInSpan';
+import {getRelevantHighlightMatches} from '@app/modules/pdf-viewer/engine/search/getRelevantHighlightMatches';
+import {assembleSearchablePageText, findPdfSearchMatches, mapAssembledSearchablePageTextRange} from '@pdf-core';
+import {restorePdfjsRtlItemTexts} from '@pdf-core/pdfjsTextItems';
+import type {IAssembledSearchablePageText, IPdfSearchUtf16Range, ISearchMatchOptions} from '@contracts/search';
 
 export type TTextLayerRun =
     | {
-        kind: 'span';
-        span: HTMLSpanElement;
-        textNode: Text | null;
-        text: string;
-        startOffset: number;
-        endOffset: number;
-    }
+          kind: 'span';
+          span: HTMLSpanElement;
+          textNode: Text | null;
+          text: string;
+          startOffset: number;
+          endOffset: number;
+      }
     | {
-        kind: 'br';
-        startOffset: number;
-        endOffset: number;
-    };
+          kind: 'br';
+          startOffset: number;
+          endOffset: number;
+      };
 
 export type IHighlightMatchRange = IPdfSearchHighlightMatchRange;
 
@@ -41,20 +33,23 @@ export interface ITextLayerTextMapping {
 }
 
 const textLayerIndexCache = new WeakMap<HTMLElement, ITextLayerIndexCacheEntry>();
-const textLayerTextMappingCache = new WeakMap<HTMLElement, {
-    textBySpan: WeakMap<HTMLElement, string>;
-    textDivs: readonly HTMLElement[];
-    textContentItemsStr: readonly string[];
-}>();
+const textLayerTextMappingCache = new WeakMap<
+    HTMLElement,
+    {
+        textBySpan: WeakMap<HTMLElement, string>;
+        textDivs: readonly HTMLElement[];
+        textContentItemsStr: readonly string[];
+    }
+>();
 
 /** Returns the renderer's registered text mapping without creating another cache. */
 export function getTextLayerTextMapping(textLayerDiv: HTMLElement): ITextLayerTextMapping | null {
     const mapping = textLayerTextMappingCache.get(textLayerDiv);
     return mapping
         ? {
-            textDivs: mapping.textDivs,
-            textContentItemsStr: mapping.textContentItemsStr,
-        }
+              textDivs: mapping.textDivs,
+              textContentItemsStr: mapping.textContentItemsStr,
+          }
         : null;
 }
 
@@ -65,46 +60,50 @@ export function getTextLayerTextMapping(textLayerDiv: HTMLElement): ITextLayerTe
  * search text uses. A run whose text changed maps as a whole to its span.
  */
 function assembleLogicalTextLayerText(index: ITextLayerIndexCacheEntry): IAssembledSearchablePageText {
-    const texts = restorePdfjsRtlItemTexts(index.runs.map(run => run.kind === 'br'
-        ? {
-            text: '\n',
-            dir: 'ltr',
-        }
-        : {
-            text: run.text,
-            dir: run.span.dir,
-            mirrored: Number.parseFloat(run.span.style.getPropertyValue('--scale-x')) < 0,
-        }));
+    const texts = restorePdfjsRtlItemTexts(
+        index.runs.map((run) =>
+            run.kind === 'br'
+                ? {
+                      text: '\n',
+                      dir: 'ltr',
+                  }
+                : {
+                      text: run.text,
+                      dir: run.span.dir,
+                      mirrored: Number.parseFloat(run.span.style.getPropertyValue('--scale-x')) < 0,
+                  },
+        ),
+    );
     const layerRanges: IPdfSearchUtf16Range[] = [];
     const items = index.runs.flatMap((run, runIndex) => {
         const text = texts[runIndex]!;
         const original = run.kind === 'br' ? '\n' : run.text;
         for (let offset = 0; offset < text.length; offset += 1) {
-            layerRanges.push(text === original
-                ? {
-                    startOffset: run.startOffset + offset,
-                    endOffset: run.startOffset + offset + 1,
-                }
-                : {
-                    startOffset: run.startOffset,
-                    endOffset: run.endOffset,
-                });
+            layerRanges.push(
+                text === original
+                    ? {
+                          startOffset: run.startOffset + offset,
+                          endOffset: run.startOffset + offset + 1,
+                      }
+                    : {
+                          startOffset: run.startOffset,
+                          endOffset: run.endOffset,
+                      },
+            );
         }
         return text ? [{text}] : [];
     });
     const assembled = assembleSearchablePageText(items);
     return {
         ...assembled,
-        sourceOffsets: assembled.sourceOffsets.map(({
-            startOffset, endOffset,
-        }) => {
+        sourceOffsets: assembled.sourceOffsets.map(({startOffset, endOffset}) => {
             const layerOffset = layerRanges[startOffset]?.startOffset ?? index.text.length;
             return endOffset > startOffset
                 ? layerRanges[startOffset]!
                 : {
-                    startOffset: layerOffset,
-                    endOffset: layerOffset,
-                };
+                      startOffset: layerOffset,
+                      endOffset: layerOffset,
+                  };
         }),
     };
 }
@@ -127,7 +126,7 @@ export function withoutGeneratedSeparators(assembled: IAssembledSearchablePageTe
     });
     return {
         text: parts.join(''),
-        itemOffsets: assembled.itemOffsets.map(item => ({
+        itemOffsets: assembled.itemOffsets.map((item) => ({
             ...item,
             startOffset: keptBefore[item.startOffset] ?? 0,
             endOffset: keptBefore[item.endOffset] ?? 0,
@@ -146,8 +145,7 @@ export function assembleTextLayerSearchText(
     if (query && !options?.useRegex) {
         try {
             const separatedMatchCount = findPdfSearchMatches(separated.text, query, options).length;
-            if (separatedMatchCount > 0
-                && (expectedPageMatchCount === undefined || separatedMatchCount === expectedPageMatchCount)) {
+            if (separatedMatchCount > 0 && (expectedPageMatchCount === undefined || separatedMatchCount === expectedPageMatchCount)) {
                 return separated;
             }
             // PDF.js may split a word into positioned glyph spans. Preserve
@@ -191,15 +189,10 @@ function buildTextLayerIndex(textLayerDiv: HTMLElement): {
             return;
         }
 
-        if (element.tagName === 'SPAN' && (
-            element.children.length === 0
-            || mappedTextBySpan?.has(element)
-        )) {
+        if (element.tagName === 'SPAN' && (element.children.length === 0 || mappedTextBySpan?.has(element))) {
             const span = element;
             const text = mappedTextBySpan?.get(span) ?? span.textContent;
-            const textNode = span.firstChild && span.firstChild.nodeType === Node.TEXT_NODE
-                ? span.firstChild as Text
-                : null;
+            const textNode = span.firstChild && span.firstChild.nodeType === Node.TEXT_NODE ? (span.firstChild as Text) : null;
             runs.push({
                 kind: 'span',
                 span,
@@ -234,9 +227,7 @@ function refreshTextLayerRunTextNodes(runs: TTextLayerRun[]) {
             continue;
         }
 
-        run.textNode = run.span.firstChild && run.span.firstChild.nodeType === Node.TEXT_NODE
-            ? run.span.firstChild as Text
-            : null;
+        run.textNode = run.span.firstChild && run.span.firstChild.nodeType === Node.TEXT_NODE ? (run.span.firstChild as Text) : null;
     }
 }
 
@@ -268,11 +259,7 @@ function createTextLayerRangeForSearchMatchFromIndex(
         return null;
     }
 
-    function resolveBoundary(
-        span: HTMLSpanElement,
-        localOffset: number,
-        preferEnd: boolean,
-    ) {
+    function resolveBoundary(span: HTMLSpanElement, localOffset: number, preferEnd: boolean) {
         const textNodes: Text[] = [];
         const walker = document.createTreeWalker(span, NodeFilter.SHOW_TEXT);
         let node = walker.nextNode();
@@ -286,7 +273,7 @@ function createTextLayerRangeForSearchMatchFromIndex(
 
         let remaining = localOffset;
         for (const textNode of textNodes) {
-            if (remaining < textNode.length || !preferEnd && remaining === 0) {
+            if (remaining < textNode.length || (!preferEnd && remaining === 0)) {
                 return {
                     node: textNode,
                     offset: Math.max(0, Math.min(textNode.length, remaining)),
@@ -307,11 +294,11 @@ function createTextLayerRangeForSearchMatchFromIndex(
 
     let start: {
         node: Text;
-        offset: number
+        offset: number;
     } | null = null;
     let end: {
         node: Text;
-        offset: number
+        offset: number;
     } | null = null;
     for (const run of index.runs) {
         if (run.kind !== 'span') {
@@ -340,17 +327,9 @@ function createTextLayerRangeForSearchMatchFromIndex(
  * layer. The canonical search text may contain generated separators or
  * normalization changes, so map through the same assembly used by highlights.
  */
-export function createTextLayerRangeForSearchMatch(
-    textLayerDiv: HTMLElement,
-    searchRange: IPdfSearchUtf16Range,
-): Range | null {
+export function createTextLayerRangeForSearchMatch(textLayerDiv: HTMLElement, searchRange: IPdfSearchUtf16Range): Range | null {
     const index = getCachedTextLayerIndex(textLayerDiv);
-    return createTextLayerRangeForSearchMatchFromIndex(
-        textLayerDiv,
-        index,
-        assembleTextLayerSearchText(index),
-        searchRange,
-    );
+    return createTextLayerRangeForSearchMatchFromIndex(textLayerDiv, index, assembleTextLayerSearchText(index), searchRange);
 }
 
 /**
@@ -369,7 +348,9 @@ export function createTextLayerRangeForSearchOccurrence(
     },
 ): Range | null {
     const index = getCachedTextLayerIndex(textLayerDiv);
-    if (options.searchOptions?.useRegex) {return null;}
+    if (options.searchOptions?.useRegex) {
+        return null;
+    }
     const query = options.searchQuery ?? options.text;
     const assembled = assembleTextLayerSearchText(index, query, options.searchOptions, options.expectedPageMatchCount);
     if (!query) {
@@ -384,17 +365,15 @@ export function createTextLayerRangeForSearchOccurrence(
     }
     const expectedPageMatchCount = options.expectedPageMatchCount;
     if (
-        typeof expectedPageMatchCount === 'number'
-        && Number.isSafeInteger(expectedPageMatchCount)
-        && expectedPageMatchCount >= 0
-        && occurrences.length !== expectedPageMatchCount
+        typeof expectedPageMatchCount === 'number' &&
+        Number.isSafeInteger(expectedPageMatchCount) &&
+        expectedPageMatchCount >= 0 &&
+        occurrences.length !== expectedPageMatchCount
     ) {
         return null;
     }
     const pageMatchIndex = options.pageMatchIndex;
-    const occurrenceIndex = typeof pageMatchIndex === 'number' && Number.isSafeInteger(pageMatchIndex)
-        ? pageMatchIndex
-        : 0;
+    const occurrenceIndex = typeof pageMatchIndex === 'number' && Number.isSafeInteger(pageMatchIndex) ? pageMatchIndex : 0;
     const occurrence = occurrences[occurrenceIndex];
     if (!occurrence) {
         return null;
@@ -407,10 +386,7 @@ export function clearTextLayerIndexCache(textLayerDiv: HTMLElement) {
     textLayerIndexCache.delete(textLayerDiv);
 }
 
-export function registerTextLayerTextMapping(
-    textLayerDiv: HTMLElement,
-    mapping: ITextLayerTextMapping,
-) {
+export function registerTextLayerTextMapping(textLayerDiv: HTMLElement, mapping: ITextLayerTextMapping) {
     const textBySpan = new WeakMap<HTMLElement, string>();
 
     mapping.textDivs.forEach((span, index) => {
@@ -449,14 +425,8 @@ export function resetTextLayerMappedText(textLayerDiv: HTMLElement) {
     return true;
 }
 
-export function buildRunMatchOverlaps(
-    runs: TTextLayerRun[],
-    matches: IHighlightMatchRange[],
-): IHighlightMatchRange[][] {
-    const overlaps = Array.from(
-        { length: runs.length },
-        () => [] as IHighlightMatchRange[],
-    );
+export function buildRunMatchOverlaps(runs: TTextLayerRun[], matches: IHighlightMatchRange[]): IHighlightMatchRange[][] {
+    const overlaps = Array.from({length: runs.length}, () => [] as IHighlightMatchRange[]);
 
     if (runs.length === 0 || matches.length === 0) {
         return overlaps;
@@ -504,10 +474,7 @@ export function buildRunMatchOverlaps(
     return overlaps;
 }
 
-function getPdfjsHighlightSegmentClass(
-    run: Extract<TTextLayerRun, { kind: 'span' }>,
-    match: IHighlightMatchRange,
-) {
+function getPdfjsHighlightSegmentClass(run: Extract<TTextLayerRun, {kind: 'span'}>, match: IHighlightMatchRange) {
     const startsInRun = match.start >= run.startOffset && match.start < run.endOffset;
     const endsInRun = match.end > run.startOffset && match.end <= run.endOffset;
 
@@ -524,19 +491,14 @@ function getPdfjsHighlightSegmentClass(
 }
 
 export function highlightTextRunInPdfjsStyle(
-    run: Extract<TTextLayerRun, { kind: 'span' }>,
+    run: Extract<TTextLayerRun, {kind: 'span'}>,
     matches: IHighlightMatchRange[],
     highlightClass: string,
     highlightCurrentClass: string,
     precomputedMatches?: IHighlightMatchRange[],
 ): HTMLElement[] {
     const text = run.text;
-    const relevantMatches = getRelevantHighlightMatches(
-        text.length,
-        run.startOffset,
-        matches,
-        precomputedMatches,
-    );
+    const relevantMatches = getRelevantHighlightMatches(text.length, run.startOffset, matches, precomputedMatches);
 
     if (relevantMatches.length === 0) {
         return [];
@@ -559,21 +521,23 @@ export function highlightTextRunInPdfjsStyle(
     // Split at their boundaries, with current paint taking priority, so every
     // source character is appended once even when matches overlap or coincide.
     const prioritized = relevantMatches.toSorted((a, b) => Number(b.isCurrent) - Number(a.isCurrent));
-    const boundaries = [...new Set(relevantMatches.flatMap(match => {
-        const {
-            start, end,
-        } = getHighlightMatchBoundsInSpan(text.length, run.startOffset, match);
-        return [
-            start,
-            end,
-        ];
-    }))].sort((a, b) => a - b);
+    const boundaries = [
+        ...new Set(
+            relevantMatches.flatMap((match) => {
+                const {start, end} = getHighlightMatchBoundsInSpan(text.length, run.startOffset, match);
+                return [start, end];
+            }),
+        ),
+    ].sort((a, b) => a - b);
     for (let index = 1; index < boundaries.length; index += 1) {
         const matchStartInSpan = boundaries[index - 1]!;
         const matchEndInSpan = boundaries[index]!;
-        const match = prioritized.find(candidate => candidate.start <= run.startOffset + matchStartInSpan
-            && candidate.end >= run.startOffset + matchEndInSpan);
-        if (!match) {continue;}
+        const match = prioritized.find(
+            (candidate) => candidate.start <= run.startOffset + matchStartInSpan && candidate.end >= run.startOffset + matchEndInSpan,
+        );
+        if (!match) {
+            continue;
+        }
 
         appendPlainText(matchStartInSpan);
 
@@ -589,9 +553,7 @@ export function highlightTextRunInPdfjsStyle(
 
     appendPlainText(text.length);
     run.span.replaceChildren(fragmentNode);
-    run.textNode = run.span.firstChild && run.span.firstChild.nodeType === Node.TEXT_NODE
-        ? run.span.firstChild as Text
-        : null;
+    run.textNode = run.span.firstChild && run.span.firstChild.nodeType === Node.TEXT_NODE ? (run.span.firstChild as Text) : null;
 
     return highlightElements;
 }
@@ -623,5 +585,5 @@ export function clearDomHighlights(container: HTMLElement, highlightClass: strin
         parentsToNormalize.add(parent);
     }
 
-    parentsToNormalize.forEach(parent => parent.normalize());
+    parentsToNormalize.forEach((parent) => parent.normalize());
 }

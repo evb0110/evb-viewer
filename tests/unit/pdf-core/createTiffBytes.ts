@@ -67,14 +67,13 @@ export function createTiffBytes(frames: ITiffTestFrame[], options: ICreateTiffBy
             stripOffset,
             grayPixels: frame.grayPixels,
         });
-        cursor += countBytes + (tags.size * entryBytes) + offsetBytes;
+        cursor += countBytes + tags.size * entryBytes + offsetBytes;
     }
 
     const bytes = new Uint8Array(cursor);
     const view = new DataView(bytes.buffer);
-    const writeOffset = (at: number, value: number) => (bigTiff
-        ? view.setBigUint64(at, BigInt(value), littleEndian)
-        : view.setUint32(at, value, littleEndian));
+    const writeOffset = (at: number, value: number) =>
+        bigTiff ? view.setBigUint64(at, BigInt(value), littleEndian) : view.setUint32(at, value, littleEndian);
     bytes.set(new TextEncoder().encode(littleEndian ? 'II' : 'MM'));
     view.setUint16(2, bigTiff ? 43 : 42, littleEndian);
     if (bigTiff) {
@@ -91,18 +90,14 @@ export function createTiffBytes(frames: ITiffTestFrame[], options: ICreateTiffBy
             bytes.set(directory.grayPixels, directory.stripOffset);
         }
         let entry = directory.at + countBytes;
-        for (const [
-            tag,
-            value,
-        ] of [...directory.tags].sort(([left], [right]) => left - right)) {
+        for (const [tag, value] of [...directory.tags].sort(([left], [right]) => left - right)) {
             view.setUint16(entry, tag, littleEndian);
             view.setUint16(entry + 2, 4, littleEndian);
             writeOffset(entry + 4, 1);
             view.setUint32(entry + 4 + offsetBytes, value, littleEndian);
             entry += entryBytes;
         }
-        const nextDirectory = directories[index + 1]?.at
-            ?? (options.loopLastDirectoryToFirst ? directories[0]!.at : 0);
+        const nextDirectory = directories[index + 1]?.at ?? (options.loopLastDirectoryToFirst ? directories[0]!.at : 0);
         writeOffset(entry, nextDirectory);
     });
     return bytes;

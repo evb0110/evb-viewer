@@ -1,17 +1,5 @@
-import {
-    lstatSync,
-    realpathSync,
-    statSync,
-} from 'fs';
-import {
-    basename,
-    dirname,
-    isAbsolute,
-    join,
-    normalize,
-    relative,
-    sep,
-} from 'path';
+import {lstatSync, realpathSync, statSync} from 'fs';
+import {basename, dirname, isAbsolute, join, normalize, relative, sep} from 'path';
 import {ScanCleanupContractError} from '@evb/scan-cleanup/core/errors';
 
 /**
@@ -40,9 +28,7 @@ export interface IScanCleanupPathResolutionCache {
 
 const issuedAllowedRoots = new WeakSet<IScanCleanupAllowedRoot>();
 
-export function createScanCleanupPathResolutionCache(
-    allowedRoot?: IScanCleanupAllowedRoot,
-): IScanCleanupPathResolutionCache {
+export function createScanCleanupPathResolutionCache(allowedRoot?: IScanCleanupAllowedRoot): IScanCleanupPathResolutionCache {
     const canonicalPathByExistingPath = new Map<string, string>();
     if (allowedRoot !== undefined) {
         canonicalPathByExistingPath.set(allowedRoot.configuredPath, allowedRoot.canonicalPath);
@@ -53,9 +39,9 @@ export function createScanCleanupPathResolutionCache(
         ...(allowedRoot === undefined
             ? {}
             : {
-                configuredRootPath: allowedRoot.configuredPath,
-                canonicalRootPath: allowedRoot.canonicalPath,
-            }),
+                  configuredRootPath: allowedRoot.configuredPath,
+                  canonicalRootPath: allowedRoot.canonicalPath,
+              }),
     };
 }
 
@@ -69,24 +55,16 @@ function isMissingEntry(error: unknown) {
  * destination that has not been created yet is still judged by the real
  * directory it would land in rather than by its spelling.
  */
-function canonicalizeThroughExistingAncestor(
-    candidatePath: string,
-    label: string,
-    pathResolutionCache?: IScanCleanupPathResolutionCache,
-) {
+function canonicalizeThroughExistingAncestor(candidatePath: string, label: string, pathResolutionCache?: IScanCleanupPathResolutionCache) {
     const missingSegments: string[] = [];
     let ancestor = candidatePath;
     for (;;) {
         const cachedCanonicalAncestor = pathResolutionCache?.canonicalPathByExistingPath.get(ancestor);
-        const canReuseCachedRoot = cachedCanonicalAncestor !== undefined
-            && (
-                ancestor === pathResolutionCache?.configuredRootPath
-                || ancestor === pathResolutionCache?.canonicalRootPath
-            );
+        const canReuseCachedRoot =
+            cachedCanonicalAncestor !== undefined &&
+            (ancestor === pathResolutionCache?.configuredRootPath || ancestor === pathResolutionCache?.canonicalRootPath);
         if (canReuseCachedRoot) {
-            return missingSegments.length === 0
-                ? cachedCanonicalAncestor
-                : join(cachedCanonicalAncestor, ...missingSegments);
+            return missingSegments.length === 0 ? cachedCanonicalAncestor : join(cachedCanonicalAncestor, ...missingSegments);
         }
         try {
             lstatSync(ancestor);
@@ -113,9 +91,7 @@ function canonicalizeThroughExistingAncestor(
             throw new ScanCleanupContractError(`${label} contains an unresolved symlink`);
         }
         pathResolutionCache?.canonicalPathByExistingPath.set(ancestor, canonicalAncestor);
-        return missingSegments.length === 0
-            ? canonicalAncestor
-            : join(canonicalAncestor, ...missingSegments);
+        return missingSegments.length === 0 ? canonicalAncestor : join(canonicalAncestor, ...missingSegments);
     }
 }
 
@@ -171,11 +147,7 @@ export function assertScanCleanupPathWithinCanonicalRoot(
     }
     const canonicalCandidate = canonicalizeThroughExistingAncestor(candidatePath, label, pathResolutionCache);
     const relativePath = relative(allowedRoot.canonicalPath, normalize(canonicalCandidate));
-    if (
-        relativePath === '..'
-        || relativePath.startsWith(`..${sep}`)
-        || isAbsolute(relativePath)
-    ) {
+    if (relativePath === '..' || relativePath.startsWith(`..${sep}`) || isAbsolute(relativePath)) {
         throw new ScanCleanupContractError(`${label} is outside its allowed root`);
     }
 }

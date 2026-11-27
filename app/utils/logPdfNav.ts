@@ -1,5 +1,5 @@
-import { BrowserLogger } from '@app/utils/browserLogger';
-import type { IPdfNavLogEntry } from '@contracts/pdfDiagnostics';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import type {IPdfNavLogEntry} from '@contracts/pdfDiagnostics';
 
 const PDF_NAV_LOG_SECTION = 'pdf-nav';
 const PDF_NAV_LOG_BUFFER_LIMIT = 5_000;

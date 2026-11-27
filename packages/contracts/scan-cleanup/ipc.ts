@@ -1,9 +1,6 @@
-import { requirePageNumber } from '@contracts/pageNumbers';
+import {requirePageNumber} from '@contracts/pageNumbers';
 
-import {
-    NATIVE_ERROR_CODES,
-    type TNativeErrorCode,
-} from '@contracts/nativeErrors';
+import {NATIVE_ERROR_CODES, type TNativeErrorCode} from '@contracts/nativeErrors';
 import {SERIALIZABLE_ERROR_ENVELOPE_SCHEMA} from '@contracts/serializableError';
 import type {
     IScanCleanupDocumentPrior,
@@ -28,10 +25,7 @@ import type {
     TextToneDiagnostics,
 } from '@contracts/scan-cleanup/nativeWire.generated';
 import type {TScanCleanupProgress} from '@contracts/scan-cleanup/progress';
-import type {
-    TJobId,
-    TRequestId,
-} from '@contracts/shared';
+import type {TJobId, TRequestId} from '@contracts/shared';
 import type {TEpochMs} from '@contracts/timestamps';
 import type {TPageNumber} from '@contracts/pageNumbers';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
@@ -48,10 +42,7 @@ import type {
     SCAN_CLEANUP_START_REQUEST_SCHEMA,
 } from '@contracts/scan-cleanup/ipcRequestCodecs';
 import type {SCAN_CLEANUP_PLACEMENT_ANCHOR_SUMMARY_SCHEMA} from '@contracts/scan-cleanup/decodeScanCleanupPlacementAnchorSummary';
-export type {
-    TScanCleanupCanvasPolicy,
-    TScanCleanupContentTrimSide,
-} from '@contracts/scan-cleanup/domain';
+export type {TScanCleanupCanvasPolicy, TScanCleanupContentTrimSide} from '@contracts/scan-cleanup/domain';
 
 export type IScanCleanupOwnerContext = v.InferOutput<typeof SCAN_CLEANUP_OWNER_CONTEXT_SCHEMA>;
 
@@ -77,10 +68,13 @@ export const SCAN_CLEANUP_ERROR_CODES = [
 ] as const satisfies readonly TScanCleanupErrorCode[];
 
 /** The renderer localizes the figures instead of reading them from English text. */
-export const SCAN_CLEANUP_SCRATCH_SHORTFALL_SCHEMA = v.message(v.object({
-    availableBytes: v.nullable(v.pipe(v.number(), v.finite(), v.minValue(0))),
-    requiredBytes: v.nullable(v.pipe(v.number(), v.finite(), v.minValue(0))),
-}), 'invalid scan-cleanup scratch shortfall');
+export const SCAN_CLEANUP_SCRATCH_SHORTFALL_SCHEMA = v.message(
+    v.object({
+        availableBytes: v.nullable(v.pipe(v.number(), v.finite(), v.minValue(0))),
+        requiredBytes: v.nullable(v.pipe(v.number(), v.finite(), v.minValue(0))),
+    }),
+    'invalid scan-cleanup scratch shortfall',
+);
 export type IScanCleanupScratchShortfall = v.InferOutput<typeof SCAN_CLEANUP_SCRATCH_SHORTFALL_SCHEMA>;
 
 export const SCAN_CLEANUP_ERROR_DETAILS_SCHEMA = v.object({scratchShortfall: v.optional(SCAN_CLEANUP_SCRATCH_SHORTFALL_SCHEMA)});
@@ -156,9 +150,22 @@ export interface IScanCleanupPageOutputDiagnostics {
 }
 
 /** A preview's page record: the engine's page metadata and its first output's diagnostics. */
-export interface IScanCleanupPreviewPageMetadata extends IScanCleanupPageDiagnostics, Pick<PageResultMetadata,
-    | 'layoutClassification' | 'layoutConfidence' | 'cutterXPx' | 'rotationDegrees' | 'canvasScope'
-    | 'excluded' | 'blankOutputsSkipped' | 'tier1Verdict' | 'reconciled' | 'clusterAgreement'> {
+export interface IScanCleanupPreviewPageMetadata
+    extends
+        IScanCleanupPageDiagnostics,
+        Pick<
+            PageResultMetadata,
+            | 'layoutClassification'
+            | 'layoutConfidence'
+            | 'cutterXPx'
+            | 'rotationDegrees'
+            | 'canvasScope'
+            | 'excluded'
+            | 'blankOutputsSkipped'
+            | 'tier1Verdict'
+            | 'reconciled'
+            | 'clusterAgreement'
+        > {
     splitSeam?: SplitSeamPolyline;
     splitAbstained?: boolean;
     recommendedOutputMode?: TScanCleanupOutputMode;
@@ -167,19 +174,70 @@ export interface IScanCleanupPreviewPageMetadata extends IScanCleanupPageDiagnos
 }
 
 /** A preview output's metadata: the engine's output record as the preview carries it. */
-export interface IScanCleanupPreviewMetadata extends Pick<CleanupMetadata,
-    | 'half' | 'layoutClassification' | 'layoutConfidence' | 'manualSkew' | 'sourceRegion' | 'contentBox'
-    | 'cropRect' | 'contentDiagnostics' | 'appliedMargins' | 'outputWidthPx' | 'outputHeightPx'
-    | 'intrinsicRasterWidthPx' | 'intrinsicRasterHeightPx' | 'renderRegion' | 'canvasWidthPx' | 'canvasHeightPx'
-    | 'canvasPolicy' | 'canvasOverflow' | 'matchedCanvasTargetWidthPx' | 'matchedCanvasTargetHeightPx'
-    | 'matchedCanvasTargetWidthPoints' | 'matchedCanvasTargetHeightPoints' | 'matchedCanvasContentWidthPx'
-    | 'matchedCanvasContentHeightPx' | 'matchedCanvasOpticalPlacement' | 'matchedCanvasIntrinsicOverflowLeftPx'
-    | 'matchedCanvasIntrinsicOverflowRightPx' | 'matchedCanvasIntrinsicOverflowTopPx' | 'foldClipLeftPx'
-    | 'foldClipRightPx' | 'placementOffsetXPx' | 'placementOffsetYPx' | 'forwardTransform' | 'cutterXPx'
-    | 'splitSeam' | 'inputWidthPx' | 'inputHeightPx' | 'rotationDegrees' | 'canvasScope' | 'resamplePasses'
-    | 'textToneDiagnostics' | 'rasterScaleLimited' | 'warnings'>, Partial<Pick<CleanupMetadata,
-    | 'detectedSkewDegrees' | 'skewConfidence' | 'skewApplied' | 'illuminationNormalized' | 'binarizationMode' | 'binarizationDiagnostics' | 'despeckleFallback' | 'dewarpConfidence' | 'sourceDpi'
-    | 'renderDpi' | 'requestedRenderDpi'>> {
+export interface IScanCleanupPreviewMetadata
+    extends
+        Pick<
+            CleanupMetadata,
+            | 'half'
+            | 'layoutClassification'
+            | 'layoutConfidence'
+            | 'manualSkew'
+            | 'sourceRegion'
+            | 'contentBox'
+            | 'cropRect'
+            | 'contentDiagnostics'
+            | 'appliedMargins'
+            | 'outputWidthPx'
+            | 'outputHeightPx'
+            | 'intrinsicRasterWidthPx'
+            | 'intrinsicRasterHeightPx'
+            | 'renderRegion'
+            | 'canvasWidthPx'
+            | 'canvasHeightPx'
+            | 'canvasPolicy'
+            | 'canvasOverflow'
+            | 'matchedCanvasTargetWidthPx'
+            | 'matchedCanvasTargetHeightPx'
+            | 'matchedCanvasTargetWidthPoints'
+            | 'matchedCanvasTargetHeightPoints'
+            | 'matchedCanvasContentWidthPx'
+            | 'matchedCanvasContentHeightPx'
+            | 'matchedCanvasOpticalPlacement'
+            | 'matchedCanvasIntrinsicOverflowLeftPx'
+            | 'matchedCanvasIntrinsicOverflowRightPx'
+            | 'matchedCanvasIntrinsicOverflowTopPx'
+            | 'foldClipLeftPx'
+            | 'foldClipRightPx'
+            | 'placementOffsetXPx'
+            | 'placementOffsetYPx'
+            | 'forwardTransform'
+            | 'cutterXPx'
+            | 'splitSeam'
+            | 'inputWidthPx'
+            | 'inputHeightPx'
+            | 'rotationDegrees'
+            | 'canvasScope'
+            | 'resamplePasses'
+            | 'textToneDiagnostics'
+            | 'rasterScaleLimited'
+            | 'warnings'
+        >,
+        Partial<
+            Pick<
+                CleanupMetadata,
+                | 'detectedSkewDegrees'
+                | 'skewConfidence'
+                | 'skewApplied'
+                | 'illuminationNormalized'
+                | 'binarizationMode'
+                | 'binarizationDiagnostics'
+                | 'despeckleFallback'
+                | 'dewarpConfidence'
+                | 'sourceDpi'
+                | 'renderDpi'
+                | 'requestedRenderDpi'
+            >
+        > {
     matchedCanvasOpticalContentLeftPx: number | null;
     matchedCanvasOpticalContentRightPx: number | null;
     /** What the engine wrote: always a resolved mode. */
@@ -292,27 +350,31 @@ export type TScanCleanupJobClosure = {jobId: TJobId; status: 'retired' | 'discon
 export function isScanCleanupJobClosure(event: {status: string}): event is TScanCleanupJobClosure {
     return event.status === 'retired' || event.status === 'disconnected';
 }
-export type TScanCleanupDetectionStartResult =
-    | {started: true; jobId: TJobId}
-    | ({started: false; jobId: TJobId} & IScanCleanupJobFailure);
+export type TScanCleanupDetectionStartResult = {started: true; jobId: TJobId} | ({started: false; jobId: TJobId} & IScanCleanupJobFailure);
 
 export type IScanCleanupStartRequest = v.InferOutput<typeof SCAN_CLEANUP_START_REQUEST_SCHEMA>;
 
-const summaryPageNumber = v.message(v.pipe(
-    v.number(),
-    v.finite(),
-    v.integer(),
-    v.minValue(1),
-    v.maxValue(Number.MAX_SAFE_INTEGER),
-    v.transform(value => requirePageNumber(value)),
-), 'invalid scan-cleanup summary');
-const summaryCount = v.message(v.pipe(
-    v.number(),
-    v.finite(),
-    v.integer(),
-    v.minValue(0),
-    v.check((value: number) => Number.isSafeInteger(value)),
-), 'invalid scan-cleanup summary');
+const summaryPageNumber = v.message(
+    v.pipe(
+        v.number(),
+        v.finite(),
+        v.integer(),
+        v.minValue(1),
+        v.maxValue(Number.MAX_SAFE_INTEGER),
+        v.transform((value) => requirePageNumber(value)),
+    ),
+    'invalid scan-cleanup summary',
+);
+const summaryCount = v.message(
+    v.pipe(
+        v.number(),
+        v.finite(),
+        v.integer(),
+        v.minValue(0),
+        v.check((value: number) => Number.isSafeInteger(value)),
+    ),
+    'invalid scan-cleanup summary',
+);
 /**
  * One structured warning condition a run reported, with the output it belongs to.
  *
@@ -325,23 +387,25 @@ const summaryCount = v.message(v.pipe(
 export const SCAN_CLEANUP_SUMMARY_WARNING_EVENT_SCHEMA = v.object({
     event: SCAN_CLEANUP_WARNING_EVENT_SCHEMA,
     pageNumber: v.optional(summaryPageNumber),
-    half: v.optional(v.picklist([
-        'full',
-        'left',
-        'right',
-    ] as const)),
+    half: v.optional(v.picklist(['full', 'left', 'right'] as const)),
 });
 
 export type TScanCleanupSummaryWarningEvent = v.InferOutput<typeof SCAN_CLEANUP_SUMMARY_WARNING_EVENT_SCHEMA>;
 
 /** Positively observed source text omitted by unsafe output geometry. */
-const SCAN_CLEANUP_SOURCE_TEXT_OMISSION_SCHEMA = v.pipe(v.object({
-    count: v.pipe(summaryCount, v.minValue(1)),
-    /** First source pages only; count includes every affected source page. */
-    pages: v.pipe(v.array(summaryPageNumber), v.minLength(1), v.maxLength(20)),
-}), v.check(value => value.pages.length === Math.min(value.count, 20)
-    && value.pages.every((page, index) => index === 0 || page > value.pages[index - 1]!),
-'invalid scan-cleanup source text omission'));
+const SCAN_CLEANUP_SOURCE_TEXT_OMISSION_SCHEMA = v.pipe(
+    v.object({
+        count: v.pipe(summaryCount, v.minValue(1)),
+        /** First source pages only; count includes every affected source page. */
+        pages: v.pipe(v.array(summaryPageNumber), v.minLength(1), v.maxLength(20)),
+    }),
+    v.check(
+        (value) =>
+            value.pages.length === Math.min(value.count, 20) &&
+            value.pages.every((page, index) => index === 0 || page > value.pages[index - 1]!),
+        'invalid scan-cleanup source text omission',
+    ),
+);
 
 export const SCAN_CLEANUP_SUMMARY_SCHEMA = v.object({
     inputPages: summaryCount,
@@ -374,16 +438,15 @@ export type TScanCleanupJobState = {
 } & (
     | {status: 'queued' | 'running' | 'canceling' | 'handoff' | 'committing' | 'canceled'}
     | {
-        status: 'completed';
-        outputPdfPath: string;
-        summary: TScanCleanupSummary;
-        partial: boolean;
-    }
+          status: 'completed';
+          outputPdfPath: string;
+          summary: TScanCleanupSummary;
+          partial: boolean;
+      }
     | ({
-        status: 'failed';
-        failure?: FailureReceipt;
-    } & IScanCleanupJobFailure)
+          status: 'failed';
+          failure?: FailureReceipt;
+      } & IScanCleanupJobFailure)
 );
 export type TScanCleanupStartResult =
-    | {started: true; jobId: TJobId; outputPdfPath: string}
-    | ({started: false; jobId: TJobId} & IScanCleanupJobFailure);
+    {started: true; jobId: TJobId; outputPdfPath: string} | ({started: false; jobId: TJobId} & IScanCleanupJobFailure);

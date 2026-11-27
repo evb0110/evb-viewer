@@ -1,50 +1,21 @@
-import {
-    copyFile,
-    mkdir,
-    readdir,
-    readFile,
-    rm,
-    writeFile,
-} from 'node:fs/promises';
+import {copyFile, mkdir, readdir, readFile, rm, writeFile} from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import {fileURLToPath} from 'node:url';
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(currentDir, '..');
 
-const sourceCssPath = path.join(
-    projectRoot,
-    'node_modules',
-    'pdfjs-dist',
-    'web',
-    'pdf_viewer.css',
-);
-const sourceImagesDir = path.join(
-    projectRoot,
-    'node_modules',
-    'pdfjs-dist',
-    'web',
-    'images',
-);
-const targetCssPath = path.join(
-    projectRoot,
-    'app',
-    'assets',
-    'css',
-    'vendor',
-    'pdfjs-viewer-sanitized.css',
-);
+const sourceCssPath = path.join(projectRoot, 'node_modules', 'pdfjs-dist', 'web', 'pdf_viewer.css');
+const sourceImagesDir = path.join(projectRoot, 'node_modules', 'pdfjs-dist', 'web', 'images');
+const targetCssPath = path.join(projectRoot, 'app', 'assets', 'css', 'vendor', 'pdfjs-viewer-sanitized.css');
 const targetImagesDir = path.join(projectRoot, 'public', 'pdfjs', 'images');
 
-const removableRulePatterns = [
-    '.dialog.newAltText',
-    '#viewsManager',
-];
+const removableRulePatterns = ['.dialog.newAltText', '#viewsManager'];
 const legacyViewsManagerContainerPattern = '#outerContainer.viewsManager';
 
 function collectBlockRanges(cssText, shouldRemoveBlock) {
     const ranges = [];
-    const stack = [{ segmentStart: 0 }];
+    const stack = [{segmentStart: 0}];
 
     let inComment = false;
     let inString = false;
@@ -80,7 +51,7 @@ function collectBlockRanges(cssText, shouldRemoveBlock) {
             continue;
         }
 
-        if (current === '"' || current === '\'') {
+        if (current === '"' || current === "'") {
             inString = true;
             stringChar = current;
             continue;
@@ -147,44 +118,31 @@ function applyRanges(cssText, ranges) {
 
 export function removeUnusedUiBlocks(cssText) {
     const matchedPatterns = new Set();
-    const removableRules = collectBlockRanges(
-        cssText,
-        (prelude) => {
-            const matchedPattern = removableRulePatterns.find(pattern => prelude.includes(pattern));
-            if (matchedPattern === undefined) {
-                return false;
-            }
+    const removableRules = collectBlockRanges(cssText, (prelude) => {
+        const matchedPattern = removableRulePatterns.find((pattern) => prelude.includes(pattern));
+        if (matchedPattern === undefined) {
+            return false;
+        }
 
-            matchedPatterns.add(matchedPattern);
-            return true;
-        },
-    );
-    const legacyContainerRules = collectBlockRanges(
-        cssText,
-        (prelude) => prelude.includes(legacyViewsManagerContainerPattern),
-    );
+        matchedPatterns.add(matchedPattern);
+        return true;
+    });
+    const legacyContainerRules = collectBlockRanges(cssText, (prelude) => prelude.includes(legacyViewsManagerContainerPattern));
     if (legacyContainerRules.length > 0) {
         removableRules.push(...legacyContainerRules);
         matchedPatterns.add(legacyViewsManagerContainerPattern);
     } else {
-        const nestedContainerRules = collectBlockRanges(
-            cssText,
-            (prelude) => prelude.trim() === '#outerContainer',
-        );
+        const nestedContainerRules = collectBlockRanges(cssText, (prelude) => prelude.trim() === '#outerContainer');
         if (nestedContainerRules.length === 1) {
             removableRules.push(...nestedContainerRules);
             matchedPatterns.add(legacyViewsManagerContainerPattern);
         }
     }
-    const missingPatterns = [
-        ...removableRulePatterns,
-        legacyViewsManagerContainerPattern,
-    ].filter(pattern => !matchedPatterns.has(pattern));
+    const missingPatterns = [...removableRulePatterns, legacyViewsManagerContainerPattern].filter(
+        (pattern) => !matchedPatterns.has(pattern),
+    );
     if (missingPatterns.length > 0) {
-        throw new Error(
-            'PDF.js viewer CSS removal pattern(s) no longer match upstream css: '
-            + missingPatterns.join(', '),
-        );
+        throw new Error('PDF.js viewer CSS removal pattern(s) no longer match upstream css: ' + missingPatterns.join(', '));
     }
 
     let sanitized = applyRanges(cssText, removableRules);
@@ -195,9 +153,7 @@ export function removeUnusedUiBlocks(cssText) {
                 return false;
             }
 
-            const compactBody = body
-                .replace(/\/\*[\s\S]*?\*\//gu, '')
-                .trim();
+            const compactBody = body.replace(/\/\*[\s\S]*?\*\//gu, '').trim();
             return compactBody.length === 0;
         });
 
@@ -214,22 +170,16 @@ export function removeUnusedUiBlocks(cssText) {
 export function rewriteImageUrls(cssText, sourceImageNames) {
     const availableImageNames = new Set(sourceImageNames);
 
-    let sanitized = cssText.replace(
-        /url\((['"]?)images\/([^)"']+)\1\)/gu,
-        (fullMatch, _quote, rawName) => {
-            const imageName = String(rawName).trim();
-            if (!availableImageNames.has(imageName)) {
-                return '__PDFJS_MISSING_ASSET__';
-            }
+    let sanitized = cssText.replace(/url\((['"]?)images\/([^)"']+)\1\)/gu, (fullMatch, _quote, rawName) => {
+        const imageName = String(rawName).trim();
+        if (!availableImageNames.has(imageName)) {
+            return '__PDFJS_MISSING_ASSET__';
+        }
 
-            return `url('/pdfjs/images/${imageName}')`;
-        },
-    );
+        return `url('/pdfjs/images/${imageName}')`;
+    });
 
-    sanitized = sanitized.replace(
-        /^[ \t]*[^{}\n]+:\s*__PDFJS_MISSING_ASSET__[^;]*;\s*$/gmu,
-        '',
-    );
+    sanitized = sanitized.replace(/^[ \t]*[^{}\n]+:\s*__PDFJS_MISSING_ASSET__[^;]*;\s*$/gmu, '');
 
     return sanitized;
 }
@@ -243,13 +193,8 @@ export function collectReferencedImages(cssText) {
 }
 
 export function collectRequiredImageNames(cssText, sourceImageNames) {
-    const runtimeAnnotationImages = sourceImageNames.filter(imageName => (
-        /^annotation-[a-z0-9-]+\.svg$/u.test(imageName)
-    ));
-    return Array.from(new Set([
-        ...collectReferencedImages(cssText),
-        ...runtimeAnnotationImages,
-    ])).sort((a, b) => a.localeCompare(b));
+    const runtimeAnnotationImages = sourceImageNames.filter((imageName) => /^annotation-[a-z0-9-]+\.svg$/u.test(imageName));
+    return Array.from(new Set([...collectReferencedImages(cssText), ...runtimeAnnotationImages])).sort((a, b) => a.localeCompare(b));
 }
 
 export function normalizeWhitespace(cssText) {
@@ -264,36 +209,30 @@ async function syncImages(imageNames) {
         recursive: true,
         force: true,
     });
-    await mkdir(targetImagesDir, { recursive: true });
+    await mkdir(targetImagesDir, {recursive: true});
 
-    await Promise.all(imageNames.map(async (imageName) => {
-        const sourcePath = path.join(sourceImagesDir, imageName);
-        const targetPath = path.join(targetImagesDir, imageName);
-        await copyFile(sourcePath, targetPath);
-    }));
+    await Promise.all(
+        imageNames.map(async (imageName) => {
+            const sourcePath = path.join(sourceImagesDir, imageName);
+            const targetPath = path.join(targetImagesDir, imageName);
+            await copyFile(sourcePath, targetPath);
+        }),
+    );
 }
 
 export async function createPdfjsViewerCssSyncPlan() {
-    const [
-        sourceCss,
-        sourceImages,
-    ] = await Promise.all([
-        readFile(sourceCssPath, 'utf8'),
-        readdir(sourceImagesDir),
-    ]);
+    const [sourceCss, sourceImages] = await Promise.all([readFile(sourceCssPath, 'utf8'), readdir(sourceImagesDir)]);
 
     const withoutUnusedUi = removeUnusedUiBlocks(sourceCss);
     const rewrittenUrls = rewriteImageUrls(withoutUnusedUi, sourceImages);
     const withoutEmptyRules = applyRanges(
         rewrittenUrls,
-        collectBlockRanges(rewrittenUrls, (prelude, body) => (
-            !prelude.startsWith('@')
-            && body.replace(/\/\*[\s\S]*?\*\//gu, '').trim().length === 0
-        )),
+        collectBlockRanges(
+            rewrittenUrls,
+            (prelude, body) => !prelude.startsWith('@') && body.replace(/\/\*[\s\S]*?\*\//gu, '').trim().length === 0,
+        ),
     );
-    const normalizedCss = normalizeWhitespace(
-        `/* Auto-generated by scripts/sync-pdfjs-viewer-css.mjs. */\n\n${withoutEmptyRules}`,
-    );
+    const normalizedCss = normalizeWhitespace(`/* Auto-generated by scripts/sync-pdfjs-viewer-css.mjs. */\n\n${withoutEmptyRules}`);
     const referencedImages = collectRequiredImageNames(normalizedCss, sourceImages);
 
     return {
@@ -304,12 +243,9 @@ export async function createPdfjsViewerCssSyncPlan() {
 
 export async function syncPdfjsViewerCss() {
     const plan = await createPdfjsViewerCssSyncPlan();
-    const {
-        normalizedCss,
-        referencedImages,
-    } = plan;
+    const {normalizedCss, referencedImages} = plan;
 
-    await mkdir(path.dirname(targetCssPath), { recursive: true });
+    await mkdir(path.dirname(targetCssPath), {recursive: true});
     await writeFile(targetCssPath, normalizedCss, 'utf8');
     await syncImages(referencedImages);
 
@@ -321,13 +257,10 @@ async function main() {
         throw new Error('Usage: node scripts/sync-pdfjs-viewer-css.mjs');
     }
     const result = await syncPdfjsViewerCss();
-    console.log(
-        `Synced PDF.js viewer CSS (${result.imageCount} image assets): ${path.relative(projectRoot, targetCssPath)}`,
-    );
+    console.log(`Synced PDF.js viewer CSS (${result.imageCount} image assets): ${path.relative(projectRoot, targetCssPath)}`);
 }
 
-const isDirectCliRun = process.argv[1]
-    && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
+const isDirectCliRun = process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
 
 if (isDirectCliRun) {
     main().catch((error) => {

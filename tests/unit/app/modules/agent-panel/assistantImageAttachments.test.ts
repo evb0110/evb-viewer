@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {
     ASSISTANT_MAX_IMAGE_ATTACHMENTS,
     ASSISTANT_MAX_IMAGE_BYTES,
@@ -45,7 +41,7 @@ function createDataTransferItem(fixture: IClipboardItemFixture): DataTransferIte
         kind: fixture.kind,
         type: fixture.type,
         getAsFile: fixture.getAsFile,
-        getAsString: callback => callback?.(''),
+        getAsString: (callback) => callback?.(''),
         webkitGetAsEntry: () => null,
     };
 }
@@ -54,8 +50,12 @@ function createDataTransferItemList(fixtures: readonly IClipboardItemFixture[]):
     const items = fixtures.map(createDataTransferItem);
     return Object.assign(items, {
         add: (_data: string | File, _type?: string) => null,
-        clear: () => { items.length = 0; },
-        remove: (index: number) => { items.splice(index, 1); },
+        clear: () => {
+            items.length = 0;
+        },
+        remove: (index: number) => {
+            items.splice(index, 1);
+        },
     });
 }
 
@@ -92,18 +92,18 @@ describe('assistantImageAttachments', () => {
             files: [
                 createFileLike({
                     name: ' First.PNG ',
-                    type: 'IMAGE/PNG', 
+                    type: 'IMAGE/PNG',
                 }),
                 createFileLike({
                     name: '',
-                    type: 'image/jpeg', 
+                    type: 'image/jpeg',
                 }),
             ],
             existingImages: [],
-            fallbackName: index => `Image ${index + 1}`,
+            fallbackName: (index) => `Image ${index + 1}`,
             createId: () => 'generated-id',
-            readFile: async file => `data:${file.type.toLowerCase()};base64,abc`,
-            probeFile: async file => ({
+            readFile: async (file) => `data:${file.type.toLowerCase()};base64,abc`,
+            probeFile: async (file) => ({
                 bytes: new Uint8Array(file.size),
                 width: 100,
                 height: 50,
@@ -141,19 +141,19 @@ describe('assistantImageAttachments', () => {
             files: [
                 createFileLike({
                     name: 'text.txt',
-                    type: 'text/plain', 
+                    type: 'text/plain',
                 }),
                 createFileLike({
                     name: 'large.png',
-                    size: ASSISTANT_MAX_IMAGE_BYTES + 1, 
+                    size: ASSISTANT_MAX_IMAGE_BYTES + 1,
                 }),
-                createFileLike({ name: 'ok.png' }),
+                createFileLike({name: 'ok.png'}),
             ],
             existingImages: [],
-            fallbackName: index => `Image ${index + 1}`,
+            fallbackName: (index) => `Image ${index + 1}`,
             createId: () => 'ok-id',
             readFile: async () => 'data:image/png;base64,abc',
-            probeFile: async file => ({
+            probeFile: async (file) => ({
                 bytes: new Uint8Array(file.size),
                 width: 100,
                 height: 50,
@@ -173,16 +173,16 @@ describe('assistantImageAttachments', () => {
     });
 
     it('stops adding images once the attachment limit is reached', async () => {
-        const existingImages = Array.from({ length: ASSISTANT_MAX_IMAGE_ATTACHMENTS }, (_, index) => (
-            createImageAttachment({ id: `existing-${index}` })
-        ));
+        const existingImages = Array.from({length: ASSISTANT_MAX_IMAGE_ATTACHMENTS}, (_, index) =>
+            createImageAttachment({id: `existing-${index}`}),
+        );
 
         const result = await buildComposerImageAttachments({
             files: [createFileLike()],
             existingImages,
-            fallbackName: index => `Image ${index + 1}`,
+            fallbackName: (index) => `Image ${index + 1}`,
             readFile: async () => 'data:image/png;base64,abc',
-            probeFile: async file => ({
+            probeFile: async (file) => ({
                 bytes: new Uint8Array(file.size),
                 width: 100,
                 height: 50,
@@ -200,22 +200,24 @@ describe('assistantImageAttachments', () => {
     });
 
     it('uses data transfer files before item fallbacks', () => {
-        const directFile = createFileLike({ name: 'direct.png' });
-        const itemFile = createFileLike({ name: 'item.png' });
+        const directFile = createFileLike({name: 'direct.png'});
+        const itemFile = createFileLike({name: 'item.png'});
         const transfer = createDataTransfer({
             files: [directFile],
-            items: [{
-                kind: 'file',
-                type: 'image/png',
-                getAsFile: () => itemFile,
-            }],
+            items: [
+                {
+                    kind: 'file',
+                    type: 'image/png',
+                    getAsFile: () => itemFile,
+                },
+            ],
         });
 
         expect(getClipboardImageFiles(transfer)).toEqual([directFile]);
     });
 
     it('filters item fallbacks to image files', () => {
-        const itemFile = createFileLike({ name: 'item.png' });
+        const itemFile = createFileLike({name: 'item.png'});
         const transfer = createDataTransfer({
             files: [],
             items: [
@@ -227,7 +229,7 @@ describe('assistantImageAttachments', () => {
                 {
                     kind: 'file',
                     type: 'text/plain',
-                    getAsFile: () => createFileLike({ type: 'text/plain' }),
+                    getAsFile: () => createFileLike({type: 'text/plain'}),
                 },
                 {
                     kind: 'file',
@@ -241,20 +243,23 @@ describe('assistantImageAttachments', () => {
     });
 
     it('builds preview data and wraps preview navigation', () => {
-        const preview = buildExpandedImagePreview([
-            createImageAttachment({
-                id: 'first',
-                name: 'First', 
-            }),
-            createImageAttachment({
-                id: 'pdf',
-                dataUrl: 'data:application/pdf;base64,abc', 
-            }),
-            createImageAttachment({
-                id: 'second',
-                name: 'Second', 
-            }),
-        ], 'second');
+        const preview = buildExpandedImagePreview(
+            [
+                createImageAttachment({
+                    id: 'first',
+                    name: 'First',
+                }),
+                createImageAttachment({
+                    id: 'pdf',
+                    dataUrl: 'data:application/pdf;base64,abc',
+                }),
+                createImageAttachment({
+                    id: 'second',
+                    name: 'Second',
+                }),
+            ],
+            'second',
+        );
 
         expect(preview).toEqual({
             images: [

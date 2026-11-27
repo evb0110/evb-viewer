@@ -1,14 +1,5 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    getSpreadStartForPage,
-    getViewColumnCount,
-    isStandaloneSpreadPage,
-    stepBySpread,
-} from '@app/utils/pdfViewMode';
+import {describe, expect, it} from 'vitest';
+import {getSpreadStartForPage, getViewColumnCount, isStandaloneSpreadPage, stepBySpread} from '@app/utils/pdfViewMode';
 
 describe('pdf view mode helpers', () => {
     it('returns expected columns for each mode', () => {

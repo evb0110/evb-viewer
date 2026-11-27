@@ -24,25 +24,35 @@ const LANGUAGE_ALIASES: Readonly<Record<string, string>> = {
 };
 
 const KEYWORDS: Readonly<Record<string, ReadonlySet<string>>> = {
-    javascript: new Set('async await break case catch class const continue debugger default delete do else export extends finally for from function get if implements import in instanceof interface let new of package private protected public return set static super switch throw try typeof undefined var void while with yield true false null'.split(' ')),
-    typescript: new Set('abstract any as asserts async await bigint boolean break case catch class const constructor continue declare default delete do else enum export extends false finally for from function get if implements import in infer instanceof interface is keyof let module namespace never new null number object of override package private protected public readonly require return satisfies set static string super switch symbol this throw true try type typeof undefined unique unknown var void while with yield'.split(' ')),
-    python: new Set('and as assert async await break class continue def del elif else except False finally for from global if import in is lambda None nonlocal not or pass raise return True try while with yield'.split(' ')),
-    rust: new Set('as async await break const continue crate dyn else enum extern false fn for if impl in let loop match mod move mut pub ref return self Self static struct super trait true type unsafe use where while'.split(' ')),
+    javascript: new Set(
+        'async await break case catch class const continue debugger default delete do else export extends finally for from function get if implements import in instanceof interface let new of package private protected public return set static super switch throw try typeof undefined var void while with yield true false null'.split(
+            ' ',
+        ),
+    ),
+    typescript: new Set(
+        'abstract any as asserts async await bigint boolean break case catch class const constructor continue declare default delete do else enum export extends false finally for from function get if implements import in infer instanceof interface is keyof let module namespace never new null number object of override package private protected public readonly require return satisfies set static string super switch symbol this throw true try type typeof undefined unique unknown var void while with yield'.split(
+            ' ',
+        ),
+    ),
+    python: new Set(
+        'and as assert async await break class continue def del elif else except False finally for from global if import in is lambda None nonlocal not or pass raise return True try while with yield'.split(
+            ' ',
+        ),
+    ),
+    rust: new Set(
+        'as async await break const continue crate dyn else enum extern false fn for if impl in let loop match mod move mut pub ref return self Self static struct super trait true type unsafe use where while'.split(
+            ' ',
+        ),
+    ),
     shell: new Set('case do done elif else esac export fi for function if in local readonly return set then unset while'.split(' ')),
-    ruby: new Set('alias and begin break case class def defined do else elsif end ensure false for if in module next nil not or redo rescue retry return self super then true undef unless until when while yield'.split(' ')),
+    ruby: new Set(
+        'alias and begin break case class def defined do else elsif end ensure false for if in module next nil not or redo rescue retry return self super then true undef unless until when while yield'.split(
+            ' ',
+        ),
+    ),
     css: new Set('and important not only or'.split(' ')),
-    json: new Set([
-        'true',
-        'false',
-        'null',
-    ]),
-    yaml: new Set([
-        'true',
-        'false',
-        'null',
-        'yes',
-        'no',
-    ]),
+    json: new Set(['true', 'false', 'null']),
+    yaml: new Set(['true', 'false', 'null', 'yes', 'no']),
 };
 
 function normalizeLanguage(language: string | null) {
@@ -73,12 +83,7 @@ function matchAt(pattern: RegExp, code: string, cursor: number) {
 export function highlightAssistantCode(code: string, language: string | null): IAssistantCodeToken[] {
     const normalizedLanguage = normalizeLanguage(language);
     const keywords = KEYWORDS[normalizedLanguage] ?? new Set<string>();
-    const hashComments = [
-        'python',
-        'ruby',
-        'shell',
-        'yaml',
-    ].includes(normalizedLanguage);
+    const hashComments = ['python', 'ruby', 'shell', 'yaml'].includes(normalizedLanguage);
     const markup = normalizedLanguage === 'markup';
     const tokens: IAssistantCodeToken[] = [];
     let cursor = 0;
@@ -87,9 +92,9 @@ export function highlightAssistantCode(code: string, language: string | null): I
         const remainder = code.slice(cursor);
         const comment = markup
             ? matchAt(/^<!--[\s\S]*?-->/u, code, cursor)
-            : matchAt(/^\/\*[\s\S]*?\*\//u, code, cursor)
-                ?? matchAt(/^\/\/[^\n]*/u, code, cursor)
-                ?? (hashComments ? matchAt(/^#[^\n]*/u, code, cursor) : null);
+            : (matchAt(/^\/\*[\s\S]*?\*\//u, code, cursor) ??
+              matchAt(/^\/\/[^\n]*/u, code, cursor) ??
+              (hashComments ? matchAt(/^#[^\n]*/u, code, cursor) : null));
         if (comment) {
             appendToken(tokens, 'comment', comment);
             cursor += comment.length;

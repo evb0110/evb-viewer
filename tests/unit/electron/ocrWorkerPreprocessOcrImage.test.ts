@@ -1,10 +1,4 @@
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
 
 import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
 
@@ -35,7 +29,7 @@ describe('tryPreprocessOcrImage', () => {
             stdout: '',
             stderr: '',
         });
-        mocks.stat.mockResolvedValue({ size: 1024 });
+        mocks.stat.mockResolvedValue({size: 1024});
         mocks.readFile.mockResolvedValue('{}');
         mocks.rm.mockResolvedValue(undefined);
         mocks.decodeMetadata.mockReturnValue({inverseTransform: null});
@@ -45,24 +39,27 @@ describe('tryPreprocessOcrImage', () => {
         const {tryPreprocessOcrImage} = await import('@electron/features/ocr/pipeline/tryPreprocessOcrImage');
         const failure = markUnprovenNativeTermination(new Error('timeout'), 'child remains alive');
         mocks.runOcrCommand.mockRejectedValueOnce(failure);
-        await expect(tryPreprocessOcrImage('/raw.png', '/clean.png', mocks.log,
-            new AbortController().signal, undefined, '/scan-cleanup')).rejects.toBe(failure);
+        await expect(
+            tryPreprocessOcrImage('/raw.png', '/clean.png', mocks.log, new AbortController().signal, undefined, '/scan-cleanup'),
+        ).rejects.toBe(failure);
     });
 
     it('uses native scan cleanup with pinned pixel options', async () => {
-        const { tryPreprocessOcrImage } = await import('@electron/features/ocr/pipeline/tryPreprocessOcrImage');
+        const {tryPreprocessOcrImage} = await import('@electron/features/ocr/pipeline/tryPreprocessOcrImage');
         const controller = new AbortController();
 
-        await expect(tryPreprocessOcrImage(
-            '/tmp/raw.png',
-            '/tmp/clean.png',
-            mocks.log,
-            controller.signal,
-            undefined,
-            '/bin/evb-scan-cleanup',
-            '/tmp/clean.json',
-            288,
-        )).resolves.toEqual({path: '/tmp/clean.png'});
+        await expect(
+            tryPreprocessOcrImage(
+                '/tmp/raw.png',
+                '/tmp/clean.png',
+                mocks.log,
+                controller.signal,
+                undefined,
+                '/bin/evb-scan-cleanup',
+                '/tmp/clean.json',
+                288,
+            ),
+        ).resolves.toEqual({path: '/tmp/clean.png'});
 
         expect(mocks.runOcrCommand).toHaveBeenCalledWith(
             '/bin/evb-scan-cleanup',
@@ -132,10 +129,20 @@ describe('tryPreprocessOcrImage', () => {
         vi.stubEnv('RAYON_NUM_THREADS', '16');
         try {
             const {tryPreprocessOcrImage} = await import('@electron/features/ocr/pipeline/tryPreprocessOcrImage');
-            await expect(tryPreprocessOcrImage(
-                '/tmp/raw.png', '/tmp/clean.png', mocks.log, new AbortController().signal,
-                undefined, '/bin/evb-scan-cleanup', '/tmp/clean.json', 300, 'clean', 1,
-            )).resolves.toEqual({path: '/tmp/clean.png'});
+            await expect(
+                tryPreprocessOcrImage(
+                    '/tmp/raw.png',
+                    '/tmp/clean.png',
+                    mocks.log,
+                    new AbortController().signal,
+                    undefined,
+                    '/bin/evb-scan-cleanup',
+                    '/tmp/clean.json',
+                    300,
+                    'clean',
+                    1,
+                ),
+            ).resolves.toEqual({path: '/tmp/clean.png'});
             expect(mocks.runOcrCommand.mock.calls[0]?.[2].env.RAYON_NUM_THREADS).toBe('1');
         } finally {
             vi.unstubAllEnvs();
@@ -143,35 +150,27 @@ describe('tryPreprocessOcrImage', () => {
     });
 
     it('returns the native inverse transform for same-size deskew output', async () => {
-        const inverseTransform = {matrix: [
-            [
-                1,
-                0,
-                -12,
+        const inverseTransform = {
+            matrix: [
+                [1, 0, -12],
+                [0, 1, 8],
+                [0, 0, 1],
             ],
-            [
-                0,
-                1,
-                8,
-            ],
-            [
-                0,
-                0,
-                1,
-            ],
-        ]};
+        };
         mocks.decodeMetadata.mockReturnValue({inverseTransform});
-        const { tryPreprocessOcrImage } = await import('@electron/features/ocr/pipeline/tryPreprocessOcrImage');
+        const {tryPreprocessOcrImage} = await import('@electron/features/ocr/pipeline/tryPreprocessOcrImage');
 
-        await expect(tryPreprocessOcrImage(
-            '/tmp/raw.png',
-            '/tmp/clean.png',
-            mocks.log,
-            new AbortController().signal,
-            undefined,
-            '/bin/evb-scan-cleanup',
-            '/tmp/clean.json',
-        )).resolves.toEqual({
+        await expect(
+            tryPreprocessOcrImage(
+                '/tmp/raw.png',
+                '/tmp/clean.png',
+                mocks.log,
+                new AbortController().signal,
+                undefined,
+                '/bin/evb-scan-cleanup',
+                '/tmp/clean.json',
+            ),
+        ).resolves.toEqual({
             path: '/tmp/clean.png',
             inverseTransform,
         });
@@ -180,17 +179,19 @@ describe('tryPreprocessOcrImage', () => {
     it('uses only polarity correction for preprocessing-off OCR', async () => {
         const {tryPreprocessOcrImage} = await import('@electron/features/ocr/pipeline/tryPreprocessOcrImage');
 
-        await expect(tryPreprocessOcrImage(
-            '/tmp/raw.png',
-            '/tmp/polarity.png',
-            mocks.log,
-            new AbortController().signal,
-            undefined,
-            '/bin/evb-scan-cleanup',
-            '/tmp/polarity.json',
-            300,
-            'polarity-only',
-        )).resolves.toEqual({path: '/tmp/polarity.png'});
+        await expect(
+            tryPreprocessOcrImage(
+                '/tmp/raw.png',
+                '/tmp/polarity.png',
+                mocks.log,
+                new AbortController().signal,
+                undefined,
+                '/bin/evb-scan-cleanup',
+                '/tmp/polarity.json',
+                300,
+                'polarity-only',
+            ),
+        ).resolves.toEqual({path: '/tmp/polarity.png'});
 
         const nativeArgs: string[] = mocks.runOcrCommand.mock.calls[0]?.[1] ?? [];
         const options = JSON.parse(nativeArgs[nativeArgs.indexOf('--options') + 1] ?? '{}');
@@ -212,47 +213,37 @@ describe('tryPreprocessOcrImage', () => {
     });
 
     it('falls back before recognition when native geometry metadata is singular', async () => {
-        mocks.decodeMetadata.mockReturnValue({inverseTransform: {matrix: [
-            [
-                1,
-                0,
-                0,
-            ],
-            [
-                0,
-                0,
-                0,
-            ],
-            [
-                0,
-                0,
-                1,
-            ],
-        ]}});
-        const { tryPreprocessOcrImage } = await import('@electron/features/ocr/pipeline/tryPreprocessOcrImage');
+        mocks.decodeMetadata.mockReturnValue({
+            inverseTransform: {
+                matrix: [
+                    [1, 0, 0],
+                    [0, 0, 0],
+                    [0, 0, 1],
+                ],
+            },
+        });
+        const {tryPreprocessOcrImage} = await import('@electron/features/ocr/pipeline/tryPreprocessOcrImage');
 
-        await expect(tryPreprocessOcrImage(
-            '/tmp/raw.png',
-            '/tmp/clean.png',
-            mocks.log,
-            new AbortController().signal,
-            undefined,
-            '/bin/evb-scan-cleanup',
-            '/tmp/clean.json',
-        )).resolves.toEqual({path: '/tmp/raw.png'});
+        await expect(
+            tryPreprocessOcrImage(
+                '/tmp/raw.png',
+                '/tmp/clean.png',
+                mocks.log,
+                new AbortController().signal,
+                undefined,
+                '/bin/evb-scan-cleanup',
+                '/tmp/clean.json',
+            ),
+        ).resolves.toEqual({path: '/tmp/raw.png'});
         expect(mocks.log).toHaveBeenCalledWith('warn', expect.stringContaining('metadata is unusable'));
     });
 
     it('uses the original image without launching a substitute when scan cleanup is unavailable', async () => {
-        const { tryPreprocessOcrImage } = await import('@electron/features/ocr/pipeline/tryPreprocessOcrImage');
+        const {tryPreprocessOcrImage} = await import('@electron/features/ocr/pipeline/tryPreprocessOcrImage');
         const onDiagnostic = vi.fn();
-        await expect(tryPreprocessOcrImage(
-            '/tmp/raw.png',
-            '/tmp/clean.png',
-            mocks.log,
-            new AbortController().signal,
-            onDiagnostic,
-        )).resolves.toEqual({path: '/tmp/raw.png'});
+        await expect(
+            tryPreprocessOcrImage('/tmp/raw.png', '/tmp/clean.png', mocks.log, new AbortController().signal, onDiagnostic),
+        ).resolves.toEqual({path: '/tmp/raw.png'});
         expect(mocks.runOcrCommand).not.toHaveBeenCalled();
         expect(onDiagnostic).toHaveBeenCalledWith(expect.objectContaining({code: 'OCR_PREPROCESSING_UNAVAILABLE'}));
     });
@@ -262,37 +253,16 @@ describe('tryPreprocessOcrImage', () => {
         mocks.runOcrCommand.mockRejectedValue(abortError);
         const controller = new AbortController();
         controller.abort();
-        const { tryPreprocessOcrImage } = await import('@electron/features/ocr/pipeline/tryPreprocessOcrImage');
+        const {tryPreprocessOcrImage} = await import('@electron/features/ocr/pipeline/tryPreprocessOcrImage');
 
-        await expect(tryPreprocessOcrImage(
-            '/tmp/raw.png',
-            '/tmp/clean.png',
-            mocks.log,
-            controller.signal,
-            undefined,
-            '/bin/evb-scan-cleanup',
-        )).rejects.toBe(abortError);
+        await expect(
+            tryPreprocessOcrImage('/tmp/raw.png', '/tmp/clean.png', mocks.log, controller.signal, undefined, '/bin/evb-scan-cleanup'),
+        ).rejects.toBe(abortError);
     });
 
     it('reads only the PNM header of the rendered page in prepareOcrPageRaster when cleanup succeeds', async () => {
-        const renderedPpm = Buffer.concat([
-            Buffer.from('P6\n2 1\n255\n', 'ascii'),
-            Buffer.from([
-                10,
-                20,
-                30,
-                240,
-                240,
-                240,
-            ]),
-        ]);
-        const cleanedPgm = Buffer.concat([
-            Buffer.from('P5\n2 1\n255\n', 'ascii'),
-            Buffer.from([
-                0,
-                255,
-            ]),
-        ]);
+        const renderedPpm = Buffer.concat([Buffer.from('P6\n2 1\n255\n', 'ascii'), Buffer.from([10, 20, 30, 240, 240, 240])]);
+        const cleanedPgm = Buffer.concat([Buffer.from('P5\n2 1\n255\n', 'ascii'), Buffer.from([0, 255])]);
         mocks.open.mockImplementation(async (path: string) => {
             const source = path === '/tmp/page-1.ppm' ? renderedPpm : cleanedPgm;
             return {
@@ -304,8 +274,12 @@ describe('tryPreprocessOcrImage', () => {
             };
         });
         mocks.readFile.mockImplementation(async (path: string) => {
-            if (path === '/tmp/page-1.ppm-clean.pnm') {return cleanedPgm;}
-            if (path === '/tmp/page-1.ppm-clean.pnm.json') {return '{}';}
+            if (path === '/tmp/page-1.ppm-clean.pnm') {
+                return cleanedPgm;
+            }
+            if (path === '/tmp/page-1.ppm-clean.pnm.json') {
+                return '{}';
+            }
             throw new Error(`Unexpected full readFile path: ${path}`);
         });
         const {prepareOcrPageRaster} = await import('@electron/features/ocr/pipeline/tryPreprocessOcrImage');
@@ -345,7 +319,9 @@ describe('tryPreprocessOcrImage', () => {
             };
         });
         mocks.readFile.mockImplementation(async (path: string) => {
-            if (path === '/tmp/page-2.ppm-clean.pnm.json') {return '{}';}
+            if (path === '/tmp/page-2.ppm-clean.pnm.json') {
+                return '{}';
+            }
             throw new Error(`Unexpected full readFile path: ${path}`);
         });
         const {prepareOcrPageRasterFile} = await import('@electron/features/ocr/pipeline/tryPreprocessOcrImage');

@@ -1,7 +1,7 @@
-import { STORAGE_KEYS } from '@app/constants/storageKeys';
-import type { IPdfSearchHighlightMatchRange } from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightMatchRange';
-import { getHighlightMatchBoundsInSpan } from '@app/modules/pdf-viewer/engine/search/getHighlightMatchBoundsInSpan';
-import { getRelevantHighlightMatches } from '@app/modules/pdf-viewer/engine/search/getRelevantHighlightMatches';
+import {STORAGE_KEYS} from '@app/constants/storageKeys';
+import type {IPdfSearchHighlightMatchRange} from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightMatchRange';
+import {getHighlightMatchBoundsInSpan} from '@app/modules/pdf-viewer/engine/search/getHighlightMatchBoundsInSpan';
+import {getRelevantHighlightMatches} from '@app/modules/pdf-viewer/engine/search/getRelevantHighlightMatches';
 
 type TPdfHighlightMode = 'dom' | 'css';
 
@@ -11,9 +11,7 @@ export interface IHighlightRange {
 }
 
 export function canUseHighlightAPI() {
-    return typeof CSS !== 'undefined'
-        && 'highlights' in CSS
-        && typeof Highlight !== 'undefined';
+    return typeof CSS !== 'undefined' && 'highlights' in CSS && typeof Highlight !== 'undefined';
 }
 
 function readHighlightStorageValue(key: string) {
@@ -52,10 +50,7 @@ export function createHighlightRangesInSpan(
 
     const ranges: IHighlightRange[] = [];
     for (const match of relevantMatches) {
-        const {
-            start: matchStartInSpan,
-            end: matchEndInSpan,
-        } = getHighlightMatchBoundsInSpan(text.length, spanStartOffset, match);
+        const {start: matchStartInSpan, end: matchEndInSpan} = getHighlightMatchBoundsInSpan(text.length, spanStartOffset, match);
 
         if (matchStartInSpan >= matchEndInSpan) {
             continue;
@@ -76,10 +71,13 @@ export function createHighlightRangesInSpan(
 export interface ICssHighlightState {
     highlightRanges: Map<string, Range>;
     currentHighlightRanges: Map<string, Range>;
-    layerRangeIds: WeakMap<HTMLElement, {
-        normal: Set<string>;
-        current: Set<string>;
-    }>;
+    layerRangeIds: WeakMap<
+        HTMLElement,
+        {
+            normal: Set<string>;
+            current: Set<string>;
+        }
+    >;
     layerCurrentRanges: WeakMap<HTMLElement, Range[]>;
 }
 
@@ -92,43 +90,29 @@ export function createCssHighlightState(): ICssHighlightState {
     };
 }
 
-export function updateHighlightAPI(
-    state: ICssHighlightState,
-    highlightApiName: string,
-    highlightApiCurrentName: string,
-) {
+export function updateHighlightAPI(state: ICssHighlightState, highlightApiName: string, highlightApiCurrentName: string) {
     if (!canUseHighlightAPI()) {
         return;
     }
 
-    for (const [
-        name,
-        ranges,
-    ] of [
-            [
-                highlightApiName,
-                state.highlightRanges,
-            ],
-            [
-                highlightApiCurrentName,
-                state.currentHighlightRanges,
-            ],
-        ] as const) {
+    for (const [name, ranges] of [
+        [highlightApiName, state.highlightRanges],
+        [highlightApiCurrentName, state.currentHighlightRanges],
+    ] as const) {
         // The native registry owns all viewers' ranges; publication adds only ours.
         const highlight = CSS.highlights.get(name) ?? new Highlight();
-        for (const range of ranges.values()) {highlight.add(range);}
-        if (highlight.size === 0) {CSS.highlights.delete(name);}
-        else {CSS.highlights.set(name, highlight);}
+        for (const range of ranges.values()) {
+            highlight.add(range);
+        }
+        if (highlight.size === 0) {
+            CSS.highlights.delete(name);
+        } else {
+            CSS.highlights.set(name, highlight);
+        }
     }
 }
 
-export function registerHighlightRange(
-    state: ICssHighlightState,
-    container: HTMLElement,
-    range: Range,
-    isCurrent: boolean,
-    id: string,
-) {
+export function registerHighlightRange(state: ICssHighlightState, container: HTMLElement, range: Range, isCurrent: boolean, id: string) {
     let ids = state.layerRangeIds.get(container);
     if (!ids) {
         ids = {
@@ -162,26 +146,16 @@ export function clearHighlightAPIForLayer(
         return;
     }
 
-    for (const [
-        name,
-        ranges,
-        rangeIds,
-    ] of [
-            [
-                highlightApiName,
-                state.highlightRanges,
-                ids.normal,
-            ],
-            [
-                highlightApiCurrentName,
-                state.currentHighlightRanges,
-                ids.current,
-            ],
-        ] as const) {
+    for (const [name, ranges, rangeIds] of [
+        [highlightApiName, state.highlightRanges, ids.normal],
+        [highlightApiCurrentName, state.currentHighlightRanges, ids.current],
+    ] as const) {
         const highlight = CSS.highlights.get(name);
         for (const id of rangeIds) {
             const range = ranges.get(id);
-            if (range) {highlight?.delete(range);}
+            if (range) {
+                highlight?.delete(range);
+            }
             ranges.delete(id);
         }
     }

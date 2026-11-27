@@ -1,6 +1,6 @@
-import type { TDocumentRef } from '@contracts/documentRef';
-import { assertDocumentAllocationSize } from '@contracts/electronApiDocuments';
-import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
+import type {TDocumentRef} from '@contracts/documentRef';
+import {assertDocumentAllocationSize} from '@contracts/electronApiDocuments';
+import {getDocumentFilesCapability} from '@app/utils/platformDocuments';
 
 const DEFAULT_DOCUMENT_READ_CHUNK_BYTES = 4 * 1024 * 1024;
 
@@ -43,10 +43,7 @@ function assertWithinReadLimit(actualBytes: number, maxBytes: number | undefined
     }
 }
 
-export async function readDocumentBytes(
-    path: TDocumentRef,
-    options: IReadDocumentBytesOptions = {},
-) {
+export async function readDocumentBytes(path: TDocumentRef, options: IReadDocumentBytesOptions = {}) {
     options.signal?.throwIfAborted();
     const documentFiles = getDocumentFilesCapability();
     const size = await resolveDocumentSize(path, options.knownSize);

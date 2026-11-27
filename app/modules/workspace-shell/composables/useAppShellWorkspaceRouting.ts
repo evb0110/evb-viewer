@@ -1,28 +1,22 @@
-import type { Ref } from 'vue';
-import { uniq } from 'es-toolkit/array';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { markStartupMetricOnce } from '@app/utils/startupMetrics';
-import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
-import { readPdfPageShape } from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
-import { reportStartupFirstView } from '@app/modules/workspace-shell/composables/useWorkspaceStartupReadiness';
-import type { IEditorPaneState } from '@contracts/editorPanes';
-import type { ITab } from '@app/types/tabs';
-import {
-    parseDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
-import type { TOpenFileResult } from '@contracts/electronApiDocuments';
-import type { TWindowTabsAction } from '@contracts/windowTabs';
-import type { ITabLifecycleState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
-import type { TWorkspaceDocumentSessions } from '@app/modules/workspace-shell/document-sessions/useWorkspaceDocumentSessions';
+import type {Ref} from 'vue';
+import {uniq} from 'es-toolkit/array';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {markStartupMetricOnce} from '@app/utils/startupMetrics';
+import {logPdfRenderTrace} from '@app/utils/pdfRenderTrace';
+import {readPdfPageShape} from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
+import {reportStartupFirstView} from '@app/modules/workspace-shell/composables/useWorkspaceStartupReadiness';
+import type {IEditorPaneState} from '@contracts/editorPanes';
+import type {ITab} from '@app/types/tabs';
+import {parseDocumentRef, type TDocumentRef} from '@contracts/documentRef';
+import type {TOpenFileResult} from '@contracts/electronApiDocuments';
+import type {TWindowTabsAction} from '@contracts/windowTabs';
+import type {ITabLifecycleState} from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
+import type {TWorkspaceDocumentSessions} from '@app/modules/workspace-shell/document-sessions/useWorkspaceDocumentSessions';
 import {
     snapshotOccupiesTab,
     type IWorkspaceDocumentSnapshot,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import {
-    describeDocumentTarget,
-    describeOpenResult,
-} from '@app/modules/workspace-shell/document-sessions/describeDocumentTarget';
+import {describeDocumentTarget, describeOpenResult} from '@app/modules/workspace-shell/document-sessions/describeDocumentTarget';
 
 type TWorkspaceOpenDocumentTarget = TDocumentRef | TOpenFileResult;
 
@@ -31,10 +25,7 @@ interface IUseAppShellWorkspaceRoutingOptions {
     activeTabId: Ref<string | null>;
     documentSessions: TWorkspaceDocumentSessions;
     tabLifecycleById: Readonly<Ref<Record<string, ITabLifecycleState>>>;
-    createTab: (options: {
-        paneId?: string | null;
-        activate?: boolean;
-    }) => ITab;
+    createTab: (options: {paneId?: string | null; activate?: boolean}) => ITab;
     getTabById: (tabId: string | null | undefined) => ITab | null;
     removeTabFromState: (tabId: string) => void;
     resolveTabForAction: (tabId: string | undefined) => {
@@ -49,12 +40,7 @@ interface IUseAppShellWorkspaceRoutingOptions {
 
 /** Decides which tab a document opens in and asks that tab's controller to open it. */
 export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutingOptions) => {
-    const {
-        activePaneId,
-        activeTabId,
-        documentSessions,
-        createTab,
-    } = options;
+    const {activePaneId, activeTabId, documentSessions, createTab} = options;
 
     function createTabInPane(paneId: string) {
         createTab({
@@ -72,18 +58,17 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         return documentSessions.getSession(tabId)?.snapshot.value.failure ?? null;
     }
 
-    function isTargetMatchingSession(
-        target: TWorkspaceOpenDocumentTarget,
-        snapshot: IWorkspaceDocumentSnapshot,
-    ) {
+    function isTargetMatchingSession(target: TWorkspaceOpenDocumentTarget, snapshot: IWorkspaceDocumentSnapshot) {
         const {identity} = snapshot;
         if (typeof target === 'string') {
             return identity.originalPath === target || identity.documentRef === target;
         }
         if (target.kind === 'pdf') {
-            return identity.workingCopyPath === target.workingPath
-                || identity.originalPath === target.originalPath
-                || identity.documentRef === target.originalPath;
+            return (
+                identity.workingCopyPath === target.workingPath ||
+                identity.originalPath === target.originalPath ||
+                identity.documentRef === target.originalPath
+            );
         }
         if (target.kind === 'djvu') {
             return identity.originalPath === target.originalPath;
@@ -117,12 +102,17 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         // open claims the tab, so no other open reuses it; a view that failed
         // or was removed answers null, and a claim another owner took is lost.
         const mounted = view?.mountedWorkspace.value ?? null;
-        const claim = mounted || !view ? null : session.claimOpen(typeof target === 'string'
-            ? {
-                kind: 'open',
-                target: describeDocumentTarget(target),
-            }
-            : describeOpenResult(target));
+        const claim =
+            mounted || !view
+                ? null
+                : session.claimOpen(
+                      typeof target === 'string'
+                          ? {
+                                kind: 'open',
+                                target: describeDocumentTarget(target),
+                            }
+                          : describeOpenResult(target),
+                  );
         let workspace = mounted;
         if (!workspace && view) {
             if (!signal) {
@@ -150,13 +140,16 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         }
         const claimed = claim === null || session.snapshot.value.activeTransaction?.id === claim;
         if (!workspace || session.getView(tabId) !== view || !claimed || signal?.aborted) {
-            if (claim && claimed) {session.markFailed(null);}
+            if (claim && claimed) {
+                session.markFailed(null);
+            }
             return false;
         }
         const preOpenInstanceId = session.snapshot.value.identity.documentInstanceId;
-        const openPromise = typeof target === 'string'
-            ? workspace.handleOpenFileDirectWithPersist(target, pageShape)
-            : workspace.handleOpenFileWithResult(target);
+        const openPromise =
+            typeof target === 'string'
+                ? workspace.handleOpenFileDirectWithPersist(target, pageShape)
+                : workspace.handleOpenFileWithResult(target);
         if (!signal) {
             return openPromise;
         }
@@ -170,34 +163,41 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         try {
             return await new Promise<boolean>((resolve, reject) => {
                 const finish = (opened: boolean) => {
-                    if (settled) {return;}
+                    if (settled) {
+                        return;
+                    }
                     settled = true;
                     resolve(opened);
                 };
                 const fail = (error: unknown) => {
-                    if (settled) {return;}
+                    if (settled) {
+                        return;
+                    }
                     settled = true;
                     reject(error);
                 };
                 const handleAbort = () => {
-                    if (settled) {return;}
+                    if (settled) {
+                        return;
+                    }
                     const currentSession = documentSessions.getSession(tabId);
                     const snap = currentSession?.snapshot.value;
-                    const presentedThisOpen = currentSession === session
-                        && snap !== undefined
-                        && snap.phase === 'presented'
-                        && snap.activeTransaction === null
-                        && snap.failure === null
-                        && snap.identity.documentInstanceId !== null
-                        && snap.identity.documentInstanceId !== preOpenInstanceId;
+                    const presentedThisOpen =
+                        currentSession === session &&
+                        snap !== undefined &&
+                        snap.phase === 'presented' &&
+                        snap.activeTransaction === null &&
+                        snap.failure === null &&
+                        snap.identity.documentInstanceId !== null &&
+                        snap.identity.documentInstanceId !== preOpenInstanceId;
                     if (presentedThisOpen) {
                         finish(true);
                         return;
                     }
                     if (
-                        currentSession === session
-                        && snap?.activeTransaction !== null
-                        && (openTransactionId === null || snap?.activeTransaction.id === openTransactionId)
+                        currentSession === session &&
+                        snap?.activeTransaction !== null &&
+                        (openTransactionId === null || snap?.activeTransaction.id === openTransactionId)
                     ) {
                         session.markFailed(null);
                     }
@@ -218,7 +218,7 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
     }
 
     async function handleFallbackToolbarOpenFile() {
-        const workspace = await documentSessions.activeDocumentView.value?.whenMounted() ?? null;
+        const workspace = (await documentSessions.activeDocumentView.value?.whenMounted()) ?? null;
         if (workspace) {
             await workspace.handleOpenFileFromUi();
             return;
@@ -227,7 +227,7 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
             paneId: activePaneId.value,
             activate: true,
         });
-        const fallbackWorkspace = await documentSessions.getView(fallbackTab.id)?.whenMounted() ?? null;
+        const fallbackWorkspace = (await documentSessions.getView(fallbackTab.id)?.whenMounted()) ?? null;
         if (!fallbackWorkspace) {
             options.removeTabFromState(fallbackTab.id);
             return;
@@ -257,10 +257,15 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         try {
             opened = await openInTab(tab.id, target, placement.signal);
         } catch (error) {
-            BrowserLogger.error('workspace-routing', 'New-tab document open failed', {
-                error,
-                tabId: tab.id,
-            }, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'});
+            BrowserLogger.error(
+                'workspace-routing',
+                'New-tab document open failed',
+                {
+                    error,
+                    tabId: tab.id,
+                },
+                {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'},
+            );
         }
         // If an aborted open already committed file state before presentation
         // settled, close that unpresented document so the tab does not stay open
@@ -268,10 +273,10 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         if (!opened && placement.signal?.aborted) {
             const abortedSession = documentSessions.getSession(tab.id);
             if (
-                abortedSession
-                && abortedSession.snapshot.value.activeTransaction === null
-                && !canReuseTab(tab.id)
-                && isTargetMatchingSession(target, abortedSession.snapshot.value)
+                abortedSession &&
+                abortedSession.snapshot.value.activeTransaction === null &&
+                !canReuseTab(tab.id) &&
+                isTargetMatchingSession(target, abortedSession.snapshot.value)
             ) {
                 logPdfRenderTrace('pdf-open-replacement-rollback', {
                     failedTabId: tab.id,
@@ -332,17 +337,16 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
     }
 
     function normalizeOpenPaths(paths: TDocumentRef[]) {
-        return uniq(paths.flatMap((path) => {
-            const parsed = path.trim().length > 0 ? parseDocumentRef(path) : null;
-            return parsed === null ? [] : [parsed];
-        }));
+        return uniq(
+            paths.flatMap((path) => {
+                const parsed = path.trim().length > 0 ? parseDocumentRef(path) : null;
+                return parsed === null ? [] : [parsed];
+            }),
+        );
     }
 
     async function openPathsInAppropriateTab(paths: TDocumentRef[]) {
-        for (const [
-            index,
-            path,
-        ] of normalizeOpenPaths(paths).entries()) {
+        for (const [index, path] of normalizeOpenPaths(paths).entries()) {
             try {
                 await openDocumentInAppropriateTab(path);
             } catch (error) {
@@ -369,29 +373,31 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         markStartupMetricOnce('evb:document-open-started');
 
         const reusableTabId = activeTabId.value && canReuseTab(activeTabId.value) ? activeTabId.value : null;
-        const tabIds = normalizedPaths.map((_path, index) => (
+        const tabIds = normalizedPaths.map((_path, index) =>
             index === 0 && reusableTabId
                 ? reusableTabId
                 : createTab({
-                    paneId: activePaneId.value,
-                    activate: index === normalizedPaths.length - 1,
-                }).id
-        ));
+                      paneId: activePaneId.value,
+                      activate: index === normalizedPaths.length - 1,
+                  }).id,
+        );
         const opens = normalizedPaths.map((path, index) => openInTab(tabIds[index]!, path));
         void reportStartupFirstView(opens.at(-1)!);
-        const results = await Promise.allSettled(opens.map(async (opening, index) => {
-            const tabId = tabIds[index]!;
-            if (await opening) {
-                return;
-            }
-            const failure = readFailure(tabId);
-            if (tabId !== reusableTabId && canReuseTab(tabId)) {
-                options.removeTabFromState(tabId);
-            }
-            if (!failure) {
-                throw new Error('Startup tab was not available for external open');
-            }
-        }));
+        const results = await Promise.allSettled(
+            opens.map(async (opening, index) => {
+                const tabId = tabIds[index]!;
+                if (await opening) {
+                    return;
+                }
+                const failure = readFailure(tabId);
+                if (tabId !== reusableTabId && canReuseTab(tabId)) {
+                    options.removeTabFromState(tabId);
+                }
+                if (!failure) {
+                    throw new Error('Startup tab was not available for external open');
+                }
+            }),
+        );
         return results.flatMap((result, index) => {
             if (result.status === 'fulfilled') {
                 return [];

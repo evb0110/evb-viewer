@@ -16,12 +16,8 @@ export function buildScanCleanupSourceMrcForegroundPdfMatrix(
     const matrix = metadata.forwardTransform!.matrix;
     const inputScaleX = metadata.inputWidthPx! / layers.foregroundWidth;
     const inputScaleY = metadata.inputHeightPx! / layers.foregroundHeight;
-    const {
-        matchScaleX,
-        matchScaleY,
-        effectivePlacementOffsetXPx,
-        effectivePlacementOffsetYPx,
-    } = resolveScanCleanupMatchedCanvasPlacement(metadata);
+    const {matchScaleX, matchScaleY, effectivePlacementOffsetXPx, effectivePlacementOffsetYPx} =
+        resolveScanCleanupMatchedCanvasPlacement(metadata);
     const sourceToCanvas = {
         a: matrix[0]![0]! * inputScaleX * matchScaleX,
         b: matrix[0]![1]! * inputScaleY * matchScaleX,
@@ -40,7 +36,6 @@ export function buildScanCleanupSourceMrcForegroundPdfMatrix(
         -pointScaleX * sourceToCanvas.b * sourceHeight,
         pointScaleY * sourceToCanvas.e * sourceHeight,
         pointScaleX * (sourceToCanvas.b * sourceHeight + sourceToCanvas.c),
-        pageHeightPoints
-        - pointScaleY * (sourceToCanvas.e * sourceHeight + sourceToCanvas.f),
+        pageHeightPoints - pointScaleY * (sourceToCanvas.e * sourceHeight + sourceToCanvas.f),
     ];
 }

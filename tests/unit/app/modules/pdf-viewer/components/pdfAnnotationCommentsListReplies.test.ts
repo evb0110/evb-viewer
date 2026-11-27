@@ -2,22 +2,11 @@
 
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    nextTick, ref,
-} from 'vue';
-import type { IAnnotationCommentSummary } from '@app/types/annotations';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {nextTick, ref} from 'vue';
+import type {IAnnotationCommentSummary} from '@app/types/annotations';
 import {requireEpochMs} from '@contracts/timestamps';
-import {
-    mountAnnotationCommentsList,
-    unmountAnnotationCommentsLists,
-} from '@tests/helpers/pdfAnnotationCommentsListHarness';
+import {mountAnnotationCommentsList, unmountAnnotationCommentsLists} from '@tests/helpers/pdfAnnotationCommentsListHarness';
 const selectedLocale = ref('en');
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
@@ -80,60 +69,27 @@ function createForeignNote(): IAnnotationCommentSummary {
 
 describe('PdfAnnotationCommentsList foreign note replies', () => {
     it.each([
-        [
-            'Accepted',
-            'Review',
-            'accepted',
-        ],
-        [
-            'Rejected',
-            'Review',
-            'rejected',
-        ],
-        [
-            'Cancelled',
-            'Review',
-            'cancelled',
-        ],
-        [
-            'Completed',
-            'Review',
-            'completed',
-        ],
-        [
-            'None',
-            'Review',
-            'none',
-        ],
-        [
-            'Marked',
-            'Marked',
-            'marked',
-        ],
-        [
-            'Unmarked',
-            'Marked',
-            'unmarked',
-        ],
+        ['Accepted', 'Review', 'accepted'],
+        ['Rejected', 'Review', 'rejected'],
+        ['Cancelled', 'Review', 'cancelled'],
+        ['Completed', 'Review', 'completed'],
+        ['None', 'Review', 'none'],
+        ['Marked', 'Marked', 'marked'],
+        ['Unmarked', 'Marked', 'unmarked'],
     ])('renders %s replies as read-only children and deletes them with their parent', async (state, stateModel, label) => {
         const comment = createForeignNote();
         Object.assign(comment.replies![1]!, {
             state,
             stateModel,
         });
-        const {
-            events,
-            host,
-        } = mountAnnotationCommentsList({comments: [comment]});
+        const {events, host} = mountAnnotationCommentsList({comments: [comment]});
         await nextTick();
         const row = host.querySelector<HTMLElement>('.note-item');
 
         expect(row).not.toBeNull();
         expect(row?.querySelector('.note-item-content')?.tagName).toBe('BUTTON');
-        expect(row?.querySelector('.note-item-replies')?.textContent)
-            .toContain('Please check the cited paragraph.');
-        expect(row?.querySelector('.note-item-replies')?.textContent)
-            .toContain(`annotations.replyStatus.${label}`);
+        expect(row?.querySelector('.note-item-replies')?.textContent).toContain('Please check the cited paragraph.');
+        expect(row?.querySelector('.note-item-replies')?.textContent).toContain(`annotations.replyStatus.${label}`);
         expect(row?.querySelectorAll('.note-item-reply')).toHaveLength(2);
         expect(row?.querySelector('.note-item-replies button')).toBeNull();
 
@@ -143,31 +99,32 @@ describe('PdfAnnotationCommentsList foreign note replies', () => {
     });
 });
 
-it.each([
-    'modified',
-    'created',
-    'missing',
-] as const)('updates the rendered %s date when language changes without remounting', async (kind) => {
-    const comment = createForeignNote();
-    comment.createdAt = kind === 'missing' ? null : requireEpochMs(1_700_000_000_000);
-    comment.modifiedAt = kind === 'modified' ? requireEpochMs(1_790_000_000_000) : null;
-    const {host} = mountAnnotationCommentsList({comments: [comment]});
-    await nextTick();
-    const date = () => host.querySelector('.note-item-meta > span:last-child')?.textContent;
-    const timestamp = comment.modifiedAt ?? comment.createdAt;
-    const english = date();
-    selectedLocale.value = 'ru';
-    await nextTick();
-    if (timestamp) {
-        expect(date()).toBe(new Intl.DateTimeFormat('ru', {
-            dateStyle: 'medium',
-            timeStyle: 'short',
-        }).format(timestamp));
-        expect(date()).not.toBe(english);
-    } else {
-        expect(host.querySelectorAll('.note-item-meta > span')).toHaveLength(1);
-        expect(date()).toBe('Document author');
-    }
-    expect(host.textContent).toContain('Document author');
-    expect(host.textContent).toContain('Original foreign note');
-});
+it.each(['modified', 'created', 'missing'] as const)(
+    'updates the rendered %s date when language changes without remounting',
+    async (kind) => {
+        const comment = createForeignNote();
+        comment.createdAt = kind === 'missing' ? null : requireEpochMs(1_700_000_000_000);
+        comment.modifiedAt = kind === 'modified' ? requireEpochMs(1_790_000_000_000) : null;
+        const {host} = mountAnnotationCommentsList({comments: [comment]});
+        await nextTick();
+        const date = () => host.querySelector('.note-item-meta > span:last-child')?.textContent;
+        const timestamp = comment.modifiedAt ?? comment.createdAt;
+        const english = date();
+        selectedLocale.value = 'ru';
+        await nextTick();
+        if (timestamp) {
+            expect(date()).toBe(
+                new Intl.DateTimeFormat('ru', {
+                    dateStyle: 'medium',
+                    timeStyle: 'short',
+                }).format(timestamp),
+            );
+            expect(date()).not.toBe(english);
+        } else {
+            expect(host.querySelectorAll('.note-item-meta > span')).toHaveLength(1);
+            expect(date()).toBe('Document author');
+        }
+        expect(host.textContent).toContain('Document author');
+        expect(host.textContent).toContain('Original foreign note');
+    },
+);

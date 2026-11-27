@@ -1,19 +1,10 @@
 #!/usr/bin/env node
 
-import { getCliErrorMessage } from './lib/cli-error.mjs';
-import {
-    spawn,
-    spawnSync,
-} from 'node:child_process';
-import { createHash } from 'node:crypto';
-import {
-    mkdirSync,
-    readFileSync,
-    readdirSync,
-    rmSync,
-    statSync,
-} from 'node:fs';
-import { createRequire } from 'node:module';
+import {getCliErrorMessage} from './lib/cli-error.mjs';
+import {spawn, spawnSync} from 'node:child_process';
+import {createHash} from 'node:crypto';
+import {mkdirSync, readFileSync, readdirSync, rmSync, statSync} from 'node:fs';
+import {createRequire} from 'node:module';
 import path from 'node:path';
 
 const require = createRequire(import.meta.url);
@@ -22,9 +13,7 @@ const require = createRequire(import.meta.url);
 function readTs7Package() {
     const packageJsonPath = require.resolve('typescript7/package.json');
     const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
-    const declaredBin = typeof packageJson.bin === 'string'
-        ? packageJson.bin
-        : packageJson.bin?.tsc;
+    const declaredBin = typeof packageJson.bin === 'string' ? packageJson.bin : packageJson.bin?.tsc;
 
     if (typeof declaredBin !== 'string' || declaredBin.length === 0) {
         throw new Error(`typescript7 does not declare a tsc executable in ${packageJsonPath}.`);
@@ -38,21 +27,11 @@ function readTs7Package() {
 
 /** @returns {{tscPath: string, version: string}} */
 function resolveTs7Compiler() {
-    const {
-        packageJsonPath,
-        tscPath,
-    } = readTs7Package();
+    const {packageJsonPath, tscPath} = readTs7Package();
     // The tsc entry is a Node script; Windows cannot execute it through its shebang.
-    const result = spawnSync(process.execPath, [
-        tscPath,
-        '--version',
-    ], {
+    const result = spawnSync(process.execPath, [tscPath, '--version'], {
         encoding: 'utf8',
-        stdio: [
-            'ignore',
-            'pipe',
-            'pipe',
-        ],
+        stdio: ['ignore', 'pipe', 'pipe'],
     });
 
     if (result.error) {
@@ -113,10 +92,10 @@ function getBuildInfoPath(project, version) {
 /** @param {string[]} protectedPaths */
 function pruneBuildInfoCache(protectedPaths) {
     const cacheDir = path.resolve('.devkit', 'cache', 'typecheck', 'ts7');
-    const protectedNames = new Set(protectedPaths.map(filePath => path.basename(filePath)));
+    const protectedNames = new Set(protectedPaths.map((filePath) => path.basename(filePath)));
     const candidates = readdirSync(cacheDir)
-        .filter(name => name.endsWith('.tsbuildinfo') && !protectedNames.has(name))
-        .map(name => ({
+        .filter((name) => name.endsWith('.tsbuildinfo') && !protectedNames.has(name))
+        .map((name) => ({
             modifiedAtMs: statSync(path.join(cacheDir, name)).mtimeMs,
             name,
         }))
@@ -136,23 +115,14 @@ function runProject(tscPath, version, project, buildInfoPath, {cold = false} = {
     }
     /** @type {Promise<void>} */
     const result = new Promise((resolve, reject) => {
-        const child = spawn(process.execPath, [
-            tscPath,
-            '-p',
-            project,
-            '--noEmit',
-            '--incremental',
-            '--tsBuildInfoFile',
-            buildInfoPath,
-        ], {stdio: 'inherit'});
+        const child = spawn(process.execPath, [tscPath, '-p', project, '--noEmit', '--incremental', '--tsBuildInfoFile', buildInfoPath], {
+            stdio: 'inherit',
+        });
         activeChildren.add(child);
-        child.on('error', error => {
+        child.on('error', (error) => {
             activeChildren.delete(child);
             terminateActiveChildren(child);
-            reject(new Error(
-                `Could not typecheck ${project} with TypeScript ${version}.`,
-                {cause: error},
-            ));
+            reject(new Error(`Could not typecheck ${project} with TypeScript ${version}.`, {cause: error}));
         });
         child.on('close', (status, signal) => {
             activeChildren.delete(child);
@@ -161,11 +131,13 @@ function runProject(tscPath, version, project, buildInfoPath, {cold = false} = {
                 return;
             }
             terminateActiveChildren(child);
-            reject(new Error(
-                signal
-                    ? `TypeScript ${version} typecheck for ${project} exited after signal ${signal}.`
-                    : `TypeScript ${version} typecheck for ${project} failed with status ${status ?? 1}.`,
-            ));
+            reject(
+                new Error(
+                    signal
+                        ? `TypeScript ${version} typecheck for ${project} exited after signal ${signal}.`
+                        : `TypeScript ${version} typecheck for ${project} failed with status ${status ?? 1}.`,
+                ),
+            );
         });
     });
     return result;
@@ -187,11 +159,8 @@ function terminateActiveChildren(except) {
 async function run() {
     const rawArgs = process.argv.slice(2);
     const cold = rawArgs.includes('--cold') || process.env.EVB_TYPECHECK_COLD === '1';
-    const args = rawArgs.filter(argument => argument !== '--cold');
-    const {
-        tscPath,
-        version,
-    } = resolveTs7Compiler();
+    const args = rawArgs.filter((argument) => argument !== '--cold');
+    const {tscPath, version} = resolveTs7Compiler();
     console.log(`Using TypeScript ${version} native compiler at ${tscPath}`);
 
     if (args.length === 1 && args[0] === '--version-check') {
@@ -199,32 +168,26 @@ async function run() {
     }
 
     const projects = parseProjectArguments(args);
-    const buildInfoPaths = projects.map(project => getBuildInfoPath(project, version));
+    const buildInfoPaths = projects.map((project) => getBuildInfoPath(project, version));
     pruneBuildInfoCache(buildInfoPaths);
     const requestedWorkers = Number.parseInt(process.env.EVB_TYPECHECK_WORKERS ?? '2', 10);
-    const workerCount = Number.isFinite(requestedWorkers) && requestedWorkers > 0
-        ? Math.min(requestedWorkers, projects.length)
-        : 1;
+    const workerCount = Number.isFinite(requestedWorkers) && requestedWorkers > 0 ? Math.min(requestedWorkers, projects.length) : 1;
     let nextProjectIndex = 0;
 
-    await Promise.all(Array.from({length: workerCount}, async () => {
-        while (nextProjectIndex < projects.length) {
-            const projectIndex = nextProjectIndex;
-            nextProjectIndex += 1;
-            const project = projects[projectIndex];
-            const buildInfoPath = buildInfoPaths[projectIndex];
-            if (!project || !buildInfoPath) {
-                return;
+    await Promise.all(
+        Array.from({length: workerCount}, async () => {
+            while (nextProjectIndex < projects.length) {
+                const projectIndex = nextProjectIndex;
+                nextProjectIndex += 1;
+                const project = projects[projectIndex];
+                const buildInfoPath = buildInfoPaths[projectIndex];
+                if (!project || !buildInfoPath) {
+                    return;
+                }
+                await runProject(tscPath, version, project, buildInfoPath, {cold});
             }
-            await runProject(
-                tscPath,
-                version,
-                project,
-                buildInfoPath,
-                {cold},
-            );
-        }
-    }));
+        }),
+    );
 }
 
 try {

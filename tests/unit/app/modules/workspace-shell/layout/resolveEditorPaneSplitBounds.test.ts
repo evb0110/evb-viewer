@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {resolveEditorPaneSplitBounds} from '@app/modules/workspace-shell/layout/resolveEditorPaneSplitBounds';
 
 describe('resolveEditorPaneSplitBounds', () => {

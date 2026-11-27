@@ -1,4 +1,4 @@
-import type { IDocumentPageSlotRegistry } from '@app/modules/document-viewer/page-slots/createDocumentPageSlotRegistry';
+import type {IDocumentPageSlotRegistry} from '@app/modules/document-viewer/page-slots/createDocumentPageSlotRegistry';
 
 /**
  * One render of a page. It carries its identity from the renderer to the
@@ -18,7 +18,7 @@ export interface IDocumentViewerRenderSession {
     ): Promise<{
         committed: boolean;
         attempt: IDocumentPageRenderAttempt;
-        value: T
+        value: T;
     }>;
     releasePage(pageNumber: number): void;
     resolveMountedPages(options: {
@@ -60,55 +60,37 @@ export function createDocumentViewerRenderCoordinator(pageSlots: IDocumentPageSl
             releasePage(pageNumber) {
                 latestAttempts.delete(pageNumber);
             },
-            resolveMountedPages({
-                currentPage,
-                destinationPage,
-                maxPages,
-                pageCount,
-                radius = 3,
-                viewportPages = [],
-            }) {
-                const normalizePage = (pageNumber: number) => Math.max(
-                    1,
-                    Math.min(pageCount, Math.trunc(pageNumber)),
+            resolveMountedPages({currentPage, destinationPage, maxPages, pageCount, radius = 3, viewportPages = []}) {
+                const normalizePage = (pageNumber: number) => Math.max(1, Math.min(pageCount, Math.trunc(pageNumber)));
+                const normalizedViewportPages = [...new Set(viewportPages.filter(Number.isFinite).map(normalizePage))].sort(
+                    (left, right) => left - right,
                 );
-                const normalizedViewportPages = [...new Set(viewportPages
-                    .filter(Number.isFinite)
-                    .map(normalizePage))]
-                    .sort((left, right) => left - right);
                 const semanticPages = new Set<number>();
-                for (const anchor of [
-                    currentPage,
-                    destinationPage,
-                ]) {
-                    if (anchor === undefined) {continue;}
-                    for (
-                        let page = Math.max(1, anchor - radius);
-                        page <= Math.min(pageCount, anchor + radius);
-                        page += 1
-                    ) {semanticPages.add(page);}
+                for (const anchor of [currentPage, destinationPage]) {
+                    if (anchor === undefined) {
+                        continue;
+                    }
+                    for (let page = Math.max(1, anchor - radius); page <= Math.min(pageCount, anchor + radius); page += 1) {
+                        semanticPages.add(page);
+                    }
                 }
-                const candidates = new Set([
-                    ...normalizedViewportPages,
-                    ...semanticPages,
-                ]);
-                const normalizedMaxPages = maxPages === undefined
-                    ? Number.POSITIVE_INFINITY
-                    : Math.max(1, Math.trunc(maxPages));
+                const candidates = new Set([...normalizedViewportPages, ...semanticPages]);
+                const normalizedMaxPages = maxPages === undefined ? Number.POSITIVE_INFINITY : Math.max(1, Math.trunc(maxPages));
                 if (candidates.size <= normalizedMaxPages) {
                     return [...candidates].sort((left, right) => left - right);
                 }
 
                 const viewportStart = normalizedViewportPages[0];
                 const viewportEnd = normalizedViewportPages.at(-1);
-                const viewportCenter = viewportStart !== undefined && viewportEnd !== undefined
-                    ? (viewportStart + viewportEnd) / 2
-                    : normalizePage(destinationPage ?? currentPage);
-                const destination = destinationPage === undefined
-                    ? null
-                    : normalizePage(destinationPage);
+                const viewportCenter =
+                    viewportStart !== undefined && viewportEnd !== undefined
+                        ? (viewportStart + viewportEnd) / 2
+                        : normalizePage(destinationPage ?? currentPage);
+                const destination = destinationPage === undefined ? null : normalizePage(destinationPage);
                 const requiredPages = new Set<number>(normalizedViewportPages);
-                if (destination !== null) {requiredPages.add(destination);}
+                if (destination !== null) {
+                    requiredPages.add(destination);
+                }
                 requiredPages.add(normalizePage(currentPage));
                 const ranked = [...candidates].sort((left, right) => {
                     const leftRequired = requiredPages.has(left) ? 0 : 1;
@@ -126,9 +108,7 @@ export function createDocumentViewerRenderCoordinator(pageSlots: IDocumentPageSl
                     );
                     return leftDistance - rightDistance || left - right;
                 });
-                return ranked
-                    .slice(0, normalizedMaxPages)
-                    .sort((left, right) => left - right);
+                return ranked.slice(0, normalizedMaxPages).sort((left, right) => left - right);
             },
             dispose() {
                 if (disposed) {

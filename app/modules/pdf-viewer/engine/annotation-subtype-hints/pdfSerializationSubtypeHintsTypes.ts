@@ -1,11 +1,7 @@
-import type { TPageIndex } from '@contracts/pageNumbers';
+import type {TPageIndex} from '@contracts/pageNumbers';
 import type {TEpochMs} from '@contracts/timestamps';
 
-import type {
-    IAnnotationCommentSummary,
-    IAnnotationMarkerRect,
-    TMarkupSubtype,
-} from '@app/types/annotations';
+import type {IAnnotationCommentSummary, IAnnotationMarkerRect, TMarkupSubtype} from '@app/types/annotations';
 
 export type TMarkupSubtypeHintSource = 'editor-live' | IAnnotationCommentSummary['source'];
 

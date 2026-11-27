@@ -1,19 +1,8 @@
 import {Window} from 'happy-dom';
 import {getBrowserPageOpsWorkerRequestId} from '@contracts/browserPageOpsWorker';
 import {normalizePdfNativeTextBoxAppearanceRequest} from '@contracts/nativePdfMutations';
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    onTestFinished,
-    vi,
-} from 'vitest';
-import {
-    effectScope,
-    ref,
-} from 'vue';
+import {afterEach, beforeEach, describe, expect, it, onTestFinished, vi} from 'vitest';
+import {effectScope, ref} from 'vue';
 import {runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserPageOpsWorkerClient';
 import {WASM_REQUEST_ALLOCATION_ABI_VERSION} from '@contracts/getCheckedWasmMemoryView';
 import {cast} from '@tests/helpers/cast';
@@ -33,42 +22,34 @@ const failureReporter = vi.hoisted(() => ({capture: vi.fn(() => failureReceipt)}
 function appearanceRequest() {
     return normalizePdfNativeTextBoxAppearanceRequest({
         page: {
-            view: [
-                0,
-                0,
-                200,
-                100,
-            ],
+            view: [0, 0, 200, 100],
             rotation: 0,
             userUnit: 1,
         },
-        textBoxes: [{textBox: {
-            stableKey: 'worker-text-box',
-            pageIndex: 0,
-            text: 'Text',
-            rect: [
-                10,
-                40,
-                130,
-                70,
-            ],
-            rotation: 0,
-            fontSize: 12,
-            color: [
-                0,
-                0,
-                0,
-            ],
-        }}],
+        textBoxes: [
+            {
+                textBox: {
+                    stableKey: 'worker-text-box',
+                    pageIndex: 0,
+                    text: 'Text',
+                    rect: [10, 40, 130, 70],
+                    rotation: 0,
+                    fontSize: 12,
+                    color: [0, 0, 0],
+                },
+            },
+        ],
     });
 }
 
 vi.mock('@app/utils/failureReporter', () => ({captureRendererFailure: failureReporter.capture}));
 // A test can hold the browser yield that page operations take before they start.
 const browserYield = vi.hoisted(() => ({held: null as Promise<unknown> | null}));
-vi.mock('@app/platform/browser-api/browserYield', () => ({yieldToBrowser: async () => {
-    await browserYield.held;
-}}));
+vi.mock('@app/platform/browser-api/browserYield', () => ({
+    yieldToBrowser: async () => {
+        await browserYield.held;
+    },
+}));
 
 class FakeWorker {
     public static lastInstance: FakeWorker | null = null;
@@ -123,21 +104,23 @@ class FakeWorker {
         }
         const request = message as {
             id?: number;
-            type: string
+            type: string;
         };
         if (typeof request.id !== 'number') {
             return;
         }
         const requestId = request.id;
-        queueMicrotask(() => this.dispatchMessage({
-            id: requestId,
-            type: request.type,
-            ok: true,
-            data: {
-                data: new Uint8Array([2]),
-                pageCount: 1,
-            },
-        }));
+        queueMicrotask(() =>
+            this.dispatchMessage({
+                id: requestId,
+                type: request.type,
+                ok: true,
+                data: {
+                    data: new Uint8Array([2]),
+                    pageCount: 1,
+                },
+            }),
+        );
     }
 
     public dispatchMessage(data: unknown) {
@@ -160,7 +143,9 @@ class FakeWorker {
 
 function workerRequestId(worker: FakeWorker) {
     const id = getBrowserPageOpsWorkerRequestId(worker.postMessageCalls.at(-1)?.message);
-    if (id === null) {throw new Error('Worker request has no protocol id');}
+    if (id === null) {
+        throw new Error('Worker request has no protocol id');
+    }
     return id;
 }
 
@@ -197,11 +182,16 @@ describe('browserPageOpsWorkerClient', () => {
     it('lets strict conformance use its ten-minute bound and terminates it at that bound', async () => {
         FakeWorker.autoRespond = false;
         let failure: unknown;
-        const pending = runBrowserPageOpsWorkerRequest('conformance', {source: new Blob([Uint8Array.of(1)])}, {
-            dedicated: true,
-            timeoutMs: 600_000,
-        })
-            .catch(error => {failure = error;});
+        const pending = runBrowserPageOpsWorkerRequest(
+            'conformance',
+            {source: new Blob([Uint8Array.of(1)])},
+            {
+                dedicated: true,
+                timeoutMs: 600_000,
+            },
+        ).catch((error) => {
+            failure = error;
+        });
         await vi.advanceTimersByTimeAsync(121_001);
         expect(failure).toBeUndefined();
         await vi.advanceTimersByTimeAsync(478_999);
@@ -221,132 +211,184 @@ describe('browserPageOpsWorkerClient', () => {
             color: null,
             items: [],
         };
-        const missingPageIndex = Object.fromEntries(
-            Object.entries(baseBookmark).filter(([key]) => key !== 'pageIndex'),
-        );
+        const missingPageIndex = Object.fromEntries(Object.entries(baseBookmark).filter(([key]) => key !== 'pageIndex'));
         const malformedCatalogs = [
             {
                 bookmarks: [missingPageIndex],
                 pageLabels: [],
             },
             {
-                bookmarks: [{
-                    ...baseBookmark,
-                    pageYRatio: 'bad',
-                }],
-                pageLabels: [],
-            },
-            {
-                bookmarks: [{
-                    ...baseBookmark,
-                    pageYRatio: Number.NaN,
-                }],
-                pageLabels: [],
-            },
-            {
-                bookmarks: [{
-                    ...baseBookmark,
-                    pageYRatio: Number.POSITIVE_INFINITY,
-                }],
-                pageLabels: [],
-            },
-            {
-                bookmarks: [{
-                    ...baseBookmark,
-                    items: [{
+                bookmarks: [
+                    {
                         ...baseBookmark,
-                        pageIndex: undefined,
-                    }],
-                }],
+                        pageYRatio: 'bad',
+                    },
+                ],
+                pageLabels: [],
+            },
+            {
+                bookmarks: [
+                    {
+                        ...baseBookmark,
+                        pageYRatio: Number.NaN,
+                    },
+                ],
+                pageLabels: [],
+            },
+            {
+                bookmarks: [
+                    {
+                        ...baseBookmark,
+                        pageYRatio: Number.POSITIVE_INFINITY,
+                    },
+                ],
+                pageLabels: [],
+            },
+            {
+                bookmarks: [
+                    {
+                        ...baseBookmark,
+                        items: [
+                            {
+                                ...baseBookmark,
+                                pageIndex: undefined,
+                            },
+                        ],
+                    },
+                ],
                 pageLabels: [],
             },
         ];
         for (const malformed of malformedCatalogs) {
             expect(decodeBrowserPdfCatalog(malformed)).toBeNull();
         }
-        expect(decodeBrowserPdfCatalog({
-            bookmarks: [{
-                ...baseBookmark,
-                pageIndex: undefined,
-            }],
-            pageLabels: [],
-        })).toBeNull();
-        expect(decodeBrowserPdfCatalog({
-            bookmarks: [{
-                ...baseBookmark,
-                pageYRatio: 'bad',
-            }],
-            pageLabels: [],
-        })).toBeNull();
-        expect(decodeBrowserPdfCatalog({
-            bookmarks: [{
-                ...baseBookmark,
-                pageYRatio: 0.25,
-            }],
-            pageLabels: [{
-                pageIndex: 0,
-                prefix: 'Page ',
-            }],
-        })).toEqual({
-            bookmarks: [{
-                ...baseBookmark,
-                pageYRatio: 0.25,
-            }],
-            pageLabels: [{
-                pageIndex: 0,
-                prefix: 'Page ',
-            }],
-        });
-        expect(decodeBrowserPdfCatalog({
-            bookmarks: [{
-                ...baseBookmark,
-                title: '章节 α',
-                pageYRatio: undefined,
-            }],
-            pageLabels: [{
-                pageIndex: 0,
-                prefix: '頁',
-            }],
-        })).toMatchObject({
-            bookmarks: [{
-                title: '章节 α',
-                pageIndex: null,
-            }],
-            pageLabels: [{
-                pageIndex: 0,
-                prefix: '頁',
-            }],
-        });
-        expect(decodeBrowserPdfCatalog({
-            bookmarks: [{
-                ...baseBookmark,
-                pageYRatio: Number.NaN,
-            }],
-            pageLabels: [],
-        })).toBeNull();
-        expect(decodeBrowserPdfCatalog({
-            bookmarks: [{
-                ...baseBookmark,
-                pageYRatio: Number.POSITIVE_INFINITY,
-            }],
-            pageLabels: [],
-        })).toBeNull();
-        expect(decodeBrowserPdfCatalog({
-            bookmarks: [{
-                ...baseBookmark,
-                items: [{
+        expect(
+            decodeBrowserPdfCatalog({
+                bookmarks: [
+                    {
+                        ...baseBookmark,
+                        pageIndex: undefined,
+                    },
+                ],
+                pageLabels: [],
+            }),
+        ).toBeNull();
+        expect(
+            decodeBrowserPdfCatalog({
+                bookmarks: [
+                    {
+                        ...baseBookmark,
+                        pageYRatio: 'bad',
+                    },
+                ],
+                pageLabels: [],
+            }),
+        ).toBeNull();
+        expect(
+            decodeBrowserPdfCatalog({
+                bookmarks: [
+                    {
+                        ...baseBookmark,
+                        pageYRatio: 0.25,
+                    },
+                ],
+                pageLabels: [
+                    {
+                        pageIndex: 0,
+                        prefix: 'Page ',
+                    },
+                ],
+            }),
+        ).toEqual({
+            bookmarks: [
+                {
                     ...baseBookmark,
-                    pageIndex: undefined,
-                }],
-            }],
-            pageLabels: [],
-        })).toBeNull();
+                    pageYRatio: 0.25,
+                },
+            ],
+            pageLabels: [
+                {
+                    pageIndex: 0,
+                    prefix: 'Page ',
+                },
+            ],
+        });
+        expect(
+            decodeBrowserPdfCatalog({
+                bookmarks: [
+                    {
+                        ...baseBookmark,
+                        title: '章节 α',
+                        pageYRatio: undefined,
+                    },
+                ],
+                pageLabels: [
+                    {
+                        pageIndex: 0,
+                        prefix: '頁',
+                    },
+                ],
+            }),
+        ).toMatchObject({
+            bookmarks: [
+                {
+                    title: '章节 α',
+                    pageIndex: null,
+                },
+            ],
+            pageLabels: [
+                {
+                    pageIndex: 0,
+                    prefix: '頁',
+                },
+            ],
+        });
+        expect(
+            decodeBrowserPdfCatalog({
+                bookmarks: [
+                    {
+                        ...baseBookmark,
+                        pageYRatio: Number.NaN,
+                    },
+                ],
+                pageLabels: [],
+            }),
+        ).toBeNull();
+        expect(
+            decodeBrowserPdfCatalog({
+                bookmarks: [
+                    {
+                        ...baseBookmark,
+                        pageYRatio: Number.POSITIVE_INFINITY,
+                    },
+                ],
+                pageLabels: [],
+            }),
+        ).toBeNull();
+        expect(
+            decodeBrowserPdfCatalog({
+                bookmarks: [
+                    {
+                        ...baseBookmark,
+                        items: [
+                            {
+                                ...baseBookmark,
+                                pageIndex: undefined,
+                            },
+                        ],
+                    },
+                ],
+                pageLabels: [],
+            }),
+        ).toBeNull();
     });
 
     it('enforces the named reader budgets at the exact boundary and one over', async () => {
         const {
-            decodeBrowserPdfCatalog, BROWSER_PDF_CATALOG_MAX_BOOKMARK_DEPTH,
-            BROWSER_PDF_CATALOG_MAX_BOOKMARK_ITEMS, BROWSER_PDF_CATALOG_MAX_PAGE_LABELS,
+            decodeBrowserPdfCatalog,
+            BROWSER_PDF_CATALOG_MAX_BOOKMARK_DEPTH,
+            BROWSER_PDF_CATALOG_MAX_BOOKMARK_ITEMS,
+            BROWSER_PDF_CATALOG_MAX_PAGE_LABELS,
         } = await import('@contracts/browserPdfCatalog');
         const bookmark = (items: unknown[] = []) => ({
             title: 'Chapter α',
@@ -366,26 +408,36 @@ describe('browserPageOpsWorkerClient', () => {
             return value;
         };
 
-        expect(decodeBrowserPdfCatalog({
-            bookmarks: Array.from({length: BROWSER_PDF_CATALOG_MAX_BOOKMARK_ITEMS}, () => bookmark()),
-            pageLabels: labels(BROWSER_PDF_CATALOG_MAX_PAGE_LABELS),
-        })).not.toBeNull();
-        expect(decodeBrowserPdfCatalog({
-            bookmarks: Array.from({length: BROWSER_PDF_CATALOG_MAX_BOOKMARK_ITEMS + 1}, () => bookmark()),
-            pageLabels: [],
-        })).toBeNull();
-        expect(decodeBrowserPdfCatalog({
-            bookmarks: [chain(BROWSER_PDF_CATALOG_MAX_BOOKMARK_DEPTH)],
-            pageLabels: [],
-        })).not.toBeNull();
-        expect(decodeBrowserPdfCatalog({
-            bookmarks: [chain(BROWSER_PDF_CATALOG_MAX_BOOKMARK_DEPTH + 1)],
-            pageLabels: [],
-        })).toBeNull();
-        expect(decodeBrowserPdfCatalog({
-            bookmarks: [],
-            pageLabels: labels(BROWSER_PDF_CATALOG_MAX_PAGE_LABELS + 1),
-        })).toBeNull();
+        expect(
+            decodeBrowserPdfCatalog({
+                bookmarks: Array.from({length: BROWSER_PDF_CATALOG_MAX_BOOKMARK_ITEMS}, () => bookmark()),
+                pageLabels: labels(BROWSER_PDF_CATALOG_MAX_PAGE_LABELS),
+            }),
+        ).not.toBeNull();
+        expect(
+            decodeBrowserPdfCatalog({
+                bookmarks: Array.from({length: BROWSER_PDF_CATALOG_MAX_BOOKMARK_ITEMS + 1}, () => bookmark()),
+                pageLabels: [],
+            }),
+        ).toBeNull();
+        expect(
+            decodeBrowserPdfCatalog({
+                bookmarks: [chain(BROWSER_PDF_CATALOG_MAX_BOOKMARK_DEPTH)],
+                pageLabels: [],
+            }),
+        ).not.toBeNull();
+        expect(
+            decodeBrowserPdfCatalog({
+                bookmarks: [chain(BROWSER_PDF_CATALOG_MAX_BOOKMARK_DEPTH + 1)],
+                pageLabels: [],
+            }),
+        ).toBeNull();
+        expect(
+            decodeBrowserPdfCatalog({
+                bookmarks: [],
+                pageLabels: labels(BROWSER_PDF_CATALOG_MAX_PAGE_LABELS + 1),
+            }),
+        ).toBeNull();
     });
 
     it('owns an unexpected worker failure and carries one receipt through rejection', async () => {
@@ -402,8 +454,10 @@ describe('browserPageOpsWorkerClient', () => {
 
         worker.dispatchError(new Error('page operations worker crashed'));
         const error = await request.then(
-            () => { throw new Error('Expected a worker failure'); },
-            value => {
+            () => {
+                throw new Error('Expected a worker failure');
+            },
+            (value) => {
                 if (!(value instanceof Error)) {
                     throw new Error('Expected a worker failure');
                 }
@@ -424,7 +478,9 @@ describe('browserPageOpsWorkerClient', () => {
         const opened = runBrowserPageOpsWorkerRequest('parseAnnotations', {source: new Blob([input])}, {dedicated: true});
         await vi.advanceTimersByTimeAsync(0);
         await expect(opened).resolves.toEqual({data: Uint8Array.of(2)});
-        vi.stubGlobal('Worker', function () { throw new Error('Cold worker startup is unavailable'); });
+        vi.stubGlobal('Worker', function () {
+            throw new Error('Cold worker startup is unavailable');
+        });
         const saved = runBrowserPageOpsWorkerRequest('parseAnnotations', {source: new Blob([input])}, {dedicated: true});
         await vi.advanceTimersByTimeAsync(0);
         await expect(saved).resolves.toEqual({data: Uint8Array.of(2)});
@@ -432,7 +488,9 @@ describe('browserPageOpsWorkerClient', () => {
     });
 
     it('reports unavailable native appearance generation when a worker cannot start', async () => {
-        vi.stubGlobal('Worker', function () { throw new Error('Worker startup is unavailable'); });
+        vi.stubGlobal('Worker', function () {
+            throw new Error('Worker startup is unavailable');
+        });
         const result = runBrowserPageOpsWorkerRequest('textBoxAppearance', appearanceRequest());
         await expect(result).rejects.toThrow('Text appearance generation requires a worker');
     });
@@ -441,28 +499,39 @@ describe('browserPageOpsWorkerClient', () => {
         FakeWorker.autoRespond = false;
         const settle = (request: Promise<unknown>) => {
             const state = {outcome: 'pending'};
-            void request.then(() => {
-                state.outcome = 'resolved';
-            }, (error: unknown) => {
-                state.outcome = error instanceof Error ? error.message : String(error);
-            });
+            void request.then(
+                () => {
+                    state.outcome = 'resolved';
+                },
+                (error: unknown) => {
+                    state.outcome = error instanceof Error ? error.message : String(error);
+                },
+            );
             return state;
         };
         // Desktop's two minutes plus a second per MiB: 130 s for 10 MiB.
-        const uncancellable = settle(runBrowserPageOpsWorkerRequest('decrypt', {
-            data: new Uint8Array(10 * 1024 * 1024),
-            password: '',
-        }));
+        const uncancellable = settle(
+            runBrowserPageOpsWorkerRequest('decrypt', {
+                data: new Uint8Array(10 * 1024 * 1024),
+                password: '',
+            }),
+        );
         await vi.advanceTimersByTimeAsync(129_000);
         expect(uncancellable.outcome).toBe('pending');
         await vi.advanceTimersByTimeAsync(1_000);
         expect(uncancellable.outcome).toContain('timed out after 130000ms');
 
         const controller = new AbortController();
-        const cancellable = settle(runBrowserPageOpsWorkerRequest('decrypt', {
-            data: new Uint8Array([1]),
-            password: '',
-        }, {signal: controller.signal}));
+        const cancellable = settle(
+            runBrowserPageOpsWorkerRequest(
+                'decrypt',
+                {
+                    data: new Uint8Array([1]),
+                    password: '',
+                },
+                {signal: controller.signal},
+            ),
+        );
         await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
         expect(cancellable.outcome).toBe('pending');
         controller.abort(new Error('canceled by the user'));
@@ -477,37 +546,34 @@ describe('browserPageOpsWorkerClient', () => {
         const first = shared.subarray(0, 8);
         const second = shared.subarray(8);
         const controller = new AbortController();
-        const request = runBrowserPageOpsWorkerRequest('replacePageImages', {
-            data: base,
-            replacementPdfs: [
-                first,
-                second,
-                first,
-            ],
-            instructions: {
-                maxByteRatio: 0.9,
-                pages: [],
+        const request = runBrowserPageOpsWorkerRequest(
+            'replacePageImages',
+            {
+                data: base,
+                replacementPdfs: [first, second, first],
+                instructions: {
+                    maxByteRatio: 0.9,
+                    pages: [],
+                },
             },
-        }, {signal: controller.signal});
+            {signal: controller.signal},
+        );
         const settled = request.catch((error: unknown) => error);
         await vi.advanceTimersByTimeAsync(0);
 
         const call = FakeWorker.instances.at(-1)?.postMessageCalls.at(-1);
-        const payload = (call?.message as {payload: {
-            data: Uint8Array;
-            replacementPdfs: Uint8Array[]
-        }}).payload;
+        const payload = (
+            call?.message as {
+                payload: {
+                    data: Uint8Array;
+                    replacementPdfs: Uint8Array[];
+                };
+            }
+        ).payload;
         expect(new TextDecoder().decode(base)).toBe('%PDF-base');
         expect(payload.data.buffer).not.toBe(base.buffer);
-        expect(payload.replacementPdfs.map(pdf => new TextDecoder().decode(pdf))).toEqual([
-            '%PDF-att',
-            'achments',
-            '%PDF-att',
-        ]);
-        const buffers = [
-            payload.data.buffer,
-            ...payload.replacementPdfs.map(pdf => pdf.buffer),
-        ];
+        expect(payload.replacementPdfs.map((pdf) => new TextDecoder().decode(pdf))).toEqual(['%PDF-att', 'achments', '%PDF-att']);
+        const buffers = [payload.data.buffer, ...payload.replacementPdfs.map((pdf) => pdf.buffer)];
         expect(new Set(buffers).size).toBe(4);
         expect(new Set(call?.transfer).size).toBe(call?.transfer.length);
         expect(call?.transfer).toEqual(buffers);
@@ -517,34 +583,47 @@ describe('browserPageOpsWorkerClient', () => {
     });
 
     it('refuses the main-thread engine for a pass that must stay cancellable', async () => {
-        vi.stubGlobal('Worker', function () { throw new Error('Worker startup is unavailable'); });
-        const result = runBrowserPageOpsWorkerRequest('recompressImages', {
-            data: Uint8Array.of(1),
-            instructions: {
-                maxByteRatio: 0.9,
-                targetDpi: 200,
-                quality: 82,
-            },
-        }, {
-            signal: new AbortController().signal,
-            requireWorker: true,
+        vi.stubGlobal('Worker', function () {
+            throw new Error('Worker startup is unavailable');
         });
+        const result = runBrowserPageOpsWorkerRequest(
+            'recompressImages',
+            {
+                data: Uint8Array.of(1),
+                instructions: {
+                    maxByteRatio: 0.9,
+                    targetDpi: 200,
+                    quality: 82,
+                },
+            },
+            {
+                signal: new AbortController().signal,
+                requireWorker: true,
+            },
+        );
         await expect(result).rejects.toThrow('recompressImages requires a worker');
     });
 
     it('ends a signaled pass at its explicit deadline', async () => {
         FakeWorker.autoRespond = false;
-        const outcome = runBrowserPageOpsWorkerRequest('recompressImages', {
-            data: Uint8Array.of(1),
-            instructions: {
-                maxByteRatio: 0.9,
-                targetDpi: 200,
-                quality: 82,
+        const outcome = runBrowserPageOpsWorkerRequest(
+            'recompressImages',
+            {
+                data: Uint8Array.of(1),
+                instructions: {
+                    maxByteRatio: 0.9,
+                    targetDpi: 200,
+                    quality: 82,
+                },
             },
-        }, {
-            signal: new AbortController().signal,
-            timeoutMs: 1_800_000,
-        }).then(() => 'resolved', (error: unknown) => (error instanceof Error ? error.message : String(error)));
+            {
+                signal: new AbortController().signal,
+                timeoutMs: 1_800_000,
+            },
+        ).then(
+            () => 'resolved',
+            (error: unknown) => (error instanceof Error ? error.message : String(error)),
+        );
         await vi.advanceTimersByTimeAsync(1_799_999);
         expect(FakeWorker.instances.at(-1)?.terminated).toBe(false);
         await vi.advanceTimersByTimeAsync(1);
@@ -567,20 +646,16 @@ describe('browserPageOpsWorkerClient', () => {
     it('cancels one dedicated parse without resetting an overlapping sibling', async () => {
         FakeWorker.autoRespond = false;
         const canceledController = new AbortController();
-        const canceledInput = new Uint8Array([
-            1,
-            2,
-            3,
-        ]);
-        const siblingInput = new Uint8Array([
-            4,
-            5,
-            6,
-        ]);
-        const canceled = runBrowserPageOpsWorkerRequest('parseAnnotations', {source: new Blob([canceledInput])}, {
-            dedicated: true,
-            signal: canceledController.signal,
-        });
+        const canceledInput = new Uint8Array([1, 2, 3]);
+        const siblingInput = new Uint8Array([4, 5, 6]);
+        const canceled = runBrowserPageOpsWorkerRequest(
+            'parseAnnotations',
+            {source: new Blob([canceledInput])},
+            {
+                dedicated: true,
+                signal: canceledController.signal,
+            },
+        );
         const sibling = runBrowserPageOpsWorkerRequest('parseAnnotations', {source: new Blob([siblingInput])}, {dedicated: true});
         await vi.advanceTimersByTimeAsync(0);
 
@@ -595,27 +670,14 @@ describe('browserPageOpsWorkerClient', () => {
         canceledController.abort(cancelReason);
         await expect(canceled).rejects.toBe(cancelReason);
 
-        const siblingResult = new Uint8Array([
-            7,
-            8,
-            9,
-            10,
-        ]);
+        const siblingResult = new Uint8Array([7, 8, 9, 10]);
         siblingWorker.dispatchMessage(createParseResponse(siblingWorker, siblingResult));
         await expect(sibling).resolves.toEqual({data: siblingResult});
 
         expect(canceledWorker.terminated).toBe(true);
         expect(siblingWorker.terminated).toBe(false);
-        expect(canceledInput).toEqual(new Uint8Array([
-            1,
-            2,
-            3,
-        ]));
-        expect(siblingInput).toEqual(new Uint8Array([
-            4,
-            5,
-            6,
-        ]));
+        expect(canceledInput).toEqual(new Uint8Array([1, 2, 3]));
+        expect(siblingInput).toEqual(new Uint8Array([4, 5, 6]));
     });
 
     it('starts no worker for an operation a page reset rejected while it yielded', async () => {
@@ -647,19 +709,28 @@ describe('browserPageOpsWorkerClient', () => {
         vi.stubGlobal('Worker', undefined);
         vi.stubGlobal('location', {href: 'https://viewer.test/workspace'});
         const response = Promise.withResolvers<Response>();
-        vi.stubGlobal('fetch', vi.fn(() => response.promise));
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(() => response.promise),
+        );
         const engineRuns = vi.fn(() => 1);
-        const instantiate = vi.spyOn(WebAssembly, 'instantiate').mockResolvedValue(cast({instance: {exports: {
-            memory: new WebAssembly.Memory({initial: 2}),
-            evb_wasm_request_allocation_abi_version: () => WASM_REQUEST_ALLOCATION_ABI_VERSION,
-            evb_pdf_page_ops_alloc: () => 8,
-            evb_pdf_page_ops_free: () => undefined,
-            evb_pdf_page_ops_run: engineRuns,
-            evb_pdf_page_ops_output_ptr: () => 0,
-            evb_pdf_page_ops_output_len: () => 0,
-            evb_pdf_page_ops_error_ptr: () => 0,
-            evb_pdf_page_ops_error_len: () => 0,
-        }}}));
+        const instantiate = vi.spyOn(WebAssembly, 'instantiate').mockResolvedValue(
+            cast({
+                instance: {
+                    exports: {
+                        memory: new WebAssembly.Memory({initial: 2}),
+                        evb_wasm_request_allocation_abi_version: () => WASM_REQUEST_ALLOCATION_ABI_VERSION,
+                        evb_pdf_page_ops_alloc: () => 8,
+                        evb_pdf_page_ops_free: () => undefined,
+                        evb_pdf_page_ops_run: engineRuns,
+                        evb_pdf_page_ops_output_ptr: () => 0,
+                        evb_pdf_page_ops_output_len: () => 0,
+                        evb_pdf_page_ops_error_ptr: () => 0,
+                        evb_pdf_page_ops_error_len: () => 0,
+                    },
+                },
+            }),
+        );
         onTestFinished(() => instantiate.mockRestore());
         // A fresh module has not loaded the engine yet.
         vi.resetModules();
@@ -685,12 +756,11 @@ describe('browserPageOpsWorkerClient', () => {
         const target = new EventTarget();
         vi.stubGlobal('window', target);
         FakeWorker.autoRespond = false;
-        const outcomes = [
-            1,
-            2,
-            3,
-        ].map(byte => runBrowserPageOpsWorkerRequest('parseAnnotations', {source: new Blob([Uint8Array.of(byte)])}, {dedicated: true})
-            .catch((error: unknown) => error));
+        const outcomes = [1, 2, 3].map((byte) =>
+            runBrowserPageOpsWorkerRequest('parseAnnotations', {source: new Blob([Uint8Array.of(byte)])}, {dedicated: true}).catch(
+                (error: unknown) => error,
+            ),
+        );
         await vi.advanceTimersByTimeAsync(0);
         expect(FakeWorker.instances).toHaveLength(2);
 
@@ -705,17 +775,22 @@ describe('browserPageOpsWorkerClient', () => {
             });
         }
         FakeWorker.autoRespond = true;
-        await expect(runBrowserPageOpsWorkerRequest('parseAnnotations', {source: new Blob([Uint8Array.of(4)])}, {dedicated: true}))
-            .resolves.toEqual({data: Uint8Array.of(2)});
+        await expect(
+            runBrowserPageOpsWorkerRequest('parseAnnotations', {source: new Blob([Uint8Array.of(4)])}, {dedicated: true}),
+        ).resolves.toEqual({data: Uint8Array.of(2)});
     });
 
     it('ignores a late result from a canceled dedicated parse generation', async () => {
         FakeWorker.autoRespond = false;
         const staleController = new AbortController();
-        const stale = runBrowserPageOpsWorkerRequest('parseAnnotations', {source: new Blob([new Uint8Array([1])])}, {
-            dedicated: true,
-            signal: staleController.signal,
-        });
+        const stale = runBrowserPageOpsWorkerRequest(
+            'parseAnnotations',
+            {source: new Blob([new Uint8Array([1])])},
+            {
+                dedicated: true,
+                signal: staleController.signal,
+            },
+        );
         await vi.advanceTimersByTimeAsync(0);
         const staleWorker = FakeWorker.instances[0];
         if (!staleWorker) {
@@ -727,7 +802,11 @@ describe('browserPageOpsWorkerClient', () => {
         staleController.abort(cancelReason);
         await staleRejection;
 
-        const replacement = runBrowserPageOpsWorkerRequest('parseAnnotations', {source: new Blob([new Uint8Array([2])])}, {dedicated: true});
+        const replacement = runBrowserPageOpsWorkerRequest(
+            'parseAnnotations',
+            {source: new Blob([new Uint8Array([2])])},
+            {dedicated: true},
+        );
         await vi.advanceTimersByTimeAsync(0);
         const replacementWorker = FakeWorker.instances[1];
         if (!replacementWorker) {
@@ -736,18 +815,18 @@ describe('browserPageOpsWorkerClient', () => {
 
         let replacementOutcome: unknown;
         replacement.then(
-            value => { replacementOutcome = value; },
-            error => { replacementOutcome = error; },
+            (value) => {
+                replacementOutcome = value;
+            },
+            (error) => {
+                replacementOutcome = error;
+            },
         );
         staleWorker.dispatchMessage(createParseResponse(staleWorker, new Uint8Array([99])));
         await vi.advanceTimersByTimeAsync(0);
         expect(replacementOutcome).toBeUndefined();
 
-        const replacementResult = new Uint8Array([
-            11,
-            12,
-            13,
-        ]);
+        const replacementResult = new Uint8Array([11, 12, 13]);
         replacementWorker.dispatchMessage(createParseResponse(replacementWorker, replacementResult));
         await expect(replacement).resolves.toEqual({data: replacementResult});
         expect(staleWorker.terminated).toBe(true);
@@ -756,11 +835,7 @@ describe('browserPageOpsWorkerClient', () => {
 
     it('isolates a dedicated worker failure and posts its source by reference', async () => {
         FakeWorker.autoRespond = false;
-        const failedSource = new Blob([new Uint8Array([
-            13,
-            14,
-            15,
-        ])]);
+        const failedSource = new Blob([new Uint8Array([13, 14, 15])]);
         const sibling = runBrowserPageOpsWorkerRequest('parseAnnotations', {source: new Blob([new Uint8Array([16])])}, {dedicated: true});
         const failed = runBrowserPageOpsWorkerRequest('parseAnnotations', {source: failedSource}, {dedicated: true});
         await vi.advanceTimersByTimeAsync(0);
@@ -773,19 +848,14 @@ describe('browserPageOpsWorkerClient', () => {
         }
 
         // The engine reads the document by range from the Blob: nothing is copied or transferred.
-        const postedRequest = failedWorker.postMessageCalls[0]?.message as {payload: {source: Blob};} | undefined;
+        const postedRequest = failedWorker.postMessageCalls[0]?.message as {payload: {source: Blob}} | undefined;
         expect(postedRequest?.payload.source).toBeInstanceOf(Blob);
         expect(postedRequest?.payload.source.size).toBe(failedSource.size);
 
         failedWorker.dispatchError(new Error('dedicated parse worker crashed'));
         await expect(failed).rejects.toThrow('dedicated parse worker crashed');
 
-        const siblingResult = new Uint8Array([
-            21,
-            22,
-            23,
-            24,
-        ]);
+        const siblingResult = new Uint8Array([21, 22, 23, 24]);
         siblingWorker.dispatchMessage(createParseResponse(siblingWorker, siblingResult));
         await expect(sibling).resolves.toEqual({data: siblingResult});
 
@@ -793,31 +863,26 @@ describe('browserPageOpsWorkerClient', () => {
         expect(failedWorker.terminated).toBe(true);
         expect(siblingWorker.terminated).toBe(false);
     });
-    it.each([
-        'textBoxAppearance',
-        'decrypt',
-        'printLayout',
-    ] as const)(
-        'isolates cancellation of %s from an overlapping page operation', async (type) => {
+    it.each(['textBoxAppearance', 'decrypt', 'printLayout'] as const)(
+        'isolates cancellation of %s from an overlapping page operation',
+        async (type) => {
             FakeWorker.autoRespond = false;
             const controller = new AbortController();
-            const input = new Uint8Array([
-                1,
-                2,
-                3,
-            ]);
-            const payload = type === 'textBoxAppearance' ? appearanceRequest()
-                : type === 'decrypt'
-                    ? {
-                        data: input,
-                        password: 'transient',
-                    }
-                    : {
-                        data: input,
-                        pageNumbers: [],
-                        viewMode: 'facing' as const,
-                        orientation: 'landscape' as const,
-                    };
+            const input = new Uint8Array([1, 2, 3]);
+            const payload =
+                type === 'textBoxAppearance'
+                    ? appearanceRequest()
+                    : type === 'decrypt'
+                      ? {
+                            data: input,
+                            password: 'transient',
+                        }
+                      : {
+                            data: input,
+                            pageNumbers: [],
+                            viewMode: 'facing' as const,
+                            orientation: 'landscape' as const,
+                        };
             const canceled = runBrowserPageOpsWorkerRequest(type, payload, {signal: controller.signal});
             await vi.advanceTimersByTimeAsync(0);
             const sibling = runBrowserPageOpsWorkerRequest('getPageGeometry', {
@@ -829,7 +894,9 @@ describe('browserPageOpsWorkerClient', () => {
             controller.abort(reason);
             await rejection;
             const siblingWorker = FakeWorker.lastInstance;
-            if (!siblingWorker) {throw new Error('Missing sibling worker');}
+            if (!siblingWorker) {
+                throw new Error('Missing sibling worker');
+            }
             const siblingRequest = siblingWorker.postMessageCalls[0]?.message as {id: number};
             const geometry = {
                 mediaBox: {
@@ -849,11 +916,7 @@ describe('browserPageOpsWorkerClient', () => {
                 data: geometry,
             });
             await expect(sibling).resolves.toEqual(geometry);
-            expect(input).toEqual(new Uint8Array([
-                1,
-                2,
-                3,
-            ]));
+            expect(input).toEqual(new Uint8Array([1, 2, 3]));
         },
     );
 
@@ -865,7 +928,10 @@ describe('browserPageOpsWorkerClient', () => {
         Reflect.set(browserWindow, 'print', () => undefined);
         const notices: unknown[] = [];
         vi.stubGlobal('useToast', () => ({
-            add: (notice: unknown) => { notices.push(notice); return {id: 'print-notice'}; },
+            add: (notice: unknown) => {
+                notices.push(notice);
+                return {id: 'print-notice'};
+            },
             remove: () => undefined,
         }));
         vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -873,27 +939,30 @@ describe('browserPageOpsWorkerClient', () => {
         vi.spyOn(browserWindow.document.body, 'append').mockImplementation((...nodes) => {
             append(...nodes);
             // Supply the frame-load browser event; the real DOM owns its contents.
-            queueMicrotask(() => browserWindow.document.querySelector('iframe')
-                ?.dispatchEvent(new browserWindow.Event('load')));
+            queueMicrotask(() => browserWindow.document.querySelector('iframe')?.dispatchEvent(new browserWindow.Event('load')));
         });
         let rendered = false;
         const scope = effectScope();
         try {
-            const print = scope.run(() => useWorkspacePrint({
-                totalPages: ref(1),
-                sourcePdf: ref(null),
-                workingCopyPath: ref(null),
-                fileName: ref('failed-print.pdf'),
-                hasPendingUnsavedChanges: ref(false),
-                getPrintableSourceData: async () => null,
-                renderLoadedPdfPagesForBrowserPrint: async (targetDocument) => {
-                    rendered = true;
-                    expect(browserWindow.document.querySelectorAll('iframe[aria-hidden="true"]')).toHaveLength(1);
-                    targetDocument.querySelector('[data-browser-print-root]')?.append(targetDocument.createElement('section'));
-                    throw new Error('The PDF page could not be rendered for print');
-                },
-            }));
-            if (!print) {throw new Error('Missing print owner');}
+            const print = scope.run(() =>
+                useWorkspacePrint({
+                    totalPages: ref(1),
+                    sourcePdf: ref(null),
+                    workingCopyPath: ref(null),
+                    fileName: ref('failed-print.pdf'),
+                    hasPendingUnsavedChanges: ref(false),
+                    getPrintableSourceData: async () => null,
+                    renderLoadedPdfPagesForBrowserPrint: async (targetDocument) => {
+                        rendered = true;
+                        expect(browserWindow.document.querySelectorAll('iframe[aria-hidden="true"]')).toHaveLength(1);
+                        targetDocument.querySelector('[data-browser-print-root]')?.append(targetDocument.createElement('section'));
+                        throw new Error('The PDF page could not be rendered for print');
+                    },
+                }),
+            );
+            if (!print) {
+                throw new Error('Missing print owner');
+            }
             await print.handlePrintDialogSubmit({
                 pageNumbers: [1],
                 viewMode: 'single',
@@ -914,7 +983,10 @@ describe('browserPageOpsWorkerClient', () => {
     it('stops reading and releases a prepared print PDF when the dialog closes', async () => {
         const notices: unknown[] = [];
         vi.stubGlobal('useToast', () => ({
-            add: (notice: unknown) => { notices.push(notice); return {id: 'print-notice'}; },
+            add: (notice: unknown) => {
+                notices.push(notice);
+                return {id: 'print-notice'};
+            },
             remove: () => undefined,
         }));
         const firstRead = Promise.withResolvers<undefined>();
@@ -923,35 +995,45 @@ describe('browserPageOpsWorkerClient', () => {
         const size = chunkBytes * 2 + 1;
         let bytesRead = 0;
         let released = false;
-        setBrowserPlatformApi(createPlatformApiFixture({
-            backend: 'browser',
-            overrides: {documentFiles: {
-                statFile: async () => ({size}),
-                readFileRange: async (_path, offset, length) => {
-                    if (offset === 0) {
-                        firstRead.resolve(undefined);
-                        await continueRead.promise;
-                    }
-                    bytesRead += length;
-                    return new Uint8Array(length);
+        setBrowserPlatformApi(
+            createPlatformApiFixture({
+                backend: 'browser',
+                overrides: {
+                    documentFiles: {
+                        statFile: async () => ({size}),
+                        readFileRange: async (_path, offset, length) => {
+                            if (offset === 0) {
+                                firstRead.resolve(undefined);
+                                await continueRead.promise;
+                            }
+                            bytesRead += length;
+                            return new Uint8Array(length);
+                        },
+                    },
                 },
-            }},
-        }));
-        const scope = effectScope();
-        const print = scope.run(() => useWorkspacePrint({
-            totalPages: ref(2),
-            sourcePdf: ref(null),
-            workingCopyPath: ref(null),
-            fileName: ref('cancel-prepared.djvu'),
-            hasPendingUnsavedChanges: ref(false),
-            getPrintableSourceData: async () => null,
-            preparePrintSource: async () => ({
-                status: 'printable-pdf',
-                documentRef: requireDocumentRef('browser://documents/prepared-print.pdf'),
-                release: async () => { released = true; },
             }),
-        }));
-        if (!print) {throw new Error('Missing print owner');}
+        );
+        const scope = effectScope();
+        const print = scope.run(() =>
+            useWorkspacePrint({
+                totalPages: ref(2),
+                sourcePdf: ref(null),
+                workingCopyPath: ref(null),
+                fileName: ref('cancel-prepared.djvu'),
+                hasPendingUnsavedChanges: ref(false),
+                getPrintableSourceData: async () => null,
+                preparePrintSource: async () => ({
+                    status: 'printable-pdf',
+                    documentRef: requireDocumentRef('browser://documents/prepared-print.pdf'),
+                    release: async () => {
+                        released = true;
+                    },
+                }),
+            }),
+        );
+        if (!print) {
+            throw new Error('Missing print owner');
+        }
         print.handlePrintDialogOpenChange(true);
         const preparation = print.handlePrintDialogSubmit({
             viewMode: 'single',
@@ -977,25 +1059,30 @@ describe('browserPageOpsWorkerClient', () => {
         FakeWorker.autoRespond = false;
         const notices: unknown[] = [];
         vi.stubGlobal('useToast', () => ({
-            add: (notice: unknown) => { notices.push(notice); return {id: 'print-notice'}; },
+            add: (notice: unknown) => {
+                notices.push(notice);
+                return {id: 'print-notice'};
+            },
             remove: () => undefined,
         }));
-        const workerReady = new Promise<FakeWorker>(resolve => { FakeWorker.onPostMessage = resolve; });
+        const workerReady = new Promise<FakeWorker>((resolve) => {
+            FakeWorker.onPostMessage = resolve;
+        });
         const scope = effectScope();
-        const input = new Uint8Array([
-            1,
-            2,
-            3,
-        ]);
-        const print = scope.run(() => useWorkspacePrint({
-            totalPages: ref(2),
-            sourcePdf: ref(null),
-            workingCopyPath: ref(null),
-            fileName: ref('cancel-print.pdf'),
-            hasPendingUnsavedChanges: ref(false),
-            getPrintableSourceData: async () => input,
-        }));
-        if (!print) {throw new Error('Missing print owner');}
+        const input = new Uint8Array([1, 2, 3]);
+        const print = scope.run(() =>
+            useWorkspacePrint({
+                totalPages: ref(2),
+                sourcePdf: ref(null),
+                workingCopyPath: ref(null),
+                fileName: ref('cancel-print.pdf'),
+                hasPendingUnsavedChanges: ref(false),
+                getPrintableSourceData: async () => input,
+            }),
+        );
+        if (!print) {
+            throw new Error('Missing print owner');
+        }
         print.handlePrintDialogOpenChange(true);
         const preparation = print.handlePrintDialogSubmit({
             viewMode: 'facing',
@@ -1008,11 +1095,7 @@ describe('browserPageOpsWorkerClient', () => {
             await preparation;
             expect(print.isPreparingPrint.value).toBe(false);
             expect(notices).toEqual([]);
-            expect(input).toEqual(new Uint8Array([
-                1,
-                2,
-                3,
-            ]));
+            expect(input).toEqual(new Uint8Array([1, 2, 3]));
         } finally {
             scope.stop();
             // Release the pre-fix pending worker after the failing assertion.
@@ -1072,10 +1155,15 @@ describe('browserPageOpsWorkerClient', () => {
         const {settleBrowserWorkerResult} = await import('@app/platform/browser-api/settleBrowserWorkerResult');
         const workerListeners: Array<(event: MessageEvent<unknown>) => void> = [];
         const posted: unknown[] = [];
-        let thrownError: Error = new DOMException('The requested file could not be read, typically due to permission problems.', 'NotReadableError');
+        let thrownError: Error = new DOMException(
+            'The requested file could not be read, typically due to permission problems.',
+            'NotReadableError',
+        );
         vi.stubGlobal('self', {
             addEventListener: (type: string, listener: (event: MessageEvent<unknown>) => void) => {
-                if (type === 'message') {workerListeners.push(listener);}
+                if (type === 'message') {
+                    workerListeners.push(listener);
+                }
             },
             postMessage: (message: unknown) => {
                 posted.push(message);
@@ -1083,7 +1171,7 @@ describe('browserPageOpsWorkerClient', () => {
         });
         vi.resetModules();
         vi.doMock('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm', async (original) => ({
-            ...await original<typeof import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm')>(),
+            ...(await original<typeof import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm')>()),
             tryRunBrowserPageOpsWithWasm: async () => {
                 throw thrownError;
             },
@@ -1114,13 +1202,16 @@ describe('browserPageOpsWorkerClient', () => {
             } as MessageEvent<unknown>);
             let rejected: TRejectedWorkerError | null = null;
             const pending = new Map([
-                [id, {
-                    requestType: 'renderScanCleanupRaster',
-                    resolveData: () => true,
-                    reject: (err: Error) => {
-                        rejected = err as TRejectedWorkerError;
+                [
+                    id,
+                    {
+                        requestType: 'renderScanCleanupRaster',
+                        resolveData: () => true,
+                        reject: (err: Error) => {
+                            rejected = err as TRejectedWorkerError;
+                        },
                     },
-                }],
+                ],
             ]);
             settleBrowserWorkerResult(pending, posted.at(-1), () => undefined);
             return rejected;
@@ -1142,5 +1233,4 @@ describe('browserPageOpsWorkerClient', () => {
         expect(coded!.errorEnvelope).toMatchObject({code: 'QUOTA_EXCEEDED'});
         vi.doUnmock('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
     });
-
 });

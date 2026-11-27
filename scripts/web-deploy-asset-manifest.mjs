@@ -1,24 +1,21 @@
-import { REQUIRED_WEB_WASM_ASSETS } from './wasm-artifacts.mjs';
+import {REQUIRED_WEB_WASM_ASSETS} from './wasm-artifacts.mjs';
 
-export { REQUIRED_WEB_WASM_ASSETS };
+export {REQUIRED_WEB_WASM_ASSETS};
 
 const REQUIRED_WEB_FILE_ASSETS = [
-    { relativePath: 'pdf/pdf.worker.min.mjs' },
-    { relativePath: 'wasm/evb-tesseract.mjs' },
-    { relativePath: 'wasm/evb-qpdf.mjs' },
-    { relativePath: 'wasm/evb-djvulibre.mjs' },
-    { relativePath: 'pdf/wasm/openjpeg.wasm' },
-    { relativePath: 'pdf/wasm/jbig2.wasm' },
-    { relativePath: 'pdf/wasm/qcms_bg.wasm' },
-    { relativePath: 'pdf/cmaps/Adobe-CNS1-UCS2.bcmap' },
-    { relativePath: 'pdf/cmaps/Adobe-GB1-UCS2.bcmap' },
-    { relativePath: 'pdf/cmaps/Adobe-Japan1-UCS2.bcmap' },
-    { relativePath: 'pdf/cmaps/Adobe-Korea1-UCS2.bcmap' },
+    {relativePath: 'pdf/pdf.worker.min.mjs'},
+    {relativePath: 'wasm/evb-tesseract.mjs'},
+    {relativePath: 'wasm/evb-qpdf.mjs'},
+    {relativePath: 'wasm/evb-djvulibre.mjs'},
+    {relativePath: 'pdf/wasm/openjpeg.wasm'},
+    {relativePath: 'pdf/wasm/jbig2.wasm'},
+    {relativePath: 'pdf/wasm/qcms_bg.wasm'},
+    {relativePath: 'pdf/cmaps/Adobe-CNS1-UCS2.bcmap'},
+    {relativePath: 'pdf/cmaps/Adobe-GB1-UCS2.bcmap'},
+    {relativePath: 'pdf/cmaps/Adobe-Japan1-UCS2.bcmap'},
+    {relativePath: 'pdf/cmaps/Adobe-Korea1-UCS2.bcmap'},
 ];
 
 export const REQUIRED_WEB_OUTPUT_CONTRACTS = ['index.html'];
 
-export const REQUIRED_WEB_DEPLOY_ASSETS = [
-    ...REQUIRED_WEB_WASM_ASSETS,
-    ...REQUIRED_WEB_FILE_ASSETS,
-];
+export const REQUIRED_WEB_DEPLOY_ASSETS = [...REQUIRED_WEB_WASM_ASSETS, ...REQUIRED_WEB_FILE_ASSETS];

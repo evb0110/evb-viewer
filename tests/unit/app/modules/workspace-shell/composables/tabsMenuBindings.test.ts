@@ -1,22 +1,16 @@
 // @vitest-environment happy-dom
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { delay } from 'es-toolkit/promise';
-import { computed, ref, shallowRef } from 'vue';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {delay} from 'es-toolkit/promise';
+import {computed, ref, shallowRef} from 'vue';
 import {useAppShellDirectionalTabs} from '@app/modules/workspace-shell/composables/useAppShellDirectionalTabs';
 import {cast} from '@tests/helpers/cast';
 import {requireDocumentRef} from '@contracts/documentRef';
-import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
-import { registerTabsMenuBindings } from '@app/modules/workspace-shell/menu/registerTabsMenuBindings';
-import { routeRecentFile } from '@app/modules/workspace-shell/composables/useTabsShellBindings';
-import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
-import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
+import type {IWorkspaceExpose} from '@app/types/workspaceExpose';
+import {registerTabsMenuBindings} from '@app/modules/workspace-shell/menu/registerTabsMenuBindings';
+import {routeRecentFile} from '@app/modules/workspace-shell/composables/useTabsShellBindings';
+import type {IWorkspaceDocumentController} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import {createElectronPlatformApiFixture} from '@tests/helpers/createElectronPlatformApiFixture';
+import {createWorkspaceExposeFixture} from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 
 async function flushMicrotasks() {
     await Promise.resolve();
@@ -41,7 +35,7 @@ function createDeps(overrides: Partial<Parameters<typeof registerTabsMenuBinding
         isActive: ref(true),
         activeWorkspace: ref<IWorkspaceExpose | null>(null),
         activeTabId: ref<string | null>(null),
-        createTab: vi.fn(() => ({ id: 'tab-1' })),
+        createTab: vi.fn(() => ({id: 'tab-1'})),
         handleCloseTab: vi.fn(async (_tabId: string) => {}),
         handleFallbackToolbarOpenFile: vi.fn(async () => {}),
         openRecentInAppropriateTab: vi.fn(async (_path: string) => true),
@@ -80,18 +74,24 @@ function createRegistryMenuApi() {
             configurable: true,
             value: vi.fn((callback: () => void) => {
                 callbacks.set(commandName, callback);
-                return () => { callbacks.delete(commandName); };
+                return () => {
+                    callbacks.delete(commandName);
+                };
             }),
         });
     }
 
-    documentMenu.onMenuOpenExternalPaths = callback => {
+    documentMenu.onMenuOpenExternalPaths = (callback) => {
         externalPaths = callback;
-        return () => { externalPaths = undefined; };
+        return () => {
+            externalPaths = undefined;
+        };
     };
-    documentMenu.onMenuOpenRecentFile = callback => {
+    documentMenu.onMenuOpenRecentFile = (callback) => {
         recentFile = callback;
-        return () => { recentFile = undefined; };
+        return () => {
+            recentFile = undefined;
+        };
     };
     return {
         emitExternalPaths: (paths: string[]) => externalPaths?.(paths.map(requireDocumentRef)),
@@ -110,10 +110,7 @@ function createRegistryMenuApi() {
 }
 
 describe('registerTabsMenuBindings', () => {
-    it.each([
-        true,
-        false,
-    ])('routes menu commands only while the shell is active (initially %s)', async (isActive) => {
+    it.each([true, false])('routes menu commands only while the shell is active (initially %s)', async (isActive) => {
         const workspaceCommands = createWorkspaceExposeFixture({hasPdf: true});
         const shellActive = ref(isActive);
         const deps = createDeps({
@@ -123,20 +120,14 @@ describe('registerTabsMenuBindings', () => {
         const menuApi = createRegistryMenuApi();
 
         registerTabsMenuBindings(menuApi.api, deps);
-        for (const [
-            ,
-            ,
-            commandName,
-        ] of MENU_COMMANDS) {
+        for (const [, , commandName] of MENU_COMMANDS) {
             menuApi.emit(commandName);
             await flushMicrotasks();
 
             expect(workspaceCommands[commandName], commandName).toHaveBeenCalledTimes(Number(isActive));
         }
         shellActive.value = !isActive;
-        for (const [
-            ,, commandName,
-        ] of MENU_COMMANDS) {
+        for (const [, , commandName] of MENU_COMMANDS) {
             menuApi.emit(commandName);
             await flushMicrotasks();
             expect(workspaceCommands[commandName], commandName).toHaveBeenCalledTimes(1);
@@ -150,7 +141,7 @@ describe('registerTabsMenuBindings', () => {
             .fn(async (_paths: string[]) => {})
             .mockImplementationOnce(async () => firstOpen.promise)
             .mockImplementationOnce(async () => secondOpen.promise);
-        const deps = createDeps({ openPathsInAppropriateTab });
+        const deps = createDeps({openPathsInAppropriateTab});
         const menuApi = createRegistryMenuApi();
 
         registerTabsMenuBindings(menuApi.api, deps);
@@ -177,7 +168,7 @@ describe('registerTabsMenuBindings', () => {
             .fn(async (_path: string) => true)
             .mockRejectedValueOnce(new Error('boom'))
             .mockResolvedValueOnce(true);
-        const deps = createDeps({ openRecentInAppropriateTab });
+        const deps = createDeps({openRecentInAppropriateTab});
         const menuApi = createRegistryMenuApi();
 
         registerTabsMenuBindings(menuApi.api, deps);
@@ -196,7 +187,9 @@ describe('registerTabsMenuBindings', () => {
 const shell = vi.hoisted(() => ({showItemInFolder: vi.fn()}));
 const platform = createElectronPlatformApiFixture({documentWindow: shell});
 vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platform, hasElectronAPI: () => true}));
-afterEach(() => {vi.unstubAllGlobals();});
+afterEach(() => {
+    vi.unstubAllGlobals();
+});
 describe('#1608 tab shell action feedback', () => {
     it.each([
         {kind: 'copy-path', outcome: 'reject'},
@@ -204,18 +197,36 @@ describe('#1608 tab shell action feedback', () => {
         {kind: 'reveal-in-folder', outcome: 'false'},
     ] as const)('reports $kind failure ($outcome)', async ({kind, outcome}) => {
         const messages: string[] = [];
-        vi.stubGlobal('useToast', () => ({add: (notice: {title: string; description?: string}) => {
-            messages.push([notice.title, notice.description].filter(Boolean).join(' '));
-        }}));
-        const failure = new Error(kind === 'copy-path' ? 'Clipboard permission denied' : 'File manager unavailable');
-        if (outcome === 'false') {shell.showItemInFolder.mockResolvedValue(false);}
-        else {shell.showItemInFolder.mockRejectedValue(failure);}
-        vi.stubGlobal('navigator', {clipboard: {writeText: async () => {throw failure;}}});
-        const tabs = useAppShellDirectionalTabs(cast<Parameters<typeof useAppShellDirectionalTabs>[0]>({
-            activePaneId: ref('pane-1'), panes: ref([]), tabs: ref([{id: 'tab-1'}]),
-            documentSessionsByTabId: shallowRef({'tab-1': {snapshot: ref({identity: {originalPath: '/docs/a.pdf'}})}}),
-            isTabTransitionBusy: computed(() => false), getPaneById: () => ({paneId: 'pane-1'}), activatePane: () => {}, activateTab: () => {},
+        vi.stubGlobal('useToast', () => ({
+            add: (notice: {title: string; description?: string}) => {
+                messages.push([notice.title, notice.description].filter(Boolean).join(' '));
+            },
         }));
+        const failure = new Error(kind === 'copy-path' ? 'Clipboard permission denied' : 'File manager unavailable');
+        if (outcome === 'false') {
+            shell.showItemInFolder.mockResolvedValue(false);
+        } else {
+            shell.showItemInFolder.mockRejectedValue(failure);
+        }
+        vi.stubGlobal('navigator', {
+            clipboard: {
+                writeText: async () => {
+                    throw failure;
+                },
+            },
+        });
+        const tabs = useAppShellDirectionalTabs(
+            cast<Parameters<typeof useAppShellDirectionalTabs>[0]>({
+                activePaneId: ref('pane-1'),
+                panes: ref([]),
+                tabs: ref([{id: 'tab-1'}]),
+                documentSessionsByTabId: shallowRef({'tab-1': {snapshot: ref({identity: {originalPath: '/docs/a.pdf'}})}}),
+                isTabTransitionBusy: computed(() => false),
+                getPaneById: () => ({paneId: 'pane-1'}),
+                activatePane: () => {},
+                activateTab: () => {},
+            }),
+        );
         await tabs.handleTabContextCommand('pane-1', 'tab-1', {kind});
         expect(messages.join(' '), 'I1: clipboard/shell rejection must reach the user').toMatch(
             kind === 'copy-path' ? /cop|clipboard/i : /folder|reveal/i,

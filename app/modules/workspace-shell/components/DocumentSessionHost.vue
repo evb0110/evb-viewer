@@ -1,19 +1,19 @@
 <template>
-    <span class="document-session-host" hidden />
+    <span
+        class="document-session-host"
+        hidden
+    />
 </template>
 
 <script setup lang="ts">
-import {
-    createDocumentContext,
-    useDocumentContextRegistry,
-} from '@app/modules/workspace-shell/documentContext';
-import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import {createDocumentContext, useDocumentContextRegistry} from '@app/modules/workspace-shell/documentContext';
+import type {IWorkspaceDocumentController} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 
-defineOptions({ name: 'DocumentSessionHost' });
+defineOptions({name: 'DocumentSessionHost'});
 
 // One per document controller, outside every tab's mount, so the document's
 // file, annotations, history and save outlive the views that show it.
-const { documentController } = defineProps<{documentController: IWorkspaceDocumentController}>();
+const {documentController} = defineProps<{documentController: IWorkspaceDocumentController}>();
 
 const registry = useDocumentContextRegistry();
 const context = createDocumentContext({controller: documentController});

@@ -1,5 +1,9 @@
 <template>
-    <div class="annotation-toolbar" role="group" :aria-label="t('annotations.annotations')">
+    <div
+        class="annotation-toolbar"
+        role="group"
+        :aria-label="t('annotations.annotations')"
+    >
         <div class="tool-grid">
             <AppTooltip
                 v-for="toolItem in toolItems"
@@ -10,13 +14,16 @@
                 <button
                     type="button"
                     class="tool-button"
-                    :class="{ 'is-active': tool === toolItem.id }"
+                    :class="{'is-active': tool === toolItem.id}"
                     :data-tool="toolItem.id"
                     :aria-label="toolItem.label"
                     :aria-pressed="tool === toolItem.id"
                     @click="setTool(toolItem.id)"
                 >
-                    <UIcon :name="toolItem.icon" class="tool-button-icon" />
+                    <UIcon
+                        :name="toolItem.icon"
+                        class="tool-button-icon"
+                    />
                 </button>
             </AppTooltip>
         </div>
@@ -24,7 +31,7 @@
 </template>
 
 <script setup lang="ts">
-import type { TAnnotationTool } from '@app/types/annotations';
+import type {TAnnotationTool} from '@app/types/annotations';
 
 interface IToolItem {
     id: TAnnotationTool;
@@ -32,14 +39,15 @@ interface IToolItem {
     icon: string;
 }
 
-interface IProps {tool: TAnnotationTool;}
+interface IProps {
+    tool: TAnnotationTool;
+}
 
-
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 
 const {tool: toolProp} = defineProps<IProps>();
 
-const emit = defineEmits<{ 'set-tool': [tool: TAnnotationTool] }>();
+const emit = defineEmits<{'set-tool': [tool: TAnnotationTool]}>();
 
 const tool = computed(() => toolProp);
 
@@ -109,7 +117,6 @@ const toolItems = computed<IToolItem[]>(() => [
 function setTool(toolId: TAnnotationTool) {
     emit('set-tool', tool.value === toolId ? 'select' : toolId);
 }
-
 </script>
 
 <style lang="scss" scoped>
@@ -159,5 +166,4 @@ function setTool(toolId: TAnnotationTool) {
 .tool-button-icon {
     font-size: var(--app-text-size-control);
 }
-
 </style>

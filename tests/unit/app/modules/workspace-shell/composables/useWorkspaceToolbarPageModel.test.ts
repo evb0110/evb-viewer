@@ -1,9 +1,5 @@
-import {
-    describe, expect, it, vi,
-} from 'vitest';
-import {
-    effectScope, ref,
-} from 'vue';
+import {describe, expect, it, vi} from 'vitest';
+import {effectScope, ref} from 'vue';
 import {createPageNavigationRequest} from '@app/modules/document-viewer/public';
 import {createDocumentOpenSurfaceSession} from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 import {useWorkspaceToolbarPageModel} from '@app/modules/workspace-shell/composables/useWorkspaceToolbarPageModel';
@@ -17,12 +13,16 @@ describe('useWorkspaceToolbarPageModel', () => {
             documentId: 'scan.pdf',
             documentRevision: 'revision-1',
         });
-        const model = scope.run(() => useWorkspaceToolbarPageModel({
-            sourcePage,
-            navigationTicket: session.navigationTicket,
-            goToPage: vi.fn(),
-        }));
-        if (!model) {throw new Error('Failed to create workspace toolbar page model');}
+        const model = scope.run(() =>
+            useWorkspaceToolbarPageModel({
+                sourcePage,
+                navigationTicket: session.navigationTicket,
+                goToPage: vi.fn(),
+            }),
+        );
+        if (!model) {
+            throw new Error('Failed to create workspace toolbar page model');
+        }
 
         session.navigate(createPageNavigationRequest(8, 'toolbar'));
         expect(model.currentPage.value).toBe(1);
@@ -37,12 +37,16 @@ describe('useWorkspaceToolbarPageModel', () => {
         const scope = effectScope();
         const sourcePage = ref(5);
         const goToPage = vi.fn();
-        const model = scope.run(() => useWorkspaceToolbarPageModel({
-            sourcePage,
-            navigationTicket: ref(null),
-            goToPage,
-        }));
-        if (!model) {throw new Error('Failed to create workspace toolbar page model');}
+        const model = scope.run(() =>
+            useWorkspaceToolbarPageModel({
+                sourcePage,
+                navigationTicket: ref(null),
+                goToPage,
+            }),
+        );
+        if (!model) {
+            throw new Error('Failed to create workspace toolbar page model');
+        }
 
         model.handleGoToPage(9);
         expect(goToPage).toHaveBeenCalledWith(9);
@@ -55,13 +59,17 @@ describe('useWorkspaceToolbarPageModel', () => {
         const scope = effectScope();
         const sourcePage = ref(2);
         const physicalPage = ref(6);
-        const model = scope.run(() => useWorkspaceToolbarPageModel({
-            sourcePage,
-            physicalPage,
-            navigationTicket: ref(null),
-            goToPage: vi.fn(),
-        }));
-        if (!model) {throw new Error('Failed to create workspace toolbar page model');}
+        const model = scope.run(() =>
+            useWorkspaceToolbarPageModel({
+                sourcePage,
+                physicalPage,
+                navigationTicket: ref(null),
+                goToPage: vi.fn(),
+            }),
+        );
+        if (!model) {
+            throw new Error('Failed to create workspace toolbar page model');
+        }
 
         expect(model.currentPage.value).toBe(6);
         sourcePage.value = 9;

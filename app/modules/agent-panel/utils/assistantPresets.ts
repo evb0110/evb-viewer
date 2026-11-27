@@ -1,4 +1,4 @@
-import type { TAgentAssistantPresetId } from '@contracts/agent';
+import type {TAgentAssistantPresetId} from '@contracts/agent';
 
 export interface IAssistantPreset {
     id: TAgentAssistantPresetId;
@@ -10,11 +10,11 @@ export interface IAssistantPreset {
 export const ASSISTANT_PRESETS: readonly IAssistantPreset[] = [
     {
         id: 'add-bookmarks',
-        icon: 'i-ph-bookmark', 
+        icon: 'i-ph-bookmark',
     },
     {
         id: 'number-pages',
-        icon: 'i-ph-hash', 
+        icon: 'i-ph-hash',
     },
     {
         id: 'check-ocr-readiness',

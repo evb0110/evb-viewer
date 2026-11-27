@@ -1,18 +1,8 @@
-import {
-    mkdtempSync,
-    rmSync,
-    writeFileSync,
-    mkdirSync,
-} from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { createHash } from 'node:crypto';
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {mkdtempSync, rmSync, writeFileSync, mkdirSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {createHash} from 'node:crypto';
+import {describe, expect, it, vi} from 'vitest';
 
 const mocks = vi.hoisted(() => ({
     onHeadersReceived: vi.fn(),
@@ -20,19 +10,25 @@ const mocks = vi.hoisted(() => ({
     setPermissionRequestHandler: vi.fn(),
 }));
 
-vi.mock('electron', () => ({session: {defaultSession: {
-    setPermissionCheckHandler: mocks.setPermissionCheckHandler,
-    setPermissionRequestHandler: mocks.setPermissionRequestHandler,
-    webRequest: {onHeadersReceived: mocks.onHeadersReceived},
-}}}));
-vi.mock('@electron/config', () => ({config: {
-    isDev: false,
-    renderer: {
-        staticRoot: '/missing/nuxt-output/public',
-        trustedOrigin: 'evb-viewer://app',
-        trustedUrl: 'evb-viewer://app/electron',
+vi.mock('electron', () => ({
+    session: {
+        defaultSession: {
+            setPermissionCheckHandler: mocks.setPermissionCheckHandler,
+            setPermissionRequestHandler: mocks.setPermissionRequestHandler,
+            webRequest: {onHeadersReceived: mocks.onHeadersReceived},
+        },
     },
-}}));
+}));
+vi.mock('@electron/config', () => ({
+    config: {
+        isDev: false,
+        renderer: {
+            staticRoot: '/missing/nuxt-output/public',
+            trustedOrigin: 'evb-viewer://app',
+            trustedUrl: 'evb-viewer://app/electron',
+        },
+    },
+}));
 
 const {
     buildContentSecurityPolicy,
@@ -61,16 +57,12 @@ it('retries the policy installation after header registration fails', async () =
 });
 
 function parseCsp(csp: string) {
-    return Object.fromEntries(csp.split('; ').map((directive) => {
-        const [
-            name,
-            ...tokens
-        ] = directive.split(' ');
-        return [
-            name,
-            tokens,
-        ];
-    }));
+    return Object.fromEntries(
+        csp.split('; ').map((directive) => {
+            const [name, ...tokens] = directive.split(' ');
+            return [name, tokens];
+        }),
+    );
 }
 
 describe('buildContentSecurityPolicy', () => {
@@ -78,88 +70,41 @@ describe('buildContentSecurityPolicy', () => {
         const directives = parseCsp(buildContentSecurityPolicy(true));
 
         expect(directives).toEqual({
-            'base-uri': ['\'self\''],
-            'connect-src': [
-                '\'self\'',
-                'ws:',
-                'blob:',
-            ],
-            'default-src': ['\'self\''],
-            'font-src': [
-                '\'self\'',
-                'data:',
-            ],
-            'form-action': ['\'self\''],
-            'frame-ancestors': ['\'none\''],
-            'img-src': [
-                '\'self\'',
-                'data:',
-                'blob:',
-            ],
-            'object-src': ['\'none\''],
-            'script-src': [
-                '\'self\'',
-                '\'unsafe-inline\'',
-                '\'wasm-unsafe-eval\'',
-            ],
-            'script-src-attr': ['\'none\''],
-            'style-src': [
-                '\'self\'',
-                '\'unsafe-inline\'',
-            ],
-            'worker-src': [
-                '\'self\'',
-                'blob:',
-            ],
+            'base-uri': ["'self'"],
+            'connect-src': ["'self'", 'ws:', 'blob:'],
+            'default-src': ["'self'"],
+            'font-src': ["'self'", 'data:'],
+            'form-action': ["'self'"],
+            'frame-ancestors': ["'none'"],
+            'img-src': ["'self'", 'data:', 'blob:'],
+            'object-src': ["'none'"],
+            'script-src': ["'self'", "'unsafe-inline'", "'wasm-unsafe-eval'"],
+            'script-src-attr': ["'none'"],
+            'style-src': ["'self'", "'unsafe-inline'"],
+            'worker-src': ["'self'", 'blob:'],
         });
     });
 
     it('allows only hashed inline script elements and WASM eval in production', () => {
         const bootstrapHash = createInlineScriptCspHash('window.__NUXT__={};');
-        const directives = parseCsp(buildContentSecurityPolicy(
-            false,
-            {inlineScriptHashes: [
-                bootstrapHash,
-                'not-a-csp-hash',
-            ]},
-        ));
+        const directives = parseCsp(buildContentSecurityPolicy(false, {inlineScriptHashes: [bootstrapHash, 'not-a-csp-hash']}));
 
         // 'wasm-unsafe-eval' is intentionally enabled in production: pdf.js's
         // renderer WebWorker compiles bundled WASM (jbig2/openjpeg/qcms/quickjs)
         // for JBIG2/JPEG2000 images, ICC profiles, and embedded JS actions.
         expect(directives).toEqual({
-            'base-uri': ['\'self\''],
-            'connect-src': [
-                '\'self\'',
-                'blob:',
-            ],
-            'default-src': ['\'self\''],
-            'font-src': [
-                '\'self\'',
-                'data:',
-            ],
-            'form-action': ['\'self\''],
-            'frame-ancestors': ['\'none\''],
-            'img-src': [
-                '\'self\'',
-                'data:',
-                'blob:',
-            ],
-            'object-src': ['\'none\''],
-            'script-src': [
-                '\'self\'',
-                bootstrapHash,
-                '\'wasm-unsafe-eval\'',
-            ],
-            'script-src-attr': ['\'none\''],
-            'style-src': [
-                '\'self\'',
-                '\'unsafe-inline\'',
-            ],
-            'worker-src': [
-                '\'self\'',
-                'blob:',
-            ],
+            'base-uri': ["'self'"],
+            'connect-src': ["'self'", 'blob:'],
+            'default-src': ["'self'"],
+            'font-src': ["'self'", 'data:'],
+            'form-action': ["'self'"],
+            'frame-ancestors': ["'none'"],
+            'img-src': ["'self'", 'data:', 'blob:'],
+            'object-src': ["'none'"],
+            'script-src': ["'self'", bootstrapHash, "'wasm-unsafe-eval'"],
+            'script-src-attr': ["'none'"],
+            'style-src': ["'self'", "'unsafe-inline'"],
+            'worker-src': ["'self'", 'blob:'],
         });
     });
 
@@ -170,24 +115,16 @@ describe('buildContentSecurityPolicy', () => {
             '<script type="application/json">{"payload":true}</script>',
             '<script>window.__NUXT__={};</script>',
         ].join('');
-        const expectedPayloadHash = `'sha256-${createHash('sha256')
-            .update('{"payload":true}', 'utf8')
-            .digest('base64')}'`;
+        const expectedPayloadHash = `'sha256-${createHash('sha256').update('{"payload":true}', 'utf8').digest('base64')}'`;
 
-        expect(extractInlineScriptCspHashes(html)).toEqual([
-            expectedPayloadHash,
-            createInlineScriptCspHash('window.__NUXT__={};'),
-        ].sort());
+        expect(extractInlineScriptCspHashes(html)).toEqual([expectedPayloadHash, createInlineScriptCspHash('window.__NUXT__={};')].sort());
     });
 
     it('collects production hashes from the Electron Nuxt entrypoint artifact', () => {
         const tempRoot = mkdtempSync(join(tmpdir(), 'evb-csp-test-'));
         try {
             mkdirSync(join(tempRoot, 'electron'), {recursive: true});
-            writeFileSync(
-                join(tempRoot, 'electron', 'index.html'),
-                '<script>globalThis.__NUXT__={serverRendered:false};</script>',
-            );
+            writeFileSync(join(tempRoot, 'electron', 'index.html'), '<script>globalThis.__NUXT__={serverRendered:false};</script>');
 
             const staticBootstrapHash = createInlineScriptCspHash('globalThis.__NUXT__={serverRendered:false};');
 
@@ -204,68 +141,44 @@ describe('buildContentSecurityPolicy', () => {
         expect(checkHandler).toBeTypeOf('function');
         expect(requestHandler).toBeTypeOf('function');
 
-        expect(checkHandler?.(
-            {getURL: () => 'evb-viewer://app/electron'},
-            'clipboard-read',
-            'evb-viewer://app',
-            {
+        expect(
+            checkHandler?.({getURL: () => 'evb-viewer://app/electron'}, 'clipboard-read', 'evb-viewer://app', {
                 isMainFrame: true,
                 requestingUrl: 'evb-viewer://app/electron',
-            },
-        )).toBe(true);
-        expect(checkHandler?.(
-            {getURL: () => 'evb-viewer://app/electron'},
-            'clipboard-sanitized-write',
-            'evb-viewer://app',
-            {
+            }),
+        ).toBe(true);
+        expect(
+            checkHandler?.({getURL: () => 'evb-viewer://app/electron'}, 'clipboard-sanitized-write', 'evb-viewer://app', {
                 isMainFrame: false,
                 requestingUrl: 'evb-viewer://app/electron',
-            },
-        )).toBe(false);
-        expect(checkHandler?.(
-            {getURL: () => 'https://untrusted.example/'},
-            'clipboard-read',
-            'https://untrusted.example',
-            {
+            }),
+        ).toBe(false);
+        expect(
+            checkHandler?.({getURL: () => 'https://untrusted.example/'}, 'clipboard-read', 'https://untrusted.example', {
                 isMainFrame: true,
                 requestingUrl: 'https://untrusted.example/',
-            },
-        )).toBe(false);
+            }),
+        ).toBe(false);
 
         const trustedClipboardCallback = vi.fn();
-        requestHandler?.(
-            {getURL: () => 'evb-viewer://app/electron'},
-            'clipboard-sanitized-write',
-            trustedClipboardCallback,
-            {
-                isMainFrame: true,
-                requestingUrl: 'evb-viewer://app/electron',
-            },
-        );
+        requestHandler?.({getURL: () => 'evb-viewer://app/electron'}, 'clipboard-sanitized-write', trustedClipboardCallback, {
+            isMainFrame: true,
+            requestingUrl: 'evb-viewer://app/electron',
+        });
         expect(trustedClipboardCallback).toHaveBeenCalledWith(true);
 
         const trustedClipboardReadCallback = vi.fn();
-        requestHandler?.(
-            {getURL: () => 'evb-viewer://app/electron'},
-            'clipboard-read',
-            trustedClipboardReadCallback,
-            {
-                isMainFrame: true,
-                requestingUrl: 'evb-viewer://app/electron',
-            },
-        );
+        requestHandler?.({getURL: () => 'evb-viewer://app/electron'}, 'clipboard-read', trustedClipboardReadCallback, {
+            isMainFrame: true,
+            requestingUrl: 'evb-viewer://app/electron',
+        });
         expect(trustedClipboardReadCallback).toHaveBeenCalledWith(true);
 
         const deniedMediaCallback = vi.fn();
-        requestHandler?.(
-            {getURL: () => 'evb-viewer://app/electron'},
-            'media',
-            deniedMediaCallback,
-            {
-                isMainFrame: true,
-                requestingUrl: 'evb-viewer://app/electron',
-            },
-        );
+        requestHandler?.({getURL: () => 'evb-viewer://app/electron'}, 'media', deniedMediaCallback, {
+            isMainFrame: true,
+            requestingUrl: 'evb-viewer://app/electron',
+        });
         expect(deniedMediaCallback).toHaveBeenCalledWith(false);
     });
 
@@ -274,33 +187,37 @@ describe('buildContentSecurityPolicy', () => {
         headersListener?.({url: 'evb-viewer://app/electron'}, callback);
         const policy = callback.mock.calls[0]?.[0]?.responseHeaders?.['Content-Security-Policy']?.[0] as string;
         const directives = parseCsp(policy);
-        const cleanupHash = createInlineScriptCspHash(
-            'document.head.removeChild(document.querySelector(\'[data-nuxt-ui-colors]\'))',
-        );
+        const cleanupHash = createInlineScriptCspHash("document.head.removeChild(document.querySelector('[data-nuxt-ui-colors]'))");
 
         expect(directives['script-src']).toContain(cleanupHash);
-        expect(directives['script-src']).not.toContain('\'unsafe-inline\'');
+        expect(directives['script-src']).not.toContain("'unsafe-inline'");
     });
 
     it('leaves PDF and extension responses under their own security policies', () => {
         const pdfHeaders = {'Content-Type': ['application/pdf']};
         const pdfCallback = vi.fn();
-        headersListener?.({
-            url: 'file:///tmp/document.pdf',
-            responseHeaders: pdfHeaders,
-        }, pdfCallback);
+        headersListener?.(
+            {
+                url: 'file:///tmp/document.pdf',
+                responseHeaders: pdfHeaders,
+            },
+            pdfCallback,
+        );
         expect(pdfCallback).toHaveBeenCalledWith({responseHeaders: pdfHeaders});
 
         const noHeadersCallback = vi.fn();
         headersListener?.({url: 'file:///tmp/document-without-headers.pdf'}, noHeadersCallback);
         expect(noHeadersCallback).toHaveBeenCalledWith({});
 
-        const extensionHeaders = {'Content-Security-Policy': ['script-src \'self\'; object-src *']};
+        const extensionHeaders = {'Content-Security-Policy': ["script-src 'self'; object-src *"]};
         const extensionCallback = vi.fn();
-        headersListener?.({
-            url: 'chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/index.html',
-            responseHeaders: extensionHeaders,
-        }, extensionCallback);
+        headersListener?.(
+            {
+                url: 'chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/index.html',
+                responseHeaders: extensionHeaders,
+            },
+            extensionCallback,
+        );
         expect(extensionCallback).toHaveBeenCalledWith({responseHeaders: extensionHeaders});
     });
 });

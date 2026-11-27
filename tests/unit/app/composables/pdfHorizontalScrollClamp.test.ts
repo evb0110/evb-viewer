@@ -1,22 +1,12 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {cast} from '@tests/helpers/cast';
 import {requirePageNumber} from '@contracts/pageNumbers';
-import { getCurrentSpreadRenderedBoundsFromDom } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/getCurrentSpreadRenderedBoundsFromDom';
-import { resolvePageBoundedHorizontalScroll } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/resolvePageBoundedHorizontalScroll';
+import {getCurrentSpreadRenderedBoundsFromDom} from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/getCurrentSpreadRenderedBoundsFromDom';
+import {resolvePageBoundedHorizontalScroll} from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/resolvePageBoundedHorizontalScroll';
 
-function createDomPage(options: {
-    page: number;
-    left: number;
-    width: number;
-    buffered?: boolean;
-}) {
+function createDomPage(options: {page: number; left: number; width: number; buffered?: boolean}) {
     return cast<HTMLElement>({
-        classList: {contains: (className: string) => options.buffered === true
-                && className === 'page_container--buffered'},
+        classList: {contains: (className: string) => options.buffered === true && className === 'page_container--buffered'},
         clientWidth: options.width,
         dataset: {page: String(options.page)},
         getBoundingClientRect: () => ({
@@ -38,18 +28,18 @@ describe('resolvePageBoundedHorizontalScroll', () => {
         });
         const container = cast<HTMLElement>({
             getBoundingClientRect: () => ({left: 0}),
-            querySelector: (selector: string) => selector === '.page_container[data-page="1"]'
-                ? bufferedPage
-                : null,
+            querySelector: (selector: string) => (selector === '.page_container[data-page="1"]' ? bufferedPage : null),
             scrollLeft: 0,
         });
 
-        expect(getCurrentSpreadRenderedBoundsFromDom({
-            container,
-            pageNumber: requirePageNumber(1),
-            viewMode: 'single',
-            totalPages: 1,
-        })).toBeNull();
+        expect(
+            getCurrentSpreadRenderedBoundsFromDom({
+                container,
+                pageNumber: requirePageNumber(1),
+                viewMode: 'single',
+                totalPages: 1,
+            }),
+        ).toBeNull();
     });
 
     it('locks horizontal scroll to the active page when the page fits the viewport', () => {

@@ -26,7 +26,7 @@ export function deleteAnnotationById(
     remove: (comment: IAnnotationCommentSummary) => Promise<unknown> | undefined,
     discardHostedNote: (comment: IAnnotationCommentSummary) => Promise<unknown> | undefined,
 ) {
-    const comment = comments.find(candidate => annotationIdForSummary(candidate) === annotationId);
+    const comment = comments.find((candidate) => annotationIdForSummary(candidate) === annotationId);
     if (!comment) {
         BrowserLogger.warn('annotations', 'Delete annotation by id found no projected comment', {
             annotationId,

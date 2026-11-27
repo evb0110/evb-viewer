@@ -1,22 +1,12 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {mapPdfAnnotationParseEntity} from '@app/modules/pdf-viewer/runtime/sessions/mapPdfAnnotationParseEntity';
-import {
-    toCanonicalShapeEntity,
-    AnnotationApplication,
-} from '@app/modules/pdf-viewer/annotations/annotationApplication';
+import {toCanonicalShapeEntity, AnnotationApplication} from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import {
     toLegacyShapeAnnotation,
     semanticEntityFingerprint,
     type IShapeEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import {
-    isNativeShapeEligible,
-    toNativeShapeAnnotation,
-} from '@app/modules/pdf-viewer/runtime/save/nativeShapeMutations';
+import {isNativeShapeEligible, toNativeShapeAnnotation} from '@app/modules/pdf-viewer/runtime/save/nativeShapeMutations';
 import type {IPdfAnnotationShapeEntry} from '@contracts/pdfAnnotationParseTypes';
 import {requirePageIndex} from '@contracts/pageNumbers';
 
@@ -52,57 +42,31 @@ function parsedShape(overrides: Partial<IPdfAnnotationShapeEntry> = {}): IPdfAnn
 }
 function canonical(entry: IPdfAnnotationShapeEntry): IShapeEntity {
     const result = mapPdfAnnotationParseEntity(entry);
-    if (result.kind !== 'shape') {throw new Error('Expected canonical shape');}
+    if (result.kind !== 'shape') {
+        throw new Error('Expected canonical shape');
+    }
     return result;
 }
 
 describe('imported shape canonical fidelity', () => {
     it.each([
-        [
-            0.8,
-            0.8,
-            0.2,
-            0.2,
-        ],
-        [
-            0.8,
-            0.2,
-            0.2,
-            0.8,
-        ],
-        [
-            0.2,
-            0.8,
-            0.8,
-            0.2,
-        ],
-        [
-            0.2,
-            0.2,
-            0.8,
-            0.8,
-        ],
-        [
-            0.2,
-            0.5,
-            0.8,
-            0.5,
-        ],
-        [
-            0.5,
-            0.8,
-            0.5,
-            0.2,
-        ],
+        [0.8, 0.8, 0.2, 0.2],
+        [0.8, 0.2, 0.2, 0.8],
+        [0.2, 0.8, 0.8, 0.2],
+        [0.2, 0.2, 0.8, 0.8],
+        [0.2, 0.5, 0.8, 0.5],
+        [0.5, 0.8, 0.5, 0.2],
     ])('preserves ordered line endpoints (%s,%s) -> (%s,%s) through edits and native projection', (x, y, x2, y2) => {
-        const imported = canonical(parsedShape({
-            x,
-            y,
-            x2,
-            y2,
-            width: Math.abs(x2 - x),
-            height: Math.abs(y2 - y),
-        }));
+        const imported = canonical(
+            parsedShape({
+                x,
+                y,
+                x2,
+                y2,
+                width: Math.abs(x2 - x),
+                height: Math.abs(y2 - y),
+            }),
+        );
         expect(imported.points).toEqual([
             {
                 x,
@@ -137,10 +101,7 @@ describe('imported shape canonical fidelity', () => {
         expect(returned.lineEndStyle).toBe('closedArrow');
     });
 
-    it.each([
-        'Polygon',
-        'PolyLine',
-    ] as const)('preserves %s subtype and fill through canonical commands', pdfSubtype => {
+    it.each(['Polygon', 'PolyLine'] as const)('preserves %s subtype and fill through canonical commands', (pdfSubtype) => {
         const points = [
             {
                 x: 0.2,
@@ -155,18 +116,20 @@ describe('imported shape canonical fidelity', () => {
                 y: 0.8,
             },
         ];
-        const imported = canonical(parsedShape({
-            pdfSubtype,
-            type: pdfSubtype === 'Polygon' ? 'polygon' : 'polyline',
-            x: 0.2,
-            y: 0.2,
-            x2: null,
-            y2: null,
-            points,
-            fillColor: '#abcdef',
-            lineStartStyle: 'none',
-            lineEndStyle: 'none',
-        }));
+        const imported = canonical(
+            parsedShape({
+                pdfSubtype,
+                type: pdfSubtype === 'Polygon' ? 'polygon' : 'polyline',
+                x: 0.2,
+                y: 0.2,
+                x2: null,
+                y2: null,
+                points,
+                fillColor: '#abcdef',
+                lineStartStyle: 'none',
+                lineEndStyle: 'none',
+            }),
+        );
         expect(imported.tool).toBe('draw');
         const projected = toLegacyShapeAnnotation(imported);
         expect(projected).toMatchObject({
@@ -176,9 +139,11 @@ describe('imported shape canonical fidelity', () => {
         });
         expect(projected.type).toBe(pdfSubtype === 'Polygon' ? 'polygon' : 'polyline');
         expect(toCanonicalShapeEntity(projected, imported.identity.id).pdfSubtype).toBe(pdfSubtype);
-        expect(semanticEntityFingerprint({
-            ...imported,
-            pdfSubtype: 'Ink',
-        })).not.toBe(semanticEntityFingerprint(imported));
+        expect(
+            semanticEntityFingerprint({
+                ...imported,
+                pdfSubtype: 'Ink',
+            }),
+        ).not.toBe(semanticEntityFingerprint(imported));
     });
 });

@@ -1,12 +1,14 @@
-import type { TTabMemoryPolicy } from '@contracts/shared';
+import type {TTabMemoryPolicy} from '@contracts/shared';
 import {
     workspaceSurfaceBudgetController,
     type IWorkspaceSurfaceBudgetSnapshot,
     type TMemoryPressureLevel,
 } from '@app/modules/document-viewer/public';
-import { getPerformanceProfile } from '@app/utils/performanceProfile';
+import {getPerformanceProfile} from '@app/utils/performanceProfile';
 
-interface IAppShellE2EHookBindings {setTabMemoryPolicy: (policy: TTabMemoryPolicy) => void;}
+interface IAppShellE2EHookBindings {
+    setTabMemoryPolicy: (policy: TTabMemoryPolicy) => void;
+}
 
 type TAppShellE2EWindow = Window & {
     __getPdfRasterProfileForE2E?: () => {maxBufferCanvasPixels: number};
@@ -19,7 +21,7 @@ export function installAppShellE2EHooks(bindings: IAppShellE2EHookBindings) {
     const target = window as TAppShellE2EWindow;
     target.__getWorkspaceSurfaceBudgetForE2E = () => workspaceSurfaceBudgetController.getSnapshot();
     target.__getPdfRasterProfileForE2E = () => ({maxBufferCanvasPixels: getPerformanceProfile().maxBufferCanvasPixels});
-    target.__setWorkspaceSurfacePressureForE2E = level => workspaceSurfaceBudgetController.setPressureLevel(level);
+    target.__setWorkspaceSurfacePressureForE2E = (level) => workspaceSurfaceBudgetController.setPressureLevel(level);
     target.__setTabMemoryPolicyForE2E = bindings.setTabMemoryPolicy;
 
     return () => {

@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {createPageNavigationRequest} from '@app/modules/document-viewer/public';
 import {createDocumentOpenSurfaceSession} from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 import {createPdfOpenSurfaceViewportCallbacks} from '@app/modules/pdf-viewer/runtime/viewport/createPdfOpenSurfaceViewportCallbacks';
@@ -15,17 +11,19 @@ describe('PDF open-surface viewport callbacks', () => {
         const completedPages: number[] = [];
         const callbacks = createCallbacks(surface, emittedPages, completedPages);
 
-        expect(callbacks.onViewportPositionCommitted({
-            intentId: ticket.id,
-            intentKind: 'navigate',
-            documentRevision: 1,
-            geometryRevision: 7,
-            interactionEpoch: 0,
-            page: 2,
-            left: 0,
-            top: 800,
-            navigationTicket: ticket,
-        })).toBe(true);
+        expect(
+            callbacks.onViewportPositionCommitted({
+                intentId: ticket.id,
+                intentKind: 'navigate',
+                documentRevision: 1,
+                geometryRevision: 7,
+                interactionEpoch: 0,
+                page: 2,
+                left: 0,
+                top: 800,
+                navigationTicket: ticket,
+            }),
+        ).toBe(true);
         expect(surface.snapshot.value.committedViewport).toMatchObject({
             pageNumber: 2,
             viewportIntentId: ticket.id,
@@ -43,17 +41,19 @@ describe('PDF open-surface viewport callbacks', () => {
         const completedPages: number[] = [];
         const callbacks = createCallbacks(surface, emittedPages, completedPages);
 
-        expect(callbacks.onViewportPositionCommitted({
-            intentId: stale.id,
-            intentKind: 'navigate',
-            documentRevision: 1,
-            geometryRevision: 7,
-            interactionEpoch: 0,
-            page: 2,
-            left: 0,
-            top: 800,
-            navigationTicket: stale,
-        })).toBe(false);
+        expect(
+            callbacks.onViewportPositionCommitted({
+                intentId: stale.id,
+                intentKind: 'navigate',
+                documentRevision: 1,
+                geometryRevision: 7,
+                interactionEpoch: 0,
+                page: 2,
+                left: 0,
+                top: 800,
+                navigationTicket: stale,
+            }),
+        ).toBe(false);
         expect(surface.navigationTicket.value?.id).toBe(current.id);
         expect(surface.snapshot.value.committedViewport?.pageNumber).toBe(1);
         expect(emittedPages).toEqual([]);
@@ -65,16 +65,18 @@ describe('PDF open-surface viewport callbacks', () => {
         const emittedPages: number[] = [];
         const callbacks = createCallbacks(surface, emittedPages, []);
 
-        expect(callbacks.onViewportPositionCommitted({
-            intentId: 'relayout-observation',
-            intentKind: 'relayout',
-            documentRevision: 1,
-            geometryRevision: 8,
-            interactionEpoch: 0,
-            page: 20,
-            left: 0,
-            top: 10_000,
-        })).toBe(true);
+        expect(
+            callbacks.onViewportPositionCommitted({
+                intentId: 'relayout-observation',
+                intentKind: 'relayout',
+                documentRevision: 1,
+                geometryRevision: 8,
+                interactionEpoch: 0,
+                page: 20,
+                left: 0,
+                top: 10_000,
+            }),
+        ).toBe(true);
         expect(surface.navigationTicket.value?.request.source).toBe('restore');
         expect(surface.viewportSession.value).toMatchObject({
             lifecycle: 'ready',
@@ -92,27 +94,25 @@ describe('PDF open-surface viewport callbacks', () => {
         const emittedPages: number[] = [];
         const callbacks = createCallbacks(surface, emittedPages, []);
 
-        expect(callbacks.onViewportPositionCommitted({
-            intentId: stale.id,
-            intentKind: 'navigate',
-            documentRevision: 1,
-            geometryRevision: 8,
-            interactionEpoch: 0,
-            page: 1,
-            left: 10,
-            top: 20,
-            navigationTicket: stale,
-        })).toBe(false);
+        expect(
+            callbacks.onViewportPositionCommitted({
+                intentId: stale.id,
+                intentKind: 'navigate',
+                documentRevision: 1,
+                geometryRevision: 8,
+                interactionEpoch: 0,
+                page: 1,
+                left: 10,
+                top: 20,
+                navigationTicket: stale,
+            }),
+        ).toBe(false);
         expect(emittedPages).toEqual([]);
         expect(surface.viewportSession.value.requestedPage).toBe(2);
     });
 });
 
-function createCallbacks(
-    surface: ReturnType<typeof createDocumentOpenSurfaceSession>,
-    emittedPages: number[],
-    completedPages: number[],
-) {
+function createCallbacks(surface: ReturnType<typeof createDocumentOpenSurfaceSession>, emittedPages: number[], completedPages: number[]) {
     const authority = {
         openSurface: surface,
         observePage: (page: number) => surface.observeViewportPage(page),

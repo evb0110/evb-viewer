@@ -1,22 +1,6 @@
 // @vitest-environment happy-dom
-import {
-    describe,
-    expect,
-    it,
-    onTestFinished,
-    vi,
-} from 'vitest';
-import {
-    computed,
-    createApp as createVueApp,
-    effectScope,
-    defineComponent,
-    h,
-    nextTick,
-    provide,
-    ref,
-    shallowRef,
-} from 'vue';
+import {describe, expect, it, onTestFinished, vi} from 'vitest';
+import {computed, createApp as createVueApp, effectScope, defineComponent, h, nextTick, provide, ref, shallowRef} from 'vue';
 import {AnnotationApplication} from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import {
     annotationEditorSurfaceKey,
@@ -39,10 +23,16 @@ import {
 function createApp(...args: Parameters<typeof createVueApp>) {
     const app = createVueApp(...args);
     app.component('UIcon', {render: () => h('span')});
-    app.component('AppTooltip', defineComponent({
-        inheritAttrs: false,
-        setup: (_props, {slots}) => () => slots.default?.(),
-    }));
+    app.component(
+        'AppTooltip',
+        defineComponent({
+            inheritAttrs: false,
+            setup:
+                (_props, {slots}) =>
+                () =>
+                    slots.default?.(),
+        }),
+    );
     return app;
 }
 
@@ -50,41 +40,48 @@ async function mountLayer(tool: TAnnotationTool = 'select', viewRotation: 0 | 90
     const application = shallowRef(new AnnotationApplication('geometry-rendering'));
     const activeTool = ref(tool);
     const scope = effectScope();
-    const surface = scope.run(() => usePdfAnnotationEditorSurface({
-        annotationApplication: application,
-        entitiesByPage: useAnnotationStoreSnapshot(application).entitiesByPage,
-        activeTool: computed(() => activeTool.value),
-        settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
-        getPageGeometry: () => ({
-            pageView: [
-                10,
-                20,
-                610,
-                920,
-            ],
-            rotation: 0,
-            viewRotation,
+    const surface = scope.run(() =>
+        usePdfAnnotationEditorSurface({
+            annotationApplication: application,
+            entitiesByPage: useAnnotationStoreSnapshot(application).entitiesByPage,
+            activeTool: computed(() => activeTool.value),
+            settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
+            getPageGeometry: () => ({
+                pageView: [10, 20, 610, 920],
+                rotation: 0,
+                viewRotation,
+            }),
         }),
-    }))!;
+    )!;
     const host = document.createElement('div');
     document.body.append(host);
-    const app = createApp({setup() {
-        provide(annotationEditorSurfaceKey, surface);
-        return () => h(PdfAnnotationEditorLayer, {pageIndex: 0});
-    }});
+    const app = createApp({
+        setup() {
+            provide(annotationEditorSurfaceKey, surface);
+            return () => h(PdfAnnotationEditorLayer, {pageIndex: 0});
+        },
+    });
     app.mount(host);
-    onTestFinished(() => {app.unmount(); scope.stop(); host.remove();});
+    onTestFinished(() => {
+        app.unmount();
+        scope.stop();
+        host.remove();
+    });
     await nextTick();
     const layer = host.querySelector<HTMLElement>('[data-pdf-annotation-editor-surface]')!;
-    vi.spyOn(layer, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, viewRotation % 180 ? 900 : 600, viewRotation % 180 ? 600 : 900));
+    vi.spyOn(layer, 'getBoundingClientRect').mockReturnValue(
+        new DOMRect(0, 0, viewRotation % 180 ? 900 : 600, viewRotation % 180 ? 600 : 900),
+    );
     function pointer(target: Element, event: string, x: number, y: number) {
-        target.dispatchEvent(new PointerEvent(event, {
-            bubbles: true,
-            button: 0,
-            pointerId: 1,
-            clientX: x,
-            clientY: y,
-        }));
+        target.dispatchEvent(
+            new PointerEvent(event, {
+                bubbles: true,
+                button: 0,
+                pointerId: 1,
+                clientX: x,
+                clientY: y,
+            }),
+        );
     }
     return {
         surface,
@@ -96,10 +93,7 @@ async function mountLayer(tool: TAnnotationTool = 'select', viewRotation: 0 | 90
 }
 
 describe('annotation geometry rendering', () => {
-    it.each([
-        'rectangle',
-        'circle',
-    ] as const)('creates a reverse-drawn %s through the layer', async tool => {
+    it.each(['rectangle', 'circle'] as const)('creates a reverse-drawn %s through the layer', async (tool) => {
         const harness = await mountLayer(tool);
         harness.pointer(harness.layer, 'pointerdown', 480, 720);
         harness.pointer(harness.layer, 'pointermove', 360, 540);
@@ -117,61 +111,82 @@ describe('annotation geometry rendering', () => {
         });
     });
 
-    it.each([
-        'text',
-        'rectangle',
-        'circle',
-        'line',
-        'arrow',
-        'draw',
-    ] as const)('previews the resized %s before release and commits those dimensions', async tool => {
-        const harness = await mountLayer();
-        const creation = useAnnotationCreationTools({surface: harness.surface});
-        const origin = {
-            x: 0.2,
-            y: 0.2,
-        };
-        const entity = tool === 'text'
-            ? harness.surface.createTextBoxAt(0, {
-                left: 0.2,
-                top: 0.2,
-                width: 0.3,
-                height: 0.3,
-            }, {text: 'short'})
-            : harness.surface.createShape(creation.finishShape(creation.updateShape(creation.beginShape(0, tool, origin)!, {
-                x: 0.5,
-                y: 0.5,
-            }, origin))!);
-        harness.surface.select([entity.identity.id]);
-        await nextTick();
-        const handle = harness.host.querySelector('[data-pdf-annotation-resize-handle="se"]')!;
-        harness.pointer(handle, 'pointerdown', 300, 450);
-        harness.pointer(harness.layer, 'pointermove', 420, 630);
-        await nextTick();
-        const handles = harness.host.querySelector<HTMLElement>('.pdf-annotation-selection-handles')!;
-        expect(parseFloat(handles.style.width)).toBeCloseTo(50);
-        expect(parseFloat(handles.style.height)).toBeCloseTo(50);
-        if (tool === 'text') {
-            const text = harness.host.querySelector<HTMLElement>('[data-annotation-kind="text-box"]')!;
-            expect(parseFloat(text.style.width)).toBeCloseTo(50);
-            expect(parseFloat(text.style.height)).toBeCloseTo(50);
-        } else {
-            const shape = harness.host.querySelector('[data-annotation-kind="shape"] [data-annotation-visual]')!;
-            if (tool === 'rectangle') {expect(Number(shape.querySelector('rect')!.getAttribute('width'))).toBeCloseTo(0.5);}
-            if (tool === 'circle') {expect(Number(shape.querySelector('ellipse')!.getAttribute('rx'))).toBeCloseTo(0.25);}
-            if (tool === 'line' || tool === 'arrow') {expect(Number(shape.querySelector('line')!.getAttribute('x2'))).toBeCloseTo(0.7);}
-            if (tool === 'draw') {expect(shape.querySelector('polyline')!.getAttribute('points')).toContain('0.7,0.7');}
-        }
-        expect(harness.surface.getEntitiesForPage(0)[0]).toMatchObject({rect: {
-            width: 0.3,
-            height: 0.3,
-        }});
-        harness.pointer(harness.layer, 'pointerup', 420, 630);
-        expect(harness.surface.getEntitiesForPage(0)[0]).toMatchObject({rect: {
-            width: expect.closeTo(0.5),
-            height: expect.closeTo(0.5),
-        }});
-    });
+    it.each(['text', 'rectangle', 'circle', 'line', 'arrow', 'draw'] as const)(
+        'previews the resized %s before release and commits those dimensions',
+        async (tool) => {
+            const harness = await mountLayer();
+            const creation = useAnnotationCreationTools({surface: harness.surface});
+            const origin = {
+                x: 0.2,
+                y: 0.2,
+            };
+            const entity =
+                tool === 'text'
+                    ? harness.surface.createTextBoxAt(
+                          0,
+                          {
+                              left: 0.2,
+                              top: 0.2,
+                              width: 0.3,
+                              height: 0.3,
+                          },
+                          {text: 'short'},
+                      )
+                    : harness.surface.createShape(
+                          creation.finishShape(
+                              creation.updateShape(
+                                  creation.beginShape(0, tool, origin)!,
+                                  {
+                                      x: 0.5,
+                                      y: 0.5,
+                                  },
+                                  origin,
+                              ),
+                          )!,
+                      );
+            harness.surface.select([entity.identity.id]);
+            await nextTick();
+            const handle = harness.host.querySelector('[data-pdf-annotation-resize-handle="se"]')!;
+            harness.pointer(handle, 'pointerdown', 300, 450);
+            harness.pointer(harness.layer, 'pointermove', 420, 630);
+            await nextTick();
+            const handles = harness.host.querySelector<HTMLElement>('.pdf-annotation-selection-handles')!;
+            expect(parseFloat(handles.style.width)).toBeCloseTo(50);
+            expect(parseFloat(handles.style.height)).toBeCloseTo(50);
+            if (tool === 'text') {
+                const text = harness.host.querySelector<HTMLElement>('[data-annotation-kind="text-box"]')!;
+                expect(parseFloat(text.style.width)).toBeCloseTo(50);
+                expect(parseFloat(text.style.height)).toBeCloseTo(50);
+            } else {
+                const shape = harness.host.querySelector('[data-annotation-kind="shape"] [data-annotation-visual]')!;
+                if (tool === 'rectangle') {
+                    expect(Number(shape.querySelector('rect')!.getAttribute('width'))).toBeCloseTo(0.5);
+                }
+                if (tool === 'circle') {
+                    expect(Number(shape.querySelector('ellipse')!.getAttribute('rx'))).toBeCloseTo(0.25);
+                }
+                if (tool === 'line' || tool === 'arrow') {
+                    expect(Number(shape.querySelector('line')!.getAttribute('x2'))).toBeCloseTo(0.7);
+                }
+                if (tool === 'draw') {
+                    expect(shape.querySelector('polyline')!.getAttribute('points')).toContain('0.7,0.7');
+                }
+            }
+            expect(harness.surface.getEntitiesForPage(0)[0]).toMatchObject({
+                rect: {
+                    width: 0.3,
+                    height: 0.3,
+                },
+            });
+            harness.pointer(harness.layer, 'pointerup', 420, 630);
+            expect(harness.surface.getEntitiesForPage(0)[0]).toMatchObject({
+                rect: {
+                    width: expect.closeTo(0.5),
+                    height: expect.closeTo(0.5),
+                },
+            });
+        },
+    );
 
     it('maps pointer creation back through view rotation on a nonsquare CropBox', async () => {
         const harness = await mountLayer('rectangle', 90);
@@ -180,7 +195,9 @@ describe('annotation geometry rendering', () => {
         harness.pointer(harness.layer, 'pointerup', 450, 300);
         const entity = harness.surface.getEntitiesForPage(0)[0];
         expect(entity).toMatchObject({kind: 'shape'});
-        if (entity?.kind !== 'shape') {throw new Error('shape missing');}
+        if (entity?.kind !== 'shape') {
+            throw new Error('shape missing');
+        }
         expect(entity.rect.left).toBeCloseTo(0.2);
         expect(entity.rect.top).toBeCloseTo(0.2);
         expect(entity.rect.width).toBeCloseTo(0.3);
@@ -232,93 +249,107 @@ describe('annotation geometry rendering', () => {
 
     it('keeps group preview and committed positions identical beside a page edge', async () => {
         const harness = await mountLayer();
-        const first = harness.surface.createTextBoxAt(0, {
-            left: 0.2,
-            top: 0.2,
-            width: 0.1,
-            height: 0.1,
-        }, {text: 'one'});
-        const last = harness.surface.createTextBoxAt(0, {
-            left: 0.85,
-            top: 0.2,
-            width: 0.1,
-            height: 0.1,
-        }, {text: 'two'});
-        harness.surface.select([
-            first.identity.id,
-            last.identity.id,
-        ]);
+        const first = harness.surface.createTextBoxAt(
+            0,
+            {
+                left: 0.2,
+                top: 0.2,
+                width: 0.1,
+                height: 0.1,
+            },
+            {text: 'one'},
+        );
+        const last = harness.surface.createTextBoxAt(
+            0,
+            {
+                left: 0.85,
+                top: 0.2,
+                width: 0.1,
+                height: 0.1,
+            },
+            {text: 'two'},
+        );
+        harness.surface.select([first.identity.id, last.identity.id]);
         await nextTick();
         const element = harness.host.querySelector(`[data-annotation-id="${first.identity.id}"]`)!;
         harness.pointer(element, 'pointerdown', 130, 190);
         harness.pointer(harness.layer, 'pointermove', 310, 190);
         await nextTick();
-        const positions = [
-            first,
-            last,
-        ].map(entity => parseFloat(harness.host.querySelector<HTMLElement>(`[data-annotation-id="${entity.identity.id}"]`)!.style.left) / 100);
+        const positions = [first, last].map(
+            (entity) =>
+                parseFloat(harness.host.querySelector<HTMLElement>(`[data-annotation-id="${entity.identity.id}"]`)!.style.left) / 100,
+        );
         expect(positions[0]).toBeCloseTo(0.25);
         expect(positions[1]).toBeCloseTo(0.9);
         harness.pointer(harness.layer, 'pointerup', 310, 190);
         harness.surface.getEntitiesForPage(0).forEach((entity, index) => {
-            if (entity.kind !== 'text-box') {throw new Error('text missing');}
+            if (entity.kind !== 'text-box') {
+                throw new Error('text missing');
+            }
             expect(entity.rect.left).toBeCloseTo(positions[index]!);
         });
     });
 
-    it.each([
-        'Highlight',
-        'Underline',
-        'StrikeOut',
-        'Squiggly',
-    ] as const)('draws the %s subtype with a separate hit target', async subtype => {
-        const entity: ITextMarkupEntity = {
-            kind: 'text-markup',
-            identity: {id: asAnnotationId('markup')},
-            pageIndex: requirePageIndex(0),
-            revision: 0,
-            persistedRevision: -1,
-            deleted: false,
-            createdAt: null,
-            modifiedAt: null,
-            author: null,
-            contents: '',
-            subtype,
-            quadPoints: [{
-                left: 0.2,
-                top: 0.3,
-                width: 0.4,
-                height: 0.1,
-            }],
-            color: '#ff0000',
-            opacity: 0.3,
-        };
-        const host = document.createElement('div');
-        document.body.append(host);
-        const app = createApp({render: () => h('div', [
-            h('svg', {id: 'markup-fill-plane'}),
-            h('svg', [h(PdfTextMarkupAnnotation, {
-                entity,
-                selected: false,
-                highlightFillTarget: '#markup-fill-plane',
-            })]),
-        ])});
-        app.mount(host);
-        onTestFinished(() => {app.unmount(); host.remove();});
-        await nextTick();
-        expect(host.querySelectorAll('[data-annotation-hit-target]')).toHaveLength(1);
-        const visual = host.querySelector('[data-annotation-visual]')!;
-        expect(visual).not.toBeNull();
-        if (subtype === 'Squiggly') {expect(visual.getAttribute('d')?.split('L').length).toBeGreaterThan(3);}
-        if (subtype === 'Underline' || subtype === 'StrikeOut') {expect(Number(visual.getAttribute('y1'))).toBeCloseTo(subtype === 'Underline' ? 0.394 : 0.35);}
-    });
+    it.each(['Highlight', 'Underline', 'StrikeOut', 'Squiggly'] as const)(
+        'draws the %s subtype with a separate hit target',
+        async (subtype) => {
+            const entity: ITextMarkupEntity = {
+                kind: 'text-markup',
+                identity: {id: asAnnotationId('markup')},
+                pageIndex: requirePageIndex(0),
+                revision: 0,
+                persistedRevision: -1,
+                deleted: false,
+                createdAt: null,
+                modifiedAt: null,
+                author: null,
+                contents: '',
+                subtype,
+                quadPoints: [
+                    {
+                        left: 0.2,
+                        top: 0.3,
+                        width: 0.4,
+                        height: 0.1,
+                    },
+                ],
+                color: '#ff0000',
+                opacity: 0.3,
+            };
+            const host = document.createElement('div');
+            document.body.append(host);
+            const app = createApp({
+                render: () =>
+                    h('div', [
+                        h('svg', {id: 'markup-fill-plane'}),
+                        h('svg', [
+                            h(PdfTextMarkupAnnotation, {
+                                entity,
+                                selected: false,
+                                highlightFillTarget: '#markup-fill-plane',
+                            }),
+                        ]),
+                    ]),
+            });
+            app.mount(host);
+            onTestFinished(() => {
+                app.unmount();
+                host.remove();
+            });
+            await nextTick();
+            expect(host.querySelectorAll('[data-annotation-hit-target]')).toHaveLength(1);
+            const visual = host.querySelector('[data-annotation-visual]')!;
+            expect(visual).not.toBeNull();
+            if (subtype === 'Squiggly') {
+                expect(visual.getAttribute('d')?.split('L').length).toBeGreaterThan(3);
+            }
+            if (subtype === 'Underline' || subtype === 'StrikeOut') {
+                expect(Number(visual.getAttribute('y1'))).toBeCloseTo(subtype === 'Underline' ? 0.394 : 0.35);
+            }
+        },
+    );
 
-    it.each([
-        0,
-        0.42,
-        0.55,
-        1,
-    ])('keeps arrow visual alpha on the shared painted group at %s', opacity => {
+    it.each([0, 0.42, 0.55, 1])('keeps arrow visual alpha on the shared painted group at %s', (opacity) => {
         const entity: IShapeEntity = {
             kind: 'shape',
             identity: {id: asAnnotationId(`arrow-${String(opacity)}`)},
@@ -353,14 +384,19 @@ describe('annotation geometry rendering', () => {
             lineEndStyle: 'closedArrow',
         };
         const host = document.createElement('div');
-        const app = createApp({render: () => h('svg', [h(PdfShapeAnnotation, {
-            entity,
-            selected: false,
-            pageSize: {
-                width: 612,
-                height: 792,
-            },
-        })])});
+        const app = createApp({
+            render: () =>
+                h('svg', [
+                    h(PdfShapeAnnotation, {
+                        entity,
+                        selected: false,
+                        pageSize: {
+                            width: 612,
+                            height: 792,
+                        },
+                    }),
+                ]),
+        });
         app.mount(host);
         onTestFinished(() => app.unmount());
 

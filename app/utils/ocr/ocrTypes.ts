@@ -1,6 +1,6 @@
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { TRequestId } from '@contracts/shared';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {TRequestId} from '@contracts/shared';
+import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import type {
     TOcrProgressPhase,
     IOcrModelDownloadProgress,

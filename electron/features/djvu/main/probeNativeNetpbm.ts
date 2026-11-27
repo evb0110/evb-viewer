@@ -1,15 +1,11 @@
-import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
-import type { IJobBrokerRunContext } from '@electron/resources/jobBroker';
+import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
+import type {IJobBrokerRunContext} from '@electron/resources/jobBroker';
 
 import * as v from 'valibot';
 
 const finiteNumber = v.pipe(v.number(), v.finite());
 const nativeNetpbmProbeSchema = v.object({
-    magic: v.picklist([
-        'P4',
-        'P5',
-        'P6',
-    ]),
+    magic: v.picklist(['P4', 'P5', 'P6']),
     width: finiteNumber,
     height: finiteNumber,
     dataOffset: finiteNumber,
@@ -21,11 +17,7 @@ const nativeNetpbmProbeSchema = v.object({
     maxChannel: finiteNumber,
     blackRatio: finiteNumber,
     maxBlackRunRatio: finiteNumber,
-    dominantColor: v.tuple([
-        v.pipe(v.number(), v.integer()),
-        v.pipe(v.number(), v.integer()),
-        v.pipe(v.number(), v.integer()),
-    ]),
+    dominantColor: v.tuple([v.pipe(v.number(), v.integer()), v.pipe(v.number(), v.integer()), v.pipe(v.number(), v.integer())]),
 });
 
 type INativeNetpbmProbe = v.InferOutput<typeof nativeNetpbmProbeSchema>;
@@ -38,10 +30,10 @@ function parseNativeNetpbmProbe(value: unknown): INativeNetpbmProbe {
     if (parsed.success) {
         return parsed.output;
     }
-    const dominantColorIssue = parsed.issues[0]?.path?.some(path => path.key === 'dominantColor') === true;
-    throw new Error(dominantColorIssue
-        ? 'Native Netpbm probe returned an invalid dominant color'
-        : 'Native Netpbm probe returned invalid metrics');
+    const dominantColorIssue = parsed.issues[0]?.path?.some((path) => path.key === 'dominantColor') === true;
+    throw new Error(
+        dominantColorIssue ? 'Native Netpbm probe returned an invalid dominant color' : 'Native Netpbm probe returned invalid metrics',
+    );
 }
 
 export async function probeNativeNetpbm(
@@ -56,10 +48,7 @@ export async function probeNativeNetpbm(
         return null;
     }
     try {
-        const result = await runNativeToolCommand(binaryPath, [
-            '--probe-netpbm',
-            path,
-        ], {
+        const result = await runNativeToolCommand(binaryPath, ['--probe-netpbm', path], {
             commandLabel: 'evb-pdf-image-combine(probe-netpbm)',
             maxStdoutBytes: 64 * 1024,
             rejectOnStdoutTruncation: true,

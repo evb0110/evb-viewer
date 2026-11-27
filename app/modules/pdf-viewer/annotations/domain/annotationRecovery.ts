@@ -5,10 +5,7 @@ import {
     type AnnotationId,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type {IAnnotationMarkerRect} from '@app/types/annotations';
-import {
-    takeParsedFields,
-    type AnnotationStore,
-} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
+import {takeParsedFields, type AnnotationStore} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 import {parseDocumentRevisionToken} from '@contracts/documentRevision';
 import {isRecord} from '@contracts/runtimeGuards';
 import {isWorkspaceRecoveryRaster} from '@contracts/workspaceCheckpoint';
@@ -17,12 +14,31 @@ export const CANONICAL_ANNOTATION_RECOVERY_VERSION = 3 as const;
 const MAX_DRAFT_TEXT_CHARS = 1_000_000;
 // The names a changed field can have: those of the semantic fingerprint, over every kind.
 const SEMANTIC_FIELD_NAMES: ReadonlySet<string> = new Set([
-    'kind', 'pageIndex', 'deleted', 'author',
-    'text', 'rect', 'rotation', 'fontSize', 'color',
-    'contents', 'position', 'open',
-    'subtype', 'quadPoints', 'opacity',
+    'kind',
+    'pageIndex',
+    'deleted',
+    'author',
+    'text',
+    'rect',
+    'rotation',
+    'fontSize',
+    'color',
+    'contents',
+    'position',
+    'open',
+    'subtype',
+    'quadPoints',
+    'opacity',
     'image',
-    'tool', 'pdfSubtype', 'lineStartStyle', 'lineEndStyle', 'points', 'strokes', 'strokeColor', 'strokeWidth', 'fill',
+    'tool',
+    'pdfSubtype',
+    'lineStartStyle',
+    'lineEndStyle',
+    'points',
+    'strokes',
+    'strokeColor',
+    'strokeWidth',
+    'fill',
 ]);
 const FIELD_DIGEST = /^[0-9a-f]{28}$/u;
 
@@ -55,10 +71,13 @@ export interface IAnnotationRecoveryDraft {
     readonly generation: number;
 }
 
-export interface IAnnotationRecoveryDraftError extends IAnnotationRecoveryDraft {readonly error: string;}
+export interface IAnnotationRecoveryDraftError extends IAnnotationRecoveryDraft {
+    readonly error: string;
+}
 
 /** The drafts, or a function of each annotation's current revision (null when the store has none) giving them. */
-export type TAnnotationRecoveryDraftInput = readonly IAnnotationRecoveryDraft[]
+export type TAnnotationRecoveryDraftInput =
+    | readonly IAnnotationRecoveryDraft[]
     | ((revisionOf: (annotationId: AnnotationId) => number | null) => readonly IAnnotationRecoveryDraft[]);
 
 export interface ICanonicalAnnotationRecovery {
@@ -116,7 +135,7 @@ function validateDraft(draft: unknown): asserts draft is IAnnotationRecoveryDraf
     }
     if (draft.geometry) {
         const values = Object.values(draft.geometry);
-        if (values.length !== 4 || values.some(value => typeof value !== 'number' || !Number.isFinite(value))) {
+        if (values.length !== 4 || values.some((value) => typeof value !== 'number' || !Number.isFinite(value))) {
             throw new AnnotationRecoveryAdmissionError('Recovery draft geometry is invalid');
         }
     }
@@ -131,70 +150,115 @@ function validateEntity(entity: unknown): asserts entity is AnnotationEntity {
     const pageIndex = entity.pageIndex;
     const revision = entity.revision;
     const persistedRevision = entity.persistedRevision;
-    const allowedKinds: readonly unknown[] = [
-        'text-box',
-        'note',
-        'text-markup',
-        'placed-image',
-        'shape',
-    ];
-    if (!allowedKinds.includes(entity.kind)
-        || typeof id !== 'string' || !id.trim()
-        || typeof pageIndex !== 'number' || !Number.isSafeInteger(pageIndex) || pageIndex < 0
-        || typeof revision !== 'number' || !Number.isSafeInteger(revision) || revision < 0
-        || typeof persistedRevision !== 'number' || !Number.isSafeInteger(persistedRevision) || persistedRevision < -1
-        || typeof entity.deleted !== 'boolean'
-        || (isRecord(identity) && identity.pdfRef !== undefined && typeof identity.pdfRef !== 'string')
-        || !isNullableString(entity.author)
-        || !hasKindFields(entity)) {
+    const allowedKinds: readonly unknown[] = ['text-box', 'note', 'text-markup', 'placed-image', 'shape'];
+    if (
+        !allowedKinds.includes(entity.kind) ||
+        typeof id !== 'string' ||
+        !id.trim() ||
+        typeof pageIndex !== 'number' ||
+        !Number.isSafeInteger(pageIndex) ||
+        pageIndex < 0 ||
+        typeof revision !== 'number' ||
+        !Number.isSafeInteger(revision) ||
+        revision < 0 ||
+        typeof persistedRevision !== 'number' ||
+        !Number.isSafeInteger(persistedRevision) ||
+        persistedRevision < -1 ||
+        typeof entity.deleted !== 'boolean' ||
+        (isRecord(identity) && identity.pdfRef !== undefined && typeof identity.pdfRef !== 'string') ||
+        !isNullableString(entity.author) ||
+        !hasKindFields(entity)
+    ) {
         throw new AnnotationRecoveryAdmissionError('Recovery entity is invalid');
     }
 }
 
 const isFiniteNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
 const isNullableString = (value: unknown) => value === null || typeof value === 'string';
-const isRect = (value: unknown) => isRecord(value) && ['left', 'top', 'width', 'height'].every(key => isFiniteNumber(value[key]));
-const isPoints = (value: unknown) => Array.isArray(value) && value.every(point => isRecord(point) && isFiniteNumber(point.x) && isFiniteNumber(point.y));
+const isRect = (value: unknown) => isRecord(value) && ['left', 'top', 'width', 'height'].every((key) => isFiniteNumber(value[key]));
+const isPoints = (value: unknown) =>
+    Array.isArray(value) && value.every((point) => isRecord(point) && isFiniteNumber(point.x) && isFiniteNumber(point.y));
 
 /** The fields an entity of its kind needs before replay reads them. */
 function hasKindFields(entity: Record<string, unknown>) {
     switch (entity.kind) {
         case 'text-box':
-            return typeof entity.text === 'string' && isRect(entity.rect) && [0, 90, 180, 270].includes(entity.rotation as number)
-                && isFiniteNumber(entity.fontSize) && isNullableString(entity.color);
+            return (
+                typeof entity.text === 'string' &&
+                isRect(entity.rect) &&
+                [0, 90, 180, 270].includes(entity.rotation as number) &&
+                isFiniteNumber(entity.fontSize) &&
+                isNullableString(entity.color)
+            );
         case 'note':
-            return typeof entity.contents === 'string' && isRect(entity.position) && isNullableString(entity.color)
-                && typeof entity.open === 'boolean';
+            return (
+                typeof entity.contents === 'string' &&
+                isRect(entity.position) &&
+                isNullableString(entity.color) &&
+                typeof entity.open === 'boolean'
+            );
         case 'text-markup':
-            return typeof entity.subtype === 'string' && typeof entity.contents === 'string'
-                && Array.isArray(entity.quadPoints) && entity.quadPoints.every(isRect)
-                && isNullableString(entity.color) && (entity.opacity === null || isFiniteNumber(entity.opacity));
+            return (
+                typeof entity.subtype === 'string' &&
+                typeof entity.contents === 'string' &&
+                Array.isArray(entity.quadPoints) &&
+                entity.quadPoints.every(isRect) &&
+                isNullableString(entity.color) &&
+                (entity.opacity === null || isFiniteNumber(entity.opacity))
+            );
         case 'placed-image':
-            return isRect(entity.rect) && isFiniteNumber(entity.rotation)
-                && isRecord(entity.image) && isFiniteNumber(entity.image.byteLength) && typeof entity.image.sha256 === 'string'
-                && (entity.image.kind !== 'raster' || isWorkspaceRecoveryRaster(entity.image));
+            return (
+                isRect(entity.rect) &&
+                isFiniteNumber(entity.rotation) &&
+                isRecord(entity.image) &&
+                isFiniteNumber(entity.image.byteLength) &&
+                typeof entity.image.sha256 === 'string' &&
+                (entity.image.kind !== 'raster' || isWorkspaceRecoveryRaster(entity.image))
+            );
         case 'shape':
-            return typeof entity.tool === 'string' && isRect(entity.rect) && typeof entity.strokeColor === 'string'
-                && isFiniteNumber(entity.strokeWidth) && isNullableString(entity.fill) && isFiniteNumber(entity.opacity)
-                && (entity.points === undefined || isPoints(entity.points))
-                && (entity.strokes === undefined || (Array.isArray(entity.strokes) && entity.strokes.every(isPoints)));
+            return (
+                typeof entity.tool === 'string' &&
+                isRect(entity.rect) &&
+                typeof entity.strokeColor === 'string' &&
+                isFiniteNumber(entity.strokeWidth) &&
+                isNullableString(entity.fill) &&
+                isFiniteNumber(entity.opacity) &&
+                (entity.points === undefined || isPoints(entity.points)) &&
+                (entity.strokes === undefined || (Array.isArray(entity.strokes) && entity.strokes.every(isPoints)))
+            );
         default:
             return false;
     }
 }
 
 function assertHeldFieldsValid(heldFields: unknown, entityIds: Pick<ReadonlySet<string>, 'has'>) {
-    if (heldFields !== undefined && (!isRecord(heldFields) || !Object.entries(heldFields).every(([id, digests]) => entityIds.has(id)
-        && isRecord(digests) && Object.entries(digests).every(([name, digest]) => SEMANTIC_FIELD_NAMES.has(name)
-            && typeof digest === 'string' && FIELD_DIGEST.test(digest))))) {
+    if (
+        heldFields !== undefined &&
+        (!isRecord(heldFields) ||
+            !Object.entries(heldFields).every(
+                ([id, digests]) =>
+                    entityIds.has(id) &&
+                    isRecord(digests) &&
+                    Object.entries(digests).every(
+                        ([name, digest]) => SEMANTIC_FIELD_NAMES.has(name) && typeof digest === 'string' && FIELD_DIGEST.test(digest),
+                    ),
+            ))
+    ) {
         throw new AnnotationRecoveryAdmissionError('Recovery held fields are invalid');
     }
 }
 
 function assertChangedFieldsValid(changedFields: unknown, entityIds: Pick<ReadonlySet<string>, 'has'>) {
-    if (!isRecord(changedFields) || !Object.entries(changedFields).every(([id, names]) => entityIds.has(id)
-        && Array.isArray(names) && new Set(names).size === names.length
-        && names.every(name => typeof name === 'string' && SEMANTIC_FIELD_NAMES.has(name)))) {
+    if (
+        !isRecord(changedFields) ||
+        !Object.entries(changedFields).every(
+            ([id, names]) =>
+                entityIds.has(id) &&
+                Array.isArray(names) &&
+                new Set(names).size === names.length &&
+                names.every((name) => typeof name === 'string' && SEMANTIC_FIELD_NAMES.has(name)),
+        )
+    ) {
         throw new AnnotationRecoveryAdmissionError('Recovery changed fields are invalid');
     }
 }
@@ -208,22 +272,32 @@ export function captureCanonicalAnnotationRecovery(
     draftInput: TAnnotationRecoveryDraftInput = [],
 ): ICanonicalAnnotationRecovery {
     assertFiniteNonNegativeInteger(store.mutationEpoch, 'Annotation mutation generation');
-    const drafts = typeof draftInput === 'function' ? draftInput(id => store.get(id)?.revision ?? null) : draftInput;
+    const drafts = typeof draftInput === 'function' ? draftInput((id) => store.get(id)?.revision ?? null) : draftInput;
     drafts.forEach(validateDraft);
-    const changes = store.pendingChanges().filter(change => change.changedFields.length > 0);
+    const changes = store.pendingChanges().filter((change) => change.changedFields.length > 0);
     const entities = new Map(changes.map(({entity}) => [entity.identity.id, entity]));
     drafts.forEach((draft) => {
         const entity = entities.has(draft.annotationId) ? null : store.get(draft.annotationId);
-        if (entity) {entities.set(entity.identity.id, entity);}
+        if (entity) {
+            entities.set(entity.identity.id, entity);
+        }
     });
     return {
         version: CANONICAL_ANNOTATION_RECOVERY_VERSION,
         annotationReadRevision: store.readRevision,
         changedFields: Object.fromEntries(changes.map(({entity, changedFields}) => [entity.identity.id, changedFields])),
-        heldFields: Object.fromEntries(changes.flatMap(({entity, heldFields}) => (heldFields ? [[
-            entity.identity.id,
-            Object.fromEntries(Object.entries(heldFields).map(([name, value]) => [name, fieldDigest(value)])),
-        ]] : []))),
+        heldFields: Object.fromEntries(
+            changes.flatMap(({entity, heldFields}) =>
+                heldFields
+                    ? [
+                          [
+                              entity.identity.id,
+                              Object.fromEntries(Object.entries(heldFields).map(([name, value]) => [name, fieldDigest(value)])),
+                          ],
+                      ]
+                    : [],
+            ),
+        ),
         annotationMutationGeneration: store.mutationEpoch,
         entities: [...entities.values()],
         drafts: clone(drafts),
@@ -235,14 +309,19 @@ export function captureCanonicalAnnotationRecovery(
  * text is what its annotation, which the bytes hold, already says.
  */
 export function isAnnotationRecoveryWritten(recovery: ICanonicalAnnotationRecovery) {
-    if (Object.keys(recovery.changedFields ?? {}).length > 0) {return false;}
-    const entities = new Map(recovery.entities.map(entity => [entity.identity.id, entity]));
+    if (Object.keys(recovery.changedFields ?? {}).length > 0) {
+        return false;
+    }
+    const entities = new Map(recovery.entities.map((entity) => [entity.identity.id, entity]));
     return recovery.drafts.every((draft) => {
         const entity = entities.get(draft.annotationId);
-        if (!entity || (entity.kind !== 'note' && entity.kind !== 'text-markup' && entity.kind !== 'text-box')) {return false;}
-        const edited = entity.kind === 'text-box'
-            ? {...entity, text: draft.text, rect: draft.geometry ?? entity.rect}
-            : {...entity, contents: draft.text};
+        if (!entity || (entity.kind !== 'note' && entity.kind !== 'text-markup' && entity.kind !== 'text-box')) {
+            return false;
+        }
+        const edited =
+            entity.kind === 'text-box'
+                ? {...entity, text: draft.text, rect: draft.geometry ?? entity.rect}
+                : {...entity, contents: draft.text};
         return semanticEntityFingerprint(edited) === semanticEntityFingerprint(entity);
     });
 }
@@ -253,11 +332,14 @@ export function validateCanonicalAnnotationRecovery(value: unknown): ICanonicalA
     }
     const candidate = value as Partial<ICanonicalAnnotationRecovery>;
     const {version, annotationReadRevision, changedFields, heldFields} = candidate;
-    if ((version !== 1 && version !== 2 && version !== CANONICAL_ANNOTATION_RECOVERY_VERSION)
-        || (version !== 1 && annotationReadRevision !== null
-            && parseDocumentRevisionToken(annotationReadRevision) !== annotationReadRevision)
-        || !Array.isArray(candidate.entities)
-        || !Array.isArray(candidate.drafts)) {
+    if (
+        (version !== 1 && version !== 2 && version !== CANONICAL_ANNOTATION_RECOVERY_VERSION) ||
+        (version !== 1 &&
+            annotationReadRevision !== null &&
+            parseDocumentRevisionToken(annotationReadRevision) !== annotationReadRevision) ||
+        !Array.isArray(candidate.entities) ||
+        !Array.isArray(candidate.drafts)
+    ) {
         throw new AnnotationRecoveryAdmissionError('Recovery state has an unsupported version or shape');
     }
     const annotationMutationGeneration = candidate.annotationMutationGeneration;
@@ -276,8 +358,12 @@ export function validateCanonicalAnnotationRecovery(value: unknown): ICanonicalA
         entitiesById.set(entity.identity.id, entity);
         validatedEntities.push(entity);
     });
-    if (version !== 1) {assertChangedFieldsValid(changedFields, entitiesById);}
-    if (version === CANONICAL_ANNOTATION_RECOVERY_VERSION) {assertHeldFieldsValid(heldFields, entitiesById);}
+    if (version !== 1) {
+        assertChangedFieldsValid(changedFields, entitiesById);
+    }
+    if (version === CANONICAL_ANNOTATION_RECOVERY_VERSION) {
+        assertHeldFieldsValid(heldFields, entitiesById);
+    }
     drafts.forEach((draft) => {
         validateDraft(draft);
         const entity = entitiesById.get(draft.annotationId);
@@ -389,19 +475,11 @@ function idsInStore(
         const changed = changedFields.get(captured.identity.id) ?? [];
         return recovery.version === 1
             ? ['kind', 'pageIndex']
-            : Object.keys(fields).filter(key => key !== 'deleted' && key !== 'pageIndex' && !changed.includes(key));
+            : Object.keys(fields).filter((key) => key !== 'deleted' && key !== 'pageIndex' && !changed.includes(key));
     };
-    const sameField = (left: Record<string, unknown>, right: Record<string, unknown>, key: string) => (
-        JSON.stringify(left[key]) === JSON.stringify(right[key])
-    );
-    const rotatableGeometryKeys = new Set([
-        'rect',
-        'position',
-        'quadPoints',
-        'points',
-        'strokes',
-        'rotation',
-    ]);
+    const sameField = (left: Record<string, unknown>, right: Record<string, unknown>, key: string) =>
+        JSON.stringify(left[key]) === JSON.stringify(right[key]);
+    const rotatableGeometryKeys = new Set(['rect', 'position', 'quadPoints', 'points', 'strokes', 'rotation']);
     // Own entries only, as for the changed fields.
     const heldFields = new Map(Object.entries(recovery.heldFields ?? {}));
     const activeHeldEntriesFor = (captured: AnnotationEntity) => {
@@ -409,11 +487,9 @@ function idsInStore(
         if (!held) {
             return null;
         }
-        return Object.entries(held).filter(([key]) => (
-            key !== 'deleted'
-            && key !== 'pageIndex'
-            && !(reread && rotatableGeometryKeys.has(key))
-        ));
+        return Object.entries(held).filter(
+            ([key]) => key !== 'deleted' && key !== 'pageIndex' && !(reread && rotatableGeometryKeys.has(key)),
+        );
     };
     /** Whether `fields` hold what the bytes held of the captured entity's changed fields, when the plan names that. */
     const holdsHeldFields = (captured: AnnotationEntity, fields: Record<string, unknown>) => {
@@ -424,21 +500,29 @@ function idsInStore(
     const sameBytes = recovery.version === CANONICAL_ANNOTATION_RECOVERY_VERSION && !reread;
     const matchesExistingId = (captured: AnnotationEntity) => {
         const existing = current.get(captured.identity.id);
-        if (!existing) {return false;}
+        if (!existing) {
+            return false;
+        }
         const existingFields = semanticFields(existing);
         // A read can give another annotation an id a page operation took from this one.
-        if (!holdsHeldFields(captured, existingFields)) {return false;}
+        if (!holdsHeldFields(captured, existingFields)) {
+            return false;
+        }
         if (!reread) {
             const ref = captured.identity.pdfRef?.trim();
             return !sameBytes || !ref || !existing.identity.pdfRef?.trim() || existing.identity.pdfRef === captured.identity.pdfRef;
         }
-        if (existing.deleted) {return false;}
+        if (existing.deleted) {
+            return false;
+        }
         const fields = semanticFields(captured);
-        const compared = comparedKeysFor(captured, fields).filter(key => !rotatableGeometryKeys.has(key));
-        if (!compared.includes('kind')) {return false;}
-        return compared.every(key => sameField(existingFields, fields, key));
+        const compared = comparedKeysFor(captured, fields).filter((key) => !rotatableGeometryKeys.has(key));
+        if (!compared.includes('kind')) {
+            return false;
+        }
+        return compared.every((key) => sameField(existingFields, fields, key));
     };
-    const directIds = new Set<string>(recovery.entities.filter(matchesExistingId).map(entity => entity.identity.id));
+    const directIds = new Set<string>(recovery.entities.filter(matchesExistingId).map((entity) => entity.identity.id));
     const ids = new Map<string, AnnotationId>();
     const byRef = recovery.version === 1 || sameBytes;
     const taken = new Set<string>(directIds);
@@ -471,16 +555,8 @@ function idsInStore(
     }
 
     const schemaBuckets = new Map<string, Map<string, IRecoverySignatureBucket>>();
-    const getSchemaIndex = (
-        kind: unknown,
-        comparedKeys: readonly string[],
-        heldKeys: readonly string[],
-    ) => {
-        const schemaKey = JSON.stringify([
-            kind,
-            comparedKeys,
-            heldKeys,
-        ]);
+    const getSchemaIndex = (kind: unknown, comparedKeys: readonly string[], heldKeys: readonly string[]) => {
+        const schemaKey = JSON.stringify([kind, comparedKeys, heldKeys]);
         let index = schemaBuckets.get(schemaKey);
         if (index) {
             return index;
@@ -489,8 +565,8 @@ function idsInStore(
         const kindCandidates = unboundByKind.get(kind) ?? [];
         for (const candidate of kindCandidates) {
             const signature = JSON.stringify([
-                comparedKeys.map(key => encodeComparedFieldValue(candidate.fields[key])),
-                heldKeys.map(key => candidateFieldDigest(candidate, key)),
+                comparedKeys.map((key) => encodeComparedFieldValue(candidate.fields[key])),
+                heldKeys.map((key) => candidateFieldDigest(candidate, key)),
             ]);
             let bucket = index.get(signature);
             if (!bucket) {
@@ -514,14 +590,20 @@ function idsInStore(
     };
 
     recovery.entities.forEach((captured) => {
-        if (directIds.has(captured.identity.id)) {return;}
+        if (directIds.has(captured.identity.id)) {
+            return;
+        }
         const fields = semanticFields(captured);
         const changed = changedFields.get(captured.identity.id) ?? [];
         // A deletion the bytes already hold names no annotation of the read.
-        if (captured.deleted && (recovery.version === 1 || !changed.includes('deleted'))) {return;}
+        if (captured.deleted && (recovery.version === 1 || !changed.includes('deleted'))) {
+            return;
+        }
         // Another read's geometry may be in another frame.
-        const compared = comparedKeysFor(captured, fields).filter(key => !reread || !rotatableGeometryKeys.has(key));
-        if (!compared.includes('kind')) {return;}
+        const compared = comparedKeysFor(captured, fields).filter((key) => !reread || !rotatableGeometryKeys.has(key));
+        if (!compared.includes('kind')) {
+            return;
+        }
         const capturedRef = captured.identity.pdfRef?.trim();
         // Without a ref, an annotation the bytes hold binds by its fields: those it changed, by what the bytes held.
         const boundByFields = changed.length === 0 || heldFields.has(captured.identity.id);
@@ -534,26 +616,29 @@ function idsInStore(
                 return;
             }
             const activeHeld = activeHeldEntriesFor(captured);
-            const matches = refCandidates.filter(candidate => !taken.has(candidate.entity.identity.id)
-                && compared.every(key => sameField(candidate.fields, fields, key))
-                && (!activeHeld || activeHeld.every(([key, digest]) => candidateFieldDigest(candidate, key) === digest)));
-            const onPage = matches.length > 1
-                ? matches.filter(({fields: candidate}) => sameField(candidate, fields, 'pageIndex'))
-                : matches;
-            if (onPage.length !== 1) {return;}
+            const matches = refCandidates.filter(
+                (candidate) =>
+                    !taken.has(candidate.entity.identity.id) &&
+                    compared.every((key) => sameField(candidate.fields, fields, key)) &&
+                    (!activeHeld || activeHeld.every(([key, digest]) => candidateFieldDigest(candidate, key) === digest)),
+            );
+            const onPage =
+                matches.length > 1 ? matches.filter(({fields: candidate}) => sameField(candidate, fields, 'pageIndex')) : matches;
+            if (onPage.length !== 1) {
+                return;
+            }
             const bound = onPage[0]!.entity;
             taken.add(bound.identity.id);
             ids.set(captured.identity.id, bound.identity.id);
             return;
         }
 
-        const comparedKeys = compared.filter(key => key !== 'kind').sort();
-        const activeHeld = (activeHeldEntriesFor(captured) ?? [])
-            .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey));
+        const comparedKeys = compared.filter((key) => key !== 'kind').sort();
+        const activeHeld = (activeHeldEntriesFor(captured) ?? []).sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey));
         const heldKeys = activeHeld.map(([key]) => key);
         const index = getSchemaIndex(fields.kind, comparedKeys, heldKeys);
         const signature = JSON.stringify([
-            comparedKeys.map(key => encodeComparedFieldValue(fields[key])),
+            comparedKeys.map((key) => encodeComparedFieldValue(fields[key])),
             activeHeld.map(([, digest]) => digest),
         ]);
         const bucket = index.get(signature);
@@ -602,50 +687,54 @@ export function restoreCanonicalAnnotationRecovery(
     value: unknown,
 ): ICanonicalAnnotationRecovery {
     const recovery = validateCanonicalAnnotationRecovery(value);
-    const reread = store.readRevision !== null && recovery.annotationReadRevision !== undefined
-        && recovery.annotationReadRevision !== store.readRevision;
+    const reread =
+        store.readRevision !== null &&
+        recovery.annotationReadRevision !== undefined &&
+        recovery.annotationReadRevision !== store.readRevision;
     // Own entries only: an imported /NM such as `constructor` names no inherited value.
     const changedFields = new Map(Object.entries(recovery.changedFields ?? {}));
     const {ids, directIds} = idsInStore(store, recovery, changedFields, reread);
     const placedByRead = new Set<string>();
-    const drafted = new Set<string>(recovery.drafts.map(draft => draft.annotationId));
+    const drafted = new Set<string>(recovery.drafts.map((draft) => draft.annotationId));
     store.importMany(() => {
         recovery.entities.forEach((captured) => {
             const mappedId = ids.get(captured.identity.id);
-            const held = mappedId !== undefined
-                ? store.get(mappedId)
-                : directIds.has(captured.identity.id)
-                    ? store.get(captured.identity.id)
-                    : null;
+            const held =
+                mappedId !== undefined ? store.get(mappedId) : directIds.has(captured.identity.id) ? store.get(captured.identity.id) : null;
             const pdfRef = captured.identity.pdfRef;
             const refHolder = !held && pdfRef?.trim() ? store.resolveExternal({pdfRef}) : null;
             const collidesWithOther = !held && store.get(captured.identity.id) !== null;
-            const detachFromPdfObject = !held && (
-                collidesWithOther
-                || (reread && Boolean(pdfRef?.trim()))
-                || (refHolder !== null && refHolder !== captured.identity.id)
-            );
+            const detachFromPdfObject =
+                !held &&
+                (collidesWithOther || (reread && Boolean(pdfRef?.trim())) || (refHolder !== null && refHolder !== captured.identity.id));
             const detachedId = collidesWithOther ? asAnnotationId(crypto.randomUUID()) : captured.identity.id;
-            if (collidesWithOther) {ids.set(captured.identity.id, detachedId);}
+            if (collidesWithOther) {
+                ids.set(captured.identity.id, detachedId);
+            }
             // The store's read names the object. A captured ref or minted id from before a renumbering page operation
             // that has no unique match in the recovered read is kept as a new annotation rather than written over an
             // object that may not be its own (or kept with a stale pdfRef that no longer exists).
-            const entity = held ? {...captured, identity: held.identity}
+            const entity = held
+                ? {...captured, identity: held.identity}
                 : detachFromPdfObject
-                    ? {...captured, identity: {id: detachedId}, persistedRevision: -1}
-                    : captured;
+                  ? {...captured, identity: {id: detachedId}, persistedRevision: -1}
+                  : captured;
             const changed = changedFields.get(captured.identity.id);
             const read = reread ? held : null;
             // The working bytes do not hold a changed entity, so Save writes it whatever revision it was captured at.
-            const pending = changed?.length ? {...entity, persistedRevision: Math.min(entity.persistedRevision, entity.revision - 1)} : entity;
+            const pending = changed?.length
+                ? {...entity, persistedRevision: Math.min(entity.persistedRevision, entity.revision - 1)}
+                : entity;
             if (reread && !changed && (held || !drafted.has(captured.identity.id) || captured.deleted)) {
                 placedByRead.add(entity.identity.id);
             } else if (!changed || !read || read.kind !== entity.kind) {
                 store.import(pending, {preserveSavedBaseline: true});
             } else {
-                const unchanged = new Set(Object.keys(semanticFields(entity)).filter(key => !changed.includes(key)));
+                const unchanged = new Set(Object.keys(semanticFields(entity)).filter((key) => !changed.includes(key)));
                 store.import(takeParsedFields(pending, read, unchanged), {preserveSavedBaseline: true});
-                if (unchanged.has('rect')) {placedByRead.add(entity.identity.id);}
+                if (unchanged.has('rect')) {
+                    placedByRead.add(entity.identity.id);
+                }
             }
         });
     });

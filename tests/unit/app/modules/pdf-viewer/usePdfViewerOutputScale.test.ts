@@ -1,16 +1,9 @@
 // @vitest-environment happy-dom
 
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { effectScope } from 'vue';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {effectScope} from 'vue';
 import {usePdfViewerOutputScale} from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerOutputScale';
-import { resolvePdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
+import {resolvePdfRenderPerformancePolicy} from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
 
 const performancePolicy = resolvePdfRenderPerformancePolicy({
     lowCpu: false,
@@ -78,41 +71,22 @@ describe('usePdfViewerOutputScale', () => {
     });
 
     it.each([
-        [
-            1,
-            1,
-            2,
-        ],
-        [
-            1.5,
-            1.5,
-            2,
-        ],
-        [
-            3,
-            3,
-            3,
-        ],
-    ])(
-        'resolves DPR %s to the policy floor',
-        (devicePixelRatio, constrainedScale, normalScale) => {
-            setDevicePixelRatio(devicePixelRatio);
-            const constrainedScope = effectScope();
-            const normalScope = effectScope();
-            const constrainedOutputScale = constrainedScope.run(
-                () => usePdfViewerOutputScale(constrainedPerformancePolicy),
-            );
-            const normalOutputScale = normalScope.run(
-                () => usePdfViewerOutputScale(performancePolicy),
-            );
+        [1, 1, 2],
+        [1.5, 1.5, 2],
+        [3, 3, 3],
+    ])('resolves DPR %s to the policy floor', (devicePixelRatio, constrainedScale, normalScale) => {
+        setDevicePixelRatio(devicePixelRatio);
+        const constrainedScope = effectScope();
+        const normalScope = effectScope();
+        const constrainedOutputScale = constrainedScope.run(() => usePdfViewerOutputScale(constrainedPerformancePolicy));
+        const normalOutputScale = normalScope.run(() => usePdfViewerOutputScale(performancePolicy));
 
-            expect(constrainedOutputScale?.value).toBe(constrainedScale);
-            expect(normalOutputScale?.value).toBe(normalScale);
+        expect(constrainedOutputScale?.value).toBe(constrainedScale);
+        expect(normalOutputScale?.value).toBe(normalScale);
 
-            constrainedScope.stop();
-            normalScope.stop();
-        },
-    );
+        constrainedScope.stop();
+        normalScope.stop();
+    });
 
     it('tracks raw fractional DPR through media events and releases its listener', () => {
         setDevicePixelRatio(0.75);

@@ -1,10 +1,5 @@
-import { join } from 'node:path';
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {join} from 'node:path';
+import {describe, expect, it, vi} from 'vitest';
 import {
     electronAppStatePath,
     electronFileLogDir,
@@ -31,10 +26,7 @@ describe('electron run session paths', () => {
         expect(first).toBe(join(sessionsBaseDir, 'first-session', 'electron-logs'));
         expect(second).toBe(join(sessionsBaseDir, 'second-session', 'electron-logs'));
         try {
-            for (const value of [
-                '',
-                '   ',
-            ]) {
+            for (const value of ['', '   ']) {
                 vi.stubEnv('EVB_APP_STATE_DIR', value);
                 expect(electronAppStatePath('first-session')).toBe(join(sessionsBaseDir, 'first-session', 'app-state'));
                 expect(electronAppStatePath('second-session')).toBe(join(sessionsBaseDir, 'second-session', 'app-state'));
@@ -52,20 +44,11 @@ describe('electron run session paths', () => {
     });
 
     it('keeps an explicit non-empty automation log directory override', () => {
-        expect(resolveAutomationFileLogDir({EVB_FILE_LOG_DIR: '/tmp/explicit-logs'}, 'session'))
-            .toBe('/tmp/explicit-logs');
+        expect(resolveAutomationFileLogDir({EVB_FILE_LOG_DIR: '/tmp/explicit-logs'}, 'session')).toBe('/tmp/explicit-logs');
     });
 
     it('rejects session names that can escape the sessions directory', () => {
-        for (const name of [
-            '',
-            '.',
-            '..',
-            '../default',
-            'default/other',
-            'default\\other',
-            '/tmp/default',
-        ]) {
+        for (const name of ['', '.', '..', '../default', 'default/other', 'default\\other', '/tmp/default']) {
             expect(() => validateSessionName(name)).toThrow(/Session name/u);
             expect(() => sessionDir(name)).toThrow(/Session name/u);
         }

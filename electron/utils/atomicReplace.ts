@@ -1,45 +1,20 @@
-import { randomBytes } from 'node:crypto';
-import {
-    chmod,
-    link,
-    lstat,
-    open,
-    readFile,
-    copyFile,
-    rename,
-    stat,
-    unlink,
-    writeFile,
-} from 'fs/promises';
-import {
-    dirname,
-    join,
-} from 'path';
-import { isErrnoException } from '@contracts/runtimeGuards';
-import { isNoHardLinkError } from '@electron/utils/isNoHardLinkError';
+import {randomBytes} from 'node:crypto';
+import {chmod, link, lstat, open, readFile, copyFile, rename, stat, unlink, writeFile} from 'fs/promises';
+import {dirname, join} from 'path';
+import {isErrnoException} from '@contracts/runtimeGuards';
+import {isNoHardLinkError} from '@electron/utils/isNoHardLinkError';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {assertNoSymlinkPathSegments} from '@electron/file-access/assertNoSymlinkPathSegments';
-import { createLogger } from '@electron/utils/createLogger';
-import { getErrorMessage } from '@electron/utils/error';
-import { markActiveWorkingCopyMutationCommitStarted } from '@electron/file-access/workingCopyMutationCommitSignal';
-import {
-    assertPathMatchesSaveWitnessSnapshot,
-    capturePathSaveWitness,
-} from '@electron/file-access/originalPathSaveWitness';
+import {createLogger} from '@electron/utils/createLogger';
+import {getErrorMessage} from '@electron/utils/error';
+import {markActiveWorkingCopyMutationCommitStarted} from '@electron/file-access/workingCopyMutationCommitSignal';
+import {assertPathMatchesSaveWitnessSnapshot, capturePathSaveWitness} from '@electron/file-access/originalPathSaveWitness';
 import type {IOriginalPathSaveJournalSnapshot} from '@electron/file-access/originalPathSnapshot';
-import {
-    fsyncDirectory,
-    fsyncFile as fsyncPath,
-} from '@electron/utils/fsyncPath';
+import {fsyncDirectory, fsyncFile as fsyncPath} from '@electron/utils/fsyncPath';
 
 const logger = createLogger('atomicReplace');
 const ATOMIC_REPLACE_JOURNAL_VERSION = 1;
-const WINDOWS_FALLBACK_CODES = new Set<string | number>([
-    'EACCES',
-    'EBUSY',
-    'EPERM',
-    'ENOTEMPTY',
-]);
+const WINDOWS_FALLBACK_CODES = new Set<string | number>(['EACCES', 'EBUSY', 'EPERM', 'ENOTEMPTY']);
 
 interface IWindowsAtomicReplaceJournal {
     version: typeof ATOMIC_REPLACE_JOURNAL_VERSION;
@@ -82,7 +57,6 @@ function randomSuffix() {
     return randomBytes(8).toString('hex');
 }
 
-
 export async function fsyncParentDirectory(filePath: string) {
     await fsyncDirectory(dirname(filePath)).catch(() => undefined);
 }
@@ -119,14 +93,14 @@ async function readWindowsAtomicReplaceJournal(destinationPath: string) {
         throw new Error(`Windows atomic replace journal is unreadable: ${path}`, {cause: error});
     }
     if (
-        !value
-        || typeof value !== 'object'
-        || (value as Record<string, unknown>).version !== ATOMIC_REPLACE_JOURNAL_VERSION
-        || (value as Record<string, unknown>).destinationPath !== destinationPath
-        || typeof (value as Record<string, unknown>).sourcePath !== 'string'
-        || typeof (value as Record<string, unknown>).backupPath !== 'string'
-        || !(value as Record<string, unknown>).destinationSnapshot
-        || !(value as Record<string, unknown>).sourceSnapshot
+        !value ||
+        typeof value !== 'object' ||
+        (value as Record<string, unknown>).version !== ATOMIC_REPLACE_JOURNAL_VERSION ||
+        (value as Record<string, unknown>).destinationPath !== destinationPath ||
+        typeof (value as Record<string, unknown>).sourcePath !== 'string' ||
+        typeof (value as Record<string, unknown>).backupPath !== 'string' ||
+        !(value as Record<string, unknown>).destinationSnapshot ||
+        !(value as Record<string, unknown>).sourceSnapshot
     ) {
         throw new Error(`Windows atomic replace journal is invalid: ${path}`);
     }
@@ -142,7 +116,9 @@ export async function recoverWindowsAtomicReplace(destinationPath: string) {
     assertNoSymlinkPathSegments(journal.backupPath);
     const backupExists = await fileExists(journal.backupPath);
     if (await fileExists(destinationPath)) {
-        if (backupExists) {await assertPathMatchesSaveWitnessSnapshot(journal.backupPath, journal.destinationSnapshot, {contentOnly: true});}
+        if (backupExists) {
+            await assertPathMatchesSaveWitnessSnapshot(journal.backupPath, journal.destinationSnapshot, {contentOnly: true});
+        }
         // The destination holds the recorded new file (renamed into place) or
         // the old one, even when cleanup removed the backup but not this journal.
         await assertPathMatchesSaveWitnessSnapshot(destinationPath, journal.sourceSnapshot, {allowBackupMetadataChange: true})
@@ -150,7 +126,9 @@ export async function recoverWindowsAtomicReplace(destinationPath: string) {
             .catch(() => {
                 throw new Error(`Windows atomic replace recovery refused to overwrite destination "${destinationPath}"`);
             });
-        if (backupExists) {await unlink(journal.backupPath);}
+        if (backupExists) {
+            await unlink(journal.backupPath);
+        }
         await unlink(atomicReplaceJournalPath(destinationPath));
         return;
     }
@@ -163,25 +141,14 @@ export async function recoverWindowsAtomicReplace(destinationPath: string) {
     await unlink(atomicReplaceJournalPath(destinationPath));
 }
 
-async function createRestoreFailureError(
-    dst: string,
-    backupPath: string,
-    promotionError: unknown,
-    restoreError: unknown,
-) {
-    const [
-        dstExists,
-        backupExists,
-    ] = await Promise.all([
-        fileExists(dst),
-        fileExists(backupPath),
-    ]);
+async function createRestoreFailureError(dst: string, backupPath: string, promotionError: unknown, restoreError: unknown) {
+    const [dstExists, backupExists] = await Promise.all([fileExists(dst), fileExists(backupPath)]);
     return new Error(
-        `Atomic replace failed and backup restore failed for "${dst}". `
-        + `Promotion error: ${getErrorMessage(promotionError)}. `
-        + `Restore error: ${getErrorMessage(restoreError)}. `
-        + `Backup path: "${backupPath}" (exists: ${backupExists ? 'yes' : 'no'}). `
-        + `Destination exists: ${dstExists ? 'yes' : 'no'}.`,
+        `Atomic replace failed and backup restore failed for "${dst}". ` +
+            `Promotion error: ${getErrorMessage(promotionError)}. ` +
+            `Restore error: ${getErrorMessage(restoreError)}. ` +
+            `Backup path: "${backupPath}" (exists: ${backupExists ? 'yes' : 'no'}). ` +
+            `Destination exists: ${dstExists ? 'yes' : 'no'}.`,
     );
 }
 
@@ -194,14 +161,20 @@ export async function moveFileToMissingPath(sourcePath: string, destinationPath:
     try {
         await link(sourcePath, destinationPath);
     } catch (error) {
-        if (!isNoHardLinkError(error)) {throw error;}
+        if (!isNoHardLinkError(error)) {
+            throw error;
+        }
         // A no-link volume still refuses an entry already present. Node cannot
         // make this check and the following rename one no-replace operation.
         const destination = await lstat(destinationPath).catch((lookupError: unknown) => {
-            if (isErrnoException(lookupError) && lookupError.code === 'ENOENT') {return null;}
+            if (isErrnoException(lookupError) && lookupError.code === 'ENOENT') {
+                return null;
+            }
             throw lookupError;
         });
-        if (destination) {throw Object.assign(new Error(`File exists: ${destinationPath}`), {code: 'EEXIST'});}
+        if (destination) {
+            throw Object.assign(new Error(`File exists: ${destinationPath}`), {code: 'EEXIST'});
+        }
         await rename(sourcePath, destinationPath);
         return;
     }
@@ -210,15 +183,8 @@ export async function moveFileToMissingPath(sourcePath: string, destinationPath:
 
 /** Detach shared staging before opening the inode to chmod and durably publish. */
 async function prepareReplacement(srcTemp: string, dst: string, durable: boolean) {
-    const [
-        staged,
-        replaced,
-    ] = await Promise.all([
-        stat(srcTemp),
-        process.platform === 'win32' ? null : stat(dst).catch(() => null),
-    ]);
-    const mode = replaced && (staged.mode & 0o7777) !== (replaced.mode & 0o7777)
-        ? replaced.mode & 0o7777 : undefined;
+    const [staged, replaced] = await Promise.all([stat(srcTemp), process.platform === 'win32' ? null : stat(dst).catch(() => null)]);
+    const mode = replaced && (staged.mode & 0o7777) !== (replaced.mode & 0o7777) ? replaced.mode & 0o7777 : undefined;
     if (mode !== undefined && staged.nlink !== 1) {
         const ownCopy = `${srcTemp}.mode`;
         try {
@@ -232,7 +198,9 @@ async function prepareReplacement(srcTemp: string, dst: string, durable: boolean
     try {
         if (mode !== undefined) {
             await chmod(srcTemp, mode).catch(async (error: unknown) => {
-                if (((await stat(srcTemp)).mode & ~mode & 0o777) !== 0) {throw error;}
+                if (((await stat(srcTemp)).mode & ~mode & 0o777) !== 0) {
+                    throw error;
+                }
                 logger.warn(`Could not keep the permissions of "${dst}": ${getErrorMessage(error)}`);
             });
         }
@@ -263,12 +231,16 @@ export async function atomicReplace(
     }
     const durable = options.durable !== false;
     await prepareReplacement(srcTemp, dst, durable);
-    if (options.assertDestinationCurrent) {await options.assertDestinationCurrent();}
-    if (options.markMutationCommitStarted !== false) {markActiveWorkingCopyMutationCommitStarted();}
+    if (options.assertDestinationCurrent) {
+        await options.assertDestinationCurrent();
+    }
+    if (options.markMutationCommitStarted !== false) {
+        markActiveWorkingCopyMutationCommitStarted();
+    }
     if (options.destinationBackupPath !== undefined) {
         const backupPath = options.destinationBackupPath;
         assertNoSymlinkPathSegments(backupPath);
-        if (process.platform !== 'win32' && await options.exchange?.(srcTemp, dst)) {
+        if (process.platform !== 'win32' && (await options.exchange?.(srcTemp, dst))) {
             await moveFileToMissingPath(srcTemp, backupPath);
             await fsyncPath(backupPath);
             await fsyncParentDirectory(dst);
@@ -308,14 +280,18 @@ export async function atomicReplace(
             throw error;
         }
         const backupPath = `${dst}.bak-${randomSuffix()}`;
-        await writeJsonAtomic(atomicReplaceJournalPath(dst), {
-            version: ATOMIC_REPLACE_JOURNAL_VERSION,
-            sourcePath: srcTemp,
-            destinationPath: dst,
-            backupPath,
-            destinationSnapshot: destinationWitness.getSnapshotForJournal(),
-            sourceSnapshot: sourceWitness.getSnapshotForJournal(),
-        } satisfies IWindowsAtomicReplaceJournal, {markMutationCommitStarted: false});
+        await writeJsonAtomic(
+            atomicReplaceJournalPath(dst),
+            {
+                version: ATOMIC_REPLACE_JOURNAL_VERSION,
+                sourcePath: srcTemp,
+                destinationPath: dst,
+                backupPath,
+                destinationSnapshot: destinationWitness.getSnapshotForJournal(),
+                sourceSnapshot: sourceWitness.getSnapshotForJournal(),
+            } satisfies IWindowsAtomicReplaceJournal,
+            {markMutationCommitStarted: false},
+        );
 
         try {
             // The witnesses above describe the bytes present now. The admitted
@@ -337,10 +313,7 @@ export async function atomicReplace(
                             cause: restoreError,
                         },
                     );
-                    throw attachFailureReceipt(
-                        await createRestoreFailureError(dst, backupPath, promotionError, restoreError),
-                        receipt,
-                    );
+                    throw attachFailureReceipt(await createRestoreFailureError(dst, backupPath, promotionError, restoreError), receipt);
                 }
             }
             throw promotionError;
@@ -359,11 +332,7 @@ export async function atomicReplace(
 }
 
 /** Writes JSON through a sibling temp file and publishes it with `atomicReplace`. */
-export async function writeJsonAtomic(
-    path: string,
-    value: unknown,
-    options: Parameters<typeof atomicReplace>[2] = {},
-) {
+export async function writeJsonAtomic(path: string, value: unknown, options: Parameters<typeof atomicReplace>[2] = {}) {
     const temporaryPath = makeSiblingTempPath(path);
     try {
         await writeFile(temporaryPath, `${JSON.stringify(value)}\n`, 'utf8');

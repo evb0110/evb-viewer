@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {AnnotationStore} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 import {
     asAnnotationId,
@@ -35,16 +31,18 @@ function inkShape(id: string, pageIndex = 0): IShapeEntity {
             width: 0.3,
             height: 0.1,
         },
-        strokes: [[
-            {
-                x: 0.1,
-                y: 0.2,
-            },
-            {
-                x: 0.3,
-                y: 0.25,
-            },
-        ]],
+        strokes: [
+            [
+                {
+                    x: 0.1,
+                    y: 0.2,
+                },
+                {
+                    x: 0.3,
+                    y: 0.25,
+                },
+            ],
+        ],
         strokeColor: '#d92626',
         strokeWidth: 2,
         fill: null,
@@ -54,10 +52,7 @@ function inkShape(id: string, pageIndex = 0): IShapeEntity {
 
 function differsFromSavedRecomputed(store: AnnotationStore, kind?: AnnotationEntity['kind']) {
     const state = store.snapshotState();
-    return !semanticSnapshotsEqual(
-        snapshotOfKind(semanticSnapshot(state.entities.values()), kind),
-        snapshotOfKind(state.saved, kind),
-    );
+    return !semanticSnapshotsEqual(snapshotOfKind(semanticSnapshot(state.entities.values()), kind), snapshotOfKind(state.saved, kind));
 }
 
 function note(id = 'baseline-note', pageIndex = 0): INoteEntity {
@@ -110,15 +105,20 @@ describe('AnnotationStore saved baseline', () => {
         const store = new AnnotationStore();
         store.createNote(note());
         const frontier = store.beginSave();
-        store.replaceFromDocument([{
-            ...note(),
-            identity: {
-                id: asAnnotationId('late-note'),
-                pdfRef: '34 0 R',
-            },
-            persistedRevision: 0,
-            contents: 'read from the document',
-        }], []);
+        store.replaceFromDocument(
+            [
+                {
+                    ...note(),
+                    identity: {
+                        id: asAnnotationId('late-note'),
+                        pdfRef: '34 0 R',
+                    },
+                    persistedRevision: 0,
+                    contents: 'read from the document',
+                },
+            ],
+            [],
+        );
 
         store.markPersisted(frontier);
         expect(store.list()).toHaveLength(2);
@@ -183,18 +183,24 @@ describe('AnnotationStore saved baseline', () => {
         const save = () => store.markPersisted(store.beginSave());
         const ids: AnnotationId[] = [];
         for (let step = 0; step < 400; step += 1) {
-            const live = store.list().filter(entity => entity.kind === 'shape' || entity.kind === 'note');
+            const live = store.list().filter((entity) => entity.kind === 'shape' || entity.kind === 'note');
             const target = live[Math.floor(random() * live.length)];
             const operation = random();
             if (operation < 0.2 || !target) {
                 const id = `entity-${step}`;
                 const pageIndex = Math.floor(random() * 4);
                 ids.push(asAnnotationId(id));
-                if (random() < 0.5) {store.createShape(inkShape(id, pageIndex));}
-                else {store.createNote(note(id, pageIndex));}
+                if (random() < 0.5) {
+                    store.createShape(inkShape(id, pageIndex));
+                } else {
+                    store.createNote(note(id, pageIndex));
+                }
             } else if (operation < 0.45) {
-                if (target.kind === 'shape') {store.updateShape(target.identity.id, {strokeColor: random() < 0.5 ? '#d92626' : '#00ff00'});}
-                else {store.setNoteText(target.identity.id, random() < 0.5 ? 'document' : 'edited');}
+                if (target.kind === 'shape') {
+                    store.updateShape(target.identity.id, {strokeColor: random() < 0.5 ? '#d92626' : '#00ff00'});
+                } else {
+                    store.setNoteText(target.identity.id, random() < 0.5 ? 'document' : 'edited');
+                }
             } else if (operation < 0.55) {
                 store.delete(target.identity.id);
             } else if (operation < 0.7) {
@@ -207,15 +213,16 @@ describe('AnnotationStore saved baseline', () => {
                 // A re-read of one page after a save: the bytes hold what the store holds there.
                 save();
                 const pageIndex = target.pageIndex;
-                store.replaceFromDocument(store.list().filter(entity => entity.pageIndex === pageIndex), [], [pageIndex]);
+                store.replaceFromDocument(
+                    store.list().filter((entity) => entity.pageIndex === pageIndex),
+                    [],
+                    [pageIndex],
+                );
             }
-            for (const kind of [
-                undefined,
-                'shape',
-                'note',
-            ] as const) {
-                expect(store.hasChangesSinceSavedBaseline(kind), `step ${step}, kind ${kind ?? 'all'}`)
-                    .toBe(differsFromSavedRecomputed(store, kind));
+            for (const kind of [undefined, 'shape', 'note'] as const) {
+                expect(store.hasChangesSinceSavedBaseline(kind), `step ${step}, kind ${kind ?? 'all'}`).toBe(
+                    differsFromSavedRecomputed(store, kind),
+                );
             }
         }
         expect(ids.length).toBeGreaterThan(20);

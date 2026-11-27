@@ -1,4 +1,4 @@
-import { getCliErrorMessage } from './lib/cli-error.mjs';
+import {getCliErrorMessage} from './lib/cli-error.mjs';
 import {
     closeSync,
     constants,
@@ -15,23 +15,11 @@ import {
     writeFileSync,
     writeSync,
 } from 'node:fs';
-import {
-    devNull,
-    homedir,
-    hostname,
-    tmpdir,
-} from 'node:os';
+import {devNull, homedir, hostname, tmpdir} from 'node:os';
 import path from 'node:path';
-import {
-    execFileSync,
-    spawn,
-    spawnSync,
-} from 'node:child_process';
+import {execFileSync, spawn, spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {
-    fileURLToPath,
-    pathToFileURL,
-} from 'node:url';
+import {fileURLToPath, pathToFileURL} from 'node:url';
 import {
     assertCleanTrackedWebDeploySource,
     getTrackedWebDeploySourcePaths,
@@ -40,19 +28,13 @@ import {
     isExcludedWebDeploySourceFileName,
     isRootVendorPath,
 } from './check-web-deploy-source.mjs';
-import { assertWasmArtifactsCurrent } from './ensure-wasm-artifacts.mjs';
-import { BROWSER_WASM_PUBLIC_PATHS } from './wasm-artifacts.mjs';
+import {assertWasmArtifactsCurrent} from './ensure-wasm-artifacts.mjs';
+import {BROWSER_WASM_PUBLIC_PATHS} from './wasm-artifacts.mjs';
 export {promoteLandingVercelOutput} from './promoteLandingVercelOutput.mjs';
 
 const defaultProjectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const supportedDeployTargets = new Set([
-    'landing',
-    'viewer',
-]);
-const landingBuildCommand = [
-    'pnpm --dir landing run build',
-    'node scripts/promoteLandingVercelOutput.mjs',
-].join(' && ');
+const supportedDeployTargets = new Set(['landing', 'viewer']);
+const landingBuildCommand = ['pnpm --dir landing run build', 'node scripts/promoteLandingVercelOutput.mjs'].join(' && ');
 const PRODUCTION_DEPLOY_LOCK_WAIT_MS = 15 * 60_000;
 const PRODUCTION_DEPLOY_LOCK_POLL_MS = 250;
 
@@ -60,7 +42,12 @@ const PRODUCTION_DEPLOY_LOCK_POLL_MS = 250;
 // predicate, so what this deploy uploads is what that check measured: local-only
 // artifacts (in any ASCII case, at any depth), env files that are not templates,
 // and the deploy-specific build files are all excluded from both.
-export function shouldCopyPrivateDeployPath(sourcePath, projectRoot, deployTarget = 'viewer', vendorDependencies = getWebDeployVendorDependencies(projectRoot)) {
+export function shouldCopyPrivateDeployPath(
+    sourcePath,
+    projectRoot,
+    deployTarget = 'viewer',
+    vendorDependencies = getWebDeployVendorDependencies(projectRoot),
+) {
     const relativePath = path.relative(projectRoot, sourcePath).replaceAll(path.sep, '/');
 
     if (relativePath === '' || vendorDependencies.has(relativePath)) {
@@ -69,10 +56,12 @@ export function shouldCopyPrivateDeployPath(sourcePath, projectRoot, deployTarge
 
     const segments = relativePath.split(/[\\/]+/u);
 
-    if (isRootVendorPath(relativePath) || segments.some(segment => (
-        isExcludedWebDeploySourceDirectoryName(segment)
-        && !(deployTarget === 'landing' && segment === 'landing')
-    ))) {
+    if (
+        isRootVendorPath(relativePath) ||
+        segments.some(
+            (segment) => isExcludedWebDeploySourceDirectoryName(segment) && !(deployTarget === 'landing' && segment === 'landing'),
+        )
+    ) {
         return false;
     }
 
@@ -83,11 +72,7 @@ export function shouldCopyPrivateDeployPath(sourcePath, projectRoot, deployTarge
 // inside a checkout (agent sessions use its .devkit), so stop git discovery at
 // the scratch root; otherwise the deployment carries the checkout's commit author.
 function withScratchGitCeiling(env, scratchRoot) {
-    const ceilings = [
-        realpathSync(scratchRoot),
-        env.GIT_CEILING_DIRECTORIES,
-    ]
-        .filter(Boolean);
+    const ceilings = [realpathSync(scratchRoot), env.GIT_CEILING_DIRECTORIES].filter(Boolean);
     return {
         ...env,
         GIT_CEILING_DIRECTORIES: ceilings.join(path.delimiter),
@@ -216,11 +201,7 @@ function copyTrackedDeploySource(projectRoot, sourceRoot, deployTarget) {
     }
 }
 
-export function preparePrivateDeploySource({
-    deployTarget = 'viewer',
-    prebuilt = false,
-    projectRoot = defaultProjectRoot,
-} = {}) {
+export function preparePrivateDeploySource({deployTarget = 'viewer', prebuilt = false, projectRoot = defaultProjectRoot} = {}) {
     if (!supportedDeployTargets.has(deployTarget)) {
         throw new Error(`Unsupported deploy target: ${deployTarget}`);
     }
@@ -228,9 +209,7 @@ export function preparePrivateDeploySource({
         throw new Error('Prebuilt deployment is supported only for the viewer target.');
     }
 
-    const projectLinkRoot = deployTarget === 'landing'
-        ? path.join(projectRoot, 'landing')
-        : projectRoot;
+    const projectLinkRoot = deployTarget === 'landing' ? path.join(projectRoot, 'landing') : projectRoot;
     const projectJson = path.join(projectLinkRoot, '.vercel', 'project.json');
 
     if (!existsSync(projectJson)) {
@@ -245,10 +224,11 @@ export function preparePrivateDeploySource({
     const scratchRoot = mkdtempSync(path.join(tmpdir(), 'evb-vercel-private-'));
     const sourceRoot = path.join(scratchRoot, 'source');
 
-    const cleanup = () => rmSync(scratchRoot, {
-        force: true,
-        recursive: true,
-    });
+    const cleanup = () =>
+        rmSync(scratchRoot, {
+            force: true,
+            recursive: true,
+        });
 
     // A failed preparation would otherwise leave the copied source tree behind.
     try {
@@ -290,14 +270,14 @@ export function preparePrivateDeploySource({
 }
 
 export function parsePrivateDeployOptions(rawArgs = []) {
-    const targetArgs = rawArgs.filter(arg => arg.startsWith('--target='));
+    const targetArgs = rawArgs.filter((arg) => arg.startsWith('--target='));
 
     if (targetArgs.length > 1) {
         throw new Error(`Expected at most one deploy target, received: ${targetArgs.join(', ')}`);
     }
 
     const deployTarget = targetArgs[0]?.slice('--target='.length) || 'viewer';
-    const prebuiltArgs = rawArgs.filter(arg => arg === '--prebuilt');
+    const prebuiltArgs = rawArgs.filter((arg) => arg === '--prebuilt');
 
     if (!supportedDeployTargets.has(deployTarget)) {
         throw new Error(`Unsupported deploy target: ${deployTarget}`);
@@ -310,18 +290,15 @@ export function parsePrivateDeployOptions(rawArgs = []) {
     }
 
     return {
-        deployArgs: rawArgs.filter(arg => !arg.startsWith('--target=') && arg !== '--prebuilt'),
+        deployArgs: rawArgs.filter((arg) => !arg.startsWith('--target=') && arg !== '--prebuilt'),
         deployTarget,
         prebuilt: prebuiltArgs.length === 1,
     };
 }
 
-export function buildPrivateDeployArgs(sourceRoot, rawArgs = [], {
-    appVersion,
-    prebuilt = false,
-} = {}) {
+export function buildPrivateDeployArgs(sourceRoot, rawArgs = [], {appVersion, prebuilt = false} = {}) {
     const deployArgs = [...rawArgs];
-    const hasArchive = deployArgs.some(arg => arg === '--archive' || arg.startsWith('--archive='));
+    const hasArchive = deployArgs.some((arg) => arg === '--archive' || arg.startsWith('--archive='));
     const hasYes = deployArgs.includes('--yes') || deployArgs.includes('-y');
 
     return [
@@ -330,10 +307,7 @@ export function buildPrivateDeployArgs(sourceRoot, rawArgs = [], {
         ...(hasYes ? [] : ['--yes']),
         ...(prebuilt || hasArchive ? [] : ['--archive=tgz']),
         ...(prebuilt ? ['--prebuilt'] : []),
-        ...(appVersion && !prebuilt ? [
-            '--build-env',
-            `EVB_APP_VERSION=${appVersion}`,
-        ] : []),
+        ...(appVersion && !prebuilt ? ['--build-env', `EVB_APP_VERSION=${appVersion}`] : []),
         ...(deployArgs.includes('--prod') && !deployArgs.includes('--skip-domain') ? ['--skip-domain'] : []),
         ...deployArgs,
     ];
@@ -347,23 +321,16 @@ export function buildPrivateDeployArgs(sourceRoot, rawArgs = [], {
 // release tags from origin first; otherwise a deploy of a just-cut release
 // silently names the previous version.
 export function resolveViewerAppVersion(projectRoot) {
-    const git = args => String(execFileSync('git', args, {
-        cwd: projectRoot,
-        encoding: 'utf8',
-        stdio: [
-            'ignore',
-            'pipe',
-            'pipe',
-        ],
-    })).trim();
+    const git = (args) =>
+        String(
+            execFileSync('git', args, {
+                cwd: projectRoot,
+                encoding: 'utf8',
+                stdio: ['ignore', 'pipe', 'pipe'],
+            }),
+        ).trim();
     try {
-        git([
-            'fetch',
-            '--quiet',
-            '--no-tags',
-            'origin',
-            'refs/tags/v*:refs/tags/v*',
-        ]);
+        git(['fetch', '--quiet', '--no-tags', 'origin', 'refs/tags/v*:refs/tags/v*']);
     } catch (error) {
         throw new Error('Cannot name the viewer version: fetching release tags from origin failed.', {cause: error});
     }
@@ -400,29 +367,19 @@ function getViewerBuildEnvironment(env, isProduction, appVersion) {
     };
 }
 
-function runViewerPrebuiltBuild({
-    appVersion,
-    env,
-    isProduction,
-    projectRoot,
-    spawnSyncImpl,
-}) {
+function runViewerPrebuiltBuild({appVersion, env, isProduction, projectRoot, spawnSyncImpl}) {
     // Windows command shims require cmd.exe. Pass one fixed command string
     // so shell argument concatenation cannot reinterpret dynamic values.
-    const result = spawnSyncImpl(process.platform === 'win32' ? 'cmd.exe' : 'pnpm', process.platform === 'win32' ? [
-        '/d',
-        '/s',
-        '/c',
-        'pnpm.cmd run build',
-    ] : [
-        'run',
-        'build',
-    ], {
-        cwd: projectRoot,
-        env: getViewerBuildEnvironment(env, isProduction, appVersion),
-        shell: false,
-        stdio: 'inherit',
-    });
+    const result = spawnSyncImpl(
+        process.platform === 'win32' ? 'cmd.exe' : 'pnpm',
+        process.platform === 'win32' ? ['/d', '/s', '/c', 'pnpm.cmd run build'] : ['run', 'build'],
+        {
+            cwd: projectRoot,
+            env: getViewerBuildEnvironment(env, isProduction, appVersion),
+            shell: false,
+            stdio: 'inherit',
+        },
+    );
     if (result.error) {
         throw result.error;
     }
@@ -443,9 +400,9 @@ const DEFAULT_PRODUCTION_ACCEPTANCE_URLS = Object.freeze({
 function parseHttpsAcceptanceUrls(rawValue) {
     return rawValue
         .split(',')
-        .map(value => value.trim())
+        .map((value) => value.trim())
         .filter(Boolean)
-        .map(value => {
+        .map((value) => {
             const url = new URL(value);
             if (url.protocol !== 'https:') {
                 throw new Error(`Deploy acceptance URL must use HTTPS: ${value}`);
@@ -454,10 +411,7 @@ function parseHttpsAcceptanceUrls(rawValue) {
         });
 }
 
-export function resolveProductionAcceptanceUrls({
-    deployTarget,
-    env,
-}) {
+export function resolveProductionAcceptanceUrls({deployTarget, env}) {
     const configuredUrl = env.EVB_DEPLOY_ACCEPTANCE_URL?.trim();
     if (configuredUrl) {
         const configuredUrls = parseHttpsAcceptanceUrls(configuredUrl);
@@ -518,20 +472,20 @@ function formatVercelCommandFailure(result) {
     if (stdout) {
         try {
             const parsed = JSON.parse(stdout);
-            const message = typeof parsed?.message === 'string'
-                ? parsed.message.trim()
-                : typeof parsed?.error?.message === 'string'
-                    ? parsed.error.message.trim()
-                    : '';
-            const reason = typeof parsed?.reason === 'string'
-                ? parsed.reason.trim()
-                : typeof parsed?.error?.code === 'string'
-                    ? parsed.error.code.trim()
-                    : '';
+            const message =
+                typeof parsed?.message === 'string'
+                    ? parsed.message.trim()
+                    : typeof parsed?.error?.message === 'string'
+                      ? parsed.error.message.trim()
+                      : '';
+            const reason =
+                typeof parsed?.reason === 'string'
+                    ? parsed.reason.trim()
+                    : typeof parsed?.error?.code === 'string'
+                      ? parsed.error.code.trim()
+                      : '';
             if (message || reason) {
-                const summary = sanitizeVercelFailureText(
-                    reason && message ? `${reason}: ${message}` : (message || reason),
-                );
+                const summary = sanitizeVercelFailureText(reason && message ? `${reason}: ${message}` : message || reason);
                 return summary ? ` (${summary.slice(0, 300)})` : '';
             }
         } catch {
@@ -542,17 +496,13 @@ function formatVercelCommandFailure(result) {
     return detail ? ` (${detail.slice(0, 300)})` : '';
 }
 
-function inspectDeployment({
-    url, expectedProjectName, runCommand,
-}) {
+function inspectDeployment({url, expectedProjectName, runCommand}) {
     // Inspect resolves this exact URL. Its aliases list can omit custom domains after promotion.
-    const result = runCommand([
-        'inspect',
-        url,
-        '--json',
-    ]);
+    const result = runCommand(['inspect', url, '--json']);
     if ((result.status ?? 1) !== 0) {
-        throw new Error(`Vercel inspect exited with ${result.status ?? 1}; refusing a production deploy without a rollback target${formatVercelCommandFailure(result)}.`);
+        throw new Error(
+            `Vercel inspect exited with ${result.status ?? 1}; refusing a production deploy without a rollback target${formatVercelCommandFailure(result)}.`,
+        );
     }
     const deployment = parseVercelDeployment(result.stdout ?? '', {expectedProjectName});
     if (!deployment.id) {
@@ -569,15 +519,11 @@ function readVercelProjectLink(sourceRoot) {
     } catch (error) {
         throw new Error('Production deploy locking requires valid Vercel project linkage.', {cause: error});
     }
-    const projectId = typeof projectLink?.projectId === 'string'
-        ? projectLink.projectId.trim()
-        : '';
+    const projectId = typeof projectLink?.projectId === 'string' ? projectLink.projectId.trim() : '';
     if (!projectId) {
         throw new Error('Production deploy locking requires a Vercel project ID.');
     }
-    const projectName = typeof projectLink?.projectName === 'string'
-        ? projectLink.projectName.trim()
-        : '';
+    const projectName = typeof projectLink?.projectName === 'string' ? projectLink.projectName.trim() : '';
     if (!projectName) {
         throw new Error('Production deploy locking requires a Vercel project name.');
     }
@@ -618,18 +564,11 @@ while True:
 // It resolves once the helper has the flock, and the descriptor keeps the lock.
 function takeProductionDeployLock(fd, {waitMs}) {
     return new Promise((resolve, reject) => {
-        const helper = spawn('python3', [
-            '-I',
-            '-c',
-            PRODUCTION_DEPLOY_LOCK_HELPER,
-            String(waitMs),
-            String(PRODUCTION_DEPLOY_LOCK_POLL_MS / 1000),
-        ], {stdio: [
-            'ignore',
-            'pipe',
-            'pipe',
-            fd,
-        ]});
+        const helper = spawn(
+            'python3',
+            ['-I', '-c', PRODUCTION_DEPLOY_LOCK_HELPER, String(waitMs), String(PRODUCTION_DEPLOY_LOCK_POLL_MS / 1000)],
+            {stdio: ['ignore', 'pipe', 'pipe', fd]},
+        );
         let locked = false;
         let stderr = '';
         helper.stdout.on('data', () => {
@@ -638,7 +577,9 @@ function takeProductionDeployLock(fd, {waitMs}) {
         helper.stderr.on('data', (chunk) => {
             stderr += chunk;
         });
-        helper.once('error', error => reject(new Error('Production deploy locking requires python3 with fcntl on macOS or Linux.', {cause: error})));
+        helper.once('error', (error) =>
+            reject(new Error('Production deploy locking requires python3 with fcntl on macOS or Linux.', {cause: error})),
+        );
         helper.once('close', (code) => {
             if (locked && code === 0) {
                 resolve();
@@ -651,18 +592,13 @@ function takeProductionDeployLock(fd, {waitMs}) {
     });
 }
 
-export async function acquireProductionDeployLock({
-    env,
-    projectId,
-}) {
+export async function acquireProductionDeployLock({env, projectId}) {
     if (process.platform === 'win32') {
         throw new Error('Production deploys require macOS or Linux for the inherited flock; previews support Windows.');
     }
     const lockPath = getProductionDeployLockPath(projectId);
     const configuredWaitMs = Number(env.EVB_PRODUCTION_DEPLOY_LOCK_WAIT_MS);
-    const waitMs = Number.isSafeInteger(configuredWaitMs) && configuredWaitMs >= 0
-        ? configuredWaitMs
-        : PRODUCTION_DEPLOY_LOCK_WAIT_MS;
+    const waitMs = Number.isSafeInteger(configuredWaitMs) && configuredWaitMs >= 0 ? configuredWaitMs : PRODUCTION_DEPLOY_LOCK_WAIT_MS;
     mkdirSync(path.dirname(lockPath), {recursive: true});
 
     // The lock file is never removed while in use: a replaced file would be a
@@ -671,27 +607,34 @@ export async function acquireProductionDeployLock({
     try {
         await takeProductionDeployLock(fd, {waitMs});
         ftruncateSync(fd, 0);
-        writeSync(fd, JSON.stringify({
-            acquiredAt: Date.now(),
-            format: 2,
-            hostname: hostname(),
-            pid: process.pid,
-        }), 0);
+        writeSync(
+            fd,
+            JSON.stringify({
+                acquiredAt: Date.now(),
+                format: 2,
+                hostname: hostname(),
+                pid: process.pid,
+            }),
+            0,
+        );
     } catch (error) {
         closeSync(fd);
         throw error;
     }
     let released = false;
-    return Object.assign(async () => {
-        if (released) {
-            return;
-        }
-        released = true;
-        // Clear the record while the lock is still held, then let the descriptor
-        // close: the close is what releases the flock.
-        ftruncateSync(fd, 0);
-        closeSync(fd);
-    }, {fd});
+    return Object.assign(
+        async () => {
+            if (released) {
+                return;
+            }
+            released = true;
+            // Clear the record while the lock is still held, then let the descriptor
+            // close: the close is what releases the flock.
+            ftruncateSync(fd, 0);
+            closeSync(fd);
+        },
+        {fd},
+    );
 }
 
 async function runDeployAcceptanceChecks({
@@ -721,7 +664,9 @@ async function runDeployAcceptanceChecks({
             '--write-out',
             '%{http_code}',
         ]);
-        if ((result.status ?? 1) !== 0) {throw new Error(`Vercel acceptance request exited with ${result.status ?? 1}${formatVercelCommandFailure(result)}.`);}
+        if ((result.status ?? 1) !== 0) {
+            throw new Error(`Vercel acceptance request exited with ${result.status ?? 1}${formatVercelCommandFailure(result)}.`);
+        }
         const status = Number(result.stdout?.trim());
         return {
             ok: status >= 200 && status < 300,
@@ -775,9 +720,7 @@ export function quoteWindowsShellArg(arg) {
 // deployment this run promoted. Another deploy that promoted since would be
 // overwritten by the rollback, so the alias is left as it is and the outcome says
 // which deployment holds it.
-function rollBackPromotedDeployment({
-    aliasUrl, expectedProjectName, previous, promoted, runCommand,
-}) {
+function rollBackPromotedDeployment({aliasUrl, expectedProjectName, previous, promoted, runCommand}) {
     let production;
     try {
         production = inspectDeployment({
@@ -794,12 +737,10 @@ function rollBackPromotedDeployment({
     // Vercel has no conditional promote: another host can win between this
     // authority read and the promote being applied remotely.
     try {
-        const result = runCommand([
-            'promote',
-            previous.id,
-            '--yes',
-        ]);
-        if ((result.status ?? 1) !== 0) {throw new Error(`Vercel promote exited with ${result.status ?? 1}${formatVercelCommandFailure(result)}.`);}
+        const result = runCommand(['promote', previous.id, '--yes']);
+        if ((result.status ?? 1) !== 0) {
+            throw new Error(`Vercel promote exited with ${result.status ?? 1}${formatVercelCommandFailure(result)}.`);
+        }
     } catch (error) {
         return `Rollback also failed: ${getCliErrorMessage(error)}`;
     }
@@ -814,11 +755,7 @@ export async function runPrivateVercelDeploy({
     fetchImpl,
     spawnSyncImpl = spawnSync,
 } = {}) {
-    const {
-        deployArgs,
-        deployTarget,
-        prebuilt: explicitPrebuilt,
-    } = parsePrivateDeployOptions(rawArgs);
+    const {deployArgs, deployTarget, prebuilt: explicitPrebuilt} = parsePrivateDeployOptions(rawArgs);
     // A viewer deploy that reports to Sentry builds locally so its source maps
     // can be uploaded and removed before the prebuilt output is deployed.
     const reportsToSentry = deployTarget === 'viewer' && Boolean(env.SENTRY_BROWSER_DSN?.trim());
@@ -850,9 +787,7 @@ export async function runPrivateVercelDeploy({
     let lock;
 
     try {
-        const projectLink = isProduction
-            ? readVercelProjectLink(prepared.sourceRoot)
-            : null;
+        const projectLink = isProduction ? readVercelProjectLink(prepared.sourceRoot) : null;
         if (isProduction) {
             lock = await acquireProductionDeployLock({
                 env,
@@ -861,35 +796,36 @@ export async function runPrivateVercelDeploy({
         }
         const acceptanceUrls = isProduction
             ? resolveProductionAcceptanceUrls({
-                deployTarget,
-                env,
-            })
+                  deployTarget,
+                  env,
+              })
             : [];
         const productionAliasUrl = isProduction ? resolveProductionAliasUrl(deployTarget) : null;
         // Every CLI invocation inherits the lock description as fd 3.
         const runCommand = (args) => {
             const useShell = process.platform === 'win32';
-            const result = spawnSyncImpl(useShell ? quoteWindowsShellArg(command) : command,
-                useShell ? args.map(quoteWindowsShellArg) : args, {
+            const result = spawnSyncImpl(
+                useShell ? quoteWindowsShellArg(command) : command,
+                useShell ? args.map(quoteWindowsShellArg) : args,
+                {
                     cwd: prepared.sourceRoot,
                     env: vercelEnv,
                     encoding: 'utf8',
                     shell: useShell,
-                    stdio: [
-                        'ignore',
-                        'pipe',
-                        'pipe',
-                        ...(lock ? [lock.fd] : []),
-                    ],
-                });
-            if (result.error) {throw result.error;}
+                    stdio: ['ignore', 'pipe', 'pipe', ...(lock ? [lock.fd] : [])],
+                },
+            );
+            if (result.error) {
+                throw result.error;
+            }
             return result;
         };
-        const inspectProduction = () => inspectDeployment({
-            url: productionAliasUrl,
-            expectedProjectName: projectLink.projectName,
-            runCommand,
-        });
+        const inspectProduction = () =>
+            inspectDeployment({
+                url: productionAliasUrl,
+                expectedProjectName: projectLink.projectName,
+                runCommand,
+            });
         const previousProductionDeployment = isProduction ? inspectProduction() : null;
         console.log(`> ${command} ${commandArgs.join(' ')}`);
         const result = runCommand(commandArgs);
@@ -903,7 +839,9 @@ export async function runPrivateVercelDeploy({
         if ((result.status ?? 1) !== 0) {
             return result.status ?? 1;
         }
-        if (!isProduction) {return 0;}
+        if (!isProduction) {
+            return 0;
+        }
         // stdout is the CLI's deployment result, not a log line naming an alias.
         const deploymentUrl = extractVercelDeploymentUrl(result.stdout ?? '');
         if (!deploymentUrl) {
@@ -921,12 +859,10 @@ export async function runPrivateVercelDeploy({
         // The only remaining cross-host race is the authority-read-to-promote
         // window; Vercel does not support a conditional promote.
         try {
-            const promotion = runCommand([
-                'promote',
-                deployment.id,
-                '--yes',
-            ]);
-            if ((promotion.status ?? 1) !== 0) {throw new Error(`Vercel promote exited with ${promotion.status ?? 1}${formatVercelCommandFailure(promotion)}.`);}
+            const promotion = runCommand(['promote', deployment.id, '--yes']);
+            if ((promotion.status ?? 1) !== 0) {
+                throw new Error(`Vercel promote exited with ${promotion.status ?? 1}${formatVercelCommandFailure(promotion)}.`);
+            }
             await runDeployAcceptanceChecks({
                 acceptanceUrls,
                 deploymentUrl,
@@ -955,8 +891,7 @@ export async function runPrivateVercelDeploy({
     }
 }
 
-const isMain = process.argv[1]
-    && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
 
 if (isMain) {
     // Only production needs the inherited flock; previews also support Windows.

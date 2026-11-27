@@ -13,29 +13,27 @@ import {requireDocumentRef} from '@contracts/documentRef';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {SERIALIZABLE_ERROR_PREFIX} from '@contracts/serializableError';
 import {parseWorkerTaskErrorFrame} from '@contracts/workerTaskErrorFrame';
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 
 describe('worker task error frame contract', () => {
     it('accepts frames extending the serializable error envelope with worker fields', () => {
-        expect(parseWorkerTaskErrorFrame({
-            message: 'worker failed',
-            code: 'insufficient-scratch',
-            name: 'ScanCleanupInsufficientScratchError',
-            canceled: false,
-            retryable: true,
-            source: 'scan-cleanup',
-            terminationUnproven: 'child pid 42 still alive',
-            details: {
-                scratchShortfall: {
-                    availableBytes: 512,
-                    requiredBytes: 1024,
+        expect(
+            parseWorkerTaskErrorFrame({
+                message: 'worker failed',
+                code: 'insufficient-scratch',
+                name: 'ScanCleanupInsufficientScratchError',
+                canceled: false,
+                retryable: true,
+                source: 'scan-cleanup',
+                terminationUnproven: 'child pid 42 still alive',
+                details: {
+                    scratchShortfall: {
+                        availableBytes: 512,
+                        requiredBytes: 1024,
+                    },
                 },
-            },
-        })).toEqual({
+            }),
+        ).toEqual({
             message: 'worker failed',
             code: 'insufficient-scratch',
             name: 'ScanCleanupInsufficientScratchError',
@@ -51,10 +49,12 @@ describe('worker task error frame contract', () => {
             },
         });
 
-        expect(parseWorkerTaskErrorFrame({
-            message: 'canceled',
-            canceled: true,
-        })).toEqual({
+        expect(
+            parseWorkerTaskErrorFrame({
+                message: 'canceled',
+                canceled: true,
+            }),
+        ).toEqual({
             message: 'canceled',
             canceled: true,
         });
@@ -62,26 +62,38 @@ describe('worker task error frame contract', () => {
 
     it('rejects malformed frames, array frames, and strips unknown properties', () => {
         expect(parseWorkerTaskErrorFrame({message: 123})).toBeNull();
-        expect(parseWorkerTaskErrorFrame(Object.assign([], {
-            message: 'failed',
-            canceled: true,
-        }))).toBeNull();
-        expect(parseWorkerTaskErrorFrame({
-            message: 'failed',
-            code: '',
-        })).toBeNull();
-        expect(parseWorkerTaskErrorFrame({
-            message: 'failed',
-            terminationUnproven: {detail: 'not a string'},
-        })).toBeNull();
-        expect(parseWorkerTaskErrorFrame({
-            message: 'failed',
-            canceled: 'yes',
-        })).toBeNull();
-        expect(parseWorkerTaskErrorFrame({
-            message: 'failed',
-            extraUnknownField: 42,
-        })).toEqual({message: 'failed'});
+        expect(
+            parseWorkerTaskErrorFrame(
+                Object.assign([], {
+                    message: 'failed',
+                    canceled: true,
+                }),
+            ),
+        ).toBeNull();
+        expect(
+            parseWorkerTaskErrorFrame({
+                message: 'failed',
+                code: '',
+            }),
+        ).toBeNull();
+        expect(
+            parseWorkerTaskErrorFrame({
+                message: 'failed',
+                terminationUnproven: {detail: 'not a string'},
+            }),
+        ).toBeNull();
+        expect(
+            parseWorkerTaskErrorFrame({
+                message: 'failed',
+                canceled: 'yes',
+            }),
+        ).toBeNull();
+        expect(
+            parseWorkerTaskErrorFrame({
+                message: 'failed',
+                extraUnknownField: 42,
+            }),
+        ).toEqual({message: 'failed'});
     });
 });
 
@@ -97,10 +109,12 @@ describe('consolidated serializable IPC error prefixes', () => {
         });
 
         expect(error.message.startsWith(SERIALIZABLE_ERROR_PREFIX)).toBe(true);
-        expect(encodeDocumentMutationError({
-            code: 'MISSING_REVISION',
-            message: 'missing',
-        }).startsWith(SERIALIZABLE_ERROR_PREFIX)).toBe(true);
+        expect(
+            encodeDocumentMutationError({
+                code: 'MISSING_REVISION',
+                message: 'missing',
+            }).startsWith(SERIALIZABLE_ERROR_PREFIX),
+        ).toBe(true);
 
         const ipcWrapped = new Error(`Error invoking remote method 'documents:save': Error: ${error.message}`);
         expect(getDocumentMutationErrorPayload(ipcWrapped)).toEqual({
@@ -126,10 +140,12 @@ describe('consolidated serializable IPC error prefixes', () => {
         const error = createMainOperationShuttingDownError('closing now');
 
         expect(error.message.startsWith(SERIALIZABLE_ERROR_PREFIX)).toBe(true);
-        expect(encodeMainOperationErrorEnvelope({
-            code: 'shutting-down',
-            message: 'closing now',
-        }).startsWith(SERIALIZABLE_ERROR_PREFIX)).toBe(true);
+        expect(
+            encodeMainOperationErrorEnvelope({
+                code: 'shutting-down',
+                message: 'closing now',
+            }).startsWith(SERIALIZABLE_ERROR_PREFIX),
+        ).toBe(true);
 
         const ipcWrapped = new Error(`Error invoking remote method 'ocr:run': Error: ${error.message}`);
         expect(getMainOperationErrorEnvelope(ipcWrapped)).toEqual({

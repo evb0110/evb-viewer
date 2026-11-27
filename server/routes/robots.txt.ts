@@ -1,8 +1,5 @@
-import {
-    defineEventHandler,
-    setHeader,
-} from 'h3';
-import { resolveSiteUrl } from '@server/utils/normalizeSiteUrl';
+import {defineEventHandler, setHeader} from 'h3';
+import {resolveSiteUrl} from '@server/utils/normalizeSiteUrl';
 
 const AI_CRAWLERS = [
     'GPTBot',
@@ -26,15 +23,7 @@ export default defineEventHandler((event) => {
 
     setHeader(event, 'content-type', 'text/plain; charset=utf-8');
 
-    const lines = [
-        'User-agent: *',
-        'Allow: /',
-        'Disallow: /electron',
-        'Disallow: /workspace',
-        'Disallow: /_nuxt/',
-        'Disallow: /api/',
-        '',
-    ];
+    const lines = ['User-agent: *', 'Allow: /', 'Disallow: /electron', 'Disallow: /workspace', 'Disallow: /_nuxt/', 'Disallow: /api/', ''];
 
     for (const bot of AI_CRAWLERS) {
         lines.push(`User-agent: ${bot}`, 'Disallow: /', '');

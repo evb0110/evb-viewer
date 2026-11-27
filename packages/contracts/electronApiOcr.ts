@@ -1,23 +1,8 @@
-import {
-    parseDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
-import {
-    parseDocumentRevisionToken,
-    type TDocumentRevisionToken,
-} from '@contracts/documentRevision';
-import {
-    requirePageNumber, type TPageNumber,
-} from '@contracts/pageNumbers';
-import {
-    parseJobId,
-    parseRequestId,
-    type TJobId,
-    type TRequestId,
-} from '@contracts/shared';
-import {
-    isEpochMs, type TEpochMs,
-} from '@contracts/timestamps';
+import {parseDocumentRef, type TDocumentRef} from '@contracts/documentRef';
+import {parseDocumentRevisionToken, type TDocumentRevisionToken} from '@contracts/documentRevision';
+import {requirePageNumber, type TPageNumber} from '@contracts/pageNumbers';
+import {parseJobId, parseRequestId, type TJobId, type TRequestId} from '@contracts/shared';
+import {isEpochMs, type TEpochMs} from '@contracts/timestamps';
 import {SERIALIZABLE_ERROR_ENVELOPE_SCHEMA} from '@contracts/serializableError';
 import {OCR_MODEL_CODES} from '@contracts/ocrLanguages';
 import * as v from 'valibot';
@@ -39,37 +24,32 @@ export const OCR_ERROR_CODES = [
     'OCR_MODEL_DOWNLOAD_FAILED',
 ] as const;
 
-export type TOcrErrorCode = typeof OCR_ERROR_CODES[number];
+export type TOcrErrorCode = (typeof OCR_ERROR_CODES)[number];
 
 const requestIdSchema = v.pipe(
     v.string(),
-    v.transform(value => parseRequestId(value) ?? ''),
+    v.transform((value) => parseRequestId(value) ?? ''),
     v.minLength(1),
-    v.custom<TRequestId>(value => typeof value === 'string' && value.length > 0),
+    v.custom<TRequestId>((value) => typeof value === 'string' && value.length > 0),
 );
 const jobIdSchema = v.pipe(
     v.string(),
-    v.transform(value => parseJobId(value) ?? ''),
+    v.transform((value) => parseJobId(value) ?? ''),
     v.minLength(1),
-    v.custom<TJobId>(value => typeof value === 'string' && value.length > 0),
+    v.custom<TJobId>((value) => typeof value === 'string' && value.length > 0),
 );
-const documentRefSchema = v.custom<TDocumentRef>(value => parseDocumentRef(value) !== null);
+const documentRefSchema = v.custom<TDocumentRef>((value) => parseDocumentRef(value) !== null);
 const documentRevisionTokenSchema = v.pipe(
     v.string(),
-    v.transform(value => parseDocumentRevisionToken(value) ?? ''),
+    v.transform((value) => parseDocumentRevisionToken(value) ?? ''),
     v.minLength(1),
-    v.custom<TDocumentRevisionToken>(value => parseDocumentRevisionToken(value) !== null),
+    v.custom<TDocumentRevisionToken>((value) => parseDocumentRevisionToken(value) !== null),
 );
 const epochMsSchema = v.custom<TEpochMs>(isEpochMs);
-const safeIntegerSchema = (minimum: number) => v.pipe(
-    v.number(),
-    v.finite(),
-    v.safeInteger(),
-    v.minValue(minimum),
-);
+const safeIntegerSchema = (minimum: number) => v.pipe(v.number(), v.finite(), v.safeInteger(), v.minValue(minimum));
 const pageNumberSchema = v.pipe(
     safeIntegerSchema(1),
-    v.transform(value => requirePageNumber(value)),
+    v.transform((value) => requirePageNumber(value)),
 );
 
 const ocrErrorDetailsSchema = v.object({
@@ -86,7 +66,9 @@ export const OCR_ERROR_ENVELOPE_SCHEMA = v.object({
 });
 export type IOcrErrorEnvelope = v.InferOutput<typeof OCR_ERROR_ENVELOPE_SCHEMA>;
 
-export interface IOcrErrorEnvelopeCarrier {readonly errorEnvelope?: IOcrErrorEnvelope;}
+export interface IOcrErrorEnvelopeCarrier {
+    readonly errorEnvelope?: IOcrErrorEnvelope;
+}
 
 export const OCR_DIAGNOSTIC_CODES = [
     'OCR_PREPROCESSING_UNAVAILABLE',
@@ -98,14 +80,11 @@ export const OCR_DIAGNOSTIC_CODES = [
     'OCR_EARLY_PRINT_UNAVAILABLE',
 ] as const;
 
-export type TOcrDiagnosticCode = typeof OCR_DIAGNOSTIC_CODES[number];
+export type TOcrDiagnosticCode = (typeof OCR_DIAGNOSTIC_CODES)[number];
 
 export const OCR_DIAGNOSTIC_SCHEMA = v.object({
     code: v.picklist(OCR_DIAGNOSTIC_CODES),
-    severity: v.picklist([
-        'info',
-        'warning',
-    ]),
+    severity: v.picklist(['info', 'warning']),
     message: v.string(),
     pageNumber: v.optional(pageNumberSchema),
 });
@@ -113,7 +92,7 @@ export type IOcrDiagnostic = v.InferOutput<typeof OCR_DIAGNOSTIC_SCHEMA>;
 
 export const OCR_COMPLETION_OUTCOMES = ['no-pages-to-process'] as const;
 
-export type TOcrCompletionOutcome = typeof OCR_COMPLETION_OUTCOMES[number];
+export type TOcrCompletionOutcome = (typeof OCR_COMPLETION_OUTCOMES)[number];
 
 export interface IOcrRecognizeRequest {
     pageNumber: TPageNumber;
@@ -136,7 +115,7 @@ export const OCR_SEARCHABLE_PDF_PAGE_RANGE_SCHEMA = v.pipe(
         firstPage: safeIntegerSchema(1),
         lastPage: safeIntegerSchema(1),
     }),
-    v.check(range => range.lastPage >= range.firstPage, 'lastPage must be greater than or equal to firstPage'),
+    v.check((range) => range.lastPage >= range.firstPage, 'lastPage must be greater than or equal to firstPage'),
 );
 export type IOcrSearchablePdfPageRange = v.InferOutput<typeof OCR_SEARCHABLE_PDF_PAGE_RANGE_SCHEMA>;
 
@@ -147,11 +126,7 @@ export type IOcrSearchablePdfPageRange = v.InferOutput<typeof OCR_SEARCHABLE_PDF
  * whole-document arrays would reintroduce large renderer/main allocations;
  * ranges cross IPC compactly and expand only in bounded worker batches.
  */
-const ocrSearchablePdfPageRangesSchema = v.pipe(
-    v.array(OCR_SEARCHABLE_PDF_PAGE_RANGE_SCHEMA),
-    v.minLength(1),
-    v.maxLength(100_000),
-);
+const ocrSearchablePdfPageRangesSchema = v.pipe(v.array(OCR_SEARCHABLE_PDF_PAGE_RANGE_SCHEMA), v.minLength(1), v.maxLength(100_000));
 const ocrSearchablePdfPagesSchema = v.pipe(v.array(OCR_SEARCHABLE_PDF_PAGE_SCHEMA), v.maxLength(100_000));
 const ocrSearchablePdfLanguagesSchema = v.array(v.string());
 export const OCR_SEARCHABLE_PDF_ALL_PAGES_SELECTION_SCHEMA = v.object({
@@ -167,7 +142,7 @@ export const OCR_SEARCHABLE_PDF_RANGE_SELECTION_SCHEMA = v.pipe(
         lastPage: safeIntegerSchema(1),
         languages: ocrSearchablePdfLanguagesSchema,
     }),
-    v.check(selection => selection.lastPage >= selection.firstPage, 'lastPage must be greater than or equal to firstPage'),
+    v.check((selection) => selection.lastPage >= selection.firstPage, 'lastPage must be greater than or equal to firstPage'),
 );
 export type IOcrSearchablePdfRangeSelection = v.InferOutput<typeof OCR_SEARCHABLE_PDF_RANGE_SELECTION_SCHEMA>;
 export const OCR_SEARCHABLE_PDF_RANGES_SELECTION_SCHEMA = v.object({
@@ -194,10 +169,7 @@ export type TOcrSearchablePdfPageSelection = v.InferOutput<typeof OCR_SEARCHABLE
  * The legacy array form remains valid for current/sparse selections. New
  * all-page and contiguous-range requests use the scalar forms above.
  */
-export const OCR_SEARCHABLE_PDF_PAGES_SCHEMA = v.union([
-    ocrSearchablePdfPagesSchema,
-    OCR_SEARCHABLE_PDF_PAGE_SELECTION_SCHEMA,
-]);
+export const OCR_SEARCHABLE_PDF_PAGES_SCHEMA = v.union([ocrSearchablePdfPagesSchema, OCR_SEARCHABLE_PDF_PAGE_SELECTION_SCHEMA]);
 export type TOcrSearchablePdfPages = v.InferOutput<typeof OCR_SEARCHABLE_PDF_PAGES_SCHEMA>;
 
 /** Aliases used by worker-side code and callers that refer to page plans. */
@@ -205,28 +177,13 @@ export type IOcrPageRequest = IOcrSearchablePdfPage;
 export type IOcrPageRange = IOcrSearchablePdfPageRange;
 export type TOcrPageSelection = TOcrSearchablePdfPageSelection;
 
-export const OCR_QUALITY_PROFILES = [
-    'balanced',
-    'accurate',
-    'poor-scan',
-] as const;
-export type TOcrQualityProfile = typeof OCR_QUALITY_PROFILES[number];
-export const OCR_PREPROCESSING_MODES = [
-    'off',
-    'clean',
-] as const;
-export type TOcrPreprocessingMode = typeof OCR_PREPROCESSING_MODES[number];
-export const OCR_TEXT_SUPERSESSION_POLICIES = [
-    'missing-only',
-    'replace-evb',
-    'replace-all',
-] as const;
-export type TOcrTextSupersessionPolicy = typeof OCR_TEXT_SUPERSESSION_POLICIES[number];
-export type TOcrPageTextClassification =
-    | 'native-text'
-    | 'foreign-hidden-ocr'
-    | 'evb-current-generation'
-    | 'no-text';
+export const OCR_QUALITY_PROFILES = ['balanced', 'accurate', 'poor-scan'] as const;
+export type TOcrQualityProfile = (typeof OCR_QUALITY_PROFILES)[number];
+export const OCR_PREPROCESSING_MODES = ['off', 'clean'] as const;
+export type TOcrPreprocessingMode = (typeof OCR_PREPROCESSING_MODES)[number];
+export const OCR_TEXT_SUPERSESSION_POLICIES = ['missing-only', 'replace-evb', 'replace-all'] as const;
+export type TOcrTextSupersessionPolicy = (typeof OCR_TEXT_SUPERSESSION_POLICIES)[number];
+export type TOcrPageTextClassification = 'native-text' | 'foreign-hidden-ocr' | 'evb-current-generation' | 'no-text';
 
 export const OCR_SEARCHABLE_PDF_OPTIONS_SCHEMA = v.pipe(
     v.object({
@@ -237,7 +194,10 @@ export const OCR_SEARCHABLE_PDF_OPTIONS_SCHEMA = v.pipe(
         supersessionPolicy: v.optional(v.picklist(OCR_TEXT_SUPERSESSION_POLICIES)),
         replaceAllAcknowledged: v.optional(v.boolean()),
     }),
-    v.check(options => options.supersessionPolicy !== 'replace-all' || options.replaceAllAcknowledged === true, 'replace-all OCR requires acknowledgement'),
+    v.check(
+        (options) => options.supersessionPolicy !== 'replace-all' || options.replaceAllAcknowledged === true,
+        'replace-all OCR requires acknowledgement',
+    ),
 );
 export type IOcrSearchablePdfOptions = v.InferOutput<typeof OCR_SEARCHABLE_PDF_OPTIONS_SCHEMA>;
 
@@ -270,14 +230,9 @@ export const OCR_PROGRESS_PHASES = [
     'merging',
     'indexing',
 ] as const;
-export type TOcrProgressPhase = typeof OCR_PROGRESS_PHASES[number];
-export const OCR_PROGRESS_STATUSES = [
-    'running',
-    'success',
-    'canceled',
-    'failed',
-] as const;
-export type TOcrProgressStatus = typeof OCR_PROGRESS_STATUSES[number];
+export type TOcrProgressPhase = (typeof OCR_PROGRESS_PHASES)[number];
+export const OCR_PROGRESS_STATUSES = ['running', 'success', 'canceled', 'failed'] as const;
+export type TOcrProgressStatus = (typeof OCR_PROGRESS_STATUSES)[number];
 
 export const OCR_MODEL_DOWNLOAD_PROGRESS_SCHEMA = v.object({
     languageCode: v.picklist(OCR_MODEL_CODES),
@@ -314,12 +269,8 @@ export const OCR_JOB_START_RESULT_SCHEMA = v.object({
 });
 export type IOcrJobStartResult = v.InferOutput<typeof OCR_JOB_START_RESULT_SCHEMA>;
 
-export const OCR_CANCEL_FAILURE_REASONS = [
-    'invalid-request',
-    'not-found',
-    'failed',
-] as const;
-export type TOcrCancelFailureReason = typeof OCR_CANCEL_FAILURE_REASONS[number];
+export const OCR_CANCEL_FAILURE_REASONS = ['invalid-request', 'not-found', 'failed'] as const;
+export type TOcrCancelFailureReason = (typeof OCR_CANCEL_FAILURE_REASONS)[number];
 export const OCR_CANCEL_RESULT_SCHEMA = v.object({
     canceled: v.boolean(),
     reason: v.optional(v.picklist(OCR_CANCEL_FAILURE_REASONS)),
@@ -343,7 +294,12 @@ const ocrCompleteResultOptionalProperties = {
     outcome: v.optional(v.picklist(OCR_COMPLETION_OUTCOMES)),
     pdfPath: v.optional(documentRefSchema),
     sourceDocumentRevisionToken: v.optional(documentRevisionTokenSchema),
-    resultSha256: v.optional(v.pipe(v.string(), v.check(value => /^[a-f0-9]{64}$/u.test(value)))),
+    resultSha256: v.optional(
+        v.pipe(
+            v.string(),
+            v.check((value) => /^[a-f0-9]{64}$/u.test(value)),
+        ),
+    ),
     requiresCleanupAck: v.optional(v.boolean()),
     diagnostics: v.optional(v.array(OCR_DIAGNOSTIC_SCHEMA)),
     errorEnvelope: v.optional(OCR_ERROR_ENVELOPE_SCHEMA),
@@ -359,7 +315,10 @@ const ocrCompleteSuccessSchema = v.object({
     success: v.literal(true),
     pdfPath: documentRefSchema,
     sourceDocumentRevisionToken: documentRevisionTokenSchema,
-    resultSha256: v.pipe(v.string(), v.check(value => /^[a-f0-9]{64}$/u.test(value))),
+    resultSha256: v.pipe(
+        v.string(),
+        v.check((value) => /^[a-f0-9]{64}$/u.test(value)),
+    ),
     requiresCleanupAck: v.boolean(),
     errors: v.array(v.string()),
     outcome: v.optional(v.picklist(OCR_COMPLETION_OUTCOMES)),
@@ -367,19 +326,12 @@ const ocrCompleteSuccessSchema = v.object({
     errorEnvelope: v.optional(OCR_ERROR_ENVELOPE_SCHEMA),
 });
 export const OCR_COMPLETE_RESULT_SCHEMA = v.pipe(
-    v.union([
-        ocrCompleteFailureSchema,
-        ocrCompleteSuccessSchema,
-    ]),
-    v.check(result => !result.success || result.outcome === undefined, 'successful OCR results cannot have an outcome'),
+    v.union([ocrCompleteFailureSchema, ocrCompleteSuccessSchema]),
+    v.check((result) => !result.success || result.outcome === undefined, 'successful OCR results cannot have an outcome'),
 );
 export type IOcrCompleteResult = v.InferOutput<typeof OCR_COMPLETE_RESULT_SCHEMA>;
 
-export type TOcrJobProjectionPhase = TOcrProgressPhase
-    | 'queued'
-    | 'recognizing'
-    | 'applying'
-    | 'cancel-requested';
+export type TOcrJobProjectionPhase = TOcrProgressPhase | 'queued' | 'recognizing' | 'applying' | 'cancel-requested';
 
 export interface IOcrJobProjectionState {
     readonly jobId: TJobId;

@@ -1,11 +1,11 @@
-import { requirePageNumber } from '@contracts/pageNumbers';
-import type { TPageNumber } from '@contracts/pageNumbers';
-import type { TPdfViewMode } from '@contracts/shared';
-import type { IPdfPageMetric } from '@app/types/pdfUi';
-import { DOCUMENT_PAGE_GUTTER_PX } from '@app/modules/document-viewer/layout/documentPageGutterPx';
-import { getPageRowBoundsForViewMode } from '@app/modules/document-viewer/layout/getPageRowBoundsForViewMode';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import type {TPageNumber} from '@contracts/pageNumbers';
+import type {TPdfViewMode} from '@contracts/shared';
+import type {IPdfPageMetric} from '@app/types/pdfUi';
+import {DOCUMENT_PAGE_GUTTER_PX} from '@app/modules/document-viewer/layout/documentPageGutterPx';
+import {getPageRowBoundsForViewMode} from '@app/modules/document-viewer/layout/getPageRowBoundsForViewMode';
 import {isSparsePageMetricCollection} from '@app/modules/document-viewer/layout/normalizePageMetrics';
-import { resolveCurrentSpreadBaseWidth } from '@app/modules/document-viewer/layout/resolveCurrentSpreadBaseWidth';
+import {resolveCurrentSpreadBaseWidth} from '@app/modules/document-viewer/layout/resolveCurrentSpreadBaseWidth';
 
 export interface IPdfFitWidthDimensions {
     readonly availableSize: number;
@@ -23,12 +23,7 @@ interface IResolvePdfFitWidthDimensionsOptions {
     readonly widthRows?: ReadonlyMap<number, number>;
 }
 
-function resolveFitWidthAvailableSize(
-    rawSize: number,
-    page: TPageNumber,
-    viewMode: TPdfViewMode,
-    totalPages: number,
-) {
+function resolveFitWidthAvailableSize(rawSize: number, page: TPageNumber, viewMode: TPdfViewMode, totalPages: number) {
     const row = getPageRowBoundsForViewMode({
         pageNumber: page,
         viewMode,
@@ -47,10 +42,7 @@ export function resolvePdfFitWidthRowWidths(options: {
     readonly totalPages: number;
 }) {
     const widthRows = new Map<number, number>();
-    const candidates = new Set<number>([
-        1,
-        options.totalPages,
-    ]);
+    const candidates = new Set<number>([1, options.totalPages]);
     if (isSparsePageMetricCollection(options.metrics)) {
         // Nearest-page estimates only change at measured pages and halfway
         // between them. Inspect neighboring rows at those boundaries without
@@ -74,35 +66,29 @@ export function resolvePdfFitWidthRowWidths(options: {
 
     const visited = new Set<number>();
     for (const candidate of candidates) {
-        if (candidate < 1 || candidate > options.totalPages) {continue;}
+        if (candidate < 1 || candidate > options.totalPages) {
+            continue;
+        }
         const row = getPageRowBoundsForViewMode({
             pageNumber: requirePageNumber(candidate),
             viewMode: options.viewMode,
             totalPages: options.totalPages,
         });
-        if (visited.has(row.start)) {continue;}
+        if (visited.has(row.start)) {
+            continue;
+        }
         visited.add(row.start);
         const columns = row.end - row.start + 1;
-        const width = resolveCurrentSpreadBaseWidth(
-            options.metrics,
-            options.viewMode,
-            options.totalPages,
-            row.start,
-        );
-        if (width) {widthRows.set(columns, Math.max(widthRows.get(columns) ?? 0, width));}
+        const width = resolveCurrentSpreadBaseWidth(options.metrics, options.viewMode, options.totalPages, row.start);
+        if (width) {
+            widthRows.set(columns, Math.max(widthRows.get(columns) ?? 0, width));
+        }
     }
     return widthRows;
 }
 
-export function resolvePdfFitWidthDimensions(
-    options: IResolvePdfFitWidthDimensionsOptions,
-): IPdfFitWidthDimensions {
-    const currentAvailableSize = resolveFitWidthAvailableSize(
-        options.rawSize,
-        options.page,
-        options.viewMode,
-        options.totalPages,
-    );
+export function resolvePdfFitWidthDimensions(options: IResolvePdfFitWidthDimensionsOptions): IPdfFitWidthDimensions {
+    const currentAvailableSize = resolveFitWidthAvailableSize(options.rawSize, options.page, options.viewMode, options.totalPages);
     if (!options.continuousScroll) {
         return {
             availableSize: currentAvailableSize,
@@ -115,16 +101,12 @@ export function resolvePdfFitWidthDimensions(
         availableSize: currentAvailableSize,
         baseDimension: options.currentWidth,
     };
-    for (const [
-        columns,
-        width,
-    ] of widthRows) {
+    for (const [columns, width] of widthRows) {
         const availableSize = options.rawSize - DOCUMENT_PAGE_GUTTER_PX * (columns + 1);
-        if (availableSize <= 0) {continue;}
-        if (
-            result.availableSize <= 0
-            || availableSize / width < result.availableSize / result.baseDimension
-        ) {
+        if (availableSize <= 0) {
+            continue;
+        }
+        if (result.availableSize <= 0 || availableSize / width < result.availableSize / result.baseDimension) {
             result = {
                 availableSize,
                 baseDimension: width,

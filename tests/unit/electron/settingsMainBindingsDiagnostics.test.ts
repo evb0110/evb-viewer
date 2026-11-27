@@ -1,13 +1,6 @@
 import type * as TViMockOriginalModule from '@electron/features/diagnostics/public';
 
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {DEFAULT_SETTINGS} from '@contracts/settings';
 
 const mocks = vi.hoisted(() => ({
@@ -38,12 +31,14 @@ vi.mock('@electron/settings', () => ({
     updateSettings: mocks.updateSettings,
 }));
 vi.mock('@electron/te', () => ({setElectronLocale: mocks.setElectronLocale}));
-vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
-    debug: vi.fn(),
-    error: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-})}));
+vi.mock('@electron/utils/createLogger', () => ({
+    createLogger: () => ({
+        debug: vi.fn(),
+        error: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+    }),
+}));
 
 describe('Electron settings diagnostics scheduling', () => {
     beforeEach(() => {
@@ -74,10 +69,7 @@ describe('Electron settings diagnostics scheduling', () => {
         const savePromise = bindings.save({senderId: 7} as never, {clientDiagnosticsPreference: 'denied'});
 
         expect(mocks.updateSettings).toHaveBeenCalledOnce();
-        expect(mocks.events).toEqual([
-            'consent-intent:denied',
-            'persist',
-        ]);
+        expect(mocks.events).toEqual(['consent-intent:denied', 'persist']);
         await savePromise;
         await vi.advanceTimersByTimeAsync(25);
         expect(mocks.updateSettings).toHaveBeenCalledOnce();

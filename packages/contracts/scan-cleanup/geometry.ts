@@ -34,7 +34,9 @@ export type IScanCleanupMarginsMm = MarginsMm;
 /** Shared ceiling for every hard-margin editor, codec, and clamp. */
 export const SCAN_CLEANUP_MARGIN_MAX_MM = 25;
 
-export interface IScanCleanupPreviewAffine {matrix: number[][];}
+export interface IScanCleanupPreviewAffine {
+    matrix: number[][];
+}
 
 /** Manual cutters stay inside this interval so both output leaves remain usable. */
 export const SCAN_CLEANUP_MANUAL_SPLIT_MIN = 0.02;

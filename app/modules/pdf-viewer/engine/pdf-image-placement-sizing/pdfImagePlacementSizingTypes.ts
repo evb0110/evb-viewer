@@ -17,12 +17,4 @@ export interface IImagePlacementRectPx {
     height: number;
 }
 
-export type TImagePlacementResizeHandle =
-    | 'nw'
-    | 'n'
-    | 'ne'
-    | 'e'
-    | 'se'
-    | 's'
-    | 'sw'
-    | 'w';
+export type TImagePlacementResizeHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';

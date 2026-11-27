@@ -1,37 +1,21 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { PAGE_OPS_PLATFORM_FEATURE } from '@contracts/pageOpsPlatformFeature';
-import {
-    invertPageIdentityDelta,
-    mapPageNumberThroughPageIdentityDelta,
-    type IPageIdentityDelta,
-} from '@contracts/electronApiPageOps';
+import {describe, expect, it} from 'vitest';
+import {PAGE_OPS_PLATFORM_FEATURE} from '@contracts/pageOpsPlatformFeature';
+import {invertPageIdentityDelta, mapPageNumberThroughPageIdentityDelta, type IPageIdentityDelta} from '@contracts/electronApiPageOps';
 import {requirePageNumber} from '@contracts/pageNumbers';
 
 describe('page identity history round trips', () => {
     const cases: Array<{
         name: string;
         delta: IPageIdentityDelta;
-        forward: Array<number | null>
+        forward: Array<number | null>;
     }> = [
         {
             name: 'legacy deletion and insertion',
             delta: {
                 previousPageCount: 3,
-                pages: [
-                    {fromPageNumber: 2},
-                    {insertedId: 'new'},
-                    {fromPageNumber: 3},
-                ],
+                pages: [{fromPageNumber: 2}, {insertedId: 'new'}, {fromPageNumber: 3}],
             },
-            forward: [
-                null,
-                1,
-                3,
-            ],
+            forward: [null, 1, 3],
         },
         {
             name: 'compact deletion',
@@ -52,11 +36,7 @@ describe('page identity history round trips', () => {
                     },
                 ],
             },
-            forward: [
-                null,
-                1,
-                2,
-            ],
+            forward: [null, 1, 2],
         },
         {
             name: 'compact insertion',
@@ -78,10 +58,7 @@ describe('page identity history round trips', () => {
                     },
                 ],
             },
-            forward: [
-                2,
-                3,
-            ],
+            forward: [2, 3],
         },
         {
             name: 'move with a touched page',
@@ -109,22 +86,13 @@ describe('page identity history round trips', () => {
                     },
                 ],
             },
-            forward: [
-                2,
-                3,
-                1,
-            ],
+            forward: [2, 3, 1],
         },
     ];
-    it.each(cases)('returns surviving content through $name', ({
-        delta, forward,
-    }) => {
+    it.each(cases)('returns surviving content through $name', ({delta, forward}) => {
         const inverse = invertPageIdentityDelta(delta);
         expect(inverse.nextPageCount).toBe(delta.previousPageCount);
-        for (const [
-            index,
-            destination,
-        ] of forward.entries()) {
+        for (const [index, destination] of forward.entries()) {
             expect(mapPageNumberThroughPageIdentityDelta(delta, requirePageNumber(index + 1))).toBe(destination);
             if (destination !== null) {
                 expect(mapPageNumberThroughPageIdentityDelta(inverse, requirePageNumber(destination))).toBe(index + 1);
@@ -139,20 +107,24 @@ describe('page identity history round trips', () => {
         const inverse = invertPageIdentityDelta({
             previousPageCount: 100_000_000,
             nextPageCount: 100_000_000,
-            ranges: [{
+            ranges: [
+                {
+                    kind: 'retain',
+                    fromPageNumber: 1,
+                    toPageNumber: 1,
+                    count: 100_000_000,
+                },
+            ],
+        });
+        expect(inverse.pages).toBeUndefined();
+        expect(inverse.ranges).toEqual([
+            {
                 kind: 'retain',
                 fromPageNumber: 1,
                 toPageNumber: 1,
                 count: 100_000_000,
-            }],
-        });
-        expect(inverse.pages).toBeUndefined();
-        expect(inverse.ranges).toEqual([{
-            kind: 'retain',
-            fromPageNumber: 1,
-            toPageNumber: 1,
-            count: 100_000_000,
-        }]);
+            },
+        ]);
         expect(mapPageNumberThroughPageIdentityDelta(inverse, requirePageNumber(100_000_000))).toBe(100_000_000);
     });
 });
@@ -184,14 +156,7 @@ describe('page ops platform feature schemas', () => {
     });
 
     it('round-trips the compact native move tuple', () => {
-        const input = [
-            '/tmp/work.pdf',
-            2,
-            4,
-            0,
-            12,
-            undefined,
-        ] as const;
+        const input = ['/tmp/work.pdf', 2, 4, 0, 12, undefined] as const;
         const codec = codecs[channels.move]!;
 
         expect(codec.decodeArgs(codec.encodeArgs([...input]))).toEqual([...input]);
@@ -200,10 +165,12 @@ describe('page ops platform feature schemas', () => {
     it('round-trips compact native delete ranges', () => {
         const input = [
             '/tmp/work.pdf',
-            [{
-                startPage: 2,
-                endPage: 4,
-            }],
+            [
+                {
+                    startPage: 2,
+                    endPage: 4,
+                },
+            ],
             12,
             undefined,
         ] as const;
@@ -212,24 +179,11 @@ describe('page ops platform feature schemas', () => {
         expect(codec.decodeArgs(codec.encodeArgs([...input]))).toEqual([...input]);
     });
 
-    it.each([
-        'delete',
-        'extract',
-    ] as const)('decodes 100,001 valid pages for %s transport', (method) => {
+    it.each(['delete', 'extract'] as const)('decodes 100,001 valid pages for %s transport', (method) => {
         const pages = Array.from({length: 100_001}, (_, index) => index + 1);
         const channel = channels[method];
         const codec = codecs[channel]!;
-        const input = method === 'delete'
-            ? [
-                '/tmp/work.pdf',
-                pages,
-                100_002,
-                undefined,
-            ]
-            : [
-                '/tmp/work.pdf',
-                pages,
-            ];
+        const input = method === 'delete' ? ['/tmp/work.pdf', pages, 100_002, undefined] : ['/tmp/work.pdf', pages];
 
         expect(codec.decodeArgs(codec.encodeArgs(input))[1]).toEqual(pages);
     });
@@ -266,12 +220,14 @@ describe('page ops platform feature schemas', () => {
                 expectedDocumentRevisionToken: ' drt1:test ',
                 metadataSnapshot: {
                     pageLabels: ['i'],
-                    pageLabelRanges: [{
-                        startPage: 1,
-                        style: 'r',
-                        prefix: '',
-                        startNumber: 1,
-                    }],
+                    pageLabelRanges: [
+                        {
+                            startPage: 1,
+                            style: 'r',
+                            prefix: '',
+                            startNumber: 1,
+                        },
+                    ],
                     bookmarks: [],
                     untitledBookmarkLabel: 'Untitled',
                 },
@@ -280,85 +236,91 @@ describe('page ops platform feature schemas', () => {
         const codec = codecs[channels.rotate]!;
 
         const decoded = codec.decodeArgs(codec.encodeArgs(input));
-        expect(decoded.slice(0, 4)).toEqual([
-            '/tmp/work.pdf',
-            [1],
-            3,
-            90,
-        ]);
+        expect(decoded.slice(0, 4)).toEqual(['/tmp/work.pdf', [1], 3, 90]);
         expect(decoded[4]).toMatchObject({
             expectedDocumentRevisionToken: 'drt1:test',
             metadataSnapshot: {
                 pageLabels: ['i'],
-                pageLabelRanges: [{
-                    startPage: 1,
-                    style: 'r',
-                    prefix: '',
-                    startNumber: 1,
-                }],
+                pageLabelRanges: [
+                    {
+                        startPage: 1,
+                        style: 'r',
+                        prefix: '',
+                        startNumber: 1,
+                    },
+                ],
             },
         });
     });
 
     it('rejects unordered compact page-label ranges at the IPC boundary', () => {
         const codec = codecs[channels.rotate]!;
-        expect(() => codec.decodeArgs(codec.encodeArgs([
-            '/tmp/work.pdf',
-            [1],
-            3,
-            90,
-            {metadataSnapshot: {
-                pageLabelRanges: [
+        expect(() =>
+            codec.decodeArgs(
+                codec.encodeArgs([
+                    '/tmp/work.pdf',
+                    [1],
+                    3,
+                    90,
                     {
-                        startPage: 2,
-                        style: 'D',
-                        prefix: '',
-                        startNumber: 1,
+                        metadataSnapshot: {
+                            pageLabelRanges: [
+                                {
+                                    startPage: 2,
+                                    style: 'D',
+                                    prefix: '',
+                                    startNumber: 1,
+                                },
+                                {
+                                    startPage: 2,
+                                    style: 'D',
+                                    prefix: '',
+                                    startNumber: 2,
+                                },
+                            ],
+                            untitledBookmarkLabel: 'Untitled',
+                        },
                     },
-                    {
-                        startPage: 2,
-                        style: 'D',
-                        prefix: '',
-                        startNumber: 2,
-                    },
-                ],
-                untitledBookmarkLabel: 'Untitled',
-            }},
-        ]))).toThrow('pageLabelRanges');
+                ]),
+            ),
+        ).toThrow('pageLabelRanges');
     });
 
-    it.each([
-        0,
-        0.5,
-        1,
-        null,
-        -0.01,
-        1.01,
-        Number.NaN,
-        Number.POSITIVE_INFINITY,
-    ])('validates bookmark offsets at the IPC boundary: %s', (pageYRatio) => {
-        const codec = codecs[channels.reorder]!;
-        const decode = () => codec.decodeArgs(codec.encodeArgs([
-            '/tmp/work.pdf',
-            [1],
-            {metadataSnapshot: {
-                bookmarks: [{
-                    title: 'Bookmark',
-                    pageIndex: 0,
-                    pageYRatio,
-                    namedDest: null,
-                    bold: false,
-                    italic: false,
-                    color: null,
-                    items: [],
-                }],
-                untitledBookmarkLabel: 'Untitled',
-            }},
-        ]));
-        if (pageYRatio === null || Number.isFinite(pageYRatio) && pageYRatio >= 0 && pageYRatio <= 1) {
-            expect(decode()[2]?.metadataSnapshot?.bookmarks?.[0]?.pageYRatio).toBe(pageYRatio);
-        } else {expect(decode).toThrow('pageYRatio');}
-    });
+    it.each([0, 0.5, 1, null, -0.01, 1.01, Number.NaN, Number.POSITIVE_INFINITY])(
+        'validates bookmark offsets at the IPC boundary: %s',
+        (pageYRatio) => {
+            const codec = codecs[channels.reorder]!;
+            const decode = () =>
+                codec.decodeArgs(
+                    codec.encodeArgs([
+                        '/tmp/work.pdf',
+                        [1],
+                        {
+                            metadataSnapshot: {
+                                bookmarks: [
+                                    {
+                                        title: 'Bookmark',
+                                        pageIndex: 0,
+                                        pageYRatio,
+                                        namedDest: null,
+                                        bold: false,
+                                        italic: false,
+                                        color: null,
+                                        items: [],
+                                    },
+                                ],
+                                untitledBookmarkLabel: 'Untitled',
+                            },
+                        },
+                    ]),
+                );
+            if (pageYRatio === null || (Number.isFinite(pageYRatio) && pageYRatio >= 0 && pageYRatio <= 1)) {
+                expect(decode()[2]?.metadataSnapshot?.bookmarks?.[0]?.pageYRatio).toBe(pageYRatio);
+            } else {
+                expect(decode).toThrow('pageYRatio');
+            }
+        },
+    );
 
     it('accepts a 10,001-item outline for structural page operations', () => {
         const bookmarks = Array.from({length: 10_001}, (_, index) => ({
@@ -372,18 +334,19 @@ describe('page ops platform feature schemas', () => {
         }));
         const codec = codecs[channels.reorder]!;
 
-        const decoded = codec.decodeArgs(codec.encodeArgs([
-            '/tmp/work.pdf',
-            [
-                2,
-                1,
-            ],
-            {metadataSnapshot: {
-                pageLabels: null,
-                bookmarks,
-                untitledBookmarkLabel: 'Untitled',
-            }},
-        ]));
+        const decoded = codec.decodeArgs(
+            codec.encodeArgs([
+                '/tmp/work.pdf',
+                [2, 1],
+                {
+                    metadataSnapshot: {
+                        pageLabels: null,
+                        bookmarks,
+                        untitledBookmarkLabel: 'Untitled',
+                    },
+                },
+            ]),
+        );
 
         expect(decoded[2]?.metadataSnapshot?.bookmarks).toHaveLength(10_001);
     });
@@ -403,10 +366,7 @@ describe('page ops platform feature schemas', () => {
             pageCount: 2,
             pageIdentityDelta: {
                 previousPageCount: 2,
-                pages: [
-                    {fromPageNumber: 2},
-                    {fromPageNumber: 1},
-                ],
+                pages: [{fromPageNumber: 2}, {fromPageNumber: 1}],
             },
         });
         expect(reorderResult).toEqual({
@@ -415,10 +375,7 @@ describe('page ops platform feature schemas', () => {
             pageCount: 2,
             pageIdentityDelta: {
                 previousPageCount: 2,
-                pages: [
-                    {fromPageNumber: 2},
-                    {fromPageNumber: 1},
-                ],
+                pages: [{fromPageNumber: 2}, {fromPageNumber: 1}],
             },
         });
 
@@ -427,10 +384,7 @@ describe('page ops platform feature schemas', () => {
             documentRevision,
             pageIdentityDelta: {
                 previousPageCount: 1,
-                pages: [
-                    {fromPageNumber: 1},
-                    {insertedId: 'inserted:1'},
-                ],
+                pages: [{fromPageNumber: 1}, {insertedId: 'inserted:1'}],
             },
         });
         expect(insertResult).toEqual({
@@ -438,21 +392,20 @@ describe('page ops platform feature schemas', () => {
             documentRevision,
             pageIdentityDelta: {
                 previousPageCount: 1,
-                pages: [
-                    {fromPageNumber: 1},
-                    {insertedId: 'inserted:1'},
-                ],
+                pages: [{fromPageNumber: 1}, {insertedId: 'inserted:1'}],
             },
         });
 
-        expect(() => codecs[channels.delete]!.decodeResult({
-            success: true,
-            documentRevision,
-            pageIdentityDelta: {
-                previousPageCount: 1,
-                pages: [{}],
-            },
-        })).toThrow('pageIdentityDelta.pages entries must carry fromPageNumber or insertedId');
+        expect(() =>
+            codecs[channels.delete]!.decodeResult({
+                success: true,
+                documentRevision,
+                pageIdentityDelta: {
+                    previousPageCount: 1,
+                    pages: [{}],
+                },
+            }),
+        ).toThrow('pageIdentityDelta.pages entries must carry fromPageNumber or insertedId');
 
         const moveResult = codecs[channels.move]!.decodeResult({
             success: true,
@@ -482,51 +435,46 @@ describe('page ops platform feature schemas', () => {
     });
 
     it('carries a user cancel through page operation and cancel results', () => {
-        expect(codecs[channels.rotate]!.decodeResult({
-            success: false,
-            canceled: true,
-        })).toEqual({
+        expect(
+            codecs[channels.rotate]!.decodeResult({
+                success: false,
+                canceled: true,
+            }),
+        ).toEqual({
             success: false,
             canceled: true,
         });
-        expect(codecs[channels.cancelActive]!.decodeResult({
-            canceled: 1,
-            committing: 0,
-        })).toEqual({
+        expect(
+            codecs[channels.cancelActive]!.decodeResult({
+                canceled: 1,
+                committing: 0,
+            }),
+        ).toEqual({
             canceled: 1,
             committing: 0,
         });
-        expect(() => codecs[channels.cancelActive]!.decodeResult({canceled: 1}))
-            .toThrow();
+        expect(() => codecs[channels.cancelActive]!.decodeResult({canceled: 1})).toThrow();
     });
 
     it('keeps malformed tuple and result messages stable', () => {
-        expect(() => codecs[channels.rotate]!.decodeArgs([
-            '/tmp/work.pdf',
-            [1],
-            3,
-            45,
-            undefined,
-        ])).toThrow('angle must be 90, 180, or 270');
-        expect(() => codecs[channels.delete]!.decodeArgs([
-            '/tmp/work.pdf',
-            [1],
-            3,
-        ])).toThrow('expected 4 arguments, received 3');
-        expect(() => codecs[channels.rotate]!.decodeResult({success: 'yes'}))
-            .toThrow('page operation result must include success');
+        expect(() => codecs[channels.rotate]!.decodeArgs(['/tmp/work.pdf', [1], 3, 45, undefined])).toThrow(
+            'angle must be 90, 180, or 270',
+        );
+        expect(() => codecs[channels.delete]!.decodeArgs(['/tmp/work.pdf', [1], 3])).toThrow('expected 4 arguments, received 3');
+        expect(() => codecs[channels.rotate]!.decodeResult({success: 'yes'})).toThrow('page operation result must include success');
         // A committed page operation names the revision it committed.
-        expect(() => codecs[channels.insert]!.decodeResult({success: true}))
-            .toThrow();
-        expect(() => codecs[channels.getPageGeometry]!.decodeResult({
-            mediaBox: {
-                x: 0,
-                y: 0,
-                width: Number.NaN,
-                height: 100,
-            },
-            cropBox: null,
-            rotation: 0,
-        })).toThrow('page geometry box must contain finite coordinates');
+        expect(() => codecs[channels.insert]!.decodeResult({success: true})).toThrow();
+        expect(() =>
+            codecs[channels.getPageGeometry]!.decodeResult({
+                mediaBox: {
+                    x: 0,
+                    y: 0,
+                    width: Number.NaN,
+                    height: 100,
+                },
+                cropBox: null,
+                rotation: 0,
+            }),
+        ).toThrow('page geometry box must contain finite coordinates');
     });
 });

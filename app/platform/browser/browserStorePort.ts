@@ -1,12 +1,6 @@
-import { contentWitness } from '@document-store/contentWitness';
-import type {
-    IStoreFile,
-    IStorePort,
-} from '@document-store/storePort';
-import {
-    handlePrecompiledWasmModuleMessage,
-    postPrecompiledWasmModules,
-} from '@app/platform/browser/loadWasmWithDeadline';
+import {contentWitness} from '@document-store/contentWitness';
+import type {IStoreFile, IStorePort} from '@document-store/storePort';
+import {handlePrecompiledWasmModuleMessage, postPrecompiledWasmModules} from '@app/platform/browser/loadWasmWithDeadline';
 import {
     PDF_PAGE_OPS_WASM_PATH,
     type IOcrTextLayerAppendRequest,
@@ -14,11 +8,8 @@ import {
     type IPdfAppendRequest,
     type IPdfAppendResult,
 } from '@app/platform/browser/pdfPageEngine';
-import { opfsFileHandle } from '@app/platform/browser/opfsFileHandle';
-import type {
-    TOpfsOperations,
-    TOpfsRequest,
-} from '@app/platform/browser/opfsStore.worker';
+import {opfsFileHandle} from '@app/platform/browser/opfsFileHandle';
+import type {TOpfsOperations, TOpfsRequest} from '@app/platform/browser/opfsStore.worker';
 import type {IBrowserPageOpsWasmFailure} from '@contracts/browserPageOpsWorker';
 
 type TPdfAppendRequest = IPdfAppendRequest | IOcrTextLayerAppendRequest;
@@ -42,7 +33,7 @@ const fileBlobs = new WeakMap<IStorePort, (path: string) => Promise<Blob>>();
  * port reads of it.
  */
 export async function storeFileBlob(port: IStorePort, path: string) {
-    return fileBlobs.get(port)?.(path) ?? new Blob([await port.read(path) as Uint8Array<ArrayBuffer>]);
+    return fileBlobs.get(port)?.(path) ?? new Blob([(await port.read(path)) as Uint8Array<ArrayBuffer>]);
 }
 
 type TPdfAppender = (base: number, request: TPdfAppendRequest) => Promise<IPdfAppendResult | IBrowserPageOpsWasmFailure>;
@@ -55,7 +46,9 @@ const pdfAppenders = new WeakMap<IStoreFile, TPdfAppender>();
  */
 export function appendPdfMutationsToStoreFile(file: IStoreFile, base: number, request: TPdfAppendRequest) {
     const append = pdfAppenders.get(file);
-    if (!append) {throw new Error('This store file cannot take a PDF edit');}
+    if (!append) {
+        throw new Error('This store file cannot take a PDF edit');
+    }
     return append(base, request);
 }
 
@@ -68,7 +61,8 @@ async function appendPdfMutationsToSyncFile(file: IPdfAppendFile, base: number, 
 /** Whether `port` keeps its files in the origin private file system, where a worker reads and writes them by path. */
 export const isOpfsStorePort = (port: IStorePort) => opfsPorts.has(port);
 
-const readBlobRange = async (blob: Blob, offset: number, length: number) => new Uint8Array(await blob.slice(offset, offset + length).arrayBuffer());
+const readBlobRange = async (blob: Blob, offset: number, length: number) =>
+    new Uint8Array(await blob.slice(offset, offset + length).arrayBuffer());
 
 /** The window's store worker, which hashes Blobs too once `openBrowserStorePort` opened it. */
 let storeWorkerWitness: ((blob: Blob) => Promise<string>) | null = null;
@@ -87,33 +81,40 @@ export function createWorkerStorePort(worker: Worker): IStorePort & {probe(): Pr
     let nextId = 1;
     postPrecompiledWasmModules(worker, [PDF_PAGE_OPS_WASM_PATH]);
     const fail = (error: Error) => {
-        for (const request of pending.values()) {request.reject(error);}
+        for (const request of pending.values()) {
+            request.reject(error);
+        }
         pending.clear();
     };
     worker.addEventListener('message', (event: MessageEvent<IResponse>) => {
-        if (handlePrecompiledWasmModuleMessage(event.data)) {return;}
+        if (handlePrecompiledWasmModuleMessage(event.data)) {
+            return;
+        }
         const request = pending.get(event.data.id);
-        if (!request) {return;}
+        if (!request) {
+            return;
+        }
         pending.delete(event.data.id);
-        if (event.data.error) {request.reject(storeError(event.data.error));}
-        else {request.resolve(event.data.result);}
+        if (event.data.error) {
+            request.reject(storeError(event.data.error));
+        } else {
+            request.resolve(event.data.result);
+        }
     });
-    worker.addEventListener('error', event => fail(new Error(`The document store worker failed: ${event.message}`)));
-    const call = <K extends keyof TOpfsOperations>(
-        op: K,
-        ...args: Parameters<TOpfsOperations[K]>
-    ) => new Promise<Awaited<ReturnType<TOpfsOperations[K]>>>((resolve, reject) => {
-        const id = nextId++;
-        pending.set(id, {resolve: resolve as (value: unknown) => void, reject});
-        worker.postMessage({id, op, args} satisfies TOpfsRequest<K>);
-    });
+    worker.addEventListener('error', (event) => fail(new Error(`The document store worker failed: ${event.message}`)));
+    const call = <K extends keyof TOpfsOperations>(op: K, ...args: Parameters<TOpfsOperations[K]>) =>
+        new Promise<Awaited<ReturnType<TOpfsOperations[K]>>>((resolve, reject) => {
+            const id = nextId++;
+            pending.set(id, {resolve: resolve as (value: unknown) => void, reject});
+            worker.postMessage({id, op, args} satisfies TOpfsRequest<K>);
+        });
     const storeFile = (id: number): IStoreFile => {
         const file: IStoreFile = {
             size: () => call('size', id),
             readAt: (offset, length) => call('readAt', id, offset, length),
-            witness: length => call('witness', id, length),
+            witness: (length) => call('witness', id, length),
             writeAt: (offset, bytes) => call('writeAt', id, offset, bytes),
-            truncate: length => call('truncate', id, length),
+            truncate: (length) => call('truncate', id, length),
             flush: () => call('flush', id),
             close: () => call('close', id),
         };
@@ -122,17 +123,17 @@ export function createWorkerStorePort(worker: Worker): IStorePort & {probe(): Pr
     };
     const port = {
         probe: () => call('probe'),
-        witnessBlob: blob => call('witnessBlob', blob),
-        list: dir => call('list', dir),
-        read: path => call('read', path),
+        witnessBlob: (blob) => call('witnessBlob', blob),
+        list: (dir) => call('list', dir),
+        read: (path) => call('read', path),
         writeAtomic: (path, bytes) => call('writeAtomic', path, bytes),
-        open: async path => storeFile(await call('open', path)),
+        open: async (path) => storeFile(await call('open', path)),
         copyIn: (source, path) => call('copyIn', source, path),
         copy: (from, to) => call('copy', from, to),
-        remove: path => call('remove', path),
+        remove: (path) => call('remove', path),
     } satisfies IStorePort & {probe(): Promise<boolean>; witnessBlob(blob: Blob): Promise<string>};
     opfsPorts.add(port);
-    fileBlobs.set(port, async path => (await opfsFileHandle(path)).getFile());
+    fileBlobs.set(port, async (path) => (await opfsFileHandle(path)).getFile());
     return port;
 }
 
@@ -142,20 +143,25 @@ export function createMemoryStorePort(): IStorePort {
     // readers share one Blob of them until it changes or closes: a copy per reader outgrows the memory a browser
     // lends Blobs.
     const files = new Map<string, {buffer: Uint8Array; length: number; blob?: Blob}>();
-    const children = (dir: string) => [...files.keys()].filter(path => path.startsWith(`${dir}/`));
+    const children = (dir: string) => [...files.keys()].filter((path) => path.startsWith(`${dir}/`));
     const bytesOf = (path: string) => {
         const file = files.get(path);
-        if (!file) {throw Object.assign(new Error(`Missing store file: ${path}`), {name: 'NotFoundError'});}
+        if (!file) {
+            throw Object.assign(new Error(`Missing store file: ${path}`), {name: 'NotFoundError'});
+        }
         return file.buffer.subarray(0, file.length);
     };
     const put = (path: string, bytes: Uint8Array) => void files.set(path, {buffer: bytes.slice(), length: bytes.byteLength});
-    const copyIn = async (source: Blob | string, path: string) => put(path, typeof source === 'string' ? bytesOf(source) : new Uint8Array(await source.arrayBuffer()));
+    const copyIn = async (source: Blob | string, path: string) =>
+        put(path, typeof source === 'string' ? bytesOf(source) : new Uint8Array(await source.arrayBuffer()));
     const port: IStorePort = {
-        list: async dir => [...new Set(children(dir).map(path => path.slice(dir.length + 1).split('/')[0]!))],
-        read: async path => bytesOf(path).slice(),
+        list: async (dir) => [...new Set(children(dir).map((path) => path.slice(dir.length + 1).split('/')[0]!))],
+        read: async (path) => bytesOf(path).slice(),
         writeAtomic: async (path, bytes) => put(path, bytes),
         async open(path) {
-            if (!files.has(path)) {put(path, new Uint8Array());}
+            if (!files.has(path)) {
+                put(path, new Uint8Array());
+            }
             const file = files.get(path)!;
             const write = (offset: number, chunk: Uint8Array) => {
                 const end = offset + chunk.byteLength;
@@ -173,10 +179,12 @@ export function createMemoryStorePort(): IStorePort {
             const storeFile: IStoreFile = {
                 size: async () => file.length,
                 readAt,
-                witness: length => contentWitness(length, readAt),
+                witness: (length) => contentWitness(length, readAt),
                 writeAt,
                 async truncate(length) {
-                    if (length > file.length) {await writeAt(file.length, new Uint8Array(length - file.length));}
+                    if (length > file.length) {
+                        await writeAt(file.length, new Uint8Array(length - file.length));
+                    }
                     file.buffer.fill(0, length, file.length);
                     file.length = length;
                     delete file.blob;
@@ -187,28 +195,40 @@ export function createMemoryStorePort(): IStorePort {
                     delete file.blob;
                 },
             };
-            pdfAppenders.set(storeFile, (base, request) => appendPdfMutationsToSyncFile({
-                read(into, at) {
-                    if (at + into.byteLength > file.length) {throw new Error('The document ended before its cross-reference said');}
-                    into.set(file.buffer.subarray(at, at + into.byteLength));
-                },
-                write(bytes, at) {
-                    if (at < base) {throw new Error('An append cannot write over its document');}
-                    write(at, bytes);
-                },
-            }, base, request));
+            pdfAppenders.set(storeFile, (base, request) =>
+                appendPdfMutationsToSyncFile(
+                    {
+                        read(into, at) {
+                            if (at + into.byteLength > file.length) {
+                                throw new Error('The document ended before its cross-reference said');
+                            }
+                            into.set(file.buffer.subarray(at, at + into.byteLength));
+                        },
+                        write(bytes, at) {
+                            if (at < base) {
+                                throw new Error('An append cannot write over its document');
+                            }
+                            write(at, bytes);
+                        },
+                    },
+                    base,
+                    request,
+                ),
+            );
             return storeFile;
         },
         copyIn,
         copy: (from, to) => copyIn(from, to),
         async remove(path) {
             files.delete(path);
-            for (const child of children(path)) {files.delete(child);}
+            for (const child of children(path)) {
+                files.delete(child);
+            }
         },
     };
     fileBlobs.set(port, async (path) => {
         const bytes = bytesOf(path);
-        return files.get(path)!.blob ??= new Blob([bytes as Uint8Array<ArrayBuffer>]);
+        return (files.get(path)!.blob ??= new Blob([bytes as Uint8Array<ArrayBuffer>]));
     });
     return port;
 }
@@ -217,7 +237,9 @@ export function createMemoryStorePort(): IStorePort {
  * The window's storage port: the origin private file system through its store worker, or memory when the
  * browser offers no such storage or no Web Locks (an older engine, a private window that refuses it).
  */
-export async function openBrowserStorePort(createWorker = () => new Worker(new URL('./opfsStore.worker.ts', import.meta.url), {type: 'module'})) {
+export async function openBrowserStorePort(
+    createWorker = () => new Worker(new URL('./opfsStore.worker.ts', import.meta.url), {type: 'module'}),
+) {
     try {
         // Durable documents need one owner per directory across windows, which Web Locks provide.
         if (typeof Worker === 'undefined' || typeof navigator === 'undefined' || !navigator.storage?.getDirectory || !navigator.locks) {
@@ -225,7 +247,7 @@ export async function openBrowserStorePort(createWorker = () => new Worker(new U
         }
         const port = createWorkerStorePort(createWorker());
         await port.probe();
-        storeWorkerWitness = blob => port.witnessBlob(blob);
+        storeWorkerWitness = (blob) => port.witnessBlob(blob);
         return {port, durable: true};
     } catch {
         return {port: createMemoryStorePort(), durable: false};

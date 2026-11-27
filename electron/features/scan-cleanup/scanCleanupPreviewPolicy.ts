@@ -6,10 +6,7 @@ import type {
     IScanCleanupOptions,
     TScanCleanupOutputModeSetting,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
-import {
-    SCAN_CLEANUP_ERROR_CODES,
-    SCAN_CLEANUP_SCRATCH_SHORTFALL_SCHEMA,
-} from '@contracts/scan-cleanup/ipc';
+import {SCAN_CLEANUP_ERROR_CODES, SCAN_CLEANUP_SCRATCH_SHORTFALL_SCHEMA} from '@contracts/scan-cleanup/ipc';
 import {isRecord} from '@contracts/runtimeGuards';
 import * as v from 'valibot';
 import type {IJobResourceVector} from '@electron/resources/jobBroker';
@@ -17,14 +14,8 @@ import {mainJobBroker} from '@electron/resources/jobBroker';
 import {resolveNativeToolPath} from '@electron/native-tools/resolveNativeToolPath';
 import {runtimeConfig} from '@electron/runtimeConfig';
 import {hasNativeErrorCode} from '@contracts/nativeErrors';
-import {
-    SCAN_CLEANUP_PAGE_SCOPE_ERROR_CODE,
-    ScanCleanupPageScopeError,
-} from '@evb/scan-cleanup/core/pageScope';
-import {
-    ScanCleanupInsufficientScratchError,
-    ScanCleanupNativeToolUnavailableError,
-} from '@evb/scan-cleanup/core/errors';
+import {SCAN_CLEANUP_PAGE_SCOPE_ERROR_CODE, ScanCleanupPageScopeError} from '@evb/scan-cleanup/core/pageScope';
+import {ScanCleanupInsufficientScratchError, ScanCleanupNativeToolUnavailableError} from '@evb/scan-cleanup/core/errors';
 import {
     SCAN_CLEANUP_MAX_BILEVEL_PIXELS,
     SCAN_CLEANUP_MAX_CONTINUOUS_TONE_PIXELS,
@@ -47,12 +38,8 @@ export function classifyScanCleanupPreviewError(error: unknown, aborted: boolean
     if (aborted) {
         return 'canceled';
     }
-    const errorCode = error && typeof error === 'object' && 'code' in error
-        ? (error as {code?: unknown}).code
-        : undefined;
-    if (typeof errorCode === 'string' && SCAN_CLEANUP_ERROR_CODES.includes(
-        errorCode as TScanCleanupErrorCode,
-    )) {
+    const errorCode = error && typeof error === 'object' && 'code' in error ? (error as {code?: unknown}).code : undefined;
+    if (typeof errorCode === 'string' && SCAN_CLEANUP_ERROR_CODES.includes(errorCode as TScanCleanupErrorCode)) {
         return errorCode as TScanCleanupErrorCode;
     }
     if (error instanceof ScanCleanupNativeToolUnavailableError || error instanceof ScanCleanupInsufficientScratchError) {
@@ -73,21 +60,20 @@ export function classifyScanCleanupPreviewError(error: unknown, aborted: boolean
     return 'internal';
 }
 
-export function scanCleanupScratchShortfall(
-    error: unknown,
-): Pick<IScanCleanupErrorEnvelope, 'details'> {
+export function scanCleanupScratchShortfall(error: unknown): Pick<IScanCleanupErrorEnvelope, 'details'> {
     if (!isRecord(error)) {
         return {};
     }
     const detailsShortfall = isRecord(error.details) ? error.details.scratchShortfall : undefined;
-    const scratchShortfall = detailsShortfall ?? error.scratchShortfall ?? (
-        error.code === 'insufficient-scratch'
+    const scratchShortfall =
+        detailsShortfall ??
+        error.scratchShortfall ??
+        (error.code === 'insufficient-scratch'
             ? {
-                availableBytes: error.availableBytes,
-                requiredBytes: error.requiredBytes,
-            }
-            : undefined
-    );
+                  availableBytes: error.availableBytes,
+                  requiredBytes: error.requiredBytes,
+              }
+            : undefined);
     if (scratchShortfall === undefined) {
         return {};
     }
@@ -120,26 +106,17 @@ export type TScanCleanupRasterBudgetOptions = Pick<
  * admission has to be more conservative because Auto may resolve an individual
  * page to B&W, and a page override can do the same in an otherwise tonal book.
  */
-export function resolveScanCleanupPreviewRasterMaxPixels(
-    options?: TScanCleanupRasterBudgetOptions,
-) {
+export function resolveScanCleanupPreviewRasterMaxPixels(options?: TScanCleanupRasterBudgetOptions) {
     const configuredModes: TScanCleanupOutputModeSetting[] = [
-        options?.preserveOriginalQuality === true ? 'color' : options?.outputMode ?? 'auto',
-        ...(options?.pageOverrideDefaults?.outputModeOverride === undefined
-            ? []
-            : [options.pageOverrideDefaults.outputModeOverride]),
-        ...Object.values(options?.pageOverrides ?? {}).flatMap(override => (
-            override.outputModeOverride === undefined ? [] : [override.outputModeOverride]
-        )),
+        options?.preserveOriginalQuality === true ? 'color' : (options?.outputMode ?? 'auto'),
+        ...(options?.pageOverrideDefaults?.outputModeOverride === undefined ? [] : [options.pageOverrideDefaults.outputModeOverride]),
+        ...Object.values(options?.pageOverrides ?? {}).flatMap((override) =>
+            override.outputModeOverride === undefined ? [] : [override.outputModeOverride],
+        ),
     ];
     const matchedCanvasMaxPixels = resolveScanCleanupMatchedCanvasMaxPixels(configuredModes);
-    const mayResolveBilevel = configuredModes.some(mode => mode === 'auto' || mode === 'bw');
-    return Math.max(
-        matchedCanvasMaxPixels,
-        mayResolveBilevel
-            ? SCAN_CLEANUP_MAX_BILEVEL_PIXELS
-            : SCAN_CLEANUP_MAX_CONTINUOUS_TONE_PIXELS,
-    );
+    const mayResolveBilevel = configuredModes.some((mode) => mode === 'auto' || mode === 'bw');
+    return Math.max(matchedCanvasMaxPixels, mayResolveBilevel ? SCAN_CLEANUP_MAX_BILEVEL_PIXELS : SCAN_CLEANUP_MAX_CONTINUOUS_TONE_PIXELS);
 }
 
 /**
@@ -150,12 +127,8 @@ export function resolveScanCleanupPreviewRasterMaxPixels(
  * `native/scan-cleanup/src/engine/resource_planning.rs`; it limits workers
  * inside the native process rather than replacing this cross-job admission.
  */
-export function resolveScanCleanupPreviewRasterSlotResidentBytes(
-    options?: TScanCleanupRasterBudgetOptions,
-    rasterMaxPixels?: number,
-) {
-    return (rasterMaxPixels ?? resolveScanCleanupPreviewRasterMaxPixels(options))
-        * SCAN_CLEANUP_PREVIEW_RASTER_BYTES_PER_PIXEL;
+export function resolveScanCleanupPreviewRasterSlotResidentBytes(options?: TScanCleanupRasterBudgetOptions, rasterMaxPixels?: number) {
+    return (rasterMaxPixels ?? resolveScanCleanupPreviewRasterMaxPixels(options)) * SCAN_CLEANUP_PREVIEW_RASTER_BYTES_PER_PIXEL;
 }
 
 export interface IScanCleanupRasterAdmissionPolicy {
@@ -174,17 +147,9 @@ export function resolveScanCleanupPreviewRasterAdmissionPolicy(
     options?: TScanCleanupRasterBudgetOptions,
 ): IScanCleanupRasterAdmissionPolicy {
     const configuredRasterMaxPixels = resolveScanCleanupPreviewRasterMaxPixels(options);
-    const capacityRasterMaxPixels = Math.floor(
-        capacity.estimatedResidentBytes / SCAN_CLEANUP_PREVIEW_RASTER_BYTES_PER_PIXEL,
-    );
-    const rasterMaxPixels = Math.max(
-        1,
-        Math.min(configuredRasterMaxPixels, capacityRasterMaxPixels),
-    );
-    const rasterSlotResidentBytes = resolveScanCleanupPreviewRasterSlotResidentBytes(
-        options,
-        rasterMaxPixels,
-    );
+    const capacityRasterMaxPixels = Math.floor(capacity.estimatedResidentBytes / SCAN_CLEANUP_PREVIEW_RASTER_BYTES_PER_PIXEL);
+    const rasterMaxPixels = Math.max(1, Math.min(configuredRasterMaxPixels, capacityRasterMaxPixels));
+    const rasterSlotResidentBytes = resolveScanCleanupPreviewRasterSlotResidentBytes(options, rasterMaxPixels);
     return {
         rasterConcurrency: Math.max(
             1,

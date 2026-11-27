@@ -1,11 +1,5 @@
 // @vitest-environment happy-dom
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
 import {useDocumentWorkspaceScanCleanupSurface} from '@app/modules/workspace-shell/composables/useDocumentWorkspaceScanCleanupSurface';
 import {discardScanCleanupDocumentState} from '@app/modules/scan-cleanup/public/runtime';
 import type {
@@ -14,9 +8,9 @@ import type {
     IWorkspaceDocumentIdentity,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import type {ITabViewSessionState} from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
-import { requireDocumentRef } from '@contracts/documentRef';
-import { requireEpochMs } from '@contracts/timestamps';
-import { requireJobId } from '@contracts/shared';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requireEpochMs} from '@contracts/timestamps';
+import {requireJobId} from '@contracts/shared';
 import {
     scanCleanupAutoDetectionCanceledDocuments,
     scanCleanupDetectionSessionCache,
@@ -122,14 +116,16 @@ describe('useDocumentWorkspaceScanCleanupSurface', () => {
     });
 
     it('reads, writes, and clears the document session view state', () => {
-        const {
-            applyViewState,
-            documentSession,
-        } = createSession(identity(), viewState({scanCleanup: {
-            ownerId: 'cleanup-owner',
-            previewPage: 3,
-            previewViewMode: 'cleaned',
-        }}));
+        const {applyViewState, documentSession} = createSession(
+            identity(),
+            viewState({
+                scanCleanup: {
+                    ownerId: 'cleanup-owner',
+                    previewPage: 3,
+                    previewViewMode: 'cleaned',
+                },
+            }),
+        );
         const surface = useDocumentWorkspaceScanCleanupSurface({
             documentSession,
             documentView: viewOf(documentSession),
@@ -145,17 +141,17 @@ describe('useDocumentWorkspaceScanCleanupSurface', () => {
     });
 
     it('preserves an existing scan-cleanup page while restoring an already-open surface', () => {
-        const {
-            applyViewState,
-            documentSession,
-        } = createSession(identity(), viewState({
-            surfaceMode: 'scan-cleanup',
-            scanCleanup: {
-                ownerId: 'cleanup-owner',
-                previewPage: 3,
-                previewViewMode: 'cleaned',
-            },
-        }));
+        const {applyViewState, documentSession} = createSession(
+            identity(),
+            viewState({
+                surfaceMode: 'scan-cleanup',
+                scanCleanup: {
+                    ownerId: 'cleanup-owner',
+                    previewPage: 3,
+                    previewViewMode: 'cleaned',
+                },
+            }),
+        );
 
         const surface = useDocumentWorkspaceScanCleanupSurface({
             documentSession,
@@ -169,17 +165,17 @@ describe('useDocumentWorkspaceScanCleanupSurface', () => {
     });
 
     it('leaves the scan-cleanup surface when the document identity empties', async () => {
-        const {
-            documentSession,
-            snapshot,
-        } = createSession(identity(), viewState({
-            surfaceMode: 'scan-cleanup',
-            scanCleanup: {
-                ownerId: 'cleanup-owner',
-                previewPage: 3,
-                previewViewMode: 'cleaned',
-            },
-        }));
+        const {documentSession, snapshot} = createSession(
+            identity(),
+            viewState({
+                surfaceMode: 'scan-cleanup',
+                scanCleanup: {
+                    ownerId: 'cleanup-owner',
+                    previewPage: 3,
+                    previewViewMode: 'cleaned',
+                },
+            }),
+        );
 
         const surface = useDocumentWorkspaceScanCleanupSurface({
             documentSession,
@@ -225,10 +221,7 @@ describe('useDocumentWorkspaceScanCleanupSurface', () => {
     });
 
     it('stays on the reader surface for a session that never had a document', async () => {
-        const {
-            documentSession,
-            snapshot,
-        } = createSession(emptyIdentity(), viewState());
+        const {documentSession, snapshot} = createSession(emptyIdentity(), viewState());
 
         const surface = useDocumentWorkspaceScanCleanupSurface({
             documentSession,
