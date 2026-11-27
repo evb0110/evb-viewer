@@ -42,14 +42,14 @@ const ADDED_CHECK_FILE_PATTERNS = [
     },
 ];
 
-const TEST_FILE_PATTERN = /^tests\/.*\.(?:test|spec|e2e)\.[cm]?[jt]sx?$/u;
-const ELECTRON_E2E_LANE_PATH_PATTERN = /^tests\/e2e\/electron\/([^/]+)\//u;
+const TEST_FILE_PATTERN = /^tests\/.*\.(?:test|spec|e2e)\.[cm]?[jt]sx?$/su;
+const ELECTRON_E2E_LANE_PATH_PATTERN = /^tests\/e2e\/electron\/(nightly\/[^/]+|[^/]+)\//u;
 const NON_LANE_ELECTRON_E2E_DIRS = new Set([
     'helpers',
     'nightly',
 ]);
 const VITEST_CONFIG_PATTERN = /^vitest[A-Za-z.-]*\.config\.[cm]?[jt]s$/u;
-const WORKFLOW_PATTERN = /^\.github\/workflows\/.*\.ya?ml$/u;
+const WORKFLOW_PATTERN = /^\.github\/workflows\/.*\.ya?ml$/su;
 
 // Lines that make a check tolerate its own failures instead of catching a
 // defect. Matched only on added lines, so removing one never needs a trailer.
@@ -255,27 +255,36 @@ function unquoteGitPath(escaped) {
         t: 0x09,
         v: 0x0b,
     };
-    for (let index = 0; index < escaped.length; index += 1) {
+    for (let index = 0; index < escaped.length; ) {
         const char = escaped[index];
         if (char !== '\\' || index + 1 >= escaped.length) {
-            bytes.push(...Buffer.from(char ?? '', 'utf8'));
+            const codePoint = escaped.codePointAt(index);
+            if (codePoint === undefined) {
+                break;
+            }
+            bytes.push(...Buffer.from(String.fromCodePoint(codePoint), 'utf8'));
+            index += codePoint > 0xffff ? 2 : 1;
             continue;
         }
         const next = escaped[index + 1] ?? '';
         const mapped = simpleEscapes[next];
         if (mapped !== undefined) {
             bytes.push(mapped);
-            index += 1;
+            index += 2;
             continue;
         }
         const octal = escaped.slice(index + 1, index + 4);
         if (/^[0-7]{3}$/u.test(octal)) {
             bytes.push(Number.parseInt(octal, 8));
-            index += 3;
+            index += 4;
             continue;
         }
-        bytes.push(...Buffer.from(next, 'utf8'));
-        index += 1;
+        const codePoint = escaped.codePointAt(index + 1);
+        if (codePoint === undefined) {
+            break;
+        }
+        bytes.push(...Buffer.from(String.fromCodePoint(codePoint), 'utf8'));
+        index += 1 + (codePoint > 0xffff ? 2 : 1);
     }
     return Buffer.from(bytes).toString('utf8');
 }
@@ -443,16 +452,18 @@ function findNewElectronE2ELanes(entries, baseRevision, cwd) {
     const found = [];
     for (const lane of [...candidateLanes].sort()) {
         const laneDir = `tests/e2e/electron/${lane}`;
-        const existing = baseRevision === null
+        const existingTree = baseRevision === null
             ? ''
             : (git([
                 'ls-tree',
-                '--name-only',
                 baseRevision,
                 '--',
                 laneDir,
-            ], cwd) ?? '').trim();
-        if (existing.length === 0) {
+            ], cwd) ?? '');
+        const hasExistingTree = existingTree
+            .split('\n')
+            .some(line => /^\d+\s+tree\s+/u.test(line));
+        if (!hasExistingTree) {
             found.push(`new Electron E2E lane: ${laneDir}`);
         }
     }

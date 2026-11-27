@@ -79,10 +79,11 @@ jobs:
         run: '"$RUNNER_TEMP/cargo-deny-bin/cargo-deny" --log-level warn --manifest-path native/Cargo.toml --all-features check advisories'
 
       - name: Report through the dependency-audit issue
-        if: ${{ always() && !cancelled() && steps.setup.outcome == 'success' && steps.cargo_deny_setup.outcome == 'success' }}
+        if: ${{ always() && !cancelled() && steps.setup.outcome == 'success' }}
         env:
           GH_TOKEN: ${{ github.token }}
           FULL_OUTCOME: ${{ steps.full_audit.outcome }}
+          CARGO_DENY_SETUP_OUTCOME: ${{ steps.cargo_deny_setup.outcome }}
           RUST_OUTCOME: ${{ steps.rust_audit.outcome }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
@@ -112,6 +113,11 @@ jobs:
               esac
             fi
             exit 0
+          fi
+
+          if [ "$FULL_OUTCOME" != 'failure' ] && [ "$RUST_OUTCOME" != 'failure' ]; then
+            echo "Audit setup failed without confirmed advisories (cargo-deny setup: $CARGO_DENY_SETUP_OUTCOME, Rust audit: $RUST_OUTCOME); skipping advisory issue update." >&2
+            exit 1
           fi
 
           body="$(printf '%s\n' \

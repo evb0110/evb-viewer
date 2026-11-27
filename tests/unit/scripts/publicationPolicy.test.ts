@@ -566,18 +566,69 @@ describe('added check and flake tolerance detection', () => {
             }
         });
 
-        it.skipIf(process.platform === 'win32')('detects flake tolerance in C-quoted test filenames containing tabs', async () => {
-            const repository = createRepository('evb-added-checks-tab-');
+        it.skipIf(process.platform === 'win32')('detects flake tolerance in C-quoted filenames with tabs, emoji, and newlines, plus nightly and replaced-file lanes', async () => {
+            const repository = createRepository('evb-added-checks-quoted-');
             try {
-                const base = await commit(repository, 'Clean base', {'app/index.ts': 'export const app = true;\n'});
-                const quotedFlaky = await commit(repository, 'Add flaky test with tab in filename', {
-                    'tests/unit/tab\tname.test.ts': 'await sleep(250);\n',
+                await commit(repository, 'Clean base', {
+                    'app/index.ts': 'export const app = true;\n',
+                    'tests/e2e/electron/nightly/existing/existing.e2e.test.ts': 'export const existing = true;\n',
+                    'tests/e2e/electron/replaced': 'placeholder file\n',
+                });
+                const emojiTabFlaky = await commit(repository, 'Add flaky test with emoji and tab', {
+                    'tests/unit/emoji😀\tname.test.ts': 'await sleep(250);\n',
+                });
+                const newNightlyLane = await commit(repository, 'Add new nightly lane', {
+                    'tests/e2e/electron/nightly/new-nightly/first.e2e.test.ts': 'export const ok = true;\n',
+                });
+                runGit(repository, [
+                    'rm',
+                    '-q',
+                    'tests/e2e/electron/replaced',
+                ]);
+                const replacedFileLane = await commit(repository, 'Replace tracked file with lane directory', {
+                    'tests/e2e/electron/replaced/first.e2e.test.ts': 'export const ok = true;\n',
                 });
 
-                const commits = checker.collectPushedRangeCommits(base, quotedFlaky, repository);
+                // Commit a test file with a newline in its name directly into a Git tree.
+                const blob = runGit(repository, [
+                    'hash-object',
+                    '-w',
+                    '--stdin',
+                ], 'await sleep(250);\n');
+                const unitTree = runGit(repository, [
+                    'hash-object',
+                    '-t',
+                    'tree',
+                    '-w',
+                    '--stdin',
+                    '--literally',
+                ], Buffer.concat([
+                    Buffer.from('100644 line\nname.test.ts\0'),
+                    Buffer.from(blob, 'hex'),
+                ]));
+                const testsTree = runGit(repository, ['mktree'], `040000 tree ${unitTree}\tunit\n`);
+                const rootTree = runGit(repository, ['mktree'], `040000 tree ${testsTree}\ttests\n`);
+                const newlineFlaky = runGit(repository, [
+                    'commit-tree',
+                    rootTree,
+                    '-p',
+                    replacedFileLane,
+                    '-m',
+                    'Add flaky test with newline in filename',
+                ]);
+
+                const commits = [
+                    emojiTabFlaky,
+                    newNightlyLane,
+                    replacedFileLane,
+                    newlineFlaky,
+                ];
                 const violations = checker.findPushPolicyViolations(commits, repository);
-                expect(violationSubjects(violations)).toEqual([quotedFlaky]);
-                expect(violations[0]?.matches.join('\n')).toContain('wall-clock sleep in a test: tests/unit/tab\tname.test.ts');
+                expect(violationSubjects(violations)).toEqual(commits);
+                expect(violations[0]?.matches.join('\n')).toContain('wall-clock sleep in a test: tests/unit/emoji😀\tname.test.ts');
+                expect(violations[1]?.matches.join('\n')).toContain('new Electron E2E lane: tests/e2e/electron/nightly/new-nightly');
+                expect(violations[2]?.matches.join('\n')).toContain('new Electron E2E lane: tests/e2e/electron/replaced');
+                expect(violations[3]?.matches.join('\n')).toContain('wall-clock sleep in a test: tests/unit/line\nname.test.ts');
             } finally {
                 await removeRepository(repository);
             }

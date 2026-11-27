@@ -254,6 +254,7 @@ describe('changed-area classifier', () => {
             'rust-toolchain.toml',
             'public/fonts/annotation/DejaVuSans.ttf',
             'public/pdf/standard_fonts/LiberationSans-Regular.ttf',
+            'tests/fixtures/electron/interop/hebrew-punctuation-reference.pdf',
         ]) {
             const selection = classifyChangedFiles([file], {event: 'pull_request'});
             expect(selection.selected, file).toEqual([
@@ -675,21 +676,41 @@ describe('changed-area classifier', () => {
                 writeFileSync(fakeGh, `#!/usr/bin/env bash
 set -euo pipefail
 printf '%s\\n' "$*" >> "${ghLog}"
-jq_filter=""
-while [ "$#" -gt 0 ]; do
-    if [ "$1" = "--jq" ]; then
-        shift
-        jq_filter="$1"
-    fi
-    shift
-done
-if grep -q 'event=push' <<< "$(tail -n 1 "${ghLog}")"; then
-    printf '%s\\n' "\${FAKE_PUSH_RUNS_JSON}" | jq -r "$jq_filter"
-elif grep -q "head_sha=${prHead}" <<< "$(tail -n 1 "${ghLog}")"; then
-    printf '%s\\n' "\${FAKE_PR_RUNS_JSON}" | jq -r "$jq_filter"
-else
-    exit 1
-fi
+exec "${process.execPath}" --input-type=module -e '
+  const args = process.argv.slice(1);
+  const query = args.join(" ");
+  const jqIndex = args.indexOf("--jq");
+  const jqFilter = jqIndex === -1 ? "" : (args[jqIndex + 1] ?? "");
+  if (query.includes("event=push")) {
+    const runs = JSON.parse(process.env.FAKE_PUSH_RUNS_JSON ?? "{\\"workflow_runs\\":[]}").workflow_runs;
+    for (const run of runs) {
+      if (run.status === "completed" && run.conclusion === "success") {
+        console.log(run.head_sha);
+      }
+    }
+  } else if (query.includes("head_sha=${prHead}")) {
+    if (!jqFilter.includes("env.GITHUB_REF_NAME")) {
+      process.exit(2);
+    }
+    const refName = process.env.GITHUB_REF_NAME ?? "";
+    const runs = JSON.parse(process.env.FAKE_PR_RUNS_JSON ?? "{\\"workflow_runs\\":[]}").workflow_runs;
+    const count = runs.filter(run =>
+      run.status === "completed"
+      && run.conclusion === "success"
+      && (
+        run.event === "push"
+        || (
+          run.event === "pull_request"
+          && Array.isArray(run.pull_requests)
+          && run.pull_requests.some(pr => pr.base?.ref === refName)
+        )
+      ),
+    ).length;
+    console.log(String(count));
+  } else {
+    process.exit(1);
+  }
+' -- "$@"
 `, 'utf8');
                 chmodSync(fakeGh, 0o755);
 

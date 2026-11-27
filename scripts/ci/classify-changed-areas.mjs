@@ -93,6 +93,7 @@ const NATIVE_PATTERNS = Object.freeze([
     'packages/contracts/**',
     'public/fonts/annotation/**',
     'public/pdf/standard_fonts/**',
+    'tests/fixtures/electron/interop/**',
 ]);
 
 const SCAN_CLEANUP_PATTERNS = Object.freeze([
