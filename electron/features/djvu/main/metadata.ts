@@ -26,7 +26,7 @@ interface IDjvuMetadataOptions {
 }
 
 export async function getDjvuPageCount(filePath: string, options: IDjvuMetadataOptions = {}) {
-    const info = await runDjvuEngine<'getDocInfo'>({
+    const info = await runDjvuEngine({
         type: 'getDocInfo',
         djvuPath: filePath,
     }, {
@@ -43,7 +43,7 @@ export async function getDjvuOutlineBookmarks(
     filePath: string,
     options: IDjvuMetadataOptions = {},
 ): Promise<IPdfBookmarkEntry[]> {
-    const outline = await runDjvuEngine<'getOutline'>({
+    const outline = await runDjvuEngine({
         type: 'getOutline',
         djvuPath: filePath,
     }, {
@@ -58,7 +58,7 @@ export async function getDjvuOutlineBookmarks(
 }
 
 export async function getDjvuPageComponentMap(filePath: string, options: IDjvuMetadataOptions = {}) {
-    const info = await runDjvuEngine<'getDocInfo'>({
+    const info = await runDjvuEngine({
         type: 'getDocInfo',
         djvuPath: filePath,
     }, {
@@ -73,7 +73,7 @@ export async function getDjvuMetadata(
     options: IDjvuMetadataOptions = {},
 ): Promise<Record<string, string>> {
     try {
-        return await runDjvuEngine<'getMetadata'>({
+        return await runDjvuEngine({
             type: 'getMetadata',
             djvuPath: filePath,
         }, {
@@ -107,7 +107,7 @@ export async function getDjvuIndirectComponentPaths(filePath: string, options: I
     if (!isIndirect) {
         return [];
     }
-    const info = await runDjvuEngine<'getDocInfo'>({
+    const info = await runDjvuEngine({
         type: 'getDocInfo',
         djvuPath: filePath,
     }, {
@@ -123,7 +123,7 @@ export async function getDjvuIndirectComponentPaths(filePath: string, options: I
 
 export async function getDjvuResolution(filePath: string, options: IDjvuMetadataOptions = {}) {
     try {
-        const info = await runDjvuEngine<'getDocInfo'>({
+        const info = await runDjvuEngine({
             type: 'getDocInfo',
             djvuPath: filePath,
         }, {

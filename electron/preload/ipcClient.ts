@@ -115,7 +115,7 @@ class PlatformIpcInvokeError extends Error {
 export async function invokeWithChannelContext<TResult>(
     ipcRenderer: Pick<IpcRenderer, 'invoke' | 'send'>,
     channel: string,
-    args: unknown[],
+    args: readonly unknown[],
     options?: IIpcInvokerOptions,
 ) {
     let timeoutHandle = null as ReturnType<typeof setTimeout> | null;

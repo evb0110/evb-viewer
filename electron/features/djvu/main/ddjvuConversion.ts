@@ -227,7 +227,7 @@ export async function renderDjvuPageToImage(
         if (signal.aborted) {
             throw abortErrorFromSignal(signal);
         }
-        await runDjvuEngine<'renderPageToFile'>({
+        await runDjvuEngine({
             type: 'renderPageToFile',
             djvuPath: inputPath,
             pageNumber,
@@ -298,7 +298,7 @@ export async function convertDjvuToPdfFile(
                 { operation: 'djvu-convert' },
             );
         }
-        const docInfo = await runDjvuEngine<'getDocInfo'>({
+        const docInfo = await runDjvuEngine({
             type: 'getDocInfo',
             djvuPath: inputPath,
         }, { signal });
@@ -312,7 +312,7 @@ export async function convertDjvuToPdfFile(
                 error: 'No DjVu pages selected for conversion',
             };
         }
-        const pageSizes = await runDjvuEngine<'getPageSizes'>({
+        const pageSizes = await runDjvuEngine({
             type: 'getPageSizes',
             djvuPath: inputPath,
             pageNumbers: selectedPages,
@@ -365,7 +365,7 @@ export async function convertDjvuToPdfFile(
                         const pageNumber = selectedPages[index]!;
                         const size = pageSizes[index];
                         const ppmPath = join(scratchDir, `page-${String(pageNumber).padStart(6, '0')}.ppm`);
-                        const rendered = await runDjvuEngine<'renderPageToFile'>({
+                        const rendered = await runDjvuEngine({
                             type: 'renderPageToFile',
                             djvuPath: inputPath,
                             pageNumber,

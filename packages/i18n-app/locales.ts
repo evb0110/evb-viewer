@@ -11,12 +11,9 @@ import {
     DEFAULT_LOCALE,
     type TLocaleMessagesShapeFrom,
     type TLocaleSchemaFrom,
-    type TTranslationLeafFromSchema,
     type TLocale,
-    type TTranslationMessageFromSchema,
     type TTranslationKeyFromNode,
     type TTranslationParamsFromSchema,
-    type IPluralMessage,
 } from '@i18n-core';
 
 export {
@@ -43,21 +40,20 @@ export const LOCALE_MESSAGES = {
 export type TTranslationKey = TTranslationKeyFromNode<TBaseLocaleSchema>;
 
 export type TTranslationParams<TKey extends TTranslationKey> = TTranslationParamsFromSchema<TBaseLocaleSchema, TKey>;
-type TTranslationLeafForKey<TKey extends TTranslationKey> = TTranslationLeafFromSchema<TBaseLocaleSchema, TKey>;
-type TTranslationMessage<TKey extends TTranslationKey> = TTranslationMessageFromSchema<TBaseLocaleSchema, TKey>;
-type THasPipePluralForms<TKey extends TTranslationKey> = TTranslationMessage<TKey> extends `${string}|${string}` ? true : false;
-type THasPluralMessage<TKey extends TTranslationKey> = TTranslationLeafForKey<TKey> extends IPluralMessage ? true : false;
-type TAllowsCountShortcut<TKey extends TTranslationKey> = TTranslationParams<TKey> extends {count: number;}
-    ? true
-    : THasPluralMessage<TKey> extends true
-        ? true
-        : THasPipePluralForms<TKey>;
+
+type TAllowsCountShortcut<TKey extends TTranslationKey> = [TKey] extends [never]
+    ? false
+    : TKey extends unknown
+        ? TTranslationParams<TKey> extends { count: number }
+            ? [Exclude<keyof TTranslationParams<TKey>, 'count'>] extends [never]
+                ? true
+                : false
+            : false
+        : never;
 
 export type TTranslateArgs<TKey extends TTranslationKey> = TTranslationParams<TKey> extends undefined
-    ? TAllowsCountShortcut<TKey> extends true
-        ? [params?: number]
-        : [params?: undefined]
-    : TAllowsCountShortcut<TKey> extends true
+    ? [params?: undefined]
+    : [TAllowsCountShortcut<TKey>] extends [true]
         ? [params: TTranslationParams<TKey> | number]
         : [params: TTranslationParams<TKey>];
 

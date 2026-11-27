@@ -501,7 +501,7 @@ async function readDjvuPageStructures(
 ): Promise<string> {
     let fileDescriptor: number | null = null;
     try {
-        const rawStructures = await runDjvuEngine<'getPageStructures'>({
+        const rawStructures = await runDjvuEngine({
             type: 'getPageStructures',
             djvuPath,
             ...(pageNumbers ? { pageNumbers } : {}),

@@ -27,6 +27,10 @@ const WORKER_RESOURCE_LIMITS = {
     stackSizeMb: 4,
 };
 
+type TDjvuEngineRequestPayloadMap = {
+    [TRequest in TDjvuEngineWorkerRequest as TRequest['type']]: Omit<TRequest, 'id'>;
+};
+
 interface IDjvuPoolWorker {
     worker: Worker;
     busy: boolean;
@@ -156,7 +160,7 @@ class DjvuEnginePool {
     }
 
     public async request<TType extends TDjvuEngineWorkerRequest['type']>(
-        payload: Omit<Extract<TDjvuEngineWorkerRequest, { type: TType }>, 'id'>,
+        payload: TDjvuEngineRequestPayloadMap[TType] & { type: TType },
         options: {
             signal?: AbortSignal;
             timeoutMs?: number;
@@ -249,13 +253,13 @@ function getPool() {
 }
 
 export function runDjvuEngine<TType extends TDjvuEngineWorkerRequest['type']>(
-    payload: Omit<Extract<TDjvuEngineWorkerRequest, { type: TType }>, 'id'>,
+    payload: TDjvuEngineRequestPayloadMap[TType] & { type: TType },
     options?: {
         signal?: AbortSignal;
         timeoutMs?: number;
     },
 ): Promise<TDjvuEngineResultMap[TType]> {
-    return getPool().request(payload, options);
+    return getPool().request<TType>(payload, options);
 }
 
 export function shutdownDjvuEnginePool() {
