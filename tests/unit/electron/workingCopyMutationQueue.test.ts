@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({
     debug: vi.fn(),
     warn: vi.fn(),
     complete: vi.fn(),
+    cancelNativeCommandGroup: vi.fn(),
+    runNativeCommandLoaded: 0,
     nextOperationId: 0,
     registrations: [] as Array<Record<string, unknown>>,
     controllers: [] as AbortController[],
@@ -20,7 +22,12 @@ vi.mock('@electron/utils/createLogger', () => ({
     }),
 }));
 vi.mock('@electron/file-access/normalizePathForLookup', () => ({normalizePathForLookup: (path: string) => path.trim().toLowerCase()}));
-vi.mock('@electron/native-tools/runNativeCommand', () => ({cancelNativeCommandGroup: vi.fn()}));
+vi.mock('@electron/native-tools/runNativeCommand', () => {
+    mocks.runNativeCommandLoaded += 1;
+    return {
+        cancelNativeCommandGroup: (...args: unknown[]) => mocks.cancelNativeCommandGroup(...args),
+    };
+});
 vi.mock('@electron/operation-lifecycle/mainOperationLifecycle', () => ({
     registerMainOperation: (registration: Record<string, unknown>) => {
         mocks.registrations.push(registration);
@@ -157,7 +164,7 @@ describe('workingCopyMutationQueue telemetry', () => {
         expect(mocks.complete).toHaveBeenCalledTimes(2);
     });
 
-    it('bounds the stack captured for mutation origins', async () => {
+    it('skips stack capture on uncontended mutations without debug tracing and bounds it when active', async () => {
         const {enqueueWorkingCopyMutation} = await import('@electron/file-access/workingCopyMutationQueue');
         const nativeCaptureStackTrace = Error.captureStackTrace.bind(Error);
         const observedLimits: number[] = [];
@@ -167,13 +174,64 @@ describe('workingCopyMutationQueue telemetry', () => {
         });
 
         try {
+            vi.stubEnv('ELECTRON_FILE_LOG_LEVEL', '');
+            vi.stubEnv('ELECTRON_RENDER_LOG_LEVEL', '');
+            vi.stubEnv('EVB_LOG_STDOUT', '');
+            vi.stubEnv('EVB_LOG_STDOUT_LEVEL', '');
+            vi.stubEnv('EVB_STARTUP_TRACE', '');
+
             await enqueueWorkingCopyMutation('/tmp/Book.pdf', async () => undefined);
+            expect(observedLimits).toHaveLength(0);
+
+            // Contention captures a bounded stack trace.
+            const blocker = deferred<undefined>();
+            const first = enqueueWorkingCopyMutation('/tmp/Book.pdf', () => blocker.promise);
+            await Promise.resolve();
+            const second = enqueueWorkingCopyMutation('/tmp/Book.pdf', async () => undefined);
+            blocker.resolve(undefined);
+            await Promise.all([first, second]);
+            expect(observedLimits).toHaveLength(1);
+            expect(observedLimits[0]).toBeLessThanOrEqual(8);
+
+            // Explicit debug tracing also captures a bounded stack trace on uncontended mutations,
+            // including case-insensitive / whitespace-padded logger levels.
+            vi.stubEnv('ELECTRON_FILE_LOG_LEVEL', ' DEBUG ');
+            await enqueueWorkingCopyMutation('/tmp/Book.pdf', async () => undefined);
+            expect(observedLimits).toHaveLength(2);
+            expect(observedLimits[1]).toBeLessThanOrEqual(8);
         } finally {
+            vi.unstubAllEnvs();
             captureStackTrace.mockRestore();
         }
+    });
 
-        expect(observedLimits).toHaveLength(1);
-        expect(observedLimits[0]).toBeLessThanOrEqual(8);
+    it('preserves real error stacks on failed mutations without eager stack capture', async () => {
+        const {enqueueWorkingCopyMutation} = await import('@electron/file-access/workingCopyMutationQueue');
+
+        const failure = await enqueueWorkingCopyMutation('/tmp/Book.pdf', async () => {
+            throw new Error('mutation boom');
+        }).catch((error: unknown) => error);
+
+        expect(failure).toBeInstanceOf(Error);
+        expect((failure as Error).message).toBe('mutation boom');
+        expect((failure as Error).stack).toContain('mutation boom');
+        expect((failure as Error).stack).toContain('workingCopyMutationQueue.test.ts');
+    });
+
+    it('loads runNativeCommand lazily only when a mutation is canceled', async () => {
+        const {enqueueWorkingCopyMutation} = await import('@electron/file-access/workingCopyMutationQueue');
+        expect(mocks.runNativeCommandLoaded).toBe(0);
+
+        await enqueueWorkingCopyMutation('/tmp/Book.pdf', async () => undefined);
+        expect(mocks.runNativeCommandLoaded).toBe(0);
+
+        const cancel = mocks.registrations[0]?.cancel as (() => void) | undefined;
+        expect(cancel).toBeTypeOf('function');
+        cancel?.();
+        await vi.waitFor(() => {
+            expect(mocks.runNativeCommandLoaded).toBe(1);
+            expect(mocks.cancelNativeCommandGroup).toHaveBeenCalledWith('working-copy-mutation:operation-1');
+        });
     });
 
     it('does not extend a path drain with mutations admitted after it starts', async () => {

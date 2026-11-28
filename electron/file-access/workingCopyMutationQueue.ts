@@ -1,7 +1,8 @@
 import {createAbortError} from '@contracts/isAbortError';
+import {parseLogLevel} from '@contracts/logRecord';
 import {createLogger} from '@electron/utils/createLogger';
+import {getErrorMessage} from '@electron/utils/error';
 import {normalizePathForLookup} from '@electron/file-access/normalizePathForLookup';
-import {cancelNativeCommandGroup} from '@electron/native-tools/runNativeCommand';
 import {registerMainOperation, type IMainOperationUserCancel} from '@electron/operation-lifecycle/mainOperationLifecycle';
 import {runWithWorkingCopyMutationCommitSignal} from '@electron/file-access/workingCopyMutationCommitSignal';
 
@@ -38,6 +39,18 @@ function getWorkingCopyQueueKey(workingCopyPath: string) {
 }
 
 const MUTATION_ORIGIN_STACK_TRACE_LIMIT = 8;
+
+// Require explicit debug/trace configuration rather than the unpackaged dev
+// logger default so uncontended mutations skip Error.captureStackTrace overhead
+// in both packaged builds and local dev/benchmarks.
+function isMutationOriginTraceEnabled() {
+    return (
+        parseLogLevel(process.env.ELECTRON_FILE_LOG_LEVEL) === 'debug' ||
+        parseLogLevel(process.env.ELECTRON_RENDER_LOG_LEVEL) === 'debug' ||
+        (process.env.EVB_LOG_STDOUT === 'ndjson' && parseLogLevel(process.env.EVB_LOG_STDOUT_LEVEL) === 'debug') ||
+        process.env.EVB_STARTUP_TRACE === '1'
+    );
+}
 
 function getMutationOrigin() {
     const previousStackTraceLimit = Error.stackTraceLimit;
@@ -103,7 +116,17 @@ export function enqueueWorkingCopyMutation<T>(
         userCancel: options.userCancel,
         cancel: () => {
             if (cancelGroup) {
-                cancelNativeCommandGroup(cancelGroup);
+                const groupToCancel = cancelGroup;
+                void import('@electron/native-tools/runNativeCommand')
+                    .then(({cancelNativeCommandGroup}) => {
+                        cancelNativeCommandGroup(groupToCancel);
+                    })
+                    .catch((error: unknown) => {
+                        log.warn('Failed to cancel native command group for working-copy mutation', {
+                            cancelGroup: groupToCancel,
+                            error: getErrorMessage(error),
+                        });
+                    });
             }
         },
     });
@@ -116,15 +139,16 @@ export function enqueueWorkingCopyMutation<T>(
     };
     const isMutationAborted = () => mutationOperation.signal.aborted;
     options.onEnqueued?.(mutationOperation.signal);
+    const hasContention = previousEntry !== undefined || activeEntryAtEnqueue !== undefined;
     const entry: IWorkingCopyMutationQueueEntry = {
         tail: Promise.resolve(),
         operationId: lifecycleOperation.id,
         kind: getMutationKind(options.kind),
-        origin: getMutationOrigin(),
+        origin: hasContention || isMutationOriginTraceEnabled() ? getMutationOrigin() : null,
         enqueuedAt,
         depth: (previousEntry?.depth ?? 0) + 1,
     };
-    const enqueueLog = previousEntry || activeEntryAtEnqueue ? log.warn.bind(log) : log.debug.bind(log);
+    const enqueueLog = hasContention ? log.warn.bind(log) : log.debug.bind(log);
     enqueueLog('Working-copy mutation enqueued', {
         queueKey,
         operationId: entry.operationId,
@@ -189,19 +213,16 @@ export function enqueueWorkingCopyMutation<T>(
             }
         })
         .finally(() => {
-            lifecycleOperation.complete();
-        });
-
-    const nextTail = operationPromise
-        .then(
-            () => undefined,
-            () => undefined,
-        )
-        .finally(() => {
             if (workingCopyMutationQueue.get(queueKey) === entry) {
                 workingCopyMutationQueue.delete(queueKey);
             }
+            lifecycleOperation.complete();
         });
+
+    const nextTail = operationPromise.then(
+        () => undefined,
+        () => undefined,
+    );
 
     entry.tail = nextTail;
     workingCopyMutationQueue.set(queueKey, entry);
