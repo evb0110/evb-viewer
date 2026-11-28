@@ -1,7 +1,13 @@
 import {afterEach, describe, expect, it, vi} from 'vitest';
 import {BrowserDocumentStore} from '@app/platform/browser/browserDocumentRepository';
 import {publishSourceBlob} from '@app/platform/browser/browserPublication';
-import {appendPdfMutationsToStoreFile, createWorkerStorePort, openBrowserStorePort} from '@app/platform/browser/browserStorePort';
+import {
+    appendPdfMutationsToStoreFile,
+    createMemoryStorePort,
+    createWorkerStorePort,
+    openBrowserStorePort,
+    openStoreFileBlob,
+} from '@app/platform/browser/browserStorePort';
 import type {TOpfsOperations, TOpfsRequest} from '@app/platform/browser/opfsStore.worker';
 
 class MockStoreWorker extends EventTarget {
@@ -366,10 +372,11 @@ async function createPairedOpfsWorker(
         },
     });
     const {root} = createFakeOpfsRoot(backing);
+    const existingLocks = typeof navigator !== 'undefined' ? navigator.locks : undefined;
     vi.stubGlobal('self', workerSelf);
     vi.stubGlobal('navigator', {
         storage: {getDirectory: async () => root},
-        locks: {
+        locks: existingLocks ?? {
             request: async (_name: string, _optsOrCb: unknown, maybeCb?: (lock: object) => unknown) => {
                 const cb = typeof _optsOrCb === 'function' ? (_optsOrCb as (lock: object) => unknown) : maybeCb!;
                 return cb({name: _name});
@@ -573,17 +580,39 @@ describe('G-4 OPFS worker transport fault handling', () => {
         };
 
         const {root} = createFakeOpfsRoot(backing);
+        const activeLocks = new Set<string>();
+        const observedReopenLocks: Array<{op: string; held: boolean}> = [];
+        const trackedCreateWorker = () => {
+            const worker = createLazyPairedWorker();
+            const idx = workerIndex;
+            const origPost = worker.postMessage.bind(worker);
+            worker.postMessage = (message: unknown) => {
+                if (idx === 2 && typeof message === 'object' && message !== null) {
+                    const op = Reflect.get(message, 'op');
+                    if (op === 'probe' || op === 'read') {
+                        observedReopenLocks.push({op, held: activeLocks.has('evb-viewer:browser-store-reopen')});
+                    }
+                }
+                origPost(message);
+            };
+            return worker;
+        };
         vi.stubGlobal('Worker', MockStoreWorker);
         vi.stubGlobal('navigator', {
             storage: {getDirectory: async () => root},
             locks: {
-                request: async (_name: string, _optsOrCb: unknown, maybeCb?: (lock: object) => unknown) => {
+                request: async (name: string, _optsOrCb: unknown, maybeCb?: (lock: object) => unknown) => {
                     const cb = typeof _optsOrCb === 'function' ? (_optsOrCb as (lock: object) => unknown) : maybeCb!;
-                    return cb({name: _name});
+                    activeLocks.add(name);
+                    try {
+                        return await cb({name});
+                    } finally {
+                        activeLocks.delete(name);
+                    }
                 },
             },
         });
-        const repo = new BrowserDocumentStore(createLazyPairedWorker);
+        const repo = new BrowserDocumentStore(trackedCreateWorker);
         const ref = await repo.createStoredDocument('fault.pdf', new TextEncoder().encode('rev-1'), {
             mimeType: 'application/pdf',
             kind: 'working',
@@ -605,6 +634,10 @@ describe('G-4 OPFS worker transport fault handling', () => {
         expect(manifestWrites.length).toBe(writesBefore + 1);
         expect(createdWorkers.length).toBe(2);
         expect(createdWorkers[0]!.terminated).toBe(true);
+        // Replacement worker probing and manifest readback ran while holding the named reopen lock.
+        expect(observedReopenLocks.some((e) => e.op === 'probe' && e.held)).toBe(true);
+        expect(observedReopenLocks.some((e) => e.op === 'read' && e.held)).toBe(true);
+        expect(observedReopenLocks.every((e) => e.held)).toBe(true);
         // Locked store reopen + manifest readback recovered the committed revision from OPFS!
         expect(new TextDecoder().decode(await repo.read(ref))).toBe('rev-2-committed-on-disk');
         expect(repo.tokenOf(entry)).not.toBe(token1);
@@ -1098,7 +1131,9 @@ describe('G-4 OPFS worker transport fault handling', () => {
         const stream = await repo.writeStream(ref);
         faultStreamWriteAt = true;
         await stream.write(new TextEncoder().encode('streamed-chunk'));
-        await expect(withTimeout(stream.close(), 'writeStream fault without deadlock', 2_000)).rejects.toThrow();
+        await expect(withTimeout(stream.close(), 'writeStream fault without deadlock', 2_000)).rejects.toMatchObject({
+            name: 'StoreTransportError',
+        });
 
         // Worker #2 faulted during probe -> recovery retried and succeeded on Worker #3!
         expect(createdWorkers.length).toBe(3);
@@ -1256,6 +1291,121 @@ describe('G-4 OPFS worker transport fault handling', () => {
             }),
         ).rejects.toMatchObject({code: 'STALE_REVISION'});
 
+        expect(new TextDecoder().decode(await repo.read(ref))).toBe('rev-1');
+        await repo.release(ref);
+    });
+
+    it('keeps memory-store openStoreFileBlob pinned to the opened entry after writeAtomic replaces the path', async () => {
+        const port = createMemoryStorePort();
+        await port.writeAtomic('documents/doc/r1.pdf', new TextEncoder().encode('original'));
+        const opened = await port.open('documents/doc/r1.pdf');
+        await port.writeAtomic('documents/doc/r1.pdf', new TextEncoder().encode('replaced'));
+        const blob = await openStoreFileBlob(opened);
+        expect(blob).not.toBeNull();
+        expect(await blob!.text()).toBe('original');
+        await opened.close();
+    });
+
+    it('preserves committed Undo history archived after retainRevisions([]) and retries durable recovery after a failed replacement probe', async () => {
+        const backing = new Map<string, Uint8Array>();
+        let workerIndex = 0;
+        let worker1Bus: EventTarget | null = null;
+        let rejectWorker2ProbeWithQuota = true;
+
+        const createLazyPairedWorker = () => {
+            const index = ++workerIndex;
+            const hostBus = new EventTarget();
+            if (index === 1) {
+                worker1Bus = hostBus;
+            }
+            let inner: Awaited<ReturnType<typeof createPairedOpfsWorker>> | null = null;
+            let terminated = false;
+            const queued: unknown[] = [];
+            void createPairedOpfsWorker(backing).then((paired) => {
+                inner = paired;
+                paired.addEventListener('message', (event) => {
+                    if (!terminated) {
+                        hostBus.dispatchEvent(new MessageEvent('message', {data: (event as MessageEvent).data}));
+                    }
+                });
+                if (terminated) {
+                    paired.terminate();
+                    return;
+                }
+                for (const msg of queued.splice(0)) {
+                    paired.postMessage(msg);
+                }
+            });
+            return Object.assign(hostBus, {
+                terminated: false,
+                postMessage(message: unknown) {
+                    if (terminated) {
+                        return;
+                    }
+                    if (
+                        index === 2 &&
+                        rejectWorker2ProbeWithQuota &&
+                        typeof message === 'object' &&
+                        message !== null &&
+                        Reflect.get(message, 'op') === 'probe'
+                    ) {
+                        rejectWorker2ProbeWithQuota = false;
+                        const id = Reflect.get(message, 'id') as number;
+                        queueMicrotask(() => {
+                            if (!terminated) {
+                                hostBus.dispatchEvent(
+                                    new MessageEvent('message', {
+                                        data: {id, error: {name: 'QuotaExceededError', message: 'Temporary quota failure'}},
+                                    }),
+                                );
+                            }
+                        });
+                        return;
+                    }
+                    if (inner) {
+                        inner.postMessage(message);
+                    } else {
+                        queued.push(message);
+                    }
+                },
+                terminate() {
+                    terminated = true;
+                    this.terminated = true;
+                    inner?.terminate();
+                },
+            }) as unknown as Worker;
+        };
+
+        const {root} = createFakeOpfsRoot(backing);
+        vi.stubGlobal('Worker', MockStoreWorker);
+        vi.stubGlobal('navigator', {
+            storage: {getDirectory: async () => root},
+            locks: {
+                request: async (_name: string, _optsOrCb: unknown, maybeCb?: (lock: object) => unknown) => {
+                    const cb = typeof _optsOrCb === 'function' ? (_optsOrCb as (lock: object) => unknown) : maybeCb!;
+                    return cb({name: _name});
+                },
+            },
+        });
+        const repo = new BrowserDocumentStore(createLazyPairedWorker);
+        const ref = await repo.createStoredDocument('empty-retain.pdf', new TextEncoder().encode('rev-1'), {
+            mimeType: 'application/pdf',
+            kind: 'working',
+        });
+        const entry = await repo.requireEntry(ref);
+        const token1 = repo.tokenOf(entry);
+        await repo.retainRevisions(ref, []);
+        await repo.write(ref, new TextEncoder().encode('rev-2'), {expectedDocumentRevisionToken: token1});
+
+        // Fault worker #1; worker #2's probe fails with QuotaExceededError (durable unavailable transiently),
+        // then subsequent read triggers a fresh durable probe on worker #3 and rebinds without pruning rev-1!
+        worker1Bus!.dispatchEvent(new MessageEvent('messageerror'));
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(new TextDecoder().decode(await repo.read(ref))).toBe('rev-2');
+        expect(workerIndex).toBe(3);
+        await repo.restoreRevision(ref, token1, repo.tokenOf(entry));
         expect(new TextDecoder().decode(await repo.read(ref))).toBe('rev-1');
         await repo.release(ref);
     });

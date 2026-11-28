@@ -49,6 +49,8 @@ export const browserDocumentLockName = (id: string) => `${DOCUMENT_LOCK_PREFIX}$
 type TEntryKind = 'source' | 'working' | 'output';
 type TRetention = 'durable' | 'transient';
 type TSaveKind = 'pdf' | 'docx' | 'generic';
+type TExpectedToken = TDocumentRevisionToken | null | undefined;
+type TRevisionOptions = {strict?: boolean; expectedByteRevision?: number; expectedInstance?: symbol; allowStagedBase?: boolean};
 
 export interface IBrowserDocumentEntry {
     ref: TDocumentRef;
@@ -147,14 +149,13 @@ export class BrowserDocumentStore {
     private readonly revisionListeners = new Set<(event: IDocumentRevisionChangedEvent) => void>();
     private readonly removalListeners = new Set<(ref: string) => void>();
     private storesPromise: Promise<{durable: IDocumentStore | null; memory: IDocumentStore}> | null = null;
+    private memoryStore: IDocumentStore | null = null;
+    private hadDurable = false;
     private reopening: Promise<void> | null = null;
     private readonly recentFiles = new BrowserRecentFilesStore();
-    private readonly createStoreWorker: (() => Worker) | undefined;
     public onDirectoryEdited: (id: string) => Promise<boolean | void> = async () => false;
 
-    public constructor(createStoreWorker?: () => Worker) {
-        this.createStoreWorker = createStoreWorker;
-    }
+    public constructor(private readonly createStoreWorker?: () => Worker) {}
 
     private async openDurableStore(onFault: () => void) {
         const opened = await openBrowserStorePort(this.createStoreWorker, onFault);
@@ -163,13 +164,19 @@ export class BrowserDocumentStore {
 
     public async stores() {
         await this.reopening;
-        this.storesPromise ??= (async () => {
+        const loading = (this.storesPromise ??= (async () => {
             let durable: IDocumentStore | null = null;
             const {opened, durable: d} = await this.openDurableStore(() => durable && void this.reopenDurableStore(durable));
             durable = d;
-            return {durable, memory: {port: opened.durable ? createMemoryStorePort() : opened.port, publication: browserPublication}};
-        })();
-        return this.storesPromise;
+            this.hadDurable ||= durable !== null;
+            this.memoryStore ??= {port: opened.durable ? createMemoryStorePort() : opened.port, publication: browserPublication};
+            return {durable, memory: this.memoryStore};
+        })());
+        const res = await loading;
+        if (!res.durable && this.hadDurable && this.storesPromise === loading) {
+            this.storesPromise = null;
+        }
+        return res;
     }
 
     private durableEntries() {
@@ -219,7 +226,6 @@ export class BrowserDocumentStore {
                     continue;
                 }
                 if (!candidate) {
-                    this.storesPromise = Promise.resolve({durable: null, memory: current!.memory});
                     return;
                 }
                 const reopened: Array<{entry: IBrowserDocumentEntry; doc: DocumentDirectory; session: OpenDocument}> = [];
@@ -242,11 +248,7 @@ export class BrowserDocumentStore {
                 published = candidate;
                 this.storesPromise = Promise.resolve({durable: candidate, memory: current!.memory});
                 for (const {entry, doc, session} of reopened) {
-                    if (!this.isActiveEntry(entry)) {
-                        void doc.close().catch(() => undefined);
-                    } else {
-                        this.installReopened(entry, doc, session, candidate);
-                    }
+                    this.installReopened(entry, doc, session, candidate);
                 }
                 return;
             }
@@ -256,14 +258,19 @@ export class BrowserDocumentStore {
 
     private async openReboundEntry(entry: IBrowserDocumentEntry, store: IDocumentStore, isFaulted = () => false) {
         for (let retry = 0; retry < 3 && !isFaulted() && this.isActiveEntry(entry) && entry.doc; retry += 1) {
+            let doc: DocumentDirectory | null = null;
             try {
-                const doc = await openDocument(store, entry.doc.id);
+                doc = await openDocument(store, entry.doc.id);
                 const session = this.createSession(entry, doc);
                 if (entry.retainedRevisions) {
-                    await session.retain(entry.retainedRevisions);
+                    await doc.retain([
+                        ...entry.retainedRevisions.map((t) => session.parseRevisionId(t)),
+                        ...doc.state().history.map((r) => r.id),
+                    ]);
                 }
                 return {doc, session};
             } catch (error) {
+                await doc?.close().catch(() => undefined);
                 if (isFaulted() || isErrorName(error, 'NotFoundError')) {
                     return null;
                 }
@@ -277,6 +284,10 @@ export class BrowserDocumentStore {
     }
 
     private installReopened(entry: IBrowserDocumentEntry, doc: DocumentDirectory, session: OpenDocument, store: IDocumentStore) {
+        if (!this.isActiveEntry(entry)) {
+            void doc.close().catch(() => undefined);
+            return;
+        }
         const previous = this.tokenOf(entry);
         const prev = entry.doc!.state();
         const next = doc.state();
@@ -489,11 +500,7 @@ export class BrowserDocumentStore {
         return this.revisionInfo(entry);
     }
 
-    private verifyEntryRevision(
-        entry: IBrowserDocumentEntry,
-        expected: TDocumentRevisionToken | null | undefined,
-        options: {strict?: boolean; expectedByteRevision?: number; expectedInstance?: symbol; allowStagedBase?: boolean} = {},
-    ) {
+    private verifyEntryRevision(entry: IBrowserDocumentEntry, expected: TExpectedToken, options: TRevisionOptions = {}) {
         if (options.expectedInstance !== undefined && !this.isActiveEntry(entry, entry.doc, options.expectedInstance)) {
             this.throwStale(entry, expected);
         }
@@ -522,11 +529,7 @@ export class BrowserDocumentStore {
         }
     }
 
-    public async assertDocumentRevisionCurrent(
-        ref: string,
-        expected: TDocumentRevisionToken | null | undefined,
-        options: {strict?: boolean; expectedByteRevision?: number; expectedInstance?: symbol; allowStagedBase?: boolean} = {},
-    ) {
+    public async assertDocumentRevisionCurrent(ref: string, expected: TExpectedToken, options: TRevisionOptions = {}) {
         const entry = await this.requireEntry(ref);
         await this.refreshPickedFile(entry);
         this.verifyEntryRevision(entry, expected, {
@@ -566,7 +569,7 @@ export class BrowserDocumentStore {
 
     public async rewrite(
         ref: string,
-        token: TDocumentRevisionToken | null | undefined,
+        token: TExpectedToken,
         write: (source: Blob, output: string | null) => Promise<Uint8Array | undefined>,
         {imported = false} = {},
     ) {
@@ -613,7 +616,7 @@ export class BrowserDocumentStore {
     }
 
     /** Pairs `readableBlob` with its revision token, refusing as stale if the bytes changed meanwhile. */
-    public async readableRevision(ref: string, expected?: {token: TDocumentRevisionToken | null | undefined}) {
+    public async readableRevision(ref: string, expected?: {token: TExpectedToken}) {
         const entry = await this.requireEntry(ref);
         const instance = entry.instance;
         await this.refreshPickedFile(entry);
@@ -690,11 +693,7 @@ export class BrowserDocumentStore {
         return {saveName, saveKind, saveHandle};
     }
 
-    public async save(
-        ref: string,
-        token: TDocumentRevisionToken | null | undefined,
-        options: {commit?: string; saveAs?: string} = {},
-    ): Promise<TSaveResult> {
+    public async save(ref: string, token: TExpectedToken, options: {commit?: string; saveAs?: string} = {}): Promise<TSaveResult> {
         const entry = await this.requireEntry(ref);
         const session = this.requireSession(entry);
         const previous = this.tokenOf(entry);
@@ -721,7 +720,7 @@ export class BrowserDocumentStore {
         }
     }
 
-    public async restoreRevision(ref: string, revision: TDocumentRevisionToken, token: TDocumentRevisionToken | null | undefined) {
+    public async restoreRevision(ref: string, revision: TDocumentRevisionToken, token: TExpectedToken) {
         const entry = await this.requireEntry(ref);
         const outcome = this.unwrapRevisionCheck(
             entry,
@@ -749,7 +748,7 @@ export class BrowserDocumentStore {
 
     public async stageAppend(
         ref: string,
-        token: TDocumentRevisionToken | null | undefined,
+        token: TExpectedToken,
         append: (file: IStoreFile, base: number) => Promise<number | null>,
         {allowForeignBase = false}: {allowForeignBase?: boolean} = {},
     ) {
@@ -767,7 +766,7 @@ export class BrowserDocumentStore {
         return outcome.status === 'staged' ? outcome.lease : null;
     }
 
-    public async commitAppend(ref: string, token: TDocumentRevisionToken | null | undefined, lease: string) {
+    public async commitAppend(ref: string, token: TExpectedToken, lease: string) {
         const entry = await this.requireEntry(ref);
         return this.settleOutcome(
             entry,
@@ -855,7 +854,7 @@ export class BrowserDocumentStore {
     }
 
     private async hasStoredDoc(store: IDocumentStore | null, id: string) {
-        return store !== null && (await store.port.list('documents').catch((): string[] => [])).includes(id);
+        return store !== null && (await store.port.list('documents')).includes(id);
     }
 
     public async isStored(ref: string) {
@@ -1005,7 +1004,8 @@ export class BrowserDocumentStore {
         const documentInit = {...init, id, name: fileName} as TDocumentInit;
         let store = durable ?? memory;
         let doc: DocumentDirectory | null = null;
-        let existedInStore = await this.hasStoredDoc(store, id);
+        let existedInStore = await this.hasStoredDoc(store, id).catch(() => false);
+        const cleanNew = () => (!existedInStore ? store.port.remove(`documents/${id}`).catch(() => undefined) : undefined);
         try {
             try {
                 doc = await createDocument(store, documentInit);
@@ -1013,11 +1013,9 @@ export class BrowserDocumentStore {
                 if (!durable || !isErrorName(error, 'QuotaExceededError')) {
                     throw error;
                 }
-                if (!existedInStore) {
-                    await store.port.remove(`documents/${id}`).catch(() => undefined);
-                }
+                await cleanNew();
                 store = memory;
-                existedInStore = await this.hasStoredDoc(store, id);
+                existedInStore = await this.hasStoredDoc(store, id).catch(() => false);
                 doc = await createDocument(store, documentInit);
             }
             const entry = this.docEntry(ref, doc, store, release, {...meta, fileName});
@@ -1028,9 +1026,7 @@ export class BrowserDocumentStore {
             return await this.hold(entry);
         } catch (error) {
             await doc?.close().catch(() => undefined);
-            if (!existedInStore) {
-                await store.port.remove(`documents/${id}`).catch(() => undefined);
-            }
+            await cleanNew();
             release();
             throw error;
         }
@@ -1156,7 +1152,7 @@ export class BrowserDocumentStore {
         };
     }
 
-    private throwStale(entry: IBrowserDocumentEntry, expected: TDocumentRevisionToken | null | undefined): never {
+    private throwStale(entry: IBrowserDocumentEntry, expected: TExpectedToken): never {
         throw createStaleRevisionError({
             documentRef: entry.ref,
             expectedRevision: requireDocumentRevisionToken(expected ?? 'none'),
@@ -1175,7 +1171,7 @@ export class BrowserDocumentStore {
 
     private unwrapRevisionCheck<T extends {status: string}>(
         entry: IBrowserDocumentEntry,
-        expected: TDocumentRevisionToken | null | undefined,
+        expected: TExpectedToken,
         result: T,
     ): Exclude<T, {status: 'missing-revision' | 'stale-revision'}> {
         if (result.status === 'missing-revision') {
@@ -1189,7 +1185,7 @@ export class BrowserDocumentStore {
 
     private async mutate(
         entry: IBrowserDocumentEntry,
-        token: TDocumentRevisionToken | null | undefined,
+        token: TExpectedToken,
         mutation: TMutation,
         reason: TDocumentRevisionChangeReason,
         announce = true,
@@ -1221,7 +1217,7 @@ export class BrowserDocumentStore {
 
     private settleOutcome(
         entry: IBrowserDocumentEntry,
-        token: TDocumentRevisionToken | null | undefined,
+        token: TExpectedToken,
         outcome: TOpenMutationResult,
         reason: TDocumentRevisionChangeReason,
         announce = true,

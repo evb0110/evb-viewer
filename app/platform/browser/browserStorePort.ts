@@ -8,20 +8,13 @@ import {
     type IPdfAppendResult,
 } from '@app/platform/browser/pdfPageEngine';
 import {opfsFileHandle} from '@app/platform/browser/opfsFileHandle';
-import type {TOpfsOperations, TOpfsRequest} from '@app/platform/browser/opfsStore.worker';
+import type {IOpfsResponse, TOpfsOperations, TOpfsRequest, TOpfsSerializedError} from '@app/platform/browser/opfsStore.worker';
 import type {IBrowserPageOpsWasmFailure} from '@contracts/browserPageOpsWorker';
 
 type TPdfAppendRequest = IPdfAppendRequest | IOcrTextLayerAppendRequest;
 type TWorkerStorePort = IStorePort & {probe(): Promise<boolean>; witnessBlob(blob: Blob): Promise<string>};
-type TSerializedError = {name: string; message: string};
-interface IResponse {
-    id?: number;
-    result?: unknown;
-    error?: TSerializedError;
-    transportError?: TSerializedError;
-}
 
-const storeError = (error: TSerializedError) => Object.assign(new Error(error.message), {name: error.name});
+const storeError = (error: TOpfsSerializedError) => Object.assign(new Error(error.message), {name: error.name});
 const transportError = (message: string) => storeError({name: 'StoreTransportError', message});
 const opfsPorts = new WeakSet<IStorePort>();
 const fileBlobs = new WeakMap<IStorePort, (path: string) => Promise<Blob>>();
@@ -76,7 +69,7 @@ export function createWorkerStorePort(worker: Worker, onFault?: (error: Error) =
         worker.terminate?.();
         onFault?.(error);
     };
-    worker.addEventListener('message', (event: MessageEvent<IResponse>) => {
+    worker.addEventListener('message', (event: MessageEvent<IOpfsResponse>) => {
         if (handlePrecompiledWasmModuleMessage(event.data)) {
             return;
         }
@@ -156,7 +149,8 @@ export function createMemoryStorePort(): IStorePort {
         const file = entryOf(path);
         return file.buffer.subarray(0, file.length);
     };
-    const blobOf = async (path: string) => (entryOf(path).blob ??= new Blob([bytesOf(path) as Uint8Array<ArrayBuffer>]));
+    const blobFor = async (file: {buffer: Uint8Array; length: number; blob?: Blob}) =>
+        (file.blob ??= new Blob([file.buffer.subarray(0, file.length) as Uint8Array<ArrayBuffer>]));
     const put = (path: string, bytes: Uint8Array) => void files.set(path, {buffer: bytes.slice(), length: bytes.byteLength});
     const copyIn = async (source: Blob | string, path: string) =>
         put(path, typeof source === 'string' ? bytesOf(source) : new Uint8Array(await source.arrayBuffer()));
@@ -210,7 +204,7 @@ export function createMemoryStorePort(): IStorePort {
                 request,
             ),
         );
-        openFileBlobs.set(storeFile, () => blobOf(path));
+        openFileBlobs.set(storeFile, () => blobFor(file));
         return storeFile;
     };
     const port: IStorePort = {
@@ -227,7 +221,7 @@ export function createMemoryStorePort(): IStorePort {
             }
         },
     };
-    fileBlobs.set(port, blobOf);
+    fileBlobs.set(port, (path) => blobFor(entryOf(path)));
     return port;
 }
 

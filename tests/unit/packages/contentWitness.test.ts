@@ -81,6 +81,23 @@ describe('contentWitness differential equivalence across all implementations', (
         }
     });
 
+    it('matches the oracle via async contentWitness() pure-JS fallback when crypto.subtle is unavailable across multi-chunk payloads', async () => {
+        const size = 4 * 1024 * 1024 + 137;
+        const payload = makePayload(size);
+        const expected = await referenceContentWitness(payload);
+        const origCrypto = Object.getOwnPropertyDescriptor(globalThis, 'crypto');
+        process.getBuiltinModule = undefined as unknown as typeof process.getBuiltinModule;
+        Object.defineProperty(globalThis, 'crypto', {value: {}, configurable: true});
+        try {
+            const actual = await contentWitness(size, async (offset, length) => payload.subarray(offset, offset + length));
+            expect(actual).toBe(expected);
+        } finally {
+            if (origCrypto) {
+                Object.defineProperty(globalThis, 'crypto', origCrypto);
+            }
+        }
+    });
+
     it('throws the exact short-read error when the reader ends early', async () => {
         await expect(contentWitness(100, async () => new Uint8Array(42))).rejects.toThrow('Content ended at 42 of 100 bytes');
         expect(() => contentWitnessSync(100, () => new Uint8Array(42))).toThrow('Content ended at 42 of 100 bytes');

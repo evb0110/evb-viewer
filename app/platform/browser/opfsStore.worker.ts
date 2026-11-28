@@ -21,6 +21,14 @@ type TOpfsOperationsContract = Omit<IStorePort, 'open' | 'move'> &
         appendPdfMutations(id: number, base: number, request: IPdfAppendRequest | IOcrTextLayerAppendRequest): Promise<unknown>;
     };
 
+export type TOpfsSerializedError = {name: string; message: string};
+export interface IOpfsResponse {
+    id?: number;
+    result?: unknown;
+    error?: TOpfsSerializedError;
+    transportError?: TOpfsSerializedError;
+}
+
 const COPY_BYTES = 4 * 1024 * 1024;
 const root = navigator.storage.getDirectory();
 const handles = new Map<number, FileSystemSyncAccessHandle>();
@@ -333,7 +341,7 @@ self.addEventListener('message', (event: MessageEvent<TOpfsRequest>) => {
     const {id} = request;
     void (async () => {
         let result: unknown;
-        let failed: {name: string; message: string} | null = null;
+        let failed: TOpfsSerializedError | null = null;
         try {
             result = await invokeOperation(request);
         } catch (error) {
@@ -342,7 +350,7 @@ self.addEventListener('message', (event: MessageEvent<TOpfsRequest>) => {
         }
         try {
             if (failed) {
-                self.postMessage({id, error: failed});
+                self.postMessage({id, error: failed} satisfies IOpfsResponse);
             } else {
                 const transfer =
                     result instanceof Uint8Array &&
@@ -351,7 +359,7 @@ self.addEventListener('message', (event: MessageEvent<TOpfsRequest>) => {
                     result.buffer instanceof ArrayBuffer
                         ? [result.buffer]
                         : [];
-                self.postMessage({id, result}, {transfer});
+                self.postMessage({id, result} satisfies IOpfsResponse, {transfer});
             }
         } catch (replyError) {
             const message = replyError instanceof Error ? replyError.message : String(replyError);
@@ -362,7 +370,7 @@ self.addEventListener('message', (event: MessageEvent<TOpfsRequest>) => {
                         name: 'StoreTransportError',
                         message: `The document store worker could not deliver reply for ${request.op}: ${message}`,
                     },
-                });
+                } satisfies IOpfsResponse);
             } catch {
                 self.setTimeout(() => {
                     throw replyError;
