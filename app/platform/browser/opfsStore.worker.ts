@@ -199,17 +199,24 @@ const operations = {
     witness(id: number, length: number) {
         const handle = file(id);
         let buffer = new Uint8Array();
-        return contentWitness(length, async (offset, size) => {
+        return contentWitness(length, (offset, size) => {
             if (buffer.byteLength < size) {
                 buffer = new Uint8Array(size);
             }
             const view = buffer.subarray(0, size);
-            return view.subarray(0, handle.read(view, {at: offset}));
+            return Promise.resolve(view.subarray(0, handle.read(view, {at: offset})));
         });
     },
     /** The content witness of a Blob, such as the file a Save just wrote, read by range in this worker. */
-    witnessBlob: (blob: Blob) =>
-        contentWitness(blob.size, async (offset, length) => new Uint8Array(await blob.slice(offset, offset + length).arrayBuffer())),
+    witnessBlob(blob: Blob) {
+        if (typeof FileReaderSync === 'function') {
+            const reader = new FileReaderSync();
+            return contentWitness(blob.size, (offset, length) =>
+                Promise.resolve(new Uint8Array(reader.readAsArrayBuffer(blob.slice(offset, offset + length)))),
+            );
+        }
+        return contentWitness(blob.size, async (offset, length) => new Uint8Array(await blob.slice(offset, offset + length).arrayBuffer()));
+    },
     writeAt: (id: number, offset: number, bytes: Uint8Array) => writeAll(file(id), bytes, offset),
     truncate: (id: number, length: number) => file(id).truncate(length),
     /** Appends the revisions `request` makes past the first `base` bytes, the PDF they edit. */
@@ -309,6 +316,15 @@ function invokeOperation(request: TOpfsRequest): unknown {
     }
 }
 
+self.addEventListener('messageerror', () => {
+    self.postMessage({
+        transportError: {
+            name: 'StoreTransportError',
+            message: 'The document store worker could not deserialize a request',
+        },
+    });
+});
+
 self.addEventListener('message', (event: MessageEvent<TOpfsRequest>) => {
     if (handlePrecompiledWasmModuleMessage(event.data)) {
         return;
@@ -316,13 +332,42 @@ self.addEventListener('message', (event: MessageEvent<TOpfsRequest>) => {
     const request = event.data;
     const {id} = request;
     void (async () => {
+        let result: unknown;
+        let failed: {name: string; message: string} | null = null;
         try {
-            const result = await invokeOperation(request);
-            const transfer = result instanceof Uint8Array ? [result.buffer] : [];
-            self.postMessage({id, result}, {transfer});
+            result = await invokeOperation(request);
         } catch (error) {
             const {name, message} = error instanceof Error ? error : new Error(String(error));
-            self.postMessage({id, error: {name, message}});
+            failed = {name, message};
+        }
+        try {
+            if (failed) {
+                self.postMessage({id, error: failed});
+            } else {
+                const transfer =
+                    result instanceof Uint8Array &&
+                    result.byteOffset === 0 &&
+                    result.byteLength === result.buffer.byteLength &&
+                    result.buffer instanceof ArrayBuffer
+                        ? [result.buffer]
+                        : [];
+                self.postMessage({id, result}, {transfer});
+            }
+        } catch (replyError) {
+            const message = replyError instanceof Error ? replyError.message : String(replyError);
+            try {
+                self.postMessage({
+                    id,
+                    transportError: {
+                        name: 'StoreTransportError',
+                        message: `The document store worker could not deliver reply for ${request.op}: ${message}`,
+                    },
+                });
+            } catch {
+                self.setTimeout(() => {
+                    throw replyError;
+                }, 0);
+            }
         }
     })();
 });
