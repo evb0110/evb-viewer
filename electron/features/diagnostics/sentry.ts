@@ -4,6 +4,7 @@ import {app} from 'electron';
 import {resolveApplicationVersion} from '@electron/appVersion';
 import {parseClientDiagnosticsPreference, type TClientDiagnosticsPreference} from '@contracts/diagnostics/diagnosticsPreference';
 import {beforeSendSentryEvent} from '@contracts/diagnostics/scrubSentryEvent';
+import {isErrnoException} from '@contracts/runtimeGuards';
 import {captureMainFailure, registerMainFailureCaptureSender, setMainFailureCaptureState} from '@electron/utils/captureMainFailure';
 
 declare const __EVB_SENTRY_DSN__: string | undefined;
@@ -89,6 +90,15 @@ export function getMainDiagnosticsPreference() {
     return preference;
 }
 
+/** Waits for any in-flight main diagnostics SDK startup to settle before opening windows. Never throws. */
+export async function waitForMainDiagnosticsReady(): Promise<void> {
+    const pending = sdkLoad;
+    if (pending === null) {
+        return;
+    }
+    await pending.catch(() => undefined);
+}
+
 /**
  * An exception thrown before the app installs its fatal handlers ends the
  * process before an asynchronous send can finish. With consent, the error is
@@ -121,13 +131,20 @@ export function installStartupCrashMarker() {
 
 /** Runs once per launch in the primary instance: the marker is always removed, and sent only with consent. */
 export function consumeStartupCrashMarker() {
+    const path = markerPath();
     let marker: unknown;
+    let markerMissing = false;
     try {
-        marker = JSON.parse(readFileSync(markerPath(), 'utf8'));
-    } catch {
+        marker = JSON.parse(readFileSync(path, 'utf8'));
+    } catch (error) {
+        if (isErrnoException(error) && error.code === 'ENOENT') {
+            markerMissing = true;
+        }
         return;
     } finally {
-        rmSync(markerPath(), {force: true});
+        if (!markerMissing) {
+            rmSync(path, {force: true});
+        }
     }
     if (typeof marker !== 'object' || marker === null || sdkLoad === null) {
         return;

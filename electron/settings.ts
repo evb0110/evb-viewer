@@ -246,6 +246,14 @@ export function resetSettingsCacheAfterUserDataPathChange() {
     settingsRecoveryNotice = null;
 }
 
+/** Seeds the cache from a validated startup read so the primary instance avoids re-reading settings.json. */
+export function seedSettingsCache(settings: ISettingsData) {
+    if (settingsCache !== null || settingsLoadPromise !== null) {
+        return;
+    }
+    settingsCache = withLatestConsent(applyElectronDefaults(migrateSettings(cloneSettings(settings))));
+}
+
 // Every window that shows the app gets each committed write, the saving one
 // included, in commit order: a renderer adopts a key only where it has no unsaved
 // edit, and the owner is the only place that writes settings.json.

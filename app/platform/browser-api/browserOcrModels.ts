@@ -1,6 +1,9 @@
 import {sha256Hex} from '@app/platform/browser/browserStagedArtifact';
+import {canStoreBrowserOcrModels} from '@app/utils/browserOcrSupport';
 import type {IOcrModelDownloadProgress} from '@contracts/electronApiOcr';
 import {getOcrModelDownloadUrl, OCR_LANGUAGE_MODEL_BYTES, OCR_LANGUAGE_MODEL_SHA256, type TOcrModelCode} from '@contracts/ocrLanguages';
+
+export {canStoreBrowserOcrModels};
 
 /**
  * The browser's OCR models: the pinned tessdata_best files desktop uses,
@@ -46,10 +49,6 @@ function abortError(signal: AbortSignal) {
 
 async function isPinnedModel(code: TOcrModelCode, bytes: Uint8Array<ArrayBuffer>) {
     return bytes.byteLength === OCR_LANGUAGE_MODEL_BYTES[code] && (await sha256Hex(bytes)) === OCR_LANGUAGE_MODEL_SHA256[code];
-}
-
-export function canStoreBrowserOcrModels() {
-    return typeof caches !== 'undefined' && typeof crypto?.subtle !== 'undefined';
 }
 
 /** Whether a model is in the cache; its bytes are verified when read. */

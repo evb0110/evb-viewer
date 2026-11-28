@@ -10,7 +10,14 @@ import {
 } from '@contracts/browserQpdfEngine';
 import {isBrowserPageOpsWasmFailure} from '@contracts/browserPageOpsWorker';
 import {SerializableError} from '@contracts/serializableError';
+import {
+    BrowserQpdfEngineTimeoutError,
+    BrowserQpdfEngineUnavailableError,
+    isBrowserQpdfEngineUnavailableError,
+} from '@app/utils/browserOpenErrors';
 import {BrowserPageOpsWorkerUnavailableError, runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserPageOpsWorkerClient';
+
+export {BrowserQpdfEngineTimeoutError, BrowserQpdfEngineUnavailableError, isBrowserQpdfEngineUnavailableError};
 import {BrowserWorkerClient, BrowserWorkerRequestOwner, canUseBrowserWorker} from '@app/platform/browser-api/browserWorkerClient';
 import {settleBrowserWorkerResult, type ITypedPendingBrowserWorkerRequest} from '@app/platform/browser-api/settleBrowserWorkerResult';
 import {toTransferableUint8Array} from '@app/platform/browser-api/toTransferableUint8Array';
@@ -32,28 +39,6 @@ export interface IBrowserQpdfRequestOptions {
     signal?: AbortSignal;
     /** Ends the engine when the command takes longer; defaults to desktop's rewrite bound. */
     timeoutMs?: number;
-}
-
-export class BrowserQpdfEngineTimeoutError extends Error {
-    public constructor(public readonly timeoutMs: number) {
-        super(`qpdf did not finish within ${timeoutMs}ms`);
-        this.name = 'BrowserQpdfEngineTimeoutError';
-    }
-}
-
-export class BrowserQpdfEngineUnavailableError extends Error {
-    public constructor(message: string) {
-        super(message);
-        this.name = 'BrowserQpdfEngineUnavailableError';
-    }
-}
-
-/** The engine could not be downloaded or started, so nothing judged the PDF. */
-export function isBrowserQpdfEngineUnavailableError(error: unknown) {
-    return (
-        error instanceof BrowserQpdfEngineUnavailableError ||
-        (error instanceof SerializableError && error.code === BROWSER_QPDF_ENGINE_ERROR_CODES.unavailable)
-    );
 }
 
 function createEngineClient() {

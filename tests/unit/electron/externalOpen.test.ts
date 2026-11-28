@@ -726,6 +726,150 @@ describe('createExternalOpenManager', () => {
         expect(harness.dispatchOpenPaths).not.toHaveBeenCalled();
     });
 
+    it('starts the 300 ms empty-claim grace at app readiness and returns immediately once that deadline has elapsed', async () => {
+        vi.useFakeTimers();
+        const harness = createManagerHarness({isRendererReady: false});
+
+        harness.manager.markAppReady();
+        harness.manager.markBootstrapReady();
+        await vi.advanceTimersByTimeAsync(300);
+
+        let settled = false;
+        const claimPromise = harness.manager.claimPendingOpenPaths().then((paths) => {
+            settled = true;
+            return paths;
+        });
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(settled).toBe(true);
+        await expect(claimPromise).resolves.toEqual([]);
+    });
+
+    it('waits only the remaining grace window from app readiness and wakes early when a path arrives', async () => {
+        vi.useFakeTimers();
+        const harness = createManagerHarness({isRendererReady: false});
+
+        harness.manager.markAppReady();
+        harness.manager.markBootstrapReady();
+        await vi.advanceTimersByTimeAsync(120);
+
+        let settled = false;
+        const claimPromise = harness.manager.claimPendingOpenPaths().then((paths) => {
+            settled = true;
+            return paths;
+        });
+
+        await vi.advanceTimersByTimeAsync(179);
+        expect(settled).toBe(false);
+
+        await vi.advanceTimersByTimeAsync(1);
+        expect(settled).toBe(true);
+        await expect(claimPromise).resolves.toEqual([]);
+
+        // Early wake before the readiness deadline delivers once via startup claim, never twice on renderer-ready.
+        const earlyHarness = createManagerHarness({isRendererReady: false});
+        earlyHarness.manager.markAppReady();
+        earlyHarness.manager.markBootstrapReady();
+        await vi.advanceTimersByTimeAsync(100);
+
+        const earlyClaim = earlyHarness.manager.claimPendingOpenPaths();
+        await vi.advanceTimersByTimeAsync(50);
+        earlyHarness.manager.queueOpenRequest(['/docs/early-wake.pdf']);
+
+        await expect(earlyClaim).resolves.toEqual(['/docs/early-wake.pdf']);
+        earlyHarness.setRendererReady(true);
+        earlyHarness.manager.scheduleFlushPendingFiles();
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(earlyHarness.dispatchOpenPaths).not.toHaveBeenCalled();
+    });
+
+    it('measures the startup empty-claim grace with a monotonic clock when system time steps backwards', async () => {
+        vi.useFakeTimers();
+        const harness = createManagerHarness({isRendererReady: false});
+
+        harness.manager.markAppReady();
+        harness.manager.markBootstrapReady();
+        await vi.advanceTimersByTimeAsync(100);
+        vi.setSystemTime(Date.now() - 10_000);
+
+        let settled = false;
+        const claimPromise = harness.manager.claimPendingOpenPaths().then((paths) => {
+            settled = true;
+            return paths;
+        });
+
+        await vi.advanceTimersByTimeAsync(199);
+        expect(settled).toBe(false);
+
+        await vi.advanceTimersByTimeAsync(1);
+        expect(settled).toBe(true);
+        await expect(claimPromise).resolves.toEqual([]);
+    });
+
+    it('delivers each path exactly once across arrivals before readiness, between empty claim and renderer-ready, and after renderer-ready', async () => {
+        vi.useFakeTimers();
+        const delivered: string[] = [];
+        const harness = createManagerHarness({
+            isRendererReady: false,
+            dispatchOpenPaths: (paths) => {
+                delivered.push(...paths);
+                return true;
+            },
+        });
+
+        // 1. Pre-readiness arrival (e.g. cold Finder open-file before app.whenReady)
+        const preReadyPath = resolve('/docs/before-ready.pdf');
+        const router = createMacOpenFileRouter({logger: harness.logger});
+        router.handleOpenFile(preReadyPath);
+        router.attachExternalOpenManager(harness.manager);
+        harness.manager.markAppReady();
+        harness.manager.markBootstrapReady();
+
+        const preReadyClaimed = await harness.manager.claimPendingOpenPaths();
+        delivered.push(...preReadyClaimed);
+        expect(preReadyClaimed).toEqual([preReadyPath]);
+
+        // 2. Empty-claim path followed by staggered arrivals between empty claim and renderer-ready, then after renderer-ready
+        const secondDelivered: string[] = [];
+        const secondHarness = createManagerHarness({
+            isRendererReady: false,
+            dispatchOpenPaths: (paths) => {
+                secondDelivered.push(...paths);
+                return true;
+            },
+        });
+        secondHarness.manager.markAppReady();
+        secondHarness.manager.markBootstrapReady();
+        await vi.advanceTimersByTimeAsync(350);
+
+        const emptyClaim = await secondHarness.manager.claimPendingOpenPaths();
+        expect(emptyClaim).toEqual([]);
+
+        // Arrivals between empty claim and renderer-ready (staggered Finder open-file + second-instance)
+        const betweenA = resolve('/docs/between-a.pdf');
+        const betweenB = resolve('/docs/between-b.pdf');
+        secondHarness.manager.queueOpenRequest([betweenA]);
+        secondHarness.manager.queueOpenRequestFromArgs([betweenB], process.cwd());
+        expect(secondDelivered).toEqual([]);
+
+        // Renderer signals shell-interactive -> flushes queued between-claim arrivals once
+        secondHarness.setRendererReady(true);
+        secondHarness.manager.scheduleFlushPendingFiles();
+        expect(secondDelivered).toEqual([betweenA, betweenB]);
+
+        // Staggered post-renderer-ready multi-select arrivals
+        const afterA = resolve('/docs/after-a.pdf');
+        const afterB = resolve('/docs/after-b.pdf');
+        secondHarness.manager.queueOpenRequest([afterA]);
+        await vi.advanceTimersByTimeAsync(50);
+        secondHarness.manager.queueOpenRequestFromArgs([afterB], process.cwd());
+        await vi.advanceTimersByTimeAsync(800);
+
+        expect(secondDelivered).toEqual([betweenA, betweenB, afterA, afterB]);
+        expect(new Set(secondDelivered).size).toBe(secondDelivered.length);
+    });
+
     it('retries a failed dispatch after 1 second without another batching delay', async () => {
         vi.useFakeTimers();
         const dispatchOpenPaths = vi

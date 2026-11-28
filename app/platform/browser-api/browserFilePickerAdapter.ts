@@ -7,6 +7,9 @@ import {yieldToBrowser} from '@app/platform/browser-api/browserYield';
 import {resolveBrowserCapabilityTier} from '@app/platform/browser/browserCapabilityTier';
 import {downloadBlob as downloadPublishedBlob} from '@app/platform/browser/browserPublication';
 import {safeGetSessionStorageItem, safeSetSessionStorageItem} from '@app/utils/browserSafe';
+import {BrowserFilePickerSetupDeniedError, isBrowserFilePickerSetupDeniedError} from '@app/utils/browserOpenErrors';
+
+export {BrowserFilePickerSetupDeniedError, isBrowserFilePickerSetupDeniedError};
 
 export interface IPickedBrowserFile {
     file: File;
@@ -170,19 +173,6 @@ function shouldUseFileSystemAccessOpenPicker(preferFileSystemAccess: boolean) {
 
 function rememberInputOpenPickerMode() {
     safeSetSessionStorageItem(BROWSER_OPEN_PICKER_MODE_SESSION_KEY, BROWSER_OPEN_PICKER_MODE_INPUT);
-}
-
-const BROWSER_FILE_PICKER_SETUP_DENIED_CODE = 'browser-file-picker-setup-denied';
-
-export class BrowserFilePickerSetupDeniedError extends Error {
-    public constructor() {
-        super(BROWSER_FILE_PICKER_SETUP_DENIED_CODE);
-        this.name = 'BrowserFilePickerSetupDeniedError';
-    }
-}
-
-export function isBrowserFilePickerSetupDeniedError(error: unknown): error is BrowserFilePickerSetupDeniedError {
-    return error instanceof BrowserFilePickerSetupDeniedError;
 }
 
 function createBrowserFilePickerSetupDeniedError() {

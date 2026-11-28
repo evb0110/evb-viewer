@@ -3,7 +3,18 @@ import type {TAgentService} from '@electron/features/agent/public';
 import type {scanCleanupMainBindings} from '@electron/features/scan-cleanup/scanCleanupMainBindings';
 import {DOCUMENTS_CHANNELS, DOCUMENTS_EVENT_CHANNELS} from '@electron/features/documents/contract';
 import {DOCX_EXPORT_STREAM_CHANNELS} from '@contracts/docxExport';
-import {DOCUMENT_PLATFORM_FEATURES, type DOCUMENT_FILES_PLATFORM_FEATURE} from '@contracts/documentsPlatformFeature';
+import {
+    DOCUMENT_MENU_PLATFORM_FEATURE,
+    DOCUMENT_PLATFORM_FEATURES,
+    DOCUMENT_RECENT_FILES_PLATFORM_FEATURE,
+    DOCUMENT_WINDOW_PLATFORM_FEATURE,
+    type DOCUMENT_FILES_PLATFORM_FEATURE,
+} from '@contracts/documentsPlatformFeature';
+import {
+    documentMenuMainBindings,
+    documentRecentFilesMainBindings,
+    documentWindowMainBindings,
+} from '@electron/features/documents/public/startScreenMainBindings';
 import {AGENT_PLATFORM_FEATURE} from '@contracts/agentPlatformFeature';
 import {IMAGE_EXPORT_PLATFORM_FEATURE} from '@contracts/imageExportPlatformFeature';
 import {OCR_PLATFORM_FEATURE} from '@contracts/ocrPlatformFeature';
@@ -147,6 +158,10 @@ function loadDocumentsRuntime(onSubsystemLoaded?: (subsystem: TLazyMainSubsystem
     return documentsRuntimePromise;
 }
 
+export function prewarmDocumentsRuntime(onSubsystemLoaded?: (subsystem: TLazyMainSubsystem) => void): Promise<void> {
+    return loadDocumentsRuntime(onSubsystemLoaded).then(() => undefined);
+}
+
 type TFeatureMainBindingRecord = Record<string, unknown>;
 
 export interface IFeatureRegistrationDescriptor<TBindings extends TFeatureMainBindingRecord = TFeatureMainBindingRecord> {
@@ -276,11 +291,22 @@ const platformDescriptors: readonly TPlatformDescriptor[] = [
     },
 ];
 
-const documentDescriptors: readonly TPlatformDescriptor[] = DOCUMENT_PLATFORM_FEATURES.map((feature) => ({
-    name: feature.path.join('.'),
-    feature,
-    create: async ({onSubsystemLoaded}) => (await loadDocumentsRuntime(onSubsystemLoaded)).module.documentsMainBindings,
-}));
+const startScreenDocumentBindingsByFeature = new Map<TAnyDefinedPlatformFeature, TFeatureMainBindingRecord>([
+    [DOCUMENT_RECENT_FILES_PLATFORM_FEATURE, documentRecentFilesMainBindings],
+    [DOCUMENT_WINDOW_PLATFORM_FEATURE, documentWindowMainBindings],
+    [DOCUMENT_MENU_PLATFORM_FEATURE, documentMenuMainBindings],
+]);
+
+const documentDescriptors: readonly TPlatformDescriptor[] = DOCUMENT_PLATFORM_FEATURES.map((feature) => {
+    const startScreenBindings = startScreenDocumentBindingsByFeature.get(feature);
+    return {
+        name: feature.path.join('.'),
+        feature,
+        create: startScreenBindings
+            ? () => Promise.resolve(startScreenBindings)
+            : async ({onSubsystemLoaded}) => (await loadDocumentsRuntime(onSubsystemLoaded)).module.documentsMainBindings,
+    };
+});
 
 export const FEATURE_REGISTRATION_DESCRIPTORS: readonly IFeatureRegistrationDescriptor[] = [
     ...documentDescriptors,

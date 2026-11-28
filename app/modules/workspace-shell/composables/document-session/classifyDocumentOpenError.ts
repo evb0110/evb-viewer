@@ -8,7 +8,7 @@ import {
     isBrowserFilePickerSetupDeniedError,
     isBrowserFullReadTooLargeError,
     isBrowserQpdfEngineUnavailableError,
-} from '@app/platform/browser-api/public';
+} from '@app/utils/browserOpenErrors';
 import {getDocumentRefBaseName} from '@app/utils/documentRef';
 import {BrowserLogger} from '@app/utils/browserLogger';
 

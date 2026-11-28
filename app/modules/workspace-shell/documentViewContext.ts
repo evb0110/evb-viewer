@@ -4,7 +4,7 @@ import {usePageAnnotationActions} from '@app/modules/workspace-shell/composables
 import {useAnnotationContextMenu} from '@app/modules/workspace-shell/composables/useAnnotationContextMenu';
 import {useViewAnnotationTool} from '@app/modules/workspace-shell/composables/useViewAnnotationTool';
 import {useDocumentWorkspaceScanCleanupSurface} from '@app/modules/workspace-shell/composables/useDocumentWorkspaceScanCleanupSurface';
-import {scanCleanupSourceIdentityKey} from '@app/modules/scan-cleanup/public/workspace';
+import {scanCleanupSourceIdentityKey} from '@app/modules/scan-cleanup/public/sourceIdentity';
 import {useDjvuProjectionActions} from '@app/modules/workspace-shell/composables/useDjvuProjectionActions';
 import {useWorkspaceViewerShellState} from '@app/modules/workspace-shell/composables/useWorkspaceViewerShellState';
 import {useWorkspaceSearchSidebar} from '@app/modules/workspace-shell/composables/useWorkspaceSearchSidebar';

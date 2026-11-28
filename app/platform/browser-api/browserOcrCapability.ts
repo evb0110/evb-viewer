@@ -18,15 +18,13 @@ import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import {createEpochMs} from '@contracts/timestamps';
 import {getOcrPageSelectionCount, iterateOcrPageRequestBatches} from '@ocr-core/ocrPageSelection';
 import {isOcrFatalJobError} from '@ocr-core/recognizeOcrPages';
-import {canStoreBrowserOcrModels, hasCachedOcrModel} from '@app/platform/browser-api/browserOcrModels';
+import {hasCachedOcrModel} from '@app/platform/browser-api/browserOcrModels';
 import {onBrowserWorkingCopyClose} from '@app/platform/browser-api/browserWorkingCopyClose';
+import {canUseBrowserOcr, findBrowserOcrUnsupportedReason} from '@app/utils/browserOcrSupport';
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
 import {getErrorMessage} from '@app/utils/error';
 
-// The smallest module that uses a SIMD128 instruction; the engine needs SIMD.
-const WASM_SIMD_PROBE = new Uint8Array([
-    0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 123, 3, 2, 1, 0, 10, 10, 1, 8, 0, 65, 0, 253, 15, 253, 98, 11,
-]);
+export {canUseBrowserOcr};
 
 type TProgressListener = (progress: IOcrProgress) => void;
 type TCompleteListener = (result: IOcrCompleteResult) => void;
@@ -76,20 +74,6 @@ function refusedStart(code: TOcrErrorCode, message: string, retryable = false): 
         errors: [message],
         errorEnvelope: errorEnvelope(code, message, retryable),
     };
-}
-
-/** Why this browser cannot run the engine, or null when it can. */
-function findUnsupportedReason() {
-    if (typeof Worker === 'undefined' || typeof WebAssembly === 'undefined') {
-        return 'This browser cannot run the OCR engine (it needs Web Workers and WebAssembly).';
-    }
-    if (!WebAssembly.validate(WASM_SIMD_PROBE)) {
-        return 'This browser cannot run the OCR engine (it needs WebAssembly SIMD); update the browser or use the desktop app.';
-    }
-    if (!canStoreBrowserOcrModels()) {
-        return 'This browser cannot store OCR language models here (Cache Storage is unavailable, for example in a private window).';
-    }
-    return null;
 }
 
 function emitProgress(progress: IOcrProgress) {
@@ -299,10 +283,6 @@ export async function commitBrowserOcrResult(
     return true;
 }
 
-export function canUseBrowserOcr() {
-    return findUnsupportedReason() === null;
-}
-
 export const browserOcrCapability: IOcrCapability = {
     cancel(requestId) {
         const controller = activeJobs.get(requestId);
@@ -316,7 +296,7 @@ export const browserOcrCapability: IOcrCapability = {
         return Promise.resolve({canceled: true});
     },
     async getLanguages() {
-        if (findUnsupportedReason() !== null) {
+        if (findBrowserOcrUnsupportedReason() !== null) {
             return [];
         }
         return Promise.all(
@@ -376,7 +356,7 @@ export const browserOcrCapability: IOcrCapability = {
         return {cleaned: true};
     },
     createSearchablePdf(sourcePdfPath, selection, requestId, renderDpiOrOptions?: number | IOcrSearchablePdfOptions) {
-        const unsupported = findUnsupportedReason();
+        const unsupported = findBrowserOcrUnsupportedReason();
         if (unsupported !== null) {
             return Promise.resolve(refusedStart('OCR_BROWSER_UNSUPPORTED', unsupported));
         }

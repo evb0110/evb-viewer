@@ -38,7 +38,6 @@ export function initializeAppTempNamespace(userDataPath: string) {
     initializedAppTempUserDataPath = userDataPath;
     initializedAppTempNamespaceStartedAt = Date.now();
     ownerMarkerWritten = false;
-    void getOwnStartTime();
     return namespace;
 }
 

@@ -16,7 +16,6 @@ import {getErrorMessage} from '@electron/utils/error';
 import {atomicReplace, makeSiblingTempPath} from '@electron/utils/atomicReplace';
 import {runtimeConfig} from '@electron/runtimeConfig';
 import {quarantineCorruptFile} from '@electron/utils/quarantineCorruptFile';
-import {getWorkingCopyOriginalPath, isWorkingCopyDocumentPath} from '@electron/file-access/documentStore';
 import * as v from 'valibot';
 
 const logger = createLogger('recentFiles');
@@ -232,7 +231,7 @@ async function tryBootstrapRecentFiles(bootstrapPath: string): Promise<TRecentFi
         const content = await readFile(bootstrapPath, 'utf-8');
         const parsed: unknown = JSON.parse(content);
         const bootstrapData = v.parse(recentFilesDataSchema, parsed, {abortEarly: true});
-        const canonicalized = canonicalizePersistedRecentFiles(bootstrapData.files);
+        const canonicalized = await canonicalizePersistedRecentFiles(bootstrapData.files);
         bootstrapData.files = canonicalized.files;
         const filtered = await filterExistingFiles(bootstrapData.files);
         if (filtered.files.length === 0) {
@@ -316,7 +315,7 @@ async function loadRecentFilesData(): Promise<TRecentFilesData> {
         return emptyData;
     }
 
-    const canonicalized = canonicalizePersistedRecentFiles(normalizedData.files);
+    const canonicalized = await canonicalizePersistedRecentFiles(normalizedData.files);
     if (canonicalized.changed) {
         normalizedData.files = canonicalized.files;
         // Keep persistence errors outside the corruption-recovery branch. A valid
@@ -413,8 +412,17 @@ function refreshRecentFilesCache(): Promise<IRecentFile[]> {
     return refreshPromise;
 }
 
-function resolveRecentOriginalPath(filePath: string, senderWebContentsId?: number): TDocumentRef | null {
-    const mappedOriginalPath = getWorkingCopyOriginalPath(filePath, senderWebContentsId)?.originalPath;
+type TRecentDocumentStoreHelpers = Pick<
+    typeof import('@electron/file-access/documentStore'),
+    'getWorkingCopyOriginalPath' | 'isWorkingCopyDocumentPath'
+>;
+
+function resolveRecentOriginalPathWithStore(
+    filePath: string,
+    store: TRecentDocumentStoreHelpers,
+    senderWebContentsId?: number,
+): TDocumentRef | null {
+    const mappedOriginalPath = store.getWorkingCopyOriginalPath(filePath, senderWebContentsId)?.originalPath;
     if (mappedOriginalPath) {
         return parseDocumentRef(mappedOriginalPath);
     }
@@ -422,7 +430,7 @@ function resolveRecentOriginalPath(filePath: string, senderWebContentsId?: numbe
     // A document's ref is an implementation detail, not a user document. If it
     // no longer maps to a file, dropping the entry is safer than leaking a
     // volatile store path into persistent Recent Files state.
-    if (isWorkingCopyDocumentPath(filePath)) {
+    if (store.isWorkingCopyDocumentPath(filePath)) {
         logger.warn(`Refusing to persist unmapped managed working-copy path as recent: ${filePath}`);
         return null;
     }
@@ -430,12 +438,19 @@ function resolveRecentOriginalPath(filePath: string, senderWebContentsId?: numbe
     return parseDocumentRef(filePath);
 }
 
-function canonicalizePersistedRecentFiles(files: TRecentFilesData['files']) {
+async function canonicalizePersistedRecentFiles(files: TRecentFilesData['files']) {
+    if (files.length === 0) {
+        return {
+            changed: false,
+            files: [],
+        };
+    }
+    const store = await import('@electron/file-access/documentStore');
     const canonicalFiles: TRecentFilesData['files'] = [];
     const seenPaths = new Set<string>();
     let changed = false;
     for (const file of files) {
-        const originalPath = resolveRecentOriginalPath(file.originalPath);
+        const originalPath = resolveRecentOriginalPathWithStore(file.originalPath, store);
         if (!originalPath) {
             changed = true;
             continue;
@@ -464,7 +479,11 @@ function canonicalizePersistedRecentFiles(files: TRecentFilesData['files']) {
 
 /** Persists a recent-file entry; callers must validate or mint path capabilities before calling. */
 export async function addRecentFile(filePath: string, senderWebContentsId?: number) {
-    const originalPath = filePath ? resolveRecentOriginalPath(filePath, senderWebContentsId) : null;
+    if (!filePath) {
+        return;
+    }
+    const store = await import('@electron/file-access/documentStore');
+    const originalPath = resolveRecentOriginalPathWithStore(filePath, store, senderWebContentsId);
     if (!originalPath) {
         return;
     }

@@ -116,6 +116,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
     let ensureWindowForExternalOpenPromise: Promise<void> | null = null;
     let hasHandledInitialExternalOpenDispatch = false;
     let dispatchFailureCount = 0;
+    let startupEmptyClaimGraceDeadlineMs: number | null = null;
     let startupEmptyClaimGraceTimer: ReturnType<typeof setTimeout> | null = null;
     let startupEmptyClaimGraceResolve: (() => void) | null = null;
     let startupEmptyClaimGracePromise: Promise<void> | null = null;
@@ -264,6 +265,13 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
         resolve?.();
     }
 
+    function markAppReady() {
+        if (startupEmptyClaimGraceDeadlineMs !== null) {
+            return;
+        }
+        startupEmptyClaimGraceDeadlineMs = performance.now() + EXTERNAL_OPEN_STARTUP_EMPTY_CLAIM_GRACE_MS;
+    }
+
     function waitForStartupExternalOpenGraceIfEmpty() {
         if (pendingExternalOpenPaths.length > 0 || hasHandledInitialExternalOpenDispatch) {
             return Promise.resolve();
@@ -273,9 +281,17 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
             return startupEmptyClaimGracePromise;
         }
 
+        const nowMs = performance.now();
+        const deadlineMs = startupEmptyClaimGraceDeadlineMs ?? nowMs + EXTERNAL_OPEN_STARTUP_EMPTY_CLAIM_GRACE_MS;
+        startupEmptyClaimGraceDeadlineMs = deadlineMs;
+        const remainingMs = deadlineMs - nowMs;
+        if (remainingMs <= 0) {
+            return Promise.resolve();
+        }
+
         startupEmptyClaimGracePromise = new Promise<void>((resolve) => {
             startupEmptyClaimGraceResolve = resolve;
-            startupEmptyClaimGraceTimer = setTimeout(finishStartupEmptyClaimGrace, EXTERNAL_OPEN_STARTUP_EMPTY_CLAIM_GRACE_MS);
+            startupEmptyClaimGraceTimer = setTimeout(finishStartupEmptyClaimGrace, remainingMs);
             startupEmptyClaimGraceTimer.unref();
         });
         return startupEmptyClaimGracePromise;
@@ -505,6 +521,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
     return {
         clearTimers,
         isSupportedFile: isSupportedOpenPath,
+        markAppReady,
         markBootstrapReady() {
             externalOpenBootstrapReady = true;
         },

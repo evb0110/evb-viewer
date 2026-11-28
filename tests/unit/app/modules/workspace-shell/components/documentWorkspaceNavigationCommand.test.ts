@@ -140,6 +140,9 @@ vi.mock('@app/modules/scan-cleanup/public/workspace', () => ({
         inheritAttrs: false,
         setup: () => () => h('div', {class: 'scan-cleanup-workspace-stub'}),
     }),
+}));
+
+vi.mock('@app/modules/scan-cleanup/public/sourceIdentity', () => ({
     useScanCleanupSourceSha256: () => ({
         sha256: shallowRef(null),
         identity: {state: shallowRef('unavailable'), retry: () => {}},

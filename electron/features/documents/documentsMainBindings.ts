@@ -6,13 +6,10 @@ import {isAbsolute} from 'path';
 import {DOCX_EXPORT_STREAM_CHANNELS, DOCX_EXPORT_STREAM_MAX_CHUNK_BYTES} from '@contracts/docxExport';
 import type {IIpcMainRegistrar} from '@contracts/ipcMain';
 import type {
-    DOCUMENT_MENU_PLATFORM_FEATURE,
     DOCUMENT_FILES_PLATFORM_FEATURE,
     DOCUMENT_OPEN_PLATFORM_FEATURE,
     DOCUMENT_PDF_PLATFORM_FEATURE,
     DOCUMENT_PICKER_PLATFORM_FEATURE,
-    DOCUMENT_RECENT_FILES_PLATFORM_FEATURE,
-    DOCUMENT_WINDOW_PLATFORM_FEATURE,
     DOCUMENT_WORKING_COPY_PLATFORM_FEATURE,
 } from '@contracts/documentsPlatformFeature';
 import type {TFeatureMainBindings} from '@contracts/platformFeature';
@@ -66,7 +63,6 @@ import {
     handleOpenPdfDirectBatch,
 } from '@electron/features/documents/main/documentOpenHandlers';
 import {handleSaveDocxAs, handleSavePdfAs, handleSavePdfDialog} from '@electron/features/documents/main/documentSaveDialogHandlers';
-import {handleSetWindowTitle, handleShowItemInFolder} from '@electron/features/documents/main/documentWindowHandlers';
 import {
     handleCreateWorkingCopyFromData,
     handleCreateWorkingCopyFromPath,
@@ -87,10 +83,6 @@ import {handleAnalyzePdfConformance, handleValidatePdfPath} from '@electron/feat
 import {handleCancelPdfPrint, handlePrintPdfData, handlePrintPdfPath} from '@electron/features/documents/main/print';
 import {forgetKeptOriginal} from '@electron/file-access/keptOriginalNotices';
 import {discardOcrResultsForDocument} from '@electron/features/ocr/public/index';
-import {clearRecentFiles, getRecentFiles, removeRecentFile, removeRecentFileIfMissing} from '@electron/recentFiles';
-import {recentReadingViewMainBindings} from '@electron/recentReadingViews';
-import {allowRevealPaths, removeAllowedRevealPath} from '@electron/file-access/openPathCapabilities';
-import {setMenuDocumentState, setMenuTabCount, updateRecentFilesMenu} from '@electron/menu';
 
 import {
     handleFileSaveStructured,
@@ -482,68 +474,11 @@ export const documentsMainBindings = {
             options,
         );
     },
-    getRecentFiles: async (context) => {
-        const files = await getRecentFiles();
-        allowRevealPaths(
-            files.map((file) => file.originalPath),
-            context.sender,
-        );
-        return files;
-    },
-    ...recentReadingViewMainBindings,
-    removeRecentFile: async (originalPath) => {
-        await removeRecentFile(originalPath);
-        // Recent history owns reveal access; retained tabs keep their open grants.
-        removeAllowedRevealPath(originalPath);
-        updateRecentFilesMenu();
-    },
-    removeRecentFileIfMissing: async (originalPath) => {
-        const removed = await removeRecentFileIfMissing(originalPath);
-        if (removed) {
-            removeAllowedRevealPath(originalPath);
-            updateRecentFilesMenu();
-        }
-        return removed;
-    },
-    clearRecentFiles: async () => {
-        const files = await getRecentFiles();
-        await clearRecentFiles();
-        for (const file of files) {
-            removeAllowedRevealPath(file.originalPath);
-        }
-        updateRecentFilesMenu();
-    },
-    setWindowTitle: (context, title) => {
-        handleSetWindowTitle(
-            {
-                senderId: context.senderId,
-                window: BrowserWindow.fromWebContents(context.sender),
-            },
-            title,
-        );
-        return undefined;
-    },
-    showItemInFolder: (context, filePath) => handleShowItemInFolder({owner: context.sender}, filePath),
-    setMenuDocumentState: (context, state) => {
-        const window = BrowserWindow.fromWebContents(context.sender);
-        if (window) {
-            setMenuDocumentState(window.id, state);
-        }
-    },
-    setMenuTabCount: (context, tabCount) => {
-        const window = BrowserWindow.fromWebContents(context.sender);
-        if (window) {
-            setMenuTabCount(window.id, tabCount);
-        }
-    },
 } satisfies TFeatureMainBindings<typeof DOCUMENT_PICKER_PLATFORM_FEATURE, IpcMainInvokeEvent> &
     TFeatureMainBindings<typeof DOCUMENT_OPEN_PLATFORM_FEATURE, IpcMainInvokeEvent> &
     TFeatureMainBindings<typeof DOCUMENT_WORKING_COPY_PLATFORM_FEATURE, IpcMainInvokeEvent> &
     TFeatureMainBindings<typeof DOCUMENT_FILES_PLATFORM_FEATURE, IpcMainInvokeEvent> &
-    TFeatureMainBindings<typeof DOCUMENT_PDF_PLATFORM_FEATURE, IpcMainInvokeEvent> &
-    TFeatureMainBindings<typeof DOCUMENT_RECENT_FILES_PLATFORM_FEATURE, IpcMainInvokeEvent> &
-    TFeatureMainBindings<typeof DOCUMENT_WINDOW_PLATFORM_FEATURE, IpcMainInvokeEvent> &
-    TFeatureMainBindings<typeof DOCUMENT_MENU_PLATFORM_FEATURE, IpcMainInvokeEvent>;
+    TFeatureMainBindings<typeof DOCUMENT_PDF_PLATFORM_FEATURE, IpcMainInvokeEvent>;
 
 /**
  * Registers what the platform-feature specs do not describe: renderer

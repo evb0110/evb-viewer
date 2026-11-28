@@ -19,7 +19,7 @@ import {createStartupTrace} from '@electron/bootstrap/createStartupTrace';
 import {config} from '@electron/config';
 import {runtimeConfig} from '@electron/runtimeConfig';
 import {registerIpcHandlers} from '@electron/platform-ipc/registerIpcHandlers';
-import type {TLazyMainSubsystem} from '@electron/platform-ipc/featureRegistrationDescriptors';
+import {prewarmDocumentsRuntime, type TLazyMainSubsystem} from '@electron/platform-ipc/featureRegistrationDescriptors';
 import {isTrustedWebContentsSender} from '@electron/platform-ipc/trustedIpcSender';
 import {CORE_IPC_SEND_CHANNELS} from '@electron/platform-ipc/coreContract';
 import {createRawIpcRegistrationAudit} from '@electron/platform-ipc/rawIpcRegistration';
@@ -32,8 +32,11 @@ import {
     captureMainFailure,
     consumeStartupCrashMarker,
     installStartupCrashMarker,
-    readDiagnosticsPreferenceSync,
+    isStartupSettingsSnapshotCurrent,
+    readCompleteSettingsSync,
+    readStartupSettingsSnapshotSync,
     setMainDiagnosticsPreference,
+    waitForMainDiagnosticsReady,
 } from '@electron/features/diagnostics/public';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {createAppWindow, createWindow, configureNativeWindowCloseHandshake, hasWindows} from '@electron/window';
@@ -44,7 +47,7 @@ import {markWindowTabTransferNotReady, markWindowTabTransferReady, markWindowTab
 import {configureLogDirectory, createLogger, flushPendingLogWrites, type ILogger} from '@electron/utils/createLogger';
 import {getErrorMessage} from '@electron/utils/error';
 import {registerAppProtocolScheme, setupAppProtocolHandler} from '@electron/protocol';
-import {loadSettings, resetSettingsCacheAfterUserDataPathChange} from '@electron/settings';
+import {loadSettings, resetSettingsCacheAfterUserDataPathChange, seedSettingsCache} from '@electron/settings';
 import {configureMacKeychainAccess} from '@electron/security/macKeychainAccess';
 import {
     beginMainOperationShutdown,
@@ -81,7 +84,8 @@ if (automationUserDataDir) {
 configureLogDirectory(app.getPath('logs'));
 initializeAppTempNamespace(app.getPath('userData'));
 resetSettingsCacheAfterUserDataPathChange();
-setMainDiagnosticsPreference(readDiagnosticsPreferenceSync());
+const initialSettingsSnapshot = readStartupSettingsSnapshotSync();
+setMainDiagnosticsPreference(initialSettingsSnapshot?.settings.clientDiagnosticsPreference ?? 'unknown');
 const disarmStartupCrashMarker = installStartupCrashMarker();
 
 const logger = createLogger('main');
@@ -267,6 +271,7 @@ const DEV_DOCK_BADGE_TEXT = 'DEV';
 
 let defaultViewerPromptShown = false;
 let defaultViewerPromptTimer: NodeJS.Timeout | null = null;
+let documentsRuntimePrewarmScheduled = false;
 
 function isMainWindowRendererReady() {
     const mainWindow = getRegisteredMainWindow();
@@ -761,6 +766,7 @@ void runInitSequence({
     initializeResourceRuntime: async () => {
         const settings = await loadSettings();
         setMainDiagnosticsPreference(settings.clientDiagnosticsPreference);
+        await waitForMainDiagnosticsReady();
         const resourceProfile = initializeHostResourceProfile({
             app,
             performanceMode: readLaunchPerformanceMode(settings),
@@ -787,11 +793,34 @@ void runInitSequence({
     logger,
     loadSettings,
     logStartupPhase: startupTrace.log,
-    onPrimaryInstanceReady: consumeStartupCrashMarker,
+    onPrimaryInstanceReady: () => {
+        if (initialSettingsSnapshot !== null && isStartupSettingsSnapshotCurrent(initialSettingsSnapshot)) {
+            seedSettingsCache(initialSettingsSnapshot.settings);
+        } else {
+            const lockedSettings = readCompleteSettingsSync();
+            setMainDiagnosticsPreference(lockedSettings?.clientDiagnosticsPreference ?? 'unknown');
+            if (lockedSettings !== null) {
+                seedSettingsCache(lockedSettings);
+            }
+        }
+        consumeStartupCrashMarker();
+    },
     publishWindowStartupPhase: (windowId, phase) => {
         publishWindowStartupPhase(windowId, phase);
         if (phase.phase !== 'shell-interactive' || windowId !== getRegisteredMainWindow()?.id) {
             return;
+        }
+        if (!documentsRuntimePrewarmScheduled && !isShutdownActive()) {
+            documentsRuntimePrewarmScheduled = true;
+            setImmediate(() => {
+                if (isShutdownActive()) {
+                    return;
+                }
+                runDetached(() => prewarmDocumentsRuntime(markSubsystemLoaded), {
+                    label: 'prewarm documents runtime',
+                    logger,
+                });
+            });
         }
         runDetached(
             async () => {

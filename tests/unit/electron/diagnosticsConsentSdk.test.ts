@@ -1,4 +1,5 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import type * as Fs from 'node:fs';
 const sdk = vi.hoisted(() => ({
     captureException: vi.fn(),
     client: null as {getOptions: () => {enabled?: boolean}} | null,
@@ -11,8 +12,21 @@ const sdk = vi.hoisted(() => ({
             flush: (timeout?: number) => Promise<boolean>;
         };
     },
+    readFileSync: vi.fn(),
+    rmSync: vi.fn(),
     send: vi.fn(),
+    useMockFs: false,
 }));
+
+vi.mock('node:fs', async (importOriginal) => {
+    const actual = await importOriginal<typeof Fs>();
+    return {
+        ...actual,
+        readFileSync: (...args: Parameters<typeof actual.readFileSync>) =>
+            sdk.useMockFs ? sdk.readFileSync(...args) : actual.readFileSync(...args),
+        rmSync: (...args: Parameters<typeof actual.rmSync>) => (sdk.useMockFs ? sdk.rmSync(...args) : actual.rmSync(...args)),
+    };
+});
 
 vi.mock('electron', () => ({
     app: {
@@ -55,6 +69,9 @@ describe('main diagnostics consent', () => {
         sdk.captureException.mockClear();
         sdk.options = null;
         sdk.send.mockReset();
+        sdk.readFileSync.mockReset();
+        sdk.rmSync.mockReset();
+        sdk.useMockFs = false;
     });
 
     afterEach(() => {
@@ -176,6 +193,88 @@ describe('main diagnostics consent', () => {
         await load;
         await Promise.resolve();
         expect(sender).toHaveBeenCalledOnce();
+    });
+
+    it('skips rmSync when the startup crash marker does not exist, and removes corrupt or valid markers', async () => {
+        sdk.useMockFs = true;
+        const diagnostics = await importWithDsn();
+
+        sdk.readFileSync.mockImplementationOnce(() => {
+            throw Object.assign(new Error('missing'), {code: 'ENOENT'});
+        });
+        diagnostics.consumeStartupCrashMarker();
+        expect(sdk.rmSync).not.toHaveBeenCalled();
+
+        sdk.readFileSync.mockReturnValueOnce('{corrupt');
+        diagnostics.consumeStartupCrashMarker();
+        expect(sdk.rmSync).toHaveBeenCalledOnce();
+
+        sdk.rmSync.mockClear();
+        diagnostics.setMainDiagnosticsPreference('granted');
+        sdk.readFileSync.mockReturnValueOnce(JSON.stringify({name: 'TypeError', message: 'boot boom', stack: 'TypeError: boot boom'}));
+        diagnostics.consumeStartupCrashMarker();
+        await vi.dynamicImportSettled();
+        expect(sdk.rmSync).toHaveBeenCalledOnce();
+        expect(sdk.captureException).toHaveBeenCalledOnce();
+    });
+
+    it('waits for an in-flight main SDK startup when consenting and resolves immediately otherwise', async () => {
+        const nonConsenting = await importWithDsn();
+        nonConsenting.setMainDiagnosticsPreference('denied');
+        await nonConsenting.waitForMainDiagnosticsReady();
+        expect(sdk.init).not.toHaveBeenCalled();
+
+        vi.resetModules();
+        const gate = deferred();
+        vi.doMock('@sentry/electron/main', async () => {
+            await gate.promise;
+            return {
+                IPCMode: {Classic: 1},
+                makeElectronTransport: () => ({
+                    send: sdk.send,
+                    flush: vi.fn(() => Promise.resolve(true)),
+                }),
+                init: (options: {enabled?: boolean}) => {
+                    sdk.options = options as typeof sdk.options;
+                    sdk.init(options);
+                    sdk.client = {getOptions: () => options};
+                },
+            };
+        });
+        try {
+            const consenting = await importWithDsn();
+            consenting.setMainDiagnosticsPreference('granted');
+
+            let ready = false;
+            const waiting = consenting.waitForMainDiagnosticsReady().then(() => {
+                ready = true;
+            });
+            await Promise.resolve();
+            await Promise.resolve();
+            expect(ready).toBe(false);
+            expect(sdk.init).not.toHaveBeenCalled();
+
+            gate.resolve();
+            await waiting;
+            expect(ready).toBe(true);
+            expect(sdk.init).toHaveBeenCalledOnce();
+        } finally {
+            vi.doUnmock('@sentry/electron/main');
+        }
+    });
+
+    it('keeps waitForMainDiagnosticsReady nonfatal when SDK startup fails', async () => {
+        vi.resetModules();
+        vi.doMock('@sentry/electron/main', () => {
+            throw new Error('simulated sentry import failure');
+        });
+        try {
+            const diagnostics = await importWithDsn();
+            diagnostics.setMainDiagnosticsPreference('granted');
+            await expect(diagnostics.waitForMainDiagnosticsReady()).resolves.toBeUndefined();
+        } finally {
+            vi.doUnmock('@sentry/electron/main');
+        }
     });
 });
 

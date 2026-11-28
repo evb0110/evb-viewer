@@ -1,5 +1,5 @@
 import {useRuntimeEnvironment} from '@app/composables/useRuntimeEnvironment';
-import {canUseBrowserOcr} from '@app/platform/browser-api/public';
+import {canUseBrowserOcr} from '@app/utils/browserOcrSupport';
 
 /**
  * Whether the workspace offers OCR: always on desktop, and in the browser
