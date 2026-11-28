@@ -1174,6 +1174,9 @@ export default {
         fileNamePageSelection: "pagina's {count}-geselecteerd_{first}-tot-{last}_id-{fingerprint}",
         failed: 'Kan het document niet voorbereiden voor afdrukken.',
         failedWithReason: 'Kan het document niet voorbereiden voor afdrukken: {reason}',
+        reducedResolutionTitle: 'Afdrukresolutie verlaagd voor geheugenveiligheid',
+        reducedResolutionDescription:
+            '{pages} pagina’s worden afgedrukt met verlaagde resolutie zodat de browser binnen de geheugenlimieten blijft. Druk voor volledige resolutie kleinere paginabereiken af.',
     },
     menu: {
         noRecentFiles: 'Geen recente bestanden',

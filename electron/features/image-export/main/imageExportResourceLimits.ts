@@ -1,11 +1,66 @@
 import {stat, statfs} from 'fs/promises';
+import {clamp} from 'es-toolkit/math';
+import type {IHostResourceProfileSnapshot} from '@contracts/hostResourceProfile';
 import type {IExportPageSize} from '@pdf-core/imageExportResolution';
+import type {IJobResourceVector} from '@electron/resources/jobBroker';
 export {IMAGE_EXPORT_MAX_NETPBM_READ_BYTES} from '@pdf-core/imageExportResolution';
 export type {IExportPageSize} from '@pdf-core/imageExportResolution';
 
-const IMAGE_EXPORT_MAX_PAGE_FILE_BYTES = 512 * 1024 * 1024;
-const IMAGE_EXPORT_MAX_STAGED_BYTES = 2 * 1024 * 1024 * 1024;
+const MIB = 1024 * 1024;
+const GIB = 1024 * MIB;
+const IMAGE_EXPORT_MAX_PAGE_FILE_BYTES = 512 * MIB;
+const IMAGE_EXPORT_MAX_STAGED_BYTES = 2 * GIB;
+const IMAGE_EXPORT_CONSTRAINED_BROKER_RESIDENT_BYTES = 2 * GIB;
+const IMAGE_EXPORT_DEFAULT_PER_TASK_RESIDENT_BYTES = 512 * MIB;
+const IMAGE_EXPORT_DEFAULT_MAX_CONCURRENCY = 12;
 const POINTS_PER_INCH = 72;
+
+export interface IResolveImageExportConcurrencyOptions {
+    capacity: IJobResourceVector;
+    hostProfile?: Pick<IHostResourceProfileSnapshot, 'logicalCpus' | 'totalRamBytes' | 'tier' | 'performanceMode'> | null;
+    perTaskResidentBytes?: number;
+    perTaskIoWeight?: number;
+    maxConcurrency?: number;
+}
+
+/**
+ * Sizes concurrent image-export page work from the main job broker capacity
+ * and host profile: bounded to 1 on constrained 2-core / 4 GiB or low-tier
+ * hosts, scaling smoothly on 8-32 core hosts without oversubscribing RAM,
+ * native processes, or I/O slots.
+ */
+export function resolveImageExportConcurrency({
+    capacity,
+    hostProfile = null,
+    perTaskResidentBytes = IMAGE_EXPORT_DEFAULT_PER_TASK_RESIDENT_BYTES,
+    perTaskIoWeight = 1,
+    maxConcurrency = IMAGE_EXPORT_DEFAULT_MAX_CONCURRENCY,
+}: IResolveImageExportConcurrencyOptions) {
+    const safeMaxConcurrency = Math.max(1, Math.floor(maxConcurrency));
+    if (
+        hostProfile &&
+        (hostProfile.tier === 'low' ||
+            hostProfile.performanceMode === 'low' ||
+            hostProfile.logicalCpus <= 2 ||
+            (hostProfile.totalRamBytes > 0 && hostProfile.totalRamBytes <= 4 * GIB))
+    ) {
+        return 1;
+    }
+
+    if (capacity.cpuTokens <= 2 || capacity.estimatedResidentBytes <= IMAGE_EXPORT_CONSTRAINED_BROKER_RESIDENT_BYTES) {
+        return 1;
+    }
+
+    const safePerTaskBytes = Math.max(1, perTaskResidentBytes);
+    const safePerTaskIoWeight = Math.max(1, perTaskIoWeight);
+    // Reserve one CPU token for interactive UI/main-process responsiveness.
+    const cpuBound = Math.max(1, Math.floor(capacity.cpuTokens) - 1);
+    const processBound = Math.max(1, Math.floor(capacity.nativeProcesses));
+    const memoryBound = Math.max(1, Math.floor(capacity.estimatedResidentBytes / safePerTaskBytes));
+    const ioBound = Math.max(1, Math.floor(capacity.ioWeight / safePerTaskIoWeight));
+
+    return clamp(Math.min(cpuBound, processBound, memoryBound, ioBound), 1, safeMaxConcurrency);
+}
 
 /**
  * Maximum number of exported file paths returned through one IPC result.

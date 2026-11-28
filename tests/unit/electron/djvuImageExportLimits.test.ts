@@ -811,6 +811,164 @@ describe('DjVu image export limits', () => {
             expect((await readdir(tempDir)).sort()).toEqual(['app-temp', 'book-part-001.tif', 'book-part-002.tif']);
         },
     );
+
+    it('exports multi-page DjVu PNGs and TIFFs in bounded broker-sized parallel waves with deterministic page ordering', async () => {
+        tempDir = await mkdtemp(join(tmpdir(), 'djvu-parallel-export-test-'));
+        const {JobBroker, resolveMainJobBrokerCapacity} = await import('@electron/resources/jobBroker');
+        const {exportDjvuAsMultiPageTiff, exportDjvuPagesAsPng} = await import('@electron/features/image-export/main/djvuImageExport');
+
+        mocks.getPageCount.mockResolvedValue(4);
+        mocks.getPageSizeWindows.mockImplementation(async function* () {
+            yield {
+                firstPage: 1,
+                sizes: Array.from({length: 4}, () => ({
+                    width: 1_000,
+                    height: 1_000,
+                    dpi: 300,
+                })),
+            };
+        });
+
+        let activeRenders = 0;
+        let peakRenders = 0;
+        let allowReverseFinish = true;
+        const pageGates = new Map<number, PromiseWithResolvers<void>>();
+        mocks.convertPage.mockImplementation(async (_source: string, ppmPath: string, page: number) => {
+            activeRenders += 1;
+            peakRenders = Math.max(peakRenders, activeRenders);
+            try {
+                // On parallel runs, hold odd pages until their even wave-mate finishes first,
+                // proving concurrent execution and deterministic output ordering without timers.
+                if (allowReverseFinish && page % 2 === 1) {
+                    const gate = Promise.withResolvers<void>();
+                    pageGates.set(page, gate);
+                    await gate.promise;
+                }
+                await writeFile(ppmPath, `ppm-${page}`);
+                if (allowReverseFinish && page % 2 === 0) {
+                    pageGates.get(page - 1)?.resolve();
+                }
+                return {
+                    success: true,
+                    outputPath: ppmPath,
+                    fileSize: 16,
+                };
+            } finally {
+                activeRenders -= 1;
+            }
+        });
+        mocks.convertPpmToImage.mockImplementation(async (ppmPath: string) => {
+            const pngPath = `${ppmPath}.png`;
+            await writeFile(pngPath, await readFile(ppmPath));
+            return pngPath;
+        });
+
+        // Multi-core broker runs pages in parallel (capped to the shared 2-worker DjVu pool) and preserves exact page order.
+        const pngOutputs = await exportDjvuPagesAsPng('/books/parallel.djvu', join(tempDir, 'doc.png'), {
+            scratch: {using: async (_prefix, run) => run(tempDir)},
+        });
+        expect(peakRenders).toBe(2);
+        expect(pngOutputs).toEqual([
+            join(tempDir, 'doc-page-001.png'),
+            join(tempDir, 'doc-page-002.png'),
+            join(tempDir, 'doc-page-003.png'),
+            join(tempDir, 'doc-page-004.png'),
+        ]);
+
+        // Multi-page TIFF also renders pages in parallel and passes them to the combiner in exact page order.
+        let tiffCombinedPaths: string[] = [];
+        mocks.combineTiff.mockImplementation(async (batchPaths: string[]) => {
+            tiffCombinedPaths = [...batchPaths];
+            return true;
+        });
+        peakRenders = 0;
+        pageGates.clear();
+        await exportDjvuAsMultiPageTiff('/books/parallel.djvu', join(tempDir, 'doc.tiff'), {
+            scratch: {using: async (_prefix, run) => run(tempDir)},
+        });
+        expect(peakRenders).toBe(2);
+        expect(tiffCombinedPaths.map((path) => path.slice(path.lastIndexOf('page-')))).toEqual([
+            'page-1.ppm',
+            'page-2.ppm',
+            'page-3.ppm',
+            'page-4.ppm',
+        ]);
+
+        // Constrained 2-core / 4 GiB broker capacity bounds concurrency strictly to 1.
+        const gib = 1024 ** 3;
+        mocks.broker = new JobBroker(
+            resolveMainJobBrokerCapacity({
+                logicalCpus: 2,
+                totalRamBytes: 4 * gib,
+                safeMode: false,
+                detectedTier: 'low',
+                performanceMode: 'auto',
+                tier: 'low',
+            }),
+        );
+        allowReverseFinish = false;
+        peakRenders = 0;
+        await exportDjvuPagesAsPng('/books/low.djvu', join(tempDir, 'low.png'), {
+            scratch: {using: async (_prefix, run) => run(tempDir)},
+        });
+        expect(peakRenders).toBe(1);
+    });
+
+    it('aborts in-flight sibling DjVu renders and cleans up scratch when canceled mid-wave', async () => {
+        tempDir = await mkdtemp(join(tmpdir(), 'djvu-parallel-abort-test-'));
+        const {exportDjvuPagesAsPng} = await import('@electron/features/image-export/main/djvuImageExport');
+
+        mocks.getPageCount.mockResolvedValue(3);
+        mocks.getPageSizeWindows.mockImplementation(async function* () {
+            yield {
+                firstPage: 1,
+                sizes: Array.from({length: 3}, () => ({
+                    width: 1_000,
+                    height: 1_000,
+                    dpi: 300,
+                })),
+            };
+        });
+
+        const startedPages: number[] = [];
+        const abortedPages: number[] = [];
+        const controller = new AbortController();
+        mocks.convertPage.mockImplementation(
+            async (_source: string, _ppmPath: string, page: number, _jobId: string, options?: {signal?: AbortSignal}) => {
+                startedPages.push(page);
+                return await new Promise((_resolve, reject) => {
+                    const onAbort = () => {
+                        abortedPages.push(page);
+                        reject(new DOMException('Aborted', 'AbortError'));
+                    };
+                    if (options?.signal?.aborted) {
+                        onAbort();
+                        return;
+                    }
+                    options?.signal?.addEventListener('abort', onAbort, {once: true});
+                    if (startedPages.length === 2) {
+                        queueMicrotask(() => controller.abort());
+                    }
+                });
+            },
+        );
+
+        await expect(
+            exportDjvuPagesAsPng('/books/abort.djvu', join(tempDir, 'abort.png'), {
+                signal: controller.signal,
+                scratch: {using: async (_prefix, run) => run(tempDir)},
+            }),
+        ).rejects.toMatchObject({name: 'AbortError'});
+
+        expect(startedPages.sort()).toEqual([1, 2]);
+        expect(abortedPages.sort()).toEqual([1, 2]);
+        expect((await readdir(tempDir)).filter((name) => name.endsWith('.ppm'))).toEqual([]);
+        expect(mocks.promoteStagedFiles).not.toHaveBeenCalled();
+        expect(mocks.broker!.getSnapshot()).toMatchObject({
+            active: 0,
+            queued: 0,
+        });
+    });
 });
 
 describe('DjVu size estimates', () => {

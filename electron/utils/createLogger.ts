@@ -1,6 +1,5 @@
 import {isMainThread, threadId} from 'worker_threads';
-import {statSync} from 'fs';
-import {appendFile, mkdir, readdir, rename, rm} from 'fs/promises';
+import {appendFile, mkdir, readdir, rename, rm, stat} from 'fs/promises';
 import {join} from 'path';
 import {sortBy} from 'es-toolkit/array';
 import {sumBy} from 'es-toolkit/math';
@@ -14,7 +13,7 @@ import {
 } from '@contracts/diagnostics/failureReceipt';
 import {captureMainFailure} from '@electron/utils/captureMainFailure';
 import {CORE_IPC_EVENT_CHANNELS} from '@electron/platform-ipc/coreContract';
-import {redactLogText} from '@contracts/redactLogText';
+import {isSecretLogKey, mayContainRedactableLogText, redactLogText} from '@contracts/redactLogText';
 import {
     APP_LOG_FILE_NAME,
     formatLogData,
@@ -68,6 +67,7 @@ interface IFileLogState {
     queue: Promise<void>;
     initialized: boolean;
     approximateBytes: number;
+    lastStatAt: number;
     pendingWrites: number;
     droppedWrites: number;
     buffer: string[];
@@ -91,6 +91,7 @@ const LOG_DIR_MAX_BYTES = 96 * 1024 * 1024;
 const LOG_WRITE_QUEUE_MAX_PENDING = 4_000;
 const LOG_WRITE_FLUSH_INTERVAL_MS = 100;
 const LOG_WRITE_FLUSH_BYTES = 16 * 1024;
+const LOG_FILE_STAT_SYNC_INTERVAL_MS = 30 * 1_000;
 const LOG_DIR_PRUNE_INTERVAL_MS = 60 * 1_000;
 
 /**
@@ -119,6 +120,7 @@ const fileLogState: IFileLogState = {
     queue: Promise.resolve(),
     initialized: false,
     approximateBytes: 0,
+    lastStatAt: 0,
     pendingWrites: 0,
     droppedWrites: 0,
     buffer: [],
@@ -166,9 +168,11 @@ async function initializeState(state: IFileLogState, appLogFile: string, logDire
     }
 
     try {
-        state.approximateBytes = statSync(appLogFile).size;
+        state.approximateBytes = (await stat(appLogFile)).size;
+        state.lastStatAt = Date.now();
     } catch {
         state.approximateBytes = 0;
+        state.lastStatAt = Date.now();
     }
 }
 
@@ -237,7 +241,7 @@ async function pruneLogDirectory(force = false) {
                 continue;
             }
             try {
-                const fileStat = statSync(filePath);
+                const fileStat = await stat(filePath);
                 if (!fileStat.isFile()) {
                     continue;
                 }
@@ -322,14 +326,19 @@ function flushState(state: IFileLogState) {
             const payload = `${linesToWrite.join('\n')}\n`;
             const payloadBytes = Buffer.byteLength(payload, 'utf8');
 
-            if (isMainThread && state.approximateBytes + payloadBytes > LOG_FILE_MAX_BYTES) {
-                // Workers append to the same file, so re-read the real size
-                // before deciding to rotate.
+            const now = Date.now();
+            const shouldRefreshFileSize =
+                isMainThread &&
+                (state.approximateBytes + payloadBytes > LOG_FILE_MAX_BYTES || now - state.lastStatAt >= LOG_FILE_STAT_SYNC_INTERVAL_MS);
+            if (shouldRefreshFileSize) {
+                // Workers append to the same file, so refresh the real size
+                // asynchronously when approaching the cap or periodically.
                 try {
-                    state.approximateBytes = statSync(appLogFile).size;
+                    state.approximateBytes = (await stat(appLogFile)).size;
                 } catch {
                     state.approximateBytes = 0;
                 }
+                state.lastStatAt = now;
                 if (state.approximateBytes + payloadBytes > LOG_FILE_MAX_BYTES) {
                     await rotateFile(appLogFile);
                     state.approximateBytes = 0;
@@ -420,27 +429,138 @@ export async function flushPendingLogWrites() {
     await flushState(fileLogState).catch(() => undefined);
 }
 
-/** Redacts data with the one log redaction policy, keeping its structure. */
+function redactStructuredString(value: string): string {
+    if (!mayContainRedactableLogText(value)) {
+        return value;
+    }
+    const quoted = JSON.stringify(value);
+    const redactedQuoted = redactLogText(quoted);
+    if (redactedQuoted !== quoted) {
+        try {
+            const parsed: unknown = JSON.parse(redactedQuoted);
+            if (typeof parsed === 'string') {
+                return redactLogText(parsed);
+            }
+        } catch {
+            // Fall through to direct text redaction when quote balance changed.
+        }
+    }
+    return redactLogText(value);
+}
+
+const UNSERIALIZABLE_LOG_DATA = Symbol('unserializable-log-data');
+
+function redactStructuredValue(value: unknown, seen: WeakSet<object>): unknown {
+    if (value === null || value === undefined) {
+        return value;
+    }
+    switch (typeof value) {
+        case 'string':
+            return redactStructuredString(value);
+        case 'number':
+        case 'boolean':
+            return value;
+        case 'bigint':
+            return UNSERIALIZABLE_LOG_DATA;
+        case 'function':
+        case 'symbol':
+            return undefined;
+        case 'object':
+            break;
+    }
+
+    const objectValue = value as object;
+    if (seen.has(objectValue)) {
+        return UNSERIALIZABLE_LOG_DATA;
+    }
+    if (typeof (objectValue as {toJSON?: unknown}).toJSON === 'function') {
+        let serialized: string;
+        try {
+            serialized = JSON.stringify(objectValue);
+        } catch {
+            return UNSERIALIZABLE_LOG_DATA;
+        }
+        const redacted = redactLogText(serialized);
+        if (redacted === serialized) {
+            return objectValue;
+        }
+        try {
+            return JSON.parse(redacted);
+        } catch {
+            return redacted;
+        }
+    }
+
+    seen.add(objectValue);
+    try {
+        if (Array.isArray(objectValue)) {
+            let changed = false;
+            const copy = new Array<unknown>(objectValue.length);
+            for (let index = 0; index < objectValue.length; index += 1) {
+                const entry = redactStructuredValue(objectValue[index], seen);
+                if (entry === UNSERIALIZABLE_LOG_DATA) {
+                    return UNSERIALIZABLE_LOG_DATA;
+                }
+                copy[index] = entry;
+                if (entry !== objectValue[index]) {
+                    changed = true;
+                }
+            }
+            return changed ? copy : objectValue;
+        }
+
+        const record = objectValue as Record<string, unknown>;
+        let changed = false;
+        const copy: TLogData = {};
+        for (const key of Object.keys(record)) {
+            let rawEntry: unknown;
+            try {
+                rawEntry = record[key];
+            } catch {
+                return UNSERIALIZABLE_LOG_DATA;
+            }
+            if (rawEntry === undefined || typeof rawEntry === 'function' || typeof rawEntry === 'symbol') {
+                continue;
+            }
+            const nextKey = redactStructuredString(key);
+            if (nextKey !== key) {
+                changed = true;
+            }
+            if (isSecretLogKey(key)) {
+                copy[nextKey] = '[redacted-secret]';
+                if (rawEntry !== '[redacted-secret]') {
+                    changed = true;
+                }
+                continue;
+            }
+            const nextEntry = redactStructuredValue(rawEntry, seen);
+            if (nextEntry === UNSERIALIZABLE_LOG_DATA) {
+                return UNSERIALIZABLE_LOG_DATA;
+            }
+            copy[nextKey] = nextEntry;
+            if (nextEntry !== rawEntry) {
+                changed = true;
+            }
+        }
+        return changed ? copy : objectValue;
+    } finally {
+        seen.delete(objectValue);
+    }
+}
+
+/**
+ * Redacts structured data with the one log redaction policy without round-tripping
+ * the entire object through JSON.stringify + JSON.parse on every log call.
+ */
 export function redactLogData(data: TLogData | undefined): TLogData | undefined {
     if (!data) {
         return undefined;
     }
-    let serialized: string;
-    try {
-        serialized = JSON.stringify(data);
-    } catch {
+    const redacted = redactStructuredValue(data, new WeakSet<object>());
+    if (redacted === UNSERIALIZABLE_LOG_DATA) {
         return {value: '[Unserializable]'};
     }
-    const redacted = redactLogText(serialized);
-    if (redacted === serialized) {
-        return data;
-    }
-    try {
-        const parsed: unknown = JSON.parse(redacted);
-        return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) ? (parsed as TLogData) : {value: redacted};
-    } catch {
-        return {value: redacted};
-    }
+    return typeof redacted === 'object' && redacted !== null && !Array.isArray(redacted) ? (redacted as TLogData) : {value: redacted};
 }
 
 /** `stdout: false` keeps a record out of the stdout mirror (the launcher already sees it). */

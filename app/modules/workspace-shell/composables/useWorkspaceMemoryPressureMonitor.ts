@@ -57,6 +57,8 @@ export const useWorkspaceMemoryPressureMonitor = () => {
         return true;
     };
 
+    const isDocumentHidden = () => typeof document !== 'undefined' && document.visibilityState === 'hidden';
+
     sample();
     const host = getHostCapability();
     const unsubscribeRasterBudget = host.onRasterBudgetChange((snapshot) => {
@@ -76,12 +78,44 @@ export const useWorkspaceMemoryPressureMonitor = () => {
             message: 'Failed to read host raster budget',
         },
     );
+
+    const interval = useIntervalFn(
+        () => {
+            if (!disposed && !isDocumentHidden()) {
+                sample();
+            }
+        },
+        MEMORY_SAMPLE_INTERVAL_MS,
+        {immediate: !isDocumentHidden()},
+    );
+
+    const handleVisibilityChange = () => {
+        if (disposed) {
+            return;
+        }
+        if (isDocumentHidden()) {
+            interval?.pause();
+            return;
+        }
+        sample();
+        interval?.resume();
+    };
+
+    const removeVisibilityListener =
+        typeof document !== 'undefined' && typeof document.addEventListener === 'function'
+            ? (() => {
+                  document.addEventListener('visibilitychange', handleVisibilityChange);
+                  return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+              })()
+            : () => undefined;
+
     if (getCurrentScope()) {
         onScopeDispose(() => {
             disposed = true;
+            interval?.pause();
+            removeVisibilityListener();
             unsubscribeRasterBudget();
         });
     }
-    useIntervalFn(sample, MEMORY_SAMPLE_INTERVAL_MS);
     return readonly(currentBudget);
 };

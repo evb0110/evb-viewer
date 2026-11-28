@@ -25,8 +25,27 @@ const mocks = vi.hoisted(() => ({
         };
     }),
     intervalCallbacks: [] as Array<() => void>,
-    useIntervalFn: vi.fn((callback: () => void) => {
+    intervalPaused: false,
+    intervalPauseCalls: 0,
+    intervalResumeCalls: 0,
+    useIntervalFn: vi.fn((callback: () => void, _intervalMs?: number, options?: {immediate?: boolean}) => {
         mocks.intervalCallbacks.push(callback);
+        mocks.intervalPaused = options?.immediate === false;
+        return {
+            isActive: {
+                get value() {
+                    return !mocks.intervalPaused;
+                },
+            },
+            pause: () => {
+                mocks.intervalPaused = true;
+                mocks.intervalPauseCalls += 1;
+            },
+            resume: () => {
+                mocks.intervalPaused = false;
+                mocks.intervalResumeCalls += 1;
+            },
+        };
     }),
 }));
 
@@ -77,6 +96,9 @@ describe('workspace memory pressure monitor', () => {
         vi.resetModules();
         vi.clearAllMocks();
         mocks.intervalCallbacks.length = 0;
+        mocks.intervalPaused = false;
+        mocks.intervalPauseCalls = 0;
+        mocks.intervalResumeCalls = 0;
         mocks.rasterBudgetListeners.clear();
         mocks.getRasterBudget.mockResolvedValue(null);
         useHost(32 * GIB, 16 * GIB, 8, 'high');
@@ -353,5 +375,82 @@ describe('workspace memory pressure monitor', () => {
         await Promise.resolve();
         await Promise.resolve();
         expect(controller.getSnapshot().maxBytes).toBe(1536 * MIB);
+    });
+
+    it('pauses polling when the document is hidden, resumes and samples on visibility return, and cleans up on dispose', async () => {
+        const listeners = new Set<() => void>();
+        let visibilityState: DocumentVisibilityState = 'visible';
+        vi.stubGlobal('document', {
+            get visibilityState() {
+                return visibilityState;
+            },
+            addEventListener: (event: string, listener: () => void) => {
+                if (event === 'visibilitychange') {
+                    listeners.add(listener);
+                }
+            },
+            removeEventListener: (event: string, listener: () => void) => {
+                if (event === 'visibilitychange') {
+                    listeners.delete(listener);
+                }
+            },
+        });
+        try {
+            const {controller, useWorkspaceMemoryPressureMonitor, runInterval} = await loadMonitor();
+            const scope = effectScope();
+            scope.run(() => useWorkspaceMemoryPressureMonitor());
+
+            expect(mocks.intervalPaused).toBe(false);
+            expect(listeners.size).toBe(1);
+            expect(mocks.getMemoryInfo).toHaveBeenCalledTimes(1);
+
+            // Hide window: interval pauses and stray ticks do not sample.
+            visibilityState = 'hidden';
+            for (const listener of listeners) {
+                listener();
+            }
+            expect(mocks.intervalPaused).toBe(true);
+            expect(mocks.intervalPauseCalls).toBe(1);
+
+            useHost(32 * GIB, 1 * GIB, 8, 'high');
+            runInterval();
+            expect(mocks.getMemoryInfo).toHaveBeenCalledTimes(1);
+            expect(controller.getSnapshot().pressureLevel).toBe('none');
+
+            // Show window again: samples immediately and resumes interval.
+            visibilityState = 'visible';
+            for (const listener of listeners) {
+                listener();
+            }
+            expect(mocks.intervalPaused).toBe(false);
+            expect(mocks.intervalResumeCalls).toBe(1);
+            expect(mocks.getMemoryInfo).toHaveBeenCalledTimes(2);
+            expect(controller.getSnapshot().pressureLevel).toBe('critical');
+
+            // Unmount/dispose removes listener and pauses polling.
+            scope.stop();
+            expect(listeners.size).toBe(0);
+            expect(mocks.intervalPaused).toBe(true);
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it('starts polling paused when mounted in an already-hidden document while keeping the initial budget sample', async () => {
+        vi.stubGlobal('document', {
+            visibilityState: 'hidden',
+            addEventListener: vi.fn(),
+            removeEventListener: vi.fn(),
+        });
+        try {
+            useHost(4 * GIB, 2 * GIB, 4, 'low');
+            const {controller, useWorkspaceMemoryPressureMonitor} = await loadMonitor();
+            useWorkspaceMemoryPressureMonitor();
+
+            expect(mocks.intervalPaused).toBe(true);
+            expect(controller.getSnapshot().maxBytes).toBe(Math.ceil(4 * GIB * 0.06));
+        } finally {
+            vi.unstubAllGlobals();
+        }
     });
 });

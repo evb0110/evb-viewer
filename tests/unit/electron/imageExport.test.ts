@@ -243,10 +243,26 @@ vi.mock('@electron/utils/workerTask', async () => {
                 : actual.resolveUnpackedWorkerPath(...args),
         runResultWorkerTask: async (options: {signal?: AbortSignal; workerData: unknown}) => {
             const workerData = options.workerData as {
+                task?: unknown;
+                sourcePath?: unknown;
+                pngPath?: unknown;
+                dpi?: unknown;
                 deleteSourcePages?: unknown;
                 outputPath?: unknown;
                 pagePaths?: unknown;
             };
+            if (workerData.task === 'ppm-to-png') {
+                if (
+                    typeof workerData.sourcePath !== 'string' ||
+                    typeof workerData.pngPath !== 'string' ||
+                    typeof workerData.dpi !== 'number'
+                ) {
+                    throw new Error('Invalid mock PPM-to-PNG worker payload');
+                }
+                const {convertRenderedPpmToPngJs} = await import('@electron/features/image-export/main/convertPpmToPngJs');
+                await convertRenderedPpmToPngJs(workerData.sourcePath, workerData.pngPath, workerData.dpi, options.signal);
+                return undefined;
+            }
             if (
                 typeof workerData.outputPath !== 'string' ||
                 !Array.isArray(workerData.pagePaths) ||
@@ -328,12 +344,13 @@ const {
     createStagedFilePublicationLedger,
     rollbackStagedFilePublications,
 } = await import('@electron/features/image-export/main/export');
-const {IMAGE_EXPORT_MAX_NETPBM_READ_BYTES} = await import('@electron/features/image-export/main/imageExportResourceLimits');
+const {IMAGE_EXPORT_MAX_NETPBM_READ_BYTES, resolveImageExportConcurrency} =
+    await import('@electron/features/image-export/main/imageExportResourceLimits');
 const {buildOutputPathWithSuffix} = await import('@electron/utils/boundedPathComponent');
 const {resolveSuffixedOutputPathConflicts} = await import('@electron/features/image-export/main/imageExportPathPlanning');
 const {combinePagesIntoMultiPageTiffLocal} = await import('@electron/features/image-export/main/combinePagesIntoMultiPageTiffLocal');
 const {TiffCombineWorkerStartupError} = await import('@electron/features/image-export/main/tiffCombineWorkerStartupError');
-const {JobBroker} = await import('@electron/resources/jobBroker');
+const {JobBroker, resolveMainJobBrokerCapacity} = await import('@electron/resources/jobBroker');
 const {buildMultiPageTiffOutputSuffixes} = await import('@pdf-core/imageExportFileName');
 
 const UTIF = utifModule as typeof utifModule & ITiffEncoderModule;
@@ -3494,5 +3511,316 @@ describe('image export', () => {
             ),
         ).resolves.toEqual([publishedPaths[0]]);
         await rollbackStagedFilePublications(ledger);
+    });
+
+    it('sizes image export concurrency from broker capacity and host profile without oversubscribing constrained hosts', () => {
+        const gib = 1024 ** 3;
+        const lowProfile = {
+            logicalCpus: 2,
+            totalRamBytes: 4 * gib,
+            safeMode: false,
+            detectedTier: 'low' as const,
+            performanceMode: 'auto' as const,
+            tier: 'low' as const,
+        };
+        const mediumProfile = {
+            logicalCpus: 4,
+            totalRamBytes: 8 * gib,
+            safeMode: false,
+            detectedTier: 'medium' as const,
+            performanceMode: 'auto' as const,
+            tier: 'medium' as const,
+        };
+        const high8Profile = {
+            logicalCpus: 8,
+            totalRamBytes: 16 * gib,
+            safeMode: false,
+            detectedTier: 'high' as const,
+            performanceMode: 'auto' as const,
+            tier: 'high' as const,
+        };
+        const high16Profile = {
+            logicalCpus: 16,
+            totalRamBytes: 32 * gib,
+            safeMode: false,
+            detectedTier: 'high' as const,
+            performanceMode: 'auto' as const,
+            tier: 'high' as const,
+        };
+        const high32Profile = {
+            logicalCpus: 32,
+            totalRamBytes: 64 * gib,
+            safeMode: false,
+            detectedTier: 'high' as const,
+            performanceMode: 'auto' as const,
+            tier: 'high' as const,
+        };
+
+        expect(
+            resolveImageExportConcurrency({
+                capacity: resolveMainJobBrokerCapacity(lowProfile),
+                hostProfile: lowProfile,
+            }),
+        ).toBe(1);
+        expect(
+            resolveImageExportConcurrency({
+                capacity: resolveMainJobBrokerCapacity(lowProfile),
+                hostProfile: null,
+            }),
+        ).toBe(1);
+        expect(
+            resolveImageExportConcurrency({
+                capacity: resolveMainJobBrokerCapacity(high16Profile),
+                hostProfile: {
+                    ...high16Profile,
+                    performanceMode: 'low',
+                },
+            }),
+        ).toBe(1);
+        expect(
+            resolveImageExportConcurrency({
+                capacity: resolveMainJobBrokerCapacity(mediumProfile),
+                hostProfile: mediumProfile,
+            }),
+        ).toBe(2);
+        expect(
+            resolveImageExportConcurrency({
+                capacity: resolveMainJobBrokerCapacity(high8Profile),
+                hostProfile: high8Profile,
+            }),
+        ).toBe(4);
+        expect(
+            resolveImageExportConcurrency({
+                capacity: resolveMainJobBrokerCapacity(high16Profile),
+                hostProfile: high16Profile,
+            }),
+        ).toBe(8);
+        expect(
+            resolveImageExportConcurrency({
+                capacity: resolveMainJobBrokerCapacity(high32Profile),
+                hostProfile: high32Profile,
+            }),
+        ).toBe(12);
+    });
+
+    it('bounds native PPM-to-PNG conversion concurrency to 1 on 2-core / 4 GiB broker capacity and scales on high-tier capacity', async () => {
+        const gib = 1024 ** 3;
+        mocks.renderPageCount = 4;
+        mocks.pdfPageCount = 4;
+        mocks.nativeImageCombinePath = '/native/evb-pdf-image-combine';
+        const defaultRunCommand = mocks.runCommand.getMockImplementation()!;
+
+        const measurePeakConcurrency = async (
+            capacity: ReturnType<typeof resolveMainJobBrokerCapacity>,
+            waitForConcurrentSiblings: number,
+        ) => {
+            mocks.broker = new JobBroker(capacity);
+            let active = 0;
+            let peak = 0;
+            const barrier = Promise.withResolvers<void>();
+            mocks.runCommand.mockImplementation(async (command: string, args: string[], options?: unknown) => {
+                if (command !== mocks.nativeImageCombinePath) {
+                    return defaultRunCommand(command, args, options);
+                }
+                active += 1;
+                peak = Math.max(peak, active);
+                try {
+                    if (waitForConcurrentSiblings > 1) {
+                        if (active >= waitForConcurrentSiblings) {
+                            barrier.resolve();
+                        }
+                        await barrier.promise;
+                    } else {
+                        await Promise.resolve();
+                    }
+                    return await defaultRunCommand(command, args, options);
+                } finally {
+                    active -= 1;
+                }
+            });
+            await exportPdfPagesAsImages('/tmp/input.pdf', join(tempDir, `concurrency-${capacity.cpuTokens}.png`));
+            return peak;
+        };
+
+        const lowPeak = await measurePeakConcurrency(
+            resolveMainJobBrokerCapacity({
+                logicalCpus: 2,
+                totalRamBytes: 4 * gib,
+                safeMode: false,
+                detectedTier: 'low',
+                performanceMode: 'auto',
+                tier: 'low',
+            }),
+            1,
+        );
+        const highPeak = await measurePeakConcurrency(
+            resolveMainJobBrokerCapacity({
+                logicalCpus: 8,
+                totalRamBytes: 16 * gib,
+                safeMode: false,
+                detectedTier: 'high',
+                performanceMode: 'auto',
+                tier: 'high',
+            }),
+            4,
+        );
+
+        expect(lowPeak).toBe(1);
+        expect(highPeak).toBe(4);
+    });
+
+    it('offloads JS PNG fallback encoding to a real worker_thread with DPI metadata and abort cleanup', async () => {
+        const {build} = await import('esbuild');
+        mocks.tiffWorkerPath = join(tempDir, 'image-export-ppm-worker.mjs');
+        await build({
+            entryPoints: ['electron/features/image-export/main/tiffCombineWorker.ts'],
+            outfile: mocks.tiffWorkerPath,
+            bundle: true,
+            platform: 'node',
+            format: 'esm',
+            external: ['electron'],
+            tsconfig: 'tsconfig.base.json',
+        });
+        const actualWorkerTask = await vi.importActual<typeof WorkerTask>('@electron/utils/workerTask');
+        const workerSpy = vi.spyOn(workerTask, 'runResultWorkerTask').mockImplementation(actualWorkerTask.runResultWorkerTask);
+        try {
+            mocks.stat.mockImplementation(realFs.stat);
+            mocks.rename.mockImplementation(realFs.rename);
+            mocks.atomicReplace.mockImplementation(realAtomicReplace.atomicReplace);
+            const {convertRenderedPpmToImage} = await import('@electron/features/image-export/main/export');
+
+            const rgbPpm = join(tempDir, 'worker-rgb.ppm');
+            await writeFile(rgbPpm, Buffer.concat([Buffer.from('P6\n2 1\n255\n'), Buffer.from([12, 34, 56, 200, 100, 50])]));
+            const rgbPngPath = await convertRenderedPpmToImage(rgbPpm, 'png', undefined, undefined, 240);
+            expect(rgbPngPath).toBe(join(tempDir, 'worker-rgb.png'));
+            expect(existsSync(rgbPpm)).toBe(false);
+            expect(workerSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    workerPath: mocks.tiffWorkerPath,
+                    workerData: expect.objectContaining({
+                        task: 'ppm-to-png',
+                        dpi: 240,
+                    }),
+                }),
+            );
+            const decodedRgb = decodePng(await readFile(rgbPngPath));
+            expect(decodedRgb.width).toBe(2);
+            expect(decodedRgb.height).toBe(1);
+            expect(decodedRgb.channels).toBe(3);
+            expect(Array.from(decodedRgb.data)).toEqual([12, 34, 56, 200, 100, 50]);
+            expect(readImageDpi(new Uint8Array(await readFile(rgbPngPath)), '.png')).toBe(240);
+
+            // Grayscale lossless collapse also runs inside the worker thread.
+            const grayPpm = join(tempDir, 'worker-gray.ppm');
+            await writeFile(grayPpm, Buffer.concat([Buffer.from('P6\n1 1\n255\n'), Buffer.from([99, 99, 99])]));
+            const grayPngPath = await convertRenderedPpmToImage(grayPpm, 'png', undefined, undefined, 300);
+            const decodedGray = decodePng(await readFile(grayPngPath));
+            expect(decodedGray.channels).toBe(1);
+            expect(Array.from(decodedGray.data)).toEqual([99]);
+
+            // Already-aborted signal rejects before writing PNG and preserves source PPM.
+            const abortedPpm = join(tempDir, 'worker-aborted.ppm');
+            await writeFile(abortedPpm, Buffer.concat([Buffer.from('P6\n1 1\n255\n'), Buffer.from([1, 2, 3])]));
+            const controller = new AbortController();
+            controller.abort();
+            await expect(convertRenderedPpmToImage(abortedPpm, 'png', controller.signal, undefined, 300)).rejects.toMatchObject({
+                name: 'AbortError',
+            });
+            expect(existsSync(join(tempDir, 'worker-aborted.png'))).toBe(false);
+            expect(existsSync(abortedPpm)).toBe(true);
+        } finally {
+            workerSpy.mockRestore();
+        }
+    });
+
+    it('admits JS PNG fallback conversions through mainJobBroker and releases leases cleanly', async () => {
+        const {convertRenderedPpmToImage} = await import('@electron/features/image-export/main/export');
+        mocks.stat.mockImplementation(realFs.stat);
+        mocks.rename.mockImplementation(realFs.rename);
+
+        const ppmPath = join(tempDir, 'broker-admitted.ppm');
+        await writeFile(ppmPath, Buffer.concat([Buffer.from('P6\n1 1\n255\n'), Buffer.from([10, 20, 30])]));
+
+        // Saturate the broker so the JS fallback must wait for admission rather than bypassing it.
+        const blockingLease = await mocks.broker!.acquire({
+            ownerId: 'blocker',
+            kind: 'blocking-job',
+            priority: 'user',
+            resources: mocks.broker!.getSnapshot().capacity,
+        });
+        let settled = false;
+        const conversionPromise = convertRenderedPpmToImage(ppmPath, 'png', undefined, 'group-1', 300).finally(() => {
+            settled = true;
+        });
+
+        await vi.waitFor(() => expect(mocks.broker!.getSnapshot().queued).toBe(1));
+        expect(settled).toBe(false);
+
+        blockingLease.release();
+        const pngPath = await conversionPromise;
+        expectSinglePixelPng(new Uint8Array(await readFile(pngPath)), [10, 20, 30]);
+        expect(mocks.broker!.getSnapshot()).toMatchObject({
+            active: 0,
+            queued: 0,
+        });
+    });
+
+    it('drains active sibling PPM conversions and preserves scratch if a sibling fails with unproven termination', async () => {
+        mocks.renderPageCount = 4;
+        mocks.pdfPageCount = 4;
+        mocks.nativeImageCombinePath = '/native/evb-pdf-image-combine';
+        // Concurrency = 2 so pages 1 & 2 start concurrently while pages 3 & 4 remain queued.
+        mocks.broker = new JobBroker({
+            cpuTokens: 3,
+            estimatedResidentBytes: 6 * 1024 ** 3,
+            nativeProcesses: 2,
+            ioWeight: 4,
+        });
+
+        const defaultRunCommand = mocks.runCommand.getMockImplementation()!;
+        const startedInputs: string[] = [];
+        const page2Started = Promise.withResolvers<void>();
+        let page2SettledBeforeReject = false;
+
+        mocks.runCommand.mockImplementation(async (command: string, args: string[], options?: {signal?: AbortSignal}) => {
+            if (command !== mocks.nativeImageCombinePath) {
+                return defaultRunCommand(command, args, options);
+            }
+            const inputPath = args.at(-1)!;
+            startedInputs.push(basename(inputPath));
+            if (inputPath.endsWith('page-1.ppm')) {
+                await page2Started.promise;
+                throw Object.assign(new Error('page 1 build mismatch'), {name: 'NativeToolBuildMismatchError'});
+            }
+            // Page 2 stays active until aborted by page 1's failure, then ends with unproven termination.
+            page2Started.resolve();
+            await new Promise<void>((resolve) => {
+                if (options?.signal?.aborted) {
+                    resolve();
+                    return;
+                }
+                options?.signal?.addEventListener('abort', () => resolve(), {once: true});
+            });
+            await Promise.resolve();
+            page2SettledBeforeReject = true;
+            throw markUnprovenNativeTermination(new Error('page 2 writer unverified'), 'page 2 child was not proven dead');
+        });
+
+        await expect(exportPdfPagesAsImages('/tmp/input.pdf', join(tempDir, 'drain-siblings.png'))).rejects.toThrow(
+            'page 2 writer unverified',
+        );
+
+        // Page 2 must have fully settled before exportPdfPagesAsImages rejected, and queued pages 3 & 4 must never start.
+        expect(page2SettledBeforeReject).toBe(true);
+        expect(startedInputs.sort()).toEqual(['page-1.ppm', 'page-2.ppm']);
+        // Unproven termination from sibling page 2 must preserve scratch directory.
+        const retained = mocks.managedScratchDirs.filter(({path}) => existsSync(path));
+        expect(retained.length).toBeGreaterThan(0);
+        for (const {path} of retained) {
+            await rm(path, {
+                recursive: true,
+                force: true,
+            });
+        }
     });
 });

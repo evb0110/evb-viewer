@@ -1,7 +1,19 @@
 const HTTP_URL_PATTERN = /\bhttps?:\/\/[^\s]+/giu;
 const DATA_URL_PATTERN = /\bdata:[^\s]+/giu;
-const SECRET_ASSIGNMENT_PATTERN =
-    /(?<![\w-])["']?(?:x[-_])?(?:authorization|auth[-_]?token|api[-_]?key|access[-_]?token|refresh[-_]?token|client[-_]?secret|private[-_]?key|password|passwd|pwd|secret|token)\b["']?\s*[:=]\s*/giu;
+const SECRET_KEY_NAMES_SOURCE =
+    '(?:x[-_])?(?:authorization|auth[-_]?token|api[-_]?key|access[-_]?token|refresh[-_]?token|client[-_]?secret|private[-_]?key|password|passwd|pwd|secret|token)';
+const SECRET_ASSIGNMENT_PATTERN = new RegExp(String.raw`(?<![\w-])["']?${SECRET_KEY_NAMES_SOURCE}\b["']?\s*[:=]\s*`, 'giu');
+const SECRET_KEY_PATTERN = new RegExp(String.raw`(?:^|[^\w-])${SECRET_KEY_NAMES_SOURCE}$`, 'iu');
+// Every pattern in this module requires `:`, `=`, `/users/`, `\users\`, or `Bearer `.
+const REDACTABLE_TEXT_HINT_PATTERN = /[:=]|\/users\/|\\users\\|\bBearer\s/iu;
+
+export function isSecretLogKey(key: string) {
+    return SECRET_KEY_PATTERN.test(key);
+}
+
+export function mayContainRedactableLogText(value: string) {
+    return REDACTABLE_TEXT_HINT_PATTERN.test(value);
+}
 interface IRedaction {
     pattern: RegExp;
     replacement: (match: string) => string;
