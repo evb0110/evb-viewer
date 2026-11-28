@@ -2,11 +2,22 @@ import {sameWitness} from './contentWitness';
 
 export const DOCUMENTS_DIR = 'documents';
 export const MANIFEST_NAME = 'manifest.json';
+export const TEXT_IDENTITY_VERSION = 'ti1';
 /** Directory and window ids: also file names, so they never contain a separator. */
 export const STORE_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/u;
 export const EXT_PATTERN = /^[A-Za-z0-9]{1,16}$/u;
 const REVISION_FILE_PATTERN = /^r\d+\.[A-Za-z0-9]{1,16}$/u;
 const DRAFTS_FILE_PATTERN = /^drafts-[A-Za-z0-9-]{1,64}\.json$/u;
+const TEXT_IDENTITY_PATTERN = /^ti1:[A-Za-z0-9_-]{8,128}$/u;
+
+export function mintTextIdentity(): string {
+    return `${TEXT_IDENTITY_VERSION}:${crypto.randomUUID().replaceAll('-', '')}`;
+}
+
+/** Returns `value` when it matches the current versioned text-identity format (`ti1:...`), else `null`. */
+export function parseTextIdentity(value: unknown): string | null {
+    return typeof value === 'string' && TEXT_IDENTITY_PATTERN.test(value) ? value : null;
+}
 
 export type TForeignRevisionState = 'staged' | 'committed';
 
@@ -20,6 +31,8 @@ export interface IRevision {
     readonly foreign?: TForeignRevisionState | undefined;
     /** Affirmative evidence that this revision holds only bytes created during document open (decrypt/normalize/repair), never a user edit. */
     readonly openOnly?: true | undefined;
+    /** Versioned text-identity token (`ti1:...`) inherited only across proven text-preserving edits; absent in legacy manifests. */
+    readonly textIdentity?: string | undefined;
 }
 
 /**
@@ -29,6 +42,7 @@ export interface IRevision {
 export interface IDestinationRevision {
     readonly id: 1;
     readonly witness: string;
+    readonly textIdentity?: string | undefined;
 }
 
 export type THistoryRevision = IRevision | IDestinationRevision;
@@ -60,6 +74,8 @@ export interface IManifest {
     readonly destination?: string | undefined;
     /** The witness of the bytes last read from or published to `destination`. */
     readonly baseline?: string | undefined;
+    /** Versioned text-identity token (`ti1:...`) for unmaterialized revision 1; absent in legacy manifests. */
+    readonly destinationTextIdentity?: string | undefined;
     /** The latest publish while its outcome is unknown; recovery adopts it when the destination holds what it published. */
     readonly pendingPublish?: IPendingPublish | undefined;
     /** Earlier publishes a later one followed before they could be settled, for example while their destination could not be read. */
@@ -95,12 +111,13 @@ function isRevision(value: unknown): value is IRevision {
         isCount(value.length) &&
         isOptionalString(value.witness) &&
         isOptionalForeign(value.foreign) &&
-        isOptionalOpenOnly(value.openOnly)
+        isOptionalOpenOnly(value.openOnly) &&
+        isOptionalString(value.textIdentity)
     );
 }
 
 const isDestinationRevision = (value: unknown) =>
-    isRecord(value) && value.id === 1 && typeof value.witness === 'string' && !('file' in value);
+    isRecord(value) && value.id === 1 && typeof value.witness === 'string' && !('file' in value) && isOptionalString(value.textIdentity);
 const isPendingPublish = (value: unknown) =>
     isRecord(value) &&
     typeof value.destination === 'string' &&
@@ -121,6 +138,7 @@ function isManifest(value: unknown): value is IManifest {
         (value.current === undefined || isRevision(value.current)) &&
         isOptionalString(value.destination) &&
         isOptionalString(value.baseline) &&
+        isOptionalString(value.destinationTextIdentity) &&
         (value.drafts === undefined || (typeof value.drafts === 'string' && DRAFTS_FILE_PATTERN.test(value.drafts))) &&
         (value.pendingPublish === undefined || isPendingPublish(value.pendingPublish)) &&
         (value.unsettled === undefined || (Array.isArray(value.unsettled) && value.unsettled.every(isPendingPublish)))
@@ -178,4 +196,18 @@ export function isOpenOnlyManifest(manifest: IManifest) {
 export function namedFiles(manifest: IManifest) {
     const files = [manifest.current, ...manifest.history].flatMap((revision) => (revision && hasFile(revision) ? [revision.file] : []));
     return new Set(manifest.drafts === undefined ? files : [...files, manifest.drafts]);
+}
+
+/** Versioned text-identity token of `manifest`'s current revision, or `null` for legacy/unclassified manifests. */
+export function currentTextIdentity(manifest: IManifest): string | null {
+    return parseTextIdentity(manifest.current ? manifest.current.textIdentity : manifest.destinationTextIdentity);
+}
+
+/** Versioned text-identity token of revision `revisionId` in `manifest`, or `null` when absent/legacy. */
+export function revisionTextIdentity(manifest: IManifest, revisionId: number): string | null {
+    if ((manifest.current?.id ?? 1) === revisionId) {
+        return currentTextIdentity(manifest);
+    }
+    const found = manifest.history.find((revision) => revision.id === revisionId);
+    return found ? parseTextIdentity(found.textIdentity) : null;
 }

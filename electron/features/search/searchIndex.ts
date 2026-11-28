@@ -20,7 +20,7 @@ import {
 } from '@contracts/searchIndexWire';
 import {registerMainOperation, runWithMainOperationCancellationSignal} from '@electron/operation-lifecycle/mainOperationLifecycle';
 import type {IPageText} from '@electron/features/search/pageText';
-import {runPdfSearchWorkerCommand} from '@electron/features/search/pdfSearchWorkerClient';
+import {evictPdfSearchWorkerIndexCache, runPdfSearchWorkerCommand} from '@electron/features/search/pdfSearchWorkerClient';
 import {createLogger} from '@electron/utils/createLogger';
 import {getErrorMessage} from '@electron/utils/error';
 import {getWorkingCopyDerivedPath, isWorkingCopyDocumentPath} from '@electron/file-access/documentStore';
@@ -34,6 +34,13 @@ import * as v from 'valibot';
 export interface ISearchIndexedDocument {
     indexPath: string;
     documentRevision: string;
+    /**
+     * Versioned text-identity token (`ti1:...`) for the current document
+     * revision, when supplied by the document store manifest. Revisions sharing
+     * the same `textIdentity` reuse the search index; when absent/legacy, falls
+     * back to `documentRevision`.
+     */
+    textIdentity?: string | null;
     /** The working copy whose close cancels an index build. */
     workingCopyPath?: string;
     /** The document's page count, so coverage stays whole when the index ends early. */
@@ -48,12 +55,17 @@ export interface ISearchQueryOptions extends IResolvedSearchMatchOptions {
     resultOffset?: TSearchResultOffset;
 }
 
+function searchIndexIdentityKey(document: ISearchIndexedDocument) {
+    const textIdentity = typeof document.textIdentity === 'string' && document.textIdentity.length > 0 ? document.textIdentity : null;
+    return textIdentity !== null ? `ti:${textIdentity}` : `rev:${document.documentRevision}`;
+}
+
 /**
  * Names how page text is extracted. Changing extraction changes this, so
  * indexes built the old way no longer match their document and are rebuilt.
  */
 function indexRevision(document: ISearchIndexedDocument) {
-    return `text-6:${document.documentRevision}`;
+    return `text-6:${searchIndexIdentityKey(document)}`;
 }
 
 export function getSearchIndexPath(documentPath: string) {
@@ -74,11 +86,15 @@ interface IIndexBuildFollower {
 interface IIndexBuild {
     promise: Promise<ISearchIndexCoverage>;
     followers: Set<IIndexBuildFollower>;
+    /** Active provisional matchers that may still drain unread chunks after extraction completes. */
+    provisionalReaders: Set<() => void>;
+    releaseChunksIfUnused: () => void;
     /** Extracted binary page records held directly in memory for provisional search and indexing. */
     input: {
         chunks: Uint8Array[];
         writtenBytes: number;
         pagesScanned: number;
+        extractionComplete: boolean;
     };
     cancel: () => void;
 }
@@ -126,6 +142,7 @@ async function runIndexBuild(
     document: ISearchIndexedDocument,
     followers: ReadonlySet<IIndexBuildFollower>,
     input: IIndexBuild['input'],
+    releaseChunksIfUnused: () => void,
     signal: AbortSignal,
 ) {
     await mkdir(dirname(document.indexPath), {recursive: true});
@@ -146,7 +163,10 @@ async function runIndexBuild(
             signal,
         );
         const pagesBuffer = concatUint8Arrays(input.chunks, input.writtenBytes);
-        input.chunks.length = 0;
+        input.extractionComplete = true;
+        // Release extracted chunks immediately for warmup / non-provisional callers;
+        // retain them only while an active provisional matcher still has unread chunks.
+        releaseChunksIfUnused();
         rawCoverage = await runPdfSearchWorkerCommand(
             {
                 op: 'index',
@@ -160,7 +180,11 @@ async function runIndexBuild(
             signal,
         );
     } finally {
+        input.extractionComplete = true;
         input.chunks.length = 0;
+        if (signal.aborted) {
+            evictPdfSearchWorkerIndexCache(document.indexPath);
+        }
     }
     const parsed = v.safeParse(SEARCH_INDEX_COVERAGE_SCHEMA, unwrapIndexAnswer(rawCoverage), {abortEarly: true});
     if (!parsed.success) {
@@ -173,16 +197,30 @@ function startIndexBuild(document: ISearchIndexedDocument, key: string) {
     const operation = registerMainOperation({
         kind: 'abortable-work',
         workingCopyPath: document.workingCopyPath,
-        // The build listens to operation.signal; the hook makes it eligible
-        // for cancellation when its working copy closes.
-        cancel: () => undefined,
+        // The build listens to operation.signal; also evict any cached index when its working copy closes.
+        cancel: () => {
+            evictPdfSearchWorkerIndexCache(document.indexPath);
+        },
     });
     const {signal} = operation;
     const followers = new Set<IIndexBuildFollower>();
+    const provisionalReaders = new Set<() => void>();
     const input: IIndexBuild['input'] = {
         chunks: [],
         writtenBytes: 0,
         pagesScanned: 0,
+        extractionComplete: false,
+    };
+    const releaseChunksIfUnused = () => {
+        if (!input.extractionComplete) {
+            return;
+        }
+        for (const releaseIfDrained of [...provisionalReaders]) {
+            releaseIfDrained();
+        }
+        if (provisionalReaders.size === 0) {
+            input.chunks.length = 0;
+        }
     };
     // A build that is stopping is no longer joined: a search that arrives
     // while it unwinds starts a fresh build instead of sharing its failure.
@@ -193,12 +231,14 @@ function startIndexBuild(document: ISearchIndexedDocument, key: string) {
     };
     signal.addEventListener('abort', release, {once: true});
     const build: IIndexBuild = {
-        promise: runIndexBuild(document, followers, input, signal).finally(() => {
+        promise: runIndexBuild(document, followers, input, releaseChunksIfUnused, signal).finally(() => {
             signal.removeEventListener('abort', release);
             release();
             operation.complete();
         }),
         followers,
+        provisionalReaders,
+        releaseChunksIfUnused,
         input,
         cancel: () => operation.abort('Search index build canceled'),
     };
@@ -212,7 +252,7 @@ function startIndexBuild(document: ISearchIndexedDocument, key: string) {
  * joins it. Closing the working copy or shutting down stops it.
  */
 function reserveIndexBuild(document: ISearchIndexedDocument) {
-    const key = `${document.indexPath}\0${document.documentRevision}`;
+    const key = `${document.indexPath}\0${searchIndexIdentityKey(document)}`;
     return builds.get(key) ?? runWithMainOperationCancellationSignal(SHARED_BUILD_CANCELLATION, () => startIndexBuild(document, key));
 }
 
@@ -250,13 +290,19 @@ export function buildSearchIndex(
     return awaitIndexBuild(build, context.onProgress, context.signal);
 }
 
-/** Stops index builds for a document whose revision moved on. */
+/** Stops index builds for a document whose revision moved on and evicts its in-worker cached index. */
 export function cancelSearchIndexBuilds(indexPath: string) {
     for (const [key, build] of builds) {
         if (key.startsWith(`${indexPath}\0`)) {
             build.cancel();
         }
     }
+    evictPdfSearchWorkerIndexCache(indexPath);
+}
+
+/** Evicts cached search index bytes from live desktop search workers. */
+export function evictSearchIndexCache(indexPath?: string) {
+    evictPdfSearchWorkerIndexCache(indexPath);
 }
 
 const log = createLogger('search-index');
@@ -267,13 +313,6 @@ export interface IProvisionalSearchMatches {
     /** A match past the window exists, as in the indexed answer. */
     truncated: boolean;
 }
-
-/**
- * Text buffered since the last provisional search must reach this multiple of
- * what it read before the next one, so the rescans of a growing document
- * cost a small multiple of reading it once.
- */
-const PROVISIONAL_RESCAN_GROWTH = 1.25;
 
 function searchQueryFields(query: string, options: ISearchQueryOptions): IPdfSearchWasmQueryFields {
     return {
@@ -297,11 +336,10 @@ function parseSearchResponse(response: unknown) {
 }
 
 /**
- * Streams the first window of a literal query while its index is built. The
- * warm WASM search worker reads the buffered page snapshot directly in memory,
- * so the matches follow the indexed answer's rules with no temp-file round-trip
- * and without blocking the main process. The indexed answer replaces these
- * matches, so a failure only ends them.
+ * Streams the first window of a literal query while its index is built. Each
+ * provisional pass scans only newly extracted page chunks incrementally rather
+ * than re-copying and re-scanning previously scanned pages. The indexed answer
+ * replaces these matches, so a failure only ends them.
  */
 function followProvisionalMatches(
     build: IIndexBuild,
@@ -310,48 +348,100 @@ function followProvisionalMatches(
     onMatches: (matches: IProvisionalSearchMatches) => void,
 ) {
     const controller = new AbortController();
-    let searchedBytes = 0;
+    const limit = Math.max(1, queryFields.limit ?? SEARCH_RESULT_LIMIT);
+    const accumulatedResults: IPdfSearchResult[] = [];
+    let searchedChunkCount = 0;
+    let totalMatchCount = 0;
     let reported = false;
     let finished = false;
     let running: Promise<void> | null = null;
-    const search = async (pagesBuffer: Uint8Array) => {
+    const searchDelta = async (deltaBuffer: Uint8Array) => {
+        const remainingLimit = limit - accumulatedResults.length;
+        const probingOverflow = remainingLimit <= 0;
         const raw = await runPdfSearchWorkerCommand(
             {
                 op: 'searchPages',
                 documentRevision: indexRevision(document),
                 allowRegex: false,
-                pagesBuffer,
+                pagesBuffer: deltaBuffer,
                 ...queryFields,
+                limit: probingOverflow ? 1 : remainingLimit,
+                resultOffset: 0,
             },
             controller.signal,
         );
         const response = parseSearchResponse(raw);
-        if (controller.signal.aborted || (!reported && response.results.length === 0)) {
+        if (controller.signal.aborted) {
             return;
         }
-        reported = true;
-        onMatches({
-            results: response.results,
-            truncated: response.truncated,
-        });
+        if (probingOverflow) {
+            if (response.results.length > 0 || response.truncated) {
+                finished = true;
+                reported = true;
+                onMatches({
+                    results: accumulatedResults.slice(),
+                    truncated: true,
+                });
+            }
+            return;
+        }
+        if (response.results.length > 0) {
+            for (const hit of response.results) {
+                accumulatedResults.push({
+                    ...hit,
+                    matchIndex: totalMatchCount + hit.matchIndex,
+                });
+            }
+            totalMatchCount += response.results.length;
+        }
+        const truncated = response.truncated;
+        if (!reported && accumulatedResults.length === 0 && !truncated) {
+            return;
+        }
+        if (response.results.length > 0 || truncated) {
+            reported = true;
+            onMatches({
+                results: accumulatedResults.slice(),
+                truncated,
+            });
+        }
         // The window holds the first matches in page order; once a match past
         // it exists, more pages cannot change it.
-        finished ||= response.truncated;
+        finished ||= truncated;
     };
-    const schedule = () => {
-        const {chunks, writtenBytes} = build.input;
+    const releaseIfDrained = () => {
         if (
             finished ||
-            running !== null ||
             controller.signal.aborted ||
-            chunks.length === 0 ||
-            writtenBytes <= searchedBytes * PROVISIONAL_RESCAN_GROWTH
+            (build.input.extractionComplete && running === null && build.input.chunks.length <= searchedChunkCount)
         ) {
+            if (
+                build.provisionalReaders.delete(releaseIfDrained) &&
+                build.input.extractionComplete &&
+                build.provisionalReaders.size === 0
+            ) {
+                build.input.chunks.length = 0;
+            }
+        }
+    };
+    const schedule = () => {
+        const {chunks} = build.input;
+        if (finished || controller.signal.aborted) {
+            releaseIfDrained();
             return;
         }
-        const snapshot = concatUint8Arrays(chunks);
-        searchedBytes = snapshot.byteLength;
-        running = search(snapshot)
+        if (running !== null) {
+            return;
+        }
+        if (chunks.length <= searchedChunkCount) {
+            releaseIfDrained();
+            return;
+        }
+        const endChunkCount = chunks.length;
+        const deltaChunks = chunks.slice(searchedChunkCount, endChunkCount);
+        searchedChunkCount = endChunkCount;
+        const deltaBuffer = concatUint8Arrays(deltaChunks);
+        running = searchDelta(deltaBuffer)
             .catch((error: unknown) => {
                 finished = true;
                 if (!controller.signal.aborted) {
@@ -364,11 +454,13 @@ function followProvisionalMatches(
             });
     };
     const follower = {onProgress: schedule};
+    build.provisionalReaders.add(releaseIfDrained);
     build.followers.add(follower);
     schedule();
     return async () => {
         controller.abort();
         build.followers.delete(follower);
+        releaseIfDrained();
         while (running !== null) {
             await running;
         }

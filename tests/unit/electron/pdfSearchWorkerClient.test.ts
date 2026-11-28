@@ -75,7 +75,8 @@ vi.mock('@electron/features/search/pdfSearchWasmRunner', async (importOriginal) 
     };
 });
 
-const {runPdfSearchWorkerCommand, shutdownPdfSearchWorkers} = await import('@electron/features/search/pdfSearchWorkerClient');
+const {evictPdfSearchWorkerIndexCache, runPdfSearchWorkerCommand, shutdownPdfSearchWorkers} =
+    await import('@electron/features/search/pdfSearchWorkerClient');
 
 function makeStatCommand(indexPath: string): TPdfSearchWorkerCommand {
     return {
@@ -462,5 +463,58 @@ describe('pdfSearchWorkerClient pool limits and execution deadline', () => {
             echo: '/tmp/after-timeout.idx',
         });
         expect(mockState.peakLiveWorkers).toBeLessThanOrEqual(2);
+    });
+
+    it('routes repeated queries with soft worker affinity and broadcasts cache eviction controls without spawning workers', async () => {
+        // Evicting before any workers exist spawns no workers.
+        evictPdfSearchWorkerIndexCache('/tmp/affine-a.idx');
+        expect(mockState.workers).toHaveLength(0);
+
+        // Start two concurrent requests so both warm workers are spawned and affine to distinct documents.
+        const gateA = Promise.withResolvers<void>();
+        const gateB = Promise.withResolvers<void>();
+        mockState.onPost = (worker, message) => {
+            if (!('command' in message)) {
+                return;
+            }
+            if (message.command.op === 'stat' && message.command.indexPath === '/tmp/affine-a.idx') {
+                void gateA.promise.then(() => worker.emit('message', {id: message.id, ok: true, data: {echo: 'a'}}));
+                return;
+            }
+            if (message.command.op === 'stat' && message.command.indexPath === '/tmp/affine-b.idx') {
+                void gateB.promise.then(() => worker.emit('message', {id: message.id, ok: true, data: {echo: 'b'}}));
+                return;
+            }
+            queueMicrotask(() => worker.emit('message', {id: message.id, ok: true, data: {echo: message.command.op}}));
+        };
+
+        const reqA = runPdfSearchWorkerCommand(makeStatCommand('/tmp/affine-a.idx'));
+        const reqB = runPdfSearchWorkerCommand(makeStatCommand('/tmp/affine-b.idx'));
+        await vi.waitFor(() => expect(mockState.workers).toHaveLength(2));
+        gateA.resolve();
+        gateB.resolve();
+        await Promise.all([reqA, reqB]);
+
+        const workerB = mockState.workers[1]!;
+        const postedBeforeB = workerB.posted.length;
+        // Follow-up query for doc B prefers worker B (not worker 0) due to soft affinity.
+        await runPdfSearchWorkerCommand(makeStatCommand('/tmp/affine-b.idx'));
+        expect(workerB.posted.length).toBe(postedBeforeB + 1);
+
+        // Indexing doc A on worker 0 broadcasts a control eviction for doc A to sibling worker 1.
+        await runPdfSearchWorkerCommand({
+            op: 'index',
+            indexPath: '/tmp/affine-a.idx',
+            documentRevision: 'rev-2',
+            maxPageTextBytes: 1024,
+            maxTotalTextBytes: 4096,
+            pagesBuffer: new Uint8Array([1, 2, 3]),
+        });
+        expect(workerB.posted).toContainEqual({control: 'evict', indexPath: '/tmp/affine-a.idx'});
+
+        // Explicit cache eviction notifies live workers without spawning any new workers.
+        evictPdfSearchWorkerIndexCache('/tmp/affine-b.idx');
+        expect(mockState.workers).toHaveLength(2);
+        expect(workerB.posted).toContainEqual({control: 'evict', indexPath: '/tmp/affine-b.idx'});
     });
 });

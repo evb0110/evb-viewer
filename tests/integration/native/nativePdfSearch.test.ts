@@ -5,7 +5,10 @@ import {
     writeFile,
 } from 'node:fs/promises';
 import {
+    degrees,
     PDFDocument,
+    PDFName,
+    PDFString,
     StandardFonts,
 } from 'pdf-lib';
 import {tmpdir} from 'node:os';
@@ -31,15 +34,38 @@ import {
     loadPdfSearchWasmModule,
 } from '@electron/features/search/pdfSearchWasmRunner';
 import {executePdfSearchWorkerCommand} from '@electron/features/search/pdfSearchWorkerOps';
+import * as pdfSearchWorkerClient from '@electron/features/search/pdfSearchWorkerClient';
 import {
     runPdfSearchWorkerCommand,
     shutdownPdfSearchWorkers,
 } from '@electron/features/search/pdfSearchWorkerClient';
+import {
+    searchIndexedDocument,
+    type IProvisionalSearchMatches,
+} from '@electron/features/search/searchIndex';
+import {pdfSearchDocument} from '@electron/features/search/main/ipc';
 import {streamPdfPageTexts} from '@electron/features/search/pdfPageTexts';
+import {
+    createDocument,
+    type IDocumentStore,
+    type IPublicationPort,
+} from '@document-store/documentDirectory';
+import {createNodeStorePort} from '@document-store/nodeStorePort';
+import {hasPreservedDocumentTextIdentity} from '@electron/features/documents/main/registerDocumentRevisionInvalidationEffects';
+import {
+    openDocumentFromFile,
+    setDocumentStoreRootForTests,
+} from '@electron/file-access/documentStore';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
+import {createEpochMs} from '@contracts/timestamps';
 import {
     inspectPdfPageTextVisibility,
     openPdfPageTextVisibilitySession,
 } from '@electron/pdf/inspectPdfPageTextVisibility';
+import {buildPopplerEnv} from '@electron/native-tools/buildPopplerEnv';
+import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
+import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
 import * as workerTasks from '@electron/utils/workerTask';
 import {findPdfSearchMatches} from '@pdf-core/pdfSearchAlgorithms';
@@ -491,6 +517,483 @@ describe('native PDF search integration', () => {
                 recursive: true,
                 force: true,
             });
+        }
+    });
+
+    it('scans provisional desktop search pages incrementally without re-scanning earlier chunks and preserves global ordinals', async () => {
+        const tempDir = await mkdtemp(join(tmpdir(), 'evb-provisional-inc-'));
+        const indexPath = join(tempDir, 'provisional.evb-search-index');
+        const scannedPageNumbersPerCall: number[][] = [];
+        const decodePageNumbers = (buf: Uint8Array) => {
+            const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+            const pages: number[] = [];
+            let offset = 0;
+            while (offset + 12 <= buf.byteLength) {
+                const pageNumber = view.getUint32(offset, true);
+                const textLen = view.getUint32(offset + 8, true);
+                pages.push(pageNumber);
+                offset += 12 + textLen;
+            }
+            return pages;
+        };
+        const originalRunPdfSearchWorkerCommand = pdfSearchWorkerClient.runPdfSearchWorkerCommand;
+        const workerSpy = vi.spyOn(pdfSearchWorkerClient, 'runPdfSearchWorkerCommand').mockImplementation((command, signal, options) => {
+            if (command.op === 'searchPages') {
+                scannedPageNumbersPerCall.push(decodePageNumbers(command.pagesBuffer));
+            }
+            return originalRunPdfSearchWorkerCommand(command, signal, options);
+        });
+        try {
+            const pageGates = [
+                Promise.withResolvers<void>(),
+                Promise.withResolvers<void>(),
+                Promise.withResolvers<void>(),
+                Promise.withResolvers<void>(),
+            ];
+            const provisionalUpdates: IProvisionalSearchMatches[] = [];
+            const searchPromise = searchIndexedDocument(
+                {
+                    indexPath,
+                    documentRevision: 'rev-inc-1',
+                    async *readPages(_signal, _pageCount, onProgress) {
+                        const texts = ['alpha needle', 'beta needle', 'gamma needle', 'delta needle'];
+                        for (let i = 0; i < texts.length; i += 1) {
+                            await pageGates[i]!.promise;
+                            onProgress(i + 1);
+                            yield {pageNumber: i + 1, text: texts[i]!};
+                        }
+                    },
+                },
+                'needle',
+                {matchCase: false, wholeWord: false, useRegex: false, limit: 2},
+                {
+                    onProvisionalMatches(matches) {
+                        provisionalUpdates.push(matches);
+                    },
+                },
+            );
+
+            // Release page 1 -> provisional scan scans page 1 only (1 match).
+            pageGates[0]!.resolve();
+            await vi.waitFor(() => expect(provisionalUpdates).toHaveLength(1));
+            expect(provisionalUpdates[0]).toMatchObject({
+                truncated: false,
+                results: [expect.objectContaining({pageNumber: 1, matchIndex: 0})],
+            });
+
+            // Release page 2 -> provisional scan scans page 2 only (reaches limit=2, not yet truncated).
+            pageGates[1]!.resolve();
+            await vi.waitFor(() => expect(provisionalUpdates).toHaveLength(2));
+            expect(provisionalUpdates[1]).toMatchObject({
+                truncated: false,
+                results: [
+                    expect.objectContaining({pageNumber: 1, matchIndex: 0}),
+                    expect.objectContaining({pageNumber: 2, matchIndex: 1}),
+                ],
+            });
+
+            // Release page 3 -> provisional scan probes page 3 only and discovers overflow -> truncated: true!
+            pageGates[2]!.resolve();
+            await vi.waitFor(() => expect(provisionalUpdates).toHaveLength(3));
+            expect(provisionalUpdates[2]).toMatchObject({
+                truncated: true,
+                results: [
+                    expect.objectContaining({pageNumber: 1, matchIndex: 0}),
+                    expect.objectContaining({pageNumber: 2, matchIndex: 1}),
+                ],
+            });
+
+            // Release page 4 -> provisional search already finished, so page 4 is NEVER provisionally scanned.
+            pageGates[3]!.resolve();
+            const finalResponse = await searchPromise;
+            expect(finalResponse.truncated).toBe(true);
+            expect(finalResponse.results.map((hit) => ({page: hit.pageNumber, index: hit.matchIndex}))).toEqual([
+                {page: 1, index: 0},
+                {page: 2, index: 1},
+            ]);
+
+            // Every provisional searchPages call received strictly disjoint, incremental page chunks.
+            expect(scannedPageNumbersPerCall).toEqual([[1], [2], [3]]);
+        } finally {
+            workerSpy.mockRestore();
+            await rm(tempDir, {recursive: true, force: true});
+        }
+    });
+
+    it('drains the remaining unscanned provisional delta while the final index write is still running', async () => {
+        const tempDir = await mkdtemp(join(tmpdir(), 'evb-provisional-tail-'));
+        const indexPath = join(tempDir, 'provisional-tail.evb-search-index');
+        const originalRun = pdfSearchWorkerClient.runPdfSearchWorkerCommand;
+        const firstProvisionalGate = Promise.withResolvers<void>();
+        const indexGate = Promise.withResolvers<void>();
+        let searchPagesCalls = 0;
+        let indexStarted = false;
+        const workerSpy = vi.spyOn(pdfSearchWorkerClient, 'runPdfSearchWorkerCommand').mockImplementation(async (command, signal, options) => {
+            if (command.op === 'searchPages') {
+                searchPagesCalls += 1;
+                if (searchPagesCalls === 1) {
+                    await firstProvisionalGate.promise;
+                }
+            } else if (command.op === 'index') {
+                indexStarted = true;
+                await indexGate.promise;
+            }
+            return originalRun(command, signal, options);
+        });
+        try {
+            const provisionalUpdates: IProvisionalSearchMatches[] = [];
+            const searchPromise = searchIndexedDocument(
+                {
+                    indexPath,
+                    documentRevision: 'rev-tail-1',
+                    async *readPages(_signal, _pageCount, onProgress) {
+                        onProgress(1);
+                        yield {pageNumber: 1, text: 'first needle'};
+                        onProgress(2);
+                        yield {pageNumber: 2, text: 'second needle'};
+                    },
+                },
+                'needle',
+                {matchCase: false, wholeWord: false, useRegex: false, limit: 10},
+                {
+                    onProvisionalMatches(matches) {
+                        provisionalUpdates.push(matches);
+                    },
+                },
+            );
+
+            // Wait until extraction finished and the final `index` command started while the first provisional call is still held.
+            await vi.waitFor(() => expect(indexStarted).toBe(true));
+            expect(searchPagesCalls).toBe(1);
+
+            // Release the held provisional call while `index` is STILL blocked: the follower must still drain page 2!
+            firstProvisionalGate.resolve();
+            await vi.waitFor(() => expect(provisionalUpdates.at(-1)?.results).toHaveLength(2));
+            expect(provisionalUpdates.at(-1)?.results.map((hit) => hit.pageNumber)).toEqual([1, 2]);
+
+            indexGate.resolve();
+            const finalResponse = await searchPromise;
+            expect(finalResponse.results).toHaveLength(2);
+        } finally {
+            firstProvisionalGate.resolve();
+            indexGate.resolve();
+            workerSpy.mockRestore();
+            await rm(tempDir, {recursive: true, force: true});
+        }
+    });
+
+    it('proves before/after extracted-text byte equality for metadata, outline, and non-text annotations while invalidating rotation and text edits', async () => {
+        const tempDir = await mkdtemp(join(tmpdir(), 'evb-text-lineage-proof-'));
+        try {
+            const createBasePdf = async () => {
+                const doc = await PDFDocument.create();
+                const font = await doc.embedFont(StandardFonts.Helvetica);
+                const p1 = doc.addPage([400, 260]);
+                // Non-square page with CropBox [0, 0, 200, 260] and hidden text at x=250 so CropBox & rotation geometry matter.
+                p1.setCropBox(0, 0, 200, 260);
+                p1.drawText('VisibleAlpha', {x: 20, y: 180, size: 14, font});
+                p1.drawText('CroppedHidden', {x: 250, y: 180, size: 14, font});
+                const p2 = doc.addPage([400, 260]);
+                p2.drawText('SecondPageBeta', {x: 20, y: 180, size: 14, font});
+                return doc;
+            };
+
+            const extractUtf8Bytes = async (pdfPath: string) => {
+                const pages: Array<{pageNumber: number; text: string}> = [];
+                for await (const page of streamPdfPageTexts(pdfPath, {visiblePageOnly: true})) {
+                    pages.push({pageNumber: page.pageNumber, text: page.text});
+                }
+                return Buffer.from(JSON.stringify(pages), 'utf8');
+            };
+
+            const readPageOneGeometry = async (pdfPath: string) => {
+                const paths = getPdfNativeToolPaths();
+                const env = buildPopplerEnv(paths);
+                const {stdout} = await runNativeToolCommand(paths.pdfinfo, ['-box', '-f', '1', '-l', '1', pdfPath], {
+                    ...(env === undefined ? {} : {env}),
+                    commandLabel: 'pdfinfo(lineage geometry)',
+                });
+                const sizeMatch = /^Page\s+1\s+size:\s+(\d+(?:\.\d+)?)\s+x\s+(\d+(?:\.\d+)?)/mu.exec(stdout);
+                const rotMatch = /^Page\s+1\s+rot:\s+(-?\d+)$/mu.exec(stdout);
+                const width = Number(sizeMatch?.[1] ?? Number.NaN);
+                const height = Number(sizeMatch?.[2] ?? Number.NaN);
+                const rot = (((Number(rotMatch?.[1] ?? Number.NaN) % 360) + 360) % 360);
+                const quarterTurn = rot === 90 || rot === 270;
+                return {
+                    rot,
+                    renderedWidth: quarterTurn ? height : width,
+                    renderedHeight: quarterTurn ? width : height,
+                };
+            };
+
+            const basePdfPath = join(tempDir, 'base.pdf');
+            const baseDoc = await createBasePdf();
+            await writeFile(basePdfPath, await baseDoc.save());
+            const baseExtracted = await extractUtf8Bytes(basePdfPath);
+            const baseGeometry = await readPageOneGeometry(basePdfPath);
+            expect(baseExtracted.toString('utf8')).toContain('VisibleAlpha');
+            expect(baseExtracted.toString('utf8')).not.toContain('CroppedHidden');
+            expect(baseGeometry).toEqual({rot: 0, renderedWidth: 200, renderedHeight: 260});
+
+            // 1. Metadata-only edit: extracted UTF-8 bytes and page geometry are 100% identical.
+            const metaDoc = await PDFDocument.load(await (await createBasePdf()).save());
+            metaDoc.setTitle('Updated Document Title');
+            metaDoc.setAuthor('Lineage Proof Author');
+            metaDoc.setSubject('Metadata only');
+            const metaPdfPath = join(tempDir, 'meta.pdf');
+            await writeFile(metaPdfPath, await metaDoc.save());
+            expect((await extractUtf8Bytes(metaPdfPath)).equals(baseExtracted)).toBe(true);
+            expect(await readPageOneGeometry(metaPdfPath)).toEqual(baseGeometry);
+
+            // 2. Bookmark/outline-only edit: extracted UTF-8 bytes and page geometry are 100% identical.
+            const outlineDoc = await PDFDocument.load(await (await createBasePdf()).save());
+            const outlineItemRef = outlineDoc.context.nextRef();
+            const outlinesRef = outlineDoc.context.nextRef();
+            outlineDoc.context.assign(
+                outlineItemRef,
+                outlineDoc.context.obj({
+                    Title: PDFString.of('Chapter 1'),
+                    Parent: outlinesRef,
+                    Dest: [outlineDoc.getPage(0).ref, PDFName.of('Fit')],
+                }),
+            );
+            outlineDoc.context.assign(
+                outlinesRef,
+                outlineDoc.context.obj({
+                    Type: PDFName.of('Outlines'),
+                    First: outlineItemRef,
+                    Last: outlineItemRef,
+                    Count: 1,
+                }),
+            );
+            outlineDoc.catalog.set(PDFName.of('Outlines'), outlinesRef);
+            const outlinePdfPath = join(tempDir, 'outline.pdf');
+            await writeFile(outlinePdfPath, await outlineDoc.save());
+            expect((await extractUtf8Bytes(outlinePdfPath)).equals(baseExtracted)).toBe(true);
+            expect(await readPageOneGeometry(outlinePdfPath)).toEqual(baseGeometry);
+
+            // 3. Pure non-text annotation write (Highlight + Sticky Note /Text): extracted UTF-8 bytes and geometry are 100% identical.
+            const annotDoc = await PDFDocument.load(await (await createBasePdf()).save());
+            const highlightRef = annotDoc.context.register(
+                annotDoc.context.obj({
+                    Type: PDFName.of('Annot'),
+                    Subtype: PDFName.of('Highlight'),
+                    Rect: [18, 175, 120, 198],
+                    QuadPoints: [18, 198, 120, 198, 18, 175, 120, 175],
+                    C: [1, 1, 0],
+                }),
+            );
+            const stickyNoteRef = annotDoc.context.register(
+                annotDoc.context.obj({
+                    Type: PDFName.of('Annot'),
+                    Subtype: PDFName.of('Text'),
+                    Rect: [140, 175, 164, 199],
+                    Contents: PDFString.of('Sticky note comment'),
+                }),
+            );
+            annotDoc.getPage(0).node.set(PDFName.of('Annots'), annotDoc.context.obj([highlightRef, stickyNoteRef]));
+            const annotPdfPath = join(tempDir, 'annot.pdf');
+            await writeFile(annotPdfPath, await annotDoc.save());
+            expect((await extractUtf8Bytes(annotPdfPath)).equals(baseExtracted)).toBe(true);
+            expect(await readPageOneGeometry(annotPdfPath)).toEqual(baseGeometry);
+
+            // 4. Page rotation changes page rotation and rendered MediaBox/CropBox geometry (pdfPageTexts.ts:69): MUST NOT be exempted!
+            const rotatedDoc = await PDFDocument.load(await (await createBasePdf()).save());
+            rotatedDoc.getPage(0).setRotation(degrees(90));
+            const rotatedPdfPath = join(tempDir, 'rotated.pdf');
+            await writeFile(rotatedPdfPath, await rotatedDoc.save());
+            const rotatedGeometry = await readPageOneGeometry(rotatedPdfPath);
+            expect(rotatedGeometry).not.toEqual(baseGeometry);
+            expect(rotatedGeometry).toEqual({rot: 90, renderedWidth: 260, renderedHeight: 200});
+
+            // 5. Text-modifying edit (page delete) changes extracted text.
+            const deletedDoc = await PDFDocument.load(await (await createBasePdf()).save());
+            deletedDoc.removePage(1);
+            const deletedPdfPath = join(tempDir, 'deleted.pdf');
+            await writeFile(deletedPdfPath, await deletedDoc.save());
+            expect((await extractUtf8Bytes(deletedPdfPath)).equals(baseExtracted)).toBe(false);
+
+            // Wire DocumentDirectory + searchIndexedDocument + hasPreservedDocumentTextIdentity end to end:
+            await setDocumentStoreRootForTests(join(tempDir, 'store'));
+            try {
+                const entry = await openDocumentFromFile(basePdfPath, {});
+                const indexPath = join(tempDir, 'lineage.evb-search-index');
+                const readPagesSpy = vi.fn(async function* (pages: Array<{pageNumber: number; text: string}>) {
+                    for (const p of pages) {
+                        yield p;
+                    }
+                });
+
+                const ti1 = entry.doc.state().textIdentity!;
+                expect(ti1).toMatch(/^ti1:/u);
+
+                // Cold search on rev 1 builds the index once.
+                const first = await searchIndexedDocument(
+                    {
+                        indexPath,
+                        documentRevision: entry.session.token(),
+                        textIdentity: ti1,
+                        readPages: () => readPagesSpy([{pageNumber: 1, text: 'VisibleAlpha'}]),
+                    },
+                    'VisibleAlpha',
+                    {matchCase: false, wholeWord: false, useRegex: false},
+                );
+                expect(first.results).toHaveLength(1);
+                expect(readPagesSpy).toHaveBeenCalledTimes(1);
+
+                // Retain rev 1 & rev 2 for undo/redo tests.
+                await entry.doc.retain([1, 2, 3]);
+
+                // Non-text edit (e.g. metadata/bookmark/highlight) inherits textIdentity -> cache HIT + invalidation skipped!
+                const prevTok1 = entry.session.token();
+                await entry.doc.mutate(null, {
+                    kind: 'rewrite',
+                    source: metaPdfPath,
+                    drafts: 'clear',
+                    textIdentity: 'inherit',
+                });
+                const tok2 = entry.session.token();
+                expect(entry.doc.state().textIdentity).toBe(ti1);
+                expect(
+                    hasPreservedDocumentTextIdentity({
+                        version: 1,
+                        documentRef: requireDocumentRef(entry.ref),
+                        authority: 'electron-working-copy',
+                        token: requireDocumentRevisionToken(tok2),
+                        previousToken: requireDocumentRevisionToken(prevTok1),
+                        contentRevision: 2,
+                        mintedAt: createEpochMs(),
+                        reason: 'native-mutation',
+                    }),
+                ).toBe(true);
+                const second = await searchIndexedDocument(
+                    {
+                        indexPath,
+                        documentRevision: tok2,
+                        textIdentity: entry.doc.state().textIdentity,
+                        readPages: () => readPagesSpy([{pageNumber: 1, text: 'SHOULD_NOT_REINDEX'}]),
+                    },
+                    'VisibleAlpha',
+                    {matchCase: false, wholeWord: false, useRegex: false},
+                );
+                expect(second.results).toHaveLength(1);
+                expect(readPagesSpy).toHaveBeenCalledTimes(1);
+
+                // Text-modifying edit (default refresh) -> invalidates cache and triggers rebuild!
+                await entry.doc.mutate(2, {
+                    kind: 'rewrite',
+                    source: deletedPdfPath,
+                    drafts: 'clear',
+                });
+                const tok3 = entry.session.token();
+                const ti3 = entry.doc.state().textIdentity!;
+                expect(ti3).not.toBe(ti1);
+                // Older retained revision file (`r2.pdf`) must NOT inherit current revision 3's textIdentity.
+                const staleRevisionPath = join(entry.ref, '..', 'r2.pdf');
+                expect(pdfSearchDocument(staleRevisionPath, requireDocumentRevisionToken(tok3)).textIdentity).toBeUndefined();
+                // Current revision file (`r3.pdf`) carries revision 3's exact textIdentity.
+                const currentRevisionPath = join(entry.ref, '..', entry.doc.state().current!.file);
+                expect(pdfSearchDocument(currentRevisionPath, requireDocumentRevisionToken(tok3)).textIdentity).toBe(ti3);
+                expect(
+                    hasPreservedDocumentTextIdentity({
+                        version: 1,
+                        documentRef: requireDocumentRef(entry.ref),
+                        authority: 'electron-working-copy',
+                        token: requireDocumentRevisionToken(tok3),
+                        previousToken: requireDocumentRevisionToken(tok2),
+                        contentRevision: 3,
+                        mintedAt: createEpochMs(),
+                        reason: 'page-ops',
+                    }),
+                ).toBe(false);
+                const third = await searchIndexedDocument(
+                    {
+                        indexPath,
+                        documentRevision: tok3,
+                        textIdentity: ti3,
+                        readPages: () => readPagesSpy([{pageNumber: 1, text: 'UpdatedAfterDelete'}]),
+                    },
+                    'UpdatedAfterDelete',
+                    {matchCase: false, wholeWord: false, useRegex: false},
+                );
+                expect(third.results).toHaveLength(1);
+                expect(readPagesSpy).toHaveBeenCalledTimes(2);
+
+                // Undo from rev 3 -> rev 2 restores ti1 (different from ti3 so invalidates rev 3's index and rebuilds for ti1).
+                await entry.doc.restore(3, 2);
+                expect(entry.doc.state().textIdentity).toBe(ti1);
+                expect(
+                    hasPreservedDocumentTextIdentity({
+                        version: 1,
+                        documentRef: requireDocumentRef(entry.ref),
+                        authority: 'electron-working-copy',
+                        token: requireDocumentRevisionToken(entry.session.token()),
+                        previousToken: requireDocumentRevisionToken(tok3),
+                        contentRevision: 2,
+                        mintedAt: createEpochMs(),
+                        reason: 'write',
+                    }),
+                ).toBe(false);
+
+                // Undo from rev 2 -> rev 1 preserves ti1 across both revisions!
+                const tok2BeforeUndo = entry.session.token();
+                await entry.doc.restore(2, 1);
+                expect(entry.doc.state().textIdentity).toBe(ti1);
+                expect(
+                    hasPreservedDocumentTextIdentity({
+                        version: 1,
+                        documentRef: requireDocumentRef(entry.ref),
+                        authority: 'electron-working-copy',
+                        token: requireDocumentRevisionToken(entry.session.token()),
+                        previousToken: requireDocumentRevisionToken(tok2BeforeUndo),
+                        contentRevision: 1,
+                        mintedAt: createEpochMs(),
+                        reason: 'write',
+                    }),
+                ).toBe(true);
+
+                // Legacy fallback: when textIdentity is null, searchIndexedDocument keys cleanly on documentRevision.
+                const legacyDoc = await createDocument(
+                    {
+                        port: createNodeStorePort(join(tempDir, 'legacy-store')),
+                        publication: {
+                            witness: async () => 'w1',
+                            source: async () => basePdfPath,
+                            publish: async () => ({status: 'published', witness: 'w1'}),
+                        } satisfies IPublicationPort,
+                    } satisfies IDocumentStore,
+                    {ext: 'pdf', destination: basePdfPath},
+                );
+                await legacyDoc.close();
+                const legacyRev1 = await searchIndexedDocument(
+                    {
+                        indexPath: join(tempDir, 'legacy.evb-search-index'),
+                        documentRevision: '1',
+                        textIdentity: null,
+                        readPages: () => readPagesSpy([{pageNumber: 1, text: 'LegacyOne'}]),
+                    },
+                    'LegacyOne',
+                    {matchCase: false, wholeWord: false, useRegex: false},
+                );
+                expect(legacyRev1.results).toHaveLength(1);
+                const callsBeforeLegacyRev2 = readPagesSpy.mock.calls.length;
+                const legacyRev2 = await searchIndexedDocument(
+                    {
+                        indexPath: join(tempDir, 'legacy.evb-search-index'),
+                        documentRevision: '2',
+                        textIdentity: null,
+                        readPages: () => readPagesSpy([{pageNumber: 1, text: 'LegacyTwo'}]),
+                    },
+                    'LegacyTwo',
+                    {matchCase: false, wholeWord: false, useRegex: false},
+                );
+                expect(legacyRev2.results).toHaveLength(1);
+                expect(readPagesSpy).toHaveBeenCalledTimes(callsBeforeLegacyRev2 + 1);
+            } finally {
+                await setDocumentStoreRootForTests(null);
+            }
+        } finally {
+            await rm(tempDir, {recursive: true, force: true});
         }
     });
 });
