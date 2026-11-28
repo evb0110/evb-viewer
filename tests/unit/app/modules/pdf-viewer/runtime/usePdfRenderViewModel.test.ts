@@ -1,6 +1,6 @@
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {describe, expect, it, vi} from 'vitest';
-import {computed, effectScope, ref, shallowRef} from 'vue';
+import {computed, effectScope, ref, shallowReactive, shallowRef} from 'vue';
 import {usePdfRenderViewModel} from '@app/modules/pdf-viewer/runtime/rendering/usePdfRenderViewModel';
 import type {IContentInsets, TPdfSource} from '@app/types/pdfUi';
 import type {ILinkAnnotation} from '@app/types/annotations';
@@ -47,7 +47,11 @@ function createHarness(options?: {
             effectiveScale: ref(1),
             continuousScroll: computed(() => false),
             numPages: ref(1_000),
-            linksByPage: computed(() => options?.linksByPage ?? {}),
+            linksByPage: shallowReactive(
+                new Map<number, readonly ILinkAnnotation[]>(
+                    Object.entries(options?.linksByPage ?? {}).map(([page, links]) => [Number(page), links]),
+                ),
+            ),
         }),
     );
 

@@ -2,7 +2,9 @@
 
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {afterAll, beforeEach, describe, expect, it, vi} from 'vitest';
-import {computed, nextTick, ref, render} from 'vue';
+import {computed, nextTick, ref, render, shallowReactive} from 'vue';
+import type {ILinkAnnotation} from '@app/types/annotations';
+import {usePdfRenderViewModel} from '@app/modules/pdf-viewer/runtime/rendering/usePdfRenderViewModel';
 import {
     createPdfPageResources,
     isPdfPageBusy,
@@ -25,7 +27,9 @@ const rendererFixture = vi.hoisted(() => ({
     clearOcrDebug: vi.fn(),
     scheduleOcrDebugForPage: vi.fn(),
 }));
-const annotationLayerFixture = vi.hoisted(() => ({render: vi.fn()}));
+const annotationLayerFixture = vi.hoisted(() => ({
+    render: vi.fn(),
+}));
 
 vi.mock('@app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer', () => ({
     usePdfTextLayerRenderer: () => rendererFixture,
@@ -33,9 +37,14 @@ vi.mock('@app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer
 vi.mock('@app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer', () => ({
     getParsedPageAnnotations: vi.fn(async () => []),
     isLinkAnnotation: (annotation: {annotationType: number}) => annotation.annotationType === 2,
-    usePdfAnnotationLayerRenderer: () => ({
+    usePdfAnnotationLayerRenderer: (options: {linkAnnotations?: Map<number, readonly ILinkAnnotation[]>}) => ({
         cleanupEditorLayer: vi.fn(),
-        clearAllLayers: vi.fn(),
+        clearAllLayers: vi.fn(() => {
+            options.linkAnnotations?.clear();
+        }),
+        releasePageLinks: (pageNumber: number) => {
+            options.linkAnnotations?.delete(pageNumber);
+        },
         hideHiddenManagedEditors: vi.fn(),
         renderAnnotationEditorLayer: vi.fn(async () => undefined),
         renderAnnotationLayer: annotationLayerFixture.render,
@@ -145,11 +154,13 @@ function createHarness() {
     const pageResources = createPdfPageResources();
     const onRenderedPageStateChanged = vi.fn();
     const onPageLayersCommitted = vi.fn(() => textLayer.textContent);
+    const linkAnnotations = shallowReactive(new Map<number, readonly ILinkAnnotation[]>());
     const rendererOptions: IUsePdfPageRendererOptions = {
         container: ref(root),
         document: documentSession,
         viewport: createViewportFixture(),
         pageResources,
+        linkAnnotations,
         getCommittedRender: () => committedRender,
         onRenderedPageStateChanged,
         onPageLayersCommitted,
@@ -184,6 +195,7 @@ function createHarness() {
         canvas,
         containerRef: rendererOptions.container,
         document: documentSession,
+        linkAnnotations,
         onRenderedPageStateChanged,
         onPageLayersCommitted,
         pageContainer,
@@ -796,6 +808,45 @@ describe('usePdfPageRenderer page release', () => {
     it('releases the layers of a page its view no longer has mounted', () => {
         const harness = createHarness();
         try {
+            const pageLink: ILinkAnnotation = {
+                id: 'link-page-1',
+                pageNumber: 1,
+                rect: {left: 10, top: 20, width: 100, height: 20},
+                url: 'https://example.com',
+            };
+            harness.linkAnnotations.set(1, [pageLink]);
+            const renderViewModel = usePdfRenderViewModel({
+                src: computed(() => null),
+                isLoading: ref(false),
+                pdfDocument: harness.document.pdfDocument,
+                getPage: vi.fn(),
+                openSurface: {
+                    snapshot: ref({
+                        committedViewport: null,
+                        generation: 1,
+                        phase: 'open-committed',
+                        reason: 'open',
+                        renderOwner: 'pdf-viewer',
+                        sourceId: 'doc.pdf',
+                        visualOwner: 'pdf-viewer',
+                    }),
+                } as never,
+                isVisualReloadTransitionActive: ref(false),
+                skeletonContentInsets: ref({top: 0, right: 0, bottom: 0, left: 0}),
+                isPageBuffered: () => true,
+                isPageRenderedForClass: () => true,
+                isPageRenderFailed: () => false,
+                shouldShowSkeleton: () => false,
+                visibleRange: ref({start: 1, end: 1}),
+                zoom: computed(() => 1),
+                zoomMode: computed(() => 'custom'),
+                fitMode: computed(() => 'width'),
+                effectiveScale: ref(1),
+                continuousScroll: computed(() => true),
+                numPages: ref(1),
+                linksByPage: harness.linkAnnotations,
+            });
+            expect(renderViewModel.visibleLinksByPage.value[1]).toEqual([pageLink]);
             showRaster(harness);
             harness.annotationLayer.append(document.createElement('section'));
             expect(harness.pageContainer.dataset.pageLayerReadiness).toBe('canvas-only');
@@ -808,6 +859,7 @@ describe('usePdfPageRenderer page release', () => {
 
             expect(harness.pageContainer.dataset.pageLayerReadiness).toBeUndefined();
             expect(harness.annotationLayer.childElementCount).toBe(0);
+            expect(renderViewModel.visibleLinksByPage.value[1]).toBeUndefined();
         } finally {
             harness.root.remove();
         }

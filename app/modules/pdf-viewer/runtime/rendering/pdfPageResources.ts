@@ -73,6 +73,7 @@ export interface IPdfRasterJob extends IPdfRasterTarget {
 
 /** The raster a page shows, until a successor publishes or the page is released. */
 export interface IPdfShownRaster extends IPdfRasterTarget {
+    readonly demand: IPdfRasterDemand;
     readonly render: IPdfLayerRenderResult;
     readonly quality: IPdfCommittedRasterQuality;
     readonly container: HTMLElement;
@@ -190,6 +191,7 @@ export function createPdfPageResources() {
             update(pageNumber, {
                 job,
                 shown: Object.freeze({
+                    demand: Object.freeze({...job.demand}),
                     render: Object.freeze(receipt.render),
                     quality: receipt.quality,
                     container: receipt.container,

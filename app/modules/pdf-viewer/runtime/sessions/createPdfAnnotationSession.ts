@@ -37,7 +37,6 @@ import {
     isReadOnlyAnnotation,
     type ITextBoxEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import {groupBy} from 'es-toolkit/array';
 import {usePdfViewerSaveTransaction} from '@app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction';
 import {
     annotationEditorSurfaceKey,
@@ -120,7 +119,7 @@ export interface ICreatePdfAnnotationSessionOptions {
     reportAnnotationFailure?: (failure: IAnnotationCreationFailureReport) => void;
     emitShapeContextMenu: (payload: {shapeId: string; clientX: number; clientY: number}) => void;
     /** Renderer-owned PDF link state consumed by the portal overlay. */
-    linkAnnotations?: Ref<ILinkAnnotation[]> | undefined;
+    linkAnnotations?: Map<number, readonly ILinkAnnotation[]> | undefined;
 }
 
 export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionOptions) => {
@@ -217,8 +216,8 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             documentAnnotations.replaceLoadedDocument(documentSession.captureFence().documentRevision, options.isAnySaving.value);
         }
     });
-    const linkAnnotations = options.linkAnnotations ?? ref<ILinkAnnotation[]>([]);
-    const linksByPage = computed<Record<number, ILinkAnnotation[]>>(() => groupBy(linkAnnotations.value, (link) => link.pageNumber));
+    const linkAnnotations = options.linkAnnotations ?? shallowReactive(new Map<number, readonly ILinkAnnotation[]>());
+    const linksByPage: ReadonlyMap<number, readonly ILinkAnnotation[]> = linkAnnotations;
     const selectionMarkupStyle = (subtype: Parameters<typeof textMarkupStyle>[1]) =>
         textMarkupStyle(options.annotationSettings.value, subtype);
     function emitAnnotationOpenNoteWithReconciliation(comment: IAnnotationCommentSummary) {

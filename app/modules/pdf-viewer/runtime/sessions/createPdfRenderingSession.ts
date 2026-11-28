@@ -85,7 +85,7 @@ export interface ICreatePdfRenderingSessionOptions {
     documentRevisionToken: Vue.ComputedRef<TDocumentRevisionToken | null>;
     maxBufferCanvasPixels: number;
     /** Shared with the annotation session so renderer-owned PDF links reach the portal layer. */
-    linkAnnotations?: Vue.Ref<ILinkAnnotation[]> | undefined;
+    linkAnnotations?: Map<number, readonly ILinkAnnotation[]> | undefined;
     emitInitialVisualReady: (payload: {pageNumber: TPageNumber}) => void;
     emitLoadError: (error: unknown) => void;
 }
@@ -203,6 +203,32 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             isRasterScaleCurrent(target.targetOutputScale, options.outputScale.value)
         );
     }
+    function isStretchAndSettleActive() {
+        return options.isResizing.value || viewport.isZoomGestureActive?.value === true;
+    }
+    function isSameSchedulerDocumentFence(left: IPdfRasterDemand['documentFence'], right: IPdfRasterDemand['documentFence']) {
+        return (
+            left.loadToken === right.loadToken &&
+            left.documentVersion === right.documentVersion &&
+            left.documentRevision === right.documentRevision
+        );
+    }
+    function isStretchFirstPaintReusable(pageNumber: TPageNumber, job: IPdfRasterJob | null): job is IPdfRasterJob {
+        const scheduler = documentSession.rasterScheduler;
+        return (
+            job !== null &&
+            isStretchAndSettleActive() &&
+            !isPagePainted(pageNumber) &&
+            job.rasterState === 'in-flight' &&
+            !isAwaitingRotationRevision(pageNumber) &&
+            scheduler !== null &&
+            isSameSchedulerDocumentFence(job.demand.documentFence, scheduler.documentFence) &&
+            job.demand.consumerGeneration === renderVersion &&
+            job.targetViewRotation === (options.viewRotation?.value ?? 0) &&
+            isRasterScaleCurrent(job.targetOutputScale, options.outputScale.value) &&
+            (job.renderOptions.annotationCommit?.isCurrent() ?? true)
+        );
+    }
     function isPagePainted(pageNumber: TPageNumber) {
         void renderedPageStateVersion.value;
         const target = getMountedRasterTarget(pageNumber);
@@ -317,7 +343,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 ((shown?.render === prepared.reusedRender || shown?.render === prepared.render) &&
                     !rotationPreviewCanvases.has(pageNumber) &&
                     !isAwaitingRotationRevision(pageNumber))) &&
-            isRasterTargetCurrent(prepared.job) &&
+            (isRasterTargetCurrent(prepared.job) || isStretchFirstPaintReusable(pageNumber, prepared.job)) &&
             documentSession.pdfDocument.value !== null &&
             (prepared.job.renderOptions.annotationCommit?.isCurrent() ??
                 pageRenderer.isAnnotationInputCurrent(prepared.job.demand.pageNumber, prepared.render.annotationInput)) &&
@@ -346,7 +372,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             const shouldContinue = () =>
                 !signal.aborted &&
                 pageResources.get(demand.pageNumber).job === job &&
-                isRasterTargetCurrent(job) &&
+                (isRasterTargetCurrent(job) || isStretchFirstPaintReusable(demand.pageNumber, job)) &&
                 (job.renderOptions.annotationCommit?.isCurrent() ?? true) &&
                 isViewportRasterDemanded(demand.pageNumber, job.demand.lane);
             // Declined up front on everything a start would check, so a
@@ -535,6 +561,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         range: PdfUi.IPageRange,
         renderOptions: IRenderVisiblePagesOptions,
         scheduler: IPdfPageRasterScheduler,
+        preserveStretchFirstPaint = false,
     ) {
         const buffer = renderOptions.bufferOverride ?? options.bufferPages.value;
         const override = renderOptions.renderWindowOverride;
@@ -571,6 +598,28 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                     : 'prefetch';
             const maxCanvasPixels = renderOptions.bufferMaxCanvasPixels ?? renderOptions.maxCanvasPixels;
             const wantedJob = pageResources.get(pageNumber).job;
+            const reuseInFlightBufferFirstPaint =
+                wantedJob !== null &&
+                !isPagePainted(pageNumber) &&
+                wantedJob.rasterState === 'in-flight' &&
+                wantedJob.renderOptions.contentIntent === 'canvas-only-buffer' &&
+                renderOptions.forceRerender !== true &&
+                !renderOptions.annotationCommit &&
+                (renderOptions.contentIntent ?? 'full-visible') === 'full-visible' &&
+                isRasterTargetCurrent(wantedJob) &&
+                isSameSchedulerDocumentFence(wantedJob.demand.documentFence, scheduler.documentFence) &&
+                wantedJob.demand.consumerGeneration === renderVersion &&
+                (wantedJob.renderOptions.annotationCommit?.isCurrent() ?? true);
+            if ((preserveStretchFirstPaint && isStretchFirstPaintReusable(pageNumber, wantedJob)) || reuseInFlightBufferFirstPaint) {
+                wantedJob!.demand = {
+                    ...wantedJob!.demand,
+                    lane,
+                    ordinal: visible ? pageNumber - range.start : distance,
+                };
+                pageResources.want(pageNumber, wantedJob);
+                jobs.push(wantedJob!);
+                continue;
+            }
             const pageRenderOptions =
                 lane === 'viewport-nearby' || lane === 'prefetch'
                     ? {
@@ -655,8 +704,18 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         options: IRenderVisiblePagesOptions & {annotationCommit: NonNullable<IRenderVisiblePagesOptions['annotationCommit']>},
     ): Promise<Array<Awaited<ReturnType<IPdfPageRasterScheduler['request']>>> | undefined>;
     function renderVisiblePages(range: PdfUi.IPageRange, options?: IRenderVisiblePagesOptions): Promise<void>;
-    async function renderVisiblePages(range: PdfUi.IPageRange, requestedRenderOptions: IRenderVisiblePagesOptions = {}) {
+    function renderVisiblePages(range: PdfUi.IPageRange, requestedRenderOptions: IRenderVisiblePagesOptions = {}) {
+        return runVisiblePageRender(range, requestedRenderOptions, false);
+    }
+    async function runVisiblePageRender(
+        range: PdfUi.IPageRange,
+        requestedRenderOptions: IRenderVisiblePagesOptions = {},
+        abortIfStretchActive = false,
+    ) {
         await pendingRasterCancellation;
+        if (abortIfStretchActive && isStretchAndSettleActive()) {
+            return;
+        }
         const renderOptions =
             bindPdfOpenSurfaceRenderContext(requestedRenderOptions, {
                 openSurfaceGeneration: documentSession.openSurfaceGeneration,
@@ -675,6 +734,9 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         }
         if (didHydrateMetrics) {
             viewport.setupPagePlaceholders();
+        }
+        if (abortIfStretchActive && isStretchAndSettleActive()) {
+            return;
         }
         const scheduler = documentSession.rasterScheduler;
         if (!scheduler || document !== documentSession.pdfDocument.value) {
@@ -723,7 +785,11 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 : [];
         const jobs = [
             ...[...residentJobs, ...preservedRenderedJobs].filter(
-                (job) => !renderOptions.retainOnlyCurrentResidentRaster || job.rasterState === 'current',
+                (job) =>
+                    !renderOptions.retainOnlyCurrentResidentRaster ||
+                    job.rasterState === 'current' ||
+                    (job.rasterState === 'in-flight' &&
+                        (job.demand.lane === 'viewport-visible' || job.demand.lane === 'navigation-target')),
             ),
             ...requestedJobs,
         ];
@@ -1065,6 +1131,159 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             reconcileDemand();
         });
     }
+    function buildProtectedShownRequiredDemands(
+        requiredPages: readonly TPageNumber[],
+        scheduler: IPdfPageRasterScheduler,
+        excludedPages: ReadonlySet<TPageNumber>,
+    ) {
+        const residentPages = new Set(
+            scheduler
+                .snapshot()
+                .residentPages.filter((entry) => entry.sourceId === viewportRasterSourceId && entry.targetId === viewportRasterSourceId)
+                .map((entry) => entry.pageNumber),
+        );
+        const demands: IPdfRasterDemand[] = [];
+        requiredPages.forEach((pageNumber, index) => {
+            if (excludedPages.has(pageNumber) || !isPagePainted(pageNumber) || !residentPages.has(pageNumber)) {
+                return;
+            }
+            const shownDemand = pageResources.get(pageNumber).shown?.demand;
+            if (!shownDemand || !isSameSchedulerDocumentFence(shownDemand.documentFence, scheduler.documentFence)) {
+                return;
+            }
+            demands.push({
+                ...shownDemand,
+                lane: 'viewport-visible',
+                ordinal: index,
+            });
+        });
+        return demands;
+    }
+    function promoteShownRequiredResidentsDuringStretch(requiredPages: readonly TPageNumber[], scheduler: IPdfPageRasterScheduler) {
+        const requiredSet = new Set(requiredPages);
+        const needsVisiblePromotion = scheduler
+            .snapshot()
+            .residentPages.some(
+                (entry) =>
+                    entry.sourceId === viewportRasterSourceId &&
+                    entry.targetId === viewportRasterSourceId &&
+                    requiredSet.has(entry.pageNumber) &&
+                    entry.lane !== 'viewport-visible' &&
+                    entry.lane !== 'navigation-target',
+            );
+        if (!needsVisiblePromotion) {
+            return;
+        }
+        const protectedShownDemands = buildProtectedShownRequiredDemands(requiredPages, scheduler, new Set());
+        if (protectedShownDemands.length === 0) {
+            return;
+        }
+        const reusableInFlightDemands = requiredPages
+            .map((page) => pageResources.get(page).job)
+            .filter((job): job is IPdfRasterJob => job !== null && isStretchFirstPaintReusable(job.demand.pageNumber, job))
+            .map((job) => job.demand);
+        activeRasterScheduler = scheduler;
+        scheduler.setDemand({
+            sourceId: viewportRasterSourceId,
+            input: [...protectedShownDemands, ...reusableInFlightDemands],
+            policy: {
+                expand: (input: readonly IPdfRasterDemand[]) => input,
+                compareWithinLane: (left: IPdfRasterDemand, right: IPdfRasterDemand) => left.ordinal - right.ordinal,
+            },
+            target: viewportRasterTarget,
+        });
+    }
+    async function reconcileStretchDemand(initialRequiredPages: readonly TPageNumber[]) {
+        const currentScheduler = documentSession.rasterScheduler;
+        // Promote newly visible shown buffer pages synchronously before any await
+        // so another pane cannot evict them while sparse metrics hydrate.
+        if (currentScheduler) {
+            promoteShownRequiredResidentsDuringStretch(initialRequiredPages, currentScheduler);
+        }
+        const initialMissing = initialRequiredPages.filter((page) => !isPagePainted(page) && getPageRasterState(page) !== 'failed');
+        if (initialMissing.length === 0) {
+            return;
+        }
+        await pendingRasterCancellation;
+        const document = documentSession.pdfDocument.value;
+        const version = renderVersion;
+        if (
+            disposed ||
+            !document ||
+            !rasterOperational.value ||
+            !isStretchAndSettleActive() ||
+            viewport.demand.value.mandatoryRaster !== null
+        ) {
+            return;
+        }
+        const initialRange = {
+            start: Math.min(...initialMissing),
+            end: Math.max(...initialMissing),
+        };
+        const didHydrateMetrics = await documentSession.ensurePageMetricsInRange(initialRange.start, initialRange.end);
+        if (
+            disposed ||
+            document !== documentSession.pdfDocument.value ||
+            !rasterOperational.value ||
+            version !== renderVersion ||
+            !isStretchAndSettleActive() ||
+            viewport.demand.value.mandatoryRaster !== null
+        ) {
+            return;
+        }
+        if (didHydrateMetrics) {
+            viewport.setupPagePlaceholders();
+        }
+        const scheduler = documentSession.rasterScheduler;
+        if (!scheduler || document !== documentSession.pdfDocument.value) {
+            return;
+        }
+        activeRasterScheduler = scheduler;
+        const liveRequiredPages = viewport.demand.value.requiredPages.map(toPageNumber);
+        const liveMissing = liveRequiredPages.filter((page) => !isPagePainted(page) && getPageRasterState(page) !== 'failed');
+        const liveMissingRange =
+            liveMissing.length > 0
+                ? {
+                      start: Math.min(...liveMissing),
+                      end: Math.max(...liveMissing),
+                  }
+                : null;
+        const requestedJobs = liveMissingRange
+            ? buildViewportRasterJobs(
+                  liveMissingRange,
+                  bindPdfOpenSurfaceRenderContext(
+                      {
+                          bufferOverride: 0,
+                          bufferMaxCanvasPixels: options.maxBufferCanvasPixels,
+                          rasterDemandPages: liveMissing,
+                          renderWindowOverride: liveMissingRange,
+                      },
+                      {
+                          openSurfaceGeneration: documentSession.openSurfaceGeneration,
+                          openSurfaceRevision: documentSession.openSurfaceRevision,
+                      },
+                  ) ?? {},
+                  scheduler,
+                  true,
+              )
+            : [];
+        const requestedPages = new Set(requestedJobs.map((job) => job.demand.pageNumber));
+        const protectedShownDemands = buildProtectedShownRequiredDemands(liveRequiredPages, scheduler, requestedPages);
+        dropJobs(new Set(requestedJobs));
+        const schedulableJobs = requestedJobs.filter((job) => job.rasterState !== 'failed');
+        schedulableJobs
+            .filter((job) => job.rasterState === 'absent' || job.rasterState === 'stale-scale')
+            .forEach((job) => pageResources.setJobState(job.demand.pageNumber, job, 'in-flight'));
+        scheduler.setDemand({
+            sourceId: viewportRasterSourceId,
+            input: [...protectedShownDemands, ...schedulableJobs.map((job) => job.demand)],
+            policy: {
+                expand: (input: readonly IPdfRasterDemand[]) => input,
+                compareWithinLane: (left: IPdfRasterDemand, right: IPdfRasterDemand) => left.ordinal - right.ordinal,
+            },
+            target: viewportRasterTarget,
+        });
+    }
     function reconcileDemand() {
         qualityRefineGate.synchronizeViewportInteractionEpoch();
         const demand = viewport.demand.value;
@@ -1087,13 +1306,17 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         }
         const requiredPages = demand.requiredPages.map(toPageNumber);
         const requiredStates = requiredPages.map(getPageRasterState);
+        const stretchAndSettleActive = isStretchAndSettleActive();
         detailRaster.reconcile(
             requiredPages,
-            !options.isResizing.value && requiredStates.every((state) => state === 'current' || state === 'failed'),
+            !stretchAndSettleActive && requiredStates.every((state) => state === 'current' || state === 'failed'),
         );
-        // While a pane edge is dragged the scale changes every frame. Stretch
-        // the committed canvases and raster the settled scale once.
-        if (options.isResizing.value && !requiredStates.includes('absent')) {
+        // While a pane edge is dragged or a pinch/Ctrl+wheel zoom gesture is
+        // live, the scale changes every frame. Stretch the actually shown
+        // canvases and raster the settled scale once, while keeping shown
+        // required pages protected and painting any newly exposed blank page.
+        if (stretchAndSettleActive) {
+            void reconcileStretchDemand(requiredPages);
             return;
         }
         const repairPages = requiredPages.filter((_, index) => requiredStates[index] === 'stale-scale');
@@ -1104,16 +1327,20 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                   end: Math.max(...repairPages),
               }
             : demand.visibleRange;
-        void renderVisiblePages(rasterRange, {
-            bufferMaxCanvasPixels: options.maxBufferCanvasPixels,
-            rasterDemandPages: rasterPages,
-            ...(repairPages.length
-                ? {
-                      retainOnlyCurrentResidentRaster: true,
-                      renderWindowOverride: rasterRange,
-                  }
-                : {}),
-        });
+        void runVisiblePageRender(
+            rasterRange,
+            {
+                bufferMaxCanvasPixels: options.maxBufferCanvasPixels,
+                rasterDemandPages: rasterPages,
+                ...(repairPages.length
+                    ? {
+                          retainOnlyCurrentResidentRaster: true,
+                          renderWindowOverride: rasterRange,
+                      }
+                    : {}),
+            },
+            true,
+        );
         if (repairPages.length || requiredStates.includes('absent')) {
             return;
         }
@@ -1138,12 +1365,16 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             return;
         }
         qualityRefineGate.clearIdleTimer();
-        void renderVisiblePages(singlePageRange(refinePage), {
-            bufferOverride: 0,
-            contentIntent: 'canvas-only-refine',
-            forceRerender: true,
-            rasterDemandPages: [refinePage],
-        });
+        void runVisiblePageRender(
+            singlePageRange(refinePage),
+            {
+                bufferOverride: 0,
+                contentIntent: 'canvas-only-refine',
+                forceRerender: true,
+                rasterDemandPages: [refinePage],
+            },
+            true,
+        );
     }
     const stopDemandWatch = watch(
         viewport.demand,

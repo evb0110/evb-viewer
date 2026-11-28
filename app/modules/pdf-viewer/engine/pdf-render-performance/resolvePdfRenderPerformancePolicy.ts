@@ -1,10 +1,8 @@
 import type {IPerformanceProfile} from '@app/utils/performanceProfile';
 
-export type TPdfZoomGestureRasterMode = 'eager' | 'idle-once';
 export type TPdfClampedVisibleRefineMode = 'immediate' | 'input-idle';
 
 export interface IPdfRenderPerformancePolicy {
-    readonly zoomGestureRasterMode: TPdfZoomGestureRasterMode;
     readonly outputScaleFloor: number;
     readonly clampedVisibleRefineMode: TPdfClampedVisibleRefineMode;
     readonly navigationAnchorRadius: number;
@@ -12,7 +10,6 @@ export interface IPdfRenderPerformancePolicy {
 }
 
 const CONSTRAINED_PDF_RENDER_PERFORMANCE_POLICY = {
-    zoomGestureRasterMode: 'idle-once',
     outputScaleFloor: 1,
     clampedVisibleRefineMode: 'input-idle',
     navigationAnchorRadius: 8,
@@ -20,7 +17,6 @@ const CONSTRAINED_PDF_RENDER_PERFORMANCE_POLICY = {
 } as const satisfies IPdfRenderPerformancePolicy;
 
 const NORMAL_PDF_RENDER_PERFORMANCE_POLICY = {
-    zoomGestureRasterMode: 'eager',
     outputScaleFloor: 2,
     clampedVisibleRefineMode: 'immediate',
     navigationAnchorRadius: 18,

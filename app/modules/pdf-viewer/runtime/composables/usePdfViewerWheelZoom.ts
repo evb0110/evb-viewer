@@ -21,6 +21,7 @@ interface IUsePdfViewerWheelZoomOptions {
     handlePagedWheel: (event: IDocumentWheelSourceEvent, deltaPx?: number) => boolean;
     cancelPendingSearchScroll: () => void;
     markUserViewportInteraction: () => void;
+    markZoomGestureActivity?: ((writeZoom?: () => void) => void) | undefined;
     captureRelayoutAnchor: (point: {x: number; y: number}) => IPdfSemanticAnchor | null;
     relayout: (change?: () => void, anchor?: IPdfSemanticAnchor | null) => void;
     isSnipActive: () => boolean;
@@ -53,7 +54,26 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
         stopObservingViewport = null;
     });
 
-    const handleWheelZoom = createDocumentWheelZoomHandler(options.effectiveScale, options.readZoom, {
+    const readGestureZoom = (): IZoomStateAccess => {
+        const zoom = options.readZoom();
+        return {
+            get manualScale() {
+                return zoom.manualScale;
+            },
+            get state() {
+                return zoom.state;
+            },
+            set(nextState) {
+                if (options.markZoomGestureActivity) {
+                    options.markZoomGestureActivity(() => zoom.set(nextState));
+                } else {
+                    zoom.set(nextState);
+                }
+            },
+        };
+    };
+
+    const handleWheelZoom = createDocumentWheelZoomHandler(options.effectiveScale, readGestureZoom, {
         beforeZoom: ({event}) => {
             const container = options.viewerContainer.value;
             if (!container) {
@@ -84,6 +104,9 @@ export const usePdfViewerWheelZoom = (options: IUsePdfViewerWheelZoomOptions) =>
                 // A pinch is the reader taking the view even at a zoom limit,
                 // where it changes no scale.
                 options.markUserViewportInteraction();
+                // Extend an already-active raster gesture on every zoom packet
+                // (including clamped packets) so it shares the wheel grace window.
+                options.markZoomGestureActivity?.();
                 handleWheelZoom(interaction);
             } else {
                 event.preventDefault();

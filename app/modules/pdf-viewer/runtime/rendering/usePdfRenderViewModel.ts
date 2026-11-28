@@ -28,10 +28,10 @@ interface IUsePdfRenderViewModelOptions {
     effectiveScale: Ref<number>;
     continuousScroll: ComputedRef<boolean>;
     numPages: Ref<number>;
-    linksByPage: ComputedRef<Record<number, ILinkAnnotation[]>>;
+    linksByPage: ReadonlyMap<number, readonly ILinkAnnotation[]>;
 }
 
-const emptyLinksByPage: Record<number, never[]> = {};
+const emptyLinksByPage: Record<number, ILinkAnnotation[]> = {};
 
 export const usePdfRenderViewModel = (options: IUsePdfRenderViewModelOptions) => {
     const {isViewerLoadingOverlayVisible} = usePdfViewerLoadingState({
@@ -50,13 +50,18 @@ export const usePdfRenderViewModel = (options: IUsePdfRenderViewModelOptions) =>
             options.skeletonContentInsets.value === null,
     );
 
-    const visibleLinksByPage = computed(() =>
-        isViewerLoadingOverlayVisible.value
-            ? emptyLinksByPage
-            : Object.fromEntries(
-                  Object.entries(options.linksByPage.value).filter(([page]) => options.isPageRenderedForClass(Number(page))),
-              ),
-    );
+    const visibleLinksByPage = computed<Record<number, ILinkAnnotation[]>>(() => {
+        if (isViewerLoadingOverlayVisible.value) {
+            return emptyLinksByPage;
+        }
+        const visible: Record<number, ILinkAnnotation[]> = {};
+        for (const [page, links] of options.linksByPage) {
+            if (links.length > 0 && options.isPageRenderedForClass(page)) {
+                visible[page] = links as ILinkAnnotation[];
+            }
+        }
+        return visible;
+    });
 
     function shouldShowPageSkeleton(page: number) {
         if (options.isPageRenderFailed(page)) {

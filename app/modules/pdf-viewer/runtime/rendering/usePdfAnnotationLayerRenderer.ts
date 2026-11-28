@@ -106,7 +106,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
     hiddenAnnotationIds?: MaybeRefOrGetter<Set<string>>;
     annotationProjectionReady?: MaybeRefOrGetter<boolean>;
     scrollToPage?: (pageNumber: number) => void;
-    linkAnnotations?: Ref<ILinkAnnotation[]> | undefined;
+    linkAnnotations?: Map<number, readonly ILinkAnnotation[]> | undefined;
 }) => {
     // The caller's signal and continuation are the page's one layer owner;
     // a newer render of the page aborts this one through them.
@@ -114,11 +114,15 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         return options?.signal?.aborted !== true && options?.shouldContinue?.() !== false;
     }
 
-    function replacePageLinkAnnotations(pageNumber: number, links: ILinkAnnotation[]) {
+    function replacePageLinkAnnotations(pageNumber: number, links: readonly ILinkAnnotation[]) {
         if (!deps.linkAnnotations) {
             return;
         }
-        deps.linkAnnotations.value = [...deps.linkAnnotations.value.filter((link) => link.pageNumber !== pageNumber), ...links];
+        if (links.length === 0) {
+            deps.linkAnnotations.delete(pageNumber);
+            return;
+        }
+        deps.linkAnnotations.set(pageNumber, links);
     }
 
     async function renderAnnotationLayer(
@@ -241,14 +245,17 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         return annotationLayer;
     }
 
+    function releasePageLinks(pageNumber: number) {
+        deps.linkAnnotations?.delete(pageNumber);
+    }
+
     function clearAllLayers() {
-        if (deps.linkAnnotations) {
-            deps.linkAnnotations.value = [];
-        }
+        deps.linkAnnotations?.clear();
     }
 
     return {
         renderAnnotationLayer,
+        releasePageLinks,
         clearAllLayers,
     };
 };
