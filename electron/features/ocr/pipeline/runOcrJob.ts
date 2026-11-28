@@ -17,7 +17,7 @@ import {getOcrScanCleanupMode} from '@contracts/scan-cleanup/ocrPreprocessing';
 import {getOcrPageSelectionCount, iterateOcrPageRequestBatches} from '@ocr-core/ocrPageSelection';
 import {resolveOcrExtractionDpi} from '@ocr-core/ocrRenderDpi';
 import {OcrJobMessages, recognizeOcrPages, type IOcrPageRaster} from '@ocr-core/recognizeOcrPages';
-import type {IOcrEngineResult} from '@ocr-core/tesseractEngine';
+import {resolveTesseractRequestModels, type IOcrEngineResult} from '@ocr-core/tesseractEngine';
 import {getOcrEngineLaneExitPromise} from '@electron/features/ocr/main/ocrEnginePool';
 import {
     isOcrEngineImageFile,
@@ -123,7 +123,7 @@ function createJobOcrEngine(job: Pick<IOcrJob, 'jobId' | 'paths' | 'runEngine' |
         if (!readModelBytes) {
             return await job.runEngine(request, signal);
         }
-        const modelBytes = sumOcrModelBytes(await readModelBytes(request.models));
+        const modelBytes = sumOcrModelBytes(await readModelBytes(resolveTesseractRequestModels(request)));
         return await mainJobBroker.run(
             {
                 ownerId: `ocr:${job.jobId}`,

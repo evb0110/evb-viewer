@@ -1920,6 +1920,243 @@ describe('createTesseractEngine WASM memory introspection', () => {
         ).rejects.toThrow(/Tesseract exited with code 1/u);
         expect(recognize.getWasmMemoryBytes()).toBe(0);
     });
+
+    it('O-7: scopes MEMFS model mounts per pass via withOcrModelSublanguages and keys instances on args plus sorted mounted models', async () => {
+        const {resolveTesseractPassModels} = await import('@ocr-core/tesseractEngine');
+        const {buildTesseractArgs} = await import('@ocr-core/tesseractRecipe');
+        const {recognizeOcrPages} = await import('@ocr-core/recognizeOcrPages');
+
+        const wasmModule = new WebAssembly.Module(MINIMAL_MEMORY_WASM);
+        const mountedByInstance: string[][] = [];
+        const loadedModels: string[] = [];
+
+        const recognize = createTesseractEngine({
+            loadEngine: async () => ({
+                module: wasmModule,
+                factory: async ({instantiateWasm}) => {
+                    await new Promise<void>((resolve) => {
+                        instantiateWasm({}, () => resolve());
+                    });
+                    const mounted: string[] = [];
+                    mountedByInstance.push(mounted);
+                    const files = new Map<string, Uint8Array>();
+                    return {
+                        callMain: (args: string[]) => {
+                            const outputBase = args[1]!;
+                            files.set(`${outputBase}.pdf`, new TextEncoder().encode('%PDF-1.5\n%%EOF\n'));
+                            files.set(
+                                `${outputBase}.tsv`,
+                                new TextEncoder().encode(
+                                    'level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n5\t1\t1\t1\t1\t1\t10\t10\t20\t12\t95\tword\n',
+                                ),
+                            );
+                            files.set(
+                                `${outputBase}.hocr`,
+                                new TextEncoder().encode(
+                                    '<div class="ocr_page"><span class="ocr_line" title="bbox 10 10 30 22"><span class="ocrx_word" title="bbox 10 10 30 22">word</span></span></div>',
+                                ),
+                            );
+                            return 0;
+                        },
+                        FS: {
+                            mkdirTree: () => undefined,
+                            writeFile: (path, data) => {
+                                if (path.startsWith('/tessdata/')) {
+                                    mounted.push(path);
+                                }
+                                files.set(path, data);
+                            },
+                            readFile: (path) => {
+                                const data = files.get(path);
+                                if (!data) {
+                                    throw new Error(`missing ${path}`);
+                                }
+                                return data;
+                            },
+                            unlink: (path) => {
+                                files.delete(path);
+                            },
+                        },
+                    };
+                },
+            }),
+            loadModel: async (code) => {
+                loadedModels.push(code);
+                return new Uint8Array([1, 2, 3]);
+            },
+        });
+
+        // Early Print passes on a Latin page: ita_old and fra must NOT mount unrelated 101.4 MiB lat (script/Latin).
+        const latArgs = buildTesseractArgs({
+            imagePath: '/work/page.ppm',
+            outputBase: '/work/out',
+            languages: ['lat'],
+            tessdataPath: '/tessdata',
+            dpi: 300,
+            outputs: {pdf: true, tsv: true, hocr: true},
+        });
+        const itaOldArgs = buildTesseractArgs({
+            imagePath: '/work/page.ppm',
+            outputBase: '/work/ita_old',
+            languages: ['ita_old'],
+            tessdataPath: '/tessdata',
+            dpi: 300,
+            outputs: {hocr: true},
+        });
+        const fraArgs = buildTesseractArgs({
+            imagePath: '/work/page.ppm',
+            outputBase: '/work/fra',
+            languages: ['fra'],
+            tessdataPath: '/tessdata',
+            dpi: 300,
+            outputs: {hocr: true},
+        });
+
+        await recognize({
+            image: new Uint8Array([0]),
+            models: ['lat', 'ita_old', 'fra'],
+            passes: [
+                {models: ['lat'], args: latArgs, outputs: ['/work/out.pdf', '/work/out.tsv', '/work/out.hocr']},
+                {models: ['ita_old'], args: itaOldArgs, outputs: ['/work/ita_old.hocr']},
+                {models: ['fra'], args: fraArgs, outputs: ['/work/fra.hocr']},
+            ],
+        });
+
+        expect(mountedByInstance).toEqual([
+            ['/tessdata/lat.traineddata'],
+            ['/tessdata/ita_old.traineddata'],
+            ['/tessdata/fra.traineddata'],
+        ]);
+
+        // Re-running fra with the same args & mounted model set reuses the warm instance (no 4th instantiation).
+        await recognize({
+            image: new Uint8Array([0]),
+            models: ['fra'],
+            passes: [{models: ['fra'], args: fraArgs, outputs: ['/work/fra.hocr']}],
+        });
+        expect(mountedByInstance).toHaveLength(3);
+
+        // Changing init args with the same model set must create a fresh instance.
+        const fraPoorScanArgs = buildTesseractArgs({
+            imagePath: '/work/page.ppm',
+            outputBase: '/work/fra',
+            languages: ['fra'],
+            tessdataPath: '/tessdata',
+            dpi: 300,
+            options: {qualityProfile: 'poor-scan'},
+            outputs: {hocr: true},
+        });
+        await recognize({
+            image: new Uint8Array([0]),
+            models: ['fra'],
+            passes: [{models: ['fra'], args: fraPoorScanArgs, outputs: ['/work/fra.hocr']}],
+        });
+        expect(mountedByInstance).toHaveLength(4);
+        expect(mountedByInstance[3]).toEqual(['/tessdata/fra.traineddata']);
+
+        // Sub-language dependency closure: `ell` must mount both `ell` and `grc` (sorted), without unrelated `lat`.
+        const ellArgs = buildTesseractArgs({
+            imagePath: '/work/page.ppm',
+            outputBase: '/work/out',
+            languages: ['ell'],
+            tessdataPath: '/tessdata',
+            dpi: 300,
+            outputs: {tsv: true},
+        });
+        await recognize({
+            image: new Uint8Array([0]),
+            models: ['lat', 'ell'],
+            passes: [{models: ['ell'], args: ellArgs, outputs: ['/work/out.tsv']}],
+        });
+        expect(mountedByInstance[4]).toEqual(['/tessdata/ell.traineddata', '/tessdata/grc.traineddata']);
+
+        // Serbian excludes `~srp_latn` via withOcrModelSublanguages and mounts only `srp`.
+        expect(
+            resolveTesseractPassModels({args: ['/work/page.ppm', '/work/out', '-l', 'srp+~srp_latn'], models: ['srp']}, ['srp']),
+        ).toEqual(['srp']);
+        // When `pass.models` is omitted, `-l` in `pass.args` still scopes mounts without unrelated request models.
+        expect(resolveTesseractPassModels({args: itaOldArgs}, ['lat', 'ita_old', 'fra'])).toEqual(['ita_old']);
+        // Repeated `-l` flags follow Tesseract 5.5.3 semantics (last `-l` wins).
+        expect(resolveTesseractPassModels({args: ['/work/page.ppm', '/work/out', '-l', 'eng', '-l', 'fra']}, ['eng', 'fra'])).toEqual([
+            'fra',
+        ]);
+        // Request-level resolution matches the exact union of pass-resolved models for desktop admission charging.
+        const {resolveTesseractRequestModels} = await import('@ocr-core/tesseractEngine');
+        expect(
+            resolveTesseractRequestModels({
+                models: ['eng'],
+                passes: [{models: ['lat'], args: latArgs, outputs: ['/work/out.pdf']}],
+            }),
+        ).toEqual(['lat']);
+        expect(
+            resolveTesseractRequestModels({
+                models: ['lat', 'ita_old', 'fra'],
+                passes: [
+                    {models: ['lat'], args: latArgs, outputs: ['/work/out.pdf']},
+                    {models: ['ita_old'], args: itaOldArgs, outputs: ['/work/ita_old.hocr']},
+                    {models: ['fra'], args: fraArgs, outputs: ['/work/fra.hocr']},
+                ],
+            }),
+        ).toEqual(['fra', 'ita_old', 'lat']);
+        // Same args (no -l) but different mounted model sets must produce distinct instances.
+        await recognize({
+            image: new Uint8Array([0]),
+            models: ['eng'],
+            passes: [{models: ['eng'], args: ['/work/page.ppm', '/work/out'], outputs: ['/work/out.tsv']}],
+        });
+        const countAfterEng = mountedByInstance.length;
+        await recognize({
+            image: new Uint8Array([0]),
+            models: ['fra'],
+            passes: [{models: ['fra'], args: ['/work/page.ppm', '/work/out'], outputs: ['/work/out.tsv']}],
+        });
+        expect(mountedByInstance.length).toBe(countAfterEng + 1);
+        expect(mountedByInstance.at(-1)).toEqual(['/tessdata/fra.traineddata']);
+
+        // Reversing pass model order with identical args produces the same sorted mounted set and reuses the instance.
+        await recognize({
+            image: new Uint8Array([0]),
+            models: ['fra', 'eng'],
+            passes: [{models: ['fra', 'eng'], args: ['/work/page.ppm', '/work/out'], outputs: ['/work/out.tsv']}],
+        });
+        const countAfterPair = mountedByInstance.length;
+        expect(mountedByInstance.at(-1)).toEqual(['/tessdata/eng.traineddata', '/tessdata/fra.traineddata']);
+        await recognize({
+            image: new Uint8Array([0]),
+            models: ['eng', 'fra'],
+            passes: [{models: ['eng', 'fra'], args: ['/work/page.ppm', '/work/out'], outputs: ['/work/out.tsv']}],
+        });
+        expect(mountedByInstance.length).toBe(countAfterPair);
+
+        // Verify recognizeOcrPages emits pass-scoped `models` on Early Print reread passes.
+        const longSTsv = new TextEncoder().encode(
+            'level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n' +
+                Array.from({length: 20}, (_, i) => `5\t1\t1\t1\t1\t${i + 1}\t${10 + i * 30}\t10\t20\t12\t95\tfeftum`).join('\n') +
+                '\n',
+        );
+        const recordedPassModels: Array<Array<string[] | undefined>> = [];
+        await recognizeOcrPages({
+            pages: [{pageNumber: 1, languages: ['lat']}],
+            extractionDpi: 300,
+            sourceDpiByPage: new Map(),
+            options: {},
+            lanes: 1,
+            signal: new AbortController().signal,
+            renderPage: async () => ({image: new Uint8Array([1]), width: 100, height: 100}),
+            runEngine: async (req) => {
+                recordedPassModels.push(req.passes.map((pass) => pass.models));
+                if (req.passes.length === 1) {
+                    return {passes: [{stderr: '', outputs: [new TextEncoder().encode('%PDF-1.5\n%%EOF\n'), longSTsv]}]};
+                }
+                return recognize(req);
+            },
+            prepareEarlyPrintModels: async () => undefined,
+            readModel: async () => new Uint8Array([1]),
+            acceptPage: async () => undefined,
+        });
+        expect(recordedPassModels).toEqual([[['lat']], [['lat'], ['ita_old'], ['fra']]]);
+        expect(loadedModels).toContain('grc');
+    });
 });
 
 /** The OCR utility process as main sees it, running its lanes as the real host does. */

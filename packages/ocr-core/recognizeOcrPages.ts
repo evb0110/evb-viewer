@@ -156,6 +156,7 @@ function enginePass(
     outputs: ITesseractOutputs,
 ) {
     return {
+        models: [...new Set(languages)] as TOcrModelCode[],
         args: buildTesseractArgs({
             imagePath: BROWSER_OCR_ENGINE_IMAGE_PATH,
             outputBase,

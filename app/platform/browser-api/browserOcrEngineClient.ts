@@ -1,12 +1,14 @@
 import {
     BROWSER_OCR_ENGINE_RESULT_SCHEMA,
     BROWSER_OCR_PREPROCESS_RESULT_SCHEMA,
+    readBrowserOcrWasmMemoryBytes,
     type IBrowserOcrEngineResult,
     type IBrowserOcrPreprocessResult,
     type TBrowserOcrEngineRequest,
     type TBrowserOcrPreprocessRequest,
     type TBrowserOcrRecognizeRequest,
 } from '@contracts/browserOcrEngine';
+import {getBrowserPageOpsWorkerRequestId} from '@contracts/browserPageOpsWorker';
 import type {TOcrScanCleanupMode} from '@contracts/scan-cleanup/ocrPreprocessing';
 import {BrowserWorkerClient, BrowserWorkerRequestOwner} from '@app/platform/browser-api/browserWorkerClient';
 import {settleBrowserWorkerResult, type ITypedPendingBrowserWorkerRequest} from '@app/platform/browser-api/settleBrowserWorkerResult';
@@ -20,8 +22,10 @@ import {
     threadedScanCleanupEngineBudget,
 } from '@app/platform/browser-api/scanCleanupEngineVariant';
 import type {BrowserWorkerBudget, IBrowserWorkerAdmission} from '@app/platform/browser-api/browserWorkerClient';
+import {resolvePerformanceProfile} from '@app/utils/performanceProfile';
 import * as v from 'valibot';
 
+const MIB = 1024 * 1024;
 // A lane keeps its Tesseract engine and models loaded between pages for a while.
 const ENGINE_IDLE_TTL_MS = 60_000;
 // Reclaim a preprocessing worker's scan-cleanup WASM heap promptly once idle.
@@ -31,7 +35,40 @@ const PREPROCESS_IDLE_TTL_MS = 15_000;
 // single-threaded one took up to 14 s on a 300 DPI letter page and would pass
 // 30 s on large pages desktop cleans.
 const PASS_TIMEOUT_MS = 3 * 60 * 1000;
-const PREPROCESS_BASE_WASM_BYTES = 32 * 1024 * 1024;
+const PREPROCESS_BASE_WASM_BYTES = 32 * MIB;
+
+/**
+ * Retained Tesseract WebAssembly linear-memory high-water caps per device tier.
+ * When a completed page grows a worker's WASM heap past this cap (e.g. a large
+ * foldout), the worker is cleanly recycled between pages to return the grown
+ * linear memory to the browser without interrupting in-flight recognition.
+ */
+export const BROWSER_OCR_WASM_HEAP_RECYCLE_BYTES_MOBILE = 256 * MIB;
+export const BROWSER_OCR_WASM_HEAP_RECYCLE_BYTES_LOW_MEMORY = 384 * MIB;
+export const BROWSER_OCR_WASM_HEAP_RECYCLE_BYTES_DEFAULT = 512 * MIB;
+
+export function resolveBrowserOcrWasmHeapRecycleBytes(environment?: {
+    mobile?: boolean;
+    lowMemory?: boolean;
+    deviceMemory?: number | undefined;
+}): number {
+    const profile = environment ? undefined : resolvePerformanceProfile();
+    const mobile = environment?.mobile ?? profile?.mobile ?? false;
+    if (mobile) {
+        return BROWSER_OCR_WASM_HEAP_RECYCLE_BYTES_MOBILE;
+    }
+    const deviceMemory =
+        environment && 'deviceMemory' in environment
+            ? environment.deviceMemory
+            : typeof navigator === 'undefined'
+              ? undefined
+              : (navigator as Navigator & {deviceMemory?: number}).deviceMemory;
+    const lowMemory = environment?.lowMemory ?? profile?.lowMemory ?? false;
+    if (lowMemory || (typeof deviceMemory === 'number' && Number.isFinite(deviceMemory) && deviceMemory <= 4)) {
+        return BROWSER_OCR_WASM_HEAP_RECYCLE_BYTES_LOW_MEMORY;
+    }
+    return BROWSER_OCR_WASM_HEAP_RECYCLE_BYTES_DEFAULT;
+}
 
 type TPendingEngineRequest = ITypedPendingBrowserWorkerRequest<TBrowserOcrEngineRequest['type'], unknown>;
 
@@ -120,23 +157,45 @@ function createWorkerClient(
     idleTtlMs: number,
     fallbackMessage: string,
     engine?: {
-        budget: BrowserWorkerBudget;
+        budget?: BrowserWorkerBudget;
         preloadWasmPaths?: (key: string | undefined) => readonly string[];
+        wasmHeapRecycleCap?: () => number;
     },
 ) {
-    return new BrowserWorkerClient<TPendingEngineRequest>({
+    let retainedWasmBytes = 0;
+    const client = new BrowserWorkerClient<TPendingEngineRequest>({
         idleTtlMs,
-        createWorker,
-        ...engine,
+        createWorker: (name) => {
+            retainedWasmBytes = 0;
+            return createWorker(name);
+        },
+        ...(engine?.budget ? {budget: engine.budget} : {}),
+        ...(engine?.preloadWasmPaths ? {preloadWasmPaths: engine.preloadWasmPaths} : {}),
         createError: (event) =>
             new BrowserOcrEngineUnavailableError(event.error instanceof Error ? event.error.message : event.message || fallbackMessage),
         handleMessage: (pendingRequests, response, onSettled) => {
-            if (engine) {
+            if (engine?.budget) {
                 observeScanCleanupEngineReply(response);
             }
+            const responseId = getBrowserPageOpsWorkerRequestId(response);
+            const hadPending = responseId !== null && pendingRequests.has(responseId);
+            const reportedWasmBytes = hadPending && engine?.wasmHeapRecycleCap ? readBrowserOcrWasmMemoryBytes(response) : null;
             settleBrowserWorkerResult(pendingRequests, response, onSettled);
+            if (!hadPending || pendingRequests.has(responseId!)) {
+                return;
+            }
+            if (reportedWasmBytes !== null) {
+                retainedWasmBytes = Math.max(retainedWasmBytes, reportedWasmBytes);
+            }
+            // Recycle cleanly between pages once the worker's retained WASM linear
+            // memory exceeds the tier cap so foldouts never permanently pin huge heaps.
+            if (engine?.wasmHeapRecycleCap && pendingRequests.size === 0 && retainedWasmBytes > engine.wasmHeapRecycleCap()) {
+                retainedWasmBytes = 0;
+                client.resetWorker();
+            }
         },
     });
+    return client;
 }
 
 let recognizeOwner: BrowserWorkerRequestOwner<TPendingEngineRequest> | null = null;
@@ -149,6 +208,9 @@ function getRecognizeOwner() {
                 () => new Worker(new URL('./browserOcrEngine.worker.ts', import.meta.url), {type: 'module'}),
                 ENGINE_IDLE_TTL_MS,
                 'The OCR engine stopped',
+                {
+                    wasmHeapRecycleCap: resolveBrowserOcrWasmHeapRecycleBytes,
+                },
             ),
         resolveBrowserOcrLanes().lanes,
     );

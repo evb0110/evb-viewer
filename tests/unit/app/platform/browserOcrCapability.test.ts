@@ -2254,4 +2254,494 @@ describe('browser OCR OPFS checkpoints and streaming finalization', () => {
             }
         }
     });
+
+    it('O-8: recycles browser OCR workers cleanly between pages once retained WASM linear memory exceeds the tier cap', async () => {
+        vi.resetModules();
+        const MIB = 1024 * 1024;
+        const spawned: Array<{
+            terminated: boolean;
+            listeners: Map<string, Set<(event: unknown) => void>>;
+            messages: number;
+        }> = [];
+        const reportedBytesQueue = [256 * MIB, 400 * MIB, 200 * MIB];
+
+        class FakeOcrWorker {
+            public readonly record: (typeof spawned)[number];
+            public constructor() {
+                this.record = {
+                    terminated: false,
+                    listeners: new Map(),
+                    messages: 0,
+                };
+                spawned.push(this.record);
+            }
+            public addEventListener(type: string, listener: (event: unknown) => void) {
+                const set = this.record.listeners.get(type) ?? new Set();
+                set.add(listener);
+                this.record.listeners.set(type, set);
+            }
+            public removeEventListener(type: string, listener: (event: unknown) => void) {
+                this.record.listeners.get(type)?.delete(listener);
+            }
+            public postMessage(message: {id: number; type: string}) {
+                this.record.messages += 1;
+                const wasmMemoryBytes = reportedBytesQueue.shift() ?? 0;
+                queueMicrotask(() => {
+                    for (const listener of this.record.listeners.get('message') ?? []) {
+                        listener({
+                            data: {
+                                id: message.id,
+                                ok: true,
+                                type: message.type,
+                                wasmMemoryBytes,
+                                data: {
+                                    passes: [{stderr: '', outputs: [new Uint8Array([37, 80, 68, 70, 45])]}],
+                                },
+                            },
+                        });
+                    }
+                });
+            }
+            public terminate() {
+                this.record.terminated = true;
+            }
+        }
+
+        vi.stubGlobal('Worker', FakeOcrWorker);
+        vi.stubGlobal('navigator', {deviceMemory: 4, hardwareConcurrency: 4});
+        try {
+            const {
+                BROWSER_OCR_WASM_HEAP_RECYCLE_BYTES_DEFAULT,
+                BROWSER_OCR_WASM_HEAP_RECYCLE_BYTES_LOW_MEMORY,
+                BROWSER_OCR_WASM_HEAP_RECYCLE_BYTES_MOBILE,
+                resolveBrowserOcrWasmHeapRecycleBytes,
+                runBrowserOcrEngine,
+            } = await import('@app/platform/browser-api/browserOcrEngineClient');
+
+            expect(resolveBrowserOcrWasmHeapRecycleBytes({mobile: true})).toBe(BROWSER_OCR_WASM_HEAP_RECYCLE_BYTES_MOBILE);
+            expect(resolveBrowserOcrWasmHeapRecycleBytes({deviceMemory: 4})).toBe(BROWSER_OCR_WASM_HEAP_RECYCLE_BYTES_LOW_MEMORY);
+            expect(resolveBrowserOcrWasmHeapRecycleBytes({lowMemory: true, deviceMemory: 8})).toBe(
+                BROWSER_OCR_WASM_HEAP_RECYCLE_BYTES_LOW_MEMORY,
+            );
+            expect(resolveBrowserOcrWasmHeapRecycleBytes({deviceMemory: 8})).toBe(BROWSER_OCR_WASM_HEAP_RECYCLE_BYTES_DEFAULT);
+            expect(resolveBrowserOcrWasmHeapRecycleBytes()).toBe(BROWSER_OCR_WASM_HEAP_RECYCLE_BYTES_LOW_MEMORY);
+
+            const makePayload = () => ({
+                image: new Uint8Array([80, 53, 10, 49, 32, 49, 10, 50, 53, 53, 10, 0]),
+                models: ['eng' as const],
+                passes: [{models: ['eng' as const], args: ['/work/page.ppm', '/work/out', '-l', 'eng'], outputs: ['/work/out.pdf']}],
+            });
+
+            // Page 1 (256 MiB <= 384 MiB cap): succeeds and keeps worker 1 warm.
+            const page1 = await runBrowserOcrEngine(makePayload(), new AbortController().signal);
+            expect(page1.passes).toHaveLength(1);
+            expect(spawned).toHaveLength(1);
+            expect(spawned[0]!.terminated).toBe(false);
+
+            // An uncorrelated frame with an oversized wasmMemoryBytes must be ignored and never recycle the idle worker.
+            for (const listener of spawned[0]!.listeners.get('message') ?? []) {
+                listener({
+                    data: {
+                        id: 999_999,
+                        ok: true,
+                        type: 'recognize',
+                        wasmMemoryBytes: 1024 * MIB,
+                        data: {passes: []},
+                    },
+                });
+            }
+            expect(spawned[0]!.terminated).toBe(false);
+
+            // Page 2 (foldout: 400 MiB > 384 MiB cap): reuses worker 1, succeeds without aborting, then recycles worker 1 cleanly.
+            const page2 = await runBrowserOcrEngine(makePayload(), new AbortController().signal);
+            expect(page2.passes).toHaveLength(1);
+            expect(spawned).toHaveLength(1);
+            expect(spawned[0]!.messages).toBe(2);
+            expect(spawned[0]!.terminated).toBe(true);
+
+            // Page 3 (200 MiB <= 384 MiB cap): spawns a fresh worker 2 and stays warm.
+            const page3 = await runBrowserOcrEngine(makePayload(), new AbortController().signal);
+            expect(page3.passes).toHaveLength(1);
+            expect(spawned).toHaveLength(2);
+            expect(spawned[1]!.messages).toBe(1);
+            expect(spawned[1]!.terminated).toBe(false);
+        } finally {
+            vi.unstubAllGlobals();
+            vi.resetModules();
+        }
+    });
+
+    it('O-11: bounds browser OCR model downloads and page probing to 2-4 concurrency while preserving exact page order and abort cancellation', async () => {
+        vi.resetModules();
+        const {resolveBrowserOcrPrepConcurrency} = await import('@app/platform/browser-api/browserOcrJob');
+        expect(resolveBrowserOcrPrepConcurrency({mobile: true, hardwareConcurrency: 8, deviceMemory: 8})).toBe(2);
+        expect(resolveBrowserOcrPrepConcurrency({lowMemory: true, hardwareConcurrency: 12, deviceMemory: 8})).toBe(2);
+        expect(resolveBrowserOcrPrepConcurrency({deviceMemory: 4, hardwareConcurrency: 16})).toBe(2);
+        expect(resolveBrowserOcrPrepConcurrency({deviceMemory: 8, hardwareConcurrency: 4})).toBe(2);
+        expect(resolveBrowserOcrPrepConcurrency({deviceMemory: 8, hardwareConcurrency: 6})).toBe(3);
+        expect(resolveBrowserOcrPrepConcurrency({deviceMemory: 8, hardwareConcurrency: 16})).toBe(4);
+
+        // Exercise runBrowserOcrJob on a constrained 4 GiB host (concurrency = 2) with 6 models and 8 pages.
+        vi.resetModules();
+        vi.stubGlobal('navigator', {deviceMemory: 4, hardwareConcurrency: 16});
+
+        let activeModels = 0;
+        let peakModels = 0;
+        let activeProbes = 0;
+        let peakProbes = 0;
+        const appendedPageOrders: number[][] = [];
+        const recognizedStartOrder: number[] = [];
+        const cleanedPages: number[] = [];
+        let evenPageDone = new Map<number, PromiseWithResolvers<void>>();
+        const resetProbeGates = () => {
+            evenPageDone = new Map([2, 4, 6, 8].map((pageNumber) => [pageNumber, Promise.withResolvers<void>()] as const));
+        };
+        resetProbeGates();
+
+        vi.doMock('@app/platform/browser-api/browserOcrEngineClient', () => ({
+            resolveBrowserOcrLanes: () => ({lanes: 1, preprocessLanes: 0}),
+            preprocessBrowserOcrRaster: vi.fn(),
+            runBrowserOcrEngine: vi.fn(async () => ({
+                passes: [
+                    {
+                        stderr: '',
+                        outputs: [
+                            new TextEncoder().encode('%PDF-1.5\n%%EOF\n'),
+                            new TextEncoder().encode(
+                                'level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n5\t1\t1\t1\t1\t1\t10\t10\t20\t12\t95\tok\n',
+                            ),
+                        ],
+                    },
+                ],
+            })),
+        }));
+        vi.doMock('@app/platform/browser-api/browserOcrModels', () => ({
+            ensureBrowserOcrModel: vi.fn(
+                async (
+                    code: string,
+                    opts?: {
+                        signal?: AbortSignal;
+                        onProgress?: (progress: {
+                            languageCode: string;
+                            receivedBytes: number;
+                            totalBytes: number;
+                            attempt: number;
+                            maxAttempts: number;
+                            retrying: boolean;
+                        }) => void;
+                    },
+                ) => {
+                    opts?.signal?.throwIfAborted();
+                    activeModels += 1;
+                    peakModels = Math.max(peakModels, activeModels);
+                    try {
+                        opts?.onProgress?.({
+                            languageCode: code,
+                            receivedBytes: 1_000_000,
+                            totalBytes: 2_000_000,
+                            attempt: 1,
+                            maxAttempts: 3,
+                            retrying: false,
+                        });
+                        for (let turn = 0; turn < 4; turn += 1) {
+                            await Promise.resolve();
+                        }
+                        opts?.onProgress?.({
+                            languageCode: code,
+                            receivedBytes: 2_000_000,
+                            totalBytes: 2_000_000,
+                            attempt: 1,
+                            maxAttempts: 3,
+                            retrying: false,
+                        });
+                    } finally {
+                        activeModels -= 1;
+                    }
+                },
+            ),
+            readCachedOcrModel: vi.fn(async () => new Uint8Array([1])),
+        }));
+        vi.doMock('@app/platform/browser-api/browserOcrRaster', () => ({
+            BROWSER_OCR_ANNOTATION_MODE: 1,
+            getBrowserOcrRasterSize: () => ({width: 100, height: 100}),
+            readPageSourceDpi: () => 150,
+            renderBrowserOcrRaster: vi.fn(async (page: {pageNumber?: number}) => {
+                if (typeof page.pageNumber === 'number') {
+                    recognizedStartOrder.push(page.pageNumber);
+                }
+                return {image: new Uint8Array([80, 54, 10, 49, 32, 49, 10, 50, 53, 53, 10, 0, 0, 0])};
+            }),
+        }));
+        vi.doMock('@app/platform/browser-api/browserPageOpsWorkerClient', () => ({
+            runBrowserPageOpsWorkerRequest: vi.fn(async () => ({
+                format: 'evb-pdf-ocr-text-visibility',
+                schemaVersion: 3,
+                pages: [],
+            })),
+        }));
+        vi.doMock('@app/platform/browser-api/loadBrowserPdfjsDocument', () => ({
+            loadBrowserPdfjsDocument: vi.fn(async () => ({
+                getPage: vi.fn(async (pageNumber: number) => ({
+                    pageNumber,
+                    getTextContent: async () => {
+                        activeProbes += 1;
+                        peakProbes = Math.max(peakProbes, activeProbes);
+                        try {
+                            // Deterministically finish each even page before its preceding odd page.
+                            if (pageNumber % 2 === 1) {
+                                await evenPageDone.get(pageNumber + 1)?.promise;
+                            } else {
+                                for (let turn = 0; turn < 4; turn += 1) {
+                                    await Promise.resolve();
+                                }
+                                evenPageDone.get(pageNumber)?.resolve();
+                            }
+                            return {items: []};
+                        } finally {
+                            activeProbes -= 1;
+                        }
+                    },
+                    getViewport: () => ({width: 612, height: 792, userUnit: 1}),
+                    getOperatorList: async () => ({fnArray: [], argsArray: []}),
+                    cleanup: () => {
+                        cleanedPages.push(pageNumber);
+                    },
+                })),
+                loadingTask: {destroy: vi.fn(async () => undefined)},
+            })),
+        }));
+        vi.doMock('@app/platform/browserDocumentStore', () => ({
+            browserDocumentStore: {
+                stores: async () => ({durable: null, memory: null}),
+                getDocumentRevision: async () => ({token: 'drt1:browser:doc:1'}),
+                readableBlob: async () => new Blob([new Uint8Array(100)]),
+                stageAppend: async (_ref: string, _token: string, fn: (file: unknown, base: number) => Promise<number | null>) => {
+                    const length = await fn({}, 100);
+                    return length === null ? null : 'lease-1';
+                },
+            },
+        }));
+        vi.doMock('@app/platform/browser/browserStorePort', () => ({
+            appendPdfMutationsToStoreFile: vi.fn(
+                async (_file: unknown, base: number, request: {instructions: {pages: Array<{pageNumber: number}>}}) => {
+                    appendedPageOrders.push(request.instructions.pages.map((page) => page.pageNumber));
+                    return {
+                        pageCount: request.instructions.pages.length,
+                        length: base + 50,
+                        identityBindings: [],
+                        sha256: 'a'.repeat(64),
+                    };
+                },
+            ),
+        }));
+
+        try {
+            const {runBrowserOcrJob} = await import('@app/platform/browser-api/browserOcrJob');
+            const languages = ['eng', 'fra', 'deu', 'spa', 'ita', 'por'];
+            const pages = Array.from({length: 8}, (_, index) => ({
+                pageNumber: requirePageNumber(index + 1),
+                languages: [languages[index % languages.length]!],
+            }));
+
+            const modelProgressEvents: Array<{code: string; receivedBytes: number; totalBytes: number}> = [];
+            const outcome = await runBrowserOcrJob({
+                sourceRef: requireDocumentRef('browser://documents/o11/book.pdf'),
+                pages,
+                options: {supersessionPolicy: 'replace-all', replaceAllAcknowledged: true},
+                signal: new AbortController().signal,
+                emit: (progress) => {
+                    if (progress.phase === 'model-prep' && progress.modelDownload) {
+                        modelProgressEvents.push({
+                            code: progress.modelDownload.languageCode,
+                            receivedBytes: progress.modelDownload.receivedBytes,
+                            totalBytes: progress.modelDownload.totalBytes,
+                        });
+                    }
+                },
+            });
+            expect(outcome.kind).toBe('written');
+            expect(peakModels).toBe(2);
+            expect(peakProbes).toBe(2);
+            // Recognition start order on a single lane directly proves exact probe queue ordering (not checkpoint sort).
+            expect(recognizedStartOrder).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+            expect(appendedPageOrders).toEqual([[1, 2, 3, 4, 5, 6, 7, 8]]);
+            // Concurrent multi-model progress stays focused on one model at a time with its exact totalBytes and monotonic bytes.
+            expect(modelProgressEvents.length).toBeGreaterThan(2);
+            const seenFinishedModels = new Set<string>();
+            for (let i = 0; i < modelProgressEvents.length; i += 1) {
+                const current = modelProgressEvents[i]!;
+                expect(current.totalBytes).toBe(2_000_000);
+                expect(seenFinishedModels.has(current.code)).toBe(false);
+                if (i > 0) {
+                    const prev = modelProgressEvents[i - 1]!;
+                    if (prev.code === current.code) {
+                        expect(current.receivedBytes).toBeGreaterThanOrEqual(prev.receivedBytes);
+                    } else {
+                        seenFinishedModels.add(prev.code);
+                    }
+                }
+            }
+
+            // Higher-tier host (8 GiB, 12 cores) scales bounded concurrency up to 4.
+            vi.stubGlobal('navigator', {deviceMemory: 8, hardwareConcurrency: 12});
+            peakModels = 0;
+            peakProbes = 0;
+            recognizedStartOrder.length = 0;
+            appendedPageOrders.length = 0;
+            resetProbeGates();
+            const highTierOutcome = await runBrowserOcrJob({
+                sourceRef: requireDocumentRef('browser://documents/o11/book.pdf'),
+                pages,
+                options: {supersessionPolicy: 'replace-all', replaceAllAcknowledged: true},
+                signal: new AbortController().signal,
+                emit: () => undefined,
+            });
+            expect(highTierOutcome.kind).toBe('written');
+            expect(peakModels).toBe(4);
+            expect(peakProbes).toBe(4);
+            expect(recognizedStartOrder).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+            expect(appendedPageOrders).toEqual([[1, 2, 3, 4, 5, 6, 7, 8]]);
+
+            // P1: A hung PDF.js probe on lane 1 must not block cancellation or sibling error propagation / teardown.
+            cleanedPages.length = 0;
+            const destroySpy = vi.fn(async () => undefined);
+            const abortController = new AbortController();
+            const probedCount = {value: 0};
+            const stuckPage1 = new Promise<never>(() => undefined);
+            vi.doMock('@app/platform/browser-api/loadBrowserPdfjsDocument', () => ({
+                loadBrowserPdfjsDocument: vi.fn(async () => ({
+                    getPage: vi.fn(async (pageNumber: number) => {
+                        probedCount.value += 1;
+                        return {
+                            pageNumber,
+                            getTextContent: async () => {
+                                if (pageNumber === 1) {
+                                    return stuckPage1;
+                                }
+                                if (pageNumber === 2) {
+                                    abortController.abort(new DOMException('Stopped probing', 'AbortError'));
+                                }
+                                return {items: []};
+                            },
+                            getViewport: () => ({width: 612, height: 792, userUnit: 1}),
+                            getOperatorList: async () => ({fnArray: [], argsArray: []}),
+                            cleanup: () => {
+                                cleanedPages.push(pageNumber);
+                            },
+                        };
+                    }),
+                    loadingTask: {destroy: destroySpy},
+                })),
+            }));
+            vi.resetModules();
+            vi.stubGlobal('navigator', {deviceMemory: 4, hardwareConcurrency: 4});
+            const {runBrowserOcrJob: runAbortJob} = await import('@app/platform/browser-api/browserOcrJob');
+            await expect(
+                runAbortJob({
+                    sourceRef: requireDocumentRef('browser://documents/o11/abort.pdf'),
+                    pages,
+                    options: {supersessionPolicy: 'replace-all', replaceAllAcknowledged: true},
+                    signal: abortController.signal,
+                    emit: () => undefined,
+                }),
+            ).rejects.toThrow('Stopped probing');
+            expect(probedCount.value).toBeLessThan(pages.length);
+            expect(cleanedPages.length).toBe(probedCount.value);
+            expect(destroySpy).toHaveBeenCalledOnce();
+
+            // P2: Sibling error while another lane hangs in getOperatorList must fail immediately and reach teardown.
+            const destroyErrorSpy = vi.fn(async () => undefined);
+            vi.doMock('@app/platform/browser-api/loadBrowserPdfjsDocument', () => ({
+                loadBrowserPdfjsDocument: vi.fn(async () => ({
+                    getPage: vi.fn(async (pageNumber: number) => ({
+                        pageNumber,
+                        getTextContent: async () => ({items: []}),
+                        getViewport: () => ({width: 612, height: 792, userUnit: 1}),
+                        getOperatorList: async () => {
+                            if (pageNumber === 1) {
+                                return new Promise<never>(() => undefined);
+                            }
+                            throw new Error('Operator list exploded');
+                        },
+                        cleanup: () => undefined,
+                    })),
+                    loadingTask: {destroy: destroyErrorSpy},
+                })),
+            }));
+            vi.resetModules();
+            vi.stubGlobal('navigator', {deviceMemory: 4, hardwareConcurrency: 4});
+            const {runBrowserOcrJob: runSiblingErrorJob} = await import('@app/platform/browser-api/browserOcrJob');
+            await expect(
+                runSiblingErrorJob({
+                    sourceRef: requireDocumentRef('browser://documents/o11/sibling-err.pdf'),
+                    pages,
+                    options: {supersessionPolicy: 'replace-all', replaceAllAcknowledged: true},
+                    signal: new AbortController().signal,
+                    emit: () => undefined,
+                }),
+            ).rejects.toThrow('Operator list exploded');
+            expect(destroyErrorSpy).toHaveBeenCalledOnce();
+
+            // P2: Canceling ensureBrowserOcrModel while Cache Storage lookup is pending must never start fetch(),
+            // and an immediate retry must not inherit the canceled attempt's abort reason or queue behind its Web Lock.
+            vi.doUnmock('@app/platform/browser-api/browserOcrModels');
+            vi.resetModules();
+            const cacheLookup1 = Promise.withResolvers<Response | undefined>();
+            let matchCall = 0;
+            const fetchSpy = vi.fn();
+            vi.stubGlobal('fetch', fetchSpy);
+            vi.stubGlobal('caches', {
+                open: async () => ({
+                    match: () => {
+                        matchCall += 1;
+                        return matchCall === 1 ? cacheLookup1.promise : Promise.resolve(new Response(new Uint8Array([1])));
+                    },
+                    put: async () => undefined,
+                }),
+            });
+            const lockChains = new Map<string, Promise<void>>();
+            vi.stubGlobal('navigator', {
+                locks: {
+                    request: async (name: string, _opts: unknown, callback: () => Promise<void>) => {
+                        const prev = lockChains.get(name) ?? Promise.resolve();
+                        const release = Promise.withResolvers<void>();
+                        lockChains.set(name, release.promise);
+                        await prev;
+                        try {
+                            return await callback();
+                        } finally {
+                            release.resolve();
+                        }
+                    },
+                },
+            });
+            const {ensureBrowserOcrModel} = await import('@app/platform/browser-api/browserOcrModels');
+            const downloadAbort = new AbortController();
+            const pendingDownload = ensureBrowserOcrModel('eng', {signal: downloadAbort.signal});
+            await Promise.resolve();
+            downloadAbort.abort(new DOMException('Canceled before fetch', 'AbortError'));
+            await expect(pendingDownload).rejects.toThrow('Canceled before fetch');
+            // Immediate retry while cacheLookup1 is still unresolved must acquire the released Web Lock and succeed cleanly.
+            await expect(ensureBrowserOcrModel('eng', {signal: new AbortController().signal})).resolves.toBeUndefined();
+            cacheLookup1.resolve(undefined);
+            for (let turn = 0; turn < 6; turn += 1) {
+                await Promise.resolve();
+            }
+            expect(fetchSpy).not.toHaveBeenCalled();
+        } finally {
+            vi.unstubAllGlobals();
+            for (const path of [
+                '@app/platform/browser-api/browserOcrEngineClient',
+                '@app/platform/browser-api/browserOcrModels',
+                '@app/platform/browser-api/browserOcrRaster',
+                '@app/platform/browser-api/browserPageOpsWorkerClient',
+                '@app/platform/browser-api/loadBrowserPdfjsDocument',
+                '@app/platform/browserDocumentStore',
+                '@app/platform/browser/browserStorePort',
+            ]) {
+                vi.doUnmock(path);
+            }
+            vi.resetModules();
+        }
+    });
 });
