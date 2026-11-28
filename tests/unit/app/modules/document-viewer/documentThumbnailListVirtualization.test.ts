@@ -260,4 +260,54 @@ describe('DocumentThumbnailList virtualization', () => {
             host.remove();
         }
     });
+
+    it('preserves a pending scroll anchor across same-document page-count replacement and frozen resize relocation', async () => {
+        measureRailRows();
+        const initial = createDocumentThumbnailSourceHarness(500);
+        const replacement = createDocumentThumbnailSourceHarness(505);
+        const activeSource = ref(initial.source);
+        const isResizing = ref(false);
+        const host = document.createElement('div');
+        document.body.append(host);
+        const app = createApp({
+            render: () =>
+                h(DocumentThumbnailList, {
+                    source: activeSource.value,
+                    currentPage: 1,
+                    isActive: true,
+                    isResizing: isResizing.value,
+                }),
+        });
+        app.component('UIcon', {render: () => h('span')});
+        app.mount(host);
+        try {
+            await settleDocumentThumbnailList();
+            const rail = host.querySelector<HTMLElement>('[data-document-thumbnail-rail]')!;
+
+            // Scroll, then immediately replace the same document with a different page count before refresh.
+            rail.scrollTop = 4_200;
+            rail.dispatchEvent(new Event('scroll'));
+            activeSource.value = replacement.source;
+            await nextTick();
+            await settleDocumentThumbnailList();
+            expect(rail.scrollTop).toBe(4_200);
+
+            // Start resize at 4_200, emit a mid-resize scroll, relocate, then release resize:
+            // the starting anchor (4_200) must remain frozen through resize.
+            isResizing.value = true;
+            await nextTick();
+            rail.scrollTop = 1_200;
+            rail.dispatchEvent(new Event('scroll'));
+            rail.scrollTop = 0;
+            await placeDocumentThumbnailRailsWithin(host);
+            expect(rail.scrollTop).toBe(4_200);
+            isResizing.value = false;
+            await nextTick();
+            await settleDocumentThumbnailList();
+            expect(rail.scrollTop).toBe(4_200);
+        } finally {
+            app.unmount();
+            host.remove();
+        }
+    });
 });

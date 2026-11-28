@@ -271,12 +271,27 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
               };
     }
 
-    function readCurrentAnchor(allowWhileResizing = false) {
+    function resolvePendingScrollAnchor(root: HTMLElement | null) {
+        if (pendingScrollAnchorState === null) {
+            return null;
+        }
+        const inset = root ? Number.parseFloat(getComputedStyle(root).paddingTop) || 0 : 0;
+        const pendingAnchor = resolveModelAnchorAtOffset(
+            pendingScrollAnchorState.scrollTop,
+            pendingScrollAnchorState.clientHeight,
+            pendingScrollAnchorState.segmentIndex,
+            inset,
+        );
         pendingScrollAnchorState = null;
+        return pendingAnchor;
+    }
+
+    function readCurrentAnchor(allowWhileResizing = false) {
         const root = options.scrollRoot.value;
         if (!root || root.clientHeight <= 0 || (options.isResizing.value && !allowWhileResizing)) {
             return lastKnownAnchor;
         }
+        pendingScrollAnchorState = null;
         // A rail at its top stays there when rows above the centre change height.
         if (root.scrollTop < 1 && activeScrollSegmentIndex.value === 0) {
             lastKnownAnchor = {
@@ -637,14 +652,16 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         if (!recentProgrammaticScroll) {
             markManualInteraction();
         }
-        pendingScrollAnchorState =
-            root && root.clientHeight > 0
-                ? {
-                      scrollTop: root.scrollTop,
-                      clientHeight: root.clientHeight,
-                      segmentIndex: activeScrollSegmentIndex.value,
-                  }
-                : null;
+        if (!options.isResizing.value) {
+            pendingScrollAnchorState =
+                root && root.clientHeight > 0
+                    ? {
+                          scrollTop: root.scrollTop,
+                          clientHeight: root.clientHeight,
+                          segmentIndex: activeScrollSegmentIndex.value,
+                      }
+                    : null;
+        }
         viewportRevision.value += 1;
         scheduleRefresh();
     }
@@ -836,6 +853,10 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
             }
             // A same-document source with another page count keeps the
             // reader's place in the rail by page number.
+            const pendingAnchor = resolvePendingScrollAnchor(options.scrollRoot.value);
+            if (pendingAnchor && !options.isResizing.value) {
+                lastKnownAnchor = pendingAnchor;
+            }
             const keptAnchor = source && previous?.documentRef === source.documentRef ? lastKnownAnchor : null;
             lastManualInteractionAtMs = 0;
             scheduler.reset();
@@ -908,18 +929,9 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
             }
             if (root) {
                 railAnchorPlacements.set(root, () => {
-                    if (pendingScrollAnchorState !== null) {
-                        const inset = Number.parseFloat(getComputedStyle(root).paddingTop) || 0;
-                        const pendingAnchor = resolveModelAnchorAtOffset(
-                            pendingScrollAnchorState.scrollTop,
-                            pendingScrollAnchorState.clientHeight,
-                            pendingScrollAnchorState.segmentIndex,
-                            inset,
-                        );
-                        pendingScrollAnchorState = null;
-                        if (pendingAnchor) {
-                            lastKnownAnchor = pendingAnchor;
-                        }
+                    const pendingAnchor = resolvePendingScrollAnchor(root);
+                    if (pendingAnchor && !options.isResizing.value) {
+                        lastKnownAnchor = pendingAnchor;
                     }
                     return lastKnownAnchor ? place({anchor: lastKnownAnchor}, 'thumbnail-relocation') : Promise.resolve(null);
                 });
