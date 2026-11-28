@@ -12,6 +12,7 @@ import {
     resolveDocumentPageHeightsBounded,
     resolveDocumentPageLayoutsBounded,
     resolveDocumentPageSourceReadyEdgeSemanticPage,
+    resolveDocumentPageSourceRenderConcurrency,
     resolveDocumentPageZoomAnchorLayoutsBounded,
 } from '@app/modules/document-viewer/page-source-renderer/useDocumentPageSourceRuntime';
 import {
@@ -319,5 +320,38 @@ describe('page-source logical and physical scroll coordinates', () => {
             expect(top - origin + 650).toBeLessThanOrEqual(getLayoutPhysicalScrollSegment(layout, origin)!.height);
         }
         expect(viewport.place(null, 0, 650)).toBe(0);
+    });
+});
+
+describe('document page-source render concurrency cap', () => {
+    it('bounds concurrent page-source preview demand by performance profile and host hardware', () => {
+        const GIB = 1024 ** 3;
+        expect(resolveDocumentPageSourceRenderConcurrency({tier: 'low', lowCpu: true, lowMemory: true})).toBe(1);
+        expect(resolveDocumentPageSourceRenderConcurrency({tier: 'high', lowCpu: true, lowMemory: false})).toBe(1);
+        expect(resolveDocumentPageSourceRenderConcurrency({tier: 'medium', lowCpu: false, lowMemory: true})).toBe(1);
+        expect(
+            resolveDocumentPageSourceRenderConcurrency(
+                {tier: 'high', lowCpu: false, lowMemory: false},
+                {logicalCpus: 2, totalRamBytes: 16 * GIB},
+            ),
+        ).toBe(1);
+        expect(
+            resolveDocumentPageSourceRenderConcurrency(
+                {tier: 'high', lowCpu: false, lowMemory: false},
+                {logicalCpus: 8, totalRamBytes: 8 * GIB},
+            ),
+        ).toBe(1);
+        expect(
+            resolveDocumentPageSourceRenderConcurrency(
+                {tier: 'medium', lowCpu: false, lowMemory: false},
+                {logicalCpus: 4, totalRamBytes: 16 * GIB},
+            ),
+        ).toBe(2);
+        expect(
+            resolveDocumentPageSourceRenderConcurrency(
+                {tier: 'high', lowCpu: false, lowMemory: false},
+                {logicalCpus: 8, totalRamBytes: 16 * GIB},
+            ),
+        ).toBe(2);
     });
 });

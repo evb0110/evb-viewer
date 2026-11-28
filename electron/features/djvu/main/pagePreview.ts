@@ -1,5 +1,5 @@
 import {randomUUID} from 'node:crypto';
-import {readFile, stat} from 'node:fs/promises';
+import {stat} from 'node:fs/promises';
 import {join} from 'node:path';
 import type {IDjvuPagePreview, IDjvuPagePreviewOptions, IDjvuPageSize, IDjvuPageSourceInfo} from '@contracts/electronApiDjvu';
 import {createAbortError} from '@contracts/isAbortError';
@@ -15,13 +15,11 @@ import {
     storeDjvuPageSourceInfos,
 } from '@electron/features/djvu/main/djvuPageSourceInfoCache';
 import {DJVU_PREVIEW_MAX_PIXELS} from '@electron/features/djvu/main/djvuPreviewBudget';
-import {isNativePdfImageCombineDisabled, resolveNativePdfImageCombinePath} from '@electron/image/tryCreatePdfWithNativeImageCombiner';
-import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import type {IJobBrokerRunContext, TTerminationProofSink} from '@electron/resources/jobBroker';
 import {getAppTempDir} from '@electron/utils/appTempDir';
 import {usingManagedScratchScope} from '@electron/utils/managedScratchTemp';
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
-import {readPpmDimensions} from '@evb/scan-cleanup/core/rasterLayerDimensions';
+import {encodePngFromPpm} from '@evb/scan-cleanup/core/rasterLayerDimensions';
 
 const DJVU_PAGE_SIZE_TIMEOUT_MS = 30_000;
 const DJVU_PAGE_SIZE_WINDOW_PAGES = 1024;
@@ -213,6 +211,7 @@ export async function getDjvuPageSourceInfoForViewing(
                 },
                 {
                     ...(options.signal ? {signal: options.signal} : {}),
+                    ...(onTerminationProof ? {onTerminationProof} : {}),
                     timeoutMs: DJVU_PAGE_SIZE_TIMEOUT_MS,
                 },
             );
@@ -267,6 +266,7 @@ export async function getDjvuPageSizesForViewing(
         },
         {
             ...(options.signal ? {signal: options.signal} : {}),
+            ...(options.onTerminationProof ? {onTerminationProof: options.onTerminationProof} : {}),
             timeoutMs: DJVU_PAGE_SIZE_TIMEOUT_MS,
         },
     );
@@ -312,6 +312,7 @@ async function* getDjvuPageSizeWindowsForViewingInternal(
             },
             {
                 ...(options.signal ? {signal: options.signal} : {}),
+                ...(options.onTerminationProof ? {onTerminationProof: options.onTerminationProof} : {}),
                 timeoutMs: DJVU_PAGE_SIZE_TIMEOUT_MS,
             },
         );
@@ -369,7 +370,6 @@ export async function renderDjvuPagePreview(
 
     return usingManagedScratchScope('djvu-image-export-', getAppTempDir(), async (tempDir) => {
         const ppmPath = join(tempDir, `page-${pageNumber}-${randomUUID()}.ppm`);
-        const pngPath = join(tempDir, `page-${pageNumber}-${randomUUID()}.png`);
 
         throwIfAborted(lifecycleOptions.signal);
         const processId = lifecycleOptions.cancelGroup ?? `djvu-preview-page-${pageNumber}-${randomUUID()}`;
@@ -395,25 +395,15 @@ export async function renderDjvuPagePreview(
 
         await assertPreviewNetpbmReadSafe(ppmPath);
         throwIfAborted(lifecycleOptions.signal);
-        const nativeEncoderPath = isNativePdfImageCombineDisabled() ? null : resolveNativePdfImageCombinePath();
-        if (!nativeEncoderPath) {
-            throw new Error('Native DjVu preview encoding is unavailable; the large Netpbm fallback is intentionally disabled');
-        }
-        const {height, width} = await readPpmDimensions(ppmPath);
-        if (width * height > DJVU_PREVIEW_MAX_PIXELS) {
-            throw new Error(
-                `DjVu preview of page ${pageNumber} is ${width}x${height}, above the ${DJVU_PREVIEW_MAX_PIXELS} pixel preview limit`,
-            );
-        }
-        await runNativeToolCommand(nativeEncoderPath, ['--output', pngPath, '--format', 'png', '--', ppmPath], {
-            commandLabel: 'evb-pdf-image-combine(djvu-preview)',
+        const {bytes, height, width} = await encodePngFromPpm(ppmPath, {
+            maxDimensionPx: DJVU_PREVIEW_MAX_PIXELS,
+            maxOutputBytes: DJVU_PREVIEW_MAX_NETPBM_BYTES,
+            maxPixels: DJVU_PREVIEW_MAX_PIXELS,
             ...(lifecycleOptions.signal ? {signal: lifecycleOptions.signal} : {}),
-            ...(lifecycleOptions.brokerRun ? {brokerRun: lifecycleOptions.brokerRun} : {}),
-            ...(lifecycleOptions.onTerminationProof ? {onTerminationProof: lifecycleOptions.onTerminationProof} : {}),
-            timeoutMs: 60_000,
         });
+        throwIfAborted(lifecycleOptions.signal);
         return {
-            bytes: await readFile(pngPath),
+            bytes,
             height,
             width,
         };

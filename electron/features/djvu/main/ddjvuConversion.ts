@@ -63,7 +63,7 @@ export interface IDjvuImageRenderOptions {
     targetWidthPx?: number;
     targetHeightPx?: number;
     signal?: AbortSignal;
-    onTerminationProof?: (proof: Promise<boolean>) => void;
+    onTerminationProof?: TTerminationProofSink;
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -228,6 +228,7 @@ export async function renderDjvuPageToImage(
             {
                 signal,
                 timeoutMs: DJVU_IMAGE_PROCESS_TIMEOUT_MS,
+                ...(options.onTerminationProof ? {onTerminationProof: options.onTerminationProof} : {}),
             },
         );
         const outputStat = await stat(outputPath);

@@ -5,6 +5,7 @@ import {Worker} from 'node:worker_threads';
 import * as electron from 'electron';
 import {WORKER_BUNDLES_BY_ID} from '@electron-worker-bundles/electronWorkerBundles.js';
 import {resolveUnpackedWorkerPath} from '@electron/utils/workerTask';
+import type {IHostResourceProfileSnapshot} from '@contracts/hostResourceProfile';
 import {getHostResourceProfileSnapshot} from '@electron/resources/hostResourceProfile';
 import {
     getActiveJobBrokerLease,
@@ -29,7 +30,9 @@ const logger = createLogger('djvu-engine-pool');
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ENGINE_IDLE_TTL_MS = 60_000;
 const ENGINE_TASK_TIMEOUT_MS = 3 * 60 * 1000;
+export const DJVU_ENGINE_ABORT_GRACE_MS = 250;
 const ENGINE_HIGH_WATER_HEAP_BYTES = 256 * 1024 * 1024;
+const GIB = 1024 ** 3;
 const WORKER_RESOURCE_LIMITS = {
     maxOldGenerationSizeMb: 256,
     maxYoungGenerationSizeMb: 64,
@@ -96,8 +99,25 @@ function resolveDjvuEngineWorkerPath() {
     return existsSync(fallback) ? fallback : primary;
 }
 
+export function resolveDjvuEnginePoolSize(profile: Pick<IHostResourceProfileSnapshot, 'tier' | 'logicalCpus' | 'totalRamBytes'>) {
+    if (
+        profile.tier === 'low' ||
+        (profile.logicalCpus > 0 && profile.logicalCpus <= 2) ||
+        (profile.totalRamBytes > 0 && profile.totalRamBytes <= 8 * GIB)
+    ) {
+        return 1;
+    }
+    if (profile.tier === 'high' && profile.logicalCpus >= 12 && profile.totalRamBytes >= 32 * GIB) {
+        return 4;
+    }
+    if (profile.tier === 'high' && profile.logicalCpus >= 8 && profile.totalRamBytes >= 16 * GIB) {
+        return 3;
+    }
+    return 2;
+}
+
 function getPoolSize() {
-    return getHostResourceProfileSnapshot().tier === 'low' ? 1 : 2;
+    return resolveDjvuEnginePoolSize(getHostResourceProfileSnapshot());
 }
 
 function createWorkerError(message: string, name?: string) {
@@ -298,8 +318,14 @@ class DjvuEnginePool {
         return new Promise<TDjvuEngineResultMap[TType]>((resolvePromise, rejectPromise) => {
             let settled = false;
             let terminating = false;
+            let pendingAbortError: Error | null = null;
+            let abortGraceTimer: NodeJS.Timeout | null = null;
             const cleanup = () => {
                 clearTimeout(timer);
+                if (abortGraceTimer !== null) {
+                    clearTimeout(abortGraceTimer);
+                    abortGraceTimer = null;
+                }
                 signal?.removeEventListener('abort', onAbort);
                 worker.off('message', onMessage);
                 worker.off('error', onError);
@@ -346,6 +372,10 @@ class DjvuEnginePool {
                 }
                 entry.heapBytes = reply.heapBytes;
                 this.parkWorker(entry);
+                if (pendingAbortError !== null) {
+                    finish(pendingAbortError);
+                    return;
+                }
                 if (reply.ok) {
                     finish(null, reply.result as TDjvuEngineResultMap[TType]);
                 } else {
@@ -353,14 +383,30 @@ class DjvuEnginePool {
                 }
             };
             const onError = (error: Error) => {
-                failAfterExit(new Error(`DjVu engine worker failed: ${error.message}`, {cause: error}));
+                failAfterExit(pendingAbortError ?? new Error(`DjVu engine worker failed: ${error.message}`, {cause: error}));
             };
             const onExit = (code: number) => {
                 entry.exited = true;
-                failAfterExit(new Error(`DjVu engine worker exited with code ${code}`));
+                failAfterExit(pendingAbortError ?? new Error(`DjVu engine worker exited with code ${code}`));
             };
             const onAbort = () => {
-                failAfterExit(signal ? abortErrorFromSignal(signal) : new DOMException('DjVu operation canceled', 'AbortError'));
+                if (settled || terminating || pendingAbortError !== null) {
+                    return;
+                }
+                const abortError = signal ? abortErrorFromSignal(signal) : new DOMException('DjVu operation canceled', 'AbortError');
+                pendingAbortError = abortError;
+                clearTimeout(timer);
+                const graceMs = Math.min(DJVU_ENGINE_ABORT_GRACE_MS, Math.max(0, timeoutMs));
+                if (this.closed || entry.ending || entry.exited || graceMs === 0) {
+                    failAfterExit(abortError);
+                    return;
+                }
+                // Let fast in-flight decode steps finish and return the warm WASM worker to
+                // the pool; escalate to hard termination only if the worker does not settle in time.
+                abortGraceTimer = setTimeout(() => {
+                    failAfterExit(abortError);
+                }, graceMs);
+                abortGraceTimer.unref();
             };
             const timer = setTimeout(() => {
                 failAfterExit(new Error('DjVuLibre engine timed out'));

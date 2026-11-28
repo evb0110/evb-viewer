@@ -67,7 +67,8 @@ import {
 } from '@app/modules/document-viewer/page-source-renderer/documentPageSourcePresentation';
 import {createPageSourcePagedWheelNavigation} from '@app/modules/document-viewer/page-source-renderer/createPageSourcePagedWheelNavigation';
 import {createDocumentPageMetricPublication} from '@app/modules/document-viewer/page-source-renderer/createDocumentPageMetricPublication';
-import {getPerformanceProfile} from '@app/utils/performanceProfile';
+import {getRawElectronPlatformApi} from '@app/utils/electronPlatformBridge';
+import {getPerformanceProfile, type IPerformanceProfile} from '@app/utils/performanceProfile';
 import {resolveOpenPathSecondaryPerformancePolicy} from '@app/utils/resolveOpenPathSecondaryPerformancePolicy';
 import {
     createDocumentPageSourceLifecycle,
@@ -83,10 +84,28 @@ const DOCUMENT_SOURCE_CONTINUOUS_MOUNT_RADIUS = 12;
 const DOCUMENT_SOURCE_MAX_MOUNTED_PAGES = 40;
 const DOCUMENT_SOURCE_MAX_RESIDENT_PAGES = 5;
 const DOCUMENT_SOURCE_CONTINUOUS_MAX_RESIDENT_PAGES = DOCUMENT_SOURCE_MAX_MOUNTED_PAGES;
+const DOCUMENT_SOURCE_RENDER_CONCURRENCY_LOW = 1;
 const DOCUMENT_SOURCE_RENDER_CONCURRENCY = 2;
+const DOCUMENT_SOURCE_LOW_CPU_MAX = 2;
+const DOCUMENT_SOURCE_LOW_RAM_MAX_BYTES = 8 * 1024 ** 3;
 const DOCUMENT_SOURCE_LAYOUT_CHUNK_SIZE = 256;
 const DOCUMENT_SOURCE_LAYOUT_MAX_CACHED_CHUNKS = 32;
 export {DOCUMENT_SOURCE_INACTIVE_LEASE_GRACE_MS};
+
+export function resolveDocumentPageSourceRenderConcurrency(
+    profile: Pick<IPerformanceProfile, 'lowCpu' | 'lowMemory' | 'tier'>,
+    hostHardware?: {logicalCpus?: number; totalRamBytes?: number} | null,
+) {
+    const logicalCpus = hostHardware?.logicalCpus;
+    const totalRamBytes = hostHardware?.totalRamBytes;
+    return profile.tier === 'low' ||
+        profile.lowCpu ||
+        profile.lowMemory ||
+        (typeof logicalCpus === 'number' && logicalCpus > 0 && logicalCpus <= DOCUMENT_SOURCE_LOW_CPU_MAX) ||
+        (typeof totalRamBytes === 'number' && totalRamBytes > 0 && totalRamBytes <= DOCUMENT_SOURCE_LOW_RAM_MAX_BYTES)
+        ? DOCUMENT_SOURCE_RENDER_CONCURRENCY_LOW
+        : DOCUMENT_SOURCE_RENDER_CONCURRENCY;
+}
 
 type TDocumentPageSourceCollection<T> = T[] | ILazyIndexedCollection<T>;
 
@@ -335,6 +354,18 @@ export const useDocumentPageSourceRuntime = (options: {
     const pageSlots = renderSession?.pageSlots;
     const surfaceBudget = chassisAuthority?.surfaceBudget ?? workspaceSurfaceBudgetController;
     const rasterBufferProfile = getPerformanceProfile();
+    const hostResourceProfile = getRawElectronPlatformApi()?.host.getResourceProfile() ?? null;
+    const renderConcurrency = resolveDocumentPageSourceRenderConcurrency(
+        rasterBufferProfile,
+        hostResourceProfile
+            ? {
+                  logicalCpus: hostResourceProfile.logicalCpus,
+                  totalRamBytes: hostResourceProfile.totalRamBytes,
+              }
+            : typeof navigator !== 'undefined' && typeof navigator.hardwareConcurrency === 'number'
+              ? {logicalCpus: navigator.hardwareConcurrency}
+              : null,
+    );
     const source = shallowRef<IDocumentPageSource | null>(null);
     const isLoading = ref(false);
     const pageMetrics = shallowRef<TDocumentPageMetricsCollection>([]);
@@ -652,34 +683,76 @@ export const useDocumentPageSourceRuntime = (options: {
         renderSession,
         scheduleRender: () => scheduleRender.schedule(),
     });
-    const renderPage = presentation.renderPage;
+    const activeRenderCounts = new Map<number, number>();
+    const activeRenderPromises = new Set<Promise<void>>();
+    function needsPageRender(pageNumber: number) {
+        const state = presentation.pageStates.get(pageNumber);
+        if (state?.error || (state?.lease && state.retryCount > 2)) {
+            return false;
+        }
+        const metric = pageMetrics.value[pageNumber - 1];
+        return (
+            !state?.lease ||
+            !state.ready ||
+            !metric ||
+            state.widthPx !==
+                resolveDocumentPageSourceRenderWidthPx(
+                    metric,
+                    pageDisplayLayouts.value[pageNumber - 1]?.scale ?? effectiveZoom.value,
+                    pixelRatio.value,
+                )
+        );
+    }
+    function trackRenderSlot(pageNumber: number, run: () => Promise<void>) {
+        activeRenderCounts.set(pageNumber, (activeRenderCounts.get(pageNumber) ?? 0) + 1);
+        const task = run().finally(() => {
+            activeRenderPromises.delete(task);
+            const remaining = (activeRenderCounts.get(pageNumber) ?? 1) - 1;
+            if (remaining <= 0) {
+                activeRenderCounts.delete(pageNumber);
+            } else {
+                activeRenderCounts.set(pageNumber, remaining);
+            }
+            if (
+                !presentation.renderControllers.has(pageNumber) &&
+                props.value.isActive &&
+                source.value &&
+                renderDemand.value.residentPages.some(
+                    (candidate) =>
+                        mountedPages.value.includes(candidate) &&
+                        !presentation.renderControllers.has(candidate) &&
+                        !activeRenderCounts.has(candidate) &&
+                        needsPageRender(candidate),
+                )
+            ) {
+                scheduleRender.schedule();
+            }
+        });
+        activeRenderPromises.add(task);
+        return task;
+    }
+    function renderPage(pageNumber: number) {
+        return trackRenderSlot(pageNumber, () => presentation.renderPage(pageNumber));
+    }
+    async function waitForRenderSlot(isCurrent: () => boolean) {
+        while (isCurrent() && activeRenderCounts.size >= renderConcurrency && activeRenderPromises.size > 0) {
+            await Promise.race(activeRenderPromises);
+        }
+    }
     async function renderMountedPages() {
         if (props.value.isResizing || layoutLifecycle.isResizeTransitionActive.value) {
             return;
         }
         await nextTick();
+        const inFlightPages = [...new Set([...presentation.renderControllers.keys(), ...activeRenderCounts.keys()])];
         const renderQueue = resolveDocumentPageSourceRenderQueue({
             bufferPages: renderDemand.value.bufferPages,
-            concurrency: Math.max(DOCUMENT_SOURCE_RENDER_CONCURRENCY, renderDemand.value.visiblePages.length),
+            concurrency: renderConcurrency,
             currentPage: navigationTargetPage.value ?? currentPage.value,
             guardRadius: DOCUMENT_SOURCE_CONTINUOUS_MOUNT_RADIUS,
-            inFlightPages: [...presentation.renderControllers.keys()],
+            inFlightPages,
             mountedPages: mountedPages.value,
-            needsRender: (pageNumber) => {
-                const state = presentation.pageStates.get(pageNumber);
-                const metric = pageMetrics.value[pageNumber - 1];
-                return (
-                    !state?.lease ||
-                    !state.ready ||
-                    !metric ||
-                    state.widthPx !==
-                        resolveDocumentPageSourceRenderWidthPx(
-                            metric,
-                            pageDisplayLayouts.value[pageNumber - 1]?.scale ?? effectiveZoom.value,
-                            pixelRatio.value,
-                        )
-                );
-            },
+            needsRender: needsPageRender,
             preferredDirection: viewportScrollDirection.value,
             residentPages: renderDemand.value.residentPages,
             visiblePages: renderDemand.value.visiblePages,
@@ -1180,11 +1253,22 @@ export const useDocumentPageSourceRuntime = (options: {
         if (retainedState?.lease) {
             retainedState.priority = 'navigation';
         }
-        void presentation.restore(transition, {
-            measureViewport,
-            renderMountedPages,
-            restoreViewport: layoutLifecycle.resume,
-        });
+        void (async () => {
+            await waitForRenderSlot(transition.isCurrent);
+            if (!transition.isCurrent()) {
+                return;
+            }
+            await trackRenderSlot(currentPage.value, () =>
+                presentation.restore(transition, {
+                    measureViewport,
+                    renderMountedPages: () => Promise.resolve(),
+                    restoreViewport: layoutLifecycle.resume,
+                }),
+            );
+            if (transition.isCurrent()) {
+                await renderMountedPages();
+            }
+        })();
     }
     // Opening geometry the host commits before this source is acquired seeds the cold page metrics.
     watch(

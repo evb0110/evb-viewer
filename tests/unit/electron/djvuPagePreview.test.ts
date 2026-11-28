@@ -1,22 +1,27 @@
 import {join} from 'node:path';
+import {decode as decodePng} from 'fast-png';
 import {escapeRegExp} from 'es-toolkit/string';
 import type * as TDdjvuConversionModule from '@electron/features/djvu/main/ddjvuConversion';
+import type {IJobBrokerRunContext} from '@electron/resources/jobBroker';
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 
 const mocks = vi.hoisted(() => {
-    const tinyPpm = Buffer.concat([Buffer.from('P6\n3 2\n255\n', 'ascii'), Buffer.alloc(3 * 2 * 3)]);
+    const tinyPixels = Buffer.from([255, 0, 0, 0, 255, 0, 0, 0, 255, 10, 20, 30, 40, 50, 60, 70, 80, 90]);
+    const tinyPpm = Buffer.concat([Buffer.from('P6\n3 2\n255\n', 'ascii'), tinyPixels]);
     return {
+        tinyPixels,
         tinyPpm,
+        currentPpm: tinyPpm,
         convertDjvuPageToImage: vi.fn(async (_inputPath: string, outputPath: string) => ({
             success: true,
             outputPath,
-            fileSize: 12,
+            fileSize: tinyPpm.byteLength,
         })),
-        isNativePdfImageCombineDisabled: vi.fn(() => false),
         open: vi.fn(async () => ({
             read: async (buffer: Uint8Array, offset: number, length: number, position: number) => {
-                const bytesRead = Math.max(0, Math.min(length, tinyPpm.byteLength - position));
-                buffer.set(tinyPpm.subarray(position, position + bytesRead), offset);
+                const source = mocks.currentPpm;
+                const bytesRead = Math.max(0, Math.min(length, source.byteLength - position));
+                buffer.set(source.subarray(position, position + bytesRead), offset);
                 return {bytesRead};
             },
             stat: async () => ({
@@ -24,11 +29,10 @@ const mocks = vi.hoisted(() => {
                 dev: 1,
                 ino: 1,
                 mtimeMs: 1,
-                size: tinyPpm.byteLength,
+                size: mocks.currentPpm.byteLength,
             }),
             close: async () => undefined,
         })),
-        runNativeToolCommand: vi.fn(async () => undefined),
         runDjvuEngine: vi.fn(),
         mkdtemp: vi.fn(async () => '/tmp/djvu-preview-test'),
         readFile: vi.fn(async () => tinyPpm),
@@ -36,7 +40,7 @@ const mocks = vi.hoisted(() => {
         stat: vi.fn(async (_path?: string) => ({
             isFile: () => true,
             mtimeMs: 1,
-            size: tinyPpm.byteLength,
+            size: mocks.currentPpm.byteLength,
         })),
     };
 });
@@ -58,11 +62,6 @@ vi.mock('fs/promises', () => ({
     stat: mocks.stat,
 }));
 vi.mock('@electron/features/djvu/main/djvuEnginePool', () => ({runDjvuEngine: mocks.runDjvuEngine}));
-vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: mocks.runNativeToolCommand}));
-vi.mock('@electron/image/tryCreatePdfWithNativeImageCombiner', () => ({
-    isNativePdfImageCombineDisabled: mocks.isNativePdfImageCombineDisabled,
-    resolveNativePdfImageCombinePath: () => '/tools/evb-pdf-image-combine',
-}));
 vi.mock('@electron/features/djvu/main/ddjvuConversion', async (importOriginal) => ({
     ...(await importOriginal<typeof TDdjvuConversionModule>()),
     convertDjvuPageToImage: mocks.convertDjvuPageToImage,
@@ -82,14 +81,14 @@ describe('DjVu page preview helpers (DjVuLibre WASM)', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         clearDjvuPageSizeCacheForTests();
+        mocks.currentPpm = mocks.tinyPpm;
         mocks.convertDjvuPageToImage.mockResolvedValue({
             success: true,
             outputPath: '/tmp/djvu-preview-test/page.ppm',
-            fileSize: 12,
+            fileSize: mocks.tinyPpm.byteLength,
         });
         mocks.mkdtemp.mockResolvedValue('/tmp/djvu-preview-test');
         mocks.readFile.mockResolvedValue(mocks.tinyPpm);
-        mocks.runNativeToolCommand.mockResolvedValue(undefined);
         mocks.runDjvuEngine.mockImplementation(async (request: {type: string; pageNumbers?: readonly number[]}) => {
             if (request.type === 'getDocInfo') {
                 return {
@@ -297,9 +296,52 @@ describe('DjVu page preview helpers (DjVuLibre WASM)', () => {
         await expect(renderDjvuPagePreview('/tmp/book.djvu', 1)).rejects.toThrow('DjVu preview output exceeds safe read limit');
     });
 
-    it('fails recoverably when native PNG preview encoding is disabled', async () => {
-        mocks.isNativePdfImageCombineDisabled.mockReturnValue(true);
+    it('encodes PPM preview pixels directly into a valid lossless RGB PNG without spawning native tools', async () => {
+        const preview = await renderDjvuPagePreview('/tmp/book.djvu', 1);
 
-        await expect(renderDjvuPagePreview('/tmp/book.djvu', 1)).rejects.toThrow('Native DjVu preview encoding is unavailable');
+        expect(preview.width).toBe(3);
+        expect(preview.height).toBe(2);
+        const decoded = decodePng(preview.bytes);
+        expect(decoded.width).toBe(3);
+        expect(decoded.height).toBe(2);
+        expect(decoded.channels).toBe(3);
+        expect(Buffer.from(decoded.data)).toEqual(mocks.tinyPixels);
+    });
+
+    it('forwards onTerminationProof without bypassing the separate DjVu engine decode lease', async () => {
+        const onTerminationProof = vi.fn();
+        const brokerRun = {
+            broker: {} as IJobBrokerRunContext['broker'],
+            lease: {} as IJobBrokerRunContext['lease'],
+            onTerminationProof,
+        };
+
+        await renderDjvuPagePreview('/tmp/book.djvu', 1, {subsample: 1}, {brokerRun, onTerminationProof});
+
+        expect(mocks.convertDjvuPageToImage).toHaveBeenCalledWith(
+            '/tmp/book.djvu',
+            expect.stringMatching(new RegExp(`^${escapeRegExp(join('/tmp/djvu-preview-test', 'page-1-'))}.+\\.ppm$`, 'u')),
+            1,
+            expect.stringMatching(/^djvu-preview-page-1-/u),
+            {
+                format: 'ppm',
+                onTerminationProof,
+            },
+        );
+    });
+
+    it('stops cooperatively between decode and PNG encode when aborted right after decode', async () => {
+        const controller = new AbortController();
+        mocks.convertDjvuPageToImage.mockImplementationOnce(async (_inputPath, outputPath) => {
+            controller.abort(new DOMException('Scroll canceled', 'AbortError'));
+            return {
+                success: true,
+                outputPath,
+                fileSize: mocks.tinyPpm.byteLength,
+            };
+        });
+
+        await expect(renderDjvuPagePreview('/tmp/book.djvu', 1, undefined, {signal: controller.signal})).rejects.toThrow('Scroll canceled');
+        expect(mocks.open).not.toHaveBeenCalled();
     });
 });
