@@ -1,4 +1,5 @@
 import {createHash} from 'node:crypto';
+import {EventEmitter} from 'node:events';
 import {mkdtemp, readdir, rm, stat, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -6,7 +7,10 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {parseDocumentRevisionToken} from '@contracts/documentRevision';
 import type {IOcrDiagnostic} from '@contracts/electronApiOcr';
 import {requirePageNumber} from '@contracts/pageNumbers';
-import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
+import {createOcrEnginePool} from '@electron/features/ocr/main/ocrEnginePool';
+import type {IOcrEngineLane} from '@electron/features/ocr/main/ocrEngineHostClient';
+import {JobBroker} from '@electron/resources/jobBroker';
+import {getUnprovenNativeTerminationDetail, markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
 import type {IOcrJob} from '@electron/features/ocr/pipeline/runOcrJob';
 
 const mocks = vi.hoisted(() => ({
@@ -40,6 +44,7 @@ vi.mock('@electron/features/ocr/pipeline/writeSearchablePdf', () => ({
     writeSearchablePdf: mocks.writeSearchablePdf,
 }));
 
+const ocrRuntimePolicy = await import('@electron/features/ocr/main/ocrRuntimePolicy');
 const {runOcrJob} = await import('@electron/features/ocr/pipeline/runOcrJob');
 const {getHostResourceProfileSnapshot, initializeHostResourceProfile} = await import('@electron/resources/hostResourceProfile');
 const {configureMainJobBroker} = await import('@electron/resources/jobBroker');
@@ -328,5 +333,397 @@ describe('runOcrJob', () => {
         expect(mergedPageNumbers).toEqual([1, 5001]);
         expect(result.errors).toEqual(['Normalized PDF for Poppler', 'Native PDF page-size inspection failed']);
         expect(pageSizeClose).toHaveBeenCalledOnce();
+    });
+
+    const createLongSTsv = () => {
+        // 35 in-word 'f' characters and 0 's' characters crosses the long-s signature threshold (>= 30 letters, >= 45% f).
+        const words = Array.from({length: 18}, (_, index) => `5\t1\t1\t1\t1\t${index + 1}\t${10 + index * 20}\t10\t18\t20\t95\tfefto`);
+        return new TextEncoder().encode(
+            [
+                'level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext',
+                '4\t1\t1\t1\t1\t0\t10\t10\t360\t20\t-1\t',
+                ...words,
+            ].join('\n'),
+        );
+    };
+
+    const createEarlyPrintHocr = (word: string) => {
+        const spans = Array.from(
+            {length: 18},
+            (_, index) =>
+                `<span class='ocrx_word' id='word_1_${index + 1}' title='bbox ${10 + index * 20} 10 ${28 + index * 20} 30; x_wconf 95'>${word}</span>`,
+        ).join(' ');
+        return new TextEncoder().encode(
+            `<!DOCTYPE html><html><body><div class='ocr_page' title='bbox 0 0 400 100'><span class='ocr_line' id='line_1_1' title='bbox 10 10 370 30'>${spans}</span></div></body></html>`,
+        );
+    };
+
+    it('reuses the per-page prepared raster across Early Print reread passes and unlinks it once the page finishes', async () => {
+        // Minimal 0-entry traineddata header so readEarlyPrintDictionary succeeds cleanly.
+        await writeFile(join(tempDir, 'eng.traineddata'), new Uint8Array(4));
+        const longSTsv = createLongSTsv();
+        const baseHocr = createEarlyPrintHocr('fefto');
+        const longSHocr = createEarlyPrintHocr('ſeſto');
+        const engineCalls: Array<{path: string; existsDuringPass: boolean; passCount: number}> = [];
+        let rasterStatAtMerge: string | undefined;
+
+        const runEngine = vi.fn(async (request: Parameters<IOcrJob['runEngine']>[0]) => {
+            if (request.image instanceof Uint8Array) {
+                throw new Error('expected file-backed raster');
+            }
+            const existsDuringPass = await stat(request.image.path).then(
+                () => true,
+                () => false,
+            );
+            engineCalls.push({
+                path: request.image.path,
+                existsDuringPass,
+                passCount: request.passes.length,
+            });
+            if (request.passes.length === 1) {
+                return {
+                    passes: [{stderr: '', outputs: [FAKE_PAGE_PDF.slice(), longSTsv.slice()]}],
+                };
+            }
+            return {
+                passes: [
+                    {stderr: '', outputs: [FAKE_PAGE_PDF.slice(), longSTsv.slice(), baseHocr.slice()]},
+                    {stderr: '', outputs: [longSHocr.slice()]},
+                    {stderr: '', outputs: [baseHocr.slice()]},
+                ],
+            };
+        });
+
+        onMergeStart = async () => {
+            rasterStatAtMerge = await stat(engineCalls[0]!.path).then(
+                () => 'EXISTS',
+                (error: NodeJS.ErrnoException) => error.code,
+            );
+        };
+
+        const result = await runOcrJob(
+            createJob({
+                pages: [{pageNumber: requirePageNumber(1), languages: ['eng']}],
+                runEngine,
+            }),
+        );
+
+        expect(result.success).toBe(true);
+        expect(mocks.renderOcrPageToPpm).toHaveBeenCalledTimes(1);
+        expect(mocks.prepareOcrPageRasterFile).toHaveBeenCalledTimes(1);
+        expect(engineCalls).toHaveLength(2);
+        expect(engineCalls[0]).toMatchObject({existsDuringPass: true, passCount: 1});
+        expect(engineCalls[1]).toEqual({
+            path: engineCalls[0]!.path,
+            existsDuringPass: true,
+            passCount: 3,
+        });
+        expect(rasterStatAtMerge).toBe('ENOENT');
+    });
+
+    it('unlinks the page raster after an Early Print reread failure', async () => {
+        await writeFile(join(tempDir, 'eng.traineddata'), new Uint8Array(4));
+        const longSTsv = createLongSTsv();
+        const failedRasterPaths: string[] = [];
+
+        const failingEarlyPrintResult = await runOcrJob(
+            createJob({
+                pages: [{pageNumber: requirePageNumber(1), languages: ['eng']}],
+                runEngine: vi.fn(async (request: Parameters<IOcrJob['runEngine']>[0]) => {
+                    if (!(request.image instanceof Uint8Array)) {
+                        failedRasterPaths.push(request.image.path);
+                    }
+                    if (request.passes.length === 1) {
+                        return {passes: [{stderr: '', outputs: [FAKE_PAGE_PDF.slice(), longSTsv.slice()]}]};
+                    }
+                    throw new Error('early-print reread timed out');
+                }),
+            }),
+        );
+
+        expect(failingEarlyPrintResult.success).toBe(true);
+        expect(mocks.renderOcrPageToPpm).toHaveBeenCalledTimes(1);
+        expect(failedRasterPaths).toHaveLength(2);
+        expect(failedRasterPaths[1]).toBe(failedRasterPaths[0]);
+        await expect(stat(failedRasterPaths[0]!)).rejects.toMatchObject({code: 'ENOENT'});
+    });
+
+    it('unlinks the page raster when aborted mid-Early-Print reread', async () => {
+        await writeFile(join(tempDir, 'eng.traineddata'), new Uint8Array(4));
+        const longSTsv = createLongSTsv();
+        const controller = new AbortController();
+        let abortedRasterPath = '';
+
+        await expect(
+            runOcrJob(
+                createJob({
+                    pages: [{pageNumber: requirePageNumber(1), languages: ['eng']}],
+                    signal: controller.signal,
+                    runEngine: vi.fn(async (request: Parameters<IOcrJob['runEngine']>[0]) => {
+                        if (!(request.image instanceof Uint8Array)) {
+                            abortedRasterPath = request.image.path;
+                        }
+                        if (request.passes.length === 1) {
+                            return {passes: [{stderr: '', outputs: [FAKE_PAGE_PDF.slice(), longSTsv.slice()]}]};
+                        }
+                        controller.abort(new DOMException('user canceled', 'AbortError'));
+                        throw controller.signal.reason;
+                    }),
+                }),
+            ),
+        ).rejects.toMatchObject({name: 'AbortError'});
+
+        expect(mocks.renderOcrPageToPpm).toHaveBeenCalledTimes(1);
+        expect(abortedRasterPath).not.toBe('');
+        await expect(stat(abortedRasterPath)).rejects.toMatchObject({code: 'ENOENT'});
+    });
+
+    it('retains the page raster when the engine fails with unproven native termination on first pass or Early Print reread', async () => {
+        const unprovenError = markUnprovenNativeTermination(new Error('engine helper still alive'), 'pid still running');
+        let rasterPath = '';
+        await expect(
+            runOcrJob(
+                createJob({
+                    pages: [{pageNumber: requirePageNumber(1), languages: ['eng']}],
+                    runEngine: vi.fn(async (request: Parameters<IOcrJob['runEngine']>[0]) => {
+                        if (!(request.image instanceof Uint8Array)) {
+                            rasterPath = request.image.path;
+                        }
+                        throw unprovenError;
+                    }),
+                }),
+            ),
+        ).rejects.toBe(unprovenError);
+
+        expect(rasterPath).not.toBe('');
+        await expect(stat(rasterPath)).resolves.toBeDefined();
+
+        // Also verify unproven termination during the Early Print reread propagates and retains the raster.
+        await writeFile(join(tempDir, 'eng.traineddata'), new Uint8Array(4));
+        const longSTsv = createLongSTsv();
+        const rereadUnproven = markUnprovenNativeTermination(new Error('reread helper still alive'), 'pid still running');
+        let rereadRasterPath = '';
+        await expect(
+            runOcrJob(
+                createJob({
+                    jobId: 'job-reread-unproven',
+                    pages: [{pageNumber: requirePageNumber(1), languages: ['eng']}],
+                    runEngine: vi.fn(async (request: Parameters<IOcrJob['runEngine']>[0]) => {
+                        if (!(request.image instanceof Uint8Array)) {
+                            rereadRasterPath = request.image.path;
+                        }
+                        if (request.passes.length === 1) {
+                            return {passes: [{stderr: '', outputs: [FAKE_PAGE_PDF.slice(), longSTsv.slice()]}]};
+                        }
+                        throw rereadUnproven;
+                    }),
+                }),
+            ),
+        ).rejects.toBe(rereadUnproven);
+
+        expect(rereadRasterPath).not.toBe('');
+        await expect(stat(rereadRasterPath)).resolves.toBeDefined();
+    });
+
+    it('keeps the page raster on disk until a canceled engine lane confirms exit, and retains it if exit times out', async () => {
+        const createDelayedExitLane = (exitGate: Promise<void>, onMessagePath: (path: string) => void): IOcrEngineLane => {
+            const emitter = new EventEmitter();
+            let exited = false;
+            return {
+                on: (event, listener) => emitter.on(event, listener),
+                off: (event, listener) => emitter.off(event, listener),
+                postMessage: (message) => {
+                    if (!(message.request.image instanceof Uint8Array)) {
+                        onMessagePath(message.request.image.path);
+                    }
+                },
+                terminate: async () => {
+                    await exitGate;
+                    if (!exited) {
+                        exited = true;
+                        emitter.emit('exit', 0);
+                    }
+                },
+            };
+        };
+
+        const broker = new JobBroker({
+            cpuTokens: 2,
+            estimatedResidentBytes: 1024 * 1024 * 1024,
+            nativeProcesses: 2,
+            ioWeight: 2,
+        });
+
+        // Case 1: Delayed lane exit completes within timeout -> raster stays intact while lane runs, then unlinks after exit.
+        const exitGate1 = Promise.withResolvers<void>();
+        const started1 = Promise.withResolvers<string>();
+        const pool1 = createOcrEnginePool({
+            size: () => 1,
+            tessdataDir: tempDir,
+            broker,
+            exitProofTimeoutMs: 5_000,
+            startLane: () => createDelayedExitLane(exitGate1.promise, (path) => started1.resolve(path)),
+        });
+        const abort1 = new AbortController();
+        const job1 = runOcrJob(
+            createJob({
+                pages: [{pageNumber: requirePageNumber(1), languages: ['eng']}],
+                signal: abort1.signal,
+                engineChargesBroker: true,
+                runEngine: (request, signal) => pool1.run(request, signal),
+            }),
+        );
+        try {
+            const rasterPath1 = await started1.promise;
+            vi.useFakeTimers();
+            abort1.abort(new DOMException('cancel delayed exit', 'AbortError'));
+            await vi.advanceTimersByTimeAsync(1_000);
+            vi.useRealTimers();
+            // Lane has not acknowledged exit yet -> raster file MUST still exist on disk.
+            await expect(stat(rasterPath1)).resolves.toBeDefined();
+
+            exitGate1.resolve();
+            await expect(job1).rejects.toMatchObject({name: 'AbortError'});
+            await expect(stat(rasterPath1)).rejects.toMatchObject({code: 'ENOENT'});
+        } finally {
+            vi.useRealTimers();
+            exitGate1.resolve();
+            pool1.terminate();
+            await job1.catch(() => undefined);
+        }
+
+        // Case 2: Wedged lane never acknowledges exit -> unproven termination propagates and raster is retained.
+        const exitGate2 = Promise.withResolvers<void>();
+        const started2 = Promise.withResolvers<string>();
+        const pool2 = createOcrEnginePool({
+            size: () => 1,
+            tessdataDir: tempDir,
+            broker,
+            exitProofTimeoutMs: 5_000,
+            startLane: () => createDelayedExitLane(exitGate2.promise, (path) => started2.resolve(path)),
+        });
+        const abort2 = new AbortController();
+        const job2 = runOcrJob(
+            createJob({
+                jobId: 'job-wedged',
+                pages: [{pageNumber: requirePageNumber(1), languages: ['eng']}],
+                signal: abort2.signal,
+                engineChargesBroker: true,
+                runEngine: (request, signal) => pool2.run(request, signal),
+            }),
+        );
+        const job2Error = job2.then(
+            () => null,
+            (caught: unknown) => caught,
+        );
+        try {
+            const rasterPath2 = await started2.promise;
+            vi.useFakeTimers();
+            abort2.abort(new DOMException('cancel wedged exit', 'AbortError'));
+            await vi.advanceTimersByTimeAsync(5_000);
+            vi.useRealTimers();
+            const wedgedError = await job2Error;
+            expect(getUnprovenNativeTerminationDetail(wedgedError)).toBeDefined();
+            await expect(stat(rasterPath2)).resolves.toBeDefined();
+
+            // Once the late exit acknowledgement finally arrives, deferred cleanup removes the raster.
+            exitGate2.resolve();
+            await vi.waitFor(async () => {
+                await expect(stat(rasterPath2)).rejects.toMatchObject({code: 'ENOENT'});
+            });
+        } finally {
+            vi.useRealTimers();
+            exitGate2.resolve();
+            pool2.terminate();
+            await job2.catch(() => undefined);
+        }
+
+        // Case 3: Parallel 2-lane job where lane 1 is stuck and aborts the job while sibling lane 2 exits cleanly ->
+        // sibling lane 2's raster is unlinked immediately without waiting for lane 1's stuck exit.
+        const stuckExit = Promise.withResolvers<void>();
+        const lanePaths: string[] = [];
+        const bothStarted = Promise.withResolvers<void>();
+        let stuckEmitter: EventEmitter | null = null;
+        let laneIndex = 0;
+        const pool3 = createOcrEnginePool({
+            size: () => 2,
+            tessdataDir: tempDir,
+            broker,
+            exitProofTimeoutMs: 5_000,
+            startLane: () => {
+                const isStuck = laneIndex++ === 0;
+                const emitter = new EventEmitter();
+                if (isStuck) {
+                    stuckEmitter = emitter;
+                }
+                let exited = false;
+                return {
+                    on: (event, listener) => emitter.on(event, listener),
+                    off: (event, listener) => emitter.off(event, listener),
+                    postMessage: (message) => {
+                        if (!(message.request.image instanceof Uint8Array)) {
+                            lanePaths.push(message.request.image.path);
+                            if (lanePaths.length === 2) {
+                                bothStarted.resolve();
+                            }
+                        }
+                    },
+                    terminate: async () => {
+                        if (isStuck) {
+                            await stuckExit.promise;
+                        }
+                        if (!exited) {
+                            exited = true;
+                            emitter.emit('exit', 0);
+                        }
+                    },
+                };
+            },
+        });
+        // Pin policy to 2 lanes regardless of host RAM / CPU count so both lanes always start.
+        const policySpy = vi.spyOn(ocrRuntimePolicy, 'getOcrRuntimePolicy').mockReturnValue({
+            globalPageSlots: 2,
+            modelDownloadConcurrency: 3,
+        });
+        vi.stubEnv('OCR_CONCURRENCY', '2');
+        try {
+            const job3 = runOcrJob(
+                createJob({
+                    jobId: 'job-parallel-sibling',
+                    pages: [
+                        {pageNumber: requirePageNumber(1), languages: ['eng']},
+                        {pageNumber: requirePageNumber(2), languages: ['eng']},
+                    ],
+                    engineChargesBroker: true,
+                    runEngine: (request, signal) => pool3.run(request, signal),
+                }),
+            );
+            const job3Error = job3.then(
+                () => null,
+                (caught: unknown) => caught,
+            );
+            await bothStarted.promise;
+            vi.useFakeTimers();
+            // Emit lane 1's error only after both lanes have posted their rasters.
+            stuckEmitter!.emit('error', new Error('lane 1 stuck'));
+            await vi.advanceTimersByTimeAsync(5_000);
+            vi.useRealTimers();
+            const err3 = await job3Error;
+            expect(getUnprovenNativeTerminationDetail(err3)).toBeDefined();
+            // Stuck lane 1's raster stays on disk; cleanly exited sibling lane 2's raster is already unlinked.
+            await expect(stat(lanePaths[0]!)).resolves.toBeDefined();
+            await expect(stat(lanePaths[1]!)).rejects.toMatchObject({code: 'ENOENT'});
+
+            stuckExit.resolve();
+            await vi.waitFor(async () => {
+                await expect(stat(lanePaths[0]!)).rejects.toMatchObject({code: 'ENOENT'});
+            });
+        } finally {
+            vi.useRealTimers();
+            policySpy.mockRestore();
+            vi.unstubAllEnvs();
+            stuckExit.resolve();
+            pool3.terminate();
+        }
     });
 });

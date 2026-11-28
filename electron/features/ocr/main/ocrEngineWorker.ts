@@ -59,6 +59,7 @@ parentPort!.on('message', async ({id, request}: IOcrEngineLaneRequest) => {
                 id,
                 ok: true,
                 result,
+                wasmMemoryBytes: recognize.getWasmMemoryBytes(),
             } satisfies IOcrEngineLaneReply,
             result.passes.flatMap((pass) => pass.outputs.map((output) => output.buffer as ArrayBuffer)),
         );
@@ -67,6 +68,7 @@ parentPort!.on('message', async ({id, request}: IOcrEngineLaneRequest) => {
             id,
             ok: false,
             error: error instanceof Error ? error.message : String(error),
+            wasmMemoryBytes: recognize.getWasmMemoryBytes(),
         } satisfies IOcrEngineLaneReply);
     }
 });
