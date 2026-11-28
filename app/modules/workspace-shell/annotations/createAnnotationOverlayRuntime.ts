@@ -11,6 +11,9 @@ import type {IAnnotationNoteWindowEntry} from '@app/modules/workspace-shell/anno
 const INLINE_NOTE_SUBTYPES = new Set(['text', 'note-linked', 'note-inline']);
 const FREE_TEXT_NOTE_SUBTYPES = new Set(['freetext', 'typewriter']);
 const INLINE_MARKER_PROXIMITY = 0.08;
+// Open/inline note markers sit at the page edge with translate(-50%, -50%),
+// so allow a small overflow margin before treating the page as offscreen.
+const CONNECTOR_PAGE_OVERFLOW_MARGIN_PX = 32;
 
 interface IInlineTriggerIdentity {
     annotationIds: Set<string>;
@@ -60,6 +63,7 @@ export interface IAnnotationOverlayRuntimeOptions {
     getViewportRoot: () => HTMLElement | null;
     getZoom: () => number | undefined;
     getEmptyNoteLabel: () => string;
+    isVisible?: () => boolean;
     /** Whether the view paints a page's annotations, inline note markers included. */
     paintsPage: (pageIndex: number) => boolean;
 }
@@ -91,8 +95,45 @@ function isFloatingIndicatorEligible(note: IAnnotationNoteWindowEntry) {
     return resolveKnownFloatingEligibility(note, subtype) ?? note.source === 'editor';
 }
 
-function collectViewportDomSnapshot(viewportRoot: HTMLElement | null): IViewportDomSnapshot | null {
-    if (!viewportRoot) {
+function parsePageContainerNumber(element: HTMLElement) {
+    const pageNumber = Number(element.dataset.page ?? '');
+    return Number.isFinite(pageNumber) && pageNumber > 0 ? pageNumber : null;
+}
+
+function reuseEqualPageSet(previous: ReadonlySet<number> | undefined, next: Set<number>): ReadonlySet<number> {
+    if (previous && previous.size === next.size) {
+        for (const page of next) {
+            if (!previous.has(page)) {
+                return next;
+            }
+        }
+        return previous;
+    }
+    return next;
+}
+
+function collectTrackedPageElements(viewportRoot: HTMLElement | null, trackedPages: ReadonlySet<number>): Map<number, HTMLElement> {
+    const pageContainers = new Map<number, HTMLElement>();
+    if (!viewportRoot || trackedPages.size === 0) {
+        return pageContainers;
+    }
+
+    viewportRoot.querySelectorAll<HTMLElement>('.page_container').forEach((pageContainer) => {
+        const pageNumber = parsePageContainerNumber(pageContainer);
+        if (pageNumber !== null && trackedPages.has(pageNumber)) {
+            pageContainers.set(pageNumber, pageContainer);
+        }
+    });
+
+    return pageContainers;
+}
+
+function collectViewportDomSnapshot(
+    viewportRoot: HTMLElement | null,
+    trackedPageElements: ReadonlyMap<number, HTMLElement>,
+    openPages: ReadonlySet<number>,
+): IViewportDomSnapshot | null {
+    if (!viewportRoot || openPages.size === 0) {
         return null;
     }
 
@@ -103,13 +144,13 @@ function collectViewportDomSnapshot(viewportRoot: HTMLElement | null): IViewport
             rect: DOMRect | null;
         }
     >();
-    viewportRoot.querySelectorAll<HTMLElement>('.page_container').forEach((pageContainer) => {
-        const pageNumberRaw = Number(pageContainer.dataset.page ?? '');
-        if (!Number.isFinite(pageNumberRaw) || pageNumberRaw <= 0) {
+    openPages.forEach((pageNumber) => {
+        const pageContainer = trackedPageElements.get(pageNumber);
+        if (!pageContainer || !pageContainer.isConnected) {
             return;
         }
         const rect = pageContainer.getBoundingClientRect();
-        pageContainers.set(pageNumberRaw, {
+        pageContainers.set(pageNumber, {
             element: pageContainer,
             rect: rect.width > 0 && rect.height > 0 ? rect : null,
         });
@@ -126,27 +167,65 @@ function collectViewportDomSnapshot(viewportRoot: HTMLElement | null): IViewport
     };
 }
 
-function collectRenderedInlineAnchorIdentity(snapshot: IViewportDomSnapshot | null): IInlineTriggerIdentity {
+function collectRenderedInlineAnchorIdentity(
+    trackedPageElements: ReadonlyMap<number, HTMLElement>,
+    eligibleNotes: readonly IAnnotationNoteWindowEntry[],
+): IInlineTriggerIdentity {
     const identity: IInlineTriggerIdentity = {
         annotationIds: new Set<string>(),
         notePoints: [],
     };
-    if (!snapshot) {
+    if (trackedPageElements.size === 0 || eligibleNotes.length === 0) {
         return identity;
     }
 
-    snapshot.pageContainers.forEach(({element: pageContainer, rect: pageRect}, pageNumber) => {
-        pageContainer.querySelectorAll<HTMLElement>('.pdf-annotation-editor-note[data-annotation-id]').forEach((noteElement) => {
+    const notesByPage = new Map<number, IAnnotationNoteWindowEntry[]>();
+    for (const note of eligibleNotes) {
+        if (!trackedPageElements.has(note.pageNumber)) {
+            continue;
+        }
+        let pageNotes = notesByPage.get(note.pageNumber);
+        if (!pageNotes) {
+            pageNotes = [];
+            notesByPage.set(note.pageNumber, pageNotes);
+        }
+        pageNotes.push(note);
+    }
+
+    notesByPage.forEach((pageNotes, pageNumber) => {
+        const pageContainer = trackedPageElements.get(pageNumber);
+        if (!pageContainer || !pageContainer.isConnected) {
+            return;
+        }
+
+        const noteElements = pageContainer.querySelectorAll<HTMLElement>('.pdf-annotation-editor-note[data-annotation-id]');
+        if (noteElements.length === 0) {
+            return;
+        }
+
+        noteElements.forEach((noteElement) => {
             const annotationId = noteElement.dataset.annotationId;
             if (annotationId) {
                 identity.annotationIds.add(annotationId);
             }
+        });
 
+        // Proximity coordinates are only consulted when an eligible note on
+        // this page did not already match a rendered editor note by ID.
+        if (!pageNotes.some((note) => !identity.annotationIds.has(note.annotationId))) {
+            return;
+        }
+
+        const pageRect = pageContainer.getBoundingClientRect();
+        if (pageRect.width <= 0 || pageRect.height <= 0) {
+            return;
+        }
+
+        noteElements.forEach((noteElement) => {
             const noteRect = noteElement.getBoundingClientRect();
-            if (!pageRect || pageRect.width <= 0 || pageRect.height <= 0 || noteRect.width <= 0 || noteRect.height <= 0) {
+            if (noteRect.width <= 0 || noteRect.height <= 0) {
                 return;
             }
-
             identity.notePoints.push({
                 pageNumber,
                 x: clamp((noteRect.left + noteRect.width / 2 - pageRect.left) / pageRect.width, 0, 1),
@@ -156,6 +235,50 @@ function collectRenderedInlineAnchorIdentity(snapshot: IViewportDomSnapshot | nu
     });
 
     return identity;
+}
+
+function nodeContainsTrackedPage(node: Node, trackedPages: ReadonlySet<number>): boolean {
+    if (!(node instanceof Element)) {
+        return false;
+    }
+    if (node.classList.contains('page_container')) {
+        const pageNumber = parsePageContainerNumber(node as HTMLElement);
+        return pageNumber !== null && trackedPages.has(pageNumber);
+    }
+    for (const pageContainer of node.querySelectorAll<HTMLElement>('.page_container')) {
+        const pageNumber = parsePageContainerNumber(pageContainer);
+        if (pageNumber !== null && trackedPages.has(pageNumber)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function mutationAffectsTrackedPages(records: readonly MutationRecord[], trackedPages: ReadonlySet<number>): boolean {
+    if (trackedPages.size === 0) {
+        return false;
+    }
+    for (const record of records) {
+        const hostPage = record.target instanceof Element ? record.target.closest<HTMLElement>('.page_container') : null;
+        if (hostPage) {
+            const pageNumber = parsePageContainerNumber(hostPage);
+            if (pageNumber !== null && trackedPages.has(pageNumber)) {
+                return true;
+            }
+            continue;
+        }
+        for (const node of record.addedNodes) {
+            if (nodeContainsTrackedPage(node, trackedPages)) {
+                return true;
+            }
+        }
+        for (const node of record.removedNodes) {
+            if (nodeContainsTrackedPage(node, trackedPages)) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 function inlineIdentityMatchesNote(inlineIdentity: IInlineTriggerIdentity, note: IAnnotationNoteWindowEntry) {
@@ -176,6 +299,15 @@ function inlineIdentityMatchesNote(inlineIdentity: IInlineTriggerIdentity, note:
 
 function rectsIntersect(rect: TViewportBounds, bounds: TViewportBounds) {
     return rect.right >= bounds.left && rect.left <= bounds.right && rect.bottom >= bounds.top && rect.top <= bounds.bottom;
+}
+
+function rectsIntersectWithMargin(rect: TViewportBounds, bounds: TViewportBounds, margin: number) {
+    return (
+        rect.right + margin >= bounds.left &&
+        rect.left - margin <= bounds.right &&
+        rect.bottom + margin >= bounds.top &&
+        rect.top - margin <= bounds.bottom
+    );
 }
 
 function pointInRect(x: number, y: number, rect: TViewportBounds) {
@@ -327,13 +459,13 @@ function getNoteRenderSignature(note: IAnnotationNoteWindowEntry) {
     ].join(':');
 }
 
-function mapNotesToPageTargets(notes: readonly IAnnotationNoteWindowEntry[], snapshot: IViewportDomSnapshot | null) {
-    if (!snapshot) {
+function mapNotesToPageTargets(notes: readonly IAnnotationNoteWindowEntry[], pageElements: ReadonlyMap<number, HTMLElement>) {
+    if (notes.length === 0 || pageElements.size === 0) {
         return {};
     }
     const targets: Record<string, HTMLElement> = {};
     notes.forEach((note) => {
-        const pageContainer = snapshot.pageContainers.get(note.pageNumber)?.element;
+        const pageContainer = pageElements.get(note.pageNumber);
         if (pageContainer) {
             targets[note.annotationId] = pageContainer;
         }
@@ -352,46 +484,82 @@ function mapNotesToPageTargets(notes: readonly IAnnotationNoteWindowEntry[], sna
  * counter, a connector list or a pending timer.
  */
 export function createAnnotationOverlayRuntime(options: IAnnotationOverlayRuntimeOptions) {
-    const indicatorDomTick = ref(0);
+    const structureDomTick = ref(0);
+    const geometryDomTick = ref(0);
     const connectorLines = shallowRef<IConnectorLine[]>([]);
 
     const viewportRootElement = computed(() => options.getViewportRoot());
-    const viewportDomSnapshot = computed<IViewportDomSnapshot | null>(() => {
-        void indicatorDomTick.value;
-        return collectViewportDomSnapshot(options.getViewportRoot());
+    const noteWindows = computed(() => options.getNoteWindows());
+    const visibleAnnotationNoteWindows = computed(() => noteWindows.value.filter((note) => !note.isMinimized));
+    const floatingEligibleNotes = computed(() =>
+        noteWindows.value.filter((note) => isFloatingIndicatorEligible(note) && Boolean(getNoteMarkerRect(note))),
+    );
+    const openNoteAnchors = computed(() =>
+        visibleAnnotationNoteWindows.value.filter((note) => isFloatingIndicatorEligible(note) && Boolean(getNoteMarkerRect(note))),
+    );
+
+    const openNotePageNumbers = computed<ReadonlySet<number>>((previous) => {
+        const pages = new Set<number>();
+        for (const note of visibleAnnotationNoteWindows.value) {
+            pages.add(note.pageNumber);
+        }
+        return reuseEqualPageSet(previous, pages);
     });
-    const renderedInlineAnchorIdentity = computed(() => collectRenderedInlineAnchorIdentity(viewportDomSnapshot.value));
+    const trackedPageNumbers = computed<ReadonlySet<number>>((previous) => {
+        const pages = new Set<number>(openNotePageNumbers.value);
+        for (const note of floatingEligibleNotes.value) {
+            pages.add(note.pageNumber);
+        }
+        return reuseEqualPageSet(previous, pages);
+    });
+    const hasOpenNoteWindows = computed(() => visibleAnnotationNoteWindows.value.length > 0);
+    const hasTrackedNotes = computed(() => trackedPageNumbers.value.size > 0);
+
+    const trackedPageElements = computed<Map<number, HTMLElement>>(() => {
+        void structureDomTick.value;
+        return collectTrackedPageElements(viewportRootElement.value, trackedPageNumbers.value);
+    });
+    const viewportDomSnapshot = computed<IViewportDomSnapshot | null>(() => {
+        if (!hasOpenNoteWindows.value) {
+            return null;
+        }
+        void geometryDomTick.value;
+        return collectViewportDomSnapshot(viewportRootElement.value, trackedPageElements.value, openNotePageNumbers.value);
+    });
+    const renderedInlineAnchorIdentity = computed(() =>
+        collectRenderedInlineAnchorIdentity(trackedPageElements.value, floatingEligibleNotes.value),
+    );
     // A page waiting for its re-read paints neither the inline marker nor a fallback for it.
     const hasInlineMarker = (note: IAnnotationNoteWindowEntry) =>
         !options.paintsPage(note.pageIndex) || inlineIdentityMatchesNote(renderedInlineAnchorIdentity.value, note);
 
-    const visibleAnnotationNoteWindows = computed(() => options.getNoteWindows().filter((note) => !note.isMinimized));
-    const openNoteAnchors = computed(() =>
-        visibleAnnotationNoteWindows.value.filter((note) => isFloatingIndicatorEligible(note) && Boolean(getNoteMarkerRect(note))),
-    );
     const openAnchorHiddenKeys = computed(() => new Set(openNoteAnchors.value.filter(hasInlineMarker).map((note) => note.annotationId)));
     const anchoredAnnotationNoteWindows = computed(() =>
-        options
-            .getNoteWindows()
-            .filter(
-                (note) =>
-                    note.isMinimized && isFloatingIndicatorEligible(note) && Boolean(getNoteMarkerRect(note)) && !hasInlineMarker(note),
-            ),
+        floatingEligibleNotes.value.filter((note) => note.isMinimized && !hasInlineMarker(note)),
     );
-    const minimizedIndicatorTargets = computed(() => mapNotesToPageTargets(anchoredAnnotationNoteWindows.value, viewportDomSnapshot.value));
-    const openNoteAnchorTargets = computed(() => mapNotesToPageTargets(openNoteAnchors.value, viewportDomSnapshot.value));
+    const minimizedIndicatorTargets = computed(() => mapNotesToPageTargets(anchoredAnnotationNoteWindows.value, trackedPageElements.value));
+    const openNoteAnchorTargets = computed(() => mapNotesToPageTargets(openNoteAnchors.value, trackedPageElements.value));
 
     function computeConnectorLines(): IConnectorLine[] {
+        const anchors = openNoteAnchors.value;
+        if (anchors.length === 0) {
+            return [];
+        }
         const snapshot = viewportDomSnapshot.value;
         if (!snapshot) {
             return [];
         }
         const positions = options.getNotePositions();
         const viewportBounds = snapshot.bounds;
-        return openNoteAnchors.value.flatMap((note) => {
+        return anchors.flatMap((note) => {
             const position = positions[note.annotationId];
             const page = snapshot.pageContainers.get(note.pageNumber);
-            if (!position || !page) {
+            if (
+                !position ||
+                !page ||
+                !page.rect ||
+                !rectsIntersectWithMargin(page.rect, viewportBounds, CONNECTOR_PAGE_OVERFLOW_MARGIN_PX)
+            ) {
                 return [];
             }
             const marker =
@@ -412,16 +580,56 @@ export function createAnnotationOverlayRuntime(options: IAnnotationOverlayRuntim
         });
     }
 
-    // Scroll, resize, zoom, viewport DOM changes and the positions note windows
-    // report as applied refresh the shared geometry once, in the next frame.
+    // Scroll, resize, zoom, tracked viewport DOM changes and the positions note
+    // windows report as applied refresh only the needed layer in the next frame.
+    let pendingStructureRefresh = false;
+    let pendingGeometryRefresh = false;
     const indicatorDomRefreshScheduler = createRafBurstScheduler(() => {
-        indicatorDomTick.value += 1;
+        const shouldRefreshStructure = pendingStructureRefresh;
+        const shouldRefreshGeometry = pendingGeometryRefresh;
+        pendingStructureRefresh = false;
+        pendingGeometryRefresh = false;
+        if (shouldRefreshStructure && hasTrackedNotes.value) {
+            structureDomTick.value += 1;
+        }
+        if (shouldRefreshGeometry && hasOpenNoteWindows.value) {
+            geometryDomTick.value += 1;
+        }
     });
-    const refreshViewportDom = () => indicatorDomRefreshScheduler.request();
+    const requestDomRefresh = (flags: {structure?: boolean; geometry?: boolean}) => {
+        const nextStructure = Boolean(flags.structure) && hasTrackedNotes.value;
+        const nextGeometry = Boolean(flags.geometry) && hasOpenNoteWindows.value;
+        if (!nextStructure && !nextGeometry) {
+            return;
+        }
+        pendingStructureRefresh ||= nextStructure;
+        pendingGeometryRefresh ||= nextGeometry;
+        indicatorDomRefreshScheduler.request();
+    };
+    const refreshViewportDom = () => requestDomRefresh({geometry: true});
+    const handleViewportMutations = (records: MutationRecord[]) => {
+        if (!mutationAffectsTrackedPages(records, trackedPageNumbers.value)) {
+            return;
+        }
+        requestDomRefresh({
+            structure: true,
+            geometry: hasOpenNoteWindows.value,
+        });
+    };
+
     // Note followers apply the shared geometry before connector DOM readings.
     watch(
-        [viewportDomSnapshot, () => openNoteAnchors.value.map(getNoteRenderSignature).join('|')],
+        [
+            () => (openNoteAnchors.value.length > 0 ? viewportDomSnapshot.value : null),
+            () => openNoteAnchors.value.map(getNoteRenderSignature).join('|'),
+        ],
         () => {
+            if (openNoteAnchors.value.length === 0) {
+                if (connectorLines.value.length > 0) {
+                    connectorLines.value = [];
+                }
+                return;
+            }
             connectorLines.value = computeConnectorLines();
         },
         {flush: 'post'},
@@ -460,31 +668,81 @@ export function createAnnotationOverlayRuntime(options: IAnnotationOverlayRuntim
     }
 
     onBeforeUnmount(() => {
+        pendingStructureRefresh = false;
+        pendingGeometryRefresh = false;
         indicatorDomRefreshScheduler.cancel();
         connectorLines.value = [];
     });
 
-    useEventListener(viewportRootElement, 'scroll', refreshViewportDom, {passive: true});
-    useEventListener(import.meta.client ? window : undefined, 'resize', refreshViewportDom, {passive: true});
+    const openNoteScrollTarget = computed(() => (hasOpenNoteWindows.value ? viewportRootElement.value : null));
+    const openNoteWindowTarget = computed(() => (import.meta.client && hasOpenNoteWindows.value ? window : undefined));
+    const mutationObserverTarget = computed(() => (hasTrackedNotes.value ? viewportRootElement.value : null));
+
+    useEventListener(openNoteScrollTarget, 'scroll', refreshViewportDom, {passive: true});
+    useEventListener(openNoteWindowTarget, 'resize', refreshViewportDom, {passive: true});
     const resizeTargets = computed<HTMLElement[]>((previous) => {
+        if (!hasOpenNoteWindows.value) {
+            return [];
+        }
         const root = viewportRootElement.value;
-        const targets = root
-            ? [
-                  root.ownerDocument.documentElement,
-                  root,
-                  ...Array.from(viewportDomSnapshot.value?.pageContainers.values() ?? [], (page) => page.element),
-              ]
-            : [];
+        if (!root) {
+            return [];
+        }
+        const targets: HTMLElement[] = [root.ownerDocument.documentElement, root];
+        const pageTrack = root.querySelector<HTMLElement>('[data-pdf-page-track]');
+        if (pageTrack && pageTrack !== root) {
+            targets.push(pageTrack);
+        }
+        openNotePageNumbers.value.forEach((pageNumber) => {
+            const pageContainer = trackedPageElements.value.get(pageNumber);
+            if (pageContainer) {
+                targets.push(pageContainer);
+            }
+        });
         return previous && targets.length === previous.length && targets.every((target, index) => target === previous[index])
             ? previous
             : targets;
     });
     useResizeObserver(resizeTargets, refreshViewportDom);
-    useMutationObserver(viewportRootElement, refreshViewportDom, {
+    useMutationObserver(mutationObserverTarget, handleViewportMutations, {
         childList: true,
         subtree: true,
     });
-    watch(() => options.getZoom(), refreshViewportDom);
+    watch(
+        () => options.getZoom(),
+        () => {
+            requestDomRefresh({
+                structure: hasTrackedNotes.value,
+                geometry: hasOpenNoteWindows.value,
+            });
+        },
+    );
+    watch(
+        () => options.isVisible?.() ?? true,
+        (nextVisible, previousVisible) => {
+            if (nextVisible && previousVisible === false) {
+                requestDomRefresh({
+                    structure: hasTrackedNotes.value,
+                    geometry: hasOpenNoteWindows.value,
+                });
+            }
+        },
+    );
+    watch(hasTrackedNotes, (active) => {
+        if (!active) {
+            pendingStructureRefresh = false;
+            pendingGeometryRefresh = false;
+            indicatorDomRefreshScheduler.cancel();
+        }
+    });
+    watch(hasOpenNoteWindows, (active) => {
+        if (!active) {
+            pendingGeometryRefresh = false;
+            if (!pendingStructureRefresh) {
+                indicatorDomRefreshScheduler.cancel();
+            }
+        }
+    });
 
     return {
         viewportDomSnapshot,
