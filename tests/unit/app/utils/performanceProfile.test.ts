@@ -151,9 +151,20 @@ describe('resolvePerformanceProfile', () => {
             }),
         ).toMatchObject({
             tier: 'high',
+            mobile: false,
             lowMemory: false,
             lowCpu: false,
             settledMaxCanvasPixels: PDF_SETTLED_MAX_CANVAS_PIXELS_HIGH_MEMORY,
+        });
+        // Explicit mobile Firefox user agent without an explicit mobile flag still resolves as mobile low tier.
+        expect(
+            resolvePerformanceProfile({
+                hardwareConcurrency: 8,
+                userAgent: 'Mozilla/5.0 (Android 15; Mobile; rv:136.0) Gecko/136.0 Firefox/136.0',
+            }),
+        ).toMatchObject({
+            tier: 'low',
+            mobile: true,
         });
         expect(resolveBrowserEstimatedMemoryGiB({hardwareConcurrency: 16, userAgent: firefoxDesktopUa})).toBe(8);
         expect(resolveBrowserEstimatedMemoryGiB({hardwareConcurrency: 4, userAgent: firefoxDesktopUa})).toBe(6);

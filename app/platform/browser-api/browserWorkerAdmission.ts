@@ -8,7 +8,7 @@ import {
 } from '@app/utils/performanceProfile';
 import {HOST_TIER_LOW_CPU_MAX} from '@contracts/hostResourceProfile';
 
-export type TBrowserHeavyWorkerCategory = 'ocr' | 'scan-cleanup' | 'search' | 'page-ops';
+export type TBrowserHeavyWorkerCategory = 'ocr' | 'ocr-preprocess' | 'scan-cleanup' | 'search' | 'page-ops';
 export type TBrowserHeavyWorkerPriority = 'interactive' | 'batch';
 
 export type TBrowserWorkerCategoryLimit = number | (() => number | undefined);
@@ -101,6 +101,7 @@ export class BrowserHeavyWorkerAdmission {
     private activeCount = 0;
     private readonly activeByCategory: Record<TBrowserHeavyWorkerCategory, number> = {
         ocr: 0,
+        'ocr-preprocess': 0,
         'scan-cleanup': 0,
         search: 0,
         'page-ops': 0,

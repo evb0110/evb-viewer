@@ -319,10 +319,13 @@ function runOnWorker<K extends TBrowserScanCleanupWorkerRequestType>(
         if (!usesThreadedScanCleanupEngine()) {
             return ownerMaxSlots;
         }
-        if (!threadedScanCleanupEngineBudget.admits(threadedKeepFree)) {
+        const threadedLimit = MAX_LIVE_THREADED_SCAN_CLEANUP_ENGINES - threadedKeepFree;
+        const {activeByCategory} = browserHeavyWorkerAdmission.snapshot();
+        const threadedGranted = activeByCategory['scan-cleanup'] + activeByCategory['ocr-preprocess'];
+        if (!threadedScanCleanupEngineBudget.admits(threadedKeepFree) || threadedGranted >= threadedLimit) {
             return 0;
         }
-        return Math.min(ownerMaxSlots, MAX_LIVE_THREADED_SCAN_CLEANUP_ENGINES - threadedKeepFree);
+        return Math.min(ownerMaxSlots, threadedLimit);
     };
     return browserHeavyWorkerAdmission.runDeferred(
         {

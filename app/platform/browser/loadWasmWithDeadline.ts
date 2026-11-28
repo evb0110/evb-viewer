@@ -34,10 +34,10 @@ export function wasmMemoryHighWaterBytes(deviceMemory?: number, environment?: Om
     const nav = environment ? undefined : readNavigatorBrowserMemoryEnvironment();
     const resolvedDeviceMemory = deviceMemory !== undefined ? deviceMemory : nav?.deviceMemory;
     const userAgent = environment?.userAgent ?? nav?.userAgent;
-    const maxTouchPoints = environment?.maxTouchPoints ?? nav?.maxTouchPoints ?? 0;
-    const mobile =
-        environment?.mobile ??
-        (environment?.userAgent !== undefined ? isMobileBrowserUserAgent(userAgent, maxTouchPoints) : (nav?.mobile ?? false));
+    const resolvedMaxTouchPoints = environment?.maxTouchPoints ?? nav?.maxTouchPoints;
+    const maxTouchPoints = resolvedMaxTouchPoints ?? 0;
+    const explicitMobile = environment?.mobile ?? nav?.mobile;
+    const mobile = explicitMobile ?? (environment?.userAgent !== undefined ? isMobileBrowserUserAgent(userAgent, maxTouchPoints) : false);
     if (mobile) {
         return WASM_MEMORY_HIGH_WATER_LOW_BYTES;
     }
@@ -53,7 +53,23 @@ export function wasmMemoryHighWaterBytes(deviceMemory?: number, environment?: Om
     if (typeof resolvedDeviceMemory === 'number' && Number.isFinite(resolvedDeviceMemory) && resolvedDeviceMemory > 0) {
         return resolvedDeviceMemory > 4 ? WASM_MEMORY_HIGH_WATER_HIGH_BYTES : WASM_MEMORY_HIGH_WATER_LOW_BYTES;
     }
-    return detectBrowserEngine(userAgent) === 'firefox' ? WASM_MEMORY_HIGH_WATER_HIGH_BYTES : WASM_MEMORY_HIGH_WATER_WEBKIT_BYTES;
+    const engine = detectBrowserEngine(userAgent);
+    if (engine === 'firefox') {
+        return WASM_MEMORY_HIGH_WATER_HIGH_BYTES;
+    }
+    // WebKit WorkerNavigator omits `maxTouchPoints`, so a Macintosh user agent in a
+    // worker cannot distinguish macOS Safari from desktop-UA iPadOS Safari; keep the
+    // conservative 128 MiB floor unless desktop WebKit is confirmed.
+    if (
+        engine === 'webkit' &&
+        userAgent !== undefined &&
+        /Macintosh/u.test(userAgent) &&
+        explicitMobile !== false &&
+        typeof resolvedMaxTouchPoints !== 'number'
+    ) {
+        return WASM_MEMORY_HIGH_WATER_LOW_BYTES;
+    }
+    return WASM_MEMORY_HIGH_WATER_WEBKIT_BYTES;
 }
 
 /** Whether an instance's memory grew past `wasmMemoryHighWaterBytes`, so its thread should load a fresh one. */

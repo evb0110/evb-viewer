@@ -27,6 +27,7 @@ import type {BrowserWorkerBudget, IBrowserWorkerAdmission} from '@app/platform/b
 import {
     browserHeavyWorkerAdmission,
     runWithBrowserWorkerAdmission,
+    type TBrowserHeavyWorkerCategory,
     type TBrowserWorkerCategoryLimit,
 } from '@app/platform/browser-api/browserWorkerAdmission';
 import {resolveBrowserEstimatedMemoryGiB, resolvePerformanceProfile} from '@app/utils/performanceProfile';
@@ -275,6 +276,7 @@ function runWorkerRequest<TResult>(
         message: string;
     },
     admission: IBrowserWorkerAdmission = {},
+    category: TBrowserHeavyWorkerCategory = 'ocr',
     categoryLimit?: TBrowserWorkerCategoryLimit,
 ): Promise<TResult> {
     const {payload} = request;
@@ -291,7 +293,7 @@ function runWorkerRequest<TResult>(
     const createAbortError = () => (signal.reason instanceof Error ? signal.reason : new DOMException('OCR was canceled', 'AbortError'));
     return runWithBrowserWorkerAdmission(
         {
-            category: 'ocr',
+            category,
             priority: 'batch',
             ...(categoryLimit === undefined ? {} : {categoryLimit}),
             signal,
@@ -383,7 +385,13 @@ export function preprocessBrowserOcrRaster(
         if (!usesThreadedScanCleanupEngine()) {
             return undefined;
         }
-        return threadedScanCleanupEngineBudget.admits(threadedKeepFree) ? MAX_LIVE_THREADED_SCAN_CLEANUP_ENGINES - threadedKeepFree : 0;
+        const threadedLimit = MAX_LIVE_THREADED_SCAN_CLEANUP_ENGINES - threadedKeepFree;
+        const {activeByCategory} = browserHeavyWorkerAdmission.snapshot();
+        const threadedGranted = activeByCategory['scan-cleanup'] + activeByCategory['ocr-preprocess'];
+        if (!threadedScanCleanupEngineBudget.admits(threadedKeepFree) || threadedGranted >= threadedLimit) {
+            return 0;
+        }
+        return threadedLimit;
     };
     return runWithScanCleanupEngineFailover(payload, (attempt) =>
         runWorkerRequest(
@@ -402,6 +410,7 @@ export function preprocessBrowserOcrRaster(
                 message: 'OCR preprocessing did not finish within its time limit',
             },
             scanCleanupEngineAdmission(concurrency),
+            'ocr-preprocess',
             categoryLimit,
         ),
     );

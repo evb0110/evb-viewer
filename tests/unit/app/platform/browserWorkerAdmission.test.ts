@@ -138,11 +138,15 @@ describe('browserHeavyWorkerAdmission', () => {
         // Idempotent double release must not corrupt active counters.
         holdRelease();
         holdRelease();
+        expect(admission.snapshot()).toMatchObject({
+            active: 1,
+            activeByCategory: {ocr: 0, 'ocr-preprocess': 0, 'scan-cleanup': 0, search: 0, 'page-ops': 1},
+        });
         interactiveRelease();
         interactiveRelease();
         expect(admission.snapshot()).toMatchObject({
             active: 0,
-            activeByCategory: {ocr: 0, 'scan-cleanup': 0, search: 0, 'page-ops': 0},
+            activeByCategory: {ocr: 0, 'ocr-preprocess': 0, 'scan-cleanup': 0, search: 0, 'page-ops': 0},
         });
     });
 
@@ -280,5 +284,71 @@ describe('browserHeavyWorkerAdmission', () => {
         } finally {
             Object.defineProperty(globalThis, 'window', {configurable: true, writable: true, value: previousWindow});
         }
+    });
+
+    it('counts ocr-preprocess separately from ocr recognition and bounds synchronous drain passes across combined threaded pools', async () => {
+        const admission = new BrowserHeavyWorkerAdmission(() => 8);
+        const ocrReleases = await Promise.all(Array.from({length: 5}, () => admission.acquire({category: 'ocr', priority: 'batch'})));
+
+        // Five Tesseract recognition slots must not block threaded OCR preprocessing (limit=5).
+        const threadedLimit = () => {
+            const {activeByCategory} = admission.snapshot();
+            return activeByCategory['scan-cleanup'] + activeByCategory['ocr-preprocess'] >= 5 ? 0 : 5;
+        };
+        const preprocessRelease = await admission.acquire({
+            category: 'ocr-preprocess',
+            priority: 'batch',
+            categoryLimit: threadedLimit,
+        });
+        expect(admission.snapshot()).toMatchObject({
+            active: 6,
+            activeByCategory: {ocr: 5, 'ocr-preprocess': 1},
+        });
+        for (const release of ocrReleases) {
+            release();
+        }
+        preprocessRelease();
+
+        // Fill 5 threaded slots (4 scan-cleanup + 1 ocr-preprocess) and queue 2 more ocr-preprocess waiters.
+        const held = [
+            ...(await Promise.all(
+                Array.from({length: 4}, () =>
+                    admission.acquire({category: 'scan-cleanup', priority: 'batch', categoryLimit: threadedLimit}),
+                ),
+            )),
+            await admission.acquire({category: 'ocr-preprocess', priority: 'batch', categoryLimit: threadedLimit}),
+        ];
+        const admitted: string[] = [];
+        const queued1 = admission.acquire({category: 'ocr-preprocess', priority: 'batch', categoryLimit: threadedLimit}).then((release) => {
+            admitted.push('queued-1');
+            return release;
+        });
+        const queued2 = admission.acquire({category: 'ocr-preprocess', priority: 'batch', categoryLimit: threadedLimit}).then((release) => {
+            admitted.push('queued-2');
+            return release;
+        });
+        expect(admission.snapshot()).toMatchObject({
+            active: 5,
+            queuedBatch: 2,
+        });
+
+        // Releasing ONE threaded slot must admit ONLY ONE queued waiter synchronously (not both).
+        held[0]!();
+        const r1 = await queued1;
+        await Promise.resolve();
+        expect(admitted).toEqual(['queued-1']);
+        expect(admission.snapshot()).toMatchObject({
+            active: 5,
+            activeByCategory: {'scan-cleanup': 3, 'ocr-preprocess': 2},
+            queuedBatch: 1,
+        });
+
+        held[1]!();
+        const r2 = await queued2;
+        expect(admitted).toEqual(['queued-1', 'queued-2']);
+        for (const release of [...held.slice(2), r1, r2]) {
+            release();
+        }
+        expect(admission.snapshot().active).toBe(0);
     });
 });

@@ -59,6 +59,7 @@ export interface IPerformanceProfileEnvironment {
     tier?: THostResourceTier;
     performanceMode?: TPerformanceMode;
     mobile?: boolean;
+    maxTouchPoints?: number;
     userAgent?: string;
 }
 
@@ -96,10 +97,12 @@ export function readNavigatorBrowserMemoryEnvironment(): IBrowserMemoryEnvironme
     }
     const runtimeNavigator = navigator as IPerformanceProfileNavigator;
     const userAgent = typeof runtimeNavigator.userAgent === 'string' ? runtimeNavigator.userAgent : undefined;
-    const maxTouchPoints = typeof runtimeNavigator.maxTouchPoints === 'number' ? runtimeNavigator.maxTouchPoints : 0;
+    const hasMaxTouchPoints = typeof runtimeNavigator.maxTouchPoints === 'number';
+    const maxTouchPoints = hasMaxTouchPoints ? runtimeNavigator.maxTouchPoints : 0;
+    const mobile = isMobileBrowserUserAgent(userAgent, maxTouchPoints);
     const environment: IBrowserMemoryEnvironment = {
-        mobile: isMobileBrowserUserAgent(userAgent, maxTouchPoints),
-        maxTouchPoints,
+        ...(hasMaxTouchPoints || mobile ? {mobile} : {}),
+        ...(hasMaxTouchPoints ? {maxTouchPoints} : {}),
         ...(userAgent === undefined ? {} : {userAgent}),
     };
     if (typeof runtimeNavigator.deviceMemory === 'number') {
@@ -297,6 +300,7 @@ function resolveDetectedTier(
     environment: IPerformanceProfileEnvironment,
     hardwareConcurrency: number | null,
     totalMemoryBytes: number | null,
+    mobile: boolean,
 ): THostResourceTier {
     if (totalMemoryBytes !== null) {
         return resolveDetectedHostResourceTier({
@@ -306,7 +310,7 @@ function resolveDetectedTier(
     }
     const deviceMemory = normalizePositiveNumber(environment.deviceMemory);
     if (
-        environment.mobile === true ||
+        mobile ||
         (hardwareConcurrency !== null && hardwareConcurrency <= HOST_TIER_LOW_CPU_MAX) ||
         (deviceMemory !== null && deviceMemory < HOST_TIER_LOW_RAM_MAX_GIB)
     ) {
@@ -328,10 +332,13 @@ export function resolvePerformanceProfile(
 ): IPerformanceProfile {
     const hardwareConcurrency = normalizePositiveNumber(environment.hardwareConcurrency);
     const totalMemoryBytes = normalizePositiveNumber(environment.totalMemoryBytes);
+    const mobile =
+        environment.mobile ??
+        (environment.userAgent !== undefined ? isMobileBrowserUserAgent(environment.userAgent, environment.maxTouchPoints) : false);
     const performanceMode = environment.performanceMode ?? 'auto';
     const tier =
         environment.tier ??
-        (performanceMode === 'auto' ? resolveDetectedTier(environment, hardwareConcurrency, totalMemoryBytes) : performanceMode);
+        (performanceMode === 'auto' ? resolveDetectedTier(environment, hardwareConcurrency, totalMemoryBytes, mobile) : performanceMode);
 
     return applySoftwareCanvasConstraint(
         resolveCanonicalPerformanceProfile(
@@ -339,7 +346,7 @@ export function resolvePerformanceProfile(
             hardwareConcurrency,
             totalMemoryBytes === null ? null : totalMemoryBytes / 1024 ** 3,
             performanceMode,
-            environment.mobile === true,
+            mobile,
         ),
         environment.gpuStatus,
     );
