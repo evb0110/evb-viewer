@@ -1,5 +1,6 @@
 import {contentOf, sameWitness} from './contentWitness';
 import {
+    currentTextIdentity,
     decodeJson,
     decodeManifest,
     DOCUMENTS_DIR,
@@ -14,14 +15,32 @@ import {
     isDirty,
     isRecord,
     MANIFEST_NAME,
+    mintTextIdentity,
     namedFiles,
+    parseTextIdentity,
+    revisionTextIdentity,
     STORE_ID_PATTERN,
+    TEXT_IDENTITY_VERSION,
     type TForeignRevisionState,
     type THistoryRevision,
 } from './manifest';
 import type {IStoreFile, IStorePort, TExternalSource} from './storePort';
 
-export {decodeJson, decodeManifest, DOCUMENTS_DIR, encodeJson, isDirty, isRecord, MANIFEST_NAME, STORE_ID_PATTERN};
+export {
+    currentTextIdentity,
+    decodeJson,
+    decodeManifest,
+    DOCUMENTS_DIR,
+    encodeJson,
+    isDirty,
+    isRecord,
+    MANIFEST_NAME,
+    mintTextIdentity,
+    parseTextIdentity,
+    revisionTextIdentity,
+    STORE_ID_PATTERN,
+    TEXT_IDENTITY_VERSION,
+};
 export type {IDestinationRevision, IManifest, IPendingPublish, IRevision, TForeignRevisionState, THistoryRevision};
 
 const COPY_BYTES = 4 * 1024 * 1024;
@@ -33,6 +52,8 @@ export interface IDocumentState {
     readonly history: readonly THistoryRevision[];
     readonly destination: string | null;
     readonly baseline: string | null;
+    /** Versioned text-identity token for the current revision, or `null` when absent/legacy/damaged. */
+    readonly textIdentity: string | null;
     /** Unsaved state not yet in the bytes, applying to `current`; `undefined` when there is none. */
     readonly drafts: unknown;
     readonly dirty: boolean;
@@ -112,7 +133,15 @@ export type TReplacement =
     | {kind: 'rewrite'; source: TExternalSource | TRevisionWriter; imported?: boolean; openOnly?: boolean}
     | {kind: 'move'; file: string}
     | {kind: 'extend'};
-export type TMutation = ({kind: 'append'; bytes: Uint8Array} | TReplacement) & {drafts: TDraftsAfter};
+export type TTextIdentityChange = 'inherit' | 'refresh';
+export type TMutation = ({kind: 'append'; bytes: Uint8Array} | TReplacement) & {
+    drafts: TDraftsAfter;
+    /**
+     * `'inherit'` reuses the parent revision's versioned text identity only when the writer is proven to preserve
+     * extracted page text and geometry (and the parent carries a valid current-version identity). Defaults to `'refresh'`.
+     */
+    textIdentity?: TTextIdentityChange;
+};
 export type TStaleRevision = {status: 'stale-revision'; current: IRevision | null};
 export type TMutationResult = {status: 'committed'; revision: IRevision} | TStaleRevision | {status: 'conflict'};
 export type TDraftResult = {status: 'stored'; revision: IRevision | null} | TStaleRevision | {status: 'conflict'};
@@ -180,7 +209,11 @@ export class DocumentDirectory {
             if (baseline === null) {
                 throw new Error('The destination has no readable content');
             }
-            await doc.commitFirst({...manifest, destination: init.destination, baseline}, null, undefined);
+            await doc.commitFirst(
+                {...manifest, destination: init.destination, baseline, destinationTextIdentity: mintTextIdentity()},
+                null,
+                undefined,
+            );
         } else {
             const name = `r1.${ext}`;
             const {file, length, witness} = await doc.createRevisionFile(name, init.source, init.imported === true);
@@ -189,6 +222,7 @@ export class DocumentDirectory {
                 file: name,
                 length,
                 witness,
+                textIdentity: mintTextIdentity(),
                 ...(init.openOnly === true && init.imported !== true ? {openOnly: true as const} : {}),
             };
             await doc.commitFirst({...manifest, current, baseline: witness}, file, undefined);
@@ -306,6 +340,7 @@ export class DocumentDirectory {
             history: manifest.history,
             destination: manifest.destination ?? null,
             baseline: manifest.baseline ?? null,
+            textIdentity: this.damaged ? null : currentTextIdentity(manifest),
             drafts: this.drafts,
             dirty: this.damaged || isDirty(manifest),
             damaged: this.damaged,
@@ -381,6 +416,7 @@ export class DocumentDirectory {
             {
                 ...manifest,
                 current: hasFile(target) ? target : undefined,
+                ...(!hasFile(target) ? {destinationTextIdentity: target.textIdentity} : {}),
                 history: this.historyAfter(manifest.history.filter((revision) => revision !== target)),
                 drafts: undefined,
             },
@@ -576,6 +612,10 @@ export class DocumentDirectory {
         const drafts = await this.writeDrafts(mutation.drafts);
         const manifest = this.manifest;
         const id = manifest.next;
+        const isImported = mutation.kind === 'rewrite' && mutation.imported === true;
+        const parentTextIdentity = currentTextIdentity(manifest);
+        const textIdentity =
+            !isImported && mutation.textIdentity === 'inherit' && parentTextIdentity !== null ? parentTextIdentity : mintTextIdentity();
         let revision: IRevision;
         let file = this.file;
         const extended = base && this.longerThanCurrent().length === 0 ? base : null;
@@ -585,7 +625,7 @@ export class DocumentDirectory {
             }
             await this.currentFile().flush();
             const length = mutation.kind === 'append' ? extended.length + mutation.bytes.byteLength : await this.currentFile().size();
-            revision = {id, file: extended.file, length};
+            revision = {id, file: extended.file, length, textIdentity};
         } else if (mutation.kind === 'extend') {
             throw new Error(`Document ${this.id} cannot extend a file another revision extends`);
         } else {
@@ -596,12 +636,12 @@ export class DocumentDirectory {
                     : mutation.kind === 'move'
                       ? {move: mutation.file}
                       : this.copyThenAppend(base!, mutation.bytes);
-            const created = await this.createRevisionFile(name, source, mutation.kind === 'rewrite' && mutation.imported === true);
+            const created = await this.createRevisionFile(name, source, isImported);
             file = created.file;
             const canMarkOpenOnly =
                 mutation.kind === 'rewrite' &&
                 mutation.openOnly === true &&
-                mutation.imported !== true &&
+                !isImported &&
                 drafts.name === undefined &&
                 hasNoUserEdits(manifest);
             revision = {
@@ -609,6 +649,7 @@ export class DocumentDirectory {
                 file: name,
                 length: created.length,
                 witness: created.witness,
+                textIdentity,
                 ...(canMarkOpenOnly ? {openOnly: true as const} : {}),
             };
         }
@@ -663,7 +704,15 @@ export class DocumentDirectory {
     private historyAfter(history: readonly THistoryRevision[]): THistoryRevision[] {
         const {current, baseline} = this.manifest;
         const archived: IRevision | undefined = current?.foreign === 'staged' ? {...current, foreign: 'committed'} : current;
-        const replaced: THistoryRevision | undefined = archived ?? (baseline === undefined ? undefined : {id: 1, witness: baseline});
+        const replaced: THistoryRevision | undefined =
+            archived ??
+            (baseline === undefined
+                ? undefined
+                : {
+                      id: 1,
+                      witness: baseline,
+                      ...(this.manifest.destinationTextIdentity === undefined ? {} : {textIdentity: this.manifest.destinationTextIdentity}),
+                  });
         return [
             ...history.filter((revision) => this.retained.has(revision.id) && revision.id !== replaced?.id),
             ...(replaced ? [replaced] : []),
@@ -689,7 +738,13 @@ export class DocumentDirectory {
             return;
         }
         await created.file.close();
-        const revision: IRevision = {id: 1, file: name, length: created.length, witness: kept.witness};
+        const revision: IRevision = {
+            id: 1,
+            file: name,
+            length: created.length,
+            witness: kept.witness,
+            ...(kept.textIdentity === undefined ? {} : {textIdentity: kept.textIdentity}),
+        };
         await this.commit({...manifest, history: manifest.history.map((other) => (other === kept ? revision : other))});
     }
 
@@ -711,11 +766,14 @@ export class DocumentDirectory {
         if (!created) {
             return null;
         }
+        const inheritedTextIdentity =
+            created.witness === undefined ? mintTextIdentity() : (parseTextIdentity(manifest.destinationTextIdentity) ?? undefined);
         const current: IRevision = {
             id: 1,
             file: name,
             length: created.length,
             witness: created.witness,
+            ...(inheritedTextIdentity === undefined ? {} : {textIdentity: inheritedTextIdentity}),
             ...(created.witness === undefined ? {foreign: 'staged' as const} : {}),
         };
         await this.commit({...manifest, current}, created.file);
@@ -781,6 +839,9 @@ export class DocumentDirectory {
                 ? {
                       destination: pending.destination,
                       baseline: witness,
+                      ...(manifest.current === undefined && !sameWitness(witness, manifest.baseline)
+                          ? {destinationTextIdentity: mintTextIdentity()}
+                          : {}),
                       ...(manifest.current?.foreign === 'staged' && sameWitness(manifest.current.witness, pending.witness)
                           ? {current: {...manifest.current, foreign: 'committed' as const}}
                           : {}),

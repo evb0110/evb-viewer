@@ -891,4 +891,82 @@ describe('browserSearchWorkerClient', () => {
             expect(terminate).toHaveBeenCalledOnce();
         });
     });
+
+    it('evicts cached indexes on active browser search workers without spawning idle ones', async () => {
+        const {createBrowserSearchWorkerRequest, evictBrowserSearchWorkerCache} =
+            await import('@app/platform/browser-api/browserSearchWorkerClient');
+
+        // No active worker yet: eviction must not spawn one.
+        evictBrowserSearchWorkerCache('browser://doc/none');
+        expect(FakeWorker.instances).toHaveLength(0);
+
+        await createBrowserSearchWorkerRequest('matchPageText', pageMatchRequest('alpha'), {affinityKey: 'browser://doc/1'}).promise;
+        expect(FakeWorker.instances).toHaveLength(1);
+
+        evictBrowserSearchWorkerCache('browser://doc/1');
+        expect(FakeWorker.instances).toHaveLength(1);
+        expect(FakeWorker.instances[0]!.postMessageCalls).toContainEqual({
+            type: 'evictCache',
+            documentKey: 'browser://doc/1',
+        });
+    });
+
+    it('strips documentKey from a queued search request at dispatch time if eviction occurred while waiting', async () => {
+        vi.stubGlobal('navigator', {hardwareConcurrency: 2});
+        FakeWorker.responder = () => {};
+        const {createBrowserSearchWorkerRequest, evictBrowserSearchWorkerCache} =
+            await import('@app/platform/browser-api/browserSearchWorkerClient');
+
+        // Saturate the single-worker pool so the search request waits in BrowserWorkerRequestOwner's queue.
+        const busy = createBrowserSearchWorkerRequest('matchPageText', pageMatchRequest('busy'));
+        expect(FakeWorker.instances).toHaveLength(1);
+        const worker = FakeWorker.instances[0]!;
+
+        const queuedSearch = createBrowserSearchWorkerRequest(
+            'search',
+            {
+                documentKey: 'browser://doc/queued',
+                indexBytes: new Uint8Array([1, 2, 3, 4]),
+                documentRevision: 'rev-1',
+                query: 'needle',
+                options: {matchCase: false, wholeWord: false, useRegex: false},
+                limit: 50,
+                contextChars: 20,
+            },
+            {affinityKey: 'browser://doc/queued'},
+        );
+        // Queued search has not yet been posted to the worker.
+        expect(worker.postMessageCalls.some((msg) => (msg as {id?: number}).id === queuedSearch.requestId)).toBe(false);
+
+        // Eviction arrives while queuedSearch is still waiting for the busy worker.
+        evictBrowserSearchWorkerCache('browser://doc/queued');
+
+        // Complete the busy request so queuedSearch is dispatched.
+        worker.dispatchMessage({
+            id: busy.requestId,
+            type: 'matchPageText',
+            ok: true,
+            data: {matches: [], truncated: false, matchCount: 0, matchingMs: 0},
+        });
+        await busy.promise;
+
+        const dispatchedSearch = worker.postMessageCalls.find((msg) => (msg as {id?: number}).id === queuedSearch.requestId) as
+            {id: number; payload: {documentKey?: string; indexBytes?: Uint8Array}} | undefined;
+        expect(dispatchedSearch).toBeDefined();
+        expect(dispatchedSearch!.payload.documentKey).toBeUndefined();
+        expect(dispatchedSearch!.payload.indexBytes).toBeInstanceOf(Uint8Array);
+
+        worker.dispatchMessage({
+            id: queuedSearch.requestId,
+            type: 'search',
+            ok: true,
+            data: {
+                results: [],
+                truncated: false,
+                pageCount: 1,
+                coverage: {pageCount: 1, pagesScanned: 1, pagesWritten: 1, truncated: false, missingTextPageSample: []},
+            },
+        });
+        await expect(queuedSearch.promise).resolves.toMatchObject({results: [], truncated: false});
+    });
 });

@@ -1,3 +1,4 @@
+import {basename} from 'node:path';
 import type {IpcMainInvokeEvent} from 'electron';
 import type {TFeatureMainBindings} from '@contracts/platformFeature';
 import type {SEARCH_PLATFORM_FEATURE} from '@contracts/searchPlatformFeature';
@@ -13,10 +14,11 @@ import {
     getWorkingCopyRevision,
     isWorkingCopyDocumentPath,
 } from '@electron/file-access/documentStore';
+import {normalizePathForLookup} from '@electron/file-access/normalizePathForLookup';
 import {isWorkingCopyQuarantined} from '@electron/file-access/workingCopyQuarantine';
 import {resolveAllowedReadPath} from '@electron/utils/pathValidator';
 import {createSearchService, searchPathDeniedError, type ISearchSenderContext} from '@electron/features/search/main/searchService';
-import {getSearchIndexPath} from '@electron/features/search/searchIndex';
+import {evictSearchIndexCache, getSearchIndexPath} from '@electron/features/search/searchIndex';
 import {streamPdfPageTexts} from '@electron/features/search/pdfPageTexts';
 import {getPdfPageCount} from '@electron/pdf/pdfPageCount';
 
@@ -55,6 +57,33 @@ export async function resolveSearchablePdfPath(pdfPath: string, senderWebContent
     return mappedResolvedPath ?? (await resolveAllowedReadPath(pdfPath));
 }
 
+function resolveCurrentRevisionTextIdentity(
+    openDoc: ReturnType<typeof getOpenDocument>,
+    pdfPath: string,
+    documentRevision: TDocumentRevisionToken,
+): string | null {
+    if (!openDoc?.session || !openDoc.doc || openDoc.session.token() !== documentRevision) {
+        return null;
+    }
+    const state = openDoc.doc.state();
+    if (state.damaged || state.textIdentity === null) {
+        return null;
+    }
+    const normalizedPdfPath = normalizePathForLookup(pdfPath) || pdfPath;
+    const normalizedRef = normalizePathForLookup(openDoc.ref) || openDoc.ref;
+    if (normalizedPdfPath === normalizedRef) {
+        return state.textIdentity;
+    }
+    if (state.current !== null) {
+        return basename(pdfPath) === state.current.file ? state.textIdentity : null;
+    }
+    if (state.destination !== null) {
+        const normalizedDest = normalizePathForLookup(state.destination) || state.destination;
+        return normalizedPdfPath === normalizedDest ? state.textIdentity : null;
+    }
+    return null;
+}
+
 /**
  * The search index of a PDF, built from its text layer. `pdfPath` is the file
  * the text is read from; when it belongs to an open document, the index and its
@@ -62,10 +91,13 @@ export async function resolveSearchablePdfPath(pdfPath: string, senderWebContent
  * revision on stops the build before the document's files go.
  */
 export function pdfSearchDocument(pdfPath: string, documentRevision: TDocumentRevisionToken) {
-    const workingCopyPath = getOpenDocument(pdfPath)?.ref;
+    const openDoc = getOpenDocument(pdfPath);
+    const workingCopyPath = openDoc?.ref;
+    const textIdentity = resolveCurrentRevisionTextIdentity(openDoc, pdfPath, documentRevision);
     return {
         indexPath: getSearchIndexPath(workingCopyPath ?? pdfPath),
         documentRevision,
+        ...(textIdentity === null ? {} : {textIdentity}),
         ...(workingCopyPath === undefined ? {} : {workingCopyPath}),
         readPageCount: (signal: AbortSignal) => getPdfPageCount(pdfPath, {signal}),
         readPages: (signal: AbortSignal, pageCount: number | undefined, onProgress: (pageNumber: number) => void) =>
@@ -158,8 +190,11 @@ const searchMainBindings = {
     run: handlePdfSearch,
     warmIndex: handlePdfSearchWarmIndex,
     cancel: (context, requestId) => searchService.cancel(context, requestId),
-    // Indexes live on disk beside their document and carry its revision.
-    resetCache: () => true,
+    // Evict in-worker cached search index bytes; on-disk indexes carry their revision/text identity.
+    resetCache: () => {
+        evictSearchIndexCache();
+        return true;
+    },
     subscribeProgress: (context) => searchService.subscribeProgress(context),
 } satisfies TFeatureMainBindings<typeof SEARCH_PLATFORM_FEATURE, IpcMainInvokeEvent>;
 

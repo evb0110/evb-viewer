@@ -8,7 +8,11 @@ import {Worker} from 'node:worker_threads';
 import {WORKER_BUNDLES_BY_ID} from '@electron-worker-bundles/electronWorkerBundles.js';
 import {NATIVE_ERROR_CODES, type TNativeErrorCode} from '@contracts/nativeErrors';
 import {createPdfSearchWasmRunner, loadPdfSearchWasmModule, PdfSearchNativeError} from '@electron/features/search/pdfSearchWasmRunner';
-import {executePdfSearchWorkerCommand, type TPdfSearchWorkerCommand} from '@electron/features/search/pdfSearchWorkerOps';
+import {
+    createPdfSearchWorkerIndexCache,
+    executePdfSearchWorkerCommand,
+    type TPdfSearchWorkerCommand,
+} from '@electron/features/search/pdfSearchWorkerOps';
 import {resolveUnpackedWorkerPath} from '@electron/utils/workerTask';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -46,6 +50,7 @@ interface IWarmSearchWorker {
     resolveExitConfirmed: () => void;
     terminationStarted: boolean;
     cancelActiveTask: ((reason: unknown) => void) | null;
+    lastIndexPath: string | null;
 }
 
 interface IQueuedTask {
@@ -89,6 +94,7 @@ function createSearchWorkerPool() {
     const queue: IQueuedTask[] = [];
     let nextRequestId = 0;
     let inlineRunnerPromise: Promise<ReturnType<typeof createPdfSearchWasmRunner>> | null = null;
+    const inlineIndexCache = createPdfSearchWorkerIndexCache();
     let exitHookRegistered = false;
 
     const cleanupPendingStagedPathsOnProcessExit = () => {
@@ -217,9 +223,45 @@ function createSearchWorkerPool() {
         entry.idleTimer.unref();
     }
 
+    function commandIndexPath(command: TPdfSearchWorkerCommand): string | undefined {
+        return command.op === 'index' || command.op === 'stat' || command.op === 'search' ? command.indexPath : undefined;
+    }
+
+    function sendEvictControlToWorkers(indexPath: string | undefined, exclude?: IWarmSearchWorker) {
+        const message = indexPath === undefined ? {control: 'evict' as const} : {control: 'evict' as const, indexPath};
+        for (const entry of workers) {
+            if (entry === exclude || entry.closed) {
+                continue;
+            }
+            if (indexPath === undefined || entry.lastIndexPath === indexPath) {
+                entry.lastIndexPath = null;
+            }
+            try {
+                entry.worker.postMessage(message);
+            } catch {
+                // Ignore post failures on a closing worker.
+            }
+        }
+    }
+
+    function selectIdleWorker(indexPath: string | undefined) {
+        const idleWorkers = [...workers].filter((entry) => !entry.busy && !entry.closed);
+        if (idleWorkers.length === 0) {
+            return undefined;
+        }
+        if (indexPath !== undefined) {
+            const affine = idleWorkers.find((entry) => entry.lastIndexPath === indexPath);
+            if (affine) {
+                return affine;
+            }
+        }
+        return idleWorkers[0];
+    }
+
     function pumpQueue() {
         while (queue.length > 0) {
-            const idle = [...workers].find((entry) => !entry.busy && !entry.closed);
+            const candidate = queue[0]!;
+            const idle = selectIdleWorker(commandIndexPath(candidate.command));
             if (!idle && workers.size + startingWorkers >= MAX_WARM_WORKERS) {
                 return;
             }
@@ -322,6 +364,7 @@ function createSearchWorkerPool() {
                         resolveExitConfirmed: exitDeferred.resolve,
                         terminationStarted: false,
                         cancelActiveTask: null,
+                        lastIndexPath: null,
                     };
                     const entry = createdEntry;
                     worker.on('error', () => {
@@ -359,6 +402,13 @@ function createSearchWorkerPool() {
     function dispatchToWorker(entry: IWarmSearchWorker, task: IQueuedTask) {
         entry.busy = true;
         clearIdleTimer(entry);
+        const targetIndexPath = commandIndexPath(task.command);
+        if (targetIndexPath !== undefined) {
+            entry.lastIndexPath = targetIndexPath;
+        }
+        if (task.command.op === 'index') {
+            sendEvictControlToWorkers(task.command.indexPath, entry);
+        }
         const requestId = ++nextRequestId;
         let settled = false;
         let timeoutHandle: NodeJS.Timeout | null = null;
@@ -516,7 +566,7 @@ function createSearchWorkerPool() {
         }
         const runner = await inlineRunnerPromise;
         signal?.throwIfAborted();
-        const result = await executePdfSearchWorkerCommand(runner, command);
+        const result = await executePdfSearchWorkerCommand(runner, command, {indexCache: inlineIndexCache});
         signal?.throwIfAborted();
         return result;
     }
@@ -586,12 +636,19 @@ function createSearchWorkerPool() {
             void inlineRunnerPromise.then((runner) => runner.dispose()).catch(() => undefined);
             inlineRunnerPromise = null;
         }
+        inlineIndexCache.evict();
         return Promise.allSettled([...pendingTeardowns]).then(() => undefined);
+    }
+
+    function evictCache(indexPath?: string) {
+        inlineIndexCache.evict(indexPath);
+        sendEvictControlToWorkers(indexPath);
     }
 
     return {
         run,
         shutdown,
+        evictCache,
     };
 }
 
@@ -603,6 +660,10 @@ export function runPdfSearchWorkerCommand(
     options: IRunPdfSearchWorkerOptions = {},
 ) {
     return searchWorkerPool.run(command, signal, options);
+}
+
+export function evictPdfSearchWorkerIndexCache(indexPath?: string) {
+    searchWorkerPool.evictCache(indexPath);
 }
 
 export function shutdownPdfSearchWorkers(): Promise<void> {

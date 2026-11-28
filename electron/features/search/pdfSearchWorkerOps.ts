@@ -4,6 +4,7 @@ import {
     decodePdfSearchIndexWasmOutput,
     decodePdfSearchJsonOutput,
     encodePdfSearchWasmRequest,
+    isStaleSearchIndexAnswer,
     PDF_SEARCH_WASM_MAX_INDEX_BYTES,
     type IPdfSearchWasmQueryFields,
 } from '@contracts/searchIndexWire';
@@ -11,6 +12,151 @@ import {PdfSearchNativeError, type createPdfSearchWasmRunner} from '@electron/fe
 
 const INDEX_READ_CHUNK_BYTES = 1024 * 1024;
 const INDEX_EOF_PROBE_BYTES = 4096;
+export const DEFAULT_DESKTOP_SEARCH_WORKER_INDEX_CACHE_MAX_BYTES = 32 * 1024 * 1024;
+const DEFAULT_DESKTOP_SEARCH_WORKER_INDEX_CACHE_IDLE_TTL_MS = 30_000;
+
+interface ICachedWorkerIndexEntry {
+    readonly documentRevision: string;
+    readonly indexBytes: Uint8Array;
+    readonly byteLength: number;
+}
+
+export interface IPdfSearchWorkerIndexCacheOptions {
+    maxBytes?: number;
+    idleTtlMs?: number;
+}
+
+export interface IPdfSearchWorkerIndexCacheToken {
+    readonly globalEvictSeq: number;
+    readonly pathSeq: number;
+}
+
+export interface IPdfSearchWorkerIndexCache {
+    captureToken(indexPath: string): IPdfSearchWorkerIndexCacheToken;
+    get(indexPath: string, documentRevision: string, maxIndexBytes: number): Uint8Array | null;
+    set(indexPath: string, documentRevision: string, indexBytes: Uint8Array, expectedToken?: IPdfSearchWorkerIndexCacheToken): void;
+    evict(indexPath?: string): void;
+    stats(): {entryCount: number; totalBytes: number};
+}
+
+export function createPdfSearchWorkerIndexCache(options: IPdfSearchWorkerIndexCacheOptions = {}): IPdfSearchWorkerIndexCache {
+    const maxBytes = options.maxBytes ?? DEFAULT_DESKTOP_SEARCH_WORKER_INDEX_CACHE_MAX_BYTES;
+    const idleTtlMs = options.idleTtlMs ?? DEFAULT_DESKTOP_SEARCH_WORKER_INDEX_CACHE_IDLE_TTL_MS;
+    const entries = new Map<string, ICachedWorkerIndexEntry>();
+    const pathEvictSeq = new Map<string, number>();
+    let globalEvictSeq = 0;
+    let nextPathSeq = 0;
+    let totalBytes = 0;
+    let idleTimer: NodeJS.Timeout | null = null;
+
+    const clearIdleTimer = () => {
+        if (idleTimer !== null) {
+            clearTimeout(idleTimer);
+            idleTimer = null;
+        }
+    };
+
+    const scheduleIdleClear = () => {
+        clearIdleTimer();
+        if (entries.size === 0 || idleTtlMs <= 0) {
+            return;
+        }
+        idleTimer = setTimeout(() => {
+            idleTimer = null;
+            globalEvictSeq += 1;
+            pathEvictSeq.clear();
+            entries.clear();
+            totalBytes = 0;
+        }, idleTtlMs);
+        idleTimer.unref?.();
+    };
+
+    const deleteEntry = (indexPath: string) => {
+        const existing = entries.get(indexPath);
+        if (!existing) {
+            return;
+        }
+        entries.delete(indexPath);
+        totalBytes -= existing.byteLength;
+        if (entries.size === 0) {
+            clearIdleTimer();
+        }
+    };
+
+    return {
+        captureToken(indexPath) {
+            return {
+                globalEvictSeq,
+                pathSeq: pathEvictSeq.get(indexPath) ?? 0,
+            };
+        },
+        get(indexPath, documentRevision, maxIndexBytes) {
+            const entry = entries.get(indexPath);
+            if (!entry) {
+                return null;
+            }
+            if (entry.documentRevision !== documentRevision) {
+                deleteEntry(indexPath);
+                return null;
+            }
+            if (entry.byteLength > maxIndexBytes) {
+                return null;
+            }
+            // Refresh LRU order.
+            entries.delete(indexPath);
+            entries.set(indexPath, entry);
+            scheduleIdleClear();
+            return entry.indexBytes;
+        },
+        set(indexPath, documentRevision, indexBytes, expectedToken) {
+            if (
+                expectedToken !== undefined &&
+                (expectedToken.globalEvictSeq !== globalEvictSeq || expectedToken.pathSeq !== (pathEvictSeq.get(indexPath) ?? 0))
+            ) {
+                // An eviction landed while disk I/O was in flight; never resurrect evicted entries.
+                return;
+            }
+            deleteEntry(indexPath);
+            const byteLength = indexBytes.byteLength;
+            if (byteLength === 0 || byteLength > maxBytes) {
+                return;
+            }
+            while (entries.size > 0 && totalBytes + byteLength > maxBytes) {
+                const oldestKey = entries.keys().next().value;
+                if (typeof oldestKey !== 'string') {
+                    break;
+                }
+                deleteEntry(oldestKey);
+            }
+            entries.set(indexPath, {
+                documentRevision,
+                indexBytes,
+                byteLength,
+            });
+            totalBytes += byteLength;
+            scheduleIdleClear();
+        },
+        evict(indexPath) {
+            if (indexPath === undefined) {
+                globalEvictSeq += 1;
+                pathEvictSeq.clear();
+                entries.clear();
+                totalBytes = 0;
+                clearIdleTimer();
+                return;
+            }
+            nextPathSeq += 1;
+            pathEvictSeq.set(indexPath, nextPathSeq);
+            deleteEntry(indexPath);
+        },
+        stats() {
+            return {
+                entryCount: entries.size,
+                totalBytes,
+            };
+        },
+    };
+}
 
 function getIndexOpenFlags(): number | string {
     return typeof fsConstants?.O_RDONLY === 'number' ? fsConstants.O_RDONLY | (fsConstants.O_NONBLOCK ?? 0) : 'r';
@@ -18,6 +164,7 @@ function getIndexOpenFlags(): number | string {
 
 export interface IExecutePdfSearchWorkerCommandOptions {
     maxIndexBytes?: number;
+    indexCache?: IPdfSearchWorkerIndexCache;
 }
 
 export type TPdfSearchWorkerCommand =
@@ -46,7 +193,11 @@ export type TPdfSearchWorkerCommand =
           pageCount?: number;
           allowRegex?: boolean;
           pagesBuffer: Uint8Array;
-      } & IPdfSearchWasmQueryFields);
+      } & IPdfSearchWasmQueryFields)
+    | {
+          op: 'evict';
+          indexPath?: string;
+      };
 
 function resolveStagedIndexPath(command: Extract<TPdfSearchWorkerCommand, {op: 'index'}>): string | undefined {
     if (!('stagedIndexPath' in command)) {
@@ -171,8 +322,33 @@ export async function executePdfSearchWorkerCommand(
     options: IExecutePdfSearchWorkerCommandOptions = {},
 ): Promise<unknown> {
     const maxIndexBytes = resolveMaxIndexBytes(options.maxIndexBytes);
+    const {indexCache} = options;
+    const runWithPressureGuard = (request: Uint8Array) => {
+        const memoryBefore = runner.memoryBytes();
+        try {
+            const output = runner.run(request);
+            // If the WASM runner dropped its linear memory after crossing highWaterBytes,
+            // release cached index bytes from other documents under memory pressure.
+            if (indexCache && memoryBefore > 0 && runner.memoryBytes() === 0) {
+                indexCache.evict();
+            }
+            return output;
+        } catch (error) {
+            if (error instanceof PdfSearchNativeError && (error.code === 'too-large' || error.code === 'panic')) {
+                indexCache?.evict();
+            }
+            throw error;
+        }
+    };
     switch (command.op) {
+        case 'evict': {
+            indexCache?.evict(command.indexPath);
+            return {evicted: true};
+        }
         case 'index': {
+            // Immediately drop any previous cached revision for this document.
+            indexCache?.evict(command.indexPath);
+            const cacheToken = indexCache?.captureToken(command.indexPath);
             const request = encodePdfSearchWasmRequest(
                 {
                     op: 'index',
@@ -183,14 +359,18 @@ export async function executePdfSearchWorkerCommand(
                 },
                 command.pagesBuffer,
             );
-            const output = runner.run(request);
+            const output = runWithPressureGuard(request);
             const {coverage, indexBytes} = decodePdfSearchIndexWasmOutput(output);
             await writeIndexFileAtomic(command.indexPath, indexBytes, resolveStagedIndexPath(command));
+            indexCache?.set(command.indexPath, command.documentRevision, indexBytes, cacheToken);
             return coverage;
         }
         case 'stat': {
-            const indexBytes = await readIndexFileOrNull(command.indexPath, maxIndexBytes);
+            const cachedBytes = indexCache?.get(command.indexPath, command.documentRevision, maxIndexBytes) ?? null;
+            const cacheToken = cachedBytes === null ? indexCache?.captureToken(command.indexPath) : undefined;
+            const indexBytes = cachedBytes ?? (await readIndexFileOrNull(command.indexPath, maxIndexBytes));
             if (indexBytes === null) {
+                indexCache?.evict(command.indexPath);
                 return {stale: true};
             }
             const request = encodePdfSearchWasmRequest(
@@ -200,11 +380,20 @@ export async function executePdfSearchWorkerCommand(
                 },
                 indexBytes,
             );
-            return decodePdfSearchJsonOutput(runner.run(request));
+            const decoded = decodePdfSearchJsonOutput(runWithPressureGuard(request));
+            if (isStaleSearchIndexAnswer(decoded)) {
+                indexCache?.evict(command.indexPath);
+            } else if (cachedBytes === null) {
+                indexCache?.set(command.indexPath, command.documentRevision, indexBytes, cacheToken);
+            }
+            return decoded;
         }
         case 'search': {
-            const indexBytes = await readIndexFileOrNull(command.indexPath, maxIndexBytes);
+            const cachedBytes = indexCache?.get(command.indexPath, command.documentRevision, maxIndexBytes) ?? null;
+            const cacheToken = cachedBytes === null ? indexCache?.captureToken(command.indexPath) : undefined;
+            const indexBytes = cachedBytes ?? (await readIndexFileOrNull(command.indexPath, maxIndexBytes));
             if (indexBytes === null) {
+                indexCache?.evict(command.indexPath);
                 return {stale: true};
             }
             const {op: _op, indexPath: _indexPath, ...headerFields} = command;
@@ -215,7 +404,13 @@ export async function executePdfSearchWorkerCommand(
                 },
                 indexBytes,
             );
-            return decodePdfSearchJsonOutput(runner.run(request));
+            const decoded = decodePdfSearchJsonOutput(runWithPressureGuard(request));
+            if (isStaleSearchIndexAnswer(decoded)) {
+                indexCache?.evict(command.indexPath);
+            } else if (cachedBytes === null) {
+                indexCache?.set(command.indexPath, command.documentRevision, indexBytes, cacheToken);
+            }
+            return decoded;
         }
         case 'searchPages': {
             const {op: _op, pagesBuffer, ...headerFields} = command;
@@ -226,7 +421,7 @@ export async function executePdfSearchWorkerCommand(
                 },
                 pagesBuffer,
             );
-            return decodePdfSearchJsonOutput(runner.run(request));
+            return decodePdfSearchJsonOutput(runWithPressureGuard(request));
         }
     }
 }

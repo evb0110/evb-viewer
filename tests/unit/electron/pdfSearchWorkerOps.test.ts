@@ -76,7 +76,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
     };
 });
 
-const {executePdfSearchWorkerCommand} = await import('@electron/features/search/pdfSearchWorkerOps');
+const {createPdfSearchWorkerIndexCache, executePdfSearchWorkerCommand} = await import('@electron/features/search/pdfSearchWorkerOps');
 
 function createStubRunner(): ReturnType<typeof createPdfSearchWasmRunner> {
     return {
@@ -325,5 +325,155 @@ describe('pdfSearchWorkerOps bounded index reads', () => {
         ).catch((err: unknown) => err);
         expect(invalidCapError).toBeInstanceOf(PdfSearchNativeError);
         expect((invalidCapError as PdfSearchNativeError).code).toBe('invalid-request');
+    });
+
+    it('caches index bytes in-worker across repeated queries without re-reading disk, and evicts on new revision, evict op, byte cap, idle, and pressure', async () => {
+        const indexPath = '/virtual/cached.evb-search-index';
+        const scenario: IFakeHandleScenario = {
+            statSize: 64,
+            readCalls: 0,
+            totalBytesRequested: 0,
+            totalBytesRead: 0,
+            closed: false,
+        };
+        fsHooks.scenarios.set(indexPath, scenario);
+
+        const indexCache = createPdfSearchWorkerIndexCache({maxBytes: 128, idleTtlMs: 50});
+        let runnerMemory = 1024;
+        const runner: ReturnType<typeof createPdfSearchWasmRunner> = {
+            run: vi.fn(() =>
+                Buffer.from(
+                    JSON.stringify({
+                        results: [],
+                        truncated: false,
+                        coverage: {
+                            pageCount: 1,
+                            pagesScanned: 1,
+                            pagesWritten: 1,
+                            truncated: false,
+                            missingTextPageSample: [],
+                        },
+                    }),
+                ),
+            ),
+            dispose: vi.fn(),
+            memoryBytes: () => runnerMemory,
+        };
+
+        const searchCmd = (documentRevision: string) => ({
+            op: 'search' as const,
+            indexPath,
+            documentRevision,
+            query: 'needle',
+            limit: 10,
+            contextChars: 12,
+            matchCase: false,
+            wholeWord: false,
+            useRegex: false,
+        });
+
+        // Cold search reads disk once and populates worker cache.
+        await executePdfSearchWorkerCommand(runner, searchCmd('rev-1'), {indexCache});
+        expect(scenario.readCalls).toBeGreaterThan(0);
+        const readsAfterCold = scenario.readCalls;
+        expect(indexCache.stats()).toEqual({entryCount: 1, totalBytes: 64});
+
+        // Second search for the same revision hits in-worker cache with zero disk reads.
+        await executePdfSearchWorkerCommand(runner, searchCmd('rev-1'), {indexCache});
+        expect(scenario.readCalls).toBe(readsAfterCold);
+
+        // Searching a different revision immediately evicts rev-1 and reads disk again.
+        await executePdfSearchWorkerCommand(runner, searchCmd('rev-2'), {indexCache});
+        expect(scenario.readCalls).toBeGreaterThan(readsAfterCold);
+        const readsAfterRev2 = scenario.readCalls;
+
+        // Explicit evict op removes the cached document entry.
+        await executePdfSearchWorkerCommand(runner, {op: 'evict', indexPath}, {indexCache});
+        expect(indexCache.stats()).toEqual({entryCount: 0, totalBytes: 0});
+        await executePdfSearchWorkerCommand(runner, searchCmd('rev-2'), {indexCache});
+        expect(scenario.readCalls).toBeGreaterThan(readsAfterRev2);
+
+        // Byte-bounded LRU eviction drops oldest documents to stay <= maxBytes (128).
+        indexCache.set('/virtual/doc-b.idx', 'rev-1', new Uint8Array(64));
+        expect(indexCache.stats().totalBytes).toBe(128);
+        indexCache.set('/virtual/doc-c.idx', 'rev-1', new Uint8Array(64));
+        expect(indexCache.stats().totalBytes).toBe(128);
+        expect(indexCache.get(indexPath, 'rev-2', 1024)).toBeNull();
+        expect(indexCache.get('/virtual/doc-c.idx', 'rev-1', 1024)).not.toBeNull();
+
+        // WASM memory pressure (memoryBytes dropping from >0 to 0) evicts cached entries.
+        runner.run = vi.fn(() => {
+            runnerMemory = 0;
+            return Buffer.from(
+                JSON.stringify({
+                    pageCount: 1,
+                    pagesScanned: 1,
+                    pagesWritten: 1,
+                    truncated: false,
+                    missingTextPageSample: [],
+                }),
+            );
+        });
+        await executePdfSearchWorkerCommand(
+            runner,
+            {
+                op: 'stat',
+                indexPath: '/virtual/doc-c.idx',
+                documentRevision: 'rev-1',
+            },
+            {indexCache},
+        );
+        expect(indexCache.stats()).toEqual({entryCount: 0, totalBytes: 0});
+
+        // Idle TTL clears cached entries automatically.
+        vi.useFakeTimers();
+        try {
+            indexCache.set('/virtual/idle.idx', 'rev-1', new Uint8Array(32));
+            expect(indexCache.stats().entryCount).toBe(1);
+            await vi.advanceTimersByTimeAsync(75);
+            expect(indexCache.stats()).toEqual({entryCount: 0, totalBytes: 0});
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('suppresses a cache fill when eviction arrives while disk I/O is in flight', async () => {
+        const indexPath = '/virtual/evict-during-io.evb-search-index';
+        const indexCache = createPdfSearchWorkerIndexCache({maxBytes: 1024, idleTtlMs: 0});
+        const runner: ReturnType<typeof createPdfSearchWasmRunner> = {
+            run: vi.fn(() => {
+                // Simulate an eviction control arriving after disk I/O started and before set().
+                indexCache.evict(indexPath);
+                return Buffer.from(
+                    JSON.stringify({
+                        pageCount: 1,
+                        pagesScanned: 1,
+                        pagesWritten: 1,
+                        truncated: false,
+                        missingTextPageSample: [],
+                    }),
+                );
+            }),
+            dispose: vi.fn(),
+            memoryBytes: () => 1024,
+        };
+        fsHooks.scenarios.set(indexPath, {
+            statSize: 64,
+            readCalls: 0,
+            totalBytesRequested: 0,
+            totalBytesRead: 0,
+            closed: false,
+        });
+
+        await executePdfSearchWorkerCommand(
+            runner,
+            {
+                op: 'stat',
+                indexPath,
+                documentRevision: 'rev-1',
+            },
+            {indexCache},
+        );
+        expect(indexCache.stats()).toEqual({entryCount: 0, totalBytes: 0});
     });
 });

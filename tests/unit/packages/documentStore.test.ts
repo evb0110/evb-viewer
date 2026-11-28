@@ -1816,3 +1816,126 @@ describe('save publication facts under fault injection', () => {
         expect(manifest.version).toBe(1);
     });
 });
+
+describe('revision-lineage text identity (ADR 0010)', () => {
+    it('mints versioned ti1 identities, inherits only when explicitly marked, and refreshes on unclassified/imported/external writes', async () => {
+        const destination = path.join(workDir, 'lineage.pdf');
+        await writeFile(destination, 'v1-text');
+        const doc = await create(store(), {ext: 'pdf', destination});
+        const ti1 = doc.state().textIdentity;
+        expect(ti1).toMatch(/^ti1:[A-Za-z0-9_-]{8,128}$/u);
+
+        // Unchanged materialization keeps rev 1's exact textIdentity.
+        await doc.materialize();
+        expect(doc.state().textIdentity).toBe(ti1);
+
+        // Proven text-preserving edit inherits the parent's textIdentity.
+        await doc.mutate(1, {...append('+bookmark'), textIdentity: 'inherit'});
+        expect(doc.state().current?.id).toBe(2);
+        expect(doc.state().textIdentity).toBe(ti1);
+
+        // Unclassified write (default) refreshes textIdentity.
+        await doc.mutate(2, append('+text-edit'));
+        const ti3 = doc.state().textIdentity;
+        expect(ti3).toMatch(/^ti1:[A-Za-z0-9_-]{8,128}$/u);
+        expect(ti3).not.toBe(ti1);
+
+        // Explicit refresh always mints a new identity.
+        await doc.mutate(3, {...append('+crop'), textIdentity: 'refresh'});
+        const ti4 = doc.state().textIdentity;
+        expect(ti4).not.toBe(ti3);
+        expect(ti4).not.toBe(ti1);
+
+        // Imported rewrite never inherits even if caller attempts 'inherit'.
+        await doc.mutate(4, {
+            kind: 'rewrite',
+            source: (file) => file.writeAt(0, encode('imported-bytes')),
+            imported: true,
+            drafts: 'clear',
+            textIdentity: 'inherit',
+        });
+        const ti5 = doc.state().textIdentity;
+        expect(ti5).toMatch(/^ti1:[A-Za-z0-9_-]{8,128}$/u);
+        expect(ti5).not.toBe(ti4);
+    });
+
+    it('restores exact per-revision textIdentity on Undo/Redo including unmaterialized destination rev 1 and saved rev 1', async () => {
+        const destination = path.join(workDir, 'undo-redo.pdf');
+        await writeFile(destination, 'v1-original');
+        const doc = await create(store(), {ext: 'pdf', destination});
+        const ti1 = doc.state().textIdentity!;
+        expect(ti1).toMatch(/^ti1:/u);
+
+        // Rewrite directly from unmaterialized rev 1 with inherited textIdentity (rev 2).
+        await doc.retain([1, 2, 3]);
+        await doc.mutate(null, {...rewrite('v2-non-text'), textIdentity: 'inherit'});
+        expect(doc.state().current?.id).toBe(2);
+        expect(doc.state().textIdentity).toBe(ti1);
+
+        // Text-modifying edit creates rev 3 with a fresh textIdentity.
+        await doc.mutate(2, rewrite('v3-text-changed'));
+        const ti3 = doc.state().textIdentity!;
+        expect(ti3).not.toBe(ti1);
+
+        // Undo to rev 2 restores ti1; undo to unmaterialized rev 1 also restores ti1.
+        expect(await doc.restore(3, 2)).toMatchObject({status: 'committed', revision: {id: 2}});
+        expect(doc.state().textIdentity).toBe(ti1);
+        expect(await doc.restore(2, 1)).toEqual({status: 'committed', revision: null});
+        expect(doc.state().textIdentity).toBe(ti1);
+
+        // Redo to rev 3 restores ti3.
+        expect(await doc.restore(null, 3)).toMatchObject({status: 'committed', revision: {id: 3}});
+        expect(doc.state().textIdentity).toBe(ti3);
+
+        // Saving copies destination rev 1 into r1.pdf via keepDestinationRevision, preserving ti1 on undo.
+        expect(await saveDocument(doc, {expected: 3})).toMatchObject({status: 'saved'});
+        expect(await doc.restore(3, 1)).toMatchObject({status: 'committed', revision: {id: 1, file: 'r1.pdf'}});
+        expect(doc.state().textIdentity).toBe(ti1);
+    });
+
+    it('mints a fresh textIdentity when external file replacement is staged via materialize(true)', async () => {
+        const destination = path.join(workDir, 'external-replace.pdf');
+        await writeFile(destination, 'original-v1');
+        const doc = await create(store(), {ext: 'pdf', destination});
+        const ti1 = doc.state().textIdentity!;
+
+        await writeFile(destination, 'externally-replaced-content');
+        const staged = await doc.materialize(true);
+        expect(staged).toMatchObject({id: 1, foreign: 'staged'});
+        expect(doc.state().textIdentity).toMatch(/^ti1:/u);
+        expect(doc.state().textIdentity).not.toBe(ti1);
+    });
+
+    it('falls back safely for legacy ADR 0010 manifests without textIdentity or with unknown future versions', async () => {
+        const destination = path.join(workDir, 'legacy.pdf');
+        await writeFile(destination, 'legacy-v1');
+        const doc = await create(store(), {ext: 'pdf', destination});
+        const id = doc.id;
+        const manifestPath = path.join(docDir(doc), 'manifest.json');
+        await doc.close();
+
+        // Strip textIdentity fields to simulate a pre-D-5 legacy manifest on disk.
+        const raw = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>;
+        delete raw.destinationTextIdentity;
+        await writeFile(manifestPath, JSON.stringify(raw));
+
+        const legacyDoc = await open(store(), id);
+        expect(legacyDoc.state().textIdentity).toBeNull();
+
+        // Even an 'inherit' mutation on a legacy parent mints a fresh ti1 identity instead of inventing inheritance.
+        await legacyDoc.mutate(null, {...append('+edit'), textIdentity: 'inherit'});
+        const minted = legacyDoc.state().textIdentity;
+        expect(minted).toMatch(/^ti1:/u);
+        await legacyDoc.close();
+
+        // Unknown textIdentity version string never blocks opening the manifest and falls back to null.
+        const rawAfter = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+            current: Record<string, unknown>;
+        };
+        rawAfter.current.textIdentity = 'ti99:future-format';
+        await writeFile(manifestPath, JSON.stringify(rawAfter));
+
+        const futureVersionDoc = await open(store(), id);
+        expect(futureVersionDoc.state().textIdentity).toBeNull();
+    });
+});

@@ -716,7 +716,7 @@ describe('optional search-cache mutation completion proof', () => {
                 }
                 await page.locator('[data-thumbnail-page="1"]').first().waitFor({state: 'visible'});
                 await page.evaluate(async (mode) => {
-                    const cacheName = 'evb-browser-search-cache';
+                    const cacheName = 'evb-browser-search-cache-v2';
                     const original = IDBFactory.prototype.open;
                     Reflect.set(window, '__br02CacheRequests', 0);
                     if (mode === 'denied') {

@@ -325,4 +325,174 @@ describe('browserSearch worker (evb-pdf-search.wasm)', () => {
             errorCode: 'SEARCH_REGEX_LIMIT',
         });
     });
+
+    it('caches EVBSIDX4 indexes per document inside the worker, serves cache-only searches, and evicts on control or new revision', async () => {
+        const {dispatch} = await loadWorker();
+        const pagesV1 = encodePdfSearchPagesPayload([{pageNumber: 1, text: 'alpha v1'}]);
+        const indexedV1 = await dispatch({
+            id: 30,
+            type: 'index',
+            payload: {
+                documentKey: 'browser://doc/1',
+                documentRevision: 'rev-1',
+                pageCount: 1,
+                pagesBuffer: pagesV1,
+            },
+        });
+        expect(indexedV1.ok).toBe(true);
+
+        // Cache-only search without sending indexBytes hits the worker cache.
+        const hitV1 = await dispatch({
+            id: 31,
+            type: 'search',
+            payload: {
+                documentKey: 'browser://doc/1',
+                documentRevision: 'rev-1',
+                query: 'alpha',
+                options: {matchCase: false, wholeWord: false, useRegex: false},
+                limit: 20,
+                contextChars: 10,
+            },
+        });
+        expect(hitV1.ok).toBe(true);
+        expect(hitV1.data.results).toHaveLength(1);
+
+        // Indexing a new revision immediately evicts rev-1 and caches rev-2.
+        const pagesV2 = encodePdfSearchPagesPayload([{pageNumber: 1, text: 'beta v2'}]);
+        await dispatch({
+            id: 32,
+            type: 'index',
+            payload: {
+                documentKey: 'browser://doc/1',
+                documentRevision: 'rev-2',
+                pageCount: 1,
+                pagesBuffer: pagesV2,
+            },
+        });
+        const missOldRev = await dispatch({
+            id: 33,
+            type: 'search',
+            payload: {
+                documentKey: 'browser://doc/1',
+                documentRevision: 'rev-1',
+                query: 'alpha',
+                options: {matchCase: false, wholeWord: false, useRegex: false},
+                limit: 20,
+                contextChars: 10,
+            },
+        });
+        expect(missOldRev.data).toEqual({cacheMiss: true});
+
+        // Explicit eviction control message clears the cached index.
+        await dispatch({
+            type: 'evictCache',
+            documentKey: 'browser://doc/1',
+        });
+        const missAfterEvict = await dispatch({
+            id: 34,
+            type: 'search',
+            payload: {
+                documentKey: 'browser://doc/1',
+                documentRevision: 'rev-2',
+                query: 'beta',
+                options: {matchCase: false, wholeWord: false, useRegex: false},
+                limit: 20,
+                contextChars: 10,
+            },
+        });
+        expect(missAfterEvict.data).toEqual({cacheMiss: true});
+    });
+
+    it('does not refill the worker index cache when evictCache arrives while a hydrating search is in flight', async () => {
+        const {dispatch} = await loadWorker();
+        const pages = encodePdfSearchPagesPayload([{pageNumber: 1, text: 'needle in worker'}]);
+        const built = await dispatch({
+            id: 50,
+            type: 'index',
+            payload: {
+                documentRevision: 'rev-evict-race',
+                pageCount: 1,
+                pagesBuffer: pages,
+            },
+        });
+        expect(built.ok).toBe(true);
+
+        // Start a hydrating search, then immediately post evictCache before its async WASM completion resolves.
+        const searchPromise = dispatch({
+            id: 51,
+            type: 'search',
+            payload: {
+                documentKey: 'browser://doc/race',
+                indexBytes: built.data.indexBytes,
+                documentRevision: 'rev-evict-race',
+                query: 'needle',
+                options: {matchCase: false, wholeWord: false, useRegex: false},
+                limit: 20,
+                contextChars: 10,
+            },
+        });
+        const evictPromise = dispatch({
+            type: 'evictCache',
+            documentKey: 'browser://doc/race',
+        });
+        const [searchResp] = await Promise.all([searchPromise, evictPromise]);
+        expect(searchResp.ok).toBe(true);
+        expect(searchResp.data.results).toHaveLength(1);
+
+        // Because eviction arrived while the search was awaiting WASM, the index must NOT have been cached.
+        const followUp = await dispatch({
+            id: 52,
+            type: 'search',
+            payload: {
+                documentKey: 'browser://doc/race',
+                documentRevision: 'rev-evict-race',
+                query: 'needle',
+                options: {matchCase: false, wholeWord: false, useRegex: false},
+                limit: 20,
+                contextChars: 10,
+            },
+        });
+        expect(followUp.data).toEqual({cacheMiss: true});
+    });
+
+    it('matches a bounded page batch in strict order with continuation offset and early stop', async () => {
+        const {dispatch} = await loadWorker();
+        const batch = await dispatch({
+            id: 40,
+            type: 'matchPageBatch',
+            payload: {
+                pages: [
+                    {pageNumber: 1, text: 'hit hit'},
+                    {pageNumber: 2, text: 'empty'},
+                    {pageNumber: 3, text: 'hit hit hit'},
+                    {pageNumber: 4, text: 'hit'},
+                ],
+                query: 'hit',
+                options: {matchCase: false, wholeWord: false, useRegex: false},
+                maxMatches: 2,
+                resultOffset: 1,
+            },
+        });
+        expect(batch.ok).toBe(true);
+        expect(batch.data.pages).toEqual([
+            {
+                pageNumber: 1,
+                matches: [{pageMatchIndex: 1, startOffset: 4, endOffset: 7}],
+                truncated: false,
+                matchCount: 2,
+            },
+            {
+                pageNumber: 2,
+                matches: [],
+                truncated: false,
+                matchCount: 0,
+            },
+            {
+                pageNumber: 3,
+                matches: [{pageMatchIndex: 0, startOffset: 0, endOffset: 3}],
+                truncated: true,
+                matchCount: 2,
+            },
+        ]);
+    });
 });

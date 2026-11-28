@@ -21,23 +21,42 @@ const matchOptionsSchema = v.object({
 });
 
 const staleResponseSchema = v.object({stale: v.literal(true)});
+const cacheMissResponseSchema = v.object({cacheMiss: v.literal(true)});
+const nonNegativeSafeInt = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
+
+const pageMatchesSchema = v.pipe(
+    PDF_SEARCH_MATCH_PAGE_RESPONSE_SCHEMA.entries.matches,
+    v.maxLength(BROWSER_SEARCH_MAX_MATCHES_PER_REQUEST),
+);
 
 const resultSchemas = {
     index: v.object({
         coverage: SEARCH_INDEX_COVERAGE_SCHEMA,
         indexBytes: uint8ArraySchema,
     }),
-    search: v.union([staleResponseSchema, SEARCH_INDEX_RESPONSE_SCHEMA]),
+    search: v.union([staleResponseSchema, cacheMissResponseSchema, SEARCH_INDEX_RESPONSE_SCHEMA]),
     matchPageText: v.object({
-        matches: v.pipe(PDF_SEARCH_MATCH_PAGE_RESPONSE_SCHEMA.entries.matches, v.maxLength(BROWSER_SEARCH_MAX_MATCHES_PER_REQUEST)),
+        matches: pageMatchesSchema,
         truncated: v.boolean(),
         matchingMs: durationMsSchema,
-        matchCount: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
+        matchCount: nonNegativeSafeInt,
+    }),
+    matchPageBatch: v.object({
+        pages: v.array(
+            v.object({
+                pageNumber: positiveSafeInt,
+                matches: pageMatchesSchema,
+                truncated: v.boolean(),
+                matchCount: nonNegativeSafeInt,
+            }),
+        ),
+        matchingMs: durationMsSchema,
     }),
 };
 
 const requestPayloadSchemas = {
     index: v.object({
+        documentKey: v.optional(v.pipe(v.string(), v.minLength(1))),
         documentRevision: v.pipe(v.string(), v.minLength(1)),
         pageCount: positiveSafeInt,
         pagesBuffer: uint8ArraySchema,
@@ -45,7 +64,8 @@ const requestPayloadSchemas = {
         maxTotalTextBytes: v.optional(positiveSafeInt),
     }),
     search: v.object({
-        indexBytes: uint8ArraySchema,
+        documentKey: v.optional(v.pipe(v.string(), v.minLength(1))),
+        indexBytes: v.optional(uint8ArraySchema),
         documentRevision: v.pipe(v.string(), v.minLength(1)),
         query: v.string(),
         options: matchOptionsSchema,
@@ -55,6 +75,23 @@ const requestPayloadSchemas = {
     }),
     matchPageText: v.object({
         text: v.string(),
+        resultOffset: v.optional(searchResultOffsetSchema),
+        query: v.string(),
+        options: matchOptionsSchema,
+        maxMatches: v.pipe(v.number(), v.safeInteger(), v.minValue(1), v.maxValue(BROWSER_SEARCH_MAX_MATCHES_PER_REQUEST)),
+        budgetMs: v.optional(durationMsSchema),
+    }),
+    matchPageBatch: v.object({
+        pages: v.pipe(
+            v.array(
+                v.object({
+                    pageNumber: positiveSafeInt,
+                    text: v.string(),
+                }),
+            ),
+            v.minLength(1),
+            v.maxLength(64),
+        ),
         resultOffset: v.optional(searchResultOffsetSchema),
         query: v.string(),
         options: matchOptionsSchema,
@@ -78,6 +115,11 @@ const requestSchema = v.variant('type', [
         id: requestIdSchema,
         type: v.literal('matchPageText'),
         payload: requestPayloadSchemas.matchPageText,
+    }),
+    v.object({
+        id: requestIdSchema,
+        type: v.literal('matchPageBatch'),
+        payload: requestPayloadSchemas.matchPageBatch,
     }),
 ]);
 
@@ -138,6 +180,10 @@ type TBrowserSearchWorkerResponse =
           error: string;
           errorCode?: 'SEARCH_REGEX_LIMIT';
       };
+
+export function isCacheMissSearchIndexAnswer(value: unknown): value is {cacheMiss: true} {
+    return isRecord(value) && value.cacheMiss === true;
+}
 
 export function getBrowserSearchWorkerRequestId(value: unknown) {
     return isRecord(value) && isSafeWorkerRequestId(value.id) ? value.id : null;

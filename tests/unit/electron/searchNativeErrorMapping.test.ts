@@ -102,6 +102,7 @@ beforeEach(async () => {
     fake.workerActive = 0;
 });
 vi.mock('@electron/features/search/pdfSearchWorkerClient', () => ({
+    evictPdfSearchWorkerIndexCache: () => undefined,
     shutdownPdfSearchWorkers: () => undefined,
     async runPdfSearchWorkerCommand(command: TPdfSearchWorkerCommand) {
         if (command.op === 'stat') {
@@ -168,6 +169,9 @@ vi.mock('@electron/features/search/pdfSearchWorkerClient', () => ({
                 truncated: false,
                 coverage: fake.indexCoverage,
             };
+        }
+        if (command.op === 'evict') {
+            return {evicted: true};
         }
         if (fake.indexFailure) {
             throw fake.indexFailure;
