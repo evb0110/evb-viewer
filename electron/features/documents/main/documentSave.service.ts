@@ -1,7 +1,7 @@
 import {resolveTypedStagedArtifact} from '@electron/features/documents/main/managedTempFileHandles';
 import {randomUUID} from 'node:crypto';
-import {constants} from 'node:fs';
-import {copyFile, rm} from 'node:fs/promises';
+import {rm} from 'node:fs/promises';
+import {copyNewFile} from '@document-store/nodeStorePort';
 import type {IDocumentMutationRevisionOptions, IPdfSaveAsOptions} from '@contracts/electronApiDocuments';
 import {parseDocumentRef, type TDocumentRef} from '@contracts/documentRef';
 import {basename, dirname, extname, join} from 'path';
@@ -102,21 +102,31 @@ export async function savePdfAs(
             const sourcePath = stagedOutput?.path ?? (await requireDocumentFile(entry));
             // Damage the file already had is repaired once, by the qpdf rewrite a page edit's recovery uses.
             const damaged = !(await validatePdfFile(sourcePath)).isValid;
-            if (!damaged) {
-                await copyFile(sourcePath, tempPath, constants.COPYFILE_FICLONE);
-            } else if (
-                !(await rewritePdfWithQpdf(sourcePath, tempPath).then(
-                    async () => (await validatePdfFile(tempPath)).isValid,
-                    () => false,
-                ))
-            ) {
-                throw new Error('Working copy is not a valid PDF');
+            let stagedForCommit = false;
+            if (damaged) {
+                if (
+                    !(await rewritePdfWithQpdf(sourcePath, tempPath).then(
+                        async () => (await validatePdfFile(tempPath)).isValid,
+                        () => false,
+                    ))
+                ) {
+                    throw new Error('Working copy is not a valid PDF');
+                }
+                stagedForCommit = true;
+            } else if (stagedOutput) {
+                await copyNewFile(sourcePath, tempPath);
+                stagedForCommit = true;
             }
-            const optimizedValidation = await optimizePdfForSaveAs(tempPath, options);
+            // When neither repair nor a staged artifact produced `tempPath`, optimize directly from
+            // `sourcePath` into `tempPath` so the live source file is never mutated and an ineligible
+            // Save As skips staging copies completely.
+            const optimizedValidation = stagedForCommit
+                ? await optimizePdfForSaveAs(tempPath, options)
+                : await optimizePdfForSaveAs(sourcePath, options, {outputPath: tempPath});
             let result: Awaited<ReturnType<typeof saveOpenDocument>>;
             try {
                 result = await saveOpenDocument(entry, expectedDocumentRevisionToken, {
-                    ...(optimizedValidation || stagedOutput || damaged ? {commit: {kind: 'move' as const, file: tempPath}} : {}),
+                    ...(stagedForCommit || optimizedValidation ? {commit: {kind: 'move' as const, file: tempPath}} : {}),
                     saveAs: targetPath,
                 });
             } catch (error) {

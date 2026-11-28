@@ -1,5 +1,5 @@
 import {existsSync, statSync} from 'node:fs';
-import {truncate, unlink} from 'node:fs/promises';
+import {rm, truncate, unlink} from 'node:fs/promises';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {Worker} from 'node:worker_threads';
@@ -9,12 +9,21 @@ import {
     createPdfPageOpsWasmRunner,
     createTempSiblingPath,
     executeDesktopPageOpsCommand,
+    getCloneStagingDirPath,
     inspectDesktopPageOpsWriteTarget,
     loadPdfPageOpsWasmModule,
     PdfPageOpsNativeError,
     type IPdfPageOpsWasmRunner,
 } from '@node-runtime/pdfPageOpsWasmRunner';
 import type {IProcessResult} from '@electron/native-tools/processResult';
+import {
+    getActiveJobBrokerLease,
+    getConfiguredMainJobBroker,
+    mergeTerminationProofSinks,
+    type IJobBrokerRunContext,
+    type IJobResourceVector,
+    type TTerminationProofSink,
+} from '@electron/resources/jobBroker';
 import {createAbortError} from '@electron/utils/abort';
 import {resolveUnpackedWorkerPath} from '@electron/utils/workerTask';
 
@@ -23,6 +32,12 @@ const MAX_WARM_WORKERS = 2;
 const WORKER_IDLE_TTL_MS = 30_000;
 // Matches DEFAULT_NATIVE_COMMAND_TIMEOUT_MS in runNativeCommand.ts (15 minutes).
 const DEFAULT_PAGE_OPS_TIMEOUT_MS = 15 * 60 * 1_000;
+const PAGE_OPS_WASM_RESOURCES: Readonly<IJobResourceVector> = {
+    cpuTokens: 1,
+    estimatedResidentBytes: 128 * 1024 * 1024,
+    nativeProcesses: 1,
+    ioWeight: 1,
+};
 
 interface IAbortedWriteRollback {
     stagedOutputPath?: string;
@@ -46,6 +61,7 @@ interface IWarmPageOpsWorker {
     busy: boolean;
     closed: boolean;
     idleTimer: NodeJS.Timeout | null;
+    terminationPromise: Promise<boolean> | null;
     visibilitySessions: Set<number>;
 }
 
@@ -56,12 +72,16 @@ interface IQueuedTask {
     closeVisibilitySessionId: number | undefined;
     targetWorker?: IWarmPageOpsWorker;
     signal: AbortSignal | undefined;
-    timeoutMs: number | undefined;
+    deadlineMs: number | null;
+    effectiveTimeoutMs: number;
+    deadlineTimer: NodeJS.Timeout | null;
+    timedOut: boolean;
+    cancelActive: ((reason: unknown) => Promise<boolean>) | null;
     cancelGroup: string | undefined;
     commandLabel: string | undefined;
     maxStdoutBytes: number | undefined;
     rejectOnStdoutTruncation: boolean | undefined;
-    onTerminationProof: ((proof: Promise<boolean>) => void) | undefined;
+    onTerminationProof: TTerminationProofSink | undefined;
     resolve: (value: IProcessResult) => void;
     reject: (reason: unknown) => void;
     onAbort?: () => void;
@@ -108,7 +128,8 @@ export interface IRunDesktopPageOpsWasmOptions {
     commandLabel?: string;
     maxStdoutBytes?: number;
     rejectOnStdoutTruncation?: boolean;
-    onTerminationProof?: (proof: Promise<boolean>) => void;
+    brokerRun?: IJobBrokerRunContext;
+    onTerminationProof?: TTerminationProofSink;
 }
 
 function getAbortReason(signal: AbortSignal) {
@@ -185,12 +206,18 @@ async function rollbackAbortedWrite(rollback: IAbortedWriteRollback) {
         } catch {
             // Staging file may not have been created or already renamed.
         }
+        try {
+            await rm(getCloneStagingDirPath(rollback.stagedOutputPath), {recursive: true, force: true});
+        } catch {
+            // Clone staging directory may not have been created or already removed.
+        }
     }
 }
 
 function createPageOpsWorkerPool() {
     const workers = new Set<IWarmPageOpsWorker>();
     let startingWorkers = 0;
+    const activeAdmissionCancels = new Set<(reason: unknown) => Promise<boolean>>();
     const activeStartupCancels = new Set<(reason: unknown) => Promise<boolean>>();
     const pendingGroupProofs = new Map<string, Set<Promise<boolean>>>();
     const queue: IQueuedTask[] = [];
@@ -256,6 +283,21 @@ function createPageOpsWorkerPool() {
         return existsSync(devBundle) ? devBundle : primary;
     }
 
+    function clearTaskDeadline(task: IQueuedTask) {
+        if (task.deadlineTimer !== null) {
+            clearTimeout(task.deadlineTimer);
+            task.deadlineTimer = null;
+        }
+    }
+
+    function isTaskExpired(task: IQueuedTask): boolean {
+        return task.timedOut || (task.deadlineMs !== null && Date.now() >= task.deadlineMs);
+    }
+
+    function createTaskTimeoutError(task: Pick<IQueuedTask, 'commandLabel' | 'effectiveTimeoutMs'>) {
+        return new Error(`${task.commandLabel ?? 'evb-pdf-page-ops'} timed out after ${task.effectiveTimeoutMs}ms`);
+    }
+
     function clearIdleTimer(entry: IWarmPageOpsWorker) {
         if (entry.idleTimer !== null) {
             clearTimeout(entry.idleTimer);
@@ -265,16 +307,18 @@ function createPageOpsWorkerPool() {
 
     function destroyWorker(entry: IWarmPageOpsWorker): Promise<boolean> {
         if (entry.closed) {
-            return Promise.resolve(true);
+            return entry.terminationPromise ?? Promise.resolve(true);
         }
         entry.closed = true;
         entry.visibilitySessions.clear();
         clearIdleTimer(entry);
         workers.delete(entry);
-        return entry.worker.terminate().then(
+        const termination = entry.worker.terminate().then(
             () => true,
             () => false,
         );
+        entry.terminationPromise = termination;
+        return termination;
     }
 
     function scheduleIdleEviction(entry: IWarmPageOpsWorker) {
@@ -298,11 +342,21 @@ function createPageOpsWorkerPool() {
                 const target = next.targetWorker;
                 if (target.closed || !workers.has(target)) {
                     queue.splice(index, 1);
+                    clearTaskDeadline(next);
+                    next.cancelActive = null;
                     if (next.onAbort) {
                         next.signal?.removeEventListener('abort', next.onAbort);
                     }
                     if (next.onCancelGroup) {
                         unregisterCancel(next.cancelGroup, next.onCancelGroup);
+                    }
+                    if (next.timedOut) {
+                        continue;
+                    }
+                    if (isTaskExpired(next)) {
+                        next.timedOut = true;
+                        next.reject(createTaskTimeoutError(next));
+                        continue;
                     }
                     next.resolve({
                         stdout: '{}',
@@ -316,13 +370,24 @@ function createPageOpsWorkerPool() {
                     continue;
                 }
                 queue.splice(index, 1);
+                next.cancelActive = null;
                 if (next.onAbort) {
                     next.signal?.removeEventListener('abort', next.onAbort);
                 }
                 if (next.onCancelGroup) {
                     unregisterCancel(next.cancelGroup, next.onCancelGroup);
                 }
+                if (next.timedOut) {
+                    continue;
+                }
+                if (isTaskExpired(next)) {
+                    next.timedOut = true;
+                    clearTaskDeadline(next);
+                    next.reject(createTaskTimeoutError(next));
+                    continue;
+                }
                 if (next.signal?.aborted) {
+                    clearTaskDeadline(next);
                     next.reject(getAbortReason(next.signal));
                     continue;
                 }
@@ -353,13 +418,24 @@ function createPageOpsWorkerPool() {
                 }
             }
             queue.splice(index, 1);
+            next.cancelActive = null;
             if (next.onAbort) {
                 next.signal?.removeEventListener('abort', next.onAbort);
             }
             if (next.onCancelGroup) {
                 unregisterCancel(next.cancelGroup, next.onCancelGroup);
             }
+            if (next.timedOut) {
+                continue;
+            }
+            if (isTaskExpired(next)) {
+                next.timedOut = true;
+                clearTaskDeadline(next);
+                next.reject(createTaskTimeoutError(next));
+                continue;
+            }
             if (next.signal?.aborted) {
+                clearTaskDeadline(next);
                 next.reject(getAbortReason(next.signal));
                 continue;
             }
@@ -389,6 +465,9 @@ function createPageOpsWorkerPool() {
 
         const cleanupStartupCancel = () => {
             activeStartupCancels.delete(cancelDuringStartup);
+            if (task.cancelActive === cancelDuringStartup) {
+                task.cancelActive = null;
+            }
             task.signal?.removeEventListener('abort', onStartupAbort);
             unregisterCancel(task.cancelGroup, onStartupCancelGroup);
         };
@@ -398,6 +477,7 @@ function createPageOpsWorkerPool() {
                 return Promise.resolve(true);
             }
             startupSettled = true;
+            clearTaskDeadline(task);
             cleanupStartupCancel();
             releaseStartupSlot();
             const proof = Promise.resolve(true);
@@ -413,8 +493,14 @@ function createPageOpsWorkerPool() {
 
         const onStartupCancelGroup = () => cancelDuringStartup(createAbortError('Operation canceled'));
 
+        task.cancelActive = cancelDuringStartup;
         activeStartupCancels.add(cancelDuringStartup);
         registerCancel(task.cancelGroup, onStartupCancelGroup);
+        if (isTaskExpired(task)) {
+            task.timedOut = true;
+            void cancelDuringStartup(createTaskTimeoutError(task));
+            return;
+        }
         if (task.signal) {
             if (task.signal.aborted) {
                 onStartupAbort();
@@ -425,7 +511,11 @@ function createPageOpsWorkerPool() {
 
         try {
             const wasmModule = await loadPdfPageOpsWasmModule(task.wasmPath);
-            if (startupSettled) {
+            if (startupSettled || isTaskExpired(task)) {
+                if (!startupSettled) {
+                    task.timedOut = true;
+                    void cancelDuringStartup(createTaskTimeoutError(task));
+                }
                 return;
             }
             if (task.signal?.aborted) {
@@ -439,6 +529,7 @@ function createPageOpsWorkerPool() {
                 busy: true,
                 closed: false,
                 idleTimer: null,
+                terminationPromise: null,
                 visibilitySessions: new Set(),
             };
             startupSettled = true;
@@ -454,6 +545,7 @@ function createPageOpsWorkerPool() {
                 return;
             }
             startupSettled = true;
+            clearTaskDeadline(task);
             cleanupStartupCancel();
             releaseStartupSlot();
             if (entry) {
@@ -474,12 +566,11 @@ function createPageOpsWorkerPool() {
         const rollback = prepareAbortedWriteRollback(task.args);
         let settled = false;
         let terminationProofPromise: Promise<boolean> | null = null;
-        let timeoutHandle: NodeJS.Timeout | null = null;
 
         const cleanup = () => {
-            if (timeoutHandle !== null) {
-                clearTimeout(timeoutHandle);
-                timeoutHandle = null;
+            clearTaskDeadline(task);
+            if (task.cancelActive === cancelDispatched) {
+                task.cancelActive = null;
             }
             entry.worker.off('message', onMessage);
             entry.worker.off('error', onError);
@@ -544,6 +635,8 @@ function createPageOpsWorkerPool() {
             return Promise.resolve(true);
         };
 
+        const cancelDispatched = (reason: unknown) => finishError(reason, true);
+
         const onMessage = (reply: IWorkerReply) => {
             if (!reply || typeof reply !== 'object' || reply.id !== requestId) {
                 return;
@@ -569,23 +662,22 @@ function createPageOpsWorkerPool() {
 
         const onCancelGroup = () => finishError(createAbortError('Operation canceled'), true);
 
+        task.cancelActive = cancelDispatched;
         entry.worker.on('message', onMessage);
         entry.worker.on('error', onError);
         entry.worker.on('exit', onExit);
         registerCancel(task.cancelGroup, onCancelGroup);
+        if (isTaskExpired(task)) {
+            task.timedOut = true;
+            void finishError(createTaskTimeoutError(task), true);
+            return;
+        }
         if (task.signal) {
             if (task.signal.aborted) {
                 onAbort();
                 return;
             }
             task.signal.addEventListener('abort', onAbort, {once: true});
-        }
-        const effectiveTimeoutMs = task.timeoutMs === undefined ? DEFAULT_PAGE_OPS_TIMEOUT_MS : task.timeoutMs;
-        if (effectiveTimeoutMs > 0) {
-            timeoutHandle = setTimeout(() => {
-                void finishError(new Error(`${task.commandLabel ?? 'evb-pdf-page-ops'} timed out after ${effectiveTimeoutMs}ms`), true);
-            }, effectiveTimeoutMs);
-            timeoutHandle.unref();
         }
 
         try {
@@ -620,87 +712,286 @@ function createPageOpsWorkerPool() {
         return applyStdoutLimit(result, options.maxStdoutBytes, options.rejectOnStdoutTruncation, options.commandLabel);
     }
 
+    async function runWithBrokerAdmission(
+        options: IRunDesktopPageOpsWasmOptions,
+        effectiveTimeoutMs: number,
+        deadlineMs: number | null,
+        execute: (effectiveTerminationProof: TTerminationProofSink | undefined) => Promise<IProcessResult>,
+    ): Promise<IProcessResult> {
+        const configuredBroker = getConfiguredMainJobBroker();
+        const heldLease = getActiveJobBrokerLease(options.brokerRun, configuredBroker ?? undefined);
+        const callerTerminationProof =
+            heldLease === undefined
+                ? options.onTerminationProof
+                : mergeTerminationProofSinks(options.brokerRun?.onTerminationProof, options.onTerminationProof);
+        if (heldLease !== undefined || configuredBroker === null) {
+            return execute(callerTerminationProof);
+        }
+        if (options.signal?.aborted) {
+            throw getAbortReason(options.signal);
+        }
+        const admissionController = new AbortController();
+        let admitted = false;
+        let admissionSettled = false;
+        let admissionTimer: NodeJS.Timeout | null = null;
+        const onExternalAbort = () => {
+            if (!admissionSettled) {
+                admissionController.abort(getAbortReason(options.signal!));
+            }
+        };
+        const cleanupAdmission = () => {
+            if (admissionTimer !== null) {
+                clearTimeout(admissionTimer);
+                admissionTimer = null;
+            }
+            activeAdmissionCancels.delete(cancelDuringAdmission);
+            options.signal?.removeEventListener('abort', onExternalAbort);
+            unregisterCancel(options.cancelGroup, onCancelGroup);
+        };
+        const cancelDuringAdmission = (reason: unknown): Promise<boolean> => {
+            if (admissionSettled) {
+                return Promise.resolve(true);
+            }
+            admissionSettled = true;
+            cleanupAdmission();
+            admissionController.abort(reason);
+            const proof = Promise.resolve(true);
+            callerTerminationProof?.(proof);
+            return proof;
+        };
+        const onCancelGroup = () => cancelDuringAdmission(createAbortError('Operation canceled'));
+        activeAdmissionCancels.add(cancelDuringAdmission);
+        registerCancel(options.cancelGroup, onCancelGroup);
+        options.signal?.addEventListener('abort', onExternalAbort, {once: true});
+        if (deadlineMs !== null) {
+            const waitMs = Math.max(0, deadlineMs - Date.now());
+            admissionTimer = setTimeout(() => {
+                void cancelDuringAdmission(
+                    new Error(`${options.commandLabel ?? 'evb-pdf-page-ops'} timed out after ${effectiveTimeoutMs}ms`),
+                );
+            }, waitMs);
+            admissionTimer.unref();
+        }
+        try {
+            return await configuredBroker.run(
+                {
+                    ownerId: `pdf-page-ops:${options.cancelGroup ?? options.commandLabel ?? 'wasm'}`,
+                    kind: 'pdf-page-ops',
+                    priority: 'user',
+                    admissionClass: 'leaf',
+                    resources: PAGE_OPS_WASM_RESOURCES,
+                    signal: admissionController.signal,
+                },
+                ({onTerminationProof}) => {
+                    admitted = true;
+                    admissionSettled = true;
+                    cleanupAdmission();
+                    return execute(mergeTerminationProofSinks(onTerminationProof, callerTerminationProof));
+                },
+            );
+        } catch (error) {
+            if (!admitted) {
+                admissionSettled = true;
+                cleanupAdmission();
+                if (options.signal?.aborted) {
+                    throw getAbortReason(options.signal);
+                }
+                if (admissionController.signal.aborted) {
+                    throw admissionController.signal.reason instanceof Error
+                        ? admissionController.signal.reason
+                        : createAbortError('Operation canceled');
+                }
+            }
+            throw error;
+        }
+    }
+
     function run(wasmPath: string, args: string[], options: IRunDesktopPageOpsWasmOptions = {}): Promise<IProcessResult> {
         if (options.signal?.aborted) {
             return Promise.reject(getAbortReason(options.signal));
         }
+        const argsSnapshot = [...args];
         const workerPath = resolveWorkerScriptPath();
-        // Unbuilt Vitest unit runs execute the exact same WASM module inline when
-        // dist-electron/pdf-page-ops-worker.js has not been bundled yet.
-        if (!existsSync(workerPath)) {
-            if (__dirname.includes('app.asar')) {
-                return Promise.reject(new Error(`evb-pdf-page-ops worker is missing: ${workerPath}`));
-            }
-            return runInlineFallback(wasmPath, args, options);
-        }
-        const {visibilitySessionId, closeVisibilitySessionId} = parseVisibilitySessionArgs(args);
-        const enqueueTask = (targetWorker?: IWarmPageOpsWorker) =>
-            new Promise<IProcessResult>((resolve, reject) => {
-                const task: IQueuedTask = {
-                    wasmPath,
-                    args: [...args],
-                    visibilitySessionId,
-                    closeVisibilitySessionId,
-                    ...(targetWorker === undefined ? {} : {targetWorker}),
-                    signal: options.signal,
-                    timeoutMs: options.timeoutMs,
-                    cancelGroup: options.cancelGroup,
-                    commandLabel: options.commandLabel,
-                    maxStdoutBytes: options.maxStdoutBytes,
-                    rejectOnStdoutTruncation: options.rejectOnStdoutTruncation,
-                    onTerminationProof: options.onTerminationProof,
-                    resolve,
-                    reject,
-                };
-                const removeFromQueue = (reason: unknown): Promise<boolean> => {
-                    const index = queue.indexOf(task);
-                    if (index >= 0) {
-                        queue.splice(index, 1);
-                        if (task.onAbort) {
-                            task.signal?.removeEventListener('abort', task.onAbort);
-                        }
-                        if (task.onCancelGroup) {
-                            unregisterCancel(task.cancelGroup, task.onCancelGroup);
-                        }
-                        const proof = Promise.resolve(true);
-                        task.onTerminationProof?.(proof);
-                        reject(reason);
-                        return proof;
-                    }
-                    return Promise.resolve(true);
-                };
-                if (options.signal) {
-                    task.onAbort = () => {
-                        void removeFromQueue(getAbortReason(options.signal!));
-                    };
-                    options.signal.addEventListener('abort', task.onAbort, {once: true});
-                }
-                if (options.cancelGroup) {
-                    task.onCancelGroup = () => removeFromQueue(createAbortError('Operation canceled'));
-                    registerCancel(options.cancelGroup, task.onCancelGroup);
-                }
-                queue.push(task);
-                pumpQueue();
-            });
-
-        if (closeVisibilitySessionId !== undefined) {
-            const holders = [...workers].filter(
+        const {visibilitySessionId, closeVisibilitySessionId} = parseVisibilitySessionArgs(argsSnapshot);
+        if (existsSync(workerPath) && closeVisibilitySessionId !== undefined) {
+            const hasHolders = [...workers].some(
                 (entry) => !entry.closed && entry.wasmPath === wasmPath && entry.visibilitySessions.has(closeVisibilitySessionId),
             );
-            if (holders.length === 0) {
+            if (!hasHolders) {
                 return Promise.resolve({
                     stdout: '{}',
                     stderr: '',
                     exitCode: 0,
                 });
             }
-            return Promise.all(holders.map((holder) => enqueueTask(holder))).then(() => ({
-                stdout: '{}',
-                stderr: '',
-                exitCode: 0,
-            }));
         }
-        return enqueueTask();
+        const effectiveTimeoutMs = options.timeoutMs === undefined ? DEFAULT_PAGE_OPS_TIMEOUT_MS : options.timeoutMs;
+        const deadlineMs = effectiveTimeoutMs > 0 ? Date.now() + effectiveTimeoutMs : null;
+        return runWithBrokerAdmission(options, effectiveTimeoutMs, deadlineMs, (effectiveTerminationProof) => {
+            if (options.signal?.aborted) {
+                return Promise.reject(getAbortReason(options.signal));
+            }
+            if (deadlineMs !== null && Date.now() >= deadlineMs) {
+                return Promise.reject(new Error(`${options.commandLabel ?? 'evb-pdf-page-ops'} timed out after ${effectiveTimeoutMs}ms`));
+            }
+            // Unbuilt Vitest unit runs execute the exact same WASM module inline when
+            // dist-electron/pdf-page-ops-worker.js has not been bundled yet.
+            if (!existsSync(workerPath)) {
+                if (__dirname.includes('app.asar')) {
+                    return Promise.reject(new Error(`evb-pdf-page-ops worker is missing: ${workerPath}`));
+                }
+                return runInlineFallback(wasmPath, argsSnapshot, options);
+            }
+            const enqueueTask = (targetWorker?: IWarmPageOpsWorker) => {
+                if (options.signal?.aborted) {
+                    return Promise.reject(getAbortReason(options.signal));
+                }
+                if (deadlineMs !== null && Date.now() >= deadlineMs) {
+                    return Promise.reject(
+                        new Error(`${options.commandLabel ?? 'evb-pdf-page-ops'} timed out after ${effectiveTimeoutMs}ms`),
+                    );
+                }
+                return new Promise<IProcessResult>((resolve, reject) => {
+                    const task: IQueuedTask = {
+                        wasmPath,
+                        args: [...argsSnapshot],
+                        visibilitySessionId,
+                        closeVisibilitySessionId,
+                        ...(targetWorker === undefined ? {} : {targetWorker}),
+                        signal: options.signal,
+                        deadlineMs,
+                        effectiveTimeoutMs,
+                        deadlineTimer: null,
+                        timedOut: false,
+                        cancelActive: null,
+                        cancelGroup: options.cancelGroup,
+                        commandLabel: options.commandLabel,
+                        maxStdoutBytes: options.maxStdoutBytes,
+                        rejectOnStdoutTruncation: options.rejectOnStdoutTruncation,
+                        onTerminationProof: effectiveTerminationProof,
+                        resolve,
+                        reject,
+                    };
+                    const removeFromQueue = (reason: unknown): Promise<boolean> => {
+                        const index = queue.indexOf(task);
+                        if (index >= 0) {
+                            queue.splice(index, 1);
+                            clearTaskDeadline(task);
+                            task.cancelActive = null;
+                            if (task.onAbort) {
+                                task.signal?.removeEventListener('abort', task.onAbort);
+                            }
+                            if (task.onCancelGroup) {
+                                unregisterCancel(task.cancelGroup, task.onCancelGroup);
+                            }
+                            const proof = Promise.resolve(true);
+                            task.onTerminationProof?.(proof);
+                            reject(reason);
+                            return proof;
+                        }
+                        return Promise.resolve(true);
+                    };
+                    task.cancelActive = removeFromQueue;
+                    if (deadlineMs !== null) {
+                        const remainingMs = Math.max(1, deadlineMs - Date.now());
+                        task.deadlineTimer = setTimeout(() => {
+                            task.timedOut = true;
+                            task.deadlineTimer = null;
+                            void task.cancelActive?.(createTaskTimeoutError(task));
+                        }, remainingMs);
+                        task.deadlineTimer.unref();
+                    }
+                    if (options.signal) {
+                        task.onAbort = () => {
+                            void removeFromQueue(getAbortReason(options.signal!));
+                        };
+                        options.signal.addEventListener('abort', task.onAbort, {once: true});
+                    }
+                    if (options.cancelGroup) {
+                        task.onCancelGroup = () => removeFromQueue(createAbortError('Operation canceled'));
+                        registerCancel(options.cancelGroup, task.onCancelGroup);
+                    }
+                    queue.push(task);
+                    pumpQueue();
+                });
+            };
+
+            if (closeVisibilitySessionId !== undefined) {
+                const holders = [...workers].filter(
+                    (entry) => !entry.closed && entry.wasmPath === wasmPath && entry.visibilitySessions.has(closeVisibilitySessionId),
+                );
+                if (holders.length === 0) {
+                    return Promise.resolve({
+                        stdout: '{}',
+                        stderr: '',
+                        exitCode: 0,
+                    });
+                }
+                // Close holders sequentially under the single-worker lease so every holder settles
+                // before the lease releases even if an earlier holder fails. Stop advancing on
+                // signal abort, group cancellation, or deadline expiration.
+                return (async () => {
+                    let firstError: unknown;
+                    let hasError = false;
+                    let canceledByGroup = false;
+                    const markGroupCanceled = () => {
+                        canceledByGroup = true;
+                        return Promise.resolve(true);
+                    };
+                    registerCancel(options.cancelGroup, markGroupCanceled);
+                    try {
+                        for (const holder of holders) {
+                            if (holder.closed || !workers.has(holder) || !holder.visibilitySessions.has(closeVisibilitySessionId)) {
+                                continue;
+                            }
+                            if (options.signal?.aborted) {
+                                if (!hasError) {
+                                    hasError = true;
+                                    firstError = getAbortReason(options.signal);
+                                }
+                                break;
+                            }
+                            if (canceledByGroup) {
+                                if (!hasError) {
+                                    hasError = true;
+                                    firstError = createAbortError('Operation canceled');
+                                }
+                                break;
+                            }
+                            if (deadlineMs !== null && Date.now() >= deadlineMs) {
+                                const timeoutError = new Error(
+                                    `${options.commandLabel ?? 'evb-pdf-page-ops'} timed out after ${effectiveTimeoutMs}ms`,
+                                );
+                                if (!hasError) {
+                                    hasError = true;
+                                    firstError = timeoutError;
+                                }
+                                break;
+                            }
+                            try {
+                                await enqueueTask(holder);
+                            } catch (error) {
+                                if (!hasError) {
+                                    hasError = true;
+                                    firstError = error;
+                                }
+                            }
+                        }
+                    } finally {
+                        unregisterCancel(options.cancelGroup, markGroupCanceled);
+                    }
+                    if (hasError) {
+                        throw firstError;
+                    }
+                    return {
+                        stdout: '{}',
+                        stderr: '',
+                        exitCode: 0,
+                    };
+                })();
+            }
+            return enqueueTask();
+        });
     }
 
     function cancelGroup(cancelGroup: string) {
@@ -735,10 +1026,15 @@ function createPageOpsWorkerPool() {
 
     function shutdown() {
         const shutdownError = new Error('PDF page-ops worker pool shut down');
+        for (const cancelAdmission of [...activeAdmissionCancels]) {
+            void cancelAdmission(shutdownError);
+        }
         for (const cancelStartup of [...activeStartupCancels]) {
             void cancelStartup(shutdownError);
         }
         for (const task of queue.splice(0)) {
+            clearTaskDeadline(task);
+            task.cancelActive = null;
             if (task.onAbort) {
                 task.signal?.removeEventListener('abort', task.onAbort);
             }

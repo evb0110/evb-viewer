@@ -7,7 +7,7 @@ import {runDesktopQpdfWasm} from '@electron/native-tools/qpdfWasmWorkerClient';
 import {runNativeCommand} from '@electron/native-tools/runNativeCommand';
 import {withDefinedCommandOptions} from '@electron/native-tools/withDefinedCommandOptions';
 import type {IProcessResult} from '@electron/native-tools/processResult';
-import {mergeTerminationProofSinks, type IJobBrokerRunContext, type TTerminationProofSink} from '@electron/resources/jobBroker';
+import type {IJobBrokerRunContext, TTerminationProofSink} from '@electron/resources/jobBroker';
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 
 /**
@@ -77,7 +77,6 @@ export async function runNativeToolCommand(
     args: string[],
     options: IRunNativeToolCommandOptions = {},
 ): Promise<IProcessResult> {
-    const wasmTerminationProof = mergeTerminationProofSinks(options.brokerRun?.onTerminationProof, options.onTerminationProof);
     if (isPdfPageOpsWasmPath(command)) {
         try {
             return await runDesktopPageOpsWasm(command, args, {
@@ -87,7 +86,8 @@ export async function runNativeToolCommand(
                 ...(options.commandLabel === undefined ? {} : {commandLabel: options.commandLabel}),
                 ...(options.maxStdoutBytes === undefined ? {} : {maxStdoutBytes: options.maxStdoutBytes}),
                 ...(options.rejectOnStdoutTruncation === undefined ? {} : {rejectOnStdoutTruncation: options.rejectOnStdoutTruncation}),
-                ...(wasmTerminationProof === undefined ? {} : {onTerminationProof: wasmTerminationProof}),
+                ...(options.brokerRun === undefined ? {} : {brokerRun: options.brokerRun}),
+                ...(options.onTerminationProof === undefined ? {} : {onTerminationProof: options.onTerminationProof}),
             });
         } finally {
             options.onClose?.();
@@ -106,7 +106,8 @@ export async function runNativeToolCommand(
                 ...(options.maxStdoutBytes === undefined ? {} : {maxStdoutBytes: options.maxStdoutBytes}),
                 ...(options.maxStderrBytes === undefined ? {} : {maxStderrBytes: options.maxStderrBytes}),
                 ...(options.rejectOnStdoutTruncation === undefined ? {} : {rejectOnStdoutTruncation: options.rejectOnStdoutTruncation}),
-                ...(wasmTerminationProof === undefined ? {} : {onTerminationProof: wasmTerminationProof}),
+                ...(options.brokerRun === undefined ? {} : {brokerRun: options.brokerRun}),
+                ...(options.onTerminationProof === undefined ? {} : {onTerminationProof: options.onTerminationProof}),
             });
         } finally {
             options.onClose?.();

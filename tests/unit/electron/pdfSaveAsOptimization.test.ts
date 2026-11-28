@@ -185,7 +185,7 @@ describe('pdfSaveAsOptimization', () => {
         expect(mocks.runNativeToolCommand).not.toHaveBeenCalled();
     });
 
-    it('preserves automatic Save As optimization on the low tier', async () => {
+    it('skips automatic Save As optimization on the low tier unless explicitly requested', async () => {
         const tempPath = join(tempRoot, 'large-save-as-low-tier.pdf');
         const optimizedPath = `${tempPath}.optimized`;
         writeFileSync(tempPath, 'large-pdf');
@@ -196,13 +196,38 @@ describe('pdfSaveAsOptimization', () => {
         });
         const {optimizePdfForSaveAs} = await import('@electron/features/documents/main/pdfSaveAsOptimization');
 
-        await expect(optimizePdfForSaveAs(tempPath)).resolves.toMatchObject({isValid: true});
+        await expect(optimizePdfForSaveAs(tempPath)).resolves.toBeNull();
+        expect(mocks.analyzePdfConformanceFile).not.toHaveBeenCalled();
+        expect(mocks.runNativeToolCommand).not.toHaveBeenCalled();
 
+        await expect(optimizePdfForSaveAs(tempPath, {optimizeLossless: true})).resolves.toMatchObject({isValid: true});
         expect(mocks.runNativeToolCommand).toHaveBeenCalledWith(
             '/native/qpdf',
             expect.arrayContaining(['--linearize']),
-            expect.objectContaining({commandLabel: 'qpdf(save-optimize-large)'}),
+            expect.objectContaining({commandLabel: 'qpdf(save-as-optimize)'}),
         );
+    });
+
+    it('writes Save As optimization to outputPath without mutating the live source file', async () => {
+        const sourcePath = join(tempRoot, 'live-source.pdf');
+        const outputPath = join(tempRoot, 'staged-output.pdf');
+        const optimizedPath = `${outputPath}.optimized`;
+        writeFileSync(sourcePath, 'live-original-pdf-bytes');
+        mocks.runNativeToolCommand.mockImplementation(async () => {
+            await writeFile(optimizedPath, 'smaller');
+        });
+        const {optimizePdfForSaveAs} = await import('@electron/features/documents/main/pdfSaveAsOptimization');
+
+        await expect(optimizePdfForSaveAs(sourcePath, {optimizeLossless: true}, {outputPath})).resolves.toMatchObject({isValid: true});
+
+        expect(mocks.runNativeToolCommand).toHaveBeenCalledWith(
+            '/native/qpdf',
+            ['--linearize', '--stream-data=preserve', '--object-streams=generate', sourcePath, optimizedPath],
+            expect.objectContaining({commandLabel: 'qpdf(save-as-optimize)'}),
+        );
+        expect(mocks.atomicReplace).toHaveBeenCalledWith(optimizedPath, outputPath);
+        expect(readFileSyncUtf8(sourcePath)).toBe('live-original-pdf-bytes');
+        expect(readFileSyncUtf8(outputPath)).toBe('smaller');
     });
 
     it('optimizes generated PDFs without semantic preflight', async () => {
