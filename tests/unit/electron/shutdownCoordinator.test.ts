@@ -751,8 +751,10 @@ describe('main process termination signals', () => {
             captureMainFailure: vi.fn(),
             consumeStartupCrashMarker: vi.fn(),
             installStartupCrashMarker: () => vi.fn(),
+            isStartupSettingsSnapshotCurrent: vi.fn(() => false),
             readCompleteSettingsSync: vi.fn(() => null),
             readDiagnosticsPreferenceSync: vi.fn(),
+            readStartupSettingsSnapshotSync: vi.fn(() => null),
             setMainDiagnosticsPreference: vi.fn(),
             waitForMainDiagnosticsReady: vi.fn(() => Promise.resolve()),
         }));

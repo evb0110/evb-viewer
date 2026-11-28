@@ -6,4 +6,9 @@ export {
     setMainDiagnosticsPreference,
     waitForMainDiagnosticsReady,
 } from '@electron/features/diagnostics/sentry';
-export {readCompleteSettingsSync, readDiagnosticsPreferenceSync} from '@electron/features/diagnostics/readDiagnosticsPreferenceSync';
+export {
+    isStartupSettingsSnapshotCurrent,
+    readCompleteSettingsSync,
+    readDiagnosticsPreferenceSync,
+    readStartupSettingsSnapshotSync,
+} from '@electron/features/diagnostics/readDiagnosticsPreferenceSync';

@@ -32,7 +32,9 @@ import {
     captureMainFailure,
     consumeStartupCrashMarker,
     installStartupCrashMarker,
+    isStartupSettingsSnapshotCurrent,
     readCompleteSettingsSync,
+    readStartupSettingsSnapshotSync,
     setMainDiagnosticsPreference,
     waitForMainDiagnosticsReady,
 } from '@electron/features/diagnostics/public';
@@ -82,8 +84,8 @@ if (automationUserDataDir) {
 configureLogDirectory(app.getPath('logs'));
 initializeAppTempNamespace(app.getPath('userData'));
 resetSettingsCacheAfterUserDataPathChange();
-const initialSettings = readCompleteSettingsSync();
-setMainDiagnosticsPreference(initialSettings?.clientDiagnosticsPreference ?? 'unknown');
+const initialSettingsSnapshot = readStartupSettingsSnapshotSync();
+setMainDiagnosticsPreference(initialSettingsSnapshot?.settings.clientDiagnosticsPreference ?? 'unknown');
 const disarmStartupCrashMarker = installStartupCrashMarker();
 
 const logger = createLogger('main');
@@ -792,8 +794,14 @@ void runInitSequence({
     loadSettings,
     logStartupPhase: startupTrace.log,
     onPrimaryInstanceReady: () => {
-        if (initialSettings !== null) {
-            seedSettingsCache(initialSettings);
+        if (initialSettingsSnapshot !== null && isStartupSettingsSnapshotCurrent(initialSettingsSnapshot)) {
+            seedSettingsCache(initialSettingsSnapshot.settings);
+        } else {
+            const lockedSettings = readCompleteSettingsSync();
+            setMainDiagnosticsPreference(lockedSettings?.clientDiagnosticsPreference ?? 'unknown');
+            if (lockedSettings !== null) {
+                seedSettingsCache(lockedSettings);
+            }
         }
         consumeStartupCrashMarker();
     },
