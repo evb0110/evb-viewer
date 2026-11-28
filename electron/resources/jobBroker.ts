@@ -389,13 +389,19 @@ export class JobBroker {
 
     acquire(request: IJobBrokerRequest): Promise<IJobBrokerLease> {
         validateResourceVector(request.resources);
-        if (
-            request.admissionClass === 'interactive'
-            && !this.fitsWithin(request.resources, this.maxInteractiveJobResources)
-        ) {
-            return Promise.reject(new RangeError(
-                `Interactive job ${request.kind} exceeds broker interactive job limit`,
-            ));
+        if (request.admissionClass === 'interactive') {
+            const exceedsInteractiveNonMemoryLimit =
+                request.resources.cpuTokens > this.maxInteractiveJobResources.cpuTokens
+                || request.resources.nativeProcesses > this.maxInteractiveJobResources.nativeProcesses
+                || request.resources.ioWeight > this.maxInteractiveJobResources.ioWeight;
+            const disallowsInteractiveMemory =
+                this.maxInteractiveJobResources.estimatedResidentBytes === 0
+                && request.resources.estimatedResidentBytes > 0;
+            if (exceedsInteractiveNonMemoryLimit || disallowsInteractiveMemory) {
+                return Promise.reject(new RangeError(
+                    `Interactive job ${request.kind} exceeds broker interactive job limit`,
+                ));
+            }
         }
         if (!this.fitsWithin(request.resources, this.capacity)) {
             return Promise.reject(new RangeError(`Job ${request.kind} exceeds broker capacity`));
@@ -804,7 +810,7 @@ export class JobBroker {
     }
 
     private getLiveMemoryHeadroomBytes(
-        admissionClass: TJobBrokerAdmissionClass | undefined,
+        request: Pick<IJobBrokerRequest, 'admissionClass' | 'resources'>,
         memoryInfo: ISystemMemoryInfo | null,
         forLeafEscape = false,
     ) {
@@ -816,7 +822,8 @@ export class JobBroker {
         }
         const bulkReserve = this.liveMemoryReserveBytes ?? resolveLiveMemoryReserveBytes(memoryInfo.totalBytes);
         const interactiveReserve = Math.floor(bulkReserve / 2);
-        const reserve = admissionClass === 'interactive' || forLeafEscape ? interactiveReserve : bulkReserve;
+        const useInteractiveReserve = forLeafEscape || !this.usesBulkMemoryAndIoBudget(request);
+        const reserve = useInteractiveReserve ? interactiveReserve : bulkReserve;
         return Math.max(0, memoryInfo.availableBytes - reserve);
     }
 
@@ -825,7 +832,7 @@ export class JobBroker {
         if (bytes <= 0 || memoryInfo === null) {
             return true;
         }
-        return pendingBytes + bytes <= this.getLiveMemoryHeadroomBytes(request.admissionClass, memoryInfo);
+        return pendingBytes + bytes <= this.getLiveMemoryHeadroomBytes(request, memoryInfo);
     }
 
     private fitsLeafLiveMemory(request: IJobBrokerRequest, memoryInfo: ISystemMemoryInfo | null, pendingBytes: number) {
@@ -833,7 +840,45 @@ export class JobBroker {
         if (bytes <= 0 || memoryInfo === null) {
             return true;
         }
-        return pendingBytes + bytes <= this.getLiveMemoryHeadroomBytes(request.admissionClass, memoryInfo, true);
+        return pendingBytes + bytes <= this.getLiveMemoryHeadroomBytes(request, memoryInfo, true);
+    }
+
+    private isHeavyInteractiveRequest(request: Pick<IJobBrokerRequest, 'admissionClass' | 'resources'>) {
+        return request.admissionClass === 'interactive'
+            && request.resources.estimatedResidentBytes > this.maxInteractiveJobResources.estimatedResidentBytes;
+    }
+
+    /**
+     * Small interactive jobs (`<= maxInteractiveJobResources.estimatedResidentBytes`)
+     * may burst across all dimensions of `interactiveReserve` and use the
+     * interactive live-memory reserve. Heavier interactive jobs (such as a
+     * full-canvas visible Scan Cleanup preview) burst only CPU and native-process
+     * slots from `interactiveReserve` while staying within the bulk static
+     * memory/I/O budgets (`capacity`) and the bulk live-memory floor.
+     */
+    private usesBulkMemoryAndIoBudget(request: Pick<IJobBrokerRequest, 'admissionClass' | 'resources'>) {
+        return request.admissionClass !== 'interactive' || this.isHeavyInteractiveRequest(request);
+    }
+
+    private hasActiveHeavyInteractiveLease() {
+        for (const active of this.active.values()) {
+            if (this.isHeavyInteractiveRequest(active)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * At most one memory-heavier interactive job may burst CPU/process slots into
+     * `interactiveReserve` at a time, so at least one interactive burst slot
+     * remains free for lightweight document-open / preview work.
+     */
+    private isHeavyInteractiveBurstLimited(request: IJobBrokerRequest) {
+        if (!this.isHeavyInteractiveRequest(request) || !this.hasActiveHeavyInteractiveLease()) {
+            return false;
+        }
+        return !this.fitsWithin(addResources(this.usedResources, request.resources), this.capacity);
     }
 
     private accountLease(
@@ -843,6 +888,13 @@ export class JobBroker {
         this.usedResources = apply(this.usedResources, lease.resources);
         if (lease.admissionClass !== 'interactive') {
             this.usedBulkResources = apply(this.usedBulkResources, lease.resources);
+        } else if (this.isHeavyInteractiveRequest(lease)) {
+            this.usedBulkResources = apply(this.usedBulkResources, {
+                cpuTokens: 0,
+                estimatedResidentBytes: lease.resources.estimatedResidentBytes,
+                nativeProcesses: 0,
+                ioWeight: lease.resources.ioWeight,
+            });
         }
     }
 
@@ -861,7 +913,7 @@ export class JobBroker {
         let waitingIndex = -1;
         for (let index = 0; index < this.queue.length; index += 1) {
             const candidate = this.queue[index];
-            if (!candidate || this.isOwnerLimited(candidate.request)) {
+            if (!candidate || this.isOwnerLimited(candidate.request) || this.isHeavyInteractiveBurstLimited(candidate.request)) {
                 continue;
             }
             const waiting = waitingIndex >= 0 ? this.queue[waitingIndex] : undefined;
@@ -945,9 +997,20 @@ export class JobBroker {
         }
         // Only reserve live OS memory (and idle-drain opportunity) for `waiting`
         // when `waiting` is not already blocked by an independent non-memory
-        // resource (such as CPU or process slots) that `candidate` does not touch.
-        if (waitingDependsOnLiveHeadroom && this.fitsNonMemoryStatic(waiting.request)) {
-            const waitingLiveHeadroom = this.getLiveMemoryHeadroomBytes(waiting.request.admissionClass, memoryInfo);
+        // resource (such as CPU, process, or bulk I/O slots) that `candidate`
+        // does not touch. An unaged heavy interactive job waiting for the bulk
+        // live-memory floor also yields to lightweight interactive work so
+        // document opens are not delayed behind it.
+        if (
+            waitingDependsOnLiveHeadroom
+            && this.fitsNonMemoryStatic(waiting.request)
+            && !(
+                this.isHeavyInteractiveRequest(waiting.request)
+                && this.getAgeSteps(waiting) === 0
+                && !this.usesBulkMemoryAndIoBudget(candidate.request)
+            )
+        ) {
+            const waitingLiveHeadroom = this.getLiveMemoryHeadroomBytes(waiting.request, memoryInfo);
             const candidatePreventsIdleDrain =
                 waiting.request.resources.estimatedResidentBytes > waitingLiveHeadroom
                 && !this.isParkedMemoryLease(candidate.request.resources);
@@ -975,20 +1038,28 @@ export class JobBroker {
         ) {
             return false;
         }
+        if (
+            this.usesBulkMemoryAndIoBudget(request)
+            && this.usedBulkResources.ioWeight + request.resources.ioWeight > this.capacity.ioWeight
+        ) {
+            return false;
+        }
         if (request.admissionClass === 'interactive') {
             return true;
         }
         return this.usedBulkResources.cpuTokens + request.resources.cpuTokens <= this.capacity.cpuTokens
             && this.usedBulkResources.nativeProcesses + request.resources.nativeProcesses
-                <= this.capacity.nativeProcesses
-            && this.usedBulkResources.ioWeight + request.resources.ioWeight <= this.capacity.ioWeight;
+                <= this.capacity.nativeProcesses;
     }
 
     // Whether running the candidate uses any static dimension the waiting
-    // request would then no longer find room in. Interactive work is charged
-    // to the total only, bulk work to the total and the bulk budget.
+    // request would then no longer find room in. Lightweight interactive work
+    // is charged to the total only, heavy interactive work also to bulk memory
+    // and I/O, and bulk work to all bulk dimensions.
     private takesStaticResourcesWaitingNeeds(candidate: IJobBrokerRequest, waiting: IJobBrokerRequest) {
         const checkBulk = waiting.admissionClass !== 'interactive' && candidate.admissionClass !== 'interactive';
+        const checkBulkMemoryAndIo =
+            this.usesBulkMemoryAndIoBudget(waiting) && this.usesBulkMemoryAndIoBudget(candidate);
         return (
             (candidate.resources.cpuTokens > 0 && (
                 this.usedResources.cpuTokens + candidate.resources.cpuTokens + waiting.resources.cpuTokens
@@ -1000,7 +1071,7 @@ export class JobBroker {
                 this.usedResources.estimatedResidentBytes
                     + candidate.resources.estimatedResidentBytes + waiting.resources.estimatedResidentBytes
                     > this.capacity.estimatedResidentBytes + this.interactiveReserve.estimatedResidentBytes
-                || (checkBulk && this.usedBulkResources.estimatedResidentBytes
+                || (checkBulkMemoryAndIo && this.usedBulkResources.estimatedResidentBytes
                     + candidate.resources.estimatedResidentBytes + waiting.resources.estimatedResidentBytes
                     > this.capacity.estimatedResidentBytes)
             ))
@@ -1015,7 +1086,7 @@ export class JobBroker {
             || (candidate.resources.ioWeight > 0 && (
                 this.usedResources.ioWeight + candidate.resources.ioWeight + waiting.resources.ioWeight
                     > this.capacity.ioWeight + this.interactiveReserve.ioWeight
-                || (checkBulk && this.usedBulkResources.ioWeight
+                || (checkBulkMemoryAndIo && this.usedBulkResources.ioWeight
                     + candidate.resources.ioWeight + waiting.resources.ioWeight > this.capacity.ioWeight)
             ))
         );
@@ -1033,7 +1104,7 @@ export class JobBroker {
         }
         return this.usedResources.estimatedResidentBytes + bytes
             > this.capacity.estimatedResidentBytes + this.interactiveReserve.estimatedResidentBytes
-            || (request.admissionClass !== 'interactive'
+            || (this.usesBulkMemoryAndIoBudget(request)
                 && this.usedBulkResources.estimatedResidentBytes + bytes > this.capacity.estimatedResidentBytes);
     }
 
@@ -1105,7 +1176,7 @@ export class JobBroker {
     }
 
     private evaluateGrant(request: IJobBrokerRequest, memoryInfo: ISystemMemoryInfo | null, pendingBytes: number) {
-        if (this.isOwnerLimited(request)) {
+        if (this.isOwnerLimited(request) || this.isHeavyInteractiveBurstLimited(request)) {
             return {grantable: false, blockedByLiveMemory: false, shortOfMemory: false};
         }
         if (this.canEscapeAsLeafWithoutLiveMemory(request)) {
@@ -1115,19 +1186,7 @@ export class JobBroker {
             return {grantable: false, blockedByLiveMemory: true, shortOfMemory: true};
         }
         const shortOfStaticMemory = this.isShortOfStaticMemory(request);
-        const fitsStatic =
-            !shortOfStaticMemory
-            && this.usedResources.cpuTokens + request.resources.cpuTokens
-                <= this.capacity.cpuTokens + this.interactiveReserve.cpuTokens
-            && this.usedResources.nativeProcesses + request.resources.nativeProcesses
-                <= this.capacity.nativeProcesses + this.interactiveReserve.nativeProcesses
-            && this.usedResources.ioWeight + request.resources.ioWeight
-                <= this.capacity.ioWeight + this.interactiveReserve.ioWeight
-            && (request.admissionClass === 'interactive'
-                || (this.usedBulkResources.cpuTokens + request.resources.cpuTokens <= this.capacity.cpuTokens
-                    && this.usedBulkResources.nativeProcesses + request.resources.nativeProcesses
-                        <= this.capacity.nativeProcesses
-                    && this.usedBulkResources.ioWeight + request.resources.ioWeight <= this.capacity.ioWeight));
+        const fitsStatic = !shortOfStaticMemory && this.fitsNonMemoryStatic(request);
         const fitsLive = this.fitsLiveMemory(request, memoryInfo, pendingBytes);
         if (fitsStatic && fitsLive) {
             return {grantable: true, blockedByLiveMemory: false, shortOfMemory: false};
