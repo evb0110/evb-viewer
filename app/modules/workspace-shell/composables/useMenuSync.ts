@@ -111,8 +111,8 @@ export const useMenuSync = (deps: IUseMenuSyncDeps) => {
     }
 
     watchEffect(() => {
-        syncMenuDocumentState();
         syncMenuTabCount();
+        syncMenuDocumentState();
     });
 
     return {shellState};

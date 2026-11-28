@@ -16,19 +16,10 @@ import {parseDocumentRef, type TDocumentRef} from '@contracts/documentRef';
 import {decodeDebugLogEntry, type TMenuEventUnsubscribe} from '@contracts/electronApiCommon';
 import type {IHostResourceProfileSnapshot} from '@contracts/hostResourceProfile';
 import type {IWindowCloseResponse, TWindowCloseRequestHandler} from '@contracts/systemPlatformFeature';
-import {IMAGE_EXPORT_PLATFORM_FEATURE} from '@contracts/imageExportPlatformFeature';
-import {DJVU_PLATFORM_FEATURE} from '@contracts/djvuPlatformFeature';
-import {AGENT_PLATFORM_FEATURE} from '@contracts/agentPlatformFeature';
-import {OCR_PLATFORM_FEATURE} from '@contracts/ocrPlatformFeature';
-import {PAGE_OPS_PLATFORM_FEATURE} from '@contracts/pageOpsPlatformFeature';
-import {SEARCH_PLATFORM_FEATURE} from '@contracts/searchPlatformFeature';
-import {SETTINGS_PLATFORM_FEATURE} from '@contracts/settingsPlatformFeature';
-import {SHELL_PLATFORM_FEATURE} from '@contracts/shellPlatformFeature';
-import {UPDATES_PLATFORM_FEATURE} from '@contracts/updatesPlatformFeature';
-import {HOST_PLATFORM_FEATURE, type IHostEnvironmentSnapshot} from '@contracts/hostPlatformFeature';
-import {SYSTEM_PLATFORM_FEATURE} from '@contracts/systemPlatformFeature';
-import {WINDOW_TABS_PLATFORM_FEATURE} from '@contracts/windowTabsPlatformFeature';
+import type {IHostEnvironmentSnapshot} from '@contracts/hostPlatformFeature';
 import {
+    AGENT_PLATFORM_FEATURE,
+    DJVU_PLATFORM_FEATURE,
     DOCUMENT_FILES_PLATFORM_FEATURE,
     DOCUMENT_MENU_PLATFORM_FEATURE,
     DOCUMENT_OPEN_PLATFORM_FEATURE,
@@ -37,12 +28,23 @@ import {
     DOCUMENT_RECENT_FILES_PLATFORM_FEATURE,
     DOCUMENT_WINDOW_PLATFORM_FEATURE,
     DOCUMENT_WORKING_COPY_PLATFORM_FEATURE,
-} from '@contracts/documentsPlatformFeature';
+    FULL_SCAN_CLEANUP_SUPPORT,
+    HOST_PLATFORM_FEATURE,
+    IMAGE_EXPORT_PLATFORM_FEATURE,
+    OCR_PLATFORM_FEATURE,
+    PAGE_OPS_PLATFORM_FEATURE,
+    SCAN_CLEANUP_PLATFORM_FEATURE,
+    SEARCH_PLATFORM_FEATURE,
+    SETTINGS_PLATFORM_FEATURE,
+    SHELL_PLATFORM_FEATURE,
+    SYSTEM_PLATFORM_FEATURE,
+    UPDATES_PLATFORM_FEATURE,
+    WINDOW_TABS_PLATFORM_FEATURE,
+} from '@electron/preload/platformFeatures';
 import {getDebugLogMessages} from '@electron/preload/debugLogBuffer';
 import {createDocumentsPreloadStreams, type IDocumentsDirectInvokeMap} from '@electron/features/documents/createDocumentsPreloadStreams';
 import {MAX_RENDERER_FILE_OPEN_TOKENS_PER_SENDER} from '@electron/features/documents/public/maxRendererFileOpenTokensPerSender';
 import {DOCUMENTS_CHANNELS} from '@electron/features/documents/contract';
-import {FULL_SCAN_CLEANUP_SUPPORT, SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import {createPlatformFeaturePreloadClient, createTypedIpcEventSubscriber} from '@electron/preload/ipcClient';
 import {decodeSystemMemoryInfo, readSystemMemoryInfo} from '@electron/resources/systemMemoryInfo';
 import {getErrorMessage} from '@electron/utils/error';
@@ -424,12 +426,45 @@ export function createElectronApi(
         get: () => invokeWithStartupTrace('recentFiles:get', recentFilesIpc.get),
     };
     const documentRecentFiles = {recentFiles} satisfies IDocumentsRecentFilesCapability;
-    const documentWindow = createPlatformFeaturePreloadClient(
+    let lastResolvedWindowTitle: string | null = null;
+    let pendingWindowTitle: {title: string; promise: Promise<void>} | null = null;
+    const documentWindowIpc = createPlatformFeaturePreloadClient(
         ipcRenderer,
         DOCUMENT_WINDOW_PLATFORM_FEATURE,
         undefined,
         sharedEventSubscriber,
-    ) satisfies IDocumentsWindowCapability;
+    );
+    const documentWindow = {
+        ...documentWindowIpc,
+        setWindowTitle: (title: string) => {
+            const normalizedTitle = typeof title === 'string' ? title.trim() : '';
+            if (pendingWindowTitle?.title === normalizedTitle) {
+                return pendingWindowTitle.promise;
+            }
+            if (pendingWindowTitle === null && lastResolvedWindowTitle === normalizedTitle) {
+                return Promise.resolve();
+            }
+            const request = documentWindowIpc.setWindowTitle(title).then(
+                () => {
+                    if (pendingWindowTitle?.promise === request) {
+                        pendingWindowTitle = null;
+                        lastResolvedWindowTitle = normalizedTitle;
+                    }
+                },
+                (error) => {
+                    if (pendingWindowTitle?.promise === request) {
+                        pendingWindowTitle = null;
+                    }
+                    throw error;
+                },
+            );
+            pendingWindowTitle = {
+                title: normalizedTitle,
+                promise: request,
+            };
+            return request;
+        },
+    } satisfies IDocumentsWindowCapability;
     const documentMenu = createPlatformFeaturePreloadClient(ipcRenderer, DOCUMENT_MENU_PLATFORM_FEATURE, undefined, sharedEventSubscriber);
     const documentOpen = {
         openDocumentDirect,

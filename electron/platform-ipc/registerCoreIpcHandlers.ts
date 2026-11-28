@@ -26,7 +26,6 @@ import {
     acknowledgeWorkspaceCheckpoint,
     claimWorkspaceCheckpoint,
     discardWorkspaceCheckpoint,
-    hasRecoverableWorkspaceCheckpoints,
     resumeWorkspaceCheckpoint,
     saveWorkspaceCheckpoint,
     setWorkspaceDocumentDrafts,
@@ -143,19 +142,37 @@ export function registerCoreIpcHandlers(ipcMain: Electron.IpcMain, options: ICor
             resumeWorkspaceCheckpoint(senderId, discardToken, sender);
         },
         claimWorkspaceCheckpoint: async ({sender, senderId}) => {
-            const checkpoint = await claimWorkspaceCheckpoint(senderId, sender);
-            if (checkpoint) {
-                allowOpenPaths(
-                    checkpoint.tabs.flatMap((tab) =>
-                        [tab.sourceRef, tab.workingCopyRef].filter((path): path is TDocumentRef => path !== null),
-                    ),
-                    sender,
-                );
-                if (await hasRecoverableWorkspaceCheckpoints(senderId, sender)) {
-                    await options.onWorkspaceCheckpointClaimed?.();
+            let hasMoreRecoverable = false;
+            let failed = false;
+            try {
+                const checkpoint = await claimWorkspaceCheckpoint(senderId, sender, () => {
+                    hasMoreRecoverable = true;
+                });
+                if (checkpoint) {
+                    allowOpenPaths(
+                        checkpoint.tabs.flatMap((tab) =>
+                            [tab.sourceRef, tab.workingCopyRef].filter((path): path is TDocumentRef => path !== null),
+                        ),
+                        sender,
+                    );
+                }
+                return checkpoint;
+            } catch (error) {
+                failed = true;
+                throw error;
+            } finally {
+                if (hasMoreRecoverable) {
+                    if (failed) {
+                        try {
+                            await options.onWorkspaceCheckpointClaimed?.();
+                        } catch {
+                            // Preserve the original claim rejection when recovery window scheduling also fails.
+                        }
+                    } else {
+                        await options.onWorkspaceCheckpointClaimed?.();
+                    }
                 }
             }
-            return checkpoint;
         },
         acknowledgeWorkspaceCheckpoint: async ({sender, senderId}) => {
             await acknowledgeWorkspaceCheckpoint(senderId, sender);

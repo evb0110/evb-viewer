@@ -124,7 +124,7 @@ describe('app protocol', () => {
         expect(response.headers.get('content-type')).toBe('text/javascript; charset=utf-8');
     });
 
-    it('serves a directory request from its index.html', async () => {
+    it('serves a directory request from its index.html with inline production CSP', async () => {
         useStaticFiles(['/app/dist/electron/index.html']);
         const {setupAppProtocolHandler} = await import('@electron/protocol');
         setupAppProtocolHandler();
@@ -134,6 +134,34 @@ describe('app protocol', () => {
 
         expect(mocks.fetch).toHaveBeenCalledWith(pathToFileURL(resolve('/app/dist/electron/index.html')).href);
         expect(response.headers.get('content-type')).toBe('text/html; charset=utf-8');
+        const csp = response.headers.get('content-security-policy') ?? '';
+        const directives = Object.fromEntries(
+            csp.split('; ').map((directive) => {
+                const [name, ...tokens] = directive.split(' ');
+                return [name, tokens];
+            }),
+        );
+        expect(directives['default-src']).toEqual(["'self'"]);
+        expect(directives['script-src']).toContain("'wasm-unsafe-eval'");
+        expect(directives['script-src']).not.toContain("'unsafe-inline'");
+        expect(directives['script-src-attr']).toEqual(["'none'"]);
+    });
+
+    it('applies production CSP to SVG and other app-protocol responses without an existing CSP header', async () => {
+        useStaticFiles(['/app/dist/favicon.svg']);
+        const {setupAppProtocolHandler} = await import('@electron/protocol');
+        setupAppProtocolHandler();
+        const handler = mocks.handle.mock.calls[0]?.[1] as (request: Request) => Promise<Response>;
+
+        const response = await handler(new Request('evb-viewer://app/favicon.svg'));
+
+        expect(response.status).toBe(200);
+        expect(response.headers.get('content-type')).toBe('image/svg+xml; charset=utf-8');
+        expect(response.headers.get('content-security-policy')).toContain("default-src 'self'");
+
+        const notFound = await handler(new Request('evb-viewer://app/does-not-exist.svg'));
+        expect(notFound.status).toBe(404);
+        expect(notFound.headers.get('content-security-policy')).toContain("default-src 'self'");
     });
 
     it('caches path resolution across repeated and query-string requests', async () => {

@@ -15,7 +15,11 @@ function normalizeWindowTitle(title: unknown) {
 export function handleSetWindowTitle(context: IDocumentsWindowContext, title: string) {
     if (context.window) {
         const normalizedTitle = normalizeWindowTitle(title);
-        context.window.setTitle(normalizedTitle || te('app.title'));
+        const nextTitle = normalizedTitle || te('app.title');
+        if (typeof context.window.getTitle === 'function' && context.window.getTitle() === nextTitle) {
+            return;
+        }
+        context.window.setTitle(nextTitle);
         refreshMenu();
     }
 }

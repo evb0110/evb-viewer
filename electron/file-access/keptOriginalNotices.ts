@@ -1,5 +1,5 @@
-import {existsSync} from 'node:fs';
-import {readFile} from 'node:fs/promises';
+import {AsyncLocalStorage} from 'node:async_hooks';
+import {access, readFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {app} from 'electron';
 import {isRecord} from '@contracts/runtimeGuards';
@@ -11,6 +11,9 @@ import {getErrorMessage} from '@electron/utils/error';
 
 const log = createLogger('kept-original-notices');
 let pendingUpdate: Promise<unknown> = Promise.resolve();
+let noticesGeneration = 0;
+let inFlightNoticesRead: {generation: number; promise: Promise<Map<string, string>>} | null = null;
+const readBatchStorage = new AsyncLocalStorage<{generation: number; promise: Promise<Map<string, string>> | null}>();
 
 function getNoticesPath() {
     return join(app.getPath('userData'), 'kept-original-notices.json');
@@ -36,12 +39,53 @@ async function readNotices() {
     return new Map(isRecord(value) ? Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === 'string') : []);
 }
 
+function readNoticesCoalesced() {
+    const batch = readBatchStorage.getStore();
+    if (batch) {
+        if (batch.promise && batch.generation === noticesGeneration) {
+            return batch.promise;
+        }
+        batch.generation = noticesGeneration;
+        batch.promise = readNotices();
+        return batch.promise;
+    }
+
+    if (inFlightNoticesRead && inFlightNoticesRead.generation === noticesGeneration) {
+        return inFlightNoticesRead.promise;
+    }
+
+    const generation = noticesGeneration;
+    const promise = readNotices().finally(() => {
+        if (inFlightNoticesRead?.promise === promise) {
+            inFlightNoticesRead = null;
+        }
+    });
+    inFlightNoticesRead = {
+        generation,
+        promise,
+    };
+    return promise;
+}
+
+/** Shares one `kept-original-notices.json` read across every lookup inside `action`, invalidating if a write occurs. */
+export function withKeptOriginalReadBatch<T>(action: () => Promise<T>) {
+    return readBatchStorage.run(
+        {
+            generation: noticesGeneration,
+            promise: null,
+        },
+        action,
+    );
+}
+
 // One change at a time, so a later write never drops an earlier notice.
 function updateNotices<T>(update: (notices: Map<string, string>) => T) {
     const next = pendingUpdate.then(async () => {
         const notices = await readNotices();
         const result = update(notices);
         await writeJsonAtomic(getNoticesPath(), Object.fromEntries(notices), {markMutationCommitStarted: false});
+        noticesGeneration += 1;
+        inFlightNoticesRead = null;
         return result;
     });
     pendingUpdate = next.catch(() => undefined);
@@ -60,12 +104,18 @@ export async function rememberKeptOriginal(originalPath: string, keptPath: strin
 
 /** The file kept beside `originalPath`, while it is there to open. A notice recorded before its move stays for when it lands. */
 export async function findKeptOriginal(originalPath: string) {
-    const notices = await readNotices().catch((error: unknown) => {
+    const notices = await readNoticesCoalesced().catch((error: unknown) => {
         warnNoticesFailure('Could not read kept-original notices', originalPath, error);
         return new Map<string, string>();
     });
     const keptPath = notices.get(normalizePathForLookup(originalPath));
-    return keptPath !== undefined && existsSync(keptPath) ? keptPath : undefined;
+    if (keptPath === undefined) {
+        return undefined;
+    }
+    return access(keptPath).then(
+        () => keptPath,
+        () => undefined,
+    );
 }
 
 /** Forgets the notice for `originalPath` once the person has dismissed it. */

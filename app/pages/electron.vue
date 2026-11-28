@@ -9,7 +9,9 @@ import {getOrCaptureRendererBootstrapFailure} from '@app/utils/getOrCaptureRende
 
 const {t} = useTypedI18n();
 const {setFatalRuntimeError} = useFatalRuntimeError();
-const hasDesktopBridge = ref(false);
+// `/electron` runs with `ssr: false`, so check the preload bridge synchronously
+// on the client to mount AppShellRoot on the very first render pass.
+const hasDesktopBridge = ref(import.meta.client && hasElectronPlatformBridge());
 
 definePageMeta({
     preloadWorkspaceShell: false,
@@ -21,6 +23,9 @@ if (import.meta.server) {
 useHead(() => ({title: t('app.title')}));
 
 onMounted(() => {
+    if (hasDesktopBridge.value) {
+        return;
+    }
     if (!hasElectronPlatformBridge()) {
         const presentation = getOrCaptureRendererBootstrapFailure({
             error: new Error('Electron preload bridge is unavailable during app bootstrap.'),

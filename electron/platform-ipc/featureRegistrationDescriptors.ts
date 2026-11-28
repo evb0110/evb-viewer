@@ -217,7 +217,31 @@ const platformDescriptors: readonly TPlatformDescriptor[] = [
                       const {shutdownAgentAssistantIfLoaded} = await import('@electron/features/agent/public');
                       await shutdownAgentAssistantIfLoaded();
                   };
-            return createSettingsMainBindings(shutdownAssistant);
+            const bindings = createSettingsMainBindings(shutdownAssistant);
+            let inFlightSettingsGet: Promise<void> | null = null;
+            return {
+                ...bindings,
+                get: () => {
+                    const request = bindings.get();
+                    const settled = request.then(
+                        () => undefined,
+                        () => undefined,
+                    );
+                    inFlightSettingsGet = settled;
+                    void settled.then(() => {
+                        if (inFlightSettingsGet === settled) {
+                            inFlightSettingsGet = null;
+                        }
+                    });
+                    return request;
+                },
+                getRecoveryNotice: async () => {
+                    if (inFlightSettingsGet) {
+                        await inFlightSettingsGet;
+                    }
+                    return bindings.getRecoveryNotice();
+                },
+            };
         },
     },
     {

@@ -8,6 +8,14 @@ const mocks = vi.hoisted(() => ({
     onHeadersReceived: vi.fn(),
     setPermissionCheckHandler: vi.fn(),
     setPermissionRequestHandler: vi.fn(),
+    config: {
+        isDev: false,
+        renderer: {
+            staticRoot: '/missing/nuxt-output/public',
+            trustedOrigin: 'evb-viewer://app',
+            trustedUrl: 'evb-viewer://app/electron',
+        },
+    },
 }));
 
 vi.mock('electron', () => ({
@@ -19,22 +27,15 @@ vi.mock('electron', () => ({
         },
     },
 }));
-vi.mock('@electron/config', () => ({
-    config: {
-        isDev: false,
-        renderer: {
-            staticRoot: '/missing/nuxt-output/public',
-            trustedOrigin: 'evb-viewer://app',
-            trustedUrl: 'evb-viewer://app/electron',
-        },
-    },
-}));
+vi.mock('@electron/config', () => ({config: mocks.config}));
 
 const {
     buildContentSecurityPolicy,
     collectProductionInlineScriptCspHashes,
+    collectProductionInlineScriptCspHashesAsync,
     createInlineScriptCspHash,
     extractInlineScriptCspHashes,
+    resolveProductionContentSecurityPolicy,
     setupContentSecurityPolicy,
 } = await import('@electron/security/csp');
 
@@ -43,17 +44,26 @@ const {
 setupContentSecurityPolicy();
 const checkHandler = mocks.setPermissionCheckHandler.mock.calls[0]?.[0];
 const requestHandler = mocks.setPermissionRequestHandler.mock.calls[0]?.[0];
-const headersListener = mocks.onHeadersReceived.mock.calls[0]?.[0];
+const prodHeadersRegistrationCount = mocks.onHeadersReceived.mock.calls.length;
 
-it('retries the policy installation after header registration fails', async () => {
+it('does not install session-wide onHeadersReceived in production mode', () => {
+    expect(prodHeadersRegistrationCount).toBe(0);
+});
+
+it('retries the policy installation after header registration fails in development mode', async () => {
     vi.resetModules();
-    const {setupContentSecurityPolicy: installPolicy} = await import('@electron/security/csp');
-    mocks.onHeadersReceived.mockImplementationOnce(() => {
-        throw new Error('Header registration failed');
-    });
-    expect(() => installPolicy()).toThrow('Header registration failed');
-    installPolicy();
-    expect(mocks.onHeadersReceived).toHaveBeenCalledTimes(2);
+    mocks.config.isDev = true;
+    try {
+        const {setupContentSecurityPolicy: installPolicy} = await import('@electron/security/csp');
+        mocks.onHeadersReceived.mockImplementationOnce(() => {
+            throw new Error('Header registration failed');
+        });
+        expect(() => installPolicy()).toThrow('Header registration failed');
+        installPolicy();
+        expect(mocks.onHeadersReceived).toHaveBeenCalledTimes(2);
+    } finally {
+        mocks.config.isDev = false;
+    }
 });
 
 function parseCsp(csp: string) {
@@ -120,7 +130,7 @@ describe('buildContentSecurityPolicy', () => {
         expect(extractInlineScriptCspHashes(html)).toEqual([expectedPayloadHash, createInlineScriptCspHash('window.__NUXT__={};')].sort());
     });
 
-    it('collects production hashes from the Electron Nuxt entrypoint artifact', () => {
+    it('collects production hashes from the Electron Nuxt entrypoint artifact synchronously and asynchronously', async () => {
         const tempRoot = mkdtempSync(join(tmpdir(), 'evb-csp-test-'));
         try {
             mkdirSync(join(tempRoot, 'electron'), {recursive: true});
@@ -129,6 +139,27 @@ describe('buildContentSecurityPolicy', () => {
             const staticBootstrapHash = createInlineScriptCspHash('globalThis.__NUXT__={serverRendered:false};');
 
             expect(collectProductionInlineScriptCspHashes(tempRoot)).toEqual([staticBootstrapHash]);
+            await expect(collectProductionInlineScriptCspHashesAsync(tempRoot)).resolves.toEqual([staticBootstrapHash]);
+        } finally {
+            rmSync(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('does not cache an empty hash lookup when the entrypoint appears after prewarm', async () => {
+        const tempRoot = mkdtempSync(join(tmpdir(), 'evb-csp-retry-'));
+        try {
+            const firstPolicy = await resolveProductionContentSecurityPolicy(tempRoot);
+            const expectedHash = createInlineScriptCspHash('globalThis.__NUXT__={retry:true};');
+            expect(firstPolicy).not.toContain(expectedHash);
+
+            mkdirSync(join(tempRoot, 'electron'), {recursive: true});
+            writeFileSync(join(tempRoot, 'electron', 'index.html'), '<script>globalThis.__NUXT__={retry:true};</script>');
+
+            const secondPolicy = await resolveProductionContentSecurityPolicy(tempRoot);
+            expect(secondPolicy).toContain(expectedHash);
         } finally {
             rmSync(tempRoot, {
                 force: true,
@@ -182,10 +213,8 @@ describe('buildContentSecurityPolicy', () => {
         expect(deniedMediaCallback).toHaveBeenCalledWith(false);
     });
 
-    it('authorizes the Nuxt UI SPA color cleanup without allowing arbitrary inline scripts', () => {
-        const callback = vi.fn();
-        headersListener?.({url: 'evb-viewer://app/electron'}, callback);
-        const policy = callback.mock.calls[0]?.[0]?.responseHeaders?.['Content-Security-Policy']?.[0] as string;
+    it('authorizes the Nuxt UI SPA color cleanup without allowing arbitrary inline scripts', async () => {
+        const policy = await resolveProductionContentSecurityPolicy();
         const directives = parseCsp(policy);
         const cleanupHash = createInlineScriptCspHash("document.head.removeChild(document.querySelector('[data-nuxt-ui-colors]'))");
 
@@ -193,31 +222,46 @@ describe('buildContentSecurityPolicy', () => {
         expect(directives['script-src']).not.toContain("'unsafe-inline'");
     });
 
-    it('leaves PDF and extension responses under their own security policies', () => {
-        const pdfHeaders = {'Content-Type': ['application/pdf']};
-        const pdfCallback = vi.fn();
-        headersListener?.(
-            {
-                url: 'file:///tmp/document.pdf',
-                responseHeaders: pdfHeaders,
-            },
-            pdfCallback,
-        );
-        expect(pdfCallback).toHaveBeenCalledWith({responseHeaders: pdfHeaders});
+    it('leaves PDF and extension responses under their own security policies in development mode', async () => {
+        vi.resetModules();
+        mocks.config.isDev = true;
+        try {
+            const {setupContentSecurityPolicy: installDevPolicy} = await import('@electron/security/csp');
+            installDevPolicy();
+            const devHeadersListener = mocks.onHeadersReceived.mock.calls.at(-1)?.[0];
+            expect(devHeadersListener).toBeTypeOf('function');
 
-        const noHeadersCallback = vi.fn();
-        headersListener?.({url: 'file:///tmp/document-without-headers.pdf'}, noHeadersCallback);
-        expect(noHeadersCallback).toHaveBeenCalledWith({});
+            const trustedCallback = vi.fn();
+            devHeadersListener?.({url: 'evb-viewer://app/electron'}, trustedCallback);
+            expect(trustedCallback.mock.calls[0]?.[0]?.responseHeaders?.['Content-Security-Policy']?.[0]).toContain("'unsafe-inline'");
 
-        const extensionHeaders = {'Content-Security-Policy': ["script-src 'self'; object-src *"]};
-        const extensionCallback = vi.fn();
-        headersListener?.(
-            {
-                url: 'chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/index.html',
-                responseHeaders: extensionHeaders,
-            },
-            extensionCallback,
-        );
-        expect(extensionCallback).toHaveBeenCalledWith({responseHeaders: extensionHeaders});
+            const pdfHeaders = {'Content-Type': ['application/pdf']};
+            const pdfCallback = vi.fn();
+            devHeadersListener?.(
+                {
+                    url: 'file:///tmp/document.pdf',
+                    responseHeaders: pdfHeaders,
+                },
+                pdfCallback,
+            );
+            expect(pdfCallback).toHaveBeenCalledWith({responseHeaders: pdfHeaders});
+
+            const noHeadersCallback = vi.fn();
+            devHeadersListener?.({url: 'file:///tmp/document-without-headers.pdf'}, noHeadersCallback);
+            expect(noHeadersCallback).toHaveBeenCalledWith({});
+
+            const extensionHeaders = {'Content-Security-Policy': ["script-src 'self'; object-src *"]};
+            const extensionCallback = vi.fn();
+            devHeadersListener?.(
+                {
+                    url: 'chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/index.html',
+                    responseHeaders: extensionHeaders,
+                },
+                extensionCallback,
+            );
+            expect(extensionCallback).toHaveBeenCalledWith({responseHeaders: extensionHeaders});
+        } finally {
+            mocks.config.isDev = false;
+        }
     });
 });

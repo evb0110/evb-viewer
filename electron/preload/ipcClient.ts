@@ -12,6 +12,7 @@ import {createRequestId} from '@contracts/shared';
 import {isAbortError} from '@contracts/isAbortError';
 import {isRecord} from '@contracts/runtimeGuards';
 import {CORE_IPC_SEND_CHANNELS, IPC_INVOKE_CANCEL_REASON_FIELD, IPC_INVOKE_REQUEST_ID_FIELD} from '@electron/platform-ipc/coreContract';
+import {toPlainIpcValue} from '@electron/preload/preloadMethodArgMappers';
 
 type TNoArgEventChannel<TEventMap extends {[TChannel in keyof TEventMap]: unknown}> = Extract<
     {
@@ -321,14 +322,10 @@ export function createPlatformFeaturePreloadClient<TFeature extends TAnyDefinedP
                 localArgs[index] = options;
             }
             let wireArgs = mapArgs ? mapArgs(...(localArgs as never[])) : localArgs;
-            // Scan-cleanup arguments can be reactive, so encode them as plain IPC values.
+            // Scan-cleanup arguments can be reactive Vue proxies, so convert them
+            // to plain structured-cloneable IPC values before ipcRenderer.invoke.
             if (isScanCleanupFeature) {
-                try {
-                    wireArgs = feature.ipcCodecs[spec.channel]?.encodeArgs?.(wireArgs) ?? wireArgs;
-                } catch (error) {
-                    const details = error instanceof Error ? `: ${getErrorMessage(error)}` : '';
-                    throw new PlatformIpcInvokeError(spec.channel, new Error(`Invalid IPC request for ${spec.channel}${details}`));
-                }
+                wireArgs = toPlainIpcValue(wireArgs) as typeof wireArgs;
             }
             const invokeOptions = subscribeToAbort
                 ? invokeTimeoutMsByChannel

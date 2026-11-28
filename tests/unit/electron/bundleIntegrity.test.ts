@@ -89,6 +89,8 @@ const MAIN_FORBIDDEN_EAGER_INPUT_SUBSTRINGS = [
     '/node_modules/@anthropic-ai/claude-agent-sdk/',
     '/node_modules/@sentry/core/',
     '/node_modules/electron-updater/',
+    '/electron/native-tools/runNativeCommand.ts',
+    '/electron/updates/checkMacCodeSignature.ts',
     '/electron/features/agent/mcpServer.ts',
     '/electron/features/documents/documentsMainBindings.ts',
     '/electron/features/djvu/',
@@ -110,6 +112,11 @@ const PRELOAD_FORBIDDEN_INPUT_SUBSTRINGS = [
     '/node_modules/@pdf-lib/upng/',
     '/node_modules/@pdf-lib/standard-fonts/',
     '/packages/pdf-core/iterateDecodedTiffFrames.ts',
+    '/packages/contracts/nativePdfMutations.ts',
+    '/packages/contracts/documentsPlatformFeature.ts',
+    '/packages/contracts/pageOpsPlatformFeature.ts',
+    '/packages/contracts/ocrPlatformFeature.ts',
+    '/packages/contracts/scanCleanupPlatformFeature.ts',
 ];
 
 let latestSourceMtimeMs = 0;
@@ -221,7 +228,20 @@ async function loadMainBundleFixture(): Promise<IElectronBundleMetafileFixture> 
     if (!mainEntryOutput) {
         throw new Error('main.meta.json does not identify the electron/main.ts entry output');
     }
+    const mainBootstrapOutput = outputs[mainEntryOutput]?.imports.find(
+        (imported) =>
+            !imported.external &&
+            imported.kind === 'dynamic-import' &&
+            Object.keys(outputs[imported.path]?.inputs ?? {}).some(
+                (inputPath) => normalizeMetafilePath(inputPath) === 'electron/bootstrap/mainProcess.ts',
+            ),
+    )?.path;
     const initialMainOutputClosure = collectOutputClosure(outputs, mainEntryOutput, (kind) => kind !== 'dynamic-import');
+    if (mainBootstrapOutput) {
+        for (const outputPath of collectOutputClosure(outputs, mainBootstrapOutput, (kind) => kind !== 'dynamic-import')) {
+            initialMainOutputClosure.add(outputPath);
+        }
+    }
     return {
         metafile,
         outputs,
@@ -456,6 +476,13 @@ describe('Electron bundle static integrity', () => {
                     `deferred main outputs must retain ${forbiddenInput}`,
                 ).toBe(true);
             }
+
+            // S-8: root package.json is replaced by build-time __EVB_APP_VERSION__ and valibot is deduplicated.
+            expect([...initialInputs].some((inputPath) => inputPath === '/package.json')).toBe(false);
+            const valibotInputs = Object.keys(mainBundleFixture.metafile.inputs).filter((inputPath) =>
+                normalizeMetafilePath(inputPath).includes('/valibot/dist/index.'),
+            );
+            expect(valibotInputs.length).toBeLessThanOrEqual(1);
         });
     });
 
