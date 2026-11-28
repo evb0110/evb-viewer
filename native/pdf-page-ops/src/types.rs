@@ -980,7 +980,7 @@ impl PdfObjectSource for Document {
     }
 
     fn page_ids(&self) -> BTreeMap<u32, ObjectId> {
-        self.get_pages()
+        crate::pdf_source::collect_document_pages(self)
     }
 
     fn root_id(&self) -> Result<ObjectId> {

@@ -78,9 +78,10 @@ pub(crate) fn write_page_geometry(
 ) -> Result<()> {
     // A read appends nothing, so any terminal revision the index reads will
     // do; encryption is refused from the index, before any decryption.
-    let source = SourcePdf::open_plaintext_path(input_path)
+    let (file, len) = open_source_file(input_path)?;
+    let document = load_page_geometry_source(file, len)
         .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-    let geometry = get_page_geometry(&source.document, page_number)?;
+    let geometry = get_page_geometry(&document, page_number)?;
     serde_json::to_writer(output, &geometry)?;
     Ok(())
 }
@@ -98,7 +99,7 @@ pub(crate) fn get_page_geometry_from_source<S: ByteSource>(
     get_page_geometry(&document, page_number)
 }
 
-#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 pub(crate) fn crop_pages_to_source<S: ByteSource>(
     source: S,
     len: u64,
@@ -106,12 +107,9 @@ pub(crate) fn crop_pages_to_source<S: ByteSource>(
     margins: CropMargins,
     write: impl FnOnce(&[u8]) -> Result<Vec<u8>>,
 ) -> Result<u32> {
-    let mut source_pdf = SourcePdf::open_append_base(source, len)
+    let (_, mut incremental, resolver) = SourcePdf::open_page_geometry_append_base(source, len)
         .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-    let mut incremental = source_pdf.take_append_base()?;
-    PageTreeResolver::validated(incremental.get_prev_documents())?;
-    let page_count = u32::try_from(incremental.get_prev_documents().get_pages().len())
-        .map_err(|_| "PDF page count exceeds the response range")?;
+    let page_count = resolver.page_count();
     crop_pages_incremental(&mut incremental, pages, margins)?;
     incremental.new_document.version = incremental.get_prev_documents().version.clone();
     let revision = appended_revision_bytes(&mut incremental)?;
@@ -131,19 +129,16 @@ pub(crate) fn crop_pages_to_source<S: ByteSource>(
     Ok(page_count)
 }
 
-#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 pub(crate) fn remove_crop_from_pages_to_source<S: ByteSource>(
     source: S,
     len: u64,
     pages: &[u32],
     write: impl FnOnce(&[u8]) -> Result<Vec<u8>>,
 ) -> Result<u32> {
-    let mut source_pdf = SourcePdf::open_append_base(source, len)
+    let (_, mut incremental, resolver) = SourcePdf::open_page_geometry_append_base(source, len)
         .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-    let mut incremental = source_pdf.take_append_base()?;
-    PageTreeResolver::validated(incremental.get_prev_documents())?;
-    let page_count = u32::try_from(incremental.get_prev_documents().get_pages().len())
-        .map_err(|_| "PDF page count exceeds the response range")?;
+    let page_count = resolver.page_count();
     remove_crop_from_pages_incremental(&mut incremental, pages)?;
     incremental.new_document.version = incremental.get_prev_documents().version.clone();
     let revision = appended_revision_bytes(&mut incremental)?;
@@ -169,8 +164,7 @@ pub(crate) fn write_crop_pages_path(
     pages: &[u32],
     margins: CropMargins,
 ) -> Result<()> {
-    let (_, mut incremental) = SourcePdf::open_append_base_path(input_path)?;
-    PageTreeResolver::validated(incremental.get_prev_documents())?;
+    let (mut incremental, _) = SourcePdf::open_page_geometry_append_base_path(input_path)?;
 
     crop_pages_incremental(&mut incremental, pages, margins)?;
     append_incremental_page_revision(
@@ -187,8 +181,7 @@ pub(crate) fn write_remove_crop_pages_path(
     output_path: &Path,
     pages: &[u32],
 ) -> Result<()> {
-    let (_, mut incremental) = SourcePdf::open_append_base_path(input_path)?;
-    PageTreeResolver::validated(incremental.get_prev_documents())?;
+    let (mut incremental, _) = SourcePdf::open_page_geometry_append_base_path(input_path)?;
 
     remove_crop_from_pages_incremental(&mut incremental, pages)?;
     append_incremental_page_revision(
