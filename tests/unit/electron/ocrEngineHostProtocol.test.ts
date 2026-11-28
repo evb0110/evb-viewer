@@ -23,6 +23,7 @@ describe('ocrEngineHostProtocol', () => {
                         },
                     ],
                 },
+                wasmMemoryBytes: 256 * 1024 * 1024,
             },
         });
         expect(successEvent).not.toBeNull();
@@ -32,6 +33,7 @@ describe('ocrEngineHostProtocol', () => {
             if (successEvent.reply.ok) {
                 expect(successEvent.reply.result.passes).toHaveLength(1);
                 expect(successEvent.reply.result.passes[0]?.outputs[0]).toEqual(outputBytes);
+                expect(successEvent.reply.wasmMemoryBytes).toBe(256 * 1024 * 1024);
             }
         }
 
@@ -42,6 +44,7 @@ describe('ocrEngineHostProtocol', () => {
                 id: 2,
                 ok: false,
                 error: 'tesseract failed',
+                wasmMemoryBytes: 0,
             },
         });
         expect(failureEvent).toEqual({
@@ -51,6 +54,7 @@ describe('ocrEngineHostProtocol', () => {
                 id: 2,
                 ok: false,
                 error: 'tesseract failed',
+                wasmMemoryBytes: 0,
             },
         });
     });
@@ -65,6 +69,16 @@ describe('ocrEngineHostProtocol', () => {
             type: 'reply',
             lane: 0,
             reply: {id: 1, ok: false},
+        },
+        {
+            type: 'reply',
+            lane: 0,
+            reply: {id: 1, ok: true, result: {passes: []}, wasmMemoryBytes: -1},
+        },
+        {
+            type: 'reply',
+            lane: 0,
+            reply: {id: 1, ok: true, result: {passes: []}, wasmMemoryBytes: 12.5},
         },
         {
             type: 'reply',

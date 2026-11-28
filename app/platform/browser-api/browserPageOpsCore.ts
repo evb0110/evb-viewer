@@ -87,7 +87,7 @@ type TWriterResult<K extends 'splitPages' | 'overlayText' | 'recompressImages' |
 export function splitPdfPages(
     data: Uint8Array,
     instructions: ISplitPagesInstructions,
-    options: Pick<IRunBrowserPageOpsWorkerRequestOptions, 'signal' | 'requireWorker' | 'onEngineIdentity'> = {},
+    options: Pick<IRunBrowserPageOpsWorkerRequestOptions, 'signal' | 'requireWorker' | 'onEngineIdentity' | 'transferInput'> = {},
 ): Promise<TWriterResult<'splitPages'>> {
     return requireBrowserPageOpsWasmResult('page split', () =>
         runBrowserPageOpsWorkerRequest(
@@ -109,7 +109,7 @@ export function overlayPdfTextLayers(
     data: Uint8Array,
     sourceData: Uint8Array,
     instructions: IOverlayTextInstructions,
-    options: Pick<IRunBrowserPageOpsWorkerRequestOptions, 'signal' | 'requireWorker' | 'onEngineIdentity'> = {},
+    options: Pick<IRunBrowserPageOpsWorkerRequestOptions, 'signal' | 'requireWorker' | 'onEngineIdentity' | 'transferInput'> = {},
 ): Promise<TWriterResult<'overlayText'>> {
     return requireBrowserPageOpsWasmResult('text overlay', () =>
         runBrowserPageOpsWorkerRequest(
@@ -169,6 +169,12 @@ export function replacePdfPageImages(
     );
 }
 
+function toPdfBlob(bytes: Uint8Array) {
+    return new Blob([bytes.buffer instanceof ArrayBuffer ? (bytes as Uint8Array<ArrayBuffer>) : new Uint8Array(bytes)], {
+        type: 'application/pdf',
+    });
+}
+
 /**
  * Output PDFs appended in document order, then joined once by the page-ops
  * merge desktop uses. `createError` names the job a failed merge belongs to,
@@ -179,18 +185,40 @@ export function createOrderedPdfMerge(options: {
     onEngineIdentity?: (sha256: string) => void;
     createError: (reason: string, code?: string) => Error;
 }) {
-    const pages: Uint8Array[] = [];
+    let firstPage: Uint8Array | null = null;
+    let sources: Blob[] | null = null;
+    let count = 0;
     return {
-        append: (pdf: Uint8Array) => pages.push(pdf),
-        async merge() {
-            if (pages.length < 2) {
-                return pages[0] ?? null;
+        append(pdf: Uint8Array) {
+            if (count === 0) {
+                firstPage = pdf;
+            } else if (sources === null) {
+                sources = [toPdfBlob(firstPage!), toPdfBlob(pdf)];
+                firstPage = null;
+            } else {
+                sources.push(toPdfBlob(pdf));
             }
+            count += 1;
+            return count;
+        },
+        async merge() {
+            if (count === 0) {
+                return null;
+            }
+            if (sources === null) {
+                const single = firstPage;
+                firstPage = null;
+                count = 0;
+                return single;
+            }
+            const mergeSources = sources;
+            sources = null;
+            count = 0;
             const result = await runBrowserPageOpsWorkerRequest(
                 'pageStructure',
                 {
                     edit: {kind: 'merge'},
-                    sources: pages.map((page) => new Blob([page as Uint8Array<ArrayBuffer>])),
+                    sources: mergeSources,
                     output: null,
                 },
                 {

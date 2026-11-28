@@ -173,6 +173,8 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
     }
 
     const pdf = await loadBrowserPdfjsDocument(input.sourceRef);
+    let stagedLease: string | null = null;
+    let outcome: TBrowserOcrJobOutcome;
     try {
         stage('pdf-prep');
         const visibility = await readVisibility(
@@ -248,13 +250,14 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
          * through the inverse transform; otherwise the rendered page is, with
          * a diagnostic.
          */
-        const renderPage = async (pageNumber: number, dpi: number): Promise<IOcrPageRaster<TBrowserOcrImage>> => {
+        const renderPage = async (pageNumber: number, dpi: number, pageSignal: AbortSignal): Promise<IOcrPageRaster<TBrowserOcrImage>> => {
+            throwIfAborted(pageSignal);
             const page = await pdf.getPage(pageNumber);
             try {
                 const size = getBrowserOcrRasterSize(page, dpi);
                 const rendered = {
                     ...size,
-                    image: (await renderBrowserOcrRaster(page, dpi, signal)).image,
+                    image: (await renderBrowserOcrRaster(page, dpi, pageSignal)).image,
                 };
                 if (cleanupMode === undefined) {
                     return rendered;
@@ -273,14 +276,14 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
                             mode: cleanupMode,
                             dpi,
                         },
-                        signal,
+                        pageSignal,
                     );
                 } catch (error) {
-                    throwIfAborted(signal);
+                    throwIfAborted(pageSignal);
                     // The engine stopped or ran out of time with the raster; render it again.
                     return {
                         ...size,
-                        image: (await renderBrowserOcrRaster(page, dpi, signal)).image,
+                        image: (await renderBrowserOcrRaster(page, dpi, pageSignal)).image,
                         diagnostic: failed(getErrorMessage(error)),
                     };
                 }
@@ -340,9 +343,9 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
                 signal,
                 renderPage,
                 runEngine: runBrowserOcrEngine,
-                prepareEarlyPrintModels: async () => {
+                prepareEarlyPrintModels: async (earlyPrintSignal = signal) => {
                     for (const code of EARLY_PRINT_MODEL_CODES) {
-                        await ensureBrowserOcrModel(code, {signal});
+                        await ensureBrowserOcrModel(code, {signal: earlyPrintSignal});
                     }
                 },
                 readModel: readCachedOcrModel,
@@ -357,62 +360,81 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
             diagnostics.push(...result.diagnostics.items);
 
             if (checkpoints.getPageCount() === 0) {
-                return {
+                outcome = {
                     kind: 'nothing-written',
                     targeted,
                     errors: errors.items,
                     diagnostics: diagnostics.items,
                 };
-            }
-
-            stage('merging');
-            throwIfAborted(signal);
-            let writtenLength: number | undefined;
-            let writtenSha256: string | undefined;
-            let failure: string | undefined;
-            const lease = await browserDocumentStore.stageAppend(input.sourceRef, revision.token, async (file, base) => {
-                let currentLength = base;
-                const chunkHashes: string[] = [];
-                for await (const chunk of checkpoints.iterateChunks({signal})) {
-                    throwIfAborted(signal);
-                    const instructions: IOcrTextLayerInstructions = {
-                        pages: buildOcrTextLayerInstructions(chunk.records),
-                    };
-                    const appendResult = await appendPdfMutationsToStoreFile(file, currentLength, {
-                        instructions,
-                        pagePdfs: chunk.pagePdfs,
-                    });
-                    if (isBrowserPageOpsWasmFailure(appendResult)) {
-                        failure = appendResult.error.message;
+            } else {
+                stage('merging');
+                throwIfAborted(signal);
+                let writtenLength: number | undefined;
+                let writtenSha256: string | undefined;
+                let failure: string | undefined;
+                const lease = await browserDocumentStore.stageAppend(input.sourceRef, revision.token, async (file, base) => {
+                    let currentLength = base;
+                    const chunkHashes: string[] = [];
+                    for await (const chunk of checkpoints.iterateChunks({signal, consume: true})) {
+                        throwIfAborted(signal);
+                        const instructions: IOcrTextLayerInstructions = {
+                            pages: buildOcrTextLayerInstructions(chunk.records),
+                        };
+                        const appendResult = await appendPdfMutationsToStoreFile(file, currentLength, {
+                            instructions,
+                            pagePdfs: chunk.pagePdfs,
+                        });
+                        throwIfAborted(signal);
+                        if (isBrowserPageOpsWasmFailure(appendResult)) {
+                            failure = appendResult.error.message;
+                            return null;
+                        }
+                        currentLength = appendResult.length;
+                        chunkHashes.push(appendResult.sha256);
+                    }
+                    if (chunkHashes.length === 0 || currentLength <= base) {
                         return null;
                     }
-                    currentLength = appendResult.length;
-                    chunkHashes.push(appendResult.sha256);
+                    writtenLength = currentLength;
+                    writtenSha256 =
+                        chunkHashes.length === 1 ? chunkHashes[0]! : await sha256Hex(new TextEncoder().encode(chunkHashes.join(':')));
+                    throwIfAborted(signal);
+                    return currentLength;
+                });
+                stagedLease = lease;
+                if (lease === null || writtenLength === undefined || writtenSha256 === undefined) {
+                    throw new Error(`Writing the searchable layer failed: ${failure ?? 'nothing was written'}`);
                 }
-                if (chunkHashes.length === 0 || currentLength <= base) {
-                    return null;
-                }
-                writtenLength = currentLength;
-                writtenSha256 =
-                    chunkHashes.length === 1 ? chunkHashes[0]! : await sha256Hex(new TextEncoder().encode(chunkHashes.join(':')));
-                return currentLength;
-            });
-            if (lease === null || writtenLength === undefined || writtenSha256 === undefined) {
-                throw new Error(`Writing the searchable layer failed: ${failure ?? 'nothing was written'}`);
+                outcome = {
+                    kind: 'written',
+                    lease,
+                    length: writtenLength,
+                    sha256: writtenSha256,
+                    sourceRevisionToken: revision.token,
+                    errors: errors.items,
+                    diagnostics: diagnostics.items,
+                };
             }
-            return {
-                kind: 'written',
-                lease,
-                length: writtenLength,
-                sha256: writtenSha256,
-                sourceRevisionToken: revision.token,
-                errors: errors.items,
-                diagnostics: diagnostics.items,
-            };
         } finally {
-            await checkpoints.cleanup();
+            await checkpoints.cleanup().catch(async (cleanupError: unknown) => {
+                if (stagedLease !== null) {
+                    const leaseToDiscard = stagedLease;
+                    stagedLease = null;
+                    await browserDocumentStore.discardAppend(input.sourceRef, leaseToDiscard).catch(() => undefined);
+                }
+                return Promise.reject(cleanupError);
+            });
         }
     } finally {
         await pdf.loadingTask.destroy().catch(() => {});
     }
+    if (signal.aborted) {
+        if (stagedLease !== null) {
+            const leaseToDiscard = stagedLease;
+            stagedLease = null;
+            await browserDocumentStore.discardAppend(input.sourceRef, leaseToDiscard).catch(() => undefined);
+        }
+        throwIfAborted(signal);
+    }
+    return outcome;
 }

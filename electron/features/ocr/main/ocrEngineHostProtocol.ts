@@ -61,6 +61,7 @@ export type TOcrEngineHostRequest =
     | {type: 'shutdown'};
 
 const laneSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
+const nonNegativeBytesSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
 // An engine failure carries Tesseract's stderr, which the engine bounds.
 const messageTextSchema = v.pipe(v.string(), v.maxLength(BROWSER_OCR_ENGINE_MAX_STDERR_CHARACTERS + 4_096));
 
@@ -69,11 +70,13 @@ const laneReplySchema = v.union([
         id: laneSchema,
         ok: v.literal(true),
         result: BROWSER_OCR_ENGINE_RESULT_SCHEMA,
+        wasmMemoryBytes: v.optional(nonNegativeBytesSchema),
     }),
     v.object({
         id: laneSchema,
         ok: v.literal(false),
         error: messageTextSchema,
+        wasmMemoryBytes: v.optional(nonNegativeBytesSchema),
     }),
 ]);
 

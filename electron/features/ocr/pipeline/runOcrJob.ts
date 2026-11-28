@@ -16,9 +16,14 @@ import type {TOcrModelCode} from '@contracts/ocrLanguages';
 import {getOcrScanCleanupMode} from '@contracts/scan-cleanup/ocrPreprocessing';
 import {getOcrPageSelectionCount, iterateOcrPageRequestBatches} from '@ocr-core/ocrPageSelection';
 import {resolveOcrExtractionDpi} from '@ocr-core/ocrRenderDpi';
-import {OcrJobMessages, recognizeOcrPages} from '@ocr-core/recognizeOcrPages';
+import {OcrJobMessages, recognizeOcrPages, type IOcrPageRaster} from '@ocr-core/recognizeOcrPages';
 import type {IOcrEngineResult} from '@ocr-core/tesseractEngine';
-import {isOcrEngineImageFile, type TDesktopOcrEngineRequest} from '@electron/features/ocr/main/ocrEngineHostProtocol';
+import {getOcrEngineLaneExitPromise} from '@electron/features/ocr/main/ocrEnginePool';
+import {
+    isOcrEngineImageFile,
+    type IOcrEngineImageFile,
+    type TDesktopOcrEngineRequest,
+} from '@electron/features/ocr/main/ocrEngineHostProtocol';
 import type {IOcrPipelinePaths, TOcrJobResult, TOcrPdfPageSelection, TWorkerLog} from '@electron/features/ocr/pipeline/types';
 import {detectSourceDpiDetails} from '@electron/pdf/sourceDpiDetection';
 import {prepareOcrPageRasterFile} from '@electron/features/ocr/pipeline/tryPreprocessOcrImage';
@@ -49,6 +54,7 @@ import {
     createOcrModelBytesReader,
     getOcrRuntimePolicy,
     resolveOcrLaneResources,
+    resolveOcrPageConcurrency,
     sumOcrModelBytes,
 } from '@electron/features/ocr/main/ocrRuntimePolicy';
 import {mainJobBroker} from '@electron/resources/jobBroker';
@@ -97,50 +103,37 @@ function throwIfAborted(signal: AbortSignal) {
  * cleanup may use: desktop's page slots, within the CPU the job broker grants.
  */
 function getOcrPageConcurrency(pageCount: number, paths: IOcrPipelinePaths, options: IOcrSearchablePdfOptions) {
-    const {globalPageSlots} = getOcrRuntimePolicy();
-    const cpuTokens = mainJobBroker.getSnapshot().capacity.cpuTokens;
-    const cleanupThreads =
-        paths.scanCleanupBinary && cpuTokens > 2 && (options.preprocessingMode === 'clean' || options.preprocessingMode === 'off')
-            ? Math.max(1, Math.ceil(cpuTokens / globalPageSlots))
-            : 1;
-    return {
-        lanes: Math.max(1, Math.min(globalPageSlots, Math.floor(cpuTokens / cleanupThreads), getOcrConcurrency(pageCount))),
-        cleanupThreads,
-    };
+    return resolveOcrPageConcurrency({
+        globalPageSlots: getOcrRuntimePolicy().globalPageSlots,
+        cpuTokens: mainJobBroker.getSnapshot().capacity.cpuTokens,
+        maxPageConcurrency: getOcrConcurrency(pageCount),
+        hasScanCleanupBinary: Boolean(paths.scanCleanupBinary),
+        preprocessingMode: options.preprocessingMode,
+    });
 }
 
 /**
  * Runs each page's engine passes under a main broker lease when the engine does
- * not charge the broker itself, and unlinks file-backed rasters once done
- * unless native termination is unproven.
+ * not charge the broker itself. Page raster files stay owned by the page across
+ * all Early Print passes and are unlinked once the page settles.
  */
 function createJobOcrEngine(job: Pick<IOcrJob, 'jobId' | 'paths' | 'runEngine' | 'engineChargesBroker'>) {
     const readModelBytes = job.engineChargesBroker ? null : createOcrModelBytesReader(job.paths.tessdataPath);
     return async (request: TDesktopOcrEngineRequest, signal: AbortSignal) => {
-        let failure: unknown;
-        try {
-            if (!readModelBytes) {
-                return await job.runEngine(request, signal);
-            }
-            const modelBytes = sumOcrModelBytes(await readModelBytes(request.models));
-            return await mainJobBroker.run(
-                {
-                    ownerId: `ocr:${job.jobId}`,
-                    kind: 'ocr-engine-pass',
-                    priority: 'user',
-                    resources: resolveOcrLaneResources(modelBytes, request.image, mainJobBroker.getSnapshot().capacity),
-                    signal,
-                },
-                () => job.runEngine(request, signal),
-            );
-        } catch (error) {
-            failure = error;
-            throw error;
-        } finally {
-            if (isOcrEngineImageFile(request.image) && getUnprovenNativeTerminationDetail(failure) === undefined) {
-                await rm(request.image.path, {force: true}).catch(() => undefined);
-            }
+        if (!readModelBytes) {
+            return await job.runEngine(request, signal);
         }
+        const modelBytes = sumOcrModelBytes(await readModelBytes(request.models));
+        return await mainJobBroker.run(
+            {
+                ownerId: `ocr:${job.jobId}`,
+                kind: 'ocr-engine-pass',
+                priority: 'user',
+                resources: resolveOcrLaneResources(modelBytes, request.image, mainJobBroker.getSnapshot().capacity),
+                signal,
+            },
+            () => job.runEngine(request, signal),
+        );
     };
 }
 
@@ -171,9 +164,11 @@ async function recognizeOcrJobPages(stage: {
     supersessionPolicy: NonNullable<IOcrSearchablePdfOptions['supersessionPolicy']>;
     jobAbort: AbortController;
     jobSignal: AbortSignal;
+    recordUnprovenTermination: (error: unknown) => void;
     publish: TPublishOcrProgress;
 }) {
-    const {job, sessionId, checkpointDir, requestedSelection, supersessionPolicy, jobAbort, jobSignal, publish} = stage;
+    const {job, sessionId, checkpointDir, requestedSelection, supersessionPolicy, jobAbort, jobSignal, recordUnprovenTermination, publish} =
+        stage;
     const {paths, sourcePdfPath, options, log} = job;
     const warnings = new OcrJobMessages<string>();
     const errors = new OcrJobMessages<string>();
@@ -269,14 +264,52 @@ async function recognizeOcrJobPages(stage: {
             }
             const {pageSizes} = pageSizeProbe;
             const {lanes, cleanupThreads} = getOcrPageConcurrency(targetPages.length, paths, options);
+            const ownedPageRasters = new Map<
+                number,
+                {
+                    dpi: number;
+                    raster: IOcrPageRaster<IOcrEngineImageFile>;
+                }
+            >();
+            const retainedUnprovenRasterPaths = new Set<string>();
+            const pendingRasterRemovals = new Set<Promise<void>>();
+
+            const removeRasterFile = (path: string) => {
+                if (retainedUnprovenRasterPaths.has(path)) {
+                    return;
+                }
+                const removal = rm(path, {force: true})
+                    .catch(() => undefined)
+                    .finally(() => {
+                        pendingRasterRemovals.delete(removal);
+                    });
+                pendingRasterRemovals.add(removal);
+            };
+
+            const releasePageRaster = (pageNumber: number) => {
+                const owned = ownedPageRasters.get(pageNumber);
+                if (!owned) {
+                    return;
+                }
+                ownedPageRasters.delete(pageNumber);
+                removeRasterFile(owned.raster.image.path);
+            };
 
             /**
              * Renders the page with Poppler and, when the run sets a
              * preprocessing mode, cleans it as the browser does: 'off' still
-             * normalizes polarity. A cleaned page of another size, or a
-             * cleanup that failed, leaves the rendered page with a diagnostic.
+             * normalizes polarity. Ownership is scoped to the page so Early
+             * Print reread passes reuse the prepared raster file instead of
+             * re-rendering and re-preprocessing it.
              */
             const renderPage = async (pageNumber: number, dpi: number, pageSignal: AbortSignal) => {
+                const cached = ownedPageRasters.get(pageNumber);
+                if (cached && cached.dpi === dpi) {
+                    return cached.raster;
+                }
+                if (cached) {
+                    releasePageRaster(pageNumber);
+                }
                 const renderedPath = join(paths.tempDir, `${sessionId}-page-${pageNumber}-${randomUUID()}.ppm`);
                 try {
                     const pageSize = pageSizes.get(pageNumber);
@@ -295,19 +328,26 @@ async function recognizeOcrJobPages(stage: {
                         ],
                         preparePopplerFallback,
                     );
-                    return await prepareOcrPageRasterFile({
+                    const raster = await prepareOcrPageRasterFile({
                         renderedPath,
                         pageNumber,
                         dpi,
                         cleanupMode,
                         scanCleanupBinary: paths.scanCleanupBinary,
                         cleanupThreads,
+                        brokerOwnerId: `ocr:${job.jobId}`,
                         log,
                         signal: pageSignal,
                     });
+                    ownedPageRasters.set(pageNumber, {dpi, raster});
+                    return raster;
                 } catch (error) {
                     if (getUnprovenNativeTerminationDetail(error) !== undefined) {
-                        jobAbort.abort(error);
+                        retainedUnprovenRasterPaths.add(renderedPath);
+                        recordUnprovenTermination(error);
+                        // Abort siblings with an unmarked AbortError so they never
+                        // mistake this page's termination proof for their own.
+                        jobAbort.abort(createAbortError('OCR job stopped after unproven native termination'));
                     } else {
                         await rm(renderedPath, {force: true}).catch(() => undefined);
                     }
@@ -315,26 +355,56 @@ async function recognizeOcrJobPages(stage: {
                 }
             };
 
+            const runPageEngine = async (request: TDesktopOcrEngineRequest, engineSignal: AbortSignal) => {
+                try {
+                    return await runEngine(request, engineSignal);
+                } catch (error) {
+                    if (getUnprovenNativeTerminationDetail(error) !== undefined) {
+                        if (isOcrEngineImageFile(request.image)) {
+                            const rasterPath = request.image.path;
+                            retainedUnprovenRasterPaths.add(rasterPath);
+                            const lateLaneExit = getOcrEngineLaneExitPromise(error);
+                            if (lateLaneExit) {
+                                void lateLaneExit.then(() => rm(rasterPath, {force: true}).catch(() => undefined));
+                            }
+                        }
+                        recordUnprovenTermination(error);
+                        jobAbort.abort(createAbortError('OCR job stopped after unproven engine termination'));
+                    }
+                    throw error;
+                }
+            };
+
             publish(batchFirstPage, batchOffset, {phase: 'processing'});
-            const batch = await recognizeOcrPages({
-                pages: targetPages,
-                extractionDpi: resolveOcrExtractionDpi(sourceDpi?.documentDpi ?? options.renderDpi),
-                sourceDpiByPage,
-                options,
-                lanes,
-                signal: jobSignal,
-                renderPage,
-                runEngine,
-                prepareEarlyPrintModels: () => (earlyPrintModels ??= job.prepareEarlyPrintModels(jobSignal)),
-                readModel: (code: TOcrModelCode) => readFile(join(paths.tessdataPath, `${code}.traineddata`)),
-                restorePage: (pageNumber) => restoreOcrPageCheckpoint(checkpointDir, pageNumber),
-                acceptPage: (page) => persistOcrPageCheckpoint(checkpointDir, page),
-                onPageDone: (pageNumber, activePages, processed) =>
-                    publish(pageNumber, batchOffset + processed, {
-                        phase: 'processing',
-                        activePages: [...activePages],
-                    }),
-            });
+            let batch: Awaited<ReturnType<typeof recognizeOcrPages<IOcrEngineImageFile>>>;
+            try {
+                batch = await recognizeOcrPages({
+                    pages: targetPages,
+                    extractionDpi: resolveOcrExtractionDpi(sourceDpi?.documentDpi ?? options.renderDpi),
+                    sourceDpiByPage,
+                    options,
+                    lanes,
+                    signal: jobSignal,
+                    renderPage,
+                    runEngine: runPageEngine,
+                    prepareEarlyPrintModels: () => (earlyPrintModels ??= job.prepareEarlyPrintModels(jobSignal)),
+                    readModel: (code: TOcrModelCode) => readFile(join(paths.tessdataPath, `${code}.traineddata`)),
+                    restorePage: (pageNumber) => restoreOcrPageCheckpoint(checkpointDir, pageNumber),
+                    acceptPage: (page) => persistOcrPageCheckpoint(checkpointDir, page),
+                    onPageDone: (pageNumber, activePages, processed) => {
+                        releasePageRaster(pageNumber);
+                        publish(pageNumber, batchOffset + processed, {
+                            phase: 'processing',
+                            activePages: [...activePages],
+                        });
+                    },
+                });
+            } finally {
+                for (const pageNumber of [...ownedPageRasters.keys()]) {
+                    releasePageRaster(pageNumber);
+                }
+                await Promise.all(pendingRasterRemovals);
+            }
             errors.push(...batch.errors.items);
             diagnostics.push(...batch.diagnostics.items);
             successfulPageCount += batch.recognizedCount;
@@ -364,8 +434,12 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
             ...extra,
         });
     let ownedCheckpointFingerprint: string | null = null;
+    let unprovenTerminationFailure: unknown;
     let jobFailure: unknown;
     let resultPath: string | undefined;
+    const recordUnprovenTermination = (error: unknown) => {
+        unprovenTerminationFailure ??= error;
+    };
 
     try {
         const sourceStat = await stat(sourcePdfPath);
@@ -406,6 +480,7 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
             supersessionPolicy,
             jobAbort,
             jobSignal,
+            recordUnprovenTermination,
             publish,
         });
 
@@ -473,7 +548,7 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
         };
     } catch (caughtError) {
         resultPath = undefined;
-        const error = jobAbort.signal.aborted ? jobAbort.signal.reason : caughtError;
+        const error = unprovenTerminationFailure ?? (jobAbort.signal.aborted ? jobAbort.signal.reason : caughtError);
         jobFailure = error;
         if (getUnprovenNativeTerminationDetail(error) !== undefined || signal.aborted) {
             throw error;

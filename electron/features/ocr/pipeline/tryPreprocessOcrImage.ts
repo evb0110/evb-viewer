@@ -4,8 +4,11 @@ import {requirePageNumber} from '@contracts/pageNumbers';
 import {encodePnm, readPnmSize} from '@ocr-core/ppmRaster';
 import type {IOcrPageRaster} from '@ocr-core/recognizeOcrPages';
 import type {IOcrEngineImageFile} from '@electron/features/ocr/main/ocrEngineHostProtocol';
+import {resolveOcrPreprocessResources} from '@electron/features/ocr/main/ocrRuntimePolicy';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import type {TWorkerLog} from '@electron/features/ocr/pipeline/types';
+import {mainJobBroker, type IJobBrokerRunContext, type JobBroker} from '@electron/resources/jobBroker';
+import {isAbortError} from '@electron/utils/abort';
 import {getErrorMessage} from '@electron/utils/error';
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 import type {IOcrDiagnostic} from '@contracts/electronApiOcr';
@@ -73,6 +76,7 @@ export async function tryPreprocessOcrImage(
     dpi = 300,
     mode: TOcrScanCleanupMode = 'clean',
     grantedCpuTokens?: number,
+    brokerRun?: IJobBrokerRunContext,
 ): Promise<IOcrPreprocessedImage> {
     if (scanCleanupBinary) {
         try {
@@ -98,6 +102,7 @@ export async function tryPreprocessOcrImage(
                                   RAYON_NUM_THREADS: String(grantedCpuTokens),
                               },
                           }),
+                    ...(brokerRun === undefined ? {} : {brokerRun}),
                     timeoutMs: OCR_PREPROCESS_TIMEOUT_MS,
                     commandLabel: 'evb-scan-cleanup(ocr-preprocess)',
                     signal,
@@ -210,8 +215,85 @@ interface IPrepareOcrPageRasterInput {
     cleanupMode: TOcrScanCleanupMode | undefined;
     scanCleanupBinary: string | undefined;
     cleanupThreads?: number;
+    broker?: JobBroker;
+    brokerOwnerId?: string;
     log: TWorkerLog;
     signal: AbortSignal;
+}
+
+async function runPreprocessWithBrokerLease(input: {
+    renderedPath: string;
+    cleanedPath: string;
+    metadataPath: string;
+    renderedSize: {width: number; height: number};
+    dpi: number;
+    cleanupMode: TOcrScanCleanupMode;
+    scanCleanupBinary: string | undefined;
+    cleanupThreads?: number;
+    broker?: JobBroker;
+    brokerOwnerId?: string;
+    log: TWorkerLog;
+    signal: AbortSignal;
+    onDiagnostic: (diagnostic: IOcrDiagnostic) => void;
+}) {
+    if (!input.scanCleanupBinary) {
+        return tryPreprocessOcrImage(
+            input.renderedPath,
+            input.cleanedPath,
+            input.log,
+            input.signal,
+            input.onDiagnostic,
+            input.scanCleanupBinary,
+            input.metadataPath,
+            input.dpi,
+            input.cleanupMode,
+            input.cleanupThreads,
+        );
+    }
+    const broker = input.broker ?? mainJobBroker;
+    const resources = resolveOcrPreprocessResources({
+        pixelCount: input.renderedSize.width * input.renderedSize.height,
+        mode: input.cleanupMode,
+        cleanupThreads: input.cleanupThreads ?? 1,
+        capacity: broker.getSnapshot().capacity,
+    });
+    try {
+        return await broker.run(
+            {
+                ownerId: input.brokerOwnerId ?? 'ocr:preprocess',
+                kind: 'ocr-preprocess',
+                priority: 'user',
+                resources,
+                signal: input.signal,
+            },
+            (brokerRun) =>
+                tryPreprocessOcrImage(
+                    input.renderedPath,
+                    input.cleanedPath,
+                    input.log,
+                    input.signal,
+                    input.onDiagnostic,
+                    input.scanCleanupBinary,
+                    input.metadataPath,
+                    input.dpi,
+                    input.cleanupMode,
+                    Math.max(1, brokerRun.lease.resources.cpuTokens),
+                    brokerRun,
+                ),
+        );
+    } catch (error) {
+        if (input.signal.aborted || isAbortError(error) || getUnprovenNativeTerminationDetail(error) !== undefined) {
+            throw error;
+        }
+        const message = 'OCR preprocessing failed; using raw page render';
+        input.log('warn', `Native scan cleanup admission failed; using raw page render: ${getErrorMessage(error)}`);
+        input.onDiagnostic({
+            code: 'OCR_PREPROCESSING_FAILED',
+            severity: 'warning',
+            message,
+        });
+        return {path: input.renderedPath};
+    }
 }
 
 /**
@@ -226,26 +308,30 @@ export async function prepareOcrPageRaster(input: IPrepareOcrPageRasterInput): P
     }
     const renderedSize = await readOcrRasterDimensions(input.renderedPath);
     const cleanedPath = `${input.renderedPath}-clean.pnm`;
+    const metadataPath = `${cleanedPath}.json`;
     const pageNumber = requirePageNumber(input.pageNumber);
     let diagnostic: IOcrDiagnostic | undefined;
     try {
-        const cleaned = await tryPreprocessOcrImage(
-            input.renderedPath,
+        const cleaned = await runPreprocessWithBrokerLease({
+            renderedPath: input.renderedPath,
             cleanedPath,
-            input.log,
-            input.signal,
-            (reported) => {
+            metadataPath,
+            renderedSize,
+            dpi: input.dpi,
+            cleanupMode: input.cleanupMode,
+            scanCleanupBinary: input.scanCleanupBinary,
+            ...(input.cleanupThreads === undefined ? {} : {cleanupThreads: input.cleanupThreads}),
+            ...(input.broker === undefined ? {} : {broker: input.broker}),
+            ...(input.brokerOwnerId === undefined ? {} : {brokerOwnerId: input.brokerOwnerId}),
+            log: input.log,
+            signal: input.signal,
+            onDiagnostic: (reported) => {
                 diagnostic = {
                     ...reported,
                     pageNumber,
                 };
             },
-            input.scanCleanupBinary,
-            `${cleanedPath}.json`,
-            input.dpi,
-            input.cleanupMode,
-            input.cleanupThreads,
-        );
+        });
         if (cleaned.path === input.renderedPath) {
             const rendered = await readOcrRasterFile(input.renderedPath);
             return {
@@ -276,7 +362,7 @@ export async function prepareOcrPageRaster(input: IPrepareOcrPageRasterInput): P
                 : {}),
         };
     } finally {
-        await Promise.all([cleanedPath, `${cleanedPath}.json`].map((path) => rm(path, {force: true}))).catch(() => undefined);
+        await Promise.all([cleanedPath, metadataPath].map((path) => rm(path, {force: true}))).catch(() => undefined);
     }
 }
 
@@ -305,23 +391,26 @@ export async function prepareOcrPageRasterFile(input: IPrepareOcrPageRasterInput
     let keepCleanedPath = false;
     let failure: unknown;
     try {
-        const cleaned = await tryPreprocessOcrImage(
-            input.renderedPath,
+        const cleaned = await runPreprocessWithBrokerLease({
+            renderedPath: input.renderedPath,
             cleanedPath,
-            input.log,
-            input.signal,
-            (reported) => {
+            metadataPath,
+            renderedSize,
+            dpi: input.dpi,
+            cleanupMode: input.cleanupMode,
+            scanCleanupBinary: input.scanCleanupBinary,
+            ...(input.cleanupThreads === undefined ? {} : {cleanupThreads: input.cleanupThreads}),
+            ...(input.broker === undefined ? {} : {broker: input.broker}),
+            ...(input.brokerOwnerId === undefined ? {} : {brokerOwnerId: input.brokerOwnerId}),
+            log: input.log,
+            signal: input.signal,
+            onDiagnostic: (reported) => {
                 diagnostic = {
                     ...reported,
                     pageNumber,
                 };
             },
-            input.scanCleanupBinary,
-            metadataPath,
-            input.dpi,
-            input.cleanupMode,
-            input.cleanupThreads,
-        );
+        });
         if (cleaned.path === input.renderedPath) {
             return {
                 ...renderedSize,

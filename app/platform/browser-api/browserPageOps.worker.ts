@@ -29,6 +29,8 @@ import {
 import {opfsFileHandle} from '@app/platform/browser/opfsFileHandle';
 import {handlePrecompiledWasmModuleMessage, readLoadedWasmDigest} from '@app/platform/browser/loadWasmWithDeadline';
 import {toTransferableUint8Array} from '@app/platform/browser/toTransferableUint8Array';
+import {SCAN_CLEANUP_MAX_DIMENSION_PX} from '@contracts/scan-cleanup/inputLimits';
+import {createPpmRaster} from '@ocr-core/ppmRaster';
 import {getErrorMessage} from '@app/utils/error';
 
 const COPY_CHUNK_BYTES = 4 * 1024 * 1024;
@@ -68,7 +70,7 @@ async function openStoreSink(output: string): Promise<TPageStructureSink> {
 
 /** The output of a document the browser keeps in memory, returned as bytes. */
 function createMemorySink(): TPageStructureSink {
-    let buffer = new Uint8Array(1 << 20);
+    let buffer: Uint8Array<ArrayBuffer> = new Uint8Array(1 << 20);
     let length = 0;
     return {
         write(bytes, at) {
@@ -87,8 +89,21 @@ function createMemorySink(): TPageStructureSink {
             }
             into.set(buffer.subarray(at, at + into.byteLength));
         },
-        finish: (written) => buffer.slice(0, written),
-        close: () => undefined,
+        finish(written) {
+            const source = buffer;
+            buffer = new Uint8Array(0);
+            const clamped = Math.min(written, source.byteLength);
+            if (clamped === source.byteLength) {
+                return source;
+            }
+            if (typeof source.buffer.transfer === 'function') {
+                return new Uint8Array(source.buffer.transfer(clamped));
+            }
+            return source.slice(0, clamped);
+        },
+        close() {
+            buffer = new Uint8Array(0);
+        },
     };
 }
 
@@ -168,6 +183,24 @@ function isWasmWriterRequest(
     request: TBrowserPageOpsWorkerRequest,
 ): request is Extract<TBrowserPageOpsWorkerRequest, {type: TWasmWriterRequestType}> {
     return (WASM_WRITER_REQUEST_TYPES as readonly string[]).includes(request.type);
+}
+
+function packScanCleanupRasterPpm(
+    result: Exclude<IBrowserPageOpsWorkerResultMap['renderScanCleanupRaster'], {status: 'failed'}>,
+): Uint8Array<ArrayBuffer> {
+    if (!('width' in result.report)) {
+        return toTransferableUint8Array(result.data);
+    }
+    const {width, height} = result.report;
+    if (width > SCAN_CLEANUP_MAX_DIMENSION_PX || height > SCAN_CLEANUP_MAX_DIMENSION_PX) {
+        return new Uint8Array(0);
+    }
+    if (result.data.byteLength !== width * height * 3) {
+        throw new Error('Scan cleanup page raster does not match its size');
+    }
+    const ppm = createPpmRaster(width, height);
+    ppm.image.set(result.data, ppm.offset);
+    return ppm.image;
 }
 
 async function handleRequest(request: TBrowserPageOpsWorkerRequest) {
@@ -271,7 +304,12 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
                 await postResponse(response);
             } else {
                 const result = data as Exclude<IBrowserPageOpsWorkerResultMap[TWasmWriterRequestType], {status: 'failed'}>;
-                const transferableData = toTransferableUint8Array(result.data);
+                const transferableData =
+                    request.type === 'renderScanCleanupRaster'
+                        ? packScanCleanupRasterPpm(
+                              result as Exclude<IBrowserPageOpsWorkerResultMap['renderScanCleanupRaster'], {status: 'failed'}>,
+                          )
+                        : toTransferableUint8Array(result.data);
                 await postResponse(
                     {
                         ...response,

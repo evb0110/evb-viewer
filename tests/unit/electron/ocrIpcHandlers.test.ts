@@ -4,6 +4,8 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createOcrEnginePool} from '@electron/features/ocr/main/ocrEnginePool';
 import {createOcrEngineHost, OcrEngineHostExitError} from '@electron/features/ocr/main/ocrEngineHostClient';
+import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
+import {createTesseractEngine} from '@ocr-core/tesseractEngine';
 import {OCR_ENGINE_SERVICE_NAME} from '@electron/processDeathRecovery';
 import {
     decodeOcrEngineHostEvent,
@@ -672,6 +674,7 @@ const boundary = vi.hoisted(() => ({
     replyGate: undefined as Promise<void> | undefined,
     terminateGate: undefined as Promise<void> | undefined,
     constructorError: undefined as (() => Error | undefined) | undefined,
+    wasmMemoryBytes: undefined as (() => number | undefined) | undefined,
 }));
 
 /** An engine lane as the pool sees it, answering every page with no passes. */
@@ -687,7 +690,15 @@ class FakeLane extends EventEmitter {
         if (this.dead) {
             return;
         }
-        void Promise.resolve(boundary.replyGate).then(() => this.emit('message', {id, ok: true, result: {passes: []}}));
+        const wasmMemoryBytes = boundary.wasmMemoryBytes?.();
+        void Promise.resolve(boundary.replyGate).then(() =>
+            this.emit('message', {
+                id,
+                ok: true,
+                result: {passes: []},
+                ...(wasmMemoryBytes === undefined ? {} : {wasmMemoryBytes}),
+            }),
+        );
     }
     async terminate() {
         await boundary.terminateGate;
@@ -727,6 +738,7 @@ describe('OCR engine pool idle shutdown', () => {
         boundary.replyGate = undefined;
         boundary.terminateGate = undefined;
         boundary.constructorError = undefined;
+        boundary.wasmMemoryBytes = undefined;
     });
 
     it.each(['terminate', 'worker exit'] as const)('releases the idle timer after %s', async (end) => {
@@ -1333,6 +1345,580 @@ describe('OCR engine pool idle shutdown', () => {
         } finally {
             pool.terminate();
         }
+    });
+
+    it('charges actual retained WASM heap above pre-pass estimate and keeps that charge across subsequent small pages', async () => {
+        const broker = new JobBroker(POOL_CAPACITY);
+        const pool = createOcrEnginePool({
+            size: () => 1,
+            tessdataDir: await createTessdata(40 * MIB),
+            startLane: startFakeLane,
+            broker,
+            maxRetainedWasmBytes: 512 * MIB,
+        });
+        try {
+            const reportedHeap = 360 * MIB;
+            boundary.wasmMemoryBytes = () => reportedHeap;
+
+            await pool.run({image: new Uint8Array([0]), models: ['eng'], passes: ENGINE_PASSES}, new AbortController().signal);
+
+            // Actual retained bytes = 360 MiB WASM heap + 40 MiB cached model > 292 MiB estimate.
+            expect(boundary.workers).toHaveLength(1);
+            expect(boundary.workers[0]!.dead).toBe(false);
+            expect(broker.getSnapshot().used).toMatchObject({
+                cpuTokens: 0,
+                estimatedResidentBytes: reportedHeap + 40 * MIB,
+            });
+
+            // Subsequent small page reuses the warm worker and keeps the high-water broker charge.
+            boundary.wasmMemoryBytes = () => 360 * MIB;
+            await pool.run({image: new Uint8Array([0]), models: ['eng'], passes: ENGINE_PASSES}, new AbortController().signal);
+            expect(boundary.workers).toHaveLength(1);
+            expect(broker.getSnapshot().used).toMatchObject({
+                cpuTokens: 0,
+                estimatedResidentBytes: reportedHeap + 40 * MIB,
+            });
+
+            pool.terminate();
+            await vi.waitFor(() =>
+                expect(broker.getSnapshot()).toMatchObject({
+                    active: 0,
+                    used: {cpuTokens: 0, estimatedResidentBytes: 0},
+                }),
+            );
+        } finally {
+            pool.terminate();
+        }
+    });
+
+    it('recycles a worker cleanly between pages once retained WASM heap exceeds the high-water cap', async () => {
+        const broker = new JobBroker({
+            ...POOL_CAPACITY,
+            estimatedResidentBytes: 2048 * MIB,
+        });
+        const pool = createOcrEnginePool({
+            size: () => 1,
+            tessdataDir: await createTessdata(40 * MIB),
+            startLane: startFakeLane,
+            broker,
+            maxRetainedWasmBytes: 512 * MIB,
+        });
+        const exitGate = Promise.withResolvers<void>();
+        try {
+            const foldoutHeap = 768 * MIB;
+            boundary.terminateGate = exitGate.promise;
+            boundary.wasmMemoryBytes = () => foldoutHeap;
+
+            // Active foldout page resolves cleanly without interruption.
+            await expect(
+                pool.run({image: new Uint8Array([0]), models: ['eng'], passes: ENGINE_PASSES}, new AbortController().signal),
+            ).resolves.toEqual({passes: []});
+
+            // CPU is released immediately; memory stays charged until the bloated worker finishes exiting.
+            expect(broker.getSnapshot().used).toMatchObject({
+                cpuTokens: 0,
+                estimatedResidentBytes: foldoutHeap + 40 * MIB,
+            });
+
+            // Next normal page submitted while the foldout worker is retiring starts on a fresh worker, never the retiring one.
+            boundary.wasmMemoryBytes = () => 200 * MIB;
+            const nextPage = pool.run({image: new Uint8Array([0]), models: ['eng'], passes: ENGINE_PASSES}, new AbortController().signal);
+            exitGate.resolve();
+            boundary.terminateGate = undefined;
+            await expect(nextPage).resolves.toEqual({passes: []});
+            await vi.waitFor(() => expect(boundary.workers[0]!.dead).toBe(true));
+            expect(boundary.workers).toHaveLength(2);
+            expect(boundary.workers[1]!.dead).toBe(false);
+            expect(broker.getSnapshot().used).toMatchObject({
+                cpuTokens: 0,
+                estimatedResidentBytes: 2.5 * 40 * MIB + PAGE_HEAP_BYTES,
+            });
+        } finally {
+            exitGate.resolve();
+            pool.terminate();
+        }
+    });
+
+    it('recycles between pages when retained WASM heap growth exceeds remaining broker headroom', async () => {
+        const broker = new JobBroker({
+            ...POOL_CAPACITY,
+            cpuTokens: 1,
+            estimatedResidentBytes: 512 * MIB,
+        });
+        const pool = createOcrEnginePool({
+            size: () => 1,
+            tessdataDir: await createTessdata(40 * MIB),
+            startLane: startFakeLane,
+            broker,
+            maxRetainedWasmBytes: 600 * MIB,
+        });
+        try {
+            // Another job occupies 200 MiB, leaving only 312 MiB of broker memory.
+            const other = await broker.acquire({
+                ownerId: 'other-job',
+                kind: 'render',
+                priority: 'user',
+                resources: {
+                    cpuTokens: 0,
+                    estimatedResidentBytes: 200 * MIB,
+                    nativeProcesses: 0,
+                    ioWeight: 0,
+                },
+            });
+            const exitGate = Promise.withResolvers<void>();
+            const waitingAbort = new AbortController();
+            try {
+                // Pre-pass estimate is 292 MiB (fits in 312 MiB), but actual WASM heap grew to 420 MiB
+                // (+40 MiB model = 460 MiB > 312 MiB available). Hold exit to verify the full pass lease
+                // (including CPU) stays held until exit so no replacement work is admitted prematurely.
+                boundary.terminateGate = exitGate.promise;
+                boundary.wasmMemoryBytes = () => 420 * MIB;
+                await expect(
+                    pool.run({image: new Uint8Array([0]), models: ['eng'], passes: ENGINE_PASSES}, new AbortController().signal),
+                ).resolves.toEqual({passes: []});
+
+                let admittedBeforeExit = false;
+                const waitingJob = broker
+                    .acquire({
+                        ownerId: 'next-job',
+                        kind: 'render',
+                        priority: 'user',
+                        resources: {
+                            cpuTokens: 1,
+                            estimatedResidentBytes: 16 * MIB,
+                            nativeProcesses: 0,
+                            ioWeight: 0,
+                        },
+                        signal: waitingAbort.signal,
+                    })
+                    .then((lease) => {
+                        admittedBeforeExit = true;
+                        return lease;
+                    });
+                await new Promise((resolve) => setImmediate(resolve));
+                expect(admittedBeforeExit).toBe(false);
+                expect(broker.getSnapshot().used.cpuTokens).toBe(1);
+
+                exitGate.resolve();
+                boundary.terminateGate = undefined;
+                const nextLease = await waitingJob;
+                expect(boundary.workers[0]!.dead).toBe(true);
+                nextLease.release();
+                expect(broker.getSnapshot().used.estimatedResidentBytes).toBe(200 * MIB);
+
+                // Even with spare broker CPU capacity and multiple pool slots, no replacement
+                // OCR pass may start until an undercharged lane exits and frees its heap.
+                const spareBroker = new JobBroker({
+                    ...POOL_CAPACITY,
+                    cpuTokens: 4,
+                    estimatedResidentBytes: 1024 * MIB,
+                });
+                const sparePool = createOcrEnginePool({
+                    size: () => 2,
+                    tessdataDir: await createTessdata(200 * MIB),
+                    startLane: startFakeLane,
+                    broker: spareBroker,
+                    maxRetainedWasmBytes: 1200 * MIB,
+                });
+                const exitGate2 = Promise.withResolvers<void>();
+                try {
+                    boundary.terminateGate = exitGate2.promise;
+                    boundary.wasmMemoryBytes = () => 1100 * MIB;
+                    const workersBefore = boundary.workers.length;
+                    await expect(
+                        sparePool.run({image: new Uint8Array([0]), models: ['eng'], passes: ENGINE_PASSES}, new AbortController().signal),
+                    ).resolves.toEqual({passes: []});
+
+                    boundary.wasmMemoryBytes = () => 200 * MIB;
+                    const replacement = sparePool.run(
+                        {image: new Uint8Array([0]), models: ['eng'], passes: ENGINE_PASSES},
+                        new AbortController().signal,
+                    );
+                    await new Promise((resolve) => setImmediate(resolve));
+                    // Only the retiring undercharged worker exists; replacement has NOT started yet.
+                    expect(boundary.workers).toHaveLength(workersBefore + 1);
+
+                    exitGate2.resolve();
+                    boundary.terminateGate = undefined;
+                    await expect(replacement).resolves.toEqual({passes: []});
+                    expect(boundary.workers).toHaveLength(workersBefore + 2);
+                } finally {
+                    exitGate2.resolve();
+                    sparePool.terminate();
+                }
+            } finally {
+                waitingAbort.abort();
+                exitGate.resolve();
+                other.release();
+            }
+        } finally {
+            pool.terminate();
+        }
+    });
+
+    it('recycles a worker whose unclamped WASM heap plus cached models exceed broker capacity', async () => {
+        const broker = new JobBroker({
+            ...POOL_CAPACITY,
+            estimatedResidentBytes: 512 * MIB,
+        });
+        const pool = createOcrEnginePool({
+            size: () => 1,
+            tessdataDir: await createTessdata(200 * MIB),
+            startLane: startFakeLane,
+            broker,
+            maxRetainedWasmBytes: 600 * MIB,
+        });
+        try {
+            // Pre-pass estimate clamps to 512 MiB, while actual retained total is 500 MiB + 200 MiB = 700 MiB > 512 MiB.
+            boundary.wasmMemoryBytes = () => 500 * MIB;
+            await expect(
+                pool.run({image: new Uint8Array([0]), models: ['eng'], passes: ENGINE_PASSES}, new AbortController().signal),
+            ).resolves.toEqual({passes: []});
+
+            await vi.waitFor(() => {
+                expect(boundary.workers[0]!.dead).toBe(true);
+                expect(broker.getSnapshot()).toMatchObject({
+                    active: 0,
+                    used: {cpuTokens: 0, estimatedResidentBytes: 0},
+                });
+            });
+        } finally {
+            pool.terminate();
+        }
+    });
+
+    it('retains and releases the retained-heap top-up lease when another job is granted during the same dispatch, and recycles undercharged on queue-full rejection', async () => {
+        // Part 1: Synchronous memory reclaim inside broker.acquire(top-up) grants both
+        // a queued job and the top-up lease in one dispatch() without leaking either lease.
+        const broker = new JobBroker({
+            ...POOL_CAPACITY,
+            cpuTokens: 2,
+            estimatedResidentBytes: 640 * MIB,
+        });
+        let reclaimableReleased = false;
+        const syncReclaimable = await broker.acquire({
+            ownerId: 'idle-cache',
+            kind: 'cache',
+            priority: 'background',
+            resources: {
+                cpuTokens: 0,
+                estimatedResidentBytes: 240 * MIB,
+                nativeProcesses: 0,
+                ioWeight: 0,
+            },
+        });
+        const unregisterReclaimer = broker.registerMemoryReclaimer(() => {
+            if (!reclaimableReleased) {
+                reclaimableReleased = true;
+                syncReclaimable.release();
+            }
+        });
+        const pool = createOcrEnginePool({
+            size: () => 1,
+            tessdataDir: await createTessdata(40 * MIB),
+            startLane: startFakeLane,
+            broker,
+            maxRetainedWasmBytes: 512 * MIB,
+        });
+        const reply = Promise.withResolvers<void>();
+        const waiterAbort = new AbortController();
+        try {
+            boundary.replyGate = reply.promise;
+            boundary.wasmMemoryBytes = () => 360 * MIB;
+            const pass = pool.run({image: new Uint8Array([0]), models: ['eng'], passes: ENGINE_PASSES}, new AbortController().signal);
+            await vi.waitFor(() => expect(broker.getSnapshot().used.cpuTokens).toBe(1));
+
+            // Queue a 120 MiB waiter that does not fit yet (240 + 292 + 120 = 652 > 640)
+            // while holding back reclaimableReleased until the top-up triggers dispatch.
+            reclaimableReleased = true;
+            const extraWaiter = broker.acquire({
+                ownerId: 'queued-owner',
+                kind: 'other',
+                priority: 'foreground',
+                resources: {
+                    cpuTokens: 0,
+                    estimatedResidentBytes: 120 * MIB,
+                    nativeProcesses: 0,
+                    ioWeight: 0,
+                },
+                signal: waiterAbort.signal,
+            });
+            expect(broker.getSnapshot().queued).toBe(1);
+            // Re-arm reclaimer so top-up's broker.acquire triggers reclaim + grants BOTH in one dispatch.
+            reclaimableReleased = false;
+            // Free 240 MiB inside the reclaimer when top-up arrives (top-up needs 108 MiB, waiter needs 120 MiB;
+            // 292 + 120 + 108 = 520 <= 640 so both grant together).
+            reply.resolve();
+            await pass;
+            const grantedExtraLease = await extraWaiter;
+            expect(reclaimableReleased).toBe(true);
+            expect(broker.getSnapshot().used.estimatedResidentBytes).toBe(360 * MIB + 40 * MIB + 120 * MIB);
+
+            grantedExtraLease.release();
+            pool.terminate();
+            await vi.waitFor(() =>
+                expect(broker.getSnapshot()).toMatchObject({
+                    active: 0,
+                    queued: 0,
+                    used: {cpuTokens: 0, estimatedResidentBytes: 0},
+                }),
+            );
+        } finally {
+            waiterAbort.abort();
+            reply.resolve();
+            unregisterReclaimer();
+            syncReclaimable.release();
+            pool.terminate();
+        }
+
+        // Part 2: When broker.acquire rejects synchronously (full queue) on top-up,
+        // keepWorker must NOT release CPU; it must retain the full pass lease and
+        // retire the lane via underchargedExiting (with bounded escalation if stalled).
+        vi.useFakeTimers();
+        const fullQueueBroker = new JobBroker(
+            {
+                ...POOL_CAPACITY,
+                cpuTokens: 1,
+                estimatedResidentBytes: 1024 * MIB,
+            },
+            {maxQueuedJobs: 1},
+        );
+        const onStalled = vi.fn();
+        const fullQueuePool = createOcrEnginePool({
+            size: () => 1,
+            tessdataDir: await createTessdata(40 * MIB),
+            startLane: startFakeLane,
+            broker: fullQueueBroker,
+            maxRetainedWasmBytes: 512 * MIB,
+            exitProofTimeoutMs: 500,
+            onStalledUnderchargedLane: onStalled,
+        });
+        const reply2 = Promise.withResolvers<void>();
+        const exit2 = Promise.withResolvers<void>();
+        const queueFillerAbort = new AbortController();
+        try {
+            boundary.replyGate = reply2.promise;
+            boundary.terminateGate = exit2.promise;
+            boundary.wasmMemoryBytes = () => 360 * MIB;
+            const pass2 = fullQueuePool.run(
+                {image: new Uint8Array([0]), models: ['eng'], passes: ENGINE_PASSES},
+                new AbortController().signal,
+            );
+            await vi.waitFor(() => expect(fullQueueBroker.getSnapshot().used.cpuTokens).toBe(1));
+
+            // Fill the 1-slot broker queue so top-up acquire rejects with "queue is full".
+            const queueFiller = fullQueueBroker.acquire({
+                ownerId: 'queue-filler',
+                kind: 'other',
+                priority: 'user',
+                resources: {cpuTokens: 1, estimatedResidentBytes: 0, nativeProcesses: 0, ioWeight: 0},
+                signal: queueFillerAbort.signal,
+            });
+            void queueFiller.catch(() => undefined);
+            expect(fullQueueBroker.getSnapshot().queued).toBe(1);
+
+            reply2.resolve();
+            await expect(pass2).resolves.toEqual({passes: []});
+            // Top-up rejected -> CPU stays held (not granted to queueFiller!) while retiring.
+            expect(fullQueueBroker.getSnapshot()).toMatchObject({
+                queued: 1,
+                used: {cpuTokens: 1},
+            });
+
+            // If the undercharged lane fails to exit within exitProofTimeoutMs, escalation runs and unblocks the pool.
+            await vi.advanceTimersByTimeAsync(500);
+            expect(onStalled).toHaveBeenCalledTimes(1);
+
+            exit2.resolve();
+            queueFillerAbort.abort();
+            await vi.waitFor(() =>
+                expect(fullQueueBroker.getSnapshot()).toMatchObject({
+                    active: 0,
+                    queued: 0,
+                    used: {cpuTokens: 0, estimatedResidentBytes: 0},
+                }),
+            );
+        } finally {
+            queueFillerAbort.abort();
+            reply2.resolve();
+            exit2.resolve();
+            fullQueuePool.terminate();
+            vi.useRealTimers();
+        }
+    });
+
+    it('waits for lane exit acknowledgement on cancel and marks unproven termination if exit times out', async () => {
+        vi.useFakeTimers();
+        const broker = new JobBroker(POOL_CAPACITY);
+        const pool = createOcrEnginePool({
+            size: () => 1,
+            tessdataDir: await createTessdata(40 * MIB),
+            startLane: startFakeLane,
+            broker,
+            exitProofTimeoutMs: 500,
+        });
+        const reply1 = Promise.withResolvers<void>();
+        const exit1 = Promise.withResolvers<void>();
+        const exit2 = Promise.withResolvers<void>();
+        try {
+            // Delayed exit before timeout: run stays pending until exit is confirmed.
+            boundary.replyGate = reply1.promise;
+            boundary.terminateGate = exit1.promise;
+            const abort1 = new AbortController();
+            let settled1 = false;
+            const pass1 = pool
+                .run({image: new Uint8Array([0]), models: ['eng'], passes: ENGINE_PASSES}, abort1.signal)
+                .catch((error: unknown) => {
+                    settled1 = true;
+                    return error;
+                });
+            await vi.waitFor(() => expect(boundary.workers).toHaveLength(1));
+
+            abort1.abort(new Error('canceled-1'));
+            await vi.advanceTimersByTimeAsync(250);
+            expect(settled1).toBe(false);
+
+            exit1.resolve();
+            const error1 = await pass1;
+            expect(error1).toBeInstanceOf(Error);
+            expect((error1 as Error).message).toBe('canceled-1');
+            expect(getUnprovenNativeTerminationDetail(error1)).toBeUndefined();
+            expect(boundary.workers[0]!.dead).toBe(true);
+            expect(broker.getSnapshot().used.estimatedResidentBytes).toBe(0);
+
+            // Wedged exit past exitProofTimeoutMs: rejects with unproven termination and keeps memory charged until exit.
+            boundary.terminateGate = exit2.promise;
+            const abort2 = new AbortController();
+            const pass2Error = pool.run({image: new Uint8Array([0]), models: ['eng'], passes: ENGINE_PASSES}, abort2.signal).then(
+                () => null,
+                (caught: unknown) => caught,
+            );
+            await vi.waitFor(() => expect(boundary.workers).toHaveLength(2));
+
+            abort2.abort(new Error('canceled-2'));
+            await vi.advanceTimersByTimeAsync(500);
+            const error2 = await pass2Error;
+            expect(error2).toBeInstanceOf(Error);
+            expect(getUnprovenNativeTerminationDetail(error2)).toBeDefined();
+            expect(broker.getSnapshot().used.estimatedResidentBytes).toBeGreaterThan(0);
+
+            exit2.resolve();
+            await vi.waitFor(() => expect(broker.getSnapshot().used.estimatedResidentBytes).toBe(0));
+        } finally {
+            reply1.resolve();
+            exit1.resolve();
+            exit2.resolve();
+            pool.terminate();
+            vi.useRealTimers();
+        }
+    });
+});
+
+describe('createTesseractEngine WASM memory introspection', () => {
+    // Minimal valid WebAssembly module exporting a 1-page (64 KiB) growable linear memory named "m".
+    const MINIMAL_MEMORY_WASM = new Uint8Array([
+        0x00,
+        0x61,
+        0x73,
+        0x6d, // magic
+        0x01,
+        0x00,
+        0x00,
+        0x00, // version
+        0x05,
+        0x03,
+        0x01,
+        0x00,
+        0x01, // memory section: 1 memory, min=1 page
+        0x07,
+        0x05,
+        0x01,
+        0x01,
+        0x6d,
+        0x02,
+        0x00, // export section: "m" -> memory 0
+    ]);
+
+    it('reports live WebAssembly linear memory across growth and resets to zero after a failure', async () => {
+        const wasmModule = new WebAssembly.Module(MINIMAL_MEMORY_WASM);
+        let nextGrowPages = 0;
+        let nextExitCode = 0;
+        const files = new Map<string, Uint8Array>();
+
+        const recognize = createTesseractEngine({
+            loadEngine: async () => ({
+                module: wasmModule,
+                factory: async ({instantiateWasm}) => {
+                    let instance!: WebAssembly.Instance;
+                    await new Promise<void>((resolve) => {
+                        instantiateWasm({}, (created) => {
+                            instance = created;
+                            resolve();
+                        });
+                    });
+                    const exportedMemory = instance.exports.m as WebAssembly.Memory;
+                    return {
+                        callMain: () => {
+                            if (nextGrowPages > 0) {
+                                exportedMemory.grow(nextGrowPages);
+                                nextGrowPages = 0;
+                            }
+                            if (nextExitCode !== 0) {
+                                return nextExitCode;
+                            }
+                            files.set('/work/out.txt', new Uint8Array([65]));
+                            return 0;
+                        },
+                        FS: {
+                            mkdirTree: () => undefined,
+                            writeFile: (path, data) => {
+                                files.set(path, data);
+                            },
+                            readFile: (path) => {
+                                const data = files.get(path);
+                                if (!data) {
+                                    throw new Error(`missing ${path}`);
+                                }
+                                return data;
+                            },
+                            unlink: (path) => {
+                                files.delete(path);
+                            },
+                        },
+                    };
+                },
+            }),
+            loadModel: async () => new Uint8Array([1, 2, 3]),
+        });
+
+        expect(recognize.getWasmMemoryBytes()).toBe(0);
+
+        await recognize({
+            image: new Uint8Array([0]),
+            models: ['eng'],
+            passes: [{args: ['page.ppm', '/work/out'], outputs: ['/work/out.txt']}],
+        });
+        expect(recognize.getWasmMemoryBytes()).toBe(64 * 1024);
+
+        // Simulate a foldout growing WASM linear memory by 4 pages (+256 KiB) on the reused instance.
+        nextGrowPages = 4;
+        await recognize({
+            image: new Uint8Array([0]),
+            models: ['eng'],
+            passes: [{args: ['page.ppm', '/work/out'], outputs: ['/work/out.txt']}],
+        });
+        expect(recognize.getWasmMemoryBytes()).toBe(5 * 64 * 1024);
+
+        // A failed pass drops the active instance so reported retained WASM memory returns to 0.
+        nextExitCode = 1;
+        await expect(
+            recognize({
+                image: new Uint8Array([0]),
+                models: ['eng'],
+                passes: [{args: ['page.ppm', '/work/out'], outputs: ['/work/out.txt']}],
+            }),
+        ).rejects.toThrow(/Tesseract exited with code 1/u);
+        expect(recognize.getWasmMemoryBytes()).toBe(0);
     });
 });
 

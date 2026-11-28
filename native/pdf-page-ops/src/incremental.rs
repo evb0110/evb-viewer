@@ -353,7 +353,8 @@ pub(crate) struct IndexedAppend {
 }
 
 /// The base an append of `mutations` extends: the PDF `source` holds, read
-/// through its cross-reference index, with the objects and streams the
+/// through its cross-reference index without parsing unrelated page contents,
+/// resources, or document-wide structures, with the objects and streams the
 /// mutations reuse: images an undo restores, and the appearances that decide
 /// how an edited label keeps its frame. Streams are read by range.
 pub(crate) fn open_mutation_base<S: ByteSource>(
@@ -361,25 +362,7 @@ pub(crate) fn open_mutation_base<S: ByteSource>(
     len: u64,
     mutations: &NativeMutationsFile,
 ) -> Result<IncrementalDocument> {
-    if !mutations.page_rotations.is_empty()
-        || !mutations.page_crops.is_empty()
-        || !mutations.page_crop_removals.is_empty()
-    {
-        validate_page_tree_source(&source, len)?;
-    }
-    let restored_images = mutations
-        .placed_image_geometry_updates
-        .iter()
-        .filter_map(|update| update.source_image.as_ref())
-        .filter_map(|image| {
-            Some((
-                u32::try_from(image.object_number).ok()?,
-                u16::try_from(image.generation_number).ok()?,
-            ))
-        })
-        .collect::<Vec<_>>();
-    let mut source = SourcePdf::open_append_base_naming(source, len, &restored_images)?;
-    let mut incremental = source.take_append_base()?;
+    let (source, mut incremental) = SourcePdf::open_mutation_append_base(source, len, mutations)?;
     let streams = &source as StructuralSource;
     materialize_stamp_recovery_sources(
         &mut incremental,
@@ -416,8 +399,10 @@ pub(crate) fn append_native_mutations_to_source<S: ByteSource>(
     write: impl FnOnce(&[u8]) -> Result<Vec<u8>>,
 ) -> Result<IndexedAppend> {
     let mut incremental = open_mutation_base(source, len, mutations)?;
-    let page_count = u32::try_from(incremental.get_prev_documents().get_pages().len())
-        .map_err(|_| "PDF page count exceeds the WASM response range")?;
+    let page_count = u32::try_from(
+        crate::pdf_source::collect_document_pages(incremental.get_prev_documents()).len(),
+    )
+    .map_err(|_| "PDF page count exceeds the supported integer range")?;
     let mut identity_bindings = Vec::new();
     apply_native_mutations_with_bindings(
         &mut incremental,
@@ -2060,5 +2045,1837 @@ mod xref_stream_canary_tests {
         let appended = b"4294967295 0 obj\n<</Type/XRef/Size 4294967295/W[1 1 1]/Index[4294967295 2]/Length 6>>\nstream\n\x01\x00\x00\x01\x00\x00\nendstream\nendobj\nstartxref\n0\n%%EOF\n";
         let error = parse_incremental_xref_stream(appended, 0).unwrap_err();
         assert!(error.to_string().contains("object-number limit"));
+    }
+}
+
+#[cfg(test)]
+mod targeted_incremental_tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    type ParityAppendOutput = (
+        Vec<u8>,
+        u32,
+        Vec<AnnotationIdentityBinding>,
+        Option<serde_json::Value>,
+    );
+
+    /// Full-parse reference implementation of `append_native_mutations_to_bytes`
+    /// using `SourcePdf::open_append_base_naming` so parity tests can compare
+    /// targeted incremental mutations byte-for-byte against full-graph parses.
+    fn full_parse_append_mutations(
+        input: &[u8],
+        mutations: &NativeMutationsFile,
+        modified_at: &str,
+    ) -> Result<ParityAppendOutput> {
+        if !mutations.page_rotations.is_empty()
+            || !mutations.page_crops.is_empty()
+            || !mutations.page_crop_removals.is_empty()
+        {
+            validate_page_tree_source(input, input.len() as u64)?;
+        }
+        let restored_images = mutations
+            .placed_image_geometry_updates
+            .iter()
+            .filter_map(|update| update.source_image.as_ref())
+            .filter_map(|image| {
+                Some((
+                    u32::try_from(image.object_number).ok()?,
+                    u16::try_from(image.generation_number).ok()?,
+                ))
+            })
+            .collect::<Vec<_>>();
+        let mut source =
+            SourcePdf::open_append_base_naming(input, input.len() as u64, &restored_images)?;
+        let mut incremental = source.take_append_base()?;
+        let streams = &source as StructuralSource;
+        materialize_stamp_recovery_sources(
+            &mut incremental,
+            Some(streams),
+            &mutations.placed_image_geometry_updates,
+        )?;
+        crate::free_text_frame::materialize_free_text_appearances(
+            &mut incremental,
+            streams,
+            mutations,
+        )?;
+        let page_count = u32::try_from(incremental.get_prev_documents().get_pages().len())?;
+        let mut identity_bindings = Vec::new();
+        apply_native_mutations_with_bindings(
+            &mut incremental,
+            mutations,
+            modified_at,
+            &mut identity_bindings,
+        )?;
+        let revision = build_incremental_revision(&mut incremental)?;
+        let expected_object_ids = collect_incremental_append_object_ids(&incremental);
+        validate_incremental_append_bytes(
+            &revision,
+            input.len() as u64,
+            incremental.previous_xref_start(),
+            &expected_object_ids,
+        )?;
+        validate_appended_revision_postconditions_with_page_ids(
+            &incremental,
+            mutations,
+            modified_at,
+            incremental.located_pages.as_ref(),
+        )?;
+        validate_annotation_identity_bindings(&identity_bindings)?;
+        let effects = annotation_delete_effects(&incremental)?
+            .map(|value| serde_json::to_value(value).unwrap());
+        let mut data = input.to_vec();
+        data.extend_from_slice(&revision);
+        Ok((data, page_count, identity_bindings, effects))
+    }
+
+    fn targeted_append_mutations_with_effects(
+        input: &[u8],
+        mutations: &NativeMutationsFile,
+        modified_at: &str,
+    ) -> Result<ParityAppendOutput> {
+        let mut data = input.to_vec();
+        let append = append_native_mutations_to_source(
+            input,
+            input.len() as u64,
+            mutations,
+            modified_at,
+            |revision| {
+                data.extend_from_slice(revision);
+                Ok(revision.to_vec())
+            },
+        )?;
+        let effects = append
+            .annotation_delete_effects
+            .map(|value| serde_json::to_value(value).unwrap());
+        Ok((data, append.page_count, append.identity_bindings, effects))
+    }
+
+    fn build_rich_multipage_fixture() -> (Vec<u8>, ObjectId, ObjectId, ObjectId, ObjectId) {
+        // 6-page grouped page tree with:
+        // - Branch 1 (pages 1..=3): inherited MediaBox (indirect) and Rotate 90 (indirect)
+        // - Branch 2 (pages 4..=6): standard MediaBox, page 4 holds a reply to page 2's note,
+        //   page 5 & 6 are clean (no /Annots)
+        // - Every page carries /Contents and /Resources (/Font + /XObject + /ExtGState)
+        // - Catalog carries a /StructTreeRoot subtree and /Info metadata
+        let mut doc = Document::with_version("1.5");
+        let root_pages_id = doc.new_object_id();
+        let branch1_id = doc.new_object_id();
+        let branch2_id = doc.new_object_id();
+
+        let inherited_media = doc.add_object(Object::Array(vec![
+            0.into(),
+            0.into(),
+            612.into(),
+            792.into(),
+        ]));
+        let inherited_rotate = doc.add_object(Object::Integer(90));
+        let user_unit_obj = doc.add_object(Object::Real(1.5));
+
+        let mut page_ids = Vec::new();
+        for index in 0..6u32 {
+            let content_id = doc.add_object(Stream::new(
+                dictionary! {},
+                format!("BT /F1 12 Tf 72 720 Td (Page {}) Tj ET", index + 1).into_bytes(),
+            ));
+            let font_id = doc.add_object(dictionary! {
+                "Type" => "Font",
+                "Subtype" => "Type1",
+                "BaseFont" => "Helvetica",
+            });
+            let xobj_id = doc.add_object(Stream::new(
+                dictionary! {
+                    "Type" => "XObject",
+                    "Subtype" => "Form",
+                    "BBox" => vec![0.into(), 0.into(), 10.into(), 10.into()],
+                },
+                b"0 0 10 10 re S".to_vec(),
+            ));
+            let gs_id = doc.add_object(dictionary! {
+                "Type" => "ExtGState",
+                "ca" => 0.5_f32,
+            });
+            let resources_id = doc.add_object(dictionary! {
+                "Font" => dictionary! { "F1" => font_id },
+                "XObject" => dictionary! { "Fm1" => xobj_id },
+                "ExtGState" => dictionary! { "GS1" => gs_id },
+            });
+            let parent = if index < 3 { branch1_id } else { branch2_id };
+            let mut page = dictionary! {
+                "Type" => "Page",
+                "Parent" => parent,
+                "Contents" => content_id,
+                "Resources" => resources_id,
+            };
+            if index >= 3 {
+                page.set("MediaBox", vec![0.into(), 0.into(), 500.into(), 700.into()]);
+            }
+            if index == 2 {
+                page.set("UserUnit", user_unit_obj);
+            }
+            page_ids.push(doc.add_object(page));
+        }
+
+        // Page 2 (index 1): sticky note + popup, plus a FreeText box whose normal
+        // appearance draws text only (no fill) while carrying a stale /C array.
+        let page2_id = page_ids[1];
+        let page4_id = page_ids[3];
+        let note_id = doc.new_object_id();
+        let popup_id = doc.new_object_id();
+        doc.set_object(
+            note_id,
+            dictionary! {
+                "Type" => "Annot",
+                "Subtype" => "Text",
+                "Name" => "Note",
+                "F" => 4,
+                "P" => page2_id,
+                "Popup" => popup_id,
+                "Rect" => vec![50.into(), 50.into(), 70.into(), 70.into()],
+                "Contents" => Object::string_literal("Original note"),
+                "NM" => Object::string_literal("threaded-note-1"),
+            },
+        );
+        doc.set_object(
+            popup_id,
+            dictionary! {
+                "Type" => "Annot",
+                "Subtype" => "Popup",
+                "F" => 28,
+                "P" => page2_id,
+                "Parent" => note_id,
+                "Rect" => vec![50.into(), 50.into(), 70.into(), 70.into()],
+                "Contents" => Object::string_literal("Original note"),
+            },
+        );
+        let ft_ap_id = doc.add_object(Stream::new(
+            dictionary! {
+                "Type" => "XObject",
+                "Subtype" => "Form",
+                "BBox" => vec![0.into(), 0.into(), 120.into(), 30.into()],
+            },
+            b"BT /Helv 12 Tf 0 0 0 rg 4 12 Td (Old label) Tj ET".to_vec(),
+        ));
+        let freetext_id = doc.add_object(dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "FreeText",
+            "F" => 4,
+            "P" => page4_id,
+            "Rect" => vec![100.into(), 100.into(), 220.into(), 130.into()],
+            "Contents" => Object::string_literal("Old label"),
+            "DA" => Object::string_literal("/Helv 12 Tf 0 0 0 rg"),
+            "C" => vec![1.0_f32.into(), 1.0_f32.into(), 0.0_f32.into()],
+            "AP" => dictionary! { "N" => ft_ap_id },
+            "NM" => Object::string_literal("ft-box-1"),
+        });
+
+        // Page 2 also carries an indirect /Annots array.
+        let page2_annots_id = doc.add_object(Object::Array(vec![
+            Object::Reference(note_id),
+            Object::Reference(popup_id),
+        ]));
+        doc.get_dictionary_mut(page2_id)
+            .unwrap()
+            .set("Annots", page2_annots_id);
+
+        // Page 4 (index 3): cross-page reply pointing via /IRT to note_id on page 2,
+        // plus the FreeText box with non-filling /AP /N and stale /C.
+        let reply_id = doc.add_object(dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "Text",
+            "Name" => "Comment",
+            "F" => 4,
+            "P" => page4_id,
+            "IRT" => note_id,
+            "Rect" => vec![40.into(), 40.into(), 60.into(), 60.into()],
+            "Contents" => Object::string_literal("Cross-page reply"),
+        });
+        doc.get_dictionary_mut(page4_id).unwrap().set(
+            "Annots",
+            vec![Object::Reference(reply_id), Object::Reference(freetext_id)],
+        );
+
+        // Unrelated heavy /StructTreeRoot to verify targeted loaders never touch it.
+        let mut struct_kids = Vec::new();
+        for i in 0..40u32 {
+            let elem = doc.add_object(dictionary! {
+                "Type" => "StructElem",
+                "S" => "P",
+                "T" => Object::string_literal(format!("Elem {i}")),
+            });
+            struct_kids.push(Object::Reference(elem));
+        }
+        let struct_root_id = doc.add_object(dictionary! {
+            "Type" => "StructTreeRoot",
+            "K" => struct_kids,
+        });
+
+        doc.set_object(
+            branch1_id,
+            dictionary! {
+                "Type" => "Pages",
+                "Parent" => root_pages_id,
+                "Kids" => vec![page_ids[0].into(), page_ids[1].into(), page_ids[2].into()],
+                "Count" => 3,
+                "MediaBox" => inherited_media,
+                "Rotate" => inherited_rotate,
+            },
+        );
+        doc.set_object(
+            branch2_id,
+            dictionary! {
+                "Type" => "Pages",
+                "Parent" => root_pages_id,
+                "Kids" => vec![page_ids[3].into(), page_ids[4].into(), page_ids[5].into()],
+                "Count" => 3,
+            },
+        );
+        doc.set_object(
+            root_pages_id,
+            dictionary! {
+                "Type" => "Pages",
+                "Kids" => vec![branch1_id.into(), branch2_id.into()],
+                "Count" => 6,
+            },
+        );
+        let catalog_id = doc.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => root_pages_id,
+            "StructTreeRoot" => struct_root_id,
+        });
+        let info_id = doc.add_object(dictionary! {
+            "Title" => Object::string_literal("Parity Fixture"),
+        });
+        doc.trailer.set("Root", catalog_id);
+        doc.trailer.set("Info", info_id);
+
+        let mut bytes = Vec::new();
+        doc.save_to(&mut bytes).unwrap();
+        (bytes, note_id, reply_id, freetext_id, page_ids[2])
+    }
+
+    #[test]
+    fn targeted_incremental_mutations_match_full_parse_byte_for_byte() {
+        let modified_at = "D:20261127230000Z";
+        let (base_bytes, note_id, reply_id, freetext_id, _) = build_rich_multipage_fixture();
+
+        let assert_parity = |label: &str,
+                             input: &[u8],
+                             mutations: &NativeMutationsFile|
+         -> Vec<u8> {
+            crate::pdf_source::reset_source_pdf_open_count();
+            crate::pdf_source::reset_source_pdf_loaded_object_count();
+            let (targeted_bytes, targeted_pages, targeted_bindings, targeted_effects) =
+                targeted_append_mutations_with_effects(input, mutations, modified_at)
+                    .unwrap_or_else(|err| panic!("{label}: targeted failed: {err}"));
+            assert_eq!(
+                crate::pdf_source::source_pdf_open_count(),
+                0,
+                "{label}: targeted save must not invoke SourcePdf::open_indexed"
+            );
+            let targeted_loaded = crate::pdf_source::source_pdf_loaded_object_count();
+
+            crate::pdf_source::reset_source_pdf_loaded_object_count();
+            let (full_bytes, full_pages, full_bindings, full_effects) =
+                full_parse_append_mutations(input, mutations, modified_at)
+                    .unwrap_or_else(|err| panic!("{label}: full parse failed: {err}"));
+            let full_loaded = crate::pdf_source::source_pdf_loaded_object_count();
+
+            assert_eq!(targeted_pages, full_pages, "{label}: page count mismatch");
+            assert_eq!(
+                targeted_bindings, full_bindings,
+                "{label}: identity bindings mismatch"
+            );
+            assert_eq!(
+                targeted_effects, full_effects,
+                "{label}: annotationDeleteEffects mismatch"
+            );
+            assert_eq!(
+                targeted_bytes, full_bytes,
+                "{label}: output bytes differed from full-parse baseline"
+            );
+            SourcePdf::open_strict_verify(targeted_bytes.as_slice(), targeted_bytes.len() as u64)
+                .unwrap_or_else(|err| panic!("{label}: strict verify failed: {err}"));
+            assert!(
+                targeted_loaded <= full_loaded,
+                "{label}: targeted loaded {targeted_loaded} > full {full_loaded}"
+            );
+            targeted_bytes
+        };
+
+        // 1. Tier 1A: catalog-only (page labels + bookmarks referencing inherited rotated page).
+        let catalog_mutations = read_native_mutations_bytes(
+            br#"{
+                "pageLabels": {
+                    "totalPages": 6,
+                    "ranges": [{"startPage": 1, "style": "r", "prefix": "pre-", "startNumber": 1}]
+                },
+                "bookmarks": {
+                    "totalPages": 6,
+                    "untitledLabel": "Untitled",
+                    "items": [{"title": "Inherited Page 3", "pageIndex": 2, "pageYRatio": 0.25, "items": []}]
+                }
+            }"#,
+        )
+        .unwrap();
+        assert_parity("tier1a-catalog-only", &base_bytes, &catalog_mutations);
+
+        // 2. Tier 1B: clean-page additive annotations (note + text box + highlight + shape on page 5).
+        let clean_page_mutations = read_native_mutations_bytes(
+            br##"{
+                "notes": [{
+                    "pageIndex": 4, "stableKey": "clean-note-1", "text": "Hello page 5",
+                    "author": "Tester", "color": "#f59e0b", "createdAt": null,
+                    "markerRect": {"left": 0.2, "top": 0.2, "width": 0.05, "height": 0.05}
+                }],
+                "textBoxes": [{
+                    "pageIndex": 4, "stableKey": "clean-tb-1", "text": "Clean box",
+                    "rect": [100, 100, 240, 140], "fontSize": 14, "rotation": 0,
+                    "color": [20, 40, 60]
+                }],
+                "shapes": {
+                    "totalPages": 6, "rewriteShapeState": false,
+                    "shapes": [{
+                        "type": "rectangle", "pageIndex": 4,
+                        "x": 0.1, "y": 0.5, "width": 0.2, "height": 0.1,
+                        "color": "#336699", "opacity": 1.0, "strokeWidth": 2.0,
+                        "stableKey": "evb-shape:clean-1"
+                    }],
+                    "deletedAnnotationIds": [], "deletedStableKeys": []
+                },
+                "markup": {
+                    "hints": [{
+                        "subtype": "Highlight", "pageIndex": 4,
+                        "markerRect": {"left": 0.1, "top": 0.7, "width": 0.3, "height": 0.05},
+                        "markupGeometry": [{"left": 0.1, "top": 0.7, "width": 0.3, "height": 0.05}],
+                        "color": "#fde047", "opacity": 0.5,
+                        "id": "clean-hl-1", "appAnnotationId": "clean-hl-1",
+                        "source": "editor"
+                    }]
+                }
+            }"##,
+        )
+        .unwrap();
+        assert_parity(
+            "tier1b-clean-page-additive",
+            &base_bytes,
+            &clean_page_mutations,
+        );
+
+        // 3. Tier 2: page rotation & crop on page 3 (with inherited MediaBox, Rotate 90, UserUnit 1.5).
+        let rotate_crop_mutations = read_native_mutations_bytes(
+            br#"{
+                "pageRotations": [{"pageIndex": 2, "angle": 90}],
+                "pageCrops": [{"pageIndex": 2, "top": 12, "bottom": 12, "left": 18, "right": 18, "physical": true}]
+            }"#,
+        )
+        .unwrap();
+        assert_parity(
+            "tier2-rotate-crop-inherited",
+            &base_bytes,
+            &rotate_crop_mutations,
+        );
+
+        // 4. Tier 2: edit existing FreeText label whose /AP /N draws no fill (must drop stale /C).
+        let edit_freetext_mutations = read_native_mutations_bytes(
+            serde_json::json!({
+                "textBoxes": [{
+                    "pageIndex": 3,
+                    "stableKey": "ft-box-1",
+                    "annotationId": format!("{}R", freetext_id.0),
+                    "text": "Updated label",
+                    "rect": [100, 100, 240, 140],
+                    "fontSize": 14,
+                    "rotation": 0,
+                    "color": [10, 20, 30]
+                }]
+            })
+            .to_string()
+            .as_bytes(),
+        )
+        .unwrap();
+        let after_ft = assert_parity(
+            "tier2-freetext-appearance",
+            &base_bytes,
+            &edit_freetext_mutations,
+        );
+        let reparsed_ft = Document::load_mem(&after_ft).unwrap();
+        assert!(
+            !reparsed_ft.get_dictionary(freetext_id).unwrap().has(b"C"),
+            "FreeText with non-filling /AP /N must drop stale /C after targeted save"
+        );
+
+        // 5. Tier 2: cross-page reply delete (deleting note on page 2 must delete reply on page 4
+        //    and report affectedPageIndices=[1, 3] and deletedReplyRefs=[reply_id]).
+        let delete_threaded = read_native_mutations_bytes(
+            serde_json::json!({
+                "deletes": [{
+                    "pageIndex": 1,
+                    "objectNumber": note_id.0,
+                    "generationNumber": note_id.1
+                }]
+            })
+            .to_string()
+            .as_bytes(),
+        )
+        .unwrap();
+        let after_delete = assert_parity("tier2-cross-page-delete", &base_bytes, &delete_threaded);
+        let reparsed_del = Document::load_mem(&after_delete).unwrap();
+        assert!(matches!(
+            reparsed_del.get_object(reply_id),
+            Ok(Object::Null) | Err(_)
+        ));
+
+        // 6. Tier 2 + Named image recovery: place a stamp, delete it (making its image
+        //    unreachable from trailer), then restore via placed_image_geometry_updates.source_image
+        //    AND also test Tier 3 in-place move of an existing stamp.
+        let mut jpeg = Vec::new();
+        jpeg_encoder::Encoder::new(&mut jpeg, 95)
+            .encode(&[255, 0, 0, 0, 255, 0], 2, 1, jpeg_encoder::ColorType::Rgb)
+            .unwrap();
+        let jpeg_b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &jpeg);
+        let jpeg_sha = sha256_hex(&jpeg);
+        let place_stamp = read_native_mutations_bytes(
+            serde_json::json!({
+                "placedImages": [{
+                    "pageIndex": 5,
+                    "stableKey": "stamp-recover-1",
+                    "x": 0.1, "y": 0.1, "width": 0.2, "height": 0.2,
+                    "rotationDegrees": 0,
+                    "mimeType": "image/jpeg",
+                    "bytesBase64": jpeg_b64,
+                    "byteLength": jpeg.len(),
+                    "sha256": jpeg_sha
+                }]
+            })
+            .to_string()
+            .as_bytes(),
+        )
+        .unwrap();
+        let with_stamp = assert_parity("tier1b-place-new-stamp", &base_bytes, &place_stamp);
+
+        // Tier 3: move the existing stamp in place (verifying private appearance reuse parity!).
+        let move_stamp = read_native_mutations_bytes(
+            br#"{
+                "placedImageGeometryUpdates": [{
+                    "pageIndex": 5, "stableKey": "stamp-recover-1",
+                    "x": 0.3, "y": 0.3, "width": 0.25, "height": 0.2, "rotationDegrees": 90
+                }]
+            }"#,
+        )
+        .unwrap();
+        let moved_stamp = assert_parity("tier3-move-existing-stamp", &with_stamp, &move_stamp);
+
+        // Extract stamp object & image ref, delete the stamp, then restore via named recovery.
+        let parsed_stamp =
+            collect_parsed_annotations(&Document::load_mem(&moved_stamp).unwrap(), "")
+                .unwrap()
+                .into_iter()
+                .find_map(|entry| match entry {
+                    PdfAnnotationParseEntry::Stamp(stamp) => Some(stamp),
+                    _ => None,
+                })
+                .unwrap();
+        let delete_stamp = read_native_mutations_bytes(
+            serde_json::json!({
+                "deletes": [{
+                    "pageIndex": 5,
+                    "objectNumber": parsed_stamp.object_number,
+                    "generationNumber": parsed_stamp.generation_number,
+                    "stableKey": "stamp-recover-1"
+                }]
+            })
+            .to_string()
+            .as_bytes(),
+        )
+        .unwrap();
+        let after_stamp_del = assert_parity("tier2-delete-stamp", &moved_stamp, &delete_stamp);
+        let restore_stamp = read_native_mutations_bytes(
+            serde_json::json!({
+                "placedImageGeometryUpdates": [{
+                    "pageIndex": 5,
+                    "stableKey": "stamp-recover-1",
+                    "sourceImage": parsed_stamp.image,
+                    "x": 0.2, "y": 0.2, "width": 0.3, "height": 0.2, "rotationDegrees": 0
+                }]
+            })
+            .to_string()
+            .as_bytes(),
+        )
+        .unwrap();
+        assert_parity(
+            "tier2-named-image-recovery",
+            &after_stamp_del,
+            &restore_stamp,
+        );
+
+        // 7. Standalone crop & remove-crop parity (via crop_pages_to_source / remove_crop_from_pages_to_source).
+        let margins = CropMargins {
+            top: 10.0,
+            bottom: 10.0,
+            left: 15.0,
+            right: 15.0,
+            physical: true,
+        };
+        crate::pdf_source::reset_source_pdf_open_count();
+        let mut targeted_cropped = base_bytes.clone();
+        let crop_pages_count = crop_pages_to_source(
+            base_bytes.as_slice(),
+            base_bytes.len() as u64,
+            &[3],
+            margins,
+            |rev| {
+                targeted_cropped.extend_from_slice(rev);
+                Ok(rev.to_vec())
+            },
+        )
+        .unwrap();
+        assert_eq!(crop_pages_count, 6);
+        assert_eq!(crate::pdf_source::source_pdf_open_count(), 0);
+
+        let mut full_crop_src =
+            SourcePdf::open_append_base(base_bytes.as_slice(), base_bytes.len() as u64).unwrap();
+        let mut full_crop_inc = full_crop_src.take_append_base().unwrap();
+        crop_pages_incremental(&mut full_crop_inc, &[3], margins).unwrap();
+        full_crop_inc.new_document.version = full_crop_inc.get_prev_documents().version.clone();
+        let full_crop_rev = appended_revision_bytes(&mut full_crop_inc).unwrap();
+        let mut full_cropped = base_bytes.clone();
+        full_cropped.extend_from_slice(&full_crop_rev);
+        assert_eq!(
+            targeted_cropped, full_cropped,
+            "standalone crop_pages_to_source must match full-parse byte-for-byte"
+        );
+
+        crate::pdf_source::reset_source_pdf_open_count();
+        let mut targeted_uncropped = targeted_cropped.clone();
+        let uncrop_pages_count = remove_crop_from_pages_to_source(
+            targeted_cropped.as_slice(),
+            targeted_cropped.len() as u64,
+            &[3],
+            |rev| {
+                targeted_uncropped.extend_from_slice(rev);
+                Ok(rev.to_vec())
+            },
+        )
+        .unwrap();
+        assert_eq!(uncrop_pages_count, 6);
+        assert_eq!(crate::pdf_source::source_pdf_open_count(), 0);
+        SourcePdf::open_strict_verify(
+            targeted_uncropped.as_slice(),
+            targeted_uncropped.len() as u64,
+        )
+        .unwrap();
+
+        // 8. Chained 3-revision incremental updates: note -> rotate -> text update + bookmark.
+        let rev1 = assert_parity("chain-rev1", &base_bytes, &clean_page_mutations);
+        let rev2 = assert_parity("chain-rev2", &rev1, &rotate_crop_mutations);
+        let rev3_mutations = read_native_mutations_bytes(
+            serde_json::json!({
+                "updates": [{
+                    "objectNumber": note_id.0,
+                    "generationNumber": note_id.1,
+                    "text": "Chained update text"
+                }],
+                "bookmarks": {
+                    "totalPages": 6,
+                    "untitledLabel": "Untitled",
+                    "items": [{"title": "After Chain", "pageIndex": 4, "pageYRatio": 0.5, "items": []}]
+                }
+            })
+            .to_string()
+            .as_bytes(),
+        )
+        .unwrap();
+        assert_parity("chain-rev3", &rev2, &rev3_mutations);
+    }
+
+    #[test]
+    fn targeted_incremental_refuses_corrupt_xref_and_wrong_type_pages_without_touching_destination()
+    {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let input_path = std::env::temp_dir().join(format!("evb-targeted-refusal-in-{nonce}.pdf"));
+        let output_path =
+            std::env::temp_dir().join(format!("evb-targeted-refusal-out-{nonce}.pdf"));
+        let sentinel = b"untouched-destination-sentinel";
+
+        let (valid_bytes, _, _, _, _) = build_rich_multipage_fixture();
+
+        // Case A: corrupt startxref (bytes before header + broken xref offset).
+        let mut prefixed = b"JUNK-PREFIX".to_vec();
+        prefixed.extend_from_slice(&valid_bytes);
+        let corrupt_xref =
+            b"%PDF-1.7\n1 0 obj\n<</Type/Catalog/Pages 2 0 R>>\nendobj\nstartxref\n999999\n%%EOF\n"
+                .to_vec();
+        let missing_pages_ref = {
+            let mut doc = Document::with_version("1.5");
+            let catalog_id = doc.add_object(dictionary! {
+                "Type" => "Catalog",
+                "Pages" => Object::Reference((999, 0)),
+            });
+            doc.trailer.set("Root", catalog_id);
+            let mut bytes = Vec::new();
+            doc.save_to(&mut bytes).unwrap();
+            bytes
+        };
+
+        // Case B: wrong-type /Pages (indexed /Font dict, indexed /Page dict, direct integer, /Count 0).
+        let wrong_type_font_pages = {
+            let mut doc = Document::with_version("1.5");
+            let font_id = doc.add_object(dictionary! {
+                "Type" => "Font",
+                "Subtype" => "Type1",
+                "BaseFont" => "Helvetica",
+            });
+            let catalog_id = doc.add_object(dictionary! {
+                "Type" => "Catalog",
+                "Pages" => font_id,
+            });
+            doc.trailer.set("Root", catalog_id);
+            let mut bytes = Vec::new();
+            doc.save_to(&mut bytes).unwrap();
+            bytes
+        };
+        let empty_pages = {
+            let mut doc = Document::with_version("1.5");
+            let pages_id = doc.add_object(dictionary! {
+                "Type" => "Pages",
+                "Kids" => Vec::<Object>::new(),
+                "Count" => 0,
+            });
+            let catalog_id = doc.add_object(dictionary! {
+                "Type" => "Catalog",
+                "Pages" => pages_id,
+            });
+            doc.trailer.set("Root", catalog_id);
+            let mut bytes = Vec::new();
+            doc.save_to(&mut bytes).unwrap();
+            bytes
+        };
+
+        let note_mutation = read_native_mutations_bytes(
+            br#"{"notes":[{"pageIndex":0,"stableKey":"refusal-note","text":"x","author":null,"color":null,"createdAt":null,"markerRect":{"left":0.1,"top":0.1,"width":0.1,"height":0.1}}]}"#,
+        )
+        .unwrap();
+        let rotate_mutation =
+            read_native_mutations_bytes(br#"{"pageRotations":[{"pageIndex":0,"angle":90}]}"#)
+                .unwrap();
+        let margins = CropMargins {
+            top: 5.0,
+            bottom: 5.0,
+            left: 5.0,
+            right: 5.0,
+            physical: false,
+        };
+
+        for (label, bad_bytes, expected_code) in [
+            ("prefixed-header", &prefixed, NativeErrorCode::CorruptXref),
+            (
+                "corrupt-startxref",
+                &corrupt_xref,
+                NativeErrorCode::CorruptXref,
+            ),
+            (
+                "unindexed-pages-ref",
+                &missing_pages_ref,
+                NativeErrorCode::CorruptXref,
+            ),
+            (
+                "wrong-type-font-pages",
+                &wrong_type_font_pages,
+                NativeErrorCode::InvalidRequest,
+            ),
+            (
+                "empty-page-tree",
+                &empty_pages,
+                NativeErrorCode::InvalidRequest,
+            ),
+        ] {
+            fs::write(&input_path, bad_bytes).unwrap();
+            fs::write(&output_path, sentinel).unwrap();
+
+            for (op, result) in [
+                (
+                    "save-note",
+                    write_native_mutations_path(
+                        &input_path,
+                        &output_path,
+                        &note_mutation,
+                        "D:20261127230000Z",
+                        None,
+                    ),
+                ),
+                (
+                    "save-rotate",
+                    write_native_mutations_path(
+                        &input_path,
+                        &output_path,
+                        &rotate_mutation,
+                        "D:20261127230000Z",
+                        None,
+                    ),
+                ),
+                (
+                    "standalone-crop",
+                    write_crop_pages_path(&input_path, &output_path, &[1], margins),
+                ),
+            ] {
+                let error = result.unwrap_err();
+                let code = error.downcast_ref::<NativeError>().map(|err| err.code);
+                assert_eq!(
+                    code,
+                    Some(expected_code),
+                    "{label}/{op}: unexpected error code for {error}"
+                );
+                assert_eq!(
+                    fs::read(&output_path).unwrap(),
+                    sentinel,
+                    "{label}/{op}: destination file was modified on refusal"
+                );
+            }
+        }
+
+        let _ = fs::remove_file(input_path);
+        let _ = fs::remove_file(output_path);
+    }
+
+    #[test]
+    fn targeted_incremental_reduces_parsed_objects_on_large_multipage_pdf() {
+        // Build a synthetic 200-page balanced-tree PDF (20 branches x 10 pages)
+        // where each page owns 6 content/resource objects, odd pages also own an
+        // annotation + appearance stream (200 more objects), plus 1,200 /StructTreeRoot
+        // elements (~2,800+ total reachable objects).
+        let mut doc = Document::with_version("1.5");
+        let root_pages_id = doc.new_object_id();
+        let mut branch_ids = Vec::new();
+        let mut page1_note_id = None;
+        for branch_idx in 0..20u32 {
+            let branch_id = doc.new_object_id();
+            let mut kids = Vec::new();
+            for offset in 0..10u32 {
+                let page_num = branch_idx * 10 + offset + 1;
+                let content_id = doc.add_object(Stream::new(
+                    dictionary! {},
+                    format!("BT /F1 10 Tf 50 700 Td (Page {page_num}) Tj ET").into_bytes(),
+                ));
+                let font_desc_id = doc.add_object(dictionary! {
+                    "Type" => "FontDescriptor",
+                    "FontName" => "Helvetica",
+                });
+                let font_id = doc.add_object(dictionary! {
+                    "Type" => "Font",
+                    "Subtype" => "Type1",
+                    "BaseFont" => "Helvetica",
+                    "FontDescriptor" => font_desc_id,
+                });
+                let xobj_id = doc.add_object(Stream::new(
+                    dictionary! {
+                        "Type" => "XObject",
+                        "Subtype" => "Form",
+                        "BBox" => vec![0.into(), 0.into(), 20.into(), 20.into()],
+                    },
+                    b"0 0 20 20 re S".to_vec(),
+                ));
+                let gs_id = doc.add_object(dictionary! {
+                    "Type" => "ExtGState",
+                    "CA" => 1.0_f32,
+                });
+                let res_id = doc.add_object(dictionary! {
+                    "Font" => dictionary! { "F1" => font_id },
+                    "XObject" => dictionary! { "Fm1" => xobj_id },
+                    "ExtGState" => dictionary! { "GS1" => gs_id },
+                });
+                let page_id = doc.new_object_id();
+                let mut page_dict = dictionary! {
+                    "Type" => "Page",
+                    "Parent" => branch_id,
+                    "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+                    "Contents" => content_id,
+                    "Resources" => res_id,
+                };
+                if page_num % 2 == 1 {
+                    let ap_id = doc.add_object(Stream::new(
+                        dictionary! {
+                            "Type" => "XObject",
+                            "Subtype" => "Form",
+                            "BBox" => vec![0.into(), 0.into(), 20.into(), 20.into()],
+                        },
+                        b"1 0 0 rg 0 0 20 20 re f".to_vec(),
+                    ));
+                    let annot_id = doc.add_object(dictionary! {
+                        "Type" => "Annot",
+                        "Subtype" => "Text",
+                        "F" => 4,
+                        "P" => page_id,
+                        "Rect" => vec![10.into(), 10.into(), 30.into(), 30.into()],
+                        "Contents" => Object::string_literal(format!("Note {page_num}")),
+                        "AP" => dictionary! { "N" => ap_id },
+                    });
+                    if page_num == 1 {
+                        page1_note_id = Some(annot_id);
+                    }
+                    page_dict.set("Annots", vec![Object::Reference(annot_id)]);
+                }
+                doc.set_object(page_id, page_dict);
+                kids.push(Object::Reference(page_id));
+            }
+            doc.set_object(
+                branch_id,
+                dictionary! {
+                    "Type" => "Pages",
+                    "Parent" => root_pages_id,
+                    "Kids" => kids,
+                    "Count" => 10,
+                },
+            );
+            branch_ids.push(Object::Reference(branch_id));
+        }
+        doc.set_object(
+            root_pages_id,
+            dictionary! {
+                "Type" => "Pages",
+                "Kids" => branch_ids,
+                "Count" => 200,
+            },
+        );
+        let mut struct_kids = Vec::with_capacity(1_200);
+        for i in 0..1_200u32 {
+            let elem = doc.add_object(dictionary! {
+                "Type" => "StructElem",
+                "S" => "Span",
+                "Alt" => Object::string_literal(format!("Struct element {i}")),
+            });
+            struct_kids.push(Object::Reference(elem));
+        }
+        let struct_root_id = doc.add_object(dictionary! {
+            "Type" => "StructTreeRoot",
+            "K" => struct_kids,
+        });
+        let catalog_id = doc.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => root_pages_id,
+            "StructTreeRoot" => struct_root_id,
+        });
+        doc.trailer.set("Root", catalog_id);
+        let mut pdf_bytes = Vec::new();
+        doc.save_to(&mut pdf_bytes).unwrap();
+        let page1_note_id = page1_note_id.unwrap();
+
+        let add_note_clean_page_150 = read_native_mutations_bytes(
+            br#"{"notes":[{"pageIndex":149,"stableKey":"bench-note","text":"Fast save","author":null,"color":null,"createdAt":null,"markerRect":{"left":0.2,"top":0.2,"width":0.05,"height":0.05}}]}"#,
+        )
+        .unwrap();
+        let update_note_page_1 = read_native_mutations_bytes(
+            serde_json::json!({
+                "updates": [{
+                    "objectNumber": page1_note_id.0,
+                    "generationNumber": page1_note_id.1,
+                    "text": "Updated note on page 1"
+                }]
+            })
+            .to_string()
+            .as_bytes(),
+        )
+        .unwrap();
+        let rotate_page_150 =
+            read_native_mutations_bytes(br#"{"pageRotations":[{"pageIndex":149,"angle":90}]}"#)
+                .unwrap();
+
+        // Measure full-parse baseline.
+        crate::pdf_source::reset_source_pdf_loaded_object_count();
+        let (full_out, _, _, _) =
+            full_parse_append_mutations(&pdf_bytes, &add_note_clean_page_150, "D:20261127230000Z")
+                .unwrap();
+        let full_objects = crate::pdf_source::source_pdf_loaded_object_count();
+        assert!(
+            full_objects >= 2_800,
+            "expected synthetic fixture to reach >= 2800 objects under full parse, got {full_objects}"
+        );
+
+        // Measure clean-page note save on page 150 (must skip contents, resources,
+        // struct-tree, AND all 100 untouched pages' /Annots + /AP streams).
+        crate::pdf_source::reset_source_pdf_open_count();
+        crate::pdf_source::reset_source_pdf_loaded_object_count();
+        let clean_out = append_native_mutations_to_bytes(
+            &pdf_bytes,
+            &add_note_clean_page_150,
+            "D:20261127230000Z",
+        )
+        .unwrap();
+        let clean_objects = crate::pdf_source::source_pdf_loaded_object_count();
+        assert_eq!(crate::pdf_source::source_pdf_open_count(), 0);
+        assert_eq!(clean_out.data, full_out);
+        assert!(
+            clean_objects <= 250,
+            "clean-page note save on 200-page PDF parsed {clean_objects} objects (expected <= 250 vs full {full_objects})"
+        );
+        assert!(
+            clean_objects * 10 <= full_objects,
+            "expected >= 10x object parse reduction for clean-page save (targeted={clean_objects}, full={full_objects})"
+        );
+
+        // Measure dirty-page annotation edit on page 1 (must skip contents, resources,
+        // struct-tree, AND untouched /AP streams on the other 99 annotated pages).
+        crate::pdf_source::reset_source_pdf_open_count();
+        crate::pdf_source::reset_source_pdf_loaded_object_count();
+        let dirty_out =
+            append_native_mutations_to_bytes(&pdf_bytes, &update_note_page_1, "D:20261127230000Z")
+                .unwrap();
+        let dirty_objects = crate::pdf_source::source_pdf_loaded_object_count();
+        assert_eq!(crate::pdf_source::source_pdf_open_count(), 0);
+        let (full_dirty_out, _, _, _) =
+            full_parse_append_mutations(&pdf_bytes, &update_note_page_1, "D:20261127230000Z")
+                .unwrap();
+        assert_eq!(dirty_out.data, full_dirty_out);
+        assert!(
+            dirty_objects <= 360,
+            "dirty-page note update on 200-page PDF parsed {dirty_objects} objects (expected <= 360 vs full {full_objects})"
+        );
+        assert!(
+            dirty_objects * 7 <= full_objects,
+            "expected >= 7x object parse reduction for dirty-page edit (targeted={dirty_objects}, full={full_objects})"
+        );
+
+        // Measure validated page rotation on clean page 150.
+        crate::pdf_source::reset_source_pdf_open_count();
+        crate::pdf_source::reset_source_pdf_loaded_object_count();
+        let rotate_out =
+            append_native_mutations_to_bytes(&pdf_bytes, &rotate_page_150, "D:20261127230000Z")
+                .unwrap();
+        let rotate_objects = crate::pdf_source::source_pdf_loaded_object_count();
+        assert_eq!(crate::pdf_source::source_pdf_open_count(), 0);
+        assert_eq!(rotate_out.page_count, 200);
+        assert!(
+            rotate_objects <= 250,
+            "rotation on 200-page PDF parsed {rotate_objects} objects (expected <= 250 vs full {full_objects})"
+        );
+
+        // Measure standalone crop_pages_to_source on page 150.
+        crate::pdf_source::reset_source_pdf_open_count();
+        crate::pdf_source::reset_source_pdf_loaded_object_count();
+        let mut cropped = pdf_bytes.clone();
+        let crop_count = crop_pages_to_source(
+            pdf_bytes.as_slice(),
+            pdf_bytes.len() as u64,
+            &[150],
+            CropMargins {
+                top: 10.0,
+                bottom: 10.0,
+                left: 10.0,
+                right: 10.0,
+                physical: false,
+            },
+            |rev| {
+                cropped.extend_from_slice(rev);
+                Ok(rev.to_vec())
+            },
+        )
+        .unwrap();
+        let crop_objects = crate::pdf_source::source_pdf_loaded_object_count();
+        assert_eq!(crop_count, 200);
+        assert_eq!(crate::pdf_source::source_pdf_open_count(), 0);
+        assert!(
+            crop_objects <= 250,
+            "standalone crop on 200-page PDF parsed {crop_objects} objects (expected <= 250 vs full {full_objects})"
+        );
+    }
+
+    #[test]
+    fn targeted_replace_page_images_handles_indirect_annots_array() {
+        let build_image_page_pdf = |image_len: usize, with_indirect_annots: bool| {
+            let mut doc = Document::with_version("1.5");
+            let pages_id = doc.new_object_id();
+            let image_id = doc.add_object(Stream::new(
+                dictionary! {
+                    "Type" => "XObject",
+                    "Subtype" => "Image",
+                    "Width" => 2,
+                    "Height" => 2,
+                    "ColorSpace" => "DeviceRGB",
+                    "BitsPerComponent" => 8,
+                },
+                vec![0x7f; image_len],
+            ));
+            let content_id = doc.add_object(Stream::new(
+                dictionary! {},
+                b"q 612 0 0 792 0 0 cm /Im0 Do Q".to_vec(),
+            ));
+            let res_id = doc.add_object(dictionary! {
+                "XObject" => dictionary! { "Im0" => image_id },
+            });
+            let page_id = doc.new_object_id();
+            let mut page_dict = dictionary! {
+                "Type" => "Page",
+                "Parent" => pages_id,
+                "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+                "Contents" => content_id,
+                "Resources" => res_id,
+            };
+            let annot_id = if with_indirect_annots {
+                let annot_id = doc.add_object(dictionary! {
+                    "Type" => "Annot",
+                    "Subtype" => "Text",
+                    "F" => 4,
+                    "P" => page_id,
+                    "Rect" => vec![20.into(), 20.into(), 40.into(), 40.into()],
+                    "Contents" => Object::string_literal("Keep me"),
+                });
+                let annots_array_id =
+                    doc.add_object(Object::Array(vec![Object::Reference(annot_id)]));
+                page_dict.set("Annots", annots_array_id);
+                Some(annot_id)
+            } else {
+                None
+            };
+            doc.set_object(page_id, page_dict);
+            doc.set_object(
+                pages_id,
+                dictionary! {
+                    "Type" => "Pages",
+                    "Kids" => vec![Object::Reference(page_id)],
+                    "Count" => 1,
+                },
+            );
+            let catalog_id = doc.add_object(dictionary! {
+                "Type" => "Catalog",
+                "Pages" => pages_id,
+            });
+            doc.trailer.set("Root", catalog_id);
+            let mut bytes = Vec::new();
+            doc.save_to(&mut bytes).unwrap();
+            (bytes, annot_id)
+        };
+
+        let (input_bytes, annot_id) = build_image_page_pdf(4096, true);
+        let (replacement_bytes, _) = build_image_page_pdf(12, false);
+        let annot_id = annot_id.unwrap();
+        let instructions =
+            br#"{"pages":[{"pageNumber":1,"replacement":0,"replacementPageNumber":1}],"maxByteRatio":0.95}"#;
+
+        crate::pdf_source::reset_source_pdf_open_count();
+        let reported = crate::replace_page_images::replace_page_images_bytes(
+            &input_bytes,
+            instructions,
+            &[replacement_bytes.as_slice()],
+        )
+        .unwrap();
+        assert_eq!(crate::pdf_source::source_pdf_open_count(), 0);
+        assert!(
+            !reported.data.is_empty(),
+            "expected image replacement revision to be produced"
+        );
+        let mut combined = input_bytes.clone();
+        combined.extend_from_slice(&reported.data);
+        let reparsed = Document::load_mem(&combined).unwrap();
+        let page1_id = *reparsed.get_pages().get(&1).unwrap();
+        let annots = reparsed
+            .get_dictionary(page1_id)
+            .unwrap()
+            .get(b"Annots")
+            .unwrap();
+        let (_, annots_obj) = reparsed.dereference(annots).unwrap();
+        assert_eq!(
+            annots_obj.as_array().unwrap(),
+            &vec![Object::Reference(annot_id)]
+        );
+    }
+
+    #[test]
+    fn targeted_incremental_deletes_indirect_to_indirect_cross_page_reply() {
+        let mut doc = Document::with_version("1.5");
+        let pages_id = doc.new_object_id();
+        let page1_id = doc.new_object_id();
+        let page2_id = doc.new_object_id();
+
+        let note_id = doc.add_object(dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "Text",
+            "Name" => "Comment",
+            "F" => 4,
+            "P" => page1_id,
+            "Rect" => vec![20.into(), 20.into(), 40.into(), 40.into()],
+            "Contents" => Object::string_literal("Parent note"),
+        });
+        let reply_id = doc.add_object(dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "Text",
+            "Name" => "Comment",
+            "F" => 4,
+            "P" => page2_id,
+            "IRT" => note_id,
+            "Rect" => vec![40.into(), 40.into(), 60.into(), 60.into()],
+            "Contents" => Object::string_literal("Indirect cross-page reply"),
+        });
+        // Indirect-to-indirect hop: page2 /Annots -> [hop_id], hop_id -> reply_id.
+        let hop_id = doc.add_object(Object::Reference(reply_id));
+
+        doc.set_object(
+            page1_id,
+            dictionary! {
+                "Type" => "Page",
+                "Parent" => pages_id,
+                "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+                "Annots" => vec![Object::Reference(note_id)],
+            },
+        );
+        doc.set_object(
+            page2_id,
+            dictionary! {
+                "Type" => "Page",
+                "Parent" => pages_id,
+                "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+                "Annots" => vec![Object::Reference(hop_id)],
+            },
+        );
+        doc.set_object(
+            pages_id,
+            dictionary! {
+                "Type" => "Pages",
+                "Kids" => vec![Object::Reference(page1_id), Object::Reference(page2_id)],
+                "Count" => 2,
+            },
+        );
+        let catalog_id = doc.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+        });
+        doc.trailer.set("Root", catalog_id);
+        let mut base_bytes = Vec::new();
+        doc.save_to(&mut base_bytes).unwrap();
+
+        let delete_parent = read_native_mutations_bytes(
+            serde_json::json!({
+                "deletes": [{
+                    "pageIndex": 0,
+                    "objectNumber": note_id.0,
+                    "generationNumber": note_id.1
+                }]
+            })
+            .to_string()
+            .as_bytes(),
+        )
+        .unwrap();
+
+        let (full_bytes, _, _, full_effects) =
+            full_parse_append_mutations(&base_bytes, &delete_parent, "D:20261127230000Z").unwrap();
+        crate::pdf_source::reset_source_pdf_open_count();
+        let mut targeted_bytes = base_bytes.clone();
+        let targeted = append_native_mutations_to_source(
+            base_bytes.as_slice(),
+            base_bytes.len() as u64,
+            &delete_parent,
+            "D:20261127230000Z",
+            |revision| {
+                targeted_bytes.extend_from_slice(revision);
+                Ok(revision.to_vec())
+            },
+        )
+        .unwrap();
+        assert_eq!(crate::pdf_source::source_pdf_open_count(), 0);
+        assert_eq!(targeted_bytes, full_bytes);
+        let targeted_effects_json = targeted
+            .annotation_delete_effects
+            .as_ref()
+            .map(|value| serde_json::to_value(value).unwrap());
+        assert_eq!(targeted_effects_json, full_effects);
+        let effects = targeted.annotation_delete_effects.unwrap();
+        assert_eq!(effects.affected_page_indices, vec![0, 1]);
+        assert_eq!(effects.deleted_reply_refs.len(), 1);
+    }
+
+    #[test]
+    fn targeted_incremental_refuses_corrupt_middle_page_and_preserves_leaf_count_and_bookmarks() {
+        // 1. Corrupt middle page in a 3-page flat tree must fail with CorruptXref.
+        let mut doc = Document::with_version("1.5");
+        let pages_id = doc.new_object_id();
+        let p1 = doc.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+        });
+        let p2 = doc.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+            "EVBMarker" => Object::string_literal("CORRUPT-MIDDLE-PAGE-MARKER"),
+        });
+        let p3 = doc.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+        });
+        doc.set_object(
+            pages_id,
+            dictionary! {
+                "Type" => "Pages",
+                "Kids" => vec![Object::Reference(p1), Object::Reference(p2), Object::Reference(p3)],
+                "Count" => 3,
+            },
+        );
+        let catalog_id = doc.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+        });
+        doc.trailer.set("Root", catalog_id);
+        let mut corrupt_mid = Vec::new();
+        doc.save_to(&mut corrupt_mid).unwrap();
+        let p2_header = format!("{} 0 obj", p2.0).into_bytes();
+        let pos = find_bytes(&corrupt_mid, &p2_header).unwrap();
+        corrupt_mid[pos..pos + p2_header.len()].fill(b'X');
+
+        let note_on_page1 = read_native_mutations_bytes(
+            br#"{"notes":[{"pageIndex":0,"stableKey":"mid-corrupt-note","text":"x","author":null,"color":null,"createdAt":null,"markerRect":{"left":0.1,"top":0.1,"width":0.1,"height":0.1}}]}"#,
+        )
+        .unwrap();
+        let err =
+            append_native_mutations_to_bytes(&corrupt_mid, &note_on_page1, "D:20261127230000Z")
+                .err()
+                .unwrap();
+        assert_eq!(
+            err.downcast_ref::<NativeError>().map(|e| e.code),
+            Some(NativeErrorCode::CorruptXref),
+            "corrupt middle page must be refused with CorruptXref: {err}"
+        );
+
+        // 2. /Count 2 over 3 leaves must report actual leaf count == 3.
+        let mut stale_count_doc = doc.clone();
+        stale_count_doc
+            .get_dictionary_mut(pages_id)
+            .unwrap()
+            .set("Count", 2);
+        let mut stale_count_bytes = Vec::new();
+        stale_count_doc.save_to(&mut stale_count_bytes).unwrap();
+        let stale_result = append_native_mutations_to_bytes(
+            &stale_count_bytes,
+            &note_on_page1,
+            "D:20261127230000Z",
+        )
+        .unwrap();
+        assert_eq!(stale_result.page_count, 3);
+
+        // 3. Bookmark with whitespace-only namedDest + raw Reference to middle page
+        //    must match full-parse byte-for-byte.
+        let mut valid_3p = Vec::new();
+        doc.save_to(&mut valid_3p).unwrap();
+        let raw_ref_bookmark = read_native_mutations_bytes(
+            serde_json::json!({
+                "bookmarks": {
+                    "totalPages": 3,
+                    "untitledLabel": "Untitled",
+                    "items": [{
+                        "title": "Raw Ref Middle",
+                        "pageIndex": null,
+                        "namedDest": "   ",
+                        "originalDestination": {
+                            "sourceTarget": { "num": p2.0, "gen": p2.1 },
+                            "kind": "XYZ",
+                            "coordinates": [null, 700.0, null]
+                        },
+                        "items": []
+                    }]
+                }
+            })
+            .to_string()
+            .as_bytes(),
+        )
+        .unwrap();
+        let (full_bm, _, _, _) =
+            full_parse_append_mutations(&valid_3p, &raw_ref_bookmark, "D:20261127230000Z").unwrap();
+        crate::pdf_source::reset_source_pdf_open_count();
+        let targeted_bm =
+            append_native_mutations_to_bytes(&valid_3p, &raw_ref_bookmark, "D:20261127230000Z")
+                .unwrap();
+        assert_eq!(crate::pdf_source::source_pdf_open_count(), 0);
+        assert_eq!(targeted_bm.data, full_bm);
+
+        // 4. Wide flat 2,000-page tree with 200 distinct bookmark destinations
+        //    must resolve linearly without quadratic /Kids cloning and match full parse.
+        let mut wide_doc = Document::with_version("1.5");
+        let wide_pages_id = wide_doc.new_object_id();
+        let mut wide_kids = Vec::with_capacity(2_000);
+        for _ in 0..2_000u32 {
+            let pid = wide_doc.add_object(dictionary! {
+                "Type" => "Page",
+                "Parent" => wide_pages_id,
+                "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+            });
+            wide_kids.push(Object::Reference(pid));
+        }
+        wide_doc.set_object(
+            wide_pages_id,
+            dictionary! {
+                "Type" => "Pages",
+                "Kids" => wide_kids,
+                "Count" => 2_000,
+            },
+        );
+        let wide_catalog_id = wide_doc.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => wide_pages_id,
+        });
+        wide_doc.trailer.set("Root", wide_catalog_id);
+        let mut wide_bytes = Vec::new();
+        wide_doc.save_to(&mut wide_bytes).unwrap();
+        let wide_items: Vec<_> = (0..200u32)
+            .map(|i| {
+                serde_json::json!({
+                    "title": format!("Chapter {i}"),
+                    "pageIndex": i * 10,
+                    "pageYRatio": 0.25,
+                    "items": []
+                })
+            })
+            .collect();
+        let wide_bookmarks = read_native_mutations_bytes(
+            serde_json::json!({
+                "bookmarks": {
+                    "totalPages": 2_000,
+                    "untitledLabel": "Untitled",
+                    "items": wide_items
+                }
+            })
+            .to_string()
+            .as_bytes(),
+        )
+        .unwrap();
+        crate::pdf_source::reset_source_pdf_open_count();
+        let wide_targeted =
+            append_native_mutations_to_bytes(&wide_bytes, &wide_bookmarks, "D:20261127230000Z")
+                .unwrap();
+        assert_eq!(crate::pdf_source::source_pdf_open_count(), 0);
+        assert_eq!(wide_targeted.page_count, 2_000);
+        let (wide_full, _, _, _) =
+            full_parse_append_mutations(&wide_bytes, &wide_bookmarks, "D:20261127230000Z").unwrap();
+        assert_eq!(wide_targeted.data, wide_full);
+    }
+
+    #[test]
+    fn targeted_incremental_handles_repeated_pages_stale_orphans_parent_aliases_and_count_ceiling()
+    {
+        // 1. P1 #1: Repeated blank pages in /Kids [notePage, blank x 8, replyPage]
+        //    (10 pages total, fewer unique objects in the page-tree skeleton).
+        //    Deleting the parent note on page 1 must still scan replyPage (page 10),
+        //    delete the reply, remove it from replyPage /Annots, report page_count == 10
+        //    and affectedPageIndices == [0, 9], and match full-parse byte-for-byte.
+        let mut rep_doc = Document::with_version("1.5");
+        let rep_pages_id = rep_doc.new_object_id();
+        let note_page_id = rep_doc.new_object_id();
+        let blank_page_id = rep_doc.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => rep_pages_id,
+            "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+        });
+        let reply_page_id = rep_doc.new_object_id();
+        let rep_note_id = rep_doc.add_object(dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "Text",
+            "Name" => "Comment",
+            "F" => 4,
+            "P" => note_page_id,
+            "Rect" => vec![20.into(), 20.into(), 40.into(), 40.into()],
+            "Contents" => Object::string_literal("Parent on page 1"),
+        });
+        let rep_reply_id = rep_doc.add_object(dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "Text",
+            "Name" => "Comment",
+            "F" => 4,
+            "P" => reply_page_id,
+            "IRT" => rep_note_id,
+            "Rect" => vec![40.into(), 40.into(), 60.into(), 60.into()],
+            "Contents" => Object::string_literal("Reply on page 10"),
+        });
+        rep_doc.set_object(
+            note_page_id,
+            dictionary! {
+                "Type" => "Page",
+                "Parent" => rep_pages_id,
+                "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+                "Annots" => vec![Object::Reference(rep_note_id)],
+            },
+        );
+        rep_doc.set_object(
+            reply_page_id,
+            dictionary! {
+                "Type" => "Page",
+                "Parent" => rep_pages_id,
+                "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+                "Annots" => vec![Object::Reference(rep_reply_id)],
+            },
+        );
+        let mut rep_kids = vec![Object::Reference(note_page_id)];
+        for _ in 0..8 {
+            rep_kids.push(Object::Reference(blank_page_id));
+        }
+        rep_kids.push(Object::Reference(reply_page_id));
+        rep_doc.set_object(
+            rep_pages_id,
+            dictionary! {
+                "Type" => "Pages",
+                "Kids" => rep_kids,
+                "Count" => 10,
+            },
+        );
+        let rep_catalog_id = rep_doc.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => rep_pages_id,
+        });
+        rep_doc.trailer.set("Root", rep_catalog_id);
+        let mut rep_bytes = Vec::new();
+        rep_doc.save_to(&mut rep_bytes).unwrap();
+
+        let delete_rep_note = read_native_mutations_bytes(
+            serde_json::json!({
+                "deletes": [{
+                    "pageIndex": 0,
+                    "objectNumber": rep_note_id.0,
+                    "generationNumber": rep_note_id.1
+                }]
+            })
+            .to_string()
+            .as_bytes(),
+        )
+        .unwrap();
+        crate::pdf_source::reset_source_pdf_open_count();
+        let mut targeted_rep_bytes = rep_bytes.clone();
+        let rep_result = append_native_mutations_to_source(
+            rep_bytes.as_slice(),
+            rep_bytes.len() as u64,
+            &delete_rep_note,
+            "D:20261127230000Z",
+            |rev| {
+                targeted_rep_bytes.extend_from_slice(rev);
+                Ok(rev.to_vec())
+            },
+        )
+        .unwrap();
+        assert_eq!(crate::pdf_source::source_pdf_open_count(), 0);
+        assert_eq!(rep_result.page_count, 10);
+        let rep_effects = rep_result.annotation_delete_effects.unwrap();
+        assert_eq!(rep_effects.affected_page_indices, vec![0, 9]);
+        assert_eq!(rep_effects.deleted_reply_refs.len(), 1);
+        let reparsed_rep = Document::load_mem(&targeted_rep_bytes).unwrap();
+        assert!(matches!(
+            reparsed_rep.get_object(rep_reply_id),
+            Ok(Object::Null) | Err(_)
+        ));
+        assert!(reparsed_rep
+            .get_dictionary(reply_page_id)
+            .unwrap()
+            .get(b"Annots")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .is_empty());
+
+        // 2. P1 #2: Stale update targeting an unlinked orphan note (still present
+        //    in an earlier xref section, but removed from page /Annots) must be
+        //    refused rather than silently rewriting the orphan and succeeding.
+        let mut orphan_doc = Document::with_version("1.5");
+        let orphan_pages_id = orphan_doc.new_object_id();
+        let orphan_page_id = orphan_doc.new_object_id();
+        let orphan_note_id = orphan_doc.add_object(dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "Text",
+            "Name" => "Comment",
+            "F" => 4,
+            "P" => orphan_page_id,
+            "Rect" => vec![20.into(), 20.into(), 40.into(), 40.into()],
+            "Contents" => Object::string_literal("Unlinked orphan"),
+        });
+        // Note is in the xref table, but NOT listed in page /Annots.
+        orphan_doc.set_object(
+            orphan_page_id,
+            dictionary! {
+                "Type" => "Page",
+                "Parent" => orphan_pages_id,
+                "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+                "Annots" => Vec::<Object>::new(),
+            },
+        );
+        orphan_doc.set_object(
+            orphan_pages_id,
+            dictionary! {
+                "Type" => "Pages",
+                "Kids" => vec![Object::Reference(orphan_page_id)],
+                "Count" => 1,
+            },
+        );
+        let orphan_catalog_id = orphan_doc.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => orphan_pages_id,
+        });
+        orphan_doc.trailer.set("Root", orphan_catalog_id);
+        let mut orphan_bytes = Vec::new();
+        orphan_doc.save_to(&mut orphan_bytes).unwrap();
+
+        let update_orphan = read_native_mutations_bytes(
+            serde_json::json!({
+                "updates": [{
+                    "objectNumber": orphan_note_id.0,
+                    "generationNumber": orphan_note_id.1,
+                    "text": "Should fail on unlinked orphan"
+                }]
+            })
+            .to_string()
+            .as_bytes(),
+        )
+        .unwrap();
+        assert!(
+            full_parse_append_mutations(&orphan_bytes, &update_orphan, "D:20261127230000Z")
+                .is_err(),
+            "baseline full parse must reject update to unlinked orphan note"
+        );
+        assert!(
+            append_native_mutations_to_bytes(&orphan_bytes, &update_orphan, "D:20261127230000Z")
+                .is_err(),
+            "targeted loader must not revive an unlinked orphan note on stale update"
+        );
+
+        // 3. P2 #1: replace_page_images_bytes with inherited /Resources reached
+        //    through an indirect /Parent alias (page /Parent -> alias -> pages_node).
+        let build_alias_parent_pdf = |image_len: usize| {
+            let mut doc = Document::with_version("1.5");
+            let pages_id = doc.new_object_id();
+            let parent_alias_id = doc.add_object(Object::Reference(pages_id));
+            let image_id = doc.add_object(Stream::new(
+                dictionary! {
+                    "Type" => "XObject",
+                    "Subtype" => "Image",
+                    "Width" => 2,
+                    "Height" => 2,
+                    "ColorSpace" => "DeviceRGB",
+                    "BitsPerComponent" => 8,
+                },
+                vec![0x7f; image_len],
+            ));
+            let res_id = doc.add_object(dictionary! {
+                "XObject" => dictionary! { "Im0" => image_id },
+            });
+            let content_id = doc.add_object(Stream::new(
+                dictionary! {},
+                b"q 612 0 0 792 0 0 cm /Im0 Do Q".to_vec(),
+            ));
+            let page_id = doc.add_object(dictionary! {
+                "Type" => "Page",
+                "Parent" => parent_alias_id,
+                "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+                "Contents" => content_id,
+            });
+            doc.set_object(
+                pages_id,
+                dictionary! {
+                    "Type" => "Pages",
+                    "Kids" => vec![Object::Reference(page_id)],
+                    "Count" => 1,
+                    "Resources" => res_id,
+                },
+            );
+            let catalog_id = doc.add_object(dictionary! {
+                "Type" => "Catalog",
+                "Pages" => pages_id,
+            });
+            doc.trailer.set("Root", catalog_id);
+            let mut bytes = Vec::new();
+            doc.save_to(&mut bytes).unwrap();
+            bytes
+        };
+        let alias_input = build_alias_parent_pdf(4096);
+        let alias_replacement = build_alias_parent_pdf(12);
+        let replace_instructions =
+            br#"{"pages":[{"pageNumber":1,"replacement":0,"replacementPageNumber":1}],"maxByteRatio":0.95}"#;
+        crate::pdf_source::reset_source_pdf_open_count();
+        let alias_reported = crate::replace_page_images::replace_page_images_bytes(
+            &alias_input,
+            replace_instructions,
+            &[alias_replacement.as_slice()],
+        )
+        .unwrap();
+        assert_eq!(crate::pdf_source::source_pdf_open_count(), 0);
+        assert!(
+            !alias_reported.data.is_empty(),
+            "inherited /Resources through /Parent alias must qualify for image replacement"
+        );
+        let alias_report_json: serde_json::Value =
+            serde_json::from_slice(&alias_reported.report).unwrap();
+        assert_eq!(alias_report_json["pages"][0]["outcome"], "replaced");
+
+        // 4. P2 #2: Understated /Count 1 on a page tree exceeding MAX_PATH_INPUT_PDF_PAGES
+        //    (constructed compactly as an 18-level binary DAG = 262,144 leaves) must be
+        //    rejected as TooLarge by both mutation append and geometry-only loaders.
+        let mut dag_doc = Document::with_version("1.5");
+        let leaf_id = dag_doc.new_object_id();
+        let mut child_id = leaf_id;
+        let mut parent_ids = Vec::with_capacity(18);
+        for _ in 0..18 {
+            parent_ids.push(dag_doc.new_object_id());
+        }
+        dag_doc.set_object(
+            leaf_id,
+            dictionary! {
+                "Type" => "Page",
+                "Parent" => parent_ids[0],
+                "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+            },
+        );
+        for (level, &node_id) in parent_ids.iter().enumerate() {
+            let mut node = dictionary! {
+                "Type" => "Pages",
+                "Kids" => vec![Object::Reference(child_id), Object::Reference(child_id)],
+                "Count" => 1,
+            };
+            if let Some(&parent_id) = parent_ids.get(level + 1) {
+                node.set("Parent", parent_id);
+            }
+            dag_doc.set_object(node_id, node);
+            child_id = node_id;
+        }
+        let dag_catalog_id = dag_doc.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => child_id,
+        });
+        dag_doc.trailer.set("Root", dag_catalog_id);
+        let mut dag_bytes = Vec::new();
+        dag_doc.save_to(&mut dag_bytes).unwrap();
+
+        let note_page1 = read_native_mutations_bytes(
+            br#"{"notes":[{"pageIndex":0,"stableKey":"dag-note","text":"x","author":null,"color":null,"createdAt":null,"markerRect":{"left":0.1,"top":0.1,"width":0.1,"height":0.1}}]}"#,
+        )
+        .unwrap();
+        let dag_mut_err =
+            append_native_mutations_to_bytes(&dag_bytes, &note_page1, "D:20261127230000Z")
+                .err()
+                .unwrap();
+        assert_eq!(
+            dag_mut_err.downcast_ref::<NativeError>().map(|e| e.code),
+            Some(NativeErrorCode::TooLarge),
+            "understated /Count over >200,000 leaves must be rejected as TooLarge: {dag_mut_err}"
+        );
+
+        // 5. Sol Round 3 P1: Two valid end pages + a 25-level shared zero-leaf
+        //    /Pages branch DAG in the middle must NOT stall page-tree traversal.
+        let mut zero_dag = Document::with_version("1.5");
+        let z_root_id = zero_dag.new_object_id();
+        let z_p1 = zero_dag.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => z_root_id,
+            "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+        });
+        let z_p2 = zero_dag.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => z_root_id,
+            "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+        });
+        let mut z_empty = zero_dag.add_object(dictionary! {
+            "Type" => "Pages",
+            "Kids" => Vec::<Object>::new(),
+            "Count" => 0,
+        });
+        for _ in 0..25 {
+            z_empty = zero_dag.add_object(dictionary! {
+                "Type" => "Pages",
+                "Kids" => vec![Object::Reference(z_empty), Object::Reference(z_empty)],
+                "Count" => 0,
+            });
+        }
+        zero_dag.set_object(
+            z_root_id,
+            dictionary! {
+                "Type" => "Pages",
+                "Kids" => vec![
+                    Object::Reference(z_p1),
+                    Object::Reference(z_empty),
+                    Object::Reference(z_p2),
+                ],
+                "Count" => 2,
+            },
+        );
+        let z_catalog = zero_dag.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => z_root_id,
+        });
+        zero_dag.trailer.set("Root", z_catalog);
+        let mut z_bytes = Vec::new();
+        zero_dag.save_to(&mut z_bytes).unwrap();
+        let z_saved =
+            append_native_mutations_to_bytes(&z_bytes, &note_page1, "D:20261127230000Z").unwrap();
+        assert_eq!(z_saved.page_count, 2);
+
+        // 6. Sol Round 3 P2 #1: Editing the parent note on the repeated-blank-page
+        //    fixture (leaving replyPage untouched) must still report affectedPageIndices
+        //    including replyPage ([0, 9]) in the save report.
+        let edit_rep_note = read_native_mutations_bytes(
+            serde_json::json!({
+                "updates": [{
+                    "objectNumber": rep_note_id.0,
+                    "generationNumber": rep_note_id.1,
+                    "text": "Edited parent on page 1"
+                }]
+            })
+            .to_string()
+            .as_bytes(),
+        )
+        .unwrap();
+        let rep_edit_result = append_native_mutations_to_source(
+            rep_bytes.as_slice(),
+            rep_bytes.len() as u64,
+            &edit_rep_note,
+            "D:20261127230000Z",
+            |rev| Ok(rev.to_vec()),
+        )
+        .unwrap();
+        assert_eq!(rep_edit_result.page_count, 10);
+        let rep_edit_effects = rep_edit_result.annotation_delete_effects.unwrap();
+        assert_eq!(rep_edit_effects.affected_page_indices, vec![0, 9]);
+
+        // 7. Sol Round 3 P2 #2: A /Kids page alias pointing to a page with an
+        //    indirect /Annots array must not be misclassified as a clean page;
+        //    adding a note must load and preserve the existing annotation.
+        let mut alias_page_doc = Document::with_version("1.5");
+        let ap_pages_id = alias_page_doc.new_object_id();
+        let ap_page_id = alias_page_doc.new_object_id();
+        let ap_existing_note = alias_page_doc.add_object(dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "Text",
+            "Name" => "Comment",
+            "F" => 4,
+            "P" => ap_page_id,
+            "Rect" => vec![10.into(), 10.into(), 30.into(), 30.into()],
+            "Contents" => Object::string_literal("Existing via alias"),
+        });
+        let ap_annots_id =
+            alias_page_doc.add_object(Object::Array(vec![Object::Reference(ap_existing_note)]));
+        alias_page_doc.set_object(
+            ap_page_id,
+            dictionary! {
+                "Type" => "Page",
+                "Parent" => ap_pages_id,
+                "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+                "Annots" => ap_annots_id,
+            },
+        );
+        let ap_page_alias = alias_page_doc.add_object(Object::Reference(ap_page_id));
+        alias_page_doc.set_object(
+            ap_pages_id,
+            dictionary! {
+                "Type" => "Pages",
+                "Kids" => vec![Object::Reference(ap_page_alias)],
+                "Count" => 1,
+            },
+        );
+        let ap_catalog = alias_page_doc.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => ap_pages_id,
+        });
+        alias_page_doc.trailer.set("Root", ap_catalog);
+        let mut ap_bytes = Vec::new();
+        alias_page_doc.save_to(&mut ap_bytes).unwrap();
+        let (ap_full, _, _, _) =
+            full_parse_append_mutations(&ap_bytes, &note_page1, "D:20261127230000Z").unwrap();
+        let ap_targeted =
+            append_native_mutations_to_bytes(&ap_bytes, &note_page1, "D:20261127230000Z").unwrap();
+        assert_eq!(ap_targeted.data, ap_full);
     }
 }

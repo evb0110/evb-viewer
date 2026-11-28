@@ -1,10 +1,12 @@
 import {stat} from 'node:fs/promises';
 import {join} from 'node:path';
 import {clamp} from 'es-toolkit/math';
+import type {IOcrSearchablePdfOptions} from '@contracts/electronApiOcr';
 import type {IHostResourceProfileSnapshot} from '@contracts/hostResourceProfile';
 import {HOST_TIER_LOW_RAM_MAX_GIB} from '@contracts/hostResourceProfile';
 import {type TOcrModelCode, withOcrModelSublanguages} from '@contracts/ocrLanguages';
 import {parseBoundedEnvInt} from '@contracts/resourcePolicies';
+import type {TOcrScanCleanupMode} from '@contracts/scan-cleanup/ocrPreprocessing';
 import {readPnmSize} from '@ocr-core/ppmRaster';
 import type {TOcrEngineImageInput} from '@electron/features/ocr/main/ocrEngineHostProtocol';
 import type {IJobResourceVector} from '@electron/resources/jobBroker';
@@ -28,10 +30,28 @@ export const OCR_LANE_MODEL_BYTES_FACTOR = 2.5;
 export const OCR_LANE_BASE_WASM_HEAP_BYTES = 192 * MIB;
 /** Tesseract's working images of one page pixel: color, gray, binary and the line images. */
 export const OCR_LANE_WASM_HEAP_BYTES_PER_PIXEL = 12;
+/**
+ * Recycle an OCR engine worker cleanly between pages once its retained
+ * WebAssembly linear memory exceeds this cap (e.g. after a large foldout),
+ * returning the grown heap to the OS without interrupting active OCR.
+ */
+export const OCR_ENGINE_WASM_HEAP_RECYCLE_BYTES = 512 * MIB;
+/** Base native process overhead for one `evb-scan-cleanup` OCR preprocessing invocation. */
+export const OCR_PREPROCESS_BASE_RESIDENT_BYTES = 32 * MIB;
+/** Decoded working raster bytes per pixel for OCR preprocessing modes. */
+export const OCR_PREPROCESS_BYTES_PER_PIXEL: Readonly<Record<TOcrScanCleanupMode, number>> = {
+    clean: 40,
+    'polarity-only': 16,
+};
 
 export interface IOcrRuntimePolicy {
     globalPageSlots: number;
     modelDownloadConcurrency: number;
+}
+
+export interface IOcrPageConcurrency {
+    lanes: number;
+    cleanupThreads: number;
 }
 
 function getCpuSlotCount(logicalCpus: number) {
@@ -79,6 +99,54 @@ export function resolveOcrRuntimePolicy(profile: IHostResourceProfileSnapshot, e
 
 export function getOcrRuntimePolicy() {
     return resolveOcrRuntimePolicy(getHostResourceProfileSnapshot(), process.env);
+}
+
+/**
+ * Pages one desktop OCR job recognizes at once, and the Rayon threads each
+ * page's native cleanup may use. Polarity-only (`preprocessingMode === 'off'`)
+ * runs single-threaded (`cleanupThreads = 1`) so it does not throttle page
+ * lanes; full cleanup (`'clean'`) splits broker CPU tokens across page slots.
+ */
+export function resolveOcrPageConcurrency(input: {
+    globalPageSlots: number;
+    cpuTokens: number;
+    maxPageConcurrency: number;
+    hasScanCleanupBinary: boolean;
+    preprocessingMode: IOcrSearchablePdfOptions['preprocessingMode'];
+}): IOcrPageConcurrency {
+    const globalPageSlots = Math.max(1, Math.floor(input.globalPageSlots));
+    const cpuTokens = Math.max(1, Math.floor(input.cpuTokens));
+    const maxPageConcurrency = Math.max(1, Math.floor(input.maxPageConcurrency));
+    const cleanupThreads =
+        input.hasScanCleanupBinary && cpuTokens > 2 && input.preprocessingMode === 'clean'
+            ? Math.max(1, Math.ceil(cpuTokens / globalPageSlots))
+            : 1;
+    return {
+        lanes: Math.max(1, Math.min(globalPageSlots, Math.floor(cpuTokens / cleanupThreads), maxPageConcurrency)),
+        cleanupThreads,
+    };
+}
+
+/**
+ * Broker resources for one native `evb-scan-cleanup` OCR preprocessing run:
+ * its granted Rayon threads plus decoded working raster memory, clamped to the
+ * broker's capacity so a large page still runs alone.
+ */
+export function resolveOcrPreprocessResources(input: {
+    pixelCount: number;
+    mode: TOcrScanCleanupMode;
+    cleanupThreads: number;
+    capacity: Readonly<IJobResourceVector>;
+}): IJobResourceVector {
+    const requestedThreads = Number.isFinite(input.cleanupThreads) ? Math.max(1, Math.floor(input.cleanupThreads)) : 1;
+    const pixelCount = Number.isFinite(input.pixelCount) ? Math.max(0, input.pixelCount) : 0;
+    const estimatedBytes = Math.ceil(OCR_PREPROCESS_BASE_RESIDENT_BYTES + pixelCount * OCR_PREPROCESS_BYTES_PER_PIXEL[input.mode]);
+    return {
+        cpuTokens: Math.min(input.capacity.cpuTokens, requestedThreads),
+        estimatedResidentBytes: Math.min(input.capacity.estimatedResidentBytes, estimatedBytes),
+        nativeProcesses: Math.min(1, input.capacity.nativeProcesses),
+        ioWeight: Math.min(1, input.capacity.ioWeight),
+    };
 }
 
 function readRasterPixelCount(image: TOcrEngineImageInput) {

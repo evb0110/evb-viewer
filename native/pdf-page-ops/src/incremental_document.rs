@@ -413,7 +413,7 @@ fn overlay_page_ids(base: &Document, located: Option<&LocatedPages>) -> BTreeMap
             .iter()
             .map(|(index, page_id)| (index + 1, *page_id))
             .collect(),
-        None => base.get_pages(),
+        None => crate::pdf_source::collect_document_pages(base),
     }
 }
 

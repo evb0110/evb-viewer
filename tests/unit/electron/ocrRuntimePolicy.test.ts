@@ -3,7 +3,14 @@ import {join} from 'node:path';
 import {afterEach, describe, expect, it, vi} from 'vitest';
 import type {IHostResourceProfileSnapshot, THostResourceTier} from '@contracts/hostResourceProfile';
 import {encodePnm, readPnmSize} from '@ocr-core/ppmRaster';
-import {resolveOcrLaneResources, resolveOcrRuntimePolicy} from '@electron/features/ocr/main/ocrRuntimePolicy';
+import {
+    OCR_PREPROCESS_BASE_RESIDENT_BYTES,
+    OCR_PREPROCESS_BYTES_PER_PIXEL,
+    resolveOcrLaneResources,
+    resolveOcrPageConcurrency,
+    resolveOcrPreprocessResources,
+    resolveOcrRuntimePolicy,
+} from '@electron/features/ocr/main/ocrRuntimePolicy';
 import {
     createOcrWorkerPipelineHarness,
     hasOcrWorkerPipelineTools,
@@ -114,6 +121,150 @@ describe('resolveOcrLaneResources', () => {
                 estimatedResidentBytes: 2 * GIB,
             }).estimatedResidentBytes,
         ).toBe(2 * GIB);
+    });
+});
+
+describe('resolveOcrPageConcurrency', () => {
+    it('keeps cleanupThreads at 1 for polarity-only (off) mode so recognition lanes stay at full slot count', () => {
+        // 8 logical CPUs / 16 GiB: globalPageSlots=4, cpuTokens=6 -> off gets 4 lanes (was 3), clean stays at 3.
+        expect(
+            resolveOcrPageConcurrency({
+                globalPageSlots: 4,
+                cpuTokens: 6,
+                maxPageConcurrency: 8,
+                hasScanCleanupBinary: true,
+                preprocessingMode: 'off',
+            }),
+        ).toEqual({
+            lanes: 4,
+            cleanupThreads: 1,
+        });
+        expect(
+            resolveOcrPageConcurrency({
+                globalPageSlots: 4,
+                cpuTokens: 6,
+                maxPageConcurrency: 8,
+                hasScanCleanupBinary: true,
+                preprocessingMode: 'clean',
+            }),
+        ).toEqual({
+            lanes: 3,
+            cleanupThreads: 2,
+        });
+
+        // 16 logical CPUs / 32 GiB: globalPageSlots=8, cpuTokens=12 -> off gets 8 lanes (was 6), clean stays at 6.
+        expect(
+            resolveOcrPageConcurrency({
+                globalPageSlots: 8,
+                cpuTokens: 12,
+                maxPageConcurrency: 16,
+                hasScanCleanupBinary: true,
+                preprocessingMode: 'off',
+            }),
+        ).toEqual({
+            lanes: 8,
+            cleanupThreads: 1,
+        });
+        expect(
+            resolveOcrPageConcurrency({
+                globalPageSlots: 8,
+                cpuTokens: 12,
+                maxPageConcurrency: 16,
+                hasScanCleanupBinary: true,
+                preprocessingMode: 'clean',
+            }),
+        ).toEqual({
+            lanes: 6,
+            cleanupThreads: 2,
+        });
+    });
+
+    it('preserves clean-mode thread division on single-slot 8-core / 8 GiB hosts and defaults to 1 thread without binary', () => {
+        expect(
+            resolveOcrPageConcurrency({
+                globalPageSlots: 1,
+                cpuTokens: 6,
+                maxPageConcurrency: 8,
+                hasScanCleanupBinary: true,
+                preprocessingMode: 'clean',
+            }),
+        ).toEqual({
+            lanes: 1,
+            cleanupThreads: 6,
+        });
+        expect(
+            resolveOcrPageConcurrency({
+                globalPageSlots: 4,
+                cpuTokens: 6,
+                maxPageConcurrency: 8,
+                hasScanCleanupBinary: false,
+                preprocessingMode: 'clean',
+            }),
+        ).toEqual({
+            lanes: 4,
+            cleanupThreads: 1,
+        });
+    });
+});
+
+describe('resolveOcrPreprocessResources', () => {
+    const capacity = {
+        cpuTokens: 6,
+        estimatedResidentBytes: 6 * GIB,
+        nativeProcesses: 4,
+        ioWeight: 4,
+    };
+
+    it('charges granted cleanup threads and decoded raster bytes per preprocessing mode', () => {
+        const pixels = 2_480 * 3_508;
+        expect(
+            resolveOcrPreprocessResources({
+                pixelCount: pixels,
+                mode: 'clean',
+                cleanupThreads: 6,
+                capacity,
+            }),
+        ).toEqual({
+            cpuTokens: 6,
+            estimatedResidentBytes: OCR_PREPROCESS_BASE_RESIDENT_BYTES + pixels * OCR_PREPROCESS_BYTES_PER_PIXEL.clean,
+            nativeProcesses: 1,
+            ioWeight: 1,
+        });
+
+        expect(
+            resolveOcrPreprocessResources({
+                pixelCount: pixels,
+                mode: 'polarity-only',
+                cleanupThreads: 1,
+                capacity,
+            }),
+        ).toEqual({
+            cpuTokens: 1,
+            estimatedResidentBytes: OCR_PREPROCESS_BASE_RESIDENT_BYTES + pixels * OCR_PREPROCESS_BYTES_PER_PIXEL['polarity-only'],
+            nativeProcesses: 1,
+            ioWeight: 1,
+        });
+    });
+
+    it('clamps preprocessing CPU and memory to broker capacity', () => {
+        expect(
+            resolveOcrPreprocessResources({
+                pixelCount: 45_000_000,
+                mode: 'clean',
+                cleanupThreads: 12,
+                capacity: {
+                    cpuTokens: 2,
+                    estimatedResidentBytes: 512 * MIB,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
+            }),
+        ).toEqual({
+            cpuTokens: 2,
+            estimatedResidentBytes: 512 * MIB,
+            nativeProcesses: 1,
+            ioWeight: 1,
+        });
     });
 });
 
