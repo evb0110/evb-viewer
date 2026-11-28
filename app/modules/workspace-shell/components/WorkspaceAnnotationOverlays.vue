@@ -196,14 +196,19 @@ const {
     getViewportRoot: () => annotationViewportRoot.value,
     getZoom: () => view.effectiveZoom.value,
     getEmptyNoteLabel: () => t('annotations.emptyNote'),
+    isVisible: () => visible,
     paintsPage: (pageIndex) => view.pdfViewerRef.value?.paintsAnnotationPage?.(pageIndex) !== false,
 });
 
 const noteWindowItems = computed(() => {
+    const visibleNotes = visibleAnnotationNoteWindows.value;
+    if (visibleNotes.length === 0) {
+        return [];
+    }
     const snapshot = viewportDomSnapshot.value;
     const paneBounds = snapshot?.bounds ?? null;
     const positions = annotationNotePositions.value;
-    return visibleAnnotationNoteWindows.value.map((note, noteIndex) => ({
+    return visibleNotes.map((note, noteIndex) => ({
         annotationId: note.annotationId,
         pageNumber: requirePageNumber(note.pageNumber),
         author: note.author,
