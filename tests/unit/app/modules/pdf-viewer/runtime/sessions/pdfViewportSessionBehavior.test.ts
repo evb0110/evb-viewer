@@ -273,6 +273,7 @@ function createViewportFixture(
         /** The view's real write port, for sequences whose verdict the port owns. */
         viewportWritePort?: IPdfViewportWritePort;
         viewMode?: 'single' | 'facing' | 'facing-first-single';
+        viewRotation?: Ref<0 | 90 | 180 | 270>;
         zoom?: Ref<number>;
         zoomMode?: 'custom' | 'fit-width' | 'fit-height';
     } = {},
@@ -291,6 +292,7 @@ function createViewportFixture(
     const outputScale = ref(1);
     const zoomMode = ref(input.zoomMode ?? 'fit-width');
     const viewMode = ref(input.viewMode ?? 'single');
+    const viewRotation = input.viewRotation ?? ref<0 | 90 | 180 | 270>(0);
     const fitMode = input.fitMode ?? ref<'width' | 'height'>('width');
     const isActive = input.isActive ?? ref(true);
     const emittedPages: number[] = [];
@@ -317,6 +319,7 @@ function createViewportFixture(
                     zoomMode: computed(() => zoomMode.value),
                     fitMode: computed(() => fitMode.value),
                     viewMode: computed(() => viewMode.value),
+                    viewRotation: computed(() => viewRotation.value),
                     continuousScroll: computed(() => input.continuousScroll ?? true),
                     bufferPages: computed(() => input.bufferPages ?? 3),
                     isActive: computed(() => isActive.value),
@@ -366,6 +369,7 @@ function createViewportFixture(
                         isActive: computed(() => isActive.value),
                         isResizing: computed(() => false),
                         viewMode: computed(() => viewMode.value),
+                        viewRotation: computed(() => viewRotation.value),
                         outputScale,
                         rasterDisplayProfile: computed(() => null),
                         bufferPages: computed(() => input.bufferPages ?? 3),
@@ -4747,6 +4751,37 @@ describe('PdfViewportSession layout placement receipt', () => {
             await fixture.dispose();
             fixture.container.remove();
             vi.useRealTimers();
+        }
+    });
+
+    it('publishes demand when viewRotation or pageMetricsVersion changes on a custom-zoom single-page document', async () => {
+        const viewRotation = ref<0 | 90 | 180 | 270>(0);
+        const fixture = createViewportFixture({
+            bufferPages: 0,
+            continuousScroll: true,
+            pageCount: 1,
+            viewRotation,
+            zoom: ref(2.62),
+            zoomMode: 'custom',
+        });
+        document.body.append(fixture.container);
+        try {
+            appendPageBox(fixture.container, 1, {height: 800, top: 0});
+            fixture.viewport.markPageMounted(requirePageNumber(1));
+            await new Promise((resolve) => window.requestAnimationFrame(resolve));
+            const settledRevision = fixture.viewport.demand.value.revision;
+
+            // Rotating in custom zoom mode keeps effectiveScale (2.62) and visibleRange ({1,1}) identical;
+            // demand must still advance so the renderer repaints page 1 at the new rotation.
+            viewRotation.value = 270;
+            expect(fixture.viewport.demand.value.revision).toBeGreaterThan(settledRevision);
+            const afterRotationRevision = fixture.viewport.demand.value.revision;
+
+            fixture.documentSession.pageMetricsVersion.value += 1;
+            expect(fixture.viewport.demand.value.revision).toBeGreaterThan(afterRotationRevision);
+        } finally {
+            await fixture.dispose();
+            fixture.container.remove();
         }
     });
 });

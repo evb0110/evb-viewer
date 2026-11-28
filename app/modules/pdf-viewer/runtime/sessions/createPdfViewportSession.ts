@@ -671,6 +671,8 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
                 renderedPagesKey.value,
                 options.bufferPages.value,
                 scale.effectiveScale.value,
+                viewRotation.value,
+                pageMetricsVersion.value,
                 options.outputScale.value,
                 options.isResizing.value,
                 isZoomGestureActive.value,
