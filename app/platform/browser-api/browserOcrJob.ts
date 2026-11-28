@@ -15,11 +15,13 @@ import {loadBrowserPdfjsDocument} from '@app/platform/browser-api/loadBrowserPdf
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
 import {appendPdfMutationsToStoreFile} from '@app/platform/browser/browserStorePort';
 import {getErrorMessage} from '@app/utils/error';
+import {resolvePerformanceProfile} from '@app/utils/performanceProfile';
 import {isBrowserPageOpsWasmFailure, type IOcrTextLayerInstructions} from '@contracts/browserPageOpsWorker';
 import type {TDocumentRef} from '@contracts/documentRef';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import type {
     IOcrDiagnostic,
+    IOcrModelDownloadProgress,
     IOcrProgress,
     IOcrSearchablePdfOptions,
     IOcrSearchablePdfPage,
@@ -78,10 +80,127 @@ export class BrowserOcrJobError extends Error {
     }
 }
 
+const MIN_BROWSER_OCR_PREP_CONCURRENCY = 2;
+const MAX_BROWSER_OCR_PREP_CONCURRENCY = 4;
+
+/**
+ * Bounds browser OCR page probing and model downloads to 2–4 concurrent tasks:
+ * 2 on constrained/low-memory hosts (mobile, low tier, <= 4 GiB, or <= 4 cores),
+ * scaling up to 4 on higher-tier hosts to prevent memory and connection spikes.
+ */
+export function resolveBrowserOcrPrepConcurrency(environment?: {
+    mobile?: boolean;
+    lowMemory?: boolean;
+    deviceMemory?: number | undefined;
+    hardwareConcurrency?: number | undefined;
+}): number {
+    const profile = environment ? undefined : resolvePerformanceProfile();
+    const mobile = environment?.mobile ?? profile?.mobile ?? false;
+    const lowMemory = environment?.lowMemory ?? profile?.lowMemory ?? false;
+    const deviceMemory =
+        environment && 'deviceMemory' in environment
+            ? environment.deviceMemory
+            : typeof navigator === 'undefined'
+              ? undefined
+              : (navigator as Navigator & {deviceMemory?: number}).deviceMemory;
+    const cores =
+        environment && 'hardwareConcurrency' in environment
+            ? (environment.hardwareConcurrency ?? 2)
+            : typeof navigator === 'undefined'
+              ? 2
+              : navigator.hardwareConcurrency || 2;
+    if (mobile || lowMemory || (typeof deviceMemory === 'number' && Number.isFinite(deviceMemory) && deviceMemory <= 4) || cores <= 4) {
+        return MIN_BROWSER_OCR_PREP_CONCURRENCY;
+    }
+    return Math.min(MAX_BROWSER_OCR_PREP_CONCURRENCY, Math.max(MIN_BROWSER_OCR_PREP_CONCURRENCY, Math.floor(cores / 2)));
+}
+
 function throwIfAborted(signal: AbortSignal) {
     if (signal.aborted) {
         throw signal.reason instanceof Error ? signal.reason : new DOMException('OCR was canceled', 'AbortError');
     }
+}
+
+/**
+ * Races an unabortable async operation (such as PDF.js page/text/operator-list
+ * RPCs) against `signal` so cancellation or a sibling lane error never blocks
+ * teardown behind a stuck PDF.js call.
+ */
+function awaitWithAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+    if (signal.aborted) {
+        promise.catch(() => undefined);
+        return Promise.reject(signal.reason instanceof Error ? signal.reason : new DOMException('OCR was canceled', 'AbortError'));
+    }
+    return new Promise<T>((resolve, reject) => {
+        const onAbort = () => {
+            reject(signal.reason instanceof Error ? signal.reason : new DOMException('OCR was canceled', 'AbortError'));
+        };
+        signal.addEventListener('abort', onAbort, {once: true});
+        promise.then(
+            (value) => {
+                signal.removeEventListener('abort', onAbort);
+                resolve(value);
+            },
+            (error) => {
+                signal.removeEventListener('abort', onAbort);
+                reject(error);
+            },
+        );
+    });
+}
+
+/**
+ * Runs `worker` over `items` with at most `concurrency` active tasks,
+ * preserving exact input ordering in the returned array and stopping sibling
+ * lanes cleanly on abort or first error.
+ */
+async function runBounded<TItem, TResult>(
+    items: readonly TItem[],
+    concurrency: number,
+    signal: AbortSignal,
+    worker: (item: TItem, index: number, workerSignal: AbortSignal) => Promise<TResult>,
+): Promise<TResult[]> {
+    throwIfAborted(signal);
+    if (items.length === 0) {
+        return [];
+    }
+    const results = new Array<TResult>(items.length);
+    const localAbort = new AbortController();
+    const workerSignal = AbortSignal.any([signal, localAbort.signal]);
+    let nextIndex = 0;
+    let firstError: unknown;
+    let hasError = false;
+    const laneCount = Math.max(1, Math.min(Math.floor(concurrency), items.length));
+
+    await Promise.all(
+        Array.from({length: laneCount}, async () => {
+            while (!hasError && !workerSignal.aborted) {
+                const index = nextIndex;
+                if (index >= items.length) {
+                    return;
+                }
+                nextIndex += 1;
+                try {
+                    results[index] = await worker(items[index]!, index, workerSignal);
+                } catch (error) {
+                    if (!hasError) {
+                        hasError = true;
+                        firstError = error;
+                        localAbort.abort(error);
+                    }
+                    return;
+                }
+            }
+        }),
+    );
+
+    if (signal.aborted) {
+        throwIfAborted(signal);
+    }
+    if (hasError) {
+        throw firstError;
+    }
+    return results;
 }
 
 async function sha256Hex(bytes: Uint8Array<ArrayBuffer>) {
@@ -139,7 +258,9 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
     const diagnostics = new OcrJobMessages<IOcrDiagnostic>();
     let totalPages = input.pages.length;
     let processedCount = 0;
-    const stage = (phase: TOcrProgressPhase, extra: Partial<IOcrProgress> = {}) =>
+    let lastPhase: TOcrProgressPhase = 'preparing';
+    const stage = (phase: TOcrProgressPhase, extra: Partial<IOcrProgress> = {}) => {
+        lastPhase = phase;
         emit({
             currentPage: 0,
             processedCount,
@@ -148,28 +269,75 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
             status: 'running',
             ...extra,
         });
+    };
 
     stage('preparing');
     // The document is read by range, from the revision read now; the layer is appended to that revision.
     const revision = await browserDocumentStore.getDocumentRevision(input.sourceRef);
     const source = await browserDocumentStore.readableBlob(input.sourceRef);
 
-    const modelCodes = withOcrModelSublanguages(input.pages.flatMap((page) => page.languages) as TOcrModelCode[]);
-    for (const code of modelCodes) {
-        stage('model-prep', {languageCode: code});
-        try {
-            await ensureBrowserOcrModel(code, {
-                signal,
-                onProgress: (modelDownload) =>
-                    stage('model-prep', {
-                        languageCode: code,
-                        modelDownload,
-                    }),
-            });
-        } catch (error) {
-            throwIfAborted(signal);
-            throw new BrowserOcrJobError('OCR_MODEL_DOWNLOAD_FAILED', getErrorMessage(error));
+    const prepConcurrency = resolveBrowserOcrPrepConcurrency();
+    /**
+     * Ensures `codes` with bounded concurrency while keeping `model-prep`
+     * progress focused on one active download at a time so concurrent downloads
+     * never interleave language labels, misattribute totals, or jump backward.
+     */
+    const ensureModelsBounded = async (
+        codes: readonly TOcrModelCode[],
+        downloadSignal: AbortSignal,
+        {announceStart = true}: {announceStart?: boolean} = {},
+    ) => {
+        if (codes.length === 0) {
+            return;
         }
+        if (announceStart) {
+            stage('model-prep', {languageCode: codes[0]!});
+        }
+        let focusedCode: TOcrModelCode | null = null;
+        const activeDownloads = new Map<TOcrModelCode, IOcrModelDownloadProgress>();
+        await runBounded(codes, prepConcurrency, downloadSignal, async (code, _index, laneSignal) => {
+            try {
+                await ensureBrowserOcrModel(code, {
+                    signal: laneSignal,
+                    onProgress: (modelDownload) => {
+                        activeDownloads.set(code, modelDownload);
+                        if (focusedCode === null) {
+                            focusedCode = code;
+                        }
+                        if (focusedCode === code) {
+                            stage('model-prep', {
+                                languageCode: code,
+                                modelDownload,
+                            });
+                        }
+                    },
+                });
+            } finally {
+                activeDownloads.delete(code);
+                if (focusedCode === code) {
+                    const nextEntry = activeDownloads.entries().next().value;
+                    if (nextEntry) {
+                        focusedCode = nextEntry[0];
+                        if (!laneSignal.aborted) {
+                            stage('model-prep', {
+                                languageCode: nextEntry[0],
+                                modelDownload: nextEntry[1],
+                            });
+                        }
+                    } else {
+                        focusedCode = null;
+                    }
+                }
+            }
+        });
+    };
+
+    const modelCodes = withOcrModelSublanguages(input.pages.flatMap((page) => page.languages) as TOcrModelCode[]);
+    try {
+        await ensureModelsBounded(modelCodes, signal);
+    } catch (error) {
+        throwIfAborted(signal);
+        throw new BrowserOcrJobError('OCR_MODEL_DOWNLOAD_FAILED', getErrorMessage(error));
     }
 
     const pdf = await loadBrowserPdfjsDocument(input.sourceRef);
@@ -185,7 +353,7 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
         if (visibility.warning) {
             errors.push(visibility.warning);
         }
-        // Probe selected pages once; all lanes receive the same DPI.
+        // Probe selected pages once with bounded concurrency; all lanes receive the same DPI.
         const renderDpi = input.options.renderDpi;
         const sourceDpiByPage = new Map<number, number>();
         const queue: IOcrSearchablePdfPage[] = [];
@@ -194,34 +362,61 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
         if (renderDpi === undefined) {
             stage('dpi-inspection');
         }
-        for (const request of input.pages) {
-            throwIfAborted(signal);
-            const page = await pdf.getPage(request.pageNumber).catch(() => null);
+        const probedPages = await runBounded(input.pages, prepConcurrency, signal, async (request, _index, probeSignal) => {
+            throwIfAborted(probeSignal);
+            const pagePromise = pdf.getPage(request.pageNumber).catch(() => null);
+            let page: IPdfPage | null = null;
             try {
+                page = await awaitWithAbort(pagePromise, probeSignal);
+            } catch (error) {
+                void pagePromise.then((latePage) => latePage?.cleanup());
+                throw error;
+            }
+            try {
+                throwIfAborted(probeSignal);
+                const pageText = page ? await awaitWithAbort(extractPageText(page), probeSignal) : OCR_TEXT_PROBE_UNAVAILABLE;
+                throwIfAborted(probeSignal);
                 const selection = selectOcrPagesByExistingText({
                     pages: [request],
                     supersessionPolicy: input.options.supersessionPolicy ?? 'missing-only',
                     visibility: visibility.visibility,
-                    texts: new Map([[request.pageNumber, page ? await extractPageText(page) : OCR_TEXT_PROBE_UNAVAILABLE]]),
+                    texts: new Map([[request.pageNumber, pageText]]),
                 });
-                errors.push(...selection.warnings);
-                diagnostics.push(...selection.diagnostics);
-                queue.push(...selection.pages);
-                if (!page || selection.pages.length === 0) {
-                    continue;
-                }
-                const viewport = page.getViewport({scale: 1});
-                // In user-space units, as the raster is rendered.
-                maxPageArea = Math.max(maxPageArea, (viewport.width * viewport.height) / (viewport.userUnit || 1) ** 2);
-                if (renderDpi === undefined) {
-                    const sourceDpi = readPageSourceDpi(await page.getOperatorList({annotationMode: BROWSER_OCR_ANNOTATION_MODE}));
-                    if (sourceDpi !== undefined) {
-                        sourceDpiByPage.set(request.pageNumber, sourceDpi);
-                        finestSourceDpi = Math.max(finestSourceDpi ?? 0, sourceDpi);
+                let pageArea = 0;
+                let sourceDpi: number | undefined;
+                if (page && selection.pages.length > 0) {
+                    const viewport = page.getViewport({scale: 1});
+                    // In user-space units, as the raster is rendered.
+                    pageArea = (viewport.width * viewport.height) / (viewport.userUnit || 1) ** 2;
+                    if (renderDpi === undefined) {
+                        const operatorList = await awaitWithAbort(
+                            page.getOperatorList({annotationMode: BROWSER_OCR_ANNOTATION_MODE}),
+                            probeSignal,
+                        );
+                        sourceDpi = readPageSourceDpi(operatorList);
                     }
                 }
+                return {
+                    pageNumber: request.pageNumber,
+                    selection,
+                    pageArea,
+                    sourceDpi,
+                };
             } finally {
                 page?.cleanup();
+            }
+        });
+        for (const probed of probedPages) {
+            errors.push(...probed.selection.warnings);
+            diagnostics.push(...probed.selection.diagnostics);
+            queue.push(...probed.selection.pages);
+            if (probed.selection.pages.length === 0) {
+                continue;
+            }
+            maxPageArea = Math.max(maxPageArea, probed.pageArea);
+            if (probed.sourceDpi !== undefined) {
+                sourceDpiByPage.set(probed.pageNumber, probed.sourceDpi);
+                finestSourceDpi = Math.max(finestSourceDpi ?? 0, probed.sourceDpi);
             }
         }
         // Progress counts the pages being recognized; a kept page is not one of them.
@@ -328,11 +523,21 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
                 : null;
         const checkpoints = await createBrowserOcrCheckpointStore(durablePort);
         try {
-            const progress = (currentPage: number, active: readonly number[]) =>
+            let lastProcessingPage = 0;
+            let lastProcessingActive: readonly number[] = [];
+            let earlyPrintDownloading = false;
+            const progress = (currentPage: number, active: readonly number[]) => {
+                lastProcessingPage = currentPage;
+                lastProcessingActive = [...active];
+                // Keep an active Early Print model download visible while sibling pages report progress.
+                if (earlyPrintDownloading && lastPhase === 'model-prep') {
+                    return;
+                }
                 stage('processing', {
                     currentPage,
                     activePages: [...active],
                 });
+            };
             const targeted = queue.length > 0;
             const result = await recognizeOcrPages({
                 pages: queue,
@@ -344,8 +549,17 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
                 renderPage,
                 runEngine: runBrowserOcrEngine,
                 prepareEarlyPrintModels: async (earlyPrintSignal = signal) => {
-                    for (const code of EARLY_PRINT_MODEL_CODES) {
-                        await ensureBrowserOcrModel(code, {signal: earlyPrintSignal});
+                    // Only switch to `model-prep` if a model actually downloads; restore
+                    // `processing` immediately once downloads settle (success or fallback)
+                    // so the reread never stays stuck showing model preparation.
+                    earlyPrintDownloading = true;
+                    try {
+                        await ensureModelsBounded(EARLY_PRINT_MODEL_CODES, earlyPrintSignal, {announceStart: false});
+                    } finally {
+                        earlyPrintDownloading = false;
+                        if (lastPhase === 'model-prep' && !earlyPrintSignal.aborted) {
+                            progress(lastProcessingPage, lastProcessingActive);
+                        }
                     }
                 },
                 readModel: readCachedOcrModel,

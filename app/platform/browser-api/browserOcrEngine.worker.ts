@@ -63,6 +63,7 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
                 ok: true,
                 type: request.type,
                 data,
+                wasmMemoryBytes: recognizeWithEngine.getWasmMemoryBytes(),
             },
             data.passes.flatMap((pass) => pass.outputs.map((output) => output.buffer)),
         );
@@ -71,6 +72,7 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
             id: request.id,
             ok: false,
             error: getErrorMessage(error),
+            wasmMemoryBytes: recognizeWithEngine.getWasmMemoryBytes(),
         });
     } finally {
         if (!(request.payload.image instanceof Uint8Array)) {

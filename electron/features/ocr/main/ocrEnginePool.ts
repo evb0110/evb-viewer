@@ -2,7 +2,7 @@ import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import * as electron from 'electron';
 import {WORKER_BUNDLES_BY_ID} from '@electron-worker-bundles/electronWorkerBundles.js';
-import type {IOcrEngineResult} from '@ocr-core/tesseractEngine';
+import {resolveTesseractRequestModels, type IOcrEngineResult} from '@ocr-core/tesseractEngine';
 import {createOcrEngineHost, type IOcrEngineLane} from '@electron/features/ocr/main/ocrEngineHostClient';
 import {getRuntimeTessdataDir} from '@electron/features/ocr/languageModels';
 import {
@@ -480,7 +480,7 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
     return {
         async run(request: TDesktopOcrEngineRequest, signal: AbortSignal, ownerId = 'ocr-engine'): Promise<IOcrEngineResult> {
             const {capacity} = broker.getSnapshot();
-            const modelSizes = await readModelBytes(request.models);
+            const modelSizes = await readModelBytes(resolveTesseractRequestModels(request));
             const workingBytes = resolveOcrLaneResources(sumOcrModelBytes(modelSizes), request.image, capacity).estimatedResidentBytes;
             const {entry, growth, passLease} = await admitPass(signal, ownerId, modelSizes, workingBytes);
             entry.residentBytes += growth;

@@ -127,6 +127,9 @@ async function readBodyWithStallTimeout(
 }
 
 async function downloadAttempt(code: TOcrModelCode, attempt: number, signal: AbortSignal, report: TProgressListener) {
+    if (signal.aborted) {
+        throw abortError(signal);
+    }
     const attemptController = new AbortController();
     const abortAttempt = () => attemptController.abort(signal.reason);
     signal.addEventListener('abort', abortAttempt, {once: true});
@@ -188,8 +191,14 @@ function waitBeforeRetry(signal: AbortSignal, attempt: number) {
 async function downloadAndStore(code: TOcrModelCode, signal: AbortSignal, report: TProgressListener) {
     // Another tab may be downloading the same model; take turns and reuse its result.
     const run = async () => {
-        if (await hasCachedOcrModel(code)) {
+        if (signal.aborted) {
+            throw abortError(signal);
+        }
+        if (await waitOrAbort(hasCachedOcrModel(code), signal)) {
             return;
+        }
+        if (signal.aborted) {
+            throw abortError(signal);
         }
         for (let attempt = 1; ; attempt += 1) {
             try {
@@ -221,14 +230,15 @@ async function downloadAndStore(code: TOcrModelCode, signal: AbortSignal, report
     }
 }
 
-function waitOrAbort(promise: Promise<void>, signal: AbortSignal | undefined) {
+function waitOrAbort<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
     if (!signal) {
         return promise;
     }
     if (signal.aborted) {
+        promise.catch(() => {});
         return Promise.reject(abortError(signal));
     }
-    return new Promise<void>((resolve, reject) => {
+    return new Promise<T>((resolve, reject) => {
         const onAbort = () => reject(abortError(signal));
         signal.addEventListener('abort', onAbort, {once: true});
         promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort));
@@ -287,6 +297,7 @@ export async function ensureBrowserOcrModel(
             download.listeners.delete(listener);
         }
         if (options.signal?.aborted && download.waiters === 0 && downloads.get(code) === download) {
+            downloads.delete(code);
             download.controller.abort(abortError(options.signal));
         }
     }

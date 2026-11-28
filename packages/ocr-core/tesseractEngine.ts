@@ -5,7 +5,56 @@ import {
     type IBrowserOcrEnginePass,
     type IBrowserOcrEngineResult,
 } from '@contracts/browserOcrEngine';
-import {type TOcrModelCode, withOcrModelSublanguages} from '@contracts/ocrLanguages';
+import {OCR_LANGUAGE_MODEL_SHA256, type TOcrModelCode, withOcrModelSublanguages} from '@contracts/ocrLanguages';
+
+const TESSERACT_VALUE_FLAGS = new Set(['--tessdata-dir', '--dpi', '-c', '--psm', '--oem', '--user-words', '--user-patterns']);
+
+function parsePassArgLanguages(args: readonly string[]): TOcrModelCode[] | null {
+    let lastLangArg: string | null = null;
+    for (let index = 2; index < args.length; index += 1) {
+        const arg = args[index]!;
+        if (arg === '-l' && index + 1 < args.length) {
+            // Tesseract 5.5.3 overwrites `lang` on repeated `-l` flags (last flag wins).
+            lastLangArg = args[index + 1]!;
+            index += 1;
+            continue;
+        }
+        if (TESSERACT_VALUE_FLAGS.has(arg)) {
+            index += 1;
+        }
+    }
+    if (lastLangArg === null) {
+        return null;
+    }
+    const tokens = lastLangArg.split('+').filter((token) => token.length > 0 && !token.startsWith('~'));
+    if (tokens.length === 0 || !tokens.every((token) => Object.hasOwn(OCR_LANGUAGE_MODEL_SHA256, token))) {
+        return null;
+    }
+    return tokens as TOcrModelCode[];
+}
+
+/**
+ * Computes the exact sorted model set a single Tesseract pass needs mounted in
+ * MEMFS, always expanding sub-language dependencies through `withOcrModelSublanguages`.
+ */
+export function resolveTesseractPassModels(
+    pass: Pick<IBrowserOcrEnginePass, 'args' | 'models'>,
+    fallbackModels: readonly TOcrModelCode[],
+): TOcrModelCode[] {
+    const passLanguages = pass.models && pass.models.length > 0 ? pass.models : (parsePassArgLanguages(pass.args) ?? fallbackModels);
+    return [...withOcrModelSublanguages(passLanguages)].sort();
+}
+
+/**
+ * Computes the exact sorted union of models a request's passes will load and
+ * mount, keeping worker loading and desktop pool admission on one source of truth.
+ */
+export function resolveTesseractRequestModels(request: Pick<IOcrEngineRequest<unknown>, 'models' | 'passes'>): TOcrModelCode[] {
+    if (request.passes.length === 0) {
+        return [...withOcrModelSublanguages(request.models)].sort();
+    }
+    return [...new Set(request.passes.flatMap((pass) => resolveTesseractPassModels(pass, request.models)))].sort();
+}
 
 /** The part of the Emscripten module a pass uses (`scripts/build-tesseract-wasm.sh`). */
 interface ITesseractModule {
@@ -135,8 +184,9 @@ export function createTesseractEngine(source: ITesseractEngineSource): ITesserac
         image: Uint8Array,
         modelBytes: ReadonlyMap<TOcrModelCode, Uint8Array>,
         pass: IBrowserOcrEnginePass,
+        mountedModels: readonly TOcrModelCode[],
     ) => {
-        const key = JSON.stringify([pass.args.slice(2), [...modelBytes.keys()]]);
+        const key = JSON.stringify([pass.args.slice(2), mountedModels]);
         if (activeInstance?.key !== key) {
             activeInstance = null;
             const log = {stderr: ''};
@@ -157,8 +207,8 @@ export function createTesseractEngine(source: ITesseractEngineSource): ITesserac
                 },
             });
             module.FS.mkdirTree('/work');
-            for (const [code, bytes] of modelBytes) {
-                module.FS.writeFile(`${BROWSER_OCR_ENGINE_TESSDATA_PATH}/${code}.traineddata`, bytes, {canOwn: true});
+            for (const code of mountedModels) {
+                module.FS.writeFile(`${BROWSER_OCR_ENGINE_TESSDATA_PATH}/${code}.traineddata`, modelBytes.get(code)!, {canOwn: true});
             }
             activeInstance = {
                 key,
@@ -195,13 +245,18 @@ export function createTesseractEngine(source: ITesseractEngineSource): ITesserac
     const recognize: ITesseractEngine = Object.assign(
         async function recognize(request: IOcrEngineRequest): Promise<IOcrEngineResult> {
             try {
-                // Tesseract finds the sub-languages a model's config loads beside it.
-                const codes = withOcrModelSublanguages(request.models);
+                // Scope each pass's MEMFS mounts to its own sub-language closure so
+                // e.g. early-print ita_old/fra passes do not mount unrelated 100+ MiB models.
+                const passPlans = request.passes.map((pass) => ({
+                    pass,
+                    mountedModels: resolveTesseractPassModels(pass, request.models),
+                }));
+                const codes = [...new Set(passPlans.flatMap((plan) => plan.mountedModels))];
                 const [engine, ...loaded] = await Promise.all([loadEngine(), ...codes.map(loadModel)]);
                 const modelBytes = new Map(codes.map((code, index) => [code, loaded[index]!]));
                 const passes: IOcrEngineResult['passes'] = [];
-                for (const pass of request.passes) {
-                    passes.push(await runPass(engine, request.image, modelBytes, pass));
+                for (const {pass, mountedModels} of passPlans) {
+                    passes.push(await runPass(engine, request.image, modelBytes, pass, mountedModels));
                 }
                 return {passes};
             } catch (error) {

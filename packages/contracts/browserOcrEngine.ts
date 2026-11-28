@@ -26,6 +26,8 @@ const passSchema = v.object({
     args: v.pipe(v.array(v.pipe(v.string(), v.maxLength(4096))), v.minLength(2), v.maxLength(256)),
     /** Files the pass must write; their bytes come back in the same order. */
     outputs: v.pipe(v.array(enginePathSchema), v.minLength(1), v.maxLength(8)),
+    /** Languages this pass reads; expanded via `withOcrModelSublanguages` before mounting into MEMFS. */
+    models: v.optional(v.pipe(v.array(modelCodeSchema), v.minLength(1), v.maxLength(16))),
 });
 
 /** A PNM page (the assembled PPM, or a cleaned page as PGM/PPM) or the rendered tiles to assemble. */
@@ -104,4 +106,13 @@ export type IBrowserOcrPreprocessResult = v.InferOutput<typeof BROWSER_OCR_PREPR
 export function parseBrowserOcrEngineRequest(value: unknown) {
     const parsed = v.safeParse(requestSchema, value, {abortEarly: true});
     return parsed.success ? parsed.output : null;
+}
+
+/** Validates optional retained WASM linear-memory telemetry attached to a worker reply envelope. */
+export function readBrowserOcrWasmMemoryBytes(response: unknown): number | null {
+    if (typeof response !== 'object' || response === null) {
+        return null;
+    }
+    const value: unknown = Reflect.get(response, 'wasmMemoryBytes');
+    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
