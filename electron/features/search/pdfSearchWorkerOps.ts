@@ -1,5 +1,5 @@
 import {randomUUID} from 'node:crypto';
-import {constants as fsConstants, open, rename, rm, writeFile, type FileHandle} from 'node:fs/promises';
+import {constants as fsConstants, open, rename, rm, stat, writeFile, type FileHandle} from 'node:fs/promises';
 import {
     decodePdfSearchIndexWasmOutput,
     decodePdfSearchJsonOutput,
@@ -15,10 +15,18 @@ const INDEX_EOF_PROBE_BYTES = 4096;
 export const DEFAULT_DESKTOP_SEARCH_WORKER_INDEX_CACHE_MAX_BYTES = 32 * 1024 * 1024;
 const DEFAULT_DESKTOP_SEARCH_WORKER_INDEX_CACHE_IDLE_TTL_MS = 30_000;
 
+export interface IWorkerIndexFileStamp {
+    readonly size: number;
+    readonly mtimeMs: number;
+    readonly ctimeMs: number;
+    readonly ino: number;
+}
+
 interface ICachedWorkerIndexEntry {
     readonly documentRevision: string;
     readonly indexBytes: Uint8Array;
     readonly byteLength: number;
+    readonly fileStamp: IWorkerIndexFileStamp | undefined;
 }
 
 export interface IPdfSearchWorkerIndexCacheOptions {
@@ -33,10 +41,33 @@ export interface IPdfSearchWorkerIndexCacheToken {
 
 export interface IPdfSearchWorkerIndexCache {
     captureToken(indexPath: string): IPdfSearchWorkerIndexCacheToken;
-    get(indexPath: string, documentRevision: string, maxIndexBytes: number): Uint8Array | null;
-    set(indexPath: string, documentRevision: string, indexBytes: Uint8Array, expectedToken?: IPdfSearchWorkerIndexCacheToken): void;
+    get(indexPath: string, documentRevision: string, maxIndexBytes: number, expectedFileStamp?: IWorkerIndexFileStamp): Uint8Array | null;
+    hasFileStamp(indexPath: string, documentRevision: string): boolean;
+    set(
+        indexPath: string,
+        documentRevision: string,
+        indexBytes: Uint8Array,
+        expectedToken?: IPdfSearchWorkerIndexCacheToken,
+        fileStamp?: IWorkerIndexFileStamp,
+    ): void;
     evict(indexPath?: string): void;
     stats(): {entryCount: number; totalBytes: number};
+}
+
+function extractFileStamp(info: {size: number; mtimeMs?: number; ctimeMs?: number; ino?: number}): IWorkerIndexFileStamp {
+    return {
+        size: info.size,
+        mtimeMs: typeof info.mtimeMs === 'number' && Number.isFinite(info.mtimeMs) ? info.mtimeMs : 0,
+        ctimeMs: typeof info.ctimeMs === 'number' && Number.isFinite(info.ctimeMs) ? info.ctimeMs : 0,
+        ino: typeof info.ino === 'number' && Number.isFinite(info.ino) ? info.ino : 0,
+    };
+}
+
+function fileStampsMatch(a: IWorkerIndexFileStamp | undefined, b: IWorkerIndexFileStamp | undefined): boolean {
+    if (a === undefined || b === undefined) {
+        return true;
+    }
+    return a.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs && a.ino === b.ino;
 }
 
 export function createPdfSearchWorkerIndexCache(options: IPdfSearchWorkerIndexCacheOptions = {}): IPdfSearchWorkerIndexCache {
@@ -90,12 +121,12 @@ export function createPdfSearchWorkerIndexCache(options: IPdfSearchWorkerIndexCa
                 pathSeq: pathEvictSeq.get(indexPath) ?? 0,
             };
         },
-        get(indexPath, documentRevision, maxIndexBytes) {
+        get(indexPath, documentRevision, maxIndexBytes, expectedFileStamp) {
             const entry = entries.get(indexPath);
             if (!entry) {
                 return null;
             }
-            if (entry.documentRevision !== documentRevision) {
+            if (entry.documentRevision !== documentRevision || !fileStampsMatch(entry.fileStamp, expectedFileStamp)) {
                 deleteEntry(indexPath);
                 return null;
             }
@@ -108,7 +139,11 @@ export function createPdfSearchWorkerIndexCache(options: IPdfSearchWorkerIndexCa
             scheduleIdleClear();
             return entry.indexBytes;
         },
-        set(indexPath, documentRevision, indexBytes, expectedToken) {
+        hasFileStamp(indexPath, documentRevision) {
+            const entry = entries.get(indexPath);
+            return entry !== undefined && entry.documentRevision === documentRevision && entry.fileStamp !== undefined;
+        },
+        set(indexPath, documentRevision, indexBytes, expectedToken, fileStamp) {
             if (
                 expectedToken !== undefined &&
                 (expectedToken.globalEvictSeq !== globalEvictSeq || expectedToken.pathSeq !== (pathEvictSeq.get(indexPath) ?? 0))
@@ -132,6 +167,7 @@ export function createPdfSearchWorkerIndexCache(options: IPdfSearchWorkerIndexCa
                 documentRevision,
                 indexBytes,
                 byteLength,
+                fileStamp,
             });
             totalBytes += byteLength;
             scheduleIdleClear();
@@ -224,7 +260,28 @@ function resolveMaxIndexBytes(override: number | undefined): number {
     return override;
 }
 
-async function readIndexFileOrNull(indexPath: string, maxIndexBytes = PDF_SEARCH_WASM_MAX_INDEX_BYTES): Promise<Uint8Array | null> {
+async function statIndexFileStampOrNull(indexPath: string): Promise<IWorkerIndexFileStamp | null> {
+    try {
+        const info = await stat(indexPath);
+        if (!info.isFile()) {
+            throw new PdfSearchNativeError('io', 'Search index path is not a regular file');
+        }
+        return extractFileStamp(info);
+    } catch (error) {
+        if (isErrnoCode(error, 'ENOENT')) {
+            return null;
+        }
+        if (error instanceof PdfSearchNativeError) {
+            throw error;
+        }
+        throw new PdfSearchNativeError('io', `Search index could not be read: ${error instanceof Error ? error.message : String(error)}`);
+    }
+}
+
+async function readIndexFileOrNull(
+    indexPath: string,
+    maxIndexBytes = PDF_SEARCH_WASM_MAX_INDEX_BYTES,
+): Promise<{bytes: Uint8Array; fileStamp: IWorkerIndexFileStamp} | null> {
     let handle: FileHandle | null = null;
     try {
         handle = await open(indexPath, getIndexOpenFlags());
@@ -235,6 +292,7 @@ async function readIndexFileOrNull(indexPath: string, maxIndexBytes = PDF_SEARCH
         if (info.size > maxIndexBytes) {
             throw new PdfSearchNativeError('too-large', `Search index exceeds the ${maxIndexBytes}-byte admission ceiling`);
         }
+        const fileStamp = extractFileStamp(info);
 
         const initial = new Uint8Array(info.size);
         let totalBytes = 0;
@@ -242,7 +300,7 @@ async function readIndexFileOrNull(indexPath: string, maxIndexBytes = PDF_SEARCH
             const toRead = Math.min(INDEX_READ_CHUNK_BYTES, info.size - totalBytes);
             const {bytesRead} = await handle.read(initial, totalBytes, toRead, totalBytes);
             if (bytesRead === 0) {
-                return initial.slice(0, totalBytes);
+                return {bytes: initial.slice(0, totalBytes), fileStamp};
             }
             totalBytes += bytesRead;
         }
@@ -283,12 +341,12 @@ async function readIndexFileOrNull(indexPath: string, maxIndexBytes = PDF_SEARCH
         }
 
         if (growthUsed === 0 || growthBuffer === null) {
-            return initial;
+            return {bytes: initial, fileStamp};
         }
         const combined = new Uint8Array(totalBytes);
         combined.set(initial, 0);
         combined.set(growthBuffer.subarray(0, growthUsed), initial.byteLength);
-        return combined;
+        return {bytes: combined, fileStamp};
     } catch (error) {
         if (isErrnoCode(error, 'ENOENT')) {
             return null;
@@ -302,7 +360,11 @@ async function readIndexFileOrNull(indexPath: string, maxIndexBytes = PDF_SEARCH
     }
 }
 
-async function writeIndexFileAtomic(indexPath: string, bytes: Uint8Array, stagedIndexPath?: string) {
+async function writeIndexFileAtomic(
+    indexPath: string,
+    bytes: Uint8Array,
+    stagedIndexPath?: string,
+): Promise<IWorkerIndexFileStamp | undefined> {
     const tempPath = stagedIndexPath ?? `${indexPath}.tmp-${process.pid}-${randomUUID()}`;
     try {
         await writeFile(tempPath, bytes);
@@ -314,6 +376,7 @@ async function writeIndexFileAtomic(indexPath: string, bytes: Uint8Array, staged
             `Search index could not be written: ${error instanceof Error ? error.message : String(error)}`,
         );
     }
+    return (await statIndexFileStampOrNull(indexPath).catch(() => null)) ?? undefined;
 }
 
 export async function executePdfSearchWorkerCommand(
@@ -340,6 +403,38 @@ export async function executePdfSearchWorkerCommand(
             throw error;
         }
     };
+    const loadIndexForCommand = async (
+        indexPath: string,
+        documentRevision: string,
+    ): Promise<{
+        bytes: Uint8Array;
+        fromCache: boolean;
+        cacheToken: IPdfSearchWorkerIndexCacheToken | undefined;
+        fileStamp: IWorkerIndexFileStamp | undefined;
+    } | null> => {
+        if (indexCache) {
+            let liveStamp: IWorkerIndexFileStamp | undefined;
+            if (indexCache.hasFileStamp(indexPath, documentRevision)) {
+                const statStamp = await statIndexFileStampOrNull(indexPath);
+                if (statStamp === null) {
+                    indexCache.evict(indexPath);
+                    return null;
+                }
+                liveStamp = statStamp;
+            }
+            const cachedBytes = indexCache.get(indexPath, documentRevision, maxIndexBytes, liveStamp);
+            if (cachedBytes !== null) {
+                return {bytes: cachedBytes, fromCache: true, cacheToken: undefined, fileStamp: liveStamp};
+            }
+        }
+        const cacheToken = indexCache?.captureToken(indexPath);
+        const disk = await readIndexFileOrNull(indexPath, maxIndexBytes);
+        if (disk === null) {
+            indexCache?.evict(indexPath);
+            return null;
+        }
+        return {bytes: disk.bytes, fromCache: false, cacheToken, fileStamp: disk.fileStamp};
+    };
     switch (command.op) {
         case 'evict': {
             indexCache?.evict(command.indexPath);
@@ -361,16 +456,13 @@ export async function executePdfSearchWorkerCommand(
             );
             const output = runWithPressureGuard(request);
             const {coverage, indexBytes} = decodePdfSearchIndexWasmOutput(output);
-            await writeIndexFileAtomic(command.indexPath, indexBytes, resolveStagedIndexPath(command));
-            indexCache?.set(command.indexPath, command.documentRevision, indexBytes, cacheToken);
+            const fileStamp = await writeIndexFileAtomic(command.indexPath, indexBytes, resolveStagedIndexPath(command));
+            indexCache?.set(command.indexPath, command.documentRevision, indexBytes, cacheToken, fileStamp);
             return coverage;
         }
         case 'stat': {
-            const cachedBytes = indexCache?.get(command.indexPath, command.documentRevision, maxIndexBytes) ?? null;
-            const cacheToken = cachedBytes === null ? indexCache?.captureToken(command.indexPath) : undefined;
-            const indexBytes = cachedBytes ?? (await readIndexFileOrNull(command.indexPath, maxIndexBytes));
-            if (indexBytes === null) {
-                indexCache?.evict(command.indexPath);
+            const loaded = await loadIndexForCommand(command.indexPath, command.documentRevision);
+            if (loaded === null) {
                 return {stale: true};
             }
             const request = encodePdfSearchWasmRequest(
@@ -378,22 +470,19 @@ export async function executePdfSearchWorkerCommand(
                     op: 'stat',
                     documentRevision: command.documentRevision,
                 },
-                indexBytes,
+                loaded.bytes,
             );
             const decoded = decodePdfSearchJsonOutput(runWithPressureGuard(request));
             if (isStaleSearchIndexAnswer(decoded)) {
                 indexCache?.evict(command.indexPath);
-            } else if (cachedBytes === null) {
-                indexCache?.set(command.indexPath, command.documentRevision, indexBytes, cacheToken);
+            } else if (!loaded.fromCache) {
+                indexCache?.set(command.indexPath, command.documentRevision, loaded.bytes, loaded.cacheToken, loaded.fileStamp);
             }
             return decoded;
         }
         case 'search': {
-            const cachedBytes = indexCache?.get(command.indexPath, command.documentRevision, maxIndexBytes) ?? null;
-            const cacheToken = cachedBytes === null ? indexCache?.captureToken(command.indexPath) : undefined;
-            const indexBytes = cachedBytes ?? (await readIndexFileOrNull(command.indexPath, maxIndexBytes));
-            if (indexBytes === null) {
-                indexCache?.evict(command.indexPath);
+            const loaded = await loadIndexForCommand(command.indexPath, command.documentRevision);
+            if (loaded === null) {
                 return {stale: true};
             }
             const {op: _op, indexPath: _indexPath, ...headerFields} = command;
@@ -402,13 +491,13 @@ export async function executePdfSearchWorkerCommand(
                     op: 'search',
                     ...headerFields,
                 },
-                indexBytes,
+                loaded.bytes,
             );
             const decoded = decodePdfSearchJsonOutput(runWithPressureGuard(request));
             if (isStaleSearchIndexAnswer(decoded)) {
                 indexCache?.evict(command.indexPath);
-            } else if (cachedBytes === null) {
-                indexCache?.set(command.indexPath, command.documentRevision, indexBytes, cacheToken);
+            } else if (!loaded.fromCache) {
+                indexCache?.set(command.indexPath, command.documentRevision, loaded.bytes, loaded.cacheToken, loaded.fileStamp);
             }
             return decoded;
         }

@@ -9,6 +9,9 @@ import {PdfSearchNativeError, type createPdfSearchWasmRunner} from '@electron/fe
 
 interface IFakeHandleScenario {
     statSize: number;
+    mtimeMs?: number;
+    ctimeMs?: number;
+    ino?: number;
     isFile?: boolean;
     totalBytesAvailable?: number;
     maxBytesPerRead?: number;
@@ -35,6 +38,19 @@ vi.mock('node:fs/promises', async (importOriginal) => {
             }
             return actual.readFile(path, options as never);
         },
+        stat(path: TFsModule.PathLike, options?: Parameters<typeof TFsPromisesModule.stat>[1]) {
+            const scenario = fsHooks.scenarios.get(String(path));
+            if (!scenario) {
+                return actual.stat(path, options as never);
+            }
+            return Promise.resolve({
+                isFile: () => scenario.isFile ?? true,
+                size: scenario.statSize,
+                mtimeMs: scenario.mtimeMs ?? 1,
+                ctimeMs: scenario.ctimeMs ?? 1,
+                ino: scenario.ino ?? 1,
+            }) as ReturnType<typeof TFsPromisesModule.stat>;
+        },
         async open(path: TFsModule.PathLike, flags?: string | number, mode?: TFsModule.Mode) {
             const scenario = fsHooks.scenarios.get(String(path));
             if (!scenario) {
@@ -46,6 +62,9 @@ vi.mock('node:fs/promises', async (importOriginal) => {
                     return Promise.resolve({
                         isFile: () => scenario.isFile ?? true,
                         size: scenario.statSize,
+                        mtimeMs: scenario.mtimeMs ?? 1,
+                        ctimeMs: scenario.ctimeMs ?? 1,
+                        ino: scenario.ino ?? 1,
                     });
                 },
                 read(buffer: Uint8Array, offset = 0, length = buffer.byteLength - offset, position: number | null = 0) {
@@ -474,6 +493,63 @@ describe('pdfSearchWorkerOps bounded index reads', () => {
             },
             {indexCache},
         );
+        expect(indexCache.stats()).toEqual({entryCount: 0, totalBytes: 0});
+    });
+
+    it('re-reads when an index file is replaced on disk with the same revision and returns stale when deleted', async () => {
+        const directory = await mkdtemp(join(tmpdir(), 'evb-search-ops-disk-replace-'));
+        directories.push(directory);
+        const indexPath = join(directory, 'replaceable.evb-search-index');
+        const initialBytes = Buffer.from('initial-full-index-bytes');
+        await writeFile(indexPath, initialBytes);
+
+        const seenPayloads: Buffer[] = [];
+        const runner: ReturnType<typeof createPdfSearchWasmRunner> = {
+            run: vi.fn((request: Uint8Array) => {
+                const headerLen = new DataView(request.buffer, request.byteOffset, request.byteLength).getUint32(8, true);
+                seenPayloads.push(Buffer.from(request.subarray(12 + headerLen)));
+                return Buffer.from(
+                    JSON.stringify({
+                        results: [],
+                        truncated: false,
+                        coverage: {
+                            pageCount: 1,
+                            pagesScanned: 1,
+                            pagesWritten: 1,
+                            truncated: false,
+                            missingTextPageSample: [],
+                        },
+                    }),
+                );
+            }),
+            dispose: vi.fn(),
+            memoryBytes: () => 1024,
+        };
+        const indexCache = createPdfSearchWorkerIndexCache({maxBytes: 4096, idleTtlMs: 0});
+        const searchCmd = {
+            op: 'search' as const,
+            indexPath,
+            documentRevision: 'rev-same',
+            query: 'sample',
+            limit: 10,
+            contextChars: 12,
+            matchCase: false,
+            wholeWord: false,
+            useRegex: false,
+        };
+
+        await executePdfSearchWorkerCommand(runner, searchCmd, {indexCache});
+        expect(seenPayloads.at(-1)).toEqual(initialBytes);
+
+        // Overwrite the index file on disk with a different payload under the same documentRevision.
+        const replacedBytes = Buffer.from('replaced-partial-index');
+        await writeFile(indexPath, replacedBytes);
+        await executePdfSearchWorkerCommand(runner, searchCmd, {indexCache});
+        expect(seenPayloads.at(-1)).toEqual(replacedBytes);
+
+        // Deleting the index file on disk invalidates the worker cache and returns stale.
+        await rm(indexPath);
+        await expect(executePdfSearchWorkerCommand(runner, searchCmd, {indexCache})).resolves.toEqual({stale: true});
         expect(indexCache.stats()).toEqual({entryCount: 0, totalBytes: 0});
     });
 });
