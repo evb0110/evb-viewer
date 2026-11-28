@@ -1233,4 +1233,169 @@ describe('browserPageOpsWorkerClient', () => {
         expect(coded!.errorEnvelope).toMatchObject({code: 'QUOTA_EXCEEDED'});
         vi.doUnmock('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
     });
+
+    it('emits P6 PPM headers directly in browserPageOps.worker and transfers the buffer for renderScanCleanupRaster', async () => {
+        const workerListeners: Array<(event: MessageEvent<unknown>) => Promise<void> | void> = [];
+        const posted: Array<{message: unknown; transfer?: Transferable[] | undefined}> = [];
+        const rgb = new Uint8Array(3 * 2 * 3);
+        for (let index = 0; index < rgb.byteLength; index += 1) {
+            rgb[index] = (index * 17) & 0xff;
+        }
+        let mockResult: unknown = {
+            data: rgb,
+            report: {width: 3, height: 2, compatibility: 'exact'},
+        };
+
+        vi.stubGlobal('self', {
+            addEventListener: (type: string, listener: (event: MessageEvent<unknown>) => Promise<void> | void) => {
+                if (type === 'message') {
+                    workerListeners.push(listener);
+                }
+            },
+            postMessage: (message: unknown, transfer?: Transferable[]) => {
+                posted.push({message, transfer});
+            },
+        });
+        vi.resetModules();
+        vi.doMock('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm', async (original) => ({
+            ...(await original<typeof import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm')>()),
+            tryRunBrowserPageOpsWithWasm: async () => mockResult,
+        }));
+        await import('@app/platform/browser-api/browserPageOps.worker');
+
+        await workerListeners.at(-1)!({
+            data: {
+                id: 91,
+                type: 'renderScanCleanupRaster',
+                payload: {
+                    source: new Blob([Uint8Array.of(1, 2, 3)]),
+                    cacheKey: 'p6-worker-doc\u0000rev-1',
+                    request: {
+                        pageNumber: 1,
+                        dpi: 300,
+                        renderBox: 'cropBox',
+                        maxPixels: 1_000_000,
+                    },
+                },
+            },
+        } as MessageEvent<unknown>);
+
+        const p6Reply = posted.at(-1)!;
+        const p6Message = p6Reply.message as {
+            id: number;
+            ok: boolean;
+            data: {data: Uint8Array; report: {width: number; height: number}};
+        };
+        const expectedHeader = new TextEncoder().encode('P6\n3 2\n255\n');
+        expect(p6Message.ok).toBe(true);
+        expect(p6Message.data.data.subarray(0, expectedHeader.byteLength)).toEqual(expectedHeader);
+        expect(p6Message.data.data.subarray(expectedHeader.byteLength)).toEqual(rgb);
+        expect(p6Reply.transfer).toEqual([p6Message.data.data.buffer]);
+
+        // Unsupported pages keep their empty payload with no synthetic P6 header.
+        mockResult = {
+            data: new Uint8Array(0),
+            report: {unsupported: 'vector-content'},
+        };
+        await workerListeners.at(-1)!({
+            data: {
+                id: 92,
+                type: 'renderScanCleanupRaster',
+                payload: {
+                    source: new Blob([Uint8Array.of(1, 2, 3)]),
+                    request: {
+                        pageNumber: 1,
+                        dpi: 300,
+                        renderBox: 'cropBox',
+                        maxPixels: 1_000_000,
+                    },
+                },
+            },
+        } as MessageEvent<unknown>);
+        const unsupportedReply = posted.at(-1)!.message as {
+            ok: boolean;
+            data: {data: Uint8Array; report: {unsupported: string}};
+        };
+        expect(unsupportedReply.ok).toBe(true);
+        expect(unsupportedReply.data.data.byteLength).toBe(0);
+        expect(unsupportedReply.data.report).toEqual({unsupported: 'vector-content'});
+
+        // Oversized dimensions skip P6 allocation so the main thread can reject with too-large.
+        const {SCAN_CLEANUP_MAX_DIMENSION_PX} = await import('@contracts/scan-cleanup/inputLimits');
+        const oversizedWidth = SCAN_CLEANUP_MAX_DIMENSION_PX + 1;
+        mockResult = {
+            data: new Uint8Array(0),
+            report: {width: oversizedWidth, height: 2, compatibility: 'exact'},
+        };
+        await workerListeners.at(-1)!({
+            data: {
+                id: 93,
+                type: 'renderScanCleanupRaster',
+                payload: {
+                    source: new Blob([Uint8Array.of(1, 2, 3)]),
+                    request: {
+                        pageNumber: 1,
+                        dpi: 300,
+                        renderBox: 'cropBox',
+                        maxPixels: 1_000_000,
+                    },
+                },
+            },
+        } as MessageEvent<unknown>);
+        const oversizedReply = posted.at(-1)!.message as {
+            ok: boolean;
+            data: {data: Uint8Array; report: {width: number; height: number}};
+        };
+        expect(oversizedReply.ok).toBe(true);
+        expect(oversizedReply.data.data.byteLength).toBe(0);
+        expect(oversizedReply.data.report.width).toBe(oversizedWidth);
+
+        vi.doUnmock('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
+    });
+
+    it('streams multi-page fragments as Blobs in createOrderedPdfMerge and releases retained state on merge', async () => {
+        vi.resetModules();
+        const mergeCalls: Array<{sources: Blob[]; output: string | null}> = [];
+        const mergedBytes = new Uint8Array([0x25, 0x50, 0x44, 0x46]);
+        vi.doMock('@app/platform/browser-api/browserPageOpsWorkerClient', async (original) => ({
+            ...(await original<typeof import('@app/platform/browser-api/browserPageOpsWorkerClient')>()),
+            runBrowserPageOpsWorkerRequest: vi.fn(async (_type: string, payload: {sources: Blob[]; output: string | null}) => {
+                mergeCalls.push(payload);
+                return {status: 'written', pageCount: payload.sources.length, length: mergedBytes.byteLength, data: mergedBytes};
+            }),
+        }));
+        const {createOrderedPdfMerge} = await import('@app/platform/browser-api/browserPageOpsCore');
+
+        const single = createOrderedPdfMerge({
+            signal: new AbortController().signal,
+            createError: (reason) => new Error(reason),
+        });
+        expect(await single.merge()).toBeNull();
+        const onlyPage = new Uint8Array([1, 2, 3]);
+        expect(single.append(onlyPage)).toBe(1);
+        expect(await single.merge()).toBe(onlyPage);
+        expect(await single.merge()).toBeNull();
+        expect(mergeCalls).toHaveLength(0);
+
+        const multi = createOrderedPdfMerge({
+            signal: new AbortController().signal,
+            createError: (reason) => new Error(reason),
+        });
+        expect(multi.append(new Uint8Array([10, 20]))).toBe(1);
+        expect(multi.append(new Uint8Array([30, 40, 50]))).toBe(2);
+        expect(multi.append(new Uint8Array([60]))).toBe(3);
+        expect(await multi.merge()).toBe(mergedBytes);
+        expect(mergeCalls).toHaveLength(1);
+        expect(mergeCalls[0]!.output).toBeNull();
+        expect(mergeCalls[0]!.sources).toHaveLength(3);
+        expect(await Promise.all(mergeCalls[0]!.sources.map(async (blob) => new Uint8Array(await blob.arrayBuffer())))).toEqual([
+            new Uint8Array([10, 20]),
+            new Uint8Array([30, 40, 50]),
+            new Uint8Array([60]),
+        ]);
+        // Closure references were cleared at merge start.
+        expect(await multi.merge()).toBeNull();
+
+        vi.doUnmock('@app/platform/browser-api/browserPageOpsWorkerClient');
+    });
 });

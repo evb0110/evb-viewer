@@ -13,7 +13,7 @@ import {
     isCacheableScanCleanupRaster,
 } from '@app/platform/browser-api/browserScanCleanupRasterCache';
 import {isBrowserPageOpsWasmFailure} from '@contracts/browserPageOpsWorker';
-import {createPpmRaster} from '@ocr-core/ppmRaster';
+import {toTransferableUint8Array} from '@app/platform/browser/toTransferableUint8Array';
 import type {
     IScanCleanupDocumentCanvasPlan,
     IScanCleanupPreviewRequest,
@@ -179,88 +179,71 @@ export async function renderPageRaster(
     },
     onEngineIdentity?: (sha256: string) => void,
 ): Promise<IPageRaster> {
-    const cacheable = isCacheableScanCleanupRaster(dpi, region);
-    const rasterCacheKey = cacheable
-        ? buildScanCleanupRasterCacheKey({
-              ref: source.ref,
-              revision: source.revision,
-              pageSize,
-              dpi,
-              ...(region ? {region} : {}),
-          })
+    const cacheKey = isCacheableScanCleanupRaster(dpi, region)
+        ? buildScanCleanupRasterCacheKey({ref: source.ref, revision: source.revision, pageSize, dpi})
         : null;
     const tooLarge = (width: number, height: number) =>
         new BrowserScanCleanupEngineError(
             'too-large',
             `Scan cleanup page raster ${String(width)}x${String(height)} exceeds the engine's limits`,
         );
-    if (rasterCacheKey !== null) {
-        const cached = browserScanCleanupRasterCache.get(rasterCacheKey);
-        if (cached !== null) {
-            if (
-                cached.raster.width > SCAN_CLEANUP_MAX_DIMENSION_PX ||
-                cached.raster.height > SCAN_CLEANUP_MAX_DIMENSION_PX ||
-                cached.raster.width * cached.raster.height > maxPixels
-            ) {
-                throw tooLarge(cached.raster.width, cached.raster.height);
-            }
-            if (cached.pageOpsEngineSha256 !== null) {
-                onEngineIdentity?.(cached.pageOpsEngineSha256);
-            }
-            return cached.raster;
+    const cached = cacheKey === null ? null : browserScanCleanupRasterCache.get(cacheKey);
+    if (cached !== null) {
+        const {width, height} = cached.raster;
+        if (width > SCAN_CLEANUP_MAX_DIMENSION_PX || height > SCAN_CLEANUP_MAX_DIMENSION_PX || width * height > maxPixels) {
+            throw tooLarge(width, height);
         }
+        if (cached.pageOpsEngineSha256 !== null) {
+            onEngineIdentity?.(cached.pageOpsEngineSha256);
+        }
+        return cached.raster;
     }
-    let capturedEngineSha256: string | null = null;
-    const observeEngineIdentity = (sha256: string) => {
-        capturedEngineSha256 = sha256;
-        onEngineIdentity?.(sha256);
+    let engineSha256: string | null = null;
+    const cacheRaster = (raster: IPageRaster) => {
+        if (cacheKey !== null) {
+            browserScanCleanupRasterCache.set(cacheKey, raster, engineSha256);
+        }
+        return raster;
     };
-    const documentCacheKey = `${source.ref}\u0000${source.revision}`;
-    const renderRequest = {
-        pageNumber: pageSize.pageNumber,
-        dpi,
-        renderBox: pageSize.renderBox === 'mediabox' ? ('mediaBox' as const) : ('cropBox' as const),
-        ...(region === undefined ? {} : {slice: region}),
-        maxPixels,
-    };
-    const runRasterRequest = (blobOverride?: Blob) =>
+    const runRaster = (blob = source.source) =>
         runBrowserPageOpsWorkerRequest(
             'renderScanCleanupRaster',
             {
-                ...(blobOverride !== undefined
-                    ? {source: blobOverride}
-                    : source.source !== undefined
-                      ? {source: source.source}
-                      : {data: source.data}),
-                cacheKey: documentCacheKey,
-                request: renderRequest,
+                ...(blob !== undefined ? {source: blob} : {data: source.data}),
+                cacheKey: `${source.ref}\u0000${source.revision}`,
+                request: {
+                    pageNumber: pageSize.pageNumber,
+                    dpi,
+                    renderBox: pageSize.renderBox === 'mediabox' ? ('mediaBox' as const) : ('cropBox' as const),
+                    ...(region === undefined ? {} : {slice: region}),
+                    maxPixels,
+                },
             },
             {
                 signal,
                 requireWorker: true,
-                onEngineIdentity: observeEngineIdentity,
+                onEngineIdentity: (sha256) => {
+                    engineSha256 = sha256;
+                    onEngineIdentity?.(sha256);
+                },
             },
-        );
-    const rendered = await runRasterRequest().catch(async (error: unknown) => {
-        // Without a page-ops worker, PDF.js paints the page.
-        if (error instanceof BrowserPageOpsWorkerUnavailableError) {
-            return null;
-        }
+        ).catch((error: unknown) => {
+            // Without a page-ops worker, PDF.js paints the page.
+            if (error instanceof BrowserPageOpsWorkerUnavailableError) {
+                return null;
+            }
+            throw error;
+        });
+    const rendered = await runRaster().catch(async (error: unknown) => {
         // An in-place OPFS append (or discarded append) invalidates previously
         // opened File handles; re-check the revision and refresh once if still current.
-        const isStaleFileHandle =
+        const isStale =
             error instanceof Error &&
             (error.name === 'NotReadableError' ||
                 Reflect.get(error, 'code') === 'NotReadableError' ||
                 error.message.includes('NotReadableError'));
-        if (isStaleFileHandle && source.refreshSource && !signal.aborted) {
-            const refreshed = await source.refreshSource();
-            return runRasterRequest(refreshed).catch((retryError: unknown) => {
-                if (retryError instanceof BrowserPageOpsWorkerUnavailableError) {
-                    return null;
-                }
-                throw retryError;
-            });
+        if (isStale && source.refreshSource && !signal.aborted) {
+            return runRaster(await source.refreshSource());
         }
         throw error;
     });
@@ -269,21 +252,11 @@ export async function renderPageRaster(
         if (width > SCAN_CLEANUP_MAX_DIMENSION_PX || height > SCAN_CLEANUP_MAX_DIMENSION_PX) {
             throw tooLarge(width, height);
         }
-        const ppm = createPpmRaster(width, height);
-        if (rendered.data.byteLength !== ppm.image.byteLength - ppm.offset) {
+        const header = new TextEncoder().encode(`P6\n${width} ${height}\n255\n`);
+        if (rendered.data.byteLength !== header.byteLength + width * height * 3 || !header.every((b, i) => rendered.data[i] === b)) {
             throw new Error('Scan cleanup page raster does not match its size');
         }
-        ppm.image.set(rendered.data, ppm.offset);
-        const raster: IPageRaster = {
-            ppm: ppm.image,
-            width,
-            height,
-            dpi,
-        };
-        if (rasterCacheKey !== null) {
-            browserScanCleanupRasterCache.set(rasterCacheKey, raster, capturedEngineSha256);
-        }
-        return raster;
+        return cacheRaster({ppm: toTransferableUint8Array(rendered.data), width, height, dpi});
     }
     signal.throwIfAborted();
     const page = await source.pdf.getPage(pageSize.pageNumber);
@@ -293,31 +266,14 @@ export async function renderPageRaster(
             annotationMode: AnnotationMode.DISABLE,
             maxPixels,
             maxDimensionPx: SCAN_CLEANUP_MAX_DIMENSION_PX,
-            region:
-                region === undefined
-                    ? box
-                    : {
-                          x: box.x + region.x,
-                          y: box.y + region.y,
-                          width: region.width,
-                          height: region.height,
-                      },
+            region: region === undefined ? box : {x: box.x + region.x, y: box.y + region.y, width: region.width, height: region.height},
             tooLarge,
         });
         const ppm =
             painted.image instanceof Uint8Array
-                ? new Uint8Array(painted.image)
+                ? toTransferableUint8Array(painted.image)
                 : (await runBrowserScanCleanupWorkerRequest('assemble-raster', {image: painted.image}, signal)).ppm;
-        const raster: IPageRaster = {
-            ppm,
-            width: region?.width ?? box.width,
-            height: region?.height ?? box.height,
-            dpi,
-        };
-        if (rasterCacheKey !== null) {
-            browserScanCleanupRasterCache.set(rasterCacheKey, raster, capturedEngineSha256);
-        }
-        return raster;
+        return cacheRaster({ppm, width: region?.width ?? box.width, height: region?.height ?? box.height, dpi});
     } finally {
         page.cleanup();
     }
@@ -456,22 +412,6 @@ export async function renderBrowserScanCleanupWorkspacePreview(
     }
     const baseRaw = await renderPageRaster(source, pageSize, basePreviewDpi, SCAN_CLEANUP_RASTER_MAX_PIXELS, signal);
     const lossless = request.options.preserveOriginalQuality && !rasterizedByMatching;
-    // Start encoding the original PNG immediately so it streams as soon as ready
-    // while raster preview rendering runs in parallel on another worker lane.
-    const rawPngPromise = runBrowserScanCleanupWorkerRequest('encode-png', {ppm: copy(baseRaw.ppm)}, signal).then(({png}) => {
-        signal.throwIfAborted();
-        input.emitRaw({
-            ownerId: request.ownerId,
-            documentRevision: request.documentRevision,
-            requestId: request.requestId,
-            pageNumber: request.pageNumber,
-            totalPages,
-            rawImageData: png,
-            rawWidthPx: baseRaw.width,
-            rawHeightPx: baseRaw.height,
-        });
-        return png;
-    });
     const sourceDpi = pageRaster?.dpi ?? pageSourceDpi ?? previewDpi;
     const pageOverride = getScanCleanupPageOverride(request.options.pageOverrides, request.pageNumber);
     const outputMode = resolveScanCleanupEffectiveOutputMode({
@@ -495,13 +435,35 @@ export async function renderBrowserScanCleanupWorkspacePreview(
             : null;
     const renderDpi =
         processingCanvas === null ? requestedProcessingDpi : Math.max(1, Math.floor(resolveScanCleanupDocumentCanvasDpi(processingCanvas)));
+    const analysisDpi = resolveScanCleanupAnalysisDpi(pageSize);
+    const baseRawReused = baseRaw.dpi === analysisDpi || (!lossless && baseRaw.dpi === renderDpi);
+    // Start encoding the original PNG immediately so it streams as soon as ready
+    // while raster preview rendering runs in parallel on another worker lane.
+    const rawPngPromise = runBrowserScanCleanupWorkerRequest(
+        'encode-png',
+        {ppm: baseRawReused ? copy(baseRaw.ppm) : baseRaw.ppm},
+        signal,
+    ).then(({png}) => {
+        signal.throwIfAborted();
+        input.emitRaw({
+            ownerId: request.ownerId,
+            documentRevision: request.documentRevision,
+            requestId: request.requestId,
+            pageNumber: request.pageNumber,
+            totalPages,
+            rawImageData: png,
+            rawWidthPx: baseRaw.width,
+            rawHeightPx: baseRaw.height,
+        });
+        return png;
+    });
     const basePlan: Omit<IBaseRenderPlan, 'rawPng'> = {
         raw: {
             width: baseRaw.width,
             height: baseRaw.height,
             dpi: baseRaw.dpi,
         },
-        rendered: [baseRaw],
+        rendered: baseRawReused ? [baseRaw] : [],
         renderDpi,
         sourceDpi,
         sourceDpiCandidate,
@@ -550,9 +512,9 @@ async function renderBase(
     const rasterAt = async (dpi: number, rendered: readonly IPageRaster[]) =>
         rendered.find((candidate) => candidate.dpi === dpi) ??
         renderPageRaster(source, pageSize, dpi, SCAN_CLEANUP_RASTER_MAX_PIXELS, signal);
-    const raster = await rasterAt(plan.renderDpi, plan.rendered);
+    const raster = plan.lossless ? null : await rasterAt(plan.renderDpi, plan.rendered);
     const analysisDpi = resolveScanCleanupAnalysisDpi(pageSize);
-    const canonical = await rasterAt(analysisDpi, [raster, ...plan.rendered]);
+    const canonical = await rasterAt(analysisDpi, raster === null ? plan.rendered : [raster, ...plan.rendered]);
     const matchedCanvas = plan.documentCanvas ?? undefined;
     const effectiveOptions =
         matchedCanvas === undefined && request.options.matchPageSize
@@ -640,8 +602,9 @@ async function renderBase(
             base: null,
         };
     }
+    const activeRaster = raster!;
     const engineRequest: IScanCleanupWasmRenderPreviewRequest = {
-        input: copy(raster.ppm),
+        input: plan.retainBase || plan.rendered.includes(activeRaster) ? copy(activeRaster.ppm) : activeRaster.ppm,
         page: {
             options,
             sourcePageIndex: request.pageNumber - 1,
@@ -650,14 +613,14 @@ async function renderBase(
             ...(matchedCanvas === undefined ? {} : {documentCanvas: matchedCanvas}),
         },
         analysisPlane:
-            canonical === raster
+            canonical === activeRaster
                 ? {
                       source: 'input',
                       dpi: analysisDpi,
                   }
                 : {
                       source: 'raster',
-                      raster: copy(canonical.ppm),
+                      raster: !plan.retainBase && plan.rendered.includes(canonical) ? copy(canonical.ppm) : canonical.ppm,
                       dpi: analysisDpi,
                   },
         planeEncoding: 'png',
@@ -695,7 +658,7 @@ async function renderBase(
             ? {
                   pageSize,
                   raw: plan.raw,
-                  source: raster,
+                  source: activeRaster,
                   sourceDpiCandidate: plan.sourceDpiCandidate,
                   sourceRasterDetected: plan.sourceDpiCandidate !== undefined,
                   outputMode: outputs[0]?.metadata.outputMode,
