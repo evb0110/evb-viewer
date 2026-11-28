@@ -121,51 +121,84 @@ export function createScanCleanupRasterBatchRenderer(
         );
         const directProofSink =
             scopedBrokerRun === undefined ? mergeTerminationProofSinks(input.onTerminationProof, recordLocalProof) : undefined;
+        const commandLabel = `pdftoppm(pages=${String(firstPage)}-${String(lastPage)},dpi=${String(input.dpi)})`;
+        const isMultiPageBatch = input.targets.length > 1;
+        const stallAbort = isMultiPageBatch ? new AbortController() : undefined;
+        const completedProgressPages = new Set<number>();
+        let stallTimer: NodeJS.Timeout | undefined;
+        const clearStallTimer = () => {
+            if (stallTimer !== undefined) {
+                clearTimeout(stallTimer);
+                stallTimer = undefined;
+            }
+        };
+        const armStallTimer = () => {
+            if (stallAbort === undefined) {
+                return;
+            }
+            clearStallTimer();
+            stallTimer = setTimeout(() => {
+                stallTimer = undefined;
+                stallAbort.abort(new Error(`${commandLabel} timed out after ${String(PDFTOPPM_BATCH_TIMEOUT_MS)}ms without page progress`));
+            }, PDFTOPPM_BATCH_TIMEOUT_MS);
+            stallTimer.unref();
+        };
         try {
             // Poppler writes PPM; its PNG writer is fixed at maximum zlib
             // compression and would dominate detection on scanned pages.
-            await runCommand(
-                input.pdftoppmBinary,
-                [
-                    '-progress',
-                    '-cropbox',
-                    '-hide-annotations',
-                    '-r',
-                    String(input.dpi),
-                    '-f',
-                    String(firstPage),
-                    '-l',
-                    String(lastPage),
-                    input.sourcePdfPath,
-                    prefix,
-                ],
-                {
-                    commandLabel: `pdftoppm(pages=${String(firstPage)}-${String(lastPage)},dpi=${String(input.dpi)})`,
-                    timeoutMs: PDFTOPPM_BATCH_TIMEOUT_MS,
-                    signal: input.signal,
-                    log: input.log,
-                    ...(scopedBrokerRun !== undefined
-                        ? {brokerRun: scopedBrokerRun}
-                        : directProofSink === undefined
-                          ? {}
-                          : {onTerminationProof: directProofSink}),
-                    onStderr: createPdftoppmPageProgress((pageNumber) => {
-                        if (pageNumber < firstPage || pageNumber > lastPage) {
-                            return;
-                        }
-                        // Progress is a side channel: its failure must neither
-                        // stop Poppler nor fail the pages this batch rendered.
-                        try {
-                            input.onPageRendered?.(pageNumber);
-                        } catch (error) {
-                            input.log(
-                                'warn',
-                                `Scan cleanup could not report rendered page ${String(pageNumber)}: ${getErrorMessage(error)}`,
-                            );
-                        }
-                    }),
-                },
-            );
+            // Preserve each page's three-minute budget across multi-page runs by
+            // renewing the inactivity deadline on each newly completed page.
+            armStallTimer();
+            try {
+                await runCommand(
+                    input.pdftoppmBinary,
+                    [
+                        '-progress',
+                        '-cropbox',
+                        '-hide-annotations',
+                        '-r',
+                        String(input.dpi),
+                        '-f',
+                        String(firstPage),
+                        '-l',
+                        String(lastPage),
+                        input.sourcePdfPath,
+                        prefix,
+                    ],
+                    {
+                        commandLabel,
+                        timeoutMs: PDFTOPPM_BATCH_TIMEOUT_MS * input.targets.length,
+                        signal: stallAbort === undefined ? input.signal : AbortSignal.any([input.signal, stallAbort.signal]),
+                        log: input.log,
+                        ...(scopedBrokerRun !== undefined
+                            ? {brokerRun: scopedBrokerRun}
+                            : directProofSink === undefined
+                              ? {}
+                              : {onTerminationProof: directProofSink}),
+                        onStderr: createPdftoppmPageProgress((pageNumber) => {
+                            if (pageNumber < firstPage || pageNumber > lastPage) {
+                                return;
+                            }
+                            if (!completedProgressPages.has(pageNumber)) {
+                                completedProgressPages.add(pageNumber);
+                                armStallTimer();
+                            }
+                            // Progress is a side channel: its failure must neither
+                            // stop Poppler nor fail the pages this batch rendered.
+                            try {
+                                input.onPageRendered?.(pageNumber);
+                            } catch (error) {
+                                input.log(
+                                    'warn',
+                                    `Scan cleanup could not report rendered page ${String(pageNumber)}: ${getErrorMessage(error)}`,
+                                );
+                            }
+                        }),
+                    },
+                );
+            } finally {
+                clearStallTimer();
+            }
             const generatedByPage = new Map<number, string>();
             for (const entry of await fileSystem.readdir(scratch, {withFileTypes: true})) {
                 const match = /^page-(\d+)\.ppm$/u.exec(entry.name);

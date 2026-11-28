@@ -15,8 +15,9 @@ import type {IOcrDiagnostic, IOcrSearchablePdfOptions, TOcrProgressPhase} from '
 import type {TOcrModelCode} from '@contracts/ocrLanguages';
 import {getOcrScanCleanupMode} from '@contracts/scan-cleanup/ocrPreprocessing';
 import {getOcrPageSelectionCount, iterateOcrPageRequestBatches} from '@ocr-core/ocrPageSelection';
-import {resolveOcrExtractionDpi} from '@ocr-core/ocrRenderDpi';
+import {resolveOcrExtractionDpi, resolveOcrPageDpi} from '@ocr-core/ocrRenderDpi';
 import {OcrJobMessages, recognizeOcrPages, type IOcrPageRaster} from '@ocr-core/recognizeOcrPages';
+import {resolveTesseractLanguageConfig} from '@ocr-core/resolveTesseractLanguageConfig';
 import {resolveTesseractRequestModels, type IOcrEngineResult} from '@ocr-core/tesseractEngine';
 import {getOcrEngineLaneExitPromise} from '@electron/features/ocr/main/ocrEnginePool';
 import {
@@ -96,6 +97,43 @@ function throwIfAborted(signal: AbortSignal) {
     if (signal.aborted) {
         throw signal.reason instanceof Error ? signal.reason : createAbortError('OCR job aborted');
     }
+}
+
+/**
+ * Stably groups pages strictly within one OCR checkpoint batch by effective
+ * render DPI and normalized Tesseract language order so warm WASM engine
+ * instances stay hot instead of re-instantiating on alternating-DPI/language
+ * pages. Uniform batches keep exact document order; checkpoints and merged PDF
+ * output remain keyed and ordered by original `pageNumber`.
+ */
+function orderOcrBatchPagesByEngineRecipe<TPage extends {pageNumber: number; languages: readonly string[]}>(
+    pages: readonly TPage[],
+    extractionDpi: number,
+    sourceDpiByPage: ReadonlyMap<number, number>,
+): readonly TPage[] {
+    if (pages.length <= 1) {
+        return pages;
+    }
+    const groups = new Map<string, TPage[]>();
+    for (const page of pages) {
+        const dpi = resolveOcrPageDpi(extractionDpi, sourceDpiByPage.get(page.pageNumber));
+        const languageKey = resolveTesseractLanguageConfig([...page.languages]).orderedLanguages.join('+');
+        const key = `${dpi}:${languageKey}`;
+        let group = groups.get(key);
+        if (!group) {
+            group = [];
+            groups.set(key, group);
+        }
+        group.push(page);
+    }
+    if (groups.size <= 1) {
+        return pages;
+    }
+    const ordered: TPage[] = [];
+    for (const group of groups.values()) {
+        ordered.push(...group);
+    }
+    return ordered;
 }
 
 /**
@@ -376,11 +414,13 @@ async function recognizeOcrJobPages(stage: {
             };
 
             publish(batchFirstPage, batchOffset, {phase: 'processing'});
+            const extractionDpi = resolveOcrExtractionDpi(sourceDpi?.documentDpi ?? options.renderDpi);
+            const scheduledPages = orderOcrBatchPagesByEngineRecipe(targetPages, extractionDpi, sourceDpiByPage);
             let batch: Awaited<ReturnType<typeof recognizeOcrPages<IOcrEngineImageFile>>>;
             try {
                 batch = await recognizeOcrPages({
-                    pages: targetPages,
-                    extractionDpi: resolveOcrExtractionDpi(sourceDpi?.documentDpi ?? options.renderDpi),
+                    pages: scheduledPages,
+                    extractionDpi,
                     sourceDpiByPage,
                     options,
                     lanes,

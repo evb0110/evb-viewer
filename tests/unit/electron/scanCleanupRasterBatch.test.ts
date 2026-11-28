@@ -610,4 +610,142 @@ describe('scan cleanup raster batch renderer', () => {
             }),
         ).rejects.toThrow('Encoded PNG exceeds 1024 bytes');
     });
+
+    it('renews the per-page deadline on confirmed page progress and aborts a stalled multi-page batch', async () => {
+        const root = '/memory-raster-batch-deadline';
+        const scratch = join(root, 'pdftoppm-batch-deadline');
+        const ppmPath = join(tmpdir(), `scan-cleanup-deadline-ppm-${process.pid}`);
+        await writeFile(ppmPath, PPM);
+        const ppmStat = await stat(ppmPath);
+        await rm(ppmPath);
+        const createMemoryFs = (): IScanCleanupRasterBatchFileSystem => ({
+            mkdtemp: async () => scratch,
+            open: async (path) => ({
+                read: async (buffer, offset, length, position) => ({
+                    bytesRead: memoryFiles.get(path)!.copy(buffer, offset, position, position + length),
+                }),
+                stat: async () => ppmStat,
+                close: async () => undefined,
+            }),
+            readdir: async () =>
+                [...memoryFiles.keys()]
+                    .filter((path) => path.startsWith(`${scratch}${sep}`))
+                    .map((path) => ({
+                        isFile: () => true,
+                        name: path.slice(scratch.length + 1),
+                    })),
+            rename: async (source, target) => {
+                const bytes = memoryFiles.get(source);
+                if (!bytes) {
+                    throw new Error(`Missing encoded raster: ${source}`);
+                }
+                memoryFiles.set(target, bytes);
+                memoryFiles.delete(source);
+            },
+            rm: async () => {
+                for (const path of memoryFiles.keys()) {
+                    if (path.startsWith(`${scratch}${sep}`)) {
+                        memoryFiles.delete(path);
+                    }
+                }
+            },
+        });
+        const makeTargets = (count: number) =>
+            Array.from({length: count}, (_, index) => ({
+                limits: {
+                    expectedHeightPx: 1,
+                    expectedWidthPx: 1,
+                    maxDimensionPx: 100,
+                    maxPixels: 10_000,
+                },
+                outputPath: join(root, `page-${String(index + 1)}.png`),
+                pageNumber: index + 1,
+            }));
+
+        // Case 1: 3 slow pages taking 120s each (360s total > 180s single-page deadline) succeed because each confirmed page renews the deadline.
+        vi.useFakeTimers();
+        try {
+            let observedTimeoutMs: number | undefined;
+            const pageGates = [1, 2, 3].map(() => Promise.withResolvers<void>());
+            const progressingBatch = createScanCleanupRasterBatchRenderer(async (_binary, args, options?: IRunCommandOptions) => {
+                observedTimeoutMs = options?.timeoutMs;
+                const prefix = args.at(-1)!;
+                const signal = options?.signal;
+                for (let page = 1; page <= 3; page += 1) {
+                    await new Promise<void>((resolve, reject) => {
+                        const onAbort = () => reject(signal?.reason);
+                        signal?.addEventListener('abort', onAbort, {once: true});
+                        void pageGates[page - 1]!.promise.then(() => {
+                            signal?.removeEventListener('abort', onAbort);
+                            resolve();
+                        });
+                    });
+                    const filePath = `${prefix}-${String(page)}.ppm`;
+                    memoryFiles.set(filePath, PPM);
+                    options?.onStderr?.(`${String(page)} 3 ${filePath}\n`);
+                }
+                return {exitCode: 0, stderr: '', stdout: ''};
+            }, createMemoryFs());
+
+            const runPromise = progressingBatch({
+                dpi: 150,
+                log: vi.fn(),
+                pdftoppmBinary: '/pdftoppm',
+                signal: new AbortController().signal,
+                sourcePdfPath: '/source.pdf',
+                targets: makeTargets(3),
+            });
+            for (const gate of pageGates) {
+                await vi.advanceTimersByTimeAsync(120_000);
+                gate.resolve();
+                await Promise.resolve();
+            }
+            const results = await runPromise;
+            expect(results.map((item) => item.pageNumber)).toEqual([1, 2, 3]);
+            expect(observedTimeoutMs).toBe(3 * 3 * 60 * 1_000);
+
+            // Case 2: A batch whose second page stalls aborts at 180s without progress; duplicate progress for page 1 cannot extend it.
+            let emitStalledStderr: ((chunk: string) => void) | undefined;
+            let stalledPrefix = '';
+            const stalledStarted = Promise.withResolvers<void>();
+            const stalledBatch = createScanCleanupRasterBatchRenderer(async (_binary, args, options?: IRunCommandOptions) => {
+                stalledPrefix = args.at(-1)!;
+                emitStalledStderr = options?.onStderr;
+                stalledStarted.resolve();
+                const signal = options?.signal;
+                await new Promise<void>((_resolve, reject) => {
+                    signal?.addEventListener('abort', () => reject(signal.reason), {once: true});
+                });
+                return {exitCode: 0, stderr: '', stdout: ''};
+            }, createMemoryFs());
+
+            const stalledPromise = stalledBatch({
+                dpi: 150,
+                log: vi.fn(),
+                pdftoppmBinary: '/pdftoppm',
+                signal: new AbortController().signal,
+                sourcePdfPath: '/source.pdf',
+                targets: makeTargets(2),
+            });
+            const stalledOutcome = stalledPromise.then(
+                () => null,
+                (error: unknown) => error,
+            );
+            await stalledStarted.promise;
+            // Page 1 completes at 60s -> renewed deadline is 60s + 180s = 240s.
+            await vi.advanceTimersByTimeAsync(60_000);
+            emitStalledStderr?.(`1 2 ${stalledPrefix}-1.ppm\n`);
+            // Duplicate completion for page 1 at 180s must not renew the stall deadline.
+            await vi.advanceTimersByTimeAsync(120_000);
+            emitStalledStderr?.(`1 2 ${stalledPrefix}-1.ppm\n`);
+            await vi.advanceTimersByTimeAsync(59_999);
+            expect(await Promise.race([stalledOutcome, Promise.resolve('pending')])).toBe('pending');
+            await vi.advanceTimersByTimeAsync(1);
+            const stalledError = await stalledOutcome;
+            expect(stalledError).toBeInstanceOf(Error);
+            expect((stalledError as Error).message).toContain('timed out after 180000ms without page progress');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
 });
